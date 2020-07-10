@@ -3,9 +3,12 @@
 这个库的功能：
 1. 在M特权运行，帮助用户搭建运行时，暴露为SBI接口使用的接口
 2. 提供简单的pmp配置
+3. 帮助用户搭建设备树
 
 设计应该像积木一样，允许用户自己选择模块，而不是提供一个运行时
 建议用户配合riscv-sbi-rt使用
+
+todo：考虑这个库是不是单例的。
 
 */
 
@@ -44,6 +47,7 @@ impl<'b> Builder<'b> {
         todo!()
     }
 }
+
 // todo: 修改API
 /// RustSBI instance
 pub struct Instance<'a> {
