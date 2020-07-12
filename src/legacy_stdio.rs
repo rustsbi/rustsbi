@@ -13,7 +13,7 @@ pub trait LegacyStdio {
 
 /// Use serial in `embedded-hal` as legacy standard input/output
 pub struct EmbeddedHalSerial<T> {
-    inner: T
+    inner: T,
 }
 
 impl<T> EmbeddedHalSerial<T> {
@@ -29,8 +29,8 @@ impl<T> EmbeddedHalSerial<T> {
 }
 
 impl<T> LegacyStdio for EmbeddedHalSerial<T>
-where 
-    T: Read<u8> + Write<u8>
+where
+    T: Read<u8> + Write<u8>,
 {
     fn getchar(&mut self) -> u8 {
         // 直接调用embedded-hal里面的函数

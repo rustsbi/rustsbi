@@ -7,13 +7,13 @@ mod base;
 const EXTENSION_BASE: usize = 0x10;
 
 /// You should call this function in your runtime's exception handler.
-/// If the incoming exception is caused by `ecall`, 
-/// call this function with parameters extracted from trap frame. 
+/// If the incoming exception is caused by `ecall`,
+/// call this function with parameters extracted from trap frame.
 #[inline]
 pub fn handle_ecall(extension: usize, function: usize, param: [usize; 4]) -> SbiRet {
     match extension {
         EXTENSION_BASE => base::handle_ecall_base(function, param[0]),
-        _ => todo!()
+        _ => todo!(),
     }
 }
 

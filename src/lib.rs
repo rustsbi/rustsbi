@@ -15,8 +15,8 @@ todo：考虑这个库是不是单例的。
 #![no_std]
 #![feature(naked_functions)] // 未来稳定后去掉
 
-pub mod legacy_stdio;
 pub mod ecall;
+pub mod legacy_stdio;
 
 const SBI_SPEC_MAJOR: usize = 0;
 const SBI_SPEC_MINOR: usize = 2;
@@ -31,9 +31,7 @@ pub struct Builder<'b> {
 impl<'b> Builder<'b> {
     /// Create a new instance builder
     pub fn new() -> Self {
-        Builder {
-            legacy_stdio: None
-        }
+        Builder { legacy_stdio: None }
     }
 
     /// Wrap a stdio handler for legacy `getchar` and `putchar` functions
