@@ -10,3 +10,5 @@ edition = "2018"
 embedded-hal = "1.0.0-alpha.1"
 nb = "1.0"
 riscv = "0.6"
+spin = "0.5"
+lazy_static = { version = "1", features = ["spin_no_std"] }
