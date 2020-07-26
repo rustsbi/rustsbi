@@ -24,7 +24,7 @@ pub fn init_timer<T: Timer + Send + 'static>(ipi: T) {
 
 #[inline]
 pub(crate) fn probe_timer() -> bool {
-    TIMER.lock().as_ref().is_none()
+    TIMER.lock().as_ref().is_some()
 }
 
 #[inline]

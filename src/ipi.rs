@@ -24,7 +24,7 @@ pub fn init_ipi<T: Ipi + Send + 'static>(ipi: T) {
 
 #[inline]
 pub(crate) fn probe_ipi() -> bool {
-    IPI.lock().as_ref().is_none()
+    IPI.lock().as_ref().is_some()
 }
 
 pub(crate) fn send_ipi_many(hart_mask: HartMask) {
