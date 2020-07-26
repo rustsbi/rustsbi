@@ -11,6 +11,7 @@ const FUNCTION_BASE_GET_MVENDORID: usize = 0x4;
 const FUNCTION_BASE_GET_MARCHID: usize = 0x5;
 const FUNCTION_BASE_GET_MIMPID: usize = 0x6;
 
+#[inline]
 pub fn handle_ecall_base(function: usize, param0: usize) -> SbiRet {
     match function {
         FUNCTION_BASE_GET_SPEC_VERSION => get_spec_version(),
@@ -20,7 +21,7 @@ pub fn handle_ecall_base(function: usize, param0: usize) -> SbiRet {
         FUNCTION_BASE_GET_MVENDORID => get_mvendorid(),
         FUNCTION_BASE_GET_MARCHID => get_marchid(),
         FUNCTION_BASE_GET_MIMPID => get_mimpid(),
-        _ => unimplemented!(),
+        _ => SbiRet::not_supported(),
     }
 }
 
@@ -32,21 +33,22 @@ fn get_spec_version() -> SbiRet {
 
 #[inline]
 fn get_sbi_impl_id() -> SbiRet {
-    let sbi_impl_id = 0; // todo: 可配置
+    let sbi_impl_id = crate::IMPL_ID_RUSTSBI;
     SbiRet::ok(sbi_impl_id)
 }
 
 #[inline]
 fn get_sbi_impl_version() -> SbiRet {
-    let sbi_impl_version = 0; // todo: 可配置
+    let sbi_impl_version = crate::RUSTSBI_VERSION;
     SbiRet::ok(sbi_impl_version)
 }
 
 #[inline]
-fn probe_extension(_extension_id: usize) -> SbiRet {
-    // drop(extension_id); // todo use
-    let extension_return = 0; // todo: 可配置
-    SbiRet::ok(extension_return)
+fn probe_extension(extension_id: usize) -> SbiRet {
+    const NO_EXTENSION: usize = 0;
+    const HAS_EXTENSION: usize = 1;
+    let ans = crate::extension::probe_extension(extension_id);
+    SbiRet::ok(if ans { HAS_EXTENSION } else { NO_EXTENSION })
 }
 
 #[inline]
