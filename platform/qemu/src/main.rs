@@ -121,6 +121,9 @@ fn main() -> ! {
         use rustsbi::init_timer;
         init_timer(clint);
 
+        use rustsbi::init_reset;
+        init_reset(hal::Reset);
+
         println!("[rustsbi] Version 0.1.0");
 
         println!("{}", rustsbi::LOGO);
