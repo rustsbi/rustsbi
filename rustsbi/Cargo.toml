@@ -1,0 +1,14 @@
+[package]
+name = "rustsbi"
+version = "0.1.0"
+authors = ["luojia65 <me@luojia.cc>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+embedded-hal = "1.0.0-alpha.1"
+nb = "1.0"
+riscv = "0.6"
+spin = "0.5"
+lazy_static = { version = "1", features = ["spin_no_std"] }
