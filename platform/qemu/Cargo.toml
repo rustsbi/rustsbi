@@ -12,7 +12,7 @@ rustsbi = { path = "../../rustsbi" }
 linked_list_allocator = "0.8"
 lazy_static = { version = "1", features = ["spin_no_std"] }
 spin = "0.5"
-riscv = { version = "0.6", features = ["inline-asm"] }
+riscv = { git = "https://github.com/rust-embedded/riscv", features = ["inline-asm"] }
 
 # 这几个其实不用，应该使用对应的hal库实现
 embedded-hal = "1.0.0-alpha.1"

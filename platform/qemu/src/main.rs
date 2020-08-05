@@ -16,7 +16,7 @@ use rustsbi::{println, enter_privileged};
 
 use riscv::register::{
     mcause::{self, Exception, Interrupt, Trap},
-    mepc, mhartid, mideleg, mie, mip,
+    medeleg, mepc, mhartid, mideleg, mie, mip,
     mstatus::{self, MPP},
     mtval,
     mtvec::{self, TrapMode},
@@ -135,6 +135,8 @@ fn main() -> ! {
         mideleg::set_sext();
         mideleg::set_stimer();
         mideleg::set_ssoft();
+        // todo: more medeleg
+        medeleg::set_breakpoint();
         mie::set_mext();
         // 不打开mie::set_mtimer
         mie::set_msoft();
