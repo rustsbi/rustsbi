@@ -18,3 +18,10 @@ lazy_static::lazy_static! {
 pub fn init_reset<T: Reset + Send + 'static>(reset: T) {
     *RESET.lock() = Some(Box::new(reset));
 }
+
+pub(crate) fn reset() -> ! {
+    if let Some(obj) = &*RESET.lock() {
+        obj.reset();
+    }
+    panic!("no reset handler available")
+}
