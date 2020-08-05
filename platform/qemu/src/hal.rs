@@ -13,7 +13,7 @@ pub struct Reset;
 impl rustsbi::Reset for Reset {
     fn reset(&self) -> ! {
         // todo: only exit after all harts finished
-        loop {}
+        // loop {}
         const VIRT_TEST: *mut u64 = 0x10_0000 as *mut u64;
         // Fail = 0x3333,
         // Pass = 0x5555,
