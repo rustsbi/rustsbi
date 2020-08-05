@@ -24,8 +24,17 @@
 /// ```
 #[inline]
 pub unsafe fn enter_privileged(mhartid: usize, dtb_pa: usize) -> ! {
-    asm!("
-        csrrw   sp, mscratch, sp
-        mret
-    ", in("a0") mhartid, in("a1") dtb_pa, options(nomem, noreturn))
+    match () {
+        #[cfg(riscv)]
+        () => asm!("
+            csrrw   sp, mscratch, sp
+            mret
+        ", in("a0") mhartid, in("a1") dtb_pa, options(nomem, noreturn)),
+        #[cfg(not(riscv))]
+        () => {
+            drop(mhartid);
+            drop(dtb_pa);
+            unimplemented!("not RISC-V instruction set architecture")
+        }
+    }
 }
