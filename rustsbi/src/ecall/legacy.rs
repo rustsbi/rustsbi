@@ -65,3 +65,10 @@ pub fn set_timer_32(arg0: usize, arg1: usize) -> SbiRet {
     }
     SbiRet::ok(0)
 }
+
+#[inline]
+pub fn shutdown() -> SbiRet {
+    // todo: wrap
+    loop {}
+    SbiRet::ok(0)
+}

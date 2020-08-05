@@ -20,7 +20,7 @@ const LEGACY_SEND_IPI: usize = 0x04;
 // const LEGACY_REMOTE_FENCE_I: usize = 0x05;
 // const LEGACY_REMOTE_SFENCE_VMA: usize = 0x06;
 // const LEGACY_REMOTE_SFENCE_VMA_ASID: usize = 0x07;
-// const LEGACY_SHUTDOWN: usize = 0x08;
+const LEGACY_SHUTDOWN: usize = 0x08;
 
 /// Supervisor environment call handler function
 ///
@@ -75,6 +75,7 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 4]) -> Sbi
         LEGACY_CONSOLE_PUTCHAR => legacy::console_putchar(param[0]).legacy_void(param[0], param[1]),
         LEGACY_CONSOLE_GETCHAR => legacy::console_getchar().legacy_return(param[1]),
         LEGACY_SEND_IPI => legacy::send_ipi(param[0]).legacy_void(param[0], param[1]),
+        LEGACY_SHUTDOWN => legacy::shutdown().legacy_void(param[0], param[1]),
         _ => SbiRet::not_supported(),
     }
 }
