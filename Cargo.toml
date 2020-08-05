@@ -1,6 +1,6 @@
 [workspace]
 members = [
     "rustsbi",
-    "soc/k210",
-    "soc/qemu",
+    "platform/k210",
+    "platform/qemu",
 ]
