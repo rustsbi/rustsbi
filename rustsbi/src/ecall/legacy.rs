@@ -14,7 +14,7 @@ pub fn console_putchar(param0: usize) -> SbiRet {
 #[inline]
 pub fn console_getchar() -> SbiRet {
     let ch = legacy_stdio_getchar();
-    SbiRet::ok(ch as usize)
+    SbiRet::legacy_ok(ch as usize)
 }
 
 #[inline]

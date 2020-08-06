@@ -111,6 +111,12 @@ impl SbiRet {
             value: 0,
         }
     }
+    pub(crate) fn legacy_ok(legacy_value: usize) -> SbiRet {
+        SbiRet {
+            error: legacy_value,
+            value: 0,
+        }
+    }
     // only used for legacy where a0, a1 return value is not modified
     pub(crate) fn legacy_void(self, a0: usize, a1: usize) -> SbiRet {
         SbiRet {
