@@ -141,9 +141,12 @@ fn main() -> ! {
         mideleg::set_sext();
         mideleg::set_stimer();
         mideleg::set_ssoft();
-        // todo: more medeleg
+        medeleg::set_instruction_misaligned();
         medeleg::set_breakpoint();
         medeleg::set_user_env_call();
+        medeleg::set_instruction_page_fault();
+        medeleg::set_load_page_fault();
+        medeleg::set_store_page_fault();
         mie::set_mext();
         // 不打开mie::set_mtimer
         mie::set_msoft();
