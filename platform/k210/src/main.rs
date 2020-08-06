@@ -8,9 +8,9 @@ use core::alloc::Layout;
 use core::panic::PanicInfo;
 use k210_hal::{clock::Clocks, fpioa, pac, prelude::*};
 use linked_list_allocator::LockedHeap;
-use rustsbi::{enter_privileged, println};
+use rustsbi::{enter_privileged, print, println};
 use riscv::register::{
-    mepc, mhartid,
+    mepc, mhartid, mideleg, medeleg, misa::{self, MXL}, mie,
     mstatus::{self, MPP},
 };
 
@@ -27,6 +27,14 @@ fn oom(_layout: Layout) -> ! {
     loop {}
 }
 
+fn mp_hook() -> bool {
+    match mhartid::read() {
+        0 => true,
+        _ => loop {
+            unsafe { riscv::asm::wfi() }
+        },
+    }
+}
 
 #[export_name = "_start"]
 #[link_section = ".text.entry"] // this is stable
@@ -65,6 +73,19 @@ fn main() -> ! {
     "
         )
     };
+    if mp_hook() {
+        extern "C" {
+            static mut _ebss: u32;
+            static mut _sbss: u32;
+            static mut _edata: u32;
+            static mut _sdata: u32;
+            static _sidata: u32;
+        }
+        unsafe {
+            r0::zero_bss(&mut _sbss, &mut _ebss);
+            r0::init_data(&mut _sdata, &mut _edata, &_sidata);
+        } 
+    }
     if mhartid::read() == 0 {
         extern "C" {
             fn _sheap();
@@ -88,11 +109,44 @@ fn main() -> ! {
         let (tx, rx) = serial.split();
         use rustsbi::legacy_stdio::init_legacy_stdio_embedded_hal_fuse;
         init_legacy_stdio_embedded_hal_fuse(tx, rx);
+    }
+    
+    unsafe {
+        mideleg::set_sext();
+        mideleg::set_stimer();
+        mideleg::set_ssoft();
+        medeleg::set_instruction_misaligned();
+        medeleg::set_breakpoint();
+        medeleg::set_user_env_call();
+        medeleg::set_instruction_page_fault();
+        medeleg::set_load_page_fault();
+        medeleg::set_store_page_fault();
+        mie::set_mext();
+        // 不打开mie::set_mtimer
+        mie::set_msoft();
+    }
 
+    if mhartid::read() == 0 {
         println!("[rustsbi] Version 0.1.0");
-
         println!("{}", rustsbi::LOGO);
-        println!("[rustsbi] Target device: K210");
+        println!("[rustsbi] Platform: K210");
+        let isa = misa::read();
+        if let Some(isa) = isa {
+            let mxl_str = match isa.mxl() {
+                MXL::XLEN32 => "RV32",
+                MXL::XLEN64 => "RV64",
+                MXL::XLEN128 => "RV128",
+            };
+            print!("[rustsbi] misa: {}", mxl_str);
+            for ext in 'A'..='Z' {
+                if isa.has_extension(ext) {
+                    print!("{}", ext);
+                }
+            }
+            println!("");
+        }
+        println!("[rustsbi] mideleg: {:#x}", mideleg::read().bits());
+        println!("[rustsbi] medeleg: {:#x}", medeleg::read().bits());
         println!("[rustsbi] Kernel entry: 0x80200000");
     }
     extern "C" {

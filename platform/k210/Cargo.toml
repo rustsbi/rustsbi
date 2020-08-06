@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 rustsbi = { path = "../../rustsbi" }
-riscv = "0.6"
+riscv = { git = "https://github.com/rust-embedded/riscv", features = ["inline-asm"] }
 linked_list_allocator = "0.8"
 k210-hal = { git = "https://github.com/riscv-rust/k210-hal" }
+r0 = "1.0"
