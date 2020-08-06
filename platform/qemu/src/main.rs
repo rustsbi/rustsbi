@@ -129,28 +129,6 @@ fn main() -> ! {
 
         use rustsbi::init_reset;
         init_reset(hal::Reset);
-
-        println!("[rustsbi] Version 0.1.0");
-
-        println!("{}", rustsbi::LOGO);
-        println!("[rustsbi] Platform: QEMU");
-        let isa = misa::read();
-        if let Some(isa) = isa {
-            let mxl_str = match isa.mxl() {
-                MXL::XLEN32 => "RV32",
-                MXL::XLEN64 => "RV64",
-                MXL::XLEN128 => "RV128",
-            };
-            print!("[rustsbi] ISA: {}", mxl_str);
-            for ext in 'A'..='Z' {
-                if isa.has_extension(ext) {
-                    print!("{}", ext);
-                }
-            }
-            println!("");
-        }
-
-        println!("[rustsbi] Kernel entry: 0x80200000");
     }
 
     // 把S的中断全部委托给S层
@@ -167,6 +145,30 @@ fn main() -> ! {
         mie::set_mext();
         // 不打开mie::set_mtimer
         mie::set_msoft();
+    }
+
+    if mhartid::read() == 0 {
+        println!("[rustsbi] Version 0.1.0");
+        println!("{}", rustsbi::LOGO);
+        println!("[rustsbi] Platform: QEMU");
+        let isa = misa::read();
+        if let Some(isa) = isa {
+            let mxl_str = match isa.mxl() {
+                MXL::XLEN32 => "RV32",
+                MXL::XLEN64 => "RV64",
+                MXL::XLEN128 => "RV128",
+            };
+            print!("[rustsbi] misa: {}", mxl_str);
+            for ext in 'A'..='Z' {
+                if isa.has_extension(ext) {
+                    print!("{}", ext);
+                }
+            }
+            println!("");
+        }
+        println!("[rustsbi] mideleg: {:016x}", mideleg::read().bits());
+        println!("[rustsbi] medeleg: {:016x}", medeleg::read().bits());
+        println!("[rustsbi] Kernel entry: 0x80200000");
     }
 
     extern "C" {
