@@ -79,6 +79,12 @@ fn main() -> ! {
     "
         )
     };
+    // Ref: https://github.com/qemu/qemu/blob/aeb07b5f6e69ce93afea71027325e3e7a22d2149/hw/riscv/boot.c#L243
+    let dtb_pa = unsafe {
+        let dtb_pa: usize;
+        llvm_asm!("":"={a1}"(dtb_pa));
+        dtb_pa
+    };
 
     if _mp_hook() {
         // init
@@ -148,7 +154,7 @@ fn main() -> ! {
     unsafe {
         mepc::write(_s_mode_start as usize);
         mstatus::set_mpp(MPP::Supervisor);
-        enter_privileged(mhartid::read(), 0x2333333366666666);
+        enter_privileged(mhartid::read(), dtb_pa);
     }
 }
 
