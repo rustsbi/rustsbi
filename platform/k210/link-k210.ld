@@ -3,7 +3,7 @@ MEMORY {
     SRAM : ORIGIN = 0x80000000, LENGTH = 2M
 }
 
-_max_hart_id = 2; 
+_max_hart_id = 1; 
 
 PROVIDE(_stext = 0x80000000);
 PROVIDE(_heap_size = 128K);

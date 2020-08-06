@@ -4,6 +4,8 @@ build-path := "../../target/" + target + "/" + mode + "/"
 m-firmware-file := build-path + "rustsbi-k210"
 m-bin-file := build-path + "rustsbi-k210.bin"
 
+k210-serialport := "/dev/ttyS17"
+
 objcopy := "rust-objcopy --binary-architecture=riscv64"
 
 build: firmware
@@ -11,3 +13,6 @@ build: firmware
 
 firmware:
     @cargo build --target={{target}}
+
+run: build
+    @python3 ./kflash.py --port {{k210-serialport}} --terminal {{m-bin-file}}
