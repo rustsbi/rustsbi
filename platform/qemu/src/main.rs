@@ -12,11 +12,11 @@ use core::alloc::Layout;
 use core::panic::PanicInfo;
 use linked_list_allocator::LockedHeap;
 
-use rustsbi::{println, enter_privileged};
+use rustsbi::{print, println, enter_privileged};
 
 use riscv::register::{
     mcause::{self, Exception, Interrupt, Trap},
-    medeleg, mepc, mhartid, mideleg, mie, mip,
+    medeleg, mepc, mhartid, mideleg, mie, mip, misa::{self, MXL},
     mstatus::{self, MPP},
     mtval,
     mtvec::{self, TrapMode},
@@ -133,6 +133,23 @@ fn main() -> ! {
         println!("[rustsbi] Version 0.1.0");
 
         println!("{}", rustsbi::LOGO);
+        println!("[rustsbi] Platform: QEMU");
+        let isa = misa::read();
+        if let Some(isa) = isa {
+            let mxl_str = match isa.mxl() {
+                MXL::XLEN32 => "RV32",
+                MXL::XLEN64 => "RV64",
+                MXL::XLEN128 => "RV128",
+            };
+            print!("[rustsbi] ISA: {}", mxl_str);
+            for ext in 'A'..='Z' {
+                if isa.has_extension(ext) {
+                    print!("{}", ext);
+                }
+            }
+            println!("");
+        }
+
         println!("[rustsbi] Kernel entry: 0x80200000");
     }
 
