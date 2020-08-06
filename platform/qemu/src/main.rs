@@ -166,8 +166,8 @@ fn main() -> ! {
             }
             println!("");
         }
-        println!("[rustsbi] mideleg: {:016x}", mideleg::read().bits());
-        println!("[rustsbi] medeleg: {:016x}", medeleg::read().bits());
+        println!("[rustsbi] mideleg: {:#x}", mideleg::read().bits());
+        println!("[rustsbi] medeleg: {:#x}", medeleg::read().bits());
         println!("[rustsbi] Kernel entry: 0x80200000");
     }
 
