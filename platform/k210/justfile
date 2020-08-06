@@ -1,0 +1,13 @@
+target := "riscv64gc-unknown-none-elf"
+mode := "debug"
+build-path := "../../target/" + target + "/" + mode + "/"
+m-firmware-file := build-path + "rustsbi-k210"
+m-bin-file := build-path + "rustsbi-k210.bin"
+
+objcopy := "rust-objcopy --binary-architecture=riscv64"
+
+build: firmware
+    @{{objcopy}} {{m-firmware-file}} --strip-all -O binary {{m-bin-file}}
+
+firmware:
+    @cargo build --target={{target}}

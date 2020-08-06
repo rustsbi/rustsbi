@@ -78,7 +78,7 @@ _s_mode_start:
     ld ra, %pcrel_lo(1b)(ra)
     jr ra
 .align  3
-1:  .dword _start_payload /* defined by firmware-k210 */
+1:  .dword 0x80200000
 "
 );
 

@@ -3,5 +3,5 @@ target = "riscv64gc-unknown-none-elf"
 
 [target.riscv64gc-unknown-none-elf]
 rustflags = [
-    "-C", "link-arg=-Tlink-qemu.ld",
+    "-C", "link-arg=-Tlink-k210.ld",
 ]
