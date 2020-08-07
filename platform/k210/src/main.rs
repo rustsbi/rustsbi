@@ -40,7 +40,7 @@ fn mp_hook() -> bool {
     } else {
         unsafe {
             // Clear IPI
-            msip::set_value(hartid, false);
+            msip::clear_ipi(hartid);
             // Start listening for software interrupts
             mie::set_msoft();
 
@@ -54,7 +54,7 @@ fn mp_hook() -> bool {
             // Stop listening for software interrupts
             mie::clear_msoft();
             // Clear IPI
-            msip::set_value(hartid, false);
+            msip::clear_ipi(hartid);
         }
         false
     }
@@ -142,7 +142,6 @@ fn main() -> ! {
         init_legacy_stdio_embedded_hal_fuse(tx, rx);
 
         struct Ipi;
-
         impl rustsbi::Ipi for Ipi {
             fn max_hart_id(&self) -> usize {
                 1
@@ -151,14 +150,25 @@ fn main() -> ! {
                 use k210_hal::clint::msip;
                 for i in 0..=1 {
                     if hart_mask.has_bit(i) {
-                        msip::set_value(i, true);
-                        msip::set_value(i, false);
+                        msip::set_ipi(i);
+                        msip::clear_ipi(i);
                     }
                 }
             }
         }
         use rustsbi::init_ipi;
         init_ipi(Ipi);
+        struct Timer;
+        impl rustsbi::Timer for Timer {
+            fn set_timer(&mut self, stime_value: u64) {
+                // This function must clear the pending timer interrupt bit as well.
+                use k210_hal::clint::mtimecmp;
+                mtimecmp::write(mhartid::read(), stime_value);
+                unsafe { mip::clear_mtimer() };
+            }
+        }
+        use rustsbi::init_timer;
+        init_timer(Timer);
     }
     
     unsafe {
