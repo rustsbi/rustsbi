@@ -31,11 +31,32 @@ fn oom(_layout: Layout) -> ! {
 }
 
 fn mp_hook() -> bool {
-    match mhartid::read() {
-        0 => true,
-        _ => loop {
-            unsafe { riscv::asm::wfi() }
-        },
+    use riscv::asm::wfi;
+    use k210_hal::clint::msip;
+
+    let hartid = mhartid::read();
+    if hartid == 0 {
+        true
+    } else {
+        unsafe {
+            // Clear IPI
+            msip::set_value(hartid, false);
+            // Start listening for software interrupts
+            mie::set_msoft();
+
+            loop {
+                wfi();
+                if mip::read().msoft() {
+                    break;
+                }
+            }
+
+            // Stop listening for software interrupts
+            mie::clear_msoft();
+            // Clear IPI
+            msip::set_value(hartid, false);
+        }
+        false
     }
 }
 
@@ -119,6 +140,25 @@ fn main() -> ! {
         let (tx, rx) = serial.split();
         use rustsbi::legacy_stdio::init_legacy_stdio_embedded_hal_fuse;
         init_legacy_stdio_embedded_hal_fuse(tx, rx);
+
+        struct Ipi;
+
+        impl rustsbi::Ipi for Ipi {
+            fn max_hart_id(&self) -> usize {
+                1
+            }
+            fn send_ipi_many(&mut self, hart_mask: rustsbi::HartMask) {
+                use k210_hal::clint::msip;
+                for i in 0..=1 {
+                    if hart_mask.has_bit(i) {
+                        msip::set_value(i, true);
+                        msip::set_value(i, false);
+                    }
+                }
+            }
+        }
+        use rustsbi::init_ipi;
+        init_ipi(Ipi);
     }
     
     unsafe {
@@ -242,17 +282,6 @@ _start_trap:
     mret
 "
 );
-
-// #[doc(hidden)]
-// #[export_name = "_mp_hook"]
-// pub extern "Rust" fn _mp_hook() -> bool {
-//     match mhartid::read() {
-//         0 => true,
-//         _ => loop {
-//             unsafe { riscv::asm::wfi() }
-//         },
-//     }
-// }
 
 #[allow(unused)]
 struct TrapFrame {
