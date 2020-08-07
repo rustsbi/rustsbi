@@ -10,8 +10,11 @@ use k210_hal::{clock::Clocks, fpioa, pac, prelude::*};
 use linked_list_allocator::LockedHeap;
 use rustsbi::{enter_privileged, print, println};
 use riscv::register::{
-    mepc, mhartid, mideleg, medeleg, misa::{self, MXL}, mie,
+    mcause::{self, Exception, Interrupt, Trap},
+    medeleg, mepc, mhartid, mideleg, mie, mip, misa::{self, MXL},
     mstatus::{self, MPP},
+    mtval,
+    mtvec::{self, TrapMode},
 };
 
 #[global_allocator]
@@ -86,6 +89,13 @@ fn main() -> ! {
             r0::init_data(&mut _sdata, &mut _edata, &_sidata);
         } 
     }
+
+    extern "C" {
+        fn _start_trap();
+    }
+    unsafe {
+        mtvec::write(_start_trap as usize, TrapMode::Direct);
+    }
     if mhartid::read() == 0 {
         extern "C" {
             fn _sheap();
@@ -147,7 +157,7 @@ fn main() -> ! {
         }
         println!("[rustsbi] mideleg: {:#x}", mideleg::read().bits());
         println!("[rustsbi] medeleg: {:#x}", medeleg::read().bits());
-        println!("[rustsbi] Kernel entry: 0x80200000");
+        println!("[rustsbi] Kernel entry: 0x80020000");
     }
     extern "C" {
         fn _s_mode_start();
@@ -168,8 +178,177 @@ _s_mode_start:
     ld ra, %pcrel_lo(1b)(ra)
     jr ra
 .align  3
-1:  .dword 0x80200000
+1:  .dword 0x80020000
 "
 );
 
 // todo: configurable target address
+
+global_asm!(
+    "
+    .equ REGBYTES, 8
+    .macro STORE reg, offset
+        sd  \\reg, \\offset*REGBYTES(sp)
+    .endm
+    .macro LOAD reg, offset
+        ld  \\reg, \\offset*REGBYTES(sp)
+    .endm
+    .section .text
+    .global _start_trap
+    .p2align 2
+_start_trap:
+    csrrw   sp, mscratch, sp
+    bnez    sp, 1f
+    /* from M level, load sp */
+    csrrw   sp, mscratch, zero
+1:
+    addi    sp, sp, -16 * REGBYTES
+    STORE   ra, 0
+    STORE   t0, 1
+    STORE   t1, 2
+    STORE   t2, 3
+    STORE   t3, 4
+    STORE   t4, 5
+    STORE   t5, 6
+    STORE   t6, 7
+    STORE   a0, 8
+    STORE   a1, 9
+    STORE   a2, 10
+    STORE   a3, 11
+    STORE   a4, 12
+    STORE   a5, 13
+    STORE   a6, 14
+    STORE   a7, 15
+    mv      a0, sp
+    call    _start_trap_rust
+    LOAD    ra, 0
+    LOAD    t0, 1
+    LOAD    t1, 2
+    LOAD    t2, 3
+    LOAD    t3, 4
+    LOAD    t4, 5
+    LOAD    t5, 6
+    LOAD    t6, 7
+    LOAD    a0, 8
+    LOAD    a1, 9
+    LOAD    a2, 10
+    LOAD    a3, 11
+    LOAD    a4, 12
+    LOAD    a5, 13
+    LOAD    a6, 14
+    LOAD    a7, 15
+    addi    sp, sp, 16 * REGBYTES
+    csrrw   sp, mscratch, sp
+    mret
+"
+);
+
+// #[doc(hidden)]
+// #[export_name = "_mp_hook"]
+// pub extern "Rust" fn _mp_hook() -> bool {
+//     match mhartid::read() {
+//         0 => true,
+//         _ => loop {
+//             unsafe { riscv::asm::wfi() }
+//         },
+//     }
+// }
+
+#[allow(unused)]
+struct TrapFrame {
+    ra: usize,
+    t0: usize,
+    t1: usize,
+    t2: usize,
+    t3: usize,
+    t4: usize,
+    t5: usize,
+    t6: usize,
+    a0: usize,
+    a1: usize,
+    a2: usize,
+    a3: usize,
+    a4: usize,
+    a5: usize,
+    a6: usize,
+    a7: usize,
+}
+
+#[export_name = "_start_trap_rust"]
+extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
+    let cause = mcause::read().cause();
+    match cause {
+        Trap::Exception(Exception::SupervisorEnvCall) => {
+            let params = [trap_frame.a0, trap_frame.a1, trap_frame.a2, trap_frame.a3];
+            let ans = rustsbi::ecall(trap_frame.a7, trap_frame.a6, params);
+            trap_frame.a0 = ans.error;
+            trap_frame.a1 = ans.value;
+            mepc::write(mepc::read().wrapping_add(4));
+        }
+        Trap::Interrupt(Interrupt::MachineSoft) => {
+            unsafe {
+                mip::set_ssoft();
+                mie::clear_msoft();
+            }
+        }
+        Trap::Interrupt(Interrupt::MachineTimer) => {
+            unsafe {
+                mip::set_stimer();
+                mie::clear_mtimer();
+            }
+        }
+        Trap::Exception(Exception::IllegalInstruction) => {
+            #[inline]
+            unsafe fn get_vaddr_u32(vaddr: usize) -> u32 {
+                let mut ans: u32;
+                llvm_asm!("
+                    li      t0, (1 << 17)
+                    mv      t1, $1
+                    csrrs   t0, mstatus, t0
+                    lwu     t1, 0(t1)
+                    csrw    mstatus, t0
+                    mv      $0, t1
+                "
+                    :"=r"(ans) 
+                    :"r"(vaddr)
+                    :"t0", "t1");
+                ans
+            }
+            let vaddr = mepc::read();
+            let ins = unsafe { get_vaddr_u32(vaddr) };
+            if ins & 0xFFFFF07F == 0xC0102073 {
+                // rdtime
+                let rd = ((ins >> 7) & 0b1_1111) as u8;
+                let mtime = k210_hal::clint::mtime::read();
+                let time_usize = mtime as usize;
+                match rd {
+                    10 => trap_frame.a0 = time_usize,
+                    11 => trap_frame.a1 = time_usize,
+                    12 => trap_frame.a2 = time_usize,
+                    13 => trap_frame.a3 = time_usize,
+                    14 => trap_frame.a4 = time_usize,
+                    15 => trap_frame.a5 = time_usize,
+                    16 => trap_frame.a6 = time_usize,
+                    17 => trap_frame.a7 = time_usize,
+                    5 => trap_frame.t0 = time_usize,
+                    6 => trap_frame.t1 = time_usize,
+                    7 => trap_frame.t2 = time_usize,
+                    28 => trap_frame.t3 = time_usize,
+                    29 => trap_frame.t4 = time_usize,
+                    30 => trap_frame.t5 = time_usize,
+                    31 => trap_frame.t6 = time_usize,
+                    _ => panic!("invalid target"),
+                }
+                mepc::write(mepc::read().wrapping_add(4)); 
+            } else {
+                panic!("invalid instruction, mepc: {:016x?}, instruction: {:016x?}", mepc::read(), ins);
+            }
+        }
+        cause => panic!(
+            "Unhandled exception! mcause: {:?}, mepc: {:016x?}, mtval: {:016x?}",
+            cause,
+            mepc::read(),
+            mtval::read()
+        ),
+    }
+}
