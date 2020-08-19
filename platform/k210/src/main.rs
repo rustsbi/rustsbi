@@ -402,15 +402,13 @@ unsafe fn get_vaddr_u32(vaddr: usize) -> u32 {
     let mut ans: u32;
     llvm_asm!("
         li      t0, (1 << 17)
-        mv      t1, $1
         csrrs   t0, mstatus, t0
-        lwu     t1, 0(t1)
+        lwu     $0, 0($1)
         csrw    mstatus, t0
-        mv      $0, t1
     "
         :"=r"(ans) 
         :"r"(vaddr)
-        :"t0", "t1");
+        :"t0");
     ans
 }
 
