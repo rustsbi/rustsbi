@@ -340,9 +340,7 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
         }
         Trap::Exception(Exception::IllegalInstruction) => {
             let vaddr = mepc::read();
-            println!("vaddr: {:016X}", vaddr);
             let ins = unsafe { get_vaddr_u32(vaddr) };
-            println!("ins: {:08X}", ins);
             if ins & 0xFFFFF07F == 0xC0102073 { // rdtime instruction
                 // rdtime is actually a csrrw instruction
                 let rd = ((ins >> 7) & 0b1_1111) as u8;
@@ -351,7 +349,6 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                 set_rd(trap_frame, rd, time_usize);
                 mepc::write(mepc::read().wrapping_add(4)); // skip current instruction 
             } else if ins & 0xFE007FFF == 0x12000073 { // sfence.vma instruction
-                println!("sfence.vma instruction");
                 // sfence.vma: | 31..25 funct7=SFENCE.VMA(0001001) | 24..20 rs2/asid | 19..15 rs1/vaddr | 
                 //               14..12 funct3=PRIV(000) | 11..7 rd, =0 | 6..0 opcode=SYSTEM(1110011) |
                 // sfence.vm(1.9):  | 31..=20 SFENCE.VM(000100000100) | 19..15 rs1/vaddr |
@@ -360,27 +357,20 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                 // let rs1_vaddr = ((ins >> 15) & 0b1_1111) as u8;
                 // read paging mode from satp (sptbr)
                 let satp_bits = satp::read().bits();
-                let paging_mode = satp_bits >> 60; // 63..60 MODE WARL
-                let asid = (satp_bits >> 44) & 0xFFFF; // 59..44 ASID WARL
+                // bit 63..20 is not readable and writeable on K210, so we cannot
+                // decide paging type from the 'satp' register.
+                // that also means that the asid function is not usable on this chip.
+                // we have to fix it to be Sv39.
                 let ppn = satp_bits & 0xFFF_FFFF_FFFF; // 43..0 PPN WARL
-                println!("satp bits: {:016X}", satp_bits);
                 // write to sptbr
-                let sptbr_bits = (asid << 38) | (ppn & 0x3F_FFFF_FFFF);
-                println!("sptbr bits: {:016X}", satp_bits);
+                let sptbr_bits = ppn & 0x3F_FFFF_FFFF;
                 unsafe { llvm_asm!("csrw 0x180, $0"::"r"(sptbr_bits)) }; // write to sptbr
                 // enable paging (in v1.9.1, mstatus: | 28..24 VM[4:0] WARL | ... )
                 let mut mstatus_bits: usize; 
                 unsafe { llvm_asm!("csrr $0, mstatus":"=r"(mstatus_bits)) };
                 mstatus_bits &= !0x1F00_0000;
-                mstatus_bits |= 9 << 24; //paging_mode << 24;
-                println!(" bits: {:016X}", mstatus_bits);
+                mstatus_bits |= 9 << 24; 
                 unsafe { llvm_asm!("csrw mstatus, $0"::"r"(mstatus_bits)) };
-                println!("mstatus paging mode updated {:016X}", 
-                    unsafe { 
-                        let ans: usize;
-                        llvm_asm!("csrr $0, mstatus":"=r"(ans));
-                        ans
-                    });
                 // emulate with sfence.vm (declared in privileged spec v1.9)
                 unsafe { llvm_asm!(".word 0x10400073") }; // sfence.vm x0
                 // ::"r"(rs1_vaddr)
