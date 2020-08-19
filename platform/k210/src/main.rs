@@ -371,7 +371,7 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                 let mut mstatus_bits: usize; 
                 unsafe { llvm_asm!("csrr $0, mstatus":"=r"(mstatus_bits)) };
                 mstatus_bits &= !0x1F00_0000;
-                mstatus_bits |= 9 << 24 ; //paging_mode << 24;
+                mstatus_bits |= paging_mode << 24;
                 println!(" bits: {:016X}", mstatus_bits);
                 unsafe { llvm_asm!("csrw mstatus, $0"::"r"(mstatus_bits)) };
                 println!("mstatus paging mode updated {:016X}", 
@@ -399,16 +399,23 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
 
 #[inline]
 unsafe fn get_vaddr_u32(vaddr: usize) -> u32 {
-    let mut ans: u32;
+    // todo: comment
+    get_vaddr_u16(vaddr) as u32 | 
+    ((get_vaddr_u16(vaddr.wrapping_add(2)) as u32) << 16)
+}
+
+#[inline]
+unsafe fn get_vaddr_u16(vaddr: usize) -> u16 {
+    let mut ans: u16;
     llvm_asm!("
         li      t0, (1 << 17)
         csrrs   t0, mstatus, t0
-        lwu     $0, 0($1)
+        lhu     $0, 0($1)
         csrw    mstatus, t0
     "
         :"=r"(ans) 
         :"r"(vaddr)
-        :"t0");
+        :"t0", "t1");
     ans
 }
 
