@@ -22,7 +22,8 @@ use riscv::register::{
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
+fn panic(info: &PanicInfo) -> ! {
+    println!("{}", info);
     loop {}
 }
 
