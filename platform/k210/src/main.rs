@@ -15,6 +15,7 @@ use riscv::register::{
     mstatus::{self, MPP},
     mtval,
     mtvec::{self, TrapMode},
+    satp,
 };
 
 #[global_allocator]
