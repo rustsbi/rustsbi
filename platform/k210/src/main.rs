@@ -337,48 +337,26 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
             }
         }
         Trap::Exception(Exception::IllegalInstruction) => {
-            #[inline]
-            unsafe fn get_vaddr_u32(vaddr: usize) -> u32 {
-                let mut ans: u32;
-                llvm_asm!("
-                    li      t0, (1 << 17)
-                    mv      t1, $1
-                    csrrs   t0, mstatus, t0
-                    lwu     t1, 0(t1)
-                    csrw    mstatus, t0
-                    mv      $0, t1
-                "
-                    :"=r"(ans) 
-                    :"r"(vaddr)
-                    :"t0", "t1");
-                ans
-            }
             let vaddr = mepc::read();
             let ins = unsafe { get_vaddr_u32(vaddr) };
-            if ins & 0xFFFFF07F == 0xC0102073 {
-                // rdtime
+            if ins & 0xFFFFF07F == 0xC0102073 { // rdtime instruction
+                // rdtime is actually a csrrw instruction
                 let rd = ((ins >> 7) & 0b1_1111) as u8;
                 let mtime = k210_hal::clint::mtime::read();
                 let time_usize = mtime as usize;
-                match rd {
-                    10 => trap_frame.a0 = time_usize,
-                    11 => trap_frame.a1 = time_usize,
-                    12 => trap_frame.a2 = time_usize,
-                    13 => trap_frame.a3 = time_usize,
-                    14 => trap_frame.a4 = time_usize,
-                    15 => trap_frame.a5 = time_usize,
-                    16 => trap_frame.a6 = time_usize,
-                    17 => trap_frame.a7 = time_usize,
-                    5 => trap_frame.t0 = time_usize,
-                    6 => trap_frame.t1 = time_usize,
-                    7 => trap_frame.t2 = time_usize,
-                    28 => trap_frame.t3 = time_usize,
-                    29 => trap_frame.t4 = time_usize,
-                    30 => trap_frame.t5 = time_usize,
-                    31 => trap_frame.t6 = time_usize,
-                    _ => panic!("invalid target"),
-                }
-                mepc::write(mepc::read().wrapping_add(4)); 
+                set_rd(trap_frame, rd, time_usize);
+                mepc::write(mepc::read().wrapping_add(4)); // skip current instruction 
+            } else if ins & 0xFE007FFF == 0x12000073 { // sfence.vma instruction
+                // sfence.vma: | 31..25 funct7=SFENCE.VMA(0001001) | 24..20 rs2/asid | 19..15 rs1/vaddr | 
+                //               14..12 funct3=PRIV(000) | 11..7 rd, =0 | 6..0 opcode=SYSTEM(1110011) |
+                // sfence.vm(1.9):  | 31..=20 SFENCE.VM(000100000100) | 19..15 rs1/vaddr |
+                //               14..12 funct3=PRIV(000) | 11..7 rd, =0 | 6..0 opcode=SYSTEM(1110011) |
+                // discard rs2 // let _rs2_asid = ((ins >> 20) & 0b1_1111) as u8;
+                // let rs1_vaddr = ((ins >> 15) & 0b1_1111) as u8;
+                // emulate with sfence.vm (declared in privileged spec v1.9)
+                unsafe { llvm_asm!(".word 0x10400073") }; // sfence.vm x0
+                // ::"r"(rs1_vaddr)
+                mepc::write(mepc::read().wrapping_add(4)); // skip current instruction
             } else {
                 panic!("invalid instruction, mepc: {:016x?}, instruction: {:016x?}", mepc::read(), ins);
             }
@@ -389,5 +367,44 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
             mepc::read(),
             mtval::read()
         ),
+    }
+}
+
+#[inline]
+unsafe fn get_vaddr_u32(vaddr: usize) -> u32 {
+    let mut ans: u32;
+    llvm_asm!("
+        li      t0, (1 << 17)
+        mv      t1, $1
+        csrrs   t0, mstatus, t0
+        lwu     t1, 0(t1)
+        csrw    mstatus, t0
+        mv      $0, t1
+    "
+        :"=r"(ans) 
+        :"r"(vaddr)
+        :"t0", "t1");
+    ans
+}
+
+#[inline]
+fn set_rd(trap_frame: &mut TrapFrame, rd: u8, value: usize) {
+    match rd {
+        10 => trap_frame.a0 = value,
+        11 => trap_frame.a1 = value,
+        12 => trap_frame.a2 = value,
+        13 => trap_frame.a3 = value,
+        14 => trap_frame.a4 = value,
+        15 => trap_frame.a5 = value,
+        16 => trap_frame.a6 = value,
+        17 => trap_frame.a7 = value,
+        5  => trap_frame.t0 = value,
+        6  => trap_frame.t1 = value,
+        7  => trap_frame.t2 = value,
+        28 => trap_frame.t3 = value,
+        29 => trap_frame.t4 = value,
+        30 => trap_frame.t5 = value,
+        31 => trap_frame.t6 = value,
+        _ => panic!("invalid target `rd`"),
     }
 }
