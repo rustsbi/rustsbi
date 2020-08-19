@@ -23,7 +23,7 @@ static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    println!("{}", info);
+    println!("[rustsbi] {}", info);
     loop {}
 }
 
