@@ -353,6 +353,17 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                 //               14..12 funct3=PRIV(000) | 11..7 rd, =0 | 6..0 opcode=SYSTEM(1110011) |
                 // discard rs2 // let _rs2_asid = ((ins >> 20) & 0b1_1111) as u8;
                 // let rs1_vaddr = ((ins >> 15) & 0b1_1111) as u8;
+                // read paging mode from satp (sptbr)
+                let satp_bits = satp::read().bits();
+                let paging_mode = satp_bits >> 60; // 63..60 MODE WARL
+                let asid = (satp_bits >> 44) & 0xFFFF; // 59..44 ASID WARL
+                let ppn = satp_bits & 0xFFF_FFFF_FFFF; // 43..0 PPN WARL
+                // write to sptbr
+                let sptbr_bits = (asid << 38) | (ppn & 0x3F_FFFF_FFFF);
+                unsafe { llvm_asm!("csrw 0x180, $0"::"r"(sptbr_bits)) }; // write to sptbr
+                // enable paging (in v1.9.1, mstatus: | 28..24 VM[4:0] WARL | ... )
+                let mstatus_bits: usize = paging_mode << 24;
+                unsafe { llvm_asm!("csrs mstatus, $0"::"r"(mstatus_bits)) };
                 // emulate with sfence.vm (declared in privileged spec v1.9)
                 unsafe { llvm_asm!(".word 0x10400073") }; // sfence.vm x0
                 // ::"r"(rs1_vaddr)
