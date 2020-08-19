@@ -372,7 +372,7 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                 let mut mstatus_bits: usize; 
                 unsafe { llvm_asm!("csrr $0, mstatus":"=r"(mstatus_bits)) };
                 mstatus_bits &= !0x1F00_0000;
-                mstatus_bits |= paging_mode << 24;
+                mstatus_bits |= 9 << 24; //paging_mode << 24;
                 println!(" bits: {:016X}", mstatus_bits);
                 unsafe { llvm_asm!("csrw mstatus, $0"::"r"(mstatus_bits)) };
                 println!("mstatus paging mode updated {:016X}", 
@@ -386,7 +386,7 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                 // ::"r"(rs1_vaddr)
                 mepc::write(mepc::read().wrapping_add(4)); // skip current instruction
             } else {
-                panic!("invalid instruction, mepc: {:016x?}, instruction: {:016x?}", mepc::read(), ins);
+                panic!("invalid instruction, mepc: {:016x?}, instruction: {:08x?}", mepc::read(), ins);
             }
         }
         cause => panic!(
