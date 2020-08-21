@@ -23,5 +23,5 @@ pub(crate) fn reset() -> ! {
     if let Some(obj) = &*RESET.lock() {
         obj.reset();
     }
-    panic!("no reset handler available; this is okay if your platform didn't declared a reset handler")
+    panic!("no reset handler available; this is okay if your platform didn't declare a reset handler")
 }

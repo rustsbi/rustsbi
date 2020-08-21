@@ -177,6 +177,16 @@ fn main() -> ! {
         use rustsbi::init_timer;
         init_timer(Timer);
 
+        struct Reset;
+        impl rustsbi::Reset for Reset {
+            fn reset(&self) -> ! {
+                println!("[rustsbi] todo: shutdown all harts on k210; program halt");
+                loop {}
+            }
+        }
+        use rustsbi::init_reset;
+        init_reset(Reset);
+
         use k210_hal::plic::Priority;
         use k210_hal::pac::Interrupt;
         use k210_hal::gpiohs::Edge;
