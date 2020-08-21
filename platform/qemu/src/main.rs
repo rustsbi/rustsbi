@@ -8,7 +8,9 @@
 
 mod hal;
 
+#[cfg(not(test))]
 use core::alloc::Layout;
+#[cfg(not(test))]
 use core::panic::PanicInfo;
 use linked_list_allocator::LockedHeap;
 
@@ -25,12 +27,14 @@ use riscv::register::{
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     println!("{}", info);
     loop {}
 }
 
+#[cfg(not(test))]
 #[alloc_error_handler]
 fn oom(_layout: Layout) -> ! {
     loop {}

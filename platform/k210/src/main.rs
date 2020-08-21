@@ -4,7 +4,9 @@
 #![feature(global_asm)]
 #![feature(llvm_asm)]
 
+#[cfg(not(test))]
 use core::alloc::Layout;
+#[cfg(not(test))]
 use core::panic::PanicInfo;
 use k210_hal::{clock::Clocks, fpioa, pac, prelude::*};
 use linked_list_allocator::LockedHeap;
@@ -21,14 +23,17 @@ use riscv::register::{
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     println!("[rustsbi] {}", info);
     loop {}
 }
 
+#[cfg(not(test))]
 #[alloc_error_handler]
-fn oom(_layout: Layout) -> ! {
+fn oom(layout: Layout) -> ! {
+    println!("[rustsbi] out of memory for layout {:?}", layout);
     loop {}
 }
 
@@ -171,6 +176,22 @@ fn main() -> ! {
         }
         use rustsbi::init_timer;
         init_timer(Timer);
+
+        use k210_hal::plic::Priority;
+        use k210_hal::pac::Interrupt;
+        use k210_hal::gpiohs::Edge;
+        unsafe { 
+            pac::PLIC::set_threshold(mhartid::read(), Priority::P0);
+        }
+        let gpiohs = p.GPIOHS.split();
+        fpioa.io16.into_function(fpioa::GPIOHS0);
+        let mut boot = gpiohs.gpiohs0.into_pull_up_input();
+        boot.trigger_on_edge(Edge::RISING | Edge::FALLING);
+        unsafe {
+            pac::PLIC::set_priority(Interrupt::GPIOHS0, Priority::P1);
+            pac::PLIC::unmask(mhartid::read(), Interrupt::GPIOHS0);
+        }
+        boot.clear_interrupt_pending_bits();
     }
     
     unsafe {
@@ -380,7 +401,7 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
             }
         }
         cause => panic!(
-            "Unhandled exception! mcause: {:?}, mepc: {:016x?}, mtval: {:016x?}",
+            "Unhandled trap! mcause: {:?}, mepc: {:016x?}, mtval: {:016x?}",
             cause,
             mepc::read(),
             mtval::read()
