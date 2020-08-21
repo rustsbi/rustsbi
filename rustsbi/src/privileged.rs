@@ -25,17 +25,16 @@
 #[inline]
 pub unsafe fn enter_privileged(mhartid: usize, dtb_pa: usize) -> ! {
     match () {
-        // todo: todo
-        // #[cfg(riscv)]
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         () => asm!("
             csrrw   sp, mscratch, sp
             mret
         ", in("a0") mhartid, in("a1") dtb_pa, options(nomem, noreturn)),
-        // #[cfg(not(riscv))]
-        // () => {
-        //     drop(mhartid);
-        //     drop(dtb_pa);
-        //     unimplemented!("not RISC-V instruction set architecture")
-        // }
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+        () => {
+            drop(mhartid);
+            drop(dtb_pa);
+            unimplemented!("not RISC-V instruction set architecture")
+        }
     }
 }
