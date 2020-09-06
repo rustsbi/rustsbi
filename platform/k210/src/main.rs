@@ -211,9 +211,9 @@ fn main() -> ! {
         medeleg::set_instruction_misaligned();
         medeleg::set_breakpoint();
         medeleg::set_user_env_call();
-        medeleg::set_instruction_page_fault();
-        medeleg::set_load_page_fault();
-        medeleg::set_store_page_fault();
+        medeleg::set_instruction_fault();
+        medeleg::set_load_fault();
+        medeleg::set_store_fault();
         mie::set_mext();
         // 不打开mie::set_mtimer
         mie::set_msoft();
@@ -368,6 +368,14 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                 mip::set_stimer();
                 mie::clear_mtimer();
             }
+        }
+        Trap::Interrupt(Interrupt::MachineExternal) => {
+            let irq_id = unsafe { (0x0c20_0004 as *const u32).read_volatile() };
+            let ch: u8 = unsafe { (0x3800_0004 as *const u32).read_volatile() & 0xFF } as u8;
+            print!("{}", 0 as char);
+            unsafe { (0x0c20_0004 as *mut u32).write_volatile(irq_id); }
+            unsafe { llvm_asm!("csrw stval, $0" :: "r"(ch as usize) :: "volatile"); }
+            unsafe { mip::set_ssoft(); }
         }
         Trap::Exception(Exception::IllegalInstruction) => {
             let vaddr = mepc::read();
