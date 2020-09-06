@@ -211,6 +211,15 @@ fn main() -> ! {
         medeleg::set_instruction_misaligned();
         medeleg::set_breakpoint();
         medeleg::set_user_env_call();
+        /* MMU Exception Delegation
+        /* Page Faults are *Reserved* in 1.9.1 version */
+        - medeleg::set_instruction_page_fault();
+        - medeleg::set_load_page_fault();
+        - medeleg::set_store_page_fault();
+        /* Actually, in 1.9.1 they are merged into more general exceptions */
+        + medeleg::set_instruction_fault();
+        + medeleg::set_load_fault();
+        + medeleg::set_store_fault(); */
         medeleg::set_instruction_fault();
         medeleg::set_load_fault();
         medeleg::set_store_fault();
@@ -370,11 +379,18 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
             }
         }
         Trap::Interrupt(Interrupt::MachineExternal) => {
+            // to make UARTHS interrupt soft delegation work; ref: pull request #1
+            // PLIC target0(Always Hart0-M-Interrupt) acquire
             let irq_id = unsafe { (0x0c20_0004 as *const u32).read_volatile() };
+            // read from UARTHS RXFIFO
             let ch: u8 = unsafe { (0x3800_0004 as *const u32).read_volatile() & 0xFF } as u8;
+            // black magic @_@, soft delegation won't success without it!
             print!("{}", 0 as char);
+            // PLIC complete
             unsafe { (0x0c20_0004 as *mut u32).write_volatile(irq_id); }
+            // communicate with delegated interrupt with stval CSR 
             unsafe { llvm_asm!("csrw stval, $0" :: "r"(ch as usize) :: "volatile"); }
+            // soft delegate to S Mode soft interrupt
             unsafe { mip::set_ssoft(); }
         }
         Trap::Exception(Exception::IllegalInstruction) => {
