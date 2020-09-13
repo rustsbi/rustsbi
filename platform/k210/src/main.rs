@@ -45,7 +45,6 @@ fn mp_hook() -> bool {
     if hartid == 0 {
         true
     } else {
-        //println!("[rustsbi] I know i am hart {} not hart 0, wfi", hartid);
         unsafe {
             // Clear IPI
             msip::clear_ipi(hartid);
@@ -55,19 +54,14 @@ fn mp_hook() -> bool {
             loop {
                 wfi();
                 if mip::read().msoft() {
-                    println!("[rustsbi] wakeup hart {}", mhartid::read());
-                    println!("[rustsbi] hart {} can go forward!", mhartid::read());
                     break;
                 }
             }
 
-            println!("[rustsbi] hart {} exited the loop!", mhartid::read());
             // Stop listening for software interrupts
             mie::clear_msoft();
-            println!("[rustsbi] mie::clear_msoft()");
             // Clear IPI
             msip::clear_ipi(hartid);
-            println!("[rustsbi] msip::clear_ipi()");
         }
         false
     }
@@ -124,7 +118,6 @@ fn main() -> ! {
             r0::init_data(&mut _sdata, &mut _edata, &_sidata);
         } 
     }
-    println!("after mp_hook hartid = {}", mhartid::read());
 
     extern "C" {
         fn _start_trap();
@@ -162,12 +155,9 @@ fn main() -> ! {
                 1
             }
             fn send_ipi_many(&mut self, hart_mask: rustsbi::HartMask) {
-                println!("[rustsbi] into send_ipi_many!");
                 use k210_hal::clint::msip;
                 for i in 0..=1 {
-                    println!("[rustsbi] i = {}", i);
                     if hart_mask.has_bit(i) {
-                        println!("has bit, send ipi!");
                         msip::set_ipi(i);
                         /*
                         use k210_hal::clint::mtime;
@@ -179,8 +169,6 @@ fn main() -> ! {
                         }
                          */
                         msip::clear_ipi(i);
-                    } else {
-                        println!("not bit, do not send ipi!");
                     }
                 }
             }
@@ -224,12 +212,9 @@ fn main() -> ! {
             pac::PLIC::unmask(mhartid::read(), Interrupt::GPIOHS0);
         }
         boot.clear_interrupt_pending_bits();
-    } else {
-        println!("[rustsbi] hart {} do not need initialize!", mhartid::read());
     }
     
     unsafe {
-        println!("[rustsbi] hart {} now setting intr delegation!", mhartid::read());
         mideleg::set_sext();
         mideleg::set_stimer();
         mideleg::set_ssoft();
@@ -271,7 +256,6 @@ fn main() -> ! {
         fn _s_mode_start();
     }
     unsafe {
-        println!("[rustsbi] hart {} is ready into S Mode!", mhartid::read());
         mepc::write(_s_mode_start as usize);
         mstatus::set_mpp(MPP::Supervisor);
         enter_privileged(mhartid::read(), 0x2333333366666666);
