@@ -158,15 +158,6 @@ fn main() -> ! {
                 for i in 0..=1 {
                     if hart_mask.has_bit(i) {
                         msip::set_ipi(i);
-                        /*
-                        use k210_hal::clint::mtime;
-                        let cur_time = mtime::read();
-                        loop {
-                            if mtime::read() > cur_time + 100 {
-                                break;
-                            }
-                        }
-                         */
                         msip::clear_ipi(i);
                     }
                 }
