@@ -76,7 +76,7 @@ fn main() -> ! {
         csrr    a2, mhartid
         lui     t0, %hi(_max_hart_id)
         add     t0, t0, %lo(_max_hart_id)
-        bgt     a2, t0, _start_abort
+        bgtu    a2, t0, _start_abort
         la      sp, _stack_start
         lui     t0, %hi(_hart_stack_size)
         add     t0, t0, %lo(_hart_stack_size)
@@ -104,8 +104,7 @@ fn main() -> ! {
     "
         )
     };
-    let hart_boot = mp_hook();
-    if hart_boot {
+    if mp_hook() {
         extern "C" {
             static mut _ebss: u32;
             static mut _sbss: u32;
