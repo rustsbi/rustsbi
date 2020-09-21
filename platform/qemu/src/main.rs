@@ -41,8 +41,34 @@ fn oom(_layout: Layout) -> ! {
 }
 
 // #[export_name = "_mp_hook"]
-pub extern "C" fn _mp_hook() -> bool {
-    mhartid::read() == 0
+pub extern "C" fn mp_hook() -> bool {
+    let hartid = mhartid::read();
+    if hartid == 0 {
+        true
+    } else {
+        use riscv::asm::wfi;
+        use hal::Clint;
+        unsafe {
+            let mut clint = Clint::new(0x200_0000 as *mut u8);
+            // Clear IPI
+            clint.clear_soft(hartid);
+            // Start listening for software interrupts
+            mie::set_msoft();
+
+            loop {
+                wfi();
+                if mip::read().msoft() {
+                    break;
+                }
+            }
+
+            // Stop listening for software interrupts
+            mie::clear_msoft();
+            // Clear IPI
+            clint.clear_soft(hartid);
+        }
+        false
+    }
 }
 
 #[export_name = "_start"]
@@ -90,7 +116,7 @@ fn main() -> ! {
         dtb_pa
     };
 
-    if _mp_hook() {
+    if mp_hook() {
         // init
     }
 
