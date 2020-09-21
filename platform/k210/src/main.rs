@@ -202,10 +202,6 @@ fn main() -> ! {
             pac::PLIC::unmask(mhartid::read(), Interrupt::GPIOHS0);
         }
         boot.clear_interrupt_pending_bits();
-
-        // wake other harts, especially hart1 on k210
-        k210_hal::clint::msip::set_ipi(1);
-        k210_hal::clint::msip::clear_ipi(1);
     }
     
     unsafe {

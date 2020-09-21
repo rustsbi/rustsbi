@@ -32,12 +32,12 @@ impl Clint {
         }
     }
 
-    // pub fn clear_soft(&mut self, hart_id: usize) {
-    //     unsafe {
-    //         let base = self.base as *mut u8;
-    //         core::ptr::write_volatile((base as *mut u32).add(hart_id), 0);
-    //     }
-    // }
+    pub fn clear_soft(&mut self, hart_id: usize) {
+        unsafe {
+            let base = self.base as *mut u8;
+            core::ptr::write_volatile((base as *mut u32).add(hart_id), 0);
+        }
+    }
 }
 
 use rustsbi::{HartMask, Ipi, Timer};
