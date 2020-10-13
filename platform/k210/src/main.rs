@@ -23,6 +23,8 @@ use riscv::register::{
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
+static mut DEVINTRENTRY: usize = 0;
+
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
@@ -360,10 +362,14 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
     let cause = mcause::read().cause();
     match cause {
         Trap::Exception(Exception::SupervisorEnvCall) => {
-            let params = [trap_frame.a0, trap_frame.a1, trap_frame.a2, trap_frame.a3];
-            let ans = rustsbi::ecall(trap_frame.a7, trap_frame.a6, params);
-            trap_frame.a0 = ans.error;
-            trap_frame.a1 = ans.value;
+            if trap_frame.a7 == 0x09 {
+                unsafe { DEVINTRENTRY = trap_frame.a0; }
+            } else {
+                let params = [trap_frame.a0, trap_frame.a1, trap_frame.a2, trap_frame.a3];
+                let ans = rustsbi::ecall(trap_frame.a7, trap_frame.a6, params);
+                trap_frame.a0 = ans.error;
+                trap_frame.a1 = ans.value;
+            }
             mepc::write(mepc::read().wrapping_add(4));
         }
         Trap::Interrupt(Interrupt::MachineSoft) => {
@@ -379,6 +385,7 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
             }
         }
         Trap::Interrupt(Interrupt::MachineExternal) => {
+            /* legacy software delegation
             // to make UARTHS interrupt soft delegation work; ref: pull request #1
             // PLIC target0(Always Hart0-M-Interrupt) acquire
             let irq_id = unsafe { (0x0c20_0004 as *const u32).read_volatile() };
@@ -392,6 +399,33 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
             unsafe { llvm_asm!("csrw stval, $0" :: "r"(ch as usize) :: "volatile"); }
             // soft delegate to S Mode soft interrupt
             unsafe { mip::set_ssoft(); }
+             */
+            unsafe {
+                let mut mstatus: usize;
+                llvm_asm!("csrr $0, mstatus" : "=r"(mstatus) ::: "volatile");
+                // set mstatus.mprv
+                mstatus |= 1 << 17;
+                // it may trap from U/S Mode
+                // save mpp and set mstatus.mpp to S Mode
+                let mpp = (mstatus >> 11) & 3;
+                mstatus = mstatus & !(3 << 11);
+                mstatus |= 1 << 11;
+                // drop mstatus.mprv protection
+                llvm_asm!("csrw mstatus, $0" :: "r"(mstatus) :: "volatile");
+                fn devintr() {
+                    unsafe {
+                        // call devintr defined in application
+                        // we have to ask compiler save ra explicitly
+                        llvm_asm!("jalr 0($0)" :: "r"(DEVINTRENTRY) : "ra" : "volatile");
+                    }
+                }
+                // compiler helps us save/restore caller-saved registers
+                devintr();
+                // restore mstatus
+                mstatus |= mpp << 11;
+                mstatus -= 1 << 17;
+                llvm_asm!("csrw mstatus, $0" :: "r"(mstatus) :: "volatile");
+            }
         }
         Trap::Exception(Exception::IllegalInstruction) => {
             let vaddr = mepc::read();
@@ -486,3 +520,4 @@ fn set_rd(trap_frame: &mut TrapFrame, rd: u8, value: usize) {
         _ => panic!("invalid target `rd`"),
     }
 }
+
