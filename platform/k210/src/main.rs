@@ -381,6 +381,7 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
         Trap::Interrupt(Interrupt::MachineTimer) => {
             unsafe {
                 mip::set_stimer();
+                mie::clear_mext();
                 mie::clear_mtimer();
             }
         }
@@ -422,6 +423,7 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                 // compiler helps us save/restore caller-saved registers
                 devintr();
                 // restore mstatus
+                mstatus = mstatus &!(3 << 11);
                 mstatus |= mpp << 11;
                 mstatus -= 1 << 17;
                 llvm_asm!("csrw mstatus, $0" :: "r"(mstatus) :: "volatile");
@@ -469,10 +471,21 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
             }
         }
         cause => panic!(
-            "Unhandled trap! mcause: {:?}, mepc: {:016x?}, mtval: {:016x?}",
+            "Unhandled trap! mcause: {:?}, mepc: {:016x?}, mtval: {:016x?}, sp: {:#x}, _stack_start = {:#x}",
             cause,
             mepc::read(),
-            mtval::read()
+            mtval::read(),
+            unsafe {
+                let mut sp: usize;
+                llvm_asm!("mv $0, sp" : "=r"(sp) ::: "volatile");
+                sp
+            },
+            {
+                extern "C" {
+                    fn _stack_start();
+                }
+                _stack_start as usize
+            }
         ),
     }
 }
