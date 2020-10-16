@@ -34,11 +34,13 @@ pub fn set_timer_64(time_value: usize) -> SbiRet {
     if mtip {
         unsafe {
             mie::clear_mtimer();
+            mie::clear_mext();
             mip::set_stimer();
         }
     } else {
         unsafe {
             mie::set_mtimer();
+            mie::set_mext();
             mip::clear_stimer();
         }
     }
@@ -55,11 +57,13 @@ pub fn set_timer_32(arg0: usize, arg1: usize) -> SbiRet {
     if mtip {
         unsafe {
             mie::clear_mtimer();
+            mie::clear_mext();
             mip::set_stimer();
         }
     } else {
         unsafe {
             mie::set_mtimer();
+            mie::set_mext();
             mip::clear_stimer();
         }
     }
