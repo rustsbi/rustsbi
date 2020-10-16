@@ -471,21 +471,10 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
             }
         }
         cause => panic!(
-            "Unhandled trap! mcause: {:?}, mepc: {:016x?}, mtval: {:016x?}, sp: {:#x}, _stack_start = {:#x}",
+            "Unhandled trap! mcause: {:?}, mepc: {:016x?}, mtval: {:016x?}",
             cause,
             mepc::read(),
             mtval::read(),
-            unsafe {
-                let mut sp: usize;
-                llvm_asm!("mv $0, sp" : "=r"(sp) ::: "volatile");
-                sp
-            },
-            {
-                extern "C" {
-                    fn _stack_start();
-                }
-                _stack_start as usize
-            }
         ),
     }
 }
