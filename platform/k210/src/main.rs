@@ -365,6 +365,14 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
             if trap_frame.a7 == 0x09 {
                 unsafe { DEVINTRENTRY = trap_frame.a0; }
             } else {
+                if trap_frame.a7 == 0x0 {
+                    unsafe {
+                        let mtip = mip::read().mtimer();
+                        if mtip {
+                            mie::set_mext();
+                        }
+                    }
+                }
                 let params = [trap_frame.a0, trap_frame.a1, trap_frame.a2, trap_frame.a3];
                 let ans = rustsbi::ecall(trap_frame.a7, trap_frame.a6, params);
                 trap_frame.a0 = ans.error;
@@ -381,6 +389,7 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
         Trap::Interrupt(Interrupt::MachineTimer) => {
             unsafe {
                 mip::set_stimer();
+                mie::clear_mext();
                 mie::clear_mtimer();
             }
         }
@@ -422,6 +431,7 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                 // compiler helps us save/restore caller-saved registers
                 devintr();
                 // restore mstatus
+                mstatus = mstatus &!(3 << 11);
                 mstatus |= mpp << 11;
                 mstatus -= 1 << 17;
                 llvm_asm!("csrw mstatus, $0" :: "r"(mstatus) :: "volatile");
@@ -472,7 +482,7 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
             "Unhandled trap! mcause: {:?}, mepc: {:016x?}, mtval: {:016x?}",
             cause,
             mepc::read(),
-            mtval::read()
+            mtval::read(),
         ),
     }
 }
