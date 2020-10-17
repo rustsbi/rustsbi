@@ -1,3 +1,18 @@
+//! A minimal RISC-V's SBI implementation in Rust.
+//!
+//! This library adapts to embedded Rust's `embedded-hal` crate to provide basical SBI features. 
+//! When building for own platform, implement traits in this library and pass them to the functions
+//! begin with `init`. After that, you may call `rustsbi::ecall` in your own exception handler
+//! which would dispatch parameters from supervisor to the traits to execute SBI functions.
+//!
+//! The library also implements useful functions which may help with platform specific binaries.
+//! The `enter_privileged` maybe used to enter the operating system after the initialization 
+//! process is finished. The `LOGO` should be printed if necessary when the binary is initializing.
+//! 
+//! Note that this crate is a library which contains common building blocks in SBI implementation.
+//! It is not intended to be used directly; users should build own platforms with this library.
+//! RustSBI provides implementations on common platforms in separate platform crates.
+
 #![no_std]
 #![feature(asm)]
 
