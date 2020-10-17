@@ -2,7 +2,8 @@
 ///
 /// Before calling this function, you must write target start address into `mepc` register,
 /// and write target privilege into `mstatus` register.
-/// Call on all harts after the initialization process is finished.
+/// Platform binarys should call this function on all harts to enter lower privilege levels
+/// after the initialization process is finished.
 ///
 /// After this function is called, the stack pointer register `sp` is swapped with `mscratch`,
 /// and a `mret` is called to return to `mepc` address with target privilege.
