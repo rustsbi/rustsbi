@@ -182,7 +182,7 @@ fn main() -> ! {
         struct Reset;
         impl rustsbi::Reset for Reset {
             fn reset(&self) -> ! {
-                println!("[rustsbi] todo: shutdown all harts on k210; program halt");
+                println!("[rustsbi] reset triggered! todo: shutdown all harts on k210; program halt");
                 loop {}
             }
         }
@@ -362,9 +362,18 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
     let cause = mcause::read().cause();
     match cause {
         Trap::Exception(Exception::SupervisorEnvCall) => {
-            if trap_frame.a7 == 0x09 {
+            if trap_frame.a7 == 0x09 { 
+                // We use legacy 0x09 for now to register S-level interrupt handler
+                // for K210 chip only. This chip uses 1.9.1 version of privileged spec,
+                // which did not declare any S-level external interrupts. 
                 unsafe { DEVINTRENTRY = trap_frame.a0; }
             } else {
+                // Due to legacy 1.9.1 version of privileged spec, if we are in S-level
+                // timer handler (delegated from M mode), and we call SBI's `set_timer`,
+                // a M-level external interrupt may be triggered. This may try to obtain
+                // data structures locked previously by S-level interrupt handler, which
+                // results in a deadlock. 
+                // Ref: https://github.com/luojia65/rustsbi/pull/5 
                 if trap_frame.a7 == 0x0 {
                     unsafe {
                         let mtip = mip::read().mtimer();
@@ -373,6 +382,7 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                         }
                     }
                 }
+                // Actual ecall handler which is common for all RustSBI platforms
                 let params = [trap_frame.a0, trap_frame.a1, trap_frame.a2, trap_frame.a3];
                 let ans = rustsbi::ecall(trap_frame.a7, trap_frame.a6, params);
                 trap_frame.a0 = ans.error;
@@ -381,16 +391,18 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
             mepc::write(mepc::read().wrapping_add(4));
         }
         Trap::Interrupt(Interrupt::MachineSoft) => {
+            // Forward to S-level software interrupt
             unsafe {
-                mip::set_ssoft();
-                mie::clear_msoft();
+                mip::set_ssoft(); // set S-soft interrupt flag
+                mie::clear_msoft(); // mask M-soft interrupt
             }
         }
         Trap::Interrupt(Interrupt::MachineTimer) => {
+            // Forward to S-level timer interrupt
             unsafe {
-                mip::set_stimer();
-                mie::clear_mext();
-                mie::clear_mtimer();
+                mip::set_stimer(); // set S-timer interrupt flag
+                mie::clear_mext(); // Ref: Pull request #5
+                mie::clear_mtimer(); // mask M-timer interrupt
             }
         }
         Trap::Interrupt(Interrupt::MachineExternal) => {
@@ -448,6 +460,8 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                 set_rd(trap_frame, rd, time_usize);
                 mepc::write(mepc::read().wrapping_add(4)); // skip current instruction 
             } else if ins & 0xFE007FFF == 0x12000073 { // sfence.vma instruction
+                // There is no `sfence.vma` in 1.9.1 privileged spec; however there is a `sfence.vm`.
+                // For backward compability, here we emulate the first instruction using the second one.
                 // sfence.vma: | 31..25 funct7=SFENCE.VMA(0001001) | 24..20 rs2/asid | 19..15 rs1/vaddr | 
                 //               14..12 funct3=PRIV(000) | 11..7 rd, =0 | 6..0 opcode=SYSTEM(1110011) |
                 // sfence.vm(1.9):  | 31..=20 SFENCE.VM(000100000100) | 19..15 rs1/vaddr |
@@ -475,11 +489,11 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                 // ::"r"(rs1_vaddr)
                 mepc::write(mepc::read().wrapping_add(4)); // skip current instruction
             } else {
-                panic!("invalid instruction, mepc: {:016x?}, instruction: {:08x?}", mepc::read(), ins);
+                panic!("invalid instruction! mepc: {:016x?}, instruction: {:08x?}", mepc::read(), ins);
             }
         }
         cause => panic!(
-            "Unhandled trap! mcause: {:?}, mepc: {:016x?}, mtval: {:016x?}",
+            "unhandled trap! mcause: {:?}, mepc: {:016x?}, mtval: {:016x?}",
             cause,
             mepc::read(),
             mtval::read(),
