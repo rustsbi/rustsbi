@@ -1,7 +1,7 @@
 [package]
 name = "rustsbi"
 description = "Minimal RISC-V's SBI implementation library in Rust"
-version = "0.0.1"
+version = "0.0.2"
 authors = ["luojia65 <me@luojia.cc>"]
 repository = "https://github.com/luojia65/rustsbi"
 license = "MIT" # OR MulanPSL-2.0; cargo does not support by now
