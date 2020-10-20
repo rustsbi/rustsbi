@@ -2,6 +2,11 @@
 
 RISC-V Supervisor Binary Interface implementation in Rust; runs on M-mode.
 
+## Binary downloads
+
+See [release page](https://github.com/luojia65/rustsbi/releases). Binaries are available for
+platforms which can be found on platform page.
+
 ## Features
 
 - Functional operating system runtime
