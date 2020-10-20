@@ -33,8 +33,11 @@ mod timer;
 const SBI_SPEC_MAJOR: usize = 0;
 const SBI_SPEC_MINOR: usize = 2;
 
+// RustSBI implementation ID: 4
+// Ref: https://github.com/riscv/riscv-sbi-doc/pull/61
 const IMPL_ID_RUSTSBI: usize = 4;
-const RUSTSBI_VERSION: usize = 1; // todo: read from env!("CARGO_PKG_VERSION")
+// todo: read from env!("CARGO_PKG_VERSION")
+const RUSTSBI_VERSION: usize = 1; 
 
 pub use ecall::handle_ecall as ecall;
 pub use hart_mask::HartMask;
