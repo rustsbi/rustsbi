@@ -28,17 +28,19 @@ If there are mistakes or missing features in current support module, we welcome 
 To solve the issue 3 in previous section, RustSBI's current implementation includes a RustSBI specific
 SBI call as a function. 
 
-The K210 supervisor-level external interrupt handler register function is declared as:
+The K210 supervisor-level external interrupt handler register function is declared as either of:
 
 ```rust
 fn sbi_rustsbi_k210_sext(phys_addr: usize) -> SbiRet;
+// or
+fn sbi_rustsbi_k210_sext(func: fn()) -> SbiRet;
 ```
 
 This function registers a device interrupt handler to machine level environment. 
 On any machine-level external interrupt, the RustSBI's K210 environment would call the function provided.
 
 The function's physical address shall be stored in register `a0` before calling this function.
-RustSBI will regard `a0` as a function wiout any parameters and any return values, or a `phys_addr: fn()`.
+RustSBI will regard `a0` as a function without any parameters and any return values, or a `phys_addr: fn()`.
 
 This function will always return `SbiRet` value of `SBI_SUCCESS`.
 
@@ -52,8 +54,8 @@ According to RISC-V SBI specification:
 > implementation. That provides the firmware code base specific SBI functions which are defined in the external
 > firmware specification.
 
-Since RustSBI has the implementation ID 4, its specific SBI extension is `0x0A000004`. We add a function
-to this specific SBI extension.
+Since RustSBI has the implementation ID 4, its specific SBI extension is `0x0A000004`. We add the function
+mentioned above to this specific SBI extension.
 
 | Function Name | Function ID | Extension ID |
 |:-----|:----|:----|
