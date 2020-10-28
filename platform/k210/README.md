@@ -23,12 +23,12 @@ interrupt handlers.
 
 If there are mistakes or missing features in current support module, we welcome further contributions!
 
-## Private SBI functions
+## Implementation specific SBI functions
 
 To solve the issue 3 in previous section, RustSBI's current implementation includes a RustSBI specific
 SBI call as a function. 
 
-The K210 supervisor-level external interrupt handler register function is declared as either of:
+The K210 supervisor-level external interrupt handler register function is declared as:
 
 ```rust
 fn sbi_rustsbi_k210_sext(phys_addr: usize) -> SbiRet;
@@ -40,7 +40,7 @@ On any machine-level external interrupt, the RustSBI's K210 environment would ca
 The function's physical address shall be stored in register `a0` before calling this function.
 RustSBI will regard `a0` as a function without any parameters and any return values, or a `phys_addr: fn()`.
 
-This function will always return `SbiRet` value of `SBI_SUCCESS`.
+This function will always return `SbiRet` value of zero and error code of `SBI_SUCCESS`.
 
 ### Function Listing
 
