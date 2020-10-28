@@ -32,8 +32,6 @@ The K210 supervisor-level external interrupt handler register function is declar
 
 ```rust
 fn sbi_rustsbi_k210_sext(phys_addr: usize) -> SbiRet;
-// or
-fn sbi_rustsbi_k210_sext(func: fn()) -> SbiRet;
 ```
 
 This function registers a device interrupt handler to machine level environment. 
