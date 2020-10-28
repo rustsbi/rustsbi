@@ -362,11 +362,15 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
     let cause = mcause::read().cause();
     match cause {
         Trap::Exception(Exception::SupervisorEnvCall) => {
-            if trap_frame.a7 == 0x09 { 
-                // We use legacy 0x09 for now to register S-level interrupt handler
+            if trap_frame.a7 == 0x0A000004 && trap_frame.a6 == 0x210 { 
+                // We use implementation specific sbi_rustsbi_k210_sext function (extension 
+                // id: 0x0A000004, function id: 0x210) to register S-level interrupt handler
                 // for K210 chip only. This chip uses 1.9.1 version of privileged spec,
                 // which did not declare any S-level external interrupts. 
                 unsafe { DEVINTRENTRY = trap_frame.a0; }
+                // return values
+                trap_frame.a0 = 0; // SbiRet::error = SBI_SUCCESS
+                trap_frame.a1 = 0; // SbiRet::value = 0
             } else {
                 // Due to legacy 1.9.1 version of privileged spec, if we are in S-level
                 // timer handler (delegated from M mode), and we call SBI's `set_timer`,
