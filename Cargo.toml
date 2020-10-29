@@ -1,6 +1,6 @@
 [workspace]
+# RustSBI library and all supported platforms
 members = [
     "rustsbi",
-    "platform/k210",
-    "platform/qemu",
+    "platform/*",
 ]
