@@ -198,7 +198,7 @@ fn main() -> ! {
         }
         println!("[rustsbi] mideleg: {:#x}", mideleg::read().bits());
         println!("[rustsbi] medeleg: {:#x}", medeleg::read().bits());
-        println!("[rustsbi] Kernel entry: 0x80200000");
+        println!("[rustsbi] Kernel entry: 0x80020000");
     }
 
     extern "C" {
@@ -222,7 +222,7 @@ _s_mode_start:
     jr ra
     .align  3
 1:
-    .dword 0x80200000
+    .dword 0x80020000
 .option pop
 ");
 
