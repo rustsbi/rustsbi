@@ -392,11 +392,22 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                 }
                 mepc::write(mepc::read().wrapping_add(4)); // 跳过指令
             } else {
+                #[cfg(target_pointer_width = "64")]
                 panic!("invalid instruction, mepc: {:016x?}, instruction: {:016x?}", mepc::read(), ins);
+                #[cfg(target_pointer_width = "32")]
+                panic!("invalid instruction, mepc: {:08x?}, instruction: {:08x?}", mepc::read(), ins);
             }
         }
+        #[cfg(target_pointer_width = "64")]
         cause => panic!(
             "Unhandled exception! mcause: {:?}, mepc: {:016x?}, mtval: {:016x?}",
+            cause,
+            mepc::read(),
+            mtval::read()
+        ),
+        #[cfg(target_pointer_width = "32")]
+        cause => panic!(
+            "Unhandled exception! mcause: {:?}, mepc: {:08x?}, mtval: {:08x?}",
             cause,
             mepc::read(),
             mtval::read()
