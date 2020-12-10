@@ -206,8 +206,6 @@ fn main() -> ! {
         boot.clear_interrupt_pending_bits();
     }
 
-    println!("??????");
-
     unsafe {
         //mideleg::set_sext();
         mideleg::set_stimer();
