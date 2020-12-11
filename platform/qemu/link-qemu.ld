@@ -1,6 +1,6 @@
 MEMORY {
     /* 存储单元的物理地址 */
-    SRAM : ORIGIN = 0x80000000, LENGTH = 128K
+    SRAM : ORIGIN = 0x80000000, LENGTH = 2M
 }
 
 PROVIDE(_stext = 0x80000000);
