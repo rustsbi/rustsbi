@@ -4,8 +4,8 @@ MEMORY {
 }
 
 PROVIDE(_stext = 0x80000000);
-PROVIDE(_heap_size = 32K);
-PROVIDE(_hart_stack_size = 16K);
+PROVIDE(_heap_size = 128K);
+PROVIDE(_hart_stack_size = 64K);
 PROVIDE(_max_hart_id = 7); /* todo */
 
 REGION_ALIAS("REGION_TEXT", SRAM);
