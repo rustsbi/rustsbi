@@ -1,5 +1,8 @@
 /target
 /.idea
+/platform/k210/.idea
+/platform/qemu/.idea
+/rustsbi/.idea
 Cargo.lock
 
 .DS_Store
