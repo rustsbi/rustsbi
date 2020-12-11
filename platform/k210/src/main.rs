@@ -205,9 +205,9 @@ fn main() -> ! {
         }
         boot.clear_interrupt_pending_bits();
     }
-    
+
     unsafe {
-        mideleg::set_sext();
+        //mideleg::set_sext();
         mideleg::set_stimer();
         mideleg::set_ssoft();
         medeleg::set_instruction_misaligned();
@@ -225,7 +225,7 @@ fn main() -> ! {
         medeleg::set_instruction_fault();
         medeleg::set_load_fault();
         medeleg::set_store_fault();
-        mie::set_mext();
+        // 默认不打开mie::set_mext
         // 不打开mie::set_mtimer
         mie::set_msoft();
     }
@@ -362,12 +362,14 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
     let cause = mcause::read().cause();
     match cause {
         Trap::Exception(Exception::SupervisorEnvCall) => {
-            if trap_frame.a7 == 0x0A000004 && trap_frame.a6 == 0x210 { 
+            if trap_frame.a7 == 0x0A000004 && trap_frame.a6 == 0x210 {
                 // We use implementation specific sbi_rustsbi_k210_sext function (extension 
                 // id: 0x0A000004, function id: 0x210) to register S-level interrupt handler
                 // for K210 chip only. This chip uses 1.9.1 version of privileged spec,
                 // which did not declare any S-level external interrupts. 
                 unsafe { DEVINTRENTRY = trap_frame.a0; }
+                // enable mext
+                unsafe { mie::set_mext(); }
                 // return values
                 trap_frame.a0 = 0; // SbiRet::error = SBI_SUCCESS
                 trap_frame.a1 = 0; // SbiRet::value = 0
@@ -382,7 +384,9 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                     unsafe {
                         let mtip = mip::read().mtimer();
                         if mtip {
-                            mie::set_mext();
+                            if DEVINTRENTRY != 0 {
+                                mie::set_mext();
+                            }
                         }
                     }
                 }
