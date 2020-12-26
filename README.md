@@ -1,8 +1,8 @@
+[![crates.io](https://img.shields.io/crates/v/rustsbi.svg)](https://crates.io/crates/rustsbi)
+
 # RustSBI
 
 RISC-V Supervisor Binary Interface implementation in Rust; runs on M-mode.
-
-[![crates.io](https://img.shields.io/crates/v/rustsbi.svg)](https://crates.io/crates/rustsbi)
 
 ## Binary downloads
 
