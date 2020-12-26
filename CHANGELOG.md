@@ -16,6 +16,7 @@ RustSBI is adapted to SBI standard with implementation number 4.
 ### Fixed
 - Delegate instruction load/store faults to S mode, allowing legacy console getchar to work on K210 (#7).
 - Fixed 64-bit and 32-bit instruction value for target pointer widths
+- Fixed readme document path for crates.io
 
 ## [0.0.2] - 2020-10-20
 ### Added
