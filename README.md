@@ -27,7 +27,7 @@ capable of running rCore-Tutorial and other OS kernels on wide supported RISC-V 
 
 Blog article (Chinese): 
 
-- [rCore Operating System Lab Final Report](https://github.com/luojia65/rcore-os-blog/blob/master/source/_posts/os-report-final-luojia65.md)
+- [rCore Operating System Lab Final Report](https://github.com/luojia65/rcore-os-blog/blob/master/source/_posts/os-report-final-luojia65.md), Aug 2020
 
 Slides (Chinese): 
 
