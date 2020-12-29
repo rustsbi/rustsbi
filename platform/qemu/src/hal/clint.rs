@@ -44,6 +44,7 @@ use rustsbi::{HartMask, Ipi, Timer};
 
 impl Ipi for Clint {
     fn max_hart_id(&self) -> usize {
+        /* todo: read from FDT node, instead of hard compile */
         let ans: usize;
         unsafe {
             asm!("
