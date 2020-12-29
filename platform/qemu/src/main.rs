@@ -298,6 +298,7 @@ pub unsafe extern "C" fn start_trap() {
 // }
 
 #[allow(unused)]
+#[derive(Debug)]
 struct TrapFrame {
     ra: usize,
     t0: usize,
@@ -398,17 +399,19 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
         }
         #[cfg(target_pointer_width = "64")]
         cause => panic!(
-            "Unhandled exception! mcause: {:?}, mepc: {:016x?}, mtval: {:016x?}",
+            "Unhandled exception! mcause: {:?}, mepc: {:016x?}, mtval: {:016x?}, trap frame: {:x?}",
             cause,
             mepc::read(),
-            mtval::read()
+            mtval::read(),
+            trap_frame
         ),
         #[cfg(target_pointer_width = "32")]
         cause => panic!(
-            "Unhandled exception! mcause: {:?}, mepc: {:08x?}, mtval: {:08x?}",
+            "Unhandled exception! mcause: {:?}, mepc: {:08x?}, mtval: {:08x?}, trap frame: {:x?}",
             cause,
             mepc::read(),
-            mtval::read()
+            mtval::read(),
+            trap_frame
         ),
     }
 }
