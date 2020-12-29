@@ -179,9 +179,9 @@ fn main() {
     }
 
     if mhartid::read() == 0 {
-        println!("[rustsbi] Version 0.1.0");
+        println!("[rustsbi] RustSBI version {}", rustsbi::VERSION);
         println!("{}", rustsbi::LOGO);
-        println!("[rustsbi] Platform: QEMU");
+        println!("[rustsbi] Platform: QEMU (Version {})", env!("CARGO_PKG_VERSION"));
         let isa = misa::read();
         if let Some(isa) = isa {
             let mxl_str = match isa.mxl() {
