@@ -5,6 +5,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- Abstract support for HSM and SRST extensions
+- Support SRST extension using test device on QEMU
 
 ### Modified
 - Use '#[naked]' instead of global assembly in newer Rust version for RustSBI platforms
