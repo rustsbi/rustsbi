@@ -10,16 +10,29 @@ pub use clint::Clint;
 
 pub struct Reset;
 
+const TEST_FAIL: u64 = 0x3333;
+const TEST_PASS: u64 = 0x5555;
+const TEST_RESET: u64 = 0x7777;
+
 impl rustsbi::Reset for Reset {
-    fn reset(&self) -> ! {
+    fn system_reset(&self, reset_type: usize, reset_reason: usize) -> rustsbi::SbiRet {
         // todo: only exit after all harts finished
         // loop {}
         const VIRT_TEST: *mut u64 = 0x10_0000 as *mut u64;
         // Fail = 0x3333,
         // Pass = 0x5555,
         // Reset = 0x7777,
+        let mut value = match reset_type {
+            rustsbi::reset::RESET_TYPE_SHUTDOWN => TEST_PASS,
+            rustsbi::reset::RESET_TYPE_COLD_REBOOT => TEST_RESET,
+            rustsbi::reset::RESET_TYPE_WARM_REBOOT => TEST_RESET,
+            _ => TEST_FAIL,
+        };
+        if reset_reason == rustsbi::reset::RESET_REASON_SYSTEM_FAILURE {
+            value = TEST_FAIL;
+        };
         unsafe {
-            core::ptr::write_volatile(VIRT_TEST, 0x5555);
+            core::ptr::write_volatile(VIRT_TEST, value);
         }
         unreachable!()
     }

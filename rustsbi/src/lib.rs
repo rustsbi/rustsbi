@@ -24,10 +24,12 @@ pub mod legacy_stdio;
 mod ecall;
 mod extension;
 mod hart_mask;
+mod hsm;
 mod ipi;
 mod logo;
 mod privileged;
-mod reset;
+#[doc(hidden)]
+pub mod reset;
 mod timer;
 
 const SBI_SPEC_MAJOR: usize = 0;
@@ -40,7 +42,9 @@ const IMPL_ID_RUSTSBI: usize = 4;
 const RUSTSBI_VERSION: usize = 1; 
 
 pub use ecall::handle_ecall as ecall;
+pub use ecall::SbiRet;
 pub use hart_mask::HartMask;
+pub use hsm::Hsm;
 pub use ipi::{init_ipi, Ipi};
 pub use logo::LOGO;
 pub use privileged::enter_privileged;
