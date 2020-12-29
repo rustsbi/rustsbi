@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Modified
-- Use '#[naked]' instread of global assembly in newer Rust version for RustSBI platforms
+- Use '#[naked]' instead of global assembly in newer Rust version for RustSBI platforms
 
 ## [0.1.0] - 2020-12-26
 RustSBI is adapted to SBI standard with implementation number 4.
