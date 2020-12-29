@@ -68,6 +68,5 @@ pub fn set_timer_32(arg0: usize, arg1: usize) -> SbiRet {
 
 #[inline]
 pub fn shutdown() -> SbiRet {
-    // todo: ref: opensbi; much more complex process
-    crate::reset::reset()
+    crate::reset::legacy_reset()
 }

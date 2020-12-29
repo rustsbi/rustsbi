@@ -181,8 +181,8 @@ fn main() -> ! {
 
         struct Reset;
         impl rustsbi::Reset for Reset {
-            fn reset(&self) -> ! {
-                println!("[rustsbi] reset triggered! todo: shutdown all harts on k210; program halt");
+            fn system_reset(&self, reset_type: usize, reset_reason: usize) -> rustsbi::SbiRet {
+                println!("[rustsbi] reset triggered! todo: shutdown all harts on k210; program halt. Type: {}, reason: {}", reset_type, reset_reason);
                 loop {}
             }
         }

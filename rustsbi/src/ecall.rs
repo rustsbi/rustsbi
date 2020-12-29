@@ -2,15 +2,18 @@
 // 你应该在riscv-rt或其它中断处理函数里，调用这个模块的内容
 
 mod base;
+mod hsm;
 mod ipi;
 mod legacy;
+mod srst;
 mod timer;
 
 pub const EXTENSION_BASE: usize = 0x10;
 pub const EXTENSION_TIMER: usize = 0x54494D45;
 pub const EXTENSION_IPI: usize = 0x735049;
 // const EXTENSION_RFENCE: usize = 0x52464E43;
-// const EXTENSION_HSM: usize = 0x48534D;
+pub const EXTENSION_HSM: usize = 0x48534D;
+pub const EXTENSION_SRST: usize = 0x53525354;
 
 const LEGACY_SET_TIMER: usize = 0x0;
 const LEGACY_CONSOLE_PUTCHAR: usize = 0x01;
@@ -65,6 +68,8 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 4]) -> Sbi
             () => timer::handle_ecall_timer_32(function, param[0], param[1]),
         },
         EXTENSION_IPI => ipi::handle_ecall_ipi(function, param[0], param[1]),
+        EXTENSION_HSM => hsm::handle_ecall_hsm(function, param[0], param[1], param[2]),
+        EXTENSION_SRST => srst::handle_ecall_srst(function, param[0], param[1]),
         LEGACY_SET_TIMER => match () {
             #[cfg(target_pointer_width = "64")]
             () => legacy::set_timer_64(param[0]),
@@ -80,7 +85,8 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 4]) -> Sbi
     }
 }
 
-/// Returned by handle_ecall function
+/// Call result returned by SBI
+///
 /// After `handle_ecall` finished, you should save returned `error` in `a0`, and `value` in `a1`.
 #[repr(C)]
 pub struct SbiRet {
