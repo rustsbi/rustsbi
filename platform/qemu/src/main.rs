@@ -14,7 +14,7 @@ use core::alloc::Layout;
 use core::panic::PanicInfo;
 use linked_list_allocator::LockedHeap;
 
-use rustsbi::{print, println, enter_privileged};
+use rustsbi::{print, println};
 
 use riscv::register::{
     mcause::{self, Exception, Interrupt, Trap},
@@ -30,7 +30,7 @@ static ALLOCATOR: LockedHeap = LockedHeap::empty();
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    println!("{}", info);
+    println!("[rustsbi-panic] {}", info);
     loop {}
 }
 
@@ -72,11 +72,10 @@ pub extern "C" fn mp_hook() -> bool {
 }
 
 #[export_name = "_start"]
-#[link_section = ".text.entry"] // this is stable
+#[link_section = ".text.entry"]
 #[naked]
-fn main() -> ! {
-    unsafe {
-        llvm_asm!(
+unsafe extern "C" fn start() -> ! {
+    asm!(
             "
         csrr    a2, mhartid
         lui     t0, %hi(_max_hart_id)
@@ -99,34 +98,33 @@ fn main() -> ! {
     .endif
         sub     sp, sp, t0
         csrw    mscratch, zero
-        j _start_success
+        j       main
         
     _start_abort:
         wfi
         j _start_abort
-    _start_success:
-        
-    "
-        )
-    };
+    ", options(noreturn))
+}
+
+#[export_name = "main"]
+#[link_section = ".text.entry"]
+fn main() {
     // Ref: https://github.com/qemu/qemu/blob/aeb07b5f6e69ce93afea71027325e3e7a22d2149/hw/riscv/boot.c#L243
+    #[cfg(riscv)] 
     let dtb_pa = unsafe {
         let dtb_pa: usize;
-        llvm_asm!("":"={a1}"(dtb_pa));
+        asm!("", in("a1") dtb_pa);
         dtb_pa
     };
-
+    
     if mp_hook() {
         // init
     }
 
     /* setup trap */
 
-    extern "C" {
-        fn _start_trap();
-    }
     unsafe {
-        mtvec::write(_start_trap as usize, TrapMode::Direct);
+        mtvec::write(start_trap as usize, TrapMode::Direct);
     }
 
     /* main function start */
@@ -204,19 +202,19 @@ fn main() -> ! {
         println!("[rustsbi] Kernel entry: 0x80200000");
     }
 
-    extern "C" {
-        fn _s_mode_start();
-    }
     unsafe {
-        mepc::write(_s_mode_start as usize);
+        mepc::write(s_mode_start as usize);
         mstatus::set_mpp(MPP::Supervisor);
-        enter_privileged(mhartid::read(), dtb_pa);
+        #[cfg(riscv)] 
+        rustsbi::enter_privileged(mhartid::read(), dtb_pa)
     }
 }
 
-global_asm!(
+#[naked]
+#[link_section = ".text.entry"]
+unsafe extern "C" fn s_mode_start() -> ! {
+    asm!(
         "
-_s_mode_start:
     .option push
     .option norelax
 1:
@@ -226,11 +224,14 @@ _s_mode_start:
     .align  3
 1:
     .dword 0x80200000
-.option pop
-");
+    .option pop
+    ", options(noreturn))
+}
 
-global_asm!(
-    "
+#[naked]
+pub unsafe extern "C" fn start_trap() {
+    asm!(
+        "
     .equ REGBYTES, 8
     .macro STORE reg, offset
         sd  \\reg, \\offset*REGBYTES(sp)
@@ -238,10 +239,7 @@ global_asm!(
     .macro LOAD reg, offset
         ld  \\reg, \\offset*REGBYTES(sp)
     .endm
-    .section .text
-    .global _start_trap
     .p2align 2
-_start_trap:
     csrrw   sp, mscratch, sp
     bnez    sp, 1f
     /* from M level, load sp */
@@ -285,8 +283,8 @@ _start_trap:
     addi    sp, sp, 16 * REGBYTES
     csrrw   sp, mscratch, sp
     mret
-"
-);
+    ", options(noreturn));
+}
 
 // #[doc(hidden)]
 // #[export_name = "_mp_hook"]
