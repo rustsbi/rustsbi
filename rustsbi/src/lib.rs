@@ -38,8 +38,15 @@ const SBI_SPEC_MINOR: usize = 2;
 // RustSBI implementation ID: 4
 // Ref: https://github.com/riscv/riscv-sbi-doc/pull/61
 const IMPL_ID_RUSTSBI: usize = 4;
-// todo: read from env!("CARGO_PKG_VERSION")
-const RUSTSBI_VERSION: usize = 1; 
+// Read from env!("CARGO_PKG_VERSION")
+const RUSTSBI_VERSION_MAJOR: usize = (env!("CARGO_PKG_VERSION_MAJOR").as_bytes()[0] - b'0') as usize;
+const RUSTSBI_VERSION_MINOR: usize = (env!("CARGO_PKG_VERSION_MINOR").as_bytes()[0] - b'0') as usize;
+const RUSTSBI_VERSION_PATCH: usize = (env!("CARGO_PKG_VERSION_PATCH").as_bytes()[0] - b'0') as usize;
+const RUSTSBI_VERSION: usize = {
+   (RUSTSBI_VERSION_MAJOR << 16) + (RUSTSBI_VERSION_MINOR << 8) + RUSTSBI_VERSION_PATCH
+};
+/// RustSBI version as string
+pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 pub use ecall::handle_ecall as ecall;
 pub use ecall::SbiRet;
