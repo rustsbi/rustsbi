@@ -16,8 +16,8 @@ pub fn handle_ecall_hsm(function: usize, param0: usize, param1: usize, param2: u
 }
 
 #[inline]
-fn hart_start(hartid: usize, start_addr: usize, priv_: usize) -> SbiRet {
-    crate::hsm::hart_start(hartid, start_addr, priv_)
+fn hart_start(hartid: usize, start_addr: usize, private_value: usize) -> SbiRet {
+    crate::hsm::hart_start(hartid, start_addr, private_value)
 }
 
 #[inline]

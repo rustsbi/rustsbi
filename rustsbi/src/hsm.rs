@@ -2,7 +2,8 @@ use crate::ecall::SbiRet;
 
 /// Hart State Management Extension
 pub trait Hsm: Send {
-    fn hart_start(&mut self, hartid: usize, start_addr: usize, priv_: usize) -> SbiRet;
+    // Should pass `private_value` to register a1
+    fn hart_start(&mut self, hartid: usize, start_addr: usize, private_value: usize) -> SbiRet;
 
     fn hart_stop(&mut self, hartid: usize) -> SbiRet;
 
@@ -27,9 +28,9 @@ pub(crate) fn probe_hsm() -> bool {
     HSM.lock().as_ref().is_some()
 }
 
-pub(crate) fn hart_start(hartid: usize, start_addr: usize, priv_: usize) -> SbiRet {
+pub(crate) fn hart_start(hartid: usize, start_addr: usize, private_value: usize) -> SbiRet {
     if let Some(obj) = &mut *HSM.lock() {
-        return obj.hart_start(hartid, start_addr, priv_);
+        return obj.hart_start(hartid, start_addr, private_value);
     }
     SbiRet::not_supported()
 }
