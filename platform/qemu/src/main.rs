@@ -323,12 +323,12 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
     match cause {
         Trap::Exception(Exception::SupervisorEnvCall) => {
             let params = [trap_frame.a0, trap_frame.a1, trap_frame.a2, trap_frame.a3];
-            // 调用rust_sbi库的处理函数
+            // Call RustSBI procedure
             let ans = rustsbi::ecall(trap_frame.a7, trap_frame.a6, params);
-            // 把返回值送还给TrapFrame
+            // Return the return value to TrapFrame
             trap_frame.a0 = ans.error;
             trap_frame.a1 = ans.value;
-            // 跳过ecall指令
+            // Skip ecall instruction
             mepc::write(mepc::read().wrapping_add(4));
         }
         Trap::Interrupt(Interrupt::MachineSoft) => {
