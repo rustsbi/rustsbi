@@ -1,7 +1,6 @@
 /target
 /.idea
-/platform/k210/.idea
-/platform/qemu/.idea
+/platform/*/.idea
 /rustsbi/.idea
 Cargo.lock
 
