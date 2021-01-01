@@ -31,7 +31,7 @@ static ALLOCATOR: LockedHeap = LockedHeap::empty();
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     println!("[rustsbi-panic] {}", info);
-    println!("[rustsbi-panic] system reset shutdown scheduled");
+    println!("[rustsbi-panic] system shutdown scheduled due to RustSBI panic");
     use rustsbi::Reset;
     hal::Reset.system_reset(
         rustsbi::reset::RESET_TYPE_SHUTDOWN,
@@ -405,10 +405,11 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
         }
         #[cfg(target_pointer_width = "64")]
         cause => panic!(
-            "Unhandled exception! mcause: {:?}, mepc: {:016x?}, mtval: {:016x?}, trap frame: {:x?}",
+            "Unhandled exception! mcause: {:?}, mepc: {:016x?}, mtval: {:016x?}, trap frame: {:p}, {:x?}",
             cause,
             mepc::read(),
             mtval::read(),
+            &trap_frame as *const _,
             trap_frame
         ),
         #[cfg(target_pointer_width = "32")]
