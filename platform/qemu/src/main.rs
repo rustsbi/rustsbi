@@ -31,7 +31,13 @@ static ALLOCATOR: LockedHeap = LockedHeap::empty();
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     println!("[rustsbi-panic] {}", info);
-    loop {}
+    println!("[rustsbi-panic] system reset shutdown scheduled");
+    use rustsbi::Reset;
+    hal::Reset.system_reset(
+        rustsbi::reset::RESET_TYPE_SHUTDOWN,
+        rustsbi::reset::RESET_REASON_SYSTEM_FAILURE
+    );
+    loop { }
 }
 
 #[cfg(not(test))]

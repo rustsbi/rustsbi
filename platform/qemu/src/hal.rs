@@ -10,15 +10,15 @@ pub use clint::Clint;
 
 pub struct Reset;
 
-const TEST_FAIL: u64 = 0x3333;
-const TEST_PASS: u64 = 0x5555;
-const TEST_RESET: u64 = 0x7777;
+const TEST_FAIL: u32 = 0x3333;
+const TEST_PASS: u32 = 0x5555;
+const TEST_RESET: u32 = 0x7777;
 
 impl rustsbi::Reset for Reset {
     fn system_reset(&self, reset_type: usize, reset_reason: usize) -> rustsbi::SbiRet {
         // todo: only exit after all harts finished
         // loop {}
-        const VIRT_TEST: *mut u64 = 0x10_0000 as *mut u64;
+        const VIRT_TEST: *mut u32 = 0x10_0000 as *mut u32;
         // Fail = 0x3333,
         // Pass = 0x5555,
         // Reset = 0x7777,
