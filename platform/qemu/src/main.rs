@@ -211,28 +211,24 @@ fn main() -> ! {
         println!("[rustsbi] Kernel entry: 0x80200000");
     }
 
-    extern "C" {
-        fn _s_mode_start();
-    }
     unsafe {
-        mepc::write(_s_mode_start as usize);
+        mepc::write(s_mode_start as usize);
         mstatus::set_mpp(MPP::Supervisor);
         rustsbi::enter_privileged(mhartid::read(), dtb_pa)
     }
 }
 
-global_asm!(
-    "
-    .section .text
-    .globl _s_mode_start
-_s_mode_start:
+#[naked]
+#[link_section = ".text"] // must add link section for all naked functions
+unsafe extern "C" fn s_mode_start() -> ! {
+    asm!("
 1:  auipc ra, %pcrel_hi(1f)
     ld ra, %pcrel_lo(1b)(ra)
     jr ra
 .align  3
 1:  .dword 0x80200000
-"
-);
+    ", options(noreturn))
+}
 
 global_asm!(
     "
