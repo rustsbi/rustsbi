@@ -217,10 +217,7 @@ fn main() -> ! {
     unsafe {
         mepc::write(_s_mode_start as usize);
         mstatus::set_mpp(MPP::Supervisor);
-        #[cfg(riscv)] 
-        return rustsbi::enter_privileged(mhartid::read(), dtb_pa);
-        #[cfg(not(riscv))] 
-        unreachable!()
+        rustsbi::enter_privileged(mhartid::read(), dtb_pa)
     }
 }
 
