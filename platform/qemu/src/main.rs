@@ -113,7 +113,7 @@ unsafe extern "C" fn start() -> ! {
 }
 
 #[export_name = "main"]
-#[link_section = ".text.entry"]
+#[link_section = ".text"]
 fn main() {
     // Ref: https://github.com/qemu/qemu/blob/aeb07b5f6e69ce93afea71027325e3e7a22d2149/hw/riscv/boot.c#L243
     #[cfg(riscv)] 
@@ -129,8 +129,12 @@ fn main() {
 
     /* setup trap */
 
+    extern "C" {
+        fn _start_trap_asm();
+    }
+
     unsafe {
-        mtvec::write(start_trap as usize, TrapMode::Direct);
+        mtvec::write(_start_trap_asm as usize, TrapMode::Direct);
     }
 
     /* main function start */
@@ -217,7 +221,7 @@ fn main() {
 }
 
 #[naked]
-#[link_section = ".text.entry"]
+#[link_section = ".text"]
 unsafe extern "C" fn s_mode_start() -> ! {
     asm!(
         "
@@ -245,7 +249,11 @@ pub unsafe extern "C" fn start_trap() {
     .macro LOAD reg, offset
         ld  \\reg, \\offset*REGBYTES(sp)
     .endm
+
+    .pushsection .text
+    .global _start_trap
     .p2align 2
+_start_trap:
     csrrw   sp, mscratch, sp
     bnez    sp, 1f
     /* from M level, load sp */
@@ -289,6 +297,7 @@ pub unsafe extern "C" fn start_trap() {
     addi    sp, sp, 16 * REGBYTES
     csrrw   sp, mscratch, sp
     mret
+    .popsection
     ", options(noreturn));
 }
 
