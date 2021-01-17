@@ -80,9 +80,9 @@ pub extern "C" fn mp_hook() -> bool {
 #[export_name = "_start"]
 #[link_section = ".text.entry"] // this is stable
 #[naked]
-fn main() -> ! {
-    unsafe {
-        llvm_asm!(
+// extern "C" for Rust ABI is by now unsupported for naked functions
+unsafe extern "C" fn start() -> ! {
+    asm!(
             "
         csrr    a2, mhartid
         lui     t0, %hi(_max_hart_id)
@@ -105,16 +105,16 @@ fn main() -> ! {
     .endif
         sub     sp, sp, t0
         csrw    mscratch, zero
-        j _start_success
+        j       main
         
     _start_abort:
         wfi
         j _start_abort
-    _start_success:
-        
-    "
-        )
-    };
+    ", options(noreturn))
+}
+
+#[export_name = "main"]
+fn main() -> ! {
     // Ref: https://github.com/qemu/qemu/blob/aeb07b5f6e69ce93afea71027325e3e7a22d2149/hw/riscv/boot.c#L243
     let dtb_pa = unsafe {
         let dtb_pa: usize;
