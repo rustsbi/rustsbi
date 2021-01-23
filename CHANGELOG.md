@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Abstract support for HSM and SRST extensions
 - Support SRST extension using test device on QEMU
+- Count harts from device tree binary on QEMU platform
 
 ### Modified
 - Use '#[naked]' instead of global assembly in newer Rust version for RustSBI platforms
