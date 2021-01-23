@@ -30,7 +30,9 @@ static ALLOCATOR: LockedHeap = LockedHeap::empty();
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    println!("[rustsbi-panic] {}", info);
+    let hart_id = mhartid::read();
+    // 输出的信息大概是“[rustsbi-panic] hart 0 panicked at ...”
+    println!("[rustsbi-panic] hart {} {}", hart_id, info);
     println!("[rustsbi-panic] system shutdown scheduled due to RustSBI panic");
     use rustsbi::Reset;
     hal::Reset.system_reset(
