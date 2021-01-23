@@ -252,7 +252,7 @@ unsafe fn count_harts(dtb_pa: usize) -> usize {
             let count = cluster_node.children.iter().count();
             // 会输出：Hart count: cluster0 with 2 cores
             // 在justfile的“threads := "2"”处更改
-            println!("[rustsbi] Hart count: {} with {} cores", name, count);
+            println!("[rustsbi-dtb] Hart count: {} with {} cores", name, count);
             tot += count;
         }
         tot
@@ -274,7 +274,7 @@ unsafe fn count_harts(dtb_pa: usize) -> usize {
     }
     // 如果DTB的结构不对（读不到/cpus/cpu-map），返回默认的8个核
     let ans = compiled_max_hartid();
-    println!("[rustsbi] Could not read '/cpus/cpu-map' from 'dtb_pa' device tree root; assuming {} cores", ans);
+    println!("[rustsbi-dtb] Could not read '/cpus/cpu-map' from 'dtb_pa' device tree root; assuming {} cores", ans);
     ans
 }
 
