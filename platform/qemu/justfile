@@ -8,7 +8,7 @@ objdump := "riscv64-unknown-elf-objdump"
 objcopy := "rust-objcopy --binary-architecture=riscv64"
 gdb := "riscv64-unknown-elf-gdb"
 
-threads := "1"
+threads := "2"
 
 build: firmware
     @{{objcopy}} {{m-firmware-file}} --strip-all -O binary {{m-bin-file}}
