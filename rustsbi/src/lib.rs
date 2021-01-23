@@ -45,7 +45,7 @@ const RUSTSBI_VERSION_PATCH: usize = (env!("CARGO_PKG_VERSION_PATCH").as_bytes()
 const RUSTSBI_VERSION: usize = {
    (RUSTSBI_VERSION_MAJOR << 16) + (RUSTSBI_VERSION_MINOR << 8) + RUSTSBI_VERSION_PATCH
 };
-/// RustSBI version as string
+/// RustSBI version as a string.
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 pub use ecall::handle_ecall as ecall;

@@ -118,7 +118,7 @@ pub fn _print(args: fmt::Arguments) {
     Stdout.write_fmt(args).unwrap();
 }
 
-/// Prints to the debug console.
+/// Prints to the legacy debug console.
 #[macro_export(local_inner_macros)]
 macro_rules! print {
     ($($arg:tt)*) => ({
@@ -126,7 +126,7 @@ macro_rules! print {
     });
 }
 
-/// Prints to the debug console, with a newline.
+/// Prints to the legacy debug console, with a newline.
 #[macro_export(local_inner_macros)]
 macro_rules! println {
     ($fmt: literal $(, $($arg: tt)+)?) => {
