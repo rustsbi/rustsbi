@@ -1,14 +1,16 @@
-[![crates.io](https://img.shields.io/crates/v/rustsbi.svg)](https://crates.io/crates/rustsbi)
-
 # RustSBI
 
 RISC-V Supervisor Binary Interface implementation in Rust; runs on M-mode.
+
+[![crates.io](https://img.shields.io/crates/v/rustsbi.svg)](https://crates.io/crates/rustsbi)
+[![Documentation](https://docs.rs/rustsbi/badge.svg)](https://docs.rs/rustsbi)
+![License](https://img.shields.io/crates/l/rustsbi.svg)
 
 ## Binary downloads
 
 See [releases](https://github.com/luojia65/rustsbi/releases).
 
-Binaries are available for platforms which can be found on 
+Binaries are available for platforms which can be found on
 [platform support page](https://github.com/luojia65/rustsbi/tree/master/platform).
 
 ## Features
@@ -27,11 +29,11 @@ Binaries are available for platforms which can be found on
 This project is originally a part of rCore Summer of Code 2020 activities, now it is
 capable of running rCore-Tutorial and other OS kernels on wide supported RISC-V devices.
 
-Blog article (Chinese): 
+Blog article (Chinese):
 
 - [rCore Operating System Lab Final Report](https://github.com/luojia65/rcore-os-blog/blob/master/source/_posts/os-report-final-luojia65.md), Aug 2020
 
-Slides (Chinese): 
+Slides (Chinese):
 
 - [Design and Implementation of RustSBI](https://github.com/luojia65/DailySchedule/blob/master/2020-slides/RustSBI%E7%9A%84%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E7%8E%B0.pdf), Dec 2020
 - [The Rust Embedded System Development](https://github.com/luojia65/DailySchedule/blob/master/2020-slides/Rust%E5%B5%8C%E5%85%A5%E5%BC%8F%E5%BC%80%E5%8F%91.pdf), Dec 2020
@@ -44,8 +46,8 @@ Slides (Chinese):
 2. On both QEMU and K210 platform, we supports CLINT and PLIC peripherals. Embedded Rust's community
    still need more SoCs taped out to discuss on common libraries on RISC-V ecosystem. After these works
    are done, we may use crates then to implement QEMU, without the `hal` module we have now.
-3. Contributions are welcomed! We welcome to implement RustSBI for both FPGA cores and real cores. 
-   Fire a pull request if you are ready!
+3. Contributions are welcomed! We welcome to implement RustSBI for both FPGA cores and real cores.
+   Implementations for emulators are also welcomed. Fire a pull request if you are ready!
 
 ## License
 
