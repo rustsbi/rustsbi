@@ -15,10 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support SRST extension using test device on QEMU
 - Count harts from device tree binary on QEMU platform
 - Show hart id on panic for QEMU platform
-- Small fixes on library documents
 
 ### Modified
 - Use '#[naked]' instead of global assembly in newer Rust version for RustSBI platforms
+
+### Fixed
+- Fix `init_hsm` function which is not exported before
+- Small fixes on library documents
 
 ## [0.1.0] - 2020-12-26
 RustSBI is adapted to SBI standard with implementation number 4.
