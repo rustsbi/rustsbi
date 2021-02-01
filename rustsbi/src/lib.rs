@@ -51,7 +51,7 @@ pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 pub use ecall::handle_ecall as ecall;
 pub use ecall::SbiRet;
 pub use hart_mask::HartMask;
-pub use hsm::Hsm;
+pub use hsm::{init_hsm, Hsm};
 pub use ipi::{init_ipi, Ipi};
 pub use logo::LOGO;
 pub use privileged::enter_privileged;
