@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+
+### Modified
+
+## [0.1.1] - 2021-02-01
+### Added
 - Abstract support for HSM and SRST extensions
 - Support SRST extension using test device on QEMU
 - Count harts from device tree binary on QEMU platform
@@ -38,6 +43,7 @@ RustSBI is adapted to SBI standard with implementation number 4.
 - RISC-V Privileged Specification v1.11
 - Backward compatible to privileged spec v1.9.1
 
-[Unreleased]: https://github.com/luojia65/rustsbi/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/luojia65/rustsbi/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/luojia65/rustsbi/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/luojia65/rustsbi/compare/v0.0.2...v0.1.0
 [0.0.2]: https://github.com/luojia65/rustsbi/releases/tag/v0.0.2
