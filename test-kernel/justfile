@@ -1,0 +1,21 @@
+target := "riscv64imac-unknown-none-elf"
+mode := "debug"
+build-path := "../target/" + target + "/" + mode + "/"
+test-kernel-elf := build-path + "rustsbi-test-kernel"
+test-kernel-bin := build-path + "rustsbi-test-kernel.bin"
+
+objdump := "riscv64-unknown-elf-objdump"
+objcopy := "rust-objcopy --binary-architecture=riscv64"
+size := "rust-size"
+
+build: firmware
+    @{{objcopy}} {{test-kernel-elf}} --strip-all -O binary {{test-kernel-bin}}
+
+firmware:
+    @cargo build --target={{target}}
+
+asm: build
+    @{{objdump}} -D {{test-kernel-elf}} | less
+
+size: build
+    @{{size}} -A -x {{test-kernel-elf}} 
