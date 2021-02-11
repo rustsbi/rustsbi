@@ -5,3 +5,10 @@ members = [
     "platform/*",
     "test-kernel",
 ]
+
+# these profiles are required for test kernel, not RustSBI library itself
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

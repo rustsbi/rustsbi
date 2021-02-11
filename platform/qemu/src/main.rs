@@ -19,9 +19,10 @@ use rustsbi::{print, println};
 use riscv::register::{
     mcause::{self, Exception, Interrupt, Trap},
     medeleg, mepc, mhartid, mideleg, mie, mip, misa::{self, MXL},
-    mstatus::{self, MPP},
+    mstatus::{self, MPP, SPP},
     mtval,
     mtvec::{self, TrapMode},
+    stvec,
 };
 
 #[global_allocator]
@@ -453,8 +454,8 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                     _ => panic!("invalid target"),
                 }
                 mepc::write(mepc::read().wrapping_add(4)); // 跳过指令
-            } else { // can't emulate, raise invalid instruction to supervisor
-                // 出现非法指令异常，转发到特权层
+            } else if mstatus::read().mpp() != MPP::Machine { // can't emulate, raise invalid instruction to supervisor
+                // 出现非法指令异常，转发到S特权层
                 let cause: usize = 2; // Interrupt = 0, Exception Code = 2 (Illegal Exception)
                 let val: usize = mtval::read();
                 let epc: usize = mepc::read();
@@ -463,8 +464,20 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                     csrw    stval, {val}
                     csrw    sepc, {epc}
                 ", cause = in(reg) cause, val = in(reg) val, epc = in(reg) epc) };
-                // todo: remove these following lines
-                // 先把“test-kernel”写完，功能完整后，删除下面几行
+                // 设置中断位
+                unsafe { 
+                    mstatus::set_mpp(MPP::Supervisor);
+                    mstatus::set_spp(SPP::Supervisor);
+                    if mstatus::read().sie() {
+                        mstatus::set_spie()
+                    }
+                    mstatus::clear_sie();
+                };
+                // 设置返回地址，返回到S层
+                // 注意，无论是Direct还是Vectored模式，非法指令异常永远属于异常，不需要处理中断向量，跳转到入口地址即可
+                mepc::write(stvec::read().address());
+            } else {
+                // 真·非法指令异常，是M层出现的
                 #[cfg(target_pointer_width = "64")]
                 panic!("invalid instruction, mepc: {:016x?}, instruction: {:016x?}", mepc::read(), ins);
                 #[cfg(target_pointer_width = "32")]

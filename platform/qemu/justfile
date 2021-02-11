@@ -1,8 +1,10 @@
 target := "riscv64imac-unknown-none-elf"
 mode := "debug"
 build-path := "../../target/" + target + "/" + mode + "/"
-m-firmware-file := build-path + "rustsbi-qemu"
-m-bin-file := build-path + "rustsbi-qemu.bin"
+rustsbi-elf := build-path + "rustsbi-qemu"
+rustsbi-bin := build-path + "rustsbi-qemu.bin"
+test-kernel-elf := build-path + "rustsbi-test-kernel"
+test-kernel-bin := build-path + "rustsbi-test-kernel.bin"
 
 objdump := "riscv64-unknown-elf-objdump"
 objcopy := "rust-objcopy --binary-architecture=riscv64"
@@ -10,33 +12,41 @@ gdb := "riscv64-unknown-elf-gdb"
 
 threads := "2"
 
-build: firmware
-    @{{objcopy}} {{m-firmware-file}} --strip-all -O binary {{m-bin-file}}
+build: rustsbi test-kernel
+    @{{objcopy}} {{rustsbi-elf}} --strip-all -O binary {{rustsbi-bin}}
 
-firmware:
+rustsbi:
     @cargo build --target={{target}}
+
+test-kernel:
+    @just -f "../../test-kernel/justfile" build
 
 qemu: build
     @qemu-system-riscv64 \
             -machine virt \
             -nographic \
             -bios none \
-            -device loader,file={{m-bin-file}},addr=0x80000000 \
+            -device loader,file={{rustsbi-bin}},addr=0x80000000 \
+            -device loader,file={{test-kernel-bin}},addr=0x80200000 \
             -smp threads={{threads}}
 
 run: build qemu
 
 asm: build
-    @{{objdump}} -D {{m-firmware-file}} | less
+    @{{objdump}} -D {{rustsbi-elf}} | less
 
 debug: build
     @qemu-system-riscv64 \
             -machine virt \
             -nographic \
             -bios none \
-            -device loader,file={{m-bin-file}},addr=0x80000000 \
+            -device loader,file={{rustsbi-bin}},addr=0x80000000 \
+            -device loader,file={{test-kernel-bin}},addr=0x80200000 \
             -smp threads={{threads}} \
             -gdb tcp::1234 -S
 
 gdb: 
-    @{{gdb}} --eval-command="file {{m-firmware-file}}" --eval-command="target remote localhost:1234"
+    @{{gdb}} --eval-command="file {{rustsbi-elf}}" --eval-command="target remote localhost:1234"
+
+gdb-kernel: 
+    @{{gdb}} --eval-command="file {{test-kernel-elf}}" --eval-command="target remote localhost:1234"
