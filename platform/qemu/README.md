@@ -6,7 +6,7 @@ Compile and run with:
 just run
 ```
 
-Expected output should be:
+When running `just run`, the test kernel will build and run. Expected output should be:
 
 ```shell
    Compiling rustsbi-qemu v0.1.0 (.../rustsbi/platform/qemu)
@@ -25,9 +25,8 @@ Expected output should be:
 [rustsbi] medeleg: 0xb1ab
 [rustsbi-dtb] Hart count: cluster0 with 2 cores
 [rustsbi] Kernel entry: 0x80200000
-[rustsbi-panic] panicked at 'invalid instruction, mepc: 0000000080200000, instruction: 0000000000000000', platform/qemu/src/main.rs:456:17
-[rustsbi-panic] system shutdown scheduled due to RustSBI panic
+<< Test-kernel: Hart id = 0, DTB physical address = 0x1020
+>> Test-kernel: Trigger illegal exception
+<< Test-kernel: Illegal exception
+<< Test-kernel: SBI test success, shutdown
 ```
-
-Error 'invalid instruction' is expected, that means you should install
-your kernel here at `0x80200000`.

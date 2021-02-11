@@ -31,7 +31,7 @@ RustSBI implementation on production use.
 The RustSBI project contains three parts: the RustSBI library `rustsbi`, reference implementation
 in `platform`, and a simple operating system kernel to test SBI implementations in `test-kernel`.
 
-The test kernel is under development. Boot this kernel using your platform,
+The test kernel is used to test SBI functions. Boot this kernel using your platform,
 it will call all SBI calls and run instructions to test if underlying SBI environment is okay.
 if this kernel reports 'Ok' and exits normally, it means that your SBI implementation is correct.
 
