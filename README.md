@@ -12,6 +12,8 @@ See [releases](https://github.com/luojia65/rustsbi/releases).
 
 Binaries are available for platforms which can be found on
 [platform support page](https://github.com/luojia65/rustsbi/tree/master/platform).
+These provided binaries are only for reference on experiments, consider writing your own
+RustSBI implementation on production use.
 
 ## Features
 
@@ -23,6 +25,15 @@ Binaries are available for platforms which can be found on
 - Supports QEMU emulator (priv. spec v1.11)
 - Backward compatible to privileged spec v1.9
 - Supports Kendryte K210 with MMU and S-Mode
+
+## Components
+
+The RustSBI project contains three parts: the RustSBI library `rustsbi`, reference implementation
+in `platform`, and a simple operating system kernel to test SBI implementations in `test-kernel`.
+
+The test kernel is under development. Boot this kernel using your platform,
+it will call all SBI calls and run instructions to test if underlying SBI environment is okay.
+if this kernel reports 'Ok' and exits normally, it means that your SBI implementation is correct.
 
 ## Talks and documents
 
