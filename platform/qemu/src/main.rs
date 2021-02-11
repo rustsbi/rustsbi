@@ -453,7 +453,16 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                     _ => panic!("invalid target"),
                 }
                 mepc::write(mepc::read().wrapping_add(4)); // 跳过指令
-            } else {
+            } else { // can't emulate, raise invalid instruction to supervisor
+                // 出现非法指令异常，转发到特权层
+                let cause: usize = 2; // Interrupt = 0, Exception Code = 2 (Illegal Exception)
+                let val: usize = mtval::read();
+                unsafe { asm!("
+                    csrw    scause, {cause}
+                    csrw    stval, {val}
+                ", cause = in(reg) cause, val = in(reg) val) };
+                // todo: remove these following lines
+                // 先把“test-kernel”写完，功能完整后，删除下面几行
                 #[cfg(target_pointer_width = "64")]
                 panic!("invalid instruction, mepc: {:016x?}, instruction: {:016x?}", mepc::read(), ins);
                 #[cfg(target_pointer_width = "32")]
