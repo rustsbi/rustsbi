@@ -8,12 +8,29 @@ mod console;
 mod sbi;
 
 use riscv::register::{sepc, stvec::{self, TrapMode}};
+
+pub extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
+    println!("<< Test-kernel: Hart id = {}, DTB physical address = {:#x}", hartid, dtb_pa);
+    unsafe { stvec::write(start_trap as usize, TrapMode::Direct) };
+    println!(">> Test-kernel: Trigger illegal exception");
+    unsafe { asm!("unimp") };
+    println!("<< Test-kernel: SBI test SUCCESS, shutdown");
+    sbi::shutdown()
+}
+
+pub extern "C" fn rust_trap_exception() {
+    println!("<< Test-kernel: Illegal exception delegate success");
+    sepc::write(sepc::read().wrapping_add(4));
+}
+
 use core::panic::PanicInfo;
 
 #[cfg_attr(not(test), panic_handler)]
 #[allow(unused)]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {}
+fn panic(info: &PanicInfo) -> ! {
+    println!("!! Test-kernel: {}", info);
+    println!("!! Test-kernel: SBI test FAILED due to panic");
+    sbi::shutdown()
 }
 
 const BOOT_STACK_SIZE: usize = 4096 * 4 * 8;
@@ -41,15 +58,6 @@ unsafe extern "C" fn entry() -> ! {
     boot_stack = sym BOOT_STACK, 
     rust_main = sym rust_main,
     options(noreturn))
-}
-
-pub extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
-    println!("<< Test-kernel: Hart id = {}, DTB physical address = {:#x}", hartid, dtb_pa);
-    unsafe { stvec::write(start_trap as usize, TrapMode::Direct) };
-    println!(">> Test-kernel: Trigger illegal exception");
-    unsafe { asm!("unimp") };
-    println!("<< Test-kernel: SBI test success, shutdown");
-    sbi::shutdown()
 }
 
 #[naked]
@@ -104,9 +112,4 @@ unsafe extern "C" fn start_trap() {
     REGBYTES = const core::mem::size_of::<usize>(),
     rust_trap_exception = sym rust_trap_exception,
     options(noreturn))
-}
-
-pub extern "C" fn rust_trap_exception() {
-    println!("<< Test-kernel: Illegal exception");
-    sepc::write(sepc::read().wrapping_add(4));
 }
