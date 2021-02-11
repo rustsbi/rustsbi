@@ -457,10 +457,12 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                 // 出现非法指令异常，转发到特权层
                 let cause: usize = 2; // Interrupt = 0, Exception Code = 2 (Illegal Exception)
                 let val: usize = mtval::read();
+                let epc: usize = mepc::read();
                 unsafe { asm!("
                     csrw    scause, {cause}
                     csrw    stval, {val}
-                ", cause = in(reg) cause, val = in(reg) val) };
+                    csrw    sepc, {epc}
+                ", cause = in(reg) cause, val = in(reg) val, epc = in(reg) epc) };
                 // todo: remove these following lines
                 // 先把“test-kernel”写完，功能完整后，删除下面几行
                 #[cfg(target_pointer_width = "64")]
