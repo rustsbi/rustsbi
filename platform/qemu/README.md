@@ -27,6 +27,6 @@ When running `just run`, the test kernel will build and run. Expected output sho
 [rustsbi] Kernel entry: 0x80200000
 << Test-kernel: Hart id = 0, DTB physical address = 0x1020
 >> Test-kernel: Trigger illegal exception
-<< Test-kernel: Illegal exception
-<< Test-kernel: SBI test success, shutdown
+<< Test-kernel: Illegal exception delegate success
+<< Test-kernel: SBI test SUCCESS, shutdown
 ```

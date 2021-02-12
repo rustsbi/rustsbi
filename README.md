@@ -33,7 +33,7 @@ in `platform`, and a simple operating system kernel to test SBI implementations 
 
 The test kernel is used to test SBI functions. Boot this kernel using your platform,
 it will call all SBI calls and run instructions to test if underlying SBI environment is okay.
-if this kernel reports 'Ok' and exits normally, it means that your SBI implementation is correct.
+if this kernel reports 'SUCCESS' and exits normally, it means that your SBI implementation is correct.
 
 ## Talks and documents
 
