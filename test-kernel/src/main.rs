@@ -13,7 +13,7 @@ pub extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     println!("<< Test-kernel: Hart id = {}, DTB physical address = {:#x}", hartid, dtb_pa);
     unsafe { stvec::write(start_trap as usize, TrapMode::Direct) };
     println!(">> Test-kernel: Trigger illegal exception");
-    unsafe { asm!("unimp") };
+    unsafe { asm!("csrw mcycle, x0") }; // mcycle cannot be written, this is always a 4-byte illegal instruction
     println!("<< Test-kernel: SBI test SUCCESS, shutdown");
     sbi::shutdown()
 }
