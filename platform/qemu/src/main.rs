@@ -123,13 +123,9 @@ unsafe extern "C" fn start() -> ! {
 }
 
 #[export_name = "main"]
-fn main() -> ! {
+extern "C" fn main(_mhartid: usize, dtb_pa: usize) -> ! {
+    // dtb_pa is put into a1 register on qemu boot
     // Ref: https://github.com/qemu/qemu/blob/aeb07b5f6e69ce93afea71027325e3e7a22d2149/hw/riscv/boot.c#L243
-    let dtb_pa = unsafe {
-        let dtb_pa: usize;
-        llvm_asm!("":"={a1}"(dtb_pa));
-        dtb_pa
-    };
 
     if mp_hook() {
         // init
