@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Modified
 - Enhanced in-line code documents from SBI standard
 
+### Fixed
+- Test kernel console now will lock before `println` line is finished
+
 ## [0.1.1] - 2021-02-01
 ### Added
 - Abstract support for HSM and SRST extensions
