@@ -20,7 +20,7 @@ pub extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
 }
 
 fn test_base_extension() {
-    println!("<< Test-kernel: Testing base extension");
+    println!(">> Test-kernel: Testing base extension");
     let base_version = sbi::probe_extension(sbi::EXTENSION_BASE);
     if base_version == 0 {
         println!("!! Test-kernel: no base extension probed; SBI call returned value '0'");
