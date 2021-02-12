@@ -1,6 +1,6 @@
 # RustSBI
 
-RISC-V Supervisor Binary Interface implementation in Rust; runs on M-mode.
+RISC-V Supervisor Binary Interface ([SBI](https://github.com/riscv/riscv-sbi-doc/)) implementation in Rust; runs on M-mode.
 
 [![crates.io](https://img.shields.io/crates/v/rustsbi.svg)](https://crates.io/crates/rustsbi)
 [![Documentation](https://docs.rs/rustsbi/badge.svg)](https://docs.rs/rustsbi)
@@ -60,9 +60,12 @@ Slides (Chinese):
 3. Contributions are welcomed! We welcome to implement RustSBI for both FPGA cores and real cores.
    Implementations for emulators are also welcomed. Fire a pull request if you are ready!
 
-## License
+## License & Copyright
 
 This project is licensed under either of
 
 - MIT license ([LICENSE-MIT](LICENSE-MIT) or [http://opensource.org/licenses/MIT](http://opensource.org/licenses/MIT))
 - Mulan PSL v2 ([LICENSE-MULAN](LICENSE-MULAN) or [https://opensource.org/licenses/MulanPSL-2.0](https://opensource.org/licenses/MulanPSL-2.0))
+
+This project contains documents from [RISC-V SBI specification](https://github.com/riscv/riscv-sbi-doc)
+repository. These documents are (C) RISC-V community under CC-BY 4.0 license.

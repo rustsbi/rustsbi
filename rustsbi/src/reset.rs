@@ -4,6 +4,8 @@
 /// 
 /// The term "system" refers to the world-view of supervisor software and the underlying SBI implementation 
 /// could be machine mode firmware or hypervisor.
+///
+/// Ref: [Section 9, RISC-V Supervisor Binary Interface Specification](https://github.com/riscv/riscv-sbi-doc/blob/master/riscv-sbi.adoc#9-system-reset-extension-eid-0x53525354-srst)
 pub trait Reset: Send {
     /// Reset the system based on provided `reset_type` and `reset_reason`. 
     ///
@@ -33,6 +35,7 @@ pub trait Reset: Send {
     /// Puts all the harts to shut down state from supervisor point of view. This SBI call doesn’t return.
     #[doc(hidden)]
     fn legacy_reset(&self) -> ! {
+        // By default, this function redirects to `system_reset`.
         self.system_reset(RESET_TYPE_SHUTDOWN, RESET_REASON_NO_REASON);
         unreachable!()
     }

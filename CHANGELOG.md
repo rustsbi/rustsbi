@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a test kernel to test SBI function on RustSBI implementations
 
 ### Modified
+- Enhanced in-line code documents from SBI standard
 
 ## [0.1.1] - 2021-02-01
 ### Added
