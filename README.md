@@ -12,7 +12,7 @@ See [releases](https://github.com/luojia65/rustsbi/releases).
 
 Binaries are available for platforms which can be found on
 [platform support page](https://github.com/luojia65/rustsbi/tree/master/platform).
-These provided binaries are only for reference on experiments, consider writing your own
+These provided binaries are only for reference on experiments, consider to write your own
 RustSBI implementation on production use.
 
 ## Features
