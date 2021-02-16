@@ -11,10 +11,27 @@ P: Pending
 
 ## Notes for binary releases
 
-These platforms implementations are only for reference.
+These platform implementations are only for reference.
 Although binaries are released along with RustSBI library itself,
 platform developers should consider using RustSBI as a library,
 other than adding code into forked project's 'platforms' and make a pull request.
+
+Tshe RustSBI project will release these platform binaries in release page.
+Normally, a RustSBI implementation is a separate project other than squashed into 'platform' path;
+but if you really want to contribute to these reference implementations, you may need to build these
+platform packages by yourself.
+
+### Build and install
+
+To build provided reference platforms, you should install the command runner `just`.
+Like `make`, `just` is a handy way to save and run project specific commands.
+To install just, refer to `just` packages [link](https://github.com/casey/just#packages) and pick
+a install command according to your operating system used for development.
+
+Each reference platform have provided `justfile` configuration file.
+You may `cd` into project path and run command `just build` to build binary package.
+The binary package should be ready in some place under `target` folder.
+Or, use `just run` to build and execute it in emulator with a test kernel.
 
 ## Support your own platform
 
