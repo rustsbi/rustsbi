@@ -17,7 +17,7 @@ platform developers should consider using RustSBI as a library,
 other than adding code into forked project's 'platforms' and make a pull request.
 
 The RustSBI project will release these platform binaries in release page.
-A RustSBI implementation in production is typicallt a separate project other than squashed into 'platform' path;
+A RustSBI implementation in production is typically a separate project other than squashed into 'platform' path;
 but if you really want to contribute to these reference implementations, you may need to build these
 platform packages by yourself.
 
