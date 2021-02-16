@@ -26,13 +26,20 @@ pub struct SbiRet {
 #[inline(always)]
 fn sbi_call(extension: usize, function: usize, arg0: usize, arg1: usize, arg2: usize) -> SbiRet {
     let (error, value);
-    unsafe {
-        llvm_asm!("ecall"
-            : "={x10}" (error), "={x11}" (value)
-            : "{x10}" (arg0), "{x11}" (arg1), "{x12}" (arg2), "{x16}" (function), "{x17}" (extension)
-            : "memory"
-            : "volatile"); 
-    }
+    match () {
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+        () => unsafe { asm!(
+            "ecall", 
+            in("a0") arg0, in("a1") arg1, in("a2") arg2,
+            in("a6") function, in("a7") extension,
+            lateout("a0") error, lateout("a1") value,
+        ) },
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+        () => {
+            drop((extension, function, arg0, arg1, arg2));
+            unimplemented!("not RISC-V instruction set architecture")
+        }
+    };
     SbiRet { error, value }
 }
 
@@ -74,13 +81,20 @@ pub fn get_mimpid() -> usize {
 #[inline(always)]
 fn sbi_call_legacy(which: usize, arg0: usize, arg1: usize, arg2: usize) -> usize {
     let ret;
-    unsafe {
-        llvm_asm!("ecall"
-            : "={x10}" (ret)
-            : "{x10}" (arg0), "{x11}" (arg1), "{x12}" (arg2), "{x17}" (which)
-            : "memory"
-            : "volatile"); 
-    }
+    match () {
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+        () => unsafe { asm!(
+            "ecall", 
+            in("a0") arg0, in("a1") arg1, in("a2") arg2,
+            in("a7") which,
+            lateout("a0") ret,
+        ) },
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+        () => {
+            drop((which, arg0, arg1, arg2));
+            unimplemented!("not RISC-V instruction set architecture")
+        }
+    };
     ret
 }
 

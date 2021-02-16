@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Modified
 - Enhanced in-line code documents from SBI standard
+- Remove use of `global_asm` and `llvm_asm` in test kernel
 
 ### Fixed
 - Test kernel console now will lock before `println` line is finished

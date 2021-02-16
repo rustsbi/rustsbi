@@ -1,5 +1,5 @@
 // A test kernel to test RustSBI function on all platforms
-#![feature(naked_functions, global_asm, asm, llvm_asm)]
+#![feature(naked_functions, asm)]
 #![no_std]
 #![no_main]
 
