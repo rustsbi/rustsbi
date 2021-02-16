@@ -16,15 +16,15 @@ Although binaries are released along with RustSBI library itself,
 platform developers should consider using RustSBI as a library,
 other than adding code into forked project's 'platforms' and make a pull request.
 
-Tshe RustSBI project will release these platform binaries in release page.
-Normally, a RustSBI implementation is a separate project other than squashed into 'platform' path;
+The RustSBI project will release these platform binaries in release page.
+A RustSBI implementation in production is typicallt a separate project other than squashed into 'platform' path;
 but if you really want to contribute to these reference implementations, you may need to build these
 platform packages by yourself.
 
 ### Build and install
 
 To build provided reference platforms, you should install the command runner `just`.
-Like `make`, `just` is a handy way to save and run project specific commands.
+Like `make`, [`just`](https://github.com/casey/just#just) is a handy way to save and run project specific commands.
 To install just, refer to `just` packages [link](https://github.com/casey/just#packages) and pick
 a install command according to your operating system used for development.
 
