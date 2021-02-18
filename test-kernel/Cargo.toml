@@ -1,5 +1,5 @@
 [package]
-name = "rustsbi-test-kernel"
+name = "test-kernel"
 version = "0.1.0"
 authors = ["luojia65 <me@luojia.cc>"]
 edition = "2018"
