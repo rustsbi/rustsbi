@@ -12,6 +12,7 @@ use riscv::register::{sepc, stvec::{self, TrapMode}};
 pub extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     println!("<< Test-kernel: Hart id = {}, DTB physical address = {:#x}", hartid, dtb_pa);
     test_base_extension();
+    test_sbi_ins_emulation();
     unsafe { stvec::write(start_trap as usize, TrapMode::Direct) };
     println!(">> Test-kernel: Trigger illegal exception");
     unsafe { asm!("csrw mcycle, x0") }; // mcycle cannot be written, this is always a 4-byte illegal instruction
@@ -35,6 +36,12 @@ fn test_base_extension() {
     println!("<< Test-kernel: Device mvendorid: {:x}", sbi::get_mvendorid());
     println!("<< Test-kernel: Device marchid: {:x}", sbi::get_marchid());
     println!("<< Test-kernel: Device mimpid: {:x}", sbi::get_mimpid());
+}
+
+fn test_sbi_ins_emulation() {
+    println!(">> Test-kernel: Testing SBI instruction emulation");
+    let time = riscv::register::time::read64();
+    println!("<< Test-kernel: Current time: {:x}", time);
 }
 
 pub extern "C" fn rust_trap_exception() {
