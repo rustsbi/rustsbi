@@ -79,17 +79,51 @@ unsafe extern "C" fn entry() -> ! {
     options(noreturn))
 }
 
+
+#[cfg(target_pointer_width = "128")]
+macro_rules! define_store_load {
+    () => {
+        ".altmacro
+        .macro STORE reg, offset
+            sq  \\reg, \\offset* {REGBYTES} (sp)
+        .endm
+        .macro LOAD reg, offset
+            lq  \\reg, \\offset* {REGBYTES} (sp)
+        .endm"
+    };
+}
+
+#[cfg(target_pointer_width = "64")]
+macro_rules! define_store_load {
+    () => {
+        ".altmacro
+        .macro STORE reg, offset
+            sd  \\reg, \\offset* {REGBYTES} (sp)
+        .endm
+        .macro LOAD reg, offset
+            ld  \\reg, \\offset* {REGBYTES} (sp)
+        .endm"
+    };
+}
+
+#[cfg(target_pointer_width = "32")]
+macro_rules! define_store_load {
+    () => {
+        ".altmacro
+        .macro STORE reg, offset
+            sw  \\reg, \\offset* {REGBYTES} (sp)
+        .endm
+        .macro LOAD reg, offset
+            lw  \\reg, \\offset* {REGBYTES} (sp)
+        .endm"
+    };
+}
+
 #[naked]
 #[link_section = ".text"]
 unsafe extern "C" fn start_trap() {
-    asm!("
-.altmacro
-.macro STORE reg, offset
-    sd  \\reg, \\offset* {REGBYTES} (sp)
-.endm
-.macro LOAD reg, offset
-    ld  \\reg, \\offset* {REGBYTES} (sp)
-.endm
+    asm!(concat!(define_store_load!(), "
+    .p2align 2
     addi    sp, sp, -16 * {REGBYTES}
     STORE   ra, 0
     STORE   t0, 1
@@ -127,7 +161,7 @@ unsafe extern "C" fn start_trap() {
     LOAD    a7, 15
     addi    sp, sp, 16 * {REGBYTES}
     sret
-    ",
+    "),
     REGBYTES = const core::mem::size_of::<usize>(),
     rust_trap_exception = sym rust_trap_exception,
     options(noreturn))
