@@ -22,7 +22,7 @@ use riscv::register::{
     mstatus::{self, MPP, SPP},
     mtval,
     mtvec::{self, TrapMode},
-    stvec,
+    stvec, scause, stval, sepc,
 };
 
 #[global_allocator]
@@ -410,17 +410,16 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
             #[inline]
             unsafe fn get_vaddr_u32(vaddr: usize) -> u32 {
                 let mut ans: u32;
-                llvm_asm!("
-                    li      t0, (1 << 17)
-                    mv      t1, $1
-                    csrrs   t0, mstatus, t0
-                    lwu     t1, 0(t1)
-                    csrw    mstatus, t0
-                    mv      $0, t1
-                "
-                    :"=r"(ans) 
-                    :"r"(vaddr)
-                    :"t0", "t1");
+                asm!("
+                    li      {tmp}, (1 << 17)
+                    csrrs   {tmp}, mstatus, {tmp}
+                    lwu     {ans}, 0({vaddr})
+                    csrw    mstatus, {tmp}
+                    ",
+                    tmp = out(reg) _,
+                    vaddr = in(reg) vaddr,
+                    ans = lateout(reg) ans
+                );
                 ans
             }
             let vaddr = mepc::read();
@@ -452,26 +451,24 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                 mepc::write(mepc::read().wrapping_add(4)); // 跳过指令
             } else if mstatus::read().mpp() != MPP::Machine { // can't emulate, raise invalid instruction to supervisor
                 // 出现非法指令异常，转发到S特权层
-                let cause: usize = 2; // Interrupt = 0, Exception Code = 2 (Illegal Exception)
-                let val: usize = mtval::read();
-                let epc: usize = mepc::read();
-                unsafe { asm!("
-                    csrw    scause, {cause}
-                    csrw    stval, {val}
-                    csrw    sepc, {epc}
-                ", cause = in(reg) cause, val = in(reg) val, epc = in(reg) epc) };
-                // 设置中断位
                 unsafe { 
+                    // 设置S层异常原因为：非法指令
+                    scause::set(scause::Trap::Exception(scause::Exception::IllegalInstruction));
+                    // 填写异常指令的指令内容
+                    stval::write(mtval::read());
+                    // 填写S层需要返回到的地址，这里的mepc会被随后的代码覆盖掉
+                    sepc::write(mepc::read());
+                    // 设置中断位
                     mstatus::set_mpp(MPP::Supervisor);
                     mstatus::set_spp(SPP::Supervisor);
                     if mstatus::read().sie() {
                         mstatus::set_spie()
                     }
                     mstatus::clear_sie();
+                    // 设置返回地址，返回到S层
+                    // 注意，无论是Direct还是Vectored模式，所有异常的向量偏移都是0，不需要处理中断向量，跳转到入口地址即可
+                    mepc::write(stvec::read().address());
                 };
-                // 设置返回地址，返回到S层
-                // 注意，无论是Direct还是Vectored模式，非法指令异常永远属于异常，不需要处理中断向量，跳转到入口地址即可
-                mepc::write(stvec::read().address());
             } else {
                 // 真·非法指令异常，是M层出现的
                 #[cfg(target_pointer_width = "64")]

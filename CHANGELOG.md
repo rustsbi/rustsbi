@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Modified
 - Enhanced in-line code documents from SBI standard
 - Remove use of `global_asm` and `llvm_asm` in test kernel
+- Align to 4 bytes for interrupt handler on QEMU and test kernel
+- Update `riscv` crate dependency for QEMU platform
 
 ### Fixed
 - Test kernel console now will lock before `println` line is finished
