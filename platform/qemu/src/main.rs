@@ -378,6 +378,30 @@ struct TrapFrame {
     a7: usize,
 }
 
+impl TrapFrame {
+    #[inline]
+    fn set_register_xi(&mut self, i: u8, data: usize) {
+        match i {
+            10 => self.a0 = data,
+            11 => self.a1 = data,
+            12 => self.a2 = data,
+            13 => self.a3 = data,
+            14 => self.a4 = data,
+            15 => self.a5 = data,
+            16 => self.a6 = data,
+            17 => self.a7 = data,
+            5 =>  self.t0 = data,
+            6 =>  self.t1 = data,
+            7 =>  self.t2 = data,
+            28 => self.t3 = data,
+            29 => self.t4 = data,
+            30 => self.t5 = data,
+            31 => self.t6 = data,
+            _ => panic!("invalid target"),
+        }
+    }
+}
+
 #[export_name = "_start_trap_rust"]
 extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
     let cause = mcause::read().cause();
@@ -430,26 +454,9 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                 // todo: one instance only
                 let clint = hal::Clint::new(0x2000000 as *mut u8);
                 let time_usize = clint.get_mtime() as usize;
-                match rd {
-                    10 => trap_frame.a0 = time_usize,
-                    11 => trap_frame.a1 = time_usize,
-                    12 => trap_frame.a2 = time_usize,
-                    13 => trap_frame.a3 = time_usize,
-                    14 => trap_frame.a4 = time_usize,
-                    15 => trap_frame.a5 = time_usize,
-                    16 => trap_frame.a6 = time_usize,
-                    17 => trap_frame.a7 = time_usize,
-                    5 => trap_frame.t0 = time_usize,
-                    6 => trap_frame.t1 = time_usize,
-                    7 => trap_frame.t2 = time_usize,
-                    28 => trap_frame.t3 = time_usize,
-                    29 => trap_frame.t4 = time_usize,
-                    30 => trap_frame.t5 = time_usize,
-                    31 => trap_frame.t6 = time_usize,
-                    _ => panic!("invalid target"),
-                }
+                trap_frame.set_register_xi(rd, time_usize);
                 mepc::write(mepc::read().wrapping_add(4)); // 跳过指令
-            } else if mstatus::read().mpp() != MPP::Machine { // can't emulate, raise invalid instruction to supervisor
+            } else if mstatus::read().mpp() != MPP::Machine { // invalid instruction, can't emulate, raise to supervisor
                 // 出现非法指令异常，转发到S特权层
                 unsafe { 
                     // 设置S层异常原因为：非法指令
