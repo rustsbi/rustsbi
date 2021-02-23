@@ -17,14 +17,14 @@ and some reference implementations for experiments and reference.
 
 ## Features
 
-- Functional operating system runtime
-- Adapted to RISC-V SBI specification v0.2
-- Good support for unix-like operating systems
+- Functional and extensible operating system runtime
+- Fully support to RISC-V SBI specification v0.2
+- Adapted for unix-like operating systems
 - Written in Rust
-- Alternative to OpenSBI with most of its function
+- Competitive to OpenSBI with most of its function
+- Bundled with a test framework for SBI implementations
 - Supports QEMU emulator (priv. spec v1.11)
-- Backward compatible to privileged spec v1.9
-- Supports Kendryte K210 with MMU and S-Mode
+- Backward compatible to Kendryte K210 with spec v1.9, MMU and S-Mode
 
 ## Components
 
