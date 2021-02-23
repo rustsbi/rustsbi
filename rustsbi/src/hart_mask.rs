@@ -57,7 +57,7 @@ fn split_index_usize(index: usize) -> (usize, usize) {
 #[inline]
 unsafe fn get_vaddr_usize(vaddr_ptr: *const usize) -> usize {
     match () {
-        #[cfg(target_pointer_width = "32")]
+        #[cfg(target_arch = "riscv32")]
         () => {
             let mut ans: usize;
             asm!("
@@ -68,7 +68,7 @@ unsafe fn get_vaddr_usize(vaddr_ptr: *const usize) -> usize {
             ", ans = lateout(reg) ans, vmem = in(reg) vaddr_ptr, tmp = out(reg) _);
             ans
         },
-        #[cfg(target_pointer_width = "64")]
+        #[cfg(target_arch = "riscv64")]
         () => {
             let mut ans: usize;
             asm!("
@@ -79,7 +79,7 @@ unsafe fn get_vaddr_usize(vaddr_ptr: *const usize) -> usize {
             ", ans = lateout(reg) ans, vmem = in(reg) vaddr_ptr, tmp = out(reg) _);
             ans
         },
-        #[cfg(target_pointer_width = "128")]
+        #[cfg(target_arch = "riscv128")]
         () => {
             let mut ans: usize;
             asm!("
@@ -90,10 +90,10 @@ unsafe fn get_vaddr_usize(vaddr_ptr: *const usize) -> usize {
             ", ans = lateout(reg) ans, vmem = in(reg) vaddr_ptr, tmp = out(reg) _);
             ans
         },
-        #[cfg(not(any(target_pointer_width = "32", target_pointer_width = "64", target_pointer_width = "128")))]
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
         () => {
             drop(vaddr_ptr);
-            unimplemented!("not RISC-V RV32, RV64 or RV128 architecture!");
+            unimplemented!("not RISC-V instruction set architecture")
         }
     }
 }
