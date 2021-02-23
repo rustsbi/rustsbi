@@ -1,6 +1,6 @@
 [package]
 name = "rustsbi-k210"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["luojia65 <me@luojia.cc>"]
 edition = "2018"
 publish = false
