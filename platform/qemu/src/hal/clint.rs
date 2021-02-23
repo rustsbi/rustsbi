@@ -1,4 +1,5 @@
 // 这部分其实是运行时提供的，不应该做到实现库里面
+use rustsbi::SbiRet;
 
 pub struct Clint {
     base: usize,
@@ -48,12 +49,13 @@ impl Ipi for Clint {
         *crate::MAX_HART_ID.lock()
     }
 
-    fn send_ipi_many(&mut self, hart_mask: HartMask) {
+    fn send_ipi_many(&mut self, hart_mask: HartMask) -> SbiRet {
         for i in 0..=self.max_hart_id() {
             if hart_mask.has_bit(i) {
                 self.send_soft(i);
             }
         }
+        SbiRet::ok(0)
     }
 }
 

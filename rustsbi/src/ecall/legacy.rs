@@ -19,11 +19,15 @@ pub fn console_getchar() -> SbiRet {
 
 #[inline]
 pub fn send_ipi(hart_mask_addr: usize) -> SbiRet {
+    let max_hart_id = if let Some(id) = max_hart_id() {
+        id
+    } else {
+        return SbiRet::not_supported()
+    };
     // note(unsafe): if any load fault, should be handled by user or supervisor
     // base hart should be 0 on legacy
-    let hart_mask = unsafe { HartMask::from_addr(hart_mask_addr, 0, max_hart_id()) };
-    send_ipi_many(hart_mask);
-    SbiRet::ok(0) // the return value 0 is ignored in legacy
+    let hart_mask = unsafe { HartMask::from_addr(hart_mask_addr, 0, max_hart_id) };
+    send_ipi_many(hart_mask)
 }
 
 #[inline]

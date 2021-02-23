@@ -58,3 +58,4 @@ pub use logo::LOGO;
 pub use privileged::enter_privileged;
 pub use reset::{init_reset, Reset};
 pub use timer::{init_timer, Timer};
+pub use rfence::{init_rfence as init_remote_fence, Rfence as Fence};

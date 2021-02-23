@@ -155,7 +155,7 @@ fn main() -> ! {
             fn max_hart_id(&self) -> usize {
                 1
             }
-            fn send_ipi_many(&mut self, hart_mask: rustsbi::HartMask) {
+            fn send_ipi_many(&mut self, hart_mask: rustsbi::HartMask) -> rustsbi::SbiRet {
                 use k210_hal::clint::msip;
                 for i in 0..=1 {
                     if hart_mask.has_bit(i) {
@@ -163,6 +163,7 @@ fn main() -> ! {
                         msip::clear_ipi(i);
                     }
                 }
+                rustsbi::SbiRet::ok(0)
             }
         }
         use rustsbi::init_ipi;

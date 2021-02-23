@@ -119,6 +119,10 @@ pub fn _print(args: fmt::Arguments) {
 }
 
 /// Prints to the legacy debug console.
+///
+/// This is only supported when there exists legacy extension; 
+/// otherwise platform caller should use an early kernel input/output device
+/// declared in platform specific hardware.
 #[macro_export(local_inner_macros)]
 macro_rules! print {
     ($($arg:tt)*) => ({
@@ -127,6 +131,10 @@ macro_rules! print {
 }
 
 /// Prints to the legacy debug console, with a newline.
+///
+/// This is only supported when there exists legacy extension; 
+/// otherwise platform caller should use an early kernel input/output device
+/// declared in platform specific hardware.
 #[macro_export(local_inner_macros)]
 macro_rules! println {
     ($fmt: literal $(, $($arg: tt)+)?) => {

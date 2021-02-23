@@ -7,8 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added
 - S-level Illegal instruction exception is now delegated into S-level software handler
+- Support RFENCE extension in RustSBI framework
 - Added a test kernel to test SBI function on RustSBI implementations
-- Support framework for RFENCE extension
 
 ### Modified
 - Function `rustsbi::ecall` now require 5 input parameters

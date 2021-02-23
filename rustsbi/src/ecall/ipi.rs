@@ -14,7 +14,11 @@ pub fn handle_ecall_ipi(function: usize, param0: usize, param1: usize) -> SbiRet
 
 #[inline]
 fn send_ipi(hart_mask: usize, hart_mask_base: usize) -> SbiRet {
-    let hart_mask = unsafe { HartMask::from_addr(hart_mask, hart_mask_base, max_hart_id()) };
-    send_ipi_many(hart_mask);
-    SbiRet::ok(0)
+    let max_hart_id = if let Some(id) = max_hart_id() {
+        id
+    } else {
+        return SbiRet::not_supported()
+    };
+    let hart_mask = unsafe { HartMask::from_addr(hart_mask, hart_mask_base, max_hart_id) };
+    send_ipi_many(hart_mask)
 }
