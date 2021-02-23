@@ -8,8 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - S-level Illegal instruction exception is now delegated into S-level software handler
 - Added a test kernel to test SBI function on RustSBI implementations
+- Support framework for RFENCE extension
 
 ### Modified
+- Function `rustsbi::ecall` now require 5 input parameters
 - Enhanced in-line code documents from SBI standard
 - Remove use of `global_asm` and `llvm_asm` in test kernel
 - Align to 4 bytes for interrupt handler on QEMU and test kernel
@@ -18,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Test kernel console now will lock before `println` line is finished
+- Non-legacy supervisor IPI extension is fixed
 
 ## [0.1.1] - 2021-02-01
 ### Added

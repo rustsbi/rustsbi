@@ -31,6 +31,7 @@ mod privileged;
 #[doc(hidden)]
 pub mod reset;
 mod timer;
+mod rfence;
 
 const SBI_SPEC_MAJOR: usize = 0;
 const SBI_SPEC_MINOR: usize = 2;

@@ -391,7 +391,7 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                     }
                 }
                 // Actual ecall handler which is common for all RustSBI platforms
-                let params = [trap_frame.a0, trap_frame.a1, trap_frame.a2, trap_frame.a3];
+                let params = [trap_frame.a0, trap_frame.a1, trap_frame.a2, trap_frame.a3, trap_frame.a4];
                 let ans = rustsbi::ecall(trap_frame.a7, trap_frame.a6, params);
                 trap_frame.a0 = ans.error;
                 trap_frame.a1 = ans.value;
