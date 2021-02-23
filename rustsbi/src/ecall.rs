@@ -7,11 +7,12 @@ mod ipi;
 mod legacy;
 mod srst;
 mod timer;
+mod rfence;
 
 pub const EXTENSION_BASE: usize = 0x10;
 pub const EXTENSION_TIMER: usize = 0x54494D45;
 pub const EXTENSION_IPI: usize = 0x735049;
-// const EXTENSION_RFENCE: usize = 0x52464E43;
+pub const EXTENSION_RFENCE: usize = 0x52464E43;
 pub const EXTENSION_HSM: usize = 0x48534D;
 pub const EXTENSION_SRST: usize = 0x53525354;
 
@@ -26,6 +27,8 @@ const LEGACY_SEND_IPI: usize = 0x04;
 const LEGACY_SHUTDOWN: usize = 0x08;
 
 /// Supervisor environment call handler function
+///
+/// This function is used by platform runtime to handle environment call `ecall` instruction.
 ///
 /// You should call this function in your runtime's exception handler.
 /// If the incoming exception is caused by supervisor `ecall`,
@@ -45,7 +48,7 @@ const LEGACY_SHUTDOWN: usize = 0x08;
 /// #[exception]
 /// fn handle_exception(ctx: &mut TrapFrame) {
 ///     if mcause::read().cause() == Trap::Exception(Exception::SupervisorEnvCall) {
-///         let params = [ctx.a0, ctx.a1, ctx.a2, ctx.a3];
+///         let params = [ctx.a0, ctx.a1, ctx.a2, ctx.a3, ctx.a4];
 ///         let ans = rustsbi::ecall(ctx.a7, ctx.a6, params);
 ///         ctx.a0 = ans.error;
 ///         ctx.a1 = ans.value;
@@ -58,9 +61,9 @@ const LEGACY_SHUTDOWN: usize = 0x08;
 /// Do not forget to advance `mepc` by 4 after an ecall is handled.
 /// This skips the `ecall` instruction itself which is 4-byte long in all conditions.
 #[inline]
-pub fn handle_ecall(extension: usize, function: usize, param: [usize; 4]) -> SbiRet {
+pub fn handle_ecall(extension: usize, function: usize, param: [usize; 5]) -> SbiRet {
     match extension {
-        EXTENSION_BASE => base::handle_ecall_base(function, param[0]),
+        EXTENSION_RFENCE => rfence::handle_ecall_rfence(function, param[0], param[1], param[2], param[3], param[4]),
         EXTENSION_TIMER => match () {
             #[cfg(target_pointer_width = "64")]
             () => timer::handle_ecall_timer_64(function, param[0]),
@@ -68,6 +71,7 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 4]) -> Sbi
             () => timer::handle_ecall_timer_32(function, param[0], param[1]),
         },
         EXTENSION_IPI => ipi::handle_ecall_ipi(function, param[0], param[1]),
+        EXTENSION_BASE => base::handle_ecall_base(function, param[0]),
         EXTENSION_HSM => hsm::handle_ecall_hsm(function, param[0], param[1], param[2]),
         EXTENSION_SRST => srst::handle_ecall_srst(function, param[0], param[1]),
         LEGACY_SET_TIMER => match () {

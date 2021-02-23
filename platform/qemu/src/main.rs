@@ -407,7 +407,7 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
     let cause = mcause::read().cause();
     match cause {
         Trap::Exception(Exception::SupervisorEnvCall) => {
-            let params = [trap_frame.a0, trap_frame.a1, trap_frame.a2, trap_frame.a3];
+            let params = [trap_frame.a0, trap_frame.a1, trap_frame.a2, trap_frame.a3, trap_frame.a4];
             // Call RustSBI procedure
             let ans = rustsbi::ecall(trap_frame.a7, trap_frame.a6, params);
             // Return the return value to TrapFrame
