@@ -109,7 +109,8 @@ const SBI_ERR_NOT_SUPPORTED: usize = usize::from_ne_bytes(isize::to_ne_bytes(-2)
 // const SBI_ERR_ALREADY_AVAILABLE: usize = usize::from_ne_bytes(isize::to_ne_bytes(-6));
 
 impl SbiRet {
-    pub(crate) fn ok(value: usize) -> SbiRet {
+    /// Return success SBI state with given value.
+    pub fn ok(value: usize) -> SbiRet {
         SbiRet {
             error: SBI_SUCCESS,
             value,
