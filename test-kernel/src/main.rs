@@ -135,7 +135,7 @@ macro_rules! define_store_load {
 #[naked]
 #[link_section = ".text"]
 unsafe extern "C" fn start_trap() {
-    asm!(concat!(define_store_load!(), "
+    asm!(define_store_load!(), "
     .p2align 2
     addi    sp, sp, -16 * {REGBYTES}
     STORE   ra, 0
@@ -174,7 +174,7 @@ unsafe extern "C" fn start_trap() {
     LOAD    a7, 15
     addi    sp, sp, 16 * {REGBYTES}
     sret
-    "),
+    ",
     REGBYTES = const core::mem::size_of::<usize>(),
     rust_trap_exception = sym rust_trap_exception,
     options(noreturn))
