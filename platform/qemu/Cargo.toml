@@ -13,7 +13,7 @@ rustsbi = { path = "../../rustsbi" }
 linked_list_allocator = "0.8"
 lazy_static = { version = "1", features = ["spin_no_std"] }
 spin = "0.7"
-riscv = { git = "https://github.com/rust-embedded/riscv", rev = "7358eda6", features = ["inline-asm"] }
+riscv = { git = "https://github.com/rust-embedded/riscv", rev = "7e9d2e5b", features = ["inline-asm"] }
 device_tree = { git = "https://github.com/rcore-os/device_tree-rs/" }
 
 # 这几个其实不用，应该使用对应的hal库实现
