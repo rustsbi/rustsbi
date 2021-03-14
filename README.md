@@ -42,6 +42,7 @@ capable of running rCore-Tutorial and other OS kernels on wide supported RISC-V 
 
 Blog article (Chinese):
 
+- [Rust in Embedded World](https://www.yuque.com/chaosbot/rust_magazine_2021/biydon), Jan 2021
 - [rCore Operating System Lab Final Report](https://github.com/luojia65/rcore-os-blog/blob/master/source/_posts/os-report-final-luojia65.md), Aug 2020
 
 Slides (Chinese):
