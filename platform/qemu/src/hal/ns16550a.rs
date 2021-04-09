@@ -46,7 +46,9 @@ impl Read<u8> for Ns16550a {
                 unsafe { read_volatile((self.base + (offsets::RBR << self.shift)) as *const u8) };
             Ok(word)
         } else {
-            Err(nb::Error::WouldBlock)
+            // Err(nb::Error::WouldBlock)
+            // return null ascii instead of block
+            Ok(0)
         }
     }
 }
