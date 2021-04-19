@@ -14,10 +14,10 @@ use rustsbi::{enter_privileged, print, println};
 use riscv::register::{
     mcause::{self, Exception, Interrupt, Trap},
     medeleg, mepc, mhartid, mideleg, mie, mip, misa::{self, MXL},
-    mstatus::{self, MPP},
+    mstatus::{self, MPP, SPP},
     mtval,
     mtvec::{self, TrapMode},
-    satp,
+    satp, stvec, scause, stval, sepc,
 };
 
 #[global_allocator]
@@ -497,7 +497,21 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                 unsafe { llvm_asm!(".word 0x10400073") }; // sfence.vm x0
                 // ::"r"(rs1_vaddr)
                 mepc::write(mepc::read().wrapping_add(4)); // skip current instruction
-            } else {
+            } else if mstatus::read().mpp() != MPP::Machine { // invalid instruction, can't emulate, raise to supervisor
+                // 出现非法指令异常，转发到S特权层
+                unsafe { 
+                    scause::set(scause::Trap::Exception(scause::Exception::IllegalInstruction));
+                    stval::write(mtval::read());
+                    sepc::write(mepc::read());
+                    mstatus::set_mpp(MPP::Supervisor);
+                    mstatus::set_spp(SPP::Supervisor);
+                    if mstatus::read().sie() {
+                        mstatus::set_spie()
+                    }
+                    mstatus::clear_sie();
+                    mepc::write(stvec::read().address());
+                };
+            } else { // 真正来自M特权层的异常
                 panic!("invalid instruction! mepc: {:016x?}, instruction: {:08x?}", mepc::read(), ins);
             }
         }

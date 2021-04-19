@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 rustsbi = { path = "../../rustsbi" }
-riscv = { git = "https://github.com/rust-embedded/riscv", features = ["inline-asm"] }
+riscv = { git = "https://github.com/rust-embedded/riscv", rev = "7e9d2e5b", features = ["inline-asm"] }
 linked_list_allocator = "0.8"
 k210-hal = { git = "https://github.com/riscv-rust/k210-hal" }
 r0 = "1.0"
