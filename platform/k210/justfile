@@ -6,7 +6,7 @@ m-bin-file := build-path + "rustsbi-k210.bin"
 
 k210-serialport := "/dev/ttyS17"
 
-objdump := "rust-objdump"
+objdump := "riscv64-unknown-elf-objdump"
 objcopy := "rust-objcopy --binary-architecture=riscv64"
 
 build: firmware
