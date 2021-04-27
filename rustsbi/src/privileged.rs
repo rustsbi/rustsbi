@@ -34,7 +34,7 @@ pub unsafe fn enter_privileged(mhartid: usize, opaque: usize) -> ! {
         #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
         () => {
             drop(mhartid);
-            drop(dtb_pa);
+            drop(opaque);
             unimplemented!("not RISC-V instruction set architecture")
         }
     }
