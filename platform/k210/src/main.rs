@@ -360,6 +360,16 @@ struct TrapFrame {
     a7: usize,
 }
 
+impl core::fmt::Display for TrapFrame {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        writeln!(f, "")?;
+        writeln!(f, "ra: {:016x}, t0: {:016x}, t1: {:016x}, t2: {:016x}", self.ra, self.t0, self.t1, self.t2)?;
+        writeln!(f, "t3: {:016x}, t4: {:016x}, t5: {:016x}, t6: {:016x}", self.t3, self.t4, self.t5, self.t6)?;
+        writeln!(f, "a0: {:016x}, a1: {:016x}, a2: {:016x}, a3: {:016x}", self.a0, self.a1, self.a2, self.a3)?;
+        writeln!(f, "a4: {:016x}, a5: {:016x}, a6: {:016x}, a7: {:016x}", self.a4, self.a5, self.a6, self.a7)
+    }
+}
+
 #[export_name = "_start_trap_rust"]
 extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
     let cause = mcause::read().cause();
@@ -514,14 +524,18 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
                     mepc::write(stvec::read().address());
                 };
             } else { // 真正来自M特权层的异常
-                panic!("invalid instruction! mepc: {:016x?}, instruction: {:08x?}", mepc::read(), ins);
+                panic!(
+                    "invalid instruction from machine level, mepc: {:016x?}, instruction: {:08x?}, trap frame: {}", 
+                    mepc::read(), ins, trap_frame
+                );
             }
         }
         cause => panic!(
-            "unhandled trap! mcause: {:?}, mepc: {:016x?}, mtval: {:016x?}",
+            "unhandled trap, mcause: {:?}, mepc: {:016x?}, mtval: {:016x?}, trap frame: {}",
             cause,
             mepc::read(),
             mtval::read(),
+            trap_frame
         ),
     }
 }

@@ -402,6 +402,24 @@ impl TrapFrame {
     }
 }
 
+impl core::fmt::Display for TrapFrame {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        writeln!(f, "")?;
+        #[cfg(target_pointer_width = "64")] {
+            writeln!(f, "ra: {:016x}, t0: {:016x}, t1: {:016x}, t2: {:016x}", self.ra, self.t0, self.t1, self.t2)?;
+            writeln!(f, "t3: {:016x}, t4: {:016x}, t5: {:016x}, t6: {:016x}", self.t3, self.t4, self.t5, self.t6)?;
+            writeln!(f, "a0: {:016x}, a1: {:016x}, a2: {:016x}, a3: {:016x}", self.a0, self.a1, self.a2, self.a3)?;
+            writeln!(f, "a4: {:016x}, a5: {:016x}, a6: {:016x}, a7: {:016x}", self.a4, self.a5, self.a6, self.a7)
+        }
+        #[cfg(target_pointer_width = "32")] {
+            writeln!(f, "ra: {:08x}, t0: {:08x}, t1: {:08x}, t2: {:08x}", self.ra, self.t0, self.t1, self.t2)?;
+            writeln!(f, "t3: {:08x}, t4: {:08x}, t5: {:08x}, t6: {:08x}", self.t3, self.t4, self.t5, self.t6)?;
+            writeln!(f, "a0: {:08x}, a1: {:08x}, a2: {:08x}, a3: {:08x}", self.a0, self.a1, self.a2, self.a3)?;
+            writeln!(f, "a4: {:08x}, a5: {:08x}, a6: {:08x}, a7: {:08x}", self.a4, self.a5, self.a6, self.a7)
+        }
+    }
+}
+
 #[export_name = "_start_trap_rust"]
 extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
     let cause = mcause::read().cause();
@@ -479,18 +497,17 @@ extern "C" fn start_trap_rust(trap_frame: &mut TrapFrame) {
             } else {
                 // 真·非法指令异常，是M层出现的
                 #[cfg(target_pointer_width = "64")]
-                panic!("invalid instruction, mepc: {:016x?}, instruction: {:016x?}", mepc::read(), ins);
+                panic!("invalid instruction from machine level, mepc: {:016x?}, instruction: {:016x?}, trap frame: {}", mepc::read(), ins, trap_frame);
                 #[cfg(target_pointer_width = "32")]
-                panic!("invalid instruction, mepc: {:08x?}, instruction: {:08x?}", mepc::read(), ins);
+                panic!("invalid instruction from machine level, mepc: {:08x?}, instruction: {:08x?}, trap frame: {}", mepc::read(), ins, trap_frame);
             }
         }
         #[cfg(target_pointer_width = "64")]
         cause => panic!(
-            "Unhandled exception! mcause: {:?}, mepc: {:016x?}, mtval: {:016x?}, trap frame: {:p}, {:x?}",
+            "Unhandled exception! mcause: {:?}, mepc: {:016x?}, mtval: {:016x?}, trap frame: {:x?}",
             cause,
             mepc::read(),
             mtval::read(),
-            &trap_frame as *const _,
             trap_frame
         ),
         #[cfg(target_pointer_width = "32")]
