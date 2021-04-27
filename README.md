@@ -35,6 +35,15 @@ The test kernel is used to test SBI functions. Boot this kernel using your platf
 it will call all SBI calls and run instructions to test if underlying SBI environment is okay.
 if this kernel reports 'SUCCESS' and exits normally, it means that your SBI implementation is correct.
 
+## Frequently asked questions
+
+1. Can I use RustSBI on C based kernels?
+
+Yes, you can! RustSBI strictly follows RISC-V SBI standard. All features are prepares for all programming languages,
+as long as they support RISC-V SBI defined calling convention. 
+
+If your kernel language supports other SBI implementations, typically it will support RustSBI in the same way.
+
 ## Talks and documents
 
 This project is originally a part of rCore Summer of Code 2020 activities, now it is
@@ -70,3 +79,6 @@ This project is licensed under either of
 
 This project contains documents from [RISC-V SBI specification](https://github.com/riscv/riscv-sbi-doc)
 repository. These documents are (C) RISC-V community under CC-BY 4.0 license.
+
+Reference implementaion K210 includes Kendryte K210 DTS file from Western Digital, this file is
+(C) Western Digital Corporation or its affiliates under BSD-2-Clause license.

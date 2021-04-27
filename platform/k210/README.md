@@ -58,3 +58,15 @@ mentioned above to this specific SBI extension.
 | Function Name | Function ID | Extension ID |
 |:-----|:----|:----|
 | sbi_rustsbi_k210_sext | 0x210 | 0x0A000004 |
+
+### Notes for implementation developers
+
+## Recompile device tree binary file
+
+Use following command:
+
+```bash
+dtc -I dts -O dtb -o kendryte-k210.dtb kendryte-k210.dts
+```
+
+You need to have `device-tree-compiler` package installed in linux before using this command.

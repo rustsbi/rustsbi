@@ -25,6 +25,8 @@ static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
 static mut DEVINTRENTRY: usize = 0;
 
+static DEVICE_TREE_BINARY: &[u8] = include_bytes!("../kendryte-k210.dtb");
+
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
@@ -260,7 +262,7 @@ fn main() -> ! {
     unsafe {
         mepc::write(_s_mode_start as usize);
         mstatus::set_mpp(MPP::Supervisor);
-        enter_privileged(mhartid::read(), 0x2333333366666666);
+        enter_privileged(mhartid::read(), DEVICE_TREE_BINARY.as_ptr() as usize);
     }
 }
 
