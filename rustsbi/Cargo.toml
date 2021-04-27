@@ -1,7 +1,7 @@
 [package]
 name = "rustsbi"
 description = "Minimal RISC-V's SBI implementation library in Rust"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.3"
 authors = ["luojia65 <me@luojia.cc>"]
 repository = "https://github.com/luojia65/rustsbi"
 documentation = "https://docs.rs/rustsbi"
@@ -17,7 +17,7 @@ edition = "2018"
 default-target = "riscv64imac-unknown-none-elf"
 targets = [
     "riscv32i-unknown-none-elf", "riscv32imc-unknown-none-elf", "riscv32imac-unknown-none-elf",
-    "riscv64imac-unknown-none-elf", "riscv64gc-unknown-none-elf",
+    "riscv64imac-unknown-none-elf",
 ]
 
 [dependencies]
