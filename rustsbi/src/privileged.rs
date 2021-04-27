@@ -24,13 +24,13 @@
 /// }
 /// ```
 #[inline]
-pub unsafe fn enter_privileged(mhartid: usize, dtb_pa: usize) -> ! {
+pub unsafe fn enter_privileged(mhartid: usize, opaque: usize) -> ! {
     match () {
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         () => asm!("
             csrrw   sp, mscratch, sp
             mret
-        ", in("a0") mhartid, in("a1") dtb_pa, options(nomem, noreturn)),
+        ", in("a0") mhartid, in("a1") opaque, options(nomem, noreturn)),
         #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
         () => {
             drop(mhartid);
