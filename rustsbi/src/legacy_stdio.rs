@@ -83,13 +83,13 @@ where
     *LEGACY_STDIO.lock() = Some(Box::new(serial));
 }
 
-pub(crate) fn legacy_stdio_putchar(ch: u8) {
+pub fn legacy_stdio_putchar(ch: u8) {
     if let Some(stdio) = LEGACY_STDIO.lock().as_mut() {
         stdio.putchar(ch)
     }
 }
 
-pub(crate) fn legacy_stdio_getchar() -> u8 {
+pub fn legacy_stdio_getchar() -> u8 {
     if let Some(stdio) = LEGACY_STDIO.lock().as_mut() {
         stdio.getchar()
     } else {
