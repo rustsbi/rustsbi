@@ -1,22 +1,30 @@
 target := "riscv64imac-unknown-none-elf"
 mode := "debug"
 build-path := "../../target/" + target + "/" + mode + "/"
-m-firmware-file := build-path + "rustsbi-k210"
-m-bin-file := build-path + "rustsbi-k210.bin"
+rustsbi-elf := build-path + "rustsbi-k210"
+rustsbi-bin := build-path + "rustsbi-k210.bin"
+test-kernel-elf := build-path + "test-kernel"
+test-kernel-bin := build-path + "test-kernel.bin"
+fused-bin := build-path + "k210-fused.bin"
 
-k210-serialport := "/dev/ttyS17"
+k210-serialport := "COM17"
 
 objdump := "riscv64-unknown-elf-objdump"
 objcopy := "rust-objcopy --binary-architecture=riscv64"
 
-build: firmware
-    @{{objcopy}} {{m-firmware-file}} --strip-all -O binary {{m-bin-file}}
+build: rustsbi test-kernel
+    @{{objcopy}} {{rustsbi-elf}} --strip-all -O binary {{rustsbi-bin}}
 
-firmware:
+rustsbi:
     @cargo build --target={{target}}
 
+test-kernel:
+    @just -f "../../test-kernel/justfile" build
+
 run: build
-    @python3 ./kflash.py --port {{k210-serialport}} --terminal {{m-bin-file}}
+    @cp {{rustsbi-bin}} {{fused-bin}}
+    @dd if={{test-kernel-bin}} of={{fused-bin}} bs=128k seek=1
+    @python ./kflash.py --port {{k210-serialport}} -b 1500000 --terminal {{fused-bin}}
 
 asm: build
-    @{{objdump}} -D {{m-firmware-file}} | less
+    @{{objdump}} -D {{rustsbi-elf}} | less
