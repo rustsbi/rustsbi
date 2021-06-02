@@ -9,18 +9,17 @@ RISC-V Supervisor Binary Interface ([SBI](https://github.com/riscv/riscv-sbi-doc
 ## Binary downloads
 
 From version 0.2.0, RustSBI is reformed into a library, thus no longer provides binary downloads for specific platforms. 
-You may visit RustSBI-QEMU or RustSBI-K210 projects depending on the platforms you need. 
+You may visit RustSBI-QEMU, RustSBI-K210 or other projects depending on the platforms you need. 
 
 ## Features
 
 - Functional and extensible operating system runtime
 - Fully support to RISC-V SBI specification v0.2
-- Adapted for unix-like operating systems
+- Adapted for operating system kernel models on your choice
 - Written in Rust
 - Competitive to OpenSBI with most of its function
 - Bundled with a test framework for SBI implementations
-- Supports QEMU emulator (priv. spec v1.11)
-- Backward compatible to Kendryte K210 with spec v1.9, MMU and S-Mode
+- Empower support, compatibility for different platforms
 
 ## Frequently asked questions
 
