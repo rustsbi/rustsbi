@@ -4,8 +4,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
 ## [0.2.0] - 2021-02-23
 ### Added
 - S-level Illegal instruction exception is now delegated into S-level software handler
@@ -14,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support device tree binary in K210 platform
 
 ### Modified
+- Reform RustSBI project into a library
 - Function `rustsbi::ecall` now require 5 input parameters
 - Enhanced in-line code documents from SBI standard
 - Now IPI module requires to return an `SbiRet` value

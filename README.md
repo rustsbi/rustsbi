@@ -8,12 +8,8 @@ RISC-V Supervisor Binary Interface ([SBI](https://github.com/riscv/riscv-sbi-doc
 
 ## Binary downloads
 
-See [releases](https://github.com/luojia65/rustsbi/releases).
-
-Binaries are available for platforms which can be found on
-[platform support page](https://github.com/luojia65/rustsbi/tree/master/platform).
-This page includes an instruction to write your own RustSBI implementation on production use,
-and some reference implementations for experiments.
+From version 0.2.0, RustSBI is reformed into a library, thus no longer provides binary downloads for specific platforms. 
+You may visit RustSBI-QEMU or RustSBI-K210 projects depending on the platforms you need. 
 
 ## Features
 
@@ -25,15 +21,6 @@ and some reference implementations for experiments.
 - Bundled with a test framework for SBI implementations
 - Supports QEMU emulator (priv. spec v1.11)
 - Backward compatible to Kendryte K210 with spec v1.9, MMU and S-Mode
-
-## Components
-
-The RustSBI project contains three parts: the RustSBI library `rustsbi`, reference implementation
-in `platform`, and a simple operating system kernel to test SBI implementations in `test-kernel`.
-
-The test kernel is used to test SBI functions. Boot this kernel using your platform,
-it will call all SBI calls and run instructions to test if underlying SBI environment is okay.
-if this kernel reports 'SUCCESS' and exits normally, it means that your SBI implementation is correct.
 
 ## Frequently asked questions
 
@@ -64,10 +51,7 @@ Slides (Chinese):
 
 1. RustSBI can be used as a library. Under normal circumstances, RustSBI platform can be implemented
    with embedded Rust's `embedded-hal` libraries.
-2. On both QEMU and K210 platform, we supports CLINT and PLIC peripherals. Embedded Rust's community
-   still need more SoCs taped out to discuss on common libraries on RISC-V ecosystem. After these works
-   are done, we may use crates then to implement QEMU, without the `hal` module we have now.
-3. Contributions are welcomed! We welcome to implement RustSBI for both FPGA cores and real cores.
+2. Contributions are welcomed! We welcome to implement RustSBI for both FPGA cores and real cores.
    Implementations for emulators are also welcomed. Fire a pull request if you are ready!
 
 ## License & Copyright
@@ -76,9 +60,3 @@ This project is licensed under either of
 
 - MIT license ([LICENSE-MIT](LICENSE-MIT) or [http://opensource.org/licenses/MIT](http://opensource.org/licenses/MIT))
 - Mulan PSL v2 ([LICENSE-MULAN](LICENSE-MULAN) or [https://opensource.org/licenses/MulanPSL-2.0](https://opensource.org/licenses/MulanPSL-2.0))
-
-This project contains documents from [RISC-V SBI specification](https://github.com/riscv/riscv-sbi-doc)
-repository. These documents are (C) RISC-V community under CC-BY 4.0 license.
-
-Reference implementaion K210 includes Kendryte K210 DTS file from Western Digital, this file is
-(C) Western Digital Corporation or its affiliates under BSD-2-Clause license.
