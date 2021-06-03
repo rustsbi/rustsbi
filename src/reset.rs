@@ -27,7 +27,13 @@ pub trait Reset: Send {
     ///
     /// # Return value
     /// 
-    /// Returns SBI_ERR_INVALID_PARAM, SBI_ERR_NOT_SUPPORTED or SBI_ERR_FAILED through `SbiRet.error` upon failure.
+    /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
+    ///
+    /// | Error code            | Description
+    /// |:----------------------|:---------------
+    /// | SBI_ERR_INVALID_PARAM | `reset_type` or `reset_reason` is not valid.
+    /// | SBI_ERR_NOT_SUPPORTED | `reset_type` is valid but not implemented.
+    /// | SBI_ERR_FAILED        | Reset request failed for unknown reasons.
     fn system_reset(&self, reset_type: usize, reset_reason: usize) -> SbiRet;
 
     /// Legacy extension's reset function

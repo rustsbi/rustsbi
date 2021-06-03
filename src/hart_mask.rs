@@ -16,7 +16,7 @@ impl HartMask {
     /// - The `vaddr` is a scalar bit-vector containing hartids. 
     ///   Should return address from supervisor level.
     /// - The `base` is the starting hartid from which bit-vector must be computed.
-    ///   If `base` equals `usize::max_value()`, that means `vaddr` is ignored and all available harts must be considered.
+    ///   If `base` equals `usize::MAX`, that means `vaddr` is ignored and all available harts must be considered.
     /// - The `max_hart_id` should be returned by SBI implementation for maximum hart id this hart mask supports.
     ///
     /// # Unsafety
@@ -33,9 +33,8 @@ impl HartMask {
     /// Check if the `hart_id` is included in this hart mask structure.
     pub fn has_bit(&self, hart_id: usize) -> bool {
         assert!(hart_id <= self.max_hart_id);
-        if self.base == usize::max_value() {
-            // If `base` equals `usize::max_value()`, 
-            // that means `vaddr` is ignored and all available harts must be considered.
+        if self.base == usize::MAX {
+            // If `base` equals `usize::MAX`, that means `vaddr` is ignored and all available harts must be considered.
             return true;
         }
         if hart_id < self.base {
