@@ -65,8 +65,8 @@ RustSBI is adapted to SBI standard with implementation number 4.
 - RISC-V Privileged Specification v1.11
 - Backward compatible to privileged spec v1.9.1
 
-[Unreleased]: https://github.com/luojia65/rustsbi/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/luojia65/rustsbi/compare/v0.1.1...v0.2.0
-[0.1.1]: https://github.com/luojia65/rustsbi/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/luojia65/rustsbi/compare/v0.0.2...v0.1.0
-[0.0.2]: https://github.com/luojia65/rustsbi/releases/tag/v0.0.2
+[Unreleased]: https://github.com/rustsbi/rustsbi/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/rustsbi/rustsbi/compare/v0.1.1...v0.2.0
+[0.1.1]: https://github.com/rustsbi/rustsbi/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/rustsbi/rustsbi/compare/v0.0.2...v0.1.0
+[0.0.2]: https://github.com/rustsbi/rustsbi/releases/tag/v0.0.2
