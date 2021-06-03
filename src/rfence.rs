@@ -8,10 +8,12 @@ use crate::ecall::SbiRet;
 /// interface access from supervisor level.
 ///
 /// The remote fence function acts as a full TLB flush if
-/// - `start_addr` and `size` are both 0
-/// - `size` is equal to `usize::max_value()`
+/// - `start_addr` and `size` are both 0, and
+/// - `size` is equal to `usize::MAX`.
 pub trait Rfence: Send {
     /// Instructs remote harts to execute `FENCE.I` instruction.
+    ///
+    /// # Return value
     ///
     /// Returns `SBI_SUCCESS` when remote fence was sent to all the targeted harts successfully.
     fn remote_fence_i(&mut self, hart_mask: HartMask) -> SbiRet;
@@ -110,7 +112,7 @@ pub trait Rfence: Send {
     /// | SBI_ERR_NOT_SUPPORTED     | This function is not supported as it is not implemented or one of the target hart doesn’t support hypervisor extension.
     /// | SBI_ERR_INVALID_ADDRESS   | `start_addr` or `size` is not valid.
     fn remote_hfence_vvma(&mut self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
-        drop((hart_mask, start_addr, size, size));
+        drop((hart_mask, start_addr, size));
         SbiRet::not_supported()
     }
 }

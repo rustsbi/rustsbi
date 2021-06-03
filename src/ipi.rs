@@ -8,6 +8,10 @@ pub trait Ipi: Send {
     /// Send an inter-processor interrupt to all the harts defined in `hart_mask`.
     ///
     /// Interprocessor interrupts manifest at the receiving harts as the supervisor software interrupts.
+    ///
+    /// # Return value
+    /// 
+    /// Should return error code `SBI_SUCCESS` if IPI was sent to all the targeted harts successfully.
     fn send_ipi_many(&mut self, hart_mask: HartMask) -> SbiRet;
 }
 

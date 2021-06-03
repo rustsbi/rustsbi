@@ -6,7 +6,7 @@ pub trait Timer: Send {
     ///
     /// If the supervisor wishes to clear the timer interrupt without scheduling the next timer event,
     /// it can either request a timer interrupt infinitely far into the future (i.e., (uint64_t)-1),
-    /// or it can instead mask the timer interrupt by clearing sie.STIE.
+    /// or it can instead mask the timer interrupt by clearing `sie.STIE` CSR bit.
     fn set_timer(&mut self, stime_value: u64);
 }
 

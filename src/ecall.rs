@@ -103,7 +103,7 @@ pub struct SbiRet {
 const SBI_SUCCESS: usize = 0;
 // const SBI_ERR_FAILED: usize = usize::from_ne_bytes(isize::to_ne_bytes(-1));
 const SBI_ERR_NOT_SUPPORTED: usize = usize::from_ne_bytes(isize::to_ne_bytes(-2));
-// const SBI_ERR_INVALID_PARAM: usize = usize::from_ne_bytes(isize::to_ne_bytes(-3));
+const SBI_ERR_INVALID_PARAM: usize = usize::from_ne_bytes(isize::to_ne_bytes(-3));
 // const SBI_ERR_DENIED: usize = usize::from_ne_bytes(isize::to_ne_bytes(-4));
 // const SBI_ERR_INVALID_ADDRESS: usize = usize::from_ne_bytes(isize::to_ne_bytes(-5));
 // const SBI_ERR_ALREADY_AVAILABLE: usize = usize::from_ne_bytes(isize::to_ne_bytes(-6));
@@ -119,6 +119,12 @@ impl SbiRet {
     pub(crate) fn not_supported() -> SbiRet {
         SbiRet {
             error: SBI_ERR_NOT_SUPPORTED,
+            value: 0,
+        }
+    }
+    pub(crate) fn invalid_param() -> SbiRet {
+        SbiRet {
+            error: SBI_ERR_INVALID_PARAM,
             value: 0,
         }
     }
