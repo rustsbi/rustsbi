@@ -2,21 +2,11 @@
 //! 
 //! # What is RISC-V SBI?
 //!
-//! RISC-V SBI is short for RISC-V Supervisor Binary Interface. The SBI allows supervisor-mode (S-mode or VS-mode) software
-//! to be portable across all RISC-V implementations by defining an abstraction for platform (or hypervisor) specific functionality.
+//! RISC-V SBI is short for RISC-V Supervisor Binary Interface. SBI acts as a bootloader environment to your operating system kernel. 
+//! A SBI implementation will bootstrap your kernel, and provide an environment when your kernel is running.
 //!
-//! Or in another word, SBI is a bootloader environment to your operating system kernel. 
-//! SBI implementation will bootstrap, and provide an environment to support your kernel.
-//!
-//! ## Why should there be SBI
-//! 
-//! The design of the SBI follows the general RISC-V philosophy of having a small core along with a set of optional modular extensions.
-//!
-//! The higher privilege software providing SBI interface to the supervisor-mode software is referred to as a SBI implemenation
-//! or Supervisor Execution Environment (SEE). 
-//! 
-//! A SBI implementation (or SEE) can be platform runtime firmware executing in machine-mode (M-mode),
-//! or it can be some hypervisor executing in hypervisor-mode (HS-mode).
+//! More generally, The SBI allows supervisor-mode (S-mode or VS-mode) software to be portable across 
+//! all RISC-V implementations by defining an abstraction for platform (or hypervisor) specific functionality.
 //!
 //! # How to use RustSBI in your supervisor software
 //!
