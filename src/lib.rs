@@ -1,6 +1,24 @@
-//! A minimal RISC-V's SBI implementation in Rust.
+//! A minimal RISC-V's SBI implementation library in Rust.
+//! 
+//! # What is RISC-V SBI?
 //!
-//! # How to use RustSBI 
+//! RISC-V SBI is short for RISC-V Supervisor Binary Interface. The SBI allows supervisor-mode (S-mode or VS-mode) software
+//! to be portable across all RISC-V implementations by defining an abstraction for platform (or hypervisor) specific functionality.
+//!
+//! Or in another word, SBI is a bootloader environment to your operating system kernel. 
+//! SBI implementation will bootstrap, and provide an environment to support your kernel.
+//!
+//! ## Why should there be SBI
+//! 
+//! The design of the SBI follows the general RISC-V philosophy of having a small core along with a set of optional modular extensions.
+//!
+//! The higher privilege software providing SBI interface to the supervisor-mode software is referred to as a SBI implemenation
+//! or Supervisor Execution Environment (SEE). 
+//! 
+//! A SBI implementation (or SEE) can be platform runtime firmware executing in machine-mode (M-mode),
+//! or it can be some hypervisor executing in hypervisor-mode (HS-mode).
+//!
+//! # How to use RustSBI in your supervisor software
 //!
 //! SBI features include boot sequence and a kernel environment. To bootstrap your kernel,
 //! place kernel into RustSBI implementation defined address, then RustSBI will prepare an
@@ -58,8 +76,8 @@
 //! }
 //!
 //! #[inline]
-//! pub fn get_spec_version() -> usize {
-//!     sbi_call(EXTENSION_BASE, FUNCTION_BASE_GET_SPEC_VERSION, 0, 0).value
+//! pub fn get_spec_version() -> SbiRet {
+//!     sbi_call(EXTENSION_BASE, FUNCTION_BASE_GET_SPEC_VERSION, 0, 0)
 //! }
 //! ```
 //!
@@ -85,10 +103,33 @@
 //! 
 //! #define SBI_CALL_0(module, funct) SBI_CALL(module, funct, 0, 0, 0, 0)
 //!
-//! static inline unsigned long get_spec_version() {
-//!     SBI_CALL_0(EXTENSION_BASE, FUNCTION_BASE_GET_SPEC_VERSION).value
+//! static inline sbiret get_spec_version() {
+//!     SBI_CALL_0(EXTENSION_BASE, FUNCTION_BASE_GET_SPEC_VERSION)
 //! }
 //! ```
+//!
+//! # Where can I get RustSBI binary file for XX platform?
+//!
+//! RustSBI is designed to be a library, thus will not provide any binary files to specific platforms.
+//! Instead, chip or board manufacturers should provide their own SBI implementation project using RustSBI as a dependency.
+//!
+//! The reason RustSBI group will not provide actual binary implementaion is that,
+//! SBI feature demands are different among users, one feature would be useful for this user,
+//! but it will be considered not useful and takes up lots of flash room for other users.
+//!
+//! The RustSBI team provides reference implementaion for several platforms, but they are for evaluation
+//! and should not be used in production. 
+//! RustSBI itself cannot decide for all arbitraty users, so developers are encouraged to write their own
+//! SBI implementaion, other than use reference implementaion directly when in production.
+//!
+//! Also, RustSBI is not designed to include all platforms available in official repository. 
+//! For an actual platform users may consult board or SoC manufacturer other than RustSBI repository itself.
+//!
+//! The reason to that is that if some repository includes all platforms it support,
+//! there could be lots of non technical reasons that will bar developers from merging into main or upstream branches.
+//! For example, if a draft version of actual platform is produced, it will mean to write for one draft version as well
+//! as long as this software is under maintenance. As software developer may not want to write for it,
+//! it's better to include minimal feature in core repository, and leave other features for downstream developers.
 //!
 //! # Notes for RustSBI developers
 //!

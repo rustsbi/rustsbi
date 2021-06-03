@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support RFENCE extension in RustSBI framework
 - Added a test kernel to test SBI function on RustSBI implementations
 - Support device tree binary in K210 platform
+- Support SBI v0.3 hart suspend function
 
 ### Modified
 - Reform RustSBI project into a library
