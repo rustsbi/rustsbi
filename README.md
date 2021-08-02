@@ -8,8 +8,9 @@ RISC-V Supervisor Binary Interface ([SBI](https://github.com/riscv/riscv-sbi-doc
 
 ## Binary downloads
 
-From version 0.2.0, RustSBI is reformed into a library, thus no longer provides binary downloads for specific platforms. 
-You may visit RustSBI-QEMU, RustSBI-K210 or other projects depending on the platforms you need. 
+RustSBI is provided with separate library and binary projects, this is the repository for RustSBI library. 
+For specific platforms, you may visit implementation specific projects depending on the platforms you need. 
+Chip, system and platform vendors should provide RustSBI implementation for dedicated platform as a part of platform software support package.
 
 ## Features
 
@@ -28,7 +29,7 @@ You may visit RustSBI-QEMU, RustSBI-K210 or other projects depending on the plat
 Yes, you can! RustSBI strictly follows RISC-V SBI standard. All features are prepares for all programming languages,
 as long as they support RISC-V SBI defined calling convention. 
 
-If your kernel language supports other SBI implementations, typically it will support RustSBI in the same way.
+If your kernel language supports other SBI implementations, usually it will support RustSBI in the same way.
 
 ## Talks and documents
 
@@ -48,7 +49,7 @@ Slides (Chinese):
 
 ## Notes on platform implementation
 
-1. RustSBI can be used as a library. Under normal circumstances, RustSBI platform can be implemented
+1. RustSBI should be used as a library. Under normal circumstances, RustSBI platform can be implemented
    with embedded Rust's `embedded-hal` libraries.
 2. Contributions are welcomed! We welcome to implement RustSBI for both FPGA cores and real cores.
    Implementations for emulators are also welcomed. Fire a pull request if you are ready!
