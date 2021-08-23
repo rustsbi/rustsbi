@@ -138,6 +138,6 @@ macro_rules! print {
 #[macro_export(local_inner_macros)]
 macro_rules! println {
     ($fmt: literal $(, $($arg: tt)+)?) => {
-        $crate::legacy_stdio::_print(core::format_args!(core::concat!($fmt, "\n") $(, $($arg)+)?));
+        $crate::legacy_stdio::_print(core::format_args!(core::concat!($fmt, "\r\n") $(, $($arg)+)?));
     }
 }
