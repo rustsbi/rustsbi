@@ -15,7 +15,7 @@ Chip, system and platform vendors should provide RustSBI implementation for dedi
 ## Features
 
 - Functional and extensible operating system runtime
-- Fully support to RISC-V SBI specification v0.2
+- Fully support to RISC-V SBI specification v0.3
 - Adapted for operating system kernel models on your choice
 - Written in Rust
 - Competitive to OpenSBI with most of its function
