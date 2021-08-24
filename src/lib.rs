@@ -155,6 +155,7 @@ mod privileged;
 pub mod reset;
 mod timer;
 mod rfence;
+mod pmu;
 
 const SBI_SPEC_MAJOR: usize = 0;
 const SBI_SPEC_MINOR: usize = 2;
@@ -182,5 +183,6 @@ pub use privileged::enter_privileged;
 pub use reset::{init_reset, Reset};
 pub use timer::{init_timer, Timer};
 pub use rfence::{init_rfence as init_remote_fence, Rfence as Fence};
+pub use pmu::{init_pmu, Pmu};
 #[doc(hidden)]
 pub use legacy_stdio::{legacy_stdio_getchar, legacy_stdio_putchar};
