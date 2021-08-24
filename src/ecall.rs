@@ -8,6 +8,7 @@ mod legacy;
 mod srst;
 mod timer;
 mod rfence;
+mod pmu;
 
 pub const EXTENSION_BASE: usize = 0x10;
 pub const EXTENSION_TIMER: usize = 0x54494D45;
@@ -15,6 +16,7 @@ pub const EXTENSION_IPI: usize = 0x735049;
 pub const EXTENSION_RFENCE: usize = 0x52464E43;
 pub const EXTENSION_HSM: usize = 0x48534D;
 pub const EXTENSION_SRST: usize = 0x53525354;
+pub const EXTENSION_PMU: usize = 0x504D55;
 
 const LEGACY_SET_TIMER: usize = 0x0;
 const LEGACY_CONSOLE_PUTCHAR: usize = 0x01;
@@ -48,7 +50,7 @@ const LEGACY_SHUTDOWN: usize = 0x08;
 /// #[exception]
 /// fn handle_exception(ctx: &mut TrapFrame) {
 ///     if mcause::read().cause() == Trap::Exception(Exception::SupervisorEnvCall) {
-///         let params = [ctx.a0, ctx.a1, ctx.a2, ctx.a3, ctx.a4];
+///         let params = [ctx.a0, ctx.a1, ctx.a2, ctx.a3, ctx.a4, ctx.a5];
 ///         let ans = rustsbi::ecall(ctx.a7, ctx.a6, params);
 ///         ctx.a0 = ans.error;
 ///         ctx.a1 = ans.value;
@@ -61,7 +63,7 @@ const LEGACY_SHUTDOWN: usize = 0x08;
 /// Do not forget to advance `mepc` by 4 after an ecall is handled.
 /// This skips the `ecall` instruction itself which is 4-byte long in all conditions.
 #[inline]
-pub fn handle_ecall(extension: usize, function: usize, param: [usize; 5]) -> SbiRet {
+pub fn handle_ecall(extension: usize, function: usize, param: [usize; 6]) -> SbiRet {
     match extension {
         EXTENSION_RFENCE => rfence::handle_ecall_rfence(function, param[0], param[1], param[2], param[3], param[4]),
         EXTENSION_TIMER => match () {
@@ -74,6 +76,12 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 5]) -> Sbi
         EXTENSION_BASE => base::handle_ecall_base(function, param[0]),
         EXTENSION_HSM => hsm::handle_ecall_hsm(function, param[0], param[1], param[2]),
         EXTENSION_SRST => srst::handle_ecall_srst(function, param[0], param[1]),
+        EXTENSION_PMU => match () {
+            #[cfg(target_pointer_width = "64")]
+            () => pmu::handle_ecall_pmu_64(function, param[0], param[1], param[2], param[3], param[4]),
+            #[cfg(target_pointer_width = "32")]
+            () => pmu::handle_ecall_pmu_32(function, param[0], param[1], param[2], param[3], param[4], param[5]),
+        },
         LEGACY_SET_TIMER => match () {
             #[cfg(target_pointer_width = "64")]
             () => legacy::set_timer_64(param[0]),
@@ -107,6 +115,8 @@ const SBI_ERR_INVALID_PARAM: usize = usize::from_ne_bytes(isize::to_ne_bytes(-3)
 // const SBI_ERR_DENIED: usize = usize::from_ne_bytes(isize::to_ne_bytes(-4));
 const SBI_ERR_INVALID_ADDRESS: usize = usize::from_ne_bytes(isize::to_ne_bytes(-5));
 const SBI_ERR_ALREADY_AVAILABLE: usize = usize::from_ne_bytes(isize::to_ne_bytes(-6));
+const SBI_ERR_ALREADY_STARTED: usize = usize::from_ne_bytes(isize::to_ne_bytes(-7));
+const SBI_ERR_ALREADY_STOPPED: usize = usize::from_ne_bytes(isize::to_ne_bytes(-8));
 
 impl SbiRet {
     /// Return success SBI state with given value.
@@ -152,6 +162,20 @@ impl SbiRet {
     pub fn already_available() -> SbiRet {
         SbiRet {
             error: SBI_ERR_ALREADY_AVAILABLE,
+            value: 0,
+        }
+    }
+    /// SBI call failed for the target resource is already started, e.g. target performance counter is started.
+    pub fn already_started() -> SbiRet {
+        SbiRet {
+            error: SBI_ERR_ALREADY_STARTED,
+            value: 0,
+        }
+    }
+    /// SBI call failed for the target resource is already stopped, e.g. target performance counter is stopped.
+    pub fn already_stopped() -> SbiRet {
+        SbiRet {
+            error: SBI_ERR_ALREADY_STOPPED,
             value: 0,
         }
     }
