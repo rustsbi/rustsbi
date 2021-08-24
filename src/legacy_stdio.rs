@@ -30,14 +30,14 @@ where
     fn getchar(&mut self) -> u8 {
         // 直接调用embedded-hal里面的函数
         // 关于unwrap：因为这个是legacy函数，这里没有详细的处理流程，就panic掉
-        block!(self.inner.try_read()).ok().unwrap()
+        block!(self.inner.read()).ok().unwrap()
     }
 
     fn putchar(&mut self, ch: u8) {
         // 直接调用函数写一个字节
-        block!(self.inner.try_write(ch)).ok();
+        block!(self.inner.write(ch)).ok();
         // 写一次flush一次，因为是legacy，就不考虑效率了
-        block!(self.inner.try_flush()).ok();
+        block!(self.inner.flush()).ok();
     }
 }
 
@@ -50,12 +50,12 @@ where
     R: Read<u8> + Send + 'static,
 {
     fn getchar(&mut self) -> u8 {
-        block!(self.1.try_read()).ok().unwrap()
+        block!(self.1.read()).ok().unwrap()
     }
 
     fn putchar(&mut self, ch: u8) {
-        block!(self.0.try_write(ch)).ok();
-        block!(self.0.try_flush()).ok();
+        block!(self.0.write(ch)).ok();
+        block!(self.0.flush()).ok();
     }
 }
 
