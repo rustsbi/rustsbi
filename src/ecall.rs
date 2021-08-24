@@ -101,12 +101,12 @@ pub struct SbiRet {
 }
 
 const SBI_SUCCESS: usize = 0;
-// const SBI_ERR_FAILED: usize = usize::from_ne_bytes(isize::to_ne_bytes(-1));
+const SBI_ERR_FAILED: usize = usize::from_ne_bytes(isize::to_ne_bytes(-1));
 const SBI_ERR_NOT_SUPPORTED: usize = usize::from_ne_bytes(isize::to_ne_bytes(-2));
 const SBI_ERR_INVALID_PARAM: usize = usize::from_ne_bytes(isize::to_ne_bytes(-3));
 // const SBI_ERR_DENIED: usize = usize::from_ne_bytes(isize::to_ne_bytes(-4));
-// const SBI_ERR_INVALID_ADDRESS: usize = usize::from_ne_bytes(isize::to_ne_bytes(-5));
-// const SBI_ERR_ALREADY_AVAILABLE: usize = usize::from_ne_bytes(isize::to_ne_bytes(-6));
+const SBI_ERR_INVALID_ADDRESS: usize = usize::from_ne_bytes(isize::to_ne_bytes(-5));
+const SBI_ERR_ALREADY_AVAILABLE: usize = usize::from_ne_bytes(isize::to_ne_bytes(-6));
 
 impl SbiRet {
     /// Return success SBI state with given value.
@@ -116,15 +116,42 @@ impl SbiRet {
             value,
         }
     }
-    pub(crate) fn not_supported() -> SbiRet {
+    /// The SBI call request failed for unknown reasons.
+    pub fn failed() -> SbiRet {
+        SbiRet {
+            error: SBI_ERR_FAILED,
+            value: 0,
+        }
+    }
+    /// SBI call failed due to not supported by target ISA, operation type not supported,
+    /// or target operation type not implemented on purpose.
+    pub fn not_supported() -> SbiRet {
         SbiRet {
             error: SBI_ERR_NOT_SUPPORTED,
             value: 0,
         }
     }
-    pub(crate) fn invalid_param() -> SbiRet {
+    /// SBI call failed due to invalid hart mask parameter, invalid target hart id, invalid operation type
+    /// or invalid resource index.
+    pub fn invalid_param() -> SbiRet {
         SbiRet {
             error: SBI_ERR_INVALID_PARAM,
+            value: 0,
+        }
+    }
+    /// SBI call failed for invalid mask start address, not a valid physical address parameter, 
+    /// or the target address is prohibited by PMP to run in supervisor mode.
+    pub fn invalid_address() -> SbiRet {
+        SbiRet {
+            error: SBI_ERR_INVALID_ADDRESS,
+            value: 0,
+        }
+    }
+    /// SBI call failed for the target resource is already available, e.g. the target hart is already
+    /// started when caller still request it to start.
+    pub fn already_available() -> SbiRet {
+        SbiRet {
+            error: SBI_ERR_ALREADY_AVAILABLE,
             value: 0,
         }
     }
