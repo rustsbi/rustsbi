@@ -21,7 +21,7 @@ targets = [
 ]
 
 [dependencies]
-embedded-hal = "1.0.0-alpha.1"
+embedded-hal = "0.2.6"
 nb = "1.0"
 riscv = "0.6"
 spin = "0.7"
