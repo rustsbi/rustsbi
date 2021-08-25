@@ -84,6 +84,8 @@ impl<T: ?Sized> OnceFatBox<T> {
             let value = unsafe { Box::from_raw(fat_ptr) };
             return Err(value);
         }
+        // 对once_cell来说这样做是对的，因为其它的线程失败后，不会再更改元数据了。
+        // 如果其它的线程仍然需要更改元数据，就不能这样做。
         unsafe {
             *(self.meta.as_ptr() as *mut _) = ptr::metadata(fat_ptr);
         }
