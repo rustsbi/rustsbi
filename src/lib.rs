@@ -138,6 +138,7 @@
 
 #![no_std]
 #![feature(asm)]
+#![feature(ptr_metadata)]
 
 extern crate alloc;
 
@@ -156,6 +157,8 @@ pub mod reset;
 mod timer;
 mod rfence;
 mod pmu;
+
+mod util;
 
 const SBI_SPEC_MAJOR: usize = 0;
 const SBI_SPEC_MINOR: usize = 2;

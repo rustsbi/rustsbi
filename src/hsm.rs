@@ -75,7 +75,7 @@ pub trait Hsm: Send {
     /// | `sstatus.SIE` | 0
     /// | a0            | hartid
     /// | a1            | `opaque` parameter
-    fn hart_start(&mut self, hartid: usize, start_addr: usize, opaque: usize) -> SbiRet;
+    fn hart_start(&self, hartid: usize, start_addr: usize, opaque: usize) -> SbiRet;
     /// Request the SBI implementation to stop executing the calling hart in supervisor-mode 
     /// and return it’s ownership to the SBI implementation. 
     ///
@@ -89,7 +89,7 @@ pub trait Hsm: Send {
     /// | Error code  | Description 
     /// |:------------|:------------
     /// | SBI_ERR_FAILED | Failed to stop execution of the current hart 
-    fn hart_stop(&mut self, hartid: usize) -> SbiRet;
+    fn hart_stop(&self, hartid: usize) -> SbiRet;
     /// Get the current status (or HSM state) of the given hart.
     ///
     /// The harts may transition HSM states at any time due to any concurrent `sbi_hart_start`
@@ -187,46 +187,46 @@ pub trait Hsm: Send {
 }
 
 use alloc::boxed::Box;
-use spin::Mutex;
+use crate::util::OnceFatBox;
 
-lazy_static::lazy_static! {
-    static ref HSM: Mutex<Option<Box<dyn Hsm>>> =
-        Mutex::new(None);
-}
+static HSM: OnceFatBox<dyn Hsm + Sync + 'static> = OnceFatBox::new();
 
 #[doc(hidden)] // use through a macro or a call from implementation
-pub fn init_hsm<T: Hsm + Send + 'static>(hsm: T) {
-    *HSM.lock() = Some(Box::new(hsm));
+pub fn init_hsm<T: Hsm + Sync + 'static>(hsm: T) {
+    let result = HSM.set(Box::new(hsm));
+    if result.is_err() {
+        panic!("load sbi module when already loaded")
+    }
 }
 
 #[inline]
 pub(crate) fn probe_hsm() -> bool {
-    HSM.lock().as_ref().is_some()
+    HSM.get().is_some()
 }
 
 pub(crate) fn hart_start(hartid: usize, start_addr: usize, opaque: usize) -> SbiRet {
-    if let Some(obj) = &mut *HSM.lock() {
+    if let Some(obj) = HSM.get() {
         return obj.hart_start(hartid, start_addr, opaque);
     }
     SbiRet::not_supported()
 }
 
 pub(crate) fn hart_stop(hartid: usize) -> SbiRet {
-    if let Some(obj) = &mut *HSM.lock() {
+    if let Some(obj) = HSM.get() {
         return obj.hart_stop(hartid);
     }
     SbiRet::not_supported()
 }
 
 pub(crate) fn hart_get_status(hartid: usize) -> SbiRet {
-    if let Some(obj) = &mut *HSM.lock() {
+    if let Some(obj) = HSM.get() {
         return obj.hart_get_status(hartid);
     }
     SbiRet::not_supported()
 }
 
 pub(crate) fn hart_suspend(suspend_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
-    if let Some(obj) = &mut *HSM.lock() {
+    if let Some(obj) = HSM.get() {
         let suspend_type = suspend_type as u32;
         return obj.hart_suspend(suspend_type, resume_addr, opaque);
     }

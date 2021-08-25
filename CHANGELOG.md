@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support device tree binary in K210 platform
 - Support SBI v0.3 hart suspend function
 - Support PMU extension trait and init function
+- Use fat pointer cell to support asynchronous hart state monitor module
 
 ### Modified
 - Reform RustSBI project into a library
