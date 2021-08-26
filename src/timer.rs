@@ -1,3 +1,6 @@
+use alloc::boxed::Box;
+use crate::util::OnceFatBox;
+
 /// Timer programmer support
 pub trait Timer: Send {
     /// Programs the clock for next event after `stime_value` time.
@@ -7,29 +10,27 @@ pub trait Timer: Send {
     /// If the supervisor wishes to clear the timer interrupt without scheduling the next timer event,
     /// it can either request a timer interrupt infinitely far into the future (i.e., (uint64_t)-1),
     /// or it can instead mask the timer interrupt by clearing `sie.STIE` CSR bit.
-    fn set_timer(&mut self, stime_value: u64);
+    fn set_timer(&self, stime_value: u64);
 }
 
-use alloc::boxed::Box;
-use spin::Mutex;
-
-lazy_static::lazy_static! {
-    static ref TIMER: Mutex<Option<Box<dyn Timer>>> = Mutex::new(None);
-}
+static TIMER: OnceFatBox<dyn Timer + Sync + 'static> = OnceFatBox::new();
 
 #[doc(hidden)] // use through a macro
-pub fn init_timer<T: Timer + Send + 'static>(ipi: T) {
-    *TIMER.lock() = Some(Box::new(ipi));
+pub fn init_timer<T: Timer + Sync + 'static>(timer: T) {
+    let result = TIMER.set(Box::new(timer));
+    if result.is_err() {
+        panic!("load sbi module when already loaded")
+    }
 }
 
 #[inline]
 pub(crate) fn probe_timer() -> bool {
-    TIMER.lock().as_ref().is_some()
+    TIMER.get().is_some()
 }
 
 #[inline]
 pub(crate) fn set_timer(time_value: u64) -> bool {
-    if let Some(timer) = TIMER.lock().as_mut() {
+    if let Some(timer) = TIMER.get() {
         timer.set_timer(time_value);
         true
     } else {

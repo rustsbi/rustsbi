@@ -1,3 +1,7 @@
+use alloc::boxed::Box;
+use crate::util::OnceFatBox;
+use crate::ecall::SbiRet;
+
 /// System Reset Extension
 ///
 /// Provides a function that allow the supervisor software to request system-level reboot or shutdown.
@@ -47,15 +51,7 @@ pub trait Reset: Send {
     }
 }
 
-use alloc::boxed::Box;
-use spin::Mutex;
-
-use crate::ecall::SbiRet;
-
-lazy_static::lazy_static! {
-    static ref RESET: Mutex<Option<Box<dyn Reset>>> =
-        Mutex::new(None);
-}
+static RESET: OnceFatBox<dyn Reset + Sync + 'static> = OnceFatBox::new();
 
 #[doc(hidden)] #[allow(unused)]
 pub const RESET_TYPE_SHUTDOWN: usize = 0x0000_0000;
@@ -70,24 +66,27 @@ pub const RESET_REASON_NO_REASON: usize = 0x0000_0000;
 pub const RESET_REASON_SYSTEM_FAILURE: usize = 0x0000_0001;
 
 #[doc(hidden)] // use through a macro
-pub fn init_reset<T: Reset + Send + 'static>(reset: T) {
-    *RESET.lock() = Some(Box::new(reset));
+pub fn init_reset<T: Reset + Sync + 'static>(reset: T) {
+    let result = RESET.set(Box::new(reset));
+    if result.is_err() {
+        panic!("load sbi module when already loaded")
+    }
 }
 
 #[inline]
 pub(crate) fn probe_reset() -> bool {
-    RESET.lock().as_ref().is_some()
+    RESET.get().is_some()
 }
 
 pub(crate) fn system_reset(reset_type: usize, reset_reason: usize) -> SbiRet {
-    if let Some(obj) = &*RESET.lock() {
+    if let Some(obj) = RESET.get() {
         return obj.system_reset(reset_type, reset_reason);
     }
     SbiRet::not_supported()
 }
 
 pub(crate) fn legacy_reset() -> ! {
-    if let Some(obj) = &*RESET.lock() {
+    if let Some(obj) = RESET.get() {
         obj.legacy_reset()
     }
     unreachable!("no reset handler available; this is okay if your platform didn't declare a legacy reset handler")
