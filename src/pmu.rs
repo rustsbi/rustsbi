@@ -1,4 +1,6 @@
 use crate::ecall::SbiRet;
+use crate::util::OnceFatBox;
+use alloc::boxed::Box;
 
 /// Performance Monitoring Unit Extension
 ///
@@ -38,7 +40,7 @@ use crate::ecall::SbiRet;
 pub trait Pmu: Send {
     /// Returns the number of counters (both hardware and firmware) in return `SbiRet.value`
     /// and always returns SBI_SUCCESS in `SbiRet.error`.
-    fn num_counters(&mut self) -> SbiRet;
+    fn num_counters(&self) -> SbiRet;
     /// Get details about the specified counter such as underlying CSR number, width of the counter, 
     /// type of counter hardware/firmware, etc.
     ///
@@ -62,7 +64,7 @@ pub trait Pmu: Send {
     /// |:------------------------|:----------------------------------------------
     /// | SBI_SUCCESS             | `counter_info` read successfully.
     /// | SBI_ERR_INVALID_PARAM   | `counter_idx` points to an invalid counter.
-    fn counter_get_info(&mut self, counter_idx: usize) -> SbiRet;
+    fn counter_get_info(&self, counter_idx: usize) -> SbiRet;
     /// Find and configure a counter from a set of counters which is not started (or enabled) 
     /// and can monitor the specified event. 
     /// 
@@ -110,7 +112,7 @@ pub trait Pmu: Send {
     /// | SBI_ERR_INVALID_PARAM | set of counters has an invalid counter.
     /// | SBI_ERR_NOT_SUPPORTED | none of the counters can monitor specified event.
     fn counter_config_matching(
-        &mut self,
+        &self,
         counter_idx_base: usize,
         counter_idx_mask: usize,
         config_flags: usize,
@@ -144,7 +146,7 @@ pub trait Pmu: Send {
     /// | SBI_ERR_INVALID_PARAM   | some of the counters specified in parameters are invalid.
     /// | SBI_ERR_ALREADY_STARTED | some of the counters specified in parameters are already started.
     fn counter_start(
-        &mut self, 
+        &self, 
         counter_idx_base: usize, 
         counter_idx_mask: usize, 
         start_flags: usize, 
@@ -171,7 +173,7 @@ pub trait Pmu: Send {
     /// | SBI_SUCCESS             | counter stopped successfully.
     /// | SBI_ERR_INVALID_PARAM   | some of the counters specified in parameters are invalid.
     /// | SBI_ERR_ALREADY_STOPPED | some of the counters specified in parameters are already stopped.
-    fn counter_stop(&mut self, counter_idx_base: usize, counter_idx_mask: usize, stop_flags: usize) -> SbiRet;
+    fn counter_stop(&self, counter_idx_base: usize, counter_idx_mask: usize, stop_flags: usize) -> SbiRet;
     /// Provide the current value of a firmware counter in `SbiRet.value`.
     ///
     /// # Parameters
@@ -187,32 +189,29 @@ pub trait Pmu: Send {
     /// |:------------------------|:----------------------------------------------
     /// | SBI_SUCCESS             | firmware counter read successfully.
     /// | SBI_ERR_INVALID_PARAM   | `counter_idx` points to a hardware counter or an invalid counter.
-    fn counter_fw_read(&mut self, counter_idx: usize) -> SbiRet;
+    fn counter_fw_read(&self, counter_idx: usize) -> SbiRet;
 }
 
 // TODO: all the events here
 
-use alloc::boxed::Box;
-use spin::Mutex;
-
-lazy_static::lazy_static! {
-    static ref PMU: Mutex<Option<Box<dyn Pmu>>> =
-        Mutex::new(None);
-}
+static PMU: OnceFatBox<dyn Pmu + Sync + 'static> = OnceFatBox::new();
 
 #[doc(hidden)] // use through a macro or a call from implementation
-pub fn init_pmu<T: Pmu + Send + 'static>(hsm: T) {
-    *PMU.lock() = Some(Box::new(hsm));
+pub fn init_pmu<T: Pmu + Sync + 'static>(pmu: T) {
+    let result = PMU.set(Box::new(pmu));
+    if result.is_err() {
+        panic!("load sbi module when already loaded")
+    }
 }
 
 #[inline]
 pub(crate) fn probe_pmu() -> bool {
-    PMU.lock().as_ref().is_some()
+    PMU.get().is_some()
 }
 
 #[inline] 
 pub(crate) fn num_counters() -> SbiRet {
-    if let Some(obj) = &mut *PMU.lock() {
+    if let Some(obj) = PMU.get() {
         return obj.num_counters();
     }
     SbiRet::not_supported()
@@ -220,7 +219,7 @@ pub(crate) fn num_counters() -> SbiRet {
 
 #[inline] 
 pub(crate) fn counter_get_info(counter_idx: usize) -> SbiRet {
-    if let Some(obj) = &mut *PMU.lock() {
+    if let Some(obj) = PMU.get() {
         return obj.counter_get_info(counter_idx);
     }
     SbiRet::not_supported()
@@ -234,7 +233,7 @@ pub(crate) fn counter_config_matching(
     event_idx: usize,
     event_data: u64
 ) -> SbiRet {
-    if let Some(obj) = &mut *PMU.lock() {
+    if let Some(obj) = PMU.get() {
         return obj.counter_config_matching(
             counter_idx_base,
             counter_idx_mask,
@@ -253,7 +252,7 @@ pub(crate) fn counter_start(
     start_flags: usize, 
     initial_value: u64
 ) -> SbiRet {
-    if let Some(obj) = &mut *PMU.lock() {
+    if let Some(obj) = PMU.get() {
         return obj.counter_start(
             counter_idx_base, 
             counter_idx_mask,
@@ -266,7 +265,7 @@ pub(crate) fn counter_start(
 
 #[inline] 
 pub(crate) fn counter_stop(counter_idx_base: usize, counter_idx_mask: usize, stop_flags: usize) -> SbiRet {
-    if let Some(obj) = &mut *PMU.lock() {
+    if let Some(obj) = PMU.get() {
         return obj.counter_stop(counter_idx_base, counter_idx_mask, stop_flags);
     }
     SbiRet::not_supported()
@@ -274,7 +273,7 @@ pub(crate) fn counter_stop(counter_idx_base: usize, counter_idx_mask: usize, sto
 
 #[inline] 
 pub(crate) fn counter_fw_read(counter_idx: usize) -> SbiRet {
-    if let Some(obj) = &mut *PMU.lock() {
+    if let Some(obj) = PMU.get() {
         return obj.counter_fw_read(counter_idx);
     }
     SbiRet::not_supported()

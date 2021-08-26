@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Modify second parameter of `enter_privileged` to `opaque` other than `dtb_pa`
 - Dump all trap frame registers when exception happened in reference implementations
 - Downgrade `embedded-hal` to version `0.2.6`
+- Change to asynchronous lock structure trait style
 
 ### Fixed
 - Test kernel console now will lock before `println` line is finished
