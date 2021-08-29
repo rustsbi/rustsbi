@@ -12,6 +12,10 @@ RustSBI is provided with separate library and binary projects, this is the repos
 For specific platforms, you may visit implementation specific projects depending on the platforms you need. 
 Chip, system and platform vendors should provide RustSBI implementation for dedicated platform as a part of platform software support package.
 
+There are packages exists on [awesome-rustsbi](https://github.com/rustsbi/awesome-rustsbi): it is a curated 
+list of awesome things related to RustSBI, which includes some implementation projects maintained by 
+individuals or the community. You may find binary downloads for useful platforms on awesone-rustsbi.
+
 ## Features
 
 - Functional and extensible operating system runtime
