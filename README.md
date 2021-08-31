@@ -37,8 +37,9 @@ If your kernel language supports other SBI implementations, usually it will supp
 
 ## Talks and documents
 
-This project is originally a part of rCore Summer of Code 2020 activities, now it is
-capable of running rCore-Tutorial and other OS kernels on wide supported RISC-V devices.
+This project is originally a part of rCore Summer of Code 2020 activities, 
+inspired by [MeowSBI](https://github.com/meow-chip/MeowSBI) and other similar projects.
+Now it is capable of running rCore-Tutorial and other OS kernels on wide supported RISC-V devices.
 
 Blog article (Chinese):
 
