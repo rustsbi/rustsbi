@@ -2,7 +2,11 @@
 name = "rustsbi"
 description = "Minimal RISC-V's SBI implementation library in Rust"
 version = "0.2.0-alpha.6"
-authors = ["luojia65 <me@luojia.cc>"]
+authors = [
+    "Luo Jia <me@luojia.cc>",
+    "Campbell He <hkp18@mails.tsinghua.edu.cn>",
+    "Yifan Wu <shinbokuow@163.com>",
+]
 repository = "https://github.com/rustsbi/rustsbi"
 documentation = "https://docs.rs/rustsbi"
 license = "MulanPSL-2.0 OR MIT"
