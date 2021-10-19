@@ -56,8 +56,10 @@ Slides (Chinese):
 
 1. RustSBI should be used as a library. Under normal circumstances, RustSBI platform can be implemented
    with embedded Rust's `embedded-hal` libraries.
-2. Contributions are welcomed! We welcome to implement RustSBI for both FPGA cores and real cores.
-   Implementations for emulators are also welcomed. Fire a pull request if you are ready!
+2. Contributions are welcomed! We welcome to implement and test RustSBI for both FPGA cores and real cores.
+   Implementations for emulators are also welcomed. If you are ready, start your own binary project and use
+   RustSBI in it!
+3. If there is a bug in RustSBI project itself, fire an issue or pull request to let us know! 
 
 ## License & Copyright
 
