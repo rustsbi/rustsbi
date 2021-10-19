@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Test kernel console now will lock before `println` line is finished
 - Non-legacy supervisor IPI extension is fixed
+- Returns -1 other than 0 when legacy console getchar function fails; thank you @duskmoon314
 
 ## [0.1.1] - 2021-02-01
 ### Added

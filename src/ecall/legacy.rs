@@ -11,10 +11,11 @@ pub fn console_putchar(param0: usize) -> SbiRet {
     SbiRet::ok(0) // the return value 0 is ignored in legacy
 }
 
+// Returns a character, or -1 when failed.
 #[inline]
 pub fn console_getchar() -> SbiRet {
     let ch = legacy_stdio_getchar();
-    SbiRet::legacy_ok(ch as usize)
+    SbiRet::legacy_ok(ch)
 }
 
 #[inline]
