@@ -89,11 +89,13 @@ pub fn legacy_stdio_putchar(ch: u8) {
     }
 }
 
-pub fn legacy_stdio_getchar() -> u8 {
+pub fn legacy_stdio_getchar() -> usize {
     if let Some(stdio) = LEGACY_STDIO.lock().as_mut() {
-        stdio.getchar()
+        stdio.getchar() as usize
     } else {
-        0 // default: always return 0
+        // According to RISC-V SBI spec 0.3.1-rc1, Section 4.3, this function returns -1 
+        // when fails to read from debug console. Thank you @duskmoon314
+        usize::from_ne_bytes(isize::to_ne_bytes(-1)) 
     }
 }
 
