@@ -103,14 +103,14 @@
 //! RustSBI is designed to be a library, thus will not provide any binary files to specific platforms.
 //! Instead, chip or board manufacturers should provide their own SBI implementation project using RustSBI as a dependency.
 //!
-//! The reason RustSBI group will not provide actual binary implementaion is that,
+//! The reason RustSBI group will not provide actual binary implementation is that,
 //! SBI feature demands are different among users, one feature would be useful for this user,
 //! but it will be considered not useful and takes up lots of flash room for other users.
 //!
-//! The RustSBI team provides reference implementaion for several platforms, but they are for evaluation
+//! The RustSBI team provides reference implementation for several platforms, but they are for evaluation
 //! and should not be used in production. 
-//! RustSBI itself cannot decide for all arbitraty users, so developers are encouraged to write their own
-//! SBI implementaion, other than use reference implementaion directly when in production.
+//! RustSBI itself cannot decide for all arbitrary users, so developers are encouraged to write their own
+//! SBI implementation, other than use reference implementation directly when in production.
 //!
 //! Also, RustSBI is not designed to include all platforms available in official repository. 
 //! For an actual platform users may consult board or SoC manufacturer other than RustSBI repository itself.
@@ -123,7 +123,7 @@
 //!
 //! # Notes for RustSBI developers
 //!
-//! This library adapts to embedded Rust's `embedded-hal` crate to provide basical SBI features. 
+//! This library adapts to embedded Rust's `embedded-hal` crate to provide basic SBI features. 
 //! When building for own platform, implement traits in this library and pass them to the functions
 //! begin with `init`. After that, you may call `rustsbi::ecall` in your own exception handler
 //! which would dispatch parameters from supervisor to the traits to execute SBI functions.
