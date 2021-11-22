@@ -100,7 +100,7 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 6]) -> Sbi
 /// Call result returned by SBI
 ///
 /// After `handle_ecall` finished, you should save returned `error` in `a0`, and `value` in `a1`.
-#[repr(C)]
+#[repr(C)] // ensure that return value follows RISC-V SBI calling convention
 pub struct SbiRet {
     /// Error number
     pub error: usize,
