@@ -161,7 +161,7 @@ mod pmu;
 mod util;
 
 const SBI_SPEC_MAJOR: usize = 0;
-const SBI_SPEC_MINOR: usize = 2;
+const SBI_SPEC_MINOR: usize = 3;
 
 // RustSBI implementation ID: 4
 // Ref: https://github.com/riscv/riscv-sbi-doc/pull/61
