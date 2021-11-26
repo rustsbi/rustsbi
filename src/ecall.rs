@@ -39,8 +39,9 @@ const LEGACY_SHUTDOWN: usize = 0x08;
 ///
 /// This function also adapts to the legacy functions.
 /// If the supervisor called any of legacy function, the `a0` and `a1` parameter
-/// is transferred to `SbiRet`'s error and value respectively.
-/// So you should store the result into `a0` and `a1` in any function calls including legacy functions.
+/// is transferred to error and value field of `SbiRet` respectively.
+/// In this case, implementations should always store the result into `a0` and `a1` in
+/// any environment call functions including legacy functions.
 ///
 /// # Example
 ///

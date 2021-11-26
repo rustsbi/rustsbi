@@ -5,6 +5,8 @@ use crate::ecall::SbiRet;
 /// The Hart State Management (HSM) Extension introduces a set hart states and a set of functions 
 /// which allow the supervisor-mode software to request a hart state change.
 ///
+/// # Hart states
+/// 
 /// The possible hart states along with a unique State ID are as follows:
 ///
 /// | State ID | State Name | Description 
@@ -19,25 +21,27 @@ use crate::ecall::SbiRet;
 ///
 /// At any point in time, a hart should be in one of the above mentioned hart states.
 ///
+/// # Topology hart groups
+/// 
 /// A platform can have multiple harts grouped into a hierarchical topology groups (namely cores, clusters, nodes, etc) 
 /// with separate platform specific low-power states for each hierarchical group.
 /// These platform specific low-power states of hierarchial topology groups can be represented as platform specific suspend states of a hart. 
 /// A SBI implementation can utilize the suspend states of higher topology groups using one of the following approaches:
 /// 
-/// . *Platform-coordinated:* In this approach, when a hart becomes idle the supervisor-mode power-managment software
+/// 1. *Platform-coordinated:* In this approach, when a hart becomes idle the supervisor-mode power-managment software
 ///   will request deepest suspend state for the hart and higher topology groups. 
 ///   A SBI implementation should choose a suspend state at higher topology group which is:
-/// .. Not deeper than the specified suspend state
-/// .. Wake-up latency is not higher than the wake-up latency of the specified suspend state
-/// . *OS-inititated:* In this approach, the supervisor-mode power-managment software will directly request a suspend state
+/// - Not deeper than the specified suspend state
+/// - Wake-up latency is not higher than the wake-up latency of the specified suspend state
+/// 2. *OS-inititated:* In this approach, the supervisor-mode power-managment software will directly request a suspend state
 ///   for higher topology group after the last hart in that group becomes idle.
 ///   When a hart becomes idle, the supervisor-mode power-managment software will always select suspend state for the hart itself
 ///   but it will select a suspend state for a higher topology group only if the hart is the last running hart in the group.
 ///   A SBI implementation should:
-/// .. Never choose a suspend state for higher topology group different from the specified suspend state
-/// .. Always prefer most recent suspend state requested for higher topology group
+/// - Never choose a suspend state for higher topology group different from the specified suspend state
+/// - Always prefer most recent suspend state requested for higher topology group
 /// 
-/// Ref: [Section 8, RISC-V Supervisor Binary Interface Specification](https://github.com/riscv/riscv-sbi-doc/blob/master/riscv-sbi.adoc#8-hart-state-management-extension-eid-0x48534d-hsm)
+/// Ref: [Section 8, RISC-V Supervisor Binary Interface Specification](https://github.com/riscv-non-isa/riscv-sbi-doc/blob/master/riscv-sbi.adoc#8-hart-state-management-extension-eid-0x48534d-hsm)
 pub trait Hsm: Send {
     /// Request the SBI implementation to start executing the given hart at specified address in supervisor-mode.
     ///
@@ -53,6 +57,17 @@ pub trait Hsm: Send {
     /// - The `start_addr` parameter points to a runtime-specified physical address, where the hart can start executing in supervisor-mode.
     /// - The `opaque` parameter is a `usize` value which will be set in the `a1` register when the hart starts executing at `start_addr`.
     /// 
+    /// # Behavior
+    ///
+    /// The target hart jumps to supervisor-mode at address specified by `start_addr` with following values in specific registers.
+    ///
+    /// | Register Name | Register Value
+    /// |:--------------|:--------------
+    /// | `satp`        | 0
+    /// | `sstatus.SIE` | 0
+    /// | a0            | hartid
+    /// | a1            | `opaque` parameter
+    /// 
     /// # Return value
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
@@ -64,17 +79,6 @@ pub trait Hsm: Send {
     /// | SBI_ERR_INVALID_PARAM     | `hartid` is not a valid hartid as corresponding hart cannot started in supervisor mode. 
     /// | SBI_ERR_ALREADY_AVAILABLE | The given hartid is already started.
     /// | SBI_ERR_FAILED            | The start request failed for unknown reasons.
-    ///
-    /// # Behavior
-    ///
-    /// The target hart jumps to supervisor-mode at address specified by `start_addr` with following values in specific registers.
-    ///
-    /// | Register Name | Register Value
-    /// |:--------------|:--------------
-    /// | `satp`        | 0
-    /// | `sstatus.SIE` | 0
-    /// | a0            | hartid
-    /// | a1            | `opaque` parameter
     fn hart_start(&self, hartid: usize, start_addr: usize, opaque: usize) -> SbiRet;
     /// Request the SBI implementation to stop executing the calling hart in supervisor-mode 
     /// and return it’s ownership to the SBI implementation. 
@@ -90,15 +94,15 @@ pub trait Hsm: Send {
     /// |:------------|:------------
     /// | SBI_ERR_FAILED | Failed to stop execution of the current hart 
     fn hart_stop(&self, hartid: usize) -> SbiRet;
-    /// Get the current status (or HSM state) of the given hart.
+    /// Get the current status (or HSM state id) of the given hart.
     ///
-    /// The harts may transition HSM states at any time due to any concurrent `sbi_hart_start`
-    /// or `sbi_hart_stop` calls, the return value from this function may not represent the actual state 
+    /// The harts may transition HSM states at any time due to any concurrent `sbi_hart_start()`
+    /// or `sbi_hart_stop()` calls, the return value from this function may not represent the actual state 
     /// of the hart at the time of return value verification.
     /// 
     /// # Parameters
     /// 
-    /// The `hartid` parameter specifies the target hart which is to be started.
+    /// The `hartid` parameter specifies the target hart which status is required.
     ///
     /// # Return value
     ///
