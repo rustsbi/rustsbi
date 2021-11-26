@@ -1,6 +1,6 @@
 # RustSBI
 
-RISC-V Supervisor Binary Interface ([SBI](https://github.com/riscv/riscv-sbi-doc/)) implementation in Rust; runs on M-mode.
+RISC-V Supervisor Binary Interface ([SBI](https://github.com/riscv-non-isa/riscv-sbi-doc/)) implementation in Rust; runs on M-mode.
 
 [![crates.io](https://img.shields.io/crates/v/rustsbi.svg)](https://crates.io/crates/rustsbi)
 [![Documentation](https://docs.rs/rustsbi/badge.svg)](https://docs.rs/rustsbi)

@@ -9,7 +9,7 @@ use crate::ecall::SbiRet;
 /// The term "system" refers to the world-view of supervisor software and the underlying SBI implementation 
 /// could be machine mode firmware or hypervisor.
 ///
-/// Ref: [Section 9, RISC-V Supervisor Binary Interface Specification](https://github.com/riscv/riscv-sbi-doc/blob/master/riscv-sbi.adoc#9-system-reset-extension-eid-0x53525354-srst)
+/// Ref: [Section 9, RISC-V Supervisor Binary Interface Specification](https://github.com/riscv-non-isa/riscv-sbi-doc/blob/master/riscv-sbi.adoc#9-system-reset-extension-eid-0x53525354-srst)
 pub trait Reset: Send {
     /// Reset the system based on provided `reset_type` and `reset_reason`. 
     ///
