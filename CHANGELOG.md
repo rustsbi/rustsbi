@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dump all trap frame registers when exception happened in reference implementations
 - Use `embedded-hal` dependency version `0.2.6`
 - Change to asynchronous lock structure trait style
+- Function `num_counters` returns `usize` and its SBI call must return `SBI_SUCCESS`
 
 ### Fixed
 - Test kernel console now will lock before `println` line is finished

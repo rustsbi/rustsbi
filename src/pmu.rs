@@ -38,9 +38,10 @@ use alloc::boxed::Box;
 ///    event_idx[15:0] = code;
 /// ```
 pub trait Pmu: Send {
-    /// Returns the number of counters (both hardware and firmware) in return `SbiRet.value`
-    /// and always returns SBI_SUCCESS in `SbiRet.error`.
-    fn num_counters(&self) -> SbiRet;
+    /// Returns the number of counters (both hardware and firmware).
+    /// 
+    /// The value is returned in `SbiRet.value`; this call always returns SBI_SUCCESS in `SbiRet.error`.
+    fn num_counters(&self) -> usize;
     /// Get details about the specified counter such as underlying CSR number, width of the counter, 
     /// type of counter hardware/firmware, etc.
     ///
@@ -212,7 +213,9 @@ pub(crate) fn probe_pmu() -> bool {
 #[inline] 
 pub(crate) fn num_counters() -> SbiRet {
     if let Some(obj) = PMU.get() {
-        return obj.num_counters();
+        // Returns the number of counters (both hardware and firmware) in sbiret.value 
+        // and always returns SBI_SUCCESS in sbiret.error.
+        return SbiRet::ok(obj.num_counters());
     }
     SbiRet::not_supported()
 }
