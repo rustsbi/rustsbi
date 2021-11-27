@@ -48,6 +48,7 @@ Blog article (Chinese):
 
 Slides (Chinese):
 
+- [HSM and SRST module on RustSBI](https://github.com/luojia65/DailySchedule/blob/master/RustSBI%E4%B8%AD%E7%9A%84HSM%E6%A8%A1%E5%9D%97.pdf), Nov 2021
 - [Design and Implementation of RustSBI](https://github.com/luojia65/DailySchedule/blob/master/2020-slides/RustSBI%E7%9A%84%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E7%8E%B0.pdf), Dec 2020
 - [The Rust Embedded System Development](https://github.com/luojia65/DailySchedule/blob/master/2020-slides/Rust%E5%B5%8C%E5%85%A5%E5%BC%8F%E5%BC%80%E5%8F%91.pdf), Dec 2020
 - [Operating Systems on Rust and RISC-V](https://github.com/luojia65/DailySchedule/blob/master/2020-slides/Rust%E8%AF%AD%E8%A8%80%E4%B8%8ERISC-V%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F.pdf), Aug 2020
