@@ -60,12 +60,9 @@ where
 }
 
 use alloc::boxed::Box;
-use spin::Mutex;
+use spin::mutex::TicketMutex;
 
-lazy_static::lazy_static! {
-    static ref LEGACY_STDIO: Mutex<Option<Box<dyn LegacyStdio>>> =
-        Mutex::new(None);
-}
+static LEGACY_STDIO: TicketMutex<Option<Box<dyn LegacyStdio>>> = TicketMutex::new(None);
 
 #[doc(hidden)] // use through a macro
 pub fn init_legacy_stdio_embedded_hal<T: Read<u8> + Write<u8> + Send + 'static>(serial: T) {
