@@ -1,5 +1,5 @@
-use alloc::boxed::Box;
 use crate::util::OnceFatBox;
+use alloc::boxed::Box;
 
 /// Timer programmer support
 pub trait Timer: Send {

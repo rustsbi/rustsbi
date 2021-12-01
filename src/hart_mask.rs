@@ -13,7 +13,7 @@ impl HartMask {
     ///
     /// # Parameters
     ///
-    /// - The `vaddr` is a scalar bit-vector containing hartids. 
+    /// - The `vaddr` is a scalar bit-vector containing hartids.
     ///   Should return address from supervisor level.
     /// - The `base` is the starting hartid from which bit-vector must be computed.
     ///   If `base` equals `usize::MAX`, that means `vaddr` is ignored and all available harts must be considered.
@@ -66,7 +66,7 @@ unsafe fn get_vaddr_usize(vaddr_ptr: *const usize) -> usize {
                 csrw    mstatus, {tmp}
             ", ans = lateout(reg) ans, vmem = in(reg) vaddr_ptr, tmp = out(reg) _);
             ans
-        },
+        }
         #[cfg(target_arch = "riscv64")]
         () => {
             let mut ans: usize;
@@ -77,7 +77,7 @@ unsafe fn get_vaddr_usize(vaddr_ptr: *const usize) -> usize {
                 csrw    mstatus, {tmp}
             ", ans = lateout(reg) ans, vmem = in(reg) vaddr_ptr, tmp = out(reg) _);
             ans
-        },
+        }
         #[cfg(target_arch = "riscv128")]
         () => {
             let mut ans: usize;
@@ -88,7 +88,7 @@ unsafe fn get_vaddr_usize(vaddr_ptr: *const usize) -> usize {
                 csrw    mstatus, {tmp}
             ", ans = lateout(reg) ans, vmem = in(reg) vaddr_ptr, tmp = out(reg) _);
             ans
-        },
+        }
         #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
         () => {
             drop(vaddr_ptr);

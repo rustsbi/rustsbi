@@ -23,7 +23,7 @@ pub fn send_ipi(hart_mask_addr: usize) -> SbiRet {
     let max_hart_id = if let Some(id) = max_hart_id() {
         id
     } else {
-        return SbiRet::not_supported()
+        return SbiRet::not_supported();
     };
     // note(unsafe): if any load fault, should be handled by user or supervisor
     // base hart should be 0 on legacy

@@ -2,14 +2,14 @@
 
 // Ref: once_cell
 
-use core::{
-    fmt::{self, Debug}, 
-    marker::PhantomData, 
-    mem::MaybeUninit, 
-    ptr::{self, Pointee}, 
-    sync::atomic::{AtomicPtr, Ordering}
-};
 use alloc::boxed::Box;
+use core::{
+    fmt::{self, Debug},
+    marker::PhantomData,
+    mem::MaybeUninit,
+    ptr::{self, Pointee},
+    sync::atomic::{AtomicPtr, Ordering},
+};
 
 /// A thread-safe fat pointer cell which can be written to only once.
 pub struct OnceFatBox<T: ?Sized> {
@@ -35,9 +35,9 @@ impl<T: ?Sized> Drop for OnceFatBox<T> {
     }
 }
 
-impl<T: ?Sized + Debug> Debug for OnceFatBox<T> 
-where 
-    <T as Pointee>::Metadata: Debug 
+impl<T: ?Sized + Debug> Debug for OnceFatBox<T>
+where
+    <T as Pointee>::Metadata: Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OnceFatBox")
@@ -50,10 +50,10 @@ where
 impl<T: ?Sized> OnceFatBox<T> {
     /// Creates a new empty cell.
     pub const fn new() -> OnceFatBox<T> {
-        OnceFatBox { 
-            thin_ptr: AtomicPtr::new(ptr::null_mut()), 
+        OnceFatBox {
+            thin_ptr: AtomicPtr::new(ptr::null_mut()),
             meta: MaybeUninit::uninit(), // value meaning ignored when thin_ptr is null
-            _marker: PhantomData 
+            _marker: PhantomData,
         }
     }
 

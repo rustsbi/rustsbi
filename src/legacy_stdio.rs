@@ -93,9 +93,9 @@ pub fn legacy_stdio_getchar() -> usize {
     if let Some(stdio) = LEGACY_STDIO.lock().as_mut() {
         stdio.getchar() as usize
     } else {
-        // According to RISC-V SBI spec 0.3.1-rc1, Section 4.3, this function returns -1 
+        // According to RISC-V SBI spec 0.3.1-rc1, Section 4.3, this function returns -1
         // when fails to read from debug console. Thank you @duskmoon314
-        usize::from_ne_bytes(isize::to_ne_bytes(-1)) 
+        usize::from_ne_bytes(isize::to_ne_bytes(-1))
     }
 }
 
@@ -122,7 +122,7 @@ pub fn _print(args: fmt::Arguments) {
 
 /// Prints to the legacy debug console.
 ///
-/// This is only supported when there exists legacy extension; 
+/// This is only supported when there exists legacy extension;
 /// otherwise platform caller should use an early kernel input/output device
 /// declared in platform specific hardware.
 #[macro_export(local_inner_macros)]
@@ -134,7 +134,7 @@ macro_rules! print {
 
 /// Prints to the legacy debug console, with a newline.
 ///
-/// This is only supported when there exists legacy extension; 
+/// This is only supported when there exists legacy extension;
 /// otherwise platform caller should use an early kernel input/output device
 /// declared in platform specific hardware.
 #[macro_export(local_inner_macros)]

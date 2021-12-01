@@ -5,10 +5,10 @@ mod base;
 mod hsm;
 mod ipi;
 mod legacy;
+mod pmu;
+mod rfence;
 mod srst;
 mod timer;
-mod rfence;
-mod pmu;
 
 pub const EXTENSION_BASE: usize = 0x10;
 pub const EXTENSION_TIMER: usize = 0x54494D45;
@@ -66,7 +66,9 @@ const LEGACY_SHUTDOWN: usize = 0x08;
 #[inline]
 pub fn handle_ecall(extension: usize, function: usize, param: [usize; 6]) -> SbiRet {
     match extension {
-        EXTENSION_RFENCE => rfence::handle_ecall_rfence(function, param[0], param[1], param[2], param[3], param[4]),
+        EXTENSION_RFENCE => {
+            rfence::handle_ecall_rfence(function, param[0], param[1], param[2], param[3], param[4])
+        }
         EXTENSION_TIMER => match () {
             #[cfg(target_pointer_width = "64")]
             () => timer::handle_ecall_timer_64(function, param[0]),
@@ -79,9 +81,13 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 6]) -> Sbi
         EXTENSION_SRST => srst::handle_ecall_srst(function, param[0], param[1]),
         EXTENSION_PMU => match () {
             #[cfg(target_pointer_width = "64")]
-            () => pmu::handle_ecall_pmu_64(function, param[0], param[1], param[2], param[3], param[4]),
+            () => {
+                pmu::handle_ecall_pmu_64(function, param[0], param[1], param[2], param[3], param[4])
+            }
             #[cfg(target_pointer_width = "32")]
-            () => pmu::handle_ecall_pmu_32(function, param[0], param[1], param[2], param[3], param[4], param[5]),
+            () => pmu::handle_ecall_pmu_32(
+                function, param[0], param[1], param[2], param[3], param[4], param[5],
+            ),
         },
         LEGACY_SET_TIMER => match () {
             #[cfg(target_pointer_width = "64")]
@@ -150,7 +156,7 @@ impl SbiRet {
             value: 0,
         }
     }
-    /// SBI call failed for invalid mask start address, not a valid physical address parameter, 
+    /// SBI call failed for invalid mask start address, not a valid physical address parameter,
     /// or the target address is prohibited by PMP to run in supervisor mode.
     pub fn invalid_address() -> SbiRet {
         SbiRet {

@@ -34,8 +34,9 @@ fn hart_get_status(hartid: usize) -> SbiRet {
 
 #[inline]
 fn hart_suspend(suspend_type: usize, resume_addr: usize, opaque: usize) -> SbiRet {
-    if suspend_type > u32::MAX as usize { // valid suspend type should be a `u32` typed value
-        return SbiRet::invalid_param()
+    if suspend_type > u32::MAX as usize {
+        // valid suspend type should be a `u32` typed value
+        return SbiRet::invalid_param();
     }
     crate::hsm::hart_suspend(suspend_type as u32, resume_addr, opaque)
 }
