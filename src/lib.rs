@@ -1,11 +1,11 @@
 //! A minimal RISC-V's SBI implementation library in Rust.
-//! 
+//!
 //! # What is RISC-V SBI?
 //!
-//! RISC-V SBI is short for RISC-V Supervisor Binary Interface. SBI acts as a bootloader environment to your operating system kernel. 
+//! RISC-V SBI is short for RISC-V Supervisor Binary Interface. SBI acts as a bootloader environment to your operating system kernel.
 //! A SBI implementation will bootstrap your kernel, and provide an environment when your kernel is running.
 //!
-//! More generally, The SBI allows supervisor-mode (S-mode or VS-mode) software to be portable across 
+//! More generally, The SBI allows supervisor-mode (S-mode or VS-mode) software to be portable across
 //! all RISC-V implementations by defining an abstraction for platform (or hypervisor) specific functionality.
 //!
 //! # How to use RustSBI in your supervisor software
@@ -20,25 +20,25 @@
 //! SBI calls are similar to operating systems' `syscall`s. RISC-V SBI defined many SBI modules,
 //! and in each module there are different functions, you should pick a function before calling.
 //! Then, you should prepare some parameters, whose definition are not the same among functions.
-//! 
+//!
 //! Now you have a module number, a function number, and a few SBI call parameters.
 //! You invoke a special `ecall` instruction on supervisor level, and it will trap into machine level
-//! SBI implementation. It will handle your `ecall`, similar to your kernel handling system calls 
-//! from user level. 
+//! SBI implementation. It will handle your `ecall`, similar to your kernel handling system calls
+//! from user level.
 //!
 //! SBI functions return two values other than one. First value will be an error number,
-//! it will tell if SBI call have succeeded, or which error have occurred. 
+//! it will tell if SBI call have succeeded, or which error have occurred.
 //! Second value is the real return value, its meaning is different according to which function you calls.
 //!
 //! ## Call SBI in different programming languages
 //!
-//! Making SBI calls are similar to making system calls. 
-//! 
-//! Module number is required to put on register `a7`, function number on `a6`. 
+//! Making SBI calls are similar to making system calls.
+//!
+//! Module number is required to put on register `a7`, function number on `a6`.
 //! Parameters should be placed from `a0` to `a5`, first into `a0`, second into `a1`, etc.
 //! Unused parameters can be set to any value or leave untouched.
 //!
-//! After registers are ready, invoke an instruction called `ecall`. 
+//! After registers are ready, invoke an instruction called `ecall`.
 //! Then, the return value is placed into `a0` and `a1` registers.
 //! The error value could be read from `a0`, and return value is placed into `a1`.
 //!
@@ -51,7 +51,7 @@
 //!     match () {
 //!         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 //!         () => unsafe { asm!(
-//!             "ecall", 
+//!             "ecall",
 //!             in("a0") arg0, in("a1") arg1,
 //!             in("a6") function, in("a7") extension,
 //!             lateout("a0") error, lateout("a1") value,
@@ -71,7 +71,7 @@
 //! }
 //! ```
 //!
-//! Complex SBI functions may fail. In this example we only take the value, but in complete designs 
+//! Complex SBI functions may fail. In this example we only take the value, but in complete designs
 //! we should handle the `error` value returned from SbiRet.
 //!
 //! You may use other languages to call SBI environment. In C programming language, we can call like this:
@@ -90,7 +90,7 @@
 //!         : "memory") \
 //!     {a0, a1}; \
 //! })
-//! 
+//!
 //! #define SBI_CALL_0(module, funct) SBI_CALL(module, funct, 0, 0, 0, 0)
 //!
 //! static inline sbiret get_spec_version() {
@@ -108,11 +108,11 @@
 //! but it will be considered not useful and takes up lots of flash room for other users.
 //!
 //! The RustSBI team provides reference implementation for several platforms, but they are for evaluation
-//! and should not be used in production. 
+//! and should not be used in production.
 //! RustSBI itself cannot decide for all arbitrary users, so developers are encouraged to write their own
 //! SBI implementation, other than use reference implementation directly when in production.
 //!
-//! Also, RustSBI is not designed to include all platforms available in official repository. 
+//! Also, RustSBI is not designed to include all platforms available in official repository.
 //! For an actual platform users may consult board or SoC manufacturer other than RustSBI repository itself.
 //!
 //! The reason to that is that if some repository includes all platforms it support,
@@ -123,15 +123,15 @@
 //!
 //! # Notes for RustSBI developers
 //!
-//! This library adapts to embedded Rust's `embedded-hal` crate to provide basic SBI features. 
+//! This library adapts to embedded Rust's `embedded-hal` crate to provide basic SBI features.
 //! When building for own platform, implement traits in this library and pass them to the functions
 //! begin with `init`. After that, you may call `rustsbi::ecall` in your own exception handler
 //! which would dispatch parameters from supervisor to the traits to execute SBI functions.
 //!
 //! The library also implements useful functions which may help with platform specific binaries.
-//! The `enter_privileged` maybe used to enter the operating system after the initialization 
+//! The `enter_privileged` maybe used to enter the operating system after the initialization
 //! process is finished. The `LOGO` should be printed if necessary when the binary is initializing.
-//! 
+//!
 //! Note that this crate is a library which contains common building blocks in SBI implementation.
 //! It is not intended to be used directly; users should build own platforms with this library.
 //! RustSBI provides implementations on common platforms in separate platform crates.
@@ -151,12 +151,12 @@ mod hart_mask;
 mod hsm;
 mod ipi;
 mod logo;
+mod pmu;
 mod privileged;
 #[doc(hidden)]
 pub mod reset;
-mod timer;
 mod rfence;
-mod pmu;
+mod timer;
 
 mod util;
 
@@ -167,12 +167,15 @@ const SBI_SPEC_MINOR: usize = 3;
 // Ref: https://github.com/riscv-non-isa/riscv-sbi-doc/pull/61
 const IMPL_ID_RUSTSBI: usize = 4;
 // Read from env!("CARGO_PKG_VERSION")
-const RUSTSBI_VERSION_MAJOR: usize = (env!("CARGO_PKG_VERSION_MAJOR").as_bytes()[0] - b'0') as usize;
-const RUSTSBI_VERSION_MINOR: usize = (env!("CARGO_PKG_VERSION_MINOR").as_bytes()[0] - b'0') as usize;
-const RUSTSBI_VERSION_PATCH: usize = (env!("CARGO_PKG_VERSION_PATCH").as_bytes()[0] - b'0') as usize;
-const RUSTSBI_VERSION: usize = {
-   (RUSTSBI_VERSION_MAJOR << 16) + (RUSTSBI_VERSION_MINOR << 8) + RUSTSBI_VERSION_PATCH
-};
+const RUSTSBI_VERSION_MAJOR: usize =
+    (env!("CARGO_PKG_VERSION_MAJOR").as_bytes()[0] - b'0') as usize;
+const RUSTSBI_VERSION_MINOR: usize =
+    (env!("CARGO_PKG_VERSION_MINOR").as_bytes()[0] - b'0') as usize;
+const RUSTSBI_VERSION_PATCH: usize =
+    (env!("CARGO_PKG_VERSION_PATCH").as_bytes()[0] - b'0') as usize;
+#[rustfmt::skip]
+const RUSTSBI_VERSION: usize =
+    (RUSTSBI_VERSION_MAJOR << 16) + (RUSTSBI_VERSION_MINOR << 8) + RUSTSBI_VERSION_PATCH;
 /// RustSBI version as a string.
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
@@ -181,11 +184,11 @@ pub use ecall::SbiRet;
 pub use hart_mask::HartMask;
 pub use hsm::{init_hsm, Hsm};
 pub use ipi::{init_ipi, Ipi};
-pub use logo::LOGO;
-pub use privileged::enter_privileged;
-pub use reset::{init_reset, Reset};
-pub use timer::{init_timer, Timer};
-pub use rfence::{init_rfence as init_remote_fence, Rfence as Fence};
-pub use pmu::{init_pmu, Pmu};
 #[doc(hidden)]
 pub use legacy_stdio::{legacy_stdio_getchar, legacy_stdio_putchar};
+pub use logo::LOGO;
+pub use pmu::{init_pmu, Pmu};
+pub use privileged::enter_privileged;
+pub use reset::{init_reset, Reset};
+pub use rfence::{init_rfence as init_remote_fence, Rfence as Fence};
+pub use timer::{init_timer, Timer};

@@ -1,5 +1,5 @@
-use crate::hart_mask::HartMask;
 use crate::ecall::SbiRet;
+use crate::hart_mask::HartMask;
 use crate::util::OnceFatBox;
 use alloc::boxed::Box;
 
@@ -12,7 +12,7 @@ pub trait Ipi: Send {
     /// Interprocessor interrupts manifest at the receiving harts as the supervisor software interrupts.
     ///
     /// # Return value
-    /// 
+    ///
     /// Should return error code `SBI_SUCCESS` if IPI was sent to all the targeted harts successfully.
     fn send_ipi_many(&self, hart_mask: HartMask) -> SbiRet;
 }
@@ -40,7 +40,7 @@ pub(crate) fn send_ipi_many(hart_mask: HartMask) -> SbiRet {
     }
 }
 
-pub(crate) fn max_hart_id() -> Option<usize> { 
+pub(crate) fn max_hart_id() -> Option<usize> {
     if let Some(ipi) = IPI.get() {
         Some(ipi.max_hart_id())
     } else {

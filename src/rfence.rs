@@ -1,7 +1,7 @@
-use crate::hart_mask::HartMask;
 use crate::ecall::SbiRet;
-use alloc::boxed::Box;
+use crate::hart_mask::HartMask;
 use crate::util::OnceFatBox;
+use alloc::boxed::Box;
 
 /// Remote fence support
 ///
@@ -19,58 +19,70 @@ pub trait Rfence: Send {
     ///
     /// Returns `SBI_SUCCESS` when remote fence was sent to all the targeted harts successfully.
     fn remote_fence_i(&self, hart_mask: HartMask) -> SbiRet;
-    /// Instructs the remote harts to execute one or more `SFENCE.VMA` instructions, 
+    /// Instructs the remote harts to execute one or more `SFENCE.VMA` instructions,
     /// covering the range of virtual addresses between start and size.
-    /// 
+    ///
     /// # Return value
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Return code               | Description 
+    /// | Return code               | Description
     /// |:--------------------------|:----------------------------------------------
     /// | SBI_SUCCESS               | Remote fence was sent to all the targeted harts successfully.
     /// | SBI_ERR_INVALID_ADDRESS   | `start_addr` or `size` is not valid.
     fn remote_sfence_vma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet;
-    /// Instruct the remote harts to execute one or more `SFENCE.VMA` instructions, 
+    /// Instruct the remote harts to execute one or more `SFENCE.VMA` instructions,
     /// covering the range of virtual addresses between start and size. This covers only the given `ASID`.
     ///
     /// # Return value
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Return code               | Description 
+    /// | Return code               | Description
     /// |:--------------------------|:----------------------------------------------
     /// | SBI_SUCCESS               | Remote fence was sent to all the targeted harts successfully.
     /// | SBI_ERR_INVALID_ADDRESS   | `start_addr` or `size` is not valid.
-    fn remote_sfence_vma_asid(&self, hart_mask: HartMask, start_addr: usize, size: usize, asid: usize) -> SbiRet;
-    /// Instruct the remote harts to execute one or more `HFENCE.GVMA` instructions, 
-    /// covering the range of guest physical addresses between start and size only for the given `VMID`. 
-    /// 
+    fn remote_sfence_vma_asid(
+        &self,
+        hart_mask: HartMask,
+        start_addr: usize,
+        size: usize,
+        asid: usize,
+    ) -> SbiRet;
+    /// Instruct the remote harts to execute one or more `HFENCE.GVMA` instructions,
+    /// covering the range of guest physical addresses between start and size only for the given `VMID`.
+    ///
     /// This function call is only valid for harts implementing hypervisor extension.
     ///
     /// # Return value
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Return code               | Description 
+    /// | Return code               | Description
     /// |:--------------------------|:----------------------------------------------
     /// | SBI_SUCCESS               | Remote fence was sent to all the targeted harts successfully.
     /// | SBI_ERR_NOT_SUPPORTED     | This function is not supported as it is not implemented or one of the target hart doesn’t support hypervisor extension.
     /// | SBI_ERR_INVALID_ADDRESS   | `start_addr` or `size` is not valid.
-    fn remote_hfence_gvma_vmid(&self, hart_mask: HartMask, start_addr: usize, size: usize, vmid: usize) -> SbiRet {
+    fn remote_hfence_gvma_vmid(
+        &self,
+        hart_mask: HartMask,
+        start_addr: usize,
+        size: usize,
+        vmid: usize,
+    ) -> SbiRet {
         drop((hart_mask, start_addr, size, vmid));
         SbiRet::not_supported()
     }
-    /// Instruct the remote harts to execute one or more `HFENCE.GVMA` instructions, 
+    /// Instruct the remote harts to execute one or more `HFENCE.GVMA` instructions,
     /// covering the range of guest physical addresses between start and size for all the guests.
-    /// 
+    ///
     /// This function call is only valid for harts implementing hypervisor extension.
     ///
     /// # Return value
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Return code               | Description 
+    /// | Return code               | Description
     /// |:--------------------------|:----------------------------------------------
     /// | SBI_SUCCESS               | Remote fence was sent to all the targeted harts successfully.
     /// | SBI_ERR_NOT_SUPPORTED     | This function is not supported as it is not implemented or one of the target hart doesn’t support hypervisor extension.
@@ -79,8 +91,8 @@ pub trait Rfence: Send {
         drop((hart_mask, start_addr, size));
         SbiRet::not_supported()
     }
-    /// Instruct the remote harts to execute one or more `HFENCE.VVMA` instructions, 
-    /// covering the range of guest virtual addresses between start and size for the given `ASID` and current `VMID` (in `hgatp` CSR) 
+    /// Instruct the remote harts to execute one or more `HFENCE.VVMA` instructions,
+    /// covering the range of guest virtual addresses between start and size for the given `ASID` and current `VMID` (in `hgatp` CSR)
     /// of calling hart.
     ///  
     /// This function call is only valid for harts implementing hypervisor extension.
@@ -89,18 +101,24 @@ pub trait Rfence: Send {
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Return code               | Description 
+    /// | Return code               | Description
     /// |:--------------------------|:----------------------------------------------
     /// | SBI_SUCCESS               | Remote fence was sent to all the targeted harts successfully.
     /// | SBI_ERR_NOT_SUPPORTED     | This function is not supported as it is not implemented or one of the target hart doesn’t support hypervisor extension.
     /// | SBI_ERR_INVALID_ADDRESS   | `start_addr` or `size` is not valid.
-    fn remote_hfence_vvma_asid(&self, hart_mask: HartMask, start_addr: usize, size: usize, asid: usize) -> SbiRet {
+    fn remote_hfence_vvma_asid(
+        &self,
+        hart_mask: HartMask,
+        start_addr: usize,
+        size: usize,
+        asid: usize,
+    ) -> SbiRet {
         drop((hart_mask, start_addr, size, asid));
         SbiRet::not_supported()
     }
-    /// Instruct the remote harts to execute one or more `HFENCE.VVMA` instructions, 
-    /// covering the range of guest virtual addresses between start and size for current `VMID` (in `hgatp` CSR) 
-    /// of calling hart. 
+    /// Instruct the remote harts to execute one or more `HFENCE.VVMA` instructions,
+    /// covering the range of guest virtual addresses between start and size for current `VMID` (in `hgatp` CSR)
+    /// of calling hart.
     ///
     /// This function call is only valid for harts implementing hypervisor extension.
     ///
@@ -108,7 +126,7 @@ pub trait Rfence: Send {
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Return code               | Description 
+    /// | Return code               | Description
     /// |:--------------------------|:----------------------------------------------
     /// | SBI_SUCCESS               | Remote fence was sent to all the targeted harts successfully.
     /// | SBI_ERR_NOT_SUPPORTED     | This function is not supported as it is not implemented or one of the target hart doesn’t support hypervisor extension.
@@ -150,7 +168,12 @@ pub(crate) fn remote_sfence_vma(hart_mask: HartMask, start_addr: usize, size: us
     }
 }
 
-pub(crate) fn remote_sfence_vma_asid(hart_mask: HartMask, start_addr: usize, size: usize, asid: usize) -> SbiRet {
+pub(crate) fn remote_sfence_vma_asid(
+    hart_mask: HartMask,
+    start_addr: usize,
+    size: usize,
+    asid: usize,
+) -> SbiRet {
     if let Some(rfence) = RFENCE.get() {
         rfence.remote_sfence_vma_asid(hart_mask, start_addr, size, asid)
     } else {
@@ -158,7 +181,12 @@ pub(crate) fn remote_sfence_vma_asid(hart_mask: HartMask, start_addr: usize, siz
     }
 }
 
-pub(crate) fn remote_hfence_gvma_vmid(hart_mask: HartMask, start_addr: usize, size: usize, vmid: usize) -> SbiRet {
+pub(crate) fn remote_hfence_gvma_vmid(
+    hart_mask: HartMask,
+    start_addr: usize,
+    size: usize,
+    vmid: usize,
+) -> SbiRet {
     if let Some(rfence) = RFENCE.get() {
         rfence.remote_hfence_gvma_vmid(hart_mask, start_addr, size, vmid)
     } else {
@@ -174,7 +202,12 @@ pub(crate) fn remote_hfence_gvma(hart_mask: HartMask, start_addr: usize, size: u
     }
 }
 
-pub(crate) fn remote_hfence_vvma_asid(hart_mask: HartMask, start_addr: usize, size: usize, asid: usize) -> SbiRet {
+pub(crate) fn remote_hfence_vvma_asid(
+    hart_mask: HartMask,
+    start_addr: usize,
+    size: usize,
+    asid: usize,
+) -> SbiRet {
     if let Some(rfence) = RFENCE.get() {
         rfence.remote_hfence_vvma_asid(hart_mask, start_addr, size, asid)
     } else {
