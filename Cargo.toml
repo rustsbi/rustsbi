@@ -28,4 +28,3 @@ targets = [
 embedded-hal = "0.2.6"
 nb = "1.0"
 riscv = "0.7"
-spin = { version = "0.9", features = ["ticket_mutex"] } 

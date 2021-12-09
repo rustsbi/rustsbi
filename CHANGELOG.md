@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use `embedded-hal` dependency version `0.2.6`
 - Change to asynchronous lock structure trait style
 - Function `num_counters` returns `usize` and its SBI call must return `SBI_SUCCESS`
-- Use ticket mutex for legacy stdio handler; remove dependency on `lazy_static`
+- Use amo mutex for legacy stdio handler; remove dependency on `lazy_static` and `spin`
 
 ### Fixed
 - Test kernel console now will lock before `println` line is finished
