@@ -137,7 +137,7 @@
 //! RustSBI provides implementations on common platforms in separate platform crates.
 
 #![no_std]
-#![feature(asm)]
+#![feature(asm, asm_const)]
 #![feature(ptr_metadata)]
 
 extern crate alloc;
