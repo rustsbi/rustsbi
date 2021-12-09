@@ -1,5 +1,7 @@
 //! 这个模块的两个宏应该公开
 //! 如果制造实例的时候，给定了stdout，那么就会打印到这个stdout里面
+use crate::util::AmoMutex;
+use alloc::boxed::Box;
 use embedded_hal::serial::{Read, Write};
 use nb::block;
 
@@ -59,10 +61,7 @@ where
     }
 }
 
-use alloc::boxed::Box;
-use spin::mutex::TicketMutex;
-
-static LEGACY_STDIO: TicketMutex<Option<Box<dyn LegacyStdio>>> = TicketMutex::new(None);
+static LEGACY_STDIO: AmoMutex<Option<Box<dyn LegacyStdio>>> = AmoMutex::new(None);
 
 #[doc(hidden)] // use through a macro
 pub fn init_legacy_stdio_embedded_hal<T: Read<u8> + Write<u8> + Send + 'static>(serial: T) {
