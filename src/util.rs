@@ -4,6 +4,7 @@
 
 use alloc::boxed::Box;
 use core::{
+    arch::asm,
     cell::UnsafeCell,
     fmt::{self, Debug},
     marker::PhantomData,
@@ -113,12 +114,6 @@ impl<T: ?Sized> OnceFatBox<T> {
         Ok(())
     }
 }
-
-// // FIXME: use `core::arch::riscv::pause()` after https://github.com/rust-lang/rust/pull/91548
-// #[inline]
-// fn pause() {
-//     unsafe { asm!(".word 0x0100000F", options(nomem, nostack)) }
-// }
 
 unsafe impl<T: Sync + Send + ?Sized> Sync for OnceFatBox<T> {}
 

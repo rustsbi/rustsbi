@@ -1,0 +1,10 @@
+{   
+    // Prevent error "can't find crate for `test`" in no_std
+    // Ref: https://github.com/rust-lang/vscode-rust/issues/729
+    // For vscode-rust plugin user:
+    "rust.target": "riscv64imac-unknown-none-elf",
+    "rust.all_targets": false,
+    // For Rust Analyzer:
+    "rust-analyzer.cargo.target": "riscv64imac-unknown-none-elf",
+    "rust-analyzer.checkOnSave.allTargets": false
+}

@@ -25,17 +25,11 @@
 /// ```
 #[inline]
 pub unsafe fn enter_privileged(mhartid: usize, opaque: usize) -> ! {
-    match () {
-        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-        () => asm!("
-            csrrw   sp, mscratch, sp
-            mret
-        ", in("a0") mhartid, in("a1") opaque, options(nomem, noreturn)),
-        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-        () => {
-            drop(mhartid);
-            drop(opaque);
-            unimplemented!("not RISC-V instruction set architecture")
-        }
-    }
+    core::arch::asm!(
+        "csrrw  sp, mscratch, sp",
+        "mret",
+        in("a0") mhartid,
+        in("a1") opaque,
+        options(nomem, noreturn)
+    )
 }

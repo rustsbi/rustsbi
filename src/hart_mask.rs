@@ -59,7 +59,7 @@ unsafe fn get_vaddr_usize(vaddr_ptr: *const usize) -> usize {
         #[cfg(target_arch = "riscv32")]
         () => {
             let mut ans: usize;
-            asm!("
+            core::arch::asm!("
                 li      {tmp}, (1 << 17)
                 csrrs   {tmp}, mstatus, {tmp}
                 lw      {ans}, 0({vmem})
@@ -70,7 +70,7 @@ unsafe fn get_vaddr_usize(vaddr_ptr: *const usize) -> usize {
         #[cfg(target_arch = "riscv64")]
         () => {
             let mut ans: usize;
-            asm!("
+            core::arch::asm!("
                 li      {tmp}, (1 << 17)
                 csrrs   {tmp}, mstatus, {tmp}
                 ld      {ans}, 0({vmem})
@@ -81,7 +81,7 @@ unsafe fn get_vaddr_usize(vaddr_ptr: *const usize) -> usize {
         #[cfg(target_arch = "riscv128")]
         () => {
             let mut ans: usize;
-            asm!("
+            core::arch::asm!("
                 li      {tmp}, (1 << 17)
                 csrrs   {tmp}, mstatus, {tmp}
                 lq      {ans}, 0({vmem})
