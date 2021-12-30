@@ -20,12 +20,16 @@ cargo build --target riscv64imac-unknown-none-elf
 The build should finish without any errors.
 
 If you see any error like `invalid register a0: unknown register`, it's likely that you cross built this project
-into platforms other than RISC-V. RustSBI adapts to RISC-V SBI interface, you may cross build this project
-into any bare metal RISC-V platform targets.
+into platforms other than RISC-V. RustSBI adapts to RISC-V SBI interface, so you may cross build this project
+into any bare metal RISC-V platform targets instead.
 
 The target platform of RustSBI is usually a bare metal target. Under normal circumstances these targets in Rust
 would start with `riscv??-` and end with `-none-elf`. If a non bare metal target is built to, it would throw
 build error in `riscv` dependency crate or RustSBI library itself.
+
+## Minimum supported Rust version
+
+To compile this project, you may need at least nightly Rust version of `rustc 1.59.0-nightly (c5ecc1570 2021-12-15)`.
 
 ## Binary downloads
 
