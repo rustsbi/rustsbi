@@ -88,7 +88,7 @@ pub trait Pmu: Send {
     /// | SBI_PMU_CFG_FLAG_SET_UINH    | 5:5        | Event counting inhibited in U-mode
     /// | SBI_PMU_CFG_FLAG_SET_SINH    | 6:6        | Event counting inhibited in S-mode
     /// | SBI_PMU_CFG_FLAG_SET_MINH    | 7:7        | Event counting inhibited in M-mode
-    /// | *RESERVED*                   | 8:(XLEN-1) | All non-zero values are reserved for future use.
+    /// | _RESERVED_                   | 8:(XLEN-1) | _All non-zero values are reserved for future use._
     ///
     /// *NOTE:* When *SBI_PMU_CFG_FLAG_SKIP_MATCH* is set in `config_flags`, the
     /// SBI implementation will unconditionally select the first counter from the
@@ -132,7 +132,7 @@ pub trait Pmu: Send {
     /// | Flag Name                    | Bits       | Description
     /// |:-----------------------------|:-----------|:------------
     /// | SBI_PMU_START_SET_INIT_VALUE | 0:0        | Set the value of counters based on the `initial_value` parameter.
-    /// | *RESERVED*                   | 1:(XLEN-1) | All non-zero values are reserved for future use.
+    /// | _RESERVED_                   | 1:(XLEN-1) | _All non-zero values are reserved for future use._
     ///
     /// *NOTE*: When `SBI_PMU_START_SET_INIT_VALUE` is not set in `start_flags`, the counter value will
     /// not be modified and event counting will start from current counter value.
@@ -163,7 +163,7 @@ pub trait Pmu: Send {
     /// | Flag Name               | Bits       | Description
     /// |:------------------------|:-----------|:------------
     /// | SBI_PMU_STOP_FLAG_RESET | 0:0        | Reset the counter to event mapping.
-    /// | *RESERVED*              | 1:(XLEN-1) | All non-zero values are reserved for future use.
+    /// | _RESERVED_              | 1:(XLEN-1) | *All non-zero values are reserved for future use.*
     ///
     /// # Return value
     ///

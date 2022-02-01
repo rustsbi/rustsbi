@@ -158,12 +158,12 @@ pub trait Hsm: Send {
     /// | Value                   | Description
     /// |:------------------------|:--------------
     /// | 0x00000000              | Default retentive suspend
-    /// | 0x00000001 - 0x0FFFFFFF | Reserved for future use
+    /// | 0x00000001 - 0x0FFFFFFF | _Reserved for future use_
     /// | 0x10000000 - 0x7FFFFFFF | Platform specific retentive suspend
     /// | 0x80000000              | Default non-retentive suspend
-    /// | 0x80000001 - 0x8FFFFFFF | Reserved for future use
+    /// | 0x80000001 - 0x8FFFFFFF | _Reserved for future use_
     /// | 0x90000000 - 0xFFFFFFFF | Platform specific non-retentive suspend
-    /// | > 0xFFFFFFFF            | Reserved (and non-existent on RV32)
+    /// | > 0xFFFFFFFF            | _Reserved (and non-existent on RV32)_
     ///
     /// The `resume_addr` parameter points to a runtime-specified physical address,
     /// where the hart can resume execution in supervisor-mode after a non-retentive
