@@ -20,7 +20,7 @@ pub trait Rfence: Send {
     /// Returns `SBI_SUCCESS` when remote fence was sent to all the targeted harts successfully.
     fn remote_fence_i(&self, hart_mask: HartMask) -> SbiRet;
     /// Instructs the remote harts to execute one or more `SFENCE.VMA` instructions,
-    /// covering the range of virtual addresses between start and size.
+    /// covering the range of virtual addresses between `start_addr` and `size`.
     ///
     /// # Return value
     ///
@@ -32,7 +32,8 @@ pub trait Rfence: Send {
     /// | SBI_ERR_INVALID_ADDRESS   | `start_addr` or `size` is not valid.
     fn remote_sfence_vma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet;
     /// Instruct the remote harts to execute one or more `SFENCE.VMA` instructions,
-    /// covering the range of virtual addresses between start and size. This covers only the given `ASID`.
+    /// covering the range of virtual addresses between `start_addr` and `size`.
+    /// This covers only the given address space by `asid`.
     ///
     /// # Return value
     ///
@@ -50,7 +51,8 @@ pub trait Rfence: Send {
         asid: usize,
     ) -> SbiRet;
     /// Instruct the remote harts to execute one or more `HFENCE.GVMA` instructions,
-    /// covering the range of guest physical addresses between start and size only for the given `VMID`.
+    /// covering the range of guest physical addresses between `start_addr` and `size`
+    /// only for the given virtual machine by `vmid`.
     ///
     /// This function call is only valid for harts implementing hypervisor extension.
     ///
@@ -74,7 +76,8 @@ pub trait Rfence: Send {
         SbiRet::not_supported()
     }
     /// Instruct the remote harts to execute one or more `HFENCE.GVMA` instructions,
-    /// covering the range of guest physical addresses between start and size for all the guests.
+    /// covering the range of guest physical addresses between `start_addr` and `size`
+    /// for all the guests.
     ///
     /// This function call is only valid for harts implementing hypervisor extension.
     ///
@@ -85,16 +88,17 @@ pub trait Rfence: Send {
     /// | Return code               | Description
     /// |:--------------------------|:----------------------------------------------
     /// | SBI_SUCCESS               | Remote fence was sent to all the targeted harts successfully.
-    /// | SBI_ERR_NOT_SUPPORTED     | This function is not supported as it is not implemented or one of the target hart doesn’t support hypervisor extension.
+    /// | SBI_ERR_NOT_SUPPORTED     | This function is not supported as it is not implemented or one of the target hart does not support hypervisor extension.
     /// | SBI_ERR_INVALID_ADDRESS   | `start_addr` or `size` is not valid.
     fn remote_hfence_gvma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
         drop((hart_mask, start_addr, size));
         SbiRet::not_supported()
     }
     /// Instruct the remote harts to execute one or more `HFENCE.VVMA` instructions,
-    /// covering the range of guest virtual addresses between start and size for the given `ASID` and current `VMID` (in `hgatp` CSR)
+    /// covering the range of guest virtual addresses between `start_addr` and `size` for the given
+    /// address space by `asid` and current virtual machine (by `vmid` in `hgatp` CSR)
     /// of calling hart.
-    ///  
+    ///
     /// This function call is only valid for harts implementing hypervisor extension.
     ///
     /// # Return value
@@ -104,7 +108,7 @@ pub trait Rfence: Send {
     /// | Return code               | Description
     /// |:--------------------------|:----------------------------------------------
     /// | SBI_SUCCESS               | Remote fence was sent to all the targeted harts successfully.
-    /// | SBI_ERR_NOT_SUPPORTED     | This function is not supported as it is not implemented or one of the target hart doesn’t support hypervisor extension.
+    /// | SBI_ERR_NOT_SUPPORTED     | This function is not supported as it is not implemented or one of the target hart does not support hypervisor extension.
     /// | SBI_ERR_INVALID_ADDRESS   | `start_addr` or `size` is not valid.
     fn remote_hfence_vvma_asid(
         &self,
@@ -117,8 +121,8 @@ pub trait Rfence: Send {
         SbiRet::not_supported()
     }
     /// Instruct the remote harts to execute one or more `HFENCE.VVMA` instructions,
-    /// covering the range of guest virtual addresses between start and size for current `VMID` (in `hgatp` CSR)
-    /// of calling hart.
+    /// covering the range of guest virtual addresses between `start_addr` and `size`
+    /// for current virtual machine (by `vmid` in `hgatp` CSR) of calling hart.
     ///
     /// This function call is only valid for harts implementing hypervisor extension.
     ///

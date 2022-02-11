@@ -98,25 +98,42 @@
 //! }
 //! ```
 //!
-//! # Where can I get RustSBI binary file for XX platform?
+//! # Non-features
 //!
-//! RustSBI is designed to be a library, thus will not provide any binary files to specific platforms.
-//! Instead, chip or board manufacturers should provide their own SBI implementation project using RustSBI as a dependency.
+//! RustSBI is designed to strictly adapt to the RISC-V Supervisor Binary Interface specification.
+//! Other features useful in developing kernels and hypervisors maybe included in other Rust
+//! ecosystem crates other than this package.
 //!
-//! The reason RustSBI group will not provide actual binary implementation is that,
+//! ## Hardware discovery and feature detection
+//!
+//! According to the RISC-V SBI specification, SBI does not specify any method for hardware discovery.
+//! The supervisor software must rely on the other industry standard hardware
+//! discovery methods (i.e. Device Tree or ACPI) for that.
+//!
+//! To detect any feature under bare metal or under supervisor level, developers may depend on
+//! any hardware discovery methods, or use try-execute-trap method to detect any instructions or
+//! CSRs. If SBI is implemented in user level emulators, it may requires to depend on operating
+//! system calls or use the signal trap method to detect any RISC-V core features.
+//!
+//! ## Where can I get RustSBI binary file for XX platform?
+//!
+//! RustSBI is designed to be a library instead of providing any binary files to specific platforms.
+//! Chip or board manufacturers should provide their own SBI implementation project using RustSBI as a dependency.
+//!
+//! The RustSBI team provides reference implementation for several platforms, but they are for evaluation
+//! only and should not be used in production.
+//! RustSBI itself cannot decide for all arbitrary users, so developers are encouraged to use RustSBI
+//! as a Rust crate dependency to support their own SBI implementation,
+//! other than use reference implementation directly when in production.
 //! SBI feature demands are different among users, one feature would be useful for this user,
 //! but it will be considered not useful and takes up lots of flash room for other users.
 //!
-//! The RustSBI team provides reference implementation for several platforms, but they are for evaluation
-//! and should not be used in production.
-//! RustSBI itself cannot decide for all arbitrary users, so developers are encouraged to write their own
-//! SBI implementation, other than use reference implementation directly when in production.
-//!
-//! Also, RustSBI is not designed to include all platforms available in official repository.
+//! RustSBI is not designed to include all platforms available in official repository.
 //! For an actual platform users may consult board or SoC manufacturer other than RustSBI repository itself.
 //!
 //! The reason to that is that if some repository includes all platforms it support,
-//! there could be lots of non technical reasons that will bar developers from merging into main or upstream branches.
+//! there could be lots of non technical reasons that will bar one or a certain group of developers
+//! from merging their code into main or upstream branches.
 //! For example, if a draft version of actual platform is produced, it will mean to write for one draft version as well
 //! as long as this software is under maintenance. As software developer may not want to write for it,
 //! it's better to include minimal feature in core repository, and leave other features for downstream developers.

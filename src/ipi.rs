@@ -9,7 +9,7 @@ pub trait Ipi: Send {
     fn max_hart_id(&self) -> usize;
     /// Send an inter-processor interrupt to all the harts defined in `hart_mask`.
     ///
-    /// Interprocessor interrupts manifest at the receiving harts as the supervisor software interrupts.
+    /// Inter-processor interrupts manifest at the receiving harts as the supervisor software interrupts.
     ///
     /// # Return value
     ///

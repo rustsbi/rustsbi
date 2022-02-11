@@ -45,7 +45,7 @@ use crate::ecall::SbiRet;
 pub trait Hsm: Send {
     /// Request the SBI implementation to start executing the given hart at specified address in supervisor-mode.
     ///
-    /// This call is asynchronous — more specifically, the `sbi_hart_start()` may return before target hart
+    /// This call is asynchronous - more specifically, the `sbi_hart_start()` may return before target hart
     /// starts executing as long as the SBI implemenation is capable of ensuring the return code is accurate.
     ///
     /// It is recommended that if the SBI implementation is a platform runtime firmware executing in machine-mode (M-mode)
@@ -59,7 +59,7 @@ pub trait Hsm: Send {
     ///
     /// # Behavior
     ///
-    /// The target hart jumps to supervisor-mode at address specified by `start_addr` with following values in specific registers.
+    /// The target hart jumps to supervisor mode at address specified by `start_addr` with following values in specific registers.
     ///
     /// | Register Name | Register Value
     /// |:--------------|:--------------
@@ -163,7 +163,7 @@ pub trait Hsm: Send {
     /// | 0x80000000              | Default non-retentive suspend
     /// | 0x80000001 - 0x8FFFFFFF | _Reserved for future use_
     /// | 0x90000000 - 0xFFFFFFFF | Platform specific non-retentive suspend
-    /// | > 0xFFFFFFFF            | _Reserved (and non-existent on RV32)_
+    /// | > 0xFFFFFFFF            | _Reserved_
     ///
     /// The `resume_addr` parameter points to a runtime-specified physical address,
     /// where the hart can resume execution in supervisor-mode after a non-retentive

@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Change to asynchronous lock structure trait style
 - Function `num_counters` returns `usize` and its SBI call must return `SBI_SUCCESS`
 - Use amo mutex for legacy stdio handler; remove dependency on `lazy_static` and `spin`
+- Improve documents to adapt to v1.0-rc2 specification
 
 ### Fixed
 - Test kernel console now will lock before `println` line is finished

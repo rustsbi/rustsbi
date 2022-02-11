@@ -41,7 +41,7 @@ pub fn handle_ecall_rfence(
 // If None = max_hart_id(), that means IPI extension is not supported.
 // In RustSBI, RFENCE support requires an IPI support is implemented.
 // If platform does not provide IPI support, RustSBI will disable RFENCE
-// interface access from supervisor level.
+// interface access from SBI environment caller.
 
 #[inline]
 fn remote_fence_i(hart_mask: usize, hart_mask_base: usize) -> SbiRet {
