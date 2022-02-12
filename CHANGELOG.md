@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.0] - 2021-02-23
 ### Added
-- Support for RISC-V SBI v0.3 Specification
+- Support for RISC-V SBI v1.0 and v0.3 Specification
 - S-level Illegal instruction exception is now delegated into S-level software handler
 - Support RFENCE extension in RustSBI framework
 - Added a test kernel to test SBI function on RustSBI implementations
@@ -17,7 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Build under new asm! macro
 
 ### Modified
+
 - Reform RustSBI project into a library
+- Use `u32` function and module id width for SBI 1.0
 - Function `rustsbi::ecall` now require `a0`-`a5` input parameters
 - Enhanced in-line code documents from SBI standard
 - Now IPI module requires to return an `SbiRet` value

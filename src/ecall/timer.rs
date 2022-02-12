@@ -1,10 +1,10 @@
 use super::SbiRet;
 
-const FUNCTION_TIMER_SET_TIMER: usize = 0x0;
+const FUNCTION_TIMER_SET_TIMER: u32 = 0x0;
 
 #[inline]
 #[cfg(target_pointer_width = "64")]
-pub fn handle_ecall_timer_64(function: usize, param0: usize) -> SbiRet {
+pub fn handle_ecall_timer_64(function: u32, param0: usize) -> SbiRet {
     match function {
         FUNCTION_TIMER_SET_TIMER => set_timer(param0),
         _ => SbiRet::not_supported(),
@@ -13,7 +13,7 @@ pub fn handle_ecall_timer_64(function: usize, param0: usize) -> SbiRet {
 
 #[inline]
 #[cfg(target_pointer_width = "32")]
-pub fn handle_ecall_timer_32(function: usize, param0: usize, param1: usize) -> SbiRet {
+pub fn handle_ecall_timer_32(function: u32, param0: usize, param1: usize) -> SbiRet {
     match function {
         FUNCTION_TIMER_SET_TIMER => set_timer(param0, param1),
         _ => SbiRet::not_supported(),

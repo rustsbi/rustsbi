@@ -1,7 +1,7 @@
 use crate::ecall::*;
 
 #[inline]
-pub fn probe_extension(extension: usize) -> bool {
+pub fn probe_extension(extension: u32) -> bool {
     match extension {
         EXTENSION_BASE => true,
         EXTENSION_TIMER => crate::timer::probe_timer(),

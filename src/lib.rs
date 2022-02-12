@@ -176,6 +176,11 @@ mod timer;
 
 mod util;
 
+#[cfg(feature = "guest")]
+mod guest;
+
+pub mod instance;
+
 const SBI_SPEC_MAJOR: usize = 0;
 const SBI_SPEC_MINOR: usize = 3;
 
