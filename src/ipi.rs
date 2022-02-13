@@ -40,10 +40,7 @@ pub(crate) fn send_ipi_many(hart_mask: HartMask) -> SbiRet {
     }
 }
 
+// Returns maximum hart id if IPI presents, or None if absent.
 pub(crate) fn max_hart_id() -> Option<usize> {
-    if let Some(ipi) = IPI.get() {
-        Some(ipi.max_hart_id())
-    } else {
-        None
-    }
+    IPI.get().map(|ipi| ipi.max_hart_id())
 }

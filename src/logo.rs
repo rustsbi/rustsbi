@@ -8,4 +8,4 @@
 /// |  |\  \----.|  `--'  |.----)   |      |  |  .----)   |   |  |_)  ||  |
 /// | _| `._____| \______/ |_______/       |__|  |_______/    |______/ |__|
 /// ```
-pub const LOGO: &'static str = include_str!("logo.txt");
+pub const LOGO: &str = include_str!("logo.txt");

@@ -185,7 +185,7 @@ pub trait Hsm: Send {
     /// | SBI_ERR_INVALID_ADDRESS | `resume_addr` is not valid possibly due to following reasons: it is not a valid physical address, or the address is prohibited by PMP to run in supervisor mode.
     /// | SBI_ERR_FAILED          | The suspend request failed for unknown reasons.
     fn hart_suspend(&self, suspend_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
-        drop((suspend_type, resume_addr, opaque));
+        let _ = (suspend_type, resume_addr, opaque);
         SbiRet::not_supported()
     }
 }
