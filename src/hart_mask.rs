@@ -1,5 +1,3 @@
-use core::mem::size_of;
-
 /// Hart mask structure reference
 #[derive(Debug, Clone)]
 pub struct HartMask {
@@ -19,7 +17,7 @@ impl HartMask {
     ///   If `base` equals `usize::MAX`, that means `vaddr` is ignored and all available harts must be considered.
     /// - The `max_hart_id` should be returned by SBI implementation for maximum hart id this hart mask supports.
     ///
-    /// # Unsafety
+    /// # Safety
     ///
     /// Caller must ensure all usize values in the bit vector is accessible.
     pub unsafe fn from_addr(vaddr: usize, base: usize, max_hart_id: usize) -> HartMask {
@@ -49,7 +47,7 @@ impl HartMask {
 
 #[inline]
 fn split_index_usize(index: usize) -> (usize, usize) {
-    let bits_in_usize = size_of::<usize>() * 8;
+    let bits_in_usize = usize::BITS as usize;
     (index / bits_in_usize, index % bits_in_usize)
 }
 

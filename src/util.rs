@@ -95,7 +95,7 @@ impl<T: ?Sized> OnceFatBox<T> {
                 options(nostack)
             );
             // critical section begin
-            if *self.thin_ptr.get() == ptr::null_mut() {
+            if (*self.thin_ptr.get()).is_null() { // not 'self.thin_ptr.get().is_null()'
                 *self.thin_ptr.get() = data_address;
                 *(self.meta.as_ptr() as *mut _) = ptr::metadata(fat_ptr);
                 ans = Ok(())
@@ -107,7 +107,7 @@ impl<T: ?Sized> OnceFatBox<T> {
             );
             ans
         };
-        if let Err(_) = exchange {
+        if exchange.is_err() {
             let value = unsafe { Box::from_raw(fat_ptr) };
             return Err(value);
         }

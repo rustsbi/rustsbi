@@ -1,11 +1,20 @@
 # Changelog
+
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
+to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.0] - 2021-02-23
+## Unreleased
+
 ### Added
+
+### Modified
+
+## [0.2.0] - 2022-02-13
+
+### Added
+
 - Support for RISC-V SBI v0.3 Specification
 - S-level Illegal instruction exception is now delegated into S-level software handler
 - Support RFENCE extension in RustSBI framework

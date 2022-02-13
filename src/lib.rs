@@ -193,7 +193,7 @@ const RUSTSBI_VERSION_PATCH: usize =
 const RUSTSBI_VERSION: usize =
     (RUSTSBI_VERSION_MAJOR << 16) + (RUSTSBI_VERSION_MINOR << 8) + RUSTSBI_VERSION_PATCH;
 /// RustSBI version as a string.
-pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub use ecall::handle_ecall as ecall;
 pub use ecall::SbiRet;

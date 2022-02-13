@@ -8,7 +8,7 @@
 /// After this function is called, the stack pointer register `sp` is swapped with `mscratch`,
 /// and a `mret` is called to return to `mepc` address with target privilege.
 ///
-/// # Unsafety
+/// # Safety
 ///
 /// This function implictly returns to the program address with the address from `mepc` register.
 /// Caller must ensure that the value in `mepc` is a valid program address.
