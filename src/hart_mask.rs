@@ -18,6 +18,7 @@ impl HartMask {
         }
     }
     /// Check if the `hart_id` is included in this hart mask structure.
+    #[inline]
     pub fn has_bit(&self, hart_id: usize) -> bool {
         match self.inner {
             MaskInner::BitVector { hart_mask, hart_mask_base } => {
@@ -49,7 +50,7 @@ impl HartMask {
     ///
     /// Construct a hart mask from legacy bit vector and number of harts in current platform.
     #[inline]
-    pub unsafe fn legacy_from_addr(vaddr: usize) -> HartMask {
+    pub(crate) unsafe fn legacy_from_addr(vaddr: usize) -> HartMask {
         HartMask {
             inner: MaskInner::Legacy {
                 legacy_bit_vector: vaddr as *const _,

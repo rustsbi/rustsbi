@@ -127,6 +127,7 @@ const SBI_ERR_ALREADY_STOPPED: usize = usize::from_ne_bytes(isize::to_ne_bytes(-
 
 impl SbiRet {
     /// Return success SBI state with given value.
+    #[inline]
     pub fn ok(value: usize) -> SbiRet {
         SbiRet {
             error: SBI_SUCCESS,
@@ -134,6 +135,7 @@ impl SbiRet {
         }
     }
     /// The SBI call request failed for unknown reasons.
+    #[inline]
     pub fn failed() -> SbiRet {
         SbiRet {
             error: SBI_ERR_FAILED,
@@ -142,6 +144,7 @@ impl SbiRet {
     }
     /// SBI call failed due to not supported by target ISA, operation type not supported,
     /// or target operation type not implemented on purpose.
+    #[inline]
     pub fn not_supported() -> SbiRet {
         SbiRet {
             error: SBI_ERR_NOT_SUPPORTED,
@@ -150,6 +153,7 @@ impl SbiRet {
     }
     /// SBI call failed due to invalid hart mask parameter, invalid target hart id, invalid operation type
     /// or invalid resource index.
+    #[inline]
     pub fn invalid_param() -> SbiRet {
         SbiRet {
             error: SBI_ERR_INVALID_PARAM,
@@ -158,6 +162,7 @@ impl SbiRet {
     }
     /// SBI call failed for invalid mask start address, not a valid physical address parameter,
     /// or the target address is prohibited by PMP to run in supervisor mode.
+    #[inline]
     pub fn invalid_address() -> SbiRet {
         SbiRet {
             error: SBI_ERR_INVALID_ADDRESS,
@@ -166,6 +171,7 @@ impl SbiRet {
     }
     /// SBI call failed for the target resource is already available, e.g. the target hart is already
     /// started when caller still request it to start.
+    #[inline]
     pub fn already_available() -> SbiRet {
         SbiRet {
             error: SBI_ERR_ALREADY_AVAILABLE,
@@ -173,6 +179,7 @@ impl SbiRet {
         }
     }
     /// SBI call failed for the target resource is already started, e.g. target performance counter is started.
+    #[inline]
     pub fn already_started() -> SbiRet {
         SbiRet {
             error: SBI_ERR_ALREADY_STARTED,
@@ -180,12 +187,14 @@ impl SbiRet {
         }
     }
     /// SBI call failed for the target resource is already stopped, e.g. target performance counter is stopped.
+    #[inline]
     pub fn already_stopped() -> SbiRet {
         SbiRet {
             error: SBI_ERR_ALREADY_STOPPED,
             value: 0,
         }
     }
+    #[inline]
     pub(crate) fn legacy_ok(legacy_value: usize) -> SbiRet {
         SbiRet {
             error: legacy_value,
@@ -193,12 +202,14 @@ impl SbiRet {
         }
     }
     // only used for legacy where a0, a1 return value is not modified
+    #[inline]
     pub(crate) fn legacy_void(self, a0: usize, a1: usize) -> SbiRet {
         SbiRet {
             error: a0,
             value: a1,
         }
     }
+    #[inline]
     pub(crate) fn legacy_return(self, a1: usize) -> SbiRet {
         SbiRet {
             error: self.error,

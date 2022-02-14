@@ -20,6 +20,7 @@ struct EmbeddedHalSerial<T> {
 
 impl<T> EmbeddedHalSerial<T> {
     /// Create a wrapper with a value
+    #[inline]
     fn new(inner: T) -> Self {
         Self { inner }
     }
@@ -29,12 +30,14 @@ impl<T: Send> LegacyStdio for EmbeddedHalSerial<T>
 where
     T: Read<u8> + Write<u8>,
 {
+    #[inline]
     fn getchar(&mut self) -> u8 {
         // 直接调用embedded-hal里面的函数
         // 关于unwrap：因为这个是legacy函数，这里没有详细的处理流程，就panic掉
         block!(self.inner.read()).ok().unwrap()
     }
 
+    #[inline]
     fn putchar(&mut self, ch: u8) {
         // 直接调用函数写一个字节
         block!(self.inner.write(ch)).ok();
@@ -51,10 +54,12 @@ where
     T: Write<u8> + Send + 'static,
     R: Read<u8> + Send + 'static,
 {
+    #[inline]
     fn getchar(&mut self) -> u8 {
         block!(self.1.read()).ok().unwrap()
     }
 
+    #[inline]
     fn putchar(&mut self, ch: u8) {
         block!(self.0.write(ch)).ok();
         block!(self.0.flush()).ok();
@@ -79,12 +84,14 @@ where
     *LEGACY_STDIO.lock() = Some(Box::new(serial));
 }
 
+#[inline]
 pub fn legacy_stdio_putchar(ch: u8) {
     if let Some(stdio) = LEGACY_STDIO.lock().as_mut() {
         stdio.putchar(ch)
     }
 }
 
+#[inline]
 pub fn legacy_stdio_getchar() -> usize {
     if let Some(stdio) = LEGACY_STDIO.lock().as_mut() {
         stdio.getchar() as usize
@@ -100,6 +107,7 @@ use core::fmt;
 struct Stdout;
 
 impl fmt::Write for Stdout {
+    #[inline]
     fn write_str(&mut self, s: &str) -> fmt::Result {
         if let Some(stdio) = LEGACY_STDIO.lock().as_mut() {
             for byte in s.as_bytes() {
@@ -110,6 +118,7 @@ impl fmt::Write for Stdout {
     }
 }
 
+#[inline]
 #[doc(hidden)]
 pub fn _print(args: fmt::Arguments) {
     use fmt::Write;
