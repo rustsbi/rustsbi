@@ -1,6 +1,5 @@
 use super::SbiRet;
 use crate::hart_mask::HartMask;
-use crate::ipi::max_hart_id;
 use crate::rfence;
 
 const FUNCTION_RFENCE_REMOTE_FENCE_I: usize = 0x0;
@@ -38,19 +37,9 @@ pub fn handle_ecall_rfence(
     }
 }
 
-// If None = max_hart_id(), that means IPI extension is not supported.
-// In RustSBI, RFENCE support requires an IPI support is implemented.
-// If platform does not provide IPI support, RustSBI will disable RFENCE
-// interface access from SBI environment caller.
-
 #[inline]
 fn remote_fence_i(hart_mask: usize, hart_mask_base: usize) -> SbiRet {
-    let max_hart_id = if let Some(id) = max_hart_id() {
-        id
-    } else {
-        return SbiRet::not_supported();
-    };
-    let hart_mask = unsafe { HartMask::from_addr(hart_mask, hart_mask_base, max_hart_id) };
+    let hart_mask = HartMask::from_mask_base(hart_mask, hart_mask_base);
     rfence::remote_fence_i(hart_mask)
 }
 
@@ -61,12 +50,7 @@ fn remote_sfence_vma(
     start_addr: usize,
     size: usize,
 ) -> SbiRet {
-    let max_hart_id = if let Some(id) = max_hart_id() {
-        id
-    } else {
-        return SbiRet::not_supported();
-    };
-    let hart_mask = unsafe { HartMask::from_addr(hart_mask, hart_mask_base, max_hart_id) };
+    let hart_mask = HartMask::from_mask_base(hart_mask, hart_mask_base);
     rfence::remote_sfence_vma(hart_mask, start_addr, size)
 }
 
@@ -78,12 +62,7 @@ fn remote_sfence_vma_asid(
     size: usize,
     asid: usize,
 ) -> SbiRet {
-    let max_hart_id = if let Some(id) = max_hart_id() {
-        id
-    } else {
-        return SbiRet::not_supported();
-    };
-    let hart_mask = unsafe { HartMask::from_addr(hart_mask, hart_mask_base, max_hart_id) };
+    let hart_mask = HartMask::from_mask_base(hart_mask, hart_mask_base);
     rfence::remote_sfence_vma_asid(hart_mask, start_addr, size, asid)
 }
 
@@ -95,12 +74,7 @@ fn remote_hfence_gvma_vmid(
     size: usize,
     vmid: usize,
 ) -> SbiRet {
-    let max_hart_id = if let Some(id) = max_hart_id() {
-        id
-    } else {
-        return SbiRet::not_supported();
-    };
-    let hart_mask = unsafe { HartMask::from_addr(hart_mask, hart_mask_base, max_hart_id) };
+    let hart_mask = HartMask::from_mask_base(hart_mask, hart_mask_base);
     rfence::remote_hfence_gvma_vmid(hart_mask, start_addr, size, vmid)
 }
 
@@ -111,12 +85,7 @@ fn remote_hfence_gvma(
     start_addr: usize,
     size: usize,
 ) -> SbiRet {
-    let max_hart_id = if let Some(id) = max_hart_id() {
-        id
-    } else {
-        return SbiRet::not_supported();
-    };
-    let hart_mask = unsafe { HartMask::from_addr(hart_mask, hart_mask_base, max_hart_id) };
+    let hart_mask = HartMask::from_mask_base(hart_mask, hart_mask_base);
     rfence::remote_hfence_gvma(hart_mask, start_addr, size)
 }
 
@@ -128,12 +97,7 @@ fn remote_hfence_vvma_asid(
     size: usize,
     asid: usize,
 ) -> SbiRet {
-    let max_hart_id = if let Some(id) = max_hart_id() {
-        id
-    } else {
-        return SbiRet::not_supported();
-    };
-    let hart_mask = unsafe { HartMask::from_addr(hart_mask, hart_mask_base, max_hart_id) };
+    let hart_mask = HartMask::from_mask_base(hart_mask, hart_mask_base);
     rfence::remote_hfence_vvma_asid(hart_mask, start_addr, size, asid)
 }
 
@@ -144,11 +108,6 @@ fn remote_hfence_vvma(
     start_addr: usize,
     size: usize,
 ) -> SbiRet {
-    let max_hart_id = if let Some(id) = max_hart_id() {
-        id
-    } else {
-        return SbiRet::not_supported();
-    };
-    let hart_mask = unsafe { HartMask::from_addr(hart_mask, hart_mask_base, max_hart_id) };
+    let hart_mask = HartMask::from_mask_base(hart_mask, hart_mask_base);
     rfence::remote_hfence_vvma(hart_mask, start_addr, size)
 }

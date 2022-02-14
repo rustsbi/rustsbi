@@ -5,10 +5,6 @@ use alloc::boxed::Box;
 
 /// Remote fence support
 ///
-/// In RustSBI, RFENCE support requires an IPI support is implemented.
-/// If your platform does not provide IPI support, RustSBI will disable RFENCE
-/// interface access from supervisor level.
-///
 /// The remote fence function acts as a full TLB flush if
 /// - `start_addr` and `size` are both 0, and
 /// - `size` is equal to `usize::MAX`.

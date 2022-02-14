@@ -5,8 +5,6 @@ use alloc::boxed::Box;
 
 /// Inter-processor interrupt support
 pub trait Ipi: Send {
-    /// Get the maximum hart id available by this IPI support module
-    fn max_hart_id(&self) -> usize;
     /// Send an inter-processor interrupt to all the harts defined in `hart_mask`.
     ///
     /// Inter-processor interrupts manifest at the receiving harts as the supervisor software interrupts.
@@ -15,6 +13,11 @@ pub trait Ipi: Send {
     ///
     /// Should return error code `SBI_SUCCESS` if IPI was sent to all the targeted harts successfully.
     fn send_ipi_many(&self, hart_mask: HartMask) -> SbiRet;
+    #[doc(hidden)]
+    /// Get the maximum hart id available by this IPI support module
+    fn max_hart_id(&self) -> usize {
+        unimplemented!("remained for compatibility, should remove in 0.3.0")
+    }
 }
 
 static IPI: OnceFatBox<dyn Ipi + Sync + 'static> = OnceFatBox::new();
@@ -38,9 +41,4 @@ pub(crate) fn send_ipi_many(hart_mask: HartMask) -> SbiRet {
     } else {
         SbiRet::not_supported()
     }
-}
-
-// Returns maximum hart id if IPI presents, or None if absent.
-pub(crate) fn max_hart_id() -> Option<usize> {
-    IPI.get().map(|ipi| ipi.max_hart_id())
 }
