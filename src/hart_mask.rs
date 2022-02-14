@@ -39,13 +39,7 @@ impl HartMask {
                 hart_mask & (1 << idx) != 0
             },
             MaskInner::Legacy { legacy_bit_vector } => {
-                fn split_index_usize(index: usize) -> (usize, usize) {
-                    let bits_in_usize = usize::BITS as usize;
-                    (index / bits_in_usize, index % bits_in_usize)
-                }
-                let (i, j) = split_index_usize(hart_id);
-                let cur_vector = unsafe { get_vaddr_usize(legacy_bit_vector.add(i)) };
-                cur_vector & (1 << j) != 0
+                slow_legacy_has_bit(legacy_bit_vector, hart_id)
             },
         }
     }
@@ -73,6 +67,17 @@ enum MaskInner {
     Legacy {
         legacy_bit_vector: *const usize,
     },
+}
+
+// not #[inline] to speed up new version bit vector
+fn slow_legacy_has_bit(legacy_bit_vector: *const usize, hart_id: usize) -> bool {
+    fn split_index_usize(index: usize) -> (usize, usize) {
+        let bits_in_usize = usize::BITS as usize;
+        (index / bits_in_usize, index % bits_in_usize)
+    }
+    let (i, j) = split_index_usize(hart_id);
+    let cur_vector = unsafe { get_vaddr_usize(legacy_bit_vector.add(i)) };
+    cur_vector & (1 << j) != 0
 }
 
 #[inline]

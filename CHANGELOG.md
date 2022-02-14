@@ -11,6 +11,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Modified
 
+## [0.2.1] - 2022-02-14
+
+This update fixes a moderate bug on IPI module. The previous version of RustSBI did not follow the SBI definition of IPI
+module on SBI v0.3 format. Users are encouraged to use 0.2.1 and newer version instead of yanked 0.2.0 version.
+
+### Modified
+
+- Internal speed up to new SBI v0.3+ IPI procedure
+
+### Fixed
+
+- Severe bug on IPI does not follow new SBI version convention rule
+
 ## [0.2.0] - 2022-02-13
 
 ### Added
