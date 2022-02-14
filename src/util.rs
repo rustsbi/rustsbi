@@ -22,12 +22,14 @@ pub struct OnceFatBox<T: ?Sized> {
 }
 
 impl<T: ?Sized> Default for OnceFatBox<T> {
+    #[inline]
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl<T: ?Sized> Drop for OnceFatBox<T> {
+    #[inline]
     fn drop(&mut self) {
         let data_address = *self.thin_ptr.get_mut();
         if !data_address.is_null() {
@@ -52,6 +54,7 @@ where
 
 impl<T: ?Sized> OnceFatBox<T> {
     /// Creates a new empty cell.
+    #[inline]
     pub const fn new() -> OnceFatBox<T> {
         OnceFatBox {
             thin_ptr: UnsafeCell::new(ptr::null_mut()),
@@ -62,6 +65,7 @@ impl<T: ?Sized> OnceFatBox<T> {
     }
 
     /// Gets a reference to the underlying value.
+    #[inline]
     pub fn get(&self) -> Option<&T> {
         let data_address = self.thin_ptr.get();
         if data_address.is_null() {
@@ -75,6 +79,7 @@ impl<T: ?Sized> OnceFatBox<T> {
     /// Sets the contents of this cell to `value`.
     ///
     /// Returns `Ok(())` if the cell was empty and `Err(value)` if it was full.
+    #[inline]
     pub fn set(&self, value: Box<T>) -> Result<(), Box<T>> {
         let fat_ptr = Box::into_raw(value);
         let data_address = fat_ptr as *mut ();
@@ -130,6 +135,7 @@ pub struct AmoMutexGuard<'a, T: ?Sized> {
 
 impl<T> AmoMutex<T> {
     /// Create a new AmoMutex
+    #[inline]
     pub const fn new(data: T) -> Self {
         AmoMutex {
             data: UnsafeCell::new(data),
@@ -137,6 +143,7 @@ impl<T> AmoMutex<T> {
         }
     }
     /// Locks the mutex and returns a guard that permits access to the inner data.
+    #[inline]
     pub fn lock(&self) -> AmoMutexGuard<T> {
         unsafe {
             asm!(
@@ -165,18 +172,21 @@ unsafe impl<T: ?Sized + Send> Send for AmoMutex<T> {}
 
 impl<'a, T: ?Sized> Deref for AmoMutexGuard<'a, T> {
     type Target = T;
+    #[inline]
     fn deref(&self) -> &T {
         self.data
     }
 }
 
 impl<'a, T: ?Sized> DerefMut for AmoMutexGuard<'a, T> {
+    #[inline]
     fn deref_mut(&mut self) -> &mut T {
         self.data
     }
 }
 impl<'a, T: ?Sized> Drop for AmoMutexGuard<'a, T> {
     /// The dropping of the mutex guard will release the lock it was created from.
+    #[inline]
     fn drop(&mut self) {
         unsafe {
             asm!(

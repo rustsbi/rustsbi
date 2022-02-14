@@ -83,6 +83,7 @@ pub(crate) fn probe_reset() -> bool {
     RESET.get().is_some()
 }
 
+#[inline]
 pub(crate) fn system_reset(reset_type: usize, reset_reason: usize) -> SbiRet {
     if let Some(obj) = RESET.get() {
         return obj.system_reset(reset_type, reset_reason);
@@ -90,6 +91,7 @@ pub(crate) fn system_reset(reset_type: usize, reset_reason: usize) -> SbiRet {
     SbiRet::not_supported()
 }
 
+#[inline]
 pub(crate) fn legacy_reset() -> ! {
     if let Some(obj) = RESET.get() {
         obj.legacy_reset()
