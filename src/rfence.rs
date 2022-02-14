@@ -6,7 +6,7 @@ use alloc::boxed::Box;
 /// Remote fence support
 ///
 /// The remote fence function acts as a full TLB flush if
-/// - `start_addr` and `size` are both 0, and
+/// - `start_addr` and `size` are both 0, or
 /// - `size` is equal to `usize::MAX`.
 pub trait Rfence: Send {
     /// Instructs remote harts to execute `FENCE.I` instruction.
