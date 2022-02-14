@@ -45,6 +45,9 @@
 //! In Rust, here is an example to call SBI functions using inline assembly:
 //!
 //! ```no_run
+//! # #[repr(C)] struct SbiRet { error: usize, value: usize }
+//! # const EXTENSION_BASE: usize = 0x10;
+//! # const FUNCTION_BASE_GET_SPEC_VERSION: usize = 0x0;
 //! #[inline(always)]
 //! fn sbi_call(extension: usize, function: usize, arg0: usize, arg1: usize) -> SbiRet {
 //!     let (error, value);

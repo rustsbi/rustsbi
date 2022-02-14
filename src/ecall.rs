@@ -48,8 +48,10 @@ const LEGACY_SHUTDOWN: usize = 0x08;
 /// A typical usage:
 ///
 /// ```no_run
-/// #[exception]
-/// fn handle_exception(ctx: &mut TrapFrame) {
+/// # use riscv::register::{mepc, mcause::{self, Trap, Exception}};
+/// # struct TrapFrame { a0: usize, a1: usize, a2: usize, a3: usize,
+/// # a4: usize, a5: usize, a6: usize, a7: usize }
+/// extern "C" fn rust_handle_exception(ctx: &mut TrapFrame) {
 ///     if mcause::read().cause() == Trap::Exception(Exception::SupervisorEnvCall) {
 ///         let params = [ctx.a0, ctx.a1, ctx.a2, ctx.a3, ctx.a4, ctx.a5];
 ///         let ans = rustsbi::ecall(ctx.a7, ctx.a6, params);

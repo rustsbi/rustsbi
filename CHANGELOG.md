@@ -17,18 +17,16 @@ This update fixes a severe bug on IPI module. The previous version of RustSBI di
 module on SBI v0.3 format. Users are encouraged to use 0.2.1 and newer version instead of yanked 0.2.0 version.
 
 ### Modified
-
 - Internal speed up to new SBI v0.3+ IPI procedure
 - Reduce code size by inlining internal functions
 
 ### Fixed
-
 - Severe bug on IPI does not follow new SBI version convention rule
+- Pass cargo test on docs, add test cases on hart mask
 
 ## [0.2.0] - 2022-02-13
 
 ### Added
-
 - Support for RISC-V SBI v0.3 Specification
 - S-level Illegal instruction exception is now delegated into S-level software handler
 - Support RFENCE extension in RustSBI framework

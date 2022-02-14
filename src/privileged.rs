@@ -16,20 +16,33 @@
 ///
 /// # Example
 ///
-/// ```rust
+/// ```no_run
+/// # use riscv::register::{mepc, mstatus::{self, MPP}, mhartid};
+/// # extern "C" fn rust_main(hart_id: usize, opauqe: usize) {
+/// # fn read_address_from_boot_media() -> usize { 0 /* */ }
+/// # let s_mode_start = read_address_from_boot_media(); // read from boot media
 /// unsafe {
-///     mepc::write(_s_mode_start as usize);
+///     mepc::write(s_mode_start);
 ///     mstatus::set_mpp(MPP::Supervisor);
-///     enter_privileged(mhartid::read(), dtb_pa);
+///     rustsbi::enter_privileged(mhartid::read(), opauqe);
 /// }
+/// # }
 /// ```
 #[inline]
 pub unsafe fn enter_privileged(mhartid: usize, opaque: usize) -> ! {
-    core::arch::asm!(
+    match () {
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))] // pass cargo test
+        () => core::arch::asm!(
         "csrrw  sp, mscratch, sp",
         "mret",
         in("a0") mhartid,
         in("a1") opaque,
         options(nomem, noreturn)
-    )
+        ),
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+        () => {
+            let _ = (mhartid, opaque);
+            unimplemented!("not RISC-V architecture")
+        },
+    }
 }

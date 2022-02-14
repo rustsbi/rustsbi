@@ -33,7 +33,7 @@ use alloc::boxed::Box;
 ///
 /// The event_idx is a 20 bits wide number encoded as follows:
 ///
-/// ```rust
+/// ```text
 ///    event_idx[19:16] = type;
 ///    event_idx[15:0] = code;
 /// ```
@@ -47,7 +47,7 @@ pub trait Pmu: Send {
     ///
     /// The `counter_info` returned by this SBI call is encoded as follows:
     ///
-    /// ```rust
+    /// ```text
     ///     counter_info[11:0] = CSR; // (12bit CSR number)
     ///     counter_info[17:12] = Width; // (One less than number of bits in CSR)
     ///     counter_info[XLEN-2:18] = Reserved; // Reserved for future use
