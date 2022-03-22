@@ -43,6 +43,6 @@ pub unsafe fn enter_privileged(mhartid: usize, opaque: usize) -> ! {
         () => {
             let _ = (mhartid, opaque);
             unimplemented!("not RISC-V architecture")
-        },
+        }
     }
 }

@@ -12,14 +12,17 @@ impl HartMask {
             inner: MaskInner::BitVector {
                 hart_mask,
                 hart_mask_base,
-            }
+            },
         }
     }
     /// Check if the `hart_id` is included in this hart mask structure.
     #[inline]
     pub fn has_bit(&self, hart_id: usize) -> bool {
         match self.inner {
-            MaskInner::BitVector { hart_mask, hart_mask_base } => {
+            MaskInner::BitVector {
+                hart_mask,
+                hart_mask_base,
+            } => {
                 if hart_mask_base == usize::MAX {
                     // If `hart_mask_base` equals `usize::MAX`, that means `hart_mask` is ignored
                     // and all available harts must be considered.
@@ -36,10 +39,10 @@ impl HartMask {
                     return false;
                 }
                 hart_mask & (1 << idx) != 0
-            },
+            }
             MaskInner::Legacy { legacy_bit_vector } => {
                 slow_legacy_has_bit(legacy_bit_vector, hart_id)
-            },
+            }
         }
     }
 
@@ -52,7 +55,7 @@ impl HartMask {
         HartMask {
             inner: MaskInner::Legacy {
                 legacy_bit_vector: vaddr as *const _,
-            }
+            },
         }
     }
 }
