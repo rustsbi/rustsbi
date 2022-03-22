@@ -179,6 +179,11 @@ mod timer;
 
 mod util;
 
+// RustSBI only supports RISC-V; raise error if built into non RISC-V targets.
+#[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+compile_error!("not RISC-V RV32 or RV64 targets! RustSBI only supports RISC-V, it's likely that the package is cross built into targets other than RISC-V.
+Use parameter like `--target riscv64imac-unknown-none-elf` and try again.");
+
 const SBI_SPEC_MAJOR: usize = 0;
 const SBI_SPEC_MINOR: usize = 3;
 
