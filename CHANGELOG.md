@@ -9,8 +9,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Note in code compilation that this package should be built into RISC-V targets
-
 ### Modified
 
 ## [0.2.1] - 2022-02-14
