@@ -8,6 +8,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Added
+- Support for RISC-V SBI v1.0.0 Ratified Specification
+- Internal guest and instance module
 
 ### Modified
 

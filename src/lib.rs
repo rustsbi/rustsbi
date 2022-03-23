@@ -182,10 +182,10 @@ mod util;
 #[cfg(feature = "guest")]
 mod guest;
 
-pub mod instance;
+// pub mod instance; // TODO: SBI instances, useful for developing hypervisors
 
-const SBI_SPEC_MAJOR: usize = 0;
-const SBI_SPEC_MINOR: usize = 3;
+const SBI_SPEC_MAJOR: usize = 1;
+const SBI_SPEC_MINOR: usize = 0;
 
 // RustSBI implementation ID: 4
 // Ref: https://github.com/riscv-non-isa/riscv-sbi-doc/pull/61
