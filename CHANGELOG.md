@@ -8,10 +8,23 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Added
+
+### Modified
+
+### Fixed
+
+## [0.2.2] - 2022-03-23
+
+This update adapts to ratified RISC-V SBI v1.0.0 specification, it's recommended for users to update to
+the latest RustSBI version.
+
+### Added
 - Support for RISC-V SBI v1.0.0 Ratified Specification
 - Internal guest and instance module
 
 ### Modified
+- Use Rust 2021 edition
+- Update dependency `embedded-hal` to v0.2.7
 
 ## [0.2.1] - 2022-02-14
 
@@ -100,7 +113,9 @@ RustSBI is adapted to SBI standard with implementation number 4.
 - RISC-V Privileged Specification v1.11
 - Backward compatible to privileged spec v1.9.1
 
-[Unreleased]: https://github.com/rustsbi/rustsbi/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/rustsbi/rustsbi/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/rustsbi/rustsbi/compare/v0.2.1...v0.2.2
+[0.2.1]: https://github.com/rustsbi/rustsbi/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/rustsbi/rustsbi/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/rustsbi/rustsbi/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/rustsbi/rustsbi/compare/v0.0.2...v0.1.0
