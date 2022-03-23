@@ -10,23 +10,23 @@ mod rfence;
 mod srst;
 mod timer;
 
-pub const EXTENSION_BASE: usize = 0x10;
-pub const EXTENSION_TIMER: usize = 0x54494D45;
-pub const EXTENSION_IPI: usize = 0x735049;
-pub const EXTENSION_RFENCE: usize = 0x52464E43;
-pub const EXTENSION_HSM: usize = 0x48534D;
-pub const EXTENSION_SRST: usize = 0x53525354;
-pub const EXTENSION_PMU: usize = 0x504D55;
+pub const EXTENSION_BASE: u32 = 0x10;
+pub const EXTENSION_TIMER: u32 = 0x54494D45;
+pub const EXTENSION_IPI: u32 = 0x735049;
+pub const EXTENSION_RFENCE: u32 = 0x52464E43;
+pub const EXTENSION_HSM: u32 = 0x48534D;
+pub const EXTENSION_SRST: u32 = 0x53525354;
+pub const EXTENSION_PMU: u32 = 0x504D55;
 
-const LEGACY_SET_TIMER: usize = 0x0;
-const LEGACY_CONSOLE_PUTCHAR: usize = 0x01;
-const LEGACY_CONSOLE_GETCHAR: usize = 0x02;
-// const LEGACY_CLEAR_IPI: usize = 0x03;
-const LEGACY_SEND_IPI: usize = 0x04;
-// const LEGACY_REMOTE_FENCE_I: usize = 0x05;
-// const LEGACY_REMOTE_SFENCE_VMA: usize = 0x06;
-// const LEGACY_REMOTE_SFENCE_VMA_ASID: usize = 0x07;
-const LEGACY_SHUTDOWN: usize = 0x08;
+const LEGACY_SET_TIMER: u32 = 0x0;
+const LEGACY_CONSOLE_PUTCHAR: u32 = 0x01;
+const LEGACY_CONSOLE_GETCHAR: u32 = 0x02;
+// const LEGACY_CLEAR_IPI: u32 = 0x03;
+const LEGACY_SEND_IPI: u32 = 0x04;
+// const LEGACY_REMOTE_FENCE_I: u32 = 0x05;
+// const LEGACY_REMOTE_SFENCE_VMA: u32 = 0x06;
+// const LEGACY_REMOTE_SFENCE_VMA_ASID: u32 = 0x07;
+const LEGACY_SHUTDOWN: u32 = 0x08;
 
 /// Supervisor environment call handler function
 ///
@@ -67,6 +67,14 @@ const LEGACY_SHUTDOWN: usize = 0x08;
 /// This skips the `ecall` instruction itself which is 4-byte long in all conditions.
 #[inline]
 pub fn handle_ecall(extension: usize, function: usize, param: [usize; 6]) -> SbiRet {
+    // RISC-V SBI requires SBI extension IDs (EIDs) and SBI function IDs (FIDs)
+    // are encoded as signed 32-bit integers
+    #[cfg(not(target_pointer_width = "32"))]
+    if extension > u32::MAX as usize || function > u32::MAX as usize {
+        return SbiRet::not_supported();
+    }
+    let (extension, function) = (extension as u32, function as u32);
+    // process actual environment calls
     match extension {
         EXTENSION_RFENCE => {
             rfence::handle_ecall_rfence(function, param[0], param[1], param[2], param[3], param[4])

@@ -27,7 +27,7 @@ module on SBI v0.3 format. Users are encouraged to use 0.2.1 and newer version i
 ## [0.2.0] - 2022-02-13
 
 ### Added
-- Support for RISC-V SBI v0.3 Specification
+- Support for RISC-V SBI v1.0 and v0.3 Specification
 - S-level Illegal instruction exception is now delegated into S-level software handler
 - Support RFENCE extension in RustSBI framework
 - Added a test kernel to test SBI function on RustSBI implementations
@@ -38,7 +38,9 @@ module on SBI v0.3 format. Users are encouraged to use 0.2.1 and newer version i
 - Build under new asm! macro
 
 ### Modified
+
 - Reform RustSBI project into a library
+- Use `u32` function and module id width for SBI 1.0
 - Function `rustsbi::ecall` now require `a0`-`a5` input parameters
 - Enhanced in-line code documents from SBI standard
 - Now IPI module requires to return an `SbiRet` value

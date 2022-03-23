@@ -3,16 +3,16 @@ use super::SbiRet;
 use crate::{SBI_SPEC_MAJOR, SBI_SPEC_MINOR};
 use riscv::register::{marchid, mimpid, mvendorid};
 
-const FUNCTION_BASE_GET_SPEC_VERSION: usize = 0x0;
-const FUNCTION_BASE_GET_SBI_IMPL_ID: usize = 0x1;
-const FUNCTION_BASE_GET_SBI_IMPL_VERSION: usize = 0x2;
-const FUNCTION_BASE_PROBE_EXTENSION: usize = 0x3;
-const FUNCTION_BASE_GET_MVENDORID: usize = 0x4;
-const FUNCTION_BASE_GET_MARCHID: usize = 0x5;
-const FUNCTION_BASE_GET_MIMPID: usize = 0x6;
+const FUNCTION_BASE_GET_SPEC_VERSION: u32 = 0x0;
+const FUNCTION_BASE_GET_SBI_IMPL_ID: u32 = 0x1;
+const FUNCTION_BASE_GET_SBI_IMPL_VERSION: u32 = 0x2;
+const FUNCTION_BASE_PROBE_EXTENSION: u32 = 0x3;
+const FUNCTION_BASE_GET_MVENDORID: u32 = 0x4;
+const FUNCTION_BASE_GET_MARCHID: u32 = 0x5;
+const FUNCTION_BASE_GET_MIMPID: u32 = 0x6;
 
 #[inline]
-pub fn handle_ecall_base(function: usize, param0: usize) -> SbiRet {
+pub fn handle_ecall_base(function: u32, param0: usize) -> SbiRet {
     match function {
         FUNCTION_BASE_GET_SPEC_VERSION => get_spec_version(),
         FUNCTION_BASE_GET_SBI_IMPL_ID => get_sbi_impl_id(),
@@ -47,7 +47,13 @@ fn get_sbi_impl_version() -> SbiRet {
 fn probe_extension(extension_id: usize) -> SbiRet {
     const NO_EXTENSION: usize = 0;
     const HAS_EXTENSION: usize = 1;
-    let ans = crate::extension::probe_extension(extension_id);
+    // SBI extension IDs (EIDs) and SBI function IDs (FIDs) are encoded as signed 32-bit integers.
+    // When passed in registers these follow the standard above calling convention rules.
+    #[cfg(not(target_pointer_width = "32"))]
+    if extension_id > u32::MAX as usize {
+        return SbiRet::ok(NO_EXTENSION);
+    }
+    let ans = crate::extension::probe_extension(extension_id as u32);
     SbiRet::ok(if ans { HAS_EXTENSION } else { NO_EXTENSION })
 }
 

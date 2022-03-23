@@ -2,17 +2,17 @@
 use super::SbiRet;
 use crate::pmu;
 
-const FUNCTION_PMU_NUM_COUNTERS: usize = 0x0;
-const FUNCTION_PMU_COUNTER_GET_INFO: usize = 0x1;
-const FUNCTION_PMU_COUNTER_CONFIG_MATCHING: usize = 0x2;
-const FUNCTION_PMU_COUNTER_START: usize = 0x3;
-const FUNCTION_PMU_COUNTER_STOP: usize = 0x4;
-const FUNCTION_PMU_COUNTER_FW_READ: usize = 0x5;
+const FUNCTION_PMU_NUM_COUNTERS: u32 = 0x0;
+const FUNCTION_PMU_COUNTER_GET_INFO: u32 = 0x1;
+const FUNCTION_PMU_COUNTER_CONFIG_MATCHING: u32 = 0x2;
+const FUNCTION_PMU_COUNTER_START: u32 = 0x3;
+const FUNCTION_PMU_COUNTER_STOP: u32 = 0x4;
+const FUNCTION_PMU_COUNTER_FW_READ: u32 = 0x5;
 
 #[inline]
 #[cfg(target_pointer_width = "64")]
 pub fn handle_ecall_pmu_64(
-    function: usize,
+    function: u32,
     param0: usize,
     param1: usize,
     param2: usize,
@@ -35,7 +35,7 @@ pub fn handle_ecall_pmu_64(
 #[inline]
 #[cfg(target_pointer_width = "32")]
 pub fn handle_ecall_pmu_32(
-    function: usize,
+    function: u32,
     param0: usize,
     param1: usize,
     param2: usize,
