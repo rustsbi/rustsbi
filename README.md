@@ -44,12 +44,12 @@ community. You may find binary downloads for useful platforms on awesome-rustsbi
 ## Features
 
 - Functional and extensible operating system runtime
-- Fully support to RISC-V SBI specification v0.3
+- Fully support to RISC-V SBI specification v1.0.0 ratified
 - Adapted for operating system kernel models on your choice
 - Written in Rust
 - Competitive to OpenSBI with most of its function
 - Bundled with a test framework for SBI implementations
-- Empower support, compatibility for different platforms
+- Empower support, compatibility for platforms and hypervisors
 
 ## Frequently asked questions
 
