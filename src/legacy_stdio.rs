@@ -132,7 +132,7 @@ pub fn _print(args: fmt::Arguments) {
 /// declared in platform specific hardware.
 #[macro_export]
 macro_rules! print {
-    ($($arg:tt)*) => ($crate::logging::print(core::format_args!($($arg)*)));
+    ($($arg:tt)*) => ($crate::legacy_stdio::_print(core::format_args!($($arg)*)));
 }
 
 /// Prints to the legacy debug console, with a newline.
@@ -144,7 +144,7 @@ macro_rules! print {
 macro_rules! println {
     () => ($crate::print!("\r\n"));
     ($($arg:tt)*) => {
-        $crate::logging::print(core::format_args!($($arg)*));
+        $crate::legacy_stdio::_print(core::format_args!($($arg)*));
         $crate::print!("\r\n");
     }
 }
