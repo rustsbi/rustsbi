@@ -130,11 +130,9 @@ pub fn _print(args: fmt::Arguments) {
 /// This is only supported when there exists legacy extension;
 /// otherwise platform caller should use an early kernel input/output device
 /// declared in platform specific hardware.
-#[macro_export(local_inner_macros)]
+#[macro_export]
 macro_rules! print {
-    ($($arg:tt)*) => ({
-        $crate::legacy_stdio::_print(core::format_args!($($arg)*));
-    });
+    ($($arg:tt)*) => ($crate::legacy_stdio::_print(core::format_args!($($arg)*)));
 }
 
 /// Prints to the legacy debug console, with a newline.
@@ -142,9 +140,11 @@ macro_rules! print {
 /// This is only supported when there exists legacy extension;
 /// otherwise platform caller should use an early kernel input/output device
 /// declared in platform specific hardware.
-#[macro_export(local_inner_macros)]
+#[macro_export]
 macro_rules! println {
-    ($fmt: literal $(, $($arg: tt)+)?) => {
-        $crate::legacy_stdio::_print(core::format_args!(core::concat!($fmt, "\r\n") $(, $($arg)+)?));
+    () => ($crate::print!("\r\n"));
+    ($($arg:tt)*) => {
+        $crate::legacy_stdio::_print(core::format_args!($($arg)*));
+        $crate::print!("\r\n");
     }
 }
