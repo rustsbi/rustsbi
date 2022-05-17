@@ -93,7 +93,7 @@ pub trait Hsm: Send {
     /// | Error code  | Description
     /// |:------------|:------------
     /// | SBI_ERR_FAILED | Failed to stop execution of the current hart
-    fn hart_stop(&self, hartid: usize) -> SbiRet;
+    fn hart_stop(&self) -> SbiRet;
     /// Get the current status (or HSM state id) of the given hart.
     ///
     /// The harts may transition HSM states at any time due to any concurrent `sbi_hart_start()`
@@ -215,9 +215,9 @@ pub(crate) fn hart_start(hartid: usize, start_addr: usize, opaque: usize) -> Sbi
     SbiRet::not_supported()
 }
 
-pub(crate) fn hart_stop(hartid: usize) -> SbiRet {
+pub(crate) fn hart_stop() -> SbiRet {
     if let Some(obj) = HSM.get() {
-        return obj.hart_stop(hartid);
+        return obj.hart_stop();
     }
     SbiRet::not_supported()
 }
