@@ -16,7 +16,7 @@ use core::{
 /// A thread-safe fat pointer cell which can be written to only once.
 pub struct OnceFatBox<T: ?Sized> {
     thin_ptr: UnsafeCell<*mut ()>,
-    lock: UnsafeCell<u8>,
+    lock: UnsafeCell<u32>,
     meta: MaybeUninit<<T as Pointee>::Metadata>,
     _marker: PhantomData<Option<Box<T>>>,
 }
@@ -125,12 +125,12 @@ unsafe impl<T: Sync + Send + ?Sized> Sync for OnceFatBox<T> {}
 
 /// Use only amo instructions on mutex; no lr/sc instruction is used
 pub struct AmoMutex<T: ?Sized> {
-    lock: UnsafeCell<u8>,
+    lock: UnsafeCell<u32>,
     data: UnsafeCell<T>,
 }
 
 pub struct AmoMutexGuard<'a, T: ?Sized> {
-    lock: *mut u8,
+    lock: *mut u32,
     data: &'a mut T,
 }
 
@@ -139,30 +139,29 @@ impl<T> AmoMutex<T> {
     #[inline]
     pub const fn new(data: T) -> Self {
         AmoMutex {
-            data: UnsafeCell::new(data),
             lock: UnsafeCell::new(0),
+            data: UnsafeCell::new(data),
         }
     }
+
     /// Locks the mutex and returns a guard that permits access to the inner data.
     #[inline]
     pub fn lock(&self) -> AmoMutexGuard<T> {
+        let lock = self.lock.get();
         unsafe {
             asm!(
-                "li     {one}, 1",
-                "1: lw  {tmp}, ({lock})", // check if lock is held
-                // "call   {relax}", // spin loop hint
-                "bnez   {tmp}, 1b", // retry if held
-                "amoswap.w.aq {tmp}, {one}, ({lock})", // attempt to acquire lock
-                "bnez   {tmp}, 1b", // retry if held
-                lock = in(reg) self.lock.get(),
-                tmp = out(reg) _,
-                one = out(reg) _,
-                // relax = sym pause,
+                "1: lw           {tmp}, ({lock})",        // check if lock is held
+                "   bnez         {tmp}, 1b",              // retry if held
+                "   amoswap.w.aq {tmp}, {one}, ({lock})", // attempt to acquire lock
+                "   bnez         {tmp}, 1b",              // retry if held
+                tmp  = out(reg) _,
+                lock =  in(reg) lock,
+                one  =  in(reg) 1,
                 options(nostack)
             );
         }
         AmoMutexGuard {
-            lock: self.lock.get(),
+            lock,
             data: unsafe { &mut *self.data.get() },
         }
     }
@@ -185,6 +184,7 @@ impl<'a, T: ?Sized> DerefMut for AmoMutexGuard<'a, T> {
         self.data
     }
 }
+
 impl<'a, T: ?Sized> Drop for AmoMutexGuard<'a, T> {
     /// The dropping of the mutex guard will release the lock it was created from.
     #[inline]
