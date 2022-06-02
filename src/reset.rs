@@ -1,6 +1,5 @@
 use crate::ecall::SbiRet;
-use crate::util::OnceFatBox;
-use alloc::boxed::Box;
+use crate::util::AmoOncePtr;
 
 /// System Reset Extension
 ///
@@ -10,7 +9,7 @@ use alloc::boxed::Box;
 /// could be machine mode firmware or hypervisor.
 ///
 /// Ref: [Section 9, RISC-V Supervisor Binary Interface Specification](https://github.com/riscv-non-isa/riscv-sbi-doc/blob/master/riscv-sbi.adoc#9-system-reset-extension-eid-0x53525354-srst)
-pub trait Reset: Send {
+pub trait Reset: Send + Sync {
     /// Reset the system based on provided `reset_type` and `reset_reason`.
     ///
     /// This is a synchronous call and does not return if it succeeds.
@@ -51,7 +50,7 @@ pub trait Reset: Send {
     }
 }
 
-static RESET: OnceFatBox<dyn Reset + Sync + 'static> = OnceFatBox::new();
+static RESET: AmoOncePtr<dyn Reset> = AmoOncePtr::new();
 
 #[doc(hidden)]
 #[allow(unused)]
@@ -71,9 +70,8 @@ pub const RESET_REASON_NO_REASON: usize = 0x0000_0000;
 pub const RESET_REASON_SYSTEM_FAILURE: usize = 0x0000_0001;
 
 #[doc(hidden)] // use through a macro
-pub fn init_reset<T: Reset + Sync + 'static>(reset: T) {
-    let result = RESET.set(Box::new(reset));
-    if result.is_err() {
+pub fn init_reset(reset: &'static dyn Reset) {
+    if !RESET.try_call_once(reset) {
         panic!("load sbi module when already loaded")
     }
 }

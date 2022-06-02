@@ -1,6 +1,5 @@
 use crate::ecall::SbiRet;
-use crate::util::OnceFatBox;
-use alloc::boxed::Box;
+use crate::util::AmoOncePtr;
 
 /// Performance Monitoring Unit Extension
 ///
@@ -37,7 +36,7 @@ use alloc::boxed::Box;
 ///    event_idx[19:16] = type;
 ///    event_idx[15:0] = code;
 /// ```
-pub trait Pmu: Send {
+pub trait Pmu: Send + Sync {
     /// Returns the number of counters (both hardware and firmware).
     ///
     /// The value is returned in `SbiRet.value`; this call always returns SBI_SUCCESS in `SbiRet.error`.
@@ -59,7 +58,7 @@ pub trait Pmu: Send {
     ///
     /// Returns the `counter_info` described above in `SbiRet.value`.
     ///
-    /// The possible return error codes returned in `SbiRet.error` are shown in the table below:    
+    /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
     /// | Return code             | Description
     /// |:------------------------|:----------------------------------------------
@@ -95,7 +94,7 @@ pub trait Pmu: Send {
     /// set of counters specified by the `counter_idx_base` and `counter_idx_mask`.
     ///
     /// *NOTE:* The *SBI_PMU_CFG_FLAG_AUTO_START* flag in `config_flags` has no
-    /// impact on the counter value.    
+    /// impact on the counter value.
     ///
     /// *NOTE:* The `config_flags[3:7]` bits are event filtering hints so these
     /// can be ignored or overridden by the SBI implementation for security concerns
@@ -105,7 +104,7 @@ pub trait Pmu: Send {
     ///
     /// Returns the `counter_idx` in `sbiret.value` upon success.
     ///
-    /// In case of failure, the possible error codes returned in `sbiret.error` are shown in the table below:    
+    /// In case of failure, the possible error codes returned in `sbiret.error` are shown in the table below:
     ///
     /// | Return code           | Description
     /// |:----------------------|:----------------------------------------------
@@ -139,7 +138,7 @@ pub trait Pmu: Send {
     ///
     /// # Return value
     ///
-    /// The possible return error codes returned in `SbiRet.error` are shown in the table below:    
+    /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
     /// | Return code             | Description
     /// |:------------------------|:----------------------------------------------
@@ -167,7 +166,7 @@ pub trait Pmu: Send {
     ///
     /// # Return value
     ///
-    /// The possible return error codes returned in `SbiRet.error` are shown in the table below:    
+    /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
     /// | Return code             | Description
     /// |:------------------------|:----------------------------------------------
@@ -189,7 +188,7 @@ pub trait Pmu: Send {
     ///
     /// # Return value
     ///
-    /// The possible return error codes returned in `SbiRet.error` are shown in the table below:    
+    /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
     /// | Return code             | Description
     /// |:------------------------|:----------------------------------------------
@@ -200,12 +199,11 @@ pub trait Pmu: Send {
 
 // TODO: all the events here
 
-static PMU: OnceFatBox<dyn Pmu + Sync + 'static> = OnceFatBox::new();
+static PMU: AmoOncePtr<dyn Pmu> = AmoOncePtr::new();
 
 #[doc(hidden)] // use through a macro or a call from implementation
-pub fn init_pmu<T: Pmu + Sync + 'static>(pmu: T) {
-    let result = PMU.set(Box::new(pmu));
-    if result.is_err() {
+pub fn init_pmu(pmu: &'static dyn Pmu) {
+    if PMU.try_call_once(pmu) {
         panic!("load sbi module when already loaded")
     }
 }

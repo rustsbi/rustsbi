@@ -1,8 +1,7 @@
-use crate::util::OnceFatBox;
-use alloc::boxed::Box;
+use crate::util::AmoOncePtr;
 
 /// Timer programmer support
-pub trait Timer: Send {
+pub trait Timer: Send + Sync {
     /// Programs the clock for next event after `stime_value` time.
     ///
     /// `stime_value` is in absolute time. This function must clear the pending timer interrupt bit as well.
@@ -13,12 +12,11 @@ pub trait Timer: Send {
     fn set_timer(&self, stime_value: u64);
 }
 
-static TIMER: OnceFatBox<dyn Timer + Sync + 'static> = OnceFatBox::new();
+static TIMER: AmoOncePtr<dyn Timer> = AmoOncePtr::new();
 
 #[doc(hidden)] // use through a macro
-pub fn init_timer<T: Timer + Sync + 'static>(timer: T) {
-    let result = TIMER.set(Box::new(timer));
-    if result.is_err() {
+pub fn init_timer(timer: &'static dyn Timer) {
+    if !TIMER.try_call_once(timer) {
         panic!("load sbi module when already loaded")
     }
 }

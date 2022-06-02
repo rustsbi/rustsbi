@@ -1,10 +1,9 @@
 use crate::ecall::SbiRet;
 use crate::hart_mask::HartMask;
-use crate::util::OnceFatBox;
-use alloc::boxed::Box;
+use crate::util::AmoOncePtr;
 
 /// Inter-processor interrupt support
-pub trait Ipi: Send {
+pub trait Ipi: Send + Sync {
     /// Send an inter-processor interrupt to all the harts defined in `hart_mask`.
     ///
     /// Inter-processor interrupts manifest at the receiving harts as the supervisor software interrupts.
@@ -20,12 +19,11 @@ pub trait Ipi: Send {
     }
 }
 
-static IPI: OnceFatBox<dyn Ipi + Sync + 'static> = OnceFatBox::new();
+static IPI: AmoOncePtr<dyn Ipi> = AmoOncePtr::new();
 
 #[doc(hidden)] // use through a macro
-pub fn init_ipi<T: Ipi + Sync + 'static>(ipi: T) {
-    let result = IPI.set(Box::new(ipi));
-    if result.is_err() {
+pub fn init_ipi(ipi: &'static dyn Ipi) {
+    if IPI.try_call_once(ipi) {
         panic!("load sbi module when already loaded")
     }
 }

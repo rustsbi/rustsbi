@@ -1,14 +1,13 @@
 use crate::ecall::SbiRet;
 use crate::hart_mask::HartMask;
-use crate::util::OnceFatBox;
-use alloc::boxed::Box;
+use crate::util::AmoOncePtr;
 
 /// Remote fence support
 ///
 /// The remote fence function acts as a full TLB flush if
 /// - `start_addr` and `size` are both 0, or
 /// - `size` is equal to `usize::MAX`.
-pub trait Rfence: Send {
+pub trait Rfence: Send + Sync {
     /// Instructs remote harts to execute `FENCE.I` instruction.
     ///
     /// # Return value
@@ -137,12 +136,11 @@ pub trait Rfence: Send {
     }
 }
 
-static RFENCE: OnceFatBox<dyn Rfence + Sync + 'static> = OnceFatBox::new();
+static RFENCE: AmoOncePtr<dyn Rfence> = AmoOncePtr::new();
 
 #[doc(hidden)] // use through a macro
-pub fn init_rfence<T: Rfence + Sync + 'static>(rfence: T) {
-    let result = RFENCE.set(Box::new(rfence));
-    if result.is_err() {
+pub fn init_rfence(rfence: &'static dyn Rfence) {
+    if RFENCE.try_call_once(rfence) {
         panic!("load sbi module when already loaded")
     }
 }
