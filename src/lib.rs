@@ -184,14 +184,21 @@ mod guest;
 
 // pub mod instance; // TODO: SBI instances, useful for developing hypervisors
 
-/// The rustsbi logo.
-pub const LOGO: &str = r"\
+/// The const rustsbi logo with blank line at the beginning.
+const LOGO: &str = r"
 .______       __    __      _______.___________.  _______..______   __
 |   _  \     |  |  |  |    /       |           | /       ||   _  \ |  |
 |  |_)  |    |  |  |  |   |   (----`---|  |----`|   (----`|  |_)  ||  |
 |      /     |  |  |  |    \   \       |  |      \   \    |   _  < |  |
 |  |\  \----.|  `--'  |.----)   |      |  |  .----)   |   |  |_)  ||  |
 | _| `._____| \______/ |_______/       |__|  |_______/    |______/ |__|";
+
+/// The rustsbi logo.
+pub fn logo() -> &'static str {
+    // rust raw text 无法在保持格式的情况下去除头上的换行
+    // include_str("logo.txt") 会由于 vscode 的自动格式化在末尾多一个换行
+    LOGO.trim_start()
+}
 
 const SBI_SPEC_MAJOR: usize = 1;
 const SBI_SPEC_MINOR: usize = 0;
