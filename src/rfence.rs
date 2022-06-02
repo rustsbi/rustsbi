@@ -67,7 +67,7 @@ pub trait Rfence: Send + Sync {
         size: usize,
         vmid: usize,
     ) -> SbiRet {
-        drop((hart_mask, start_addr, size, vmid));
+        let _ = (hart_mask, start_addr, size, vmid);
         SbiRet::not_supported()
     }
     /// Instruct the remote harts to execute one or more `HFENCE.GVMA` instructions,
@@ -86,7 +86,7 @@ pub trait Rfence: Send + Sync {
     /// | SBI_ERR_NOT_SUPPORTED     | This function is not supported as it is not implemented or one of the target hart does not support hypervisor extension.
     /// | SBI_ERR_INVALID_ADDRESS   | `start_addr` or `size` is not valid.
     fn remote_hfence_gvma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
-        drop((hart_mask, start_addr, size));
+        let _ = (hart_mask, start_addr, size);
         SbiRet::not_supported()
     }
     /// Instruct the remote harts to execute one or more `HFENCE.VVMA` instructions,
@@ -112,7 +112,7 @@ pub trait Rfence: Send + Sync {
         size: usize,
         asid: usize,
     ) -> SbiRet {
-        drop((hart_mask, start_addr, size, asid));
+        let _ = (hart_mask, start_addr, size, asid);
         SbiRet::not_supported()
     }
     /// Instruct the remote harts to execute one or more `HFENCE.VVMA` instructions,
@@ -131,7 +131,7 @@ pub trait Rfence: Send + Sync {
     /// | SBI_ERR_NOT_SUPPORTED     | This function is not supported as it is not implemented or one of the target hart doesn’t support hypervisor extension.
     /// | SBI_ERR_INVALID_ADDRESS   | `start_addr` or `size` is not valid.
     fn remote_hfence_vvma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
-        drop((hart_mask, start_addr, size));
+        let _ = (hart_mask, start_addr, size);
         SbiRet::not_supported()
     }
 }

@@ -158,6 +158,7 @@
 
 #![no_std]
 #![feature(ptr_metadata)]
+#![deny(warnings)] // cancel this line for developing
 
 extern crate alloc;
 
@@ -169,7 +170,6 @@ mod extension;
 mod hart_mask;
 mod hsm;
 mod ipi;
-mod logo;
 mod pmu;
 mod privileged;
 #[doc(hidden)]
@@ -184,22 +184,32 @@ mod guest;
 
 // pub mod instance; // TODO: SBI instances, useful for developing hypervisors
 
+/// The rustsbi logo.
+pub const LOGO: &str = r"\
+.______       __    __      _______.___________.  _______..______   __
+|   _  \     |  |  |  |    /       |           | /       ||   _  \ |  |
+|  |_)  |    |  |  |  |   |   (----`---|  |----`|   (----`|  |_)  ||  |
+|      /     |  |  |  |    \   \       |  |      \   \    |   _  < |  |
+|  |\  \----.|  `--'  |.----)   |      |  |  .----)   |   |  |_)  ||  |
+| _| `._____| \______/ |_______/       |__|  |_______/    |______/ |__|";
+
 const SBI_SPEC_MAJOR: usize = 1;
 const SBI_SPEC_MINOR: usize = 0;
 
-// RustSBI implementation ID: 4
-// Ref: https://github.com/riscv-non-isa/riscv-sbi-doc/pull/61
+/// RustSBI implementation ID: 4
+///
+/// Ref: https://github.com/riscv-non-isa/riscv-sbi-doc/pull/61
 const IMPL_ID_RUSTSBI: usize = 4;
-// Read from env!("CARGO_PKG_VERSION")
+
 const RUSTSBI_VERSION_MAJOR: usize =
     (env!("CARGO_PKG_VERSION_MAJOR").as_bytes()[0] - b'0') as usize;
 const RUSTSBI_VERSION_MINOR: usize =
     (env!("CARGO_PKG_VERSION_MINOR").as_bytes()[0] - b'0') as usize;
 const RUSTSBI_VERSION_PATCH: usize =
     (env!("CARGO_PKG_VERSION_PATCH").as_bytes()[0] - b'0') as usize;
-#[rustfmt::skip]
 const RUSTSBI_VERSION: usize =
     (RUSTSBI_VERSION_MAJOR << 16) + (RUSTSBI_VERSION_MINOR << 8) + RUSTSBI_VERSION_PATCH;
+
 /// RustSBI version as a string.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -210,7 +220,6 @@ pub use hsm::{init_hsm, Hsm};
 pub use ipi::{init_ipi, Ipi};
 #[doc(hidden)]
 pub use legacy_stdio::{legacy_stdio_getchar, legacy_stdio_putchar};
-pub use logo::LOGO;
 pub use pmu::{init_pmu, Pmu};
 pub use privileged::enter_privileged;
 pub use reset::{init_reset, Reset};
