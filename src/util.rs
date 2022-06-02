@@ -212,6 +212,12 @@ pub struct NullableMut<'a, T: ?Sized> {
     _lifetime: PhantomData<&'a ()>,
 }
 
+/// 如果 NullableMut 保存的引用是静态的，自然可以随意移动。
+unsafe impl<T: ?Sized> Send for NullableMut<'static, T> {}
+
+/// NullableMut 不提供锁。
+unsafe impl<T: ?Sized + Sync> Sync for NullableMut<'static, T> {}
+
 impl<'a, T: ?Sized> NullableMut<'a, T> {
     pub const fn new() -> Self {
         Self {
@@ -235,9 +241,3 @@ impl<'a, T: ?Sized> NullableMut<'a, T> {
         }
     }
 }
-
-/// 如果 AmoOncePtr 保存的引用是静态的，自然可以随意移动。
-unsafe impl<T: ?Sized> Send for NullableMut<'static, T> {}
-
-/// AmoOncePtr 不提供锁。
-unsafe impl<T: ?Sized + Sync> Sync for NullableMut<'static, T> {}
