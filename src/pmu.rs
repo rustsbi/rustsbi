@@ -201,9 +201,8 @@ pub trait Pmu: Send + Sync {
 
 static PMU: AmoOncePtr<dyn Pmu> = AmoOncePtr::new();
 
-#[doc(hidden)] // use through a macro or a call from implementation
 pub fn init_pmu(pmu: &'static dyn Pmu) {
-    if PMU.try_call_once(pmu) {
+    if !PMU.try_call_once(pmu) {
         panic!("load sbi module when already loaded")
     }
 }

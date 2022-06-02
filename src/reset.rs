@@ -42,7 +42,6 @@ pub trait Reset: Send + Sync {
     /// Legacy extension's reset function
     ///
     /// Puts all the harts to shut down state from supervisor point of view. This SBI call doesn’t return.
-    #[doc(hidden)]
     fn legacy_reset(&self) -> ! {
         // By default, this function redirects to `system_reset`.
         self.system_reset(RESET_TYPE_SHUTDOWN, RESET_REASON_NO_REASON);

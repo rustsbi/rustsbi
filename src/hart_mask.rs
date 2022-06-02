@@ -15,6 +15,7 @@ impl HartMask {
             },
         }
     }
+
     /// Check if the `hart_id` is included in this hart mask structure.
     #[inline]
     pub fn has_bit(&self, hart_id: usize) -> bool {

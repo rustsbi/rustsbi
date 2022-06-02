@@ -68,13 +68,11 @@ where
 
 static LEGACY_STDIO: AmoMutex<Option<Box<dyn LegacyStdio>>> = AmoMutex::new(None);
 
-#[doc(hidden)] // use through a macro
 pub fn init_legacy_stdio_embedded_hal<T: Read<u8> + Write<u8> + Send + 'static>(serial: T) {
     let serial = EmbeddedHalSerial::new(serial);
     *LEGACY_STDIO.lock() = Some(Box::new(serial));
 }
 
-#[doc(hidden)] // use through a macro
 pub fn init_legacy_stdio_embedded_hal_fuse<T, R>(tx: T, rx: R)
 where
     T: Write<u8> + Send + 'static,

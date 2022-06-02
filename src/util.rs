@@ -192,12 +192,6 @@ impl<T: ?Sized> AmoOncePtr<T> {
         }
     }
 
-    /// 强行获得一个可变的引用，可能导致运行时异常。
-    #[inline]
-    pub unsafe fn get_mut(&self) -> Option<&mut T> {
-        self.get().map(|t| &mut *(t as *const _ as *mut _))
-    }
-
     /// 利用指针和元数据生成引用。需要保证传入的指针非空。如果能传入非空指针，meta 也一定存在。
     #[inline]
     unsafe fn build_ref_unchecked(&self, ptr: *const ()) -> &T {

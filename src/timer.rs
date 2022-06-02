@@ -14,7 +14,6 @@ pub trait Timer: Send + Sync {
 
 static TIMER: AmoOncePtr<dyn Timer> = AmoOncePtr::new();
 
-#[doc(hidden)] // use through a macro
 pub fn init_timer(timer: &'static dyn Timer) {
     if !TIMER.try_call_once(timer) {
         panic!("load sbi module when already loaded")

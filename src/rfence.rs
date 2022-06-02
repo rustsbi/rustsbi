@@ -138,9 +138,8 @@ pub trait Rfence: Send + Sync {
 
 static RFENCE: AmoOncePtr<dyn Rfence> = AmoOncePtr::new();
 
-#[doc(hidden)] // use through a macro
 pub fn init_rfence(rfence: &'static dyn Rfence) {
-    if RFENCE.try_call_once(rfence) {
+    if !RFENCE.try_call_once(rfence) {
         panic!("load sbi module when already loaded")
     }
 }

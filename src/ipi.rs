@@ -21,9 +21,8 @@ pub trait Ipi: Send + Sync {
 
 static IPI: AmoOncePtr<dyn Ipi> = AmoOncePtr::new();
 
-#[doc(hidden)] // use through a macro
 pub fn init_ipi(ipi: &'static dyn Ipi) {
-    if IPI.try_call_once(ipi) {
+    if !IPI.try_call_once(ipi) {
         panic!("load sbi module when already loaded")
     }
 }
