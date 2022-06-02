@@ -126,7 +126,7 @@ impl<T: ?Sized> AmoOncePtr<T> {
                 (*self.meta.get()) = MaybeUninit::new(core::ptr::metadata(ptr));
                 #[cfg(target_pointer_width = "32")]
                 asm!(
-                    "amoswap.d.rl zero, {src}, ({dst})",
+                    "amoswap.w.rl zero, {src}, ({dst})",
                     src = in(reg) ptr as *const (),
                     dst = in(reg) self.ptr.get(),
                 );
