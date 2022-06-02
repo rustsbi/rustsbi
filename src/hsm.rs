@@ -190,9 +190,9 @@ pub trait Hsm: Send + Sync {
     }
 }
 
-use crate::util::AmoOncePtr;
+use crate::util::AmoOnceRef;
 
-static HSM: AmoOncePtr<dyn Hsm> = AmoOncePtr::new();
+static HSM: AmoOnceRef<dyn Hsm> = AmoOnceRef::new();
 
 pub fn init_hsm(hsm: &'static dyn Hsm) {
     if !HSM.try_call_once(hsm) {

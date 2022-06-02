@@ -1,6 +1,6 @@
 use crate::ecall::SbiRet;
 use crate::hart_mask::HartMask;
-use crate::util::AmoOncePtr;
+use crate::util::AmoOnceRef;
 
 /// Remote fence support
 ///
@@ -136,7 +136,7 @@ pub trait Rfence: Send + Sync {
     }
 }
 
-static RFENCE: AmoOncePtr<dyn Rfence> = AmoOncePtr::new();
+static RFENCE: AmoOnceRef<dyn Rfence> = AmoOnceRef::new();
 
 pub fn init_rfence(rfence: &'static dyn Rfence) {
     if !RFENCE.try_call_once(rfence) {

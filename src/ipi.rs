@@ -1,6 +1,6 @@
 use crate::ecall::SbiRet;
 use crate::hart_mask::HartMask;
-use crate::util::AmoOncePtr;
+use crate::util::AmoOnceRef;
 
 /// Inter-processor interrupt support
 pub trait Ipi: Send + Sync {
@@ -19,7 +19,7 @@ pub trait Ipi: Send + Sync {
     }
 }
 
-static IPI: AmoOncePtr<dyn Ipi> = AmoOncePtr::new();
+static IPI: AmoOnceRef<dyn Ipi> = AmoOnceRef::new();
 
 pub fn init_ipi(ipi: &'static dyn Ipi) {
     if !IPI.try_call_once(ipi) {

@@ -1,5 +1,5 @@
 use crate::ecall::SbiRet;
-use crate::util::AmoOncePtr;
+use crate::util::AmoOnceRef;
 
 /// System Reset Extension
 ///
@@ -49,7 +49,7 @@ pub trait Reset: Send + Sync {
     }
 }
 
-static RESET: AmoOncePtr<dyn Reset> = AmoOncePtr::new();
+static RESET: AmoOnceRef<dyn Reset> = AmoOnceRef::new();
 
 #[doc(hidden)]
 #[allow(unused)]

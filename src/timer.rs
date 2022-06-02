@@ -1,4 +1,4 @@
-use crate::util::AmoOncePtr;
+use crate::util::AmoOnceRef;
 
 /// Timer programmer support
 pub trait Timer: Send + Sync {
@@ -12,7 +12,7 @@ pub trait Timer: Send + Sync {
     fn set_timer(&self, stime_value: u64);
 }
 
-static TIMER: AmoOncePtr<dyn Timer> = AmoOncePtr::new();
+static TIMER: AmoOnceRef<dyn Timer> = AmoOnceRef::new();
 
 pub fn init_timer(timer: &'static dyn Timer) {
     if !TIMER.try_call_once(timer) {

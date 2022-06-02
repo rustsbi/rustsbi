@@ -1,5 +1,5 @@
 use crate::ecall::SbiRet;
-use crate::util::AmoOncePtr;
+use crate::util::AmoOnceRef;
 
 /// Performance Monitoring Unit Extension
 ///
@@ -199,7 +199,7 @@ pub trait Pmu: Send + Sync {
 
 // TODO: all the events here
 
-static PMU: AmoOncePtr<dyn Pmu> = AmoOncePtr::new();
+static PMU: AmoOnceRef<dyn Pmu> = AmoOnceRef::new();
 
 pub fn init_pmu(pmu: &'static dyn Pmu) {
     if !PMU.try_call_once(pmu) {

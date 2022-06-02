@@ -3,6 +3,7 @@
 use core::{
     arch::asm,
     cell::UnsafeCell,
+    marker::PhantomData,
     mem::MaybeUninit,
     ops::{Deref, DerefMut},
     ptr::Pointee,
@@ -23,7 +24,7 @@ impl<T> AmoMutex<T> {
     /// Create a new AmoMutex
     #[inline]
     pub const fn new(data: T) -> Self {
-        AmoMutex {
+        Self {
             lock: UnsafeCell::new(0),
             data: UnsafeCell::new(data),
         }
@@ -83,28 +84,33 @@ impl<'a, T: ?Sized> Drop for AmoMutexGuard<'a, T> {
     }
 }
 
-/// 只使用 AMO 指令的一次初始化指针。
-pub struct AmoOncePtr<T: ?Sized> {
+/// 只使用 AMO 指令的一次初始化引用存储。
+pub struct AmoOnceRef<'a, T: ?Sized> {
     /// As atomic bool, to check if it is the first time to set `ptr`.
     lock: UnsafeCell<u32>,
     ptr: UnsafeCell<*const ()>,
     meta: UnsafeCell<MaybeUninit<<T as Pointee>::Metadata>>,
+    _lifetime: PhantomData<&'a ()>,
 }
 
-unsafe impl<T: ?Sized + Send> Send for AmoOncePtr<T> {}
-unsafe impl<T: ?Sized + Send + Sync> Sync for AmoOncePtr<T> {}
+/// 如果 AmoOncePtr 保存的引用是静态的，自然可以随意移动。
+unsafe impl<T: ?Sized> Send for AmoOnceRef<'static, T> {}
 
-impl<T: ?Sized> AmoOncePtr<T> {
+/// AmoOncePtr 不提供锁。
+unsafe impl<T: ?Sized + Sync> Sync for AmoOnceRef<'static, T> {}
+
+impl<'a, T: ?Sized> AmoOnceRef<'a, T> {
     #[inline]
     pub const fn new() -> Self {
         Self {
             lock: UnsafeCell::new(0),
             ptr: UnsafeCell::new(core::ptr::null()),
             meta: UnsafeCell::new(MaybeUninit::uninit()),
+            _lifetime: PhantomData,
         }
     }
 
-    pub fn try_call_once(&self, r#ref: &'static T) -> bool {
+    pub fn try_call_once(&self, r#ref: &'a T) -> bool {
         let ptr = r#ref as *const T;
         let locked: u32;
         unsafe {
@@ -198,3 +204,40 @@ impl<T: ?Sized> AmoOncePtr<T> {
         &*core::ptr::from_raw_parts(ptr, (*self.meta.get()).assume_init())
     }
 }
+
+/// 分解一个胖指针，使之 Sized。
+pub struct NullableMut<'a, T: ?Sized> {
+    ptr: *mut (),
+    meta: MaybeUninit<<T as Pointee>::Metadata>,
+    _lifetime: PhantomData<&'a ()>,
+}
+
+impl<'a, T: ?Sized> NullableMut<'a, T> {
+    pub const fn new() -> Self {
+        Self {
+            ptr: core::ptr::null_mut(),
+            meta: MaybeUninit::uninit(),
+            _lifetime: PhantomData,
+        }
+    }
+
+    pub fn set(&mut self, r#ref: &'a mut T) {
+        let ptr = r#ref as *mut T;
+        self.ptr = ptr.cast();
+        self.meta = MaybeUninit::new(core::ptr::metadata(ptr));
+    }
+
+    pub fn get(&mut self) -> Option<&mut T> {
+        if !self.ptr.is_null() {
+            Some(unsafe { &mut *core::ptr::from_raw_parts_mut(self.ptr, self.meta.assume_init()) })
+        } else {
+            None
+        }
+    }
+}
+
+/// 如果 AmoOncePtr 保存的引用是静态的，自然可以随意移动。
+unsafe impl<T: ?Sized> Send for NullableMut<'static, T> {}
+
+/// AmoOncePtr 不提供锁。
+unsafe impl<T: ?Sized + Sync> Sync for NullableMut<'static, T> {}
