@@ -15,10 +15,12 @@ keywords = ["riscv", "sbi", "rustsbi"]
 categories = ["os", "embedded", "hardware-support", "no-std"]
 edition = "2021"
 
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
 [dependencies]
 embedded-hal = "0.2.7"
 nb = "1.0"
-riscv = "0.7"
+riscv = "0.8"
 
 [features]
 default = []
@@ -27,8 +29,4 @@ guest = []
 
 [package.metadata.docs.rs]
 default-target = "riscv64imac-unknown-none-elf"
-targets = [
-    "riscv32imac-unknown-none-elf", "riscv64imac-unknown-none-elf",
-]
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+targets = ["riscv32imac-unknown-none-elf", "riscv64imac-unknown-none-elf"]

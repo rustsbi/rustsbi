@@ -42,7 +42,7 @@ use crate::ecall::SbiRet;
 /// - Always prefer most recent suspend state requested for higher topology group
 ///
 /// Ref: [Section 8, RISC-V Supervisor Binary Interface Specification](https://github.com/riscv-non-isa/riscv-sbi-doc/blob/master/riscv-sbi.adoc#8-hart-state-management-extension-eid-0x48534d-hsm)
-pub trait Hsm: Send {
+pub trait Hsm: Send + Sync {
     /// Request the SBI implementation to start executing the given hart at specified address in supervisor-mode.
     ///
     /// This call is asynchronous - more specifically, the `sbi_hart_start()` may return before target hart
@@ -190,15 +190,12 @@ pub trait Hsm: Send {
     }
 }
 
-use crate::util::OnceFatBox;
-use alloc::boxed::Box;
+use crate::util::AmoOncePtr;
 
-static HSM: OnceFatBox<dyn Hsm + Sync + 'static> = OnceFatBox::new();
+static HSM: AmoOncePtr<dyn Hsm> = AmoOncePtr::new();
 
-#[doc(hidden)] // use through a macro or a call from implementation
-pub fn init_hsm<T: Hsm + Sync + 'static>(hsm: T) {
-    let result = HSM.set(Box::new(hsm));
-    if result.is_err() {
+pub fn init_hsm(hsm: &'static dyn Hsm) {
+    if !HSM.try_call_once(hsm) {
         panic!("load sbi module when already loaded")
     }
 }
