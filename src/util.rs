@@ -1,88 +1,6 @@
 //! useful structures
 
-use core::{
-    arch::asm,
-    cell::UnsafeCell,
-    marker::PhantomData,
-    mem::MaybeUninit,
-    ops::{Deref, DerefMut},
-    ptr::Pointee,
-};
-
-/// Use only amo instructions on mutex; no lr/sc instruction is used
-pub struct AmoMutex<T: ?Sized> {
-    lock: UnsafeCell<u32>,
-    data: UnsafeCell<T>,
-}
-
-pub struct AmoMutexGuard<'a, T: ?Sized> {
-    lock: *mut u32,
-    data: &'a mut T,
-}
-
-impl<T> AmoMutex<T> {
-    /// Create a new AmoMutex
-    #[inline]
-    pub const fn new(data: T) -> Self {
-        Self {
-            lock: UnsafeCell::new(0),
-            data: UnsafeCell::new(data),
-        }
-    }
-
-    /// Locks the mutex and returns a guard that permits access to the inner data.
-    #[inline]
-    pub fn lock(&self) -> AmoMutexGuard<T> {
-        let lock = self.lock.get();
-        unsafe {
-            asm!(
-                "1: lw           {tmp}, ({lock})",        // check if lock is held
-                "   bnez         {tmp}, 1b",              // retry if held
-                "   amoswap.w.aq {tmp}, {one}, ({lock})", // attempt to acquire lock
-                "   bnez         {tmp}, 1b",              // retry if held
-                tmp  = out(reg) _,
-                lock =  in(reg) lock,
-                one  =  in(reg) 1,
-                options(nostack)
-            );
-        }
-        AmoMutexGuard {
-            lock,
-            data: unsafe { &mut *self.data.get() },
-        }
-    }
-}
-
-unsafe impl<T: ?Sized + Send> Sync for AmoMutex<T> {}
-unsafe impl<T: ?Sized + Send> Send for AmoMutex<T> {}
-
-impl<'a, T: ?Sized> Deref for AmoMutexGuard<'a, T> {
-    type Target = T;
-    #[inline]
-    fn deref(&self) -> &T {
-        self.data
-    }
-}
-
-impl<'a, T: ?Sized> DerefMut for AmoMutexGuard<'a, T> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut T {
-        self.data
-    }
-}
-
-impl<'a, T: ?Sized> Drop for AmoMutexGuard<'a, T> {
-    /// The dropping of the mutex guard will release the lock it was created from.
-    #[inline]
-    fn drop(&mut self) {
-        unsafe {
-            asm!(
-                "amoswap.w.rl zero, zero, ({lock})", // release lock by storing 0
-                lock = in(reg) self.lock,
-            );
-        }
-    }
-}
+use core::{arch::asm, cell::UnsafeCell, marker::PhantomData, mem::MaybeUninit, ptr::Pointee};
 
 /// 只使用 AMO 指令的一次初始化引用存储。
 pub struct AmoOnceRef<'a, T: ?Sized> {
@@ -205,39 +123,77 @@ impl<'a, T: ?Sized> AmoOnceRef<'a, T> {
     }
 }
 
-/// 分解一个胖指针，使之 Sized。
-pub struct NullableMut<'a, T: ?Sized> {
-    ptr: *mut (),
-    meta: MaybeUninit<<T as Pointee>::Metadata>,
-    _lifetime: PhantomData<&'a ()>,
-}
+// /// Use only amo instructions on mutex; no lr/sc instruction is used
+// pub struct AmoMutex<T: ?Sized> {
+//     lock: UnsafeCell<u32>,
+//     data: UnsafeCell<T>,
+// }
 
-/// 如果 NullableMut 保存的引用是静态的，自然可以随意移动。
-unsafe impl<T: ?Sized> Send for NullableMut<'static, T> {}
+// pub struct AmoMutexGuard<'a, T: ?Sized> {
+//     lock: *mut u32,
+//     data: &'a mut T,
+// }
 
-/// NullableMut 不提供锁。
-unsafe impl<T: ?Sized + Sync> Sync for NullableMut<'static, T> {}
+// impl<T> AmoMutex<T> {
+//     /// Create a new AmoMutex
+//     #[inline]
+//     pub const fn new(data: T) -> Self {
+//         Self {
+//             lock: UnsafeCell::new(0),
+//             data: UnsafeCell::new(data),
+//         }
+//     }
 
-impl<'a, T: ?Sized> NullableMut<'a, T> {
-    pub const fn new() -> Self {
-        Self {
-            ptr: core::ptr::null_mut(),
-            meta: MaybeUninit::uninit(),
-            _lifetime: PhantomData,
-        }
-    }
+//     /// Locks the mutex and returns a guard that permits access to the inner data.
+//     #[inline]
+//     pub fn lock(&self) -> AmoMutexGuard<T> {
+//         let lock = self.lock.get();
+//         unsafe {
+//             asm!(
+//                 "1: lw           {tmp}, ({lock})",        // check if lock is held
+//                 "   bnez         {tmp}, 1b",              // retry if held
+//                 "   amoswap.w.aq {tmp}, {one}, ({lock})", // attempt to acquire lock
+//                 "   bnez         {tmp}, 1b",              // retry if held
+//                 tmp  = out(reg) _,
+//                 lock =  in(reg) lock,
+//                 one  =  in(reg) 1,
+//                 options(nostack)
+//             );
+//         }
+//         AmoMutexGuard {
+//             lock,
+//             data: unsafe { &mut *self.data.get() },
+//         }
+//     }
+// }
 
-    pub fn set(&mut self, r#ref: &'a mut T) {
-        let ptr = r#ref as *mut T;
-        self.ptr = ptr.cast();
-        self.meta = MaybeUninit::new(core::ptr::metadata(ptr));
-    }
+// unsafe impl<T: ?Sized + Send> Sync for AmoMutex<T> {}
+// unsafe impl<T: ?Sized + Send> Send for AmoMutex<T> {}
 
-    pub fn get(&mut self) -> Option<&mut T> {
-        if !self.ptr.is_null() {
-            Some(unsafe { &mut *core::ptr::from_raw_parts_mut(self.ptr, self.meta.assume_init()) })
-        } else {
-            None
-        }
-    }
-}
+// impl<'a, T: ?Sized> Deref for AmoMutexGuard<'a, T> {
+//     type Target = T;
+//     #[inline]
+//     fn deref(&self) -> &T {
+//         self.data
+//     }
+// }
+
+// impl<'a, T: ?Sized> DerefMut for AmoMutexGuard<'a, T> {
+//     #[inline]
+//     fn deref_mut(&mut self) -> &mut T {
+//         self.data
+//     }
+// }
+
+// impl<'a, T: ?Sized> Drop for AmoMutexGuard<'a, T> {
+//     /// The dropping of the mutex guard will release the lock it was created from.
+//     #[inline]
+//     fn drop(&mut self) {
+//         unsafe {
+//             asm!(
+//                 "amoswap.w.rl zero, zero, ({lock})", // release lock by storing 0
+//                 lock = in(reg) self.lock,
+//             );
+//         }
+//     }
+// }
