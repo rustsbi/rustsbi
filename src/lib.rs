@@ -171,7 +171,6 @@ mod hart_mask;
 mod hsm;
 mod ipi;
 mod pmu;
-mod privileged;
 #[doc(hidden)]
 pub mod reset;
 mod rfence;
@@ -228,7 +227,6 @@ pub use ipi::{init_ipi, Ipi};
 #[doc(hidden)]
 pub use legacy_stdio::{legacy_stdio_getchar, legacy_stdio_putchar};
 pub use pmu::{init_pmu, Pmu};
-pub use privileged::enter_privileged;
 pub use reset::{init_reset, Reset};
 pub use rfence::{init_rfence as init_remote_fence, Rfence as Fence};
 pub use timer::{init_timer, Timer};

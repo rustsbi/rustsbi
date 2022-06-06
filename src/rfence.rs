@@ -1,6 +1,4 @@
-use crate::ecall::SbiRet;
-use crate::hart_mask::HartMask;
-use crate::util::AmoOnceRef;
+use crate::{ecall::SbiRet, hart_mask::HartMask, util::AmoOnceRef};
 
 /// Remote fence support
 ///

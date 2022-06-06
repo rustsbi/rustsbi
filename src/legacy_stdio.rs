@@ -10,6 +10,12 @@ pub trait LegacyStdio: Send + Sync {
     fn getchar(&self) -> u8;
     /// Put a character into legacy stdout
     fn putchar(&self, ch: u8);
+
+    fn write_str(&self, s: &str) {
+        for byte in s.as_bytes() {
+            self.putchar(*byte)
+        }
+    }
 }
 
 static STDIO: AmoOnceRef<dyn LegacyStdio> = AmoOnceRef::new();
@@ -45,9 +51,7 @@ impl fmt::Write for Stdout {
     #[inline]
     fn write_str(&mut self, s: &str) -> fmt::Result {
         if let Some(stdio) = STDIO.get() {
-            for byte in s.as_bytes() {
-                stdio.putchar(*byte)
-            }
+            stdio.write_str(s);
         }
         Ok(())
     }

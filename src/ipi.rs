@@ -1,6 +1,4 @@
-use crate::ecall::SbiRet;
-use crate::hart_mask::HartMask;
-use crate::util::AmoOnceRef;
+use crate::{ecall::SbiRet, hart_mask::HartMask, util::AmoOnceRef};
 
 /// Inter-processor interrupt support
 pub trait Ipi: Send + Sync {
@@ -34,8 +32,7 @@ pub(crate) fn probe_ipi() -> bool {
 
 pub(crate) fn send_ipi_many(hart_mask: HartMask) -> SbiRet {
     if let Some(ipi) = IPI.get() {
-        ipi.send_ipi_many(hart_mask)
-    } else {
-        SbiRet::not_supported()
+        return ipi.send_ipi_many(hart_mask);
     }
+    SbiRet::not_supported()
 }

@@ -1,5 +1,4 @@
-use crate::ecall::SbiRet;
-use crate::util::AmoOnceRef;
+use crate::{ecall::SbiRet, util::AmoOnceRef};
 
 /// Performance Monitoring Unit Extension
 ///

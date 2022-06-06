@@ -1,5 +1,4 @@
-use crate::ecall::SbiRet;
-use crate::util::AmoOnceRef;
+use crate::{ecall::SbiRet, util::AmoOnceRef};
 
 /// System Reset Extension
 ///
@@ -52,23 +51,21 @@ pub trait Reset: Send + Sync {
 static RESET: AmoOnceRef<dyn Reset> = AmoOnceRef::new();
 
 #[doc(hidden)]
-#[allow(unused)]
 pub const RESET_TYPE_SHUTDOWN: usize = 0x0000_0000;
+
 #[doc(hidden)]
-#[allow(unused)]
 pub const RESET_TYPE_COLD_REBOOT: usize = 0x0000_0001;
+
 #[doc(hidden)]
-#[allow(unused)]
 pub const RESET_TYPE_WARM_REBOOT: usize = 0x0000_0002;
 
 #[doc(hidden)]
-#[allow(unused)]
 pub const RESET_REASON_NO_REASON: usize = 0x0000_0000;
+
 #[doc(hidden)]
-#[allow(unused)]
 pub const RESET_REASON_SYSTEM_FAILURE: usize = 0x0000_0001;
 
-#[doc(hidden)] // use through a macro
+#[doc(hidden)]
 pub fn init_reset(reset: &'static dyn Reset) {
     if !RESET.try_call_once(reset) {
         panic!("load sbi module when already loaded")
