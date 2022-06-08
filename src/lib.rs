@@ -160,8 +160,6 @@
 #![feature(ptr_metadata)]
 #![deny(warnings)] // cancel this line for developing
 
-extern crate alloc;
-
 #[doc(hidden)]
 #[macro_use]
 pub mod legacy_stdio;
