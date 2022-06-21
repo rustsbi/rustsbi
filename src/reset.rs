@@ -36,12 +36,13 @@ pub trait Reset: Send + Sync {
     /// | SBI_ERR_INVALID_PARAM | `reset_type` or `reset_reason` is not valid.
     /// | SBI_ERR_NOT_SUPPORTED | `reset_type` is valid but not implemented.
     /// | SBI_ERR_FAILED        | Reset request failed for unknown reasons.
-    fn system_reset(&self, reset_type: usize, reset_reason: usize) -> SbiRet;
+    fn system_reset(&self, reset_type: u32, reset_reason: u32) -> SbiRet;
 
     /// Legacy extension's reset function
     ///
     /// Puts all the harts to shut down state from supervisor point of view. This SBI call doesn’t return.
     fn legacy_reset(&self) -> ! {
+        use sbi_spec::srst::{RESET_REASON_NO_REASON, RESET_TYPE_SHUTDOWN};
         // By default, this function redirects to `system_reset`.
         self.system_reset(RESET_TYPE_SHUTDOWN, RESET_REASON_NO_REASON);
         unreachable!()
@@ -49,21 +50,6 @@ pub trait Reset: Send + Sync {
 }
 
 static RESET: AmoOnceRef<dyn Reset> = AmoOnceRef::new();
-
-#[doc(hidden)]
-pub const RESET_TYPE_SHUTDOWN: usize = 0x0000_0000;
-
-#[doc(hidden)]
-pub const RESET_TYPE_COLD_REBOOT: usize = 0x0000_0001;
-
-#[doc(hidden)]
-pub const RESET_TYPE_WARM_REBOOT: usize = 0x0000_0002;
-
-#[doc(hidden)]
-pub const RESET_REASON_NO_REASON: usize = 0x0000_0000;
-
-#[doc(hidden)]
-pub const RESET_REASON_SYSTEM_FAILURE: usize = 0x0000_0001;
 
 #[doc(hidden)]
 pub fn init_reset(reset: &'static dyn Reset) {
@@ -78,7 +64,7 @@ pub(crate) fn probe_reset() -> bool {
 }
 
 #[inline]
-pub(crate) fn system_reset(reset_type: usize, reset_reason: usize) -> SbiRet {
+pub(crate) fn system_reset(reset_type: u32, reset_reason: u32) -> SbiRet {
     if let Some(obj) = RESET.get() {
         return obj.system_reset(reset_type, reset_reason);
     }

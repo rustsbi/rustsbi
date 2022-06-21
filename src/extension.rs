@@ -1,15 +1,14 @@
-use crate::ecall::*;
-
 #[inline]
-pub fn probe_extension(extension: u32) -> bool {
+pub fn probe_extension(extension: usize) -> bool {
+    use sbi_spec::*;
     match extension {
-        EXTENSION_BASE => true,
-        EXTENSION_TIMER => crate::timer::probe_timer(),
-        EXTENSION_IPI => crate::ipi::probe_ipi(),
-        EXTENSION_RFENCE => crate::rfence::probe_rfence(),
-        EXTENSION_SRST => crate::reset::probe_reset(),
-        EXTENSION_HSM => crate::hsm::probe_hsm(),
-        EXTENSION_PMU => crate::pmu::probe_pmu(),
+        base::EID_BASE => true,
+        time::EID_TIME => crate::timer::probe_timer(),
+        spi::EID_SPI => crate::ipi::probe_ipi(),
+        rfnc::EID_RFNC => crate::rfence::probe_rfence(),
+        srst::EID_SRST => crate::reset::probe_reset(),
+        hsm::EID_HSM => crate::hsm::probe_hsm(),
+        pmu::EID_PMU => crate::pmu::probe_pmu(),
         // new extensions should be added here to be probed
         _ => false,
     }

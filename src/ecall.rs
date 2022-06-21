@@ -10,23 +10,7 @@ mod rfence;
 mod srst;
 mod timer;
 
-pub const EXTENSION_BASE: u32 = 0x10;
-pub const EXTENSION_TIMER: u32 = 0x54494D45;
-pub const EXTENSION_IPI: u32 = 0x735049;
-pub const EXTENSION_RFENCE: u32 = 0x52464E43;
-pub const EXTENSION_HSM: u32 = 0x48534D;
-pub const EXTENSION_SRST: u32 = 0x53525354;
-pub const EXTENSION_PMU: u32 = 0x504D55;
-
-const LEGACY_SET_TIMER: u32 = 0x0;
-const LEGACY_CONSOLE_PUTCHAR: u32 = 0x01;
-const LEGACY_CONSOLE_GETCHAR: u32 = 0x02;
-// const LEGACY_CLEAR_IPI: u32 = 0x03;
-const LEGACY_SEND_IPI: u32 = 0x04;
-// const LEGACY_REMOTE_FENCE_I: u32 = 0x05;
-// const LEGACY_REMOTE_SFENCE_VMA: u32 = 0x06;
-// const LEGACY_REMOTE_SFENCE_VMA_ASID: u32 = 0x07;
-const LEGACY_SHUTDOWN: u32 = 0x08;
+use sbi_spec as spec;
 
 /// Supervisor environment call handler function
 ///
@@ -70,26 +54,29 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 6]) -> Sbi
     // RISC-V SBI requires SBI extension IDs (EIDs) and SBI function IDs (FIDs)
     // are encoded as signed 32-bit integers
     #[cfg(not(target_pointer_width = "32"))]
-    if extension > u32::MAX as usize || function > u32::MAX as usize {
+    if u32::try_from(extension).is_err() {
         return SbiRet::not_supported();
     }
-    let (extension, function) = (extension as u32, function as u32);
+    let function = match u32::try_from(function) {
+        Ok(f) => f,
+        Err(_) => return SbiRet::not_supported(),
+    };
     // process actual environment calls
     match extension {
-        EXTENSION_RFENCE => {
+        spec::rfnc::EID_RFNC => {
             rfence::handle_ecall_rfence(function, param[0], param[1], param[2], param[3], param[4])
         }
-        EXTENSION_TIMER => match () {
+        spec::time::EID_TIME => match () {
             #[cfg(target_pointer_width = "64")]
             () => timer::handle_ecall_timer_64(function, param[0]),
             #[cfg(target_pointer_width = "32")]
             () => timer::handle_ecall_timer_32(function, param[0], param[1]),
         },
-        EXTENSION_IPI => ipi::handle_ecall_ipi(function, param[0], param[1]),
-        EXTENSION_BASE => base::handle_ecall_base(function, param[0]),
-        EXTENSION_HSM => hsm::handle_ecall_hsm(function, param[0], param[1], param[2]),
-        EXTENSION_SRST => srst::handle_ecall_srst(function, param[0], param[1]),
-        EXTENSION_PMU => match () {
+        spec::spi::EID_SPI => ipi::handle_ecall_ipi(function, param[0], param[1]),
+        spec::base::EID_BASE => base::handle_ecall_base(function, param[0]),
+        spec::hsm::EID_HSM => hsm::handle_ecall_hsm(function, param[0], param[1], param[2]),
+        spec::srst::EID_SRST => srst::handle_ecall_srst(function, param[0], param[1]),
+        spec::pmu::EID_PMU => match () {
             #[cfg(target_pointer_width = "64")]
             () => {
                 pmu::handle_ecall_pmu_64(function, param[0], param[1], param[2], param[3], param[4])
@@ -99,17 +86,19 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 6]) -> Sbi
                 function, param[0], param[1], param[2], param[3], param[4], param[5],
             ),
         },
-        LEGACY_SET_TIMER => match () {
+        spec::legacy::LEGACY_SET_TIMER => match () {
             #[cfg(target_pointer_width = "64")]
             () => legacy::set_timer_64(param[0]),
             #[cfg(target_pointer_width = "32")]
             () => legacy::set_timer_32(param[0], param[1]),
         }
         .legacy_void(param[0], param[1]),
-        LEGACY_CONSOLE_PUTCHAR => legacy::console_putchar(param[0]).legacy_void(param[0], param[1]),
-        LEGACY_CONSOLE_GETCHAR => legacy::console_getchar().legacy_return(param[1]),
-        LEGACY_SEND_IPI => legacy::send_ipi(param[0]).legacy_void(param[0], param[1]),
-        LEGACY_SHUTDOWN => legacy::shutdown().legacy_void(param[0], param[1]),
+        spec::legacy::LEGACY_CONSOLE_PUTCHAR => {
+            legacy::console_putchar(param[0]).legacy_void(param[0], param[1])
+        }
+        spec::legacy::LEGACY_CONSOLE_GETCHAR => legacy::console_getchar().legacy_return(param[1]),
+        spec::legacy::LEGACY_SEND_IPI => legacy::send_ipi(param[0]).legacy_void(param[0], param[1]),
+        spec::legacy::LEGACY_SHUTDOWN => legacy::shutdown().legacy_void(param[0], param[1]),
         _ => SbiRet::not_supported(),
     }
 }
@@ -125,22 +114,12 @@ pub struct SbiRet {
     pub value: usize,
 }
 
-const SBI_SUCCESS: usize = 0;
-const SBI_ERR_FAILED: usize = usize::from_ne_bytes(isize::to_ne_bytes(-1));
-const SBI_ERR_NOT_SUPPORTED: usize = usize::from_ne_bytes(isize::to_ne_bytes(-2));
-const SBI_ERR_INVALID_PARAM: usize = usize::from_ne_bytes(isize::to_ne_bytes(-3));
-// const SBI_ERR_DENIED: usize = usize::from_ne_bytes(isize::to_ne_bytes(-4));
-const SBI_ERR_INVALID_ADDRESS: usize = usize::from_ne_bytes(isize::to_ne_bytes(-5));
-const SBI_ERR_ALREADY_AVAILABLE: usize = usize::from_ne_bytes(isize::to_ne_bytes(-6));
-const SBI_ERR_ALREADY_STARTED: usize = usize::from_ne_bytes(isize::to_ne_bytes(-7));
-const SBI_ERR_ALREADY_STOPPED: usize = usize::from_ne_bytes(isize::to_ne_bytes(-8));
-
 impl SbiRet {
     /// Return success SBI state with given value.
     #[inline]
     pub fn ok(value: usize) -> SbiRet {
         SbiRet {
-            error: SBI_SUCCESS,
+            error: spec::binary::RET_SUCCESS,
             value,
         }
     }
@@ -148,7 +127,7 @@ impl SbiRet {
     #[inline]
     pub fn failed() -> SbiRet {
         SbiRet {
-            error: SBI_ERR_FAILED,
+            error: spec::binary::RET_ERR_FAILED,
             value: 0,
         }
     }
@@ -157,7 +136,7 @@ impl SbiRet {
     #[inline]
     pub fn not_supported() -> SbiRet {
         SbiRet {
-            error: SBI_ERR_NOT_SUPPORTED,
+            error: spec::binary::RET_ERR_NOT_SUPPORTED,
             value: 0,
         }
     }
@@ -166,7 +145,7 @@ impl SbiRet {
     #[inline]
     pub fn invalid_param() -> SbiRet {
         SbiRet {
-            error: SBI_ERR_INVALID_PARAM,
+            error: spec::binary::RET_ERR_INVALID_PARAM,
             value: 0,
         }
     }
@@ -175,7 +154,7 @@ impl SbiRet {
     #[inline]
     pub fn invalid_address() -> SbiRet {
         SbiRet {
-            error: SBI_ERR_INVALID_ADDRESS,
+            error: spec::binary::RET_ERR_INVALID_ADDRESS,
             value: 0,
         }
     }
@@ -184,7 +163,7 @@ impl SbiRet {
     #[inline]
     pub fn already_available() -> SbiRet {
         SbiRet {
-            error: SBI_ERR_ALREADY_AVAILABLE,
+            error: spec::binary::RET_ERR_ALREADY_AVAILABLE,
             value: 0,
         }
     }
@@ -192,7 +171,7 @@ impl SbiRet {
     #[inline]
     pub fn already_started() -> SbiRet {
         SbiRet {
-            error: SBI_ERR_ALREADY_STARTED,
+            error: spec::binary::RET_ERR_ALREADY_STARTED,
             value: 0,
         }
     }
@@ -200,7 +179,7 @@ impl SbiRet {
     #[inline]
     pub fn already_stopped() -> SbiRet {
         SbiRet {
-            error: SBI_ERR_ALREADY_STOPPED,
+            error: spec::binary::RET_ERR_ALREADY_STOPPED,
             value: 0,
         }
     }

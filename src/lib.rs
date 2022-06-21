@@ -169,11 +169,9 @@ mod hart_mask;
 mod hsm;
 mod ipi;
 mod pmu;
-#[doc(hidden)]
-pub mod reset;
+mod reset;
 mod rfence;
 mod timer;
-
 mod util;
 
 #[cfg(feature = "guest")]
@@ -217,6 +215,7 @@ const RUSTSBI_VERSION: usize =
 /// RustSBI version as a string.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+pub extern crate sbi_spec as spec;
 pub use ecall::handle_ecall as ecall;
 pub use ecall::SbiRet;
 pub use hart_mask::HartMask;

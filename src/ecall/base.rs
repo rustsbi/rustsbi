@@ -53,7 +53,7 @@ fn probe_extension(extension_id: usize) -> SbiRet {
     if extension_id > u32::MAX as usize {
         return SbiRet::ok(NO_EXTENSION);
     }
-    let ans = crate::extension::probe_extension(extension_id as u32);
+    let ans = crate::extension::probe_extension(extension_id);
     SbiRet::ok(if ans { HAS_EXTENSION } else { NO_EXTENSION })
 }
 
