@@ -19,7 +19,7 @@ edition = "2021"
 
 [dependencies]
 riscv = "0.8"
-sbi-spec = { git = "https://github.com/rustsbi/sbi-spec.git", rev = "a0fd76b" }
+sbi-spec = { git = "https://github.com/rustsbi/sbi-spec.git", rev = "9d728bb" }
 
 [features]
 default = []

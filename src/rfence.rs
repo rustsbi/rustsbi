@@ -1,4 +1,5 @@
-use crate::{ecall::SbiRet, hart_mask::HartMask, util::AmoOnceRef};
+use crate::hart_mask::HartMask;
+use sbi_spec::binary::SbiRet;
 
 /// Remote fence support
 ///
@@ -133,6 +134,8 @@ pub trait Rfence: Send + Sync {
         SbiRet::not_supported()
     }
 }
+
+use crate::util::AmoOnceRef;
 
 static RFENCE: AmoOnceRef<dyn Rfence> = AmoOnceRef::new();
 

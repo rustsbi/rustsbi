@@ -1,4 +1,4 @@
-use crate::{ecall::SbiRet, util::AmoOnceRef};
+use sbi_spec::binary::SbiRet;
 
 /// System Reset Extension
 ///
@@ -48,6 +48,8 @@ pub trait Reset: Send + Sync {
         unreachable!()
     }
 }
+
+use crate::util::AmoOnceRef;
 
 static RESET: AmoOnceRef<dyn Reset> = AmoOnceRef::new();
 

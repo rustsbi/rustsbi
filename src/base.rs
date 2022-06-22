@@ -9,7 +9,6 @@ pub fn probe_extension(extension: usize) -> bool {
         srst::EID_SRST => crate::reset::probe_reset(),
         hsm::EID_HSM => crate::hsm::probe_hsm(),
         pmu::EID_PMU => crate::pmu::probe_pmu(),
-        // new extensions should be added here to be probed
         _ => false,
     }
 }

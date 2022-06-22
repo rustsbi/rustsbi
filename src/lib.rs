@@ -163,8 +163,8 @@
 #[doc(hidden)]
 #[macro_use]
 pub mod legacy_stdio;
+mod base;
 mod ecall;
-mod extension;
 mod hart_mask;
 mod hsm;
 mod ipi;
@@ -203,12 +203,9 @@ const SBI_SPEC_MINOR: usize = 0;
 /// Ref: https://github.com/riscv-non-isa/riscv-sbi-doc/pull/61
 const IMPL_ID_RUSTSBI: usize = 4;
 
-const RUSTSBI_VERSION_MAJOR: usize =
-    (env!("CARGO_PKG_VERSION_MAJOR").as_bytes()[0] - b'0') as usize;
-const RUSTSBI_VERSION_MINOR: usize =
-    (env!("CARGO_PKG_VERSION_MINOR").as_bytes()[0] - b'0') as usize;
-const RUSTSBI_VERSION_PATCH: usize =
-    (env!("CARGO_PKG_VERSION_PATCH").as_bytes()[0] - b'0') as usize;
+const RUSTSBI_VERSION_MAJOR: usize = (env!("CARGO_PKG_VERSION_MAJOR").as_bytes()[0] - b'0') as _;
+const RUSTSBI_VERSION_MINOR: usize = (env!("CARGO_PKG_VERSION_MINOR").as_bytes()[0] - b'0') as _;
+const RUSTSBI_VERSION_PATCH: usize = (env!("CARGO_PKG_VERSION_PATCH").as_bytes()[0] - b'0') as _;
 const RUSTSBI_VERSION: usize =
     (RUSTSBI_VERSION_MAJOR << 16) + (RUSTSBI_VERSION_MINOR << 8) + RUSTSBI_VERSION_PATCH;
 
@@ -217,7 +214,6 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub extern crate sbi_spec as spec;
 pub use ecall::handle_ecall as ecall;
-pub use ecall::SbiRet;
 pub use hart_mask::HartMask;
 pub use hsm::{init_hsm, Hsm};
 pub use ipi::{init_ipi, Ipi};

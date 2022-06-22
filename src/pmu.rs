@@ -1,4 +1,4 @@
-use crate::{ecall::SbiRet, util::AmoOnceRef};
+use sbi_spec::binary::SbiRet;
 
 /// Performance Monitoring Unit Extension
 ///
@@ -196,7 +196,7 @@ pub trait Pmu: Send + Sync {
     fn counter_fw_read(&self, counter_idx: usize) -> SbiRet;
 }
 
-// TODO: all the events here
+use crate::util::AmoOnceRef;
 
 static PMU: AmoOnceRef<dyn Pmu> = AmoOnceRef::new();
 

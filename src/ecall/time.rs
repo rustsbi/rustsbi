@@ -1,0 +1,36 @@
+use sbi_spec::binary::SbiRet;
+
+#[cfg(target_pointer_width = "64")]
+#[inline]
+pub(super) fn handle_ecall(function: usize, param0: usize) -> SbiRet {
+    use crate::timer::*;
+    use sbi_spec::time::*;
+    match function {
+        SET_TIMER => {
+            if set_timer(param0 as _) {
+                SbiRet::ok(0)
+            } else {
+                SbiRet::not_supported()
+            }
+        }
+        _ => SbiRet::not_supported(),
+    }
+}
+
+#[cfg(target_pointer_width = "32")]
+#[inline]
+pub(super) fn handle_ecall_timer(function: usize, param0: usize, param1: usize) -> SbiRet {
+    use super::concat_u32;
+    use crate::timer::*;
+    use sbi_spec::time::*;
+    match function {
+        SET_TIMER => {
+            if set_timer(concat_u32(a1, a0)) {
+                SbiRet::ok(0)
+            } else {
+                SbiRet::not_supported()
+            }
+        }
+        _ => SbiRet::not_supported(),
+    }
+}

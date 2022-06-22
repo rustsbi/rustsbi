@@ -1,4 +1,4 @@
-use crate::ecall::SbiRet;
+use sbi_spec::binary::SbiRet;
 
 /// Hart State Management Extension
 ///

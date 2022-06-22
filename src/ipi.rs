@@ -1,4 +1,5 @@
-use crate::{ecall::SbiRet, hart_mask::HartMask, util::AmoOnceRef};
+use crate::{hart_mask::HartMask, util::AmoOnceRef};
+use sbi_spec::binary::SbiRet;
 
 /// Inter-processor interrupt support
 pub trait Ipi: Send + Sync {
