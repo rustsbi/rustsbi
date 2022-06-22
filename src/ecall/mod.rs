@@ -89,21 +89,8 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 6]) -> Sbi
                 #[cfg(target_pointer_width = "64")]
                 () => crate::timer::set_timer(param[0] as _),
                 #[cfg(target_pointer_width = "32")]
-                () => crate::timer::set_timer_32(param[0] as _, param[1] as _),
+                () => crate::timer::set_timer(param[0] as _, param[1] as _),
             };
-            use riscv::register::{mie, mip};
-            let mtip = mip::read().mtimer();
-            if mtip {
-                unsafe {
-                    mie::clear_mtimer();
-                    mip::set_stimer();
-                }
-            } else {
-                unsafe {
-                    mie::set_mtimer();
-                    mip::clear_stimer();
-                }
-            }
             SbiRet {
                 error: param[0],
                 value: param[1],
