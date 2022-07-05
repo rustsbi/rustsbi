@@ -2,7 +2,7 @@
 //! 如果制造实例的时候，给定了stdout，那么就会打印到这个stdout里面
 use crate::util::AmoMutex;
 use alloc::boxed::Box;
-use embedded_hal::serial::{Read, Write};
+use embedded_hal::serial::nb::{Read, Write};
 use nb::block;
 
 /// Legacy standard input/output

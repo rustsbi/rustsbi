@@ -16,7 +16,7 @@ categories = ["os", "embedded", "hardware-support", "no-std"]
 edition = "2021"
 
 [dependencies]
-embedded-hal = "0.2.7"
+embedded-hal = "1.0.0-alpha.8"
 nb = "1.0"
 riscv = "0.7"
 
