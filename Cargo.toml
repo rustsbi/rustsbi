@@ -15,17 +15,24 @@ keywords = ["riscv", "sbi", "rustsbi"]
 categories = ["os", "embedded", "hardware-support", "no-std"]
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 riscv = "0.8"
 sbi-spec = { git = "https://github.com/rustsbi/sbi-spec.git", rev = "9d728bb" }
+# The following two dependencies are used to support legacy console feature
+embedded-hal = { version = "1.0.0-alpha.8", optional = true }
+nb = { version = "1.0", optional = true }
 
 [features]
 default = []
+# Support legacy extension; this feature is not included by default.
+legacy = ["embedded-hal", "nb"]
 # Dynamic pointer widths on SBI implementations; useful for developing hypervisors
 guest = []
 
 [package.metadata.docs.rs]
 default-target = "riscv64imac-unknown-none-elf"
-targets = ["riscv32imac-unknown-none-elf", "riscv64imac-unknown-none-elf"]
+targets = [
+    "riscv32imac-unknown-none-elf", "riscv64imac-unknown-none-elf",
+]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

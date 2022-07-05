@@ -16,8 +16,10 @@ mod srst;
 mod pmu;
 
 use crate::{
-    ipi::send_ipi_many, legacy_stdio_getchar, legacy_stdio_putchar, reset::legacy_reset, HartMask,
+    ipi::send_ipi_many, reset::legacy_reset, HartMask,
 };
+#[cfg(feature = "legacy")]
+use crate::{legacy_stdio_getchar, legacy_stdio_putchar};
 use sbi_spec::{self as spec, binary::SbiRet};
 
 /// Supervisor environment call handler function
@@ -84,6 +86,7 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 6]) -> Sbi
         // handle legacy callings.
         //
         // legacy 调用不使用 a1 返回值，总把 a1 填回 `SbiRet::value` 来模拟非 legacy 的行为。
+        #[cfg(feature = "legacy")]
         spec::legacy::LEGACY_SET_TIMER => {
             match () {
                 #[cfg(target_pointer_width = "64")]
@@ -96,6 +99,7 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 6]) -> Sbi
                 value: param[1],
             }
         }
+        #[cfg(feature = "legacy")]
         spec::legacy::LEGACY_CONSOLE_PUTCHAR => {
             legacy_stdio_putchar(param[0] as _);
             SbiRet {
@@ -103,10 +107,12 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 6]) -> Sbi
                 value: param[1],
             }
         }
+        #[cfg(feature = "legacy")]
         spec::legacy::LEGACY_CONSOLE_GETCHAR => SbiRet {
             error: legacy_stdio_getchar(),
             value: param[1],
         },
+        #[cfg(feature = "legacy")]
         spec::legacy::LEGACY_SEND_IPI => {
             send_ipi_many(unsafe { HartMask::legacy_from_addr(param[0]) });
             SbiRet {
@@ -114,6 +120,7 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 6]) -> Sbi
                 value: param[1],
             }
         }
+        #[cfg(feature = "legacy")]
         spec::legacy::LEGACY_SHUTDOWN => legacy_reset(),
         _ => SbiRet::not_supported(),
     }

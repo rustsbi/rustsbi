@@ -217,6 +217,7 @@ pub use ecall::handle_ecall as ecall;
 pub use hart_mask::HartMask;
 pub use hsm::{init_hsm, Hsm};
 pub use ipi::{init_ipi, Ipi};
+#[cfg(feature = "legacy")]
 #[doc(hidden)]
 pub use legacy_stdio::{legacy_stdio_getchar, legacy_stdio_putchar};
 pub use pmu::{init_pmu, Pmu};
