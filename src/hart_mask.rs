@@ -40,6 +40,7 @@ impl HartMask {
                 }
                 hart_mask & (1 << idx) != 0
             }
+            #[cfg(feature = "legacy")]
             MaskInner::Legacy { legacy_bit_vector } => {
                 slow_legacy_has_bit(legacy_bit_vector, hart_id)
             }
@@ -50,6 +51,7 @@ impl HartMask {
     /// from S level, it would result in machine level load access or load misaligned exception.*
     ///
     /// Construct a hart mask from legacy bit vector and number of harts in current platform.
+    #[cfg(feature = "legacy")]
     #[inline]
     pub(crate) unsafe fn legacy_from_addr(vaddr: usize) -> HartMask {
         HartMask {
@@ -66,12 +68,12 @@ enum MaskInner {
         hart_mask: usize,
         hart_mask_base: usize,
     },
-    Legacy {
-        legacy_bit_vector: *const usize,
-    },
+    #[cfg(feature = "legacy")]
+    Legacy { legacy_bit_vector: *const usize },
 }
 
 // not #[inline] to speed up new version bit vector
+#[cfg(feature = "legacy")]
 fn slow_legacy_has_bit(legacy_bit_vector: *const usize, hart_id: usize) -> bool {
     fn split_index_usize(index: usize) -> (usize, usize) {
         let bits_in_usize = usize::BITS as usize;
@@ -82,6 +84,7 @@ fn slow_legacy_has_bit(legacy_bit_vector: *const usize, hart_id: usize) -> bool 
     cur_vector & (1 << j) != 0
 }
 
+#[cfg(feature = "legacy")]
 #[inline]
 unsafe fn get_vaddr_usize(vaddr_ptr: *const usize) -> usize {
     match () {

@@ -3,13 +3,14 @@
 // Ref: once_cell
 
 use alloc::boxed::Box;
+#[cfg(feature = "legacy")]
+use core::ops::{Deref, DerefMut};
 use core::{
     arch::asm,
     cell::UnsafeCell,
     fmt::{self, Debug},
     marker::PhantomData,
     mem::MaybeUninit,
-    ops::{Deref, DerefMut},
     ptr::{self, Pointee},
 };
 
@@ -124,16 +125,19 @@ impl<T: ?Sized> OnceFatBox<T> {
 unsafe impl<T: Sync + Send + ?Sized> Sync for OnceFatBox<T> {}
 
 /// Use only amo instructions on mutex; no lr/sc instruction is used
+#[cfg(feature = "legacy")]
 pub struct AmoMutex<T: ?Sized> {
     lock: UnsafeCell<u8>,
     data: UnsafeCell<T>,
 }
 
+#[cfg(feature = "legacy")]
 pub struct AmoMutexGuard<'a, T: ?Sized> {
     lock: *mut u8,
     data: &'a mut T,
 }
 
+#[cfg(feature = "legacy")]
 impl<T> AmoMutex<T> {
     /// Create a new AmoMutex
     #[inline]
@@ -168,9 +172,12 @@ impl<T> AmoMutex<T> {
     }
 }
 
+#[cfg(feature = "legacy")]
 unsafe impl<T: ?Sized + Send> Sync for AmoMutex<T> {}
+#[cfg(feature = "legacy")]
 unsafe impl<T: ?Sized + Send> Send for AmoMutex<T> {}
 
+#[cfg(feature = "legacy")]
 impl<'a, T: ?Sized> Deref for AmoMutexGuard<'a, T> {
     type Target = T;
     #[inline]
@@ -179,12 +186,15 @@ impl<'a, T: ?Sized> Deref for AmoMutexGuard<'a, T> {
     }
 }
 
+#[cfg(feature = "legacy")]
 impl<'a, T: ?Sized> DerefMut for AmoMutexGuard<'a, T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut T {
         self.data
     }
 }
+
+#[cfg(feature = "legacy")]
 impl<'a, T: ?Sized> Drop for AmoMutexGuard<'a, T> {
     /// The dropping of the mutex guard will release the lock it was created from.
     #[inline]

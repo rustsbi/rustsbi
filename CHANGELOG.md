@@ -8,8 +8,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Added
+- Feature `legacy` to gate SBI legacy extension
 
 ### Modified
+- Update depenency embedded-hal to 1.0.0-alpha.8
 
 ### Fixed
 

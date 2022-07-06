@@ -161,6 +161,7 @@
 
 extern crate alloc;
 
+#[cfg(feature = "legacy")]
 #[doc(hidden)]
 #[macro_use]
 pub mod legacy_stdio;
@@ -208,6 +209,7 @@ pub use ecall::SbiRet;
 pub use hart_mask::HartMask;
 pub use hsm::{init_hsm, Hsm};
 pub use ipi::{init_ipi, Ipi};
+#[cfg(feature = "legacy")]
 #[doc(hidden)]
 pub use legacy_stdio::{legacy_stdio_getchar, legacy_stdio_putchar};
 pub use logo::LOGO;

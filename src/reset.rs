@@ -91,6 +91,7 @@ pub(crate) fn system_reset(reset_type: usize, reset_reason: usize) -> SbiRet {
     SbiRet::not_supported()
 }
 
+#[cfg(feature = "legacy")]
 #[inline]
 pub(crate) fn legacy_reset() -> ! {
     if let Some(obj) = RESET.get() {

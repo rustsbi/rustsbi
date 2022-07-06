@@ -4,6 +4,7 @@
 mod base;
 mod hsm;
 mod ipi;
+#[cfg(feature = "legacy")]
 mod legacy;
 mod pmu;
 mod rfence;
@@ -18,14 +19,20 @@ pub const EXTENSION_HSM: u32 = 0x48534D;
 pub const EXTENSION_SRST: u32 = 0x53525354;
 pub const EXTENSION_PMU: u32 = 0x504D55;
 
+#[cfg(feature = "legacy")]
 const LEGACY_SET_TIMER: u32 = 0x0;
+#[cfg(feature = "legacy")]
 const LEGACY_CONSOLE_PUTCHAR: u32 = 0x01;
+#[cfg(feature = "legacy")]
 const LEGACY_CONSOLE_GETCHAR: u32 = 0x02;
 // const LEGACY_CLEAR_IPI: u32 = 0x03;
+#[cfg(feature = "legacy")]
 const LEGACY_SEND_IPI: u32 = 0x04;
+#[cfg(feature = "legacy")]
 // const LEGACY_REMOTE_FENCE_I: u32 = 0x05;
 // const LEGACY_REMOTE_SFENCE_VMA: u32 = 0x06;
 // const LEGACY_REMOTE_SFENCE_VMA_ASID: u32 = 0x07;
+#[cfg(feature = "legacy")]
 const LEGACY_SHUTDOWN: u32 = 0x08;
 
 /// Supervisor environment call handler function
@@ -99,6 +106,7 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 6]) -> Sbi
                 function, param[0], param[1], param[2], param[3], param[4], param[5],
             ),
         },
+        #[cfg(feature = "legacy")]
         LEGACY_SET_TIMER => match () {
             #[cfg(target_pointer_width = "64")]
             () => legacy::set_timer_64(param[0]),
@@ -106,9 +114,13 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 6]) -> Sbi
             () => legacy::set_timer_32(param[0], param[1]),
         }
         .legacy_void(param[0], param[1]),
+        #[cfg(feature = "legacy")]
         LEGACY_CONSOLE_PUTCHAR => legacy::console_putchar(param[0]).legacy_void(param[0], param[1]),
+        #[cfg(feature = "legacy")]
         LEGACY_CONSOLE_GETCHAR => legacy::console_getchar().legacy_return(param[1]),
+        #[cfg(feature = "legacy")]
         LEGACY_SEND_IPI => legacy::send_ipi(param[0]).legacy_void(param[0], param[1]),
+        #[cfg(feature = "legacy")]
         LEGACY_SHUTDOWN => legacy::shutdown().legacy_void(param[0], param[1]),
         _ => SbiRet::not_supported(),
     }
@@ -204,6 +216,7 @@ impl SbiRet {
             value: 0,
         }
     }
+    #[cfg(feature = "legacy")]
     #[inline]
     pub(crate) fn legacy_ok(legacy_value: usize) -> SbiRet {
         SbiRet {
@@ -212,6 +225,7 @@ impl SbiRet {
         }
     }
     // only used for legacy where a0, a1 return value is not modified
+    #[cfg(feature = "legacy")]
     #[inline]
     pub(crate) fn legacy_void(self, a0: usize, a1: usize) -> SbiRet {
         SbiRet {
@@ -219,6 +233,7 @@ impl SbiRet {
             value: a1,
         }
     }
+    #[cfg(feature = "legacy")]
     #[inline]
     pub(crate) fn legacy_return(self, a1: usize) -> SbiRet {
         SbiRet {

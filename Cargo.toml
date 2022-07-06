@@ -16,12 +16,14 @@ categories = ["os", "embedded", "hardware-support", "no-std"]
 edition = "2021"
 
 [dependencies]
-embedded-hal = "1.0.0-alpha.8"
+embedded-hal = { version = "1.0.0-alpha.8", optional = true }
 nb = "1.0"
 riscv = "0.7"
 
 [features]
 default = []
+# Support legacy extension; this feature is not included by default.
+legacy = ["embedded-hal"]
 # Dynamic pointer widths on SBI implementations; useful for developing hypervisors
 guest = []
 
