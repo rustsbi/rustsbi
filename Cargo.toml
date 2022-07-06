@@ -16,16 +16,26 @@ categories = ["os", "embedded", "hardware-support", "no-std"]
 edition = "2021"
 
 [dependencies]
+<<<<<<< HEAD
 riscv = "0.8"
 sbi-spec = { git = "https://github.com/rustsbi/sbi-spec.git", rev = "9d728bb" }
 # The following two dependencies are used to support legacy console feature
 embedded-hal = { version = "1.0.0-alpha.8", optional = true }
 nb = { version = "1.0", optional = true }
+=======
+embedded-hal = { version = "1.0.0-alpha.8", optional = true }
+nb = "1.0"
+riscv = "0.7"
+>>>>>>> a577447 (gate SBI legacy extension under `legacy` feature)
 
 [features]
 default = []
 # Support legacy extension; this feature is not included by default.
+<<<<<<< HEAD
 legacy = ["embedded-hal", "nb"]
+=======
+legacy = ["embedded-hal"]
+>>>>>>> a577447 (gate SBI legacy extension under `legacy` feature)
 # Dynamic pointer widths on SBI implementations; useful for developing hypervisors
 guest = []
 

@@ -73,6 +73,7 @@ pub(crate) fn system_reset(reset_type: u32, reset_reason: u32) -> SbiRet {
     SbiRet::not_supported()
 }
 
+#[cfg(feature = "legacy")]
 #[inline]
 pub(crate) fn legacy_reset() -> ! {
     if let Some(obj) = RESET.get() {
