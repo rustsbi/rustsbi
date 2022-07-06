@@ -18,7 +18,7 @@ edition = "2021"
 [dependencies]
 embedded-hal = { version = "1.0.0-alpha.8", optional = true }
 nb = "1.0"
-riscv = "0.7"
+riscv = "0.8"
 
 [features]
 default = []
