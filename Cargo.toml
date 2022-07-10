@@ -23,8 +23,6 @@ sbi-spec = "0.0.1"
 default = []
 # Support legacy extension; this feature is not included by default.
 legacy = []
-# Dynamic pointer widths on SBI implementations; useful for developing hypervisors
-guest = []
 
 [package.metadata.docs.rs]
 default-target = "riscv64imac-unknown-none-elf"

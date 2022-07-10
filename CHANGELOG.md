@@ -9,6 +9,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 - Feature `legacy` to gate SBI legacy extension
+- Expose `init_*` functions on instance based RustSBI implementation
 
 ### Modified
 - Remove dependency on crate alloc; RustSBI now works without heap

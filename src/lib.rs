@@ -214,7 +214,7 @@ const LOGO: &str = r"
 |  |\  \----.|  `--'  |.----)   |      |  |  .----)   |   |  |_)  ||  |
 | _| `._____| \______/ |_______/       |__|  |_______/    |______/ |__|";
 
-/// The rustsbi logo.
+/// The RustSBI logo with blank line at the beginning
 pub fn logo() -> &'static str {
     // rust raw text 无法在保持格式的情况下去除头上的换行
     // include_str("logo.txt") 会由于 vscode 的自动格式化在末尾多一个换行

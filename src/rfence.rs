@@ -139,6 +139,7 @@ use crate::util::AmoOnceRef;
 
 static RFENCE: AmoOnceRef<dyn Rfence> = AmoOnceRef::new();
 
+/// Init RFENCE module
 pub fn init_rfence(rfence: &'static dyn Rfence) {
     if !RFENCE.try_call_once(rfence) {
         panic!("load sbi module when already loaded")

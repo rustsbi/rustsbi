@@ -200,6 +200,7 @@ use crate::util::AmoOnceRef;
 
 static PMU: AmoOnceRef<dyn Pmu> = AmoOnceRef::new();
 
+/// Init PMU module
 pub fn init_pmu(pmu: &'static dyn Pmu) {
     if !PMU.try_call_once(pmu) {
         panic!("load sbi module when already loaded")

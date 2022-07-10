@@ -194,6 +194,7 @@ use crate::util::AmoOnceRef;
 
 static HSM: AmoOnceRef<dyn Hsm> = AmoOnceRef::new();
 
+/// Init HSM module
 pub fn init_hsm(hsm: &'static dyn Hsm) {
     if !HSM.try_call_once(hsm) {
         panic!("load sbi module when already loaded")

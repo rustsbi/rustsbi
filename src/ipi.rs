@@ -11,15 +11,11 @@ pub trait Ipi: Send + Sync {
     ///
     /// Should return error code `SBI_SUCCESS` if IPI was sent to all the targeted harts successfully.
     fn send_ipi_many(&self, hart_mask: HartMask) -> SbiRet;
-    #[doc(hidden)]
-    /// Get the maximum hart id available by this IPI support module
-    fn max_hart_id(&self) -> usize {
-        unimplemented!("remained for compatibility, should remove in 0.3.0")
-    }
 }
 
 static IPI: AmoOnceRef<dyn Ipi> = AmoOnceRef::new();
 
+/// Init IPI module
 pub fn init_ipi(ipi: &'static dyn Ipi) {
     if !IPI.try_call_once(ipi) {
         panic!("load sbi module when already loaded")
