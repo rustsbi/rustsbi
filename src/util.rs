@@ -1,7 +1,6 @@
 //! useful structures
 
 use core::{arch::asm, cell::UnsafeCell, marker::PhantomData, mem::MaybeUninit, ptr::Pointee};
-
 /// 只使用 AMO 指令的一次初始化引用存储。
 pub struct AmoOnceRef<'a, T: ?Sized> {
     /// As atomic bool, to check if it is the first time to set `ptr`.
@@ -61,6 +60,7 @@ impl<'a, T: ?Sized> AmoOnceRef<'a, T> {
                     dst = in(reg) self.ptr.get(),
                 );
             }
+
             true
         } else {
             // 未取得锁，对象已被初始化过
@@ -116,7 +116,6 @@ impl<'a, T: ?Sized> AmoOnceRef<'a, T> {
         }
     }
 
-    #[inline]
     unsafe fn build_ref_unchecked(&self, ptr: *const ()) -> &T {
         &*core::ptr::from_raw_parts(ptr, (*self.meta.get()).assume_init())
     }
