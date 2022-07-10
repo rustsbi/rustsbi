@@ -180,17 +180,10 @@
 //! [dependencies]
 //! rustsbi = { version = "0.3.0", features = ["legacy"] }
 //! ```
-//! 
-//! By using the `legacy` feature, RustSBI will include `embedded-hal` compliant blocking serial interface.
-//! You may use any embedded-hal implementation to implement the legacy console.
-//! RustSBI legacy feature only supports blocking embedded-hal interface, as is defined in legacy
-//! SBI 0.1 specification.
 
 #![no_std]
 #![feature(ptr_metadata)]
 #![deny(warnings)] // cancel this line for developing
-
-extern crate alloc;
 
 #[cfg(feature = "legacy")]
 #[doc(hidden)]

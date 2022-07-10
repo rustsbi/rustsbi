@@ -1,6 +1,7 @@
 //! useful structures
 
 use core::{arch::asm, cell::UnsafeCell, marker::PhantomData, mem::MaybeUninit, ptr::Pointee};
+
 /// 只使用 AMO 指令的一次初始化引用存储。
 pub struct AmoOnceRef<'a, T: ?Sized> {
     /// As atomic bool, to check if it is the first time to set `ptr`.

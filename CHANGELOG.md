@@ -11,7 +11,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Feature `legacy` to gate SBI legacy extension
 
 ### Modified
-- Update depenency embedded-hal to 1.0.0-alpha.8
+- Remove dependency on crate alloc; RustSBI now works without heap
+- Remove embedded-hal serial adapter to legacy console
 
 ### Fixed
 

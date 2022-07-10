@@ -2,9 +2,6 @@
 //! 如果制造实例的时候，给定了stdout，那么就会打印到这个stdout里面
 use crate::util::AmoOnceRef;
 use core::fmt;
-use alloc::boxed::Box;
-use embedded_hal::serial::nb::{Read, Write};
-use nb::block;
 
 /// Legacy standard input/output
 pub trait LegacyStdio: Send + Sync {
@@ -20,68 +17,6 @@ pub trait LegacyStdio: Send + Sync {
     }
 }
 
-
-/// Legacy standard input/output
-pub trait LegacyStdio: Send {
-    /// Get a character from legacy stdin
-    fn getchar(&mut self) -> u8;
-    /// Put a character into legacy stdout
-    fn putchar(&mut self, ch: u8);
-}
-
-/// Use serial in `embedded-hal` as legacy standard input/output
-struct EmbeddedHalSerial<T> {
-    inner: T,
-}
-
-impl<T> EmbeddedHalSerial<T> {
-    /// Create a wrapper with a value
-    #[inline]
-    fn new(inner: T) -> Self {
-        Self { inner }
-    }
-}
-
-impl<T: Send> LegacyStdio for EmbeddedHalSerial<T>
-where
-    T: Read<u8> + Write<u8>,
-{
-    #[inline]
-    fn getchar(&mut self) -> u8 {
-        // 直接调用embedded-hal里面的函数
-        // 关于unwrap：因为这个是legacy函数，这里没有详细的处理流程，就panic掉
-        block!(self.inner.read()).ok().unwrap()
-    }
-
-    #[inline]
-    fn putchar(&mut self, ch: u8) {
-        // 直接调用函数写一个字节
-        block!(self.inner.write(ch)).ok();
-        // 写一次flush一次，因为是legacy，就不考虑效率了
-        block!(self.inner.flush()).ok();
-    }
-}
-
-struct Fused<T, R>(T, R);
-
-// 和上面的原理差不多，就是分开了
-impl<T, R> LegacyStdio for Fused<T, R>
-where
-    T: Write<u8> + Send + 'static,
-    R: Read<u8> + Send + 'static,
-{
-    #[inline]
-    fn getchar(&mut self) -> u8 {
-        block!(self.1.read()).ok().unwrap()
-    }
-
-    #[inline]
-    fn putchar(&mut self, ch: u8) {
-        block!(self.0.write(ch)).ok();
-        block!(self.0.flush()).ok();
-    }
-}
-
 static LEGACY_STDIO: AmoOnceRef<dyn LegacyStdio> = AmoOnceRef::new();
 
 #[inline]
@@ -89,22 +24,6 @@ pub fn init_legacy_stdio(stdio: &'static dyn LegacyStdio) {
     if !LEGACY_STDIO.try_call_once(stdio) {
         panic!("load sbi module when already loaded")
     }
-}
-
-#[doc(hidden)] // use through a macro
-pub fn init_legacy_stdio_embedded_hal<T: Read<u8> + Write<u8> + Send + 'static>(serial: T) {
-    let serial = EmbeddedHalSerial::new(serial);
-    *LEGACY_STDIO.lock() = Some(Box::new(serial));
-}
-
-#[doc(hidden)] // use through a macro
-pub fn init_legacy_stdio_embedded_hal_fuse<T, R>(tx: T, rx: R)
-where
-    T: Write<u8> + Send + 'static,
-    R: Read<u8> + Send + 'static,
-{
-    let serial = Fused(tx, rx);
-    *LEGACY_STDIO.lock() = Some(Box::new(serial));
 }
 
 #[inline]
