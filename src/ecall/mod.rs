@@ -15,11 +15,11 @@ mod srst;
 // §11
 mod pmu;
 
+#[cfg(feature = "legacy")]
 use crate::{
+    legacy_stdio_getchar, legacy_stdio_putchar,
     ipi::send_ipi_many, reset::legacy_reset, HartMask,
 };
-#[cfg(feature = "legacy")]
-use crate::{legacy_stdio_getchar, legacy_stdio_putchar};
 use sbi_spec::{self as spec, binary::SbiRet};
 
 /// Supervisor environment call handler function
