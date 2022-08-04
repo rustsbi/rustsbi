@@ -8,13 +8,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Added
+
 - Feature `legacy` to gate SBI legacy extension
 - Expose `init_*` functions on instance based RustSBI implementation
+- LEGACY_CLEAR_IPI implemented
 
 ### Modified
+
 - Probe function now returns if legacy extensions are available
 
 ### Removed
+
 - Remove dependency on crate alloc; RustSBI now works without heap
 - Remove embedded-hal serial adapter to legacy console
 
@@ -26,10 +30,12 @@ This update adapts to ratified RISC-V SBI v1.0.0 specification, it's recommended
 the latest RustSBI version.
 
 ### Added
+
 - Support for RISC-V SBI v1.0.0 Ratified Specification
 - Internal guest and instance module
 
 ### Modified
+
 - Use Rust 2021 edition
 - Update dependency `embedded-hal` to v0.2.7
 
@@ -39,16 +45,19 @@ This update fixes a severe bug on IPI module. The previous version of RustSBI di
 module on SBI v0.3 format. Users are encouraged to use 0.2.1 and newer version instead of yanked 0.2.0 version.
 
 ### Modified
+
 - Internal speed up to new SBI v0.3+ IPI procedure
 - Reduce code size by inlining internal functions
 
 ### Fixed
+
 - Severe bug on IPI does not follow new SBI version convention rule
 - Pass cargo test on docs, add test cases on hart mask
 
 ## [0.2.0] - 2022-02-13
 
 ### Added
+
 - Support for RISC-V SBI v1.0 and v0.3 Specification
 - S-level Illegal instruction exception is now delegated into S-level software handler
 - Support RFENCE extension in RustSBI framework
@@ -79,40 +88,52 @@ module on SBI v0.3 format. Users are encouraged to use 0.2.1 and newer version i
 - Improve documents to adapt to v1.0-rc2 specification
 
 ### Fixed
+
 - Test kernel console now will lock before `println` line is finished
 - Non-legacy supervisor IPI extension is fixed
 - Returns -1 other than 0 when legacy console getchar function fails; thank you @duskmoon314
 
 ## [0.1.1] - 2021-02-01
+
 ### Added
+
 - Abstract support for HSM and SRST extensions
 - Support SRST extension using test device on QEMU
 - Count harts from device tree binary on QEMU platform
 - Show hart id on panic for QEMU platform
 
 ### Modified
+
 - Use '#[naked]' instead of global assembly in newer Rust version for RustSBI platforms
 
 ### Fixed
+
 - Fix `init_hsm` function which is not exported before
 - Small fixes on library documents
 
 ## [0.1.0] - 2020-12-26
+
 RustSBI is adapted to SBI standard with implementation number 4.
+
 ### Added
+
 - Implementation specific SBI module `0x0A000004` defined
 - K210 specific sbi_rustsbi_k210_sext SBI call
 
 ### Modified
+
 - Update private SBI function to K210 implementation
 
 ### Fixed
+
 - Delegate instruction load/store faults to S mode, allowing legacy console getchar to work on K210 (#7).
 - Fixed 64-bit and 32-bit instruction value for target pointer widths
 - Fixed readme document path for crates.io
 
 ## [0.0.2] - 2020-10-20
+
 ### Added
+
 - Support for Kendryte K210 with MMU and S-Mode
 - Support for QEMU
 - SBI v0.2 TIME extension and IPI extension
