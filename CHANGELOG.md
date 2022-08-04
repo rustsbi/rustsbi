@@ -12,6 +12,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Expose `init_*` functions on instance based RustSBI implementation
 
 ### Modified
+- Probe function now returns if legacy extensions are available
+
+### Removed
 - Remove dependency on crate alloc; RustSBI now works without heap
 - Remove embedded-hal serial adapter to legacy console
 
