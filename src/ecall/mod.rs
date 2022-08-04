@@ -17,8 +17,7 @@ mod pmu;
 
 #[cfg(feature = "legacy")]
 use crate::{
-    legacy_stdio_getchar, legacy_stdio_putchar,
-    ipi::send_ipi_many, reset::legacy_reset, HartMask,
+    ipi::send_ipi_many, legacy_stdio_getchar, legacy_stdio_putchar, reset::legacy_reset, HartMask,
 };
 use sbi_spec::{self as spec, binary::SbiRet};
 

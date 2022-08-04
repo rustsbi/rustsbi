@@ -44,6 +44,11 @@ pub fn legacy_stdio_getchar() -> usize {
     }
 }
 
+#[inline]
+pub(crate) fn probe_legacy_stdio() -> bool {
+    LEGACY_STDIO.get().is_some()
+}
+
 struct Stdout;
 
 impl fmt::Write for Stdout {

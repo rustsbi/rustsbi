@@ -142,9 +142,9 @@
 //! it's better to include minimal feature in core repository, and leave other features for downstream developers.
 //!
 //! # Notes for RustSBI developers
-//! 
+//!
 //! Following useful hints are for firmware and kernel developers when working with SBI and RustSBI.
-//! 
+//!
 //! ## RustSBI is a library for interfaces
 //!
 //! This library adapts to individual Rust traits to provide basic SBI features.
@@ -159,23 +159,23 @@
 //! Note that this crate is a library which contains common building blocks in SBI implementation.
 //! It is not intended to be used directly; users should build own platforms with this library.
 //! RustSBI provides implementations on common platforms in separate platform crates.
-//! 
+//!
 //! ## Legacy SBI extension
-//! 
+//!
 //! Note: RustSBI legacy support is only designed for backward compability. It's disabled by default and it's not
 //! suggested to include legacy functions in newer firmware designs. Modules other than legacy console is replaced by
-//! individual modules in SBI. Legacy console is not suggested to use in kernels. 
+//! individual modules in SBI. Legacy console is not suggested to use in kernels.
 //! If you are a kernel developer, newer designs should consider relying on each SBI module other than
 //! legacy functions.
-//! 
+//!
 //! The SBI includes legacy extension which dated back to SBI 0.1 specification. Most of its features
 //! are replaced by individual SBI modules, thus the entire legacy extension is deprecated by
 //! SBI version 0.2. However, some users may find out SBI 0.1 legacy console useful in some situations
 //! even if it's deprecated.
-//! 
+//!
 //! RustSBI keeps SBI 0.1 legacy support under feature gate `legacy`. To use RustSBI with legacy feature,
 //! you may change dependency code to:
-//! 
+//!
 //! ```toml
 //! [dependencies]
 //! rustsbi = { version = "0.3.0", features = ["legacy"] }
@@ -199,9 +199,6 @@ mod reset;
 mod rfence;
 mod timer;
 mod util;
-
-#[cfg(feature = "guest")]
-mod guest;
 
 // pub mod instance; // TODO: SBI instances, useful for developing hypervisors
 
