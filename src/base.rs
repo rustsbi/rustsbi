@@ -12,13 +12,14 @@ pub fn probe_extension(extension: usize) -> bool {
         // Legacy extensions
         // if feature 'legacy' is not enabled, these extensions fall back to false.
         #[cfg(feature = "legacy")]
-        legacy::LEGACY_SET_TIMER
-        | legacy::LEGACY_CLEAR_IPI
-        | legacy::LEGACY_SEND_IPI
-        | legacy::LEGACY_REMOTE_FENCE_I
-        | legacy::LEGACY_REMOTE_SFENCE_VMA
-        | legacy::LEGACY_REMOTE_SFENCE_VMA_ASID
-        | legacy::LEGACY_SHUTDOWN => true,
+        legacy::LEGACY_SET_TIMER => crate::timer::probe_timer(),
+        #[cfg(feature = "legacy")]
+        legacy::LEGACY_SEND_IPI => crate::ipi::probe_ipi(),
+        #[cfg(feature = "legacy")]
+        legacy::LEGACY_SHUTDOWN => crate::reset::probe_reset(),
+        // we don't include LEGACY_REMOTE_FENCE_I, LEGACY_REMOTE_SFENCE_VMA,
+        // LEGACY_CLEAR_IPI and LEGACY_REMOTE_SFENCE_VMA_ASID here,
+        // for RustSBI ecall/mod.rs did not implement these legacy extensions.
         #[cfg(feature = "legacy")]
         legacy::LEGACY_CONSOLE_PUTCHAR | legacy::LEGACY_CONSOLE_GETCHAR => {
             crate::legacy_stdio::probe_legacy_stdio()
