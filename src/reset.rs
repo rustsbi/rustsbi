@@ -41,6 +41,7 @@ pub trait Reset: Send + Sync {
     /// Legacy extension's reset function
     ///
     /// Puts all the harts to shut down state from supervisor point of view. This SBI call doesn’t return.
+    #[cfg(feature = "legacy")]
     fn legacy_reset(&self) -> ! {
         use sbi_spec::srst::{RESET_REASON_NO_REASON, RESET_TYPE_SHUTDOWN};
         // By default, this function redirects to `system_reset`.
@@ -53,7 +54,7 @@ use crate::util::AmoOnceRef;
 
 static RESET: AmoOnceRef<dyn Reset> = AmoOnceRef::new();
 
-#[doc(hidden)]
+/// Init SRST module
 pub fn init_reset(reset: &'static dyn Reset) {
     if !RESET.try_call_once(reset) {
         panic!("load sbi module when already loaded")
