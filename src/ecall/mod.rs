@@ -121,7 +121,9 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 6]) -> Sbi
         }
         #[cfg(feature = "legacy")]
         spec::legacy::LEGACY_CLEAR_IPI => {
-            riscv::register::mip::clear_ssoft();
+            unsafe {
+                riscv::register::mip::clear_ssoft();
+            }
             SbiRet {
                 error: param[0],
                 value: param[1],
