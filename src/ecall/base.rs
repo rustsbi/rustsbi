@@ -8,7 +8,7 @@ pub(super) fn handle_ecall(function: usize, param0: usize) -> SbiRet {
     use sbi_spec::base::*;
 
     let value = match function {
-        GET_SPEC_VERSION => (SBI_SPEC_MAJOR << 24) | (SBI_SPEC_MINOR),
+        GET_SBI_SPEC_VERSION => (SBI_SPEC_MAJOR << 24) | (SBI_SPEC_MINOR),
         GET_SBI_IMPL_ID => IMPL_ID_RUSTSBI,
         GET_SBI_IMPL_VERSION => RUSTSBI_VERSION,
         PROBE_EXTENSION => {
