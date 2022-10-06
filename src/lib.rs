@@ -183,7 +183,6 @@
 
 #![no_std]
 #![feature(ptr_metadata)]
-#![deny(warnings)] // cancel this line for developing
 
 #[cfg(feature = "legacy")]
 #[doc(hidden)]
