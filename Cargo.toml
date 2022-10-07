@@ -16,9 +16,7 @@ categories = ["os", "embedded", "hardware-support", "no-std"]
 edition = "2021"
 
 [dependencies]
-riscv = { git = "https://github.com/rust-embedded/riscv", rev = "e38a68d" }
-# todo: change to a release version when the fix is released (https://github.com/rust-embedded/riscv/pull/112)
-# riscv = "0.8.1"
+riscv = "0.9.0"
 sbi-spec = "0.0.3"
 
 [features]
