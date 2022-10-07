@@ -12,11 +12,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Feature `legacy` to gate SBI legacy extension
 - Expose `init_*` functions on instance based RustSBI implementation
 - LEGACY_CLEAR_IPI implemented
-- Use sbi-spec crate version 0.0.3
 
 ### Modified
 
 - Probe function now returns if legacy extensions are available
+- Update to `riscv` crate 0.9.0, sbi-spec crate version 0.0.3
 
 ### Removed
 
