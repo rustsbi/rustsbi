@@ -6,7 +6,7 @@ pub(super) fn handle_ecall(function: usize, param0: usize, param1: usize) -> Sbi
     use crate::ipi::*;
     use sbi_spec::spi::*;
     match function {
-        SEND_IPI => send_ipi_many(HartMask::from_mask_base(param0, param1)),
+        SEND_IPI => send_ipi(HartMask::from_mask_base(param0, param1)),
         _ => SbiRet::not_supported(),
     }
 }

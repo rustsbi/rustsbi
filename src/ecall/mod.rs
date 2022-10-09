@@ -17,7 +17,7 @@ mod pmu;
 
 #[cfg(feature = "legacy")]
 use crate::{
-    ipi::send_ipi_many, legacy_stdio_getchar, legacy_stdio_putchar, reset::legacy_reset, HartMask,
+    ipi::send_ipi, legacy_stdio_getchar, legacy_stdio_putchar, reset::legacy_reset, HartMask,
 };
 use sbi_spec::{self as spec, binary::SbiRet};
 
@@ -113,7 +113,7 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 6]) -> Sbi
         },
         #[cfg(feature = "legacy")]
         spec::legacy::LEGACY_SEND_IPI => {
-            send_ipi_many(unsafe { HartMask::legacy_from_addr(param[0]) });
+            send_ipi(unsafe { HartMask::legacy_from_addr(param[0]) });
             SbiRet {
                 error: param[0],
                 value: param[1],

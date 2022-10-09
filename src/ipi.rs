@@ -10,7 +10,7 @@ pub trait Ipi: Send + Sync {
     /// # Return value
     ///
     /// Should return error code `SBI_SUCCESS` if IPI was sent to all the targeted harts successfully.
-    fn send_ipi_many(&self, hart_mask: HartMask) -> SbiRet;
+    fn send_ipi(&self, hart_mask: HartMask) -> SbiRet;
 }
 
 static IPI: AmoOnceRef<dyn Ipi> = AmoOnceRef::new();
@@ -27,9 +27,9 @@ pub(crate) fn probe_ipi() -> bool {
     IPI.get().is_some()
 }
 
-pub(crate) fn send_ipi_many(hart_mask: HartMask) -> SbiRet {
+pub(crate) fn send_ipi(hart_mask: HartMask) -> SbiRet {
     if let Some(ipi) = IPI.get() {
-        return ipi.send_ipi_many(hart_mask);
+        return ipi.send_ipi(hart_mask);
     }
     SbiRet::not_supported()
 }
