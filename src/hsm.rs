@@ -233,7 +233,6 @@ pub(crate) fn hart_get_status(hartid: usize) -> SbiRet {
 #[inline]
 pub(crate) fn hart_suspend(suspend_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
     if let Some(obj) = HSM.get() {
-        let suspend_type = suspend_type as u32;
         return obj.hart_suspend(suspend_type, resume_addr, opaque);
     }
     SbiRet::not_supported()

@@ -8,7 +8,7 @@ pub(super) fn handle_ecall(function: usize, param0: usize) -> SbiRet {
     match function {
         SET_TIMER => {
             if set_timer(param0 as _) {
-                SbiRet::ok(0)
+                SbiRet::success(0)
             } else {
                 SbiRet::not_supported()
             }
@@ -26,7 +26,7 @@ pub(super) fn handle_ecall_timer(function: usize, param0: usize, param1: usize) 
     match function {
         SET_TIMER => {
             if set_timer(concat_u32(a1, a0)) {
-                SbiRet::ok(0)
+                SbiRet::success(0)
             } else {
                 SbiRet::not_supported()
             }

@@ -17,12 +17,12 @@ edition = "2021"
 
 [dependencies]
 riscv = "0.9.0"
-sbi-spec = "0.0.3"
+sbi-spec = "0.0.4"
 
 [features]
 default = []
 # Support legacy extension; this feature is not included by default.
-legacy = []
+legacy = ["sbi-spec/legacy"]
 
 [package.metadata.docs.rs]
 default-target = "riscv64imac-unknown-none-elf"

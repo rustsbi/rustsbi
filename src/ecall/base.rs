@@ -23,5 +23,5 @@ pub(super) fn handle_ecall(function: usize, param0: usize) -> SbiRet {
         GET_MIMPID => mimpid::read().map(|r| r.bits()).unwrap_or(0),
         _ => return SbiRet::not_supported(),
     };
-    SbiRet::ok(value)
+    SbiRet::success(value)
 }

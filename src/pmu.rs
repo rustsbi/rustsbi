@@ -217,7 +217,7 @@ pub(crate) fn num_counters() -> SbiRet {
     if let Some(obj) = PMU.get() {
         // Returns the number of counters (both hardware and firmware) in sbiret.value
         // and always returns SBI_SUCCESS in sbiret.error.
-        return SbiRet::ok(obj.num_counters());
+        return SbiRet::success(obj.num_counters());
     }
     SbiRet::not_supported()
 }

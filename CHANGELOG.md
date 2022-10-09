@@ -16,7 +16,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Modified
 
 - Probe function now returns if legacy extensions are available
-- Update to `riscv` crate 0.9.0, sbi-spec crate version 0.0.3
+- Update to `riscv` crate 0.9.0, sbi-spec crate version 0.0.4
 - Rename `send_ipi_many` to `send_ipi`
 
 ### Removed
