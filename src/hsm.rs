@@ -206,6 +206,7 @@ pub(crate) fn probe_hsm() -> bool {
     HSM.get().is_some()
 }
 
+#[inline]
 pub(crate) fn hart_start(hartid: usize, start_addr: usize, opaque: usize) -> SbiRet {
     if let Some(obj) = HSM.get() {
         return obj.hart_start(hartid, start_addr, opaque);
@@ -213,6 +214,7 @@ pub(crate) fn hart_start(hartid: usize, start_addr: usize, opaque: usize) -> Sbi
     SbiRet::not_supported()
 }
 
+#[inline]
 pub(crate) fn hart_stop() -> SbiRet {
     if let Some(obj) = HSM.get() {
         return obj.hart_stop();
@@ -220,6 +222,7 @@ pub(crate) fn hart_stop() -> SbiRet {
     SbiRet::not_supported()
 }
 
+#[inline]
 pub(crate) fn hart_get_status(hartid: usize) -> SbiRet {
     if let Some(obj) = HSM.get() {
         return obj.hart_get_status(hartid);
@@ -227,6 +230,7 @@ pub(crate) fn hart_get_status(hartid: usize) -> SbiRet {
     SbiRet::not_supported()
 }
 
+#[inline]
 pub(crate) fn hart_suspend(suspend_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
     if let Some(obj) = HSM.get() {
         let suspend_type = suspend_type as u32;

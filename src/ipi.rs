@@ -27,6 +27,7 @@ pub(crate) fn probe_ipi() -> bool {
     IPI.get().is_some()
 }
 
+#[inline]
 pub(crate) fn send_ipi(hart_mask: HartMask) -> SbiRet {
     if let Some(ipi) = IPI.get() {
         return ipi.send_ipi(hart_mask);

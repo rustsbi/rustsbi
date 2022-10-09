@@ -151,6 +151,7 @@ pub(crate) fn probe_rfence() -> bool {
     RFENCE.get().is_some()
 }
 
+#[inline]
 pub(crate) fn remote_fence_i(hart_mask: HartMask) -> SbiRet {
     if let Some(rfence) = RFENCE.get() {
         rfence.remote_fence_i(hart_mask)
@@ -159,6 +160,7 @@ pub(crate) fn remote_fence_i(hart_mask: HartMask) -> SbiRet {
     }
 }
 
+#[inline]
 pub(crate) fn remote_sfence_vma(hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
     if let Some(rfence) = RFENCE.get() {
         rfence.remote_sfence_vma(hart_mask, start_addr, size)
@@ -167,6 +169,7 @@ pub(crate) fn remote_sfence_vma(hart_mask: HartMask, start_addr: usize, size: us
     }
 }
 
+#[inline]
 pub(crate) fn remote_sfence_vma_asid(
     hart_mask: HartMask,
     start_addr: usize,
@@ -180,6 +183,7 @@ pub(crate) fn remote_sfence_vma_asid(
     }
 }
 
+#[inline]
 pub(crate) fn remote_hfence_gvma_vmid(
     hart_mask: HartMask,
     start_addr: usize,
@@ -193,6 +197,7 @@ pub(crate) fn remote_hfence_gvma_vmid(
     }
 }
 
+#[inline]
 pub(crate) fn remote_hfence_gvma(hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
     if let Some(rfence) = RFENCE.get() {
         rfence.remote_hfence_gvma(hart_mask, start_addr, size)
@@ -201,6 +206,7 @@ pub(crate) fn remote_hfence_gvma(hart_mask: HartMask, start_addr: usize, size: u
     }
 }
 
+#[inline]
 pub(crate) fn remote_hfence_vvma_asid(
     hart_mask: HartMask,
     start_addr: usize,
@@ -214,6 +220,7 @@ pub(crate) fn remote_hfence_vvma_asid(
     }
 }
 
+#[inline]
 pub(crate) fn remote_hfence_vvma(hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
     if let Some(rfence) = RFENCE.get() {
         rfence.remote_hfence_vvma(hart_mask, start_addr, size)
