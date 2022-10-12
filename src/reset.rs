@@ -31,11 +31,11 @@ pub trait Reset: Send + Sync {
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Error code            | Description
-    /// |:----------------------|:---------------
-    /// | SBI_ERR_INVALID_PARAM | `reset_type` or `reset_reason` is not valid.
-    /// | SBI_ERR_NOT_SUPPORTED | `reset_type` is valid but not implemented.
-    /// | SBI_ERR_FAILED        | Reset request failed for unknown reasons.
+    /// | Error code                | Description
+    /// |:--------------------------|:---------------
+    /// | `SbiRet::invalid_param()` | `reset_type` or `reset_reason` is not valid.
+    /// | `SbiRet::not_supported()` | `reset_type` is valid but not implemented.
+    /// | `SbiRet::failed()`        | Reset request failed for unknown reasons.
     fn system_reset(&self, reset_type: u32, reset_reason: u32) -> SbiRet;
 
     /// Legacy extension's reset function

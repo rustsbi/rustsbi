@@ -38,7 +38,7 @@ use sbi_spec::binary::SbiRet;
 pub trait Pmu: Send + Sync {
     /// Returns the number of counters (both hardware and firmware).
     ///
-    /// The value is returned in `SbiRet.value`; this call always returns SBI_SUCCESS in `SbiRet.error`.
+    /// The value is returned in `SbiRet.value`; this call always returns `SbiRet::success()`.
     fn num_counters(&self) -> usize;
     /// Get details about the specified counter such as underlying CSR number, width of the counter,
     /// type of counter hardware/firmware, etc.
@@ -59,10 +59,10 @@ pub trait Pmu: Send + Sync {
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Return code             | Description
-    /// |:------------------------|:----------------------------------------------
-    /// | SBI_SUCCESS             | `counter_info` read successfully.
-    /// | SBI_ERR_INVALID_PARAM   | `counter_idx` points to an invalid counter.
+    /// | Return code                 | Description
+    /// |:----------------------------|:----------------------------------------------
+    /// | `SbiRet::success()`         | `counter_info` read successfully.
+    /// | `SbiRet::invalid_param()`   | `counter_idx` points to an invalid counter.
     fn counter_get_info(&self, counter_idx: usize) -> SbiRet;
     /// Find and configure a counter from a set of counters which is not started (or enabled)
     /// and can monitor the specified event.
@@ -105,11 +105,11 @@ pub trait Pmu: Send + Sync {
     ///
     /// In case of failure, the possible error codes returned in `sbiret.error` are shown in the table below:
     ///
-    /// | Return code           | Description
-    /// |:----------------------|:----------------------------------------------
-    /// | SBI_SUCCESS           | counter found and configured successfully.
-    /// | SBI_ERR_INVALID_PARAM | set of counters has an invalid counter.
-    /// | SBI_ERR_NOT_SUPPORTED | none of the counters can monitor specified event.
+    /// | Return code               | Description
+    /// |:--------------------------|:----------------------------------------------
+    /// | `SbiRet::success()`       | counter found and configured successfully.
+    /// | `SbiRet::invalid_param()` | set of counters has an invalid counter.
+    /// | `SbiRet::not_supported()` | none of the counters can monitor specified event.
     fn counter_config_matching(
         &self,
         counter_idx_base: usize,
@@ -139,11 +139,11 @@ pub trait Pmu: Send + Sync {
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Return code             | Description
-    /// |:------------------------|:----------------------------------------------
-    /// | SBI_SUCCESS             | counter started successfully.
-    /// | SBI_ERR_INVALID_PARAM   | some of the counters specified in parameters are invalid.
-    /// | SBI_ERR_ALREADY_STARTED | some of the counters specified in parameters are already started.
+    /// | Return code                 | Description
+    /// |:----------------------------|:----------------------------------------------
+    /// | `SbiRet::success()`         | counter started successfully.
+    /// | `SbiRet::invalid_param()`   | some of the counters specified in parameters are invalid.
+    /// | `SbiRet::already_started()` | some of the counters specified in parameters are already started.
     fn counter_start(
         &self,
         counter_idx_base: usize,
@@ -167,11 +167,11 @@ pub trait Pmu: Send + Sync {
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Return code             | Description
-    /// |:------------------------|:----------------------------------------------
-    /// | SBI_SUCCESS             | counter stopped successfully.
-    /// | SBI_ERR_INVALID_PARAM   | some of the counters specified in parameters are invalid.
-    /// | SBI_ERR_ALREADY_STOPPED | some of the counters specified in parameters are already stopped.
+    /// | Return code                 | Description
+    /// |:----------------------------|:----------------------------------------------
+    /// | `SbiRet::success()`         | counter stopped successfully.
+    /// | `SbiRet::invalid_param()`   | some of the counters specified in parameters are invalid.
+    /// | `SbiRet::already_stopped()` | some of the counters specified in parameters are already stopped.
     fn counter_stop(
         &self,
         counter_idx_base: usize,
@@ -189,10 +189,10 @@ pub trait Pmu: Send + Sync {
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Return code             | Description
-    /// |:------------------------|:----------------------------------------------
-    /// | SBI_SUCCESS             | firmware counter read successfully.
-    /// | SBI_ERR_INVALID_PARAM   | `counter_idx` points to a hardware counter or an invalid counter.
+    /// | Return code               | Description
+    /// |:--------------------------|:----------------------------------------------
+    /// | `SbiRet::success()`       | firmware counter read successfully.
+    /// | `SbiRet::invalid_param()` | `counter_idx` points to a hardware counter or an invalid counter.
     fn counter_fw_read(&self, counter_idx: usize) -> SbiRet;
 }
 
@@ -216,7 +216,7 @@ pub(crate) fn probe_pmu() -> bool {
 pub(crate) fn num_counters() -> SbiRet {
     if let Some(obj) = PMU.get() {
         // Returns the number of counters (both hardware and firmware) in sbiret.value
-        // and always returns SBI_SUCCESS in sbiret.error.
+        // and always returns `SbiRet::success()`.
         return SbiRet::success(obj.num_counters());
     }
     SbiRet::not_supported()

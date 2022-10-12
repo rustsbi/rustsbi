@@ -72,13 +72,13 @@ pub trait Hsm: Send + Sync {
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Return code               | Description
-    /// |:--------------------------|:----------------------------------------------
-    /// | SBI_SUCCESS               | Hart was previously in stopped state. It will start executing from `start_addr`.
-    /// | SBI_ERR_INVALID_ADDRESS   | `start_addr` is not valid possibly due to following reasons: 1. It is not a valid physical address. 2. The address is prohibited by PMP to run in supervisor mode.
-    /// | SBI_ERR_INVALID_PARAM     | `hartid` is not a valid hartid as corresponding hart cannot started in supervisor mode.
-    /// | SBI_ERR_ALREADY_AVAILABLE | The given hartid is already started.
-    /// | SBI_ERR_FAILED            | The start request failed for unknown reasons.
+    /// | Return code                   | Description
+    /// |:------------------------------|:----------------------------------------------
+    /// | `SbiRet::success()`           | Hart was previously in stopped state. It will start executing from `start_addr`.
+    /// | `SbiRet::invalid_address()`   | `start_addr` is not valid possibly due to following reasons: 1. It is not a valid physical address. 2. The address is prohibited by PMP to run in supervisor mode.
+    /// | `SbiRet::invalid_param()`     | `hartid` is not a valid hartid as corresponding hart cannot started in supervisor mode.
+    /// | `SbiRet::already_available()` | The given hartid is already started.
+    /// | `SbiRet::failed()`            | The start request failed for unknown reasons.
     fn hart_start(&self, hartid: usize, start_addr: usize, opaque: usize) -> SbiRet;
     /// Request the SBI implementation to stop executing the calling hart in supervisor-mode
     /// and return it’s ownership to the SBI implementation.
@@ -90,9 +90,9 @@ pub trait Hsm: Send + Sync {
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Error code  | Description
-    /// |:------------|:------------
-    /// | SBI_ERR_FAILED | Failed to stop execution of the current hart
+    /// | Error code         | Description
+    /// |:-------------------|:------------
+    /// | `SbiRet::failed()` | Failed to stop execution of the current hart
     fn hart_stop(&self) -> SbiRet;
     /// Get the current status (or HSM state id) of the given hart.
     ///
@@ -117,9 +117,9 @@ pub trait Hsm: Send + Sync {
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Error code  | Description
-    /// |:------------|:------------
-    /// | SBI_ERR_INVALID_PARAM | The given `hartid` is not valid
+    /// | Error code                | Description
+    /// |:--------------------------|:------------
+    /// | `SbiRet::invalid_param()` | The given `hartid` is not valid
     fn hart_get_status(&self, hartid: usize) -> SbiRet;
     /// Request the SBI implementation to put the calling hart in a platform specfic suspend (or low power) state
     /// specified by the `suspend_type` parameter.
@@ -177,13 +177,13 @@ pub trait Hsm: Send + Sync {
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Error code              | Description
-    /// |:------------------------|:------------
-    /// | SBI_SUCCESS             | Hart has suspended and resumed back successfully from a retentive suspend state.
-    /// | SBI_ERR_INVALID_PARAM   | `suspend_type` is not valid.
-    /// | SBI_ERR_NOT_SUPPORTED   | `suspend_type` is valid but not implemented.
-    /// | SBI_ERR_INVALID_ADDRESS | `resume_addr` is not valid possibly due to following reasons: it is not a valid physical address, or the address is prohibited by PMP to run in supervisor mode.
-    /// | SBI_ERR_FAILED          | The suspend request failed for unknown reasons.
+    /// | Error code                  | Description
+    /// |:----------------------------|:------------
+    /// | `SbiRet::success()`         | Hart has suspended and resumed back successfully from a retentive suspend state.
+    /// | `SbiRet::invalid_param()`   | `suspend_type` is not valid.
+    /// | `SbiRet::not_supported()`   | `suspend_type` is valid but not implemented.
+    /// | `SbiRet::invalid_address()` | `resume_addr` is not valid possibly due to following reasons: it is not a valid physical address, or the address is prohibited by PMP to run in supervisor mode.
+    /// | `SbiRet::failed()`          | The suspend request failed for unknown reasons.
     fn hart_suspend(&self, suspend_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
         let _ = (suspend_type, resume_addr, opaque);
         SbiRet::not_supported()

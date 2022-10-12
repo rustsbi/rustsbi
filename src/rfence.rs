@@ -11,7 +11,7 @@ pub trait Rfence: Send + Sync {
     ///
     /// # Return value
     ///
-    /// Returns `SBI_SUCCESS` when remote fence was sent to all the targeted harts successfully.
+    /// Returns `SbiRet::success()` when remote fence was sent to all the targeted harts successfully.
     fn remote_fence_i(&self, hart_mask: HartMask) -> SbiRet;
     /// Instructs the remote harts to execute one or more `SFENCE.VMA` instructions,
     /// covering the range of virtual addresses between `start_addr` and `size`.
@@ -20,10 +20,10 @@ pub trait Rfence: Send + Sync {
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Return code               | Description
-    /// |:--------------------------|:----------------------------------------------
-    /// | SBI_SUCCESS               | Remote fence was sent to all the targeted harts successfully.
-    /// | SBI_ERR_INVALID_ADDRESS   | `start_addr` or `size` is not valid.
+    /// | Return code                 | Description
+    /// |:----------------------------|:----------------------------------------------
+    /// | `SbiRet::success()`         | Remote fence was sent to all the targeted harts successfully.
+    /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
     fn remote_sfence_vma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet;
     /// Instruct the remote harts to execute one or more `SFENCE.VMA` instructions,
     /// covering the range of virtual addresses between `start_addr` and `size`.
@@ -33,10 +33,10 @@ pub trait Rfence: Send + Sync {
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Return code               | Description
-    /// |:--------------------------|:----------------------------------------------
-    /// | SBI_SUCCESS               | Remote fence was sent to all the targeted harts successfully.
-    /// | SBI_ERR_INVALID_ADDRESS   | `start_addr` or `size` is not valid.
+    /// | Return code                 | Description
+    /// |:----------------------------|:----------------------------------------------
+    /// | `SbiRet::success()`         | Remote fence was sent to all the targeted harts successfully.
+    /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
     fn remote_sfence_vma_asid(
         &self,
         hart_mask: HartMask,
@@ -54,11 +54,11 @@ pub trait Rfence: Send + Sync {
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Return code               | Description
-    /// |:--------------------------|:----------------------------------------------
-    /// | SBI_SUCCESS               | Remote fence was sent to all the targeted harts successfully.
-    /// | SBI_ERR_NOT_SUPPORTED     | This function is not supported as it is not implemented or one of the target hart doesn’t support hypervisor extension.
-    /// | SBI_ERR_INVALID_ADDRESS   | `start_addr` or `size` is not valid.
+    /// | Return code                 | Description
+    /// |:----------------------------|:----------------------------------------------
+    /// | `SbiRet::success()`         | Remote fence was sent to all the targeted harts successfully.
+    /// | `SbiRet::not_supported()`   | This function is not supported as it is not implemented or one of the target hart doesn’t support hypervisor extension.
+    /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
     fn remote_hfence_gvma_vmid(
         &self,
         hart_mask: HartMask,
@@ -79,11 +79,11 @@ pub trait Rfence: Send + Sync {
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Return code               | Description
-    /// |:--------------------------|:----------------------------------------------
-    /// | SBI_SUCCESS               | Remote fence was sent to all the targeted harts successfully.
-    /// | SBI_ERR_NOT_SUPPORTED     | This function is not supported as it is not implemented or one of the target hart does not support hypervisor extension.
-    /// | SBI_ERR_INVALID_ADDRESS   | `start_addr` or `size` is not valid.
+    /// | Return code                 | Description
+    /// |:----------------------------|:----------------------------------------------
+    /// | `SbiRet::success()`         | Remote fence was sent to all the targeted harts successfully.
+    /// | `SbiRet::not_supported()`   | This function is not supported as it is not implemented or one of the target hart does not support hypervisor extension.
+    /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
     fn remote_hfence_gvma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
         let _ = (hart_mask, start_addr, size);
         SbiRet::not_supported()
@@ -99,11 +99,11 @@ pub trait Rfence: Send + Sync {
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Return code               | Description
-    /// |:--------------------------|:----------------------------------------------
-    /// | SBI_SUCCESS               | Remote fence was sent to all the targeted harts successfully.
-    /// | SBI_ERR_NOT_SUPPORTED     | This function is not supported as it is not implemented or one of the target hart does not support hypervisor extension.
-    /// | SBI_ERR_INVALID_ADDRESS   | `start_addr` or `size` is not valid.
+    /// | Return code                 | Description
+    /// |:----------------------------|:----------------------------------------------
+    /// | `SbiRet::success()`         | Remote fence was sent to all the targeted harts successfully.
+    /// | `SbiRet::not_supported()`   | This function is not supported as it is not implemented or one of the target hart does not support hypervisor extension.
+    /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
     fn remote_hfence_vvma_asid(
         &self,
         hart_mask: HartMask,
@@ -124,11 +124,11 @@ pub trait Rfence: Send + Sync {
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Return code               | Description
-    /// |:--------------------------|:----------------------------------------------
-    /// | SBI_SUCCESS               | Remote fence was sent to all the targeted harts successfully.
-    /// | SBI_ERR_NOT_SUPPORTED     | This function is not supported as it is not implemented or one of the target hart doesn’t support hypervisor extension.
-    /// | SBI_ERR_INVALID_ADDRESS   | `start_addr` or `size` is not valid.
+    /// | Return code                 | Description
+    /// |:----------------------------|:----------------------------------------------
+    /// | `SbiRet::success()`         | Remote fence was sent to all the targeted harts successfully.
+    /// | `SbiRet::not_supported()`   | This function is not supported as it is not implemented or one of the target hart doesn’t support hypervisor extension.
+    /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
     fn remote_hfence_vvma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
         let _ = (hart_mask, start_addr, size);
         SbiRet::not_supported()

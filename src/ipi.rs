@@ -9,7 +9,7 @@ pub trait Ipi: Send + Sync {
     ///
     /// # Return value
     ///
-    /// Should return error code `SBI_SUCCESS` if IPI was sent to all the targeted harts successfully.
+    /// Should return `SbiRet::success()` if IPI was sent to all the targeted harts successfully.
     fn send_ipi(&self, hart_mask: HartMask) -> SbiRet;
 }
 

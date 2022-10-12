@@ -85,7 +85,7 @@ module on SBI v0.3 format. Users are encouraged to use 0.2.1 and newer version i
 - Dump all trap frame registers when exception happened in reference implementations
 - Use `embedded-hal` dependency version `0.2.6`
 - Change to asynchronous lock structure trait style
-- Function `num_counters` returns `usize` and its SBI call must return `SBI_SUCCESS`
+- Function `num_counters` returns `usize` and its SBI call must return ``SbiRet::success()``
 - Use amo mutex for legacy stdio handler; remove dependency on `lazy_static` and `spin`
 - Improve documents to adapt to v1.0-rc2 specification
 
