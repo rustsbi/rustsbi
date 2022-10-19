@@ -79,7 +79,7 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 6]) -> Sbi
             () => pmu::handle_ecall(function, param[0], param[1], param[2], param[3], param[4]),
             #[cfg(target_pointer_width = "32")]
             () => pmu::handle_ecall(
-                fu32, param[0], param[1], param[2], param[3], param[4], param[5],
+                function, param[0], param[1], param[2], param[3], param[4], param[5],
             ),
         },
         // handle legacy callings.
