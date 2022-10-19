@@ -196,10 +196,13 @@ pub trait Pmu: Send + Sync {
     fn counter_fw_read(&self, counter_idx: usize) -> SbiRet;
 }
 
+#[cfg(feature = "singleton")]
 use crate::util::AmoOnceRef;
 
+#[cfg(feature = "singleton")]
 static PMU: AmoOnceRef<dyn Pmu> = AmoOnceRef::new();
 
+#[cfg(feature = "singleton")]
 /// Init PMU module
 pub fn init_pmu(pmu: &'static dyn Pmu) {
     if !PMU.try_call_once(pmu) {
@@ -207,11 +210,13 @@ pub fn init_pmu(pmu: &'static dyn Pmu) {
     }
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn probe_pmu() -> bool {
     PMU.get().is_some()
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn num_counters() -> SbiRet {
     if let Some(obj) = PMU.get() {
@@ -222,6 +227,7 @@ pub(crate) fn num_counters() -> SbiRet {
     SbiRet::not_supported()
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn counter_get_info(counter_idx: usize) -> SbiRet {
     if let Some(obj) = PMU.get() {
@@ -230,6 +236,7 @@ pub(crate) fn counter_get_info(counter_idx: usize) -> SbiRet {
     SbiRet::not_supported()
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn counter_config_matching(
     counter_idx_base: usize,
@@ -250,6 +257,7 @@ pub(crate) fn counter_config_matching(
     SbiRet::not_supported()
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn counter_start(
     counter_idx_base: usize,
@@ -268,6 +276,7 @@ pub(crate) fn counter_start(
     SbiRet::not_supported()
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn counter_stop(
     counter_idx_base: usize,
@@ -280,6 +289,7 @@ pub(crate) fn counter_stop(
     SbiRet::not_supported()
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn counter_fw_read(counter_idx: usize) -> SbiRet {
     if let Some(obj) = PMU.get() {

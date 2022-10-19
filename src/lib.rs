@@ -182,24 +182,26 @@
 //! ```
 
 #![no_std]
-#![feature(ptr_metadata)]
+#![cfg_attr(feature = "singleton", feature(ptr_metadata))]
 
 #[cfg(feature = "legacy")]
 #[doc(hidden)]
 #[macro_use]
 pub mod legacy_stdio;
 mod base;
+#[cfg(feature = "singleton")]
 mod ecall;
 mod hart_mask;
 mod hsm;
+#[cfg(not(feature = "legacy"))]
+mod instance;
 mod ipi;
 mod pmu;
 mod reset;
 mod rfence;
 mod timer;
+#[cfg(feature = "singleton")]
 mod util;
-
-// pub mod instance; // TODO: SBI instances, useful for developing hypervisors
 
 /// The const rustsbi logo with blank line at the beginning.
 const LOGO: &str = r"
@@ -235,14 +237,26 @@ const RUSTSBI_VERSION: usize =
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub extern crate sbi_spec as spec;
+#[cfg(feature = "singleton")]
 pub use ecall::handle_ecall as ecall;
 pub use hart_mask::HartMask;
-pub use hsm::{init_hsm, Hsm};
-pub use ipi::{init_ipi, Ipi};
+pub use hsm::Hsm;
+#[cfg(not(feature = "legacy"))]
+pub use instance::{Builder, RustSBI};
+pub use ipi::Ipi;
 #[cfg(feature = "legacy")]
 #[doc(hidden)]
 pub use legacy_stdio::{legacy_stdio_getchar, legacy_stdio_putchar};
-pub use pmu::{init_pmu, Pmu};
-pub use reset::{init_reset, Reset};
-pub use rfence::{init_rfence as init_remote_fence, Rfence as Fence};
-pub use timer::{init_timer, Timer};
+pub use pmu::Pmu;
+pub use reset::Reset;
+pub use rfence::Rfence as Fence;
+pub use timer::Timer;
+
+#[cfg(not(feature = "machine"))]
+pub use instance::MachineInfo;
+
+#[cfg(feature = "singleton")]
+pub use {
+    hsm::init_hsm, ipi::init_ipi, pmu::init_pmu, reset::init_reset,
+    rfence::init_rfence as init_remote_fence, timer::init_timer,
+};

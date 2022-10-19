@@ -135,10 +135,13 @@ pub trait Rfence: Send + Sync {
     }
 }
 
+#[cfg(feature = "singleton")]
 use crate::util::AmoOnceRef;
 
+#[cfg(feature = "singleton")]
 static RFENCE: AmoOnceRef<dyn Rfence> = AmoOnceRef::new();
 
+#[cfg(feature = "singleton")]
 /// Init RFENCE module
 pub fn init_rfence(rfence: &'static dyn Rfence) {
     if !RFENCE.try_call_once(rfence) {
@@ -146,11 +149,13 @@ pub fn init_rfence(rfence: &'static dyn Rfence) {
     }
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn probe_rfence() -> bool {
     RFENCE.get().is_some()
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn remote_fence_i(hart_mask: HartMask) -> SbiRet {
     if let Some(rfence) = RFENCE.get() {
@@ -160,6 +165,7 @@ pub(crate) fn remote_fence_i(hart_mask: HartMask) -> SbiRet {
     }
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn remote_sfence_vma(hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
     if let Some(rfence) = RFENCE.get() {
@@ -169,6 +175,7 @@ pub(crate) fn remote_sfence_vma(hart_mask: HartMask, start_addr: usize, size: us
     }
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn remote_sfence_vma_asid(
     hart_mask: HartMask,
@@ -183,6 +190,7 @@ pub(crate) fn remote_sfence_vma_asid(
     }
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn remote_hfence_gvma_vmid(
     hart_mask: HartMask,
@@ -197,6 +205,7 @@ pub(crate) fn remote_hfence_gvma_vmid(
     }
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn remote_hfence_gvma(hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
     if let Some(rfence) = RFENCE.get() {
@@ -206,6 +215,7 @@ pub(crate) fn remote_hfence_gvma(hart_mask: HartMask, start_addr: usize, size: u
     }
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn remote_hfence_vvma_asid(
     hart_mask: HartMask,
@@ -220,6 +230,7 @@ pub(crate) fn remote_hfence_vvma_asid(
     }
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn remote_hfence_vvma(hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
     if let Some(rfence) = RFENCE.get() {

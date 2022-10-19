@@ -190,10 +190,13 @@ pub trait Hsm: Send + Sync {
     }
 }
 
+#[cfg(feature = "singleton")]
 use crate::util::AmoOnceRef;
 
+#[cfg(feature = "singleton")]
 static HSM: AmoOnceRef<dyn Hsm> = AmoOnceRef::new();
 
+#[cfg(feature = "singleton")]
 /// Init HSM module
 pub fn init_hsm(hsm: &'static dyn Hsm) {
     if !HSM.try_call_once(hsm) {
@@ -201,11 +204,13 @@ pub fn init_hsm(hsm: &'static dyn Hsm) {
     }
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn probe_hsm() -> bool {
     HSM.get().is_some()
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn hart_start(hartid: usize, start_addr: usize, opaque: usize) -> SbiRet {
     if let Some(obj) = HSM.get() {
@@ -214,6 +219,7 @@ pub(crate) fn hart_start(hartid: usize, start_addr: usize, opaque: usize) -> Sbi
     SbiRet::not_supported()
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn hart_stop() -> SbiRet {
     if let Some(obj) = HSM.get() {
@@ -222,6 +228,7 @@ pub(crate) fn hart_stop() -> SbiRet {
     SbiRet::not_supported()
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn hart_get_status(hartid: usize) -> SbiRet {
     if let Some(obj) = HSM.get() {
@@ -230,6 +237,7 @@ pub(crate) fn hart_get_status(hartid: usize) -> SbiRet {
     SbiRet::not_supported()
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn hart_suspend(suspend_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
     if let Some(obj) = HSM.get() {

@@ -1,5 +1,8 @@
-use crate::{hart_mask::HartMask, util::AmoOnceRef};
+use crate::hart_mask::HartMask;
 use sbi_spec::binary::SbiRet;
+
+#[cfg(feature = "singleton")]
+use crate::util::AmoOnceRef;
 
 /// Inter-processor interrupt support
 pub trait Ipi: Send + Sync {
@@ -13,20 +16,24 @@ pub trait Ipi: Send + Sync {
     fn send_ipi(&self, hart_mask: HartMask) -> SbiRet;
 }
 
+#[cfg(feature = "singleton")]
 static IPI: AmoOnceRef<dyn Ipi> = AmoOnceRef::new();
 
-/// Init IPI module
+/// Init singleton IPI module
+#[cfg(feature = "singleton")]
 pub fn init_ipi(ipi: &'static dyn Ipi) {
     if !IPI.try_call_once(ipi) {
         panic!("load sbi module when already loaded")
     }
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn probe_ipi() -> bool {
     IPI.get().is_some()
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn send_ipi(hart_mask: HartMask) -> SbiRet {
     if let Some(ipi) = IPI.get() {
