@@ -1,3 +1,4 @@
+#[cfg(feature = "singleton")]
 #[inline]
 pub fn probe_extension(extension: usize) -> bool {
     use sbi_spec::*;

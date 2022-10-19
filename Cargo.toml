@@ -16,11 +16,21 @@ categories = ["os", "embedded", "hardware-support", "no-std"]
 edition = "2021"
 
 [dependencies]
-riscv = "0.9.0"
 sbi-spec = "0.0.4"
+riscv = { version = "0.9.0", optional = true }
 
 [features]
-default = []
+default = ["machine"]
+# Run RustSBI on machine mode
+# This feature enables to use RISC-V primitives on current machine mode environment
+# If you are developing a cross-architecture virtual machine, consider disabling this feature
+# to customize environment variables for RISC-V architecture like mvendorid, mimpid, etc.
+machine = ["dep:riscv"]
+# Build RustSBI singleton
+# This would enable `init_*` functions. It will take extra place on bss or data region
+# to take care of singleton reference locks.
+# Disable this feature to use instance based RustSBI environment.
+singleton = ["dep:riscv", "machine"]
 # Support legacy extension; this feature is not included by default.
 legacy = ["sbi-spec/legacy"]
 

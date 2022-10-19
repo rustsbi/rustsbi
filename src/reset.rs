@@ -50,10 +50,13 @@ pub trait Reset: Send + Sync {
     }
 }
 
+#[cfg(feature = "singleton")]
 use crate::util::AmoOnceRef;
 
+#[cfg(feature = "singleton")]
 static RESET: AmoOnceRef<dyn Reset> = AmoOnceRef::new();
 
+#[cfg(feature = "singleton")]
 /// Init SRST module
 pub fn init_reset(reset: &'static dyn Reset) {
     if !RESET.try_call_once(reset) {
@@ -61,11 +64,13 @@ pub fn init_reset(reset: &'static dyn Reset) {
     }
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn probe_reset() -> bool {
     RESET.get().is_some()
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn system_reset(reset_type: u32, reset_reason: u32) -> SbiRet {
     if let Some(obj) = RESET.get() {
@@ -74,7 +79,7 @@ pub(crate) fn system_reset(reset_type: u32, reset_reason: u32) -> SbiRet {
     SbiRet::not_supported()
 }
 
-#[cfg(feature = "legacy")]
+#[cfg(all(feature = "singleton", feature = "legacy"))]
 #[inline]
 pub(crate) fn legacy_reset() -> ! {
     if let Some(obj) = RESET.get() {

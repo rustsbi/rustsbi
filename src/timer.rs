@@ -1,3 +1,4 @@
+#[cfg(feature = "singleton")]
 use crate::util::AmoOnceRef;
 
 /// Timer programmer support
@@ -12,8 +13,10 @@ pub trait Timer: Send + Sync {
     fn set_timer(&self, stime_value: u64);
 }
 
+#[cfg(feature = "singleton")]
 static TIMER: AmoOnceRef<dyn Timer> = AmoOnceRef::new();
 
+#[cfg(feature = "singleton")]
 /// Init TIMER module
 pub fn init_timer(timer: &'static dyn Timer) {
     if !TIMER.try_call_once(timer) {
@@ -21,11 +24,13 @@ pub fn init_timer(timer: &'static dyn Timer) {
     }
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn probe_timer() -> bool {
     TIMER.get().is_some()
 }
 
+#[cfg(feature = "singleton")]
 #[inline]
 pub(crate) fn set_timer(time_value: u64) -> bool {
     if let Some(timer) = TIMER.get() {
