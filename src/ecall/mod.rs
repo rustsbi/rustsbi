@@ -91,7 +91,7 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 6]) -> Sbi
                 #[cfg(target_pointer_width = "64")]
                 () => crate::timer::set_timer(param[0] as _),
                 #[cfg(target_pointer_width = "32")]
-                () => crate::timer::set_timer(param[0] as _, param[1] as _),
+                () => crate::timer::set_timer(concat_u32(param[1] as _, param[0] as _)),
             };
             SbiRet {
                 error: param[0],
