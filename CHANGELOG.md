@@ -10,6 +10,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - Instance based and/or machine independent RustSBI to support hypervisor development
+- Structure `MachineInfo` for non-machine environment, e.g. cross-architecture emulator
 - Feature `legacy` to gate SBI legacy extension
 - Expose `init_*` functions on instance based RustSBI implementation
 - LEGACY_CLEAR_IPI implemented

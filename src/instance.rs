@@ -50,6 +50,29 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu> RustSBI<T, I, R, H, S
         }
     }
 
+    /// Create RustSBI instance on given machine information for all the SBI extensions
+    #[cfg(not(feature = "machine"))]
+    #[inline]
+    pub const fn with_machine_info(
+        timer: T,
+        ipi: I,
+        rfnc: R,
+        hsm: H,
+        srst: S,
+        pmu: P,
+        info: MachineInfo,
+    ) -> Self {
+        Self {
+            timer: Some(timer),
+            ipi: Some(ipi),
+            rfnc: Some(rfnc),
+            hsm: Some(hsm),
+            srst: Some(srst),
+            pmu: Some(pmu),
+            info,
+        }
+    }
+
     /// Handle supervisor environment call with given parameters and return the `SbiRet` result.
     #[inline]
     pub fn handle_ecall(&mut self, extension: usize, function: usize, param: [usize; 6]) -> SbiRet {
