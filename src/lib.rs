@@ -144,6 +144,7 @@
 //! in the virtual machine structure to prepare for SBI environment:
 //!
 //! ```rust
+//! # struct RustSBI<>();
 //! struct VmHart {
 //!     // other fields ...
 //!     env: RustSBI</* Types, .. */>,
@@ -159,7 +160,22 @@
 //! If the hypervisor have custom SBI extensions that RustSBI does not recognize, those extension
 //! and function IDs can be checked before calling RustSBI `env.handle_ecall`.
 //!
-//! ```rust
+//! ```no_run
+//! # use sbi_spec::binary::SbiRet;
+//! # struct MyExtensionEnv {}
+//! # impl MyExtensionEnv { fn handle_ecall(&self, params: ()) -> SbiRet { SbiRet::success(0) } }
+//! # struct RustSBI {} // Mock, prevent doc test error when feature singleton is enabled
+//! # impl RustSBI { fn handle_ecall(&self, params: ()) -> SbiRet { SbiRet::success(0) } }
+//! # struct VmHart { my_extension_env: MyExtensionEnv, env: RustSBI }
+//! # #[derive(Copy, Clone)] enum Trap { Exception(Exception) }
+//! # impl Trap { fn cause(&self) -> Self { *self } }
+//! # #[derive(Copy, Clone)] enum Exception { SupervisorEcall }
+//! # impl VmHart {
+//! #     fn new() -> VmHart { VmHart { my_extension_env: MyExtensionEnv {}, env: RustSBI {} } }
+//! #     fn run(&mut self) -> Trap { Trap::Exception(Exception::SupervisorEcall) }
+//! #     fn trap_params(&self) -> () { }
+//! #     fn fill_in(&mut self, ans: SbiRet) { let _ = ans; }
+//! # }
 //! let mut hart = VmHart::new();
 //! loop {
 //!     let trap = hart.run();
@@ -169,7 +185,7 @@
 //!         // If custom extension handles correctly, fill in its result and continue to hart.
 //!         // The custom handler may handle `probe_extension` in `base` extension as well
 //!         // to allow detections to whether custom extension exists.
-//!         if !my_extension_sbiret.is_unsupported() {
+//!         if my_extension_sbiret != SbiRet::not_supported() {
 //!             hart.fill_in(my_extension_sbiret);
 //!             continue;
 //!         }
