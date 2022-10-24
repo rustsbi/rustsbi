@@ -151,9 +151,9 @@
 //! }
 //! ```
 //!
-//! When the virtual machine hart trapped into hypervisor, decide whether this trap is an SBI
-//! environment call. If that is true, pass in parameters by `env.handle_ecall` function.
-//! RustSBI will handle with SBI standard constants, call corresponding module and provide
+//! When the virtual machine hart trapped into hypervisor, its code should decide whether
+//! this trap is an SBI environment call. If that is true, pass in parameters by `env.handle_ecall`
+//! function. RustSBI will handle with SBI standard constants, call corresponding module and provide
 //! parameters according to the extension and function IDs.
 //!
 //! Crate `rustsbi` adapts to standard RISC-V SBI calls.
