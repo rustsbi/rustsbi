@@ -116,7 +116,7 @@
 //!
 //! # Implement RustSBI on machine environment
 //!
-//! Board, SoC vendors, machine environment emulators and research projects may need RustSBI
+//! Boards, SoC vendors, machine environment emulators and research projects may need RustSBI
 //! adapted to specific environments.
 //! RustSBI project supports these demands either by discrete package or the Prototyping System.
 //! Developers may choose the Prototyping System for fast developing time,
@@ -334,6 +334,14 @@
 //!
 //! Now RustSBI would run on machine environment, you may start a kernel or use SBI test suite
 //! to check if it is properly implemented.
+//!
+//! Some platforms would provide system memory under different grades in speed and size to reduce product cost.
+//! Those platforms would typically provide two parts of code memory, first one being relatively not fast
+//! but instantly available after chip start, while the second one typically requires memory training
+//! and is larger in size. The former one would include built-in SRAM memory, and the later would include
+//! external SRAM or DDR memory. On those platforms, a first stage bootloader is typically needed to
+//! train memory for later stage. In such situation, RustSBI implementation should be linked or concated
+//! to the second stage bootloader, and the first stage could be a standalone binary package bundled with the it.
 //!
 //! ## Discrete RustSBI package by singleton based interface
 //!
