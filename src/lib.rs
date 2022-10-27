@@ -1,7 +1,8 @@
 //! A minimal RISC-V's SBI implementation library in Rust.
 //!
 //! *Note: If you are a user looking for binary distribution download for RustSBI, you may consider
-//! to use the RustSBI Prototyping System which will provide binaries for each platforms.
+//! to use the [RustSBI Prototyping System](https://github.com/rustsbi/standalone)
+//! which will provide binaries for each platforms.
 //! If you are a vendor or contributor who wants to adapt RustSBI to your new product or board,
 //! you may consider adapting the Prototyping System first to get your board adapted in an afternoon;
 //! you are only advised to build a discrete crate if your team have a lot of time working on this board.*
@@ -19,7 +20,7 @@
 //! More generally, The SBI allows supervisor-mode (S-mode or VS-mode) software to be portable across
 //! all RISC-V implementations by defining an abstraction for platform (or hypervisor) specific functionality.
 //!
-//! # How to use RustSBI in your supervisor software
+//! # Use RustSBI services in your supervisor software
 //!
 //! SBI features include boot sequence and a kernel environment. To bootstrap your kernel,
 //! place kernel into RustSBI implementation defined address, then RustSBI will prepare an
@@ -45,7 +46,7 @@
 //!
 //! Making SBI calls are similar to making system calls.
 //!
-//! Module number is required to put on register `a7`, function number on `a6`.
+//! Module number is required to put on register `a7`, function number on `a6` if applicable.
 //! Parameters should be placed from `a0` to `a5`, first into `a0`, second into `a1`, etc.
 //! Unused parameters can be set to any value or leave untouched.
 //!
@@ -85,8 +86,9 @@
 //! }
 //! ```
 //!
-//! Complex SBI functions may fail. In this example we only take the value, but in complete designs
-//! we should handle the `error` value returned from SbiRet.
+//! SBI functions would return a result thus some of these may fail.
+//! In this example we only take the value, but in complete designs we should handle the `error`
+//! returned by SbiRet.
 //!
 //! You may use other languages to call SBI environment. In C programming language, we can call like this:
 //!
@@ -96,7 +98,7 @@
 //!     register uintptr_t a1 asm ("a1") = (uintptr_t)(arg1); \
 //!     register uintptr_t a2 asm ("a2") = (uintptr_t)(arg2); \
 //!     register uintptr_t a3 asm ("a3") = (uintptr_t)(arg3); \
-//!     register uintptr_t a7 asm ("a6") = (uintptr_t)(funct); \
+//!     register uintptr_t a6 asm ("a6") = (uintptr_t)(funct); \
 //!     register uintptr_t a7 asm ("a7") = (uintptr_t)(module); \
 //!     asm volatile ("ecall" \
 //!         : "+r" (a0), "+r" (a1) \
@@ -111,6 +113,245 @@
 //!     SBI_CALL_0(EXTENSION_BASE, FUNCTION_BASE_GET_SPEC_VERSION)
 //! }
 //! ```
+//!
+//! # Implement RustSBI on machine environment
+//!
+//! Board, SoC vendors, machine environment emulators and research projects may need RustSBI
+//! adapted to specific environments.
+//! RustSBI project supports these demands either by discrete package or the Prototyping System.
+//! Developers may choose the Prototyping System for fast developing time,
+//! or discrete packages for fine-grained features.
+//!
+//! Hypervisor and supervisor environment emulator developers may refer to
+//! [Hypervisor and emulator development with RustSBI](#hypervisor-and-emulator-development-with-rustsbi)
+//! for such purposes as RustSBI provide different set of features dedicated for emulated or virtual
+//! environments.
+//!
+//! ## Use the Prototyping System
+//!
+//! The RustSBI Prototyping System aims to get your platform working with SBI in an afternoon.
+//! It supports most RISC-V platforms available by providing scalable set of drivers and features.
+//! It provides custom features such as Penglai TEE, DramForever's emulated hypervisor extension, and Raven
+//! the firmware debugger framework.
+//!
+//! You may find further documents on [RustSBI Prototyping System repository](https://github.com/rustsbi/standalone).
+//!
+//! ## Discrete RustSBI package on bare metal RISC-V hardware
+//!
+//! Discrete packages provide developers with most scalability and complete control of underlying
+//! hardware. It is ideal if advanced low power features, management cores and other features should
+//! be used in this implementation.
+//!
+//! RustSBI supports discrete package by default. Create a new `#![no_std]` bare-metal package
+//! to get started. Add following lines to `Cargo.toml`:
+//!
+//! ```toml
+//! [dependencies]
+//! rustsbi = "0.3.0"
+//! ```
+//!
+//! After hardware initialization process, the part of firmware with RustSBI linked should run on memory
+//! blocks with fast accesses, as it would be called frequently by operating system.
+//! If the supervisor is called by trap generator semantics, insert `rustsbi::RustSBI` structure
+//! in your hart executor structure.
+//!
+//! ```rust
+//! # struct Clint;
+//! # struct MyPlatRfnc;
+//! # struct MyPlatHsm;
+//! # struct MyBoardPower;
+//! # struct MyPlatPmu;
+//! # #[cfg(not(feature = "legacy"))]
+//! use rustsbi::RustSBI;
+//!
+//! # struct SupervisorContext;
+//! /// Executes the supervisor within.
+//! struct Executor {
+//!     ctx: SupervisorContext,
+//!     /* other environment variables ... */
+//! # #[cfg(not(feature = "legacy"))]
+//!     sbi: RustSBI<Clint, Clint, MyPlatRfnc, MyPlatHsm, MyBoardPower, MyPlatPmu>,
+//!     /* custom_1: CustomSBI<...> */
+//! }
+//!
+//! # struct Trap;
+//! impl Executor {
+//!     /// A function that runs the provided supervisor, uses `&mut self` for it
+//!     /// modifies `SupervisorContext`.
+//!     ///
+//!     /// It returns for every Trap the supervisor produces. Its handler should read
+//!     /// and modify `self.ctx` if necessary. After handled, `run()` this structure
+//!     /// again or exit execution process.
+//!     pub fn run(&mut self) -> Trap {
+//!         todo!("fill in generic or platform specific trampoline procedure")
+//!     }
+//! }
+//! ```
+//!
+//! After each `run()`, process the trap returned with the RustSBI instance in executor.
+//! Call `RustSBI::handle_ecall` and fill in developer provided `SupervisorContext` if necessary.
+//!
+//! ```no_run
+//! # use sbi_spec::binary::SbiRet;
+//! # struct RustSBI {} // Mock, prevent doc test error when feature singleton is enabled
+//! # impl RustSBI { fn handle_ecall(&self, e: (), f: (), p: ()) -> SbiRet { SbiRet::success(0) } }
+//! # struct Executor { sbi: RustSBI }
+//! # #[derive(Copy, Clone)] enum Trap { Exception(Exception) }
+//! # impl Trap { fn cause(&self) -> Self { *self } }
+//! # #[derive(Copy, Clone)] enum Exception { SupervisorEcall }
+//! # impl Executor {
+//! #     fn new(board_params: BoardParams) -> Executor { let _ = board_params; Executor { sbi: RustSBI {} } }
+//! #     fn run(&mut self) -> Trap { Trap::Exception(Exception::SupervisorEcall) }
+//! #     fn sbi_extension(&self) -> () { }
+//! #     fn sbi_function(&self) -> () { }
+//! #     fn sbi_params(&self) -> () { }
+//! #     fn fill_sbi_return(&mut self, ans: SbiRet) { let _ = ans; }
+//! # }
+//! # struct BoardParams;
+//! # const MY_SPECIAL_EXIT: usize = 0x233;
+//! /// Board specific power operations.
+//! enum Operation {
+//!     Reboot,
+//!     Shutdown,
+//! }
+//!
+//! # impl From<SbiRet> for Operation { fn from(_: SbiRet) -> Self { todo!() } }
+//! /// Execute supervisor in given board parameters.
+//! pub fn execute_supervisor(board_params: BoardParams) -> Operation {
+//!     let mut exec = Executor::new(board_params);
+//!     loop {
+//!         let trap = exec.run();
+//!         if let Trap::Exception(Exception::SupervisorEcall) = trap.cause() {
+//!             let ans = exec.sbi.handle_ecall(
+//!                 exec.sbi_extension(),
+//!                 exec.sbi_function(),
+//!                 exec.sbi_params(),
+//!             );
+//!             if ans.error == MY_SPECIAL_EXIT {
+//!                 break Operation::from(ans)
+//!             }
+//!             // This line would also advance `spec` with `4` to indicate the `ecall` is handled.
+//!             exec.fill_sbi_return(ans);
+//!         } else {
+//!             // other trap types ...
+//!         }
+//!     }
+//! }
+//! ```
+//!
+//! Now, call supervisor execution function in your bare metal package to finish the discrete
+//! package project.
+//!
+//! ```no_run
+//! # #[cfg(nightly)] // disable checks
+//! #[naked]
+//! #[link_section = ".text.entry"]
+//! #[export_name = "_start"]
+//! unsafe extern "C" fn entry() -> ! {
+//!     #[link_section = ".bss.uninit"]
+//!     static mut SBI_STACK: [u8; LEN_STACK_SBI] = [0; LEN_STACK_SBI];
+//!
+//!     // Note: actual assembly code varies between platforms.
+//!     // Double check documents before continue on.
+//!     core::arch::asm!(
+//!         // 1. Turn off interrupt
+//!         "csrw  mie, zero",
+//!         // 2. Initialize programming langauge runtime
+//!         // only clear bss if hartid is zero
+//!         "csrr  t0, mhartid",
+//!         "bnez  t0, 2f",
+//!         // clear bss segment
+//!         "la  t0, sbss",
+//!         "la  t1, ebss",
+//!         "1:",
+//!         "bgeu  t0, t1, 2f",
+//!         "sd  zero, 0(t0)",
+//!         "addi  t0, t0, 8",
+//!         "j  1b",
+//!         "2:",
+//!         // 3. Prepare stack for each hart
+//!         "la  sp, {stack}",
+//!         "li  t0, {per_hart_stack_size}",
+//!         "csrr  t1, mhartid",
+//!         "addi  t1, t1, 1",
+//!         "1: ",
+//!         "add  sp, sp, t0",
+//!         "addi  t1, t1, -1",
+//!         "bnez  t1, 1b",
+//!         "j  {rust_main}",
+//!         // 4. Clean up
+//!         "j  {finalize}",
+//!         per_hart_stack_size = const LEN_STACK_PER_HART,
+//!         stack = sym SBI_STACK,
+//!         rust_main = sym rust_main,
+//!         finalize = sym finalize,
+//!         options(noreturn)
+//!     )
+//! }
+//!
+//! # fn board_init_once() {}
+//! # fn print_information_once() {}
+//! # fn execute_supervisor(_bp: &()) -> Operation { Operation::Shutdown }
+//! /// Power operation after main function
+//! enum Operation {
+//!     Reboot,
+//!     Shutdown,
+//!     // Add board specific low power modes if necessary. This will allow the
+//!     // function `finalize` to operate on board specific power management chips.
+//! }
+//!
+//! /// Rust entry, call in `entry` assembly function
+//! extern "C" fn rust_main(_hartid: usize, opaque: usize) -> Operation {
+//!     // .. board initialization process ...
+//!     let board_params = board_init_once();
+//!     // .. print necessary information and rustsbi::LOGO ..
+//!     print_information_once();
+//!     // execute supervisor, return as Operation
+//!     execute_supervisor(&board_params)
+//! }
+//!
+//! # fn wfi() {}
+//! /// Perform board specific power operations
+//! ///
+//! /// The function here provides a stub to example power operations.
+//! /// Actual board developers should provide with more practical communications
+//! /// to external chips on power operation.
+//! unsafe extern "C" fn finalize(op: Operation) -> ! {
+//!     match op {
+//!         Operation::Shutdown => {
+//!             // easiest way to make a hart look like powered off
+//!             loop { wfi(); }
+//!         }
+//!         Operation::Reboot => {
+//! # fn entry() -> ! { loop {} } // mock
+//!             // easiest software reset is to jump to entry directly
+//!             entry()
+//!         }
+//!         // .. more power operations goes here ..
+//!     }
+//! }
+//! ```
+//!
+//! Now RustSBI would run on machine environment, you may start a kernel or use SBI test suite
+//! to check if it is properly implemented.
+//!
+//! ## Discrete RustSBI package by singleton based interface
+//!
+//! *Note: Using singleton based RustSBI interface is discouraged in newer designs, for it requires
+//! nightly Rust and extra static memory in data and bss sections for a global interface.*
+//!
+//! Other than instance based interface, some users may find it convenient by using
+//! global singleton semantics. To use it users should enable the `singleton` feature by:
+//!
+//! ```toml
+//! [dependencies]
+//! rustsbi = { version = "0.3.0", features = ["singleton"] }
+//! ```
+//!
+//! RustSBI library will disable all instance based interfaces but provide `init_*`
+//! functions to allow initialize global RustSBI singleton instance.
+//! By enabling this feature, RustSBI uses unstable Rust features to create a universal
+//! lock structure by using atomic `amo` instructions other than `lr`/`sc`.
 //!
 //! # Hypervisor and emulator development with RustSBI
 //!
@@ -216,9 +457,10 @@
 //!
 //! The RustSBI Prototyping System is a universal support package provided by RustSBI ecosystem.
 //! It is designed to save development time while providing most SBI feature possible.
-//! Users may choose to download from Prototyping System repository to get various types of RustSBI
-//! packages for their boards. Vendors and contributors may find it easy to adapt new SoCs and
-//! boards into Prototyping System.
+//! It also includes a universal test kernel to allow testing SBI implementations on current environment.
+//! Users may choose to download from [Prototyping System repository](https://github.com/rustsbi/standalone)
+//! to get various types of RustSBI packages for their boards.
+//! Vendors and contributors may find it easy to adapt new SoCs and boards into Prototyping System.
 //!
 //! Discrete SBI packages are SBI environment support packages specially designed for one board
 //! or SoC, it will be provided by board vendor or RustSBI ecosystem.
@@ -230,24 +472,8 @@
 //!
 //! To download binary package for the Prototyping System, visit its project website for a download link.
 //! To download them for discrete packages, RustSBI users may visit distribution source of SoC or board
-//! manufacturers.
-//!
-//! # Non-features
-//!
-//! RustSBI is designed to strictly adapt to the RISC-V Supervisor Binary Interface specification.
-//! Other features useful in developing kernels and hypervisors maybe included in other Rust
-//! ecosystem crates other than this package.
-//!
-//! ## Hardware discovery and feature detection
-//!
-//! According to the RISC-V SBI specification, SBI does not specify any method for hardware discovery.
-//! The supervisor software must rely on the other industry standard hardware
-//! discovery methods (i.e. Device Tree or ACPI) for that purpose.
-//!
-//! To detect any feature under bare metal or under supervisor level, developers may depend on
-//! any hardware discovery methods, or use try-execute-trap method to detect any instructions or
-//! CSRs. If SBI is implemented in user level emulators, it may requires to depend on operating
-//! system calls or use the signal trap method to detect any RISC-V core features.
+//! manufacturers. Additionally, users may visit [the awesome page](https://github.com/rustsbi/awesome-rustsbi)
+//! for a curated list ofboth Prototyping System and discrete packages provided by RustSBI ecosystem.
 //!
 //! # Notes for RustSBI developers
 //!
@@ -268,9 +494,20 @@
 //! The RustSBI ecosystem would provide different level of support for each board, those support
 //! packages would use `rustsbi` crate as library to provide different type of SBI binary releases.
 //!
+//! ## Hardware discovery and feature detection
+//!
+//! According to the RISC-V SBI specification, SBI itself does not specify any method for hardware discovery.
+//! The supervisor software must rely on the other industry standard hardware
+//! discovery methods (i.e. Device Tree or ACPI) for that purpose.
+//!
+//! To detect any feature under bare metal or under supervisor level, developers may depend on
+//! any hardware discovery methods, or use try-execute-trap method to detect any instructions or
+//! CSRs. If SBI is implemented in user level emulators, it may requires to depend on operating
+//! system calls or use the signal trap method to detect any RISC-V core features.
+//!
 //! ## Legacy SBI extension
 //!
-//! *Note: RustSBI legacy support is only designed for backward compability of RISC-V SBI standard.
+//! *Note: RustSBI legacy support is only designed for backward compability of legacy RISC-V SBI standard.
 //! It's disabled by default and it's not suggested to include legacy functions in newer firmware designs.
 //! Modules other than legacy console is replaced by individual modules in SBI.
 //! Kernels are not suggested to use legacy functions in practice.
