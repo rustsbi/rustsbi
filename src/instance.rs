@@ -2,6 +2,7 @@ use crate::{
     spec::binary::SbiRet, Fence, HartMask, Hsm, Ipi, Pmu, Reset, Timer, IMPL_ID_RUSTSBI,
     RUSTSBI_VERSION, SBI_SPEC_MAJOR, SBI_SPEC_MINOR,
 };
+use core::convert::Infallible;
 #[cfg(feature = "machine")]
 use riscv::register::{marchid, mimpid, mvendorid};
 
@@ -297,9 +298,9 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu> RustSBI<T, I, R, H, S
             _ => false,
         };
         if ans {
-            spec::base::UNAVAILABLE_EXTENSION
-        } else {
             spec::base::UNAVAILABLE_EXTENSION.wrapping_add(1)
+        } else {
+            spec::base::UNAVAILABLE_EXTENSION
         }
     }
 }
@@ -315,20 +316,13 @@ pub struct Builder<T, I, R, H, S, P> {
     inner: RustSBI<T, I, R, H, S, P>,
 }
 
-impl<T, I, R, H, S, P> Builder<T, I, R, H, S, P>
-where
-    T: Timer,
-    I: Ipi,
-    R: Fence,
-    H: Hsm,
-    S: Reset,
-    P: Pmu,
-{
+impl Builder<Infallible, Infallible, Infallible, Infallible, Infallible, Infallible> {
     /// Create a new `Builder` from current machine environment
     #[inline]
     #[cfg(feature = "machine")]
-    pub const fn new_machine() -> Self {
-        Self {
+    pub const fn new_machine(
+    ) -> Builder<Infallible, Infallible, Infallible, Infallible, Infallible, Infallible> {
+        Builder {
             inner: RustSBI {
                 timer: None,
                 ipi: None,
@@ -343,8 +337,10 @@ where
     /// Create a new `Builder` from machine information
     #[inline]
     #[cfg(not(feature = "machine"))]
-    pub const fn with_machine_info(info: MachineInfo) -> Self {
-        Self {
+    pub const fn with_machine_info(
+        info: MachineInfo,
+    ) -> Builder<Infallible, Infallible, Infallible, Infallible, Infallible, Infallible> {
+        Builder {
             inner: RustSBI {
                 timer: None,
                 ipi: None,
@@ -356,52 +352,208 @@ where
             },
         }
     }
+}
 
+// fixme: in future releases we may use type-changing struct update syntax like:
+// Builder { inner: RustSBI { timer: None, ..self.inner } }
+// https://github.com/rust-lang/rust/issues/86555
+
+// fixme: struct `Infallible` should be replaced to never type once it's stablized
+
+impl<T, I, R, H, S, P> Builder<T, I, R, H, S, P> {
     /// Add Timer programmer extension to RustSBI
     #[inline]
-    pub fn with_timer(mut self, timer: T) -> Self {
-        self.inner.timer = Some(timer);
-        self
+    pub fn with_timer<T2: Timer>(self, timer: T2) -> Builder<T2, I, R, H, S, P> {
+        Builder {
+            inner: RustSBI {
+                timer: Some(timer),
+                ipi: self.inner.ipi,
+                rfnc: self.inner.rfnc,
+                hsm: self.inner.hsm,
+                srst: self.inner.srst,
+                pmu: self.inner.pmu,
+            },
+        }
     }
 
     /// Add Inter-processor Interrupt extension to RustSBI
     #[inline]
-    pub fn with_ipi(mut self, ipi: I) -> Self {
-        self.inner.ipi = Some(ipi);
-        self
-    }
-
-    /// Add Hart State Monitor extension to RustSBI
-    #[inline]
-    pub fn with_hsm(mut self, hsm: H) -> Self {
-        self.inner.hsm = Some(hsm);
-        self
+    pub fn with_ipi<I2: Ipi>(self, ipi: I2) -> Builder<T, I2, R, H, S, P> {
+        Builder {
+            inner: RustSBI {
+                timer: self.inner.timer,
+                ipi: Some(ipi),
+                rfnc: self.inner.rfnc,
+                hsm: self.inner.hsm,
+                srst: self.inner.srst,
+                pmu: self.inner.pmu,
+            },
+        }
     }
 
     /// Add Remote Fence extension to RustSBI
     #[inline]
-    pub fn with_fence(mut self, fence: R) -> Self {
-        self.inner.rfnc = Some(fence);
-        self
+    pub fn with_fence<R2: Fence>(self, fence: R2) -> Builder<T, I, R2, H, S, P> {
+        Builder {
+            inner: RustSBI {
+                timer: self.inner.timer,
+                ipi: self.inner.ipi,
+                rfnc: Some(fence),
+                hsm: self.inner.hsm,
+                srst: self.inner.srst,
+                pmu: self.inner.pmu,
+            },
+        }
+    }
+
+    /// Add Hart State Monitor extension to RustSBI
+    #[inline]
+    pub fn with_hsm<H2: Hsm>(self, hsm: H2) -> Builder<T, I, R, H2, S, P> {
+        Builder {
+            inner: RustSBI {
+                timer: self.inner.timer,
+                ipi: self.inner.ipi,
+                rfnc: self.inner.rfnc,
+                hsm: Some(hsm),
+                srst: self.inner.srst,
+                pmu: self.inner.pmu,
+            },
+        }
     }
 
     /// Add System Reset extension to RustSBI
     #[inline]
-    pub fn with_reset(mut self, reset: S) -> Self {
-        self.inner.srst = Some(reset);
-        self
+    pub fn with_reset<S2: Reset>(self, reset: S2) -> Builder<T, I, R, H, S2, P> {
+        Builder {
+            inner: RustSBI {
+                timer: self.inner.timer,
+                ipi: self.inner.ipi,
+                rfnc: self.inner.rfnc,
+                hsm: self.inner.hsm,
+                srst: Some(reset),
+                pmu: self.inner.pmu,
+            },
+        }
     }
 
     /// Add Performance Monitor Unit extension to RustSBI
     #[inline]
-    pub fn with_pmu(mut self, pmu: P) -> Self {
-        self.inner.pmu = Some(pmu);
-        self
+    pub fn with_pmu<P2: Pmu>(self, pmu: P2) -> Builder<T, I, R, H, S, P2> {
+        Builder {
+            inner: RustSBI {
+                timer: self.inner.timer,
+                ipi: self.inner.ipi,
+                rfnc: self.inner.rfnc,
+                hsm: self.inner.hsm,
+                srst: self.inner.srst,
+                pmu: Some(pmu),
+            },
+        }
     }
 
     /// Build the target RustSBI instance
     #[inline]
     pub fn build(self) -> RustSBI<T, I, R, H, S, P> {
         self.inner
+    }
+}
+
+// Placeholder for a structure that implements all RustSBI traits but is never accessed
+
+// fixme: Should be replaced to never type `!` once it's stablized
+// https://github.com/rust-lang/rust/issues/35121
+
+// fixme: should be replaced to impl SomeTrait for ! once never type is stablized
+
+impl Timer for Infallible {
+    fn set_timer(&self, _: u64) {
+        unreachable!()
+    }
+}
+
+impl Ipi for Infallible {
+    fn send_ipi(&self, _: HartMask) -> SbiRet {
+        unreachable!()
+    }
+}
+
+impl Fence for Infallible {
+    fn remote_fence_i(&self, _: HartMask) -> SbiRet {
+        unreachable!()
+    }
+
+    fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
+        unreachable!()
+    }
+
+    fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
+        unreachable!()
+    }
+
+    fn remote_hfence_gvma_vmid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
+        unreachable!()
+    }
+
+    fn remote_hfence_gvma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
+        unreachable!()
+    }
+
+    fn remote_hfence_vvma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
+        unreachable!()
+    }
+
+    fn remote_hfence_vvma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
+        unreachable!()
+    }
+}
+
+impl Hsm for Infallible {
+    fn hart_start(&self, _: usize, _: usize, _: usize) -> SbiRet {
+        unreachable!()
+    }
+
+    fn hart_stop(&self) -> SbiRet {
+        unreachable!()
+    }
+
+    fn hart_get_status(&self, _: usize) -> SbiRet {
+        unreachable!()
+    }
+
+    fn hart_suspend(&self, _: u32, _: usize, _: usize) -> SbiRet {
+        unreachable!()
+    }
+}
+
+impl Reset for Infallible {
+    fn system_reset(&self, _: u32, _: u32) -> SbiRet {
+        unreachable!()
+    }
+    // no leagcy_reset here, instance based interface is not compatible to legacy extension
+}
+
+impl Pmu for Infallible {
+    fn num_counters(&self) -> usize {
+        unreachable!()
+    }
+
+    fn counter_get_info(&self, _: usize) -> SbiRet {
+        unreachable!()
+    }
+
+    fn counter_config_matching(&self, _: usize, _: usize, _: usize, _: usize, _: u64) -> SbiRet {
+        unreachable!()
+    }
+
+    fn counter_start(&self, _: usize, _: usize, _: usize, _: u64) -> SbiRet {
+        unreachable!()
+    }
+
+    fn counter_stop(&self, _: usize, _: usize, _: usize) -> SbiRet {
+        unreachable!()
+    }
+
+    fn counter_fw_read(&self, _: usize) -> SbiRet {
+        unreachable!()
     }
 }
