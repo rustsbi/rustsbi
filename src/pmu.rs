@@ -196,6 +196,64 @@ pub trait Pmu: Send + Sync {
     fn counter_fw_read(&self, counter_idx: usize) -> SbiRet;
 }
 
+impl<T: Pmu> Pmu for &T {
+    #[inline]
+    fn num_counters(&self) -> usize {
+        T::num_counters(self)
+    }
+    #[inline]
+    fn counter_get_info(&self, counter_idx: usize) -> SbiRet {
+        T::counter_get_info(self, counter_idx)
+    }
+    #[inline]
+    fn counter_config_matching(
+        &self,
+        counter_idx_base: usize,
+        counter_idx_mask: usize,
+        config_flags: usize,
+        event_idx: usize,
+        event_data: u64,
+    ) -> SbiRet {
+        T::counter_config_matching(
+            self,
+            counter_idx_base,
+            counter_idx_mask,
+            config_flags,
+            event_idx,
+            event_data,
+        )
+    }
+    #[inline]
+    fn counter_start(
+        &self,
+        counter_idx_base: usize,
+        counter_idx_mask: usize,
+        start_flags: usize,
+        initial_value: u64,
+    ) -> SbiRet {
+        T::counter_start(
+            self,
+            counter_idx_base,
+            counter_idx_mask,
+            start_flags,
+            initial_value,
+        )
+    }
+    #[inline]
+    fn counter_stop(
+        &self,
+        counter_idx_base: usize,
+        counter_idx_mask: usize,
+        stop_flags: usize,
+    ) -> SbiRet {
+        T::counter_stop(self, counter_idx_base, counter_idx_mask, stop_flags)
+    }
+    #[inline]
+    fn counter_fw_read(&self, counter_idx: usize) -> SbiRet {
+        T::counter_fw_read(self, counter_idx)
+    }
+}
+
 #[cfg(feature = "singleton")]
 use crate::util::AmoOnceRef;
 

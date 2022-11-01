@@ -190,6 +190,25 @@ pub trait Hsm: Send + Sync {
     }
 }
 
+impl<T: Hsm> Hsm for &T {
+    #[inline]
+    fn hart_start(&self, hartid: usize, start_addr: usize, opaque: usize) -> SbiRet {
+        T::hart_start(self, hartid, start_addr, opaque)
+    }
+    #[inline]
+    fn hart_stop(&self) -> SbiRet {
+        T::hart_stop(self)
+    }
+    #[inline]
+    fn hart_get_status(&self, hartid: usize) -> SbiRet {
+        T::hart_get_status(self, hartid)
+    }
+    #[inline]
+    fn hart_suspend(&self, suspend_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
+        T::hart_suspend(self, suspend_type, resume_addr, opaque)
+    }
+}
+
 #[cfg(feature = "singleton")]
 use crate::util::AmoOnceRef;
 

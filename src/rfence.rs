@@ -135,6 +135,55 @@ pub trait Rfence: Send + Sync {
     }
 }
 
+impl<T: Rfence> Rfence for &T {
+    #[inline]
+    fn remote_fence_i(&self, hart_mask: HartMask) -> SbiRet {
+        T::remote_fence_i(self, hart_mask)
+    }
+    #[inline]
+    fn remote_sfence_vma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
+        T::remote_sfence_vma(self, hart_mask, start_addr, size)
+    }
+    #[inline]
+    fn remote_sfence_vma_asid(
+        &self,
+        hart_mask: HartMask,
+        start_addr: usize,
+        size: usize,
+        asid: usize,
+    ) -> SbiRet {
+        T::remote_sfence_vma_asid(self, hart_mask, start_addr, size, asid)
+    }
+    #[inline]
+    fn remote_hfence_gvma_vmid(
+        &self,
+        hart_mask: HartMask,
+        start_addr: usize,
+        size: usize,
+        vmid: usize,
+    ) -> SbiRet {
+        T::remote_hfence_gvma_vmid(self, hart_mask, start_addr, size, vmid)
+    }
+    #[inline]
+    fn remote_hfence_gvma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
+        T::remote_hfence_gvma(self, hart_mask, start_addr, size)
+    }
+    #[inline]
+    fn remote_hfence_vvma_asid(
+        &self,
+        hart_mask: HartMask,
+        start_addr: usize,
+        size: usize,
+        asid: usize,
+    ) -> SbiRet {
+        T::remote_hfence_vvma_asid(self, hart_mask, start_addr, size, asid)
+    }
+    #[inline]
+    fn remote_hfence_vvma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
+        T::remote_hfence_vvma(self, hart_mask, start_addr, size)
+    }
+}
+
 #[cfg(feature = "singleton")]
 use crate::util::AmoOnceRef;
 

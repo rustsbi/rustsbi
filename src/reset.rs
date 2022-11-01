@@ -50,6 +50,18 @@ pub trait Reset: Send + Sync {
     }
 }
 
+impl<T: Reset> Reset for &T {
+    #[inline]
+    fn system_reset(&self, reset_type: u32, reset_reason: u32) -> SbiRet {
+        T::system_reset(self, reset_type, reset_reason)
+    }
+    #[cfg(feature = "legacy")]
+    #[inline]
+    fn legacy_reset(&self) -> ! {
+        T::legacy_reset(self)
+    }
+}
+
 #[cfg(feature = "singleton")]
 use crate::util::AmoOnceRef;
 

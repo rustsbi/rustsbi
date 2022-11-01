@@ -13,6 +13,13 @@ pub trait Timer: Send + Sync {
     fn set_timer(&self, stime_value: u64);
 }
 
+impl<T: Timer> Timer for &T {
+    #[inline]
+    fn set_timer(&self, stime_value: u64) {
+        T::set_timer(self, stime_value)
+    }
+}
+
 #[cfg(feature = "singleton")]
 static TIMER: AmoOnceRef<dyn Timer> = AmoOnceRef::new();
 

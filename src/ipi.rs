@@ -16,6 +16,13 @@ pub trait Ipi: Send + Sync {
     fn send_ipi(&self, hart_mask: HartMask) -> SbiRet;
 }
 
+impl<T: Ipi> Ipi for &T {
+    #[inline]
+    fn send_ipi(&self, hart_mask: HartMask) -> SbiRet {
+        T::send_ipi(self, hart_mask)
+    }
+}
+
 #[cfg(feature = "singleton")]
 static IPI: AmoOnceRef<dyn Ipi> = AmoOnceRef::new();
 
