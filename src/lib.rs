@@ -230,7 +230,7 @@
 //!             if ans.error == MY_SPECIAL_EXIT {
 //!                 break Operation::from(ans)
 //!             }
-//!             // This line would also advance `spec` with `4` to indicate the `ecall` is handled.
+//!             // This line would also advance `sepc` with `4` to indicate the `ecall` is handled.
 //!             exec.fill_sbi_return(ans);
 //!         } else {
 //!             // other trap types ...
