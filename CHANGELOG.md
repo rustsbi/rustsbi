@@ -13,6 +13,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Structure `MachineInfo` for non-machine environment, e.g. cross-architecture emulator
 - Builder structure for instance based RustSBI framework
 - Implement RustSBI traits for their references
+- Extensive documents for hypervisors, emulators and machine environments using RustSBI
 - Feature `legacy` to gate SBI legacy extension
 - Expose `init_*` functions on instance based RustSBI implementation
 - LEGACY_CLEAR_IPI implemented
