@@ -372,6 +372,8 @@ impl<T, I, R, H, S, P> Builder<T, I, R, H, S, P> {
                 hsm: self.inner.hsm,
                 srst: self.inner.srst,
                 pmu: self.inner.pmu,
+                #[cfg(not(feature = "machine"))]
+                info: self.inner.info,
             },
         }
     }
@@ -387,6 +389,8 @@ impl<T, I, R, H, S, P> Builder<T, I, R, H, S, P> {
                 hsm: self.inner.hsm,
                 srst: self.inner.srst,
                 pmu: self.inner.pmu,
+                #[cfg(not(feature = "machine"))]
+                info: self.inner.info,
             },
         }
     }
@@ -402,6 +406,8 @@ impl<T, I, R, H, S, P> Builder<T, I, R, H, S, P> {
                 hsm: self.inner.hsm,
                 srst: self.inner.srst,
                 pmu: self.inner.pmu,
+                #[cfg(not(feature = "machine"))]
+                info: self.inner.info,
             },
         }
     }
@@ -417,6 +423,8 @@ impl<T, I, R, H, S, P> Builder<T, I, R, H, S, P> {
                 hsm: Some(hsm),
                 srst: self.inner.srst,
                 pmu: self.inner.pmu,
+                #[cfg(not(feature = "machine"))]
+                info: self.inner.info,
             },
         }
     }
@@ -432,6 +440,8 @@ impl<T, I, R, H, S, P> Builder<T, I, R, H, S, P> {
                 hsm: self.inner.hsm,
                 srst: Some(reset),
                 pmu: self.inner.pmu,
+                #[cfg(not(feature = "machine"))]
+                info: self.inner.info,
             },
         }
     }
@@ -447,6 +457,8 @@ impl<T, I, R, H, S, P> Builder<T, I, R, H, S, P> {
                 hsm: self.inner.hsm,
                 srst: self.inner.srst,
                 pmu: Some(pmu),
+                #[cfg(not(feature = "machine"))]
+                info: self.inner.info,
             },
         }
     }
