@@ -11,6 +11,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Modified
 
+- Use let-else to simplify code, bump MSRV to 1.65.0
+
 ### Removed
 
 ## [0.3.0] - 2022-11-03
