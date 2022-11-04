@@ -79,9 +79,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu> RustSBI<T, I, R, H, S
     pub fn handle_ecall(&mut self, extension: usize, function: usize, param: [usize; 6]) -> SbiRet {
         match extension {
             spec::rfnc::EID_RFNC => {
-                let rfnc = if let Some(rfnc) = &mut self.rfnc {
-                    rfnc
-                } else {
+                let Some(rfnc) = &mut self.rfnc else {
                     return SbiRet::not_supported();
                 };
                 let [param0, param1, param2, param3, param4] =
@@ -113,9 +111,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu> RustSBI<T, I, R, H, S
             spec::time::EID_TIME => match () {
                 #[cfg(target_pointer_width = "64")]
                 () => {
-                    let timer = if let Some(timer) = &mut self.timer {
-                        timer
-                    } else {
+                    let Some(timer) = &mut self.timer else {
                         return SbiRet::not_supported();
                     };
                     let [param0] = [param[0]];
@@ -129,9 +125,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu> RustSBI<T, I, R, H, S
                 }
                 #[cfg(target_pointer_width = "32")]
                 () => {
-                    let timer = if let Some(timer) = &mut self.timer {
-                        timer
-                    } else {
+                    let Some(timer) = &mut self.timer else {
                         return SbiRet::not_supported();
                     };
                     let [param0, param1] = [param[0], param[1]];
@@ -145,9 +139,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu> RustSBI<T, I, R, H, S
                 }
             },
             spec::spi::EID_SPI => {
-                let ipi = if let Some(ipi) = &mut self.ipi {
-                    ipi
-                } else {
+                let Some(ipi) = &mut self.ipi else {
                     return SbiRet::not_supported();
                 };
                 let [param0, param1] = [param[0], param[1]];
@@ -190,9 +182,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu> RustSBI<T, I, R, H, S
                 SbiRet::success(value)
             }
             spec::hsm::EID_HSM => {
-                let hsm = if let Some(hsm) = &mut self.hsm {
-                    hsm
-                } else {
+                let Some(hsm) = &mut self.hsm else {
                     return SbiRet::not_supported();
                 };
                 let [param0, param1, param2] = [param[0], param[1], param[2]];
@@ -211,9 +201,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu> RustSBI<T, I, R, H, S
                 }
             }
             spec::srst::EID_SRST => {
-                let srst = if let Some(srst) = &mut self.srst {
-                    srst
-                } else {
+                let Some(srst) = &mut self.srst else {
                     return SbiRet::not_supported();
                 };
                 let [param0, param1] = [param[0], param[1]];
@@ -232,9 +220,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu> RustSBI<T, I, R, H, S
             spec::pmu::EID_PMU => match () {
                 #[cfg(target_pointer_width = "64")]
                 () => {
-                    let pmu = if let Some(pmu) = &mut self.pmu {
-                        pmu
-                    } else {
+                    let Some(pmu) = &mut self.pmu else {
                         return SbiRet::not_supported();
                     };
                     let [param0, param1, param2, param3, param4] =
@@ -255,9 +241,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu> RustSBI<T, I, R, H, S
                 }
                 #[cfg(target_pointer_width = "32")]
                 () => {
-                    let pmu = if let Some(pmu) = &mut self.pmu {
-                        pmu
-                    } else {
+                    let Some(pmu) = &mut self.pmu else {
                         return SbiRet::not_supported();
                     };
                     let [param0, param1, param2, param3, param4, param5] =

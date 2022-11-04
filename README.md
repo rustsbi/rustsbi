@@ -20,7 +20,7 @@ or consult vendors if they provide discrete RustSBI package support.
 
 ## Minimum supported Rust version
 
-To compile RustSBI library, you need at least stable Rust version of `rustc 1.64.0`.
+To compile RustSBI library, you need at least stable Rust version of `rustc 1.65.0`.
 
 If you are using feature `singleton` or `legacy` to support legacy SBI extensions, you are required to install
 nightly Rust compiler. You may need at least nightly Rust version of `rustc 1.59.0-nightly (c5ecc1570 2021-12-15)`.

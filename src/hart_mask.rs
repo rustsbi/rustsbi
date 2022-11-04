@@ -29,9 +29,7 @@ impl HartMask {
                     // and all available harts must be considered.
                     return true;
                 }
-                let idx = if let Some(idx) = hart_id.checked_sub(hart_mask_base) {
-                    idx
-                } else {
+                let Some(idx) = hart_id.checked_sub(hart_mask_base) else {
                     // hart_id < hart_mask_base, not in current mask range
                     return false;
                 };
