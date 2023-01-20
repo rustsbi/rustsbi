@@ -148,7 +148,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rustsbi = "0.3.0"
+//! rustsbi = "0.3.1"
 //! ```
 //!
 //! After hardware initialization process, the part of firmware with RustSBI linked should run on memory
@@ -356,7 +356,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rustsbi = { version = "0.3.0", features = ["singleton"] }
+//! rustsbi = { version = "0.3.1", features = ["singleton"] }
 //! ```
 //!
 //! RustSBI library will disable all instance based interfaces but provide `init_*`
@@ -388,7 +388,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rustsbi = { version = "0.3.0", default-features = false }
+//! rustsbi = { version = "0.3.1", default-features = false }
 //! ```
 //!
 //! This will disable default feature `machine` which will assume that RustSBI runs on M-mode directly,
@@ -536,7 +536,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rustsbi = { version = "0.3.0", features = ["legacy"] }
+//! rustsbi = { version = "0.3.1", features = ["legacy"] }
 //! ```
 
 #![no_std]
