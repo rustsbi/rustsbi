@@ -49,16 +49,26 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.TARGET }}
-      - name: Check (no default features)
+      - name: Check (no default features, SBI 1.0.0)
         uses: actions-rs/cargo@v1
         with:
           command: check
           args: --target ${{ matrix.TARGET }} --no-default-features --verbose
-      - name: Check (machine)
+      - name: Check (no default features, SBI 2.0-rc1)
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --features "sbi_2_0" --target ${{ matrix.TARGET }} --no-default-features --verbose
+      - name: Check (machine, SBI 1.0.0)
         uses: actions-rs/cargo@v1
         with:
           command: check
           args: --target ${{ matrix.TARGET }} --features "machine" --verbose
+      - name: Check (machine, SBI 2.0-rc1)
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --features "sbi_2_0" --target ${{ matrix.TARGET }} --features "machine" --verbose
 
   check-nightly:
     name: Cargo check (nightly)
@@ -79,16 +89,26 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.TARGET }}
-      - name: Check (singleton)
+      - name: Check (singleton, SBI 1.0.0)
         uses: actions-rs/cargo@v1
         with:
           command: check
           args: --features "singleton" --target ${{ matrix.TARGET }} --verbose
-      - name: Check (legacy)
+      - name: Check (singleton, SBI 2.0-rc1)
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --features "singleton,sbi_2_0" --target ${{ matrix.TARGET }} --verbose
+      - name: Check (legacy, SBI 1.0.0)
         uses: actions-rs/cargo@v1
         with:
           command: check
           args: --features "legacy" --target ${{ matrix.TARGET }} --verbose
+      - name: Check (legacy, SBI 2.0-rc1)
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --features "legacy,sbi_2_0" --target ${{ matrix.TARGET }} --verbose
 
   tests:
     name: Run tests
@@ -108,13 +128,23 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-      - name: Run tests (no default features)
+      - name: Run tests (no default features, SBI 1.0.0)
         uses: actions-rs/cargo@v1
         with:
           command: test
           args: --no-default-features --verbose
-      - name: Run tests (machine)
+      - name: Run tests (no default features, SBI 2.0-rc1)
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --features "sbi_2_0" --no-default-features --verbose
+      - name: Run tests (machine, SBI 1.0.0)
         uses: actions-rs/cargo@v1
         with:
           command: test
           args: --features "machine" --verbose
+      - name: Run tests (machine, SBI 2.0-rc1)
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --features "machine,sbi_2_0" --verbose

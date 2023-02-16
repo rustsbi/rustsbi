@@ -209,6 +209,7 @@ pub trait Pmu: Send + Sync {
     /// |:--------------------------|:----------------------------------------------
     /// | `SbiRet::success()`       | firmware counter read successfully.
     /// | `SbiRet::invalid_param()` | `counter_idx` points to a hardware counter or an invalid counter.
+    #[cfg(feature = "sbi_2_0")]
     fn counter_fw_read_hi(&self, counter_idx: usize) -> SbiRet {
         match () {
             #[cfg(not(target_pointer_width = "32"))]
@@ -281,6 +282,7 @@ impl<T: Pmu> Pmu for &T {
     fn counter_fw_read(&self, counter_idx: usize) -> SbiRet {
         T::counter_fw_read(self, counter_idx)
     }
+    #[cfg(feature = "sbi_2_0")]
     #[inline]
     fn counter_fw_read_hi(&self, counter_idx: usize) -> SbiRet {
         T::counter_fw_read_hi(self, counter_idx)
@@ -389,7 +391,7 @@ pub(crate) fn counter_fw_read(counter_idx: usize) -> SbiRet {
     SbiRet::not_supported()
 }
 
-#[cfg(feature = "singleton")]
+#[cfg(all(feature = "singleton", feature = "sbi_2_0"))]
 #[inline]
 pub(crate) fn counter_fw_read_hi(counter_idx: usize) -> SbiRet {
     if let Some(obj) = PMU.get() {

@@ -13,6 +13,7 @@ Bump RISC-V SBI specification version to 2.0-rc1.
 
 - pmu: counter_fw_read_hi function in SBI 2.0-rc1
 - lib: memory address parameters and DBCN extension
+- lib: adds feature `sbi_2_0` and gate pmu read_hi
 
 ### Modified
 

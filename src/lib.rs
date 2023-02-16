@@ -572,7 +572,12 @@ pub const LOGO: &str = r".______       __    __      _______.___________.  _____
 | _| `._____| \______/ |_______/       |__|  |_______/    |______/ |__|";
 
 // RustSBI supports RISC-V SBI specification 2.0-rc1
-const SBI_SPEC_MAJOR: usize = 2;
+const SBI_SPEC_MAJOR: usize = match () {
+    #[cfg(feature = "sbi_2_0")]
+    () => 2,
+    #[cfg(not(feature = "sbi_2_0"))]
+    () => 1,
+};
 const SBI_SPEC_MINOR: usize = 0;
 
 /// RustSBI implementation ID: 4
