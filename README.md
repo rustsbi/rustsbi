@@ -51,7 +51,7 @@ in `riscv` dependency crate or RustSBI library itself.
 
 - Feature rich and extensible operating system runtime
 - Empower support, compatibility for machines, hypervisors and emulators
-- Support to and develop with RISC-V SBI specification v1.0.0 ratified
+- Support to and develop with RISC-V SBI specification v2.0-rc1
 - Written in Rust, builds under stable Rust
 - Capable to develop with other firmware ecosystem projects
 - Adapted for operating system kernel models on your choice

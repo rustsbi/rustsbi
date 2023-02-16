@@ -180,6 +180,9 @@ pub trait Pmu: Send + Sync {
     ) -> SbiRet;
     /// Provide the current value of a firmware counter in `SbiRet.value`.
     ///
+    /// On RV32 systems, the `SbiRet.value` will only contain the lower 32 bits of the current
+    /// firmware counter value.
+    ///
     /// # Parameters
     ///
     /// This function should be only used to read a firmware counter. It will return an error
@@ -194,6 +197,32 @@ pub trait Pmu: Send + Sync {
     /// | `SbiRet::success()`       | firmware counter read successfully.
     /// | `SbiRet::invalid_param()` | `counter_idx` points to a hardware counter or an invalid counter.
     fn counter_fw_read(&self, counter_idx: usize) -> SbiRet;
+    /// Provide the upper 32 bits of the current firmware counter value in `SbiRet.value`.
+    ///
+    /// This function always returns zero in `SbiRet.value` for RV64 (or higher) systems.
+    ///
+    /// # Return value
+    ///
+    /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
+    ///
+    /// | Return code               | Description
+    /// |:--------------------------|:----------------------------------------------
+    /// | `SbiRet::success()`       | firmware counter read successfully.
+    /// | `SbiRet::invalid_param()` | `counter_idx` points to a hardware counter or an invalid counter.
+    fn counter_fw_read_hi(&self, counter_idx: usize) -> SbiRet {
+        match () {
+            #[cfg(not(target_pointer_width = "32"))]
+            () => {
+                drop(counter_idx);
+                SbiRet::success(0)
+            }
+            #[cfg(target_pointer_width = "32")]
+            () => {
+                drop(counter_idx);
+                SbiRet::not_supported()
+            }
+        }
+    }
 }
 
 impl<T: Pmu> Pmu for &T {
@@ -251,6 +280,10 @@ impl<T: Pmu> Pmu for &T {
     #[inline]
     fn counter_fw_read(&self, counter_idx: usize) -> SbiRet {
         T::counter_fw_read(self, counter_idx)
+    }
+    #[inline]
+    fn counter_fw_read_hi(&self, counter_idx: usize) -> SbiRet {
+        T::counter_fw_read_hi(self, counter_idx)
     }
 }
 
@@ -352,6 +385,15 @@ pub(crate) fn counter_stop(
 pub(crate) fn counter_fw_read(counter_idx: usize) -> SbiRet {
     if let Some(obj) = PMU.get() {
         return obj.counter_fw_read(counter_idx);
+    }
+    SbiRet::not_supported()
+}
+
+#[cfg(feature = "singleton")]
+#[inline]
+pub(crate) fn counter_fw_read_hi(counter_idx: usize) -> SbiRet {
+    if let Some(obj) = PMU.get() {
+        return obj.counter_fw_read_hi(counter_idx);
     }
     SbiRet::not_supported()
 }

@@ -21,6 +21,7 @@ pub fn handle_ecall(
         PMU_COUNTER_START => counter_start(param0, param1, param2, param3 as _),
         PMU_COUNTER_STOP => counter_stop(param0, param1, param2),
         PMU_COUNTER_FW_READ => counter_fw_read(param0),
+        PMU_COUNTER_FW_READ_HI => counter_fw_read_hi(param0),
         _ => SbiRet::not_supported(),
     }
 }
@@ -48,6 +49,7 @@ pub fn handle_ecall(
         PMU_COUNTER_START => counter_start(param0, param1, param2, concat_u32(param4, param3)),
         PMU_COUNTER_STOP => counter_stop(param0, param1, param2),
         PMU_COUNTER_FW_READ => counter_fw_read(param0),
+        PMU_COUNTER_FW_READ_HI => counter_fw_read_hi(param0),
         _ => SbiRet::not_supported(),
     }
 }

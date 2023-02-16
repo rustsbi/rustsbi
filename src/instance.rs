@@ -236,6 +236,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu> RustSBI<T, I, R, H, S
                         }
                         spec::pmu::PMU_COUNTER_STOP => pmu.counter_stop(param0, param1, param2),
                         spec::pmu::PMU_COUNTER_FW_READ => pmu.counter_fw_read(param0),
+                        spec::pmu::PMU_COUNTER_FW_READ_HI => pmu.counter_fw_read(param0),
                         _ => SbiRet::not_supported(),
                     }
                 }
@@ -261,6 +262,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu> RustSBI<T, I, R, H, S
                         }
                         spec::pmu::PMU_COUNTER_STOP => pmu.counter_stop(param0, param1, param2),
                         spec::pmu::PMU_COUNTER_FW_READ => pmu.counter_fw_read(param0),
+                        spec::pmu::PMU_COUNTER_FW_READ_HI => pmu.counter_fw_read(param0),
                         _ => SbiRet::not_supported(),
                     }
                 }
@@ -550,6 +552,10 @@ impl Pmu for Infallible {
     }
 
     fn counter_fw_read(&self, _: usize) -> SbiRet {
+        unreachable!()
+    }
+
+    fn counter_fw_read_hi(&self, _: usize) -> SbiRet {
         unreachable!()
     }
 }

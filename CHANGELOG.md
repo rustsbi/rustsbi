@@ -7,7 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+Bump RISC-V SBI specification version to 2.0-rc1.
+
 ### Added
+
+- pmu: counter_fw_read_hi function in SBI 2.0-rc1
 
 ### Modified
 
