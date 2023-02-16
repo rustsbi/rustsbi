@@ -171,6 +171,7 @@
 //!     ctx: SupervisorContext,
 //!     /* other environment variables ... */
 //! # #[cfg(not(feature = "legacy"))]
+//! # #[cfg(not(feature = "sbi_2_0"))] // fixme: remove in 0.4.0
 //!     sbi: RustSBI<Clint, Clint, MyPlatRfnc, MyPlatHsm, MyBoardPower, MyPlatPmu>,
 //!     /* custom_1: CustomSBI<...> */
 //! }

@@ -46,6 +46,7 @@ macro_rules! impl_rustsbi {
     () => {
         /// Handle supervisor environment call with given parameters and return the `SbiRet` result.
         #[inline]
+        #[rustfmt::skip] // fixme: remove in RustSBI 0.4.0
         pub fn handle_ecall(
             &mut self,
             extension: usize,
@@ -55,8 +56,8 @@ macro_rules! impl_rustsbi {
             match extension {
                 spec::rfnc::EID_RFNC => {
                     let Some(rfnc) = &mut self.rfnc else {
-                            return SbiRet::not_supported();
-                        };
+                        return SbiRet::not_supported();
+                    };
                     let [param0, param1, param2, param3, param4] =
                         [param[0], param[1], param[2], param[3], param[4]];
                     let hart_mask = crate::HartMask::from_mask_base(param0, param1);
@@ -87,8 +88,8 @@ macro_rules! impl_rustsbi {
                     #[cfg(target_pointer_width = "64")]
                     () => {
                         let Some(timer) = &mut self.timer else {
-                                return SbiRet::not_supported();
-                            };
+                            return SbiRet::not_supported();
+                        };
                         let [param0] = [param[0]];
                         match function {
                             spec::time::SET_TIMER => {
@@ -101,8 +102,8 @@ macro_rules! impl_rustsbi {
                     #[cfg(target_pointer_width = "32")]
                     () => {
                         let Some(timer) = &mut self.timer else {
-                                return SbiRet::not_supported();
-                            };
+                            return SbiRet::not_supported();
+                        };
                         let [param0, param1] = [param[0], param[1]];
                         match function {
                             spec::time::SET_TIMER => {
@@ -115,8 +116,8 @@ macro_rules! impl_rustsbi {
                 },
                 spec::spi::EID_SPI => {
                     let Some(ipi) = &mut self.ipi else {
-                            return SbiRet::not_supported();
-                        };
+                        return SbiRet::not_supported();
+                    };
                     let [param0, param1] = [param[0], param[1]];
                     match function {
                         spec::spi::SEND_IPI => {
@@ -162,8 +163,8 @@ macro_rules! impl_rustsbi {
                 }
                 spec::hsm::EID_HSM => {
                     let Some(hsm) = &mut self.hsm else {
-                            return SbiRet::not_supported();
-                        };
+                        return SbiRet::not_supported();
+                    };
                     let [param0, param1, param2] = [param[0], param[1], param[2]];
                     match function {
                         spec::hsm::HART_START => hsm.hart_start(param0, param1, param2),
@@ -181,8 +182,8 @@ macro_rules! impl_rustsbi {
                 }
                 spec::srst::EID_SRST => {
                     let Some(srst) = &mut self.srst else {
-                            return SbiRet::not_supported();
-                        };
+                        return SbiRet::not_supported();
+                    };
                     let [param0, param1] = [param[0], param[1]];
                     match function {
                         spec::srst::SYSTEM_RESET => {
@@ -200,8 +201,8 @@ macro_rules! impl_rustsbi {
                     #[cfg(target_pointer_width = "64")]
                     () => {
                         let Some(pmu) = &mut self.pmu else {
-                                return SbiRet::not_supported();
-                            };
+                            return SbiRet::not_supported();
+                        };
                         let [param0, param1, param2, param3, param4] =
                             [param[0], param[1], param[2], param[3], param[4]];
                         match function {
@@ -227,8 +228,8 @@ macro_rules! impl_rustsbi {
                     #[cfg(target_pointer_width = "32")]
                     () => {
                         let Some(pmu) = &mut self.pmu else {
-                                return SbiRet::not_supported();
-                            };
+                            return SbiRet::not_supported();
+                        };
                         let [param0, param1, param2, param3, param4, param5] =
                             [param[0], param[1], param[2], param[3], param[4], param[5]];
                         match function {
@@ -258,8 +259,8 @@ macro_rules! impl_rustsbi {
                 #[cfg(feature = "sbi_2_0")]
                 spec::dbcn::EID_DBCN => {
                     let Some(dbcn) = &mut self.dbcn else {
-                            return SbiRet::not_supported();
-                        };
+                        return SbiRet::not_supported();
+                    };
                     let [param0, param1, param2] = [param[0], param[1], param[2]];
                     match function {
                         spec::dbcn::CONSOLE_WRITE => {
