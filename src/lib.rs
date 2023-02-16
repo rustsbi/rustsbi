@@ -547,6 +547,7 @@
 #[macro_use]
 pub mod legacy_stdio;
 mod base;
+mod console;
 #[cfg(feature = "singleton")]
 mod ecall;
 mod hart_mask;
@@ -554,6 +555,7 @@ mod hsm;
 #[cfg(not(feature = "legacy"))]
 mod instance;
 mod ipi;
+mod memory_range;
 mod pmu;
 mod reset;
 mod rfence;
@@ -588,6 +590,7 @@ const RUSTSBI_VERSION: usize =
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub extern crate sbi_spec as spec;
+pub use console::Console;
 #[cfg(feature = "singleton")]
 pub use ecall::handle_ecall as ecall;
 pub use hart_mask::HartMask;
@@ -598,6 +601,7 @@ pub use ipi::Ipi;
 #[cfg(feature = "legacy")]
 #[doc(hidden)]
 pub use legacy_stdio::{legacy_stdio_getchar, legacy_stdio_putchar};
+pub use memory_range::Physical;
 pub use pmu::Pmu;
 pub use reset::Reset;
 pub use rfence::Rfence as Fence;
