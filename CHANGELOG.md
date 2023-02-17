@@ -17,6 +17,8 @@ Bump RISC-V SBI specification version to 2.0-rc1.
 
 ### Modified
 
+- doc: amend using SBI 2.0-rc1 specification
+
 ### Removed
 
 ## [0.3.1] - 2023-01-20

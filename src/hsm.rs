@@ -11,19 +11,19 @@ use sbi_spec::binary::SbiRet;
 ///
 /// | State ID | State Name | Description
 /// |:---------|:-----------|:------------
-/// | 0 | STARTED | The hart is physically powered-up and executing normally.
-/// | 1 | STOPPED | The hart is not executing in supervisor-mode or any lower privilege mode. It is probably powered-down by the SBI implementation if the underlying platform has a mechanism to physically power-down harts.
-/// | 2 | START_PENDING | Some other hart has requested to start (or power-up) the hart from the **STOPPED** state and the SBI implementation is still working to get the hart in the **STARTED** state.
-/// | 3 | STOP_PENDING | The hart has requested to stop (or power-down) itself from the STARTED state and the SBI implementation is still working to get the hart in the **STOPPED** state.
-/// | 4 | SUSPENDED | This hart is in a platform specific suspend (or low power) state.
-/// | 5 | SUSPEND_PENDING | The hart has requestd to put itself in a platform specific low power state from the **STARTED** state and the SBI implementation is still working to get the hart in the platform specific **SUSPENDED** state.
-/// | 6 | RESUME_PENDING | An interrupt or platform specific hardware event has caused the hart to resume normal execution from the **SUSPENDED** state and the SBI implementation is still working to get the hart in the **STARTED** state.
+/// | 0 | `STARTED` | The hart is physically powered-up and executing normally.
+/// | 1 | `STOPPED` | The hart is not executing in supervisor-mode or any lower privilege mode. It is probably powered-down by the SBI implementation if the underlying platform has a mechanism to physically power-down harts.
+/// | 2 | `START_PENDING` | Some other hart has requested to start (or power-up) the hart from the **STOPPED** state and the SBI implementation is still working to get the hart in the **STARTED** state.
+/// | 3 | `STOP_PENDING` | The hart has requested to stop (or power-down) itself from the STARTED state and the SBI implementation is still working to get the hart in the **STOPPED** state.
+/// | 4 | `SUSPENDED` | This hart is in a platform specific suspend (or low power) state.
+/// | 5 | `SUSPEND_PENDING` | The hart has requestd to put itself in a platform specific low power state from the **STARTED** state and the SBI implementation is still working to get the hart in the platform specific **SUSPENDED** state.
+/// | 6 | `RESUME_PENDING` | An interrupt or platform specific hardware event has caused the hart to resume normal execution from the **SUSPENDED** state and the SBI implementation is still working to get the hart in the **STARTED** state.
 ///
 /// At any point in time, a hart should be in one of the above mentioned hart states.
 ///
 /// # Topology hart groups
 ///
-/// A platform can have multiple harts grouped into a hierarchical topology groups (namely cores, clusters, nodes, etc)
+/// A platform can have multiple harts grouped into a hierarchical topology groups (namely cores, clusters, nodes, etc.)
 /// with separate platform specific low-power states for each hierarchical group.
 /// These platform specific low-power states of hierarchial topology groups can be represented as platform specific suspend states of a hart.
 /// A SBI implementation can utilize the suspend states of higher topology groups using one of the following approaches:
@@ -45,7 +45,7 @@ use sbi_spec::binary::SbiRet;
 pub trait Hsm: Send + Sync {
     /// Request the SBI implementation to start executing the given hart at specified address in supervisor-mode.
     ///
-    /// This call is asynchronous - more specifically, the `sbi_hart_start()` may return before target hart
+    /// This call is asynchronous - more specifically, the `hart_start()` may return before target hart
     /// starts executing as long as the SBI implemenation is capable of ensuring the return code is accurate.
     ///
     /// It is recommended that if the SBI implementation is a platform runtime firmware executing in machine-mode (M-mode)
@@ -56,6 +56,10 @@ pub trait Hsm: Send + Sync {
     /// - The `hartid` parameter specifies the target hart which is to be started.
     /// - The `start_addr` parameter points to a runtime-specified physical address, where the hart can start executing in supervisor-mode.
     /// - The `opaque` parameter is a `usize` value which will be set in the `a1` register when the hart starts executing at `start_addr`.
+    ///
+    /// *NOTE:* A single `usize` parameter is sufficient as `start_addr`,
+    /// because the hart will start execution in the supervisor-mode with MMU off,
+    /// hence the `start_addr` must be less than XLEN bits wide.
     ///
     /// # Behavior
     ///
@@ -75,16 +79,16 @@ pub trait Hsm: Send + Sync {
     /// | Return code                   | Description
     /// |:------------------------------|:----------------------------------------------
     /// | `SbiRet::success()`           | Hart was previously in stopped state. It will start executing from `start_addr`.
-    /// | `SbiRet::invalid_address()`   | `start_addr` is not valid possibly due to following reasons: 1. It is not a valid physical address. 2. The address is prohibited by PMP to run in supervisor mode.
+    /// | `SbiRet::invalid_address()`   | `start_addr` is not valid, possibly due to the following reasons: it is not a valid physical address, or the address is prohibited by PMP or H-extension G-stage to run in supervisor-mode.
     /// | `SbiRet::invalid_param()`     | `hartid` is not a valid hartid as corresponding hart cannot started in supervisor mode.
     /// | `SbiRet::already_available()` | The given hartid is already started.
     /// | `SbiRet::failed()`            | The start request failed for unknown reasons.
     fn hart_start(&self, hartid: usize, start_addr: usize, opaque: usize) -> SbiRet;
     /// Request the SBI implementation to stop executing the calling hart in supervisor-mode
-    /// and return it’s ownership to the SBI implementation.
+    /// and return its ownership to the SBI implementation.
     ///
     /// This call is not expected to return under normal conditions.
-    /// The `sbi_hart_stop()` must be called with the supervisor-mode interrupts disabled.
+    /// The `hart_stop()` must be called with supervisor-mode interrupts disabled.
     ///
     /// # Return value
     ///
@@ -96,8 +100,8 @@ pub trait Hsm: Send + Sync {
     fn hart_stop(&self) -> SbiRet;
     /// Get the current status (or HSM state id) of the given hart.
     ///
-    /// The harts may transition HSM states at any time due to any concurrent `sbi_hart_start()`
-    /// or `sbi_hart_stop()` calls, the return value from this function may not represent the actual state
+    /// The harts may transition HSM states at any time due to any concurrent `hart_start()`
+    /// or `hart_stop()` calls, the return value from this function may not represent the actual state
     /// of the hart at the time of return value verification.
     ///
     /// # Parameters
@@ -169,7 +173,11 @@ pub trait Hsm: Send + Sync {
     /// where the hart can resume execution in supervisor-mode after a non-retentive
     /// suspend.
     ///
-    /// The `opaque` parameter is a XLEN-bit value which will be set in the `a1`
+    /// *NOTE:* A single `usize` parameter is sufficient as `resume_addr`,
+    /// because the hart will resume execution in the supervisor-mode with MMU off,
+    /// hence the `resume_addr` must be less than XLEN bits wide.
+    ///
+    /// The `opaque` parameter is an XLEN-bit value which will be set in the `a1`
     /// register when the hart resumes exectution at `resume_addr` after a
     /// non-retentive suspend.
     ///
@@ -182,7 +190,7 @@ pub trait Hsm: Send + Sync {
     /// | `SbiRet::success()`         | Hart has suspended and resumed back successfully from a retentive suspend state.
     /// | `SbiRet::invalid_param()`   | `suspend_type` is not valid.
     /// | `SbiRet::not_supported()`   | `suspend_type` is valid but not implemented.
-    /// | `SbiRet::invalid_address()` | `resume_addr` is not valid possibly due to following reasons: it is not a valid physical address, or the address is prohibited by PMP to run in supervisor mode.
+    /// | `SbiRet::invalid_address()` | `resume_addr` is not valid, possibly due to the following reasons: it is not a valid physical address, or the address is prohibited by PMP or H-extension G-stage to run in supervisor-mode.
     /// | `SbiRet::failed()`          | The suspend request failed for unknown reasons.
     fn hart_suspend(&self, suspend_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
         let _ = (suspend_type, resume_addr, opaque);

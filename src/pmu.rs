@@ -32,8 +32,8 @@ use sbi_spec::binary::SbiRet;
 /// The event_idx is a 20 bits wide number encoded as follows:
 ///
 /// ```text
-///    event_idx[19:16] = type;
-///    event_idx[15:0] = code;
+/// event_idx[19:16] = type;
+/// event_idx[15:0] = code;
 /// ```
 pub trait Pmu: Send + Sync {
     /// Returns the number of counters (both hardware and firmware).
@@ -46,10 +46,10 @@ pub trait Pmu: Send + Sync {
     /// The `counter_info` returned by this SBI call is encoded as follows:
     ///
     /// ```text
-    ///     counter_info[11:0] = CSR; // (12bit CSR number)
-    ///     counter_info[17:12] = Width; // (One less than number of bits in CSR)
-    ///     counter_info[XLEN-2:18] = Reserved; // Reserved for future use
-    ///     counter_info[XLEN-1] = Type; // (0 = hardware and 1 = firmware)
+    /// counter_info[11:0] = CSR; // (12bit CSR number)
+    /// counter_info[17:12] = Width; // (One less than number of bits in CSR)
+    /// counter_info[XLEN-2:18] = Reserved; // Reserved for future use
+    /// counter_info[XLEN-1] = Type; // (0 = hardware and 1 = firmware)
     /// ```
     /// If `counter_info.type` == `1` then `counter_info.csr` and `counter_info.width` should be ignored.
     ///
@@ -70,23 +70,23 @@ pub trait Pmu: Send + Sync {
     /// # Parameters
     ///
     /// The `counter_idx_base` and `counter_idx_mask` parameters represent the set of counters,
-    /// whereas the `event_idx` represent the event to be monitored
+    /// whereas the `event_idx` represents the event to be monitored
     /// and `event_data` represents any additional event configuration.
     ///
-    /// The `config_flags` parameter represent additional counter configuration and filter flags.
+    /// The `config_flags` parameter represents additional counter configuration and filter flags.
     /// The bit definitions of the `config_flags` parameter are shown in the table below:
     ///
-    /// | Flag Name                    | Bits       | Description
-    /// |:-----------------------------|:-----------|:------------
-    /// | SBI_PMU_CFG_FLAG_SKIP_MATCH  | 0:0        | Skip the counter matching
-    /// | SBI_PMU_CFG_FLAG_CLEAR_VALUE | 1:1        | Clear (or zero) the counter value in counter configuration
-    /// | SBI_PMU_CFG_FLAG_AUTO_START  | 2:2        | Start the counter after configuring a matching counter
-    /// | SBI_PMU_CFG_FLAG_SET_VUINH   | 3:3        | Event counting inhibited in VU-mode
-    /// | SBI_PMU_CFG_FLAG_SET_VSINH   | 4:4        | Event counting inhibited in VS-mode
-    /// | SBI_PMU_CFG_FLAG_SET_UINH    | 5:5        | Event counting inhibited in U-mode
-    /// | SBI_PMU_CFG_FLAG_SET_SINH    | 6:6        | Event counting inhibited in S-mode
-    /// | SBI_PMU_CFG_FLAG_SET_MINH    | 7:7        | Event counting inhibited in M-mode
-    /// | _RESERVED_                   | 8:(XLEN-1) | _All non-zero values are reserved for future use._
+    /// | Flag Name                      | Bits         | Description
+    /// |:-------------------------------|:-------------|:------------
+    /// | `SBI_PMU_CFG_FLAG_SKIP_MATCH`  | `0:0`        | Skip the counter matching
+    /// | `SBI_PMU_CFG_FLAG_CLEAR_VALUE` | `1:1`        | Clear (or zero) the counter value in counter configuration
+    /// | `SBI_PMU_CFG_FLAG_AUTO_START`  | `2:2`        | Start the counter after configuring a matching counter
+    /// | `SBI_PMU_CFG_FLAG_SET_VUINH`   | `3:3`        | Event counting inhibited in VU-mode
+    /// | `SBI_PMU_CFG_FLAG_SET_VSINH`   | `4:4`        | Event counting inhibited in VS-mode
+    /// | `SBI_PMU_CFG_FLAG_SET_UINH`    | `5:5`        | Event counting inhibited in U-mode
+    /// | `SBI_PMU_CFG_FLAG_SET_SINH`    | `6:6`        | Event counting inhibited in S-mode
+    /// | `SBI_PMU_CFG_FLAG_SET_MINH`    | `7:7`        | Event counting inhibited in M-mode
+    /// | _RESERVED_                     | `8:(XLEN-1)` | _All non-zero values are reserved for future use._
     ///
     /// *NOTE:* When *SBI_PMU_CFG_FLAG_SKIP_MATCH* is set in `config_flags`, the
     /// SBI implementation will unconditionally select the first counter from the
@@ -108,8 +108,8 @@ pub trait Pmu: Send + Sync {
     /// | Return code               | Description
     /// |:--------------------------|:----------------------------------------------
     /// | `SbiRet::success()`       | counter found and configured successfully.
-    /// | `SbiRet::invalid_param()` | set of counters has an invalid counter.
-    /// | `SbiRet::not_supported()` | none of the counters can monitor specified event.
+    /// | `SbiRet::invalid_param()` | set of counters has at least one invalid counter.
+    /// | `SbiRet::not_supported()` | none of the counters can monitor the specified event.
     fn counter_config_matching(
         &self,
         counter_idx_base: usize,
@@ -127,10 +127,10 @@ pub trait Pmu: Send + Sync {
     ///
     /// The bit definitions of the `start_flags` parameter are shown in the table below:
     ///
-    /// | Flag Name                    | Bits       | Description
-    /// |:-----------------------------|:-----------|:------------
-    /// | SBI_PMU_START_SET_INIT_VALUE | 0:0        | Set the value of counters based on the `initial_value` parameter.
-    /// | _RESERVED_                   | 1:(XLEN-1) | _All non-zero values are reserved for future use._
+    /// | Flag Name                      | Bits         | Description
+    /// |:-------------------------------|:-------------|:------------
+    /// | `SBI_PMU_START_SET_INIT_VALUE` | `0:0`        | Set the value of counters based on the `initial_value` parameter.
+    /// | _RESERVED_                     | `1:(XLEN-1)` | _All non-zero values are reserved for future use._
     ///
     /// *NOTE*: When `SBI_PMU_START_SET_INIT_VALUE` is not set in `start_flags`, the counter value will
     /// not be modified and event counting will start from current counter value.
@@ -142,8 +142,8 @@ pub trait Pmu: Send + Sync {
     /// | Return code                 | Description
     /// |:----------------------------|:----------------------------------------------
     /// | `SbiRet::success()`         | counter started successfully.
-    /// | `SbiRet::invalid_param()`   | some of the counters specified in parameters are invalid.
-    /// | `SbiRet::already_started()` | some of the counters specified in parameters are already started.
+    /// | `SbiRet::invalid_param()`   | set of counters has at least one invalid counter.
+    /// | `SbiRet::already_started()` | set of counters includes at least one counter which is already started.
     fn counter_start(
         &self,
         counter_idx_base: usize,
@@ -158,10 +158,10 @@ pub trait Pmu: Send + Sync {
     /// The `counter_idx_base` and `counter_idx_mask` parameters represent the set of counters.
     /// The bit definitions of the `stop_flags` parameter are shown in the table below:
     ///
-    /// | Flag Name               | Bits       | Description
-    /// |:------------------------|:-----------|:------------
-    /// | SBI_PMU_STOP_FLAG_RESET | 0:0        | Reset the counter to event mapping.
-    /// | _RESERVED_              | 1:(XLEN-1) | *All non-zero values are reserved for future use.*
+    /// | Flag Name                 | Bits         | Description
+    /// |:--------------------------|:-------------|:------------
+    /// | `SBI_PMU_STOP_FLAG_RESET` | `0:0`        | Reset the counter to event mapping.
+    /// | _RESERVED_                | `1:(XLEN-1)` | *All non-zero values are reserved for future use.*
     ///
     /// # Return value
     ///
@@ -170,8 +170,8 @@ pub trait Pmu: Send + Sync {
     /// | Return code                 | Description
     /// |:----------------------------|:----------------------------------------------
     /// | `SbiRet::success()`         | counter stopped successfully.
-    /// | `SbiRet::invalid_param()`   | some of the counters specified in parameters are invalid.
-    /// | `SbiRet::already_stopped()` | some of the counters specified in parameters are already stopped.
+    /// | `SbiRet::invalid_param()`   | set of counters has at least one invalid counter.
+    /// | `SbiRet::already_stopped()` | set of counters includes at least one counter which is already stopped.
     fn counter_stop(
         &self,
         counter_idx_base: usize,

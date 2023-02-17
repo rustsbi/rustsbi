@@ -76,7 +76,7 @@ pub trait Console {
     /// `SbiRet::failed()`, if there are I/O errors.
     /// # Return value
     ///
-    /// The `SbiRet.value` is set to zero and` and the possible return error
+    /// The `SbiRet.value` is set to zero and the possible return error
     /// codes returned in `SbiRet.error` are shown in the table below:
     ///
     /// | Return code               | Description
