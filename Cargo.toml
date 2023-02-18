@@ -16,7 +16,7 @@ categories = ["os", "embedded", "hardware-support", "no-std"]
 edition = "2021"
 
 [dependencies]
-sbi-spec = "0.0.5-rc.2"
+sbi-spec = "0.0.5"
 riscv = { version = "0.10.1", optional = true }
 
 [features]
