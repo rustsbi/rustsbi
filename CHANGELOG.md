@@ -27,6 +27,10 @@ Bump RISC-V SBI specification version to 2.0-rc1.
 
 - doc: amend using SBI 2.0-rc1 specification
 
+### Fixed
+
+- `impl<T: Console> Console for &T`
+
 ## [0.3.1] - 2023-01-20
 
 ### Modified
