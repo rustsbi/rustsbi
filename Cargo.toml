@@ -1,7 +1,7 @@
 [package]
 name = "rustsbi"
 description = "Minimal RISC-V's SBI implementation library in Rust"
-version = "0.3.2"
+version = "0.4.0-alpha.1"
 authors = [
     "Luo Jia <me@luojia.cc>",
     "Campbell He <hkp18@mails.tsinghua.edu.cn>",
@@ -21,10 +21,6 @@ riscv = { version = "0.10.1", optional = true }
 
 [features]
 default = ["machine"]
-# Enable RISC-V SBI 2.0-rc1 extensions, i.e. the DBCN extension
-# It will add a generic parameter to RustSBI instance structure.
-# FIXME: remove this feature (and from CI workflow) on rustsbi 0.4.0 and adds this generic parameter permanently onto RustSBI.
-sbi_2_0 = []
 # Run RustSBI on machine mode
 # This feature enables to use RISC-V primitives on current machine mode environment
 # If you are developing a cross-architecture virtual machine, consider disabling this feature
