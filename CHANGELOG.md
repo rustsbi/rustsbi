@@ -13,7 +13,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
-## [0.3.2] - 2023-02-20
+## [0.3.2] - 2023-02-26
 
 Bump RISC-V SBI specification version to 2.0-rc1.
 
