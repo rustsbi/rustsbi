@@ -28,21 +28,23 @@ RustSBI is usually used as a library or dependency. If you wish to, you may buil
 following command:
 
 ```bash
+cargo build
+```
+
+The build should finish without any errors.
+
+Building under native platform will allow development of hypervisors and emulators.
+To cross-build for a RISC-V platform environment, you may install the target and build onto it instead:
+
+```bash
 # If you don't have the cross compile target installed, install it first
 rustup target add riscv64imac-unknown-none-elf
 # Build this project as library
 cargo build --target riscv64imac-unknown-none-elf
 ```
 
-The build should finish without any errors.
-
-If you see any error like `invalid register a0: unknown register`, it's likely that you cross built this project into
-platforms other than RISC-V. RustSBI adapts to RISC-V SBI interface, so you may cross build this project into any bare
-metal RISC-V platform targets instead.
-
-The target platform of RustSBI is usually a bare metal target. Under normal circumstances these targets in Rust would
-start with `riscv??-` and end with `-none-elf`. If a non-bare metal target is built to, it would throw build error
-in `riscv` dependency crate or RustSBI library itself.
+The target platform of RISC-V platform firmware is usually a bare metal target.
+Under normal circumstances these targets in Rust would start with `riscv??-` and end with `-none-elf`.
 
 ## Features
 
