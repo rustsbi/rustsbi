@@ -57,6 +57,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console>
 
     /// Create RustSBI instance on given machine information for all the SBI extensions
     #[cfg(not(feature = "machine"))]
+    #[allow(clippy::too_many_arguments)] // fixme: is it possible to have a better design here?
     #[inline]
     pub const fn with_machine_info(
         timer: T,

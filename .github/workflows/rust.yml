@@ -53,7 +53,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --target ${{ matrix.TARGET }} --no-default-features --verbose
+          args: --target ${{ matrix.TARGET }} --verbose
       - name: Check (machine)
         uses: actions-rs/cargo@v1
         with:
@@ -102,7 +102,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --no-default-features --verbose
+          args: --verbose
       - name: Run tests (machine)
         uses: actions-rs/cargo@v1
         with:

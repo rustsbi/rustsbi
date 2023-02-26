@@ -20,7 +20,7 @@ sbi-spec = "0.0.5"
 riscv = { version = "0.10.1", optional = true }
 
 [features]
-default = ["machine"]
+default = []
 # Run RustSBI on machine mode
 # This feature enables to use RISC-V primitives on current machine mode environment
 # If you are developing a cross-architecture virtual machine, consider disabling this feature

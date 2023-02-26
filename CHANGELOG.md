@@ -11,6 +11,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Modified
 
+- run on provided `MachineInfo` by default; bare metal M-mode environment should gate `machine`
+
 ### Removed
 
 - `sbi_2_0` feature; RustSBI now supports SBI 2.0-rc1 by default

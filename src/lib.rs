@@ -148,8 +148,12 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rustsbi = "0.4.0"
+//! rustsbi = { version = "0.4.0", features = ["machine"] }
 //! ```
+//!
+//! The feature `machine` indicates that RustSBI library is run directly on machine mode RISC-V
+//! environment; it will use `riscv` crate to fetch machine mode environment, which fits our demand
+//! of using it on bare metal RISC-V.
 //!
 //! After hardware initialization process, the part of firmware with RustSBI linked should run on memory
 //! blocks with fast accesses, as it would be called frequently by operating system.
@@ -363,11 +367,11 @@
 //! environment they reside in, they may fill in custom one into `MachineInfo` structures.
 //! When creating RustSBI instance, `MachineInfo` structure is required as an input of constructor.
 //!
-//! To begin with, disable default features in file `Cargo.toml`:
+//! To begin with, include RustSBI library in file `Cargo.toml`:
 //!
 //! ```toml
 //! [dependencies]
-//! rustsbi = { version = "0.4.0", default-features = false }
+//! rustsbi = "0.4.0"
 //! ```
 //!
 //! This will disable default feature `machine` which will assume that RustSBI runs on M-mode directly,
