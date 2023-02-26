@@ -37,28 +37,12 @@ pub trait Reset: Send + Sync {
     /// | `SbiRet::not_supported()` | `reset_type` is valid but not implemented.
     /// | `SbiRet::failed()`        | Reset request failed for unknown reasons.
     fn system_reset(&self, reset_type: u32, reset_reason: u32) -> SbiRet;
-
-    /// Legacy extension's reset function
-    ///
-    /// Puts all the harts to shut down state from supervisor point of view. This SBI call doesn’t return.
-    #[cfg(feature = "legacy")]
-    fn legacy_reset(&self) -> ! {
-        use sbi_spec::srst::{RESET_REASON_NO_REASON, RESET_TYPE_SHUTDOWN};
-        // By default, this function redirects to `system_reset`.
-        self.system_reset(RESET_TYPE_SHUTDOWN, RESET_REASON_NO_REASON);
-        unreachable!()
-    }
 }
 
 impl<T: Reset> Reset for &T {
     #[inline]
     fn system_reset(&self, reset_type: u32, reset_reason: u32) -> SbiRet {
         T::system_reset(self, reset_type, reset_reason)
-    }
-    #[cfg(feature = "legacy")]
-    #[inline]
-    fn legacy_reset(&self) -> ! {
-        T::legacy_reset(self)
     }
 }
 
@@ -89,13 +73,4 @@ pub(crate) fn system_reset(reset_type: u32, reset_reason: u32) -> SbiRet {
         return obj.system_reset(reset_type, reset_reason);
     }
     SbiRet::not_supported()
-}
-
-#[cfg(all(feature = "singleton", feature = "legacy"))]
-#[inline]
-pub(crate) fn legacy_reset() -> ! {
-    if let Some(obj) = RESET.get() {
-        obj.legacy_reset()
-    }
-    unreachable!("no reset handler available; this is okay if your platform didn't declare a legacy reset handler")
 }

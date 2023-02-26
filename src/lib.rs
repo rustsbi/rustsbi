@@ -148,7 +148,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rustsbi = "0.3.2"
+//! rustsbi = "0.4.0"
 //! ```
 //!
 //! After hardware initialization process, the part of firmware with RustSBI linked should run on memory
@@ -162,7 +162,6 @@
 //! # struct MyPlatHsm;
 //! # struct MyBoardPower;
 //! # struct MyPlatPmu;
-//! # #[cfg(not(feature = "legacy"))]
 //! use rustsbi::RustSBI;
 //!
 //! # struct SupervisorContext;
@@ -170,7 +169,6 @@
 //! struct Executor {
 //!     ctx: SupervisorContext,
 //!     /* other environment variables ... */
-//! # #[cfg(not(feature = "legacy"))]
 //!     sbi: RustSBI<Clint, Clint, MyPlatRfnc, MyPlatHsm, MyBoardPower, MyPlatPmu>,
 //!     /* custom_1: CustomSBI<...> */
 //! }
@@ -356,7 +354,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rustsbi = { version = "0.3.2", features = ["singleton"] }
+//! rustsbi = { version = "0.4.0", features = ["singleton"] }
 //! ```
 //!
 //! RustSBI library will disable all instance based interfaces but provide `init_*`
@@ -388,7 +386,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rustsbi = { version = "0.3.2", default-features = false }
+//! rustsbi = { version = "0.4.0", default-features = false }
 //! ```
 //!
 //! This will disable default feature `machine` which will assume that RustSBI runs on M-mode directly,
@@ -516,43 +514,16 @@
 //! any hardware discovery methods, or use try-execute-trap method to detect any instructions or
 //! CSRs. If SBI is implemented in user level emulators, it may requires to depend on operating
 //! system calls or use the signal trap method to detect any RISC-V core features.
-//!
-//! ## Legacy SBI extension
-//!
-//! *Note: RustSBI legacy support is only designed for backward compability of deprecated legacy RISC-V
-//! SBI standard. It's disabled by default and it's not suggested to include legacy extensions in newer
-//! firmware designs. Extensions other than legacy console are replaced by individual extensions in SBI.
-//! Kernels are not suggested to use legacy extensions in practice.
-//! If you are a kernel developer, newer designs should consider relying on each SBI extension other than
-//! legacy extensions.*
-//!
-//! The SBI includes legacy extension which dated back to SBI 0.1 specification. Most of its features
-//! are replaced by individual SBI extensions, thus the entire legacy extension is deprecated by
-//! SBI version 0.2. However, some users may find out SBI 0.1 legacy console useful in some situations
-//! even if it's deprecated.
-//!
-//! RustSBI keeps SBI 0.1 legacy support under feature gate `legacy`. To use RustSBI with deprecated
-//! legacy feature, you may change dependency configuration to:
-//!
-//! ```toml
-//! [dependencies]
-//! rustsbi = { version = "0.3.2", features = ["legacy"] }
-//! ```
 
 #![no_std]
 #![cfg_attr(feature = "singleton", feature(ptr_metadata))]
 
-#[cfg(feature = "legacy")]
-#[doc(hidden)]
-#[macro_use]
-pub mod legacy_stdio;
 mod base;
 mod console;
 #[cfg(feature = "singleton")]
 mod ecall;
 mod hart_mask;
 mod hsm;
-#[cfg(not(feature = "legacy"))]
 mod instance;
 mod ipi;
 mod memory_range;
@@ -595,12 +566,8 @@ pub use console::Console;
 pub use ecall::handle_ecall as ecall;
 pub use hart_mask::HartMask;
 pub use hsm::Hsm;
-#[cfg(not(feature = "legacy"))]
 pub use instance::{Builder, RustSBI};
 pub use ipi::Ipi;
-#[cfg(feature = "legacy")]
-#[doc(hidden)]
-pub use legacy_stdio::{legacy_stdio_getchar, legacy_stdio_putchar};
 pub use memory_range::Physical;
 pub use pmu::Pmu;
 pub use reset::Reset;

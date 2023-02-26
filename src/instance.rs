@@ -578,7 +578,6 @@ impl Reset for Infallible {
     fn system_reset(&self, _: u32, _: u32) -> SbiRet {
         unreachable!()
     }
-    // no leagcy_reset here, instance based interface is not compatible to legacy extension
 }
 
 impl Pmu for Infallible {

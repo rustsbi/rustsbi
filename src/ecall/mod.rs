@@ -15,10 +15,6 @@ mod srst;
 // §11
 mod pmu;
 
-#[cfg(feature = "legacy")]
-use crate::{
-    ipi::send_ipi, legacy_stdio_getchar, legacy_stdio_putchar, reset::legacy_reset, HartMask,
-};
 use sbi_spec::{self as spec, binary::SbiRet};
 
 /// Supervisor environment call handler function
@@ -29,12 +25,6 @@ use sbi_spec::{self as spec, binary::SbiRet};
 /// If the incoming exception is caused by supervisor `ecall`,
 /// call this function with parameters extracted from trap frame.
 /// After this function returns, store the return value into `a0` and `a1` parameters.
-///
-/// This function also adapts to the legacy functions.
-/// If the supervisor called any of legacy function, the `a0` and `a1` parameter
-/// is transferred to error and value field of `SbiRet` respectively.
-/// In this case, implementations should always store the result into `a0` and `a1` in
-/// any environment call functions including legacy functions.
 ///
 /// # Example
 ///
@@ -82,55 +72,6 @@ pub fn handle_ecall(extension: usize, function: usize, param: [usize; 6]) -> Sbi
                 function, param[0], param[1], param[2], param[3], param[4], param[5],
             ),
         },
-        // handle legacy callings.
-        //
-        // legacy 调用不使用 a1 返回值，总把 a1 填回 `SbiRet::value` 来模拟非 legacy 的行为。
-        #[cfg(feature = "legacy")]
-        spec::legacy::LEGACY_SET_TIMER => {
-            match () {
-                #[cfg(target_pointer_width = "64")]
-                () => crate::timer::set_timer(param[0] as _),
-                #[cfg(target_pointer_width = "32")]
-                () => crate::timer::set_timer(concat_u32(param[1] as _, param[0] as _)),
-            };
-            SbiRet {
-                error: param[0],
-                value: param[1],
-            }
-        }
-        #[cfg(feature = "legacy")]
-        spec::legacy::LEGACY_CONSOLE_PUTCHAR => {
-            legacy_stdio_putchar(param[0] as _);
-            SbiRet {
-                error: param[0],
-                value: param[1],
-            }
-        }
-        #[cfg(feature = "legacy")]
-        spec::legacy::LEGACY_CONSOLE_GETCHAR => SbiRet {
-            error: legacy_stdio_getchar(),
-            value: param[1],
-        },
-        #[cfg(feature = "legacy")]
-        spec::legacy::LEGACY_SEND_IPI => {
-            send_ipi(unsafe { HartMask::legacy_from_addr(param[0]) });
-            SbiRet {
-                error: param[0],
-                value: param[1],
-            }
-        }
-        #[cfg(feature = "legacy")]
-        spec::legacy::LEGACY_CLEAR_IPI => {
-            unsafe {
-                riscv::register::mip::clear_ssoft();
-            }
-            SbiRet {
-                error: param[0],
-                value: param[1],
-            }
-        }
-        #[cfg(feature = "legacy")]
-        spec::legacy::LEGACY_SHUTDOWN => legacy_reset(),
         _ => SbiRet::not_supported(),
     }
 }

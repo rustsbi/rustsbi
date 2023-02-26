@@ -31,8 +31,6 @@ machine = ["dep:riscv"]
 # to take care of singleton reference locks.
 # Disable this feature to use instance based RustSBI environment.
 singleton = ["dep:riscv", "machine"]
-# Support legacy extension; this feature is not included by default.
-legacy = ["sbi-spec/legacy", "singleton"]
 
 [package.metadata.docs.rs]
 default-target = "riscv64imac-unknown-none-elf"
