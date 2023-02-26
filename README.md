@@ -22,9 +22,6 @@ or consult vendors if they provide discrete RustSBI package support.
 
 To compile RustSBI library, you need at least stable Rust version of `rustc 1.65.0`.
 
-If you are using feature `singleton` to support singleton based interface, you are required to install
-nightly Rust compiler. You may need at least nightly Rust version of `rustc 1.59.0-nightly (c5ecc1570 2021-12-15)`.
-
 ## Build this project
 
 RustSBI is usually used as a library or dependency. If you wish to, you may build RustSBI library itself using the

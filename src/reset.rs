@@ -45,32 +45,3 @@ impl<T: Reset> Reset for &T {
         T::system_reset(self, reset_type, reset_reason)
     }
 }
-
-#[cfg(feature = "singleton")]
-use crate::util::AmoOnceRef;
-
-#[cfg(feature = "singleton")]
-static RESET: AmoOnceRef<dyn Reset> = AmoOnceRef::new();
-
-#[cfg(feature = "singleton")]
-/// Init SRST module
-pub fn init_reset(reset: &'static dyn Reset) {
-    if !RESET.try_call_once(reset) {
-        panic!("load sbi module when already loaded")
-    }
-}
-
-#[cfg(feature = "singleton")]
-#[inline]
-pub(crate) fn probe_reset() -> bool {
-    RESET.get().is_some()
-}
-
-#[cfg(feature = "singleton")]
-#[inline]
-pub(crate) fn system_reset(reset_type: u32, reset_reason: u32) -> SbiRet {
-    if let Some(obj) = RESET.get() {
-        return obj.system_reset(reset_type, reset_reason);
-    }
-    SbiRet::not_supported()
-}

@@ -162,6 +162,7 @@
 //! # struct MyPlatHsm;
 //! # struct MyBoardPower;
 //! # struct MyPlatPmu;
+//! # struct MyPlatDbcn;
 //! use rustsbi::RustSBI;
 //!
 //! # struct SupervisorContext;
@@ -169,7 +170,7 @@
 //! struct Executor {
 //!     ctx: SupervisorContext,
 //!     /* other environment variables ... */
-//!     sbi: RustSBI<Clint, Clint, MyPlatRfnc, MyPlatHsm, MyBoardPower, MyPlatPmu>,
+//!     sbi: RustSBI<Clint, Clint, MyPlatRfnc, MyPlatHsm, MyBoardPower, MyPlatPmu, MyPlatDbcn>,
 //!     /* custom_1: CustomSBI<...> */
 //! }
 //!
@@ -342,26 +343,6 @@
 //! train memory for later stages. In such situation, RustSBI implementation should be linked or concated
 //! to the second stage bootloader, and the first stage could be a standalone binary package bundled with it.
 //!
-//! ## Discrete RustSBI package by singleton based interface
-//!
-//! *Note: Using singleton based RustSBI interface is discouraged in newer designs, for it requires
-//! nightly Rust and global static memory. It takes extra bss and data storage to build a global singleton
-//! interface. New designs should follow the [instance based interface](#discrete-rustsbi-package-on-bare-metal-risc-v-hardware)
-//! to build discrete RustSBI packages.*
-//!
-//! Other than instance based interface, some users may find it convenient by using
-//! global singleton semantics. To use it users should enable the `singleton` feature by:
-//!
-//! ```toml
-//! [dependencies]
-//! rustsbi = { version = "0.4.0", features = ["singleton"] }
-//! ```
-//!
-//! RustSBI library will disable all instance based interfaces but provide `init_*`
-//! functions to allow initialize global RustSBI singleton instance.
-//! By enabling this feature, RustSBI uses unstable Rust features to create a universal
-//! lock structure by using atomic `amo` instructions other than `lr`/`sc`.
-//!
 //! # Hypervisor and emulator development with RustSBI
 //!
 //! RustSBI crate supports to develop RISC-V emulators, and both Type-1 and Type-2 hypervisors.
@@ -516,12 +497,8 @@
 //! system calls or use the signal trap method to detect any RISC-V core features.
 
 #![no_std]
-#![cfg_attr(feature = "singleton", feature(ptr_metadata))]
 
-mod base;
 mod console;
-#[cfg(feature = "singleton")]
-mod ecall;
 mod hart_mask;
 mod hsm;
 mod instance;
@@ -531,8 +508,6 @@ mod pmu;
 mod reset;
 mod rfence;
 mod timer;
-#[cfg(feature = "singleton")]
-mod util;
 
 /// The RustSBI logo without blank lines on the beginning
 pub const LOGO: &str = r".______       __    __      _______.___________.  _______..______   __
@@ -562,8 +537,6 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub extern crate sbi_spec as spec;
 pub use console::Console;
-#[cfg(feature = "singleton")]
-pub use ecall::handle_ecall as ecall;
 pub use hart_mask::HartMask;
 pub use hsm::Hsm;
 pub use instance::{Builder, RustSBI};
@@ -576,9 +549,3 @@ pub use timer::Timer;
 
 #[cfg(not(feature = "machine"))]
 pub use instance::MachineInfo;
-
-#[cfg(feature = "singleton")]
-pub use {
-    hsm::init_hsm, ipi::init_ipi, pmu::init_pmu, reset::init_reset,
-    rfence::init_rfence as init_remote_fence, timer::init_timer,
-};

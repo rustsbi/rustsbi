@@ -15,6 +15,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `sbi_2_0` feature; RustSBI now supports SBI 2.0-rc1 by default
 - support for legacy SBI extensions
+- singleton based RustSBI interface; use struct `RustSBI` instead
 
 ## [0.3.2] - 2023-02-26
 

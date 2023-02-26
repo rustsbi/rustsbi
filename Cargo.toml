@@ -26,11 +26,6 @@ default = ["machine"]
 # If you are developing a cross-architecture virtual machine, consider disabling this feature
 # to customize environment variables for RISC-V architecture like mvendorid, mimpid, etc.
 machine = ["dep:riscv"]
-# Build RustSBI singleton
-# This would enable `init_*` functions. It will take extra place on bss or data region
-# to take care of singleton reference locks.
-# Disable this feature to use instance based RustSBI environment.
-singleton = ["dep:riscv", "machine"]
 
 [package.metadata.docs.rs]
 default-target = "riscv64imac-unknown-none-elf"
