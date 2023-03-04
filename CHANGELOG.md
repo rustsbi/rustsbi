@@ -12,6 +12,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Modified
 
 - run on provided `MachineInfo` by default; bare metal M-mode environment should gate `machine`
+- doc: grammar tweaks in hsm module
 
 ### Removed
 
