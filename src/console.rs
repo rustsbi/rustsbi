@@ -85,3 +85,18 @@ pub trait Console {
     /// | `SbiRet::failed()`        | Failed to write the byte due to I/O errors.
     fn write_byte(&self, byte: u8) -> SbiRet;
 }
+
+impl<T: Console> Console for &T {
+    #[inline]
+    fn write(&self, bytes: Physical<&[u8]>) -> SbiRet {
+        T::write(self, bytes)
+    }
+    #[inline]
+    fn read(&self, bytes: Physical<&mut [u8]>) -> SbiRet {
+        T::read(self, bytes)
+    }
+    #[inline]
+    fn write_byte(&self, byte: u8) -> SbiRet {
+        T::write_byte(self, byte)
+    }
+}

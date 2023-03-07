@@ -209,17 +209,16 @@ pub trait Pmu: Send + Sync {
     /// |:--------------------------|:----------------------------------------------
     /// | `SbiRet::success()`       | firmware counter read successfully.
     /// | `SbiRet::invalid_param()` | `counter_idx` points to a hardware counter or an invalid counter.
-    #[cfg(feature = "sbi_2_0")]
     fn counter_fw_read_hi(&self, counter_idx: usize) -> SbiRet {
         match () {
             #[cfg(not(target_pointer_width = "32"))]
             () => {
-                drop(counter_idx);
+                let _ = counter_idx;
                 SbiRet::success(0)
             }
             #[cfg(target_pointer_width = "32")]
             () => {
-                drop(counter_idx);
+                let _ = counter_idx;
                 SbiRet::not_supported()
             }
         }
@@ -282,120 +281,8 @@ impl<T: Pmu> Pmu for &T {
     fn counter_fw_read(&self, counter_idx: usize) -> SbiRet {
         T::counter_fw_read(self, counter_idx)
     }
-    #[cfg(feature = "sbi_2_0")]
     #[inline]
     fn counter_fw_read_hi(&self, counter_idx: usize) -> SbiRet {
         T::counter_fw_read_hi(self, counter_idx)
     }
-}
-
-#[cfg(feature = "singleton")]
-use crate::util::AmoOnceRef;
-
-#[cfg(feature = "singleton")]
-static PMU: AmoOnceRef<dyn Pmu> = AmoOnceRef::new();
-
-#[cfg(feature = "singleton")]
-/// Init PMU module
-pub fn init_pmu(pmu: &'static dyn Pmu) {
-    if !PMU.try_call_once(pmu) {
-        panic!("load sbi module when already loaded")
-    }
-}
-
-#[cfg(feature = "singleton")]
-#[inline]
-pub(crate) fn probe_pmu() -> bool {
-    PMU.get().is_some()
-}
-
-#[cfg(feature = "singleton")]
-#[inline]
-pub(crate) fn num_counters() -> SbiRet {
-    if let Some(obj) = PMU.get() {
-        // Returns the number of counters (both hardware and firmware) in sbiret.value
-        // and always returns `SbiRet::success()`.
-        return SbiRet::success(obj.num_counters());
-    }
-    SbiRet::not_supported()
-}
-
-#[cfg(feature = "singleton")]
-#[inline]
-pub(crate) fn counter_get_info(counter_idx: usize) -> SbiRet {
-    if let Some(obj) = PMU.get() {
-        return obj.counter_get_info(counter_idx);
-    }
-    SbiRet::not_supported()
-}
-
-#[cfg(feature = "singleton")]
-#[inline]
-pub(crate) fn counter_config_matching(
-    counter_idx_base: usize,
-    counter_idx_mask: usize,
-    config_flags: usize,
-    event_idx: usize,
-    event_data: u64,
-) -> SbiRet {
-    if let Some(obj) = PMU.get() {
-        return obj.counter_config_matching(
-            counter_idx_base,
-            counter_idx_mask,
-            config_flags,
-            event_idx,
-            event_data,
-        );
-    }
-    SbiRet::not_supported()
-}
-
-#[cfg(feature = "singleton")]
-#[inline]
-pub(crate) fn counter_start(
-    counter_idx_base: usize,
-    counter_idx_mask: usize,
-    start_flags: usize,
-    initial_value: u64,
-) -> SbiRet {
-    if let Some(obj) = PMU.get() {
-        return obj.counter_start(
-            counter_idx_base,
-            counter_idx_mask,
-            start_flags,
-            initial_value,
-        );
-    }
-    SbiRet::not_supported()
-}
-
-#[cfg(feature = "singleton")]
-#[inline]
-pub(crate) fn counter_stop(
-    counter_idx_base: usize,
-    counter_idx_mask: usize,
-    stop_flags: usize,
-) -> SbiRet {
-    if let Some(obj) = PMU.get() {
-        return obj.counter_stop(counter_idx_base, counter_idx_mask, stop_flags);
-    }
-    SbiRet::not_supported()
-}
-
-#[cfg(feature = "singleton")]
-#[inline]
-pub(crate) fn counter_fw_read(counter_idx: usize) -> SbiRet {
-    if let Some(obj) = PMU.get() {
-        return obj.counter_fw_read(counter_idx);
-    }
-    SbiRet::not_supported()
-}
-
-#[cfg(all(feature = "singleton", feature = "sbi_2_0"))]
-#[inline]
-pub(crate) fn counter_fw_read_hi(counter_idx: usize) -> SbiRet {
-    if let Some(obj) = PMU.get() {
-        return obj.counter_fw_read_hi(counter_idx);
-    }
-    SbiRet::not_supported()
 }

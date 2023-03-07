@@ -7,6 +7,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Added
+
+### Modified
+
+- run on provided `MachineInfo` by default; bare metal M-mode environment should gate `machine`
+- doc: grammar tweaks in hsm module
+
+### Removed
+
+- `sbi_2_0` feature; RustSBI now supports SBI 2.0-rc1 by default
+- support for legacy SBI extensions
+- singleton based RustSBI interface; use struct `RustSBI` instead
+
+## [0.3.2] - 2023-02-26
+
 Bump RISC-V SBI specification version to 2.0-rc1.
 
 ### Added
@@ -19,7 +34,9 @@ Bump RISC-V SBI specification version to 2.0-rc1.
 
 - doc: amend using SBI 2.0-rc1 specification
 
-### Removed
+### Fixed
+
+- `impl<T: Console> Console for &T`
 
 ## [0.3.1] - 2023-01-20
 
@@ -171,7 +188,8 @@ RustSBI is adapted to SBI standard with implementation number 4.
 - RISC-V Privileged Specification v1.11
 - Backward compatible to privileged spec v1.9.1
 
-[Unreleased]: https://github.com/rustsbi/rustsbi/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/rustsbi/rustsbi/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/rustsbi/rustsbi/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/rustsbi/rustsbi/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/rustsbi/rustsbi/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/rustsbi/rustsbi/compare/v0.2.1...v0.2.2

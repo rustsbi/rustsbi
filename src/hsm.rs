@@ -58,12 +58,12 @@ pub trait Hsm: Send + Sync {
     /// - The `opaque` parameter is a `usize` value which will be set in the `a1` register when the hart starts executing at `start_addr`.
     ///
     /// *NOTE:* A single `usize` parameter is sufficient as `start_addr`,
-    /// because the hart will start execution in the supervisor-mode with MMU off,
-    /// hence the `start_addr` must be less than XLEN bits wide.
+    /// because the hart will start execution in supervisor-mode with the MMU off,
+    /// hence `start_addr` must be less than XLEN bits wide.
     ///
     /// # Behavior
     ///
-    /// The target hart jumps to supervisor mode at address specified by `start_addr` with following values in specific registers.
+    /// The target hart jumps to supervisor mode at address specified by `start_addr` with specific register values described as follows.
     ///
     /// | Register Name | Register Value
     /// |:--------------|:--------------
@@ -79,10 +79,10 @@ pub trait Hsm: Send + Sync {
     /// | Return code                   | Description
     /// |:------------------------------|:----------------------------------------------
     /// | `SbiRet::success()`           | Hart was previously in stopped state. It will start executing from `start_addr`.
-    /// | `SbiRet::invalid_address()`   | `start_addr` is not valid, possibly due to the following reasons: it is not a valid physical address, or the address is prohibited by PMP or H-extension G-stage to run in supervisor-mode.
+    /// | `SbiRet::invalid_address()`   | `start_addr` is not valid, possibly due to the following reasons: it is not a valid physical address, or executable access to the address is prohibited by a physical memory protection mechanism or H-extension G-stage for supervisor-mode.
     /// | `SbiRet::invalid_param()`     | `hartid` is not a valid hartid as corresponding hart cannot started in supervisor mode.
     /// | `SbiRet::already_available()` | The given hartid is already started.
-    /// | `SbiRet::failed()`            | The start request failed for unknown reasons.
+    /// | `SbiRet::failed()`            | The start request failed for unspecified or unknown other reasons.
     fn hart_start(&self, hartid: usize, start_addr: usize, opaque: usize) -> SbiRet;
     /// Request the SBI implementation to stop executing the calling hart in supervisor-mode
     /// and return its ownership to the SBI implementation.
@@ -174,8 +174,8 @@ pub trait Hsm: Send + Sync {
     /// suspend.
     ///
     /// *NOTE:* A single `usize` parameter is sufficient as `resume_addr`,
-    /// because the hart will resume execution in the supervisor-mode with MMU off,
-    /// hence the `resume_addr` must be less than XLEN bits wide.
+    /// because the hart will resume execution in supervisor-mode with the MMU off,
+    /// hence `resume_addr` must be less than XLEN bits wide.
     ///
     /// The `opaque` parameter is an XLEN-bit value which will be set in the `a1`
     /// register when the hart resumes exectution at `resume_addr` after a
@@ -190,8 +190,8 @@ pub trait Hsm: Send + Sync {
     /// | `SbiRet::success()`         | Hart has suspended and resumed back successfully from a retentive suspend state.
     /// | `SbiRet::invalid_param()`   | `suspend_type` is not valid.
     /// | `SbiRet::not_supported()`   | `suspend_type` is valid but not implemented.
-    /// | `SbiRet::invalid_address()` | `resume_addr` is not valid, possibly due to the following reasons: it is not a valid physical address, or the address is prohibited by PMP or H-extension G-stage to run in supervisor-mode.
-    /// | `SbiRet::failed()`          | The suspend request failed for unknown reasons.
+    /// | `SbiRet::invalid_address()` | `resume_addr` is not valid, possibly due to the following reasons: it is not a valid physical address, or executable access to the address is prohibited by a physical memory protection mechanism or H-extension G-stage for supervisor-mode.
+    /// | `SbiRet::failed()`          | The suspend request failed for unspecified or unknown other reasons.
     fn hart_suspend(&self, suspend_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
         let _ = (suspend_type, resume_addr, opaque);
         SbiRet::not_supported()
@@ -215,60 +215,4 @@ impl<T: Hsm> Hsm for &T {
     fn hart_suspend(&self, suspend_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
         T::hart_suspend(self, suspend_type, resume_addr, opaque)
     }
-}
-
-#[cfg(feature = "singleton")]
-use crate::util::AmoOnceRef;
-
-#[cfg(feature = "singleton")]
-static HSM: AmoOnceRef<dyn Hsm> = AmoOnceRef::new();
-
-#[cfg(feature = "singleton")]
-/// Init HSM module
-pub fn init_hsm(hsm: &'static dyn Hsm) {
-    if !HSM.try_call_once(hsm) {
-        panic!("load sbi module when already loaded")
-    }
-}
-
-#[cfg(feature = "singleton")]
-#[inline]
-pub(crate) fn probe_hsm() -> bool {
-    HSM.get().is_some()
-}
-
-#[cfg(feature = "singleton")]
-#[inline]
-pub(crate) fn hart_start(hartid: usize, start_addr: usize, opaque: usize) -> SbiRet {
-    if let Some(obj) = HSM.get() {
-        return obj.hart_start(hartid, start_addr, opaque);
-    }
-    SbiRet::not_supported()
-}
-
-#[cfg(feature = "singleton")]
-#[inline]
-pub(crate) fn hart_stop() -> SbiRet {
-    if let Some(obj) = HSM.get() {
-        return obj.hart_stop();
-    }
-    SbiRet::not_supported()
-}
-
-#[cfg(feature = "singleton")]
-#[inline]
-pub(crate) fn hart_get_status(hartid: usize) -> SbiRet {
-    if let Some(obj) = HSM.get() {
-        return obj.hart_get_status(hartid);
-    }
-    SbiRet::not_supported()
-}
-
-#[cfg(feature = "singleton")]
-#[inline]
-pub(crate) fn hart_suspend(suspend_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
-    if let Some(obj) = HSM.get() {
-        return obj.hart_suspend(suspend_type, resume_addr, opaque);
-    }
-    SbiRet::not_supported()
 }

@@ -22,13 +22,19 @@ or consult vendors if they provide discrete RustSBI package support.
 
 To compile RustSBI library, you need at least stable Rust version of `rustc 1.65.0`.
 
-If you are using feature `singleton` or `legacy` to support legacy SBI extensions, you are required to install
-nightly Rust compiler. You may need at least nightly Rust version of `rustc 1.59.0-nightly (c5ecc1570 2021-12-15)`.
-
 ## Build this project
 
 RustSBI is usually used as a library or dependency. If you wish to, you may build RustSBI library itself using the
 following command:
+
+```bash
+cargo build
+```
+
+The build should finish without any errors.
+
+Building under native platform will allow development of hypervisors and emulators.
+To cross-build for a RISC-V platform environment, you may install the target and build onto it instead:
 
 ```bash
 # If you don't have the cross compile target installed, install it first
@@ -37,15 +43,8 @@ rustup target add riscv64imac-unknown-none-elf
 cargo build --target riscv64imac-unknown-none-elf
 ```
 
-The build should finish without any errors.
-
-If you see any error like `invalid register a0: unknown register`, it's likely that you cross built this project into
-platforms other than RISC-V. RustSBI adapts to RISC-V SBI interface, so you may cross build this project into any bare
-metal RISC-V platform targets instead.
-
-The target platform of RustSBI is usually a bare metal target. Under normal circumstances these targets in Rust would
-start with `riscv??-` and end with `-none-elf`. If a non-bare metal target is built to, it would throw build error
-in `riscv` dependency crate or RustSBI library itself.
+The target platform of RISC-V platform firmware is usually a bare metal target.
+Under normal circumstances these targets in Rust would start with `riscv??-` and end with `-none-elf`.
 
 ## Features
 

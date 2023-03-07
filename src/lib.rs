@@ -148,8 +148,12 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rustsbi = "0.3.1"
+//! rustsbi = { version = "0.4.0", features = ["machine"] }
 //! ```
+//!
+//! The feature `machine` indicates that RustSBI library is run directly on machine mode RISC-V
+//! environment; it will use `riscv` crate to fetch machine mode environment, which fits our demand
+//! of using it on bare metal RISC-V.
 //!
 //! After hardware initialization process, the part of firmware with RustSBI linked should run on memory
 //! blocks with fast accesses, as it would be called frequently by operating system.
@@ -162,7 +166,7 @@
 //! # struct MyPlatHsm;
 //! # struct MyBoardPower;
 //! # struct MyPlatPmu;
-//! # #[cfg(not(feature = "legacy"))]
+//! # struct MyPlatDbcn;
 //! use rustsbi::RustSBI;
 //!
 //! # struct SupervisorContext;
@@ -170,9 +174,7 @@
 //! struct Executor {
 //!     ctx: SupervisorContext,
 //!     /* other environment variables ... */
-//! # #[cfg(not(feature = "legacy"))]
-//! # #[cfg(not(feature = "sbi_2_0"))] // fixme: remove in 0.4.0
-//!     sbi: RustSBI<Clint, Clint, MyPlatRfnc, MyPlatHsm, MyBoardPower, MyPlatPmu>,
+//!     sbi: RustSBI<Clint, Clint, MyPlatRfnc, MyPlatHsm, MyBoardPower, MyPlatPmu, MyPlatDbcn>,
 //!     /* custom_1: CustomSBI<...> */
 //! }
 //!
@@ -345,26 +347,6 @@
 //! train memory for later stages. In such situation, RustSBI implementation should be linked or concated
 //! to the second stage bootloader, and the first stage could be a standalone binary package bundled with it.
 //!
-//! ## Discrete RustSBI package by singleton based interface
-//!
-//! *Note: Using singleton based RustSBI interface is discouraged in newer designs, for it requires
-//! nightly Rust and global static memory. It takes extra bss and data storage to build a global singleton
-//! interface. New designs should follow the [instance based interface](#discrete-rustsbi-package-on-bare-metal-risc-v-hardware)
-//! to build discrete RustSBI packages.*
-//!
-//! Other than instance based interface, some users may find it convenient by using
-//! global singleton semantics. To use it users should enable the `singleton` feature by:
-//!
-//! ```toml
-//! [dependencies]
-//! rustsbi = { version = "0.3.1", features = ["singleton"] }
-//! ```
-//!
-//! RustSBI library will disable all instance based interfaces but provide `init_*`
-//! functions to allow initialize global RustSBI singleton instance.
-//! By enabling this feature, RustSBI uses unstable Rust features to create a universal
-//! lock structure by using atomic `amo` instructions other than `lr`/`sc`.
-//!
 //! # Hypervisor and emulator development with RustSBI
 //!
 //! RustSBI crate supports to develop RISC-V emulators, and both Type-1 and Type-2 hypervisors.
@@ -385,11 +367,11 @@
 //! environment they reside in, they may fill in custom one into `MachineInfo` structures.
 //! When creating RustSBI instance, `MachineInfo` structure is required as an input of constructor.
 //!
-//! To begin with, disable default features in file `Cargo.toml`:
+//! To begin with, include RustSBI library in file `Cargo.toml`:
 //!
 //! ```toml
 //! [dependencies]
-//! rustsbi = { version = "0.3.1", default-features = false }
+//! rustsbi = "0.4.0"
 //! ```
 //!
 //! This will disable default feature `machine` which will assume that RustSBI runs on M-mode directly,
@@ -517,43 +499,12 @@
 //! any hardware discovery methods, or use try-execute-trap method to detect any instructions or
 //! CSRs. If SBI is implemented in user level emulators, it may requires to depend on operating
 //! system calls or use the signal trap method to detect any RISC-V core features.
-//!
-//! ## Legacy SBI extension
-//!
-//! *Note: RustSBI legacy support is only designed for backward compability of deprecated legacy RISC-V
-//! SBI standard. It's disabled by default and it's not suggested to include legacy extensions in newer
-//! firmware designs. Extensions other than legacy console are replaced by individual extensions in SBI.
-//! Kernels are not suggested to use legacy extensions in practice.
-//! If you are a kernel developer, newer designs should consider relying on each SBI extension other than
-//! legacy extensions.*
-//!
-//! The SBI includes legacy extension which dated back to SBI 0.1 specification. Most of its features
-//! are replaced by individual SBI extensions, thus the entire legacy extension is deprecated by
-//! SBI version 0.2. However, some users may find out SBI 0.1 legacy console useful in some situations
-//! even if it's deprecated.
-//!
-//! RustSBI keeps SBI 0.1 legacy support under feature gate `legacy`. To use RustSBI with deprecated
-//! legacy feature, you may change dependency configuration to:
-//!
-//! ```toml
-//! [dependencies]
-//! rustsbi = { version = "0.3.1", features = ["legacy"] }
-//! ```
 
 #![no_std]
-#![cfg_attr(feature = "singleton", feature(ptr_metadata))]
 
-#[cfg(feature = "legacy")]
-#[doc(hidden)]
-#[macro_use]
-pub mod legacy_stdio;
-mod base;
 mod console;
-#[cfg(feature = "singleton")]
-mod ecall;
 mod hart_mask;
 mod hsm;
-#[cfg(not(feature = "legacy"))]
 mod instance;
 mod ipi;
 mod memory_range;
@@ -561,8 +512,6 @@ mod pmu;
 mod reset;
 mod rfence;
 mod timer;
-#[cfg(feature = "singleton")]
-mod util;
 
 /// The RustSBI logo without blank lines on the beginning
 pub const LOGO: &str = r".______       __    __      _______.___________.  _______..______   __
@@ -573,12 +522,7 @@ pub const LOGO: &str = r".______       __    __      _______.___________.  _____
 | _| `._____| \______/ |_______/       |__|  |_______/    |______/ |__|";
 
 // RustSBI supports RISC-V SBI specification 2.0-rc1
-const SBI_SPEC_MAJOR: usize = match () {
-    #[cfg(feature = "sbi_2_0")]
-    () => 2,
-    #[cfg(not(feature = "sbi_2_0"))]
-    () => 1,
-};
+const SBI_SPEC_MAJOR: usize = 2;
 const SBI_SPEC_MINOR: usize = 0;
 
 /// RustSBI implementation ID: 4
@@ -597,16 +541,10 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub extern crate sbi_spec as spec;
 pub use console::Console;
-#[cfg(feature = "singleton")]
-pub use ecall::handle_ecall as ecall;
 pub use hart_mask::HartMask;
 pub use hsm::Hsm;
-#[cfg(not(feature = "legacy"))]
 pub use instance::{Builder, RustSBI};
 pub use ipi::Ipi;
-#[cfg(feature = "legacy")]
-#[doc(hidden)]
-pub use legacy_stdio::{legacy_stdio_getchar, legacy_stdio_putchar};
 pub use memory_range::Physical;
 pub use pmu::Pmu;
 pub use reset::Reset;
@@ -615,9 +553,3 @@ pub use timer::Timer;
 
 #[cfg(not(feature = "machine"))]
 pub use instance::MachineInfo;
-
-#[cfg(feature = "singleton")]
-pub use {
-    hsm::init_hsm, ipi::init_ipi, pmu::init_pmu, reset::init_reset,
-    rfence::init_rfence as init_remote_fence, timer::init_timer,
-};
