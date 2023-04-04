@@ -1,5 +1,4 @@
-use crate::memory_range::Physical;
-use spec::binary::SbiRet;
+use spec::binary::{Physical, SbiRet};
 
 /// Debug Console Extension
 ///

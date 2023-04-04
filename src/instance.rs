@@ -1,10 +1,11 @@
 use crate::{
-    spec::binary::SbiRet, Console, Fence, HartMask, Hsm, Ipi, Physical, Pmu, Reset, Timer,
-    IMPL_ID_RUSTSBI, RUSTSBI_VERSION, SBI_SPEC_MAJOR, SBI_SPEC_MINOR,
+    spec::binary::SbiRet, Console, Fence, HartMask, Hsm, Ipi, Pmu, Reset, Timer, IMPL_ID_RUSTSBI,
+    RUSTSBI_VERSION, SBI_SPEC_MAJOR, SBI_SPEC_MINOR,
 };
 use core::convert::Infallible;
 #[cfg(feature = "machine")]
 use riscv::register::{marchid, mimpid, mvendorid};
+use spec::binary::Physical;
 
 /// RustSBI instance including standard extensions
 ///
@@ -612,11 +613,11 @@ impl Pmu for Infallible {
 }
 
 impl Console for Infallible {
-    fn write(&self, _: crate::Physical<&[u8]>) -> SbiRet {
+    fn write(&self, _: Physical<&[u8]>) -> SbiRet {
         unreachable!()
     }
 
-    fn read(&self, _: crate::Physical<&mut [u8]>) -> SbiRet {
+    fn read(&self, _: Physical<&mut [u8]>) -> SbiRet {
         unreachable!()
     }
 
