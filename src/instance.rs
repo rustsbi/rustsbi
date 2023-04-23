@@ -357,10 +357,10 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp,
                     };
                     let [param0, param1, param2] = [param[0], param[1], param[2]];
                     match function {
-                        spec::cppc::PROBE => cppc.probe(param0),
-                        spec::cppc::READ => cppc.read(param0),
-                        spec::cppc::READ_HI => cppc.read_hi(param0),
-                        spec::cppc::WRITE => cppc.write(param0, concat_u32(param2, param1)),
+                        spec::cppc::PROBE => cppc.probe(param0 as _),
+                        spec::cppc::READ => cppc.read(param0 as _),
+                        spec::cppc::READ_HI => cppc.read_hi(param0 as _),
+                        spec::cppc::WRITE => cppc.write(param0 as _, concat_u32(param2, param1)),
                         _ => SbiRet::not_supported(),
                     }
                 }

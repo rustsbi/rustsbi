@@ -76,7 +76,7 @@ pub trait Susp: Send + Sync {
     /// | `SbiRet::invalid_param()`   | `sleep_type` is reserved or is platform-specific and unimplemented.
     /// | `SbiRet::not_supported()`   | `sleep_type` is not reserved and is implemented, but the platform does not support it due to one or more missing dependencies.
     /// | `SbiRet::invalid_address()` | `resume_addr` is not valid, possibly due to the following reasons: * It is not a valid physical address. * Executable access to the address is prohibited by a physical memory protection mechanism or H-extension G-stage for supervisor mode.
-    /// | `SbiRet::failed()`          | The suspend request failed for unspecified or unknown other reasons. 
+    /// | `SbiRet::failed()`          | The suspend request failed for unspecified or unknown other reasons.
     fn system_suspend(&self, sleep_type: u32, resume_addr: usize, opaque: usize) -> SbiRet;
 }
 
