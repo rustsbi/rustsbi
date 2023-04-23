@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- support System Suspend and CPPC extension 
+
 ### Modified
 
 - run on provided `MachineInfo` by default; bare metal M-mode environment should gate `machine`
