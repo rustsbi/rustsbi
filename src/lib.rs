@@ -167,6 +167,7 @@
 //! # struct MyBoardPower;
 //! # struct MyPlatPmu;
 //! # struct MyPlatDbcn;
+//! # struct MyPlatSusp;
 //! use rustsbi::RustSBI;
 //!
 //! # struct SupervisorContext;
@@ -174,7 +175,7 @@
 //! struct Executor {
 //!     ctx: SupervisorContext,
 //!     /* other environment variables ... */
-//!     sbi: RustSBI<Clint, Clint, MyPlatRfnc, MyPlatHsm, MyBoardPower, MyPlatPmu, MyPlatDbcn>,
+//!     sbi: RustSBI<Clint, Clint, MyPlatRfnc, MyPlatHsm, MyBoardPower, MyPlatPmu, MyPlatDbcn, MyPlatSusp>,
 //!     /* custom_1: CustomSBI<...> */
 //! }
 //!
@@ -511,6 +512,7 @@ mod pmu;
 mod reset;
 mod rfence;
 mod timer;
+mod susp;
 
 /// The RustSBI logo without blank lines on the beginning
 pub const LOGO: &str = r".______       __    __      _______.___________.  _______..______   __
@@ -548,6 +550,7 @@ pub use pmu::Pmu;
 pub use reset::Reset;
 pub use rfence::Rfence as Fence;
 pub use timer::Timer;
+pub use susp::Susp;
 
 #[cfg(not(feature = "machine"))]
 pub use instance::MachineInfo;
