@@ -9,7 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- support System Suspend and CPPC extension 
+- support System Suspend extension
+- support CPPC extension 
 
 ### Modified
 

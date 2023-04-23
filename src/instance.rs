@@ -359,7 +359,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp,
                     match function {
                         spec::cppc::PROBE => cppc.probe(param0),
                         spec::cppc::READ => cppc.read(param0),
-                        spec::cppc::READ_HI => cppc.read(param0),
+                        spec::cppc::READ_HI => cppc.read_hi(param0),
                         spec::cppc::WRITE => cppc.write(param0, concat_u32(param2, param1)),
                         _ => SbiRet::not_supported(),
                     }
