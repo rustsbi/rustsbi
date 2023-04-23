@@ -1,5 +1,5 @@
 use crate::{
-    spec::binary::SbiRet, Console, Fence, HartMask, Hsm, Ipi, Pmu, Reset, Susp, Timer,
+    spec::binary::SbiRet, Console, Cppc, Fence, HartMask, Hsm, Ipi, Pmu, Reset, Susp, Timer,
     IMPL_ID_RUSTSBI, RUSTSBI_VERSION, SBI_SPEC_MAJOR, SBI_SPEC_MINOR,
 };
 use core::convert::Infallible;
@@ -12,7 +12,7 @@ use spec::binary::Physical;
 /// By now RustSBI supports to run instance based interface on systems has environment pointer width
 /// that is the same as supervisor pointer width.
 #[derive(Clone, Debug)]
-pub struct RustSBI<T, I, R, H, S, P, C, SU> {
+pub struct RustSBI<T, I, R, H, S, P, C, SU, CP> {
     timer: Option<T>,
     ipi: Option<I>,
     rfnc: Option<R>,
@@ -21,6 +21,7 @@ pub struct RustSBI<T, I, R, H, S, P, C, SU> {
     pmu: Option<P>,
     dbcn: Option<C>,
     susp: Option<SU>,
+    cppc: Option<CP>,
     #[cfg(not(feature = "machine"))]
     info: MachineInfo,
 }
@@ -39,8 +40,8 @@ pub struct MachineInfo {
     pub mimpid: usize,
 }
 
-impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp>
-    RustSBI<T, I, R, H, S, P, C, SU>
+impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp, CP: Cppc>
+    RustSBI<T, I, R, H, S, P, C, SU, CP>
 {
     /// Create RustSBI instance on current machine environment for all the SBI extensions
     #[cfg(feature = "machine")]
@@ -54,6 +55,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp>
         pmu: P,
         dbcn: C,
         susp: SU,
+        cppc: CP,
     ) -> Self {
         Self {
             timer: Some(timer),
@@ -64,6 +66,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp>
             pmu: Some(pmu),
             dbcn: Some(dbcn),
             susp: Some(susp),
+            cppc: Some(cppc),
         }
     }
 
@@ -80,6 +83,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp>
         pmu: P,
         dbcn: C,
         susp: SU,
+        cppc: CP,
         info: MachineInfo,
     ) -> Self {
         Self {
@@ -91,6 +95,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp>
             pmu: Some(pmu),
             dbcn: Some(dbcn),
             susp: Some(susp),
+            cppc: Some(cppc),
             info,
         }
     }
@@ -318,6 +323,48 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp>
                     _ => SbiRet::not_supported(),
                 }
             }
+            spec::cppc::EID_CPPC => match () {
+                #[cfg(target_pointer_width = "64")]
+                () => {
+                    let Some(cppc) = &mut self.cppc else {
+                        return SbiRet::not_supported();
+                    };
+                    let [param0, param1] = [param[0], param[1]];
+                    match function {
+                        spec::cppc::PROBE => match u32::try_from(param0) {
+                            Ok(reg_id) => cppc.probe(reg_id),
+                            _ => SbiRet::invalid_param(),
+                        },
+                        spec::cppc::READ => match u32::try_from(param0) {
+                            Ok(reg_id) => cppc.read(reg_id),
+                            _ => SbiRet::invalid_param(),
+                        },
+                        spec::cppc::READ_HI => match u32::try_from(param0) {
+                            Ok(reg_id) => cppc.read_hi(reg_id),
+                            _ => SbiRet::invalid_param(),
+                        },
+                        spec::cppc::WRITE => match u32::try_from(param0) {
+                            Ok(reg_id) => cppc.write(reg_id, param1 as _),
+                            _ => SbiRet::invalid_param(),
+                        },
+                        _ => SbiRet::not_supported(),
+                    }
+                }
+                #[cfg(target_pointer_width = "32")]
+                () => {
+                    let Some(cppc) = &mut self.cppc else {
+                        return SbiRet::not_supported();
+                    };
+                    let [param0, param1, param2] = [param[0], param[1], param[2]];
+                    match function {
+                        spec::cppc::PROBE => cppc.probe(param0),
+                        spec::cppc::READ => cppc.read(param0),
+                        spec::cppc::READ_HI => cppc.read(param0),
+                        spec::cppc::WRITE => cppc.write(param0, concat_u32(param2, param1)),
+                        _ => SbiRet::not_supported(),
+                    }
+                }
+            },
             _ => SbiRet::not_supported(),
         }
     }
@@ -333,6 +380,8 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp>
             spec::hsm::EID_HSM => self.hsm.is_some(),
             spec::pmu::EID_PMU => self.pmu.is_some(),
             spec::dbcn::EID_DBCN => self.dbcn.is_some(),
+            spec::susp::EID_SUSP => self.susp.is_some(),
+            spec::cppc::EID_CPPC => self.cppc.is_some(),
             _ => false,
         };
         if ans {
@@ -350,12 +399,13 @@ const fn concat_u32(h: usize, l: usize) -> u64 {
 }
 
 /// Structure to build a RustSBI instance
-pub struct Builder<T, I, R, H, S, P, C, SU> {
-    inner: RustSBI<T, I, R, H, S, P, C, SU>,
+pub struct Builder<T, I, R, H, S, P, C, SU, CP> {
+    inner: RustSBI<T, I, R, H, S, P, C, SU, CP>,
 }
 
 impl
     Builder<
+        Infallible,
         Infallible,
         Infallible,
         Infallible,
@@ -378,6 +428,7 @@ impl
         Infallible,
         Infallible,
         Infallible,
+        Infallible,
     > {
         Builder {
             inner: RustSBI {
@@ -389,6 +440,7 @@ impl
                 pmu: None,
                 dbcn: None,
                 susp: None,
+                cppc: None,
             },
         }
     }
@@ -407,6 +459,7 @@ impl
         Infallible,
         Infallible,
         Infallible,
+        Infallible,
     > {
         Builder {
             inner: RustSBI {
@@ -418,6 +471,7 @@ impl
                 pmu: None,
                 dbcn: None,
                 susp: None,
+                cppc: None,
                 info,
             },
         }
@@ -430,10 +484,10 @@ impl
 
 // fixme: struct `Infallible` should be replaced to never type once it's stablized
 
-impl<T, I, R, H, S, P, C, SU> Builder<T, I, R, H, S, P, C, SU> {
+impl<T, I, R, H, S, P, C, SU, CP> Builder<T, I, R, H, S, P, C, SU, CP> {
     /// Add Timer programmer extension to RustSBI
     #[inline]
-    pub fn with_timer<T2: Timer>(self, timer: T2) -> Builder<T2, I, R, H, S, P, C, SU> {
+    pub fn with_timer<T2: Timer>(self, timer: T2) -> Builder<T2, I, R, H, S, P, C, SU, CP> {
         Builder {
             inner: RustSBI {
                 timer: Some(timer),
@@ -444,6 +498,7 @@ impl<T, I, R, H, S, P, C, SU> Builder<T, I, R, H, S, P, C, SU> {
                 pmu: self.inner.pmu,
                 dbcn: self.inner.dbcn,
                 susp: self.inner.susp,
+                cppc: self.inner.cppc,
                 #[cfg(not(feature = "machine"))]
                 info: self.inner.info,
             },
@@ -452,7 +507,7 @@ impl<T, I, R, H, S, P, C, SU> Builder<T, I, R, H, S, P, C, SU> {
 
     /// Add Inter-processor Interrupt extension to RustSBI
     #[inline]
-    pub fn with_ipi<I2: Ipi>(self, ipi: I2) -> Builder<T, I2, R, H, S, P, C, SU> {
+    pub fn with_ipi<I2: Ipi>(self, ipi: I2) -> Builder<T, I2, R, H, S, P, C, SU, CP> {
         Builder {
             inner: RustSBI {
                 timer: self.inner.timer,
@@ -463,6 +518,7 @@ impl<T, I, R, H, S, P, C, SU> Builder<T, I, R, H, S, P, C, SU> {
                 pmu: self.inner.pmu,
                 dbcn: self.inner.dbcn,
                 susp: self.inner.susp,
+                cppc: self.inner.cppc,
                 #[cfg(not(feature = "machine"))]
                 info: self.inner.info,
             },
@@ -471,7 +527,7 @@ impl<T, I, R, H, S, P, C, SU> Builder<T, I, R, H, S, P, C, SU> {
 
     /// Add Remote Fence extension to RustSBI
     #[inline]
-    pub fn with_fence<R2: Fence>(self, fence: R2) -> Builder<T, I, R2, H, S, P, C, SU> {
+    pub fn with_fence<R2: Fence>(self, fence: R2) -> Builder<T, I, R2, H, S, P, C, SU, CP> {
         Builder {
             inner: RustSBI {
                 timer: self.inner.timer,
@@ -482,6 +538,7 @@ impl<T, I, R, H, S, P, C, SU> Builder<T, I, R, H, S, P, C, SU> {
                 pmu: self.inner.pmu,
                 dbcn: self.inner.dbcn,
                 susp: self.inner.susp,
+                cppc: self.inner.cppc,
                 #[cfg(not(feature = "machine"))]
                 info: self.inner.info,
             },
@@ -490,7 +547,7 @@ impl<T, I, R, H, S, P, C, SU> Builder<T, I, R, H, S, P, C, SU> {
 
     /// Add Hart State Monitor extension to RustSBI
     #[inline]
-    pub fn with_hsm<H2: Hsm>(self, hsm: H2) -> Builder<T, I, R, H2, S, P, C, SU> {
+    pub fn with_hsm<H2: Hsm>(self, hsm: H2) -> Builder<T, I, R, H2, S, P, C, SU, CP> {
         Builder {
             inner: RustSBI {
                 timer: self.inner.timer,
@@ -501,6 +558,7 @@ impl<T, I, R, H, S, P, C, SU> Builder<T, I, R, H, S, P, C, SU> {
                 pmu: self.inner.pmu,
                 dbcn: self.inner.dbcn,
                 susp: self.inner.susp,
+                cppc: self.inner.cppc,
                 #[cfg(not(feature = "machine"))]
                 info: self.inner.info,
             },
@@ -509,7 +567,7 @@ impl<T, I, R, H, S, P, C, SU> Builder<T, I, R, H, S, P, C, SU> {
 
     /// Add System Reset extension to RustSBI
     #[inline]
-    pub fn with_reset<S2: Reset>(self, reset: S2) -> Builder<T, I, R, H, S2, P, C, SU> {
+    pub fn with_reset<S2: Reset>(self, reset: S2) -> Builder<T, I, R, H, S2, P, C, SU, CP> {
         Builder {
             inner: RustSBI {
                 timer: self.inner.timer,
@@ -520,6 +578,7 @@ impl<T, I, R, H, S, P, C, SU> Builder<T, I, R, H, S, P, C, SU> {
                 pmu: self.inner.pmu,
                 dbcn: self.inner.dbcn,
                 susp: self.inner.susp,
+                cppc: self.inner.cppc,
                 #[cfg(not(feature = "machine"))]
                 info: self.inner.info,
             },
@@ -528,7 +587,7 @@ impl<T, I, R, H, S, P, C, SU> Builder<T, I, R, H, S, P, C, SU> {
 
     /// Add Performance Monitor Unit extension to RustSBI
     #[inline]
-    pub fn with_pmu<P2: Pmu>(self, pmu: P2) -> Builder<T, I, R, H, S, P2, C, SU> {
+    pub fn with_pmu<P2: Pmu>(self, pmu: P2) -> Builder<T, I, R, H, S, P2, C, SU, CP> {
         Builder {
             inner: RustSBI {
                 timer: self.inner.timer,
@@ -539,6 +598,7 @@ impl<T, I, R, H, S, P, C, SU> Builder<T, I, R, H, S, P, C, SU> {
                 pmu: Some(pmu),
                 dbcn: self.inner.dbcn,
                 susp: self.inner.susp,
+                cppc: self.inner.cppc,
                 #[cfg(not(feature = "machine"))]
                 info: self.inner.info,
             },
@@ -546,7 +606,7 @@ impl<T, I, R, H, S, P, C, SU> Builder<T, I, R, H, S, P, C, SU> {
     }
     /// Add Debug Console extension to RustSBI
     #[inline]
-    pub fn with_console<C2: Console>(self, console: C2) -> Builder<T, I, R, H, S, P, C2, SU> {
+    pub fn with_console<C2: Console>(self, console: C2) -> Builder<T, I, R, H, S, P, C2, SU, CP> {
         Builder {
             inner: RustSBI {
                 timer: self.inner.timer,
@@ -557,6 +617,7 @@ impl<T, I, R, H, S, P, C, SU> Builder<T, I, R, H, S, P, C, SU> {
                 pmu: self.inner.pmu,
                 dbcn: Some(console),
                 susp: self.inner.susp,
+                cppc: self.inner.cppc,
                 #[cfg(not(feature = "machine"))]
                 info: self.inner.info,
             },
@@ -564,7 +625,7 @@ impl<T, I, R, H, S, P, C, SU> Builder<T, I, R, H, S, P, C, SU> {
     }
     /// Add System Suspend extension to RustSBI
     #[inline]
-    pub fn with_susp<SU2: Susp>(self, susp: SU2) -> Builder<T, I, R, H, S, P, C, SU2> {
+    pub fn with_susp<SU2: Susp>(self, susp: SU2) -> Builder<T, I, R, H, S, P, C, SU2, CP> {
         Builder {
             inner: RustSBI {
                 timer: self.inner.timer,
@@ -575,6 +636,26 @@ impl<T, I, R, H, S, P, C, SU> Builder<T, I, R, H, S, P, C, SU> {
                 pmu: self.inner.pmu,
                 dbcn: self.inner.dbcn,
                 susp: Some(susp),
+                cppc: self.inner.cppc,
+                #[cfg(not(feature = "machine"))]
+                info: self.inner.info,
+            },
+        }
+    }
+    /// Add CPPC extension to RustSBI
+    #[inline]
+    pub fn with_cppc<CP2: Cppc>(self, cppc: CP2) -> Builder<T, I, R, H, S, P, C, SU, CP2> {
+        Builder {
+            inner: RustSBI {
+                timer: self.inner.timer,
+                ipi: self.inner.ipi,
+                rfnc: self.inner.rfnc,
+                hsm: self.inner.hsm,
+                srst: self.inner.srst,
+                pmu: self.inner.pmu,
+                dbcn: self.inner.dbcn,
+                susp: self.inner.susp,
+                cppc: Some(cppc),
                 #[cfg(not(feature = "machine"))]
                 info: self.inner.info,
             },
@@ -583,7 +664,7 @@ impl<T, I, R, H, S, P, C, SU> Builder<T, I, R, H, S, P, C, SU> {
 
     /// Build the target RustSBI instance
     #[inline]
-    pub fn build(self) -> RustSBI<T, I, R, H, S, P, C, SU> {
+    pub fn build(self) -> RustSBI<T, I, R, H, S, P, C, SU, CP> {
         self.inner
     }
 }
@@ -707,6 +788,21 @@ impl Console for Infallible {
 
 impl Susp for Infallible {
     fn system_suspend(&self, _: u32, _: usize, _: usize) -> SbiRet {
+        unreachable!()
+    }
+}
+
+impl Cppc for Infallible {
+    fn probe(&self, _: u32) -> SbiRet {
+        unreachable!()
+    }
+    fn read(&self, _: u32) -> SbiRet {
+        unreachable!()
+    }
+    fn read_hi(&self, _: u32) -> SbiRet {
+        unreachable!()
+    }
+    fn write(&self, _: u32, _: u64) -> SbiRet {
         unreachable!()
     }
 }

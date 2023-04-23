@@ -70,13 +70,13 @@ pub trait Susp: Send + Sync {
     ///
     /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
     ///
-    /// | Error code              | Description
-    /// | ----------------------- | -----------------------
-    /// | SBI_SUCCESS             | System has suspended and resumed successfully.        
-    /// | SBI_ERR_INVALID_PARAM   | `sleep_type` is reserved or is platform-specific and unimplemented.
-    /// | SBI_ERR_NOT_SUPPORTED   | `sleep_type` is not reserved and is implemented, but the platform does not support it due to one or more missing dependencies.
-    /// | SBI_ERR_INVALID_ADDRESS | `resume_addr` is not valid, possibly due to the following reasons: * It is not a valid physical address. * Executable access to the address is prohibited by a physical memory protection mechanism or H-extension G-stage for supervisor mode.
-    /// | SBI_ERR_FAILED          | The suspend request failed for unspecified or unknown other reasons.
+    /// | Error code                  | Description  
+    /// | --------------------------- | -------------------
+    /// | `SbiRet::success()`         | System has suspended and resumed successfully.
+    /// | `SbiRet::invalid_param()`   | `sleep_type` is reserved or is platform-specific and unimplemented.
+    /// | `SbiRet::not_supported()`   | `sleep_type` is not reserved and is implemented, but the platform does not support it due to one or more missing dependencies.
+    /// | `SbiRet::invalid_address()` | `resume_addr` is not valid, possibly due to the following reasons: * It is not a valid physical address. * Executable access to the address is prohibited by a physical memory protection mechanism or H-extension G-stage for supervisor mode.
+    /// | `SbiRet::failed()`          | The suspend request failed for unspecified or unknown other reasons. 
     fn system_suspend(&self, sleep_type: u32, resume_addr: usize, opaque: usize) -> SbiRet;
 }
 
