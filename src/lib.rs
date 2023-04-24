@@ -167,6 +167,8 @@
 //! # struct MyBoardPower;
 //! # struct MyPlatPmu;
 //! # struct MyPlatDbcn;
+//! # struct MyPlatSusp;
+//! # struct MyPlatCppc;
 //! use rustsbi::RustSBI;
 //!
 //! # struct SupervisorContext;
@@ -174,7 +176,7 @@
 //! struct Executor {
 //!     ctx: SupervisorContext,
 //!     /* other environment variables ... */
-//!     sbi: RustSBI<Clint, Clint, MyPlatRfnc, MyPlatHsm, MyBoardPower, MyPlatPmu, MyPlatDbcn>,
+//!     sbi: RustSBI<Clint, Clint, MyPlatRfnc, MyPlatHsm, MyBoardPower, MyPlatPmu, MyPlatDbcn, MyPlatSusp, MyPlatCppc>,
 //!     /* custom_1: CustomSBI<...> */
 //! }
 //!
@@ -503,6 +505,7 @@
 #![no_std]
 
 mod console;
+mod cppc;
 mod hart_mask;
 mod hsm;
 mod instance;
@@ -510,6 +513,7 @@ mod ipi;
 mod pmu;
 mod reset;
 mod rfence;
+mod susp;
 mod timer;
 
 /// The RustSBI logo without blank lines on the beginning
@@ -540,6 +544,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub extern crate sbi_spec as spec;
 pub use console::Console;
+pub use cppc::Cppc;
 pub use hart_mask::HartMask;
 pub use hsm::Hsm;
 pub use instance::{Builder, RustSBI};
@@ -547,6 +552,7 @@ pub use ipi::Ipi;
 pub use pmu::Pmu;
 pub use reset::Reset;
 pub use rfence::Rfence as Fence;
+pub use susp::Susp;
 pub use timer::Timer;
 
 #[cfg(not(feature = "machine"))]
