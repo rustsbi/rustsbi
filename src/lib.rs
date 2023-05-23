@@ -394,7 +394,7 @@
 //! and provide parameters according to the extension and function IDs.
 //!
 //! Crate `rustsbi` adapts to standard RISC-V SBI calls.
-//! If the hypervisor have custom SBI extensions that RustSBI does not recognize, those extension
+//! If the hypervisor has custom SBI extensions that RustSBI does not recognize, those extension
 //! and function IDs can be checked before calling RustSBI `env.handle_ecall`.
 //!
 //! ```no_run
@@ -453,7 +453,7 @@
 //! implementation packages.
 //!
 //! The RustSBI Prototyping System is a universal support package provided by RustSBI ecosystem.
-//! It is designed to save development time while providing most SBI feature possible.
+//! It is designed to save development time while providing most SBI features possible.
 //! It also includes a universal test kernel to allow testing SBI implementations on current environment.
 //! Users may choose to download from [Prototyping System repository](https://github.com/rustsbi/standalone)
 //! to get various types of RustSBI packages for their boards.
@@ -462,15 +462,15 @@
 //! Discrete SBI packages are SBI environment support packages specially designed for one board
 //! or SoC, it will be provided by board vendor or RustSBI ecosystem.
 //! Vendors may find it easy to include fine grained features in each support package, but the
-//! maintainence situation would vary between vendors and it would likely to cost a lot of time
+//! maintenance situation would vary between vendors and it would likely to cost a lot of time
 //! to develop from a bare-metal executable. Users may find a boost in performance, energy saving
-//! indexes and feature granularity in discrete packages, but it would depends on whether the
-//! vendor provide it.
+//! indexes and feature granularity in discrete packages, but it would depend on whether the
+//! vendor provides it.
 //!
 //! To download binary package for the Prototyping System, visit its project website for a download link.
 //! To download them for discrete packages, RustSBI users may visit distribution source of SoC or board
 //! manufacturers. Additionally, users may visit [the awesome page](https://github.com/rustsbi/awesome-rustsbi)
-//! for a curated list ofboth Prototyping System and discrete packages provided by RustSBI ecosystem.
+//! for a curated list of both Prototyping System and discrete packages provided by RustSBI ecosystem.
 //!
 //! # Notes for RustSBI developers
 //!
@@ -479,7 +479,7 @@
 //! ## RustSBI is a library for interfaces
 //!
 //! This library adapts to individual Rust traits to provide basic SBI features.
-//! When building for own platform, implement traits in this library and pass them to the functions
+//! When building for your own platform, implement traits in this library and pass them to the functions
 //! begin with `init`. After that, you may call `rustsbi::ecall`, `RustSBI::handle_ecall` or
 //! similiar functions in your own exception handler.
 //! It would dispatch parameters from supervisor to the traits to execute SBI functions.
@@ -499,7 +499,7 @@
 //!
 //! To detect any feature under bare metal or under supervisor level, developers may depend on
 //! any hardware discovery methods, or use try-execute-trap method to detect any instructions or
-//! CSRs. If SBI is implemented in user level emulators, it may requires to depend on operating
+//! CSRs. If SBI is implemented in user level emulators, it may require to depend on operating
 //! system calls or use the signal trap method to detect any RISC-V core features.
 
 #![no_std]
