@@ -346,7 +346,7 @@
 //! but instantly available after chip start, while the second one is larger in size but typically requires
 //! memory training. The former one would include built-in SRAM memory, and the later would include
 //! external SRAM or DDR memory. On those platforms, a first stage bootloader is typically needed to
-//! train memory for later stages. In such situation, RustSBI implementation should be linked or concated
+//! train memory for later stages. In such situation, RustSBI implementation should be linked or concatenated
 //! to the second stage bootloader, and the first stage could be a standalone binary package bundled with it.
 //!
 //! # Hypervisor and emulator development with RustSBI
