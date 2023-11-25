@@ -70,6 +70,23 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp,
         }
     }
 
+    /// Create an uninitialized RustSBI instance on current machine environment.
+    #[cfg(feature = "machine")]
+    #[inline]
+    pub const fn new_uninit_machine() -> Self {
+        Self {
+            timer: None,
+            ipi: None,
+            rfnc: None,
+            hsm: None,
+            srst: None,
+            pmu: None,
+            dbcn: None,
+            susp: None,
+            cppc: None,
+        }
+    }
+
     /// Create RustSBI instance on given machine information for all the SBI extensions
     #[cfg(not(feature = "machine"))]
     #[allow(clippy::too_many_arguments)] // fixme: is it possible to have a better design here?
@@ -99,6 +116,25 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp,
             info,
         }
     }
+
+    /// Create an uninitialized RustSBI instance on current machine environment.
+    #[cfg(not(feature = "machine"))]
+    #[inline]
+    pub const fn uninit_with_machine_info(info: MachineInfo) -> Self {
+        Self {
+            timer: None,
+            ipi: None,
+            rfnc: None,
+            hsm: None,
+            srst: None,
+            pmu: None,
+            dbcn: None,
+            susp: None,
+            cppc: None,
+            info,
+        }
+    }
+
     /// Handle supervisor environment call with given parameters and return the `SbiRet` result.
     #[inline]
     pub fn handle_ecall(&mut self, extension: usize, function: usize, param: [usize; 6]) -> SbiRet {
