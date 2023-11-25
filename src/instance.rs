@@ -137,10 +137,10 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp,
 
     /// Handle supervisor environment call with given parameters and return the `SbiRet` result.
     #[inline]
-    pub fn handle_ecall(&mut self, extension: usize, function: usize, param: [usize; 6]) -> SbiRet {
+    pub fn handle_ecall(&self, extension: usize, function: usize, param: [usize; 6]) -> SbiRet {
         match extension {
             spec::rfnc::EID_RFNC => {
-                let Some(rfnc) = &mut self.rfnc else {
+                let Some(rfnc) = &self.rfnc else {
                     return SbiRet::not_supported();
                 };
                 let [param0, param1, param2, param3, param4] =
@@ -172,7 +172,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp,
             spec::time::EID_TIME => match () {
                 #[cfg(target_pointer_width = "64")]
                 () => {
-                    let Some(timer) = &mut self.timer else {
+                    let Some(timer) = &self.timer else {
                         return SbiRet::not_supported();
                     };
                     let [param0] = [param[0]];
@@ -186,7 +186,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp,
                 }
                 #[cfg(target_pointer_width = "32")]
                 () => {
-                    let Some(timer) = &mut self.timer else {
+                    let Some(timer) = &self.timer else {
                         return SbiRet::not_supported();
                     };
                     let [param0, param1] = [param[0], param[1]];
@@ -200,7 +200,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp,
                 }
             },
             spec::spi::EID_SPI => {
-                let Some(ipi) = &mut self.ipi else {
+                let Some(ipi) = &self.ipi else {
                     return SbiRet::not_supported();
                 };
                 let [param0, param1] = [param[0], param[1]];
@@ -243,7 +243,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp,
                 SbiRet::success(value)
             }
             spec::hsm::EID_HSM => {
-                let Some(hsm) = &mut self.hsm else {
+                let Some(hsm) = &self.hsm else {
                     return SbiRet::not_supported();
                 };
                 let [param0, param1, param2] = [param[0], param[1], param[2]];
@@ -262,7 +262,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp,
                 }
             }
             spec::srst::EID_SRST => {
-                let Some(srst) = &mut self.srst else {
+                let Some(srst) = &self.srst else {
                     return SbiRet::not_supported();
                 };
                 let [param0, param1] = [param[0], param[1]];
@@ -281,7 +281,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp,
             spec::pmu::EID_PMU => match () {
                 #[cfg(target_pointer_width = "64")]
                 () => {
-                    let Some(pmu) = &mut self.pmu else {
+                    let Some(pmu) = &self.pmu else {
                         return SbiRet::not_supported();
                     };
                     let [param0, param1, param2, param3, param4] =
@@ -303,7 +303,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp,
                 }
                 #[cfg(target_pointer_width = "32")]
                 () => {
-                    let Some(pmu) = &mut self.pmu else {
+                    let Some(pmu) = &self.pmu else {
                         return SbiRet::not_supported();
                     };
                     let [param0, param1, param2, param3, param4, param5] =
@@ -329,7 +329,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp,
                 }
             },
             spec::dbcn::EID_DBCN => {
-                let Some(dbcn) = &mut self.dbcn else {
+                let Some(dbcn) = &self.dbcn else {
                     return SbiRet::not_supported();
                 };
                 let [param0, param1, param2] = [param[0], param[1], param[2]];
@@ -347,7 +347,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp,
                 }
             }
             spec::susp::EID_SUSP => {
-                let Some(susp) = &mut self.susp else {
+                let Some(susp) = &self.susp else {
                     return SbiRet::not_supported();
                 };
                 let [param0, param1, param2] = [param[0], param[1], param[2]];
@@ -362,7 +362,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp,
             spec::cppc::EID_CPPC => match () {
                 #[cfg(target_pointer_width = "64")]
                 () => {
-                    let Some(cppc) = &mut self.cppc else {
+                    let Some(cppc) = &self.cppc else {
                         return SbiRet::not_supported();
                     };
                     let [param0, param1] = [param[0], param[1]];
@@ -388,7 +388,7 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp,
                 }
                 #[cfg(target_pointer_width = "32")]
                 () => {
-                    let Some(cppc) = &mut self.cppc else {
+                    let Some(cppc) = &self.cppc else {
                         return SbiRet::not_supported();
                     };
                     let [param0, param1, param2] = [param[0], param[1], param[2]];
