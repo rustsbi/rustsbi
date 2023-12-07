@@ -287,17 +287,17 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp,
                     let [param0, param1, param2, param3, param4] =
                         [param[0], param[1], param[2], param[3], param[4]];
                     match function {
-                        spec::pmu::PMU_NUM_COUNTERS => SbiRet::success(pmu.num_counters()),
-                        spec::pmu::PMU_COUNTER_GET_INFO => pmu.counter_get_info(param0),
-                        spec::pmu::PMU_COUNTER_CONFIG_MATCHING => {
+                        spec::pmu::NUM_COUNTERS => SbiRet::success(pmu.num_counters()),
+                        spec::pmu::COUNTER_GET_INFO => pmu.counter_get_info(param0),
+                        spec::pmu::COUNTER_CONFIG_MATCHING => {
                             pmu.counter_config_matching(param0, param1, param2, param3, param4 as _)
                         }
-                        spec::pmu::PMU_COUNTER_START => {
+                        spec::pmu::COUNTER_START => {
                             pmu.counter_start(param0, param1, param2, param3 as _)
                         }
-                        spec::pmu::PMU_COUNTER_STOP => pmu.counter_stop(param0, param1, param2),
-                        spec::pmu::PMU_COUNTER_FW_READ => pmu.counter_fw_read(param0),
-                        spec::pmu::PMU_COUNTER_FW_READ_HI => pmu.counter_fw_read_hi(param0),
+                        spec::pmu::COUNTER_STOP => pmu.counter_stop(param0, param1, param2),
+                        spec::pmu::COUNTER_FW_READ => pmu.counter_fw_read(param0),
+                        spec::pmu::COUNTER_FW_READ_HI => pmu.counter_fw_read_hi(param0),
                         _ => SbiRet::not_supported(),
                     }
                 }
@@ -309,21 +309,21 @@ impl<T: Timer, I: Ipi, R: Fence, H: Hsm, S: Reset, P: Pmu, C: Console, SU: Susp,
                     let [param0, param1, param2, param3, param4, param5] =
                         [param[0], param[1], param[2], param[3], param[4], param[5]];
                     match function {
-                        spec::pmu::PMU_NUM_COUNTERS => SbiRet::success(pmu.num_counters()),
-                        spec::pmu::PMU_COUNTER_GET_INFO => pmu.counter_get_info(param0),
-                        spec::pmu::PMU_COUNTER_CONFIG_MATCHING => pmu.counter_config_matching(
+                        spec::pmu::NUM_COUNTERS => SbiRet::success(pmu.num_counters()),
+                        spec::pmu::COUNTER_GET_INFO => pmu.counter_get_info(param0),
+                        spec::pmu::COUNTER_CONFIG_MATCHING => pmu.counter_config_matching(
                             param0,
                             param1,
                             param2,
                             param3,
                             concat_u32(param5, param4),
                         ),
-                        spec::pmu::PMU_COUNTER_START => {
+                        spec::pmu::COUNTER_START => {
                             pmu.counter_start(param0, param1, param2, concat_u32(param4, param3))
                         }
-                        spec::pmu::PMU_COUNTER_STOP => pmu.counter_stop(param0, param1, param2),
-                        spec::pmu::PMU_COUNTER_FW_READ => pmu.counter_fw_read(param0),
-                        spec::pmu::PMU_COUNTER_FW_READ_HI => pmu.counter_fw_read_hi(param0),
+                        spec::pmu::COUNTER_STOP => pmu.counter_stop(param0, param1, param2),
+                        spec::pmu::COUNTER_FW_READ => pmu.counter_fw_read(param0),
+                        spec::pmu::COUNTER_FW_READ_HI => pmu.counter_fw_read_hi(param0),
                         _ => SbiRet::not_supported(),
                     }
                 }

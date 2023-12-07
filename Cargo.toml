@@ -17,7 +17,7 @@ edition = "2021"
 exclude = ["/.github"]
 
 [dependencies]
-sbi-spec = "0.0.6"
+sbi-spec = "0.0.7-alpha.1"
 riscv = { version = "0.10.1", optional = true }
 
 [features]
