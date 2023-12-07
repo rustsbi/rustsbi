@@ -513,6 +513,7 @@ mod ipi;
 mod pmu;
 mod reset;
 mod rfence;
+mod sta;
 mod susp;
 mod timer;
 
