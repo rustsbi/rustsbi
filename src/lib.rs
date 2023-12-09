@@ -508,7 +508,7 @@ mod console;
 mod cppc;
 mod hart_mask;
 mod hsm;
-mod instance;
+// mod instance;
 mod ipi;
 mod nacl;
 mod pmu;
@@ -517,6 +517,7 @@ mod rfence;
 mod sta;
 mod susp;
 mod timer;
+mod traits;
 
 /// The RustSBI logo without blank lines on the beginning
 pub const LOGO: &str = r".______       __    __      _______.___________.  _______..______   __
@@ -545,11 +546,13 @@ const RUSTSBI_VERSION: usize =
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub extern crate sbi_spec as spec;
+pub use rustsbi_macros::RustSBI;
+
 pub use console::Console;
 pub use cppc::Cppc;
 pub use hart_mask::HartMask;
 pub use hsm::Hsm;
-pub use instance::{Builder, RustSBI};
+// pub use instance::{Builder, RustSBI};
 pub use ipi::Ipi;
 pub use nacl::Nacl;
 pub use pmu::Pmu;
@@ -558,6 +561,14 @@ pub use rfence::Rfence as Fence;
 pub use sta::Sta;
 pub use susp::Susp;
 pub use timer::Timer;
+pub use traits::RustSBI;
 
-#[cfg(not(feature = "machine"))]
-pub use instance::MachineInfo;
+// macro internal functions and structures
+#[doc(hidden)]
+pub use traits::{
+    _StandardExtensionProbe, _rustsbi_base_machine, _rustsbi_fence, _rustsbi_hsm, _rustsbi_ipi,
+    _rustsbi_srst, _rustsbi_timer,
+};
+
+// #[cfg(not(feature = "machine"))]
+// pub use instance::MachineInfo;
