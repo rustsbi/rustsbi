@@ -13,6 +13,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - support CPPC extension 
 - `new_uninit` and `uninit_with_machine_info` constructors for RustSBI instance
 - `handle_ecall` now only requires `&self` since RustSBI trait implementations are internally mutable
+- support NACL and STA extensions
 
 ### Modified
 

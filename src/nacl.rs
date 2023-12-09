@@ -1,6 +1,7 @@
-use core::mem::size_of;
-
-use spec::binary::{SbiRet, SharedPtr};
+use spec::{
+    binary::{SbiRet, SharedPtr},
+    nacl::shmem_size::NATIVE,
+};
 
 /// Nested Acceleration Extension
 ///
@@ -65,13 +66,7 @@ pub trait Nacl: Send + Sync {
     /// | `SbiRet::success()`         | The steal-time shared memory physical base address was set or cleared successfully.
     /// | `SbiRet::invalid_param()`   | The `flags` parameter is not zero or the `shmem` is not 4096-byte aligned.
     /// | `SbiRet::invalid_address()` | The shared memory pointed to by the `shmem` parameter is not writable or does not satisfy other requirements of shared memory physical address range.
-    // fixme: `shmem` should have length of a constant definition like `SharedPtr<[u8; SHMEM_LEN]>`,
-    // where `SHMEM_LEN` is defined in `sbi-spec` crate to be `4096 + (XLEN * 128)`.
-    fn set_shmem(
-        &self,
-        shmem: SharedPtr<[u8; size_of::<usize>() * 128 + 4096]>,
-        flags: usize,
-    ) -> SbiRet;
+    fn set_shmem(&self, shmem: SharedPtr<[u8; NATIVE]>, flags: usize) -> SbiRet;
     /// Synchronize shared memory CSRs.
     ///
     /// Synchronize CSRs in the nested acceleration shared memory. This is an
@@ -154,11 +149,7 @@ impl<T: Nacl> Nacl for T {
         T::probe_feature(self, feature_id)
     }
     #[inline]
-    fn set_shmem(
-        &self,
-        shmem: SharedPtr<[u8; size_of::<usize>() * 128 + 4096]>,
-        flags: usize,
-    ) -> SbiRet {
+    fn set_shmem(&self, shmem: SharedPtr<[u8; NATIVE]>, flags: usize) -> SbiRet {
         T::set_shmem(self, shmem, flags)
     }
     #[inline]
