@@ -1,5 +1,3 @@
-use core::convert::Infallible;
-
 use crate::HartMask;
 use riscv::register::{marchid, mimpid, mvendorid};
 use spec::binary::{Physical, SbiRet};
@@ -20,6 +18,10 @@ pub struct _StandardExtensionProbe {
     pub ipi: usize,
     pub hsm: usize,
     pub reset: usize,
+    pub pmu: usize,
+    pub console: usize,
+    pub susp: usize,
+    pub cppc: usize,
 }
 
 #[doc(hidden)]
@@ -56,7 +58,7 @@ fn probe_extension(extension: usize, probe: _StandardExtensionProbe) -> usize {
         spec::rfnc::EID_RFNC => probe.fence,
         spec::srst::EID_SRST => probe.reset,
         spec::hsm::EID_HSM => probe.hsm,
-        // spec::pmu::EID_PMU => self.pmu.is_some(),
+        spec::pmu::EID_PMU => probe.pmu,
         // spec::dbcn::EID_DBCN => self.dbcn.is_some(),
         // spec::susp::EID_SUSP => self.susp.is_some(),
         // spec::cppc::EID_CPPC => self.cppc.is_some(),
@@ -148,7 +150,7 @@ pub fn _rustsbi_hsm<T: crate::Hsm>(hsm: T, param: [usize; 6], function: usize) -
 
 #[doc(hidden)]
 #[inline(always)]
-pub fn _rustsbi_srst<T: crate::Reset>(reset: T, param: [usize; 6], function: usize) -> SbiRet {
+pub fn _rustsbi_reset<T: crate::Reset>(reset: T, param: [usize; 6], function: usize) -> SbiRet {
     let [param0, param1] = [param[0], param[1]];
     match function {
         spec::srst::SYSTEM_RESET => match (u32::try_from(param0), u32::try_from(param1)) {
@@ -159,141 +161,125 @@ pub fn _rustsbi_srst<T: crate::Reset>(reset: T, param: [usize; 6], function: usi
     }
 }
 
-// Placeholder for a structure that implements all RustSBI traits but is never accessed
-
-// fixme: Should be replaced to never type `!` once it's stablized
-// https://github.com/rust-lang/rust/issues/35121
-
-// fixme: should be replaced to impl SomeTrait for ! once never type is stablized
-
-impl crate::Timer for Infallible {
-    fn set_timer(&self, _: u64) {
-        unreachable!()
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_pmu<T: crate::Pmu>(pmu: T, param: [usize; 6], function: usize) -> SbiRet {
+    match () {
+        #[cfg(target_pointer_width = "64")]
+        () => {
+            let [param0, param1, param2, param3, param4] =
+                [param[0], param[1], param[2], param[3], param[4]];
+            match function {
+                spec::pmu::NUM_COUNTERS => SbiRet::success(pmu.num_counters()),
+                spec::pmu::COUNTER_GET_INFO => pmu.counter_get_info(param0),
+                spec::pmu::COUNTER_CONFIG_MATCHING => {
+                    pmu.counter_config_matching(param0, param1, param2, param3, param4 as _)
+                }
+                spec::pmu::COUNTER_START => pmu.counter_start(param0, param1, param2, param3 as _),
+                spec::pmu::COUNTER_STOP => pmu.counter_stop(param0, param1, param2),
+                spec::pmu::COUNTER_FW_READ => pmu.counter_fw_read(param0),
+                spec::pmu::COUNTER_FW_READ_HI => pmu.counter_fw_read_hi(param0),
+                _ => SbiRet::not_supported(),
+            }
+        }
+        #[cfg(target_pointer_width = "32")]
+        () => {
+            let [param0, param1, param2, param3, param4, param5] =
+                [param[0], param[1], param[2], param[3], param[4], param[5]];
+            match function {
+                spec::pmu::NUM_COUNTERS => SbiRet::success(pmu.num_counters()),
+                spec::pmu::COUNTER_GET_INFO => pmu.counter_get_info(param0),
+                spec::pmu::COUNTER_CONFIG_MATCHING => pmu.counter_config_matching(
+                    param0,
+                    param1,
+                    param2,
+                    param3,
+                    concat_u32(param5, param4),
+                ),
+                spec::pmu::COUNTER_START => {
+                    pmu.counter_start(param0, param1, param2, concat_u32(param4, param3))
+                }
+                spec::pmu::COUNTER_STOP => pmu.counter_stop(param0, param1, param2),
+                spec::pmu::COUNTER_FW_READ => pmu.counter_fw_read(param0),
+                spec::pmu::COUNTER_FW_READ_HI => pmu.counter_fw_read_hi(param0),
+                _ => SbiRet::not_supported(),
+            }
+        }
     }
 }
 
-impl crate::Ipi for Infallible {
-    fn send_ipi(&self, _: HartMask) -> SbiRet {
-        unreachable!()
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_console<T: crate::Console>(
+    console: T,
+    param: [usize; 6],
+    function: usize,
+) -> SbiRet {
+    let [param0, param1, param2] = [param[0], param[1], param[2]];
+    match function {
+        spec::dbcn::CONSOLE_WRITE => {
+            let bytes = Physical::new(param0, param1, param2);
+            console.write(bytes)
+        }
+        spec::dbcn::CONSOLE_READ => {
+            let bytes = Physical::new(param0, param1, param2);
+            console.read(bytes)
+        }
+        spec::dbcn::CONSOLE_WRITE_BYTE => console.write_byte((param0 & 0xFF) as u8),
+        _ => SbiRet::not_supported(),
     }
 }
 
-impl crate::Fence for Infallible {
-    #[inline]
-    fn remote_fence_i(&self, _: HartMask) -> SbiRet {
-        unreachable!()
-    }
-    #[inline]
-    fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
-        unreachable!()
-    }
-    #[inline]
-    fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
-        unreachable!()
-    }
-    #[inline]
-    fn remote_hfence_gvma_vmid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
-        unreachable!()
-    }
-    #[inline]
-    fn remote_hfence_gvma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
-        unreachable!()
-    }
-    #[inline]
-    fn remote_hfence_vvma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
-        unreachable!()
-    }
-    #[inline]
-    fn remote_hfence_vvma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
-        unreachable!()
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_susp<T: crate::Susp>(susp: T, param: [usize; 6], function: usize) -> SbiRet {
+    let [param0, param1, param2] = [param[0], param[1], param[2]];
+    match function {
+        spec::susp::SUSPEND => match u32::try_from(param0) {
+            Ok(sleep_type) => susp.system_suspend(sleep_type, param1, param2),
+            _ => SbiRet::invalid_param(),
+        },
+        _ => SbiRet::not_supported(),
     }
 }
 
-impl crate::Hsm for Infallible {
-    fn hart_start(&self, _: usize, _: usize, _: usize) -> SbiRet {
-        unreachable!()
-    }
-
-    fn hart_stop(&self) -> SbiRet {
-        unreachable!()
-    }
-
-    fn hart_get_status(&self, _: usize) -> SbiRet {
-        unreachable!()
-    }
-
-    fn hart_suspend(&self, _: u32, _: usize, _: usize) -> SbiRet {
-        unreachable!()
-    }
-}
-
-impl crate::Reset for Infallible {
-    fn system_reset(&self, _: u32, _: u32) -> SbiRet {
-        unreachable!()
-    }
-}
-
-impl crate::Pmu for Infallible {
-    fn num_counters(&self) -> usize {
-        unreachable!()
-    }
-
-    fn counter_get_info(&self, _: usize) -> SbiRet {
-        unreachable!()
-    }
-
-    fn counter_config_matching(&self, _: usize, _: usize, _: usize, _: usize, _: u64) -> SbiRet {
-        unreachable!()
-    }
-
-    fn counter_start(&self, _: usize, _: usize, _: usize, _: u64) -> SbiRet {
-        unreachable!()
-    }
-
-    fn counter_stop(&self, _: usize, _: usize, _: usize) -> SbiRet {
-        unreachable!()
-    }
-
-    fn counter_fw_read(&self, _: usize) -> SbiRet {
-        unreachable!()
-    }
-
-    fn counter_fw_read_hi(&self, _: usize) -> SbiRet {
-        unreachable!()
-    }
-}
-
-impl crate::Console for Infallible {
-    fn write(&self, _: Physical<&[u8]>) -> SbiRet {
-        unreachable!()
-    }
-
-    fn read(&self, _: Physical<&mut [u8]>) -> SbiRet {
-        unreachable!()
-    }
-
-    fn write_byte(&self, _: u8) -> SbiRet {
-        unreachable!()
-    }
-}
-
-impl crate::Susp for Infallible {
-    fn system_suspend(&self, _: u32, _: usize, _: usize) -> SbiRet {
-        unreachable!()
-    }
-}
-
-impl crate::Cppc for Infallible {
-    fn probe(&self, _: u32) -> SbiRet {
-        unreachable!()
-    }
-    fn read(&self, _: u32) -> SbiRet {
-        unreachable!()
-    }
-    fn read_hi(&self, _: u32) -> SbiRet {
-        unreachable!()
-    }
-    fn write(&self, _: u32, _: u64) -> SbiRet {
-        unreachable!()
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_cppc<T: crate::Cppc>(cppc: T, param: [usize; 6], function: usize) -> SbiRet {
+    match () {
+        #[cfg(target_pointer_width = "64")]
+        () => {
+            let [param0, param1] = [param[0], param[1]];
+            match function {
+                spec::cppc::PROBE => match u32::try_from(param0) {
+                    Ok(reg_id) => cppc.probe(reg_id),
+                    _ => SbiRet::invalid_param(),
+                },
+                spec::cppc::READ => match u32::try_from(param0) {
+                    Ok(reg_id) => cppc.read(reg_id),
+                    _ => SbiRet::invalid_param(),
+                },
+                spec::cppc::READ_HI => match u32::try_from(param0) {
+                    Ok(reg_id) => cppc.read_hi(reg_id),
+                    _ => SbiRet::invalid_param(),
+                },
+                spec::cppc::WRITE => match u32::try_from(param0) {
+                    Ok(reg_id) => cppc.write(reg_id, param1 as _),
+                    _ => SbiRet::invalid_param(),
+                },
+                _ => SbiRet::not_supported(),
+            }
+        }
+        #[cfg(target_pointer_width = "32")]
+        () => {
+            let [param0, param1, param2] = [param[0], param[1], param[2]];
+            match function {
+                spec::cppc::PROBE => cppc.probe(param0 as _),
+                spec::cppc::READ => cppc.read(param0 as _),
+                spec::cppc::READ_HI => cppc.read_hi(param0 as _),
+                spec::cppc::WRITE => cppc.write(param0 as _, concat_u32(param2, param1)),
+                _ => SbiRet::not_supported(),
+            }
+        }
     }
 }

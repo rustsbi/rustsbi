@@ -704,3 +704,142 @@ impl<T, I, R, H, S, P, C, SU, CP> Builder<T, I, R, H, S, P, C, SU, CP> {
         self.inner
     }
 }
+
+// Placeholder for a structure that implements all RustSBI traits but is never accessed
+
+// fixme: Should be replaced to never type `!` once it's stablized
+// https://github.com/rust-lang/rust/issues/35121
+
+// fixme: should be replaced to impl SomeTrait for ! once never type is stablized
+
+impl crate::Timer for Infallible {
+    fn set_timer(&self, _: u64) {
+        unreachable!()
+    }
+}
+
+impl crate::Ipi for Infallible {
+    fn send_ipi(&self, _: HartMask) -> SbiRet {
+        unreachable!()
+    }
+}
+
+impl crate::Fence for Infallible {
+    #[inline]
+    fn remote_fence_i(&self, _: HartMask) -> SbiRet {
+        unreachable!()
+    }
+    #[inline]
+    fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
+        unreachable!()
+    }
+    #[inline]
+    fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
+        unreachable!()
+    }
+    #[inline]
+    fn remote_hfence_gvma_vmid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
+        unreachable!()
+    }
+    #[inline]
+    fn remote_hfence_gvma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
+        unreachable!()
+    }
+    #[inline]
+    fn remote_hfence_vvma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
+        unreachable!()
+    }
+    #[inline]
+    fn remote_hfence_vvma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
+        unreachable!()
+    }
+}
+
+impl crate::Hsm for Infallible {
+    fn hart_start(&self, _: usize, _: usize, _: usize) -> SbiRet {
+        unreachable!()
+    }
+
+    fn hart_stop(&self) -> SbiRet {
+        unreachable!()
+    }
+
+    fn hart_get_status(&self, _: usize) -> SbiRet {
+        unreachable!()
+    }
+
+    fn hart_suspend(&self, _: u32, _: usize, _: usize) -> SbiRet {
+        unreachable!()
+    }
+}
+
+impl crate::Reset for Infallible {
+    fn system_reset(&self, _: u32, _: u32) -> SbiRet {
+        unreachable!()
+    }
+}
+
+impl crate::Pmu for Infallible {
+    fn num_counters(&self) -> usize {
+        unreachable!()
+    }
+
+    fn counter_get_info(&self, _: usize) -> SbiRet {
+        unreachable!()
+    }
+
+    fn counter_config_matching(&self, _: usize, _: usize, _: usize, _: usize, _: u64) -> SbiRet {
+        unreachable!()
+    }
+
+    fn counter_start(&self, _: usize, _: usize, _: usize, _: u64) -> SbiRet {
+        unreachable!()
+    }
+
+    fn counter_stop(&self, _: usize, _: usize, _: usize) -> SbiRet {
+        unreachable!()
+    }
+
+    fn counter_fw_read(&self, _: usize) -> SbiRet {
+        unreachable!()
+    }
+
+    fn counter_fw_read_hi(&self, _: usize) -> SbiRet {
+        unreachable!()
+    }
+}
+
+impl crate::Console for Infallible {
+    fn write(&self, _: Physical<&[u8]>) -> SbiRet {
+        unreachable!()
+    }
+
+    fn read(&self, _: Physical<&mut [u8]>) -> SbiRet {
+        unreachable!()
+    }
+
+    fn write_byte(&self, _: u8) -> SbiRet {
+        unreachable!()
+    }
+}
+
+impl crate::Susp for Infallible {
+    fn system_suspend(&self, _: u32, _: usize, _: usize) -> SbiRet {
+        unreachable!()
+    }
+}
+
+impl crate::Cppc for Infallible {
+    fn probe(&self, _: u32) -> SbiRet {
+        unreachable!()
+    }
+    fn read(&self, _: u32) -> SbiRet {
+        unreachable!()
+    }
+    fn read_hi(&self, _: u32) -> SbiRet {
+        unreachable!()
+    }
+    fn write(&self, _: u32, _: u64) -> SbiRet {
+        unreachable!()
+    }
+}
