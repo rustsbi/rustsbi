@@ -2,17 +2,19 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, punctuated::Punctuated, Data, DeriveInput, Fields, Ident};
 
-#[derive(Default)]
-struct RustSBIImp {
-    fence: Option<Ident>,
-    hsm: Option<Ident>,
-    ipi: Option<Ident>,
-    reset: Option<Ident>,
-    timer: Option<Ident>,
-    pmu: Option<Ident>,
-    console: Option<Ident>,
-    susp: Option<Ident>,
-    cppc: Option<Ident>,
+#[derive(Clone, Default)]
+struct RustSBIImp<'a> {
+    fence: Option<&'a Ident>,
+    hsm: Option<&'a Ident>,
+    ipi: Option<&'a Ident>,
+    reset: Option<&'a Ident>,
+    timer: Option<&'a Ident>,
+    pmu: Option<&'a Ident>,
+    console: Option<&'a Ident>,
+    susp: Option<&'a Ident>,
+    cppc: Option<&'a Ident>,
+    nacl: Option<&'a Ident>,
+    sta: Option<&'a Ident>,
 }
 
 /// Implement RustSBI trait for structure of each extensions.
@@ -31,7 +33,7 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
     };
 
     let mut imp = RustSBIImp::default();
-    for field in fields {
+    for field in &fields {
         // for attr in field.attrs {
         //     if let Meta::List(list) = attr.meta {
         //         let vars =
@@ -42,26 +44,28 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
         // }
         if let Some(name) = &field.ident {
             match name.to_string().as_str() {
-                "rfnc" | "fence" => imp.fence = Some(name.clone()),
-                "hsm" => imp.hsm = Some(name.clone()),
-                "spi" | "ipi" => imp.ipi = Some(name.clone()),
-                "srst" | "reset" => imp.reset = Some(name.clone()),
-                "timer" => imp.timer = Some(name.clone()),
-                "pmu" => imp.pmu = Some(name.clone()),
-                "dbcn" | "console" => imp.console = Some(name.clone()),
-                "susp" => imp.susp = Some(name.clone()),
-                "cppc" => imp.cppc = Some(name.clone()),
+                "rfnc" | "fence" => imp.fence = Some(name),
+                "hsm" => imp.hsm = Some(name),
+                "spi" | "ipi" => imp.ipi = Some(name),
+                "srst" | "reset" => imp.reset = Some(name),
+                "timer" => imp.timer = Some(name),
+                "pmu" => imp.pmu = Some(name),
+                "dbcn" | "console" => imp.console = Some(name),
+                "susp" => imp.susp = Some(name),
+                "cppc" => imp.cppc = Some(name),
+                "nacl" => imp.nacl = Some(name),
+                "sta" => imp.sta = Some(name),
                 _ => {}
             }
         }
     }
 
     let mut ans = TokenStream::new();
-    ans.extend(impl_derive_rustsbi(&input.ident, &imp));
+    ans.extend(impl_derive_rustsbi(&input.ident, imp));
     ans
 }
 
-fn impl_derive_rustsbi(name: &Ident, imp: &RustSBIImp) -> TokenStream {
+fn impl_derive_rustsbi(name: &Ident, imp: RustSBIImp) -> TokenStream {
     let base_probe: usize = 1;
     let fence_probe: usize = if imp.fence.is_some() { 1 } else { 0 };
     let hsm_probe: usize = if imp.hsm.is_some() { 1 } else { 0 };
@@ -72,6 +76,8 @@ fn impl_derive_rustsbi(name: &Ident, imp: &RustSBIImp) -> TokenStream {
     let console_probe: usize = if imp.console.is_some() { 1 } else { 0 };
     let susp_probe: usize = if imp.susp.is_some() { 1 } else { 0 };
     let cppc_probe: usize = if imp.cppc.is_some() { 1 } else { 0 };
+    let nacl_probe: usize = if imp.nacl.is_some() { 1 } else { 0 };
+    let sta_probe: usize = if imp.sta.is_some() { 1 } else { 0 };
     let base_procedure = quote! {
         ::rustsbi::spec::base::EID_BASE => ::rustsbi::_rustsbi_base_machine(param, function,
             ::rustsbi::_StandardExtensionProbe {
@@ -85,6 +91,8 @@ fn impl_derive_rustsbi(name: &Ident, imp: &RustSBIImp) -> TokenStream {
                 console: #console_probe,
                 susp: #susp_probe,
                 cppc: #cppc_probe,
+                nacl: #nacl_probe,
+                sta: #sta_probe,
             }),
     };
     let fence_procedure = if let Some(fence) = &imp.fence {
@@ -150,6 +158,20 @@ fn impl_derive_rustsbi(name: &Ident, imp: &RustSBIImp) -> TokenStream {
     } else {
         quote! {}
     };
+    let nacl_procedure = if let Some(nacl) = &imp.nacl {
+        quote! {
+            ::rustsbi::spec::nacl::EID_NACL => ::rustsbi::_rustsbi_nacl(&self.#nacl, param, function),
+        }
+    } else {
+        quote! {}
+    };
+    let sta_procedure = if let Some(sta) = &imp.sta {
+        quote! {
+            ::rustsbi::spec::sta::EID_STA => ::rustsbi::_rustsbi_sta(&self.#sta, param, function),
+        }
+    } else {
+        quote! {}
+    };
     let gen = quote! {
     impl rustsbi::RustSBI for #name {
         #[inline]
@@ -165,6 +187,8 @@ fn impl_derive_rustsbi(name: &Ident, imp: &RustSBIImp) -> TokenStream {
                 #console_procedure
                 #susp_procedure
                 #cppc_procedure
+                #nacl_procedure
+                #sta_procedure
                 _ => SbiRet::not_supported(),
             }
         }

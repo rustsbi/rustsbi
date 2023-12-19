@@ -1,6 +1,6 @@
 use crate::HartMask;
 use riscv::register::{marchid, mimpid, mvendorid};
-use spec::binary::{Physical, SbiRet};
+use spec::binary::{Physical, SbiRet, SharedPtr};
 
 /// RustSBI trait including standard extensions.
 pub trait RustSBI {
@@ -22,6 +22,9 @@ pub struct _StandardExtensionProbe {
     pub console: usize,
     pub susp: usize,
     pub cppc: usize,
+    pub nacl: usize,
+    pub sta: usize,
+    // NOTE: don't forget to add to `fn probe_extension` as well
 }
 
 #[doc(hidden)]
@@ -59,9 +62,11 @@ fn probe_extension(extension: usize, probe: _StandardExtensionProbe) -> usize {
         spec::srst::EID_SRST => probe.reset,
         spec::hsm::EID_HSM => probe.hsm,
         spec::pmu::EID_PMU => probe.pmu,
-        // spec::dbcn::EID_DBCN => self.dbcn.is_some(),
-        // spec::susp::EID_SUSP => self.susp.is_some(),
-        // spec::cppc::EID_CPPC => self.cppc.is_some(),
+        spec::dbcn::EID_DBCN => probe.console,
+        spec::susp::EID_SUSP => probe.susp,
+        spec::cppc::EID_CPPC => probe.cppc,
+        spec::nacl::EID_NACL => probe.nacl,
+        spec::sta::EID_STA => probe.sta,
         _ => spec::base::UNAVAILABLE_EXTENSION,
     }
 }
@@ -281,5 +286,32 @@ pub fn _rustsbi_cppc<T: crate::Cppc>(cppc: T, param: [usize; 6], function: usize
                 _ => SbiRet::not_supported(),
             }
         }
+    }
+}
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_nacl<T: crate::Nacl>(nacl: T, param: [usize; 6], function: usize) -> SbiRet {
+    let [param0, param1, param2] = [param[0], param[1], param[2]];
+    match function {
+        spec::nacl::PROBE_FEATURE => match u32::try_from(param0) {
+            Ok(feature_id) => nacl.probe_feature(feature_id),
+            _ => SbiRet::invalid_param(),
+        },
+        spec::nacl::SET_SHMEM => nacl.set_shmem(SharedPtr::new(param0, param1), param2),
+        spec::nacl::SYNC_CSR => nacl.sync_csr(param0),
+        spec::nacl::SYNC_HFENCE => nacl.sync_hfence(param0),
+        spec::nacl::SYNC_SRET => nacl.sync_sret(),
+        _ => SbiRet::not_supported(),
+    }
+}
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_sta<T: crate::Sta>(sta: T, param: [usize; 6], function: usize) -> SbiRet {
+    let [param0, param1, param2] = [param[0], param[1], param[2]];
+    match function {
+        spec::sta::SET_SHMEM => sta.set_shmem(SharedPtr::new(param0, param1), param2),
+        _ => SbiRet::not_supported(),
     }
 }

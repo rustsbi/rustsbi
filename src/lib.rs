@@ -567,8 +567,8 @@ pub use traits::RustSBI;
 #[doc(hidden)]
 pub use traits::{
     _StandardExtensionProbe, _rustsbi_base_machine, _rustsbi_console, _rustsbi_cppc,
-    _rustsbi_fence, _rustsbi_hsm, _rustsbi_ipi, _rustsbi_pmu, _rustsbi_reset, _rustsbi_susp,
-    _rustsbi_timer,
+    _rustsbi_fence, _rustsbi_hsm, _rustsbi_ipi, _rustsbi_nacl, _rustsbi_pmu, _rustsbi_reset,
+    _rustsbi_sta, _rustsbi_susp, _rustsbi_timer,
 };
 
 // #[cfg(not(feature = "machine"))]
