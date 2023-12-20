@@ -15,6 +15,7 @@ struct RustSBIImp<'a> {
     cppc: Option<&'a Ident>,
     nacl: Option<&'a Ident>,
     sta: Option<&'a Ident>,
+    machine_info: Option<&'a Ident>,
 }
 
 /// Implement RustSBI trait for structure of each extensions.
@@ -55,6 +56,7 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
                 "cppc" => imp.cppc = Some(name),
                 "nacl" => imp.nacl = Some(name),
                 "sta" => imp.sta = Some(name),
+                "info" | "machine_info" => imp.machine_info = Some(name),
                 _ => {}
             }
         }
@@ -78,22 +80,40 @@ fn impl_derive_rustsbi(name: &Ident, imp: RustSBIImp) -> TokenStream {
     let cppc_probe: usize = if imp.cppc.is_some() { 1 } else { 0 };
     let nacl_probe: usize = if imp.nacl.is_some() { 1 } else { 0 };
     let sta_probe: usize = if imp.sta.is_some() { 1 } else { 0 };
-    let base_procedure = quote! {
-        ::rustsbi::spec::base::EID_BASE => ::rustsbi::_rustsbi_base_machine(param, function,
-            ::rustsbi::_StandardExtensionProbe {
-                base: #base_probe,
-                fence: #fence_probe,
-                hsm: #hsm_probe,
-                ipi: #ipi_probe,
-                reset: #reset_probe,
-                timer: #timer_probe,
-                pmu: #pmu_probe,
-                console: #console_probe,
-                susp: #susp_probe,
-                cppc: #cppc_probe,
-                nacl: #nacl_probe,
-                sta: #sta_probe,
-            }),
+    let probe = quote! {
+        ::rustsbi::_StandardExtensionProbe {
+            base: #base_probe,
+            fence: #fence_probe,
+            hsm: #hsm_probe,
+            ipi: #ipi_probe,
+            reset: #reset_probe,
+            timer: #timer_probe,
+            pmu: #pmu_probe,
+            console: #console_probe,
+            susp: #susp_probe,
+            cppc: #cppc_probe,
+            nacl: #nacl_probe,
+            sta: #sta_probe,
+        }
+    };
+    let base_procedure = if let Some(machine_info) = imp.machine_info {
+        quote! {
+            ::rustsbi::spec::base::EID_BASE => ::rustsbi::_rustsbi_base_machine_info(param, function, &self.#machine_info, #probe),
+        }
+    } else {
+        match () {
+            #[cfg(not(feature = "machine"))]
+            () => quote! {
+                ::rustsbi::spec::base::EID_BASE => compile_error!(
+                    "can't derive RustSBI: #[cfg(feature = \"machine\")] is needed to derive RustSBI with no extra MachineInfo provided; \
+            consider adding an `info` parameter to provide machine information if RustSBI is not run on machine mode."
+                ),
+            },
+            #[cfg(feature = "machine")]
+            () => quote! {
+                ::rustsbi::spec::base::EID_BASE => ::rustsbi::_rustsbi_base_bare(param, function, #probe),
+            },
+        }
     };
     let fence_procedure = if let Some(fence) = &imp.fence {
         quote! {

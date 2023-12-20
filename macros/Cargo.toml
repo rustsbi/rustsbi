@@ -11,3 +11,8 @@ proc-macro = true
 [dependencies]
 quote = "1.0.33"
 syn = "2.0.39"
+
+[features]
+default = []
+# Run RustSBI macros on machine mode - See Cargo.toml in root project
+machine = []

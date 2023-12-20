@@ -552,7 +552,6 @@ pub use console::Console;
 pub use cppc::Cppc;
 pub use hart_mask::HartMask;
 pub use hsm::Hsm;
-// pub use instance::{Builder, RustSBI};
 pub use ipi::Ipi;
 pub use nacl::Nacl;
 pub use pmu::Pmu;
@@ -561,15 +560,16 @@ pub use rfence::Rfence as Fence;
 pub use sta::Sta;
 pub use susp::Susp;
 pub use timer::Timer;
-pub use traits::RustSBI;
+pub use traits::{MachineInfo, RustSBI};
 
-// macro internal functions and structures
+// Macro internal functions and structures
+
+#[cfg(feature = "machine")]
+#[doc(hidden)]
+pub use traits::_rustsbi_base_bare;
 #[doc(hidden)]
 pub use traits::{
-    _StandardExtensionProbe, _rustsbi_base_machine, _rustsbi_console, _rustsbi_cppc,
+    _StandardExtensionProbe, _rustsbi_base_machine_info, _rustsbi_console, _rustsbi_cppc,
     _rustsbi_fence, _rustsbi_hsm, _rustsbi_ipi, _rustsbi_nacl, _rustsbi_pmu, _rustsbi_reset,
     _rustsbi_sta, _rustsbi_susp, _rustsbi_timer,
 };
-
-// #[cfg(not(feature = "machine"))]
-// pub use instance::MachineInfo;

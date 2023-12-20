@@ -1,4 +1,5 @@
 use crate::HartMask;
+#[cfg(feature = "machine")]
 use riscv::register::{marchid, mimpid, mvendorid};
 use spec::binary::{Physical, SbiRet, SharedPtr};
 
@@ -6,6 +7,24 @@ use spec::binary::{Physical, SbiRet, SharedPtr};
 pub trait RustSBI {
     /// Handle supervisor environment call with given parameters and return the `SbiRet` result.
     fn handle_ecall(&self, extension: usize, function: usize, param: [usize; 6]) -> SbiRet;
+}
+
+/// Machine information for SBI environment.
+///
+/// This trait is useful to build an SBI environment when RustSBI is not run directly on RISC-V machine mode.
+pub trait MachineInfo {
+    /// Vendor ID for the supervisor environment.
+    ///
+    /// Provides JEDEC manufacturer ID of the provider of the core.
+    fn mvendorid(&self) -> usize;
+    /// Architecture ID for the supervisor environment.
+    ///
+    /// Encodes the base micro-architecture of the hart.
+    fn marchid(&self) -> usize;
+    /// Implementation ID for the supervisor environment.
+    ///
+    /// Provides a unique encoding of the version of the processor implementation.
+    fn mimpid(&self) -> usize;
 }
 
 /* macro internal structures and functions */
@@ -27,9 +46,10 @@ pub struct _StandardExtensionProbe {
     // NOTE: don't forget to add to `fn probe_extension` as well
 }
 
+#[cfg(feature = "machine")]
 #[doc(hidden)]
 #[inline(always)]
-pub fn _rustsbi_base_machine(
+pub fn _rustsbi_base_bare(
     param: [usize; 6],
     function: usize,
     probe: _StandardExtensionProbe,
@@ -47,6 +67,32 @@ pub fn _rustsbi_base_machine(
         spec::base::GET_MVENDORID => mvendorid::read().map(|r| r.bits()).unwrap_or(0),
         spec::base::GET_MARCHID => marchid::read().map(|r| r.bits()).unwrap_or(0),
         spec::base::GET_MIMPID => mimpid::read().map(|r| r.bits()).unwrap_or(0),
+        _ => return SbiRet::not_supported(),
+    };
+    SbiRet::success(value)
+}
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_base_machine_info<T: MachineInfo>(
+    param: [usize; 6],
+    function: usize,
+    machine_info: &T,
+    probe: _StandardExtensionProbe,
+) -> SbiRet {
+    let [param0] = [param[0]];
+    let value = match function {
+        spec::base::GET_SBI_SPEC_VERSION => (crate::SBI_SPEC_MAJOR << 24) | (crate::SBI_SPEC_MINOR),
+        spec::base::GET_SBI_IMPL_ID => crate::IMPL_ID_RUSTSBI,
+        spec::base::GET_SBI_IMPL_VERSION => crate::RUSTSBI_VERSION,
+        spec::base::PROBE_EXTENSION => {
+            // only provides probes to standard extensions. If you have customized extensions to be probed,
+            // run it even before this `handle_ecall` function.
+            probe_extension(param0, probe)
+        }
+        spec::base::GET_MVENDORID => machine_info.mvendorid(),
+        spec::base::GET_MARCHID => machine_info.marchid(),
+        spec::base::GET_MIMPID => machine_info.mimpid(),
         _ => return SbiRet::not_supported(),
     };
     SbiRet::success(value)
@@ -73,7 +119,7 @@ fn probe_extension(extension: usize, probe: _StandardExtensionProbe) -> usize {
 
 #[doc(hidden)]
 #[inline(always)]
-pub fn _rustsbi_fence<T: crate::Fence>(fence: T, param: [usize; 6], function: usize) -> SbiRet {
+pub fn _rustsbi_fence<T: crate::Fence>(fence: &T, param: [usize; 6], function: usize) -> SbiRet {
     let [param0, param1, param2, param3, param4] =
         [param[0], param[1], param[2], param[3], param[4]];
     let hart_mask = HartMask::from_mask_base(param0, param1);
@@ -97,7 +143,7 @@ pub fn _rustsbi_fence<T: crate::Fence>(fence: T, param: [usize; 6], function: us
 
 #[doc(hidden)]
 #[inline(always)]
-pub fn _rustsbi_timer<T: crate::Timer>(timer: T, param: [usize; 6], function: usize) -> SbiRet {
+pub fn _rustsbi_timer<T: crate::Timer>(timer: &T, param: [usize; 6], function: usize) -> SbiRet {
     match () {
         #[cfg(target_pointer_width = "64")]
         () => {
@@ -126,7 +172,7 @@ pub fn _rustsbi_timer<T: crate::Timer>(timer: T, param: [usize; 6], function: us
 
 #[doc(hidden)]
 #[inline(always)]
-pub fn _rustsbi_ipi<T: crate::Ipi>(ipi: T, param: [usize; 6], function: usize) -> SbiRet {
+pub fn _rustsbi_ipi<T: crate::Ipi>(ipi: &T, param: [usize; 6], function: usize) -> SbiRet {
     let [param0, param1] = [param[0], param[1]];
     match function {
         spec::spi::SEND_IPI => ipi.send_ipi(HartMask::from_mask_base(param0, param1)),
@@ -136,7 +182,7 @@ pub fn _rustsbi_ipi<T: crate::Ipi>(ipi: T, param: [usize; 6], function: usize) -
 
 #[doc(hidden)]
 #[inline(always)]
-pub fn _rustsbi_hsm<T: crate::Hsm>(hsm: T, param: [usize; 6], function: usize) -> SbiRet {
+pub fn _rustsbi_hsm<T: crate::Hsm>(hsm: &T, param: [usize; 6], function: usize) -> SbiRet {
     let [param0, param1, param2] = [param[0], param[1], param[2]];
     match function {
         spec::hsm::HART_START => hsm.hart_start(param0, param1, param2),
@@ -155,7 +201,7 @@ pub fn _rustsbi_hsm<T: crate::Hsm>(hsm: T, param: [usize; 6], function: usize) -
 
 #[doc(hidden)]
 #[inline(always)]
-pub fn _rustsbi_reset<T: crate::Reset>(reset: T, param: [usize; 6], function: usize) -> SbiRet {
+pub fn _rustsbi_reset<T: crate::Reset>(reset: &T, param: [usize; 6], function: usize) -> SbiRet {
     let [param0, param1] = [param[0], param[1]];
     match function {
         spec::srst::SYSTEM_RESET => match (u32::try_from(param0), u32::try_from(param1)) {
@@ -168,7 +214,7 @@ pub fn _rustsbi_reset<T: crate::Reset>(reset: T, param: [usize; 6], function: us
 
 #[doc(hidden)]
 #[inline(always)]
-pub fn _rustsbi_pmu<T: crate::Pmu>(pmu: T, param: [usize; 6], function: usize) -> SbiRet {
+pub fn _rustsbi_pmu<T: crate::Pmu>(pmu: &T, param: [usize; 6], function: usize) -> SbiRet {
     match () {
         #[cfg(target_pointer_width = "64")]
         () => {
@@ -216,7 +262,7 @@ pub fn _rustsbi_pmu<T: crate::Pmu>(pmu: T, param: [usize; 6], function: usize) -
 #[doc(hidden)]
 #[inline(always)]
 pub fn _rustsbi_console<T: crate::Console>(
-    console: T,
+    console: &T,
     param: [usize; 6],
     function: usize,
 ) -> SbiRet {
@@ -237,7 +283,7 @@ pub fn _rustsbi_console<T: crate::Console>(
 
 #[doc(hidden)]
 #[inline(always)]
-pub fn _rustsbi_susp<T: crate::Susp>(susp: T, param: [usize; 6], function: usize) -> SbiRet {
+pub fn _rustsbi_susp<T: crate::Susp>(susp: &T, param: [usize; 6], function: usize) -> SbiRet {
     let [param0, param1, param2] = [param[0], param[1], param[2]];
     match function {
         spec::susp::SUSPEND => match u32::try_from(param0) {
@@ -250,7 +296,7 @@ pub fn _rustsbi_susp<T: crate::Susp>(susp: T, param: [usize; 6], function: usize
 
 #[doc(hidden)]
 #[inline(always)]
-pub fn _rustsbi_cppc<T: crate::Cppc>(cppc: T, param: [usize; 6], function: usize) -> SbiRet {
+pub fn _rustsbi_cppc<T: crate::Cppc>(cppc: &T, param: [usize; 6], function: usize) -> SbiRet {
     match () {
         #[cfg(target_pointer_width = "64")]
         () => {
@@ -291,7 +337,7 @@ pub fn _rustsbi_cppc<T: crate::Cppc>(cppc: T, param: [usize; 6], function: usize
 
 #[doc(hidden)]
 #[inline(always)]
-pub fn _rustsbi_nacl<T: crate::Nacl>(nacl: T, param: [usize; 6], function: usize) -> SbiRet {
+pub fn _rustsbi_nacl<T: crate::Nacl>(nacl: &T, param: [usize; 6], function: usize) -> SbiRet {
     let [param0, param1, param2] = [param[0], param[1], param[2]];
     match function {
         spec::nacl::PROBE_FEATURE => match u32::try_from(param0) {
@@ -308,7 +354,7 @@ pub fn _rustsbi_nacl<T: crate::Nacl>(nacl: T, param: [usize; 6], function: usize
 
 #[doc(hidden)]
 #[inline(always)]
-pub fn _rustsbi_sta<T: crate::Sta>(sta: T, param: [usize; 6], function: usize) -> SbiRet {
+pub fn _rustsbi_sta<T: crate::Sta>(sta: &T, param: [usize; 6], function: usize) -> SbiRet {
     let [param0, param1, param2] = [param[0], param[1], param[2]];
     match function {
         spec::sta::SET_SHMEM => sta.set_shmem(SharedPtr::new(param0, param1), param2),
