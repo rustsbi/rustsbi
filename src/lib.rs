@@ -546,6 +546,33 @@ const RUSTSBI_VERSION: usize =
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub extern crate sbi_spec as spec;
+/// Implement RustSBI trait for structure of each extensions.
+///
+/// This macro should be used over a struct of RISC-V SBI extension implementaions.
+/// For example:
+///
+/// ```rust
+/// #[derive(RustSBI)]
+/// struct MySBI {
+///     fence: MyFence,
+///     info: MyMachineInfo,
+/// }
+/// # use rustsbi::{RustSBI, HartMask};
+/// # use sbi_spec::binary::SbiRet;
+/// # struct MyFence;
+/// # impl rustsbi::Fence for MyFence {
+/// #     fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// # }
+/// # struct MyMachineInfo;
+/// # impl rustsbi::MachineInfo for MyMachineInfo {
+/// #     fn mvendorid(&self) -> usize { 1 }
+/// #     fn marchid(&self) -> usize { 2 }
+/// #     fn mimpid(&self) -> usize { 3 }
+/// # }
+/// ```
+#[doc(inline)]
 pub use rustsbi_macros::RustSBI;
 
 pub use console::Console;

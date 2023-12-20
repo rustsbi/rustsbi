@@ -18,7 +18,7 @@ struct RustSBIImp<'a> {
     machine_info: Option<&'a Ident>,
 }
 
-/// Implement RustSBI trait for structure of each extensions.
+/// This macro should be used in `rustsbi` crate as `rustsbi::RustSBI`.
 #[proc_macro_derive(RustSBI, attributes(rustsbi))]
 pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
