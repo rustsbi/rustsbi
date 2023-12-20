@@ -361,3 +361,9 @@ pub fn _rustsbi_sta<T: crate::Sta>(sta: &T, param: [usize; 6], function: usize) 
         _ => SbiRet::not_supported(),
     }
 }
+
+#[cfg(target_pointer_width = "32")]
+#[inline]
+const fn concat_u32(h: usize, l: usize) -> u64 {
+    ((h as u64) << 32) | (l as u64)
+}
