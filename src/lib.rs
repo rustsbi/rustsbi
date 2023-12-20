@@ -176,7 +176,7 @@
 //! struct Executor {
 //!     ctx: SupervisorContext,
 //!     /* other environment variables ... */
-//!     sbi: RustSBI<Clint, Clint, MyPlatRfnc, MyPlatHsm, MyBoardPower, MyPlatPmu, MyPlatDbcn, MyPlatSusp, MyPlatCppc>,
+//!     // sbi: RustSBI<Clint, Clint, MyPlatRfnc, MyPlatHsm, MyBoardPower, MyPlatPmu, MyPlatDbcn, MyPlatSusp, MyPlatCppc>,
 //!     /* custom_1: CustomSBI<...> */
 //! }
 //!

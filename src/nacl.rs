@@ -143,7 +143,7 @@ pub trait Nacl: Send + Sync {
     fn sync_sret(&self) -> SbiRet;
 }
 
-impl<T: Nacl> Nacl for T {
+impl<T: Nacl> Nacl for &T {
     #[inline]
     fn probe_feature(&self, feature_id: u32) -> SbiRet {
         T::probe_feature(self, feature_id)

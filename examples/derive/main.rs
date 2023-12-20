@@ -49,7 +49,7 @@ fn main() {
     // Finally, fill SBI return value into exception environment and return.
     // In bare metal: fill `a0` and `a1` register in trap context with `SbiRet` value;
     // In hypervisor: fill guest supervisor `a0` and `a1` with `SbiRet` value.
-    let _  = ret; // It should be filled into context on real programs.
+    let _ = ret; // It should be filled into context on real programs.
 
     // Congratulations! You have learned how to use RustSBI to create your SBI implementaion.
     // You may consider using the RustSBI Prototyping System, build a standalone
@@ -57,7 +57,7 @@ fn main() {
     // development.
 
     // Additionally, we present another mock function suggesting this instance is running
-    // RustSBI by showing that SBI implementation ID equals 4. 
+    // RustSBI by showing that SBI implementation ID equals 4.
     let ret = sbi.handle_ecall(0x10, 0x1, [0; 6]);
     println!("SBI implementation ID: {:x?}", ret.value);
 }

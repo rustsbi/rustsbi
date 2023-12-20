@@ -49,7 +49,7 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
                 "hsm" => imp.hsm = Some(name),
                 "spi" | "ipi" => imp.ipi = Some(name),
                 "srst" | "reset" => imp.reset = Some(name),
-                "timer" => imp.timer = Some(name),
+                "time" | "timer" => imp.timer = Some(name),
                 "pmu" => imp.pmu = Some(name),
                 "dbcn" | "console" => imp.console = Some(name),
                 "susp" => imp.susp = Some(name),
@@ -145,7 +145,7 @@ fn impl_derive_rustsbi(name: &Ident, imp: RustSBIImp) -> TokenStream {
     };
     let timer_procedure = if let Some(timer) = &imp.timer {
         quote! {
-            ::rustsbi::spec::timer::EID_TIMER => ::rustsbi::_rustsbi_timer(&self.#timer, param, function),
+            ::rustsbi::spec::time::EID_TIME => ::rustsbi::_rustsbi_timer(&self.#timer, param, function),
         }
     } else {
         quote! {}
