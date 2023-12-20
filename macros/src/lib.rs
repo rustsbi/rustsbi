@@ -209,7 +209,7 @@ fn impl_derive_rustsbi(name: &Ident, imp: RustSBIImp) -> TokenStream {
                 #cppc_procedure
                 #nacl_procedure
                 #sta_procedure
-                _ => SbiRet::not_supported(),
+                _ => ::rustsbi::spec::binary::SbiRet::not_supported(),
             }
         }
     }

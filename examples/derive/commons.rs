@@ -1,17 +1,11 @@
-use rustsbi::{HartMask, MachineInfo, RustSBI};
+use rustsbi::{HartMask, MachineInfo};
 use sbi_spec::binary::SbiRet;
 
-#[derive(RustSBI)]
-struct MySBI {
-    fence: MyFence,
-    info: MyMachineInfo,
-}
-
-struct MyFence;
+pub struct MyFence;
 
 impl rustsbi::Fence for MyFence {
     fn remote_fence_i(&self, _: HartMask) -> SbiRet {
-        println!("remote fence i called");
+        println!("MyFence remote_fence_i function is called!");
         SbiRet::success(0)
     }
 
@@ -24,7 +18,7 @@ impl rustsbi::Fence for MyFence {
     }
 }
 
-struct MyMachineInfo;
+pub struct MyMachineInfo;
 
 impl MachineInfo for MyMachineInfo {
     fn mvendorid(&self) -> usize {
@@ -38,14 +32,4 @@ impl MachineInfo for MyMachineInfo {
     fn mimpid(&self) -> usize {
         0x300
     }
-}
-
-fn main() {
-    let sbi = MySBI {
-        fence: MyFence,
-        info: MyMachineInfo,
-    };
-    sbi.handle_ecall(sbi_spec::rfnc::EID_RFNC, 0, [0; 6]);
-    let sbi_impl_id = sbi.handle_ecall(0x10, 0x1, [0; 6]);
-    println!("SBI implementation ID: {:x?}", sbi_impl_id.value);
 }
