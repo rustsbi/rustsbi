@@ -28,7 +28,7 @@ default = []
 # This feature enables to use RISC-V primitives on current machine mode environment
 # If you are developing a cross-architecture virtual machine, consider disabling this feature
 # to customize environment variables for RISC-V architecture like mvendorid, mimpid, etc.
-machine = ["dep:riscv"]
+machine = ["rustsbi-macros/machine", "dep:riscv"]
 
 [package.metadata.docs.rs]
 default-target = "riscv64imac-unknown-none-elf"

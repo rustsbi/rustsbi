@@ -546,7 +546,231 @@ const RUSTSBI_VERSION: usize =
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub extern crate sbi_spec as spec;
-/// Implement RustSBI trait for structure of each extensions.
+/// Generate `RustSBI` implementation for structure of each extensions.
+///
+/// # Usage
+///
+/// The `#[derive(RustSBI)]` macro provides a convenient way of building `RustSBI` trait implementation.
+/// To use this macro, say that we have a struct `MyFence` with RISC-V SBI Remote Fence extension
+/// implemented using `rustsbi::Fence` trait. Then, we build a struct around it, representing a
+/// whole SBI implementation including one `Fence` extension only; we can name it `MySBI`:
+///
+/// ```rust
+/// struct MySBI {
+///     fence: MyFence,
+/// }
+///
+/// struct MyFence { /* fields */ }
+///
+/// # use rustsbi::{RustSBI, HartMask};
+/// # use sbi_spec::binary::SbiRet;
+/// impl rustsbi::Fence for MyFence {
+///     /* implementation details */
+/// #   fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
+/// #   fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// #   fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// }
+/// ```
+///
+/// Here, we declared the field named `fence` with type `MyFence`. The name `fence` is special, it tells
+/// RustSBI derive macro that this field implements SBI Remote Fence instead of other SBI extensions.
+/// We can continue to adding more fields into `MySBI`. For example, if we have RISC-V SBI Time extension
+/// implementation `MyTimer`, we can add it to `MySBI`:
+///
+/// ```rust
+/// struct MySBI {
+///     fence: MyFence,
+///     timer: MyTimer,
+/// }
+/// # struct MyFence;
+/// # struct MyTimer;
+/// ```
+///
+/// Don't forget that the name `timer` is also a special field name. There is a detailed list after this
+/// chapter describing what special field name would the `RustSBI` macro identify.
+///
+/// It looks like we are ready to derive `RustSBI` macro on `MySBI`! Let's try it now ...
+///
+/// ```compile_fail
+/// #[derive(RustSBI)]
+/// struct MySBI {
+///     fence: MyFence,
+///     timer: MyTimer,
+/// #   #[cfg(feature = "machine")] info: () // compile would success on #[cfg(feature = "machine")], cause it always to fail
+/// }
+/// # use rustsbi::{RustSBI, HartMask};
+/// # use sbi_spec::binary::SbiRet;
+/// # struct MyFence;
+/// # impl rustsbi::Fence for MyFence {
+/// #     fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// # }
+/// # struct MyTimer;
+/// # impl rustsbi::Timer for MyTimer {
+/// #     fn set_timer(&self, stime_value: u64) { unimplemented!() }
+/// # }
+/// ```
+///
+/// Oops! Compile failed. We'd check what happened here:
+///
+/// ```text
+/// error: can't derive RustSBI: #[cfg(feature = "machine")] is needed to derive RustSBI with no extra MachineInfo provided; consider adding an `info` parameter to provide machine information if RustSBI is not run on machine mode.
+///  --> example.rs:LL:10
+///    |
+/// LL | #[derive(RustSBI)]
+///    |          ^^^^^^^
+///    |
+///  = note: this error originates in the derive macro `RustSBI` (in Nightly builds, run with -Z macro-backtrace for more info)
+///
+/// error: aborting due to previous error
+/// ```
+///
+/// The error message hints that we don't have machine information implementing trait `MachineInfo`
+/// provided. By default, RustSBI is targeted to provide RISC-V supervisor environment on any hardware,
+/// targeting hypervisor, emulator and binary translation applications. In this case, the virtualized
+/// environment should provide the supervisor with machine information like `mvendorid`, `marchid` and
+/// `mimpid` values. RustSBI could also be used on bare-metal RISC-V machines where such values would
+/// be directly accessible through CSR read operations.
+///
+/// If we are targeting bare-metal, we can use the RustSBI library with `#[cfg(feature = "machine")]`
+/// enabled by changing `dependencies` section in `Cargo.toml` file (if we are using Cargo):
+///
+/// ```toml
+/// [dependencies]
+/// rustsbi = { version = "0.4.0", features = ["machine"] }
+/// ```
+///
+/// If that's not the case and we are writing a virtualization targeted application, we should add a
+/// `MachineInfo` implementation into the structure like `MySBI` mentioned above, with a special field
+/// name `info`. We can do it like:
+///
+/// ```rust
+/// #[derive(RustSBI)]
+/// struct MySBI {
+///     fence: MyFence,
+///     timer: MyTimer,
+/// #   #[cfg(not(feature = "machine"))]
+///     info: MyMachineInfo,
+/// }
+///
+/// struct MyMachineInfo;
+///
+/// impl rustsbi::MachineInfo for MyMachineInfo {
+///     #[inline]
+///     fn mvendorid(&self) -> usize { todo!("add real value here") }
+///     #[inline]
+///     fn marchid(&self) -> usize { todo!("add real value here") }
+///     #[inline]
+///     fn mimpid(&self) -> usize { todo!("add real value here") }
+/// }
+/// # use rustsbi::{RustSBI, HartMask};
+/// # use sbi_spec::binary::SbiRet;
+/// # struct MyFence;
+/// # impl rustsbi::Fence for MyFence {
+/// #     fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// # }
+/// # struct MyTimer;
+/// # impl rustsbi::Timer for MyTimer {
+/// #     fn set_timer(&self, stime_value: u64) { unimplemented!() }
+/// # }
+/// ```
+///
+/// Then, when we compile our code with `MySBI`, we'll found that the code now compiles successfully.
+///
+/// To use the derived `RustSBI` implementation, we note out that this structure now implements the trait
+/// `RustSBI` with function `handle_ecall`. We can pass SBI extension, function and parameters into
+/// `handle_ecall`, and reads the SBI call result from its return value with the type `SbiRet`.
+/// To illustrate this feature, we make an SBI call to read the SBI implementation ID, like:
+///
+/// ```rust
+/// # use rustsbi::RustSBI;
+/// #[derive(RustSBI)]
+/// struct MySBI {
+///     /* we omit the extension fields by now */
+/// #   info: MyMachineInfo,
+/// }
+///
+/// fn main() {
+///     // Create a MySBI instance.
+///     let sbi = MySBI {
+///         /* include initial values for fields */
+/// #       info: MyMachineInfo
+///     };
+///     // Make the call. Read SBI implementation ID resides in extension Base (0x10),
+///     // with function id 1, and it doesn't have any parameters.
+///     let ret = sbi.handle_ecall(0x10, 0x1, [0; 6]);
+///     // Let's check the result...
+///     println!("SBI implementation ID for MySBI: {}", ret.value);
+///     assert_eq!(ret.value, 4);
+/// }
+/// # struct MyMachineInfo;
+/// # impl rustsbi::MachineInfo for MyMachineInfo {
+/// #     fn mvendorid(&self) -> usize { unimplemented!() }
+/// #     fn marchid(&self) -> usize { unimplemented!() }
+/// #     fn mimpid(&self) -> usize { unimplemented!() }
+/// # }
+/// ```
+///
+/// Run the code and we'll find following output in the console:
+///
+/// ```text
+/// SBI implementation ID for MySBI: 4
+/// ```
+///
+/// The SBI call returns the number 4 as SBI call result. By looking up the RISC-V SBI Specification,
+/// we acknowledge that RustSBI have the implementation ID of 4. You have successfully made your first
+/// SBI call from a derived `RustSBI` implementation!
+///
+/// If we learn further from the RISC-V privileged software architecture, we may know more about how
+/// RISC-V SBI works on an environment to support supervisor software. RISC-V SBI implementations
+/// accept SBI calls by supervisor-level environment call caused by `ecall` instruction under supervisor
+/// mode. Each `ecall` raises a RISC-V exception which the environment must process with. The SBI
+/// environment, either bare-metal or virtually, would save context, read extension, function and parameters
+/// and call the `handle_ecall` function provided by `RustSBI` trait. Then, the function returns
+/// with an `SbiRet`; we reads back `value` and `error` to store them into the saved context.
+/// Finally, when the context restores, the supervisor mode software (kernels, etc.) could get the
+/// SBI call result from register values.
+///
+/// Now we have learned basical usages of the derive macro `RustSBI`. We can dive deeper and use RustSBI
+/// in real cases with ease. Congratulations!
+///
+/// # Supported extensions
+///
+/// The derive macro `RustSBI` supports all the standard RISC-V SBI extensions this library supports.
+/// When we add extensions into SBI structure fields, special field names are identified by RustSBI
+/// derive macro. Here is a list on them:
+///
+/// | Field names | RustSBI trait | Extension |
+/// |:------------|:----------|:--------------|
+/// | `time` or `timer` | [`Timer`](trait.Timer.html) | Timer programmer extension |
+/// | `ipi` or `spi` | [`Ipi`](trait.Ipi.html) | S-mode Inter Processor Interrupt |
+/// | `fence` or `rfnc` | [`Fence`](trait.Fence.html) | Remote Fence extension |
+/// | `hsm` | [`Hsm`](trait.Hsm.html) | Hart State Monitor extension |
+/// | `reset` or `srst` | [`Reset`](trait.Reset.html) | System Reset extension |
+/// | `pmu` | [`Pmu`](trait.Pmu.html) | Performance Monitor Unit extension |
+/// | `console` or `dbcn` | [`Console`](trait.Console.html) | Debug Console extension |
+/// | `susp` | [`Susp`](trait.Susp.html) | System Suspend extension |
+/// | `cppc` | [`Cppc`](trait.Cppc.html) | SBI CPPC extension |
+/// | `nacl` | [`Nacl`](trait.Nacl.html) | Nested Acceleration extension |
+/// | `sta` | [`Sta`](trait.Sta.html) | Steal Time Accounting extension |
+///
+/// The `MachineInfo` parameter is used by RISC-V SBI Base extension which is always supported on all
+/// RISC-V SBI implementations. RustSBI provides Base extension with additional `MachineInfo` by default.
+///
+/// | Field names | RustSBI trait | Description |
+/// |:------------|:----------|:--------------|
+/// | `info` or `machine_info` | [`MachineInfo`](trait.MachineInfo.html) | Machine information used by Base extension |
+///
+/// Or, if `#[cfg(feature = "machine")]` is enabled, RustSBI derive macro does not require additional
+/// machine information but reads them by RISC-V CSR operation when we don't have any `MachineInfo`
+/// in the structure. This feature would only work if RustSBI runs directly on machine mode hardware.
+/// If we are targeting other environments (virtualization etc.) we should provide `MachineInfo` instead
+/// of using the machine feature.
+///
+/// # Examples
 ///
 /// This macro should be used over a struct of RISC-V SBI extension implementaions.
 /// For example:
@@ -557,6 +781,9 @@ pub extern crate sbi_spec as spec;
 ///     fence: MyFence,
 ///     info: MyMachineInfo,
 /// }
+///
+/// // we assume that `MyFence` implements `rustsbi::Fence`
+/// // and `MyMachineInfo` implements `rustsbi::MachineInfo`.
 /// # use rustsbi::{RustSBI, HartMask};
 /// # use sbi_spec::binary::SbiRet;
 /// # struct MyFence;
@@ -572,6 +799,9 @@ pub extern crate sbi_spec as spec;
 /// #     fn mimpid(&self) -> usize { 3 }
 /// # }
 /// ```
+///
+/// # Notes
+// note: following documents are inherted from `RustSBI` in the `rustsbi_macros` package.
 #[doc(inline)]
 pub use rustsbi_macros::RustSBI;
 
