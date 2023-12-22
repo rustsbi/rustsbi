@@ -38,9 +38,7 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
         // for attr in field.attrs {
         //     if let Meta::List(list) = attr.meta {
         //         let vars =
-        //         Punctuated::<Ident, syn::Token![,]>::parse_terminated(
-        //           &list.tokens,
-        //         ).unwrap();
+        //             Punctuated::<Ident, syn::Token![,]>::parse_terminated(&list.tokens).unwrap();
         //     }
         // }
         if let Some(name) = &field.ident {
@@ -96,6 +94,7 @@ fn impl_derive_rustsbi(name: &Ident, imp: RustSBIImp, generics: &Generics) -> To
             sta: #sta_probe,
         }
     };
+    let mut match_arms = quote! {};
     let base_procedure = if let Some(env_info) = imp.env_info {
         quote! {
             ::rustsbi::spec::base::EID_BASE => ::rustsbi::_rustsbi_base_env_info(param, function, &self.#env_info, #probe),
@@ -116,101 +115,69 @@ fn impl_derive_rustsbi(name: &Ident, imp: RustSBIImp, generics: &Generics) -> To
             },
         }
     };
-    let fence_procedure = if let Some(fence) = &imp.fence {
-        quote! {
+    match_arms.extend(base_procedure);
+    if let Some(fence) = &imp.fence {
+        match_arms.extend(quote! {
             ::rustsbi::spec::rfnc::EID_RFNC => ::rustsbi::_rustsbi_fence(&self.#fence, param, function),
-        }
-    } else {
-        quote! {}
+        })
     };
-    let hsm_procedure = if let Some(hsm) = &imp.hsm {
-        quote! {
-            ::rustsbi::spec::hsm::EID_HSM => ::rustsbi::_rustsbi_hsm(&self.#hsm, param, function),
-        }
-    } else {
-        quote! {}
-    };
-    let ipi_procedure = if let Some(ipi) = &imp.ipi {
-        quote! {
-            ::rustsbi::spec::spi::EID_SPI => ::rustsbi::_rustsbi_ipi(&self.#ipi, param, function),
-        }
-    } else {
-        quote! {}
-    };
-    let reset_procedure = if let Some(reset) = &imp.reset {
-        quote! {
-            ::rustsbi::spec::srst::EID_SRST => ::rustsbi::_rustsbi_reset(&self.#reset, param, function),
-        }
-    } else {
-        quote! {}
-    };
-    let timer_procedure = if let Some(timer) = &imp.timer {
-        quote! {
+    if let Some(timer) = &imp.timer {
+        match_arms.extend(quote! {
             ::rustsbi::spec::time::EID_TIME => ::rustsbi::_rustsbi_timer(&self.#timer, param, function),
-        }
-    } else {
-        quote! {}
+        })
     };
-    let pmu_procedure = if let Some(pmu) = &imp.pmu {
-        quote! {
+    if let Some(ipi) = &imp.ipi {
+        match_arms.extend(quote! {
+            ::rustsbi::spec::spi::EID_SPI => ::rustsbi::_rustsbi_ipi(&self.#ipi, param, function),
+        })
+    }
+    if let Some(hsm) = &imp.hsm {
+        match_arms.extend(quote! {
+            ::rustsbi::spec::hsm::EID_HSM => ::rustsbi::_rustsbi_hsm(&self.#hsm, param, function),
+        })
+    }
+    if let Some(reset) = &imp.reset {
+        match_arms.extend(quote! {
+            ::rustsbi::spec::srst::EID_SRST => ::rustsbi::_rustsbi_reset(&self.#reset, param, function),
+        })
+    }
+    if let Some(pmu) = &imp.pmu {
+        match_arms.extend(quote! {
             ::rustsbi::spec::pmu::EID_PMU => ::rustsbi::_rustsbi_pmu(&self.#pmu, param, function),
-        }
-    } else {
-        quote! {}
-    };
-    let console_procedure = if let Some(console) = &imp.console {
-        quote! {
+        })
+    }
+    if let Some(console) = &imp.console {
+        match_arms.extend(quote! {
             ::rustsbi::spec::dbcn::EID_DBCN => ::rustsbi::_rustsbi_console(&self.#console, param, function),
-        }
-    } else {
-        quote! {}
-    };
-    let susp_procedure = if let Some(susp) = &imp.susp {
-        quote! {
+        })
+    }
+    if let Some(susp) = &imp.susp {
+        match_arms.extend(quote! {
             ::rustsbi::spec::susp::EID_SUSP => ::rustsbi::_rustsbi_susp(&self.#susp, param, function),
-        }
-    } else {
-        quote! {}
-    };
-    let cppc_procedure = if let Some(cppc) = &imp.cppc {
-        quote! {
+        })
+    }
+    if let Some(cppc) = &imp.cppc {
+        match_arms.extend(quote! {
             ::rustsbi::spec::cppc::EID_CPPC => ::rustsbi::_rustsbi_cppc(&self.#cppc, param, function),
-        }
-    } else {
-        quote! {}
-    };
-    let nacl_procedure = if let Some(nacl) = &imp.nacl {
-        quote! {
+        })
+    }
+    if let Some(nacl) = &imp.nacl {
+        match_arms.extend(quote! {
             ::rustsbi::spec::nacl::EID_NACL => ::rustsbi::_rustsbi_nacl(&self.#nacl, param, function),
-        }
-    } else {
-        quote! {}
-    };
-    let sta_procedure = if let Some(sta) = &imp.sta {
-        quote! {
+        })
+    }
+    if let Some(sta) = &imp.sta {
+        match_arms.extend(quote! {
             ::rustsbi::spec::sta::EID_STA => ::rustsbi::_rustsbi_sta(&self.#sta, param, function),
-        }
-    } else {
-        quote! {}
-    };
+        })
+    }
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let gen = quote! {
-    impl #impl_generics rustsbi::RustSBI for #name #ty_generics #where_clause {
+    impl #impl_generics ::rustsbi::RustSBI for #name #ty_generics #where_clause {
         #[inline]
         fn handle_ecall(&self, extension: usize, function: usize, param: [usize; 6]) -> ::rustsbi::spec::binary::SbiRet {
             match extension {
-                #fence_procedure
-                #timer_procedure
-                #ipi_procedure
-                #base_procedure
-                #hsm_procedure
-                #reset_procedure
-                #pmu_procedure
-                #console_procedure
-                #susp_procedure
-                #cppc_procedure
-                #nacl_procedure
-                #sta_procedure
+                #match_arms
                 _ => ::rustsbi::spec::binary::SbiRet::not_supported(),
             }
         }

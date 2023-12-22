@@ -38,11 +38,68 @@ struct AlternateName {
     info: DummyEnvInfo,
 }
 
+#[test]
+fn rustsbi_impl_id() {
+    let sbi = FullyImplemented {
+        console: DummyConsole,
+        cppc: DummyCppc,
+        hsm: DummyHsm,
+        ipi: DummyIpi,
+        nacl: DummyNacl,
+        pmu: DummyPmu,
+        reset: DummyReset,
+        fence: DummyFence,
+        sta: DummySta,
+        susp: DummySusp,
+        timer: DummyTimer,
+        info: DummyEnvInfo,
+    };
+    assert_eq!(sbi.handle_ecall(0x10, 0x1, [0; 6]).value, 4);
+    let sbi = AlternateName {
+        dbcn: DummyConsole,
+        cppc: DummyCppc,
+        hsm: DummyHsm,
+        ipi: DummyIpi,
+        nacl: DummyNacl,
+        pmu: DummyPmu,
+        srst: DummyReset,
+        rfnc: DummyFence,
+        sta: DummySta,
+        susp: DummySusp,
+        time: DummyTimer,
+        info: DummyEnvInfo,
+    };
+    assert_eq!(sbi.handle_ecall(0x10, 0x1, [0; 6]).value, 4);
+}
+
+#[test]
+fn extension_impl() {
+    let sbi = FullyImplemented {
+        console: DummyConsole,
+        cppc: DummyCppc,
+        hsm: DummyHsm,
+        ipi: DummyIpi,
+        nacl: DummyNacl,
+        pmu: DummyPmu,
+        reset: DummyReset,
+        fence: DummyFence,
+        sta: DummySta,
+        susp: DummySusp,
+        timer: DummyTimer,
+        info: DummyEnvInfo,
+    };
+    assert_eq!(
+        sbi.handle_ecall(0x4442434E, 0x0, [0; 6]).error,
+        -1isize as _
+    );
+}
+
 struct DummyConsole;
 
 impl rustsbi::Console for DummyConsole {
     fn write(&self, _: Physical<&[u8]>) -> SbiRet {
-        unimplemented!()
+        // special return value for test cases
+        SbiRet::failed()
     }
 
     fn read(&self, _: Physical<&mut [u8]>) -> SbiRet {
@@ -211,38 +268,4 @@ impl rustsbi::EnvInfo for DummyEnvInfo {
     fn mimpid(&self) -> usize {
         unimplemented!()
     }
-}
-
-#[test]
-fn rustsbi_impl_id() {
-    let sbi = FullyImplemented {
-        console: DummyConsole,
-        cppc: DummyCppc,
-        hsm: DummyHsm,
-        ipi: DummyIpi,
-        nacl: DummyNacl,
-        pmu: DummyPmu,
-        reset: DummyReset,
-        fence: DummyFence,
-        sta: DummySta,
-        susp: DummySusp,
-        timer: DummyTimer,
-        info: DummyEnvInfo,
-    };
-    assert_eq!(sbi.handle_ecall(0x10, 0x1, [0; 6]).value, 4);
-    let sbi = AlternateName {
-        dbcn: DummyConsole,
-        cppc: DummyCppc,
-        hsm: DummyHsm,
-        ipi: DummyIpi,
-        nacl: DummyNacl,
-        pmu: DummyPmu,
-        srst: DummyReset,
-        rfnc: DummyFence,
-        sta: DummySta,
-        susp: DummySusp,
-        time: DummyTimer,
-        info: DummyEnvInfo,
-    };
-    assert_eq!(sbi.handle_ecall(0x10, 0x1, [0; 6]).value, 4);
 }
