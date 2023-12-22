@@ -15,7 +15,7 @@ struct RustSBIImp<'a> {
     cppc: Option<&'a Ident>,
     nacl: Option<&'a Ident>,
     sta: Option<&'a Ident>,
-    machine_info: Option<&'a Ident>,
+    env_info: Option<&'a Ident>,
 }
 
 /// This macro should be used in `rustsbi` crate as `rustsbi::RustSBI`.
@@ -56,7 +56,7 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
                 "cppc" => imp.cppc = Some(name),
                 "nacl" => imp.nacl = Some(name),
                 "sta" => imp.sta = Some(name),
-                "info" | "machine_info" => imp.machine_info = Some(name),
+                "info" | "env_info" => imp.env_info = Some(name),
                 _ => {}
             }
         }
@@ -96,17 +96,18 @@ fn impl_derive_rustsbi(name: &Ident, imp: RustSBIImp) -> TokenStream {
             sta: #sta_probe,
         }
     };
-    let base_procedure = if let Some(machine_info) = imp.machine_info {
+    let base_procedure = if let Some(env_info) = imp.env_info {
         quote! {
-            ::rustsbi::spec::base::EID_BASE => ::rustsbi::_rustsbi_base_machine_info(param, function, &self.#machine_info, #probe),
+            ::rustsbi::spec::base::EID_BASE => ::rustsbi::_rustsbi_base_env_info(param, function, &self.#env_info, #probe),
         }
     } else {
         match () {
             #[cfg(not(feature = "machine"))]
             () => quote! {
                 ::rustsbi::spec::base::EID_BASE => compile_error!(
-                    "can't derive RustSBI: #[cfg(feature = \"machine\")] is needed to derive RustSBI with no extra MachineInfo provided; \
-            consider adding an `info` parameter to provide machine information if RustSBI is not run on machine mode."
+                    "can't derive RustSBI: #[cfg(feature = \"machine\")] is needed to derive RustSBI with no extra `EnvInfo` provided; \
+            consider adding an `info` parameter to provide machine information implementing `rustsbi::EnvInfo`\
+            if RustSBI is not run on machine mode."
                 ),
             },
             #[cfg(feature = "machine")]

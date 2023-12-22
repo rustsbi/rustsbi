@@ -19,7 +19,7 @@ struct FullyImplemented {
     sta: DummySta,
     susp: DummySusp,
     timer: DummyTimer,
-    info: DummyMachineInfo,
+    info: DummyEnvInfo,
 }
 
 #[derive(RustSBI)]
@@ -35,7 +35,7 @@ struct AlternateName {
     sta: DummySta,
     susp: DummySusp,
     time: DummyTimer,
-    info: DummyMachineInfo,
+    info: DummyEnvInfo,
 }
 
 struct DummyConsole;
@@ -197,9 +197,9 @@ impl rustsbi::Timer for DummyTimer {
     }
 }
 
-struct DummyMachineInfo;
+struct DummyEnvInfo;
 
-impl rustsbi::MachineInfo for DummyMachineInfo {
+impl rustsbi::EnvInfo for DummyEnvInfo {
     fn mvendorid(&self) -> usize {
         unimplemented!()
     }
@@ -227,7 +227,7 @@ fn rustsbi_impl_id() {
         sta: DummySta,
         susp: DummySusp,
         timer: DummyTimer,
-        info: DummyMachineInfo,
+        info: DummyEnvInfo,
     };
     assert_eq!(sbi.handle_ecall(0x10, 0x1, [0; 6]).value, 4);
     let sbi = AlternateName {
@@ -242,7 +242,7 @@ fn rustsbi_impl_id() {
         sta: DummySta,
         susp: DummySusp,
         time: DummyTimer,
-        info: DummyMachineInfo,
+        info: DummyEnvInfo,
     };
     assert_eq!(sbi.handle_ecall(0x10, 0x1, [0; 6]).value, 4);
 }

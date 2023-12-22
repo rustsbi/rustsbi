@@ -9,10 +9,10 @@ pub trait RustSBI {
     fn handle_ecall(&self, extension: usize, function: usize, param: [usize; 6]) -> SbiRet;
 }
 
-/// Machine information for SBI environment.
+/// Machine environment information for an SBI environment.
 ///
 /// This trait is useful to build an SBI environment when RustSBI is not run directly on RISC-V machine mode.
-pub trait MachineInfo {
+pub trait EnvInfo {
     /// Vendor ID for the supervisor environment.
     ///
     /// Provides JEDEC manufacturer ID of the provider of the core.
@@ -74,7 +74,7 @@ pub fn _rustsbi_base_bare(
 
 #[doc(hidden)]
 #[inline(always)]
-pub fn _rustsbi_base_machine_info<T: MachineInfo>(
+pub fn _rustsbi_base_env_info<T: EnvInfo>(
     param: [usize; 6],
     function: usize,
     machine_info: &T,

@@ -18,7 +18,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Modified
 
-- run on provided `MachineInfo` by default; bare metal M-mode environment should gate `machine`
+- run on provided `EnvInfo` by default; bare metal M-mode environment should gate `machine`
 - doc: grammar tweaks in hsm module
 - update dependency `sbi-spec` to v0.0.6, use `Physical` struct from `sbi-spec` crate.
 

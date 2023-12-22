@@ -24,7 +24,7 @@ struct MySBI {
     // CSR accesses; developers should enable RustSBI feature `machine` in this case.
     // The name `info` is also special, like the name `fence` we have mentioned;
     // RustSBI identifies machine information from the field name `info`.
-    info: MyMachineInfo,
+    info: MyEnvInfo,
 }
 
 // We have a properly defined RustSBI implementation called `MySBI`. Now `MySBI`
@@ -38,7 +38,7 @@ fn main() {
     // as a stack variable for now.
     let sbi = MySBI {
         fence: MyFence,
-        info: MyMachineInfo,
+        info: MyEnvInfo,
     };
 
     // In S-mode environment call handler, call the `handle_ecall` of the SBI instance.
