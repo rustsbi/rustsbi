@@ -1,6 +1,6 @@
 use sbi_spec::binary::SbiRet;
 
-/// CPPC Extension
+/// SBI CPPC support extension.
 ///
 /// ACPI defines the Collaborative Processor Performance Control (CPPC) mechanism,
 /// which is an abstract and flexible mechanism for the supervisor-mode
@@ -46,7 +46,7 @@ use sbi_spec::binary::SbiRet;
 /// | 0x80000000              | TransitionLatency                     | 32        | Read-only    | Provides the maximum (worst-case) performance state transition latency in nanoseconds.
 /// | 0x80000001 - 0xFFFFFFFF |                                       |           |              | Reserved for future use.   
 ///
-pub trait Cppc: Send + Sync {
+pub trait Cppc {
     /// Probe whether the CPPC register as specified by the `reg_id` parameter
     /// is implemented or not by the platform.
     ///

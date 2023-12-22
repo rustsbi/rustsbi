@@ -3,13 +3,13 @@ use crate::HartMask;
 use riscv::register::{marchid, mimpid, mvendorid};
 use spec::binary::{Physical, SbiRet, SharedPtr};
 
-/// RustSBI trait including standard extensions.
+/// RustSBI environment call handler.
 pub trait RustSBI {
     /// Handle supervisor environment call with given parameters and return the `SbiRet` result.
     fn handle_ecall(&self, extension: usize, function: usize, param: [usize; 6]) -> SbiRet;
 }
 
-/// Machine environment information for an SBI environment.
+/// Machine environment information.
 ///
 /// This trait is useful to build an SBI environment when RustSBI is not run directly on RISC-V machine mode.
 pub trait EnvInfo {

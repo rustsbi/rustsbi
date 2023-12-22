@@ -1,4 +1,4 @@
-/// Hart mask structure reference
+/// Hart mask structure in SBI function calls.
 #[derive(Debug, Clone)]
 pub struct HartMask {
     inner: BitVector,

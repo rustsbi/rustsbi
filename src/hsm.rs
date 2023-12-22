@@ -1,6 +1,6 @@
 use sbi_spec::binary::SbiRet;
 
-/// Hart State Management Extension
+/// Hart State Management extension.
 ///
 /// The Hart State Management (HSM) Extension introduces a set hart states and a set of functions
 /// which allow the supervisor-mode software to request a hart state change.
@@ -42,7 +42,7 @@ use sbi_spec::binary::SbiRet;
 /// - Always prefer most recent suspend state requested for higher topology group
 ///
 /// Ref: [Section 8, RISC-V Supervisor Binary Interface Specification](https://github.com/riscv-non-isa/riscv-sbi-doc/blob/master/riscv-sbi.adoc#8-hart-state-management-extension-eid-0x48534d-hsm)
-pub trait Hsm: Send + Sync {
+pub trait Hsm {
     /// Request the SBI implementation to start executing the given hart at specified address in supervisor-mode.
     ///
     /// This call is asynchronous - more specifically, the `hart_start()` may return before target hart

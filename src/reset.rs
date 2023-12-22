@@ -1,6 +1,6 @@
 use sbi_spec::binary::SbiRet;
 
-/// System Reset Extension
+/// System Reset extension.
 ///
 /// Provides a function that allow the supervisor software to request system-level reboot or shutdown.
 ///
@@ -8,7 +8,7 @@ use sbi_spec::binary::SbiRet;
 /// could be machine mode firmware or hypervisor.
 ///
 /// Ref: [Section 9, RISC-V Supervisor Binary Interface Specification](https://github.com/riscv-non-isa/riscv-sbi-doc/blob/master/riscv-sbi.adoc#9-system-reset-extension-eid-0x53525354-srst)
-pub trait Reset: Send + Sync {
+pub trait Reset {
     /// Reset the system based on provided `reset_type` and `reset_reason`.
     ///
     /// This is a synchronous call and does not return if it succeeds.

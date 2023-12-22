@@ -1,12 +1,12 @@
 use crate::hart_mask::HartMask;
 use sbi_spec::binary::SbiRet;
 
-/// Remote fence support
+/// Remote Fence support extension.
 ///
 /// The remote fence function acts as a full TLB flush if
 /// - `start_addr` and `size` are both 0, or
 /// - `size` is equal to `usize::MAX`.
-pub trait Rfence: Send + Sync {
+pub trait Rfence {
     /// Instructs remote harts to execute `FENCE.I` instruction.
     ///
     /// # Return value

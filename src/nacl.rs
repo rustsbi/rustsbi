@@ -3,7 +3,7 @@ use spec::{
     nacl::shmem_size::NATIVE,
 };
 
-/// Nested Acceleration Extension
+/// Nested Acceleration extension.
 ///
 /// Nested virtualization is the ability of a hypervisor to run another hypervisor
 /// as a guest. RISC-V nested virtualization requires an L0 hypervisor (running
@@ -23,7 +23,7 @@ use spec::{
 /// extension if the underlying platform has the RISC-V H-extension implemented
 /// in hardware.
 
-pub trait Nacl: Send + Sync {
+pub trait Nacl {
     /// Probe nested acceleration feature.
     ///
     /// Probe a nested acceleration feature. This is a mandatory function of the

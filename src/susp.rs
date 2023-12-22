@@ -1,6 +1,6 @@
 use sbi_spec::binary::SbiRet;
 
-/// System Suspend Extension
+/// System Suspend extension.
 ///
 /// The system suspend extension defines a set of system-level sleep states and a
 /// function which allows the supervisor-mode software to request that the system
@@ -24,7 +24,7 @@ use sbi_spec::binary::SbiRet;
 /// types and per-type wake up devices in their hardware descriptions. The
 /// `SUSPEND_TO_RAM` sleep type is the one exception, and its presence is implied
 /// by that of the extension.
-pub trait Susp: Send + Sync {
+pub trait Susp {
     /// Request the SBI implementation to put the system transitions to a sleep state.
     ///
     /// A return from a `system_suspend()` call implies an error and an error code

@@ -519,7 +519,7 @@ mod susp;
 mod timer;
 mod traits;
 
-/// The RustSBI logo without blank lines on the beginning
+/// The RustSBI logo without blank lines on the beginning.
 pub const LOGO: &str = r".______       __    __      _______.___________.  _______..______   __
 |   _  \     |  |  |  |    /       |           | /       ||   _  \ |  |
 |  |_)  |    |  |  |  |   |   (----`---|  |----`|   (----`|  |_)  ||  |
@@ -542,7 +542,7 @@ const RUSTSBI_VERSION_PATCH: usize = (env!("CARGO_PKG_VERSION_PATCH").as_bytes()
 const RUSTSBI_VERSION: usize =
     (RUSTSBI_VERSION_MAJOR << 16) + (RUSTSBI_VERSION_MINOR << 8) + RUSTSBI_VERSION_PATCH;
 
-/// RustSBI version as a string
+/// RustSBI version as a string.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub extern crate sbi_spec as spec;
