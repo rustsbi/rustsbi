@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, punctuated::Punctuated, Data, DeriveInput, Fields, Ident};
+use syn::{parse_macro_input, punctuated::Punctuated, Data, DeriveInput, Fields, Generics, Ident};
 
 #[derive(Clone, Default)]
 struct RustSBIImp<'a> {
@@ -63,11 +63,11 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
     }
 
     let mut ans = TokenStream::new();
-    ans.extend(impl_derive_rustsbi(&input.ident, imp));
+    ans.extend(impl_derive_rustsbi(&input.ident, imp, &input.generics));
     ans
 }
 
-fn impl_derive_rustsbi(name: &Ident, imp: RustSBIImp) -> TokenStream {
+fn impl_derive_rustsbi(name: &Ident, imp: RustSBIImp, generics: &Generics) -> TokenStream {
     let base_probe: usize = 1;
     let fence_probe: usize = if imp.fence.is_some() { 1 } else { 0 };
     let hsm_probe: usize = if imp.hsm.is_some() { 1 } else { 0 };
@@ -193,8 +193,9 @@ fn impl_derive_rustsbi(name: &Ident, imp: RustSBIImp) -> TokenStream {
     } else {
         quote! {}
     };
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let gen = quote! {
-    impl rustsbi::RustSBI for #name {
+    impl #impl_generics rustsbi::RustSBI for #name #ty_generics #where_clause {
         #[inline]
         fn handle_ecall(&self, extension: usize, function: usize, param: [usize; 6]) -> ::rustsbi::spec::binary::SbiRet {
             match extension {

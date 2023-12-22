@@ -9,6 +9,13 @@ pub trait RustSBI {
     fn handle_ecall(&self, extension: usize, function: usize, param: [usize; 6]) -> SbiRet;
 }
 
+impl<T: RustSBI> RustSBI for &T {
+    #[inline(always)]
+    fn handle_ecall(&self, extension: usize, function: usize, param: [usize; 6]) -> SbiRet {
+        <T as RustSBI>::handle_ecall(self, extension, function, param)
+    }
+}
+
 /// Machine environment information.
 ///
 /// This trait is useful to build an SBI environment when RustSBI is not run directly on RISC-V machine mode.
@@ -25,6 +32,21 @@ pub trait EnvInfo {
     ///
     /// Provides a unique encoding of the version of the processor implementation.
     fn mimpid(&self) -> usize;
+}
+
+impl<T: EnvInfo> EnvInfo for &T {
+    #[inline(always)]
+    fn mvendorid(&self) -> usize {
+        <T as EnvInfo>::mvendorid(self)
+    }
+    #[inline(always)]
+    fn marchid(&self) -> usize {
+        <T as EnvInfo>::marchid(self)
+    }
+    #[inline(always)]
+    fn mimpid(&self) -> usize {
+        <T as EnvInfo>::mimpid(self)
+    }
 }
 
 // Macro internal structures and functions.

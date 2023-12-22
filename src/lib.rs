@@ -801,6 +801,32 @@ pub extern crate sbi_spec as spec;
 /// # }
 /// ```
 ///
+/// The struct as derive input may include generics, specifically type generics, lifetimes,
+/// constant generics and where clauses.
+///
+/// ```rust
+/// #[derive(RustSBI)]
+/// struct MySBI<'a, T: rustsbi::Fence> {
+///     fence: T,
+///     info: &'a MyEnvInfo,
+/// }
+///
+/// # use rustsbi::{RustSBI, HartMask};
+/// # use sbi_spec::binary::SbiRet;
+/// # struct MyFence;
+/// # impl rustsbi::Fence for MyFence {
+/// #     fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// # }
+/// # struct MyEnvInfo;
+/// # impl rustsbi::EnvInfo for MyEnvInfo {
+/// #     fn mvendorid(&self) -> usize { 1 }
+/// #     fn marchid(&self) -> usize { 2 }
+/// #     fn mimpid(&self) -> usize { 3 }
+/// # }
+/// ```
+///
 /// # Notes
 // note: following documents are inherted from `RustSBI` in the `rustsbi_macros` package.
 #[doc(inline)]
