@@ -27,7 +27,61 @@ pub trait EnvInfo {
     fn mimpid(&self) -> usize;
 }
 
-/* macro internal structures and functions */
+// Macro internal structures and functions.
+// DO NOT USE code here directly; use derive macro #[derive(RustSBI)] instead.
+
+#[cfg(feature = "machine")]
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_base_bare<U: _ExtensionProbe>(
+    param: [usize; 6],
+    function: usize,
+    probe: U,
+) -> SbiRet {
+    let [param0] = [param[0]];
+    let value = match function {
+        spec::base::GET_SBI_SPEC_VERSION => (crate::SBI_SPEC_MAJOR << 24) | (crate::SBI_SPEC_MINOR),
+        spec::base::GET_SBI_IMPL_ID => crate::IMPL_ID_RUSTSBI,
+        spec::base::GET_SBI_IMPL_VERSION => crate::RUSTSBI_VERSION,
+        spec::base::PROBE_EXTENSION => probe.probe_extension(param0),
+        spec::base::GET_MVENDORID => mvendorid::read().map(|r| r.bits()).unwrap_or(0),
+        spec::base::GET_MARCHID => marchid::read().map(|r| r.bits()).unwrap_or(0),
+        spec::base::GET_MIMPID => mimpid::read().map(|r| r.bits()).unwrap_or(0),
+        _ => return SbiRet::not_supported(),
+    };
+    SbiRet::success(value)
+}
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_base_env_info<T: EnvInfo, U: _ExtensionProbe>(
+    param: [usize; 6],
+    function: usize,
+    machine_info: &T,
+    probe: U,
+) -> SbiRet {
+    let [param0] = [param[0]];
+    let value = match function {
+        spec::base::GET_SBI_SPEC_VERSION => (crate::SBI_SPEC_MAJOR << 24) | (crate::SBI_SPEC_MINOR),
+        spec::base::GET_SBI_IMPL_ID => crate::IMPL_ID_RUSTSBI,
+        spec::base::GET_SBI_IMPL_VERSION => crate::RUSTSBI_VERSION,
+        spec::base::PROBE_EXTENSION => probe.probe_extension(param0),
+        spec::base::GET_MVENDORID => machine_info.mvendorid(),
+        spec::base::GET_MARCHID => machine_info.marchid(),
+        spec::base::GET_MIMPID => machine_info.mimpid(),
+        _ => return SbiRet::not_supported(),
+    };
+    SbiRet::success(value)
+}
+
+// Probe not only standard SBI extensions, but also (reserving for) custom extensions.
+// For standard SBI extensions only, the macro would use `_StandardExtensionProbe`;
+// for implementation with custom SBI extension, a custom structure implementing this trait
+// would be used by macro.
+pub trait _ExtensionProbe {
+    // Implementors are encouraged to add #[inline] hints on this function.
+    fn probe_extension(&self, extension: usize) -> usize;
+}
 
 #[doc(hidden)]
 pub struct _StandardExtensionProbe {
@@ -43,77 +97,27 @@ pub struct _StandardExtensionProbe {
     pub cppc: usize,
     pub nacl: usize,
     pub sta: usize,
-    // NOTE: don't forget to add to `fn probe_extension` as well
+    // NOTE: don't forget to add to `fn probe_extension` in `impl _ExtensionProbe` as well
 }
 
-#[cfg(feature = "machine")]
-#[doc(hidden)]
-#[inline(always)]
-pub fn _rustsbi_base_bare(
-    param: [usize; 6],
-    function: usize,
-    probe: _StandardExtensionProbe,
-) -> SbiRet {
-    let [param0] = [param[0]];
-    let value = match function {
-        spec::base::GET_SBI_SPEC_VERSION => (crate::SBI_SPEC_MAJOR << 24) | (crate::SBI_SPEC_MINOR),
-        spec::base::GET_SBI_IMPL_ID => crate::IMPL_ID_RUSTSBI,
-        spec::base::GET_SBI_IMPL_VERSION => crate::RUSTSBI_VERSION,
-        spec::base::PROBE_EXTENSION => {
-            // only provides probes to standard extensions. If you have customized extensions to be probed,
-            // run it even before this `handle_ecall` function.
-            probe_extension(param0, probe)
+impl _ExtensionProbe for _StandardExtensionProbe {
+    #[inline(always)]
+    fn probe_extension(&self, extension: usize) -> usize {
+        match extension {
+            spec::base::EID_BASE => self.base,
+            spec::time::EID_TIME => self.timer,
+            spec::spi::EID_SPI => self.ipi,
+            spec::rfnc::EID_RFNC => self.fence,
+            spec::srst::EID_SRST => self.reset,
+            spec::hsm::EID_HSM => self.hsm,
+            spec::pmu::EID_PMU => self.pmu,
+            spec::dbcn::EID_DBCN => self.console,
+            spec::susp::EID_SUSP => self.susp,
+            spec::cppc::EID_CPPC => self.cppc,
+            spec::nacl::EID_NACL => self.nacl,
+            spec::sta::EID_STA => self.sta,
+            _ => spec::base::UNAVAILABLE_EXTENSION,
         }
-        spec::base::GET_MVENDORID => mvendorid::read().map(|r| r.bits()).unwrap_or(0),
-        spec::base::GET_MARCHID => marchid::read().map(|r| r.bits()).unwrap_or(0),
-        spec::base::GET_MIMPID => mimpid::read().map(|r| r.bits()).unwrap_or(0),
-        _ => return SbiRet::not_supported(),
-    };
-    SbiRet::success(value)
-}
-
-#[doc(hidden)]
-#[inline(always)]
-pub fn _rustsbi_base_env_info<T: EnvInfo>(
-    param: [usize; 6],
-    function: usize,
-    machine_info: &T,
-    probe: _StandardExtensionProbe,
-) -> SbiRet {
-    let [param0] = [param[0]];
-    let value = match function {
-        spec::base::GET_SBI_SPEC_VERSION => (crate::SBI_SPEC_MAJOR << 24) | (crate::SBI_SPEC_MINOR),
-        spec::base::GET_SBI_IMPL_ID => crate::IMPL_ID_RUSTSBI,
-        spec::base::GET_SBI_IMPL_VERSION => crate::RUSTSBI_VERSION,
-        spec::base::PROBE_EXTENSION => {
-            // only provides probes to standard extensions. If you have customized extensions to be probed,
-            // run it even before this `handle_ecall` function.
-            probe_extension(param0, probe)
-        }
-        spec::base::GET_MVENDORID => machine_info.mvendorid(),
-        spec::base::GET_MARCHID => machine_info.marchid(),
-        spec::base::GET_MIMPID => machine_info.mimpid(),
-        _ => return SbiRet::not_supported(),
-    };
-    SbiRet::success(value)
-}
-
-#[inline(always)]
-fn probe_extension(extension: usize, probe: _StandardExtensionProbe) -> usize {
-    match extension {
-        spec::base::EID_BASE => probe.base,
-        spec::time::EID_TIME => probe.timer,
-        spec::spi::EID_SPI => probe.ipi,
-        spec::rfnc::EID_RFNC => probe.fence,
-        spec::srst::EID_SRST => probe.reset,
-        spec::hsm::EID_HSM => probe.hsm,
-        spec::pmu::EID_PMU => probe.pmu,
-        spec::dbcn::EID_DBCN => probe.console,
-        spec::susp::EID_SUSP => probe.susp,
-        spec::cppc::EID_CPPC => probe.cppc,
-        spec::nacl::EID_NACL => probe.nacl,
-        spec::sta::EID_STA => probe.sta,
-        _ => spec::base::UNAVAILABLE_EXTENSION,
     }
 }
 

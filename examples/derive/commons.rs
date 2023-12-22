@@ -1,7 +1,7 @@
 // Mock implementaion module. Actual SBI implementaion should implement
 // those SBI extensions with machine environment specific hardware features.
 
-use rustsbi::{HartMask, EnvInfo};
+use rustsbi::{EnvInfo, HartMask};
 use sbi_spec::binary::SbiRet;
 
 pub struct MyFence;
