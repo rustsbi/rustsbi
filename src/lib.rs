@@ -819,7 +819,7 @@ pub extern crate sbi_spec as spec;
 ///     info: MyEnvInfo,
 /// }
 ///
-/// // we assume that `MyFence` implements `rustsbi::Fence`
+/// // Here, we assume that `MyFence` implements `rustsbi::Fence`
 /// // and `MyEnvInfo` implements `rustsbi::EnvInfo`.
 /// # use rustsbi::{RustSBI, HartMask};
 /// # use sbi_spec::binary::SbiRet;
@@ -995,6 +995,42 @@ pub extern crate sbi_spec as spec;
 /// #     fn marchid(&self) -> usize { 2 }
 /// #     fn mimpid(&self) -> usize { 3 }
 /// # }
+/// ```
+///
+/// RustSBI implementations usually provide regular structs to the derive macro.
+/// Alternatively, the RustSBI derive macro also accepts tuple structs or unit structs.
+///
+/// ```rust
+/// // Tuple structs.
+/// // No field names are provided; the structure must provide helper attributes
+/// // to identify the extensions for the RustSBI derive macro.
+/// #[derive(RustSBI)]
+/// struct MySBI(#[rustsbi(fence)] MyFence, #[rustsbi(info)] MyEnvInfo);
+///
+/// # use rustsbi::{RustSBI, HartMask};
+/// # use sbi_spec::binary::SbiRet;
+/// # struct MyFence;
+/// # impl rustsbi::Fence for MyFence {
+/// #     fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// # }
+/// # struct MyEnvInfo;
+/// # impl rustsbi::EnvInfo for MyEnvInfo {
+/// #     fn mvendorid(&self) -> usize { 1 }
+/// #     fn marchid(&self) -> usize { 2 }
+/// #     fn mimpid(&self) -> usize { 3 }
+/// # }
+/// ```
+/// ```rust
+/// // Unit structs.
+/// // Note that `info` is required on non-machine enironment; thus this crate
+/// // only allow unit structs with `machine` feature. No extensions except Base
+/// // extension are provided on unit struct implementations.
+/// # use rustsbi::RustSBI;
+/// # #[cfg(feature = "machine")]
+/// #[derive(RustSBI)]
+/// struct MySBI;
 /// ```
 ///
 /// # Notes

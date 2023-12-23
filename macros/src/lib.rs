@@ -1,21 +1,21 @@
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
-use syn::{parse_macro_input, punctuated::Punctuated, Data, DeriveInput, Fields, Generics, Ident};
+use syn::{parse_macro_input, Data, DeriveInput, Generics, Ident, Member};
 
 #[derive(Clone, Default)]
 struct RustSBIImp {
-    fence: Option<Ident>,
-    hsm: Option<Ident>,
-    ipi: Option<Ident>,
-    reset: Option<Ident>,
-    timer: Option<Ident>,
-    pmu: Option<Ident>,
-    console: Option<Ident>,
-    susp: Option<Ident>,
-    cppc: Option<Ident>,
-    nacl: Option<Ident>,
-    sta: Option<Ident>,
-    env_info: Option<Ident>,
+    fence: Option<Member>,
+    hsm: Option<Member>,
+    ipi: Option<Member>,
+    reset: Option<Member>,
+    timer: Option<Member>,
+    pmu: Option<Member>,
+    console: Option<Member>,
+    susp: Option<Member>,
+    cppc: Option<Member>,
+    nacl: Option<Member>,
+    sta: Option<Member>,
+    env_info: Option<Member>,
 }
 
 /// This macro should be used in `rustsbi` crate as `rustsbi::RustSBI`.
@@ -27,51 +27,52 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
         panic!("#[derive(RustSBI)] must be used on structs");
     };
 
-    let fields = match strukt.fields {
-        Fields::Named(f) => f.named,
-        Fields::Unnamed(f) => f.unnamed,
-        Fields::Unit => Punctuated::new(),
-    };
     let mut imp = RustSBIImp::default();
 
-    let mut replace_sbi_extension_ident = |extension_name: &str, ident: Ident| match extension_name
-    {
-        "rfnc" | "fence" => (true, imp.fence.replace(ident)),
-        "hsm" => (true, imp.hsm.replace(ident)),
-        "spi" | "ipi" => (true, imp.ipi.replace(ident)),
-        "srst" | "reset" => (true, imp.reset.replace(ident)),
-        "time" | "timer" => (true, imp.timer.replace(ident)),
-        "pmu" => (true, imp.pmu.replace(ident)),
-        "dbcn" | "console" => (true, imp.console.replace(ident)),
-        "susp" => (true, imp.susp.replace(ident)),
-        "cppc" => (true, imp.cppc.replace(ident)),
-        "nacl" => (true, imp.nacl.replace(ident)),
-        "sta" => (true, imp.sta.replace(ident)),
-        "info" | "env_info" => (true, imp.env_info.replace(ident)),
-        _ => (false, None),
-    };
+    let mut replace_sbi_extension_ident =
+        |extension_name: &str, member: Member| match extension_name {
+            "rfnc" | "fence" => (true, imp.fence.replace(member)),
+            "hsm" => (true, imp.hsm.replace(member)),
+            "spi" | "ipi" => (true, imp.ipi.replace(member)),
+            "srst" | "reset" => (true, imp.reset.replace(member)),
+            "time" | "timer" => (true, imp.timer.replace(member)),
+            "pmu" => (true, imp.pmu.replace(member)),
+            "dbcn" | "console" => (true, imp.console.replace(member)),
+            "susp" => (true, imp.susp.replace(member)),
+            "cppc" => (true, imp.cppc.replace(member)),
+            "nacl" => (true, imp.nacl.replace(member)),
+            "sta" => (true, imp.sta.replace(member)),
+            "info" | "env_info" => (true, imp.env_info.replace(member)),
+            _ => (false, None),
+        };
     let mut ans = TokenStream::new();
-    let check_already_exists =
-        |field: &syn::Field, extension_name: &str, origin: Option<Ident>, ans: &mut TokenStream| {
-            if let Some(_origin) = origin {
-                // TODO: provide more detailed proc macro error hinting that previous
-                // definition of this extension resides in `origin` once RFC 1566
-                // (Procedural Macro Diagnostics) is stablized.
-                // Link: https://github.com/rust-lang/rust/issues/54140
-                let error = syn::Error::new_spanned(
-                    &field,
-                    format!(
-                        "more than one field defined SBI extension '{}'. \
+    let check_already_exists = |field: &syn::Field,
+                                extension_name: &str,
+                                origin: Option<Member>,
+                                ans: &mut TokenStream| {
+        if let Some(_origin) = origin {
+            // TODO: provide more detailed proc macro error hinting that previous
+            // definition of this extension resides in `origin` once RFC 1566
+            // (Procedural Macro Diagnostics) is stablized.
+            // Link: https://github.com/rust-lang/rust/issues/54140
+            let error = syn::Error::new_spanned(
+                &field,
+                format!(
+                    "more than one field defined SBI extension '{}'. \
                 At most one fields should define the same SBI extension; consider using \
                 #[rustsbi(skip)] to ignore fields that shouldn't be treated as an extension.",
-                        extension_name
-                    ),
-                );
-                ans.extend(TokenStream::from(error.to_compile_error()));
-            }
-        };
+                    extension_name
+                ),
+            );
+            ans.extend(TokenStream::from(error.to_compile_error()));
+        }
+    };
 
-    for field in &fields {
+    for (i, field) in strukt.fields.iter().enumerate() {
+        let member = match &field.ident {
+            Some(ident) => Member::Named(ident.clone()),
+            None => Member::Unnamed(i.into()),
+        };
         let mut field_already_parsed = false;
         for attr in &field.attrs {
             if !attr.path().is_ident("rustsbi") {
@@ -82,14 +83,12 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
                 if meta.path.is_ident("skip") {
                     // accept meta but do nothing, effectively skip this field in RustSBI
                     current_meta_accepted = true;
-                } else if let (Some(meta_path_ident), Some(field_ident)) =
-                    (meta.path.get_ident(), &field.ident)
-                {
+                } else if let Some(meta_path_ident) = meta.path.get_ident() {
                     let extension_name = &meta_path_ident.to_string();
                     let (replaced, origin) =
-                        replace_sbi_extension_ident(extension_name, field_ident.clone());
+                        replace_sbi_extension_ident(extension_name, member.clone());
                     if replaced {
-                        check_already_exists(field, extension_name, origin, &mut ans);
+                        check_already_exists(&field, extension_name, origin, &mut ans);
                         current_meta_accepted = true;
                     }
                 }
@@ -112,8 +111,8 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
         }
         if let Some(field_ident) = &field.ident {
             let (_replaced, origin) =
-                replace_sbi_extension_ident(field_ident.to_string().as_str(), field_ident.clone());
-            check_already_exists(field, &field_ident.to_string(), origin, &mut ans);
+                replace_sbi_extension_ident(field_ident.to_string().as_str(), member);
+            check_already_exists(&field, &field_ident.to_string(), origin, &mut ans);
         }
     }
 

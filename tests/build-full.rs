@@ -36,6 +36,26 @@ struct AlternateName {
     info: DummyEnvInfo,
 }
 
+#[derive(RustSBI)]
+struct TupleStruct(
+    #[rustsbi(dbcn)] DummyConsole,
+    #[rustsbi(cppc)] DummyCppc,
+    #[rustsbi(hsm)] DummyHsm,
+    #[rustsbi(ipi)] DummyIpi,
+    #[rustsbi(nacl)] DummyNacl,
+    #[rustsbi(pmu)] DummyPmu,
+    #[rustsbi(srst)] DummyReset,
+    #[rustsbi(rfnc)] DummyFence,
+    #[rustsbi(sta)] DummySta,
+    #[rustsbi(susp)] DummySusp,
+    #[rustsbi(time)] DummyTimer,
+    #[rustsbi(info)] DummyEnvInfo,
+);
+
+#[cfg(feature = "machine")]
+#[derive(RustSBI)]
+struct UnitStruct;
+
 #[test]
 fn rustsbi_impl_id() {
     let sbi = FullyImplemented {
@@ -67,6 +87,28 @@ fn rustsbi_impl_id() {
         time: DummyTimer,
         info: DummyEnvInfo,
     };
+    assert_eq!(sbi.handle_ecall(0x10, 0x1, [0; 6]).value, 4);
+    let sbi = TupleStruct(
+        DummyConsole,
+        DummyCppc,
+        DummyHsm,
+        DummyIpi,
+        DummyNacl,
+        DummyPmu,
+        DummyReset,
+        DummyFence,
+        DummySta,
+        DummySusp,
+        DummyTimer,
+        DummyEnvInfo,
+    );
+    assert_eq!(sbi.handle_ecall(0x10, 0x1, [0; 6]).value, 4);
+}
+
+#[cfg(feature = "machine")]
+#[test]
+fn unit_struct() {
+    let sbi = UnitStruct;
     assert_eq!(sbi.handle_ecall(0x10, 0x1, [0; 6]).value, 4);
 }
 
