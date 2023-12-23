@@ -1,5 +1,5 @@
 use proc_macro::TokenStream;
-use quote::quote;
+use quote::{quote, ToTokens};
 use syn::{parse_macro_input, punctuated::Punctuated, Data, DeriveInput, Fields, Generics, Ident};
 
 #[derive(Clone, Default)]
@@ -32,15 +32,35 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
         Fields::Unnamed(f) => f.unnamed,
         Fields::Unit => Punctuated::new(),
     };
-
     let mut imp = RustSBIImp::default();
+
+    let mut ans = TokenStream::new();
+
     for field in &fields {
-        // for attr in field.attrs {
-        //     if let Meta::List(list) = attr.meta {
-        //         let vars =
-        //             Punctuated::<Ident, syn::Token![,]>::parse_terminated(&list.tokens).unwrap();
-        //     }
-        // }
+        let mut skipped = false;
+        for attr in &field.attrs {
+            if !attr.path().is_ident("rustsbi") {
+                continue
+            }
+            let parsed = attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("skip") {
+                    // skip this field in RustSBI
+                    skipped = true;
+                    Ok(())
+                } else {
+                    let path = meta.path.to_token_stream().to_string().replace(' ', "");
+                    Err(
+                        meta.error(format_args!("unknown rustsbi variant attribute `{}`", path))
+                    )
+                }
+            });
+            if let Err(err) = parsed {
+                ans.extend(TokenStream::from(err.to_compile_error()));
+            }
+        }
+        if skipped {
+            continue
+        }
         if let Some(name) = &field.ident {
             match name.to_string().as_str() {
                 "rfnc" | "fence" => imp.fence = Some(name),
@@ -60,7 +80,6 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
         }
     }
 
-    let mut ans = TokenStream::new();
     ans.extend(impl_derive_rustsbi(&input.ident, imp, &input.generics));
     ans
 }

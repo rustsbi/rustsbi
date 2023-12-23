@@ -4,8 +4,6 @@ use sbi_spec::{
     nacl::shmem_size::NATIVE,
 };
 
-// This struct should pass Rust build.
-
 #[derive(RustSBI)]
 struct FullyImplemented {
     console: DummyConsole,

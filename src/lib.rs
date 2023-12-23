@@ -806,9 +806,14 @@ pub extern crate sbi_spec as spec;
 ///
 /// ```rust
 /// #[derive(RustSBI)]
-/// struct MySBI<'a, T: rustsbi::Fence> {
+/// struct MySBI<'a, T: rustsbi::Fence, U, const N: usize>
+/// where
+///     U: rustsbi::Timer,
+/// {
 ///     fence: T,
+///     timer: U,
 ///     info: &'a MyEnvInfo,
+///     _dummy: [u8; N],
 /// }
 ///
 /// # use rustsbi::{RustSBI, HartMask};
@@ -819,6 +824,40 @@ pub extern crate sbi_spec as spec;
 /// #     fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet { unimplemented!() }
 /// #     fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet { unimplemented!() }
 /// # }
+/// # struct MyEnvInfo;
+/// # impl rustsbi::EnvInfo for MyEnvInfo {
+/// #     fn mvendorid(&self) -> usize { 1 }
+/// #     fn marchid(&self) -> usize { 2 }
+/// #     fn mimpid(&self) -> usize { 3 }
+/// # }
+/// ```
+///
+/// Inner attribute `#[rustsbi(skip)]` informs the macro to skip a certain field when
+/// generating a RustSBI implementation.
+/// 
+/// ```rust
+/// #[derive(RustSBI)]
+/// struct MySBI {
+///     console: MyConsole,
+///     #[rustsbi(skip)]
+///     fence: MyFence,
+///     info: MyEnvInfo,
+/// }
+///
+/// // The derived `MySBI` implementation ignores the `fence: MyFence`. It can now
+/// // be used as a conventional struct field.
+/// // Notably, a `#[warn(unused)]` would be raised if `fence` is not furtherly used
+/// // by following code; `console` and `info` fields are not warned because they are
+/// // internally used by the trait implementation derived in the RustSBI macro.
+/// # use rustsbi::RustSBI;
+/// # use sbi_spec::binary::{SbiRet, Physical};
+/// # struct MyConsole;
+/// # impl rustsbi::Console for MyConsole {
+/// #     fn write(&self, _: Physical<&[u8]>) -> SbiRet { unimplemented!() }
+/// #     fn read(&self, _: Physical<&mut [u8]>) -> SbiRet { unimplemented!() }
+/// #     fn write_byte(&self, _: u8) -> SbiRet { unimplemented!() }
+/// # }
+/// # struct MyFence;
 /// # struct MyEnvInfo;
 /// # impl rustsbi::EnvInfo for MyEnvInfo {
 /// #     fn mvendorid(&self) -> usize { 1 }
