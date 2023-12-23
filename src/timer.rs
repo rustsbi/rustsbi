@@ -1,5 +1,5 @@
-/// Timer programmer support
-pub trait Timer: Send + Sync {
+/// Timer programmer support extension.
+pub trait Timer {
     /// Programs the clock for next event after `stime_value` time.
     ///
     /// `stime_value` is in absolute time. This function must clear the pending timer interrupt bit as well.

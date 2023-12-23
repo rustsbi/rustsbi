@@ -19,6 +19,8 @@ exclude = ["/.github"]
 [dependencies]
 sbi-spec = "0.0.7-alpha.2"
 riscv = { version = "0.10.1", optional = true }
+rustsbi-macros = { path = "macros" }
+static_assertions = "1.1.0"
 
 [features]
 default = []
@@ -26,12 +28,15 @@ default = []
 # This feature enables to use RISC-V primitives on current machine mode environment
 # If you are developing a cross-architecture virtual machine, consider disabling this feature
 # to customize environment variables for RISC-V architecture like mvendorid, mimpid, etc.
-machine = ["dep:riscv"]
+machine = ["rustsbi-macros/machine", "dep:riscv"]
 
 [package.metadata.docs.rs]
 default-target = "riscv64imac-unknown-none-elf"
 targets = [
     "riscv32imac-unknown-none-elf", "riscv64imac-unknown-none-elf",
 ]
+
+[workspace]
+members = ["macros"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

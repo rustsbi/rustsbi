@@ -1,6 +1,6 @@
 use sbi_spec::binary::{SbiRet, SharedPtr};
 
-/// Steal-time Accounting Extension
+/// Steal-time Accounting extension.
 ///
 /// SBI implementations may encounter situations where virtual harts are ready to
 /// run, but must be withheld from running. These situations may be, for example,
@@ -14,7 +14,7 @@ use sbi_spec::binary::{SbiRet, SharedPtr};
 /// mechanism in which an SBI implementation provides steal-time and preemption
 /// information, for each virtual hart, to supervisor-mode software.
 
-pub trait Sta: Send + Sync {
+pub trait Sta {
     /// Set Steal-time Shared Memory Address.
     ///
     /// Set the shared memory physical base address for steal-time accounting of the

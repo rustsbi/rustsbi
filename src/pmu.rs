@@ -1,6 +1,6 @@
 use sbi_spec::binary::SbiRet;
 
-/// Performance Monitoring Unit Extension
+/// Performance Monitoring Unit extension.
 ///
 /// The RISC-V hardware performance counters such as `mcycle`, `minstret`, and `mhpmcounterX` CSRs
 /// are accessible as read-only from supervisor-mode using `cycle`, `instret`, and `hpmcounterX` CSRs.
@@ -35,7 +35,7 @@ use sbi_spec::binary::SbiRet;
 /// event_idx[19:16] = type;
 /// event_idx[15:0] = code;
 /// ```
-pub trait Pmu: Send + Sync {
+pub trait Pmu {
     /// Returns the number of counters (both hardware and firmware).
     ///
     /// The value is returned in `SbiRet.value`; this call always returns `SbiRet::success()`.

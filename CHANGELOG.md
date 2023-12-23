@@ -14,10 +14,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `new_uninit` and `uninit_with_machine_info` constructors for RustSBI instance
 - `handle_ecall` now only requires `&self` since RustSBI trait implementations are internally mutable
 - support NACL and STA extensions
+- macro based `#[derive(RustSBI)]` interface
 
 ### Modified
 
-- run on provided `MachineInfo` by default; bare metal M-mode environment should gate `machine`
+- run on provided `EnvInfo` by default; bare metal M-mode environment should gate `machine`
 - doc: grammar tweaks in hsm module
 - update dependency `sbi-spec` to v0.0.6, use `Physical` struct from `sbi-spec` crate.
 
@@ -25,7 +26,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `sbi_2_0` feature; RustSBI now supports SBI 2.0-rc1 by default
 - support for legacy SBI extensions
-- singleton based RustSBI interface; use struct `RustSBI` instead
+- singleton based RustSBI interface; use derive macro `#[derive(RustSBI)]` instead
 
 ## [0.3.2] - 2023-02-26
 

@@ -1,6 +1,6 @@
 use spec::binary::{Physical, SbiRet};
 
-/// Debug Console Extension
+/// Debug Console extension.
 ///
 /// The debug console extension defines a generic mechanism for debugging
 /// and boot-time early prints from supervisor-mode software.

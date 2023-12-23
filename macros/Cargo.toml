@@ -1,0 +1,18 @@
+[package]
+name = "rustsbi-macros"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+quote = "1.0.33"
+syn = "2.0.39"
+
+[features]
+default = []
+# Run RustSBI macros on machine mode - See Cargo.toml in root project
+machine = []
