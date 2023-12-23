@@ -40,7 +40,7 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
         let mut skipped = false;
         for attr in &field.attrs {
             if !attr.path().is_ident("rustsbi") {
-                continue
+                continue;
             }
             let parsed = attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("skip") {
@@ -49,9 +49,7 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
                     Ok(())
                 } else {
                     let path = meta.path.to_token_stream().to_string().replace(' ', "");
-                    Err(
-                        meta.error(format_args!("unknown rustsbi variant attribute `{}`", path))
-                    )
+                    Err(meta.error(format_args!("unknown RustSBI variant attribute `{}`", path)))
                 }
             });
             if let Err(err) = parsed {
@@ -59,23 +57,36 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
             }
         }
         if skipped {
-            continue
+            continue;
         }
         if let Some(name) = &field.ident {
-            match name.to_string().as_str() {
-                "rfnc" | "fence" => imp.fence = Some(name),
-                "hsm" => imp.hsm = Some(name),
-                "spi" | "ipi" => imp.ipi = Some(name),
-                "srst" | "reset" => imp.reset = Some(name),
-                "time" | "timer" => imp.timer = Some(name),
-                "pmu" => imp.pmu = Some(name),
-                "dbcn" | "console" => imp.console = Some(name),
-                "susp" => imp.susp = Some(name),
-                "cppc" => imp.cppc = Some(name),
-                "nacl" => imp.nacl = Some(name),
-                "sta" => imp.sta = Some(name),
-                "info" | "env_info" => imp.env_info = Some(name),
-                _ => {}
+            let origin = match name.to_string().as_str() {
+                "rfnc" | "fence" => imp.fence.replace(name),
+                "hsm" => imp.hsm.replace(name),
+                "spi" | "ipi" => imp.ipi.replace(name),
+                "srst" | "reset" => imp.reset.replace(name),
+                "time" | "timer" => imp.timer.replace(name),
+                "pmu" => imp.pmu.replace(name),
+                "dbcn" | "console" => imp.console.replace(name),
+                "susp" => imp.susp.replace(name),
+                "cppc" => imp.cppc.replace(name),
+                "nacl" => imp.nacl.replace(name),
+                "sta" => imp.sta.replace(name),
+                "info" | "env_info" => imp.env_info.replace(name),
+                _ => continue,
+            };
+            if let Some(_origin) = origin {
+                // TODO: provide more detailed proc macro error hinting that previous
+                // definition of this extension resides in `origin` once RFC 1566
+                // (Procedural Macro Diagnostics) is stablized.
+                // Link: https://github.com/rust-lang/rust/issues/54140
+                let error = syn::Error::new_spanned(
+                    &field,
+                    format!("more than one field defined SBI extension '{}'. \
+                    At most one fields should define the same SBI extension; consider using \
+                    #[rustsbi(skip)] to ignore fields that shouldn't be treated as an extension.", name),
+                );
+                ans.extend(TokenStream::from(error.to_compile_error()));
             }
         }
     }

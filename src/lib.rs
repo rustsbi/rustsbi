@@ -801,6 +801,32 @@ pub extern crate sbi_spec as spec;
 /// # }
 /// ```
 ///
+/// Fields indicating the same extension (SBI extension or `EnvInfo`) shouldn't be included
+/// more than once.
+///
+/// ```compile_fail
+/// #[derive(RustSBI)]
+/// struct MySBI {
+///     fence: MyFence,
+///     rfnc: MyFence, // <-- Second field providing `rustsbi::Fence` implementation
+///     info: MyEnvInfo,
+/// }
+/// # use rustsbi::{RustSBI, HartMask};
+/// # use sbi_spec::binary::SbiRet;
+/// # struct MyFence;
+/// # impl rustsbi::Fence for MyFence {
+/// #     fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// # }
+/// # struct MyEnvInfo;
+/// # impl rustsbi::EnvInfo for MyEnvInfo {
+/// #     fn mvendorid(&self) -> usize { 1 }
+/// #     fn marchid(&self) -> usize { 2 }
+/// #     fn mimpid(&self) -> usize { 3 }
+/// # }
+/// ```
+///
 /// The struct as derive input may include generics, specifically type generics, lifetimes,
 /// constant generics and where clauses.
 ///
@@ -834,7 +860,7 @@ pub extern crate sbi_spec as spec;
 ///
 /// Inner attribute `#[rustsbi(skip)]` informs the macro to skip a certain field when
 /// generating a RustSBI implementation.
-/// 
+///
 /// ```rust
 /// #[derive(RustSBI)]
 /// struct MySBI {
@@ -849,7 +875,7 @@ pub extern crate sbi_spec as spec;
 /// // Notably, a `#[warn(unused)]` would be raised if `fence` is not furtherly used
 /// // by following code; `console` and `info` fields are not warned because they are
 /// // internally used by the trait implementation derived in the RustSBI macro.
-/// # use rustsbi::RustSBI;
+/// # use rustsbi::{HartMask, RustSBI};
 /// # use sbi_spec::binary::{SbiRet, Physical};
 /// # struct MyConsole;
 /// # impl rustsbi::Console for MyConsole {
@@ -858,6 +884,11 @@ pub extern crate sbi_spec as spec;
 /// #     fn write_byte(&self, _: u8) -> SbiRet { unimplemented!() }
 /// # }
 /// # struct MyFence;
+/// # impl rustsbi::Fence for MyFence {
+/// #     fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// # }
 /// # struct MyEnvInfo;
 /// # impl rustsbi::EnvInfo for MyEnvInfo {
 /// #     fn mvendorid(&self) -> usize { 1 }

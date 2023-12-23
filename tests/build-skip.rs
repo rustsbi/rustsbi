@@ -1,5 +1,9 @@
-use sbi_spec::binary::{Physical, SbiRet};
 use rustsbi::RustSBI;
+use sbi_spec::{
+    binary::{Physical, SbiRet},
+    dbcn::EID_DBCN,
+    rfnc::EID_RFNC,
+};
 
 #[derive(RustSBI)]
 struct SkipExtension {
@@ -26,19 +30,34 @@ fn rustsbi_skip_extension() {
         info: DummyEnvInfo,
     };
     // 1. Skipped fields are neither used during RustSBI macro generation, ...
-    assert_eq!(sbi.handle_ecall(0x4442434E, 0x0, [0; 6]), SbiRet::success(1));
-    assert_eq!(sbi.handle_ecall(0x4442434E, 0x1, [0; 6]), SbiRet::success(2));
-    assert_eq!(sbi.handle_ecall(0x4442434E, 0x2, [0; 6]), SbiRet::success(3));
-    assert_eq!(sbi.handle_ecall(0x52464E43, 0x0, [0; 6]), SbiRet::not_supported());
-    assert_eq!(sbi.handle_ecall(0x52464E43, 0x1, [0; 6]), SbiRet::not_supported());
-    assert_eq!(sbi.handle_ecall(0x52464E43, 0x2, [0; 6]), SbiRet::not_supported());
+    assert_eq!(sbi.handle_ecall(EID_DBCN, 0x0, [0; 6]), SbiRet::success(1));
+    assert_eq!(sbi.handle_ecall(EID_DBCN, 0x1, [0; 6]), SbiRet::success(2));
+    assert_eq!(sbi.handle_ecall(EID_DBCN, 0x2, [0; 6]), SbiRet::success(3));
+    assert_eq!(
+        sbi.handle_ecall(EID_RFNC, 0x0, [0; 6]),
+        SbiRet::not_supported()
+    );
+    assert_eq!(
+        sbi.handle_ecall(EID_RFNC, 0x1, [0; 6]),
+        SbiRet::not_supported()
+    );
+    assert_eq!(
+        sbi.handle_ecall(EID_RFNC, 0x2, [0; 6]),
+        SbiRet::not_supported()
+    );
     // 2. ... nor do they appear in extension detection in Base extension.
-    // note that it's `assert_ne` - the handle_ecall should not return a success detection with 
+    // note that it's `assert_ne` - the handle_ecall should not return a success detection with
     // value 0 indicating this feature is not supported, ...
-    assert_ne!(sbi.handle_ecall(0x10, 0x3, [0x4442434E, 0, 0, 0, 0, 0]), SbiRet::success(0));
+    assert_ne!(
+        sbi.handle_ecall(0x10, 0x3, [EID_DBCN, 0, 0, 0, 0, 0]),
+        SbiRet::success(0)
+    );
     // ... and the `assert_eq` here means extension detection detected successfully that this
     // extension is not supported in SBI implementation `SkipExtension`.
-    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x52464E43, 0, 0, 0, 0, 0]), SbiRet::success(0));
+    assert_eq!(
+        sbi.handle_ecall(0x10, 0x3, [EID_RFNC, 0, 0, 0, 0, 0]),
+        SbiRet::success(0)
+    );
     // Additionally, we illustrate here that the skipped fields may be used elsewhere.
     let _ = sbi.fence;
 }
@@ -53,9 +72,18 @@ fn rustsbi_skip_env_info() {
     };
     // The `env_info` instead of `info` field would be used by RustSBI macro; struct
     // `RealEnvInfo` would return 7, 8 and 9 for mvendorid, marchid and mimpid.
-    assert_eq!(sbi.handle_ecall(0x10, 0x4, [0x4442434E, 0, 0, 0, 0, 0]), SbiRet::success(7));
-    assert_eq!(sbi.handle_ecall(0x10, 0x5, [0x4442434E, 0, 0, 0, 0, 0]), SbiRet::success(8));
-    assert_eq!(sbi.handle_ecall(0x10, 0x6, [0x4442434E, 0, 0, 0, 0, 0]), SbiRet::success(9));
+    assert_eq!(
+        sbi.handle_ecall(0x10, 0x4, [EID_DBCN, 0, 0, 0, 0, 0]),
+        SbiRet::success(7)
+    );
+    assert_eq!(
+        sbi.handle_ecall(0x10, 0x5, [EID_DBCN, 0, 0, 0, 0, 0]),
+        SbiRet::success(8)
+    );
+    assert_eq!(
+        sbi.handle_ecall(0x10, 0x6, [EID_DBCN, 0, 0, 0, 0, 0]),
+        SbiRet::success(9)
+    );
     let _ = sbi.info;
 }
 
