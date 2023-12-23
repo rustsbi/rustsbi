@@ -1,6 +1,16 @@
 [package]
 name = "rustsbi-macros"
-version = "0.1.0"
+description = "Proc-macros for RustSBI, a RISC-V SBI implementation library in Rust"
+version = "0.4.0-alpha.1"
+authors = [
+    "Luo Jia <me@luojia.cc>",
+]
+repository = "https://github.com/rustsbi/rustsbi"
+documentation = "https://docs.rs/rustsbi"
+license = "MulanPSL-2.0 OR MIT"
+readme = "../README.md"
+keywords = ["riscv", "sbi", "rustsbi"]
+categories = ["os", "embedded", "hardware-support", "no-std"]
 edition = "2021"
 
 [lib]
@@ -14,5 +24,5 @@ syn = "2.0.39"
 
 [features]
 default = []
-# Run RustSBI macros on machine mode - See Cargo.toml in root project
+# Run RustSBI macros on machine mode - See Cargo.toml in RustSBI root project
 machine = []
