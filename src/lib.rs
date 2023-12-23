@@ -897,6 +897,70 @@ pub extern crate sbi_spec as spec;
 /// # }
 /// ```
 ///
+/// In some cases we may manually assign fields to certain SBI extension other than defaulting
+/// to special names defined above, and sometimes we need to provide multiple SBI extensions
+/// with one field only. By listing the extension names separated by comma in the helper attribute,
+/// we can assign one or multiple SBI extensions to a field to solve the issues above.
+///
+/// ```rust
+/// #[derive(RustSBI)]
+/// struct MySBI {
+///     console: MyConsole,
+///     #[rustsbi(fence)]
+///     some_other_name: MyFence,
+///     info: MyEnvInfo,
+/// }
+///
+/// // RustSBI will now use the `some_other_name` field implementing `rustsbi::Fence`
+/// // as the implementation of SBI Remote Fence extension.
+/// # use rustsbi::{HartMask, RustSBI};
+/// # use sbi_spec::binary::{SbiRet, Physical};
+/// # struct MyConsole;
+/// # impl rustsbi::Console for MyConsole {
+/// #     fn write(&self, _: Physical<&[u8]>) -> SbiRet { unimplemented!() }
+/// #     fn read(&self, _: Physical<&mut [u8]>) -> SbiRet { unimplemented!() }
+/// #     fn write_byte(&self, _: u8) -> SbiRet { unimplemented!() }
+/// # }
+/// # struct MyFence;
+/// # impl rustsbi::Fence for MyFence {
+/// #     fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// # }
+/// # struct MyEnvInfo;
+/// # impl rustsbi::EnvInfo for MyEnvInfo {
+/// #     fn mvendorid(&self) -> usize { 1 }
+/// #     fn marchid(&self) -> usize { 2 }
+/// #     fn mimpid(&self) -> usize { 3 }
+/// # }
+/// ```
+/// ```rust
+/// #[derive(RustSBI)]
+/// struct MySBI {
+///     #[rustsbi(ipi, timer)]
+///     clint: Clint, // <-- RISC-V CLINT will provide both Ipi and Timer extensions.
+///     info: MyEnvInfo,
+/// }
+///
+/// // Both Ipi and Timer extension implementations are now provided by the
+/// // `clint` field implementing both `rustsbi::Ipi` and `rustsbi::Timer`.
+/// # use rustsbi::{HartMask, RustSBI};
+/// # use sbi_spec::binary::{SbiRet, Physical};
+/// # struct Clint;
+/// # impl rustsbi::Timer for Clint {
+/// #     fn set_timer(&self, stime_value: u64) { unimplemented!() }
+/// # }
+/// # impl rustsbi::Ipi for Clint {
+/// #     fn send_ipi(&self, _: HartMask) -> SbiRet { unimplemented!() }
+/// # }
+/// # struct MyEnvInfo;
+/// # impl rustsbi::EnvInfo for MyEnvInfo {
+/// #     fn mvendorid(&self) -> usize { 1 }
+/// #     fn marchid(&self) -> usize { 2 }
+/// #     fn mimpid(&self) -> usize { 3 }
+/// # }
+/// ```
+///
 /// # Notes
 // note: following documents are inherted from `RustSBI` in the `rustsbi_macros` package.
 #[doc(inline)]
