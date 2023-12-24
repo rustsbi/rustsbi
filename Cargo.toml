@@ -19,8 +19,7 @@ exclude = ["/.github"]
 [dependencies]
 sbi-spec = "0.0.7-alpha.3"
 riscv = { version = "0.10.1", optional = true }
-# TODO change to version number once sbi-rt releases a new version
-sbi-rt = { git = "https://github.com/rustsbi/sbi-rt", features = ["integer-impls"], optional = true }
+sbi-rt = { version = "0.0.3-rc.5", features = ["integer-impls"], optional = true }
 rustsbi-macros = { version = "0.4.0-alpha.1", path = "macros" }
 static_assertions = "1.1.0"
 

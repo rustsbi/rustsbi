@@ -59,6 +59,16 @@ jobs:
         with:
           command: check
           args: --target ${{ matrix.TARGET }} --features "machine" --verbose
+      - name: Check (forward)
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --target ${{ matrix.TARGET }} --features "forward" --verbose
+      - name: Check (machine + forward)
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: --target ${{ matrix.TARGET }} --features "machine, forward" --verbose
 
   check-nightly:
     name: Cargo check (nightly)

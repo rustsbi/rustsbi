@@ -495,7 +495,7 @@ impl Pmu for Forward {
             }
         }
     }
-    
+
     #[inline]
     fn counter_fw_read_hi(&self, counter_idx: usize) -> SbiRet {
         match () {
