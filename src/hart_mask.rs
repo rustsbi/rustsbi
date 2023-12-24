@@ -1,5 +1,5 @@
 /// Hart mask structure in SBI function calls.
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct HartMask {
     inner: BitVector,
 }
@@ -14,6 +14,12 @@ impl HartMask {
                 hart_mask_base,
             },
         }
+    }
+
+    /// Returns `hart_mask` and `hart_mask_base` parameters from the hart mask structure.
+    #[inline]
+    pub const fn into_inner(self) -> (usize, usize) {
+        (self.inner.hart_mask, self.inner.hart_mask_base)
     }
 
     /// Check if the `hart_id` is included in this hart mask structure.
@@ -40,7 +46,7 @@ impl HartMask {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 struct BitVector {
     hart_mask: usize,
     hart_mask_base: usize,

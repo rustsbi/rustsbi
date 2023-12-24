@@ -15,6 +15,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `handle_ecall` now only requires `&self` since RustSBI trait implementations are internally mutable
 - support NACL and STA extensions
 - macro based `#[derive(RustSBI)]` interface
+- `into_inner` function for `HartMask`
 
 ### Modified
 
