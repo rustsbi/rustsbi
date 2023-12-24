@@ -495,6 +495,19 @@ impl Pmu for Forward {
             }
         }
     }
+    
+    #[inline]
+    fn counter_fw_read_hi(&self, counter_idx: usize) -> SbiRet {
+        match () {
+            #[cfg(feature = "forward")]
+            () => sbi_rt::pmu_counter_fw_read_hi(counter_idx),
+            #[cfg(not(feature = "forward"))]
+            () => {
+                let _ = counter_idx;
+                unimplemented!()
+            }
+        }
+    }
 }
 
 impl Reset for Forward {
