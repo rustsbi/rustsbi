@@ -209,6 +209,7 @@ pub trait Pmu {
     /// |:--------------------------|:----------------------------------------------
     /// | `SbiRet::success()`       | firmware counter read successfully.
     /// | `SbiRet::invalid_param()` | `counter_idx` points to a hardware counter or an invalid counter.
+    #[inline]
     fn counter_fw_read_hi(&self, counter_idx: usize) -> SbiRet {
         match () {
             #[cfg(not(target_pointer_width = "32"))]

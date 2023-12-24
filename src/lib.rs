@@ -551,6 +551,8 @@ mod rfence;
 mod sta;
 mod susp;
 mod timer;
+
+mod forward;
 mod traits;
 
 /// The RustSBI logo without blank lines on the beginning.
@@ -1048,6 +1050,8 @@ pub use sta::Sta;
 pub use susp::Susp;
 pub use timer::Timer;
 pub use traits::{EnvInfo, RustSBI};
+
+pub use forward::Forward;
 
 // Macro internal functions and structures
 

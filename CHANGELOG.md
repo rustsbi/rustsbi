@@ -16,6 +16,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - support NACL and STA extensions
 - macro based `#[derive(RustSBI)]` interface
 - `into_inner` function for `HartMask`
+- forward extensions to current environment by `Forward` struct
 
 ### Modified
 
