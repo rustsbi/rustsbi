@@ -1,13 +1,12 @@
-use std::cell::RefCell;
-
-use rustsbi::{HartMask, RustSBI};
+use rustsbi::RustSBI;
 use sbi_spec::{
-    binary::{Physical, SbiRet},
+    binary::{HartMask, Physical, SbiRet},
     dbcn::EID_DBCN,
     rfnc::EID_RFNC,
     spi::EID_SPI,
     time::EID_TIME,
 };
+use std::cell::RefCell;
 
 #[derive(RustSBI)]
 struct AssignOne {
@@ -92,15 +91,15 @@ impl rustsbi::Console for DummyConsole {
 struct DummyFence;
 
 impl rustsbi::Fence for DummyFence {
-    fn remote_fence_i(&self, _: rustsbi::HartMask) -> SbiRet {
+    fn remote_fence_i(&self, _: HartMask) -> SbiRet {
         SbiRet::success(4)
     }
 
-    fn remote_sfence_vma(&self, _: rustsbi::HartMask, _: usize, _: usize) -> SbiRet {
+    fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
         SbiRet::success(5)
     }
 
-    fn remote_sfence_vma_asid(&self, _: rustsbi::HartMask, _: usize, _: usize, _: usize) -> SbiRet {
+    fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
         SbiRet::success(6)
     }
 }

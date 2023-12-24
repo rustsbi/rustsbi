@@ -1,5 +1,4 @@
-use crate::hart_mask::HartMask;
-use sbi_spec::binary::SbiRet;
+use sbi_spec::binary::{HartMask, SbiRet};
 
 /// Remote Fence support extension.
 ///

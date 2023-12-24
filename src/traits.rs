@@ -1,7 +1,6 @@
-use crate::HartMask;
 #[cfg(feature = "machine")]
 use riscv::register::{marchid, mimpid, mvendorid};
-use spec::binary::{Physical, SbiRet, SharedPtr};
+use spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
 
 /// RustSBI environment call handler.
 pub trait RustSBI {

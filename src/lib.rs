@@ -205,7 +205,7 @@
 //!
 //! ```no_run
 //! # use rustsbi::RustSBI;
-//! # use sbi_spec::binary::SbiRet;
+//! # use sbi_spec::binary::{SbiRet, HartMask};
 //! # struct MyEnvInfo;
 //! # impl rustsbi::EnvInfo for MyEnvInfo {
 //! #     fn mvendorid(&self) -> usize { 1 }
@@ -431,7 +431,7 @@
 //! and function IDs can be checked before calling RustSBI `env.handle_ecall`.
 //!
 //! ```no_run
-//! # use sbi_spec::binary::SbiRet;
+//! # use sbi_spec::binary::{SbiRet, HartMask};
 //! # struct MyExtensionSBI {}
 //! # impl MyExtensionSBI { fn handle_ecall(&self, params: ()) -> SbiRet { SbiRet::success(0) } }
 //! # struct MySBI {} // Mock, prevent doc test error when feature singleton is enabled
@@ -542,9 +542,7 @@
 
 mod console;
 mod cppc;
-mod hart_mask;
 mod hsm;
-// mod instance;
 mod ipi;
 mod nacl;
 mod pmu;
@@ -598,8 +596,8 @@ pub extern crate sbi_spec as spec;
 ///
 /// struct MyFence { /* fields */ }
 ///
-/// # use rustsbi::{RustSBI, HartMask};
-/// # use sbi_spec::binary::SbiRet;
+/// #
+/// # use sbi_spec::binary::{SbiRet, HartMask};
 /// impl rustsbi::Fence for MyFence {
 ///     /* implementation details */
 /// #   fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
@@ -634,8 +632,8 @@ pub extern crate sbi_spec as spec;
 ///     timer: MyTimer,
 /// #   #[cfg(feature = "machine")] info: () // compile would success on #[cfg(feature = "machine")], cause it always to fail
 /// }
-/// # use rustsbi::{RustSBI, HartMask};
-/// # use sbi_spec::binary::SbiRet;
+///
+/// # use sbi_spec::binary::{SbiRet, HartMask};
 /// # struct MyFence;
 /// # impl rustsbi::Fence for MyFence {
 /// #     fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
@@ -682,6 +680,7 @@ pub extern crate sbi_spec as spec;
 /// name `info`. We can do it like:
 ///
 /// ```rust
+/// # use rustsbi::RustSBI;
 /// #[derive(RustSBI)]
 /// struct MySBI {
 ///     fence: MyFence,
@@ -700,8 +699,7 @@ pub extern crate sbi_spec as spec;
 ///     #[inline]
 ///     fn mimpid(&self) -> usize { todo!("add real value here") }
 /// }
-/// # use rustsbi::{RustSBI, HartMask};
-/// # use sbi_spec::binary::SbiRet;
+/// # use sbi_spec::binary::{SbiRet, HartMask};
 /// # struct MyFence;
 /// # impl rustsbi::Fence for MyFence {
 /// #     fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
@@ -813,6 +811,7 @@ pub extern crate sbi_spec as spec;
 /// For example:
 ///
 /// ```rust
+/// # use rustsbi::RustSBI;
 /// #[derive(RustSBI)]
 /// struct MySBI {
 ///     fence: MyFence,
@@ -821,8 +820,7 @@ pub extern crate sbi_spec as spec;
 ///
 /// // Here, we assume that `MyFence` implements `rustsbi::Fence`
 /// // and `MyEnvInfo` implements `rustsbi::EnvInfo`.
-/// # use rustsbi::{RustSBI, HartMask};
-/// # use sbi_spec::binary::SbiRet;
+/// # use sbi_spec::binary::{SbiRet, HartMask};
 /// # struct MyFence;
 /// # impl rustsbi::Fence for MyFence {
 /// #     fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
@@ -847,8 +845,8 @@ pub extern crate sbi_spec as spec;
 ///     rfnc: MyFence, // <-- Second field providing `rustsbi::Fence` implementation
 ///     info: MyEnvInfo,
 /// }
-/// # use rustsbi::{RustSBI, HartMask};
-/// # use sbi_spec::binary::SbiRet;
+///
+/// # use sbi_spec::binary::{SbiRet, HartMask};
 /// # struct MyFence;
 /// # impl rustsbi::Fence for MyFence {
 /// #     fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
@@ -867,6 +865,7 @@ pub extern crate sbi_spec as spec;
 /// constant generics and where clauses.
 ///
 /// ```rust
+/// # use rustsbi::RustSBI;
 /// #[derive(RustSBI)]
 /// struct MySBI<'a, T: rustsbi::Fence, U, const N: usize>
 /// where
@@ -878,8 +877,7 @@ pub extern crate sbi_spec as spec;
 ///     _dummy: [u8; N],
 /// }
 ///
-/// # use rustsbi::{RustSBI, HartMask};
-/// # use sbi_spec::binary::SbiRet;
+/// # use sbi_spec::binary::{SbiRet, HartMask};
 /// # struct MyFence;
 /// # impl rustsbi::Fence for MyFence {
 /// #     fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
@@ -911,8 +909,8 @@ pub extern crate sbi_spec as spec;
 /// // Notably, a `#[warn(unused)]` would be raised if `fence` is not furtherly used
 /// // by following code; `console` and `info` fields are not warned because they are
 /// // internally used by the trait implementation derived in the RustSBI macro.
-/// # use rustsbi::{HartMask, RustSBI};
-/// # use sbi_spec::binary::{SbiRet, Physical};
+/// # use rustsbi::RustSBI;
+/// # use sbi_spec::binary::{SbiRet, Physical, HartMask};
 /// # struct MyConsole;
 /// # impl rustsbi::Console for MyConsole {
 /// #     fn write(&self, _: Physical<&[u8]>) -> SbiRet { unimplemented!() }
@@ -949,8 +947,8 @@ pub extern crate sbi_spec as spec;
 ///
 /// // RustSBI will now use the `some_other_name` field implementing `rustsbi::Fence`
 /// // as the implementation of SBI Remote Fence extension.
-/// # use rustsbi::{HartMask, RustSBI};
-/// # use sbi_spec::binary::{SbiRet, Physical};
+/// # use rustsbi::RustSBI;
+/// # use sbi_spec::binary::{SbiRet, Physical, HartMask};
 /// # struct MyConsole;
 /// # impl rustsbi::Console for MyConsole {
 /// #     fn write(&self, _: Physical<&[u8]>) -> SbiRet { unimplemented!() }
@@ -980,8 +978,8 @@ pub extern crate sbi_spec as spec;
 ///
 /// // Both Ipi and Timer extension implementations are now provided by the
 /// // `clint` field implementing both `rustsbi::Ipi` and `rustsbi::Timer`.
-/// # use rustsbi::{HartMask, RustSBI};
-/// # use sbi_spec::binary::{SbiRet, Physical};
+/// # use rustsbi::RustSBI;
+/// # use sbi_spec::binary::{SbiRet, Physical, HartMask};
 /// # struct Clint;
 /// # impl rustsbi::Timer for Clint {
 /// #     fn set_timer(&self, stime_value: u64) { unimplemented!() }
@@ -1001,14 +999,14 @@ pub extern crate sbi_spec as spec;
 /// Alternatively, the RustSBI derive macro also accepts tuple structs or unit structs.
 ///
 /// ```rust
+/// # use rustsbi::RustSBI;
 /// // Tuple structs.
 /// // No field names are provided; the structure must provide helper attributes
 /// // to identify the extensions for the RustSBI derive macro.
 /// #[derive(RustSBI)]
 /// struct MySBI(#[rustsbi(fence)] MyFence, #[rustsbi(info)] MyEnvInfo);
 ///
-/// # use rustsbi::{RustSBI, HartMask};
-/// # use sbi_spec::binary::SbiRet;
+/// # use sbi_spec::binary::{SbiRet, HartMask};
 /// # struct MyFence;
 /// # impl rustsbi::Fence for MyFence {
 /// #     fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
@@ -1040,7 +1038,6 @@ pub use rustsbi_macros::RustSBI;
 
 pub use console::Console;
 pub use cppc::Cppc;
-pub use hart_mask::HartMask;
 pub use hsm::Hsm;
 pub use ipi::Ipi;
 pub use nacl::Nacl;

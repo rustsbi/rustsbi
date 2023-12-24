@@ -1,6 +1,6 @@
 use rustsbi::RustSBI;
 use sbi_spec::{
-    binary::{Physical, SbiRet, SharedPtr},
+    binary::{HartMask, Physical, SbiRet, SharedPtr},
     nacl::shmem_size::NATIVE,
 };
 
@@ -190,7 +190,7 @@ impl rustsbi::Hsm for DummyHsm {
 struct DummyIpi;
 
 impl rustsbi::Ipi for DummyIpi {
-    fn send_ipi(&self, _: rustsbi::HartMask) -> SbiRet {
+    fn send_ipi(&self, _: HartMask) -> SbiRet {
         unimplemented!()
     }
 }
@@ -257,15 +257,15 @@ impl rustsbi::Reset for DummyReset {
 struct DummyFence;
 
 impl rustsbi::Fence for DummyFence {
-    fn remote_fence_i(&self, _: rustsbi::HartMask) -> SbiRet {
+    fn remote_fence_i(&self, _: HartMask) -> SbiRet {
         unimplemented!()
     }
 
-    fn remote_sfence_vma(&self, _: rustsbi::HartMask, _: usize, _: usize) -> SbiRet {
+    fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
         unimplemented!()
     }
 
-    fn remote_sfence_vma_asid(&self, _: rustsbi::HartMask, _: usize, _: usize, _: usize) -> SbiRet {
+    fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
         unimplemented!()
     }
 }
