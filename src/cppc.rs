@@ -116,15 +116,19 @@ pub trait Cppc {
 }
 
 impl<T: Cppc> Cppc for &T {
+    #[inline]
     fn probe(&self, reg_id: u32) -> SbiRet {
         T::probe(self, reg_id)
     }
+    #[inline]
     fn read(&self, reg_id: u32) -> SbiRet {
         T::read(self, reg_id)
     }
+    #[inline]
     fn read_hi(&self, reg_id: u32) -> SbiRet {
         T::read_hi(self, reg_id)
     }
+    #[inline]
     fn write(&self, reg_id: u32, val: u64) -> SbiRet {
         T::write(self, reg_id, val)
     }

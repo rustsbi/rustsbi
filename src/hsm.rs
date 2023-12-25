@@ -192,6 +192,7 @@ pub trait Hsm {
     /// | `SbiRet::not_supported()`   | `suspend_type` is valid but not implemented.
     /// | `SbiRet::invalid_address()` | `resume_addr` is not valid, possibly due to the following reasons: it is not a valid physical address, or executable access to the address is prohibited by a physical memory protection mechanism or H-extension G-stage for supervisor-mode.
     /// | `SbiRet::failed()`          | The suspend request failed for unspecified or unknown other reasons.
+    #[inline]
     fn hart_suspend(&self, suspend_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
         let _ = (suspend_type, resume_addr, opaque);
         SbiRet::not_supported()

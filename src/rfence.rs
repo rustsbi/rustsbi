@@ -58,6 +58,7 @@ pub trait Rfence {
     /// | `SbiRet::success()`         | Remote fence was sent to all the targeted harts successfully.
     /// | `SbiRet::not_supported()`   | This function is not supported as it is not implemented or one of the target hart doesn’t support hypervisor extension.
     /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
+    #[inline]
     fn remote_hfence_gvma_vmid(
         &self,
         hart_mask: HartMask,
@@ -83,6 +84,7 @@ pub trait Rfence {
     /// | `SbiRet::success()`         | Remote fence was sent to all the targeted harts successfully.
     /// | `SbiRet::not_supported()`   | This function is not supported as it is not implemented or one of the target hart does not support hypervisor extension.
     /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
+    #[inline]
     fn remote_hfence_gvma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
         let _ = (hart_mask, start_addr, size);
         SbiRet::not_supported()
@@ -103,6 +105,7 @@ pub trait Rfence {
     /// | `SbiRet::success()`         | Remote fence was sent to all the targeted harts successfully.
     /// | `SbiRet::not_supported()`   | This function is not supported as it is not implemented or one of the target hart does not support hypervisor extension.
     /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
+    #[inline]
     fn remote_hfence_vvma_asid(
         &self,
         hart_mask: HartMask,
@@ -128,6 +131,7 @@ pub trait Rfence {
     /// | `SbiRet::success()`         | Remote fence was sent to all the targeted harts successfully.
     /// | `SbiRet::not_supported()`   | This function is not supported as it is not implemented or one of the target hart doesn’t support hypervisor extension.
     /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
+    #[inline]
     fn remote_hfence_vvma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
         let _ = (hart_mask, start_addr, size);
         SbiRet::not_supported()
