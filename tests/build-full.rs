@@ -185,6 +185,10 @@ impl rustsbi::Hsm for DummyHsm {
     fn hart_get_status(&self, _: usize) -> SbiRet {
         unimplemented!()
     }
+
+    fn hart_suspend(&self, _: u32, _: usize, _: usize) -> SbiRet {
+        unimplemented!()
+    }
 }
 
 struct DummyIpi;
@@ -244,6 +248,10 @@ impl rustsbi::Pmu for DummyPmu {
     fn counter_fw_read(&self, _: usize) -> SbiRet {
         unimplemented!()
     }
+
+    fn counter_fw_read_hi(&self, _: usize) -> SbiRet {
+        unimplemented!()
+    }
 }
 
 struct DummyReset;
@@ -266,6 +274,22 @@ impl rustsbi::Fence for DummyFence {
     }
 
     fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
+        unimplemented!()
+    }
+
+    fn remote_hfence_gvma_vmid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
+        unimplemented!()
+    }
+
+    fn remote_hfence_gvma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
+        unimplemented!()
+    }
+
+    fn remote_hfence_vvma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
+        unimplemented!()
+    }
+
+    fn remote_hfence_vvma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
         unimplemented!()
     }
 }

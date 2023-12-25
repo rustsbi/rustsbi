@@ -71,18 +71,18 @@ fn rustsbi_skip_env_info() {
         env_info: RealEnvInfo,
     };
     // The `env_info` instead of `info` field would be used by RustSBI macro; struct
-    // `RealEnvInfo` would return 7, 8 and 9 for mvendorid, marchid and mimpid.
+    // `RealEnvInfo` would return 11, 12 and 13 for mvendorid, marchid and mimpid.
     assert_eq!(
         sbi.handle_ecall(0x10, 0x4, [EID_DBCN, 0, 0, 0, 0, 0]),
-        SbiRet::success(7)
+        SbiRet::success(11)
     );
     assert_eq!(
         sbi.handle_ecall(0x10, 0x5, [EID_DBCN, 0, 0, 0, 0, 0]),
-        SbiRet::success(8)
+        SbiRet::success(12)
     );
     assert_eq!(
         sbi.handle_ecall(0x10, 0x6, [EID_DBCN, 0, 0, 0, 0, 0]),
-        SbiRet::success(9)
+        SbiRet::success(13)
     );
     let _ = sbi.info;
 }
@@ -120,6 +120,22 @@ impl rustsbi::Fence for DummyFence {
     fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
         SbiRet::success(6)
     }
+
+    fn remote_hfence_gvma_vmid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
+        SbiRet::success(7)
+    }
+
+    fn remote_hfence_gvma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
+        SbiRet::success(8)
+    }
+
+    fn remote_hfence_vvma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
+        SbiRet::success(9)
+    }
+
+    fn remote_hfence_vvma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
+        SbiRet::success(10)
+    }
 }
 
 struct DummyEnvInfo;
@@ -142,14 +158,14 @@ struct RealEnvInfo;
 
 impl rustsbi::EnvInfo for RealEnvInfo {
     fn mvendorid(&self) -> usize {
-        7
+        11
     }
 
     fn marchid(&self) -> usize {
-        8
+        12
     }
 
     fn mimpid(&self) -> usize {
-        9
+        13
     }
 }

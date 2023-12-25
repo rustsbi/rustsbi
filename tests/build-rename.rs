@@ -56,7 +56,7 @@ fn rustsbi_assign_multiple() {
         },
         info: DummyEnvInfo,
     };
-    assert_eq!(sbi.handle_ecall(EID_SPI, 0x0, [0; 6]), SbiRet::success(10));
+    assert_eq!(sbi.handle_ecall(EID_SPI, 0x0, [0; 6]), SbiRet::success(14));
     #[cfg(target_pointer_width = "64")]
     sbi.handle_ecall(EID_TIME, 0x0, [0x1122334455667788, 0, 0, 0, 0, 0]);
     #[cfg(target_pointer_width = "32")]
@@ -102,6 +102,22 @@ impl rustsbi::Fence for DummyFence {
     fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
         SbiRet::success(6)
     }
+
+    fn remote_hfence_gvma_vmid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
+        SbiRet::success(7)
+    }
+
+    fn remote_hfence_gvma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
+        SbiRet::success(8)
+    }
+
+    fn remote_hfence_vvma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
+        SbiRet::success(9)
+    }
+
+    fn remote_hfence_vvma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
+        SbiRet::success(10)
+    }
 }
 
 struct DummyEnvInfo;
@@ -124,15 +140,15 @@ struct RealEnvInfo;
 
 impl rustsbi::EnvInfo for RealEnvInfo {
     fn mvendorid(&self) -> usize {
-        7
+        11
     }
 
     fn marchid(&self) -> usize {
-        8
+        12
     }
 
     fn mimpid(&self) -> usize {
-        9
+        13
     }
 }
 
@@ -148,6 +164,6 @@ impl rustsbi::Timer for MockClint {
 
 impl rustsbi::Ipi for MockClint {
     fn send_ipi(&self, _: HartMask) -> SbiRet {
-        SbiRet::success(10)
+        SbiRet::success(14)
     }
 }

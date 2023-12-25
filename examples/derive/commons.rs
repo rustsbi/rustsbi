@@ -19,6 +19,22 @@ impl rustsbi::Fence for MyFence {
     fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
         todo!()
     }
+
+    fn remote_hfence_gvma_vmid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
+        todo!()
+    }
+
+    fn remote_hfence_gvma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
+        todo!()
+    }
+
+    fn remote_hfence_vvma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
+        todo!()
+    }
+
+    fn remote_hfence_vvma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
+        todo!()
+    }
 }
 
 pub struct MyEnvInfo;
