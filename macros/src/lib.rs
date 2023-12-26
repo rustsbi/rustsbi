@@ -56,7 +56,7 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
             // (Procedural Macro Diagnostics) is stablized.
             // Link: https://github.com/rust-lang/rust/issues/54140
             let error = syn::Error::new_spanned(
-                &field,
+                field,
                 format!(
                     "more than one field defined SBI extension '{}'. \
                 At most one fields should define the same SBI extension; consider using \
@@ -88,7 +88,7 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
                     let (replaced, origin) =
                         replace_sbi_extension_ident(extension_name, member.clone());
                     if replaced {
-                        check_already_exists(&field, extension_name, origin, &mut ans);
+                        check_already_exists(field, extension_name, origin, &mut ans);
                         current_meta_accepted = true;
                     }
                 }
@@ -112,7 +112,7 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
         if let Some(field_ident) = &field.ident {
             let (_replaced, origin) =
                 replace_sbi_extension_ident(field_ident.to_string().as_str(), member);
-            check_already_exists(&field, &field_ident.to_string(), origin, &mut ans);
+            check_already_exists(field, &field_ident.to_string(), origin, &mut ans);
         }
     }
 
@@ -230,10 +230,10 @@ fn impl_derive_rustsbi(name: &Ident, imp: RustSBIImp, generics: &Generics) -> To
     let gen = quote! {
     impl #impl_generics ::rustsbi::RustSBI for #name #ty_generics #where_clause {
         #[inline]
-        fn handle_ecall(&self, extension: usize, function: usize, param: [usize; 6]) -> ::rustsbi::spec::binary::SbiRet {
+        fn handle_ecall(&self, extension: usize, function: usize, param: [usize; 6]) -> ::rustsbi::SbiRet {
             match extension {
                 #match_arms
-                _ => ::rustsbi::spec::binary::SbiRet::not_supported(),
+                _ => ::rustsbi::SbiRet::not_supported(),
             }
         }
     }

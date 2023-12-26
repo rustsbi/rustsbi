@@ -582,6 +582,9 @@ const RUSTSBI_VERSION: usize =
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub extern crate sbi_spec as spec;
+
+pub use sbi_spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
+
 /// Generate `RustSBI` implementation for structure of each extensions.
 ///
 /// # Usage
@@ -1049,9 +1052,9 @@ pub use rfence::Rfence as Fence;
 pub use sta::Sta;
 pub use susp::Susp;
 pub use timer::Timer;
-pub use traits::{EnvInfo, RustSBI};
 
 pub use forward::Forward;
+pub use traits::{EnvInfo, RustSBI};
 
 // Macro internal functions and structures
 
