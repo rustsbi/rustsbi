@@ -21,7 +21,6 @@ sbi-spec = "0.0.7-alpha.3"
 riscv = { version = "0.10.1", optional = true }
 sbi-rt = { version = "0.0.3-rc.5", features = ["integer-impls"], optional = true }
 rustsbi-macros = { version = "0.4.0-alpha.1", path = "macros" }
-static_assertions = "1.1.0"
 
 [features]
 default = []
