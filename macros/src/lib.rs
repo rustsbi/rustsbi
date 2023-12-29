@@ -1,3 +1,7 @@
+//! Internal implementation details of RustSBI macros.
+//!
+//! Do not use this crate directly.
+
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{parse_macro_input, Data, DeriveInput, Generics, Ident, Member};
