@@ -72,7 +72,19 @@ fn rustsbi_impl_id() {
         timer: DummyTimer,
         info: DummyEnvInfo,
     };
+    assert_eq!(sbi.handle_ecall(0x10, 0x0, [0; 6]).value, 0x02000000);
     assert_eq!(sbi.handle_ecall(0x10, 0x1, [0; 6]).value, 4);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x10, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x54494d45, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x735049, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x52464e43, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x48534d, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x53525354, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x504d55, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x4442434e, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x53555350, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x4e41434c, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x535441, 0, 0, 0, 0, 0]).value, 1);
     assert_eq!(sbi.handle_ecall(0x4442434e, 0, [0; 6]), SbiRet::success(1));
     assert_eq!(sbi.handle_ecall(0x4442434e, 1, [0; 6]), SbiRet::success(2));
     assert_eq!(sbi.handle_ecall(0x4442434e, 2, [0; 6]), SbiRet::success(3));
@@ -151,7 +163,6 @@ struct DummyConsole;
 
 impl rustsbi::Console for DummyConsole {
     fn write(&self, _: Physical<&[u8]>) -> SbiRet {
-        // special return value for test cases
         SbiRet::success(1)
     }
 
