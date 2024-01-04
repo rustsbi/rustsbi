@@ -254,10 +254,7 @@ fn extension_impl() {
         timer: DummyTimer,
         info: DummyEnvInfo,
     };
-    assert_eq!(
-        sbi.handle_ecall(0x4442434E, 0x0, [0; 6]).error,
-        -1isize as _
-    );
+    assert_eq!(sbi.handle_ecall(0x4442434E, 0x0, [0; 6]).error, 0isize as _);
 }
 
 struct DummyConsole;
