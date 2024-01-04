@@ -87,6 +87,16 @@ fn rustsbi_impl_id() {
     assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x535441, 0, 0, 0, 0, 0]).value, 1);
     assert_eq!(sbi.handle_ecall(0x4442434e, 0, [0; 6]), SbiRet::success(1));
     assert_eq!(sbi.handle_ecall(0x4442434e, 1, [0; 6]), SbiRet::success(2));
+    assert_eq!(sbi.handle_ecall(0x4442434e, 2, [0; 6]), SbiRet::success(3));
+    assert_eq!(sbi.handle_ecall(0x43505043, 0, [0; 6]), SbiRet::success(4));
+    assert_eq!(sbi.handle_ecall(0x43505043, 1, [0; 6]), SbiRet::success(5));
+    assert_eq!(sbi.handle_ecall(0x43505043, 2, [0; 6]), SbiRet::success(6));
+    assert_eq!(sbi.handle_ecall(0x43505043, 3, [0; 6]), SbiRet::success(7));
+    assert_eq!(sbi.handle_ecall(0x48534d, 0, [0; 6]), SbiRet::success(8));
+    assert_eq!(sbi.handle_ecall(0x48534d, 1, [0; 6]), SbiRet::success(9));
+    assert_eq!(sbi.handle_ecall(0x48534d, 2, [0; 6]), SbiRet::success(10));
+    assert_eq!(sbi.handle_ecall(0x48534d, 3, [0; 6]), SbiRet::success(11));
+    assert_eq!(sbi.handle_ecall(0x735049, 0, [0; 6]), SbiRet::success(12));
 
     let sbi = AlternateName {
         dbcn: DummyConsole,
@@ -169,19 +179,19 @@ struct DummyCppc;
 
 impl rustsbi::Cppc for DummyCppc {
     fn probe(&self, _: u32) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(4)
     }
 
     fn read(&self, _: u32) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(5)
     }
 
     fn read_hi(&self, _: u32) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(6)
     }
 
     fn write(&self, _: u32, _: u64) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(7)
     }
 }
 
@@ -189,19 +199,19 @@ struct DummyHsm;
 
 impl rustsbi::Hsm for DummyHsm {
     fn hart_start(&self, _: usize, _: usize, _: usize) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(8)
     }
 
     fn hart_stop(&self) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(9)
     }
 
     fn hart_get_status(&self, _: usize) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(10)
     }
 
     fn hart_suspend(&self, _: u32, _: usize, _: usize) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(11)
     }
 }
 
@@ -209,7 +219,7 @@ struct DummyIpi;
 
 impl rustsbi::Ipi for DummyIpi {
     fn send_ipi(&self, _: HartMask) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(12)
     }
 }
 
