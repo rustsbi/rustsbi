@@ -97,6 +97,12 @@ fn rustsbi_impl_id() {
     assert_eq!(sbi.handle_ecall(0x48534d, 2, [0; 6]), SbiRet::success(10));
     assert_eq!(sbi.handle_ecall(0x48534d, 3, [0; 6]), SbiRet::success(11));
     assert_eq!(sbi.handle_ecall(0x735049, 0, [0; 6]), SbiRet::success(12));
+    assert_eq!(sbi.handle_ecall(0x535441, 0, [0; 6]), SbiRet::success(33));
+    assert_eq!(sbi.handle_ecall(0x53555350, 0, [0; 6]), SbiRet::success(34));
+    // assert_eq!(sbi.handle_ecall(0x54494D45, 0, [0; 6]), SbiRet::success(35));
+    assert_eq!(sbi.handle_ecall(0x10, 4, [0; 6]), SbiRet::success(36));
+    assert_eq!(sbi.handle_ecall(0x10, 5, [0; 6]), SbiRet::success(37));
+    assert_eq!(sbi.handle_ecall(0x10, 6, [0; 6]), SbiRet::success(38));
 
     let sbi = AlternateName {
         dbcn: DummyConsole,
@@ -322,7 +328,7 @@ struct DummySta;
 
 impl rustsbi::Sta for DummySta {
     fn set_shmem(&self, _: SharedPtr<[u8; 64]>, _: usize) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(33)
     }
 }
 
@@ -330,7 +336,7 @@ struct DummySusp;
 
 impl rustsbi::Susp for DummySusp {
     fn system_suspend(&self, _: u32, _: usize, _: usize) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(34)
     }
 }
 
@@ -338,7 +344,7 @@ struct DummyTimer;
 
 impl rustsbi::Timer for DummyTimer {
     fn set_timer(&self, _: u64) {
-        unimplemented!()
+        todo!()
     }
 }
 
@@ -346,14 +352,14 @@ struct DummyEnvInfo;
 
 impl rustsbi::EnvInfo for DummyEnvInfo {
     fn mvendorid(&self) -> usize {
-        unimplemented!()
+        36
     }
 
     fn marchid(&self) -> usize {
-        unimplemented!()
+        37
     }
 
     fn mimpid(&self) -> usize {
-        unimplemented!()
+        38
     }
 }
