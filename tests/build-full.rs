@@ -72,7 +72,31 @@ fn rustsbi_impl_id() {
         timer: DummyTimer,
         info: DummyEnvInfo,
     };
+    assert_eq!(sbi.handle_ecall(0x10, 0x0, [0; 6]).value, 0x02000000);
     assert_eq!(sbi.handle_ecall(0x10, 0x1, [0; 6]).value, 4);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x10, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x54494d45, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x735049, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x52464e43, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x48534d, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x53525354, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x504d55, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x4442434e, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x53555350, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x4e41434c, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x535441, 0, 0, 0, 0, 0]).value, 1);
+    assert_eq!(sbi.handle_ecall(0x4442434e, 0, [0; 6]), SbiRet::success(1));
+    assert_eq!(sbi.handle_ecall(0x4442434e, 1, [0; 6]), SbiRet::success(2));
+    assert_eq!(sbi.handle_ecall(0x4442434e, 2, [0; 6]), SbiRet::success(3));
+    assert_eq!(sbi.handle_ecall(0x43505043, 0, [0; 6]), SbiRet::success(4));
+    assert_eq!(sbi.handle_ecall(0x43505043, 1, [0; 6]), SbiRet::success(5));
+    assert_eq!(sbi.handle_ecall(0x43505043, 2, [0; 6]), SbiRet::success(6));
+    assert_eq!(sbi.handle_ecall(0x43505043, 3, [0; 6]), SbiRet::success(7));
+    assert_eq!(sbi.handle_ecall(0x48534d, 0, [0; 6]), SbiRet::success(8));
+    assert_eq!(sbi.handle_ecall(0x48534d, 1, [0; 6]), SbiRet::success(9));
+    assert_eq!(sbi.handle_ecall(0x48534d, 2, [0; 6]), SbiRet::success(10));
+    assert_eq!(sbi.handle_ecall(0x48534d, 3, [0; 6]), SbiRet::success(11));
+    assert_eq!(sbi.handle_ecall(0x735049, 0, [0; 6]), SbiRet::success(12));
     assert_eq!(sbi.handle_ecall(0x535441, 0, [0; 6]), SbiRet::success(33));
     assert_eq!(sbi.handle_ecall(0x53555350, 0, [0; 6]), SbiRet::success(34));
     // assert_eq!(sbi.handle_ecall(0x54494D45, 0, [0; 6]), SbiRet::success(35));
@@ -145,16 +169,15 @@ struct DummyConsole;
 
 impl rustsbi::Console for DummyConsole {
     fn write(&self, _: Physical<&[u8]>) -> SbiRet {
-        // special return value for test cases
-        SbiRet::failed()
+        SbiRet::success(1)
     }
 
     fn read(&self, _: Physical<&mut [u8]>) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(2)
     }
 
     fn write_byte(&self, _: u8) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(3)
     }
 }
 
@@ -162,19 +185,19 @@ struct DummyCppc;
 
 impl rustsbi::Cppc for DummyCppc {
     fn probe(&self, _: u32) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(4)
     }
 
     fn read(&self, _: u32) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(5)
     }
 
     fn read_hi(&self, _: u32) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(6)
     }
 
     fn write(&self, _: u32, _: u64) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(7)
     }
 }
 
@@ -182,19 +205,19 @@ struct DummyHsm;
 
 impl rustsbi::Hsm for DummyHsm {
     fn hart_start(&self, _: usize, _: usize, _: usize) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(8)
     }
 
     fn hart_stop(&self) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(9)
     }
 
     fn hart_get_status(&self, _: usize) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(10)
     }
 
     fn hart_suspend(&self, _: u32, _: usize, _: usize) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(11)
     }
 }
 
@@ -202,7 +225,7 @@ struct DummyIpi;
 
 impl rustsbi::Ipi for DummyIpi {
     fn send_ipi(&self, _: HartMask) -> SbiRet {
-        unimplemented!()
+        SbiRet::success(12)
     }
 }
 
