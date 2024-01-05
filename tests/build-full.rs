@@ -1,3 +1,4 @@
+use core::cell::RefCell;
 use rustsbi::RustSBI;
 use sbi_spec::{
     binary::{HartMask, Physical, SbiRet, SharedPtr},
@@ -69,136 +70,10 @@ fn rustsbi_impl_id() {
         fence: DummyFence,
         sta: DummySta,
         susp: DummySusp,
-        timer: DummyTimer,
+        timer: DummyTimer(RefCell::new(0)),
         info: DummyEnvInfo,
     };
-    assert_eq!(sbi.handle_ecall(0x10, 0x0, [0; 6]).value, 0x02000000);
     assert_eq!(sbi.handle_ecall(0x10, 0x1, [0; 6]).value, 4);
-    assert_eq!(sbi.handle_ecall(0x10, 0x3, [0x10, 0, 0, 0, 0, 0]).value, 1);
-    assert_eq!(
-        sbi.handle_ecall(0x10, 0x3, [0x54494d45, 0, 0, 0, 0, 0])
-            .value,
-        1
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x10, 0x3, [0x735049, 0, 0, 0, 0, 0]).value,
-        1
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x10, 0x3, [0x52464e43, 0, 0, 0, 0, 0])
-            .value,
-        1
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x10, 0x3, [0x48534d, 0, 0, 0, 0, 0]).value,
-        1
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x10, 0x3, [0x53525354, 0, 0, 0, 0, 0])
-            .value,
-        1
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x10, 0x3, [0x504d55, 0, 0, 0, 0, 0]).value,
-        1
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x10, 0x3, [0x4442434e, 0, 0, 0, 0, 0])
-            .value,
-        1
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x10, 0x3, [0x53555350, 0, 0, 0, 0, 0])
-            .value,
-        1
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x10, 0x3, [0x4e41434c, 0, 0, 0, 0, 0])
-            .value,
-        1
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x10, 0x3, [0x535441, 0, 0, 0, 0, 0]).value,
-        1
-    );
-    assert_eq!(sbi.handle_ecall(0x4442434e, 0, [0; 6]), SbiRet::success(1));
-    assert_eq!(sbi.handle_ecall(0x4442434e, 1, [0; 6]), SbiRet::success(2));
-    assert_eq!(sbi.handle_ecall(0x4442434e, 2, [0; 6]), SbiRet::success(3));
-    assert_eq!(sbi.handle_ecall(0x43505043, 0, [0; 6]), SbiRet::success(4));
-    assert_eq!(sbi.handle_ecall(0x43505043, 1, [0; 6]), SbiRet::success(5));
-    assert_eq!(sbi.handle_ecall(0x43505043, 2, [0; 6]), SbiRet::success(6));
-    assert_eq!(sbi.handle_ecall(0x43505043, 3, [0; 6]), SbiRet::success(7));
-    assert_eq!(sbi.handle_ecall(0x48534d, 0, [0; 6]), SbiRet::success(8));
-    assert_eq!(sbi.handle_ecall(0x48534d, 1, [0; 6]), SbiRet::success(9));
-    assert_eq!(sbi.handle_ecall(0x48534d, 2, [0; 6]), SbiRet::success(10));
-    assert_eq!(sbi.handle_ecall(0x48534d, 3, [0; 6]), SbiRet::success(11));
-    assert_eq!(sbi.handle_ecall(0x735049, 0, [0; 6]), SbiRet::success(12));
-    assert_eq!(
-        sbi.handle_ecall(0x4E41434C, 0x0, [0; 6]),
-        SbiRet::success(13)
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x4E41434C, 0x1, [0; 6]),
-        SbiRet::success(14)
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x4E41434C, 0x2, [0; 6]),
-        SbiRet::success(15)
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x4E41434C, 0x3, [0; 6]),
-        SbiRet::success(16)
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x4E41434C, 0x4, [0; 6]),
-        SbiRet::success(17)
-    );
-    assert_eq!(sbi.handle_ecall(0x504D55, 0x0, [0; 6]), SbiRet::success(18));
-    assert_eq!(sbi.handle_ecall(0x504D55, 0x1, [0; 6]), SbiRet::success(19));
-    assert_eq!(sbi.handle_ecall(0x504D55, 0x2, [0; 6]), SbiRet::success(20));
-    assert_eq!(sbi.handle_ecall(0x504D55, 0x3, [0; 6]), SbiRet::success(21));
-    assert_eq!(sbi.handle_ecall(0x504D55, 0x4, [0; 6]), SbiRet::success(22));
-    assert_eq!(sbi.handle_ecall(0x504D55, 0x5, [0; 6]), SbiRet::success(23));
-    assert_eq!(sbi.handle_ecall(0x504D55, 0x6, [0; 6]), SbiRet::success(24));
-    assert_eq!(
-        sbi.handle_ecall(0x53525354, 0x0, [0; 6]),
-        SbiRet::success(25)
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x52464E43, 0x0, [0; 6]),
-        SbiRet::success(26)
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x52464E43, 0x1, [0; 6]),
-        SbiRet::success(27)
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x52464E43, 0x2, [0; 6]),
-        SbiRet::success(28)
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x52464E43, 0x3, [0; 6]),
-        SbiRet::success(29)
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x52464E43, 0x4, [0; 6]),
-        SbiRet::success(30)
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x52464E43, 0x5, [0; 6]),
-        SbiRet::success(31)
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x52464E43, 0x6, [0; 6]),
-        SbiRet::success(32)
-    );
-    assert_eq!(sbi.handle_ecall(0x535441, 0, [0; 6]), SbiRet::success(33));
-    assert_eq!(sbi.handle_ecall(0x53555350, 0, [0; 6]), SbiRet::success(34));
-    // assert_eq!(sbi.handle_ecall(0x54494D45, 0, [0; 6]), SbiRet::success(35));
-    assert_eq!(sbi.handle_ecall(0x10, 4, [0; 6]), SbiRet::success(36));
-    assert_eq!(sbi.handle_ecall(0x10, 5, [0; 6]), SbiRet::success(37));
-    assert_eq!(sbi.handle_ecall(0x10, 6, [0; 6]), SbiRet::success(38));
-
     let sbi = AlternateName {
         dbcn: DummyConsole,
         cppc: DummyCppc,
@@ -210,7 +85,7 @@ fn rustsbi_impl_id() {
         rfnc: DummyFence,
         sta: DummySta,
         susp: DummySusp,
-        time: DummyTimer,
+        time: DummyTimer(RefCell::new(0)),
         info: DummyEnvInfo,
     };
     assert_eq!(sbi.handle_ecall(0x10, 0x1, [0; 6]).value, 4);
@@ -225,7 +100,7 @@ fn rustsbi_impl_id() {
         DummyFence,
         DummySta,
         DummySusp,
-        DummyTimer,
+        DummyTimer(RefCell::new(0)),
         DummyEnvInfo,
     );
     assert_eq!(sbi.handle_ecall(0x10, 0x1, [0; 6]).value, 4);
@@ -239,7 +114,7 @@ fn unit_struct() {
 }
 
 #[test]
-fn extension_impl() {
+fn generated_extensions() {
     let sbi = FullyImplemented {
         console: DummyConsole,
         cppc: DummyCppc,
@@ -251,10 +126,71 @@ fn extension_impl() {
         fence: DummyFence,
         sta: DummySta,
         susp: DummySusp,
-        timer: DummyTimer,
+        timer: DummyTimer(RefCell::new(0)),
         info: DummyEnvInfo,
     };
-    assert_eq!(sbi.handle_ecall(0x4442434E, 0x0, [0; 6]).error, 0isize as _);
+    assert_eq!(
+        sbi.handle_ecall(0x10, 0, [0; 6]),
+        SbiRet::success(0x02000000)
+    );
+    assert_eq!(sbi.handle_ecall(0x10, 1, [0; 6]), SbiRet::success(4));
+    assert!(sbi.handle_ecall(0x10, 2, [0; 6]).is_ok());
+    // All SBI 2.0 extensions, including Base, are supported
+    for eid in [
+        0x10, 0x54494d45, 0x735049, 0x52464e43, 0x48534d, 0x53525354, 0x504d55, 0x4442434e,
+        0x53555350, 0x4e41434c, 0x535441, 0x43505043,
+    ] {
+        assert_eq!(
+            sbi.handle_ecall(0x10, 3, [eid, 0, 0, 0, 0, 0]),
+            SbiRet::success(1)
+        );
+    }
+    // All legacy extensions are not supported
+    for eid in 0x00..=0x08 {
+        assert_eq!(
+            sbi.handle_ecall(0x10, 3, [eid, 0, 0, 0, 0, 0]),
+            SbiRet::success(0)
+        );
+    }
+    assert_eq!(sbi.handle_ecall(0x4442434e, 0, [0; 6]), SbiRet::success(1));
+    assert_eq!(sbi.handle_ecall(0x4442434e, 1, [0; 6]), SbiRet::success(2));
+    assert_eq!(sbi.handle_ecall(0x4442434e, 2, [0; 6]), SbiRet::success(3));
+    assert_eq!(sbi.handle_ecall(0x43505043, 0, [0; 6]), SbiRet::success(4));
+    assert_eq!(sbi.handle_ecall(0x43505043, 1, [0; 6]), SbiRet::success(5));
+    assert_eq!(sbi.handle_ecall(0x43505043, 2, [0; 6]), SbiRet::success(6));
+    assert_eq!(sbi.handle_ecall(0x43505043, 3, [0; 6]), SbiRet::success(7));
+    assert_eq!(sbi.handle_ecall(0x48534d, 0, [0; 6]), SbiRet::success(8));
+    assert_eq!(sbi.handle_ecall(0x48534d, 1, [0; 6]), SbiRet::success(9));
+    assert_eq!(sbi.handle_ecall(0x48534d, 2, [0; 6]), SbiRet::success(10));
+    assert_eq!(sbi.handle_ecall(0x48534d, 3, [0; 6]), SbiRet::success(11));
+    assert_eq!(sbi.handle_ecall(0x735049, 0, [0; 6]), SbiRet::success(12));
+    assert_eq!(sbi.handle_ecall(0x4E41434C, 0, [0; 6]), SbiRet::success(13));
+    assert_eq!(sbi.handle_ecall(0x4E41434C, 1, [0; 6]), SbiRet::success(14));
+    assert_eq!(sbi.handle_ecall(0x4E41434C, 2, [0; 6]), SbiRet::success(15));
+    assert_eq!(sbi.handle_ecall(0x4E41434C, 3, [0; 6]), SbiRet::success(16));
+    assert_eq!(sbi.handle_ecall(0x4E41434C, 4, [0; 6]), SbiRet::success(17));
+    assert_eq!(sbi.handle_ecall(0x504D55, 0, [0; 6]), SbiRet::success(18));
+    assert_eq!(sbi.handle_ecall(0x504D55, 1, [0; 6]), SbiRet::success(19));
+    assert_eq!(sbi.handle_ecall(0x504D55, 2, [0; 6]), SbiRet::success(20));
+    assert_eq!(sbi.handle_ecall(0x504D55, 3, [0; 6]), SbiRet::success(21));
+    assert_eq!(sbi.handle_ecall(0x504D55, 4, [0; 6]), SbiRet::success(22));
+    assert_eq!(sbi.handle_ecall(0x504D55, 5, [0; 6]), SbiRet::success(23));
+    assert_eq!(sbi.handle_ecall(0x504D55, 6, [0; 6]), SbiRet::success(24));
+    assert_eq!(sbi.handle_ecall(0x53525354, 0, [0; 6]), SbiRet::success(25));
+    assert_eq!(sbi.handle_ecall(0x52464E43, 0, [0; 6]), SbiRet::success(26));
+    assert_eq!(sbi.handle_ecall(0x52464E43, 1, [0; 6]), SbiRet::success(27));
+    assert_eq!(sbi.handle_ecall(0x52464E43, 2, [0; 6]), SbiRet::success(28));
+    assert_eq!(sbi.handle_ecall(0x52464E43, 3, [0; 6]), SbiRet::success(29));
+    assert_eq!(sbi.handle_ecall(0x52464E43, 4, [0; 6]), SbiRet::success(30));
+    assert_eq!(sbi.handle_ecall(0x52464E43, 5, [0; 6]), SbiRet::success(31));
+    assert_eq!(sbi.handle_ecall(0x52464E43, 6, [0; 6]), SbiRet::success(32));
+    assert_eq!(sbi.handle_ecall(0x535441, 0, [0; 6]), SbiRet::success(33));
+    assert_eq!(sbi.handle_ecall(0x53555350, 0, [0; 6]), SbiRet::success(34));
+    assert!(sbi.handle_ecall(0x54494D45, 0, [0; 6]).is_ok());
+    assert_eq!(sbi.timer.0.take(), 35);
+    assert_eq!(sbi.handle_ecall(0x10, 4, [0; 6]), SbiRet::success(36));
+    assert_eq!(sbi.handle_ecall(0x10, 5, [0; 6]), SbiRet::success(37));
+    assert_eq!(sbi.handle_ecall(0x10, 6, [0; 6]), SbiRet::success(38));
 }
 
 struct DummyConsole;
@@ -432,11 +368,11 @@ impl rustsbi::Susp for DummySusp {
     }
 }
 
-struct DummyTimer;
+struct DummyTimer(RefCell<u64>);
 
 impl rustsbi::Timer for DummyTimer {
     fn set_timer(&self, _: u64) {
-        todo!()
+        self.0.replace(35);
     }
 }
 
