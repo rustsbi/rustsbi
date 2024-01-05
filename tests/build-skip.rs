@@ -72,18 +72,9 @@ fn rustsbi_skip_env_info() {
     };
     // The `env_info` instead of `info` field would be used by RustSBI macro; struct
     // `RealEnvInfo` would return 11, 12 and 13 for mvendorid, marchid and mimpid.
-    assert_eq!(
-        sbi.handle_ecall(0x10, 0x4, [EID_DBCN, 0, 0, 0, 0, 0]),
-        SbiRet::success(11)
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x10, 0x5, [EID_DBCN, 0, 0, 0, 0, 0]),
-        SbiRet::success(12)
-    );
-    assert_eq!(
-        sbi.handle_ecall(0x10, 0x6, [EID_DBCN, 0, 0, 0, 0, 0]),
-        SbiRet::success(13)
-    );
+    assert_eq!(sbi.handle_ecall(0x10, 0x4, [0; 6]), SbiRet::success(11));
+    assert_eq!(sbi.handle_ecall(0x10, 0x5, [0; 6]), SbiRet::success(12));
+    assert_eq!(sbi.handle_ecall(0x10, 0x6, [0; 6]), SbiRet::success(13));
     let _ = sbi.info;
 }
 
