@@ -78,7 +78,7 @@ pub fn _rustsbi_base_bare<U: _ExtensionProbe>(
 pub fn _rustsbi_base_env_info<T: EnvInfo, U: _ExtensionProbe>(
     param: [usize; 6],
     function: usize,
-    machine_info: &T,
+    env_info: &T,
     probe: U,
 ) -> SbiRet {
     let [param0] = [param[0]];
@@ -87,9 +87,9 @@ pub fn _rustsbi_base_env_info<T: EnvInfo, U: _ExtensionProbe>(
         spec::base::GET_SBI_IMPL_ID => crate::IMPL_ID_RUSTSBI,
         spec::base::GET_SBI_IMPL_VERSION => crate::RUSTSBI_VERSION,
         spec::base::PROBE_EXTENSION => probe.probe_extension(param0),
-        spec::base::GET_MVENDORID => machine_info.mvendorid(),
-        spec::base::GET_MARCHID => machine_info.marchid(),
-        spec::base::GET_MIMPID => machine_info.mimpid(),
+        spec::base::GET_MVENDORID => env_info.mvendorid(),
+        spec::base::GET_MARCHID => env_info.marchid(),
+        spec::base::GET_MIMPID => env_info.mimpid(),
         _ => return SbiRet::not_supported(),
     };
     SbiRet::success(value)

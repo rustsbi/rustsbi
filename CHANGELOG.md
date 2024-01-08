@@ -9,12 +9,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- support System Suspend extension
-- support CPPC extension 
-- `new_uninit` and `uninit_with_machine_info` constructors for RustSBI instance
-- `handle_ecall` now only requires `&self` since RustSBI trait implementations are internally mutable
-- support NACL and STA extensions
 - macro based `#[derive(RustSBI)]` interface
+- support System Suspend extension
+- support CPPC extension
+- support NACL and STA extensions
+- `handle_ecall` now only requires `&self` since RustSBI trait implementations are internally mutable
 - `into_inner` function for `HartMask`
 - forward extensions to current environment by `Forward` struct
 

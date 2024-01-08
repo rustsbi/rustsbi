@@ -164,7 +164,7 @@ fn impl_derive_rustsbi(name: &Ident, imp: RustSBIImp, generics: &Generics) -> To
             () => quote! {
                 ::rustsbi::spec::base::EID_BASE => compile_error!(
                     "can't derive RustSBI: #[cfg(feature = \"machine\")] is needed to derive RustSBI with no extra `EnvInfo` provided; \
-            consider adding an `info` parameter to provide machine information implementing `rustsbi::EnvInfo`\
+            consider adding an `info` parameter to provide machine environment information implementing `rustsbi::EnvInfo`\
             if RustSBI is not run on machine mode."
                 ),
             },
