@@ -31,7 +31,7 @@ jobs:
           args: --all -- --check
 
   check-stable:
-    name: Cargo check (stable)
+    name: Cargo check crate RustSBI (stable)
     runs-on: ubuntu-latest
     needs: fmt
     strategy:
@@ -52,26 +52,26 @@ jobs:
       - name: Check (no default features)
         uses: actions-rs/cargo@v1
         with:
-          command: check
-          args: --target ${{ matrix.TARGET }} --verbose
-      - name: Check (machine)
+          command: check 
+          args: --target ${{ matrix.TARGET }} --verbose -p rustsbi
+      - name: Check crate rustsbi (machine)
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --target ${{ matrix.TARGET }} --features "machine" --verbose
-      - name: Check (forward)
+          args: --target ${{ matrix.TARGET }} --features "machine" --verbose -p rustsbi
+      - name: Check crate rustsbi (forward)
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --target ${{ matrix.TARGET }} --features "forward" --verbose
-      - name: Check (machine + forward)
+          args: --target ${{ matrix.TARGET }} --features "forward" --verbose -p rustsbi
+      - name: Check crate rustsbi (machine + forward)
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --target ${{ matrix.TARGET }} --features "machine, forward" --verbose
+          args: --target ${{ matrix.TARGET }} --features "machine, forward" --verbose -p rustsbi
 
   check-nightly:
-    name: Cargo check (nightly)
+    name: Cargo check crate RustSBI (nightly)
     runs-on: ubuntu-latest
     needs: fmt
     strategy:
@@ -91,7 +91,7 @@ jobs:
           key: ${{ matrix.TARGET }}
 
   tests:
-    name: Run tests
+    name: Run crate RustSBI tests
     needs: fmt
     runs-on: ubuntu-latest
     steps:
@@ -112,9 +112,9 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --verbose
+          args: --verbose -p rustsbi
       - name: Run tests (machine)
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --features "machine" --verbose
+          args: --features "machine" --verbose -p rustsbi
