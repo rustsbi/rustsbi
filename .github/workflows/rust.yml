@@ -31,7 +31,7 @@ jobs:
           args: --all -- --check
 
   check-stable:
-    name: Cargo check crate RustSBI (stable)
+    name: Check rustsbi (stable)
     runs-on: ubuntu-latest
     needs: fmt
     strategy:
@@ -71,7 +71,7 @@ jobs:
           args: --target ${{ matrix.TARGET }} --features "machine, forward" --verbose -p rustsbi
 
   check-nightly:
-    name: Cargo check crate RustSBI (nightly)
+    name: Check rustsbi (nightly)
     runs-on: ubuntu-latest
     needs: fmt
     strategy:
@@ -91,7 +91,7 @@ jobs:
           key: ${{ matrix.TARGET }}
 
   tests:
-    name: Run crate RustSBI tests
+    name: Test rustsbi
     needs: fmt
     runs-on: ubuntu-latest
     steps:
@@ -108,6 +108,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
+          args: -p rustsbi
       - name: Run tests (no default features)
         uses: actions-rs/cargo@v1
         with:
@@ -120,7 +121,7 @@ jobs:
           args: --features "machine" --verbose -p rustsbi
 
   sbi-spec:
-    name: Compile and test sbi-spec
+    name: Test sbi-spec
     needs: fmt
     runs-on: ubuntu-latest
     strategy:
@@ -156,10 +157,10 @@ jobs:
           rustup component add rustfmt clippy
           rustup target add ${{ matrix.target }}
       - name: Check format
-        run: cargo fmt --all --check
+        run: cargo fmt --all --check -p sbi-spec
       - name: Check clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy -- -D warnings -p sbi-spec
       - name: Check build
-        run: cargo build
+        run: cargo build -p sbi-spec
       - name: Check test
-        run: cargo test
+        run: cargo test -p sbi-spec
