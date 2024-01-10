@@ -3,5 +3,6 @@ members = [
     "rustsbi",
     "rustsbi/macros",
     "sbi-rt",
+    "sbi-spec",
 ]
 resolver = "2"

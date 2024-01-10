@@ -118,3 +118,48 @@ jobs:
         with:
           command: test
           args: --features "machine" --verbose -p rustsbi
+
+  sbi-spec:
+    name: Compile and test sbi-spec
+    needs: fmt
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          [
+            riscv32imac-unknown-none-elf,
+            riscv64imac-unknown-none-elf,
+            x86_64-unknown-none,
+          ]
+    steps:
+      - uses: actions/checkout@v3
+      # Cache REF:
+      #   - https://github.com/actions/cache/blob/main/examples.md#rust---cargo
+      #   - https://github.com/actions-rs/toolchain/issues/54
+      - name: Cache Rust
+        uses: actions/cache@v3
+        with:
+          key: rust-toolchain-${{ matrix.target }}
+          path: |
+            ~/.rustup/settings.toml
+            ~/.rustup/toolchains/stable-*
+            ~/.rustup/update-hashes/stable-*
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+      - name: Setup Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup component add rustfmt clippy
+          rustup target add ${{ matrix.target }}
+      - name: Check format
+        run: cargo fmt --all --check
+      - name: Check clippy
+        run: cargo clippy -- -D warnings
+      - name: Check build
+        run: cargo build
+      - name: Check test
+        run: cargo test
