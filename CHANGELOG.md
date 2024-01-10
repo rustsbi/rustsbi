@@ -22,6 +22,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - run on provided `EnvInfo` by default; bare metal M-mode environment should gate `machine`
 - doc: grammar tweaks in hsm module
 - update dependency `sbi-spec` to v0.0.6, use `Physical` struct from `sbi-spec` crate.
+- merge rustsbi/sbi-rt and rustsbi/sbi-spec repositories into rustsbi/rustsbi repository.
 
 ### Removed
 
