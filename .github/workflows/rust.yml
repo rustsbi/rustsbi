@@ -163,3 +163,41 @@ jobs:
         run: cargo build -p sbi-spec
       - name: Check test
         run: cargo test -p sbi-spec
+
+# sbi-testing:
+#     name: Run rust-clippy analyzing
+#     runs-on: ubuntu-latest
+#     permissions:
+#       security-events: write
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v3
+
+#       - name: Check format
+#         run: cargo fmt --check
+
+#       - name: Install clippy-sarif
+#         uses: actions-rs/install@v0.1
+#         with:
+#           crate: clippy-sarif
+#           version: latest
+
+#       - name: Install sarif-fmt
+#         uses: actions-rs/install@v0.1
+#         with:
+#           crate: sarif-fmt
+#           version: latest
+
+#       - name: Run rust-clippy
+#         run:
+#           cargo clippy
+#           --all-featuers
+#           --package fast-trap
+#           --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
+#         continue-on-error: true
+
+#       - name: Upload analysis results to GitHub
+#         uses: github/codeql-action/upload-sarif@v2
+#         with:
+#           sarif_file: rust-clippy-results.sarif
+#           wait-for-processing: true

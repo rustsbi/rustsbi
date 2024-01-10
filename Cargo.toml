@@ -4,5 +4,6 @@ members = [
     "rustsbi/macros",
     "sbi-rt",
     "sbi-spec",
+    "sbi-testing",
 ]
 resolver = "2"
