@@ -42,6 +42,12 @@ targets = [
 ]
 
 [workspace]
-members = ["macros"]
+members = [
+    "macros",
+    "sbi-rt",
+    "sbi-spec",
+    "sbi-testing",
+]
+resolver = "2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

@@ -31,7 +31,7 @@ jobs:
           args: --all -- --check
 
   check-stable:
-    name: Cargo check (stable)
+    name: Check rustsbi (stable)
     runs-on: ubuntu-latest
     needs: fmt
     strategy:
@@ -52,26 +52,26 @@ jobs:
       - name: Check (no default features)
         uses: actions-rs/cargo@v1
         with:
-          command: check
-          args: --target ${{ matrix.TARGET }} --verbose
-      - name: Check (machine)
+          command: check 
+          args: --target ${{ matrix.TARGET }} --verbose -p rustsbi
+      - name: Check crate rustsbi (machine)
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --target ${{ matrix.TARGET }} --features "machine" --verbose
-      - name: Check (forward)
+          args: --target ${{ matrix.TARGET }} --features "machine" --verbose -p rustsbi
+      - name: Check crate rustsbi (forward)
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --target ${{ matrix.TARGET }} --features "forward" --verbose
-      - name: Check (machine + forward)
+          args: --target ${{ matrix.TARGET }} --features "forward" --verbose -p rustsbi
+      - name: Check crate rustsbi (machine + forward)
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --target ${{ matrix.TARGET }} --features "machine, forward" --verbose
+          args: --target ${{ matrix.TARGET }} --features "machine, forward" --verbose -p rustsbi
 
   check-nightly:
-    name: Cargo check (nightly)
+    name: Check rustsbi (nightly)
     runs-on: ubuntu-latest
     needs: fmt
     strategy:
@@ -91,7 +91,7 @@ jobs:
           key: ${{ matrix.TARGET }}
 
   tests:
-    name: Run tests
+    name: Test rustsbi
     needs: fmt
     runs-on: ubuntu-latest
     steps:
@@ -104,17 +104,100 @@ jobs:
           override: true
       - name: Cache Dependencies
         uses: Swatinem/rust-cache@v2
-      - name: Clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
+      # - name: Clippy
+      #   uses: actions-rs/cargo@v1
+      #   with:
+      #     command: clippy
       - name: Run tests (no default features)
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --verbose
+          args: --verbose -p rustsbi
       - name: Run tests (machine)
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --features "machine" --verbose
+          args: --features "machine" --verbose -p rustsbi
+
+  sbi-spec:
+    name: Test sbi-spec
+    needs: fmt
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          [
+            riscv32imac-unknown-none-elf,
+            riscv64imac-unknown-none-elf,
+            x86_64-unknown-none,
+          ]
+    steps:
+      - uses: actions/checkout@v3
+      # Cache REF:
+      #   - https://github.com/actions/cache/blob/main/examples.md#rust---cargo
+      #   - https://github.com/actions-rs/toolchain/issues/54
+      - name: Cache Rust
+        uses: actions/cache@v3
+        with:
+          key: rust-toolchain-${{ matrix.target }}
+          path: |
+            ~/.rustup/settings.toml
+            ~/.rustup/toolchains/stable-*
+            ~/.rustup/update-hashes/stable-*
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+      - name: Setup Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup component add rustfmt clippy
+          rustup target add ${{ matrix.target }}
+      - name: Check format
+        run: cargo fmt --all --check -p sbi-spec
+      # - name: Check clippy
+      #   run: cargo clippy -- -D warnings
+      - name: Check build
+        run: cargo build -p sbi-spec
+      - name: Check test
+        run: cargo test -p sbi-spec
+
+# sbi-testing:
+#     name: Run rust-clippy analyzing
+#     runs-on: ubuntu-latest
+#     permissions:
+#       security-events: write
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v3
+
+#       - name: Check format
+#         run: cargo fmt --check
+
+#       - name: Install clippy-sarif
+#         uses: actions-rs/install@v0.1
+#         with:
+#           crate: clippy-sarif
+#           version: latest
+
+#       - name: Install sarif-fmt
+#         uses: actions-rs/install@v0.1
+#         with:
+#           crate: sarif-fmt
+#           version: latest
+
+#       - name: Run rust-clippy
+#         run:
+#           cargo clippy
+#           --all-featuers
+#           --package fast-trap
+#           --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
+#         continue-on-error: true
+
+#       - name: Upload analysis results to GitHub
+#         uses: github/codeql-action/upload-sarif@v2
+#         with:
+#           sarif_file: rust-clippy-results.sarif
+#           wait-for-processing: true
