@@ -1,0 +1,35 @@
+[package]
+name = "sbi-rt"
+version = "0.0.3-rc.5"
+edition = "2021"
+description = "Runtime library for supervisors to call RISC-V Supervisor Binary Interface (RISC-V SBI)"
+categories = ["os", "embedded", "hardware-support", "no-std"]
+keywords = ["riscv", "sbi", "rustsbi"]
+authors = [
+    "YdrMaster <ydrml@hotmail.com>",
+    "Luo Jia <me@luojia.cc>",
+]
+repository = "https://github.com/rustsbi/sbi-rt"
+documentation = "https://docs.rs/sbi-rt"
+license = "MulanPSL-2.0 OR MIT"
+readme = "README.md"
+
+[package.metadata.docs.rs]
+default-target = "riscv64imac-unknown-none-elf"
+targets = [
+    "riscv32imac-unknown-none-elf", "riscv64imac-unknown-none-elf",
+]
+
+[dependencies]
+sbi-spec = "0.0.7-alpha.3"
+
+[features]
+default = []
+# Implement sbi-rt traits for integer types
+# By using this feature, parameter types of sbi-rt functions fall back to integers,
+# static type checks are disabled so this library won't detect parameters in incorrect orders.
+# Although some people may find it useful in prototyping sbi-rt implementations,
+# users of this crate are strongly encouraged not to enable this feature in production.
+integer-impls = []
+# Support legacy extension; this feature is not included by default.
+legacy = ["sbi-spec/legacy"]
