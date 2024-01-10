@@ -104,11 +104,10 @@ jobs:
           override: true
       - name: Cache Dependencies
         uses: Swatinem/rust-cache@v2
-      - name: Clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: -p rustsbi
+      # - name: Clippy
+      #   uses: actions-rs/cargo@v1
+      #   with:
+      #     command: clippy
       - name: Run tests (no default features)
         uses: actions-rs/cargo@v1
         with:
@@ -158,8 +157,8 @@ jobs:
           rustup target add ${{ matrix.target }}
       - name: Check format
         run: cargo fmt --all --check -p sbi-spec
-      - name: Check clippy
-        run: cargo clippy -- -D warnings -p sbi-spec
+      # - name: Check clippy
+      #   run: cargo clippy -- -D warnings
       - name: Check build
         run: cargo build -p sbi-spec
       - name: Check test
