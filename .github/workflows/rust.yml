@@ -133,7 +133,7 @@ jobs:
             x86_64-unknown-none,
           ]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       # Cache REF:
       #   - https://github.com/actions/cache/blob/main/examples.md#rust---cargo
       #   - https://github.com/actions-rs/toolchain/issues/54
@@ -171,7 +171,7 @@ jobs:
 #       security-events: write
 #     steps:
 #       - name: Checkout code
-#         uses: actions/checkout@v3
+#         uses: actions/checkout@v4
 
 #       - name: Check format
 #         run: cargo fmt --check
