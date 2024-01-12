@@ -43,8 +43,8 @@ pub fn test(delay: u64, mut f: impl FnMut(Case)) {
         return;
     }
     f(Case::Begin);
-    let begin: u64;
-    let end: u64;
+    let begin: usize;
+    let end: usize;
     let mut ok = 0xffusize;
     unsafe {
         core::arch::asm!(
@@ -62,6 +62,9 @@ pub fn test(delay: u64, mut f: impl FnMut(Case)) {
             ok    = inlateout(reg) ok,
         );
     }
+    // TODO: support RV32 where there are time and timeh registers.
+    let begin: u64 = begin as u64;
+    let end: u64 = end as u64;
     if ok != 0 {
         f(Case::ReadFailed);
         return;
