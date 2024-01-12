@@ -7,19 +7,19 @@ authors = [
     "Campbell He <hkp18@mails.tsinghua.edu.cn>",
     "Yifan Wu <shinbokuow@163.com>",
 ]
-repository = "https://github.com/rustsbi/rustsbi"
 documentation = "https://docs.rs/rustsbi"
-license = "MulanPSL-2.0 OR MIT"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 readme = "README.md"
 keywords = ["riscv", "sbi", "rustsbi"]
 categories = ["os", "embedded", "hardware-support", "no-std"]
-edition = "2021"
 exclude = ["/.github"]
 
 [dependencies]
-sbi-spec = "0.0.7-alpha.3"
+sbi-spec = { version = "0.0.7-alpha.3", path = "sbi-spec" }
 riscv = { version = "0.10.1", optional = true }
-sbi-rt = { version = "0.0.3-rc.5", features = ["integer-impls"], optional = true }
+sbi-rt = { version = "0.0.3-rc.5", features = ["integer-impls"], optional = true, path = "sbi-rt" }
 rustsbi-macros = { version = "0.0.0", path = "macros" }
 
 [features]
@@ -42,12 +42,17 @@ targets = [
 ]
 
 [workspace]
+resolver = "2"
 members = [
     "macros",
     "sbi-rt",
     "sbi-spec",
     "sbi-testing",
 ]
-resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MulanPSL-2.0 OR MIT"
+repository = "https://github.com/rustsbi/rustsbi"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

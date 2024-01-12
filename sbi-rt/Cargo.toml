@@ -1,7 +1,6 @@
 [package]
 name = "sbi-rt"
 version = "0.0.3-rc.5"
-edition = "2021"
 description = "Runtime library for supervisors to call RISC-V Supervisor Binary Interface (RISC-V SBI)"
 categories = ["os", "embedded", "hardware-support", "no-std"]
 keywords = ["riscv", "sbi", "rustsbi"]
@@ -9,9 +8,10 @@ authors = [
     "YdrMaster <ydrml@hotmail.com>",
     "Luo Jia <me@luojia.cc>",
 ]
-repository = "https://github.com/rustsbi/sbi-rt"
 documentation = "https://docs.rs/sbi-rt"
-license = "MulanPSL-2.0 OR MIT"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 readme = "README.md"
 
 [package.metadata.docs.rs]
@@ -21,7 +21,7 @@ targets = [
 ]
 
 [dependencies]
-sbi-spec = "0.0.7-alpha.3"
+sbi-spec = { version = "0.0.7-alpha.3", path = "../sbi-spec" }
 
 [features]
 default = []

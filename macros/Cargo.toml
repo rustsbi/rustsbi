@@ -5,13 +5,13 @@ version = "0.0.0"
 authors = [
     "Luo Jia <me@luojia.cc>",
 ]
-repository = "https://github.com/rustsbi/rustsbi"
 documentation = "https://docs.rs/rustsbi"
-license = "MulanPSL-2.0 OR MIT"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 readme = "../README.md"
 keywords = ["riscv", "sbi", "rustsbi"]
 categories = ["os", "embedded", "hardware-support", "no-std"]
-edition = "2021"
 
 [lib]
 proc-macro = true

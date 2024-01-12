@@ -1,14 +1,14 @@
 [package]
 name = "sbi-testing"
 version = "0.0.3-rc.0"
-edition = "2021"
 description = "Provide a set of test cases for supervisors to verify functions of the supervisor executation environment"
 categories = ["os", "no-std"]
 keywords = ["riscv", "sbi", "rustsbi"]
 authors = ["YdrMaster <ydrml@hotmail.com>"]
-repository = "https://github.com/rustsbi/sbi-testing"
 documentation = "https://docs.rs/sbi-testing"
-license = "MulanPSL-2.0 OR MIT"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -18,8 +18,8 @@ default-target = "riscv64imac-unknown-none-elf"
 targets = ["riscv32imac-unknown-none-elf", "riscv64imac-unknown-none-elf"]
 
 [dependencies]
-sbi-rt = "0.0.3-rc.5"
-sbi-spec = "0.0.7-alpha.3"
+sbi-rt = { version = "0.0.3-rc.5", path = "../sbi-rt" }
+sbi-spec = { version = "0.0.7-alpha.3", path = "../sbi-spec" }
 riscv = "0.10.1"
 log_crate = { version = "0.4", package = "log", optional = true }
 
