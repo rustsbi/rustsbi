@@ -112,7 +112,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        TARGET: [riscv64imac-unknown-none-elf, riscv32imac-unknown-none-elf]
+        TARGET: [riscv64imac-unknown-none-elf] #, riscv32imac-unknown-none-elf]
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1

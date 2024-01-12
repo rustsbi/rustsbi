@@ -78,6 +78,7 @@ impl Thread {
         const INTERRUPT_BIT: usize = 1 << 5;
         sstatus |= PREVILEGE_BIT | INTERRUPT_BIT;
         // 执行线程
+        // TODO support RV32 instruction set
         core::arch::asm!(
             "   csrw sscratch, {sscratch}
                 csrw sepc    , {sepc}
