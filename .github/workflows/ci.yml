@@ -1,0 +1,161 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  CARGO_UNSTABLE_SPARSE_REGISTRY: true
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: Rustfmt all packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt
+      - name: Cache Dependencies
+        uses: Swatinem/rust-cache@v2
+      - name: Rustfmt Check
+        uses: actions-rust-lang/rustfmt@v1
+
+  build-rustsbi:
+    name: Build rustsbi
+    runs-on: ubuntu-latest
+    needs: fmt
+    strategy:
+      matrix:
+        TARGET: [riscv64imac-unknown-none-elf, riscv32imac-unknown-none-elf]
+        TOOLCHAIN: [stable, nightly]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.TARGET }}
+          toolchain: ${{ matrix.TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.TARGET }}
+      - name: Build (no default features)
+        run: |
+          cargo build --target ${{ matrix.TARGET }} --verbose
+      - name: Build (machine)
+        run: |
+          cargo build --target ${{ matrix.TARGET }} --verbose --features "machine"
+      - name: Build (forward)
+        run: |
+          cargo build --target ${{ matrix.TARGET }} --verbose --features "forward"
+      - name: Build (machine + forward)
+        run: |
+          cargo build --target ${{ matrix.TARGET }} --verbose --features "machine, forward"
+
+  test-rustsbi:
+    name: Test rustsbi
+    needs: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests (no default features)
+        run: |
+          cargo test -p rustsbi --verbose
+      - name: Run tests (machine)
+        run: |
+          cargo test -p rustsbi --verbose --features "machine"
+      # Don't run tests with rustsbi `forward` features on here: it requires RISC-V targets to build.
+
+  test-sbi-spec:
+    name: Test sbi-spec
+    needs: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      # - name: Check clippy
+      #   run: cargo clippy -- -D warnings
+      - name: Run tests
+        run: cargo test -p sbi-spec --verbose
+  
+  build-sbi-rt:
+    name: Build sbi-rt
+    needs: fmt
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        TARGET: [riscv64imac-unknown-none-elf, riscv32imac-unknown-none-elf]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: |
+          cargo build --target ${{ matrix.TARGET }} --verbose -p sbi-rt
+
+  build-sbi-testing:
+    name: Build sbi-testing
+    needs: fmt
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        TARGET: [riscv64imac-unknown-none-elf, riscv32imac-unknown-none-elf]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: |
+          cargo build --target ${{ matrix.TARGET }} --verbose -p sbi-testing
+
+# sbi-testing:
+#     name: Run rust-clippy analyzing
+#     runs-on: ubuntu-latest
+#     permissions:
+#       security-events: write
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Check format
+#         run: cargo fmt --check
+
+#       - name: Install clippy-sarif
+#         uses: actions-rs/install@v0.1
+#         with:
+#           crate: clippy-sarif
+#           version: latest
+
+#       - name: Install sarif-fmt
+#         uses: actions-rs/install@v0.1
+#         with:
+#           crate: sarif-fmt
+#           version: latest
+
+#       - name: Run rust-clippy
+#         run:
+#           cargo clippy
+#           --all-featuers
+#           --package fast-trap
+#           --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
+#         continue-on-error: true
+
+#       - name: Upload analysis results to GitHub
+#         uses: github/codeql-action/upload-sarif@v2
+#         with:
+#           sarif_file: rust-clippy-results.sarif
+#           wait-for-processing: true
