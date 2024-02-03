@@ -33,19 +33,19 @@ mod fid {
 ///
 /// Declared in §15.
 pub mod feature_id {
-    /// Feature ID for the synchronize CSR feature.
+    /// Feature ID for the CSR synchronizing feature.
     ///
     /// Declared in §15.1.
     pub const SYNC_CSR: usize = 0;
-    /// Feature ID for the synchronize HFENCE feature.
+    /// Feature ID for the HFENCE synchronizing feature.
     ///
     /// Declared in §15.2.
     pub const SYNC_HFENCE: usize = 1;
-    /// Feature ID for the synchronize SRET feature.
+    /// Feature ID for the SRET synchronizing feature.
     ///
     /// Declared in §15.3.
     pub const SYNC_SRET: usize = 2;
-    /// Feature ID for the autoswap CSR feature.
+    /// Feature ID for the auto-swap CSR feature.
     ///
     /// Declared in §15.4.
     pub const AUTOSWAP_CSR: usize = 3;
@@ -56,12 +56,12 @@ pub mod feature_id {
 /// NACL shared memory includes scratch space and CSR space. Due to the difference
 /// of CSR width, this size varies between different `XLEN` values. `NATIVE`
 /// constant here only matches the integer width for the target this crate is compiled.
-/// If you are writing an SEE with different `XLEN` from host platform, you should
+/// If you are writing an SEE with different `XLEN` from the host platform, you should
 /// choose other correct constant value from `RV32`, `RV64` or `RV128` in module `shmem_size`
 /// instead.
 pub mod shmem_size {
     use core::mem::size_of;
-    /// Size of NACL shared memory on platforms with `XLEN` of same width as the current platform.
+    /// Size of NACL shared memory on platforms with `XLEN` of the same width as the current platform.
     pub const NATIVE: usize = 4096 + 1024 * size_of::<usize>();
 
     /// Size of NACL shared memory on RV32 platforms.

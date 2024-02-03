@@ -17,26 +17,26 @@ pub mod hart_state {
     pub const STOPPED: usize = 1;
     /// The hart is pending before being started
     ///
-    /// Some other hart has requested to start (or power-up) the hart from the STOPPED state
+    /// Some other hart has requested to start (or power-up) the hart from the STOPPED state,
     /// and the SBI implementation is still working to get the hart in the STARTED state.
     pub const START_PENDING: usize = 2;
     /// The hart is pending before being stopped.
     ///
-    /// The hart has requested to stop (or power-down) itself from the STARTED state
+    /// The hart has requested to stop (or power-down) itself from the STARTED state,
     /// and the SBI implementation is still working to get the hart in the STOPPED state.
     pub const STOP_PENDING: usize = 3;
-    /// The hart is in a platform specific suspend (or low power) state.
+    /// The hart is in a platform-specific suspend (or low-power) state.
     pub const SUSPENDED: usize = 4;
     /// The hart is pending before being suspended.
     ///
-    /// The hart has requested to put itself in a platform specific low power state
-    /// from the STARTED state and the SBI implementation is still working to get
-    /// the hart in the platform specific SUSPENDED state.
+    /// The hart has requested to put itself in a platform-specific low-power state
+    /// from the STARTED state, and the SBI implementation is still working to get
+    /// the hart in the platform-specific SUSPENDED state.
     pub const SUSPEND_PENDING: usize = 5;
     /// The hart is pending before being resumed.
     ///
     /// An interrupt or platform specific hardware event has caused the hart to resume
-    /// normal execution from the SUSPENDED state and the SBI implementation is still
+    /// normal execution from the SUSPENDED state, and the SBI implementation is still
     /// working to get the hart in the STARTED state.
     pub const RESUME_PENDING: usize = 6;
 }
@@ -63,7 +63,7 @@ mod fid {
     ///
     /// Declared in §9.3.
     pub const HART_GET_STATUS: usize = 2;
-    /// Function ID to put the calling hart into suspend or platform specific lower power states.
+    /// Function ID to put the calling hart into suspend or platform-specific lower power states.
     ///
     /// Declared in §9.4.
     pub const HART_SUSPEND: usize = 3;

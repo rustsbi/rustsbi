@@ -25,13 +25,13 @@ impl Version {
         Self { raw }
     }
 
-    /// Reads major version of specification.
+    /// Reads the major version of RISC-V SBI specification.
     #[inline]
     pub const fn major(self) -> usize {
         (self.raw >> 24) & ((1 << 7) - 1)
     }
 
-    /// Reads minor version of specification.
+    /// Reads the minor version of RISC-V SBI specification.
     #[inline]
     pub const fn minor(self) -> usize {
         self.raw & ((1 << 24) - 1)
@@ -59,19 +59,19 @@ mod fid {
     ///
     /// Declared in §4.3.
     pub const GET_SBI_IMPL_VERSION: usize = 0x2;
-    /// Function ID to probe information about one SBI extension from current environment.
+    /// Function ID to probe information about one SBI extension from the current environment.
     ///
     /// Declared in §4.4.
     pub const PROBE_EXTENSION: usize = 0x3;
-    /// Function ID to get value of `mvendorid` register in current environment.
+    /// Function ID to get the value of `mvendorid` register in the current environment.
     ///
     /// Declared in §4.5.
     pub const GET_MVENDORID: usize = 0x4;
-    /// Function ID to get value of `marchid` register in current environment.
+    /// Function ID to get the value of `marchid` register in the current environment.
     ///
     /// Declared in §4.6.
     pub const GET_MARCHID: usize = 0x5;
-    /// Function ID to get value of `mimpid` register in current environment.
+    /// Function ID to get the value of `mimpid` register in the current environment.
     ///
     /// Declared in §4.7.
     pub const GET_MIMPID: usize = 0x6;
@@ -81,18 +81,18 @@ mod fid {
 ///
 /// Declared in §4.9.
 pub mod impl_id {
-    /// Berkley Bootloader
+    /// Berkley Bootloader.
     pub const BBL: usize = 0;
-    /// OpenSBI
+    /// OpenSBI.
     pub const OPEN_SBI: usize = 1;
-    /// Xvisor
+    /// Xvisor.
     pub const XVISOR: usize = 2;
-    /// KVM
+    /// KVM.
     pub const KVM: usize = 3;
-    /// RustSBI
+    /// RustSBI.
     pub const RUST_SBI: usize = 4;
-    /// Diosix
+    /// Diosix.
     pub const DIOSIX: usize = 5;
-    /// Coffer
+    /// Coffer.
     pub const COFFER: usize = 6;
 }

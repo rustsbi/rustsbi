@@ -6,7 +6,7 @@ pub use fid::*;
 
 /// Declared in §6.2.
 mod fid {
-    /// Function ID to program the clock for next event after an absolute time.
+    /// Function ID to program the clock for the next event after an absolute time.
     ///
     /// Declared in §6.1.
     pub const SET_TIMER: usize = 0;

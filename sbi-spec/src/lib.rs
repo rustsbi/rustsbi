@@ -7,13 +7,13 @@
 //! You may find it convenient to use this library in a vast range of packages,
 //! from operating system kernels, hypervisors, to SBI bare metal implementations.
 //! This crate is `no_std` compatible and does not need dynamic memory allocation,
-//! which make it suitable for embedded development.
+//! which makes it suitable for embedded development.
 //!
 //! Although this library is dedicated to RISC-V architecture, it does not limit
-//! which build target the dependents should compile into. For example, you are
-//! developing a RISC-V emulator on platforms other than RISC-V, the emulator
-//! designed on other platforms can still make use of `sbi-spec` structures to
-//! provide necessary features the emulated RISC-V environment would make use of.
+//! which build target the dependents should compile into.
+//! For example, when developing a RISC-V emulator on platforms other than RISC-V,
+//! the emulator designed on other platforms can still make use of `sbi-spec` structures,
+//! to provide the necessary features where the emulated RISC-V environment would make use of.
 #![no_std]
 #![deny(missing_docs, unsafe_code, unstable_features)]
 

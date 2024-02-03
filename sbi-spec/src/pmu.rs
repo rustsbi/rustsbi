@@ -30,7 +30,7 @@ mod fid {
     ///
     /// Declared in §11.10.
     pub const COUNTER_FW_READ: usize = 5;
-    /// Function ID to provide the upper 32 bits of the current firmware counter value.
+    /// Function ID to provide the upper 32 bits from the value of the current firmware counter.
     ///
     /// Declared in §11.11.
     pub const COUNTER_FW_READ_HI: usize = 6;
@@ -56,7 +56,7 @@ pub mod event_type {
     ///
     /// Declared in §11.3.
     pub const HARDWARE_RAW: usize = 2;
-    /// Type for for all firmware events.
+    /// Type for all firmware events.
     ///
     /// Declared in §11.4.
     pub const FIRMWARE: usize = 15;
@@ -66,27 +66,27 @@ pub mod event_type {
 ///
 /// Declared in §11.1.
 pub mod hardware_event {
-    /// Unused event because event_idx cannot be zero
+    /// Unused event because event_idx cannot be zero.
     pub const NO_EVENT: usize = 0;
-    /// Event for each CPU cycle
+    /// Event for each CPU cycle.
     pub const CPU_CYCLES: usize = 1;
-    /// Event for each completed instruction
+    /// Event for each completed instruction.
     pub const INSTRUCTIONS: usize = 2;
-    /// Event for cache hit
+    /// Event for cache hit.
     pub const CACHE_REFERENCES: usize = 3;
-    /// Event for cache miss
+    /// Event for cache miss.
     pub const CACHE_MISSES: usize = 4;
-    /// Event for a branch instruction
+    /// Event for a branch instruction.
     pub const BRANCH_INSTRUCTIONS: usize = 5;
-    /// Event for a branch misprediction
+    /// Event for a branch mis-prediction.
     pub const BRANCH_MISSES: usize = 6;
-    /// Event for each BUS cycle
+    /// Event for each BUS cycle.
     pub const BUS_CYCLES: usize = 7;
-    /// Event for a stalled cycle in microarchitecture frontend
+    /// Event for a stalled cycle in micro-architecture frontend.
     pub const STALLED_CYCLES_FRONTEND: usize = 8;
-    /// Event for a stalled cycle in microarchitecture backend
+    /// Event for a stalled cycle in micro-architecture backend.
     pub const STALLED_CYCLES_BACKEND: usize = 9;
-    /// Event for each reference CPU cycle
+    /// Event for each reference CPU cycle.
     pub const REF_CPU_CYCLES: usize = 10;
 }
 

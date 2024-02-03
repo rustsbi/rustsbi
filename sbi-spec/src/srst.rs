@@ -4,11 +4,11 @@
 pub const EID_SRST: usize = crate::eid_from_str("SRST") as _;
 pub use fid::*;
 
-/// Shutdown as reset type.
+/// Shutdown as a reset type.
 pub const RESET_TYPE_SHUTDOWN: u32 = 0;
-/// Cold Reboot as reset type.
+/// Cold Reboot as a reset type.
 pub const RESET_TYPE_COLD_REBOOT: u32 = 1;
-/// Warm Reboot as reset type.
+/// Warm Reboot as a reset type.
 pub const RESET_TYPE_WARM_REBOOT: u32 = 2;
 
 /// No Reason as reset reason.
