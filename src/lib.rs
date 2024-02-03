@@ -87,7 +87,7 @@
 //!         ) },
 //!         #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
 //!         () => {
-//!             drop((extension, function, arg0, arg1));
+//!             let _ = (extension, function, arg0, arg1);
 //!             unimplemented!("not RISC-V instruction set architecture")
 //!         }
 //!     };
@@ -563,7 +563,7 @@ pub const LOGO: &str = r".______       __    __      _______.___________.  _____
 |  |\  \----.|  `--'  |.----)   |      |  |  .----)   |   |  |_)  ||  |
 | _| `._____| \______/ |_______/       |__|  |_______/    |______/ |__|";
 
-// RustSBI supports RISC-V SBI specification 2.0-rc8.
+// RustSBI supports RISC-V SBI specification 2.0 ratified.
 const SBI_SPEC_MAJOR: usize = 2;
 const SBI_SPEC_MINOR: usize = 0;
 

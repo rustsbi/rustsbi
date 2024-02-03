@@ -14,7 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [0.0.7] - 2023-12-08
 
-`sbi-spec` crate now supports RISC-V SBI version 2.0-rc7.
+`sbi-spec` crate now supports RISC-V SBI version 2.0 ratified.
 
 ### Added
 

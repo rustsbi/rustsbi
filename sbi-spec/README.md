@@ -8,7 +8,7 @@
 
 这个库用 Rust 实现了 [SBI 标准](https://github.com/riscv-non-isa/riscv-sbi-doc) 定义的常量和结构。
 
-2.0-rc7 标准各章节的实现情况：
+2.0 标准各章节的实现情况：
 
 - §3
   - [x] 常量

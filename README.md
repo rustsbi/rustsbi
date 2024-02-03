@@ -50,7 +50,7 @@ Under normal circumstances these targets in Rust would start with `riscv??-` and
 
 - Feature rich and extensible operating system runtime
 - Empower support, compatibility for machines, hypervisors and emulators
-- Support to and develop with RISC-V SBI specification v2.0-rc1
+- Support to and develop with RISC-V SBI specification v2.0 ratified
 - Written in Rust, builds under stable Rust
 - Capable to develop with other firmware ecosystem projects
 - Adapted for operating system kernel models on your choice

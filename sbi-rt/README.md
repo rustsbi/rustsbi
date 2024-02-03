@@ -8,7 +8,7 @@
 
 为特权软件提供 RISC-V 特权二进制接口（Supervisor Binary Interface）的运行时库。
 
-2.0-rc7 标准各章节的实现情况：
+2.0 标准各章节的实现情况：
 
 - [x] §3
 - [x] §4

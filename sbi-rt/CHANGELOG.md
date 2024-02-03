@@ -9,7 +9,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.0.3]
 
-This version adds support to RISC-V SBI Specification version 2.0-rc7.
+This version adds support to RISC-V SBI Specification version 2.0 ratified.
 
 ### Added
 
