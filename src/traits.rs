@@ -21,7 +21,7 @@ impl<T: RustSBI> RustSBI for &T {
 pub trait EnvInfo {
     /// Vendor ID for the supervisor environment.
     ///
-    /// Provides JEDEC manufacturer ID of the provider of the core.
+    /// Provides JEDEC manufacturer ID for the provider of the core.
     fn mvendorid(&self) -> usize;
     /// Architecture ID for the supervisor environment.
     ///
@@ -29,7 +29,7 @@ pub trait EnvInfo {
     fn marchid(&self) -> usize;
     /// Implementation ID for the supervisor environment.
     ///
-    /// Provides a unique encoding of the version of the processor implementation.
+    /// Provides a unique encoding for the version of the processor implementation.
     fn mimpid(&self) -> usize;
 }
 

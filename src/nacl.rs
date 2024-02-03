@@ -13,7 +13,7 @@ use spec::{
 ///
 /// The SBI nested acceleration extension defines a shared memory based interface
 /// between the SBI implementation (or L0 hypervisor) and the supervisor software
-/// (or L1 hypervisor) which allows both to collaboratively reduce traps taken
+/// (or L1 hypervisor), which allows both to collaboratively reduce traps taken
 /// by the L0 hypervisor for emulating RISC-V H-extension functionality. The
 /// nested acceleration shared memory allows the L1 hypervisor to batch multiple
 /// RISC-V H-extension CSR accesses and HFENCE requests which are then emulated
@@ -46,13 +46,13 @@ pub trait Nacl {
     ///
     /// # Parameters
     ///
-    /// If physical address of `shmem` are not all-ones bitwise, then the `shmem` pointer
+    /// If the physical address of `shmem` is not all-ones bitwise, then the `shmem` pointer
     /// specifies the shared memory physical base address. The physical address of `shmem`
     /// MUST be 4096-byte aligned. The size of the shared memory must be 4096 + (XLEN * 128) bytes.
     /// The SBI implementation MUST zero the shared memory before returning from the SBI
     /// call.
     ///
-    /// If physical address of `shmem` are all-ones bitwise, then the nested acceleration features
+    /// If the physical address of `shmem` is all-ones bitwise, then the nested acceleration features
     /// are disabled.
     ///
     /// The `flags` parameter is reserved for future use and must be zero.
@@ -70,14 +70,14 @@ pub trait Nacl {
     /// Synchronize shared memory CSRs.
     ///
     /// Synchronize CSRs in the nested acceleration shared memory. This is an
-    /// optional function which is only available if the SBI_NACL_FEAT_SYNC_CSR
+    /// optional function that is only available if the SBI_NACL_FEAT_SYNC_CSR
     /// feature is available.
     ///
     /// # Parameters
     ///
     /// The parameter `csr_num` specifies the set of RISC-V H-extension CSRs to be synchronized.
     ///
-    /// If `csr_num` is all-ones bitwise then all RISC-V H-extension CSRs implemented by the SBI
+    /// If `csr_num` is all-ones bitwise, then all RISC-V H-extension CSRs implemented by the SBI
     /// implementation (or L0 hypervisor) are synchronized.
     ///
     /// If `(csr_num & 0x300) == 0x200` and `csr_num < 0x1000` then only a single RISC-V H-extension
@@ -97,14 +97,14 @@ pub trait Nacl {
     /// Synchronize shared memory HFENCEs.
     ///
     /// Synchronize HFENCEs in the nested acceleration shared memory. This is an
-    /// optional function which is only available if the SBI_NACL_FEAT_SYNC_HFENCE
+    /// optional function that is only available if the SBI_NACL_FEAT_SYNC_HFENCE
     /// feature is available.
     ///
     /// # Parameters
     ///
     /// The parameter `entry_index` specifies the set of nested HFENCE entries to be synchronized.
     ///
-    /// If `entry_index` is all-ones bitwise then all nested HFENCE entries are
+    /// If `entry_index` is all-ones bitwise, then all nested HFENCE entries are
     /// synchronized.
     ///
     /// If `entry_index < (3840 / XLEN)` then only a single nested HFENCE entry
@@ -124,16 +124,16 @@ pub trait Nacl {
     /// Synchronize shared memory and emulate SRET.
     ///
     /// Synchronize CSRs and HFENCEs in the nested acceleration shared memory and
-    /// emulate the SRET instruction. This is an optional function which is only
+    /// emulate the SRET instruction. This is an optional function that is only
     /// available if the SBI_NACL_FEAT_SYNC_SRET feature is available.
     ///
     /// This function is used by supervisor software (or L1 hypervisor) to do
-    /// a synchronize SRET request and the SBI implementation (or L0 hypervisor)
+    /// a synchronized SRET request, and the SBI implementation (or L0 hypervisor)
     /// MUST handle it.
     ///
     /// # Return Value
     ///
-    /// This function does not return upon success and the possible error codes returned in
+    /// This function does not return upon success, and the possible error codes returned in
     /// `SbiRet.error` upon failure are shown in the table below:
     ///
     /// | Return code               | Description

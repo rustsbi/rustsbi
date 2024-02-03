@@ -28,9 +28,10 @@ pub trait Susp {
     /// Request the SBI implementation to put the system transitions to a sleep state.
     ///
     /// A return from a `system_suspend()` call implies an error and an error code
-    /// will be in `sbiret.error`. A successful suspend and wake up, results in the
-    /// hart which initiated the suspend, resuming from the `STOPPED` state. To resume,
-    /// the hart will jump to supervisor-mode, at the address specified by `resume_addr`,
+    /// will be in `sbiret.error`.
+    /// A successful suspend and wake up operation results in the
+    /// hart, which initiated to suspend, resuming from the `STOPPED` state.
+    /// To resume, the hart will jump to supervisor-mode, at the address specified by `resume_addr`,
     /// with the specific register values described in the table below.
     ///
     /// | Register Name                                     | Register Value     
@@ -50,19 +51,20 @@ pub trait Susp {
     /// because the hart will resume execution in supervisor-mode with the MMU off,
     /// hence `resume_addr` must be less than XLEN bits wide.
     ///
-    /// The `opaque` parameter is an XLEN-bit value which will be set in the `a1`
-    /// register when the hart resumes exectution at `resume_addr` after a
+    /// The `opaque` parameter is an XLEN-bit value that will be set in the `a1`
+    /// register when the hart resumes execution at `resume_addr` after a
     /// system suspend.
     ///
     /// Besides ensuring all entry criteria for the selected sleep type are met, such
     /// as ensuring other harts are in the `STOPPED` state, the caller must ensure all
     /// power units and domains are in a state compatible with the selected sleep type.
     /// The preparation of the power units, power domains, and wake-up devices used for
-    /// resumption from the system sleep state is platform specific and beyond the
+    /// resumption from the system sleep state is platform-specific and beyond the
     /// scope of this specification.
     ///
     /// When supervisor software is running inside a virtual machine, the SBI
-    /// implementation is provided by a hypervisor. The system suspend will behave
+    /// implementation is provided by a hypervisor.
+    /// The system suspend will behave
     /// functionally the same as the native case, but might not result in any physical
     /// power changes.
     ///
@@ -72,11 +74,15 @@ pub trait Susp {
     ///
     /// | Error code                  | Description  
     /// | --------------------------- | -------------------
-    /// | `SbiRet::success()`         | System has suspended and resumed successfully.
+    /// | `SbiRet::success()`         | System has been suspended and resumed successfully.
     /// | `SbiRet::invalid_param()`   | `sleep_type` is reserved or is platform-specific and unimplemented.
-    /// | `SbiRet::not_supported()`   | `sleep_type` is not reserved and is implemented, but the platform does not support it due to one or more missing dependencies.
-    /// | `SbiRet::invalid_address()` | `resume_addr` is not valid, possibly due to the following reasons: * It is not a valid physical address. * Executable access to the address is prohibited by a physical memory protection mechanism or H-extension G-stage for supervisor mode.
-    /// | `SbiRet::failed()`          | The suspend request failed for unspecified or unknown other reasons.
+    /// | `SbiRet::not_supported()`   | `sleep_type` is not reserved and is implemented,
+    /// but the platform does not support it due to one or more missing dependencies.
+    /// | `SbiRet::invalid_address()` | `resume_addr` is not valid, possibly due to the following reasons:
+    /// * It is not a valid physical address.
+    /// * Executable access to the address is prohibited by a physical memory protection mechanism or H-extension G-stage for supervisor mode.
+    /// | `SbiRet::failed()`
+    /// | The suspend request failed for unspecified or unknown other reasons.
     fn system_suspend(&self, sleep_type: u32, resume_addr: usize, opaque: usize) -> SbiRet;
 }
 

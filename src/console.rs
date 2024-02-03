@@ -5,12 +5,12 @@ use spec::binary::{Physical, SbiRet};
 /// The debug console extension defines a generic mechanism for debugging
 /// and boot-time early prints from supervisor-mode software.
 ///
-/// Kernel developers should switch to driver based console implementation
+/// Kernel developers should switch to driver-based console implementation
 /// instead of using this extension to prevent possible race conditions between
 /// the firmware and the kernel when drivers are ready.
 ///
 /// If the underlying physical console has extra bits for error checking
-/// (or correction) then these extra bits should be handled by the SBI
+/// (or correction), then these extra bits should be handled by the SBI
 /// implementation.
 ///
 /// *NOTE:* It is recommended that bytes sent/received using the debug
@@ -25,7 +25,7 @@ pub trait Console {
     ///
     /// # Non-blocking function
     ///
-    /// This is a non-blocking SBI call and it may do partial/no writes if
+    /// This is a non-blocking SBI call, and it may do partial/no writes if
     /// the debug console is not able to accept more bytes.
     ///
     /// # Return value
@@ -50,7 +50,7 @@ pub trait Console {
     ///
     /// # Non-blocking function
     ///
-    /// This is a non-blocking SBI call and it will not write anything
+    /// This is a non-blocking SBI call, and it will not write anything
     /// into the output memory if there are no bytes to be read in the
     /// debug console.
     ///
@@ -70,7 +70,7 @@ pub trait Console {
     ///
     /// # Blocking function
     ///
-    /// This is a blocking SBI call and it will only return after writing
+    /// This is a blocking SBI call, and it will only return after writing
     /// the specified byte to the debug console. It will also return, with
     /// `SbiRet::failed()`, if there are I/O errors.
     /// # Return value

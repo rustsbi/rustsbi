@@ -276,8 +276,8 @@
 //!     core::arch::asm!(
 //!         // 1. Turn off interrupt
 //!         "csrw  mie, zero",
-//!         // 2. Initialize programming langauge runtime
-//!         // only clear bss if hartid is zero
+//!         // 2. Initialize programming language runtime
+//!         // only clear bss if hart ID is zero
 //!         "csrr  t0, mhartid",
 //!         "bnez  t0, 2f",
 //!         // clear bss segment
@@ -321,7 +321,7 @@
 //! }
 //!
 //! /// Rust entry, call in `entry` assembly function
-//! extern "C" fn rust_main(_hartid: usize, opaque: usize) -> Operation {
+//! extern "C" fn rust_main(_hart_id: usize, opaque: usize) -> Operation {
 //!     // .. board initialization process ...
 //!     let board_params = board_init_once();
 //!     // .. print necessary information and rustsbi::LOGO ..
@@ -357,7 +357,7 @@
 //!
 //! Some platforms would provide system memory under different grades in speed and size to reduce product cost.
 //! Those platforms would typically provide two parts of code memory, first one being relatively small, not fast
-//! but instantly available after chip start, while the second one is larger in size but typically requires
+//! but instantly available after chip start, while the second one is larger but typically requires
 //! memory training. The former one would include built-in SRAM memory, and the later would include
 //! external SRAM or DDR memory. On those platforms, a first stage bootloader is typically needed to
 //! train memory for later stages. In such situation, RustSBI implementation should be treated as or concatenated
@@ -405,7 +405,7 @@
 //! struct MySBI {
 //!     // add other fields later ...
 //!     // An environment information must be provided on
-//!     // non bare-metal RustSBI development.
+//!     // non-bare-metal RustSBI development.
 //!     info: MyEnvInfo,
 //! }
 //!
@@ -470,13 +470,13 @@
 //!
 //! ## Emulators using RustSBI
 //!
-//! RustSBI library may be used to write RISC-V emulators. Other than hardware accelereted binary
+//! RustSBI library may be used to write RISC-V emulators. Other than hardware accelerated binary
 //! translation methods, emulators typically do not use host hardware specific features,
 //! thus may build and run on any architecture.
 //! Like hardware RISC-V implementations, software emulated RISC-V environment would still need SBI
 //! implementation to support supervisor environment.
 //!
-//! Writing emulators would follow the similiar process with writing hypervisors, see
+//! Writing emulators would follow the similar process with writing hypervisors, see
 //! [Hypervisors using RustSBI](#hypervisors-using-rustsbi) for details.
 //!
 //! # Download binary file: the Prototyping System vs discrete packages
@@ -494,8 +494,8 @@
 //!
 //! Discrete SBI packages are SBI environment support packages specially designed for one board
 //! or SoC, it will be provided by board vendor or RustSBI ecosystem.
-//! Vendors may find it easy to include fine grained features in each support package, but the
-//! maintenance situation would vary between vendors and it would likely to cost a lot of time
+//! Vendors may find it easy to include fine-grained features in each support package, but the
+//! maintenance situation would vary between vendors, and it would likely to cost a lot of time
 //! to develop from a bare-metal executable. Users may find a boost in performance, energy saving
 //! indexes and feature granularity in discrete packages, but it would depend on whether the
 //! vendor provides it.

@@ -7,7 +7,7 @@ use sbi_spec::{
 /// Forwards SBI calls onto current supervisor environment.
 ///
 /// If crate feature `forward` is enabled, this structure implements all RustSBI extensions
-/// by forwarding the calls into current supervisor environment. This is done by `sbi-rt`
+/// by forwarding the calls into the current supervisor environment. This is done by `sbi-rt`
 /// crate; thus `Forward` is only available when it's running in RISC-V SBI environments.
 ///
 /// `Forward` implements all RustSBI traits, but is only effective if `#[cfg(feature = "forward")]`

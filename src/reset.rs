@@ -2,7 +2,7 @@ use sbi_spec::binary::SbiRet;
 
 /// System Reset extension.
 ///
-/// Provides a function that allow the supervisor software to request system-level reboot or shutdown.
+/// Provides a function that allows the supervisor software to request system-level reboot or shutdown.
 ///
 /// The term "system" refers to the world-view of supervisor software and the underlying SBI implementation
 /// could be machine mode firmware or hypervisor.
@@ -16,15 +16,19 @@ pub trait Reset {
     /// # Warm reboot and cold reboot
     ///
     /// When supervisor software is running natively, the SBI implementation is machine mode firmware.
-    /// In this case, shutdown is equivalent to physical power down of the entire system and
-    /// cold reboot is equivalent to physical power cycle of the entire system. Further, warm reboot
-    /// is equivalent to a power cycle of main processor and parts of the system but not the entire system.
+    /// In this case, shutdown is equivalent to physical power down of the entire system, and
+    /// cold reboot is equivalent to a physical power cycle of the entire system.
+    /// Further, warm reboot is equivalent to a power cycle of the main processor and parts of the system
+    /// but not the entire system.
     ///
     /// For example, on a server class system with a BMC (board management controller),
-    /// a warm reboot will not power cycle the BMC whereas a cold reboot will definitely power cycle the BMC.
+    /// a warm reboot will not power cycle the BMC
+    /// whereas a cold reboot will definitely power cycle the BMC.
     ///
-    /// When supervisor software is running inside a virtual machine, the SBI implementation is a hypervisor.
-    /// The shutdown, cold reboot and warm reboot will behave functionally the same as the native case but might
+    /// When supervisor software is running inside a virtual machine,
+    /// the SBI implementation is a hypervisor.
+    /// The shutdown,
+    /// cold reboot and warm reboot will behave functionally the same as the native case but might
     /// not result in any physical power changes.
     ///
     /// # Return value

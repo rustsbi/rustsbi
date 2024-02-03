@@ -13,13 +13,13 @@ use sbi_spec::binary::SbiRet;
 /// |:---------|:-----------|:------------
 /// | 0 | `STARTED` | The hart is physically powered-up and executing normally.
 /// | 1 | `STOPPED` | The hart is not executing in supervisor-mode or any lower privilege mode. It is probably powered-down by the SBI implementation if the underlying platform has a mechanism to physically power-down harts.
-/// | 2 | `START_PENDING` | Some other hart has requested to start (or power-up) the hart from the **STOPPED** state and the SBI implementation is still working to get the hart in the **STARTED** state.
+/// | 2 | `START_PENDING` | Some other hart has requested to start (or power-up) the hart from the **STOPPED** state, and the SBI implementation is still working to get the hart in the **STARTED** state.
 /// | 3 | `STOP_PENDING` | The hart has requested to stop (or power-down) itself from the STARTED state and the SBI implementation is still working to get the hart in the **STOPPED** state.
-/// | 4 | `SUSPENDED` | This hart is in a platform specific suspend (or low power) state.
+/// | 4 | `SUSPENDED` | This hart is in a platform-specific suspend (or low power) state.
 /// | 5 | `SUSPEND_PENDING` | The hart has requestd to put itself in a platform specific low power state from the **STARTED** state and the SBI implementation is still working to get the hart in the platform specific **SUSPENDED** state.
 /// | 6 | `RESUME_PENDING` | An interrupt or platform specific hardware event has caused the hart to resume normal execution from the **SUSPENDED** state and the SBI implementation is still working to get the hart in the **STARTED** state.
 ///
-/// At any point in time, a hart should be in one of the above mentioned hart states.
+/// At any point in time, a hart should be in one of the above-mentioned hart states.
 ///
 /// # Topology hart groups
 ///
@@ -55,7 +55,7 @@ pub trait Hsm {
     ///
     /// - The `hartid` parameter specifies the target hart which is to be started.
     /// - The `start_addr` parameter points to a runtime-specified physical address, where the hart can start executing in supervisor-mode.
-    /// - The `opaque` parameter is a `usize` value which will be set in the `a1` register when the hart starts executing at `start_addr`.
+    /// - The `opaque` parameter is a `usize` value that will be set in the `a1` register when the hart starts executing at `start_addr`.
     ///
     /// *NOTE:* A single `usize` parameter is sufficient as `start_addr`,
     /// because the hart will start execution in supervisor-mode with the MMU off,
@@ -129,18 +129,18 @@ pub trait Hsm {
     /// specified by the `suspend_type` parameter.
     ///
     /// The hart will automatically come out of suspended state and resume normal execution
-    /// when it recieves an interrupt or platform specific hardware event.
+    /// when it receives an interrupt or platform specific hardware event.
     ///
     /// # Suspend behavior
     ///
-    /// The platform specific suspend states for a hart can be either retentive or non-rententive in nature.
+    /// The platform-specific suspend states for a hart can be either retentive or non-rententive in nature.
     ///
     /// A retentive suspend state will preserve hart register and CSR values for all privilege modes,
     /// whereas a non-retentive suspend state will not preserve hart register and CSR values.
     ///
     /// # Resuming
     ///
-    /// Resuming from a retentive suspend state is straight forward and the supervisor-mode software
+    /// Resuming from a retentive suspend state is straight forward, and the supervisor-mode software
     /// will see SBI suspend call return without any failures.
     ///
     /// Resuming from a non-retentive suspend state is relatively more involved and requires software
@@ -177,7 +177,7 @@ pub trait Hsm {
     /// because the hart will resume execution in supervisor-mode with the MMU off,
     /// hence `resume_addr` must be less than XLEN bits wide.
     ///
-    /// The `opaque` parameter is an XLEN-bit value which will be set in the `a1`
+    /// The `opaque` parameter is an XLEN-bit value that will be set in the `a1`
     /// register when the hart resumes exectution at `resume_addr` after a
     /// non-retentive suspend.
     ///

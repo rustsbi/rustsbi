@@ -10,7 +10,7 @@ pub trait Rfence {
     ///
     /// # Return value
     ///
-    /// Returns `SbiRet::success()` when remote fence was sent to all the targeted harts successfully.
+    /// Returns `SbiRet::success()` when a remote fence was sent to all the targeted harts successfully.
     fn remote_fence_i(&self, hart_mask: HartMask) -> SbiRet;
     /// Instructs the remote harts to execute one or more `SFENCE.VMA` instructions,
     /// covering the range of virtual addresses between `start_addr` and `size`.
@@ -21,7 +21,7 @@ pub trait Rfence {
     ///
     /// | Return code                 | Description
     /// |:----------------------------|:----------------------------------------------
-    /// | `SbiRet::success()`         | Remote fence was sent to all the targeted harts successfully.
+    /// | `SbiRet::success()`         | A remote fence was sent to all the targeted harts successfully.
     /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
     fn remote_sfence_vma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet;
     /// Instruct the remote harts to execute one or more `SFENCE.VMA` instructions,
@@ -34,7 +34,7 @@ pub trait Rfence {
     ///
     /// | Return code                 | Description
     /// |:----------------------------|:----------------------------------------------
-    /// | `SbiRet::success()`         | Remote fence was sent to all the targeted harts successfully.
+    /// | `SbiRet::success()`         | A remote fence was sent to all the targeted harts successfully.
     /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
     fn remote_sfence_vma_asid(
         &self,
@@ -47,7 +47,7 @@ pub trait Rfence {
     /// covering the range of guest physical addresses between `start_addr` and `size`
     /// only for the given virtual machine by `vmid`.
     ///
-    /// This function call is only valid for harts implementing hypervisor extension.
+    /// This function call is only valid on harts implementing the RISC-V hypervisor extension.
     ///
     /// # Return value
     ///
@@ -55,8 +55,8 @@ pub trait Rfence {
     ///
     /// | Return code                 | Description
     /// |:----------------------------|:----------------------------------------------
-    /// | `SbiRet::success()`         | Remote fence was sent to all the targeted harts successfully.
-    /// | `SbiRet::not_supported()`   | This function is not supported as it is not implemented or one of the target hart doesn’t support hypervisor extension.
+    /// | `SbiRet::success()`         | A remote fence was sent to all the targeted harts successfully.
+    /// | `SbiRet::not_supported()`   | This function is not supported as it is not implemented or one of the target harts do not support the RISC-V hypervisor extension.
     /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
     #[inline]
     fn remote_hfence_gvma_vmid(
@@ -73,7 +73,7 @@ pub trait Rfence {
     /// covering the range of guest physical addresses between `start_addr` and `size`
     /// for all the guests.
     ///
-    /// This function call is only valid for harts implementing hypervisor extension.
+    /// This function call is only valid on harts implementing the RISC-V hypervisor extension.
     ///
     /// # Return value
     ///
@@ -81,8 +81,8 @@ pub trait Rfence {
     ///
     /// | Return code                 | Description
     /// |:----------------------------|:----------------------------------------------
-    /// | `SbiRet::success()`         | Remote fence was sent to all the targeted harts successfully.
-    /// | `SbiRet::not_supported()`   | This function is not supported as it is not implemented or one of the target hart does not support hypervisor extension.
+    /// | `SbiRet::success()`         | A remote fence was sent to all the targeted harts successfully.
+    /// | `SbiRet::not_supported()`   | This function is not supported as it is not implemented or one of the target harts do not support the RISC-V hypervisor extension..
     /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
     #[inline]
     fn remote_hfence_gvma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
@@ -94,7 +94,7 @@ pub trait Rfence {
     /// address space by `asid` and current virtual machine (by `vmid` in `hgatp` CSR)
     /// of calling hart.
     ///
-    /// This function call is only valid for harts implementing hypervisor extension.
+    /// This function call is only valid on harts implementing the RISC-V hypervisor extension.
     ///
     /// # Return value
     ///
@@ -102,8 +102,8 @@ pub trait Rfence {
     ///
     /// | Return code                 | Description
     /// |:----------------------------|:----------------------------------------------
-    /// | `SbiRet::success()`         | Remote fence was sent to all the targeted harts successfully.
-    /// | `SbiRet::not_supported()`   | This function is not supported as it is not implemented or one of the target hart does not support hypervisor extension.
+    /// | `SbiRet::success()`         | A remote fence was sent to all the targeted harts successfully.
+    /// | `SbiRet::not_supported()`   | This function is not supported as it is not implemented or one of the target harts do not support the RISC-V hypervisor extension.
     /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
     #[inline]
     fn remote_hfence_vvma_asid(
@@ -120,7 +120,7 @@ pub trait Rfence {
     /// covering the range of guest virtual addresses between `start_addr` and `size`
     /// for current virtual machine (by `vmid` in `hgatp` CSR) of calling hart.
     ///
-    /// This function call is only valid for harts implementing hypervisor extension.
+    /// This function call is only valid on harts implementing the RISC-V hypervisor extension.
     ///
     /// # Return value
     ///
@@ -128,8 +128,8 @@ pub trait Rfence {
     ///
     /// | Return code                 | Description
     /// |:----------------------------|:----------------------------------------------
-    /// | `SbiRet::success()`         | Remote fence was sent to all the targeted harts successfully.
-    /// | `SbiRet::not_supported()`   | This function is not supported as it is not implemented or one of the target hart doesn’t support hypervisor extension.
+    /// | `SbiRet::success()`         | A remote fence was sent to all the targeted harts successfully.
+    /// | `SbiRet::not_supported()`   | This function is not supported as it is not implemented or one of the target harts do not support the RISC-V hypervisor extension.
     /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
     #[inline]
     fn remote_hfence_vvma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
