@@ -57,7 +57,7 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
         if let Some(_origin) = origin {
             // TODO: provide more detailed proc macro error hinting that previous
             // definition of this extension resides in `origin` once RFC 1566
-            // (Procedural Macro Diagnostics) is stablized.
+            // (Procedural Macro Diagnostics) is stabilized.
             // Link: https://github.com/rust-lang/rust/issues/54140
             let error = syn::Error::new_spanned(
                 field,

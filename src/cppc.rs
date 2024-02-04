@@ -4,14 +4,14 @@ use sbi_spec::binary::SbiRet;
 ///
 /// ACPI defines the Collaborative Processor Performance Control (CPPC) mechanism,
 /// which is an abstract and flexible mechanism for the supervisor-mode
-/// power-management software to collaborate with an entity in the platform to
+/// power-management software, to collaborate with an entity in the platform to
 /// manage the performance of the processors.
 ///
 /// The SBI CPPC extension provides an abstraction to access the CPPC registers
 /// through SBI calls. The CPPC registers can be memory locations shared with a
 /// separate platform entity such as a BMC. Even though CPPC is defined in the ACPI
 /// specification, it may be possible to implement a CPPC driver based on
-/// Device Tree.
+/// a Device Tree.
 ///
 /// The table below defines 32-bit identifiers for all CPPC registers
 /// to be used by the SBI CPPC functions. The first half of the 32-bit register
@@ -111,7 +111,7 @@ pub trait Cppc {
     /// | `SbiRet::invalid_param()` | `reg_id` is reserved.       
     /// | `SbiRet::not_supported()` | `reg_id` is not implemented by the platform.  
     /// | `SbiRet::denied()`        | `reg_id` is a read-only register.
-    /// | `SbiRet::failed()`        | The write request failed for unspecified or unknown other reasons.
+    /// | `SbiRet::failed()`        | The write-request failed for unspecified or unknown other reasons.
     fn write(&self, reg_id: u32, val: u64) -> SbiRet;
 }
 

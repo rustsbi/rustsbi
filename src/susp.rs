@@ -1,8 +1,8 @@
 use sbi_spec::binary::SbiRet;
 
-/// System Suspend extension.
+/// System-Suspend extension.
 ///
-/// The system suspend extension defines a set of system-level sleep states and a
+/// The system-suspend extension defines a set of system-level sleep states and a
 /// function which allows the supervisor-mode software to request that the system
 /// transitions to a sleep state. Sleep states are identified with 32-bit wide
 /// identifiers (`sleep_type`). The possible values for the identifiers are shown
@@ -21,7 +21,7 @@ use sbi_spec::binary::SbiRet;
 ///
 /// The system suspend extension does not provide any way for supported sleep types
 /// to be probed. Platforms are expected to specify their supported system sleep
-/// types and per-type wake up devices in their hardware descriptions. The
+/// types and per-type wake-up devices in their hardware descriptions. The
 /// `SUSPEND_TO_RAM` sleep type is the one exception, and its presence is implied
 /// by that of the extension.
 pub trait Susp {

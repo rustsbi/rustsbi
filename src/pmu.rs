@@ -108,7 +108,7 @@ pub trait Pmu {
     /// | Return code               | Description
     /// |:--------------------------|:----------------------------------------------
     /// | `SbiRet::success()`       | counter found and configured successfully.
-    /// | `SbiRet::invalid_param()` | set of counters has at least one invalid counter.
+    /// | `SbiRet::invalid_param()` | the set of counters has at least one invalid counter.
     /// | `SbiRet::not_supported()` | none of the counters can monitor the specified event.
     fn counter_config_matching(
         &self,
@@ -142,8 +142,8 @@ pub trait Pmu {
     /// | Return code                 | Description
     /// |:----------------------------|:----------------------------------------------
     /// | `SbiRet::success()`         | counter started successfully.
-    /// | `SbiRet::invalid_param()`   | set of counters has at least one invalid counter.
-    /// | `SbiRet::already_started()` | set of counters includes at least one counter which is already started.
+    /// | `SbiRet::invalid_param()`   | the set of counters has at least one invalid counter.
+    /// | `SbiRet::already_started()` | the set of counters includes at least one counter which is already started.
     fn counter_start(
         &self,
         counter_idx_base: usize,
@@ -170,8 +170,8 @@ pub trait Pmu {
     /// | Return code                 | Description
     /// |:----------------------------|:----------------------------------------------
     /// | `SbiRet::success()`         | counter stopped successfully.
-    /// | `SbiRet::invalid_param()`   | set of counters has at least one invalid counter.
-    /// | `SbiRet::already_stopped()` | set of counters includes at least one counter which is already stopped.
+    /// | `SbiRet::invalid_param()`   | the set of counters has at least one invalid counter.
+    /// | `SbiRet::already_stopped()` | the set of counters includes at least one counter which is already stopped.
     fn counter_stop(
         &self,
         counter_idx_base: usize,

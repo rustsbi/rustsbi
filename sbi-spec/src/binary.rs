@@ -9,7 +9,7 @@ use core::marker::PhantomData;
 /// > This is analogous to returning the C structure `SbiRet`.
 ///
 /// Note: if this structure is used in function return on conventional
-/// Rust code, it would not require to pin memory representation as
+/// Rust code, it would not require pinning memory representation as
 /// extern C. The `repr(C)` is set in case that some users want to use
 /// this structure in FFI code.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -126,7 +126,7 @@ impl SbiRet {
             value: 0,
         }
     }
-    /// SBI call failed due to denied.
+    /// SBI call denied.
     ///
     /// As the time this document was written,
     /// there is currently no function in SBI standard that returns this error.
@@ -152,7 +152,7 @@ impl SbiRet {
     }
 
     /// SBI call failed for the target resource is already available,
-    /// e.g. the target hart is already started when caller still request it to start.
+    /// e.g., the target hart is already started when caller still requests it to start.
     #[inline]
     pub const fn already_available() -> Self {
         Self {
@@ -162,7 +162,7 @@ impl SbiRet {
     }
 
     /// SBI call failed for the target resource is already started,
-    /// e.g. target performance counter is started.
+    /// e.g., target performance counter is started.
     #[inline]
     pub const fn already_started() -> Self {
         Self {
@@ -172,7 +172,7 @@ impl SbiRet {
     }
 
     /// SBI call failed for the target resource is already stopped,
-    /// e.g. target performance counter is stopped.
+    /// e.g., target performance counter is stopped.
     #[inline]
     pub const fn already_stopped() -> Self {
         Self {
@@ -398,9 +398,9 @@ impl SbiRet {
     /// # use sbi_spec::binary::{SbiRet, Error};
     /// fn stringify(x: Error) -> String {
     ///     if x == Error::AlreadyStarted {
-    ///         format!("error: already started!")
+    ///         "error: already started!".to_string()
     ///     } else {
-    ///         format!("error: other error!")
+    ///         "error: other error!".to_string()
     ///     }
     /// }
     ///
@@ -768,13 +768,13 @@ impl<P> Physical<P> {
         self.num_bytes
     }
 
-    /// Returns low part base address of physical memory slice.
+    /// Returns low-part base address of physical memory slice.
     #[inline]
     pub const fn phys_addr_lo(&self) -> usize {
         self.phys_addr_lo
     }
 
-    /// Returns high part base address of physical memory slice.
+    /// Returns high-part base address of physical memory slice.
     #[inline]
     pub const fn phys_addr_hi(&self) -> usize {
         self.phys_addr_hi
@@ -783,20 +783,20 @@ impl<P> Physical<P> {
 
 /// Shared memory physical address raw pointer with type annotation.
 ///
-/// This is a structure wrapping a raw pointer to value of type `T` without
-/// pointer metadata. `SharedPtr`s are _thin_; they won't include metadata
+/// This is a structure wrapping a raw pointer to the value of the type `T` without
+/// a pointer metadata. `SharedPtr`'s are _thin_; they won't include metadata
 /// as RISC-V SBI does not provide an approach to pass them via SBI calls,
-/// thus the length of type `T` should be decided independently from raw
+/// thus the length of type `T` should be decided independently of raw
 /// pointer structure.
 ///
-/// `SharedPtr` can be used as a parameter to pass shared memory physical pointer
-/// with given base address in RISC-V SBI calls. For example, a `SharedPtr<[u8; 64]>`
+/// `SharedPtr` can be used as a parameter to pass the shared memory physical pointer
+///  with a given base address in RISC-V SBI calls. For example, a `SharedPtr<[u8; 64]>`
 /// would represent a fixed-size 64 byte array on a RISC-V SBI function argument
 /// type.
 ///
 /// This structure cannot be dereferenced directly with physical addresses,
 /// because on RISC-V systems the physical address space could be larger than the
-/// virtual ones. Hence, this structure describes physical memory range by
+/// virtual ones. Hence, this structure describes the physical memory range by
 /// two `usize` values: the upper `phys_addr_hi` and lower `phys_addr_lo`.
 ///
 /// RISC-V SBI extensions may declare special pointer values for shared memory
@@ -820,7 +820,7 @@ impl<P> Physical<P> {
 /// * The data in the shared memory MUST follow little-endian byte ordering.
 ///
 /// *NOTE:* If the supervisor-mode software accesses the same physical memory
-/// range using a memory type different than the PMA, then a loss of coherence
+/// range using a memory type different from the PMA, then a loss of coherence
 /// or unexpected memory ordering may occur. The invoking software should
 /// follow the rules and sequences defined in the RISC-V Svpbmt specification
 /// to prevent the loss of coherence and memory ordering.
@@ -837,7 +837,7 @@ pub struct SharedPtr<T> {
 }
 
 // FIXME: we should consider strict provenance rules for this pointer-like structure
-// once feature strict_provenance is stablized.
+// once feature strict_provenance is stabled.
 impl<T> SharedPtr<T> {
     /// Create a shared physical memory pointer by physical address.
     #[inline]
@@ -849,13 +849,13 @@ impl<T> SharedPtr<T> {
         }
     }
 
-    /// Returns low part physical address of shared physical memory pointer.
+    /// Returns low-part physical address of the shared physical memory pointer.
     #[inline]
     pub const fn phys_addr_lo(self) -> usize {
         self.phys_addr_lo
     }
 
-    /// Returns high part physical address of shared physical memory pointer.
+    /// Returns high-part physical address of the shared physical memory pointer.
     #[inline]
     pub const fn phys_addr_hi(self) -> usize {
         self.phys_addr_hi

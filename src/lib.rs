@@ -2,13 +2,13 @@
 //!
 //! *Note: If you are a user looking for binary distribution download for RustSBI, you may consider
 //! using the [RustSBI Prototyping System](https://github.com/rustsbi/standalone)
-//! which will provide binaries for each platforms.
+//! which will provide binaries for each platform.
 //! If you are a vendor or contributor who wants to adapt RustSBI to your new product or board,
 //! you may consider adapting the Prototyping System first to get your board adapted in a short period of time;
-//! or build a discrete crate if your team have a plenty of time working on this board.*
+//! or build a discrete crate if your team has plenty of time working on this board.*
 //!
-//! *For more details on binary downloads the the RustSBI Prototyping System,
-//! see section [Prototyping System vs discrete packages](#download-binary-file-the-prototyping-system-vs-discrete-packages).*
+//! *For more details on binary downloads the RustSBI Prototyping System,
+//! see section [Prototyping System vs. discrete packages](#download-binary-file-the-prototyping-system-vs-discrete-packages).*
 //!
 //! The crate `rustsbi` acts as core trait, extension abstraction and implementation generator
 //! of the RustSBI ecosystem.
@@ -17,7 +17,7 @@
 //!
 //! RISC-V SBI is short for RISC-V Supervisor Binary Interface. SBI acts as an interface to environment
 //! for the operating system kernel.
-//! An SBI implementation will allow furtherly bootstrap the kernel, and provide a supportive environment
+//! An SBI implementation will allow further bootstrapping the kernel and provide a supportive environment
 //! while the kernel is running.
 //!
 //! More generally, The SBI allows supervisor-mode (S-mode or VS-mode) software to be portable across
@@ -26,15 +26,15 @@
 //! # Use RustSBI services in the supervisor software
 //!
 //! SBI environment features include boot sequence and an S-mode environment. To bootstrap the
-//! S-mode software, the kernel (or other supervisor-lenel software) would be loaded
-//! into an implementation defined address, then RustSBI will prepare an environment and
+//! S-mode software, the kernel (or other supervisor-level software) would be loaded
+//! into an implementation-defined address, then RustSBI will prepare an environment and
 //! enter the S-mode software on the S-mode visible harts. If the firmware environment provides
-//! other bootloading standards upon SBI, following bootstrap process will provide further
-//! information to the supervisor software.
+//! other boot-loading standards upon SBI, following bootstrap process will provide further
+//! information on the supervisor software.
 //!
 //! ## Make SBI environment calls
 //!
-//! To use the underlying environment, the supervisor either use SBI calls or run software
+//! To use the underlying environment, the supervisor either uses SBI calls or run software
 //! implemented instructions.
 //! SBI calls are similar to the system calls for operating systems. The SBI extensions, whether
 //! defined by the RISC-V SBI Specification or by custom vendors, would either consume parameters
@@ -42,19 +42,19 @@
 //! would pick and call. Definition of parameters varies between extensions and functions.
 //!
 //! At this point, we have picked up an extension ID, a function ID, and a few SBI call parameters.
-//! Now instead of a conventinoal jump instruction, the software would invoke a special `ecall`
+//! Now instead of a conventional jump instruction, the software would invoke a special `ecall`
 //! instruction on supervisor level to transfer the control flow, resulting into a trap to the SBI
 //! environment. The SBI environment will process the `ecall` and fill in SBI call results,
 //! similar to what an operating system would handle system calls from user level.
 //!
 //! All SBI calls would return two integers: the error number and the return value.
-//! The error number will tell if the SBI call have been successfully proceeded, or which error
-//! have occurred. The return value indicates the result of a successful SBI call, whose
-//! meaning being different among different SBI extensions.
+//! The error number will tell if the SBI call has been successfully proceeded, or which error
+//! has occurred. The return value indicates the result of a successful SBI call, whose
+//! meaning is different among different SBI extensions.
 //!
 //! ## Call SBI in Rust or other programming languages
 //!
-//! Making SBI calls are similar to making system calls; RISC-V SBI calls pass extension ID,
+//! Making SBI calls is similar to making system calls; RISC-V SBI calls pass extension ID,
 //! function ID (if applicable) and parameters in integer registers.
 //!
 //! The extension ID is required to put on register `a7`, function ID on `a6` if applicable.
@@ -63,7 +63,7 @@
 //!
 //! After registers are ready, the S-mode software would invoke an `ecall` instruction.
 //! The SBI call will return two values placed in `a0` and `a1` registers;
-//! the error value could be read from `a0`, and return value is placed into `a1`.
+//! the error value could be read from `a0`, and the return value is placed into `a1`.
 //!
 //! In Rust, we would usually use crates like [`sbi-rt`](https://crates.io/crates/sbi-rt)
 //! to hide implementation details and focus on supervisor software development.
@@ -101,10 +101,10 @@
 //! ```
 //!
 //! SBI calls may fail, returning the corresponding type of error in an error code.
-//! In this example we only take the value, but in complete designs we should handle
+//! In this example, we only take the value, but in complete designs we should handle
 //! the `error` code returned by SbiRet thoroughly.
 //!
-//! In other programming languages, similiar methods may be achieved by inline assembly
+//! In other programming languages, similar methods may be achieved by inline assembly
 //! or other features; its documentation may suggest which is the best way to achieve this.
 //!
 //! # Implement RustSBI on machine environment
@@ -117,13 +117,13 @@
 //!
 //! Hypervisor and supervisor environment emulator developers may refer to
 //! [Hypervisor and emulator development with RustSBI](#hypervisor-and-emulator-development-with-rustsbi)
-//! for such purposes, as RustSBI provide different set of features dedicated for emulated or virtual
+//! for such purposes, as RustSBI provides a different set of features dedicated to emulated or virtual
 //! environments.
 //!
 //! ## Use the Prototyping System
 //!
 //! The RustSBI Prototyping System aims to get your platform working with SBI in a short period of time.
-//! It supports most RISC-V platforms available by providing scalable set of drivers and features.
+//! It supports most RISC-V platforms available by providing a scalable set of drivers and features.
 //! It provides useful custom features such as Penglai TEE, DramForever's emulated hypervisor extension,
 //! and Raven the firmware debugger framework.
 //!
@@ -132,12 +132,12 @@
 //! ## Discrete RustSBI package on bare metal RISC-V hardware
 //!
 //! Discrete packages provide developers with most scalability and complete control of underlying
-//! hardware. It is ideal if detailed SoC low power features, management cores and other features
+//! hardware. It is ideal if detailed SoC low-power features, management cores and other features
 //! would be used in the SBI implementation.
 //!
 //! RustSBI supports discrete package development out-of-box. If we are running on bare-metal, we
 //! can create a new `#![no_std]` bare-metal package, add runtime code or use runtime libraries
-//! to get started. Then, we add following lines to `Cargo.toml`:
+//! to get started. Then, we add the following lines to `Cargo.toml`:
 //!
 //! ```toml
 //! [dependencies]
@@ -149,7 +149,7 @@
 //! instructions, which fits our demand of using it on bare metal RISC-V.
 //!
 //! After hardware initialization process, the part of firmware with RustSBI linked should run on
-//! memory blocks with fast accesses, as it would be called frequently by operating system.
+//! memory blocks with fast access, as it would be called frequently by operating system.
 //! If the implementation treats the supervisor as a generator of traps, we insert `rustsbi::RustSBI`
 //! implementation in a hart executor structure.
 //!
@@ -199,8 +199,8 @@
 //! # }
 //! ```
 //!
-//! After each `run()`, the SBI implmenetaion would process the trap returned with the RustSBI
-//! instance in executor. Call the function `handle_ecall` (generated by derive macro `RustSBI`)
+//! After each `run()`, the SBI implementation would process the trap returned with the RustSBI
+//! instance in executor. Call the function `handle_ecall` (generated by the derive macro `RustSBI`)
 //! and fill in a `SupervisorContext` if necessary.
 //!
 //! ```no_run
@@ -251,14 +251,15 @@
 //!             }
 //!             // This line would also advance `sepc` with `4` to indicate the `ecall` is handled.
 //!             exec.fill_sbi_return(ans);
-//!         } else {
-//!             // other trap types ...
 //!         }
+//!         // else {
+//!         //    // other trap types ...
+//!         // }
 //!     }
 //! }
 //! ```
 //!
-//! Now, call supervisor execution function in your bare metal package to finish the discrete
+//! Now, call the supervisor execution function in your bare metal package to finish the discrete
 //! package project. Here is an example of a bare-metal entry; actual projects would either
 //! use a library for runtime, or write assemble code only if necessary.
 //!
@@ -272,7 +273,7 @@
 //!     static mut SBI_STACK: [u8; LEN_STACK_SBI] = [0; LEN_STACK_SBI];
 //!
 //!     // Note: actual assembly code varies between platforms.
-//!     // Double check documents before continue on.
+//!     // Double-check documents before continue on.
 //!     core::arch::asm!(
 //!         // 1. Turn off interrupt
 //!         "csrw  mie, zero",
@@ -316,25 +317,25 @@
 //! enum Operation {
 //!     Reboot,
 //!     Shutdown,
-//!     // Add board specific low power modes if necessary. This will allow the
-//!     // function `finalize` to operate on board specific power management chips.
+//!     // Add board-specific low-power modes if necessary. This will allow the
+//!     // function `finalize` to operate on board-specific power management chips.
 //! }
 //!
 //! /// Rust entry, call in `entry` assembly function
 //! extern "C" fn rust_main(_hart_id: usize, opaque: usize) -> Operation {
-//!     // .. board initialization process ...
+//!     // board initialization process
 //!     let board_params = board_init_once();
-//!     // .. print necessary information and rustsbi::LOGO ..
+//!     // print necessary information and rustsbi::LOGO
 //!     print_information_once();
 //!     // execute supervisor, return as Operation
 //!     execute_supervisor(&board_params)
 //! }
 //!
 //! # fn wfi() {}
-//! /// Perform board specific power operations.
+//! /// Perform board-specific power operations.
 //! ///
 //! /// The function here provides a stub to example power operations.
-//! /// Actual board developers should provide with more practical communications
+//! /// Actual board developers should provide more practical communications
 //! /// to external chips on power operation.
 //! unsafe extern "C" fn finalize(op: Operation) -> ! {
 //!     match op {
@@ -347,7 +348,7 @@
 //!             // easiest software reset is to jump to entry directly
 //!             entry()
 //!         }
-//!         // .. more power operations goes here ..
+//!         // more power operations go here
 //!     }
 //! }
 //! ```
@@ -356,35 +357,34 @@
 //! to check if it is properly implemented.
 //!
 //! Some platforms would provide system memory under different grades in speed and size to reduce product cost.
-//! Those platforms would typically provide two parts of code memory, first one being relatively small, not fast
+//! Those platforms would typically provide two parts of code memory, the first one being relatively small, not fast
 //! but instantly available after chip start, while the second one is larger but typically requires
 //! memory training. The former one would include built-in SRAM memory, and the later would include
 //! external SRAM or DDR memory. On those platforms, a first stage bootloader is typically needed to
-//! train memory for later stages. In such situation, RustSBI implementation should be treated as or concatenated
+//! train memory for later stages. In such a situation, RustSBI implementation should be treated as or concatenated
 //! to the second stage bootloader, and the first stage could be a standalone binary package bundled with it.
 //!
 //! # Hypervisor and emulator development with RustSBI
 //!
-//! RustSBI crate supports to develop RISC-V emulators, and both Type-1 and Type-2 hypervisors.
-//! Hypervisor developers may find it easy to handle standard SBI functions with an instance
-//! based RustSBI interface.
+//! RustSBI crate supports developing RISC-V emulators, and both Type-1 and Type-2 hypervisors.
+//! Hypervisor developers may find it easy to handle standard SBI functions with an instance-based RustSBI interface.
 //!
 //! ## Hypervisors using RustSBI
 //!
-//! Both Type-1 and Type-2 hypervisors on RISC-V run on HS-mode hardware. Depending on demands
-//! of virtualized systems, hypervisors may either provide transparent information from host machine
+//! Both Type-1 and Type-2 hypervisors on RISC-V run on HS-mode hardware. Depending on the demands
+//! of virtualized systems, hypervisors may either provide transparent information from the host machine
 //! or provide another set of information to override the current environment. Notably,
 //! RISC-V hypervisors do not have direct access to machine mode (M-mode) registers.
 //!
 //! RustSBI supports both by accepting an implementation of the `EnvInfo` trait.
-//! If RISC-V hypervisors choose to use existing information on current machine,
-//! it may require to call underlying M-mode environment using SBI calls and fill in information
+//! If RISC-V hypervisors choose to use existing information on the current machine,
+//! it may require calling underlying M-mode environment using SBI calls and fill in information
 //! into the variable implementing trait `EnvInfo`.
 //! If hypervisors use customized information other than taking the same one from the
 //! environment they reside in, they may build custom structures implementing `EnvInfo` to provide
 //! customized machine information.
 //! Deriving a RustSBI instance without bare-metal support would require an `EnvInfo` implementation
-//! as a input of the derive macro.
+//! as an input of the derive-macro.
 //!
 //! To begin with, include the RustSBI library in file `Cargo.toml`:
 //!
@@ -393,8 +393,8 @@
 //! rustsbi = "0.4.0"
 //! ```
 //!
-//! This will disable default feature `machine` which will assume that RustSBI runs on M-mode directly,
-//! which is not appropriate in our purpose. After that, define an SBI structure and derive its `RustSBI`
+//! This will disable the default feature `machine` which will assume that RustSBI runs on M-mode directly,
+//! which is not appropriate for our purpose. After that, define an SBI structure and derive its `RustSBI`
 //! implementation using `#[derive(RustSBI)]`. The defined SBI structure can be placed in
 //! a virtual machine structure representing a control flow executor to prepare for SBI environment:
 //!
@@ -404,7 +404,7 @@
 //! #[derive(RustSBI)]
 //! struct MySBI {
 //!     // add other fields later ...
-//!     // An environment information must be provided on
+//!     // The environment information must be provided on
 //!     // non-bare-metal RustSBI development.
 //!     info: MyEnvInfo,
 //! }
@@ -423,7 +423,7 @@
 //!
 //! When the virtual machine hart traps into hypervisor, its code should decide whether
 //! this trap is an SBI environment call. If that is true, pass in parameters by `sbi.handle_ecall`
-//! function. RustSBI will handle with SBI standard constants, call corresponding extension field
+//! function. RustSBI will handle with SBI standard constants, call the corresponding extension field
 //! and provide parameters according to the extension and function IDs (if applicable).
 //!
 //! Crate `rustsbi` adapts to standard RISC-V SBI calls.
@@ -452,9 +452,9 @@
 //!     if let Trap::Exception(Exception::SupervisorEcall) = trap.cause() {
 //!         // Firstly, handle custom extensions
 //!         let my_extension_sbiret = hart.my_extension_sbi.handle_ecall(hart.trap_params());
-//!         // If custom extension handles correctly, fill in its result and continue to hart.
+//!         // If the custom extension handles correctly, fill in its result and continue to hart.
 //!         // The custom handler may handle `probe_extension` in `base` extension as well
-//!         // to allow detections to whether custom extension exists.
+//!         // to allow detections to whether a custom extension exists.
 //!         if my_extension_sbiret != SbiRet::not_supported() {
 //!             hart.fill_in(my_extension_sbiret);
 //!             continue;
@@ -471,7 +471,7 @@
 //! ## Emulators using RustSBI
 //!
 //! RustSBI library may be used to write RISC-V emulators. Other than hardware accelerated binary
-//! translation methods, emulators typically do not use host hardware specific features,
+//! translation methods, emulators typically do not use host hardware-specific features,
 //! thus may build and run on any architecture.
 //! Like hardware RISC-V implementations, software emulated RISC-V environment would still need SBI
 //! implementation to support supervisor environment.
@@ -479,7 +479,7 @@
 //! Writing emulators would follow the similar process with writing hypervisors, see
 //! [Hypervisors using RustSBI](#hypervisors-using-rustsbi) for details.
 //!
-//! # Download binary file: the Prototyping System vs discrete packages
+//! # Download binary file: the Prototyping System vs. discrete packages
 //!
 //! RustSBI ecosystem would typically provide support for most platforms. Those support packages
 //! would be provided either from the RustSBI Prototyping System or vendor provided discrete SBI
@@ -490,18 +490,18 @@
 //! It also includes a universal test kernel to allow testing SBI implementations on current environment.
 //! Users may choose to download from [Prototyping System repository](https://github.com/rustsbi/standalone)
 //! to get various types of RustSBI packages for their boards.
-//! Vendors and contributors may find it easy to adapt new SoCs and boards into Prototyping System.
+//! Vendors and contributors may find it easy to adapt new SoCs and boards into the Prototyping System.
 //!
 //! Discrete SBI packages are SBI environment support packages specially designed for one board
 //! or SoC, it will be provided by board vendor or RustSBI ecosystem.
 //! Vendors may find it easy to include fine-grained features in each support package, but the
-//! maintenance situation would vary between vendors, and it would likely to cost a lot of time
+//! maintenance situation would vary between vendors, and it would likely cost a lot of time
 //! to develop from a bare-metal executable. Users may find a boost in performance, energy saving
 //! indexes and feature granularity in discrete packages, but it would depend on whether the
 //! vendor provides it.
 //!
 //! To download binary package for the Prototyping System, visit its project website for a download link.
-//! To download them for discrete packages, RustSBI users may visit distribution source of SoC or board
+//! To download them for discrete packages, RustSBI users may visit distribution sources of SoC or board
 //! manufacturers. Additionally, users may visit [the awesome page](https://github.com/rustsbi/awesome-rustsbi)
 //! for a curated list of both Prototyping System and discrete packages provided by RustSBI ecosystem.
 //!
@@ -511,26 +511,26 @@
 //!
 //! ## RustSBI is a library for interfaces
 //!
-//! This library adapts to individual Rust traits and a derive macro to provide basic SBI features.
+//! This library adapts to individual Rust traits and a derive-macro to provide basic SBI features.
 //! When building for a specific platform, implement traits in this library and pass the types into
-//! a structure to derive RustSBI macro onto. After that, `handle_ecall`  would be called in the
-//! platform specific exception handler.
+//! a structure to derive RustSBI macro onto. After that, `handle_ecall` would be called in the
+//! platform-specific exception handler.
 //! The derive macro `RustSBI` would dispatch parameters from supervisor to the trait implementations
 //! to handle the SBI calls.
 //!
-//! The library also implements useful constants which may help with platform specific binaries.
+//! The library also implements useful constants which may help with platform-specific binaries.
 //! The `LOGO` and information on `VERSION` can be printed if necessary on SBI initialization
 //! processes.
 //!
-//! Note that this crate is a library which contains common building blocks in SBI implementation.
-//! The RustSBI ecosystem would provide different level of support for each board, those support
-//! packages would use `rustsbi` crate as library to provide different type of SBI binary releases.
+//! Note that this crate is a library that contains common building blocks in SBI implementation.
+//! The RustSBI ecosystem would provide different levels of support for each board, those support
+//! packages would use `rustsbi` crate as a library to provide different types of SBI binary releases.
 //!
 //! ## Hardware discovery and feature detection
 //!
 //! According to the RISC-V SBI specification, the SBI itself does not specify any method for
 //! hardware discovery. The supervisor software must rely on the other industry standard hardware
-//! discovery methods (i.e. Device Tree, ACPI, vendor specific ones or upcoming `configptr` CSRs)
+//! discovery methods (i.e., Device Tree, ACPI, vendor-specific ones or upcoming `configptr` CSRs)
 //! for that purpose.
 //!
 //! To detect any feature under bare metal or under supervisor level, developers may depend on
@@ -585,7 +585,7 @@ pub extern crate sbi_spec as spec;
 
 pub use sbi_spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
 
-/// Generate `RustSBI` implementation for structure of each extensions.
+/// Generate `RustSBI` implementation for structure of each extension.
 ///
 /// # Usage
 ///
@@ -612,8 +612,8 @@ pub use sbi_spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
 /// ```
 ///
 /// Here, we declared the field named `fence` with type `MyFence`. The variable name `fence` is special,
-/// it tells RustSBI derive macro that this field implements SBI Remote Fence instead of other SBI extensions.
-/// We can continue to adding more fields into `MySBI`. For example, if we have RISC-V SBI Time extension
+/// it tells the RustSBI derive-macro that this field implements SBI Remote Fence instead of other SBI extensions.
+/// We can continue to add more fields into `MySBI`. For example, if we have RISC-V SBI Time extension
 /// implementation with type `MyTimer`, we can add it to `MySBI`:
 ///
 /// ```rust
@@ -667,7 +667,7 @@ pub use sbi_spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
 ///
 /// The error message hints that we didn't provide any SBI environment information implementing trait
 /// `EnvInfo`. By default, RustSBI is targeted to provide RISC-V supervisor environment on any hardware,
-/// targeting hypervisor, emulator and binary translation applications. In this case, the virtualized
+/// focusing on hypervisor, emulator and binary translation applications. In this case, the virtualized
 /// environment should provide the supervisor with machine environment information like `mvendorid`,
 /// `marchid` and `mimpid` values. RustSBI could also be used on bare-metal RISC-V machines where such
 /// values would be directly accessible through CSR read operations.
@@ -680,8 +680,8 @@ pub use sbi_spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
 /// rustsbi = { version = "0.4.0", features = ["machine"] }
 /// ```
 ///
-/// If that's not the case and we are writing a virtualization targeted application, we should add a
-/// `EnvInfo` implementation into the structure like `MySBI` mentioned above, with a special field
+/// If that's not the case, and we are writing a virtualization-targeted application, we should add a
+/// `EnvInfo` implementation into the structure like `MySBI` mentioned above, with the special field
 /// name `info`. We can do it like:
 ///
 /// ```rust
@@ -717,11 +717,11 @@ pub use sbi_spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
 /// # }
 /// ```
 ///
-/// Then, when we compile our code with `MySBI`, we'll found that the code now compiles successfully.
+/// Then, when we compile our code with `MySBI`, we'll find that the code now compiles successfully.
 ///
 /// To use the derived `RustSBI` implementation, we note out that this structure now implements the trait
-/// `RustSBI` with function `handle_ecall`. We can pass SBI extension, function and parameters into
-/// `handle_ecall`, and reads the SBI call result from its return value with the type `SbiRet`.
+/// `RustSBI` with function `handle_ecall`. We can pass the SBI extension, function and parameters into
+/// `handle_ecall`, and read the SBI call result from its return value with the type `SbiRet`.
 /// To illustrate this feature, we make an SBI call to read the SBI implementation ID, like:
 ///
 /// ```rust
@@ -753,13 +753,13 @@ pub use sbi_spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
 /// # }
 /// ```
 ///
-/// Run the code and we'll find following output in the console:
+/// Run the code, and we'll find the following output in the console:
 ///
 /// ```text
 /// SBI implementation ID for MySBI: 4
 /// ```
 ///
-/// The SBI call returns the number 4 as SBI call result. By looking up
+/// The SBI call returns the number 4 as the SBI call result. By looking up
 /// [the RISC-V SBI Specification](https://github.com/riscv-non-isa/riscv-sbi-doc/blob/cf86bda6f57afb8e0e7011b61504d4e8664b9b1d/src/ext-base.adoc#sbi-implementation-ids),
 /// we can know that RustSBI have the implementation ID of 4. You have successfully made your first
 /// SBI call from a derived `RustSBI` implementation!
@@ -770,18 +770,18 @@ pub use sbi_spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
 /// mode. Each `ecall` raises a RISC-V exception which the environment must process with. The SBI
 /// environment, either bare-metal or virtually, would save context, read extension, function and parameters
 /// and call the `handle_ecall` function provided by `RustSBI` trait. Then, the function returns
-/// with an `SbiRet`; we reads back `value` and `error` to store them into the saved context.
+/// with an `SbiRet`; we read back `value` and `error` to store them into the saved context.
 /// Finally, when the context restores, the supervisor mode software (kernels, etc.) could get the
 /// SBI call result from register values.
 ///
-/// Now we have learned basical usages of the derive macro `RustSBI`. We can dive deeper and use RustSBI
+/// Now we have learned basic usages of the derive-macro `RustSBI`. We can dive deeper and use RustSBI
 /// in real cases with ease. Congratulations!
 ///
 /// # Supported extensions
 ///
 /// The derive macro `RustSBI` supports all the standard RISC-V SBI extensions this library supports.
 /// When we add extensions into SBI structure fields, special field names are identified by RustSBI
-/// derive macro. Here is a list on them:
+/// derive macro. Here is a list of them:
 ///
 /// | Field names | RustSBI trait | Extension |
 /// |:------------|:----------|:--------------|
@@ -798,7 +798,7 @@ pub use sbi_spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
 /// | `sta` | [`Sta`](trait.Sta.html) | Steal Time Accounting extension |
 ///
 /// The `EnvInfo` parameter is used by RISC-V SBI Base extension which is always supported on all
-/// RISC-V SBI implementations. RustSBI provides Base extension with additional `EnvInfo` by default.
+/// RISC-V SBI implementations. RustSBI provides the Base extension with additional `EnvInfo` by default.
 ///
 /// | Field names | RustSBI trait | Description |
 /// |:------------|:----------|:--------------|
@@ -807,12 +807,12 @@ pub use sbi_spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
 /// Or, if `#[cfg(feature = "machine")]` is enabled, RustSBI derive macro does not require additional
 /// machine environment information but reads them by RISC-V CSR operation when we don't have any `EnvInfo`s
 /// in the structure. This feature would only work if RustSBI runs directly on machine mode hardware.
-/// If we are targeting other environments (virtualization etc.) we should provide `EnvInfo` instead
+/// If we are targeting other environments (virtualization etc.), we should provide `EnvInfo` instead
 /// of using the machine feature.
 ///
 /// # Examples
 ///
-/// This macro should be used over a struct of RISC-V SBI extension implementaions.
+/// This macro should be used over a struct of RISC-V SBI extension implementations.
 /// For example:
 ///
 /// ```rust
@@ -911,7 +911,7 @@ pub use sbi_spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
 ///
 /// // The derived `MySBI` implementation ignores the `fence: MyFence`. It can now
 /// // be used as a conventional struct field.
-/// // Notably, a `#[warn(unused)]` would be raised if `fence` is not furtherly used
+/// // Notably, a `#[warn(unused)]` would be raised if `fence` is not further used
 /// // by following code; `console` and `info` fields are not warned because they are
 /// // internally used by the trait implementation derived in the RustSBI macro.
 /// # use rustsbi::RustSBI;
@@ -936,7 +936,7 @@ pub use sbi_spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
 /// # }
 /// ```
 ///
-/// In some cases we may manually assign fields to certain SBI extension other than defaulting
+/// In some cases, we may manually assign fields to a certain SBI extension other than defaulting
 /// to special names defined above, and sometimes we need to provide multiple SBI extensions
 /// with one field only. By listing the extension names separated by comma in the helper attribute,
 /// we can assign one or multiple SBI extensions to a field to solve the issues above.
@@ -1000,7 +1000,7 @@ pub use sbi_spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
 /// # }
 /// ```
 ///
-/// RustSBI implementations usually provide regular structs to the derive macro.
+/// RustSBI implementations usually provide regular structs to the derive-macro.
 /// Alternatively, the RustSBI derive macro also accepts tuple structs or unit structs.
 ///
 /// ```rust
@@ -1027,8 +1027,8 @@ pub use sbi_spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
 /// ```
 /// ```rust
 /// // Unit structs.
-/// // Note that `info` is required on non-machine enironment; thus this crate
-/// // only allow unit structs with `machine` feature. No extensions except Base
+/// // Note that `info` is required in non-machine environment; thus this crate
+/// // only allows unit structs with `machine` feature. No extensions except Base
 /// // extension are provided on unit struct implementations.
 /// # use rustsbi::RustSBI;
 /// # #[cfg(feature = "machine")]
@@ -1037,7 +1037,7 @@ pub use sbi_spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
 /// ```
 ///
 /// # Notes
-// note: following documents are inherted from `RustSBI` in the `rustsbi_macros` package.
+// note: the following documents are inherited from `RustSBI` in the `rustsbi_macros` package.
 #[doc(inline)]
 pub use rustsbi_macros::RustSBI;
 

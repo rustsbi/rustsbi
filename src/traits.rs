@@ -49,7 +49,7 @@ impl<T: EnvInfo> EnvInfo for &T {
 }
 
 // Macro internal structures and functions.
-// DO NOT USE code here directly; use derive macro #[derive(RustSBI)] instead.
+// DO NOT USE code here directly; use derive-macro #[derive(RustSBI)] instead.
 
 #[cfg(feature = "machine")]
 #[doc(hidden)]
@@ -97,8 +97,8 @@ pub fn _rustsbi_base_env_info<T: EnvInfo, U: _ExtensionProbe>(
 
 // Probe not only standard SBI extensions, but also (reserving for) custom extensions.
 // For standard SBI extensions only, the macro would use `_StandardExtensionProbe`;
-// for implementation with custom SBI extension, a custom structure implementing this trait
-// would be used by macro.
+// for implementation with custom SBI extensions, macro would use a custom structure
+// implementing this trait.
 pub trait _ExtensionProbe {
     // Implementors are encouraged to add #[inline] hints on this function.
     fn probe_extension(&self, extension: usize) -> usize;
@@ -118,7 +118,7 @@ pub struct _StandardExtensionProbe {
     pub cppc: usize,
     pub nacl: usize,
     pub sta: usize,
-    // NOTE: don't forget to add to `fn probe_extension` in `impl _ExtensionProbe` as well
+    // NOTE: remember to add to `fn probe_extension` in `impl _ExtensionProbe` as well
 }
 
 impl _ExtensionProbe for _StandardExtensionProbe {

@@ -30,7 +30,7 @@ mod fid {
     ///
     /// Declared in §8.6.
     pub const REMOTE_HFENCE_VVMA_ASID: usize = 5;
-    /// Function ID to `HFENCE.VVMA` for all address spaces in current virtual machine on remote harts.
+    /// Function ID to `HFENCE.VVMA` for all address spaces in the current virtual machine on remote harts.
     ///
     /// Declared in §8.7.
     pub const REMOTE_HFENCE_VVMA: usize = 6;

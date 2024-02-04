@@ -21,7 +21,7 @@ pub trait Sta {
     /// calling virtual hart and enable the SBI implementation's steal-time information
     /// reporting.
     ///
-    /// If physical address of `shmem` are not all-ones bitwise, then the `shmem` pointer
+    /// If the physical address of `shmem` is not all-ones bitwise, then the `shmem` pointer
     /// specifies the shared memory physical base address. The physical address of `shmem`
     /// MUST be 64-byte aligned. The size of the shared memory must be 64 bytes.
     /// The SBI implementation MUST zero the shared memory before returning from the SBI
@@ -34,7 +34,7 @@ pub trait Sta {
     ///
     /// It is not expected for the shared memory to be written by the supervisor-mode
     /// software while it is in use for steal-time accounting. However, the SBI
-    /// implementation MUST not misbehave if a write from supervisor-mode software
+    /// implementation MUST not misbehave if a write operation from supervisor-mode software
     /// occurs, however, in that case, it MAY leave the shared memory filled with
     /// inconsistent data.
     ///

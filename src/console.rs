@@ -25,8 +25,8 @@ pub trait Console {
     ///
     /// # Non-blocking function
     ///
-    /// This is a non-blocking SBI call, and it may do partial/no writes if
-    /// the debug console is not able to accept more bytes.
+    /// This is a non-blocking SBI call, and it may do partial or no write operations
+    /// if the debug console is not able to accept more bytes.
     ///
     /// # Return value
     ///
@@ -71,11 +71,12 @@ pub trait Console {
     /// # Blocking function
     ///
     /// This is a blocking SBI call, and it will only return after writing
-    /// the specified byte to the debug console. It will also return, with
-    /// `SbiRet::failed()`, if there are I/O errors.
+    /// the specified byte to the debug console.
+    /// It will also return with `SbiRet::failed()` if there are I/O errors.
+    ///
     /// # Return value
     ///
-    /// The `SbiRet.value` is set to zero and the possible return error
+    /// The `SbiRet.value` is set to zero, and the possible return error
     /// codes returned in `SbiRet.error` are shown in the table below:
     ///
     /// | Return code               | Description
