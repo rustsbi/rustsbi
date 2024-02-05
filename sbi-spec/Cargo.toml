@@ -1,7 +1,7 @@
 [package]
 name = "sbi-spec"
 description = "Definitions and constants in RISC-V Supervisor Binary Interface (RISC-V SBI)"
-version = "0.0.7-alpha.3"
+version = "0.0.7"
 authors = ["YdrMaster <ydrml@hotmail.com>", "Luo Jia <me@luojia.cc>"]
 documentation = "https://docs.rs/sbi-spec"
 edition.workspace = true
@@ -16,5 +16,5 @@ static_assertions = "1.1.0"
 
 [features]
 default = []
-# Support legacy extension; this feature is not included by default.
+# Support for the legacy extension; this feature is not included by default.
 legacy = []

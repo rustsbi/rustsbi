@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
-## [0.0.7] - 2023-12-08
+## [0.0.7] - 2024-02-05
 
 `sbi-spec` crate now supports RISC-V SBI version 2.0 ratified.
 
@@ -34,6 +34,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Remove redundant prefixes in `PMU`
 - Add new function id `SNAPSHOT_SET_SHMEM` in `PMU`
+- Grammar fixes on documents
 
 ## [0.0.6] - 2023-04-04
 

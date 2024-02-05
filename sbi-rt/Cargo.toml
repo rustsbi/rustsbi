@@ -21,15 +21,15 @@ targets = [
 ]
 
 [dependencies]
-sbi-spec = { version = "0.0.7-alpha.3", path = "../sbi-spec" }
+sbi-spec = { version = "0.0.7", path = "../sbi-spec" }
 
 [features]
 default = []
 # Implement sbi-rt traits for integer types
-# By using this feature, parameter types of sbi-rt functions fall back to integers,
-# static type checks are disabled so this library won't detect parameters in incorrect orders.
+# By using this feature, parameter types of sbi-rt functions fall back to integers;
+# static type checks are disabled, so this library won't detect parameters in incorrect orders.
 # Although some people may find it useful in prototyping sbi-rt implementations,
 # users of this crate are strongly encouraged not to enable this feature in production.
 integer-impls = []
-# Support legacy extension; this feature is not included by default.
+# Support for the legacy extension; this feature is not included by default.
 legacy = ["sbi-spec/legacy"]
