@@ -11,11 +11,11 @@ use sbi_spec::base::{
 /// Return the current SBI specification version.
 ///
 /// The minor number of the SBI specification is encoded in the low 24 bits,
-/// with the major number encoded in the next 7 bits. Bit 31 must be 0 and
-/// is reserved for future expansion.
+/// with the major number encoded in the next 7 bits.
+/// Bit 31 must be zero and is reserved for future expansion.
 ///
 /// This function is defined in RISC-V SBI Specification chapter 4.1.
-/// According to introduction of chapter 4, all base extension functions
+/// According to the introduction of chapter 4, all base extension functions
 /// must success and return no error code.
 #[inline]
 pub fn get_spec_version() -> Version {
@@ -29,7 +29,7 @@ pub fn get_spec_version() -> Version {
 /// for SBI implementation quirks.
 ///
 /// This function is defined in RISC-V SBI Specification chapter 4.2.
-/// According to introduction of chapter 4, all base extension functions
+/// According to the introduction of chapter 4, all base extension functions
 /// must success and return no error code.
 #[inline]
 pub fn get_sbi_impl_id() -> usize {
@@ -41,21 +41,21 @@ pub fn get_sbi_impl_id() -> usize {
 /// The encoding of this version number is specific to the SBI implementation.
 ///
 /// This function is defined in RISC-V SBI Specification chapter 4.3.
-/// According to introduction of chapter 4, all base extension functions
+/// According to the introduction of chapter 4, all base extension functions
 /// must success and return no error code.
 #[inline]
 pub fn get_sbi_impl_version() -> usize {
     sbi_call_0(EID_BASE, GET_SBI_IMPL_VERSION).value
 }
 
-/// Probe information about one SBI extension from current environment.
+/// Probe information about one SBI extension from the current environment.
 ///
 /// Returns 0 if given SBI `extension_id` is not available, or typically
 /// 1 if it's available. Implementation would define further non-zero
 /// return values for information about this extension if it is available.
 ///
 /// This function is defined in RISC-V SBI Specification chapter 4.4.
-/// According to introduction of chapter 4, all base extension functions
+/// According to the introduction of chapter 4, all base extension functions
 /// must success and return no error code.
 #[inline]
 pub fn probe_extension<E>(extension: E) -> ExtensionInfo
@@ -66,39 +66,39 @@ where
     ExtensionInfo { raw: ans.value }
 }
 
-/// Return value of `mvendorid` register in current environment.
+/// Return the value of `mvendorid` register in the current environment.
 ///
 /// This function returns a value that is legal for the `mvendorid` register,
 /// and 0 is always a legal value for this register.
 ///
 /// This function is defined in RISC-V SBI Specification chapter 4.5.
-/// According to introduction of chapter 4, all base extension functions
+/// According to the introduction of chapter 4, all base extension functions
 /// must success and return no error code.
 #[inline]
 pub fn get_mvendorid() -> usize {
     sbi_call_0(EID_BASE, GET_MVENDORID).value
 }
 
-/// Return value of `marchid` register in current environment.
+/// Return value of `marchid` register in the current environment.
 ///
 /// This function returns a value that is legal for the `marchid` register,
 /// and 0 is always a legal value for this register.
 ///
 /// This function is defined in RISC-V SBI Specification chapter 4.6.
-/// According to introduction of chapter 4, all base extension functions
+/// According to the introduction of chapter 4, all base extension functions
 /// must success and return no error code.
 #[inline]
 pub fn get_marchid() -> usize {
     sbi_call_0(EID_BASE, GET_MARCHID).value
 }
 
-/// Return value of `mimpid` register in current environment.
+/// Return value of `mimpid` register in the current environment.
 ///
 /// This function returns a value that is legal for the `mimpid` register,
 /// and 0 is always a legal value for this register.
 ///
 /// This function is defined in RISC-V SBI Specification chapter 4.7.
-/// According to introduction of chapter 4, all base extension functions
+/// According to the introduction of chapter 4, all base extension functions
 /// must success and return no error code.
 #[inline]
 pub fn get_mimpid() -> usize {

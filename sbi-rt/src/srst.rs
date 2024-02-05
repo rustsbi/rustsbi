@@ -14,9 +14,10 @@ use sbi_spec::srst::{
 /// # Warm reboot and cold reboot
 ///
 /// When supervisor software is running natively, the SBI implementation is machine mode firmware.
-/// In this case, shutdown is equivalent to physical power down of the entire system and
-/// cold reboot is equivalent to physical power cycle of the entire system. Further, warm reboot
-/// is equivalent to a power cycle of main processor and parts of the system but not the entire system.
+/// In this case, shutdown is equivalent to physical power down of the entire system, and
+/// cold reboot is equivalent to a physical power cycle of the entire system.
+/// Further, warm reboot is equivalent to a power cycle of the main processor and parts of the system
+/// but not the entire system.
 ///
 /// For example, on a server class system with a BMC (board management controller),
 /// a warm reboot will not power cycle the BMC whereas a cold reboot will definitely power cycle the BMC.
@@ -101,9 +102,9 @@ macro_rules! define_reset_param {
 }
 
 define_reset_param! {
-    Shutdown(RESET_TYPE_SHUTDOWN): ResetType /// Shutdown as reset type.
-    ColdReboot(RESET_TYPE_COLD_REBOOT): ResetType /// Cold reboot as reset type.
-    WarmReboot(RESET_TYPE_WARM_REBOOT): ResetType /// Warm reboot as reset type.
-    NoReason(RESET_REASON_NO_REASON): ResetReason /// No reason as reset reason.
-    SystemFailure(RESET_REASON_SYSTEM_FAILURE): ResetReason /// System failure as reset reason.
+    Shutdown(RESET_TYPE_SHUTDOWN): ResetType /// Shutdown as a reset type.
+    ColdReboot(RESET_TYPE_COLD_REBOOT): ResetType /// Cold reboot as a reset type.
+    WarmReboot(RESET_TYPE_WARM_REBOOT): ResetType /// Warm reboot as a reset type.
+    NoReason(RESET_REASON_NO_REASON): ResetReason /// No reason as a reset reason.
+    SystemFailure(RESET_REASON_SYSTEM_FAILURE): ResetReason /// System failure as a reset reason.
 }

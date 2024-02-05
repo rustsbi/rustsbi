@@ -34,11 +34,11 @@ pub fn nacl_probe_feature(feature_id: u32) -> SbiRet {
 ///
 /// # Parameters
 ///
-/// If `shmem` parameter is not all-ones bitwise then `shmem` specifies the shared
-/// memory physical base address. `shmem` MUST be 4096 bytes (i.e. page) aligned and
+/// If `shmem` parameter is not all-ones bitwise, then `shmem` specifies the shared
+/// memory physical base address. `shmem` MUST be 4096 bytes (i.e., page) aligned, and
 /// the size of the shared memory must be `4096 + (XLEN * 128)` bytes.
 ///
-/// If `shmem` parameter is all-ones bitwise then the nested acceleration features
+/// If `shmem` parameter is all-ones bitwise, then the nested acceleration features
 /// are disabled.
 ///
 /// The `flags` parameter is reserved for future use and must be zero.
@@ -65,13 +65,13 @@ pub fn nacl_set_shmem(shmem: SharedPtr<[u8; shmem_size::NATIVE]>, flags: usize) 
 
 /// Synchronize CSRs in the nested acceleration shared memory.
 ///
-/// This is an optional function which is only available if the SBI_NACL_FEAT_SYNC_CSR feature is available.
+/// This is an optional function that is only available if the SBI_NACL_FEAT_SYNC_CSR feature is available.
 ///
 /// # Parameters
 ///
 /// The parameter `csr_num` specifies the set of RISC-V H-extension CSRs to be synchronized.
 ///
-/// If `csr_num` is all-ones bitwise then all RISC-V H-extension CSRs implemented by the SBI implementation (or L0 hypervisor) are synchronized.
+/// If `csr_num` is all-ones bitwise, then all RISC-V H-extension CSRs implemented by the SBI implementation (or L0 hypervisor) are synchronized.
 ///
 /// If `(csr_num & 0x300) == 0x200` and `csr_num < 0x1000` then only a single
 /// RISC-V H-extension CSR specified by the csr_num parameter is synchronized.
@@ -95,13 +95,13 @@ pub fn nacl_sync_csr(csr_num: usize) -> SbiRet {
 
 /// Synchronize HFENCEs in the nested acceleration shared memory.
 ///
-/// This is an optional function which is only available if the SBI_NACL_FEAT_SYNC_HFENCE feature is available.
+/// This is an optional function that is only available if the SBI_NACL_FEAT_SYNC_HFENCE feature is available.
 ///
 /// # Parameters
 ///
 /// The parameter `entry_index` specifies the set of nested HFENCE entries to be synchronized.
 ///
-/// If `entry_index` is all-ones bitwise then all nested HFENCE entries are synchronized.
+/// If `entry_index` is all-ones bitwise, then all nested HFENCE entries are synchronized.
 ///
 /// If `entry_index < (3840 / XLEN)` then only a single nested HFENCE entry specified by the `entry_index` parameter is synchronized
 ///
@@ -124,15 +124,15 @@ pub fn nacl_sync_hfence(entry_index: usize) -> SbiRet {
 
 /// Synchronize CSRs and HFENCEs in the NACL shared memory and emulate the SRET instruction.
 ///
-/// This is an optional function which is only available if the SBI_NACL_FEAT_SYNC_SRET feature is available.
+/// This is an optional function that is only available if the SBI_NACL_FEAT_SYNC_SRET feature is available.
 ///
-/// This function is used by supervisor software (or L1 hypervisor) to do a synchronize SRET request
+/// This function is used by supervisor software (or L1 hypervisor) to do a synchronizing SRET request,
 /// and the SBI implementation (or L0 hypervisor) MUST handle it.
 ///
 /// # Return value
 ///
-/// This function does not return upon success and the possible error codes
-/// returned in `SbiRet.error` upon failure are shown in table below:
+/// This function does not return upon success, and the possible error codes
+/// returned in `SbiRet.error` upon failure are shown in the table below:
 ///
 /// | Error code                | Description
 /// |:--------------------------|:------------

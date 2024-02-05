@@ -14,7 +14,7 @@ use sbi_spec::{
 ///
 /// # Non-blocking function
 ///
-/// This is a non-blocking SBI call and it may do partial/no writes if
+/// This is a non-blocking SBI call, and it may do partial or no write operations if
 /// the debug console is not able to accept more bytes.
 ///
 /// # Return value
@@ -51,7 +51,7 @@ pub fn console_write(bytes: Physical<&[u8]>) -> SbiRet {
 ///
 /// # Non-blocking function
 ///
-/// This is a non-blocking SBI call and it will not write anything
+/// This is a non-blocking SBI call, and it will not write anything
 /// into the output memory if there are no bytes to be read in the
 /// debug console.
 ///
@@ -82,12 +82,12 @@ pub fn console_read(bytes: Physical<&mut [u8]>) -> SbiRet {
 ///
 /// # Blocking function
 ///
-/// This is a blocking SBI call and it will only return after writing
-/// the specified byte to the debug console. It will also return, with
-/// `SbiRet::failed()`, if there are I/O errors.
+/// This is a blocking SBI call, and it will only return after writing
+/// the specified byte to the debug console. It will also return with
+/// `SbiRet::failed()` if there are I/O errors.
 /// # Return value
 ///
-/// The `SbiRet.value` is set to zero and the possible return error
+/// The `SbiRet.value` is set to zero, and the possible return error
 /// codes returned in `SbiRet.error` are shown in the table below:
 ///
 /// | Return code               | Description

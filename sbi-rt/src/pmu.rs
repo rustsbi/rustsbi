@@ -20,7 +20,7 @@ pub fn pmu_num_counters() -> usize {
 /// Get details about the specified counter.
 ///
 /// The value returned includes details such as underlying CSR number, width of the counter,
-/// type of counter hardware/firmware, etc.
+/// type of counter (hardware or firmware), etc.
 ///
 /// The `counter_info` returned by this SBI call is encoded as follows:
 ///
@@ -62,7 +62,7 @@ pub fn pmu_counter_get_info(counter_idx: usize) -> SbiRet {
 /// whereas the `event_idx` represent the event to be monitored
 /// and `event_data` represents any additional event configuration.
 ///
-/// The `config_flags` parameter represent additional counter configuration and filter flags.
+/// The `config_flags` parameter represents additional configuration and filter flags of the counter.
 /// The bit definitions of the `config_flags` parameter are shown in the table below:
 ///
 /// | Flag Name                    | Bits       | Description
@@ -82,7 +82,7 @@ pub fn pmu_counter_get_info(counter_idx: usize) -> SbiRet {
 /// set of counters specified by the `counter_idx_base` and `counter_idx_mask`.
 ///
 /// *NOTE:* The *SBI_PMU_CFG_FLAG_AUTO_START* flag in `config_flags` has no
-/// impact on the counter value.    
+/// impact on the value of the counter.
 ///
 /// *NOTE:* The `config_flags[3:7]` bits are event filtering hints so these
 /// can be ignored or overridden by the SBI implementation for security concerns
@@ -151,8 +151,8 @@ where
 /// | SBI_PMU_START_SET_INIT_VALUE | 0:0        | Set the value of counters based on the `initial_value` parameter.
 /// | _RESERVED_                   | 1:(XLEN-1) | _All non-zero values are reserved for future use._
 ///
-/// *NOTE*: When `SBI_PMU_START_SET_INIT_VALUE` is not set in `start_flags`, the counter value will
-/// not be modified and event counting will start from current counter value.
+/// *NOTE*: When `SBI_PMU_START_SET_INIT_VALUE` is not set in `start_flags`, the value of counter will
+/// not be modified, and event counting will start from the current value of counter.
 ///
 /// # Return value
 ///
@@ -241,13 +241,13 @@ where
 
 /// Provide the current value of a firmware counter.
 ///
-/// On RV32 systems, the `SbiRet.value` will only contain the lower 32 bits of the current
-/// firmware counter value.
+/// On RV32 systems, the `SbiRet.value` will only contain the lower 32 bits from the current
+/// value of the firmware counter.
 ///
 /// # Parameters
 ///
 /// This function should be only used to read a firmware counter. It will return an error
-/// when user provides a hardware counter in `counter_idx` parameter.
+/// when a user provides a hardware counter in `counter_idx` parameter.
 ///
 /// # Return value
 ///
@@ -264,7 +264,7 @@ pub fn pmu_counter_fw_read(counter_idx: usize) -> SbiRet {
     sbi_call_1(EID_PMU, COUNTER_FW_READ, counter_idx)
 }
 
-/// Provide the upper 32 bits of the current firmware counter value.
+/// Provide the upper 32 bits from the value of a firmware counter.
 ///
 /// This function always returns zero in `SbiRet.value` for RV64 (or higher) systems.
 ///

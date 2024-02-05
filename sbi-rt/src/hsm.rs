@@ -6,17 +6,20 @@ use sbi_spec::hsm::{EID_HSM, HART_GET_STATUS, HART_START, HART_STOP, HART_SUSPEN
 
 /// Start executing the given hart at specified address in supervisor-mode.
 ///
-/// This call is asynchronous - more specifically, the `hart_start()` may return before target hart
-/// starts executing as long as the SBI implemenation is capable of ensuring the return code is accurate.
+/// This call is asynchronous - more specifically, the `hart_start()` may return before target hart starts
+/// executing as long as the SBI implementation is capable of ensuring the return code is accurate.
 ///
-/// It is recommended that if the SBI implementation is a platform runtime firmware executing in machine-mode (M-mode)
-/// then it MUST configure PMP and other the M-mode state before executing in supervisor-mode.
+/// It is recommended that if the SBI implementation is a platform runtime firmware executing in
+/// machine-mode (M-mode), then it MUST configure PMP and other the M-mode state before executing
+/// in supervisor-mode.
 ///
 /// # Parameters
 ///
-/// - The `hartid` parameter specifies the target hart which is to be started.
-/// - The `start_addr` parameter points to a runtime-specified physical address, where the hart can start executing in supervisor-mode.
-/// - The `opaque` parameter is a `usize` value which will be set in the `a1` register when the hart starts executing at `start_addr`.
+/// - The `hartid` parameter specifies the target hart, which is to be started.
+/// - The `start_addr` parameter points to a runtime-specified physical address,
+/// where the hart can start executing in supervisor-mode.
+/// - The `opaque` parameter is a `usize` value that will be set in the `a1`
+/// register when the hart starts executing at `start_addr`.
 ///
 /// *NOTE:* A single `usize` parameter is sufficient as `start_addr`,
 /// because the hart will start execution in the supervisor-mode with MMU off,
@@ -24,7 +27,8 @@ use sbi_spec::hsm::{EID_HSM, HART_GET_STATUS, HART_START, HART_STOP, HART_SUSPEN
 ///
 /// # Behavior
 ///
-/// The target hart jumps to supervisor mode at address specified by `start_addr` with following values in specific registers.
+/// The target hart jumps to supervisor mode at the address specified by `start_addr`
+/// with the following values in specific registers.
 ///
 /// | Register Name | Register Value
 /// |:--------------|:--------------
@@ -39,9 +43,13 @@ use sbi_spec::hsm::{EID_HSM, HART_GET_STATUS, HART_START, HART_STOP, HART_SUSPEN
 ///
 /// | Return code                   | Description
 /// |:------------------------------|:----------------------------------------------
-/// | `SbiRet::success()`           | Hart was previously in stopped state. It will start executing from `start_addr`.
-/// | `SbiRet::invalid_address()`   | `start_addr` is not valid, possibly due to the following reasons: it is not a valid physical address, or the address is prohibited by PMP or H-extension G-stage to run in supervisor-mode.
-/// | `SbiRet::invalid_param()`     | `hartid` is not a valid hartid as corresponding hart cannot started in supervisor mode.
+/// | `SbiRet::success()`           | Hart was previously in stopped state.
+/// It will start executing from `start_addr`.
+/// | `SbiRet::invalid_address()`   | `start_addr` is not valid, possibly due to the following reasons:
+/// it is not a valid physical address,
+/// or the address is prohibited by PMP or H-extension G-stage to run in supervisor-mode.
+/// | `SbiRet::invalid_param()`     | `hartid`
+/// is not a valid hartid as corresponding hart cannot be started in supervisor mode.
 /// | `SbiRet::already_available()` | The given hartid is already started.
 /// | `SbiRet::failed()`            | The start request failed for unknown reasons.
 ///
@@ -112,21 +120,21 @@ pub fn hart_get_status(hartid: usize) -> SbiRet {
 /// (or low power) state specified by the `suspend_type` parameter.
 ///
 /// The hart will automatically come out of suspended state and resume normal execution
-/// when it recieves an interrupt or platform specific hardware event.
+/// when it receives an interrupt or platform specific hardware event.
 ///
 /// # Suspend behavior
 ///
-/// The platform specific suspend states for a hart can be either retentive or non-rententive in nature.
+/// The platform-specific suspend states for a hart can be either retentive or non-retentive in nature.
 ///
 /// A retentive suspend state will preserve hart register and CSR values for all privilege modes,
 /// whereas a non-retentive suspend state will not preserve hart register and CSR values.
 ///
 /// # Resuming
 ///
-/// Resuming from a retentive suspend state is straight forward and the supervisor-mode software
+/// Resuming from a retentive suspend state is straight forward, and the supervisor-mode software
 /// will see SBI suspend call return without any failures.
 ///
-/// Resuming from a non-retentive suspend state is relatively more involved and requires software
+/// Resuming from a non-retentive suspend state is relatively more involved, and it requires software
 /// to restore various hart registers and CSRs for all privilege modes.
 /// Upon resuming from non-retentive suspend state, the hart will jump to supervisor-mode at address
 /// specified by `resume_addr` with specific registers values described in the table below:
@@ -140,7 +148,7 @@ pub fn hart_get_status(hartid: usize) -> SbiRet {
 ///
 /// # Parameters
 ///
-/// The `suspend_type` parameter is 32 bits wide and the possible values are shown in the table below:
+/// The `suspend_type` parameter is 32 bits wide, and the possible values are shown in the table below:
 ///
 /// | Value                   | Description
 /// |:------------------------|:--------------
@@ -160,8 +168,8 @@ pub fn hart_get_status(hartid: usize) -> SbiRet {
 /// because the hart will resume execution in the supervisor-mode with MMU off,
 /// hence the `resume_addr` must be less than XLEN bits wide.
 ///
-/// The `opaque` parameter is an XLEN-bit value which will be set in the `a1`
-/// register when the hart resumes exectution at `resume_addr` after a
+/// The `opaque` parameter is an XLEN-bit value that will be set in the `a1`
+/// register when the hart resumes execution at `resume_addr` after a
 /// non-retentive suspend.
 ///
 /// # Return value
@@ -170,7 +178,7 @@ pub fn hart_get_status(hartid: usize) -> SbiRet {
 ///
 /// | Error code                  | Description
 /// |:----------------------------|:------------
-/// | `SbiRet::success()`         | Hart has suspended and resumed back successfully from a retentive suspend state.
+/// | `SbiRet::success()`         | Hart has been suspended and resumed back successfully from a retentive suspend state.
 /// | `SbiRet::invalid_param()`   | `suspend_type` is not valid.
 /// | `SbiRet::not_supported()`   | `suspend_type` is valid but not implemented.
 /// | `SbiRet::invalid_address()` | `resume_addr` is not valid, possibly due to the following reasons: it is not a valid physical address, or the address is prohibited by PMP or H-extension G-stage to run in supervisor-mode.

@@ -18,7 +18,7 @@ use sbi_spec::susp::{EID_SUSP, SUSPEND};
 /// The `resume_addr` parameter points to a runtime-specified physical address,
 /// where the hart can resume execution in supervisor-mode after a system suspend.
 ///
-/// The `opaque` parameter is an XLEN-bit value which will be set in the `a1`
+/// The `opaque` parameter is an XLEN-bit value that will be set in the `a1`
 /// register when the hart resumes execution at `resume_addr` after a system
 /// suspend.
 ///
@@ -29,7 +29,7 @@ use sbi_spec::susp::{EID_SUSP, SUSPEND};
 ///
 /// | Return code               | Description
 /// |:--------------------------|:----------------------------------------------
-/// | `SbiRet::success()`       | The suspend request is accepted and the system is suspended. The system will resume execution at `resume_addr` after the sleep period.
+/// | `SbiRet::success()`       | The suspend request is accepted, and the system is suspended. The system will resume execution at `resume_addr` after the sleep period.
 /// | `SbiRet::invalid_param()` | `sleep_type` is reserved or is platform-specific and unimplemented.
 /// | `SbiRet::not_supported()` | `sleep_type` is not reserved and is implemented, but the platform does not support it due to one or more missing dependencies.
 /// | `SbiRet::invalid_address()` | `resume_addr` is not valid, possibly due to the following reasons: + * It is not a valid physical address. + * Executable access to the address is prohibited by a physical memory protection mechanism or H-extension G-stage for supervisor mode.

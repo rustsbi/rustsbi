@@ -4,9 +4,10 @@ use crate::SbiRet;
 
 use sbi_spec::time::{EID_TIME, SET_TIMER};
 
-/// Programs the clock for next event after an absolute time.
+/// Programs the clock for the next event after an absolute time.
 ///
-/// Parameter `stime_value` is in absolute time. This function must clear the pending timer interrupt bit as well.
+/// Parameter `stime_value` is in absolute time.
+/// This function must clear the pending timer-interrupt bit as well.
 ///
 /// If the supervisor wishes to clear the timer interrupt without scheduling the next timer event,
 /// it can either request a timer interrupt infinitely far into the future (i.e., `u64::MAX`),

@@ -79,7 +79,7 @@ pub fn remote_fence_vma_asid(hart_mask: usize, start: usize, size: usize, asid: 
 
 /// §5.9
 ///
-/// Replaced by [`system_reset`](super::system_reset) from [`SRST`](super::EID_SRST) extension.
+/// Replaced by [`system_reset`](super::system_reset) in the [`SRST`](super::EID_SRST) extension.
 #[deprecated = "replaced by `system_reset` from System `SRST` extension"]
 #[inline]
 pub fn shutdown() -> ! {

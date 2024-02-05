@@ -78,7 +78,7 @@ pub fn cppc_read(cppc_reg_id: u32) -> SbiRet {
 /// | `SbiRet::invalid_param()` | `cppc_reg_id` is reserved.
 /// | `SbiRet::not_supported()` | `cppc_reg_id` is not implemented by the platform.
 /// | `SbiRet::denied()`        | `cppc_reg_id` is a write-only register.
-/// | `SbiRet::failed()`        | The read request failed for unspecified or unknown other reasons.
+/// | `SbiRet::failed()`        | The read operation request failed for unspecified or unknown other reasons.
 ///
 /// This function is defined in RISC-V SBI Specification chapter 14.3.
 #[inline]
@@ -104,7 +104,7 @@ pub fn cppc_read_hi(cppc_reg_id: u32) -> SbiRet {
 /// | `SbiRet::invalid_param()` | `cppc_reg_id` is reserved.
 /// | `SbiRet::not_supported()` | `cppc_reg_id` is not implemented by the platform.
 /// | `SbiRet::denied()`        | `cppc_reg_id` is a read-only register.
-/// | `SbiRet::failed()`        | The write request failed for unspecified or unknown other reasons.
+/// | `SbiRet::failed()`        | The write operation request failed for unspecified or unknown other reasons.
 ///
 /// This function is defined in RISC-V SBI Specification chapter 14.4.
 #[inline]
