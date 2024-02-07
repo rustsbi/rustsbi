@@ -138,8 +138,8 @@ define_extension! {
     Console(sbi_spec::dbcn::EID_DBCN) /// Debug Console extension.
     Suspend(sbi_spec::susp::SUSPEND) /// System Suspend extension.
     Cppc(sbi_spec::cppc::EID_CPPC) /// SBI CPPC extension.
-    Nacl(sbi_spec::cppc::EID_CPPC) /// Nested Acceleration extension.
-    Sta(sbi_spec::cppc::EID_CPPC) /// Steal-time Accounting extension.
+    Nacl(sbi_spec::nacl::EID_NACL) /// Nested Acceleration extension.
+    Sta(sbi_spec::sta::EID_STA) /// Steal-time Accounting extension.
 }
 
 #[cfg(feature = "integer-impls")]
@@ -175,5 +175,25 @@ impl ExtensionInfo {
     #[inline]
     pub const fn is_unavailable(&self) -> bool {
         self.raw == 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn extension_id_defined() {
+        use crate::Extension;
+        assert_eq!(crate::Base.extension_id(), 0x10);
+        assert_eq!(crate::Timer.extension_id(), 0x54494D45);
+        assert_eq!(crate::Ipi.extension_id(), 0x735049);
+        assert_eq!(crate::Fence.extension_id(), 0x52464E43);
+        assert_eq!(crate::Hsm.extension_id(), 0x48534D);
+        assert_eq!(crate::Reset.extension_id(), 0x53525354);
+        assert_eq!(crate::Pmu.extension_id(), 0x504D55);
+        assert_eq!(crate::Console.extension_id(), 0x4442434E);
+        assert_eq!(crate::Suspend.extension_id(), 0x53555350);
+        assert_eq!(crate::Cppc.extension_id(), 0x43505043);
+        assert_eq!(crate::Nacl.extension_id(), 0x4E41434C);
+        assert_eq!(crate::Sta.extension_id(), 0x535441);
     }
 }

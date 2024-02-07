@@ -25,7 +25,8 @@ This version adds support to RISC-V SBI Specification version 2.0 ratified.
 ### Fixed
 
 - Minor document fixes on `ConfigFlags` and `set_timer`
-- Document fixes on HSM extension from SBI 2.0-rc1
+- Document fixes on the HSM extension from SBI 2.0
+- Extension ID of the Nacl and Sta extensions.
 
 ## [0.0.2] - 2022-10-10
 
