@@ -7,9 +7,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.0.3]
+## [0.0.3] - 2024-02-08
 
-This version adds support to RISC-V SBI Specification version 2.0 ratified.
+This version adds support to the RISC-V SBI Specification version 2.0 ratified.
 
 ### Added
 
@@ -31,15 +31,15 @@ This version adds support to RISC-V SBI Specification version 2.0 ratified.
 
 ## [0.0.2] - 2022-10-10
 
-In this version we changed API style to trait based type parameters, which would make it easier to
-check parameter types at runtime to reduce errors. If user choose to use `integer-impls` feature,
-it would fall back to older style functions using integer types.
+In this version, we changed API style to trait-based type parameters, which would make it easier to
+check parameter types at runtime to reduce errors.
+If user chooses to use `integer-impls` feature, it would fall back to older style functions using integer types.
 
 ### Added
 
-- Trait based type parameter for all extensions
+- Trait-based type parameter for all extensions
 - Feature `integer-impls` to allow fast prototyping with sbi-rt crate
-- Feature `legacy` to gate SBI legacy extension
+- Feature `legacy` to gate the SBI legacy extension
 - Documents on various functions
 
 ### Modified

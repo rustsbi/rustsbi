@@ -18,7 +18,7 @@ default-target = "riscv64imac-unknown-none-elf"
 targets = ["riscv32imac-unknown-none-elf", "riscv64imac-unknown-none-elf"]
 
 [dependencies]
-sbi-rt = { version = "0.0.3-rc.5", path = "../sbi-rt" }
+sbi-rt = { version = "0.0.3", path = "../sbi-rt" }
 sbi-spec = { version = "0.0.7", path = "../sbi-spec" }
 riscv = "0.11.0"
 log_crate = { version = "0.4", package = "log", optional = true }

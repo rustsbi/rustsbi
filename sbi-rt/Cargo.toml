@@ -1,6 +1,6 @@
 [package]
 name = "sbi-rt"
-version = "0.0.3-rc.5"
+version = "0.0.3"
 description = "Runtime library for supervisors to call RISC-V Supervisor Binary Interface (RISC-V SBI)"
 categories = ["os", "embedded", "hardware-support", "no-std"]
 keywords = ["riscv", "sbi", "rustsbi"]
