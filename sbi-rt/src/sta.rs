@@ -1,9 +1,9 @@
 //! Chapter 16. Steal-time Accounting Extension (EID #0x535441 "STA")
 
-use crate::binary::{sbi_call_3, SbiRet};
+use crate::binary::sbi_call_3;
 
 use sbi_spec::{
-    binary::SharedPtr,
+    binary::{SbiRet, SharedPtr},
     sta::{EID_STA, SET_SHMEM},
 };
 

@@ -1,7 +1,10 @@
 //! Chapter 13. System Suspend Extension (EID #0x53555350 "SUSP")
 
-use crate::binary::{sbi_call_3, SbiRet};
-use sbi_spec::susp::{EID_SUSP, SUSPEND};
+use crate::binary::sbi_call_3;
+use sbi_spec::{
+    binary::SbiRet,
+    susp::{EID_SUSP, SUSPEND},
+};
 
 /// Suspend the system based on provided `sleep_type`.
 ///

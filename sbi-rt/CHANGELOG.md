@@ -17,6 +17,7 @@ This version adds support to RISC-V SBI Specification version 2.0 ratified.
 - `pmu_counter_fw_read_hi` in PMU extension
 - Support for SBI CPPC extension
 - Support for NACL and STA extensions
+- Re-export `HartMask`, `Physical`, `SbiRet` and `SharedPtr` on `sbi-rt` library root
 
 ### Modified
 

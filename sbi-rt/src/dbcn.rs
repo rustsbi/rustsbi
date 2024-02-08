@@ -1,7 +1,7 @@
 //! Chapter 12. Debug Console Extension (EID #0x4442434E "DBCN")
-use crate::binary::{sbi_call_1, sbi_call_3, SbiRet};
+use crate::binary::{sbi_call_1, sbi_call_3};
 use sbi_spec::{
-    binary::Physical,
+    binary::{Physical, SbiRet},
     dbcn::{CONSOLE_READ, CONSOLE_WRITE, CONSOLE_WRITE_BYTE, EID_DBCN},
 };
 

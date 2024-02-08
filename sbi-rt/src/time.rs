@@ -1,8 +1,9 @@
 //! Chapter 6. Timer Extension (EID #0x54494D45 "TIME")
 
-use crate::SbiRet;
-
-use sbi_spec::time::{EID_TIME, SET_TIMER};
+use sbi_spec::{
+    binary::SbiRet,
+    time::{EID_TIME, SET_TIMER},
+};
 
 /// Programs the clock for the next event after an absolute time.
 ///

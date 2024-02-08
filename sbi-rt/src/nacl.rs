@@ -1,9 +1,9 @@
 //! Chapter 15. Nested Acceleration Extension (EID #0x4E41434C "NACL")
 
-use crate::binary::{sbi_call_0, sbi_call_1, sbi_call_3, SbiRet};
+use crate::binary::{sbi_call_0, sbi_call_1, sbi_call_3};
 
 use sbi_spec::{
-    binary::SharedPtr,
+    binary::{SbiRet, SharedPtr},
     nacl::{shmem_size, EID_NACL, PROBE_FEATURE, SET_SHMEM, SYNC_CSR, SYNC_HFENCE, SYNC_SRET},
 };
 

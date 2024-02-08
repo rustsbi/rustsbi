@@ -31,8 +31,15 @@ mod nacl;
 // §16
 mod sta;
 
+pub use sbi_spec::{
+    base::Version,
+    binary::{HartMask, Physical, SbiRet, SharedPtr},
+};
+
+// module `binary` includes crate-local `sbi_call_*` functions and is thus not re-exported
+// into the library root.
+
 pub use base::*;
-pub use binary::*;
 pub use cppc::*;
 pub use dbcn::*;
 pub use hsm::*;

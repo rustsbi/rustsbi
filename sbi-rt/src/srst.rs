@@ -1,10 +1,13 @@
 //! Chapter 10. System Reset Extension (EID #0x53525354 "SRST")
 
-use crate::binary::{sbi_call_2, SbiRet};
+use crate::binary::sbi_call_2;
 
-use sbi_spec::srst::{
-    EID_SRST, RESET_REASON_NO_REASON, RESET_REASON_SYSTEM_FAILURE, RESET_TYPE_COLD_REBOOT,
-    RESET_TYPE_SHUTDOWN, RESET_TYPE_WARM_REBOOT, SYSTEM_RESET,
+use sbi_spec::{
+    binary::SbiRet,
+    srst::{
+        EID_SRST, RESET_REASON_NO_REASON, RESET_REASON_SYSTEM_FAILURE, RESET_TYPE_COLD_REBOOT,
+        RESET_TYPE_SHUTDOWN, RESET_TYPE_WARM_REBOOT, SYSTEM_RESET,
+    },
 };
 
 /// Reset the system based on provided `reset_type` and `reset_reason`.

@@ -1,8 +1,11 @@
 //! Chapter 9. Hart State Management Extension (EID #0x48534D "HSM")
 
-use crate::binary::{sbi_call_0, sbi_call_1, sbi_call_3, SbiRet};
+use crate::binary::{sbi_call_0, sbi_call_1, sbi_call_3};
 
-use sbi_spec::hsm::{EID_HSM, HART_GET_STATUS, HART_START, HART_STOP, HART_SUSPEND};
+use sbi_spec::{
+    binary::SbiRet,
+    hsm::{EID_HSM, HART_GET_STATUS, HART_START, HART_STOP, HART_SUSPEND},
+};
 
 /// Start executing the given hart at specified address in supervisor-mode.
 ///

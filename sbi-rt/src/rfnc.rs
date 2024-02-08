@@ -1,9 +1,9 @@
 //! Chapter 8. RFENCE Extension (EID #0x52464E43 "RFNC")
 
-use crate::binary::{sbi_call_2, sbi_call_4, sbi_call_5, SbiRet};
+use crate::binary::{sbi_call_2, sbi_call_4, sbi_call_5};
 
 use sbi_spec::{
-    binary::HartMask,
+    binary::{HartMask, SbiRet},
     rfnc::{
         EID_RFNC, REMOTE_FENCE_I, REMOTE_HFENCE_GVMA, REMOTE_HFENCE_GVMA_VMID, REMOTE_HFENCE_VVMA,
         REMOTE_HFENCE_VVMA_ASID, REMOTE_SFENCE_VMA, REMOTE_SFENCE_VMA_ASID,

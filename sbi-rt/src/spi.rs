@@ -1,9 +1,9 @@
 //! Chapter 7. IPI Extension (EID #0x735049 "sPI: s-mode IPI")
 
-use crate::binary::{sbi_call_2, SbiRet};
+use crate::binary::sbi_call_2;
 
 use sbi_spec::{
-    binary::HartMask,
+    binary::{HartMask, SbiRet},
     spi::{EID_SPI, SEND_IPI},
 };
 

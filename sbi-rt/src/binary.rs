@@ -1,6 +1,6 @@
 ﻿//! Capture 3. Binary Encoding
 
-pub use sbi_spec::binary::SbiRet;
+use sbi_spec::binary::SbiRet;
 
 #[inline(always)]
 pub(crate) fn sbi_call_0(eid: usize, fid: usize) -> SbiRet {

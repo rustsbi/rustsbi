@@ -1,11 +1,14 @@
 //! Chapter 14. CPPC Extension (EID #0x43505043 "CPPC")
 
+use crate::binary::sbi_call_1;
 #[cfg(target_pointer_width = "64")]
 use crate::binary::sbi_call_2;
 #[cfg(target_pointer_width = "32")]
 use crate::binary::sbi_call_3;
-use crate::binary::{sbi_call_1, SbiRet};
-use sbi_spec::cppc::{EID_CPPC, PROBE, READ, READ_HI, WRITE};
+use sbi_spec::{
+    binary::SbiRet,
+    cppc::{EID_CPPC, PROBE, READ, READ_HI, WRITE},
+};
 
 /// Probe whether the CPPC register is implemented or not by the platform.
 ///

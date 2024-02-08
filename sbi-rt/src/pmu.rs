@@ -1,10 +1,13 @@
 //! Chapter 11. Performance Monitoring Unit Extension (EID #0x504D55 "PMU")
 
-use crate::binary::{sbi_call_0, sbi_call_1, sbi_call_3, SbiRet};
+use crate::binary::{sbi_call_0, sbi_call_1, sbi_call_3};
 
-use sbi_spec::pmu::{
-    COUNTER_CONFIG_MATCHING, COUNTER_FW_READ, COUNTER_FW_READ_HI, COUNTER_GET_INFO, COUNTER_START,
-    COUNTER_STOP, EID_PMU, NUM_COUNTERS,
+use sbi_spec::{
+    binary::SbiRet,
+    pmu::{
+        COUNTER_CONFIG_MATCHING, COUNTER_FW_READ, COUNTER_FW_READ_HI, COUNTER_GET_INFO,
+        COUNTER_START, COUNTER_STOP, EID_PMU, NUM_COUNTERS,
+    },
 };
 
 /// Returns the number of counters, both hardware and firmware.

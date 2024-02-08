@@ -30,9 +30,9 @@ default = []
 # to customize environment variables for RISC-V architecture like mvendorid, mimpid, etc.
 machine = ["rustsbi-macros/machine", "dep:riscv"]
 # Enables the struct `Forward`.
-# Struct `Forward` uses current SBI environment to implement the RustSBI environment.
+# Struct `Forward` uses the current SBI environment to implement the RustSBI environment.
 # This feature is only usable when current software runs on another SBI environment,
-# e.g. hypervisors for RISC-V architecture.
+# e.g., hypervisors for RISC-V architecture.
 forward = ["dep:sbi-rt"]
 
 [package.metadata.docs.rs]
