@@ -8,7 +8,7 @@ use sbi_spec::base::impl_id;
 pub enum Case {
     /// Can't procceed test for base extension does not exist.
     NotExist,
-    /// Test begin
+    /// Test begin.
     Begin,
     /// Test process for getting SBI specification version.
     GetSbiSpecVersion(Version),

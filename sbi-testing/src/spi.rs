@@ -6,6 +6,7 @@ use riscv::register::{
     scause::{self, Trap},
     sie,
 };
+use sbi::HartMask;
 
 /// Inter-processor Interrupt extension test cases.
 #[derive(Clone, Debug)]
@@ -30,7 +31,7 @@ pub fn test(hart_id: usize, mut f: impl FnMut(Case)) {
     }
 
     fn ipi(hart_id: usize) -> ! {
-        sbi::send_ipi(sbi_spec::binary::HartMask::from_mask_base(1 << hart_id, 0));
+        sbi::send_ipi(HartMask::from_mask_base(1 << hart_id, 0));
         // 必须立即触发中断，即使是一个指令的延迟，也会触发另一个异常
         unsafe { core::arch::asm!("unimp", options(noreturn, nomem)) };
     }

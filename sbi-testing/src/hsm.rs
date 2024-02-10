@@ -1,7 +1,7 @@
 //! Hart state monitor extension test suite.
 
 use core::sync::atomic::{AtomicU32, Ordering};
-use sbi::SbiRet;
+use sbi::{HartMask, SbiRet};
 use sbi_spec::hsm::hart_state;
 
 /// Hart state monitor extension test cases.
@@ -9,7 +9,7 @@ use sbi_spec::hsm::hart_state;
 pub enum Case<'a> {
     /// Can't procceed test for Hart state monitor extension does not exist.
     NotExist,
-    /// Test begin
+    /// Test begin.
     Begin,
     /// Test failed for hart started before test begin.
     ///
@@ -202,7 +202,7 @@ fn test_batch(batch: &[usize], mut f: impl FnMut(Case)) -> bool {
     for hartid in &batch[1..] {
         mask |= 1 << (hartid - batch[0]);
     }
-    sbi::send_ipi(sbi_spec::binary::HartMask::from_mask_base(mask, batch[0]));
+    sbi::send_ipi(HartMask::from_mask_base(mask, batch[0]));
     // 测试可恢复休眠
     for (i, hartid) in batch.iter().copied().enumerate() {
         let item = unsafe { &mut STACK[i] };
@@ -221,7 +221,7 @@ fn test_batch(batch: &[usize], mut f: impl FnMut(Case)) -> bool {
         }
         f(Case::HartSuspendedRetentive(hartid));
         // 单独恢复
-        sbi::send_ipi(sbi_spec::binary::HartMask::from_mask_base(1, hartid));
+        sbi::send_ipi(HartMask::from_mask_base(1, hartid));
         // 等待关闭
         while sbi::hart_get_status(hartid) != STOPPED {
             core::hint::spin_loop();
