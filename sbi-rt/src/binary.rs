@@ -1,4 +1,4 @@
-﻿//! Capture 3. Binary Encoding
+﻿//! Chapter 3. Binary Encoding
 
 use sbi_spec::binary::SbiRet;
 
