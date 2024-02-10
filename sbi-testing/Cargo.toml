@@ -1,6 +1,6 @@
 [package]
 name = "sbi-testing"
-version = "0.0.3-alpha.1"
+version = "0.0.3-alpha.2"
 description = "Provide a set of test cases for supervisors to verify functions of the supervisor executation environment"
 categories = ["os", "no-std"]
 keywords = ["riscv", "sbi", "rustsbi"]
