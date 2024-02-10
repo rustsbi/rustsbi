@@ -15,6 +15,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Update sbi-spec to version 0.0.6
 - Update sbi-rt to version 0.0.3
+- Rename `MArchId` and `MVendorId` into `MarchId` and `MvendorId` in `BaseCase`
 
 ### Fixed
 

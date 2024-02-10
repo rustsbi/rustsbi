@@ -19,9 +19,9 @@ pub enum Case {
     /// Test process for probe standard SBI extensions.
     ProbeExtensions(Extensions),
     /// Test process for getting vendor ID from RISC-V environment.
-    GetMVendorId(usize),
+    GetMvendorId(usize),
     /// Test process for getting architecture ID from RISC-V environment.
-    GetMArchId(usize),
+    GetMarchId(usize),
     /// Test process for getting implementation ID from RISC-V environment.
     GetMimpId(usize),
     /// All test cases on base module finished.
@@ -99,8 +99,8 @@ pub fn test(mut f: impl FnMut(Case)) {
         srst: sbi::probe_extension(sbi::Reset),
         pmu: sbi::probe_extension(sbi::Pmu),
     }));
-    f(Case::GetMVendorId(sbi::get_mvendorid()));
-    f(Case::GetMArchId(sbi::get_marchid()));
+    f(Case::GetMvendorId(sbi::get_mvendorid()));
+    f(Case::GetMarchId(sbi::get_marchid()));
     f(Case::GetMimpId(sbi::get_mimpid()));
     f(Case::Pass);
 }
