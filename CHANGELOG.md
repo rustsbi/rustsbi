@@ -9,6 +9,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+### Modified
+
+### Removed
+
+## [0.4.0]
+
+### Added
+
 - macro based `#[derive(RustSBI)]` interface
 - support System Suspend extension
 - support CPPC extension
@@ -198,7 +206,8 @@ RustSBI is adapted to the SBI standard with implementation number 4.
 - RISC-V Privileged Specification v1.11
 - Backward compatible to privileged spec v1.9.1
 
-[Unreleased]: https://github.com/rustsbi/rustsbi/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/rustsbi/rustsbi/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/rustsbi/rustsbi/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/rustsbi/rustsbi/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/rustsbi/rustsbi/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/rustsbi/rustsbi/compare/v0.2.2...v0.3.0
