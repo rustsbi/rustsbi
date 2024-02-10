@@ -40,10 +40,10 @@ impl Testing {
                 ProbeExtensions(exts) => {
                     info!(target: TARGET, "sbi extensions = {exts}");
                 }
-                GetMVendorId(id) => {
+                GetMvendorId(id) => {
                     info!(target: TARGET, "mvendor id = {id:#x}");
                 }
-                GetMArchId(id) => {
+                GetMarchId(id) => {
                     info!(target: TARGET, "march id = {id:#x}");
                 }
                 GetMimpId(id) => {
