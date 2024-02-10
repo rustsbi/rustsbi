@@ -21,7 +21,7 @@ targets = ["riscv32imac-unknown-none-elf", "riscv64imac-unknown-none-elf"]
 sbi-rt = { version = "0.0.3", path = "../sbi-rt" }
 sbi-spec = { version = "0.0.7", path = "../sbi-spec" }
 riscv = "0.11.0"
-log_crate = { version = "0.4", package = "log", optional = true }
+log = { version = "0.4", package = "log", optional = true }
 
 [features]
-log = ["log_crate"]
+log = ["dep:log"]

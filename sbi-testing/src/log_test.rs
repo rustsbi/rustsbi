@@ -1,5 +1,5 @@
 ﻿use crate::{base, dbcn, hsm, spi, time};
-use log_crate::*;
+use log::*;
 
 /// Automatic SBI testing with logging enabled.
 pub struct Testing {

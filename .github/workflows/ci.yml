@@ -120,9 +120,12 @@ jobs:
           target: ${{ matrix.TARGET }}
           toolchain: nightly
       - uses: Swatinem/rust-cache@v2
-      - name: Build
+      - name: Build (no default features)
         run: |
           cargo build --target ${{ matrix.TARGET }} --verbose -p sbi-testing
+      - name: Build (log)
+        run: |
+          cargo build --target ${{ matrix.TARGET }} --verbose -p sbi-testing --features "log"
 
 # sbi-testing:
 #     name: Run rust-clippy analyzing
