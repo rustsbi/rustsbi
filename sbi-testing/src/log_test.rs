@@ -63,7 +63,7 @@ impl Testing {
                 Interval { begin: _, end: _ } => {
                     info!(
                         target: TARGET,
-                        "read time register successfuly, set timer +1s"
+                        "read time register successfully, set timer +1s"
                     );
                 }
                 ReadFailed => {
@@ -75,7 +75,7 @@ impl Testing {
                     result = false;
                 }
                 SetTimer => {
-                    info!(target: TARGET, "timer interrupt delegate successfuly");
+                    info!(target: TARGET, "timer interrupt delegate successfully");
                 }
                 UnexpectedTrap(trap) => {
                     error!(
@@ -95,7 +95,7 @@ impl Testing {
                 }
                 Begin => info!(target: TARGET, "Testing `sPI`"),
                 Pass => info!(target: TARGET, "Sbi `sPI` test pass"),
-                SendIpi => info!(target: TARGET, "send ipi successfuly"),
+                SendIpi => info!(target: TARGET, "send ipi successfully"),
                 UnexpectedTrap(trap) => {
                     error!(
                         target: TARGET,
@@ -147,7 +147,7 @@ impl Testing {
                     error!(target: TARGET, "writing byte failed: {ret:?}");
                     result = false;
                 }
-                WriteSlice => info!(target: TARGET, "writing slice successfuly"),
+                WriteSlice => info!(target: TARGET, "writing slice successfully"),
                 WritingPartialSlice(len) => {
                     warn!(target: TARGET, "writing partial slice: {len} bytes written");
                 }
