@@ -11,6 +11,11 @@ forced-target = "riscv64imac-unknown-none-elf"
 [dependencies]
 panic-halt = "0.2.0"
 
+[[bin]]
+name = "rustsbi-prototyper"
+test = false
+bench = false
+
 [workspace]
 members = ["xtask"]
 
