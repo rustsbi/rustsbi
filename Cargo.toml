@@ -10,6 +10,7 @@ forced-target = "riscv64imac-unknown-none-elf"
 
 [dependencies]
 panic-halt = "0.2.0"
+riscv = "0.11.1"
 
 [[bin]]
 name = "rustsbi-prototyper"

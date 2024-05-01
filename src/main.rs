@@ -2,11 +2,47 @@
 #![no_std]
 #![no_main]
 
-use panic_halt as _;
+mod dynamic;
 
-extern "C" fn main(hart_id: usize, opaque: usize, a2: usize) -> usize {
-    let _ = (hart_id, opaque, a2);
-    0 // TODO
+use panic_halt as _;
+use riscv::register::mstatus;
+
+extern "C" fn main(hart_id: usize, opaque: usize, nonstandard_a2: usize) -> usize {
+    let _ = (hart_id, opaque);
+
+    if let Ok(info) = dynamic::try_read_dynamic(nonstandard_a2) {
+        let mpp = dynamic::next_mode_mpp(&info).unwrap_or_else(fail_invalid_next_privilege_mode);
+        let next_addr = dynamic::check_next_addr(&info).unwrap_or_else(fail_invalid_next_address);
+
+        unsafe { mstatus::set_mpp(mpp) };
+        next_addr
+    } else {
+        fail_no_dynamic_info_available()
+    }
+}
+
+#[cold]
+fn fail_invalid_next_privilege_mode(_err: ()) -> mstatus::MPP {
+    // TODO dynamic information contains invalid privilege mode
+    loop {
+        core::hint::spin_loop()
+    }
+}
+
+#[cold]
+fn fail_invalid_next_address(_err: ()) -> usize {
+    // TODO dynamic information contains invalid next address
+    loop {
+        core::hint::spin_loop()
+    }
+}
+
+#[cold]
+fn fail_no_dynamic_info_available() -> ! {
+    // TODO no dynamic information available
+    loop {
+        core::hint::spin_loop()
+    }
 }
 
 const LEN_STACK_PER_HART: usize = 16 * 1024;
@@ -59,9 +95,10 @@ unsafe extern "C" fn start() -> ! {
         "   addi    t1, t1, -1",
         "   bnez    t1, 1b",
         // 4. Run Rust main function
-        "   j       {main}",
+        "   call    {main}",
         // 5. Jump to following boot sequences
-        "   jr      a0", // TODO
+        "   csrw    mepc, a0",
+        "   mret",
         stack_size_per_hart = const LEN_STACK_PER_HART,
         stack = sym STACK,
         main = sym main,
