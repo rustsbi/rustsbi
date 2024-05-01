@@ -10,35 +10,24 @@ use riscv::register::mstatus;
 extern "C" fn main(hart_id: usize, opaque: usize, nonstandard_a2: usize) -> usize {
     let _ = (hart_id, opaque);
 
-    if let Ok(info) = dynamic::try_read_dynamic(nonstandard_a2) {
-        let mpp = dynamic::next_mode_mpp(&info).unwrap_or_else(fail_invalid_next_privilege_mode);
-        let next_addr = dynamic::check_next_addr(&info).unwrap_or_else(fail_invalid_next_address);
+    let info = dynamic::read_paddr(nonstandard_a2).unwrap_or_else(fail_no_dynamic_info_available);
 
-        unsafe { mstatus::set_mpp(mpp) };
-        next_addr
-    } else {
-        fail_no_dynamic_info_available()
-    }
+    let (mpp, next_addr) = dynamic::mpp_next_addr(&info).unwrap_or_else(fail_invalid_dynamic_info);
+
+    unsafe { mstatus::set_mpp(mpp) };
+    next_addr
 }
 
 #[cold]
-fn fail_invalid_next_privilege_mode(_err: ()) -> mstatus::MPP {
-    // TODO dynamic information contains invalid privilege mode
+fn fail_invalid_dynamic_info(_err: dynamic::DynamicError) -> (mstatus::MPP, usize) {
+    // TODO dynamic information contains invalid privilege mode or next address
     loop {
         core::hint::spin_loop()
     }
 }
 
 #[cold]
-fn fail_invalid_next_address(_err: ()) -> usize {
-    // TODO dynamic information contains invalid next address
-    loop {
-        core::hint::spin_loop()
-    }
-}
-
-#[cold]
-fn fail_no_dynamic_info_available() -> ! {
+fn fail_no_dynamic_info_available(_err: ()) -> dynamic::DynamicInfo {
     // TODO no dynamic information available
     loop {
         core::hint::spin_loop()
