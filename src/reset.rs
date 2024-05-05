@@ -41,6 +41,12 @@ pub trait Reset {
     /// | `SbiRet::not_supported()` | `reset_type` is valid but not implemented.
     /// | `SbiRet::failed()`        | Reset request failed for unknown reasons.
     fn system_reset(&self, reset_type: u32, reset_reason: u32) -> SbiRet;
+    /// Function internal to macros. Do not use.
+    #[doc(hidden)]
+    #[inline]
+    fn _rustsbi_probe(&self) -> usize {
+        sbi_spec::base::UNAVAILABLE_EXTENSION.wrapping_add(1)
+    }
 }
 
 impl<T: Reset> Reset for &T {

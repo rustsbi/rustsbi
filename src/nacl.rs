@@ -141,6 +141,12 @@ pub trait Nacl {
     /// | `SbiRet::not_supported()` | SBI_NACL_FEAT_SYNC_SRET feature is not available.
     /// | `SbiRet::no_shmem()`      | Nested acceleration shared memory not available.
     fn sync_sret(&self) -> SbiRet;
+    /// Function internal to macros. Do not use.
+    #[doc(hidden)]
+    #[inline]
+    fn _rustsbi_probe(&self) -> usize {
+        sbi_spec::base::UNAVAILABLE_EXTENSION.wrapping_add(1)
+    }
 }
 
 impl<T: Nacl> Nacl for &T {

@@ -8,6 +8,12 @@ pub trait Timer {
     /// it can either request a timer interrupt infinitely far into the future (i.e., (uint64_t)-1),
     /// or it can instead mask the timer interrupt by clearing `sie.STIE` CSR bit.
     fn set_timer(&self, stime_value: u64);
+    /// Function internal to macros. Do not use.
+    #[doc(hidden)]
+    #[inline]
+    fn _rustsbi_probe(&self) -> usize {
+        sbi_spec::base::UNAVAILABLE_EXTENSION.wrapping_add(1)
+    }
 }
 
 impl<T: Timer> Timer for &T {

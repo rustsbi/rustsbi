@@ -201,6 +201,12 @@ pub trait Hsm {
         let _ = (suspend_type, resume_addr, opaque);
         SbiRet::not_supported()
     }
+    /// Function internal to macros. Do not use.
+    #[doc(hidden)]
+    #[inline]
+    fn _rustsbi_probe(&self) -> usize {
+        sbi_spec::base::UNAVAILABLE_EXTENSION.wrapping_add(1)
+    }
 }
 
 impl<T: Hsm> Hsm for &T {

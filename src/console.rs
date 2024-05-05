@@ -84,6 +84,12 @@ pub trait Console {
     /// | `SbiRet::success()`       | Byte written successfully.
     /// | `SbiRet::failed()`        | Failed to write the byte due to I/O errors.
     fn write_byte(&self, byte: u8) -> SbiRet;
+    /// Function internal to macros. Do not use.
+    #[doc(hidden)]
+    #[inline]
+    fn _rustsbi_probe(&self) -> usize {
+        sbi_spec::base::UNAVAILABLE_EXTENSION.wrapping_add(1)
+    }
 }
 
 impl<T: Console> Console for &T {

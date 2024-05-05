@@ -392,3 +392,69 @@ pub fn _rustsbi_sta<T: crate::Sta>(sta: &T, param: [usize; 6], function: usize) 
 const fn concat_u32(h: usize, l: usize) -> u64 {
     ((h as u64) << 32) | (l as u64)
 }
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_fence_probe<T: crate::Fence>(fence: &T) -> usize {
+    fence._rustsbi_probe()
+}
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_timer_probe<T: crate::Timer>(timer: &T) -> usize {
+    timer._rustsbi_probe()
+}
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_ipi_probe<T: crate::Ipi>(ipi: &T) -> usize {
+    ipi._rustsbi_probe()
+}
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_hsm_probe<T: crate::Hsm>(hsm: &T) -> usize {
+    hsm._rustsbi_probe()
+}
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_reset_probe<T: crate::Reset>(reset: &T) -> usize {
+    reset._rustsbi_probe()
+}
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_pmu_probe<T: crate::Pmu>(pmu: &T) -> usize {
+    pmu._rustsbi_probe()
+}
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_console_probe<T: crate::Console>(console: &T) -> usize {
+    console._rustsbi_probe()
+}
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_susp_probe<T: crate::Susp>(susp: &T) -> usize {
+    susp._rustsbi_probe()
+}
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_cppc_probe<T: crate::Cppc>(cppc: &T) -> usize {
+    cppc._rustsbi_probe()
+}
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_nacl_probe<T: crate::Nacl>(nacl: &T) -> usize {
+    nacl._rustsbi_probe()
+}
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_sta_probe<T: crate::Sta>(sta: &T) -> usize {
+    sta._rustsbi_probe()
+}

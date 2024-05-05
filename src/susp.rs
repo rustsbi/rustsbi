@@ -84,6 +84,12 @@ pub trait Susp {
     /// | `SbiRet::failed()`
     /// | The suspend request failed for unspecified or unknown other reasons.
     fn system_suspend(&self, sleep_type: u32, resume_addr: usize, opaque: usize) -> SbiRet;
+    /// Function internal to macros. Do not use.
+    #[doc(hidden)]
+    #[inline]
+    fn _rustsbi_probe(&self) -> usize {
+        sbi_spec::base::UNAVAILABLE_EXTENSION.wrapping_add(1)
+    }
 }
 
 impl<T: Susp> Susp for &T {
