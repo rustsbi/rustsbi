@@ -136,6 +136,7 @@ impl rustsbi::EnvInfo for DummyEnvInfo {
     }
 }
 
+#[allow(unused)] // FIXME: hot fix, use it on unit test in the future.
 struct RealEnvInfo;
 
 impl rustsbi::EnvInfo for RealEnvInfo {
