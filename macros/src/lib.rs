@@ -350,18 +350,7 @@ fn impl_derive_rustsbi_static(name: &Ident, imp: StaticImpl, generics: &Generics
 
 fn impl_derive_rustsbi_dynamic(name: &Ident, imp: DynamicImpl, generics: &Generics) -> TokenStream {
     let mut fence_contents = quote! {};
-    let mut prober_ipi = quote! {};
     let mut prober_fence = quote! {};
-    let mut prober_timer = quote! {};
-    let mut prober_base = quote! {};
-    let mut prober_reset = quote! {};
-    let mut prober_hsm = quote! {};
-    let mut prober_pmu = quote! {};
-    let mut prober_console = quote! {};
-    let mut prober_susp = quote! {};
-    let mut prober_cppc = quote! {};
-    let mut prober_nacl = quote! {};
-    let mut prober_sta = quote! {};
     for fence in &imp.fence {
         fence_contents.extend(quote! {
             if ::rustsbi::_rustsbi_fence_probe(&self.#fence) != ::rustsbi::spec::base::UNAVAILABLE_EXTENSION {
@@ -376,6 +365,7 @@ fn impl_derive_rustsbi_dynamic(name: &Ident, imp: DynamicImpl, generics: &Generi
         });
     }
     let mut timer_contents = quote! {};
+    let mut prober_timer = quote! {};
     for timer in &imp.timer {
         timer_contents.extend(quote! {
             if ::rustsbi::_rustsbi_timer_probe(&self.#timer) != ::rustsbi::spec::base::UNAVAILABLE_EXTENSION {
@@ -390,6 +380,7 @@ fn impl_derive_rustsbi_dynamic(name: &Ident, imp: DynamicImpl, generics: &Generi
         });
     }
     let mut ipi_contents = quote! {};
+    let mut prober_ipi = quote! {};
     for ipi in &imp.ipi {
         ipi_contents.extend(quote! {
             if ::rustsbi::_rustsbi_ipi_probe(&self.#ipi) != ::rustsbi::spec::base::UNAVAILABLE_EXTENSION {
@@ -404,6 +395,7 @@ fn impl_derive_rustsbi_dynamic(name: &Ident, imp: DynamicImpl, generics: &Generi
         });
     }
     let mut hsm_contents = quote! {};
+    let mut prober_hsm = quote! {};
     for hsm in &imp.hsm {
         hsm_contents.extend(quote! {
             if ::rustsbi::_rustsbi_hsm_probe(&self.#hsm) != ::rustsbi::spec::base::UNAVAILABLE_EXTENSION {
@@ -418,6 +410,7 @@ fn impl_derive_rustsbi_dynamic(name: &Ident, imp: DynamicImpl, generics: &Generi
         });
     }
     let mut reset_contents = quote! {};
+    let mut prober_reset = quote! {};
     for reset in &imp.reset {
         reset_contents.extend(quote! {
             if ::rustsbi::_rustsbi_reset_probe(&self.#reset) != ::rustsbi::spec::base::UNAVAILABLE_EXTENSION {
@@ -432,6 +425,7 @@ fn impl_derive_rustsbi_dynamic(name: &Ident, imp: DynamicImpl, generics: &Generi
         });
     }
     let mut pmu_contents = quote! {};
+    let mut prober_pmu = quote! {};
     for pmu in &imp.pmu {
         pmu_contents.extend(quote! {
             if ::rustsbi::_rustsbi_pmu_probe(&self.#pmu) != ::rustsbi::spec::base::UNAVAILABLE_EXTENSION {
@@ -446,6 +440,7 @@ fn impl_derive_rustsbi_dynamic(name: &Ident, imp: DynamicImpl, generics: &Generi
         });
     }
     let mut console_contents = quote! {};
+    let mut prober_console = quote! {};
     for console in &imp.console {
         console_contents.extend(quote! {
             if ::rustsbi::_rustsbi_console_probe(&self.#console) != ::rustsbi::spec::base::UNAVAILABLE_EXTENSION {
@@ -460,6 +455,7 @@ fn impl_derive_rustsbi_dynamic(name: &Ident, imp: DynamicImpl, generics: &Generi
         });
     }
     let mut susp_contents = quote! {};
+    let mut prober_susp = quote! {};
     for susp in &imp.susp {
         susp_contents.extend(quote! {
             if ::rustsbi::_rustsbi_susp_probe(&self.#susp) != ::rustsbi::spec::base::UNAVAILABLE_EXTENSION {
@@ -474,6 +470,7 @@ fn impl_derive_rustsbi_dynamic(name: &Ident, imp: DynamicImpl, generics: &Generi
         });
     }
     let mut cppc_contents = quote! {};
+    let mut prober_cppc = quote! {};
     for cppc in &imp.cppc {
         cppc_contents.extend(quote! {
             if ::rustsbi::_rustsbi_cppc_probe(&self.#cppc) != ::rustsbi::spec::base::UNAVAILABLE_EXTENSION {
@@ -488,6 +485,7 @@ fn impl_derive_rustsbi_dynamic(name: &Ident, imp: DynamicImpl, generics: &Generi
         });
     }
     let mut nacl_contents = quote! {};
+    let mut prober_nacl = quote! {};
     for nacl in &imp.nacl {
         nacl_contents.extend(quote! {
             if ::rustsbi::_rustsbi_nacl_probe(&self.#nacl) != ::rustsbi::spec::base::UNAVAILABLE_EXTENSION {
@@ -502,6 +500,7 @@ fn impl_derive_rustsbi_dynamic(name: &Ident, imp: DynamicImpl, generics: &Generi
         });
     }
     let mut sta_contents = quote! {};
+    let mut prober_sta = quote! {};
     for sta in &imp.sta {
         sta_contents.extend(quote! {
             if ::rustsbi::_rustsbi_sta_probe(&self.#sta) != ::rustsbi::spec::base::UNAVAILABLE_EXTENSION {
@@ -522,7 +521,7 @@ fn impl_derive_rustsbi_dynamic(name: &Ident, imp: DynamicImpl, generics: &Generi
             #[inline(always)]
             fn probe_extension(&self, extension: usize) -> usize {
                 match extension {
-                    ::rustsbi::spec::base::EID_BASE => { #prober_base ::rustsbi::spec::base::UNAVAILABLE_EXTENSION },
+                    ::rustsbi::spec::base::EID_BASE => 1,
                     ::rustsbi::spec::time::EID_TIME => { #prober_timer ::rustsbi::spec::base::UNAVAILABLE_EXTENSION },
                     ::rustsbi::spec::spi::EID_SPI => { #prober_ipi ::rustsbi::spec::base::UNAVAILABLE_EXTENSION },
                     ::rustsbi::spec::rfnc::EID_RFNC => { #prober_fence ::rustsbi::spec::base::UNAVAILABLE_EXTENSION },
