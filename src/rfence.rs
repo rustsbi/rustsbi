@@ -136,6 +136,12 @@ pub trait Rfence {
         let _ = (hart_mask, start_addr, size);
         SbiRet::not_supported()
     }
+    /// Function internal to macros. Do not use.
+    #[doc(hidden)]
+    #[inline]
+    fn _rustsbi_probe(&self) -> usize {
+        sbi_spec::base::UNAVAILABLE_EXTENSION.wrapping_add(1)
+    }
 }
 
 impl<T: Rfence> Rfence for &T {
@@ -184,5 +190,75 @@ impl<T: Rfence> Rfence for &T {
     #[inline]
     fn remote_hfence_vvma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
         T::remote_hfence_vvma(self, hart_mask, start_addr, size)
+    }
+}
+
+impl<T: Rfence> Rfence for Option<T> {
+    #[inline]
+    fn remote_fence_i(&self, hart_mask: HartMask) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::remote_fence_i(inner, hart_mask))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn remote_sfence_vma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::remote_sfence_vma(inner, hart_mask, start_addr, size))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn remote_sfence_vma_asid(
+        &self,
+        hart_mask: HartMask,
+        start_addr: usize,
+        size: usize,
+        asid: usize,
+    ) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::remote_sfence_vma_asid(inner, hart_mask, start_addr, size, asid))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn remote_hfence_gvma_vmid(
+        &self,
+        hart_mask: HartMask,
+        start_addr: usize,
+        size: usize,
+        vmid: usize,
+    ) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::remote_hfence_gvma_vmid(inner, hart_mask, start_addr, size, vmid))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn remote_hfence_gvma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::remote_hfence_gvma(inner, hart_mask, start_addr, size))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn remote_hfence_vvma_asid(
+        &self,
+        hart_mask: HartMask,
+        start_addr: usize,
+        size: usize,
+        asid: usize,
+    ) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::remote_hfence_vvma_asid(inner, hart_mask, start_addr, size, asid))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn remote_hfence_vvma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::remote_hfence_vvma(inner, hart_mask, start_addr, size))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn _rustsbi_probe(&self) -> usize {
+        match self {
+            Some(_) => sbi_spec::base::UNAVAILABLE_EXTENSION.wrapping_add(1),
+            None => sbi_spec::base::UNAVAILABLE_EXTENSION,
+        }
     }
 }

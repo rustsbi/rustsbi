@@ -113,6 +113,12 @@ pub trait Cppc {
     /// | `SbiRet::denied()`        | `reg_id` is a read-only register.
     /// | `SbiRet::failed()`        | The write-request failed for unspecified or unknown other reasons.
     fn write(&self, reg_id: u32, val: u64) -> SbiRet;
+    /// Function internal to macros. Do not use.
+    #[doc(hidden)]
+    #[inline]
+    fn _rustsbi_probe(&self) -> usize {
+        sbi_spec::base::UNAVAILABLE_EXTENSION.wrapping_add(1)
+    }
 }
 
 impl<T: Cppc> Cppc for &T {

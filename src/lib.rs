@@ -1063,7 +1063,13 @@ pub use traits::{EnvInfo, RustSBI};
 pub use traits::_rustsbi_base_bare;
 #[doc(hidden)]
 pub use traits::{
-    _StandardExtensionProbe, _rustsbi_base_env_info, _rustsbi_console, _rustsbi_cppc,
-    _rustsbi_fence, _rustsbi_hsm, _rustsbi_ipi, _rustsbi_nacl, _rustsbi_pmu, _rustsbi_reset,
-    _rustsbi_sta, _rustsbi_susp, _rustsbi_timer,
+    _ExtensionProbe, _StandardExtensionProbe, _rustsbi_base_env_info, _rustsbi_console,
+    _rustsbi_cppc, _rustsbi_fence, _rustsbi_hsm, _rustsbi_ipi, _rustsbi_nacl, _rustsbi_pmu,
+    _rustsbi_reset, _rustsbi_sta, _rustsbi_susp, _rustsbi_timer,
+};
+#[doc(hidden)]
+pub use traits::{
+    _rustsbi_console_probe, _rustsbi_cppc_probe, _rustsbi_fence_probe, _rustsbi_hsm_probe,
+    _rustsbi_ipi_probe, _rustsbi_nacl_probe, _rustsbi_pmu_probe, _rustsbi_reset_probe,
+    _rustsbi_sta_probe, _rustsbi_susp_probe, _rustsbi_timer_probe,
 };

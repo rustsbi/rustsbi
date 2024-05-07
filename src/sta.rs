@@ -57,6 +57,12 @@ pub trait Sta {
     /// | `SbiRet::invalid_address()` | The shared memory pointed to by the `shmem` parameter is not writable or does not satisfy other requirements of shared memory physical address range.
     /// | `SbiRet::failed()`          | The request failed for unspecified or unknown other reasons.
     fn set_shmem(&self, shmem: SharedPtr<[u8; 64]>, flags: usize) -> SbiRet;
+    /// Function internal to macros. Do not use.
+    #[doc(hidden)]
+    #[inline]
+    fn _rustsbi_probe(&self) -> usize {
+        sbi_spec::base::UNAVAILABLE_EXTENSION.wrapping_add(1)
+    }
 }
 
 impl<T: Sta> Sta for &T {
