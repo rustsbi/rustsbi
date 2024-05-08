@@ -3,8 +3,12 @@
 //! Do not use this crate directly.
 
 use proc_macro::TokenStream;
+use proc_macro2::Span;
 use quote::{quote, ToTokens};
-use syn::{parse_macro_input, Data, DeriveInput, Generics, Ident, Member};
+use syn::{
+    parse_macro_input, Data, DeriveInput, GenericParam, Generics, Ident, Lifetime, LifetimeParam,
+    Member,
+};
 
 #[derive(Clone)]
 enum ParseMode {
@@ -515,9 +519,19 @@ fn impl_derive_rustsbi_dynamic(name: &Ident, imp: DynamicImpl, generics: &Generi
         });
     }
 
+    let (_, origin_ty_generics, _) = generics.split_for_impl();
+    let prober_generics = {
+        let mut ans = generics.clone();
+        let lifetime = Lifetime::new("'_lt", Span::mixed_site());
+        ans.params
+            .insert(0, GenericParam::Lifetime(LifetimeParam::new(lifetime)));
+        ans
+    };
+    let (impl_generics, ty_generics, where_clause) = prober_generics.split_for_impl();
+
     let define_prober = quote! {
-        struct _Prober<'a>(&'a #name);
-        impl<'a> ::rustsbi::_ExtensionProbe for _Prober<'a> {
+        struct _Prober #impl_generics (&'_lt #name #origin_ty_generics) #where_clause;
+        impl #impl_generics ::rustsbi::_ExtensionProbe for _Prober #ty_generics #where_clause {
             #[inline(always)]
             fn probe_extension(&self, extension: usize) -> usize {
                 match extension {
