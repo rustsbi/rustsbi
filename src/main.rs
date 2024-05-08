@@ -2,6 +2,13 @@
 #![no_std]
 #![no_main]
 
+#[macro_use]
+extern crate log;
+#[macro_use]
+mod macros;
+
+mod board;
+mod console;
 mod dynamic;
 
 use panic_halt as _;
@@ -9,6 +16,13 @@ use riscv::register::mstatus;
 
 extern "C" fn main(hart_id: usize, opaque: usize, nonstandard_a2: usize) -> usize {
     let _ = (hart_id, opaque);
+    console::init();
+
+    info!("RustSBI version {}", rustsbi::VERSION);
+    for line in rustsbi::LOGO.lines() {
+        info!("{}", line);
+    }
+    info!("Initializing RustSBI machine-mode environment.");
 
     let info = dynamic::read_paddr(nonstandard_a2).unwrap_or_else(fail_no_dynamic_info_available);
 
