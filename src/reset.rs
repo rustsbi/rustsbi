@@ -55,3 +55,19 @@ impl<T: Reset> Reset for &T {
         T::system_reset(self, reset_type, reset_reason)
     }
 }
+
+impl<T: Reset> Reset for Option<T> {
+    #[inline]
+    fn system_reset(&self, reset_type: u32, reset_reason: u32) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::system_reset(inner, reset_type, reset_reason))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn _rustsbi_probe(&self) -> usize {
+        match self {
+            Some(_) => sbi_spec::base::UNAVAILABLE_EXTENSION.wrapping_add(1),
+            None => sbi_spec::base::UNAVAILABLE_EXTENSION,
+        }
+    }
+}

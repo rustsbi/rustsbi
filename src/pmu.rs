@@ -293,3 +293,88 @@ impl<T: Pmu> Pmu for &T {
         T::counter_fw_read_hi(self, counter_idx)
     }
 }
+
+impl<T: Pmu> Pmu for Option<T> {
+    #[inline]
+    fn num_counters(&self) -> usize {
+        self.as_ref()
+            .map(|inner| T::num_counters(inner))
+            .unwrap_or(0)
+    }
+    #[inline]
+    fn counter_get_info(&self, counter_idx: usize) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::counter_get_info(inner, counter_idx))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn counter_config_matching(
+        &self,
+        counter_idx_base: usize,
+        counter_idx_mask: usize,
+        config_flags: usize,
+        event_idx: usize,
+        event_data: u64,
+    ) -> SbiRet {
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::counter_config_matching(
+                inner,
+                counter_idx_base,
+                counter_idx_mask,
+                config_flags,
+                event_idx,
+                event_data,
+            )
+        })
+    }
+    #[inline]
+    fn counter_start(
+        &self,
+        counter_idx_base: usize,
+        counter_idx_mask: usize,
+        start_flags: usize,
+        initial_value: u64,
+    ) -> SbiRet {
+        self.as_ref()
+            .map(|inner| {
+                T::counter_start(
+                    inner,
+                    counter_idx_base,
+                    counter_idx_mask,
+                    start_flags,
+                    initial_value,
+                )
+            })
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn counter_stop(
+        &self,
+        counter_idx_base: usize,
+        counter_idx_mask: usize,
+        stop_flags: usize,
+    ) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::counter_stop(inner, counter_idx_base, counter_idx_mask, stop_flags))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn counter_fw_read(&self, counter_idx: usize) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::counter_fw_read(inner, counter_idx))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn counter_fw_read_hi(&self, counter_idx: usize) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::counter_fw_read_hi(inner, counter_idx))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn _rustsbi_probe(&self) -> usize {
+        match self {
+            Some(_) => sbi_spec::base::UNAVAILABLE_EXTENSION.wrapping_add(1),
+            None => sbi_spec::base::UNAVAILABLE_EXTENSION,
+        }
+    }
+}

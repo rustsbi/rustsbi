@@ -106,3 +106,31 @@ impl<T: Console> Console for &T {
         T::write_byte(self, byte)
     }
 }
+
+impl<T: Console> Console for Option<T> {
+    #[inline]
+    fn write(&self, bytes: Physical<&[u8]>) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::write(inner, bytes))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn read(&self, bytes: Physical<&mut [u8]>) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::read(inner, bytes))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn write_byte(&self, byte: u8) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::write_byte(inner, byte))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn _rustsbi_probe(&self) -> usize {
+        match self {
+            Some(_) => sbi_spec::base::UNAVAILABLE_EXTENSION.wrapping_add(1),
+            None => sbi_spec::base::UNAVAILABLE_EXTENSION,
+        }
+    }
+}

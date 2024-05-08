@@ -139,3 +139,37 @@ impl<T: Cppc> Cppc for &T {
         T::write(self, reg_id, val)
     }
 }
+
+impl<T: Cppc> Cppc for Option<T> {
+    #[inline]
+    fn probe(&self, reg_id: u32) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::probe(inner, reg_id))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn read(&self, reg_id: u32) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::read(inner, reg_id))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn read_hi(&self, reg_id: u32) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::read_hi(inner, reg_id))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn write(&self, reg_id: u32, val: u64) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::write(inner, reg_id, val))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn _rustsbi_probe(&self) -> usize {
+        match self {
+            Some(_) => sbi_spec::base::UNAVAILABLE_EXTENSION.wrapping_add(1),
+            None => sbi_spec::base::UNAVAILABLE_EXTENSION,
+        }
+    }
+}

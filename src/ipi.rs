@@ -24,3 +24,19 @@ impl<T: Ipi> Ipi for &T {
         T::send_ipi(self, hart_mask)
     }
 }
+
+impl<T: Ipi> Ipi for Option<T> {
+    #[inline]
+    fn send_ipi(&self, hart_mask: HartMask) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::send_ipi(inner, hart_mask))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn _rustsbi_probe(&self) -> usize {
+        match self {
+            Some(_) => sbi_spec::base::UNAVAILABLE_EXTENSION.wrapping_add(1),
+            None => sbi_spec::base::UNAVAILABLE_EXTENSION,
+        }
+    }
+}
