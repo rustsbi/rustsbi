@@ -71,3 +71,19 @@ impl<T: Sta> Sta for &T {
         T::set_shmem(self, shmem, flags)
     }
 }
+
+impl<T: Sta> Sta for Option<T> {
+    #[inline]
+    fn set_shmem(&self, shmem: SharedPtr<[u8; 64]>, flags: usize) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::set_shmem(inner, shmem, flags))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn _rustsbi_probe(&self) -> usize {
+        match self {
+            Some(_) => sbi_spec::base::UNAVAILABLE_EXTENSION.wrapping_add(1),
+            None => sbi_spec::base::UNAVAILABLE_EXTENSION,
+        }
+    }
+}
