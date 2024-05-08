@@ -23,26 +23,34 @@ pub struct DynamicInfo {
 const DYNAMIC_INFO_VALID_ADDRESSES: Range<usize> = 0x1000..0xf000;
 const NEXT_ADDR_VALID_ADDRESSES: Range<usize> = 0x80000000..0x90000000;
 
+pub struct DynamicReadError {
+    pub bad_paddr: usize,
+}
+
 // TODO unconstrained lifetime
-pub fn read_paddr(paddr: usize) -> Result<DynamicInfo, ()> {
+pub fn read_paddr(paddr: usize) -> Result<DynamicInfo, DynamicReadError> {
     // check pointer before dereference
     if !DYNAMIC_INFO_VALID_ADDRESSES.contains(&paddr)
         || !DYNAMIC_INFO_VALID_ADDRESSES.contains(&(paddr + size_of::<DynamicInfo>()))
     {
-        return Err(());
+        return Err(DynamicReadError { bad_paddr: paddr });
     }
     let ans = unsafe { *(paddr as *const DynamicInfo) };
     Ok(ans)
 }
 
-#[derive(Default)]
-pub struct DynamicError {
-    invalid_mpp: bool,
-    invalid_next_addr: bool,
+pub struct DynamicError<'a> {
+    pub invalid_mpp: bool,
+    pub invalid_next_addr: bool,
+    pub bad_info: &'a DynamicInfo,
 }
 
 pub fn mpp_next_addr(info: &DynamicInfo) -> Result<(mstatus::MPP, usize), DynamicError> {
-    let mut error = DynamicError::default();
+    let mut error = DynamicError {
+        invalid_mpp: false,
+        invalid_next_addr: false,
+        bad_info: info,
+    };
 
     // fail safe, errors will be aggregated after whole checking process.
     let next_addr_valid = NEXT_ADDR_VALID_ADDRESSES.contains(&info.next_addr);
