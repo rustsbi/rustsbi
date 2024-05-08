@@ -98,6 +98,7 @@ dependencies = [
  "panic-halt",
  "riscv",
  "rustsbi",
+ "sifive-test-device",
  "spin",
  "uart16550",
 ]
@@ -112,6 +113,12 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "sifive-test-device"
+version = "0.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba50a6fd7cb5cdb2645fb93fb2bbae7d8d78390677a889bdcfaf13c3d29286d0"
 
 [[package]]
 name = "spin"

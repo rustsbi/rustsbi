@@ -11,6 +11,7 @@ mod board;
 mod console;
 mod dynamic;
 mod fail;
+mod reset;
 
 use panic_halt as _;
 use riscv::register::mstatus;

@@ -1,4 +1,4 @@
-use crate::dynamic;
+use crate::{dynamic, reset};
 use riscv::register::mstatus;
 
 #[cold]
@@ -20,9 +20,7 @@ pub fn invalid_dynamic_info(err: dynamic::DynamicError) -> (mstatus::MPP, usize)
         "help: dynamic information contains magic value 0x{:x}, version {}, next jump address 0x{:x}, next privilege mode {} ({}), options {:x}",
         err.bad_info.magic, err.bad_info.version, err.bad_info.next_addr, err.bad_info.next_mode, explain_next_mode, err.bad_info.options
     );
-    loop {
-        core::hint::spin_loop()
-    }
+    reset::fail()
 }
 
 #[cold]
@@ -31,7 +29,5 @@ pub fn no_dynamic_info_available(err: dynamic::DynamicReadError) -> dynamic::Dyn
         "no dynamic information available at address 0x{:x}",
         err.bad_paddr
     );
-    loop {
-        core::hint::spin_loop()
-    }
+    reset::fail()
 }

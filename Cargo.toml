@@ -13,6 +13,7 @@ log = "0.4.21"
 panic-halt = "0.2.0"
 riscv = "0.11.1"
 rustsbi = { git = "https://github.com/rustsbi/rustsbi", features = ["machine"] }
+sifive-test-device = "0.0.0"
 spin = "0.9.8"
 uart16550 = "0.0.1"
 
