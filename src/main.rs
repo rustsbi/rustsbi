@@ -21,14 +21,17 @@ extern "C" fn main(hart_id: usize, opaque: usize, nonstandard_a2: usize) -> usiz
     console::init();
 
     info!("RustSBI version {}", rustsbi::VERSION);
-    for line in rustsbi::LOGO.lines() {
-        info!("{}", line);
-    }
+    rustsbi::LOGO.lines().for_each(|line| info!("{}", line));
     info!("Initializing RustSBI machine-mode environment.");
 
     let info = dynamic::read_paddr(nonstandard_a2).unwrap_or_else(fail::no_dynamic_info_available);
 
     let (mpp, next_addr) = dynamic::mpp_next_addr(&info).unwrap_or_else(fail::invalid_dynamic_info);
+
+    info!(
+        "Redirecting harts to address 0x{:x} in {:?} mode.",
+        info.next_addr, mpp
+    );
 
     unsafe { mstatus::set_mpp(mpp) };
     next_addr
