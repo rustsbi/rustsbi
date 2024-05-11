@@ -28,10 +28,7 @@ extern "C" fn main(hart_id: usize, opaque: usize, nonstandard_a2: usize) -> usiz
 
     let (mpp, next_addr) = dynamic::mpp_next_addr(&info).unwrap_or_else(fail::invalid_dynamic_info);
 
-    info!(
-        "Redirecting harts to address 0x{:x} in {:?} mode.",
-        info.next_addr, mpp
-    );
+    info!("Redirecting harts to 0x{:x} in {:?} mode.", next_addr, mpp);
 
     unsafe { mstatus::set_mpp(mpp) };
     next_addr

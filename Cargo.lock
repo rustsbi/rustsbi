@@ -3,6 +3,12 @@
 version = 3
 
 [[package]]
+name = "aclint"
+version = "0.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a01ba40421eca6c4f1afcedd8465fba6d9e5ef8e0e13060d0141e4cded4ab4a"
+
+[[package]]
 name = "autocfg"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -94,6 +100,7 @@ dependencies = [
 name = "rustsbi-prototyper"
 version = "0.0.0"
 dependencies = [
+ "aclint",
  "log",
  "panic-halt",
  "riscv",
