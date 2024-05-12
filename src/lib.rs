@@ -774,6 +774,52 @@ pub use sbi_spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
 /// Finally, when the context restores, the supervisor mode software (kernels, etc.) could get the
 /// SBI call result from register values.
 ///
+/// Additionally, the macro also provides a dynamic way of building `RustSBI` trait implementations.
+/// It allows developers to dynamically choose which device to use in the actual RustSBI implementation.
+/// To use this feature, consider two structs namely `FenceOne` and `FenceTwo`, both implementing
+/// RISC-V SBI Remote Fence extension. We can now derive `RustSBI` macro on `MySBI` wrapping those
+/// two structs with `Option` type, annotated with `#[rustsbi(dynamic)]`:
+/// ``
+///
+/// ```rust
+/// # use rustsbi::RustSBI;
+/// #[derive(RustSBI)]
+/// #[rustsbi(dynamic)]
+/// struct MySBI {
+///     fence: Option<FenceOne>,
+///     rfnc: Option<FenceTwo>,
+/// #   info: MyEnvInfo,
+/// }
+///
+/// struct FenceOne { /* fields */ }
+///
+/// struct FenceTwo { /* fields */ }
+///
+/// // Both `FenceOne` and `FenceTwo` implements `rustsbi::Fence`.
+///
+/// # use sbi_spec::binary::{SbiRet, HartMask};
+/// # impl rustsbi::Fence for FenceOne {
+/// #     fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// # }
+/// # impl rustsbi::Fence for FenceTwo {
+/// #     fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// # }
+/// # struct MyEnvInfo;
+/// # impl rustsbi::EnvInfo for MyEnvInfo {
+/// #     fn mvendorid(&self) -> usize { unimplemented!() }
+/// #     fn marchid(&self) -> usize { unimplemented!() }
+/// #     fn mimpid(&self) -> usize { unimplemented!() }
+/// # }
+/// ```
+///
+/// We have declared two fields, `fence` and `rfnc`, both of which are recognized by RustSBI as potential
+/// candidates for the SBI Remote Fence extension. Dynamic RustSBI will probe both fields to determine
+/// which field it should use for the SBI calls on the Remote Fence extension.
+///
 /// Now we have learned basic usages of the derive-macro `RustSBI`. We can dive deeper and use RustSBI
 /// in real cases with ease. Congratulations!
 ///
