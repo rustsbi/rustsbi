@@ -18,7 +18,12 @@ pub struct DynamicInfo {
     pub next_mode: usize,
     /// M-mode firmware options; its definition varies between SBI implementations.
     pub options: usize,
+    /// Boot hart ID of current environment.
+    pub boot_hart: usize,
 }
+
+// Definition of `boot_hart` can be found at:
+// https://github.com/riscv-software-src/opensbi/blob/019a8e69a1dc0c0f011fabd0372e1ba80e40dd7c/include/sbi/fw_dynamic.h#L75
 
 const DYNAMIC_INFO_VALID_ADDRESSES: Range<usize> = 0x1000..0xf000;
 const NEXT_ADDR_VALID_ADDRESSES: Range<usize> = 0x80000000..0x90000000;

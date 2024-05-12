@@ -17,8 +17,8 @@ pub fn invalid_dynamic_info(err: dynamic::DynamicError) -> (mstatus::MPP, usize)
         _ => "Invalid",
     };
     error!(
-        "help: dynamic information contains magic value 0x{:x}, version {}, next jump address 0x{:x}, next privilege mode {} ({}), options {:x}",
-        err.bad_info.magic, err.bad_info.version, err.bad_info.next_addr, err.bad_info.next_mode, explain_next_mode, err.bad_info.options
+        "help: dynamic information contains magic value 0x{:x}, version {}, next jump address 0x{:x}, next privilege mode {} ({}), options {:x}, boot hart ID {}",
+        err.bad_info.magic, err.bad_info.version, err.bad_info.next_addr, err.bad_info.next_mode, explain_next_mode, err.bad_info.options, err.bad_info.boot_hart
     );
     reset::fail()
 }
