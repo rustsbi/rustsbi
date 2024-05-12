@@ -12,6 +12,7 @@ mod console;
 mod dynamic;
 mod fail;
 mod reset;
+mod trap;
 
 use panic_halt as _;
 use riscv::register::mstatus;
@@ -30,6 +31,7 @@ extern "C" fn main(hart_id: usize, opaque: usize, nonstandard_a2: usize) -> usiz
 
     info!("Redirecting harts to 0x{:x} in {:?} mode.", next_addr, mpp);
 
+    trap::init();
     unsafe { mstatus::set_mpp(mpp) };
     next_addr
 }

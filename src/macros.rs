@@ -3,6 +3,7 @@
 #[allow(unused)]
 macro_rules! print {
     ($($arg:tt)*) => {
+        use core::fmt::Write;
         let mut console = $crate::console::CONSOLE.lock();
         console.write_fmt(core::format_args!($($arg)*)).unwrap();
         drop(console);
@@ -13,6 +14,7 @@ macro_rules! print {
 macro_rules! println {
     () => ($crate::print!("\n"));
     ($($arg:tt)*) => {{
+        use core::fmt::Write;
         let mut console = $crate::console::CONSOLE.lock();
         console.write_fmt(core::format_args!($($arg)*)).unwrap();
         console.write_char('\n').unwrap();

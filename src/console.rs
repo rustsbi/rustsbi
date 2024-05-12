@@ -1,7 +1,4 @@
-use core::{
-    fmt::{self, Write},
-    str::FromStr,
-};
+use core::{fmt, str::FromStr};
 use log::{Level, LevelFilter};
 use spin::Mutex;
 use uart16550::Uart16550;
