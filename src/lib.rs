@@ -774,6 +774,52 @@ pub use sbi_spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
 /// Finally, when the context restores, the supervisor mode software (kernels, etc.) could get the
 /// SBI call result from register values.
 ///
+/// Additionally, the macro also provides a dynamic way of building `RustSBI` trait implementations.
+/// It allows developers to dynamically choose which device to use in the actual RustSBI implementation.
+/// To use this feature, consider two structs namely `FenceOne` and `FenceTwo`, both implementing
+/// RISC-V SBI Remote Fence extension. We can now derive `RustSBI` macro on `MySBI` wrapping those
+/// two structs with `Option` type, annotated with `#[rustsbi(dynamic)]`:
+/// ``
+///
+/// ```rust
+/// # use rustsbi::RustSBI;
+/// #[derive(RustSBI)]
+/// #[rustsbi(dynamic)]
+/// struct MySBI {
+///     fence: Option<FenceOne>,
+///     rfnc: Option<FenceTwo>,
+/// #   info: MyEnvInfo,
+/// }
+///
+/// struct FenceOne { /* fields */ }
+///
+/// struct FenceTwo { /* fields */ }
+///
+/// // Both `FenceOne` and `FenceTwo` implements `rustsbi::Fence`.
+///
+/// # use sbi_spec::binary::{SbiRet, HartMask};
+/// # impl rustsbi::Fence for FenceOne {
+/// #     fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// # }
+/// # impl rustsbi::Fence for FenceTwo {
+/// #     fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// # }
+/// # struct MyEnvInfo;
+/// # impl rustsbi::EnvInfo for MyEnvInfo {
+/// #     fn mvendorid(&self) -> usize { unimplemented!() }
+/// #     fn marchid(&self) -> usize { unimplemented!() }
+/// #     fn mimpid(&self) -> usize { unimplemented!() }
+/// # }
+/// ```
+///
+/// We have declared two fields, `fence` and `rfnc`, both of which are recognized by RustSBI as potential
+/// candidates for the SBI Remote Fence extension. Dynamic RustSBI will probe both fields to determine
+/// which field it should use for the SBI calls on the Remote Fence extension.
+///
 /// Now we have learned basic usages of the derive-macro `RustSBI`. We can dive deeper and use RustSBI
 /// in real cases with ease. Congratulations!
 ///
@@ -850,6 +896,44 @@ pub use sbi_spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
 ///     rfnc: MyFence, // <-- Second field providing `rustsbi::Fence` implementation
 ///     info: MyEnvInfo,
 /// }
+///
+/// # use sbi_spec::binary::{SbiRet, HartMask};
+/// # struct MyFence;
+/// # impl rustsbi::Fence for MyFence {
+/// #     fn remote_fence_i(&self, _: HartMask) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// #     fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet { unimplemented!() }
+/// # }
+/// # struct MyEnvInfo;
+/// # impl rustsbi::EnvInfo for MyEnvInfo {
+/// #     fn mvendorid(&self) -> usize { 1 }
+/// #     fn marchid(&self) -> usize { 2 }
+/// #     fn mimpid(&self) -> usize { 3 }
+/// # }
+/// ```
+///
+/// When using the `#[rustsbi(dynamic)]` attribute, it is possible to include multiple
+/// fields that indicate the same SBI extension.
+///
+/// ```rust
+/// # use rustsbi::RustSBI;
+/// #[derive(RustSBI)]
+/// #[rustsbi(dynamic)]
+/// struct MySBI {
+///     // Fields in `#[rustsbi(dynamic)]` structures are usually wrapped in `Option`s.
+///     fence: Option<MyFence>,
+///     rfnc: Option<MyFence>,
+///     // ^ Both the two fields are identified as `rustsbi::Fence` implementation.
+///     info: MyEnvInfo,
+///     // ^ However, environment information should only be introduced *once*.
+/// }
+///
+/// // RustSBI will sequentially examine these fields, starting from the first one.
+/// // Upon encountering the first `Option` that is `Some`, it will utilize this
+/// // field as the implementation.
+/// // i.e., if the first field `fence` in `MySBI` is `Some`, RustSBI uses `fence`.
+/// // Else, if the second field `rfnc` is `Some`, RustSBI uses `rfnc`.
+/// // Otherwise, RustSBI returns `SbiRet::not_supported`.
 ///
 /// # use sbi_spec::binary::{SbiRet, HartMask};
 /// # struct MyFence;
