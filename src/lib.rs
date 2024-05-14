@@ -1,14 +1,14 @@
 //! A minimal RISC-V's SBI implementation library in Rust.
 //!
 //! *Note: If you are a user looking for binary distribution download for RustSBI, you may consider
-//! using the [RustSBI Prototyping System](https://github.com/rustsbi/standalone)
+//! using the [RustSBI Prototyper](https://github.com/rustsbi/prototyper)
 //! which will provide binaries for each platform.
 //! If you are a vendor or contributor who wants to adapt RustSBI to your new product or board,
-//! you may consider adapting the Prototyping System first to get your board adapted in a short period of time;
+//! you may consider adapting the Prototyper first to get your board adapted in a short period of time;
 //! or build a discrete crate if your team has plenty of time working on this board.*
 //!
-//! *For more details on binary downloads the RustSBI Prototyping System,
-//! see section [Prototyping System vs. discrete packages](#download-binary-file-the-prototyping-system-vs-discrete-packages).*
+//! *For more details on binary downloads the RustSBI Prototyper,
+//! see section [Prototyper vs. discrete packages](#download-binary-file-the-prototyper-vs-discrete-packages).*
 //!
 //! The crate `rustsbi` acts as core trait, extension abstraction and implementation generator
 //! of the RustSBI ecosystem.
@@ -111,8 +111,8 @@
 //!
 //! Boards, SoC vendors, machine environment emulators and research projects may adapt RustSBI
 //! to specific environments.
-//! RustSBI project supports these demands either by discrete package or the Prototyping System.
-//! Developers may choose the Prototyping System to shorten development time,
+//! RustSBI project supports these demands either by discrete package or the Prototyper.
+//! Developers may choose the Prototyper to shorten development time,
 //! or discrete packages to include fine-grained features.
 //!
 //! Hypervisor and supervisor environment emulator developers may refer to
@@ -120,14 +120,14 @@
 //! for such purposes, as RustSBI provides a different set of features dedicated to emulated or virtual
 //! environments.
 //!
-//! ## Use the Prototyping System
+//! ## Use the Prototyper
 //!
-//! The RustSBI Prototyping System aims to get your platform working with SBI in a short period of time.
+//! The RustSBI Prototyper aims to get your platform working with SBI in a short period of time.
 //! It supports most RISC-V platforms available by providing a scalable set of drivers and features.
 //! It provides useful custom features such as Penglai TEE, DramForever's emulated hypervisor extension,
 //! and Raven the firmware debugger framework.
 //!
-//! You may find further documents on [RustSBI Prototyping System repository](https://github.com/rustsbi/standalone).
+//! You may find further documents on [RustSBI Prototyper repository](https://github.com/rustsbi/prototyper).
 //!
 //! ## Discrete RustSBI package on bare metal RISC-V hardware
 //!
@@ -479,18 +479,18 @@
 //! Writing emulators would follow the similar process with writing hypervisors, see
 //! [Hypervisors using RustSBI](#hypervisors-using-rustsbi) for details.
 //!
-//! # Download binary file: the Prototyping System vs. discrete packages
+//! # Download binary file: the Prototyper vs. discrete packages
 //!
 //! RustSBI ecosystem would typically provide support for most platforms. Those support packages
-//! would be provided either from the RustSBI Prototyping System or vendor provided discrete SBI
+//! would be provided either from the RustSBI Prototyper or vendor provided discrete SBI
 //! implementation packages.
 //!
-//! The RustSBI Prototyping System is a universal support package provided by RustSBI ecosystem.
+//! The RustSBI Prototyper is a universal support package provided by RustSBI ecosystem.
 //! It is designed to save development time while providing most SBI features possible.
-//! It also includes a universal test kernel to allow testing SBI implementations on current environment.
-//! Users may choose to download from [Prototyping System repository](https://github.com/rustsbi/standalone)
+//! It also includes a simple test kernel to allow testing SBI implementations on current environment.
+//! Users may choose to download from [Prototyper repository](https://github.com/rustsbi/prototyper)
 //! to get various types of RustSBI packages for their boards.
-//! Vendors and contributors may find it easy to adapt new SoCs and boards into the Prototyping System.
+//! Vendors and contributors may find it easy to adapt new SoCs and boards into the Prototyper.
 //!
 //! Discrete SBI packages are SBI environment support packages specially designed for one board
 //! or SoC, it will be provided by board vendor or RustSBI ecosystem.
@@ -500,10 +500,10 @@
 //! indexes and feature granularity in discrete packages, but it would depend on whether the
 //! vendor provides it.
 //!
-//! To download binary package for the Prototyping System, visit its project website for a download link.
+//! To download binary package for the Prototyper, visit its project website for a download link.
 //! To download them for discrete packages, RustSBI users may visit distribution sources of SoC or board
 //! manufacturers. Additionally, users may visit [the awesome page](https://github.com/rustsbi/awesome-rustsbi)
-//! for a curated list of both Prototyping System and discrete packages provided by RustSBI ecosystem.
+//! for a curated list of both Prototyper and discrete packages provided by RustSBI ecosystem.
 //!
 //! # Notes for RustSBI developers
 //!
