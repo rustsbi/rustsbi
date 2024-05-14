@@ -513,10 +513,10 @@
 //!
 //! This library adapts to individual Rust traits and a derive-macro to provide basic SBI features.
 //! When building for a specific platform, implement traits in this library and pass the types into
-//! a structure to derive RustSBI macro onto. After that, `handle_ecall` would be called in the
-//! platform-specific exception handler.
-//! The derive macro `RustSBI` would dispatch parameters from supervisor to the trait implementations
-//! to handle the SBI calls.
+//! a structure to derive RustSBI macro onto. After that, [`handle_ecall`](trait.RustSBI.html#tymethod.handle_ecall)
+//! would be called in the platform-specific exception handler.
+//! The [derive macro `RustSBI`](derive.RustSBI.html) would dispatch parameters from supervisor
+//! to the trait implementations to handle the SBI calls.
 //!
 //! The library also implements useful constants which may help with platform-specific binaries.
 //! The `LOGO` and information on `VERSION` can be printed if necessary on SBI initialization
