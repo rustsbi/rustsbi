@@ -2,8 +2,8 @@ use crate::{dynamic, reset};
 use riscv::register::mstatus;
 
 #[cold]
-pub fn invalid_dynamic_info(err: dynamic::DynamicError) -> (mstatus::MPP, usize) {
-    error!("Invalid dynamic information:");
+pub fn invalid_dynamic_data(err: dynamic::DynamicError) -> (mstatus::MPP, usize) {
+    error!("Invalid data in dynamic information:");
     if err.invalid_mpp {
         error!("- dynamic information contains invalid privilege mode");
     }
@@ -25,9 +25,28 @@ pub fn invalid_dynamic_info(err: dynamic::DynamicError) -> (mstatus::MPP, usize)
 
 #[cold]
 pub fn no_dynamic_info_available(err: dynamic::DynamicReadError) -> dynamic::DynamicInfo {
-    error!(
-        "no dynamic information available at address 0x{:x}",
-        err.bad_paddr
-    );
+    if let Some(bad_paddr) = err.bad_paddr {
+        error!(
+            "No dynamic information available at address 0x{:x}",
+            bad_paddr
+        );
+    } else {
+        error!("No valid dynamic information available:");
+        if let Some(bad_magic) = err.bad_magic {
+            error!(
+                "- tried to identify dynamic information, but found invalid magic number 0x{:x}",
+                bad_magic
+            );
+        }
+        if let Some(bad_version) = err.bad_version {
+            error!("- tries to identify version of dynamic information, but the version number {} is not supported", bad_version);
+        }
+        if err.bad_magic.is_none() {
+            error!("help: magic number is valid")
+        }
+        if err.bad_version.is_none() {
+            error!("help: dynamic information version is valid")
+        }
+    }
     reset::fail()
 }

@@ -27,20 +27,39 @@ pub struct DynamicInfo {
 
 const DYNAMIC_INFO_VALID_ADDRESSES: Range<usize> = 0x1000..0xf000;
 const NEXT_ADDR_VALID_ADDRESSES: Range<usize> = 0x80000000..0x90000000;
+const MAGIC: usize = 0x4942534f;
+const SUPPORTED_VERSION: Range<usize> = 2..3;
 
 pub struct DynamicReadError {
-    pub bad_paddr: usize,
+    pub bad_paddr: Option<usize>,
+    pub bad_magic: Option<usize>,
+    pub bad_version: Option<usize>,
 }
 
 // TODO unconstrained lifetime
 pub fn read_paddr(paddr: usize) -> Result<DynamicInfo, DynamicReadError> {
+    let mut error = DynamicReadError {
+        bad_paddr: None,
+        bad_magic: None,
+        bad_version: None,
+    };
     // check pointer before dereference
     if !DYNAMIC_INFO_VALID_ADDRESSES.contains(&paddr)
         || !DYNAMIC_INFO_VALID_ADDRESSES.contains(&(paddr + size_of::<DynamicInfo>()))
     {
-        return Err(DynamicReadError { bad_paddr: paddr });
+        error.bad_paddr = Some(paddr);
+        return Err(error);
     }
     let ans = unsafe { *(paddr as *const DynamicInfo) };
+    if ans.magic != MAGIC {
+        error.bad_magic = Some(ans.magic);
+    }
+    if !SUPPORTED_VERSION.contains(&ans.version) {
+        error.bad_version = Some(ans.version);
+    }
+    if error.bad_magic.is_some() || error.bad_version.is_some() {
+        return Err(error);
+    }
     Ok(ans)
 }
 

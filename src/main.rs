@@ -27,7 +27,7 @@ extern "C" fn main(hart_id: usize, opaque: usize, nonstandard_a2: usize) -> usiz
 
     let info = dynamic::read_paddr(nonstandard_a2).unwrap_or_else(fail::no_dynamic_info_available);
 
-    let (mpp, next_addr) = dynamic::mpp_next_addr(&info).unwrap_or_else(fail::invalid_dynamic_info);
+    let (mpp, next_addr) = dynamic::mpp_next_addr(&info).unwrap_or_else(fail::invalid_dynamic_data);
 
     info!("Redirecting harts to 0x{:x} in {:?} mode.", next_addr, mpp);
 
