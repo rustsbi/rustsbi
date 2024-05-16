@@ -27,7 +27,7 @@ pub struct DynamicInfo {
 
 const DYNAMIC_INFO_VALID_ADDRESSES: Range<usize> = 0x1000..0xf000;
 const NEXT_ADDR_VALID_ADDRESSES: Range<usize> = 0x80000000..0x90000000;
-const MAGIC: usize = 0x4942534f;
+pub(crate) const MAGIC: usize = 0x4942534f;
 const SUPPORTED_VERSION: Range<usize> = 2..3;
 
 pub struct DynamicReadError {

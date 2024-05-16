@@ -55,9 +55,17 @@ unsafe extern "C" fn start() -> ! {
         // 1. Turn off interrupt
         "   csrw    mie, zero",
         // 2. Initialize programming langauge runtime
-        // only clear bss if hartid is zero
+        // only clear bss if hartid matches preferred boot hart id
         "   csrr    t0, mhartid",
-        "   bnez    t0, 2f",
+        "   ld      t1, 0(a2)",
+        "   li      t2, {magic}",
+        "   bne     t1, t2, 3f",
+        "   ld      t2, 40(a2)",
+        "   bne     t0, t2, 2f",
+        "   j       4f",
+        "3:",
+        "   j       3b", // TODO multi hart preempt for runtime init
+        "4:",
         // clear bss segment
         "   la      t0, sbss
             la      t1, ebss
@@ -76,6 +84,7 @@ unsafe extern "C" fn start() -> ! {
             addi    t4, t4, 8
             j       1b",
         "2: ",
+        // TODO wait before boot-hart initializes runtime
         // 3. Prepare stack for each hart
         "   la      sp, {stack}",
         "   li      t0, {stack_size_per_hart}",
@@ -90,6 +99,7 @@ unsafe extern "C" fn start() -> ! {
         // 5. Jump to following boot sequences
         "   csrw    mepc, a0",
         "   mret",
+        magic = const dynamic::MAGIC,
         stack_size_per_hart = const LEN_STACK_PER_HART,
         stack = sym STACK,
         main = sym main,
