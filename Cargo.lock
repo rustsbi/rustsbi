@@ -78,8 +78,9 @@ dependencies = [
 
 [[package]]
 name = "rustsbi"
-version = "0.4.0-alpha.2"
-source = "git+https://github.com/rustsbi/rustsbi#2daec25b1bdcb8596ae01a25327eb9ce6fb4738f"
+version = "0.4.0-alpha.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce47c5c62f6a4d9586b78cc2ba963330bc57a046c4b2949ebc128265707a40c3"
 dependencies = [
  "riscv",
  "rustsbi-macros",
@@ -88,8 +89,9 @@ dependencies = [
 
 [[package]]
 name = "rustsbi-macros"
-version = "0.0.1"
-source = "git+https://github.com/rustsbi/rustsbi#2daec25b1bdcb8596ae01a25327eb9ce6fb4738f"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a71347da9582cc6b6f3652c7d2c06516c9555690b3738ecdff7e84297f4e17fc"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -105,6 +107,8 @@ dependencies = [
  "panic-halt",
  "riscv",
  "rustsbi",
+ "serde",
+ "serde-device-tree",
  "sifive-test-device",
  "spin",
  "uart16550",
@@ -113,13 +117,42 @@ dependencies = [
 [[package]]
 name = "sbi-spec"
 version = "0.0.7"
-source = "git+https://github.com/rustsbi/rustsbi#2daec25b1bdcb8596ae01a25327eb9ce6fb4738f"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6e36312fb5ddc10d08ecdc65187402baba4ac34585cb9d1b78522ae2358d890"
 
 [[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "serde"
+version = "1.0.202"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "226b61a0d411b2ba5ff6d7f73a476ac4f8bb900373459cd00fab8512828ba395"
+dependencies = [
+ "serde_derive",
+]
+
+[[package]]
+name = "serde-device-tree"
+version = "0.0.1"
+source = "git+https://github.com/rustsbi/serde-device-tree#b8c2da9ee425cce49480731fa48e2ea39b457803"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "serde_derive"
+version = "1.0.202"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6048858004bcff69094cd972ed40a32500f153bd3be9f716b2eed2e8217c4838"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "sifive-test-device"

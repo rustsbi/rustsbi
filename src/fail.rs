@@ -1,5 +1,17 @@
-use crate::{dynamic, reset};
+use crate::{
+    device_tree::{self, ParseDeviceTreeError, Tree},
+    dynamic, reset,
+};
 use riscv::register::mstatus;
+
+#[cold]
+pub fn invalid_device_tree<'a>(err: device_tree::ParseDeviceTreeError) -> Tree<'a> {
+    match err {
+        ParseDeviceTreeError::Deserialize => error!("- deserialization failed"),
+        ParseDeviceTreeError::Format => error!("- FDT format error"),
+    }
+    reset::fail()
+}
 
 #[cold]
 pub fn invalid_dynamic_data(err: dynamic::DynamicError) -> (mstatus::MPP, usize) {
