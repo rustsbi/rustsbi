@@ -9,7 +9,7 @@ mod macros;
 
 mod board;
 mod console;
-mod device_tree;
+mod dt;
 mod dynamic;
 mod fail;
 mod reset;
@@ -26,10 +26,14 @@ extern "C" fn main(hart_id: usize, opaque: usize, nonstandard_a2: usize) -> usiz
     rustsbi::LOGO.lines().for_each(|line| info!("{}", line));
     info!("Initializing RustSBI machine-mode environment.");
 
-    let tree = device_tree::parse_device_tree(opaque).unwrap_or_else(fail::invalid_device_tree);
-    for item in tree.chosen.stdout_path.iter() {
-        info!("chosen stdout item: {:?}", item);
+    let dtb = dt::parse_device_tree(opaque).unwrap_or_else(fail::device_tree_format);
+    let dtb = dtb.share();
+    let tree = serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize);
+    if let Some(model) = tree.model {
+        info!("Model: {}", model.iter().next().unwrap_or("<unspecified>"));
     }
+    info!("Chosen stdout item: {}", tree.chosen.stdout_path.iter().next().unwrap_or("<unspecified>"));
+    // TODO handle unspecified by parsing into &'a str
 
     let info = dynamic::read_paddr(nonstandard_a2).unwrap_or_else(fail::no_dynamic_info_available);
 

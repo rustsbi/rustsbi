@@ -1,15 +1,21 @@
 use crate::{
-    device_tree::{self, ParseDeviceTreeError, Tree},
+    dt::{self, ParseDeviceTreeError, Tree},
     dynamic, reset,
 };
 use riscv::register::mstatus;
+use serde_device_tree::Dtb;
 
 #[cold]
-pub fn invalid_device_tree<'a>(err: device_tree::ParseDeviceTreeError) -> Tree<'a> {
+pub fn device_tree_format(err: dt::ParseDeviceTreeError) -> Dtb {
     match err {
-        ParseDeviceTreeError::Deserialize => error!("- deserialization failed"),
         ParseDeviceTreeError::Format => error!("- FDT format error"),
     }
+    reset::fail()
+}
+
+#[cold]
+pub fn device_tree_deserialize<'a>(err: serde_device_tree::Error) -> Tree<'a> {
+    error!("Device tree deserialization error: {:?}", err);
     reset::fail()
 }
 
