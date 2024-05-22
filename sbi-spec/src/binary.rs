@@ -742,6 +742,51 @@ impl HartMask {
     }
 }
 
+/// Counter index mask structure in SBI function calls for the `PMU` extension §11.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct CounterMask {
+    counter_idx_mask: usize,
+    counter_idx_base: usize,
+}
+
+impl CounterMask {
+    /// Special value to ignore the `mask`, and consider all `bit`s as set.
+    pub const IGNORE_MASK: usize = usize::MAX;
+
+    /// Construct a [CounterMask] from mask value and base counter index.
+    #[inline]
+    pub const fn from_mask_base(counter_idx_mask: usize, counter_idx_base: usize) -> Self {
+        Self {
+            counter_idx_mask,
+            counter_idx_base,
+        }
+    }
+
+    /// Gets the special value for ignoring the `mask` parameter.
+    #[inline]
+    pub const fn ignore_mask(&self) -> usize {
+        Self::IGNORE_MASK
+    }
+
+    /// Returns `mask` and `base` parameters from the [CounterMask].
+    #[inline]
+    pub const fn into_inner(self) -> (usize, usize) {
+        (self.counter_idx_mask, self.counter_idx_base)
+    }
+
+    /// Returns whether the [CounterMask] contains the provided `counter`.
+    #[inline]
+    pub const fn has_bit(self, counter: usize) -> bool {
+        has_bit(
+            self.counter_idx_mask,
+            self.counter_idx_base,
+            Self::IGNORE_MASK,
+            counter,
+        )
+    }
+}
+
 /// Physical slice wrapper with type annotation.
 ///
 /// This struct wraps slices in RISC-V physical memory by low and high part of the
@@ -917,6 +962,36 @@ mod tests {
         for i in 0..5 {
             assert!(mask.has_bit(i));
         }
+        assert!(mask.has_bit(usize::MAX));
+    }
+
+    #[test]
+    fn rustsbi_counter_index_mask() {
+        let mask = CounterMask::from_mask_base(0b1, 400);
+        assert!(!mask.has_bit(0));
+        assert!(mask.has_bit(400));
+        assert!(!mask.has_bit(401));
+        let mask = CounterMask::from_mask_base(0b110, 500);
+        assert!(!mask.has_bit(0));
+        assert!(!mask.has_bit(500));
+        assert!(mask.has_bit(501));
+        assert!(mask.has_bit(502));
+        assert!(!mask.has_bit(500 + (usize::BITS as usize)));
+        let max_bit = 1 << (usize::BITS - 1);
+        let mask = CounterMask::from_mask_base(max_bit, 600);
+        assert!(mask.has_bit(600 + (usize::BITS as usize) - 1));
+        assert!(!mask.has_bit(600 + (usize::BITS as usize)));
+        let mask = CounterMask::from_mask_base(0b11, usize::MAX - 1);
+        assert!(!mask.has_bit(usize::MAX - 2));
+        assert!(mask.has_bit(usize::MAX - 1));
+        assert!(mask.has_bit(usize::MAX));
+        assert!(!mask.has_bit(0));
+        let mask = CounterMask::from_mask_base(0, usize::MAX);
+        let null_mask = CounterMask::from_mask_base(0, 0);
+        (0..=usize::BITS as usize).for_each(|i| {
+            assert!(mask.has_bit(i));
+            assert!(!null_mask.has_bit(i));
+        });
         assert!(mask.has_bit(usize::MAX));
     }
 }
