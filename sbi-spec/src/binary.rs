@@ -673,58 +673,73 @@ impl SbiRet {
     }
 }
 
+/// Check if the implementation contains the provided `bit`.
+///
+/// ## Parameters
+///
+/// - `mask`: bitmask defining the range of bits.
+/// - `base`: the starting bit index. (default: `0`)
+/// - `ignore`: if `base` is equal to this value, ignore the `mask` parameter, and consider all `bit`s set.
+/// - `bit`: the bit index to check for membership in the `mask`.
+pub(crate) const fn has_bit(mask: usize, base: usize, ignore: usize, bit: usize) -> bool {
+    if base == ignore {
+        // ignore the `mask`, consider all `bit`s as set.
+        true
+    } else if bit < base {
+        // invalid index, under minimum range.
+        false
+    } else if (bit - base) >= usize::BITS as usize {
+        // invalid index, over max range.
+        false
+    } else {
+        // index is in range, check if it is set in the mask.
+        mask & (1 << (bit - base)) != 0
+    }
+}
+
 /// Hart mask structure in SBI function calls.
-#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct HartMask {
-    inner: BitVector,
+    hart_mask: usize,
+    hart_mask_base: usize,
 }
 
 impl HartMask {
-    /// Construct a hart mask from mask value and base hart id.
-    #[inline]
-    pub const fn from_mask_base(hart_mask: usize, hart_mask_base: usize) -> HartMask {
-        HartMask {
-            inner: BitVector {
-                hart_mask,
-                hart_mask_base,
-            },
-        }
-    }
+    /// Special value to ignore the `mask`, and consider all `bit`s as set.
+    pub const IGNORE_MASK: usize = usize::MAX;
 
-    /// Returns `hart_mask` and `hart_mask_base` parameters from the hart mask structure.
+    /// Construct a [HartMask] from mask value and base hart id.
     #[inline]
-    pub const fn into_inner(self) -> (usize, usize) {
-        (self.inner.hart_mask, self.inner.hart_mask_base)
-    }
-
-    /// Check if the `hart_id` is included in this hart mask structure.
-    #[inline]
-    pub const fn has_bit(&self, hart_id: usize) -> bool {
-        let BitVector {
+    pub const fn from_mask_base(hart_mask: usize, hart_mask_base: usize) -> Self {
+        Self {
             hart_mask,
             hart_mask_base,
-        } = self.inner;
-        if hart_mask_base == usize::MAX {
-            // If `hart_mask_base` equals `usize::MAX`, that means `hart_mask` is ignored
-            // and all available harts must be considered.
-            return true;
         }
-        let Some(idx) = hart_id.checked_sub(hart_mask_base) else {
-            // hart_id < hart_mask_base, not in current mask range
-            return false;
-        };
-        if idx >= usize::BITS as usize {
-            // hart_idx >= hart_mask_base + XLEN, not in current mask range
-            return false;
-        }
-        hart_mask & (1 << idx) != 0
     }
-}
 
-#[derive(Debug, Copy, Clone)]
-struct BitVector {
-    hart_mask: usize,
-    hart_mask_base: usize,
+    /// Gets the special value for ignoring the `mask` parameter.
+    #[inline]
+    pub const fn ignore_mask(&self) -> usize {
+        Self::IGNORE_MASK
+    }
+
+    /// Returns `mask` and `base` parameters from the [HartMask].
+    #[inline]
+    pub const fn into_inner(self) -> (usize, usize) {
+        (self.hart_mask, self.hart_mask_base)
+    }
+
+    /// Returns whether the [HartMask] contains the provided `hart_id`.
+    #[inline]
+    pub const fn has_bit(self, hart_id: usize) -> bool {
+        has_bit(
+            self.hart_mask,
+            self.hart_mask_base,
+            Self::IGNORE_MASK,
+            hart_id,
+        )
+    }
 }
 
 /// Physical slice wrapper with type annotation.
@@ -873,7 +888,7 @@ impl<T> Copy for SharedPtr<T> {}
 
 #[cfg(test)]
 mod tests {
-    use super::HartMask;
+    use super::*;
 
     #[test]
     fn rustsbi_hart_mask() {
