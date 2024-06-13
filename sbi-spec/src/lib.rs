@@ -104,6 +104,8 @@ mod tests {
         const_assert_eq!(4, impl_id::RUST_SBI);
         const_assert_eq!(5, impl_id::DIOSIX);
         const_assert_eq!(6, impl_id::COFFER);
+        const_assert_eq!(7, impl_id::XEN);
+        const_assert_eq!(8, impl_id::POLARFIRE_HSS);
     }
     // §5
     #[cfg(feature = "legacy")]
