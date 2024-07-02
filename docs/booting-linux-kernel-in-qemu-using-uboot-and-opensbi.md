@@ -1,24 +1,24 @@
-# 使用OpenSBI & U-boot在QEMU中启动Linux内核
+# 使用OpenSBI & U-Boot在QEMU中启动Linux内核
 
-本教程给出了使用OpenSBI和U-boot在QEMU中启动Linux内核的基本流程。高级用户可以在本教程中配置或构建各种内容时尝试不同的选项。
+本教程给出了使用OpenSBI和U-Boot在QEMU中启动Linux内核的基本流程。高级用户可以在本教程中配置或构建各种内容时尝试不同的选项。
 
 请读者在其主机上安装必要的软件来尝试本教程的脚本。本教程是在Arch Linux上开发的。
 
 [环境配置](#环境配置)小节给出了本教程的环境配置方法，用户在使用本教程时需要先完成环境配置小节内容。
 
-[编译Linux Kernel](#编译Linux Kernel)小节给出了Linux Kernel的编译流程，并使用编译好的Linux Kernel镜像制作启动盘。
+[编译Linux Kernel](#编译linux-kernel)小节给出了Linux Kernel的编译流程，并使用编译好的Linux Kernel镜像制作启动盘。
 
 OpenSBI 有三种 Firmware：
 
-- `FW_PAYLOAD`：下一引导阶段被作为 payload 打包进来，通常是 U-Boot 或 Linux。这是兼容 Linux 的 RISC-V 硬件所使用的默认 Firmware。
-- `FW_JUMP`：跳转到一个固定地址，该地址上需存有下一个加载器。QEMU 的早期版本曾经使用过它。
-- `FW_DYNAMIC`：根据前一个阶段传入的信息动态加载下一个阶段。U-Boot SPL/Coreboot 使用 `FW_DYNAMIC`。现在 QEMU 默认使用 `FW_DYNAMIC`。
+- `fw_payload`：下一引导阶段被作为 payload 打包进来，通常是 U-Boot 或 Linux。这是兼容 Linux 的 RISC-V 硬件所使用的默认 Firmware。
+- `fw_jump`：跳转到一个固定地址，该地址上需存有下一个加载器。QEMU 的早期版本曾经使用过它。
+- `fw_dynamic`：根据前一个阶段传入的信息动态加载下一个阶段。U-Boot SPL/Coreboot 使用 `fw_dynamic`。现在 QEMU 默认使用 `fw_dynamic`。
 
-[`fw_payload`](#`fw_payload`)小节本给出了使用OpnSBI `fw_payload`类型固件和U-Boot在QEMU上启动Linux Kernel的教程。
+[`fw_payload`](#fw_payload)小节本给出了使用OpnSBI `fw_payload`类型固件和U-Boot在QEMU上启动Linux Kernel的教程。
 
-[`fw_jump`](#`fw_jump`)小节本给出了使用OpnSBI `fw_jump`类型固件和U-Boot在QEMU上启动Linux Kernel的教程。
+[`fw_jump`](#fw_jump)小节本给出了使用OpnSBI `fw_jump`类型固件和U-Boot在QEMU上启动Linux Kernel的教程。
 
-[`fw_dynamic`](#`fw_dynamic`)小节本给出了使用OpnSBI `fw_dynamic`类型固件和U-Boot在QEMU上启动Linux Kernel的教程。
+[`fw_dynamic`](#fw_dynamic)小节本给出了使用OpnSBI `fw_dynamic`类型固件和U-Boot在QEMU上启动Linux Kernel的教程。
 
 本教程使用软件版本如下：
 
@@ -174,7 +174,7 @@ $ export CROSS_COMPILE=riscv64-linux-gnu-
 ``` shell
 $ make defconfig
 $ make menuconfig
-# 启用 Settings-->Build Options 里的 Build static binary (no shared libs) 选项
+# Enable the Build static binary (no shared libs) option in Settings-->Build Options
 $ make -j $(nproc)
 $ make install
 ```
@@ -210,13 +210,12 @@ $ sudo losetup --find --show linux-rootfs.img
 
 记下循环设备的完整路径。在本教程中它是`/dev/loop0`。对`/dev/loop0`的操作将会对`linux-rootfs.img`进行操作。
 
-对`\dev\loop0`分区
+对`/dev/loop0`分区
 
 ``` shell
 # Create a couple of primary partitions
 $ sudo parted --align minimal /dev/loop0 mkpart primary ext4 0 100%
 
-# Optional: inspect the partit FW_PAYLOAD_PATH=ions
 $ sudo parted /dev/loop0 print
 ```
 
@@ -343,7 +342,7 @@ $ export CROSS_COMPILE=riscv64-linux-gnu-
 $ make PLATFORM=generic FW_PAYLOAD_PATH=../u-boot/u-boot.bin -j$(nproc)
 ```
 
-本小节将使用 QEMU 可以运行的输出文件 `build/platform/generic/firmware/fw_payload.elf`。由于 FW_PAYLOAD_PATH 指向 u-boot，因此 U-Boot 嵌入在输出中，OpenSBI 将自动启动 U-Boot。
+本小节将使用 QEMU 可以运行的输出文件 `build/platform/generic/firmware/fw_payload.elf`。由于`FW_PAYLOAD_PATH`指向 u-boot，因此 U-Boot 嵌入在输出中，OpenSBI 将自动启动 U-Boot。
 
 ### 使用OpenSBI `fw_payload`固件启动Linux Kernel
 
@@ -370,7 +369,7 @@ $ qemu-system-riscv64 -M virt -smp 4 -m 256M -nographic \
 
 ### 编译U-Boot
 
-和[`fw_payload`](#`fw_payload`)小节一致
+和[`fw_payload`](#fw_payload)小节一致
 
 ### 编译OpenSBI
 
@@ -422,7 +421,7 @@ $ qemu-system-riscv64 -M virt -smp 4 -m 256M -nographic \
 进入OpenSBI目录
 
 ``` shell
-cd opensbi
+$ cd opensbi
 ```
 
 导出环境变量
@@ -445,7 +444,7 @@ $ make all PLATFORM=generic PLATFORM_RISCV_XLEN=64 -j$(nproc)
 进入U-Boot目录
 
 ``` shell
-cd u-boot
+$ cd u-boot
 ```
 
 导出环境变量
@@ -494,7 +493,7 @@ $ cd workshop
 $ qemu-system-riscv64 -M virt -smp 4 -m 256M -nographic \
           -bios ./u-boot/spl/u-boot-spl \
           -device loader,file=./u-boot/u-boot.itb,addr=0x80200000 \
-		 -blockdev driver=file,filename=./linux-rootfs.img,node-name=hd0 \
+          -blockdev driver=file,filename=./linux-rootfs.img,node-name=hd0 \
           -device virtio-blk-device,drive=hd0
 ```
 
