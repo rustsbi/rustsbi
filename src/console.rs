@@ -1,7 +1,71 @@
-use core::{fmt, str::FromStr};
+use core::{fmt, ptr::null, str::FromStr};
 use log::{Level, LevelFilter};
+use rustsbi::{Console, Physical, SbiRet};
 use spin::Mutex;
 use uart16550::Uart16550;
+
+pub struct ConsoleDevice<'a> {
+    inner: &'a Mutex<MachineConsole>,
+}
+
+impl<'a> ConsoleDevice<'a> {
+    pub fn new(inner: &'a Mutex<MachineConsole>) -> Self {
+        Self { inner }
+    }
+}
+
+#[doc(hidden)]
+pub(crate) static CONSOLE: Mutex<MachineConsole> = Mutex::new(MachineConsole::Uart16550(null()));
+
+pub fn init(base: usize) {
+    *CONSOLE.lock() = MachineConsole::Uart16550(base as _);
+    log_init();
+}
+
+
+impl<'a> Console for ConsoleDevice<'a> {
+    #[inline]
+    fn write(&self, bytes: Physical<&[u8]>) -> SbiRet {
+        // TODO verify valid memory range for a `Physical` slice.
+        let start = bytes.phys_addr_lo();
+        let buf = unsafe { core::slice::from_raw_parts(start as *const u8, bytes.num_bytes()) };
+        let console = self.inner.lock();
+        match *console {
+            MachineConsole::Uart16550(uart16550) => unsafe {
+                (*uart16550).write(buf);
+            },
+        }
+        drop(console);
+        SbiRet::success(0)
+    }
+
+    #[inline]
+    fn read(&self, bytes: Physical<&mut [u8]>) -> SbiRet {
+        // TODO verify valid memory range for a `Physical` slice.
+        let start = bytes.phys_addr_lo();
+        let buf = unsafe { core::slice::from_raw_parts_mut(start as *mut u8, bytes.num_bytes()) };
+        let console = self.inner.lock();
+        let bytes_num: usize = match *console {
+            MachineConsole::Uart16550(uart16550) => unsafe {
+               (*uart16550).read(buf)
+            },
+        };
+        drop(console);
+        SbiRet::success(bytes_num)
+    }
+
+    #[inline]
+    fn write_byte(&self, byte: u8) -> SbiRet {
+        let console = self.inner.lock();
+        match *console {
+            MachineConsole::Uart16550(uart16550) => unsafe {
+                (*uart16550).write(&[byte]);
+            },
+        }
+        drop(console);
+        SbiRet::success(0)
+    }
+}
 
 #[doc(hidden)]
 pub enum MachineConsole {
@@ -27,11 +91,7 @@ impl fmt::Write for MachineConsole {
 unsafe impl Send for MachineConsole {}
 unsafe impl Sync for MachineConsole {}
 
-#[doc(hidden)]
-pub static CONSOLE: Mutex<MachineConsole> =
-    Mutex::new(MachineConsole::Uart16550(0x10000000 as *const _));
-
-pub fn init() {
+pub fn log_init() {
     log::set_max_level(
         option_env!("RUST_LOG")
             .and_then(|s| LevelFilter::from_str(s).ok())

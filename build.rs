@@ -13,7 +13,7 @@ fn main() {
 const LINKER_SCRIPT: &[u8] = b"OUTPUT_ARCH(riscv)
 ENTRY(_start) 
 SECTIONS {
-    . = 0x80000000;
+    . = 0x80100000;
     .text : ALIGN(8) { 
         *(.text.entry)
         *(.text .text.*)
