@@ -1,6 +1,6 @@
-# 使用OpenSBI & U-Boot在QEMU中启动Linux内核
+# 使用RustSBI & U-Boot在QEMU中启动Linux内核
 
-本教程给出了使用OpenSBI和U-Boot在QEMU中启动Linux内核的基本流程。高级用户可以在本教程中配置或构建各种内容时尝试不同的选项。
+本教程给出了使用RustSBI和U-Boot在QEMU中启动Linux内核的基本流程。高级用户可以在本教程中配置或构建各种内容时尝试不同的选项。
 
 请读者在其主机上安装必要的软件来尝试本教程的脚本。本教程是在Arch Linux上开发的。
 
@@ -8,17 +8,7 @@
 
 [编译Linux Kernel](#编译linux-kernel)小节给出了Linux Kernel的编译流程，并使用编译好的Linux Kernel镜像制作启动盘。
 
-OpenSBI 有三种 Firmware：
-
-- `fw_payload`：下一引导阶段被作为 payload 打包进来，通常是 U-Boot 或 Linux。这是兼容 Linux 的 RISC-V 硬件所使用的默认 Firmware。
-- `fw_jump`：跳转到一个固定地址，该地址上需存有下一个加载器。QEMU 的早期版本曾经使用过它。
-- `fw_dynamic`：根据前一个阶段传入的信息动态加载下一个阶段。U-Boot SPL/Coreboot 使用 `fw_dynamic`。现在 QEMU 默认使用 `fw_dynamic`。
-
-[`fw_payload`](#fw_payload)小节本给出了使用OpnSBI `fw_payload`类型固件和U-Boot在QEMU上启动Linux Kernel的教程。
-
-[`fw_jump`](#fw_jump)小节本给出了使用OpnSBI `fw_jump`类型固件和U-Boot在QEMU上启动Linux Kernel的教程。
-
-[`fw_dynamic`](#fw_dynamic)小节本给出了使用OpnSBI `fw_dynamic`类型固件和U-Boot在QEMU上启动Linux Kernel的教程。
+RustSBI 原型系统提供动态固件，根据前一个阶段传入的信息动态加载下一个阶段。
 
 本教程使用软件版本如下：
 
@@ -26,7 +16,7 @@ OpenSBI 有三种 Firmware：
 | :-------------------: | :-----: |
 | riscv64-linux-gnu-gcc | 14.1.0  |
 |  qemu-system-riscv64  |  9.0.1  |
-|        OpenSBI        |   1.4   |
+|  RustSBI Prototyper   |  0.0.0  |
 |        U-Boot         | 2024.04 |
 |     Linux Kernel      |   6.2   |
 |        busybox        | 1.36.0  |
@@ -77,7 +67,7 @@ QEMU emulator version 9.0.1
 Copyright (c) 2003-2024 Fabrice Bellard and the QEMU Project developers
 ```
 
-### 准备OpenSBI， U-Boot ， busybox和Linux Kernel源码
+### 准备RustSBI Prototyper， U-Boot ， busybox和Linux Kernel源码
 
 创建工作目录并进入该目录
 
@@ -85,10 +75,10 @@ Copyright (c) 2003-2024 Fabrice Bellard and the QEMU Project developers
 $ mkdir workshop && cd workshop
 ```
 
-Clone OpenSBI
+Clone RustSBI Prototyper
 
 ``` shell
-$ git clone https://github.com/riscv/opensbi.git && cd opensbi && git checkout v1.4 && cd ..
+$ git clone https://github.com/rustsbi/prototyper.git && cd ..
 ```
 
 Clone U-Boot
@@ -279,11 +269,23 @@ $ sudo umount rootfs
 $ sudo losetup -d /dev/loop0
 ```
 
-## `fw_payload`
+## 编译RustSBI  Prototyper
 
-本小节给出了使用OpnSBI `fw_payload`类型固件和U-Boot在QEMU上启动Linux Kernel的教程。
+进入prototyper目录
 
-### 编译U-Boot
+``` shell
+$ cd prototyper
+```
+
+编译RustSBI  Prototyper
+
+``` shell
+$ cargo build --release
+$ rust-objcopy --binary-architecture=riscv64 ./target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper \
+  -O binary target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin 
+```
+
+## 编译U-Boot SPL
 
 进入U-Boot目录
 
@@ -296,163 +298,7 @@ $ cd u-boot
 ``` shell
 $ export ARCH=riscv
 $ export CROSS_COMPILE=riscv64-linux-gnu-
-```
-
-生成`.config`文件
-
-``` shell
-# To generate .config file out of board configuration file
-$ make qemu-riscv64_smode_defconfig
-# add bootcmd value
-$ make menuconfig
-```
-U-Boot 配置选项将加载到终端。导航到 `Boot options` $\rightarrow$ `bootcmd value` 并将以下内容写入 `bootcmd` 值：
-
-``` 
-ext4load virtio 0:1 84000000 Image; setenv bootargs root=/dev/vda1 rw console=ttyS0; booti 0x84000000 - ${fdtcontroladdr}
-```
-
-编译U-Boot
-
-``` shell
-# To build U-Boot
-$ make -j$(nproc)
-```
-
-U-Boot 二进制文件位于 `./u-boot.bin`。
-
-### 编译OpenSBI
-
-进入OpenSBI目录
-
-``` shell
-$ cd opensbi
-```
-
-导出环境变量
-
-``` shell
-$ export ARCH=riscv
-$ export CROSS_COMPILE=riscv64-linux-gnu-
-```
-
-编译OpenSBI
-
-``` shell
-$ make PLATFORM=generic FW_PAYLOAD_PATH=../u-boot/u-boot.bin -j$(nproc)
-```
-
-本小节将使用 QEMU 可以运行的输出文件 `build/platform/generic/firmware/fw_payload.elf`。由于`FW_PAYLOAD_PATH`指向 u-boot，因此 U-Boot 嵌入在输出中，OpenSBI 将自动启动 U-Boot。
-
-### 使用OpenSBI `fw_payload`固件启动Linux Kernel
-
-进入`workshop`目录
-
-``` shell
-$ cd workshop
-```
-
-运行下面命令
-
-``` shell
-$ qemu-system-riscv64 -M virt -smp 4 -m 256M -nographic \
-      -bios ./opensbi/build/platform/generic/firmware/fw_payload.elf \
-      -blockdev driver=file,filename=./linux-rootfs.img,node-name=hd0 \
-      -device virtio-blk-device,drive=hd0
-```
-
-
-
-## `fw_jump`
-
-本小节给出了使用OpnSBI `fw_jump`类型固件和U-Boot在QEMU上启动Linux Kernel的教程。
-
-### 编译U-Boot
-
-和[`fw_payload`](#fw_payload)小节一致
-
-### 编译OpenSBI
-
-进入OpenSBI目录
-
-``` shell
-$ cd opensbi
-```
-
-导出环境变量
-
-``` shell
-$ export ARCH=riscv
-$ export CROSS_COMPILE=riscv64-linux-gnu-
-```
-
-编译OpenSBI
-
-``` shell
-$ make all PLATFORM=generic PLATFORM_RISCV_XLEN=64 -j$(nproc)
-```
-
-本小节将使用 QEMU 可以运行的输出文件 `build/platform/generic/firmware/fw_jump.bin`。
-
-### 使用OpenSBI `fw_jump`固件启动Linux Kernel
-
-进入`workshop`目录
-
-``` shell
-$ cd workshop
-```
-
-运行下面命令
-
-``` shell
-$ qemu-system-riscv64 -M virt -smp 4 -m 256M -nographic \
-      -bios ./opensbi/build/platform/generic/firmware/fw_jump.elf \
-      -kernel ./u-boot/u-boot.bin  \
-      -blockdev driver=file,filename=./linux-rootfs.img,node-name=hd0 \
-      -device virtio-blk-device,drive=hd0
-```
-
-## `fw_dynamic`
-
-本小节给出了使用OpnSBI `fw_dynamic`类型固件和U-Boot在QEMU上启动Linux Kernel的教程。
-
-### 编译OpenSBI
-
-进入OpenSBI目录
-
-``` shell
-$ cd opensbi
-```
-
-导出环境变量
-
-``` shell
-$ export ARCH=riscv
-$ export CROSS_COMPILE=riscv64-linux-gnu-
-```
-
-编译OpenSBI
-
-``` shell
-$ make all PLATFORM=generic PLATFORM_RISCV_XLEN=64 -j$(nproc)
-```
-
-本小节将使用 QEMU 可以运行的输出文件 `build/platform/generic/firmware/fw_dynamic.bin`。
-
-### 编译U-Boot SPL
-
-进入U-Boot目录
-
-``` shell
-$ cd u-boot
-```
-
-导出环境变量
-
-``` shell
-$ export ARCH=riscv
-$ export CROSS_COMPILE=riscv64-linux-gnu-
-$ export OPENSBI=../opensbi/build/platform/generic/firmware/fw_dynamic.bin 
+$ export OPENSBI=../prototyper/target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin 
 ```
 
 生成`.config`文件
@@ -479,7 +325,7 @@ $ make -j$(nproc)
 
 本小节将使用二进制文件 `./spl/u-boot-spl`和`./u-boot.itb `。
 
-### 使用OpenSBI `fw_dynamic固件启动Linux Kernel
+## 使用RustSBI 原型系统和U-Boot启动Linux Kernel
 
 进入`workshop`目录
 
@@ -490,7 +336,7 @@ $ cd workshop
 运行下面命令
 
 ``` shell
-$ qemu-system-riscv64 -M virt -smp 4 -m 256M -nographic \
+$ qemu-system-riscv64 -M virt -smp 1 -m 256M -nographic \
           -bios ./u-boot/spl/u-boot-spl \
           -device loader,file=./u-boot/u-boot.itb,addr=0x80200000 \
           -blockdev driver=file,filename=./linux-rootfs.img,node-name=hd0 \

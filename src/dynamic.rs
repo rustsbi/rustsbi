@@ -1,6 +1,6 @@
 //! Frequently used first boot stage dynamic information on RISC-V.
 
-use core::{mem::size_of, ops::Range};
+use core::ops::Range;
 
 use riscv::register::mstatus;
 
@@ -25,7 +25,7 @@ pub struct DynamicInfo {
 // Definition of `boot_hart` can be found at:
 // https://github.com/riscv-software-src/opensbi/blob/019a8e69a1dc0c0f011fabd0372e1ba80e40dd7c/include/sbi/fw_dynamic.h#L75
 
-const DYNAMIC_INFO_VALID_ADDRESSES: Range<usize> = 0x1000..0xf000;
+const DYNAMIC_INFO_INVALID_ADDRESSES: usize = 0x00000000;
 const NEXT_ADDR_VALID_ADDRESSES: Range<usize> = 0x80000000..0x90000000;
 pub(crate) const MAGIC: usize = 0x4942534f;
 const SUPPORTED_VERSION: Range<usize> = 2..3;
@@ -44,13 +44,13 @@ pub fn read_paddr(paddr: usize) -> Result<DynamicInfo, DynamicReadError> {
         bad_version: None,
     };
     // check pointer before dereference
-    if !DYNAMIC_INFO_VALID_ADDRESSES.contains(&paddr)
-        || !DYNAMIC_INFO_VALID_ADDRESSES.contains(&(paddr + size_of::<DynamicInfo>()))
+    if DYNAMIC_INFO_INVALID_ADDRESSES == paddr
     {
         error.bad_paddr = Some(paddr);
         return Err(error);
     }
     let ans = unsafe { *(paddr as *const DynamicInfo) };
+    
     if ans.magic != MAGIC {
         error.bad_magic = Some(ans.magic);
     }

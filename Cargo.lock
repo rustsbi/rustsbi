@@ -27,6 +27,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "361a90feb7004eca4019fb28352a9465666b24f840f5c3cddf0ff13920590b89"
 
 [[package]]
+name = "fast-trap"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7fbe69badc2e0dc98ad2787648fa140b5772d24b49e9a6b180a67e1348f7544c"
+
+[[package]]
 name = "lock_api"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -77,6 +83,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "riscv-decode"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bec7a6dc0b0bb96a4d23271864a45c0d24dcd9dde2a1b630a35f79fa29c588bf"
+
+[[package]]
 name = "rustsbi"
 version = "0.4.0-alpha.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -103,10 +115,13 @@ name = "rustsbi-prototyper"
 version = "0.0.0"
 dependencies = [
  "aclint",
+ "fast-trap",
  "log",
  "panic-halt",
  "riscv",
+ "riscv-decode",
  "rustsbi",
+ "sbi-spec",
  "serde",
  "serde-device-tree",
  "sifive-test-device",
