@@ -569,7 +569,7 @@ const SBI_SPEC_MINOR: usize = 0;
 
 /// RustSBI implementation ID: 4.
 ///
-/// Ref: https://github.com/riscv-non-isa/riscv-sbi-doc/pull/61
+/// Ref: <https://github.com/riscv-non-isa/riscv-sbi-doc/pull/61>
 const IMPL_ID_RUSTSBI: usize = 4;
 
 const RUSTSBI_VERSION_MAJOR: usize = (env!("CARGO_PKG_VERSION_MAJOR").as_bytes()[0] - b'0') as _;
