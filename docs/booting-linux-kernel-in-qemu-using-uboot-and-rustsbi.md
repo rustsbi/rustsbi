@@ -43,7 +43,7 @@ $ sudo apt-get install git qemu-system-misc gcc-riscv64-linux-gnu
 For riscv64-linux-gnu-gcc:
 
 ``` shell
-$  riscv64-linux-gnu-gcc --version
+$ riscv64-linux-gnu-gcc --version
 ```
 
 它将输出以下版本信息
@@ -57,7 +57,7 @@ This is free software; see the source for copying conditions.  There is NO warra
 For QEMU:
 
 ``` shell
-$ qemu-system-riscv64  --version
+$ qemu-system-riscv64 --version
 ```
 
 它将输出以下版本信息
@@ -78,7 +78,7 @@ $ mkdir workshop && cd workshop
 Clone RustSBI Prototyper
 
 ``` shell
-$ git clone https://github.com/rustsbi/prototyper.git && cd ..
+$ git clone https://github.com/rustsbi/prototyper.git && cd prototyper && git checkout main && cd ..
 ```
 
 Clone U-Boot
