@@ -29,17 +29,17 @@ use sbi_spec::binary::SbiRet;
 /// An SBI implementation can utilize the suspend states of higher topology groups using one of the following approaches:
 ///
 /// 1. *Platform-coordinated:* In this approach, when a hart becomes idle, the supervisor-mode power-management software
-///   will request deepest suspend state for the hart and higher topology groups.
-///   An SBI implementation should choose a suspend state at a higher topology group which is:
-/// - Not deeper than the specified suspend state
-/// - Wake-up latency is not higher than the wake-up latency of the specified suspend state
+///    will request deepest suspend state for the hart and higher topology groups.
+///    An SBI implementation should choose a suspend state at a higher topology group which is:
+///       - Not deeper than the specified suspend state
+///       - Wake-up latency is not higher than the wake-up latency of the specified suspend state
 /// 2. *OS-initiated:* In this approach, the supervisor-mode power-management software will directly request a suspend state
-///   for a higher topology group after the last hart in that group becomes idle.
-///   When a hart becomes idle, the supervisor-mode power-management software will always select suspend state for the hart itself.
-///   However, it will select a suspend state for a higher topology group only if the hart is the last running hart in the group.
-///   An SBI implementation should:
-/// - Never choose a suspend state for a higher topology group different from the specified suspend state
-/// - Always prefer the most recent suspend state requested for a higher topology group
+///    for a higher topology group after the last hart in that group becomes idle.
+///    When a hart becomes idle, the supervisor-mode power-management software will always select suspend state for the hart itself.
+///    However, it will select a suspend state for a higher topology group only if the hart is the last running hart in the group.
+///    An SBI implementation should:
+///       - Never choose a suspend state for a higher topology group different from the specified suspend state
+///       - Always prefer the most recent suspend state requested for a higher topology group
 ///
 /// Ref: [Section 8, RISC-V Supervisor Binary Interface Specification](https://github.com/riscv-non-isa/riscv-sbi-doc/blob/master/riscv-sbi.adoc#8-hart-state-management-extension-eid-0x48534d-hsm)
 pub trait Hsm {

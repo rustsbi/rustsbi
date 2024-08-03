@@ -20,9 +20,9 @@ use sbi_spec::{
 ///
 /// - The `hartid` parameter specifies the target hart, which is to be started.
 /// - The `start_addr` parameter points to a runtime-specified physical address,
-/// where the hart can start executing in supervisor-mode.
+///   where the hart can start executing in supervisor-mode.
 /// - The `opaque` parameter is a `usize` value that will be set in the `a1`
-/// register when the hart starts executing at `start_addr`.
+///   register when the hart starts executing at `start_addr`.
 ///
 /// *NOTE:* A single `usize` parameter is sufficient as `start_addr`,
 /// because the hart will start execution in the supervisor-mode with MMU off,
