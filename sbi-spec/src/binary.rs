@@ -681,6 +681,7 @@ impl SbiRet {
 /// - `base`: the starting bit index. (default: `0`)
 /// - `ignore`: if `base` is equal to this value, ignore the `mask` parameter, and consider all `bit`s set.
 /// - `bit`: the bit index to check for membership in the `mask`.
+#[inline]
 pub(crate) const fn has_bit(mask: usize, base: usize, ignore: usize, bit: usize) -> bool {
     if base == ignore {
         // ignore the `mask`, consider all `bit`s as set.
