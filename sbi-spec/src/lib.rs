@@ -316,11 +316,13 @@ mod tests {
             () => {
                 const_assert_eq!(shmem_size::NATIVE, shmem_size::RV64);
             }
-            #[cfg(target_pointer_width = "128")]
-            () => {
-                const_assert_eq!(shmem_size::NATIVE, shmem_size::RV128);
-            }
         }
+        // FIXME(2024-08-03): gate target pointer width at 128
+        // Currently, values for `target_pointer_width` expected by Rustc compiler are only `16`, `32`, and `64`.
+        // #[cfg(target_pointer_width = "128")]
+        // () => {
+        //     const_assert_eq!(shmem_size::NATIVE, shmem_size::RV128);
+        // }
     }
     // §16
     #[test]
