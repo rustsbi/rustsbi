@@ -249,6 +249,18 @@ mod tests {
         const_assert_eq!(20, firmware_event::HFENCE_VVMA_ASID_SENT);
         const_assert_eq!(21, firmware_event::HFENCE_VVMA_ASID_RECEIVED);
         const_assert_eq!(65535, firmware_event::PLATFORM);
+        const_assert_eq!(1, counter_related::CounterCfgFlags::SKIP_MATCH.bits());
+        const_assert_eq!(2, counter_related::CounterCfgFlags::CLEAR_VALUE.bits());
+        const_assert_eq!(4, counter_related::CounterCfgFlags::AUTO_START.bits());
+        const_assert_eq!(8, counter_related::CounterCfgFlags::SET_VUINH.bits());
+        const_assert_eq!(16, counter_related::CounterCfgFlags::SET_VSINH.bits());
+        const_assert_eq!(32, counter_related::CounterCfgFlags::SET_UINH.bits());
+        const_assert_eq!(64, counter_related::CounterCfgFlags::SET_SINH.bits());
+        const_assert_eq!(128, counter_related::CounterCfgFlags::SET_MINH.bits());
+        const_assert_eq!(1, counter_related::CounterStartFlags::INIT_VALUE.bits());
+        const_assert_eq!(2, counter_related::CounterStartFlags::INIT_SNAPSHOT.bits());
+        const_assert_eq!(1, counter_related::CounterStopFlags::RESET.bits());
+        const_assert_eq!(2, counter_related::CounterStopFlags::TAKE_SNAPSHOT.bits());
     }
     // §12
     #[test]
