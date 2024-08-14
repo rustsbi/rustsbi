@@ -20,83 +20,102 @@ mod trap;
 mod trap_stack;
 
 use clint::ClintDevice;
+use core::sync::atomic::{AtomicBool, Ordering};
 use core::{arch::asm, mem::MaybeUninit};
 use riscv::register::mstatus;
 
 use crate::board::{Board, SBI};
 use crate::clint::SIFIVECLINT;
 use crate::console::{ConsoleDevice, CONSOLE};
-use crate::hsm::{Hsm, local_remote_hsm};
-use crate::trap::trap_vec;
+use crate::hsm::{local_remote_hsm, Hsm};
 use crate::riscv_spec::menvcfg;
+use crate::trap::trap_vec;
 use crate::trap_stack::NUM_HART_MAX;
 
 #[no_mangle]
 extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
-    extern "C" {
-        fn sbss();
-        fn ebss();
-    }
-    (sbss as usize..ebss as usize).for_each(|a| unsafe { (a as *mut u8).write_volatile(0) });
-
     // parse dynamic information
     let info = dynamic::read_paddr(nonstandard_a2).unwrap_or_else(fail::no_dynamic_info_available);
-    let (mpp, next_addr) = dynamic::mpp_next_addr(&info).unwrap_or_else(fail::invalid_dynamic_data);
+    static GENESIS: AtomicBool = AtomicBool::new(true);
 
-    // parse the device tree
-    let dtb = dt::parse_device_tree(opaque).unwrap_or_else(fail::device_tree_format);
-    let dtb = dtb.share();
-    let tree = serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize);
+    let is_boot_hart = if info.boot_hart == usize::MAX {
+        GENESIS.swap(false, Ordering::AcqRel)
+    } else {
+        hart_id() == info.boot_hart
+    };
 
-    // TODO: The device base address needs to be parsed from FDT
-    console::init(0x10000000);
-    clint::init(0x2000000);
+    if is_boot_hart {
+        let (mpp, next_addr) =
+            dynamic::mpp_next_addr(&info).unwrap_or_else(fail::invalid_dynamic_data);
 
-    info!("RustSBI version {}", rustsbi::VERSION);
-    rustsbi::LOGO.lines().for_each(|line| info!("{}", line));
-    info!("Initializing RustSBI machine-mode environment.");
-    if let Some(model) = tree.model {
-        info!("Model: {}", model.iter().next().unwrap_or("<unspecified>"));
-    }
-    info!(
-        "Chosen stdout item: {}",
-        tree.chosen
-            .stdout_path
-            .iter()
-            .next()
-            .unwrap_or("<unspecified>")
-    );
+        // parse the device tree
+        let dtb = dt::parse_device_tree(opaque).unwrap_or_else(fail::device_tree_format);
+        let dtb = dtb.share();
+        let tree =
+            serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize);
 
-    // Init SBI
-    unsafe {
-        SBI = MaybeUninit::new(Board {
-            uart16550: Some(ConsoleDevice::new(&CONSOLE)),
-            clint: Some(ClintDevice::new(&SIFIVECLINT, NUM_HART_MAX)),
-            hsm: Some(Hsm),
-            sifive_test: None,
+        // TODO: The device base address needs to be parsed from FDT
+        console::init(0x10000000);
+        clint::init(0x2000000);
+
+        info!("RustSBI version {}", rustsbi::VERSION);
+        rustsbi::LOGO.lines().for_each(|line| info!("{}", line));
+        info!("Initializing RustSBI machine-mode environment.");
+        if let Some(model) = tree.model {
+            info!("Model: {}", model.iter().next().unwrap_or("<unspecified>"));
+        }
+        info!(
+            "Chosen stdout item: {}",
+            tree.chosen
+                .stdout_path
+                .iter()
+                .next()
+                .unwrap_or("<unspecified>")
+        );
+
+        // Init SBI
+        unsafe {
+            SBI = MaybeUninit::new(Board {
+                uart16550: Some(ConsoleDevice::new(&CONSOLE)),
+                clint: Some(ClintDevice::new(&SIFIVECLINT, NUM_HART_MAX)),
+                hsm: Some(Hsm),
+                sifive_test: None,
+            });
+        }
+
+        // TODO: PMP configuration needs to be obtained through the memory range in the device tree
+        use riscv::register::*;
+        unsafe {
+            pmpcfg0::set_pmp(0, Range::OFF, Permission::NONE, false);
+            pmpaddr0::write(0);
+            pmpcfg0::set_pmp(1, Range::TOR, Permission::RWX, false);
+            pmpaddr1::write(usize::MAX >> 2);
+        }
+
+        // 设置陷入栈
+        trap_stack::prepare_for_trap();
+
+        // 设置内核入口
+        local_remote_hsm().start(NextStage {
+            start_addr: next_addr,
+            next_mode: mpp,
+            opaque,
         });
+
+        info!("Redirecting harts {} to 0x{:x} in {:?} mode.", hart_id(), next_addr, mpp);
+    } else {
+        // TODO: PMP configuration needs to be obtained through the memory range in the device tree
+        use riscv::register::*;
+        unsafe {
+            pmpcfg0::set_pmp(0, Range::OFF, Permission::NONE, false);
+            pmpaddr0::write(0);
+            pmpcfg0::set_pmp(1, Range::TOR, Permission::RWX, false);
+            pmpaddr1::write(usize::MAX >> 2);
+        }
+
+        // 设置陷入栈
+        trap_stack::prepare_for_trap();
     }
-
-    // TODO: PMP configuration needs to be obtained through the memory range in the device tree
-    use riscv::register::*;
-    unsafe {
-        pmpcfg0::set_pmp(0, Range::OFF, Permission::NONE, false);
-        pmpaddr0::write(0);
-        pmpcfg0::set_pmp(1, Range::TOR, Permission::RWX, false);
-        pmpaddr1::write(usize::MAX >> 2);
-    }
-
-    // 设置陷入栈
-    trap_stack::prepare_for_trap();
-
-    // 设置内核入口
-    local_remote_hsm().start(NextStage {
-        start_addr: next_addr,
-        next_mode: mpp,
-        opaque,
-    });
-
-    info!("Redirecting harts to 0x{:x} in {:?} mode.", next_addr, mpp);
 
     clint::clear();
     unsafe {
@@ -107,11 +126,12 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         medeleg::clear_supervisor_env_call();
         medeleg::clear_illegal_instruction();
         menvcfg::set_stce();
-        menvcfg::set_bits(menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
+        menvcfg::set_bits(
+            menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
+        );
         mtvec::write(trap_vec as _, mtvec::TrapMode::Vectored);
     }
 }
-
 
 #[naked]
 #[link_section = ".text.entry"]
@@ -125,11 +145,32 @@ unsafe extern "C" fn start() -> ! {
         "   csrr    t0, mhartid",
         "   ld      t1, 0(a2)",
         "   li      t2, {magic}",
-        "   bne     t1, t2, 1f",
-        "   j       2f",
-        "1:",
-        "   j       1b", // TODO multi hart preempt for runtime init
+        "   bne     t1, t2, 3f",
+        "   ld      t2, 40(a2)",
+        "   bne     t0, t2, 2f",
+        "   j       4f",
+        "3:",
+        "   j       3b", // TODO multi hart preempt for runtime init
+        "4:",
+        // clear bss segment
+        "   la      t0, sbss
+            la      t1, ebss
+        1:  bgeu    t0, t1, 2f
+            sd      zero, 0(t0)
+            addi    t0, t0, 8
+            j       1b",
+        // prepare data segment
+        "   la      t3, sidata
+            la      t4, sdata
+            la      t5, edata
+        1:  bgeu    t4, t5, 2f
+            ld      t6, 0(t3)
+            sd      t6, 0(t4)
+            addi    t3, t3, 8
+            addi    t4, t4, 8
+            j       1b",
         "2:",
+         // 3. Prepare stack for each hart
         "   call    {locate_stack}",
         "   call    {main}",
         "   j       {trap}",

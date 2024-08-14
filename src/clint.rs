@@ -1,6 +1,5 @@
 use aclint::SifiveClint;
 use core::{
-    arch::asm,
     ptr::null_mut,
     sync::atomic::{
         AtomicPtr,
@@ -8,6 +7,8 @@ use core::{
     },
 };
 use rustsbi::SbiRet;
+
+use crate::riscv_spec::stimecmp;
 
 pub(crate) static SIFIVECLINT: AtomicPtr<SifiveClint> = AtomicPtr::new(null_mut());
 
@@ -82,10 +83,7 @@ impl<'a> rustsbi::Timer for ClintDevice<'a> {
     fn set_timer(&self, stime_value: u64) {
         unsafe {
             // TODO: 添加CPU拓展探测机制，补充无Sstc拓展时的定时器设置
-            asm!(
-                "csrrs zero, stimecmp, {}",
-                in(reg) stime_value
-            );
+            stimecmp::set(stime_value);
             riscv::register::mie::set_mtimer();
             // (*self.clint.load(Relaxed)).write_mtimecmp(current_hart_id, stime_value);
         }
