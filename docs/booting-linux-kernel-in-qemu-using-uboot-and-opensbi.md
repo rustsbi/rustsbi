@@ -479,7 +479,7 @@ $ make -j$(nproc)
 
 本小节将使用二进制文件 `./spl/u-boot-spl`和`./u-boot.itb `。
 
-### 使用OpenSBI `fw_dynamic固件启动Linux Kernel
+### 使用OpenSBI `fw_dynamic`固件启动Linux Kernel
 
 进入`workshop`目录
 

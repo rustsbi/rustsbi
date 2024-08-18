@@ -8,6 +8,7 @@ use rustsbi::RustSBI;
 use crate::board::SBI;
 use crate::clint::{self, SIFIVECLINT};
 use crate::console::{MachineConsole, CONSOLE};
+use crate::hart_id;
 use crate::hsm::local_hsm;
 use crate::riscv_spec::{CSR_TIME, CSR_TIMEH};
 
@@ -154,7 +155,7 @@ pub extern "C" fn fast_handler(
             sstatus::clear_sie();
             satp::write(0);
         }
-        ctx.regs().a[0] = 0;
+        ctx.regs().a[0] = hart_id();
         ctx.regs().a[1] = opaque;
         ctx.regs().pc = start_addr;
         ctx.call(2)
@@ -239,13 +240,13 @@ pub extern "C" fn fast_handler(
                     break ctx.restore();
                 }
                 T::Exception(E::IllegalInstruction) => {
-                    if mstatus::read().mpp() != mstatus::MPP::Supervisor {
-                        panic!("only can handle illegal instruction exception from S-MODE");
+                    if mstatus::read().mpp() == mstatus::MPP::Machine {
+                        panic!("Cannot handle illegal instruction exception from M-MODE");
                     }
 
                     ctx.regs().a = [ctx.a0(), a1, a2, a3, a4, a5, a6, a7];
                     if !illegal_instruction_handler(&mut ctx) {
-                        delegate(&mut ctx);
+                        delegate();
                     }
                     break ctx.restore();
                 }
@@ -270,7 +271,7 @@ pub extern "C" fn fast_handler(
 }
 
 #[inline]
-fn delegate(_ctx: &mut FastContext) {
+fn delegate() {
     use riscv::register::{sepc, scause, stval, stvec, sstatus, mepc, mcause, mtval};
     unsafe {
 
@@ -279,6 +280,11 @@ fn delegate(_ctx: &mut FastContext) {
         scause::write(mcause::read().bits());
         stval::write(mtval::read());
         sstatus::clear_sie();
+         if mstatus::read().mpp() == mstatus::MPP::Supervisor {
+            sstatus::set_spp(sstatus::SPP::Supervisor);
+        } else {
+            sstatus::set_spp(sstatus::SPP::User);
+        }
         mepc::write(stvec::read().address());
     }
 }
@@ -309,16 +315,6 @@ fn illegal_instruction_handler(ctx: &mut FastContext) -> bool {
             }
             _ => return false,
         },
-        // Ok(Instruction::Csrrw(csr)) => match csr.csr() {
-        //     CSR_STIMECMP => {
-        //         unsafe {
-        //             asm!("csrw stimecmp, {}", in(reg) csr.rs1()); 
-        //             mip::clear_stimer();
-        //         }
-        //         
-        //     }
-        //     _ => return false
-        // }
         _ => return false,
     }
     mepc::write(mepc::read() + 4);
