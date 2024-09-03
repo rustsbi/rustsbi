@@ -1,14 +1,12 @@
 use core::{
     cell::UnsafeCell,
-    ptr::NonNull,
     hint::spin_loop,
     sync::atomic::{AtomicUsize, Ordering},
 };
-use fast_trap::FlowContext;
 use rustsbi::{spec::hsm::hart_state, SbiRet};
 use riscv::register::mstatus::MPP;
 
-use crate::{NextStage,hart_id};
+use crate::{NextStage,current_hartid};
 use crate::trap_stack::ROOT_STACK;
 use crate::clint;
 
@@ -48,24 +46,6 @@ impl<T> HsmCell<T> {
     }
 }
 
-/// 硬件线程上下文。
-pub struct HartContext {
-    /// 陷入上下文。
-    trap: FlowContext,
-    hsm: HsmCell<NextStage>,
-}
-
-impl HartContext {
-    #[inline]
-    pub fn init(&mut self) {
-        self.hsm = HsmCell::new();
-    }
-
-    #[inline]
-    pub fn context_ptr(&mut self) -> NonNull<FlowContext> {
-        unsafe { NonNull::new_unchecked(&mut self.trap) }
-    }
-}
 
 /// 当前硬件线程的共享对象。
 pub struct LocalHsmCell<'a, T>(&'a HsmCell<T>);
@@ -118,10 +98,10 @@ impl<T> LocalHsmCell<'_, T> {
     }
 }
 
-impl<T> RemoteHsmCell<'_, T> {
+impl<T : core::fmt::Debug> RemoteHsmCell<'_, T> {
     /// 向关闭状态的硬件线程传入共享数据，并将其状态设置为启动挂起，返回是否放入成功。
     #[inline]
-    pub fn start(self, t: T) -> bool {
+    pub fn start(&self, t: T) -> bool {
         if self
             .0
             .status
@@ -133,6 +113,7 @@ impl<T> RemoteHsmCell<'_, T> {
             )
             .is_ok()
         {
+            info!("t: {:?}",t);
             unsafe { *self.0.inner.get() = Some(t) };
             self.0
                 .status
@@ -169,7 +150,7 @@ impl<T> RemoteHsmCell<'_, T> {
 pub(crate) fn local_hsm() -> LocalHsmCell<'static, NextStage> {
     unsafe {
         ROOT_STACK
-            .get_unchecked_mut(hart_id())
+            .get_unchecked_mut(current_hartid())
             .hart_context()
             .hsm
             .local()
@@ -180,7 +161,7 @@ pub(crate) fn local_hsm() -> LocalHsmCell<'static, NextStage> {
 pub(crate) fn local_remote_hsm() -> RemoteHsmCell<'static, NextStage> {
     unsafe {
         ROOT_STACK
-            .get_unchecked_mut(hart_id())
+            .get_unchecked_mut(current_hartid())
             .hart_context()
             .hsm
             .remote()
