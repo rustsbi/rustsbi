@@ -1,18 +1,16 @@
 use rustsbi::Ipi;
 use rustsbi::{HartMask, SbiRet};
 use spin::Mutex;
-use spin::RwLock;
 
 use crate::board::SBI;
-use crate::current_hartid;
 use crate::hsm::remote_hsm;
+use crate::riscv_spec::current_hartid;
 use crate::trap::msoft_rfence_handler;
 use crate::trap_stack::NUM_HART_MAX;
 use crate::trap_stack::ROOT_STACK;
 
 pub(crate) struct RFenceCell {
     inner: Mutex<Option<RFenceCTX>>,
-    sync: RwLock<bool>,
 }
 
 #[repr(C)]
@@ -25,20 +23,8 @@ pub(crate) struct RFenceCTX {
     pub op: RFenceType,
 }
 
-// impl RFenceCTX {
-//     pub fn new() -> Self {
-//         Self {
-//             start_addr: 0,
-//             size: 0,
-//             asid: 0,
-//             vmid: 0,
-//             op: RFenceType::None,
-//         }
-//     }
-// }
-
 #[allow(unused)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum RFenceType {
     FenceI,
     SFenceVma,
@@ -53,7 +39,6 @@ impl RFenceCell {
     pub fn new() -> Self {
         Self {
             inner: Mutex::new(None),
-            sync: RwLock::new(false),
         }
     }
 
@@ -72,13 +57,13 @@ impl RFenceCell {
 unsafe impl Sync for RFenceCell {}
 unsafe impl Send for RFenceCell {}
 
-/// 当前硬件线程的RFence上下文。
+/// 当前硬件线程的rfence上下文。
 pub struct LocalRFenceCell<'a>(&'a RFenceCell);
 
-/// 任意硬件线程的RFence上下文。
+/// 任意硬件线程的rfence上下文。
 pub struct RemoteRFenceCell<'a>(&'a RFenceCell);
 
-/// 获取此 hart 的 rfence 上下文
+/// 获取当前hart的rfence上下文
 pub(crate) fn local_rfence() -> LocalRFenceCell<'static> {
     unsafe {
         ROOT_STACK
@@ -89,7 +74,7 @@ pub(crate) fn local_rfence() -> LocalRFenceCell<'static> {
     }
 }
 
-/// 获取任意 hart 的 remote rfence 上下文
+/// 获取任意hart的rfence上下文
 pub(crate) fn remote_rfence(hart_id: usize) -> Option<RemoteRFenceCell<'static>> {
     unsafe {
         ROOT_STACK
@@ -100,16 +85,14 @@ pub(crate) fn remote_rfence(hart_id: usize) -> Option<RemoteRFenceCell<'static>>
 
 #[allow(unused)]
 impl LocalRFenceCell<'_> {
-    pub fn sync(&self) {
+    pub fn clear(&self) {
         *self.0.inner.lock() = None;
-        *self.0.sync.write() = true;
     }
     pub fn get(&self) -> Option<RFenceCTX> {
-        (*self.0.inner.lock()).clone()
+        (*self.0.inner.lock())
     }
     pub fn set(&self, ctx: RFenceCTX) {
         *self.0.inner.lock() = Some(ctx);
-        *self.0.sync.write() = false;
     }
 }
 
@@ -117,15 +100,6 @@ impl LocalRFenceCell<'_> {
 impl RemoteRFenceCell<'_> {
     pub fn set(&self, ctx: RFenceCTX) {
         *self.0.inner.lock() = Some(ctx);
-        *self.0.sync.write() = false;
-    }
-
-    pub fn is_sync(&self) -> bool {
-        // info!("is sync");
-        match self.0.sync.try_read() {
-            Some(value) => *value,
-            None => false,
-        }
     }
 }
 
@@ -153,12 +127,7 @@ fn remote_fence_process(rfence_ctx: RFenceCTX, hart_mask: HartMask) -> SbiRet {
         msoft_rfence_handler();
     }
 
-    // for hart_id in 0..=NUM_HART_MAX {
-    //     if hart_mask_hsm.has_bit(hart_id) {
-    //         while !remote_rfence(hart_id).unwrap().is_sync() {}
-    //     }
-    // }
-    return sbi_ret;
+    sbi_ret
 }
 
 impl rustsbi::Fence for RFence {
@@ -176,11 +145,15 @@ impl rustsbi::Fence for RFence {
     }
 
     fn remote_sfence_vma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
-        // TODO: check start_addr and size
+        // TODO: return SBI_ERR_INVALID_ADDRESS, when start_addr or size is not valid.
+        let flush_size = match start_addr.checked_add(size) {
+            None => usize::MAX,
+            Some(_) => size,
+        };
         remote_fence_process(
             RFenceCTX {
                 start_addr,
-                size,
+                size: flush_size,
                 asid: 0,
                 vmid: 0,
                 op: RFenceType::SFenceVma,
@@ -196,11 +169,15 @@ impl rustsbi::Fence for RFence {
         size: usize,
         asid: usize,
     ) -> SbiRet {
-        // TODO: check start_addr and size
+        // TODO: return SBI_ERR_INVALID_ADDRESS, when start_addr or size is not valid.
+        let flush_size = match start_addr.checked_add(size) {
+            None => usize::MAX,
+            Some(_) => size,
+        };
         remote_fence_process(
             RFenceCTX {
                 start_addr,
-                size,
+                size: flush_size,
                 asid,
                 vmid: 0,
                 op: RFenceType::SFenceVmaAsid,
@@ -213,16 +190,12 @@ impl rustsbi::Fence for RFence {
 pub fn hart_mask_clear(hart_mask: HartMask, hart_id: usize) -> HartMask {
     let (mask, mask_base) = hart_mask.into_inner();
     if mask_base == usize::MAX {
-        // If `hart_mask_base` equals `usize::MAX`, that means `hart_mask` is ignored
-        // and all available harts must be considered.
         return HartMask::from_mask_base(mask & (!(1 << hart_id)), 0);
     }
     let Some(idx) = hart_id.checked_sub(mask_base) else {
-        // hart_id < hart_mask_base, not in current mask range
         return hart_mask;
     };
     if idx >= usize::BITS as usize {
-        // hart_idx >= hart_mask_base + XLEN, not in current mask range
         return hart_mask;
     }
     HartMask::from_mask_base(mask & (!(1 << hart_id)), mask_base)

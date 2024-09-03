@@ -10,10 +10,9 @@ use rustsbi::RustSBI;
 use crate::board::SBI;
 use crate::clint::{self, SIFIVECLINT};
 use crate::console::{MachineConsole, CONSOLE};
-use crate::current_hartid;
 use crate::hsm::local_hsm;
 use crate::rfence::{local_rfence, RFenceType};
-use crate::riscv_spec::{CSR_TIME, CSR_TIMEH};
+use crate::riscv_spec::{CSR_TIME, CSR_TIMEH, current_hartid};
 
 const PAGE_SIZE: usize = 4096;
 
@@ -200,11 +199,6 @@ pub extern "C" fn msoft_hanlder(ctx: &mut SupervisorContext) {
                 mie::set_msoft();
                 mie::set_mtimer();
             }
-            info!(
-                "hart {} => start_addr : 0x{:16x}",
-                current_hartid(),
-                next_stage.start_addr
-            );
             boot(ctx, next_stage.start_addr, next_stage.opaque);
         }
         Err(rustsbi::spec::hsm::HART_STOP) => {
@@ -227,7 +221,7 @@ pub fn msoft_rfence_handler() {
         Some(ctx) => match ctx.op {
             RFenceType::FenceI => unsafe {
                 asm!("fence.i");
-                local_rfence().sync();
+                local_rfence().clear();
                 clint::clear_msip();
             },
             RFenceType::SFenceVma => {
@@ -243,7 +237,7 @@ pub fn msoft_rfence_handler() {
                         }
                     }
                 }
-                local_rfence().sync();
+                local_rfence().clear();
                 clint::clear_msip();
             }
             RFenceType::SFenceVmaAsid => {
@@ -260,12 +254,12 @@ pub fn msoft_rfence_handler() {
                         }
                     }
                 }
-                local_rfence().sync();
+                local_rfence().clear();
                 clint::clear_msip();
             }
-            _ => {
-                error!("Unsupported RFence Type!");
-                local_rfence().sync();
+            rfencetype => {
+                error!("Unsupported RFence Type: {:?}!", rfencetype);
+                local_rfence().clear();
                 clint::clear_msip();
             }
         },
@@ -310,11 +304,6 @@ pub extern "C" fn fast_handler(
                     mie::set_msoft();
                     mie::set_mtimer();
                 }
-                info!(
-                    "hart {} => start_addr : 0x{:16x}",
-                    current_hartid(),
-                    next_stage.start_addr
-                );
                 break boot(ctx, next_stage.start_addr, next_stage.opaque);
             }
             Err(rustsbi::spec::hsm::HART_STOP) => {

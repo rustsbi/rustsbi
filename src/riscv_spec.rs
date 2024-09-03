@@ -35,3 +35,9 @@ pub mod stimecmp {
         unsafe { asm!("csrrs zero, stimecmp, {}", in(reg) value, options(nomem)); }
     }
 }
+
+
+#[inline]
+pub fn current_hartid() -> usize {
+    riscv::register::mhartid::read()
+}

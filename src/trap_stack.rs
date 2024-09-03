@@ -3,7 +3,7 @@ use fast_trap::FreeTrapStack;
 
 use crate::hart_context::HartContext;
 use crate::trap::fast_handler;
-use crate::current_hartid;
+use crate::riscv_spec::current_hartid;
 
 const LEN_STACK_PER_HART: usize = 16 * 1024;
 pub const NUM_HART_MAX: usize = 8;

@@ -6,8 +6,9 @@ use core::{
 use rustsbi::{spec::hsm::hart_state, SbiRet};
 use riscv::register::mstatus::MPP;
 
-use crate::{NextStage,current_hartid};
+use crate::NextStage;
 use crate::trap_stack::ROOT_STACK;
+use crate::riscv_spec::current_hartid;
 use crate::clint;
 
 const HART_STATE_START_PENDING_EXT: usize = usize::MAX;
@@ -113,7 +114,6 @@ impl<T : core::fmt::Debug> RemoteHsmCell<'_, T> {
             )
             .is_ok()
         {
-            info!("t: {:?}",t);
             unsafe { *self.0.inner.get() = Some(t) };
             self.0
                 .status

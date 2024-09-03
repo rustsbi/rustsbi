@@ -8,8 +8,7 @@ use core::{
 };
 use rustsbi::SbiRet;
 
-use crate::riscv_spec::stimecmp;
-use crate::current_hartid;
+use crate::riscv_spec::{stimecmp,current_hartid};
 use crate::hsm::remote_hsm;
 
 pub(crate) static SIFIVECLINT: AtomicPtr<SifiveClint> = AtomicPtr::new(null_mut());

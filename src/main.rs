@@ -31,7 +31,7 @@ use crate::clint::SIFIVECLINT;
 use crate::console::{ConsoleDevice, CONSOLE};
 use crate::hsm::{local_remote_hsm, Hsm};
 use crate::rfence::RFence;
-use crate::riscv_spec::menvcfg;
+use crate::riscv_spec::{menvcfg,current_hartid};
 use crate::trap::trap_vec;
 use crate::trap_stack::NUM_HART_MAX;
 
@@ -185,10 +185,6 @@ unsafe extern "C" fn start() -> ! {
     )
 }
 
-#[inline]
-pub fn current_hartid() -> usize {
-    riscv::register::mhartid::read()
-}
 
 #[derive(Debug)]
 pub struct NextStage {
