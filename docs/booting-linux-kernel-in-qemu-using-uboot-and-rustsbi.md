@@ -280,9 +280,7 @@ $ cd prototyper
 编译RustSBI  Prototyper
 
 ``` shell
-$ cargo build --release
-$ rust-objcopy --binary-architecture=riscv64 ./target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper \
-  -O binary target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin 
+$ cargo make bin
 ```
 
 ## 编译U-Boot SPL

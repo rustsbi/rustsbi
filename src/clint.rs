@@ -8,7 +8,8 @@ use core::{
 };
 use rustsbi::SbiRet;
 
-use crate::riscv_spec::stimecmp;
+use crate::riscv_spec::{stimecmp,current_hartid};
+use crate::hsm::remote_hsm;
 
 pub(crate) static SIFIVECLINT: AtomicPtr<SifiveClint> = AtomicPtr::new(null_mut());
 
@@ -18,7 +19,7 @@ pub(crate) fn init(base: usize) {
 
 #[inline]
 pub fn clear() {
-    let hart_id = riscv::register::mhartid::read();
+    let hart_id = current_hartid();
     loop {
         if let Some(clint) = unsafe { SIFIVECLINT.load(Relaxed).as_ref() } {
             clint.clear_msip(hart_id);
@@ -32,10 +33,9 @@ pub fn clear() {
 
 #[inline]
 pub fn clear_msip() {
-    let hart_id = riscv::register::mhartid::read();
     loop {
         if let Some(clint) = unsafe { SIFIVECLINT.load(Relaxed).as_ref() } {
-            clint.clear_msip(hart_id);
+            clint.clear_msip(current_hartid());
             break;
         } else {
             continue;
@@ -94,7 +94,7 @@ impl<'a> rustsbi::Ipi for ClintDevice<'a> {
     #[inline]
     fn send_ipi(&self, hart_mask: rustsbi::HartMask) -> SbiRet {
         for hart_id in 0..=self.max_hart_id {
-            if hart_mask.has_bit(hart_id) {
+            if hart_mask.has_bit(hart_id) && remote_hsm(hart_id).unwrap().allow_ipi() {
                 unsafe {
                     (*self.clint.load(Relaxed)).set_msip(hart_id);
                 }

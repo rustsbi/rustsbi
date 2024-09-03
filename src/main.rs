@@ -7,17 +7,19 @@ extern crate log;
 #[macro_use]
 mod macros;
 
-mod board;
 mod clint;
 mod console;
+mod hsm;
+mod reset;
+mod rfence;
+mod board;
 mod dt;
 mod dynamic;
 mod fail;
-mod hsm;
-mod reset;
 mod riscv_spec;
 mod trap;
 mod trap_stack;
+mod hart_context;
 
 use clint::ClintDevice;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -28,7 +30,8 @@ use crate::board::{Board, SBI};
 use crate::clint::SIFIVECLINT;
 use crate::console::{ConsoleDevice, CONSOLE};
 use crate::hsm::{local_remote_hsm, Hsm};
-use crate::riscv_spec::menvcfg;
+use crate::rfence::RFence;
+use crate::riscv_spec::{menvcfg,current_hartid};
 use crate::trap::trap_vec;
 use crate::trap_stack::NUM_HART_MAX;
 
@@ -41,7 +44,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     let is_boot_hart = if info.boot_hart == usize::MAX {
         GENESIS.swap(false, Ordering::AcqRel)
     } else {
-        hart_id() == info.boot_hart
+        current_hartid() == info.boot_hart
     };
 
     if is_boot_hart {
@@ -80,6 +83,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
                 clint: Some(ClintDevice::new(&SIFIVECLINT, NUM_HART_MAX)),
                 hsm: Some(Hsm),
                 sifive_test: None,
+                rfence: Some(RFence)
             });
         }
 
@@ -102,7 +106,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             opaque,
         });
 
-        info!("Redirecting harts {} to 0x{:x} in {:?} mode.", hart_id(), next_addr, mpp);
+        info!("Redirecting hart {} to 0x{:0>16x} in {:?} mode.", current_hartid(), next_addr, mpp);
     } else {
         // TODO: PMP configuration needs to be obtained through the memory range in the device tree
         use riscv::register::*;
@@ -125,7 +129,6 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         use riscv::register::{medeleg, mtvec};
         medeleg::clear_supervisor_env_call();
         medeleg::clear_illegal_instruction();
-        menvcfg::set_stce();
         menvcfg::set_bits(
             menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
         );
@@ -173,19 +176,15 @@ unsafe extern "C" fn start() -> ! {
          // 3. Prepare stack for each hart
         "   call    {locate_stack}",
         "   call    {main}",
-        "   j       {trap}",
+        "   j       {hart_boot}",
         magic = const dynamic::MAGIC,
         locate_stack = sym trap_stack::locate,
         main         = sym rust_main,
-        trap         = sym trap::trap_vec,
+        hart_boot         = sym trap::trap_vec,
         options(noreturn)
     )
 }
 
-#[inline]
-pub fn hart_id() -> usize {
-    riscv::register::mhartid::read()
-}
 
 #[derive(Debug)]
 pub struct NextStage {

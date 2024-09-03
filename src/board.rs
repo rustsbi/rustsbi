@@ -5,6 +5,7 @@ use rustsbi::{RustSBI, SbiRet};
 use crate::clint::ClintDevice;
 use crate::console::ConsoleDevice;
 use crate::hsm::Hsm;
+use crate::rfence::RFence;
 
 pub(crate) static mut SBI: MaybeUninit<Board> = MaybeUninit::uninit();
 
@@ -19,6 +20,8 @@ pub struct Board<'a> {
     pub hsm: Option<Hsm>,
     #[rustsbi(reset)]
     pub sifive_test: Option<SifiveTestDevice<'a>>,
+    #[rustsbi(fence)]
+    pub rfence: Option<RFence>
 }
 
 pub struct SifiveTestDevice<'a> {
