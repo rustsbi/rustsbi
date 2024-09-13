@@ -1,15 +1,18 @@
+[config]
+default_to_workspace = false
+
 [tasks.clean]
 command = "cargo"
 args = ["clean"]
 
-[tasks.build]
+[tasks.prototyper-build]
 command = "cargo"
-args = ["build", "--release"]
+args = ["build", "-prustsbi-prototyper", "--release"]
 dependencies = ["clean"]
 
-[tasks.bin]
+[tasks.prototyper]
 command = "rust-objcopy"
 args = ["--binary-architecture=riscv64", "target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper",
         "--output-target=binary", "target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin"
 ]
-dependencies = ["build"]
+dependencies = ["prototyper-build"]

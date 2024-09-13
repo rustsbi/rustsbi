@@ -50,7 +50,7 @@ $ cd prototyper
 编译RustSBI  Prototyper
 
 ``` shell
-$ cargo make bin
+$ cargo make prototyper
 ```
 
 ## 编译U-Boot SPL

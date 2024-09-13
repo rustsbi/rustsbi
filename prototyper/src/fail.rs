@@ -14,7 +14,7 @@ pub fn device_tree_format(err: dt::ParseDeviceTreeError) -> Dtb {
 }
 
 #[cold]
-pub fn device_tree_deserialize<'a>(err: serde_device_tree::Error) -> Tree<'a> {
+pub fn device_tree_deserialize<'a>(err: serde_device_tree::error::Error) -> Tree<'a> {
     error!("Device tree deserialization error: {:?}", err);
     reset::fail()
 }
