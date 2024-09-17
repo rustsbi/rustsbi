@@ -130,6 +130,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustsbi-supervisor"
+version = "0.1.0"
+
+[[package]]
 name = "sbi-spec"
 version = "0.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

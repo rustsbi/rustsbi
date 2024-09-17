@@ -29,6 +29,9 @@ name = "rustsbi-prototyper"
 test = false
 bench = false
 
+[workspace]
+members = ["supervisor"]
+
 [workspace.package]
 edition = "2021"
 license = "MulanPSL-2.0 OR MIT"
