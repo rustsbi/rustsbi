@@ -21,6 +21,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f64009896348fc5af4222e9cf7d7d82a95a256c634ebcf61c53e4ea461422242"
 
 [[package]]
+name = "dtb-walker"
+version = "0.2.0-alpha.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9404d41caa1aa659f7be44d5a902e318c0672900822fe9ca41d9e38c14b52332"
+
+[[package]]
 name = "embedded-hal"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -70,6 +76,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5b9d34b8991d19d98081b46eacdd8eb58c6f2b201139f7c5f643cc155a633af"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "rcore-console"
+version = "0.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63aae49a6d2e6fd69821507a979b5871e4c47dc3abc9066347fa5c4a51a73dd6"
+dependencies = [
+ "log",
+ "spin",
 ]
 
 [[package]]
@@ -130,10 +146,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustsbi-test-kernel"
+version = "0.0.0"
+dependencies = [
+ "dtb-walker",
+ "log",
+ "rcore-console",
+ "riscv",
+ "sbi-testing",
+ "spin",
+ "uart16550",
+]
+
+[[package]]
+name = "sbi-rt"
+version = "0.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7fbaa69be1eedc61c426e6d489b2260482e928b465360576900d52d496a58bd0"
+dependencies = [
+ "sbi-spec",
+]
+
+[[package]]
 name = "sbi-spec"
 version = "0.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e36312fb5ddc10d08ecdc65187402baba4ac34585cb9d1b78522ae2358d890"
+
+[[package]]
+name = "sbi-testing"
+version = "0.0.3-alpha.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "135c0f1ce07ede77a7e1c3daff35d20d37b54fd1037ac02ab9595c231518531e"
+dependencies = [
+ "log",
+ "riscv",
+ "sbi-rt",
+ "sbi-spec",
+]
 
 [[package]]
 name = "scopeguard"

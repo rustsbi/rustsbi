@@ -8,7 +8,6 @@ args = ["clean"]
 [tasks.prototyper-build]
 command = "cargo"
 args = ["build", "-prustsbi-prototyper", "--release"]
-dependencies = ["clean"]
 
 [tasks.prototyper]
 command = "rust-objcopy"
@@ -16,3 +15,14 @@ args = ["--binary-architecture=riscv64", "target/riscv64imac-unknown-none-elf/re
         "--output-target=binary", "target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin"
 ]
 dependencies = ["prototyper-build"]
+
+[tasks.test-kernel-build]
+command = "cargo"
+args = ["build", "-prustsbi-test-kernel", "--release"]
+
+[tasks.test-kernel]
+command = "rust-objcopy"
+args = ["--binary-architecture=riscv64", "target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel",
+        "--output-target=binary", "target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.bin"
+]
+dependencies = ["test-kernel-build"]
