@@ -173,6 +173,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustsbi-supervisor"
+version = "0.1.0"
+dependencies = [
+ "naked-function",
+ "sbi-rt",
+]
+
+[[package]]
 name = "rustsbi-test-kernel"
 version = "0.0.0"
 dependencies = [
@@ -183,14 +191,6 @@ dependencies = [
  "sbi-testing",
  "spin",
  "uart16550",
-]
-
-[[package]]
-name = "rustsbi-supervisor"
-version = "0.1.0"
-dependencies = [
- "naked-function",
- "sbi-rt",
 ]
 
 [[package]]
