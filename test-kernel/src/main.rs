@@ -1,6 +1,6 @@
 #![no_std]
 #![no_main]
-#![feature(naked_functions)]
+#![feature(naked_functions,asm_const)]
 #![deny(warnings)]
 
 #[macro_use]

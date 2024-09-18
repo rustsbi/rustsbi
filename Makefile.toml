@@ -26,3 +26,14 @@ args = ["--binary-architecture=riscv64", "target/riscv64imac-unknown-none-elf/re
         "--output-target=binary", "target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.bin"
 ]
 dependencies = ["test-kernel-build"]
+
+[tasks.test-kernel-itb]
+script = '''
+cp test-kernel/scripts/rustsbi-test-kernel.its target/riscv64imac-unknown-none-elf/release
+pushd target/riscv64imac-unknown-none-elf/release/
+mkimage -f rustsbi-test-kernel.its  rustsbi-test-kernel.itb
+rm rustsbi-test-kernel.its
+popd
+'''
+dependencies = ["prototyper", "test-kernel"]
+
