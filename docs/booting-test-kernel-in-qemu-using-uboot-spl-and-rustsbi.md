@@ -147,6 +147,6 @@ $ cd workshop
 ``` shell
 $ qemu-system-riscv64 -M virt -smp 1 -m 256M -nographic \
           -bios ./u-boot/spl/u-boot-spl \
-          -device loader,file=./target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.itb,addr=0x80200000 
+          -device loader,file=./prototyper/target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.itb,addr=0x80200000 
 ```
 
