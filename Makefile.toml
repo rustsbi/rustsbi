@@ -1,15 +1,39 @@
+[config]
+default_to_workspace = false
+
 [tasks.clean]
 command = "cargo"
 args = ["clean"]
 
-[tasks.build]
+[tasks.prototyper-build]
 command = "cargo"
-args = ["build", "--release"]
-dependencies = ["clean"]
+args = ["build", "-prustsbi-prototyper", "--release"]
 
-[tasks.bin]
+[tasks.prototyper]
 command = "rust-objcopy"
 args = ["--binary-architecture=riscv64", "target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper",
         "--output-target=binary", "target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin"
 ]
-dependencies = ["build"]
+dependencies = ["prototyper-build"]
+
+[tasks.test-kernel-build]
+command = "cargo"
+args = ["build", "-prustsbi-test-kernel", "--release"]
+
+[tasks.test-kernel]
+command = "rust-objcopy"
+args = ["--binary-architecture=riscv64", "target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel",
+        "--output-target=binary", "target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.bin"
+]
+dependencies = ["test-kernel-build"]
+
+[tasks.test-kernel-itb]
+script = '''
+cp test-kernel/scripts/rustsbi-test-kernel.its target/riscv64imac-unknown-none-elf/release
+cd target/riscv64imac-unknown-none-elf/release/
+mkimage -f rustsbi-test-kernel.its  rustsbi-test-kernel.itb
+rm rustsbi-test-kernel.its
+cd ../../../
+'''
+dependencies = ["prototyper", "test-kernel"]
+

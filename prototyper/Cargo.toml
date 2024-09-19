@@ -1,0 +1,31 @@
+cargo-features = ["per-package-target"]
+
+[package]
+name = "rustsbi-prototyper"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+forced-target = "riscv64imac-unknown-none-elf"
+
+[dependencies]
+aclint = "0.0.0"
+log = "0.4.21"
+panic-halt = "0.2.0"
+riscv = "0.11.1"
+rustsbi = { version = "0.4.0-alpha.3", features = ["machine"] }
+sbi-spec = { version = "0.0.7", features = ["legacy"] }
+serde = { version = "1.0.202", default-features = false, features = ["derive"]}
+serde-device-tree = { git = "https://github.com/rustsbi/serde-device-tree", default-features = false }
+sifive-test-device = "0.0.0"
+spin = "0.9.8"
+uart16550 = "0.0.1"
+riscv-decode = "0.2.1"
+fast-trap = { version = "0.0.1", features = ["riscv-m"] }
+
+
+[[bin]]
+name = "rustsbi-prototyper"
+test = false
+bench = false
+

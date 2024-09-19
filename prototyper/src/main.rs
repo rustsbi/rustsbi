@@ -7,31 +7,33 @@ extern crate log;
 #[macro_use]
 mod macros;
 
+mod board;
 mod clint;
 mod console;
-mod hsm;
-mod reset;
-mod rfence;
-mod board;
 mod dt;
 mod dynamic;
 mod fail;
+mod hart_context;
+mod hsm;
+mod reset;
+mod rfence;
 mod riscv_spec;
 mod trap;
 mod trap_stack;
-mod hart_context;
 
 use clint::ClintDevice;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::{arch::asm, mem::MaybeUninit};
+use reset::TestDevice;
 use riscv::register::mstatus;
 
 use crate::board::{Board, SBI};
 use crate::clint::SIFIVECLINT;
 use crate::console::{ConsoleDevice, CONSOLE};
 use crate::hsm::{local_remote_hsm, Hsm};
+use crate::reset::RESET;
 use crate::rfence::RFence;
-use crate::riscv_spec::{menvcfg,current_hartid};
+use crate::riscv_spec::{current_hartid, menvcfg};
 use crate::trap::trap_vec;
 use crate::trap_stack::NUM_HART_MAX;
 
@@ -58,6 +60,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize);
 
         // TODO: The device base address needs to be parsed from FDT
+        reset::init(0x100000);
         console::init(0x10000000);
         clint::init(0x2000000);
 
@@ -82,8 +85,8 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
                 uart16550: Some(ConsoleDevice::new(&CONSOLE)),
                 clint: Some(ClintDevice::new(&SIFIVECLINT, NUM_HART_MAX)),
                 hsm: Some(Hsm),
-                sifive_test: None,
-                rfence: Some(RFence)
+                sifive_test: Some(TestDevice::new(&RESET)),
+                rfence: Some(RFence),
             });
         }
 
@@ -106,7 +109,12 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             opaque,
         });
 
-        info!("Redirecting hart {} to 0x{:0>16x} in {:?} mode.", current_hartid(), next_addr, mpp);
+        info!(
+            "Redirecting hart {} to 0x{:0>16x} in {:?} mode.",
+            current_hartid(),
+            next_addr,
+            mpp
+        );
     } else {
         // TODO: PMP configuration needs to be obtained through the memory range in the device tree
         use riscv::register::*;
@@ -184,7 +192,6 @@ unsafe extern "C" fn start() -> ! {
         options(noreturn)
     )
 }
-
 
 #[derive(Debug)]
 pub struct NextStage {

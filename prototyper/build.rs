@@ -6,6 +6,7 @@ fn main() {
 
     std::fs::write(ld, LINKER_SCRIPT).unwrap();
 
+    println!("cargo:rerun-if-env-changed=RUST_LOG");
     println!("cargo:rustc-link-arg=-T{}", ld.display());
     println!("cargo:rustc-link-search={}", out.display());
 }
