@@ -30,10 +30,10 @@ dependencies = ["test-kernel-build"]
 [tasks.test-kernel-itb]
 script = '''
 cp test-kernel/scripts/rustsbi-test-kernel.its target/riscv64imac-unknown-none-elf/release
-pushd target/riscv64imac-unknown-none-elf/release/
+cd target/riscv64imac-unknown-none-elf/release/
 mkimage -f rustsbi-test-kernel.its  rustsbi-test-kernel.itb
 rm rustsbi-test-kernel.its
-popd
+cd ../../../
 '''
 dependencies = ["prototyper", "test-kernel"]
 

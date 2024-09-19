@@ -20,19 +20,19 @@
 
 ## 环境配置
 
-### 安装交叉编译器和QEMU
+### 安装交叉编译器、QEMU和相关依赖
 
 For Arhc Linux:
 
 ``` shell
-$ sudo pacman -S git riscv64-linux-gnu-gcc qemu-system-riscv
+$ sudo pacman -S git riscv64-linux-gnu-gcc qemu-system-riscv uboot-tools
 ```
 
 For Ubuntu:
 
 ``` shell
 $ sudo apt-get update && sudo apt-get upgrade
-$ sudo apt-get install git qemu-system-misc gcc-riscv64-linux-gnu 
+$ sudo apt-get install git qemu-system-misc gcc-riscv64-linux-gnu u-boot-tools
 ```
 
 #### 测试是否成功安装
