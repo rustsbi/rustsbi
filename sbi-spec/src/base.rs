@@ -95,8 +95,12 @@ pub mod impl_id {
     pub const DIOSIX: usize = 5;
     /// Coffer.
     pub const COFFER: usize = 6;
-    /// Xen Project
+    /// Xen Project.
     pub const XEN: usize = 7;
     /// PolarFire Hart Software Services.
     pub const POLARFIRE_HSS: usize = 8;
+    /// Coreboot.
+    pub const COREBOOT: usize = 9;
+    /// Oreboot.
+    pub const OREBOOT: usize = 10;
 }

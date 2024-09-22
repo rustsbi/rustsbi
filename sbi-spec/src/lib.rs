@@ -106,6 +106,8 @@ mod tests {
         const_assert_eq!(6, impl_id::COFFER);
         const_assert_eq!(7, impl_id::XEN);
         const_assert_eq!(8, impl_id::POLARFIRE_HSS);
+        const_assert_eq!(9, impl_id::COREBOOT);
+        const_assert_eq!(10, impl_id::OREBOOT);
     }
     // §5
     #[cfg(feature = "legacy")]
