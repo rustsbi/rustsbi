@@ -10,6 +10,38 @@ use core::{arch::asm, ptr::null};
 use sbi_testing::sbi;
 use uart16550::Uart16550;
 
+const RISCV_HEAD_FLAGS: u64 = 0;
+const RISCV_HEADER_VERSION: u32 = 0x2;
+const RISCV_IMAGE_MAGIC: u64 = 0x5643534952; /* Magic number, little endian, "RISCV" */
+const RISCV_INAGE_MAGIC2: u32 = 0x05435352; /* Magic number 2, little endian, "RSC\x05" */
+
+/// boot header
+#[naked]
+#[no_mangle]
+#[link_section = ".head.text"]
+unsafe extern "C" fn _boot_header() -> ! {
+    asm!(
+        "j _start",
+        ".word 0",
+        ".balign 8",
+        ".dword 0x200000",
+        ".dword iend - istart",
+        ".dword {RISCV_HEAD_FLAGS}",
+        ".word  {RISCV_HEADER_VERSION}",
+        ".word  0",
+        ".dword 0",
+        ".dword {RISCV_IMAGE_MAGIC}",
+        ".balign 4",
+        ".word  {RISCV_IMAGE_MAGIC2}",
+        ".word  0",
+        RISCV_HEAD_FLAGS = const RISCV_HEAD_FLAGS,
+        RISCV_HEADER_VERSION = const RISCV_HEADER_VERSION,
+        RISCV_IMAGE_MAGIC = const RISCV_IMAGE_MAGIC,
+        RISCV_IMAGE_MAGIC2 = const RISCV_INAGE_MAGIC2,
+        options(noreturn)
+    );
+}
+
 /// 内核入口。
 ///
 /// # Safety
