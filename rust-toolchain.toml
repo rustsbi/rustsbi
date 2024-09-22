@@ -1,0 +1,5 @@
+[toolchain]
+channel = "nightly-2024-04-27"
+components = ["rustfmt", "llvm-tools-preview"]
+targets = ["riscv64imac-unknown-none-elf"]
+profile = "minimal"

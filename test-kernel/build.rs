@@ -14,6 +14,11 @@ const LINKER_SCRIPT: &[u8] = b"OUTPUT_ARCH(riscv)
 ENTRY(_start) 
 SECTIONS {
     . = 0x80200000;
+    istart = .;
+	  .head.text : ALIGN(8) {		
+        KEEP(*(.head.text))
+	  }
+
     .text : ALIGN(8) { 
         *(.text.entry)
         *(.text .text.*)
@@ -40,6 +45,7 @@ SECTIONS {
         *(.sbss .sbss.*)
         ebss = .;
     } 
+    iend = .;
     /DISCARD/ : {
         *(.eh_frame)
     }
