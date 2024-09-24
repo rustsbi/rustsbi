@@ -15,6 +15,8 @@ use crate::rfence::{local_rfence, RFenceType};
 use crate::riscv_spec::{CSR_TIME, CSR_TIMEH, current_hartid};
 
 const PAGE_SIZE: usize = 4096;
+// TODO: `TLB_FLUASH_LIMIT` is a platform-dependent parameter
+const TLB_FLUASH_LIMIT: usize = 4 * PAGE_SIZE;
 
 #[naked]
 pub(crate) unsafe extern "C" fn trap_vec() {
@@ -225,16 +227,13 @@ pub fn msoft_rfence_handler() {
                 clint::clear_msip();
             },
             RFenceType::SFenceVma => {
-                if (ctx.start_addr == 0 && ctx.size == 0) || (ctx.size == usize::MAX) {
-                    unsafe {
-                        asm!("sfence.vma");
-                    }
+                // If the flush size is greater than the maximum limit then simply flush all
+                if (ctx.start_addr == 0 && ctx.size == 0) || (ctx.size == usize::MAX) || (ctx.size > TLB_FLUASH_LIMIT) {
+                    unsafe { asm!("sfence.vma"); }
                 } else {
                     for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                         let addr = ctx.start_addr + offset;
-                        unsafe {
-                            asm!("sfence.vma {}", in(reg) addr);
-                        }
+                        unsafe { asm!("sfence.vma {}", in(reg) addr); }
                     }
                 }
                 local_rfence().clear();
@@ -242,16 +241,13 @@ pub fn msoft_rfence_handler() {
             }
             RFenceType::SFenceVmaAsid => {
                 let asid = ctx.asid;
-                if (ctx.start_addr == 0 && ctx.size == 0) || (ctx.size == usize::MAX) {
-                    unsafe {
-                        asm!("sfence.vma {}, {}", in(reg) 0, in(reg) asid);
-                    }
+                // If the flush size is greater than the maximum limit then simply flush all
+                if (ctx.start_addr == 0 && ctx.size == 0) || (ctx.size == usize::MAX) || (ctx.size > TLB_FLUASH_LIMIT) {
+                    unsafe { asm!("sfence.vma {}, {}", in(reg) 0, in(reg) asid); }
                 } else {
                     for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                         let addr = ctx.start_addr + offset;
-                        unsafe {
-                            asm!("sfence.vma {}, {}", in(reg) addr, in(reg) asid);
-                        }
+                        unsafe { asm!("sfence.vma {}, {}", in(reg) addr, in(reg) asid); }
                     }
                 }
                 local_rfence().clear();
