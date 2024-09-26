@@ -105,7 +105,3 @@ $ qemu-system-riscv64 \
     -netdev user,id=usernet,hostfwd=tcp::12055-:22 \
     -device qemu-xhci -usb -device usb-kbd -device usb-tablet
 ```
-
-进入 GRUB 选择页后，按 e 进入编辑模式。
-
-修改内核参数中的 `earlycon=sbi` 为 `earlycon`。按 C-x 启动即可。
