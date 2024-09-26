@@ -158,7 +158,6 @@ $ cd workshop
 $ qemu-system-riscv64 \
 -machine virt -nographic -m 4096 -smp 1 \
 -bios ./u-boot/spl/u-boot-spl \
--device virtio-net-device,netdev=eth0 -netdev user,id=eth0 \
 -device virtio-rng-pci -device ahci,id=ahci -device ide-hd,bus=ahci.0,drive=mydrive \
 -drive file=./openwrt-sifiveu-generic-sifive_unleashed-ext4-sdcard.img,format=raw,if=none,id=mydrive \
 -device loader,file=./u-boot/u-boot.itb,addr=0x80200000 \
