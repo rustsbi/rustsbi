@@ -103,6 +103,7 @@ $ export OPENSBI=../prototyper/target/riscv64imac-unknown-none-elf/release/rusts
 ``` shell
 # To generate .config file out of board configuration file
 $ make qemu-riscv64_spl_defconfig
+$ sed -i.bak 's/CONFIG_BOOTCOMMAND=*/CONFIG_BOOTCOMMAND="scsi scan; fatload scsi 0:3 84000000 Image; setenv bootargs root=\/dev\/sda4 rw earlycon console=\/dev\/ttyS0 rootwait; booti 0x84000000 - ${fdtcontroladdr};"/' .config
 $ make -j$(nproc)
 ```
 
