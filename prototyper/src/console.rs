@@ -22,7 +22,6 @@ pub fn init(base: usize) {
     log_init();
 }
 
-
 impl<'a> Console for ConsoleDevice<'a> {
     #[inline]
     fn write(&self, bytes: Physical<&[u8]>) -> SbiRet {
@@ -30,13 +29,11 @@ impl<'a> Console for ConsoleDevice<'a> {
         let start = bytes.phys_addr_lo();
         let buf = unsafe { core::slice::from_raw_parts(start as *const u8, bytes.num_bytes()) };
         let console = self.inner.lock();
-        match *console {
-            MachineConsole::Uart16550(uart16550) => unsafe {
-                (*uart16550).write(buf);
-            },
-        }
+        let bytes_num: usize = match *console {
+            MachineConsole::Uart16550(uart16550) => unsafe { (*uart16550).write(buf) },
+        };
         drop(console);
-        SbiRet::success(0)
+        SbiRet::success(bytes_num)
     }
 
     #[inline]
@@ -46,9 +43,7 @@ impl<'a> Console for ConsoleDevice<'a> {
         let buf = unsafe { core::slice::from_raw_parts_mut(start as *mut u8, bytes.num_bytes()) };
         let console = self.inner.lock();
         let bytes_num: usize = match *console {
-            MachineConsole::Uart16550(uart16550) => unsafe {
-               (*uart16550).read(buf)
-            },
+            MachineConsole::Uart16550(uart16550) => unsafe { (*uart16550).read(buf) },
         };
         drop(console);
         SbiRet::success(bytes_num)
@@ -57,13 +52,11 @@ impl<'a> Console for ConsoleDevice<'a> {
     #[inline]
     fn write_byte(&self, byte: u8) -> SbiRet {
         let console = self.inner.lock();
-        match *console {
-            MachineConsole::Uart16550(uart16550) => unsafe {
-                (*uart16550).write(&[byte]);
-            },
-        }
+        let bytes_num: usize = match *console {
+            MachineConsole::Uart16550(uart16550) => unsafe { (*uart16550).write(&[byte]) },
+        };
         drop(console);
-        SbiRet::success(0)
+        SbiRet::success(bytes_num)
     }
 }
 
