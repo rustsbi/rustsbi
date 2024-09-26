@@ -52,11 +52,11 @@ impl<'a> Console for ConsoleDevice<'a> {
     #[inline]
     fn write_byte(&self, byte: u8) -> SbiRet {
         let console = self.inner.lock();
-        let bytes_num: usize = match *console {
+        match *console {
             MachineConsole::Uart16550(uart16550) => unsafe { (*uart16550).write(&[byte]) },
         };
         drop(console);
-        SbiRet::success(bytes_num)
+        SbiRet::success(0)
     }
 }
 
