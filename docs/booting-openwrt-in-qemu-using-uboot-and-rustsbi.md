@@ -121,6 +121,13 @@ cd openwrt
 ./scripts/feeds install -a
 ```
 
+修改配置：
+```shell
+make -j$(nproc) menuconfig
+```
+
+进入 Target System，选中 SiFive U-based RISC-V boards
+
 修改内核配置：
 ```shell
 make -j$(nproc) kernel_menuconfig
