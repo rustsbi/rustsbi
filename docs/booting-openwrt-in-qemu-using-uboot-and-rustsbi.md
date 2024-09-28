@@ -36,36 +36,11 @@ $ git clone https://github.com/u-boot/u-boot.git && cd u-boot && git checkout v2
 $ git clone https://git.openwrt.org/openwrt/openwrt.git 
 ```
 
-应用以下 patch：
-```patch
-diff --git a/package/boot/uboot-sifiveu/patches/200-invalid-version.patch b/package/boot/uboot-sifiveu/patches/200-invalid-version.patch
-new file mode 100644
-index 0000000000..9bb5c814d2
---- /dev/null
-+++ b/package/boot/uboot-sifiveu/patches/200-invalid-version.patch
-@@ -0,0 +1,12 @@
-+--- a/scripts/dtc/pylibfdt/Makefile
-++++ b/scripts/dtc/pylibfdt/Makefile
-+@@ -17,7 +17,7 @@ quiet_cmd_pymod = PYMOD   $@
-+       cmd_pymod = unset CROSS_COMPILE; unset CFLAGS; \
-+               CC="$(HOSTCC)" LDSHARED="$(HOSTCC) -shared " \
-+               LDFLAGS="$(HOSTLDFLAGS)" \
-+-              VERSION="u-boot-$(UBOOTVERSION)" \
-++              VERSION="$(UBOOTVERSION)" \
-+               CPPFLAGS="$(HOSTCFLAGS) -I$(LIBFDT_srcdir)" OBJDIR=$(obj) \
-+               SOURCES="$(PYLIBFDT_srcs)" \
-+               SWIG_OPTS="-I$(LIBFDT_srcdir) -I$(LIBFDT_srcdir)/.." \
-+--
-diff --git a/target/linux/sifiveu/base-files/etc/inittab b/target/linux/sifiveu/base-files/etc/inittab
-index 69f97c47c8..0d8ead1d91 100644
---- a/target/linux/sifiveu/base-files/etc/inittab
-+++ b/target/linux/sifiveu/base-files/etc/inittab
-@@ -1,4 +1,5 @@
- ::sysinit:/etc/init.d/rcS S boot
- ::shutdown:/etc/init.d/rcS K shutdown
- ttySIF0::askfirst:/usr/libexec/login.sh
-+ttyS0::askfirst:/usr/libexec/login.sh
- tty1::askfirst:/usr/libexec/login.sh
+应用本项目目录下的 `docs/openwrt-patch.patch`。
+
+```shell
+$ curl https://raw.githubusercontent.com/rustsbi/prototyper/refs/heads/main/docs/openwrt-patch.patch --output openwrt-patch.patch
+$ git apply openwrt-patch.patch
 ```
 
 ## 编译RustSBI  Prototyper
@@ -115,40 +90,40 @@ $ make -j$(nproc)
 
 更新 Feeds：
 ```shell
-cd openwrt
+$ cd openwrt
 # Update the feeds
-./scripts/feeds update -a
-./scripts/feeds install -a
+$ ./scripts/feeds update -a
+$ ./scripts/feeds install -a
 ```
 
 修改配置：
 ```shell
-make -j$(nproc) menuconfig
+$ make -j$(nproc) menuconfig
 ```
 
-进入 Target System，选中 SiFive U-based RISC-V boards
+进入 `Target System`，选中 `$SiFive U-based RISC-V boards`。
 
 修改内核配置：
 ```shell
-make -j$(nproc) kernel_menuconfig
+$ make -j$(nproc) kernel_menuconfig
 ```
 
 进入后将   
-"Device Drivers -> Serial ATA and Parallel ATA drivers (libata) -> AHCI SATA support"   
-"Device Drivers -> Network device support  -> Ethernet driver support -> Intel devices -> Intel(R) PRO/1000 Gigabit Ethernet support"  
-设为 built-in。
+`Device Drivers` $\rightarrow$ `Serial ATA and Parallel ATA drivers (libata)` $\rightarrow$ `AHCI SATA support`  
+`Device Drivers` $\rightarrow$ `Network device support` $\rightarrow$ `Ethernet driver support` $\rightarrow$ `Intel devices` $\rightarrow$ `Intel(R) PRO/1000 Gigabit Ethernet support`  
+设为 `built-in`。
 
 编译镜像：
 ```shell
 # Build the firmware image
-make -j$(nproc) defconfig download clean world
+$ make -j$(nproc) defconfig download clean world
 ```
 
 拷贝并解压镜像：
 ```shell
-cd ..
-cp ./openwrt/bin/targets/sifiveu/generic/openwrt-sifiveu-generic-sifive_unleashed-ext4-sdcard.img.gz ./
-unar openwrt-sifiveu-generic-sifive_unleashed-ext4-sdcard.img.gz
+$ cd ..
+$ cp ./openwrt/bin/targets/sifiveu/generic/openwrt-sifiveu-generic-sifive_unleashed-ext4-sdcard.img.gz ./
+$ gzip -dk openwrt-sifiveu-generic-sifive_unleashed-ext4-sdcard.img.gz
 ```
 
 ## 使用RustSBI 原型系统和U-Boot启动 Openwrt
