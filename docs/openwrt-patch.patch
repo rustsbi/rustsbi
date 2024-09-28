@@ -1,27 +1,27 @@
 diff --git a/package/boot/uboot-sifiveu/patches/200-invalid-version.patch b/package/boot/uboot-sifiveu/patches/200-invalid-version.patch
-deleted file mode 100644
-index dd52b479f8..0000000000
---- a/package/boot/uboot-sifiveu/patches/200-invalid-version.patch
-+++ /dev/null
-@@ -1,11 +0,0 @@
----- a/scripts/dtc/pylibfdt/Makefile
--+++ b/scripts/dtc/pylibfdt/Makefile
--@@ -17,7 +17,7 @@
--       cmd_pymod = unset CROSS_COMPILE; unset CFLAGS; \
-- 		CC="$(HOSTCC)" LDSHARED="$(HOSTCC) -shared " \
-- 		LDFLAGS="$(HOSTLDFLAGS)" \
---		VERSION="u-boot-$(UBOOTVERSION)" \
--+		VERSION="$(UBOOTVERSION)" \
-- 		CPPFLAGS="$(HOSTCFLAGS) -I$(LIBFDT_srcdir)" OBJDIR=$(obj) \
-- 		SOURCES="$(PYLIBFDT_srcs)" \
-- 		SWIG_OPTS="-I$(LIBFDT_srcdir) -I$(LIBFDT_srcdir)/.." \
+new file mode 100644
+index 0000000000..dd52b479f8
+--- /dev/null
++++ b/package/boot/uboot-sifiveu/patches/200-invalid-version.patch
+@@ -0,0 +1,11 @@
++--- a/scripts/dtc/pylibfdt/Makefile
+++++ b/scripts/dtc/pylibfdt/Makefile
++@@ -17,7 +17,7 @@
++       cmd_pymod = unset CROSS_COMPILE; unset CFLAGS; \
++ 		CC="$(HOSTCC)" LDSHARED="$(HOSTCC) -shared " \
++ 		LDFLAGS="$(HOSTLDFLAGS)" \
++-		VERSION="u-boot-$(UBOOTVERSION)" \
+++		VERSION="$(UBOOTVERSION)" \
++ 		CPPFLAGS="$(HOSTCFLAGS) -I$(LIBFDT_srcdir)" OBJDIR=$(obj) \
++ 		SOURCES="$(PYLIBFDT_srcs)" \
++ 		SWIG_OPTS="-I$(LIBFDT_srcdir) -I$(LIBFDT_srcdir)/.." \
 diff --git a/target/linux/sifiveu/base-files/etc/inittab b/target/linux/sifiveu/base-files/etc/inittab
-index 0d8ead1d91..69f97c47c8 100644
+index 69f97c47c8..0d8ead1d91 100644
 --- a/target/linux/sifiveu/base-files/etc/inittab
 +++ b/target/linux/sifiveu/base-files/etc/inittab
-@@ -1,5 +1,4 @@
+@@ -1,4 +1,5 @@
  ::sysinit:/etc/init.d/rcS S boot
  ::shutdown:/etc/init.d/rcS K shutdown
  ttySIF0::askfirst:/usr/libexec/login.sh
--ttyS0::askfirst:/usr/libexec/login.sh
++ttyS0::askfirst:/usr/libexec/login.sh
  tty1::askfirst:/usr/libexec/login.sh
