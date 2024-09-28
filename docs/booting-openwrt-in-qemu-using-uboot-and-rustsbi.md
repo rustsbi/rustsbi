@@ -34,6 +34,8 @@ $ git clone https://github.com/u-boot/u-boot.git && cd u-boot && git checkout v2
 
 ``` shell
 $ git clone https://git.openwrt.org/openwrt/openwrt.git 
+$ cd ./openwrt
+$ git checkout 603a3c6
 ```
 
 应用本项目目录下的 `docs/openwrt-patch.patch`。
