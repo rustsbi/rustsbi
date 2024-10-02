@@ -69,12 +69,15 @@ $ tar xvf polyos-mobile-latest.img.tar.xz
 $ cd ./image
 $ qemu-img create boot.img 1g
 $ fdisk boot.img
+# 创建 GPT 分区表
 > g
+# 新建一个分区
 > n
+# 保存
 > w
 ```
 
-（ fdisk 的提示全选是和默认相即可。）
+（ fdisk 的提示全选是和默认项即可。）
 
 挂载本地回环设备：
 
@@ -124,7 +127,7 @@ qemu-system-riscv64 \
     -name PolyOS-Mobile \
     -machine virt \
     -m 4096\
-    -smp 2 \
+    -smp 4 \
     -no-reboot \
 	-bios ../u-boot/spl/u-boot-spl \
 	-device loader,file=../u-boot/u-boot.itb,addr=0x80200000 \
@@ -142,12 +145,7 @@ qemu-system-riscv64 \
     -device virtio-blk-device,drive=sys-prod \
     -drive if=none,file=${image_path}/chip_prod.img,format=raw,id=chip-prod,index=0 \
     -device virtio-blk-device,drive=chip-prod \
-    -append "loglevel=1 ip=192.168.137.2:192.168.137.1:192.168.137.1:255.255.255.0::eth0:off sn=0023456789 console=tty0,115200 console=ttyS0,115200 init=/bin/init ohos.boot.hardware=virt root=/dev/ram0 rw ohos.required_mount.system=/dev/block/vdb@/usr@ext4@ro,barrier=1@wait,required ohos.required_mount.vendor=/dev/block/vdc@/vendor@ext4@ro,barrier=1@wait,required ohos.required_mount.sys_prod=/dev/block/vde@/sys_prod@ext4@ro,barrier=1@wait,required ohos.required_mount.chip_prod=/dev/block/vdf@/chip_prod@ext4@ro,barrier=1@wait,required ohos.required_mount.data=/dev/block/vdd@/data@ext4@nosuid,nodev,noatime,barrier=1,data=ordered,noauto_da_alloc@wait,reservedsize=1073741824 ohos.required_mount.misc=/dev/block/vda@/misc@none@none=@wait,required" \
-    -kernel ${image_path}/Image \
-    -initrd ${image_path}/ramdisk.img \
     -nographic \
-    -vga none \
-    -vnc :20 \
     -device virtio-gpu-pci,xres=486,yres=864,max_outputs=1,addr=08.0 \
     -monitor telnet:127.0.0.1:55555,server,nowait \
     -device virtio-mouse-pci \
