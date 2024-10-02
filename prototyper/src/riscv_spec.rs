@@ -32,7 +32,7 @@ pub mod stimecmp {
     use core::arch::asm;
 
     pub fn set(value: u64) {
-        unsafe { asm!("csrrs zero, stimecmp, {}", in(reg) value, options(nomem)); }
+        unsafe { asm!("csrrw zero, stimecmp, {}", in(reg) value, options(nomem)); }
     }
 }
 
