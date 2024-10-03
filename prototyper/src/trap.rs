@@ -9,10 +9,9 @@ use rustsbi::RustSBI;
 
 use crate::board::SBI;
 use crate::clint::{self, SIFIVECLINT};
-use crate::console::{MachineConsole, CONSOLE};
 use crate::hsm::local_hsm;
 use crate::rfence::{local_rfence, RFenceType};
-use crate::riscv_spec::{CSR_TIME, CSR_TIMEH, current_hartid};
+use crate::riscv_spec::{current_hartid, CSR_TIME, CSR_TIMEH};
 
 const PAGE_SIZE: usize = 4096;
 // TODO: `TLB_FLUSH_LIMIT` is a platform-dependent parameter
@@ -98,7 +97,7 @@ unsafe extern "C" fn mtimer() {
 /// machine soft 中断代理
 ///
 #[naked]
-unsafe extern "C" fn msoft() -> ! {
+pub unsafe extern "C" fn msoft() -> ! {
     asm!(
         ".align 2",
         "csrrw  sp, mscratch, sp",
@@ -180,7 +179,7 @@ unsafe extern "C" fn msoft() -> ! {
 }
 
 pub extern "C" fn msoft_hanlder(ctx: &mut SupervisorContext) {
-    #[inline]
+    #[inline(always)]
     fn boot(ctx: &mut SupervisorContext, start_addr: usize, opaque: usize) {
         unsafe {
             sstatus::clear_sie();
@@ -205,9 +204,7 @@ pub extern "C" fn msoft_hanlder(ctx: &mut SupervisorContext) {
         }
         Err(rustsbi::spec::hsm::HART_STOP) => {
             clint::clear_msip();
-            unsafe {
-                mie::set_msoft();
-            }
+            unsafe { mie::set_msoft(); }
             riscv::asm::wfi();
         }
         // RFence
@@ -228,7 +225,10 @@ pub fn msoft_rfence_handler() {
             },
             RFenceType::SFenceVma => {
                 // If the flush size is greater than the maximum limit then simply flush all
-                if (ctx.start_addr == 0 && ctx.size == 0) || (ctx.size == usize::MAX) || (ctx.size > TLB_FLUSH_LIMIT) {
+                if (ctx.start_addr == 0 && ctx.size == 0)
+                    || (ctx.size == usize::MAX)
+                    || (ctx.size > TLB_FLUSH_LIMIT)
+                {
                     unsafe { asm!("sfence.vma"); }
                 } else {
                     for offset in (0..ctx.size).step_by(PAGE_SIZE) {
@@ -242,7 +242,10 @@ pub fn msoft_rfence_handler() {
             RFenceType::SFenceVmaAsid => {
                 let asid = ctx.asid;
                 // If the flush size is greater than the maximum limit then simply flush all
-                if (ctx.start_addr == 0 && ctx.size == 0) || (ctx.size == usize::MAX) || (ctx.size > TLB_FLUSH_LIMIT) {
+                if (ctx.start_addr == 0 && ctx.size == 0)
+                    || (ctx.size == usize::MAX)
+                    || (ctx.size > TLB_FLUSH_LIMIT)
+                {
                     unsafe { asm!("sfence.vma {}, {}", in(reg) 0, in(reg) asid); }
                 } else {
                     for offset in (0..ctx.size).step_by(PAGE_SIZE) {
@@ -280,7 +283,7 @@ pub extern "C" fn fast_handler(
     a7: usize,
 ) -> FastResult {
     #[inline]
-    fn boot(mut ctx: FastContext, start_addr: usize, opaque: usize) -> FastResult {
+    fn resume(mut ctx: FastContext, start_addr: usize, opaque: usize) -> FastResult {
         unsafe {
             sstatus::clear_sie();
             satp::write(0);
@@ -290,113 +293,76 @@ pub extern "C" fn fast_handler(
         ctx.regs().pc = start_addr;
         ctx.call(2)
     }
-    loop {
-        match local_hsm().start() {
-            Ok(next_stage) => {
-                clint::clear_msip();
-                unsafe {
-                    mstatus::set_mpie();
-                    mstatus::set_mpp(next_stage.next_mode);
-                    mie::set_msoft();
-                    mie::set_mtimer();
-                }
-                break boot(ctx, next_stage.start_addr, next_stage.opaque);
-            }
-            Err(rustsbi::spec::hsm::HART_STOP) => {
-                clint::clear_msip();
-                unsafe {
-                    mie::set_msoft();
-                }
-                riscv::asm::wfi();
-            }
-            _ => match mcause::read().cause() {
-                // SBI call
-                T::Exception(E::SupervisorEnvCall) => {
-                    use sbi_spec::{base, hsm, legacy};
-                    let mut ret = unsafe { SBI.assume_init_mut() }.handle_ecall(
-                        a7,
-                        a6,
-                        [ctx.a0(), a1, a2, a3, a4, a5],
-                    );
-                    if ret.is_ok() {
-                        match (a7, a6) {
-                            // 关闭
-                            (hsm::EID_HSM, hsm::HART_STOP) => continue,
-                            // 不可恢复挂起
-                            (hsm::EID_HSM, hsm::HART_SUSPEND)
-                                if matches!(ctx.a0() as u32, hsm::suspend_type::NON_RETENTIVE) =>
-                            {
-                                break boot(ctx, a1, a2);
-                            }
-                            // legacy console 探测
-                            (base::EID_BASE, base::PROBE_EXTENSION)
-                                if matches!(
-                                    ctx.a0(),
-                                    legacy::LEGACY_CONSOLE_PUTCHAR | legacy::LEGACY_CONSOLE_GETCHAR
-                                ) =>
-                            {
-                                ret.value = 1;
-                            }
-                            _ => {}
-                        }
-                    } else {
-                        match a7 {
-                            legacy::LEGACY_CONSOLE_PUTCHAR => {
-                                print!("{}", ctx.a0() as u8 as char);
-                                ret.error = 0;
-                                ret.value = a1;
-                            }
-                            legacy::LEGACY_CONSOLE_GETCHAR => {
-                                let mut c = 0u8;
-                                let uart = CONSOLE.lock();
-                                match *uart {
-                                    MachineConsole::Uart16550(uart16550) => unsafe {
-                                        loop {
-                                            if (*uart16550).read(core::slice::from_mut(&mut c)) == 1
-                                            {
-                                                ret.error = c as _;
-                                                ret.value = a1;
-                                                break;
-                                            }
-                                        }
-                                    },
-                                }
-                                drop(uart);
-                            }
-                            _ => {}
-                        }
+    match mcause::read().cause() {
+        // SBI call
+        T::Exception(E::SupervisorEnvCall) => {
+            use sbi_spec::{base, hsm, legacy};
+            let mut ret = unsafe { SBI.assume_init_mut() }.handle_ecall(
+                a7,
+                a6,
+                [ctx.a0(), a1, a2, a3, a4, a5],
+            );
+            if ret.is_ok() {
+                match (a7, a6) {
+                    // 不可恢复挂起
+                    (hsm::EID_HSM, hsm::HART_SUSPEND)
+                        if matches!(ctx.a0() as u32, hsm::suspend_type::NON_RETENTIVE) =>
+                    {
+                        return resume(ctx, a1, a2);
                     }
-                    ctx.regs().a = [ret.error, ret.value, a2, a3, a4, a5, a6, a7];
-                    mepc::write(mepc::read() + 4);
-                    break ctx.restore();
-                }
-                T::Exception(E::IllegalInstruction) => {
-                    if mstatus::read().mpp() == mstatus::MPP::Machine {
-                        panic!("Cannot handle illegal instruction exception from M-MODE");
+                    // legacy console 探测
+                    (base::EID_BASE, base::PROBE_EXTENSION)
+                        if matches!(
+                            ctx.a0(),
+                            legacy::LEGACY_CONSOLE_PUTCHAR | legacy::LEGACY_CONSOLE_GETCHAR
+                        ) =>
+                    {
+                        ret.value = 1;
                     }
+                    _ => {}
+                }
+            } else {
+                match a7 {
+                    legacy::LEGACY_CONSOLE_PUTCHAR => {
+                        ret.error = unsafe { SBI.assume_init_ref() }.uart16550.as_ref().unwrap().putchar(ctx.a0());
+                        ret.value = a1;
+                    }
+                    legacy::LEGACY_CONSOLE_GETCHAR => {
+                        ret.error = unsafe { SBI.assume_init_ref() }.uart16550.as_ref().unwrap().getchar();
+                        ret.value = a1;
+                    }
+                    _ => {}
+                }
+            }
+            ctx.regs().a = [ret.error, ret.value, a2, a3, a4, a5, a6, a7];
+            mepc::write(mepc::read() + 4);
+            ctx.restore()
+        }
+        T::Exception(E::IllegalInstruction) => {
+            if mstatus::read().mpp() == mstatus::MPP::Machine {
+                panic!("Cannot handle illegal instruction exception from M-MODE");
+            }
 
-                    ctx.regs().a = [ctx.a0(), a1, a2, a3, a4, a5, a6, a7];
-                    if !illegal_instruction_handler(&mut ctx) {
-                        delegate();
-                    }
-                    break ctx.restore();
-                }
-                // 其他陷入
-                trap => {
-                    println!(
-                        "
+            ctx.regs().a = [ctx.a0(), a1, a2, a3, a4, a5, a6, a7];
+            if !illegal_instruction_handler(&mut ctx) {
+                delegate();
+            }
+            ctx.restore()
+        }
+        // 其他陷入
+        trap => {
+            println!(
+                "
 -----------------------------
 > trap:    {trap:?}
 > mepc:    {:#018x}
 > mtval:   {:#018x}
 -----------------------------
             ",
-                        mepc::read(),
-                        mtval::read()
-                    );
-                    panic!("Stopped with unsupported trap")
-                }
-            },
+                mepc::read(),
+                mtval::read()
+            );
+            panic!("Stopped with unsupported trap")
         }
     }
 }
@@ -433,7 +399,7 @@ fn illegal_instruction_handler(ctx: &mut FastContext) -> bool {
                     "Unsupported CSR rd: {}",
                     csr.rd()
                 );
-                ctx.regs().a[(csr.rd() - 10) as usize] = unsafe { SBI.assume_init_mut() }
+                ctx.regs().a[(csr.rd() - 10) as usize] = unsafe { SBI.assume_init_ref() }
                     .clint
                     .as_ref()
                     .unwrap()
@@ -445,7 +411,7 @@ fn illegal_instruction_handler(ctx: &mut FastContext) -> bool {
                     "Unsupported CSR rd: {}",
                     csr.rd()
                 );
-                ctx.regs().a[(csr.rd() - 10) as usize] = unsafe { SBI.assume_init_mut() }
+                ctx.regs().a[(csr.rd() - 10) as usize] = unsafe { SBI.assume_init_ref() }
                     .clint
                     .as_ref()
                     .unwrap()

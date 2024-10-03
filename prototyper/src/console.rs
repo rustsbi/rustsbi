@@ -60,6 +60,27 @@ impl<'a> Console for ConsoleDevice<'a> {
     }
 }
 
+impl<'a> ConsoleDevice<'a> {
+    #[inline]
+    pub fn putchar(&self, c: usize) -> usize {
+        print!("{}", c as u8 as char);
+        0
+    }
+
+    #[inline]
+    pub fn getchar(&self) -> usize {
+        let mut c = 0u8;
+        let console = self.inner.lock();
+        match *console {
+            MachineConsole::Uart16550(uart16550) => unsafe {
+                loop { if (*uart16550).read(core::slice::from_mut(&mut c)) == 1 { break }}
+            }
+        };
+        drop(console);
+        c as _
+    }
+}
+
 #[doc(hidden)]
 pub enum MachineConsole {
     Uart16550(*const Uart16550<u8>),
@@ -119,9 +140,3 @@ impl log::Log for Logger {
 
     fn flush(&self) {}
 }
-
-// pub fn load_console_uart16550(uart16550: &Uart16550<u8>) {
-//     let mut console = CONSOLE.lock();
-//     *console = MachineConsole::Uart16550(uart16550);
-//     drop(console);
-// }
