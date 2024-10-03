@@ -34,7 +34,10 @@ $ git clone https://github.com/u-boot/u-boot.git && cd u-boot && git checkout v2
 
 下载链接：<https://dl.fedoraproject.org/pub/alt/risc-v/disk_images/Fedora-40/Fedora.riscv64-40-20240429.n.0.qcow2>
 ```shell
- $ wget https://dl.fedoraproject.org/pub/alt/risc-v/disk_images/Fedora-40/Fedora.riscv64-40-20240429.n.0.qcow2
+$ mkdir -p fedora
+$ cd fedora
+$ wget https://dl.fedoraproject.org/pub/alt/risc-v/disk_images/Fedora-40/Fedora.riscv64-40-20240429.n.0.qcow2
+$ cd ..
 ```
 
 ## 编译RustSBI  Prototyper
@@ -95,9 +98,6 @@ genisoimage \
     -volid cidata -rational-rock -joliet \
     user-data meta-data network-config
 ```
-
-
-
 
 ## 使用RustSBI 原型系统和U-Boot启动 Fedora
 
