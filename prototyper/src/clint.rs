@@ -69,7 +69,7 @@ impl<'a> ClintDevice<'a> {
 impl<'a> ClintDevice<'a> {
     #[inline]
     pub fn get_time(&self) -> usize {
-        unsafe { (*self.clint.load(Relaxed)).read_mtime() as u32 as usize }
+        unsafe { (*self.clint.load(Relaxed)).read_mtime() as usize }
     }
 
     #[inline]

@@ -297,7 +297,7 @@ pub extern "C" fn fast_handler(
         // SBI call
         T::Exception(E::SupervisorEnvCall) => {
             use sbi_spec::{base, hsm, legacy};
-            let mut ret = unsafe { SBI.assume_init_mut() }.handle_ecall(
+            let mut ret = unsafe { SBI.assume_init_ref() }.handle_ecall(
                 a7,
                 a6,
                 [ctx.a0(), a1, a2, a3, a4, a5],
