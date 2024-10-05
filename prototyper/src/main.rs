@@ -184,11 +184,12 @@ unsafe extern "C" fn start() -> ! {
          // 3. Prepare stack for each hart
         "   call    {locate_stack}",
         "   call    {main}",
+        "   csrw    mscratch, sp",
         "   j       {hart_boot}",
         magic = const dynamic::MAGIC,
         locate_stack = sym trap_stack::locate,
         main         = sym rust_main,
-        hart_boot         = sym trap::trap_vec,
+        hart_boot         = sym trap::msoft,
         options(noreturn)
     )
 }

@@ -201,6 +201,9 @@ impl rustsbi::Hsm for Hsm {
     #[inline]
     fn hart_stop(&self) -> SbiRet {
         local_hsm().stop();
+        clint::clear_msip();
+        unsafe { riscv::register::mie::clear_msoft(); }
+        riscv::asm::wfi();
         SbiRet::success(0)
     }
 
@@ -216,7 +219,9 @@ impl rustsbi::Hsm for Hsm {
         use rustsbi::spec::hsm::suspend_type::{NON_RETENTIVE, RETENTIVE};
         if matches!(suspend_type, NON_RETENTIVE | RETENTIVE) {
             local_hsm().suspend();
-            riscv::asm::wfi() ;
+            clint::clear_msip();
+            unsafe { riscv::register::mie::set_msoft(); }
+            riscv::asm::wfi();
             local_hsm().resume();
             SbiRet::success(0)
         } else {

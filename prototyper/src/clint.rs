@@ -8,8 +8,8 @@ use core::{
 };
 use rustsbi::SbiRet;
 
-use crate::riscv_spec::{stimecmp,current_hartid};
 use crate::hsm::remote_hsm;
+use crate::riscv_spec::{current_hartid, stimecmp};
 
 pub(crate) static SIFIVECLINT: AtomicPtr<SifiveClint> = AtomicPtr::new(null_mut());
 
@@ -69,7 +69,7 @@ impl<'a> ClintDevice<'a> {
 impl<'a> ClintDevice<'a> {
     #[inline]
     pub fn get_time(&self) -> usize {
-        unsafe { (*self.clint.load(Relaxed)).read_mtime() as u32 as usize }
+        unsafe { (*self.clint.load(Relaxed)).read_mtime() as usize }
     }
 
     #[inline]
@@ -85,7 +85,6 @@ impl<'a> rustsbi::Timer for ClintDevice<'a> {
             // TODO: 添加CPU拓展探测机制，补充无Sstc拓展时的定时器设置
             stimecmp::set(stime_value);
             riscv::register::mie::set_mtimer();
-            // (*self.clint.load(Relaxed)).write_mtimecmp(current_hart_id, stime_value);
         }
     }
 }
@@ -95,8 +94,10 @@ impl<'a> rustsbi::Ipi for ClintDevice<'a> {
     fn send_ipi(&self, hart_mask: rustsbi::HartMask) -> SbiRet {
         for hart_id in 0..=self.max_hart_id {
             if hart_mask.has_bit(hart_id) && remote_hsm(hart_id).unwrap().allow_ipi() {
-                unsafe {
-                    (*self.clint.load(Relaxed)).set_msip(hart_id);
+                if hart_id == current_hartid() {
+                    unsafe { riscv::register::mip::set_ssoft(); }
+                } else {
+                    unsafe { (*self.clint.load(Relaxed)).set_msip(hart_id); }
                 }
             }
         }
