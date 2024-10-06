@@ -147,10 +147,6 @@ fn remote_fence_process(rfence_ctx: RFenceCTX, hart_mask: HartMask) -> SbiRet {
         .unwrap()
         .send_ipi_by_fence(hart_mask, rfence_ctx);
 
-    if hart_mask.has_bit(current_hartid()) {
-        crate::trap::rfence_handler();
-    }
-
     sbi_ret
 }
 
