@@ -204,24 +204,25 @@ pub extern "C" fn msoft_hanlder(ctx: &mut SupervisorContext) {
         }
         Err(rustsbi::spec::hsm::HART_STOP) => {
             clint::clear_msip();
-            unsafe { mie::set_msoft(); }
+            unsafe {
+                mie::set_msoft();
+            }
             riscv::asm::wfi();
         }
         // RFence
         _ => {
-            msoft_rfence_handler();
+            msoft_ipi_handler();
         }
     }
 }
 
-pub fn msoft_rfence_handler() {
+pub fn rfence_signle_handler() {
     let rfence_context = local_rfence().get();
     match rfence_context {
-        Some(ctx) => match ctx.op {
+        Some((ctx, id)) => match ctx.op {
             RFenceType::FenceI => unsafe {
                 asm!("fence.i");
-                local_rfence().clear();
-                clint::clear_msip();
+                crate::rfence::remote_rfence(id).unwrap().sub();
             },
             RFenceType::SFenceVma => {
                 // If the flush size is greater than the maximum limit then simply flush all
@@ -229,15 +230,18 @@ pub fn msoft_rfence_handler() {
                     || (ctx.size == usize::MAX)
                     || (ctx.size > TLB_FLUSH_LIMIT)
                 {
-                    unsafe { asm!("sfence.vma"); }
+                    unsafe {
+                        asm!("sfence.vma");
+                    }
                 } else {
                     for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                         let addr = ctx.start_addr + offset;
-                        unsafe { asm!("sfence.vma {}", in(reg) addr); }
+                        unsafe {
+                            asm!("sfence.vma {}", in(reg) addr);
+                        }
                     }
                 }
-                local_rfence().clear();
-                clint::clear_msip();
+                crate::rfence::remote_rfence(id).unwrap().sub();
             }
             RFenceType::SFenceVmaAsid => {
                 let asid = ctx.asid;
@@ -246,28 +250,44 @@ pub fn msoft_rfence_handler() {
                     || (ctx.size == usize::MAX)
                     || (ctx.size > TLB_FLUSH_LIMIT)
                 {
-                    unsafe { asm!("sfence.vma {}, {}", in(reg) 0, in(reg) asid); }
+                    unsafe {
+                        asm!("sfence.vma {}, {}", in(reg) 0, in(reg) asid);
+                    }
                 } else {
                     for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                         let addr = ctx.start_addr + offset;
-                        unsafe { asm!("sfence.vma {}, {}", in(reg) addr, in(reg) asid); }
+                        unsafe {
+                            asm!("sfence.vma {}, {}", in(reg) addr, in(reg) asid);
+                        }
                     }
                 }
-                local_rfence().clear();
-                clint::clear_msip();
+                crate::rfence::remote_rfence(id).unwrap().sub();
             }
             rfencetype => {
                 error!("Unsupported RFence Type: {:?}!", rfencetype);
-                local_rfence().clear();
-                clint::clear_msip();
             }
         },
-        None => {
-            clint::clear_msip();
-            unsafe {
-                riscv::register::mip::set_ssoft();
-            }
+        None => {}
+    }
+}
+
+pub fn rfence_handler() {
+    while local_rfence().is_empty() == false {
+        rfence_signle_handler();
+    }
+}
+
+pub fn msoft_ipi_handler() {
+    use crate::clint::get_and_reset_ipi_type;
+    clint::clear_msip();
+    let ipi_type = get_and_reset_ipi_type();
+    if (ipi_type & crate::clint::IPI_TYPE_SSOFT) != 0 {
+        unsafe {
+            riscv::register::mip::set_ssoft();
         }
+    }
+    if (ipi_type & crate::clint::IPI_TYPE_FENCE) != 0 {
+        rfence_handler();
     }
 }
 
@@ -324,11 +344,19 @@ pub extern "C" fn fast_handler(
             } else {
                 match a7 {
                     legacy::LEGACY_CONSOLE_PUTCHAR => {
-                        ret.error = unsafe { SBI.assume_init_ref() }.uart16550.as_ref().unwrap().putchar(ctx.a0());
+                        ret.error = unsafe { SBI.assume_init_ref() }
+                            .uart16550
+                            .as_ref()
+                            .unwrap()
+                            .putchar(ctx.a0());
                         ret.value = a1;
                     }
                     legacy::LEGACY_CONSOLE_GETCHAR => {
-                        ret.error = unsafe { SBI.assume_init_ref() }.uart16550.as_ref().unwrap().getchar();
+                        ret.error = unsafe { SBI.assume_init_ref() }
+                            .uart16550
+                            .as_ref()
+                            .unwrap()
+                            .getchar();
                         ret.value = a1;
                     }
                     _ => {}
