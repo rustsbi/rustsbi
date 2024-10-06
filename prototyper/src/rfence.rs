@@ -4,7 +4,6 @@ use spin::Mutex;
 use crate::board::SBI;
 use crate::fifo::{Fifo, FifoError};
 use crate::riscv_spec::current_hartid;
-use crate::trap_stack::NUM_HART_MAX;
 use crate::trap_stack::ROOT_STACK;
 
 use core::sync::atomic::{AtomicU32, Ordering};
@@ -210,18 +209,4 @@ impl rustsbi::Fence for RFence {
             hart_mask,
         )
     }
-}
-
-pub fn hart_mask_clear(hart_mask: HartMask, hart_id: usize) -> HartMask {
-    let (mask, mask_base) = hart_mask.into_inner();
-    if mask_base == usize::MAX {
-        return HartMask::from_mask_base(mask & (!(1 << hart_id)), 0);
-    }
-    let Some(idx) = hart_id.checked_sub(mask_base) else {
-        return hart_mask;
-    };
-    if idx >= usize::BITS as usize {
-        return hart_mask;
-    }
-    HartMask::from_mask_base(mask & (!(1 << hart_id)), mask_base)
 }
