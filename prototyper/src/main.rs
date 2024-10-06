@@ -1,4 +1,4 @@
-#![feature(naked_functions, asm_const)]
+#![feature(naked_functions)]
 #![no_std]
 #![no_main]
 
