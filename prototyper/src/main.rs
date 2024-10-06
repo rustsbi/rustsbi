@@ -13,6 +13,7 @@ mod console;
 mod dt;
 mod dynamic;
 mod fail;
+mod fifo;
 mod hart_context;
 mod hsm;
 mod reset;

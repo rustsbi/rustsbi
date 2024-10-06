@@ -4,14 +4,15 @@ use fast_trap::FlowContext;
 use crate::hsm::HsmCell;
 use crate::rfence::RFenceCell;
 use crate::NextStage;
-
+use core::sync::atomic::AtomicU8;
 
 /// 硬件线程上下文。
 pub(crate) struct HartContext {
     /// 陷入上下文。
     trap: FlowContext,
     pub hsm: HsmCell<NextStage>,
-    pub rfence: RFenceCell
+    pub rfence: RFenceCell,
+    pub ipi_type: AtomicU8,
 }
 
 impl HartContext {
