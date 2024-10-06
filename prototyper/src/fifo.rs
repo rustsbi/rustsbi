@@ -1,4 +1,3 @@
-use core::fmt::Debug;
 use core::mem::MaybeUninit;
 
 const FIFO_SIZE: usize = 16;
