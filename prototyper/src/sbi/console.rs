@@ -3,7 +3,6 @@ use rustsbi::{Console, Physical, SbiRet};
 use spin::Mutex;
 use crate::board::SBI_IMPL;
 
-///////////////////////////////////// NEW CODE /////////////////////////////////////////////////
 pub trait ConsoleDevice {
     fn read(&self, buf: &mut [u8]) -> usize;
     fn write(&self, buf: &[u8]) -> usize;
