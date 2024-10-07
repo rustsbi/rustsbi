@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
-#![feature(naked_functions,asm_const)]
-#![deny(warnings)]
+#![feature(naked_functions)]
+#![allow(static_mut_refs)]
 
 #[macro_use]
 extern crate rcore_console;
