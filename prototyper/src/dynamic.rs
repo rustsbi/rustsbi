@@ -95,7 +95,8 @@ pub fn mpp_next_addr(info: &DynamicInfo) -> Result<(mstatus::MPP, usize), Dynami
         3 => mstatus::MPP::Machine,
         1 => mstatus::MPP::Supervisor,
         // pattern `_` avoids `unreachable!`` which introduces panic handler.
-        0 | _ => mstatus::MPP::User,
+        // pattern 0 and _
+        _ => mstatus::MPP::User,
     };
 
     Ok((mpp, info.next_addr))

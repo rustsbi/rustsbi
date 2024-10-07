@@ -3,8 +3,8 @@ use core::mem::MaybeUninit;
 const FIFO_SIZE: usize = 16;
 
 pub enum FifoError {
-    EmptyFifo,
-    NoChange,
+    Empty,
+    Full,
 }
 
 pub struct Fifo<T: Copy + Clone> {
@@ -25,15 +25,15 @@ impl<T: Copy + Clone> Fifo<T> {
         }
     }
     pub fn is_full(&self) -> bool {
-        return self.avil == self.size;
+        self.avil == self.size
     }
     pub fn is_empty(&self) -> bool {
-        return self.avil == 0;
+        self.avil == 0
     }
 
     pub fn push(&mut self, new_element: T) -> Result<(), FifoError> {
         if self.is_full() {
-            return Err(FifoError::NoChange);
+            return Err(FifoError::Full);
         }
         self.data[self.tail].write(new_element);
         self.tail += 1;
@@ -47,7 +47,7 @@ impl<T: Copy + Clone> Fifo<T> {
 
     pub fn pop(&mut self) -> Result<T, FifoError> {
         if self.is_empty() {
-            return Err(FifoError::EmptyFifo);
+            return Err(FifoError::Empty);
         }
         let raw_head = self.tail as isize - self.avil as isize;
         let head = if raw_head < 0 {

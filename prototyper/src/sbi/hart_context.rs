@@ -1,14 +1,13 @@
 use core::ptr::NonNull;
 use fast_trap::FlowContext;
+use riscv::register::mstatus;
 
-use crate::hsm::HsmCell;
-use crate::rfence::RFenceCell;
-use crate::NextStage;
+use crate::sbi::hsm::HsmCell;
+use crate::sbi::rfence::RFenceCell;
 use core::sync::atomic::AtomicU8;
 
-/// 硬件线程上下文。
 pub(crate) struct HartContext {
-    /// 陷入上下文。
+    /// trap context
     trap: FlowContext,
     pub hsm: HsmCell<NextStage>,
     pub rfence: RFenceCell,
@@ -26,4 +25,12 @@ impl HartContext {
     pub fn context_ptr(&mut self) -> NonNull<FlowContext> {
         unsafe { NonNull::new_unchecked(&mut self.trap) }
     }
+}
+
+/// Next Stage boot info
+#[derive(Debug)]
+pub struct NextStage {
+    pub start_addr: usize,
+    pub opaque: usize,
+    pub next_mode: mstatus::MPP,
 }

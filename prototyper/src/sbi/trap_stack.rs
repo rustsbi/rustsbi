@@ -1,8 +1,8 @@
 use core::mem::forget;
 use fast_trap::FreeTrapStack;
 
-use crate::hart_context::HartContext;
-use crate::trap::fast_handler;
+use crate::sbi::hart_context::HartContext;
+use crate::sbi::trap::fast_handler;
 use crate::riscv_spec::current_hartid;
 
 const LEN_STACK_PER_HART: usize = 16 * 1024;

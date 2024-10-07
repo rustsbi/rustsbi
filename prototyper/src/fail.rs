@@ -1,9 +1,11 @@
-use crate::{
-    dt::{self, ParseDeviceTreeError, Tree},
-    dynamic, reset,
-};
 use riscv::register::mstatus;
 use serde_device_tree::Dtb;
+
+use crate::sbi::reset;
+use crate::{
+    dt::{self, ParseDeviceTreeError, Tree},
+    dynamic,
+};
 
 #[cold]
 pub fn device_tree_format(err: dt::ParseDeviceTreeError) -> Dtb {

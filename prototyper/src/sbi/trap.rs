@@ -1,4 +1,3 @@
-use aclint::SifiveClint as Clint;
 use core::arch::asm;
 use fast_trap::{trap_entry, FastContext, FastResult};
 use riscv::register::{
@@ -7,11 +6,12 @@ use riscv::register::{
 };
 use rustsbi::RustSBI;
 
-use crate::board::SBI;
-use crate::clint::{self, SIFIVECLINT};
-use crate::hsm::local_hsm;
-use crate::rfence::{local_rfence, RFenceType};
+use crate::board::SBI_IMPL;
 use crate::riscv_spec::{current_hartid, CSR_TIME, CSR_TIMEH};
+use crate::sbi::rfence::{self, local_rfence, RFenceType};
+use crate::sbi::hsm::local_hsm;
+use crate::sbi::ipi;
+use crate::sbi::console;
 
 const PAGE_SIZE: usize = 4096;
 // TODO: `TLB_FLUSH_LIMIT` is a platform-dependent parameter
@@ -63,12 +63,7 @@ unsafe extern "C" fn mtimer() {
             sd    a2, 3*8(sp)
         ",
         // 清除 mtimecmp
-        "   la    a0, {clint_ptr}
-            ld    a0, (a0)
-            csrr  a1, mhartid
-            addi  a2, zero, -1
-            call  {set_mtimecmp}
-        ",
+        "    call  {clear_mtime}",
         // 设置 stip
         "   li    a0, {mip_stip}
             csrrs zero, mip, a0
@@ -86,10 +81,8 @@ unsafe extern "C" fn mtimer() {
         "   csrrw sp, mscratch, sp",
         // 返回
         "   mret",
-        mip_stip     = const 1 << 5,
-        clint_ptr    =   sym SIFIVECLINT,
-        //                   Clint::write_mtimecmp_naked(&self, hart_idx, val)
-        set_mtimecmp =   sym Clint::write_mtimecmp_naked,
+        mip_stip    = const 1 << 5,
+        clear_mtime = sym ipi::clear_mtime,
         options(noreturn)
     )
 }
@@ -193,7 +186,7 @@ pub extern "C" fn msoft_hanlder(ctx: &mut SupervisorContext) {
     match local_hsm().start() {
         // HSM Start
         Ok(next_stage) => {
-            clint::clear_msip();
+            ipi::clear_msip();
             unsafe {
                 mstatus::set_mpie();
                 mstatus::set_mpp(next_stage.next_mode);
@@ -203,7 +196,7 @@ pub extern "C" fn msoft_hanlder(ctx: &mut SupervisorContext) {
             boot(ctx, next_stage.start_addr, next_stage.opaque);
         }
         Err(rustsbi::spec::hsm::HART_STOP) => {
-            clint::clear_msip();
+            ipi::clear_msip();
             unsafe {
                 mie::set_msoft();
             }
@@ -217,12 +210,11 @@ pub extern "C" fn msoft_hanlder(ctx: &mut SupervisorContext) {
 }
 
 pub fn rfence_signle_handler() {
-    let rfence_context = local_rfence().get();
-    match rfence_context {
-        Some((ctx, id)) => match ctx.op {
+    let rfence_context = local_rfence().unwrap().get();
+        if let Some((ctx, id)) = rfence_context { match ctx.op {
             RFenceType::FenceI => unsafe {
                 asm!("fence.i");
-                crate::rfence::remote_rfence(id).unwrap().sub();
+                rfence::remote_rfence(id).unwrap().sub();
             },
             RFenceType::SFenceVma => {
                 // If the flush size is greater than the maximum limit then simply flush all
@@ -241,7 +233,7 @@ pub fn rfence_signle_handler() {
                         }
                     }
                 }
-                crate::rfence::remote_rfence(id).unwrap().sub();
+                rfence::remote_rfence(id).unwrap().sub();
             }
             RFenceType::SFenceVmaAsid => {
                 let asid = ctx.asid;
@@ -261,32 +253,31 @@ pub fn rfence_signle_handler() {
                         }
                     }
                 }
-                crate::rfence::remote_rfence(id).unwrap().sub();
+                rfence::remote_rfence(id).unwrap().sub();
             }
             rfencetype => {
                 error!("Unsupported RFence Type: {:?}!", rfencetype);
             }
-        },
-        None => {}
+        }
     }
 }
 
 pub fn rfence_handler() {
-    while local_rfence().is_empty() == false {
+    while !local_rfence().unwrap().is_empty() {
         rfence_signle_handler();
     }
 }
 
 pub fn msoft_ipi_handler() {
-    use crate::clint::get_and_reset_ipi_type;
-    clint::clear_msip();
+    use ipi::get_and_reset_ipi_type;
+    ipi::clear_msip();
     let ipi_type = get_and_reset_ipi_type();
-    if (ipi_type & crate::clint::IPI_TYPE_SSOFT) != 0 {
+    if (ipi_type & ipi::IPI_TYPE_SSOFT) != 0 {
         unsafe {
             riscv::register::mip::set_ssoft();
         }
     }
-    if (ipi_type & crate::clint::IPI_TYPE_FENCE) != 0 {
+    if (ipi_type & ipi::IPI_TYPE_FENCE) != 0 {
         rfence_handler();
     }
 }
@@ -317,7 +308,7 @@ pub extern "C" fn fast_handler(
         // SBI call
         T::Exception(E::SupervisorEnvCall) => {
             use sbi_spec::{base, hsm, legacy};
-            let mut ret = unsafe { SBI.assume_init_ref() }.handle_ecall(
+            let mut ret = unsafe { SBI_IMPL.assume_init_ref() }.handle_ecall(
                 a7,
                 a6,
                 [ctx.a0(), a1, a2, a3, a4, a5],
@@ -344,19 +335,11 @@ pub extern "C" fn fast_handler(
             } else {
                 match a7 {
                     legacy::LEGACY_CONSOLE_PUTCHAR => {
-                        ret.error = unsafe { SBI.assume_init_ref() }
-                            .uart16550
-                            .as_ref()
-                            .unwrap()
-                            .putchar(ctx.a0());
+                        ret.error = console::putchar(ctx.a0());
                         ret.value = a1;
                     }
                     legacy::LEGACY_CONSOLE_GETCHAR => {
-                        ret.error = unsafe { SBI.assume_init_ref() }
-                            .uart16550
-                            .as_ref()
-                            .unwrap()
-                            .getchar();
+                        ret.error = console::getchar();
                         ret.value = a1;
                     }
                     _ => {}
@@ -427,8 +410,8 @@ fn illegal_instruction_handler(ctx: &mut FastContext) -> bool {
                     "Unsupported CSR rd: {}",
                     csr.rd()
                 );
-                ctx.regs().a[(csr.rd() - 10) as usize] = unsafe { SBI.assume_init_ref() }
-                    .clint
+                ctx.regs().a[(csr.rd() - 10) as usize] = unsafe { SBI_IMPL.assume_init_ref() }
+                    .ipi
                     .as_ref()
                     .unwrap()
                     .get_time();
@@ -439,8 +422,8 @@ fn illegal_instruction_handler(ctx: &mut FastContext) -> bool {
                     "Unsupported CSR rd: {}",
                     csr.rd()
                 );
-                ctx.regs().a[(csr.rd() - 10) as usize] = unsafe { SBI.assume_init_ref() }
-                    .clint
+                ctx.regs().a[(csr.rd() - 10) as usize] = unsafe { SBI_IMPL.assume_init_ref() }
+                    .ipi
                     .as_ref()
                     .unwrap()
                     .get_timeh();
