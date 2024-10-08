@@ -1,26 +1,116 @@
-//! Board support, including peripheral and core drivers.
+use aclint::SifiveClint;
 use core::mem::MaybeUninit;
-use rustsbi::RustSBI;
+use core::ptr::null;
+use core::{
+    ptr::null_mut,
+    sync::atomic::{AtomicPtr, Ordering::Release},
+};
+use sifive_test_device::SifiveTestDevice;
+use spin::Mutex;
+use uart16550::Uart16550;
 
-use crate::clint::ClintDevice;
-use crate::reset::TestDevice;
-use crate::console::ConsoleDevice;
-use crate::hsm::Hsm;
-use crate::rfence::RFence;
+use crate::sbi::console::ConsoleDevice;
+use crate::sbi::ipi::IpiDevice;
+use crate::sbi::reset::ResetDevice;
+use crate::sbi::SBI;
 
-pub(crate) static mut SBI: MaybeUninit<Board> = MaybeUninit::uninit();
+pub(crate) static mut SBI_IMPL: MaybeUninit<SBI<'static, MachineConsole, SifiveClint, SifiveTestDevice>> =
+    MaybeUninit::uninit();
 
-#[derive(RustSBI, Default)]
-#[rustsbi(dynamic)]
-pub struct Board<'a> {
-    #[rustsbi(console)]
-    pub uart16550: Option<ConsoleDevice<'a>>,
-    #[rustsbi(ipi, timer)]
-    pub clint: Option<ClintDevice<'a>>,
-    #[rustsbi(hsm)]
-    pub hsm: Option<Hsm>,
-    #[rustsbi(reset)]
-    pub sifive_test: Option<TestDevice<'a>>,
-    #[rustsbi(fence)]
-    pub rfence: Option<RFence>
+/// Console Device: Uart16550
+#[doc(hidden)]
+pub enum MachineConsole {
+    Uart16550(*const Uart16550<u8>),
+}
+
+unsafe impl Send for MachineConsole {}
+unsafe impl Sync for MachineConsole {}
+
+impl ConsoleDevice for MachineConsole {
+    fn read(&self, buf: &mut [u8]) -> usize {
+        match self {
+            Self::Uart16550(uart16550) => unsafe { (**uart16550).read(buf) },
+        }
+    }
+
+    fn write(&self, buf: &[u8]) -> usize {
+        match self {
+            MachineConsole::Uart16550(uart16550) => unsafe { (**uart16550).write(buf) },
+        }
+    }
+}
+
+#[doc(hidden)]
+pub(crate) static UART: Mutex<MachineConsole> = Mutex::new(MachineConsole::Uart16550(null()));
+pub(crate) fn console_dev_init(base: usize) {
+    *UART.lock() = MachineConsole::Uart16550(base as _);
+}
+
+/// Ipi Device: Sifive Clint
+impl IpiDevice for SifiveClint {
+    #[inline(always)]
+    fn read_mtime(&self) -> u64 {
+        self.read_mtime()
+    }
+
+    #[inline(always)]
+    fn write_mtime(&self, val: u64) {
+        self.write_mtime(val)
+    }
+
+    #[inline(always)]
+    fn read_mtimecmp(&self, hart_idx: usize) -> u64 {
+        self.read_mtimecmp(hart_idx)
+    }
+
+    #[inline(always)]
+    fn write_mtimecmp(&self, hart_idx: usize, val: u64) {
+        self.write_mtimecmp(hart_idx, val)
+    }
+
+    #[inline(always)]
+    fn read_msip(&self, hart_idx: usize) -> bool {
+        self.read_msip(hart_idx)
+    }
+
+    #[inline(always)]
+    fn set_msip(&self, hart_idx: usize) {
+        self.set_msip(hart_idx)
+    }
+
+    #[inline(always)]
+    fn clear_msip(&self, hart_idx: usize) {
+        self.clear_msip(hart_idx)
+    }
+}
+
+#[doc(hidden)]
+pub(crate) static SIFIVECLINT: AtomicPtr<SifiveClint> = AtomicPtr::new(null_mut());
+pub(crate) fn ipi_dev_init(base: usize) {
+    SIFIVECLINT.store(base as _, Release);
+}
+
+
+/// Reset Device: SifiveTestDevice
+impl ResetDevice for SifiveTestDevice {
+    #[inline]
+    fn fail(&self, code: u16) -> ! {
+        self.fail(code)
+    }
+
+    #[inline]
+    fn pass(&self) -> ! {
+        self.pass()
+    }
+
+    #[inline]
+    fn reset(&self) -> ! {
+        self.reset()
+    }
+}
+
+#[doc(hidden)]
+pub(crate) static SIFIVETEST: AtomicPtr<SifiveTestDevice> = AtomicPtr::new(null_mut());
+pub fn reset_dev_init(base: usize) {
+    SIFIVETEST.store(base as _, Release);
 }

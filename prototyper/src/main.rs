@@ -1,6 +1,7 @@
 #![feature(naked_functions)]
 #![no_std]
 #![no_main]
+#![allow(static_mut_refs)]
 
 #[macro_use]
 extern crate log;
@@ -8,41 +9,34 @@ extern crate log;
 mod macros;
 
 mod board;
-mod clint;
-mod console;
 mod dt;
 mod dynamic;
 mod fail;
-mod fifo;
-mod hart_context;
-mod hsm;
-mod reset;
-mod rfence;
 mod riscv_spec;
-mod trap;
-mod trap_stack;
+mod sbi;
 
-use clint::ClintDevice;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::{arch::asm, mem::MaybeUninit};
-use reset::TestDevice;
-use riscv::register::mstatus;
 
-use crate::board::{Board, SBI};
-use crate::clint::SIFIVECLINT;
-use crate::console::{ConsoleDevice, CONSOLE};
-use crate::hsm::{local_remote_hsm, Hsm};
-use crate::reset::RESET;
-use crate::rfence::RFence;
+use crate::board::{SBI_IMPL, SIFIVECLINT, SIFIVETEST, UART};
 use crate::riscv_spec::{current_hartid, menvcfg};
-use crate::trap::trap_vec;
-use crate::trap_stack::NUM_HART_MAX;
+use crate::sbi::console::SbiConsole;
+use crate::sbi::hart_context::NextStage;
+use crate::sbi::hsm::{local_remote_hsm, SbiHsm};
+use crate::sbi::ipi::{self, SbiIpi};
+use crate::sbi::logger;
+use crate::sbi::reset::SbiReset;
+use crate::sbi::rfence::SbiRFence;
+use crate::sbi::trap::{self, trap_vec};
+use crate::sbi::trap_stack::{self, NUM_HART_MAX};
+use crate::sbi::SBI;
 
 #[no_mangle]
 extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     // parse dynamic information
     let info = dynamic::read_paddr(nonstandard_a2).unwrap_or_else(fail::no_dynamic_info_available);
     static GENESIS: AtomicBool = AtomicBool::new(true);
+    static SBI_READY: AtomicBool = AtomicBool::new(false);
 
     let is_boot_hart = if info.boot_hart == usize::MAX {
         GENESIS.swap(false, Ordering::AcqRel)
@@ -61,9 +55,23 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize);
 
         // TODO: The device base address needs to be parsed from FDT
-        reset::init(0x100000);
-        console::init(0x10000000);
-        clint::init(0x2000000);
+        // 1. Init device
+        board::reset_dev_init(0x100000);
+        board::console_dev_init(0x10000000);
+        board::ipi_dev_init(0x2000000);
+        // 2. Init SBI
+        unsafe {
+            SBI_IMPL = MaybeUninit::new(SBI {
+                console: Some(SbiConsole::new(&UART)),
+                ipi: Some(SbiIpi::new(&SIFIVECLINT, NUM_HART_MAX)),
+                hsm: Some(SbiHsm),
+                reset: Some(SbiReset::new(&SIFIVETEST)),
+                rfence: Some(SbiRFence),
+            });
+        }
+        SBI_READY.swap(true, Ordering::AcqRel);
+        // 3. Init Logger
+        logger::Logger::init();
 
         info!("RustSBI version {}", rustsbi::VERSION);
         rustsbi::LOGO.lines().for_each(|line| info!("{}", line));
@@ -80,16 +88,6 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
                 .unwrap_or("<unspecified>")
         );
 
-        // Init SBI
-        unsafe {
-            SBI = MaybeUninit::new(Board {
-                uart16550: Some(ConsoleDevice::new(&CONSOLE)),
-                clint: Some(ClintDevice::new(&SIFIVECLINT, NUM_HART_MAX)),
-                hsm: Some(Hsm),
-                sifive_test: Some(TestDevice::new(&RESET)),
-                rfence: Some(RFence),
-            });
-        }
 
         // TODO: PMP configuration needs to be obtained through the memory range in the device tree
         use riscv::register::*;
@@ -128,9 +126,12 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
 
         // 设置陷入栈
         trap_stack::prepare_for_trap();
+
+        // waiting for sbi ready
+        while !SBI_READY.load(Ordering::Relaxed) {}
     }
 
-    clint::clear();
+    ipi::clear_all();
     unsafe {
         asm!("csrw mideleg,    {}", in(reg) !0);
         asm!("csrw medeleg,    {}", in(reg) !0);
@@ -142,6 +143,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
         );
         mtvec::write(trap_vec as _, mtvec::TrapMode::Vectored);
+        
     }
 }
 
@@ -164,25 +166,15 @@ unsafe extern "C" fn start() -> ! {
         "3:",
         "   j       3b", // TODO multi hart preempt for runtime init
         "4:",
-        // clear bss segment
+        // 3. clear bss segment
         "   la      t0, sbss
             la      t1, ebss
         1:  bgeu    t0, t1, 2f
             sd      zero, 0(t0)
             addi    t0, t0, 8
             j       1b",
-        // prepare data segment
-        "   la      t3, sidata
-            la      t4, sdata
-            la      t5, edata
-        1:  bgeu    t4, t5, 2f
-            ld      t6, 0(t3)
-            sd      t6, 0(t4)
-            addi    t3, t3, 8
-            addi    t4, t4, 8
-            j       1b",
         "2:",
-         // 3. Prepare stack for each hart
+         // 4. Prepare stack for each hart
         "   call    {locate_stack}",
         "   call    {main}",
         "   csrw    mscratch, sp",
@@ -190,16 +182,9 @@ unsafe extern "C" fn start() -> ! {
         magic = const dynamic::MAGIC,
         locate_stack = sym trap_stack::locate,
         main         = sym rust_main,
-        hart_boot         = sym trap::msoft,
+        hart_boot    = sym trap::msoft,
         options(noreturn)
     )
-}
-
-#[derive(Debug)]
-pub struct NextStage {
-    start_addr: usize,
-    opaque: usize,
-    next_mode: mstatus::MPP,
 }
 
 #[panic_handler]

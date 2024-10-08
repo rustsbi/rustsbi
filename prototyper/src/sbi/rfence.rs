@@ -1,10 +1,11 @@
 use rustsbi::{HartMask, SbiRet};
 use spin::Mutex;
 
-use crate::board::SBI;
-use crate::fifo::{Fifo, FifoError};
+use crate::board::SBI_IMPL;
+use crate::sbi::fifo::{Fifo, FifoError};
 use crate::riscv_spec::current_hartid;
-use crate::trap_stack::ROOT_STACK;
+use crate::sbi::trap_stack::ROOT_STACK;
+use crate::sbi::trap;
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
@@ -15,7 +16,7 @@ pub(crate) struct RFenceCell {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct RFenceCTX {
+pub struct RFenceCTX {
     pub start_addr: usize,
     pub size: usize,
     pub asid: usize,
@@ -25,7 +26,7 @@ pub(crate) struct RFenceCTX {
 
 #[allow(unused)]
 #[derive(Clone, Copy, Debug)]
-pub(crate) enum RFenceType {
+pub enum RFenceType {
     FenceI,
     SFenceVma,
     SFenceVmaAsid,
@@ -44,7 +45,7 @@ impl RFenceCell {
     }
 
     #[inline]
-    pub unsafe fn local(&self) -> LocalRFenceCell<'_> {
+    pub fn local(&self) -> LocalRFenceCell<'_> {
         LocalRFenceCell(self)
     }
 
@@ -65,13 +66,11 @@ pub struct LocalRFenceCell<'a>(&'a RFenceCell);
 pub struct RemoteRFenceCell<'a>(&'a RFenceCell);
 
 /// 获取当前hart的rfence上下文
-pub(crate) fn local_rfence() -> LocalRFenceCell<'static> {
+pub(crate) fn local_rfence() -> Option<LocalRFenceCell<'static>> {
     unsafe {
         ROOT_STACK
-            .get_unchecked_mut(current_hartid())
-            .hart_context()
-            .rfence
-            .local()
+            .get_mut(current_hartid())
+            .map(|x| x.hart_context().rfence.local())
     }
 }
 
@@ -86,7 +85,7 @@ pub(crate) fn remote_rfence(hart_id: usize) -> Option<RemoteRFenceCell<'static>>
 
 #[allow(unused)]
 impl LocalRFenceCell<'_> {
-    pub fn is_zero(&self) -> bool {
+    pub fn is_sync(&self) -> bool {
         self.0.wait_sync_count.load(Ordering::Relaxed) == 0
     }
     pub fn add(&self) {
@@ -105,9 +104,9 @@ impl LocalRFenceCell<'_> {
     pub fn set(&self, ctx: RFenceCTX) {
         loop {
             match self.0.queue.lock().push((ctx, current_hartid())) {
-                Ok(_) => break (),
-                Err(FifoError::NoChange) => {
-                    crate::trap::rfence_signle_handler();
+                Ok(_) => break,
+                Err(FifoError::Full) => {
+                    trap::rfence_signle_handler();
                     continue;
                 }
                 _ => panic!("Unable to push fence ops to fifo"),
@@ -122,9 +121,9 @@ impl RemoteRFenceCell<'_> {
         // TODO: maybe deadlock
         loop {
             match self.0.queue.lock().push((ctx, current_hartid())) {
-                Ok(_) => break (),
-                Err(FifoError::NoChange) => {
-                    crate::trap::rfence_signle_handler();
+                Ok(_) => break,
+                Err(FifoError::Full) => {
+                    trap::rfence_signle_handler();
                     continue;
                 }
                 _ => panic!("Unable to push fence ops to fifo"),
@@ -138,11 +137,11 @@ impl RemoteRFenceCell<'_> {
 }
 
 /// RFENCE
-pub(crate) struct RFence;
+pub(crate) struct SbiRFence;
 
 fn remote_fence_process(rfence_ctx: RFenceCTX, hart_mask: HartMask) -> SbiRet {
-    let sbi_ret = unsafe { SBI.assume_init_mut() }
-        .clint
+    let sbi_ret = unsafe { SBI_IMPL.assume_init_mut() }
+        .ipi
         .as_ref()
         .unwrap()
         .send_ipi_by_fence(hart_mask, rfence_ctx);
@@ -150,7 +149,7 @@ fn remote_fence_process(rfence_ctx: RFenceCTX, hart_mask: HartMask) -> SbiRet {
     sbi_ret
 }
 
-impl rustsbi::Fence for RFence {
+impl rustsbi::Fence for SbiRFence {
     fn remote_fence_i(&self, hart_mask: HartMask) -> SbiRet {
         remote_fence_process(
             RFenceCTX {
