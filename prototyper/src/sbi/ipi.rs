@@ -25,15 +25,23 @@ pub trait IpiDevice {
 pub struct SbiIpi<'a, T: IpiDevice> {
     pub ipi_dev: &'a AtomicPtr<T>,
     pub max_hart_id: usize,
+    pub sstc_support: bool,
 }
 
 impl<'a, T: IpiDevice> rustsbi::Timer for SbiIpi<'a, T> {
     #[inline]
     fn set_timer(&self, stime_value: u64) {
-        unsafe {
-            // TODO: 添加CPU拓展探测机制，补充无Sstc拓展时的定时器设置
+        if self.sstc_support {
             stimecmp::set(stime_value);
-            riscv::register::mie::set_mtimer();
+            unsafe {
+                riscv::register::mie::set_mtimer();
+            }
+        } else {
+            self.write_mtimecmp(current_hartid(), stime_value);
+            unsafe {
+                riscv::register::mip::clear_stimer();
+                riscv::register::mie::set_mtimer();
+            }
         }
     }
 }
@@ -56,10 +64,11 @@ impl<'a, T: IpiDevice> rustsbi::Ipi for SbiIpi<'a, T> {
 }
 
 impl<'a, T: IpiDevice> SbiIpi<'a, T> {
-    pub fn new(ipi_dev: &'a AtomicPtr<T>, max_hart_id: usize) -> Self {
+    pub fn new(ipi_dev: &'a AtomicPtr<T>, max_hart_id: usize, sstc_support: bool) -> Self {
         Self {
             ipi_dev,
             max_hart_id,
+            sstc_support,
         }
     }
 
@@ -166,4 +175,12 @@ pub fn clear_all() {
         .as_ref()
         .unwrap()
         .clear();
+}
+
+pub fn has_sstc() -> bool {
+    unsafe { SBI_IMPL.assume_init_ref() }
+        .ipi
+        .as_ref()
+        .unwrap()
+        .sstc_support
 }

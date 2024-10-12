@@ -51,31 +51,47 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         // parse the device tree
         let dtb = dt::parse_device_tree(opaque).unwrap_or_else(fail::device_tree_format);
         let dtb = dtb.share();
-        let tree =
-            serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize);
 
         // TODO: The device base address needs to be parsed from FDT
         // 1. Init device
         board::reset_dev_init(0x100000);
         board::console_dev_init(0x10000000);
         board::ipi_dev_init(0x2000000);
-        // 2. Init SBI
+
+        // 2. Init FDT
+        // TODO: Init logger berfore init fdt
+        let tree =
+            serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize);
+        info!("cpu number: {}", tree.cpus.cpu.len());
+        let sstc_support = tree
+            .cpus
+            .cpu
+            .iter()
+            .map(|cpu_iter| {
+                use crate::dt::Cpu;
+                let cpu = cpu_iter.deserialize::<Cpu>();
+                info!("cpu@{} ext count: {:?}", cpu_iter.at(), cpu.isa);
+                cpu.isa.iter().find(|&x| x == "sstc").is_some()
+            })
+            .all(|x| x);
+        info!("sstc_support: {sstc_support}");
+        // 3. Init SBI
         unsafe {
             SBI_IMPL = MaybeUninit::new(SBI {
                 console: Some(SbiConsole::new(&UART)),
-                ipi: Some(SbiIpi::new(&SIFIVECLINT, NUM_HART_MAX)),
+                ipi: Some(SbiIpi::new(&SIFIVECLINT, NUM_HART_MAX, sstc_support)),
                 hsm: Some(SbiHsm),
                 reset: Some(SbiReset::new(&SIFIVETEST)),
                 rfence: Some(SbiRFence),
             });
         }
         SBI_READY.swap(true, Ordering::AcqRel);
-        // 3. Init Logger
+        // 4. Init Logger
         logger::Logger::init();
-
         info!("RustSBI version {}", rustsbi::VERSION);
         rustsbi::LOGO.lines().for_each(|line| info!("{}", line));
         info!("Initializing RustSBI machine-mode environment.");
+
         if let Some(model) = tree.model {
             info!("Model: {}", model.iter().next().unwrap_or("<unspecified>"));
         }
@@ -87,7 +103,6 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
                 .next()
                 .unwrap_or("<unspecified>")
         );
-
 
         // TODO: PMP configuration needs to be obtained through the memory range in the device tree
         use riscv::register::*;
@@ -139,11 +154,14 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         use riscv::register::{medeleg, mtvec};
         medeleg::clear_supervisor_env_call();
         medeleg::clear_illegal_instruction();
-        menvcfg::set_bits(
-            menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
-        );
+        if ipi::has_sstc() {
+            menvcfg::set_bits(
+                menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
+            );
+        } else {
+            menvcfg::set_bits(menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
+        }
         mtvec::write(trap_vec as _, mtvec::TrapMode::Vectored);
-        
     }
 }
 
