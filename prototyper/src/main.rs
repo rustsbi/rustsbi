@@ -59,10 +59,8 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         board::ipi_dev_init(0x2000000);
 
         // 2. Init FDT
-        // TODO: Init logger berfore init fdt
         let tree =
             serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize);
-        info!("cpu number: {}", tree.cpus.cpu.len());
         let sstc_support = tree
             .cpus
             .cpu
@@ -70,11 +68,9 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             .map(|cpu_iter| {
                 use crate::dt::Cpu;
                 let cpu = cpu_iter.deserialize::<Cpu>();
-                info!("cpu@{} ext count: {:?}", cpu_iter.at(), cpu.isa);
                 cpu.isa.iter().find(|&x| x == "sstc").is_some()
             })
             .all(|x| x);
-        info!("sstc_support: {sstc_support}");
         // 3. Init SBI
         unsafe {
             SBI_IMPL = MaybeUninit::new(SBI {
@@ -95,6 +91,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         if let Some(model) = tree.model {
             info!("Model: {}", model.iter().next().unwrap_or("<unspecified>"));
         }
+        info!("Support sstc: {sstc_support}");
         info!(
             "Chosen stdout item: {}",
             tree.chosen
