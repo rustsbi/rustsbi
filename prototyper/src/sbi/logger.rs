@@ -25,12 +25,12 @@ impl log::Log for Logger {
         let color_code: u8 = match record.level() {
             Level::Error => 31,
             Level::Warn => 93,
-            Level::Info => 34,
-            Level::Debug => 32,
+            Level::Info => 32,
+            Level::Debug => 36,
             Level::Trace => 90,
         };
         println!(
-            "\x1b[{color_code}m[{:>5}] {}\x1b[0m",
+            "\x1b[1;37m[RustSBI] \x1b[1;{color_code}m{:^5}\x1b[0m - {}",
             record.level(),
             record.args(),
         );

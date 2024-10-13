@@ -56,11 +56,16 @@ unsafe extern "C" fn mtimer() {
         // mscratch: S sp
         "   csrrw sp, mscratch, sp",
         // 保护
-        "   addi  sp, sp, -4*8
+        "   addi  sp, sp, -9*8
             sd    ra, 0*8(sp)
             sd    a0, 1*8(sp)
             sd    a1, 2*8(sp)
             sd    a2, 3*8(sp)
+            sd    a3, 4*8(sp)
+            sd    a4, 5*8(sp)
+            sd    a5, 6*8(sp)
+            sd    a6, 7*8(sp)
+            sd    a7, 8*8(sp)
         ",
         // 清除 mtimecmp
         "    call  {clear_mtime}",
@@ -73,7 +78,12 @@ unsafe extern "C" fn mtimer() {
             ld    a0, 1*8(sp)
             ld    a1, 2*8(sp)
             ld    a2, 3*8(sp)
-            addi  sp, sp,  4*8
+            ld    a3, 4*8(sp)
+            ld    a4, 5*8(sp)
+            ld    a5, 6*8(sp)
+            ld    a6, 7*8(sp)
+            ld    a7, 8*8(sp)
+            addi  sp, sp,  9*8
         ",
         // 换栈：
         // sp      : S sp
