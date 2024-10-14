@@ -50,13 +50,13 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
 
         // parse the device tree
 
-        // 2. Init FDT
+        // 1. Init FDT
         let dtb = dt::parse_device_tree(opaque).unwrap_or_else(fail::device_tree_format);
         let dtb = dtb.share();
         let tree =
             serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize);
 
-        // 1. Init device
+        // 2. Init device
         // TODO: The device base address should be find in a better way
         let reset_device = tree.soc.test.unwrap().iter().next().unwrap();
         let console_base = tree.soc.serial.unwrap().iter().next().unwrap();
