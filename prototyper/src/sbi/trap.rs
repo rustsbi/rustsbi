@@ -8,10 +8,10 @@ use rustsbi::RustSBI;
 
 use crate::board::SBI_IMPL;
 use crate::riscv_spec::{current_hartid, CSR_TIME, CSR_TIMEH};
-use crate::sbi::rfence::{self, local_rfence, RFenceType};
+use crate::sbi::console;
 use crate::sbi::hsm::local_hsm;
 use crate::sbi::ipi;
-use crate::sbi::console;
+use crate::sbi::rfence::{self, local_rfence, RFenceType};
 
 const PAGE_SIZE: usize = 4096;
 // TODO: `TLB_FLUSH_LIMIT` is a platform-dependent parameter
@@ -56,17 +56,37 @@ unsafe extern "C" fn mtimer() {
         // mscratch: S sp
         "   csrrw sp, mscratch, sp",
         // 保护
-        "   addi  sp, sp, -9*8
-            sd    ra, 0*8(sp)
-            sd    a0, 1*8(sp)
-            sd    a1, 2*8(sp)
-            sd    a2, 3*8(sp)
-            sd    a3, 4*8(sp)
-            sd    a4, 5*8(sp)
-            sd    a5, 6*8(sp)
-            sd    a6, 7*8(sp)
-            sd    a7, 8*8(sp)
-        ",
+        "   addi   sp, sp, -30*8",
+        "   sd     ra, 0*8(sp)
+            sd      gp, 2*8(sp)
+            sd      tp, 3*8(sp)
+            sd      t0, 4*8(sp)
+            sd      t1, 5*8(sp)
+            sd      t2, 6*8(sp)
+            sd      s0, 7*8(sp)
+            sd      s1, 8*8(sp)
+            sd      a0, 9*8(sp)
+            sd      a1, 10*8(sp)
+            sd      a2, 11*8(sp)
+            sd      a3, 12*8(sp)
+            sd      a4, 13*8(sp)
+            sd      a5, 14*8(sp)
+            sd      a6, 15*8(sp)
+            sd      a7, 16*8(sp)
+            sd      s2, 17*8(sp)
+            sd      s3, 18*8(sp)
+            sd      s4, 19*8(sp)
+            sd      s5, 20*8(sp)
+            sd      s6, 21*8(sp)
+            sd      s7, 22*8(sp)
+            sd      s8, 23*8(sp)
+            sd      s9, 24*8(sp)
+            sd     s10, 25*8(sp)
+            sd     s11, 26*8(sp)
+            sd      t3, 27*8(sp)
+            sd      t4, 28*8(sp)
+            sd      t5, 29*8(sp)
+            sd      t6, 1*8(sp)",
         // 清除 mtimecmp
         "    call  {clear_mtime}",
         // 设置 stip
@@ -74,17 +94,37 @@ unsafe extern "C" fn mtimer() {
             csrrs zero, mip, a0
         ",
         // 恢复
-        "   ld    ra, 0*8(sp)
-            ld    a0, 1*8(sp)
-            ld    a1, 2*8(sp)
-            ld    a2, 3*8(sp)
-            ld    a3, 4*8(sp)
-            ld    a4, 5*8(sp)
-            ld    a5, 6*8(sp)
-            ld    a6, 7*8(sp)
-            ld    a7, 8*8(sp)
-            addi  sp, sp,  9*8
-        ",
+        "   ld     ra, 0*8(sp)
+            ld      gp, 2*8(sp)
+            ld      tp, 3*8(sp)
+            ld      t0, 4*8(sp)
+            ld      t1, 5*8(sp)
+            ld      t2, 6*8(sp)
+            ld      s0, 7*8(sp)
+            ld      s1, 8*8(sp)
+            ld      a0, 9*8(sp)
+            ld      a1, 10*8(sp)
+            ld      a2, 11*8(sp)
+            ld      a3, 12*8(sp)
+            ld      a4, 13*8(sp)
+            ld      a5, 14*8(sp)
+            ld      a6, 15*8(sp)
+            ld      a7, 16*8(sp)
+            ld      s2, 17*8(sp)
+            ld      s3, 18*8(sp)
+            ld      s4, 19*8(sp)
+            ld      s5, 20*8(sp)
+            ld      s6, 21*8(sp)
+            ld      s7, 22*8(sp)
+            ld      s8, 23*8(sp)
+            ld      s9, 24*8(sp)
+            ld     s10, 25*8(sp)
+            ld     s11, 26*8(sp)
+            ld      t3, 27*8(sp)
+            ld      t4, 28*8(sp)
+            ld      t5, 29*8(sp)
+            ld      t6, 1*8(sp)",
+        "   addi   sp, sp, 30*8",
         // 换栈：
         // sp      : S sp
         // mscratch: M sp
@@ -221,7 +261,8 @@ pub extern "C" fn msoft_hanlder(ctx: &mut SupervisorContext) {
 
 pub fn rfence_signle_handler() {
     let rfence_context = local_rfence().unwrap().get();
-        if let Some((ctx, id)) = rfence_context { match ctx.op {
+    if let Some((ctx, id)) = rfence_context {
+        match ctx.op {
             RFenceType::FenceI => unsafe {
                 asm!("fence.i");
                 rfence::remote_rfence(id).unwrap().sub();

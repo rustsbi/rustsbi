@@ -49,36 +49,63 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             dynamic::mpp_next_addr(&info).unwrap_or_else(fail::invalid_dynamic_data);
 
         // parse the device tree
+
+        // 1. Init FDT
         let dtb = dt::parse_device_tree(opaque).unwrap_or_else(fail::device_tree_format);
         let dtb = dtb.share();
         let tree =
             serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize);
 
-        // TODO: The device base address needs to be parsed from FDT
-        // 1. Init device
-        board::reset_dev_init(0x100000);
-        board::console_dev_init(0x10000000);
-        board::ipi_dev_init(0x2000000);
-        // 2. Init SBI
+        // 2. Init device
+        // TODO: The device base address should be find in a better way
+        let reset_device = tree.soc.test.unwrap().iter().next().unwrap();
+        let console_base = tree.soc.serial.unwrap().iter().next().unwrap();
+        let clint_device = tree.soc.clint.unwrap().iter().next().unwrap();
+        let reset_base_address = reset_device.at();
+        let console_base_address = console_base.at();
+        let ipi_base_address = clint_device.at();
+        board::reset_dev_init(usize::from_str_radix(reset_base_address, 16).unwrap());
+        board::console_dev_init(usize::from_str_radix(console_base_address, 16).unwrap());
+        board::ipi_dev_init(usize::from_str_radix(ipi_base_address, 16).unwrap());
+        // Assume sstc is enabled only if all hart has sstc ext
+        let sstc_support = tree
+            .cpus
+            .cpu
+            .iter()
+            .map(|cpu_iter| {
+                use crate::dt::Cpu;
+                let cpu = cpu_iter.deserialize::<Cpu>();
+                let isa = match cpu.isa {
+                    Some(value) => value,
+                    None => return false,
+                };
+                isa.iter().find(|&x| x == "sstc").is_some()
+            })
+            .all(|x| x);
+        // 3. Init SBI
         unsafe {
             SBI_IMPL = MaybeUninit::new(SBI {
                 console: Some(SbiConsole::new(&UART)),
-                ipi: Some(SbiIpi::new(&SIFIVECLINT, NUM_HART_MAX)),
+                ipi: Some(SbiIpi::new(&SIFIVECLINT, NUM_HART_MAX, sstc_support)),
                 hsm: Some(SbiHsm),
                 reset: Some(SbiReset::new(&SIFIVETEST)),
                 rfence: Some(SbiRFence),
             });
         }
         SBI_READY.swap(true, Ordering::AcqRel);
-        // 3. Init Logger
+        // 4. Init Logger
         logger::Logger::init();
-
         info!("RustSBI version {}", rustsbi::VERSION);
         rustsbi::LOGO.lines().for_each(|line| info!("{}", line));
         info!("Initializing RustSBI machine-mode environment.");
+
         if let Some(model) = tree.model {
             info!("Model: {}", model.iter().next().unwrap_or("<unspecified>"));
         }
+        info!("Support sstc: {sstc_support}");
+        info!("Clint device: {}", ipi_base_address);
+        info!("Console deivce: {}", console_base_address);
+        info!("Reset device: {}", reset_base_address);
         info!(
             "Chosen stdout item: {}",
             tree.chosen
@@ -87,7 +114,6 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
                 .next()
                 .unwrap_or("<unspecified>")
         );
-
 
         // TODO: PMP configuration needs to be obtained through the memory range in the device tree
         use riscv::register::*;
@@ -139,11 +165,14 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         use riscv::register::{medeleg, mtvec};
         medeleg::clear_supervisor_env_call();
         medeleg::clear_illegal_instruction();
-        menvcfg::set_bits(
-            menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
-        );
+        if ipi::has_sstc() {
+            menvcfg::set_bits(
+                menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
+            );
+        } else {
+            menvcfg::set_bits(menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
+        }
         mtvec::write(trap_vec as _, mtvec::TrapMode::Vectored);
-        
     }
 }
 
