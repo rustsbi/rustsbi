@@ -13,7 +13,6 @@ use sbi_spec::binary::{SbiRet, SharedPtr};
 /// as steal-time accounting. The Steal-time Accounting (STA) extension defines the
 /// mechanism in which an SBI implementation provides steal-time and preemption
 /// information, for each virtual hart, to supervisor-mode software.
-
 pub trait Sta {
     /// Set Steal-time Shared Memory Address.
     ///
