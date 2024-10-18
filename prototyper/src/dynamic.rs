@@ -44,13 +44,12 @@ pub fn read_paddr(paddr: usize) -> Result<DynamicInfo, DynamicReadError> {
         bad_version: None,
     };
     // check pointer before dereference
-    if DYNAMIC_INFO_INVALID_ADDRESSES == paddr
-    {
+    if DYNAMIC_INFO_INVALID_ADDRESSES == paddr {
         error.bad_paddr = Some(paddr);
         return Err(error);
     }
     let ans = unsafe { *(paddr as *const DynamicInfo) };
-    
+
     if ans.magic != MAGIC {
         error.bad_magic = Some(ans.magic);
     }

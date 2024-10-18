@@ -22,9 +22,13 @@ pub mod menvcfg {
 
     pub fn set_bits(option: usize) {
         let mut bits: usize;
-        unsafe { asm!("csrr {}, menvcfg", out(reg) bits, options(nomem)); }
+        unsafe {
+            asm!("csrr {}, menvcfg", out(reg) bits, options(nomem));
+        }
         bits |= option;
-        unsafe { asm!("csrw menvcfg, {}", in(reg) bits, options(nomem)); }
+        unsafe {
+            asm!("csrw menvcfg, {}", in(reg) bits, options(nomem));
+        }
     }
 }
 
@@ -32,10 +36,11 @@ pub mod stimecmp {
     use core::arch::asm;
 
     pub fn set(value: u64) {
-        unsafe { asm!("csrrw zero, stimecmp, {}", in(reg) value, options(nomem)); }
+        unsafe {
+            asm!("csrrw zero, stimecmp, {}", in(reg) value, options(nomem));
+        }
     }
 }
-
 
 #[inline]
 pub fn current_hartid() -> usize {

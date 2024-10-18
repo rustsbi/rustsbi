@@ -2,10 +2,10 @@ use rustsbi::{HartMask, SbiRet};
 use spin::Mutex;
 
 use crate::board::SBI_IMPL;
-use crate::sbi::fifo::{Fifo, FifoError};
 use crate::riscv_spec::current_hartid;
-use crate::sbi::trap_stack::ROOT_STACK;
+use crate::sbi::fifo::{Fifo, FifoError};
 use crate::sbi::trap;
+use crate::sbi::trap_stack::ROOT_STACK;
 
 use core::sync::atomic::{AtomicU32, Ordering};
 

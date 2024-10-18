@@ -3,8 +3,8 @@ use core::{
     hint::spin_loop,
     sync::atomic::{AtomicUsize, Ordering},
 };
-use rustsbi::{spec::hsm::hart_state, SbiRet};
 use riscv::register::mstatus::MPP;
+use rustsbi::{spec::hsm::hart_state, SbiRet};
 
 use crate::board::SBI_IMPL;
 use crate::riscv_spec::current_hartid;
@@ -12,7 +12,6 @@ use crate::sbi::hart_context::NextStage;
 use crate::sbi::trap_stack::ROOT_STACK;
 
 const HART_STATE_START_PENDING_EXT: usize = usize::MAX;
-
 
 type HsmState = AtomicUsize;
 
@@ -46,7 +45,6 @@ impl<T> HsmCell<T> {
         RemoteHsmCell(self)
     }
 }
-
 
 /// 当前硬件线程的共享对象。
 pub struct LocalHsmCell<'a, T>(&'a HsmCell<T>);
@@ -99,7 +97,7 @@ impl<T> LocalHsmCell<'_, T> {
     }
 }
 
-impl<T : core::fmt::Debug> RemoteHsmCell<'_, T> {
+impl<T: core::fmt::Debug> RemoteHsmCell<'_, T> {
     /// 向关闭状态的硬件线程传入共享数据，并将其状态设置为启动挂起，返回是否放入成功。
     #[inline]
     pub fn start(&self, t: T) -> bool {
@@ -145,7 +143,6 @@ impl<T : core::fmt::Debug> RemoteHsmCell<'_, T> {
     }
 }
 
-
 /// 获取此 hart 的 local hsm 对象。
 pub(crate) fn local_hsm() -> LocalHsmCell<'static, NextStage> {
     unsafe {
@@ -178,17 +175,23 @@ pub(crate) fn remote_hsm(hart_id: usize) -> Option<RemoteHsmCell<'static, NextSt
     }
 }
 
-
-
-/// HSM 
+/// HSM
 pub(crate) struct SbiHsm;
 
 impl rustsbi::Hsm for SbiHsm {
     fn hart_start(&self, hartid: usize, start_addr: usize, opaque: usize) -> SbiRet {
         match remote_hsm(hartid) {
             Some(remote) => {
-                if remote.start(NextStage { start_addr, opaque, next_mode: MPP::Supervisor }) {
-                    unsafe { SBI_IMPL.assume_init_ref() }.ipi.as_ref().unwrap().set_msip(hartid);
+                if remote.start(NextStage {
+                    start_addr,
+                    opaque,
+                    next_mode: MPP::Supervisor,
+                }) {
+                    unsafe { SBI_IMPL.assume_init_ref() }
+                        .ipi
+                        .as_ref()
+                        .unwrap()
+                        .set_msip(hartid);
                     SbiRet::success(0)
                 } else {
                     SbiRet::already_started()
@@ -201,8 +204,14 @@ impl rustsbi::Hsm for SbiHsm {
     #[inline]
     fn hart_stop(&self) -> SbiRet {
         local_hsm().stop();
-        unsafe { SBI_IMPL.assume_init_ref() }.ipi.as_ref().unwrap().clear_msip(current_hartid());
-        unsafe { riscv::register::mie::clear_msoft(); }
+        unsafe { SBI_IMPL.assume_init_ref() }
+            .ipi
+            .as_ref()
+            .unwrap()
+            .clear_msip(current_hartid());
+        unsafe {
+            riscv::register::mie::clear_msoft();
+        }
         riscv::asm::wfi();
         SbiRet::success(0)
     }
@@ -219,8 +228,14 @@ impl rustsbi::Hsm for SbiHsm {
         use rustsbi::spec::hsm::suspend_type::{NON_RETENTIVE, RETENTIVE};
         if matches!(suspend_type, NON_RETENTIVE | RETENTIVE) {
             local_hsm().suspend();
-            unsafe { SBI_IMPL.assume_init_ref() }.ipi.as_ref().unwrap().clear_msip(current_hartid());
-            unsafe { riscv::register::mie::set_msoft(); }
+            unsafe { SBI_IMPL.assume_init_ref() }
+                .ipi
+                .as_ref()
+                .unwrap()
+                .clear_msip(current_hartid());
+            unsafe {
+                riscv::register::mie::set_msoft();
+            }
             riscv::asm::wfi();
             local_hsm().resume();
             SbiRet::success(0)

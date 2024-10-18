@@ -1,9 +1,9 @@
 use core::mem::forget;
 use fast_trap::FreeTrapStack;
 
+use crate::riscv_spec::current_hartid;
 use crate::sbi::hart_context::HartContext;
 use crate::sbi::trap::fast_handler;
-use crate::riscv_spec::current_hartid;
 
 const LEN_STACK_PER_HART: usize = 16 * 1024;
 pub const NUM_HART_MAX: usize = 8;
@@ -34,7 +34,11 @@ pub(crate) unsafe extern "C" fn locate() {
 
 /// 预备陷入栈。
 pub(crate) fn prepare_for_trap() {
-    unsafe { ROOT_STACK.get_unchecked_mut(current_hartid()).load_as_stack() };
+    unsafe {
+        ROOT_STACK
+            .get_unchecked_mut(current_hartid())
+            .load_as_stack()
+    };
 }
 
 /// 类型化栈。

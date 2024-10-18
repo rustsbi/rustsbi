@@ -1,7 +1,7 @@
+use crate::board::SBI_IMPL;
 use core::fmt::{self, Write};
 use rustsbi::{Console, Physical, SbiRet};
 use spin::Mutex;
-use crate::board::SBI_IMPL;
 
 pub trait ConsoleDevice {
     fn read(&self, buf: &mut [u8]) -> usize;
@@ -28,7 +28,9 @@ impl<'a, T: ConsoleDevice> SbiConsole<'a, T> {
         let mut c = 0u8;
         let console = self.inner.lock();
         loop {
-            if console.read(core::slice::from_mut(&mut c)) == 1 {break;}
+            if console.read(core::slice::from_mut(&mut c)) == 1 {
+                break;
+            }
         }
         c as _
     }
@@ -60,7 +62,6 @@ impl<'a, T: ConsoleDevice> Console for SbiConsole<'a, T> {
     }
 }
 
-
 impl<'a, T: ConsoleDevice> fmt::Write for SbiConsole<'a, T> {
     #[inline]
     fn write_str(&mut self, s: &str) -> fmt::Result {
@@ -74,13 +75,20 @@ impl<'a, T: ConsoleDevice> fmt::Write for SbiConsole<'a, T> {
     }
 }
 
-
 #[inline]
 pub fn putchar(c: usize) -> usize {
-    unsafe { SBI_IMPL.assume_init_mut() }.console.as_mut().unwrap().putchar(c)
+    unsafe { SBI_IMPL.assume_init_mut() }
+        .console
+        .as_mut()
+        .unwrap()
+        .putchar(c)
 }
 
 #[inline]
 pub fn getchar() -> usize {
-    unsafe { SBI_IMPL.assume_init_mut() }.console.as_mut().unwrap().getchar()
+    unsafe { SBI_IMPL.assume_init_mut() }
+        .console
+        .as_mut()
+        .unwrap()
+        .getchar()
 }

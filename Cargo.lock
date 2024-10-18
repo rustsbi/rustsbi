@@ -133,9 +133,9 @@ checksum = "cf8b4cfb0da0528321d22daee4299a23a8c5ac8848623d716e898d2a9eec0694"
 
 [[package]]
 name = "rustsbi"
-version = "0.4.0-alpha.3"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce47c5c62f6a4d9586b78cc2ba963330bc57a046c4b2949ebc128265707a40c3"
+checksum = "44c13763120794ed11d64bac885fb31d384ae385c3287b0697711b97affbf8ab"
 dependencies = [
  "riscv",
  "rustsbi-macros",

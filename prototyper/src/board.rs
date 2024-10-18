@@ -14,8 +14,9 @@ use crate::sbi::ipi::IpiDevice;
 use crate::sbi::reset::ResetDevice;
 use crate::sbi::SBI;
 
-pub(crate) static mut SBI_IMPL: MaybeUninit<SBI<'static, MachineConsole, SifiveClint, SifiveTestDevice>> =
-    MaybeUninit::uninit();
+pub(crate) static mut SBI_IMPL: MaybeUninit<
+    SBI<'static, MachineConsole, SifiveClint, SifiveTestDevice>,
+> = MaybeUninit::uninit();
 
 /// Console Device: Uart16550
 #[doc(hidden)]
@@ -89,7 +90,6 @@ pub(crate) static SIFIVECLINT: AtomicPtr<SifiveClint> = AtomicPtr::new(null_mut(
 pub(crate) fn ipi_dev_init(base: usize) {
     SIFIVECLINT.store(base as _, Release);
 }
-
 
 /// Reset Device: SifiveTestDevice
 impl ResetDevice for SifiveTestDevice {

@@ -61,5 +61,9 @@ impl<'a, T: ResetDevice> rustsbi::Reset for SbiReset<'a, T> {
 }
 
 pub fn fail() -> ! {
-    unsafe { SBI_IMPL.assume_init_ref() }.reset.as_ref().unwrap().fail()
+    unsafe { SBI_IMPL.assume_init_ref() }
+        .reset
+        .as_ref()
+        .unwrap()
+        .fail()
 }
