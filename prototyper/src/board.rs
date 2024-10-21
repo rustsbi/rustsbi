@@ -1,13 +1,13 @@
 use aclint::SifiveClint;
 use core::mem::MaybeUninit;
-use core::ptr::null;
 use core::{
-    ptr::null_mut,
+    ptr::{null, null_mut},
     sync::atomic::{AtomicPtr, Ordering::Release},
 };
 use sifive_test_device::SifiveTestDevice;
 use spin::Mutex;
 use uart16550::Uart16550;
+use uart_xilinx::uart_lite::uart::MmioUartAxiLite;
 
 use crate::sbi::console::ConsoleDevice;
 use crate::sbi::ipi::IpiDevice;
@@ -22,6 +22,7 @@ pub(crate) static mut SBI_IMPL: MaybeUninit<
 #[doc(hidden)]
 pub enum MachineConsole {
     Uart16550(*const Uart16550<u8>),
+    UartAxiLte(MmioUartAxiLite),
 }
 
 unsafe impl Send for MachineConsole {}
@@ -31,20 +32,32 @@ impl ConsoleDevice for MachineConsole {
     fn read(&self, buf: &mut [u8]) -> usize {
         match self {
             Self::Uart16550(uart16550) => unsafe { (**uart16550).read(buf) },
+            Self::UartAxiLte(axilite) => axilite.read(buf),
         }
     }
 
     fn write(&self, buf: &[u8]) -> usize {
         match self {
             MachineConsole::Uart16550(uart16550) => unsafe { (**uart16550).write(buf) },
+            Self::UartAxiLte(axilite) => axilite.write(buf),
         }
     }
 }
 
+// TODO: select driver follow fdt
+
 #[doc(hidden)]
+#[cfg(feature = "nemu")]
+pub(crate) static UART: Mutex<MachineConsole> =
+    Mutex::new(MachineConsole::UartAxiLte(MmioUartAxiLite::new(0)));
+#[cfg(not(feature = "nemu"))]
 pub(crate) static UART: Mutex<MachineConsole> = Mutex::new(MachineConsole::Uart16550(null()));
 pub(crate) fn console_dev_init(base: usize) {
-    *UART.lock() = MachineConsole::Uart16550(base as _);
+    let new_console = match *UART.lock() {
+        MachineConsole::Uart16550(_) => MachineConsole::Uart16550(base as _),
+        MachineConsole::UartAxiLte(_) => MachineConsole::UartAxiLte(MmioUartAxiLite::new(base)),
+    };
+    *UART.lock() = new_console;
 }
 
 /// Ipi Device: Sifive Clint
