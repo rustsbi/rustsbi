@@ -1,8 +1,7 @@
 use crate::{Console, Cppc, EnvInfo, Fence, Hsm, Ipi, Nacl, Pmu, Reset, Sta, Susp, Timer};
 use sbi_spec::{
     binary::{HartMask, Physical, SbiRet, SharedPtr},
-    nacl::shmem_size::NATIVE,
-    pmu,
+    nacl, pmu,
 };
 
 /// Forwards SBI calls onto current supervisor environment.
@@ -40,7 +39,7 @@ use sbi_spec::{
 /// #     fn hart_get_status(&self, _: usize) -> SbiRet { unimplemented!() }
 /// # }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Forward;
 
 impl Console for Forward {
@@ -332,7 +331,7 @@ impl Nacl for Forward {
     }
 
     #[inline]
-    fn set_shmem(&self, shmem: SharedPtr<[u8; NATIVE]>, flags: usize) -> SbiRet {
+    fn set_shmem(&self, shmem: SharedPtr<[u8; nacl::shmem_size::NATIVE]>, flags: usize) -> SbiRet {
         match () {
             #[cfg(feature = "forward")]
             () => sbi_rt::nacl_set_shmem(shmem, flags),
