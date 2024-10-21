@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- pmu: add missing `snapshot_set_shmem` function in `Pmu` trait, impl for `&T` and `Option<T>` and `Forward` structure
+
 ### Modified
 
 ### Removed

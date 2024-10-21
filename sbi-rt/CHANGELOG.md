@@ -7,6 +7,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `pmu_snapshot_set_shmem` function signature, TODO: documents and implementation
+
+### Modified
+
+### Fixed
+
 ## [0.0.3] - 2024-02-08
 
 This version adds support to the RISC-V SBI Specification version 2.0 ratified.

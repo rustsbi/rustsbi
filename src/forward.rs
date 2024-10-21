@@ -2,6 +2,7 @@ use crate::{Console, Cppc, EnvInfo, Fence, Hsm, Ipi, Nacl, Pmu, Reset, Sta, Susp
 use sbi_spec::{
     binary::{HartMask, Physical, SbiRet, SharedPtr},
     nacl::shmem_size::NATIVE,
+    pmu,
 };
 
 /// Forwards SBI calls onto current supervisor environment.
@@ -504,6 +505,23 @@ impl Pmu for Forward {
             #[cfg(not(feature = "forward"))]
             () => {
                 let _ = counter_idx;
+                unimplemented!()
+            }
+        }
+    }
+
+    #[inline]
+    fn snapshot_set_shmem(
+        &self,
+        shmem: SharedPtr<[u8; pmu::shmem_size::SIZE]>,
+        flags: usize,
+    ) -> SbiRet {
+        match () {
+            #[cfg(feature = "forward")]
+            () => sbi_rt::pmu_snapshot_set_shmem(shmem, flags),
+            #[cfg(not(feature = "forward"))]
+            () => {
+                let _ = (shmem, flags);
                 unimplemented!()
             }
         }

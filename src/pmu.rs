@@ -1,4 +1,5 @@
 use sbi_spec::binary::SbiRet;
+use spec::{binary::SharedPtr, pmu::shmem_size::SIZE};
 
 /// Performance Monitoring Unit extension.
 ///
@@ -224,6 +225,60 @@ pub trait Pmu {
             }
         }
     }
+    /// Set and enable the PMU snapshot shared memory on the calling hart.
+    ///
+    /// This is an optional function and the SBI implementation may choose not to implement it.
+    ///
+    /// # Parameters
+    ///
+    /// If `shmem` physical address is not all-ones bitwise, then `shmem` specifies
+    /// the snapshot shared memory physical base address.
+    /// The `shmem` MUST be 4096 bytes (i.e. RV64 page) aligned and the size of the snapshot
+    /// shared memory must be 4096 bytes.
+    ///
+    /// If `shmem` physical address is all-ones bitwise, then the PMU snapshot shared memory
+    /// is cleared and disabled.
+    ///
+    /// The `flags` parameter is reserved for future use and must be zero.
+    ///
+    /// The layout of the snapshot shared memory is described in the table below.
+    ///
+    /// | Name | Offset | Size | Description |
+    /// |:------|:-------|:-----|:-----------|
+    /// | `counter_overflow_bitmap` | `0x0000` | `8` | A bitmap of all logical overflown counters relative to the `counter_idx_base`. This is valid only if the `Sscofpmf` ISA extension is available. Otherwise, it must be zero. |
+    /// | `counter_values` | `0x0008` | `512` | An array of 64-bit logical counters where each index represents the value of each logical counter associated with hardware/firmware relative to the `counter_idx_base`. |
+    /// | _Reserved_ | `0x0208` | `3576` | Reserved for future use. |
+    ///
+    /// Any future revisions to this structure should be made in a backward compatible manner and will be associated with an SBI version.
+    ///
+    /// The logical counter indicies in the `counter_overflow_bitmap` and `counter_values` array are
+    /// relative w.r.t to `counter_idx_base` argument present in the `pmu_counter_stop` and
+    /// `pmu_counter_start` functions.
+    /// This allows the users to use snapshot feature for more than `XLEN` counters if required.
+    ///
+    /// This function should be invoked only once per hart at boot time. Once configured, the SBI
+    /// implementation has read/write access to the shared memory when `pmu_counter_stop` is
+    /// invoked with the `TAKE_SNAPSHOT` flag set. The SBI implementation has read only access when
+    /// `pmu_counter_start` is invoked with the `INIT_SNAPSHOT` flag set.
+    /// The SBI implementation must not access this memory any other time.
+    ///
+    /// # Return value
+    ///
+    /// The possible return error codes returned in `SbiRet.error` are shown in the table below:
+    ///
+    /// | Return code               | Description
+    /// |:--------------------------|:----------------------------------------------
+    /// | `SbiRet::success()`       | Shared memory was set or cleared successfully.
+    /// | `SbiRet::not_supported()` | The SBI PMU snapshot functionality is not available in the SBI implementation.
+    /// | `SbiRet::invalid_param()` | The `flags` parameter is not zero or the `shmem` is not 4096-byte aligned.
+    /// | `SbiRet::invalid_address()` | The shared memory pointed to by the `shmem` and is not writable or does not satisfy other requirements of shared memory
+    /// | `SbiRet::failed()` | The request failed for unspecified or unknown other reasons.
+    #[inline]
+    fn snapshot_set_shmem(&self, shmem: SharedPtr<[u8; SIZE]>, flags: usize) -> SbiRet {
+        // Optional function, `not_supported` is returned if not implemented.
+        let _ = (shmem, flags);
+        SbiRet::not_supported()
+    }
     /// Function internal to macros. Do not use.
     #[doc(hidden)]
     #[inline]
@@ -291,6 +346,10 @@ impl<T: Pmu> Pmu for &T {
     #[inline]
     fn counter_fw_read_hi(&self, counter_idx: usize) -> SbiRet {
         T::counter_fw_read_hi(self, counter_idx)
+    }
+    #[inline]
+    fn snapshot_set_shmem(&self, shmem: SharedPtr<[u8; SIZE]>, flags: usize) -> SbiRet {
+        T::snapshot_set_shmem(self, shmem, flags)
     }
 }
 
@@ -368,6 +427,12 @@ impl<T: Pmu> Pmu for Option<T> {
     fn counter_fw_read_hi(&self, counter_idx: usize) -> SbiRet {
         self.as_ref()
             .map(|inner| T::counter_fw_read_hi(inner, counter_idx))
+            .unwrap_or(SbiRet::not_supported())
+    }
+    #[inline]
+    fn snapshot_set_shmem(&self, shmem: SharedPtr<[u8; SIZE]>, flags: usize) -> SbiRet {
+        self.as_ref()
+            .map(|inner| T::snapshot_set_shmem(inner, shmem, flags))
             .unwrap_or(SbiRet::not_supported())
     }
     #[inline]

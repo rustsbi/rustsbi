@@ -185,3 +185,11 @@ pub mod firmware_event {
     /// The `event_data` configuration (or parameter) contains the event encoding.
     pub const PLATFORM: usize = 65535;
 }
+
+/// Size of shared memory on PMU extension set by supervisor software for current hart.
+pub mod shmem_size {
+    /// Size of PMU snapshot shared memory.
+    ///
+    /// PMU snapshot memory size must be 4096 size on all architecture XLEN configurations.
+    pub const SIZE: usize = 4096;
+}

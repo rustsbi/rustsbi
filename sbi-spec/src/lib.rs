@@ -251,6 +251,8 @@ mod tests {
         const_assert_eq!(20, firmware_event::HFENCE_VVMA_ASID_SENT);
         const_assert_eq!(21, firmware_event::HFENCE_VVMA_ASID_RECEIVED);
         const_assert_eq!(65535, firmware_event::PLATFORM);
+
+        const_assert_eq!(4096, shmem_size::SIZE);
     }
     // §12
     #[test]

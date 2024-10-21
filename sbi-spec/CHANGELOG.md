@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - base: add Coreboot and Oreboot to `impl_id` module
 - binary: add counter index mask type
+- pmu: add `shmem_size` module for PMU snapshot shared memory, add unit test for `pmu::shmem_size::SIZE`
 
 ### Modified
 

@@ -3,10 +3,10 @@
 use crate::binary::{sbi_call_0, sbi_call_1, sbi_call_3};
 
 use sbi_spec::{
-    binary::SbiRet,
+    binary::{SbiRet, SharedPtr},
     pmu::{
-        COUNTER_CONFIG_MATCHING, COUNTER_FW_READ, COUNTER_FW_READ_HI, COUNTER_GET_INFO,
-        COUNTER_START, COUNTER_STOP, EID_PMU, NUM_COUNTERS,
+        shmem_size::SIZE, COUNTER_CONFIG_MATCHING, COUNTER_FW_READ, COUNTER_FW_READ_HI,
+        COUNTER_GET_INFO, COUNTER_START, COUNTER_STOP, EID_PMU, NUM_COUNTERS,
     },
 };
 
@@ -284,6 +284,19 @@ pub fn pmu_counter_fw_read(counter_idx: usize) -> SbiRet {
 #[inline]
 pub fn pmu_counter_fw_read_hi(counter_idx: usize) -> SbiRet {
     sbi_call_1(EID_PMU, COUNTER_FW_READ_HI, counter_idx)
+}
+
+/// Set and enable the PMU snapshot shared memory on the calling hart.
+///
+/// TODO detailed documents from rustsbi library
+#[inline]
+pub fn pmu_snapshot_set_shmem(shmem: SharedPtr<[u8; SIZE]>, flags: usize) -> SbiRet {
+    // TODO call sbi_call_3 for this argument list:
+    // struct sbiret sbi_pmu_snapshot_set_shmem(unsigned long shmem_phys_lo,
+    //     unsigned long shmem_phys_hi,
+    //     unsigned long flags)
+    let _ = (shmem, flags);
+    todo!()
 }
 
 /// Flags to configure performance counter.
