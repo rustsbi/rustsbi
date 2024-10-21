@@ -5,6 +5,17 @@ default_to_workspace = false
 command = "cargo"
 args = ["clean"]
 
+[tasks.prototyper-nemu-build]
+command = "cargo"
+args = ["build", "-prustsbi-prototyper", "--release", "--features=nemu,fw_payload"]
+
+[tasks.prototyper-nemu]
+command = "rust-objcopy"
+args = ["--binary-architecture=riscv64", "target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper",
+        "--output-target=binary", "target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin"
+]
+dependencies = ["prototyper-nemu-build"]
+
 [tasks.prototyper-build]
 command = "cargo"
 args = ["build", "-prustsbi-prototyper", "--release"]

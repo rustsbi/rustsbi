@@ -1,11 +1,11 @@
 use riscv::register::mstatus;
 use serde_device_tree::Dtb;
 
+use crate::dt::{self, ParseDeviceTreeError, Tree};
 use crate::sbi::reset;
-use crate::{
-    dt::{self, ParseDeviceTreeError, Tree},
-    dynamic,
-};
+
+#[cfg(not(feature = "fw_payload"))]
+use crate::dynamic;
 
 #[cold]
 pub fn device_tree_format(err: dt::ParseDeviceTreeError) -> Dtb {
@@ -22,6 +22,7 @@ pub fn device_tree_deserialize<'a>(err: serde_device_tree::error::Error) -> Tree
 }
 
 #[cold]
+#[cfg(not(feature = "fw_payload"))]
 pub fn invalid_dynamic_data(err: dynamic::DynamicError) -> (mstatus::MPP, usize) {
     error!("Invalid data in dynamic information:");
     if err.invalid_mpp {
@@ -44,6 +45,7 @@ pub fn invalid_dynamic_data(err: dynamic::DynamicError) -> (mstatus::MPP, usize)
 }
 
 #[cold]
+#[cfg(not(feature = "fw_payload"))]
 pub fn no_dynamic_info_available(err: dynamic::DynamicReadError) -> dynamic::DynamicInfo {
     if let Some(bad_paddr) = err.bad_paddr {
         error!(
