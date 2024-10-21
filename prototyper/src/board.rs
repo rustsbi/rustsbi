@@ -22,7 +22,7 @@ pub(crate) static mut SBI_IMPL: MaybeUninit<
 #[doc(hidden)]
 pub enum MachineConsole {
     Uart16550(*const Uart16550<u8>),
-    UartAxiLte(MmioUartAxiLite),
+    UartAxiLite(MmioUartAxiLite),
 }
 
 unsafe impl Send for MachineConsole {}
@@ -32,14 +32,14 @@ impl ConsoleDevice for MachineConsole {
     fn read(&self, buf: &mut [u8]) -> usize {
         match self {
             Self::Uart16550(uart16550) => unsafe { (**uart16550).read(buf) },
-            Self::UartAxiLte(axilite) => axilite.read(buf),
+            Self::UartAxiLite(axilite) => axilite.read(buf),
         }
     }
 
     fn write(&self, buf: &[u8]) -> usize {
         match self {
             MachineConsole::Uart16550(uart16550) => unsafe { (**uart16550).write(buf) },
-            Self::UartAxiLte(axilite) => axilite.write(buf),
+            Self::UartAxiLite(axilite) => axilite.write(buf),
         }
     }
 }
@@ -49,13 +49,13 @@ impl ConsoleDevice for MachineConsole {
 #[doc(hidden)]
 #[cfg(feature = "nemu")]
 pub(crate) static UART: Mutex<MachineConsole> =
-    Mutex::new(MachineConsole::UartAxiLte(MmioUartAxiLite::new(0)));
+    Mutex::new(MachineConsole::UartAxiLite(MmioUartAxiLite::new(0)));
 #[cfg(not(feature = "nemu"))]
 pub(crate) static UART: Mutex<MachineConsole> = Mutex::new(MachineConsole::Uart16550(null()));
 pub(crate) fn console_dev_init(base: usize) {
     let new_console = match *UART.lock() {
         MachineConsole::Uart16550(_) => MachineConsole::Uart16550(base as _),
-        MachineConsole::UartAxiLte(_) => MachineConsole::UartAxiLte(MmioUartAxiLite::new(base)),
+        MachineConsole::UartAxiLite(_) => MachineConsole::UartAxiLite(MmioUartAxiLite::new(base)),
     };
     *UART.lock() = new_console;
 }

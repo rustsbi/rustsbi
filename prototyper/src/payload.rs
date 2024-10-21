@@ -18,18 +18,12 @@ pub unsafe extern "C" fn fw_payload_image() {
     );
 }
 
+#[inline]
 pub fn get_fdt_address() -> usize {
-    let addr: usize;
-    unsafe {
-        asm!("la {}, {fdt}", out(reg) addr, fdt = sym raw_fdt, options(nomem));
-    }
-    addr
+    raw_fdt as usize
 }
 
+#[inline]
 pub fn get_image_address() -> usize {
-    let addr: usize;
-    unsafe {
-        asm!("la {}, {image}", out(reg) addr, image = sym fw_payload_image, options(nomem));
-    }
-    addr
+    fw_payload_image as usize
 }
