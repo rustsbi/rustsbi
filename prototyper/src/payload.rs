@@ -10,8 +10,8 @@ pub unsafe extern "C" fn raw_fdt() {
 }
 
 #[naked]
-#[link_section = ".fw_payload"]
-pub unsafe extern "C" fn fw_payload_image() {
+#[link_section = ".payload"]
+pub unsafe extern "C" fn payload_image() {
     asm!(
         concat!(".incbin \"", env!("PROTOTYPER_IMAGE"), "\""),
         options(noreturn)
@@ -25,5 +25,5 @@ pub fn get_fdt_address() -> usize {
 
 #[inline]
 pub fn get_image_address() -> usize {
-    fw_payload_image as usize
+    payload_image as usize
 }

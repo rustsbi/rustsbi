@@ -32,4 +32,4 @@ bench = false
 
 [features]
 nemu = []
-fw_payload = []
+payload = []

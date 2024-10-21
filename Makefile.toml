@@ -7,7 +7,7 @@ args = ["clean"]
 
 [tasks.prototyper-nemu-build]
 command = "cargo"
-args = ["build", "-prustsbi-prototyper", "--release", "--features=nemu,fw_payload"]
+args = ["build", "-prustsbi-prototyper", "--release", "--features=nemu,payload"]
 
 [tasks.prototyper-nemu]
 command = "rust-objcopy"

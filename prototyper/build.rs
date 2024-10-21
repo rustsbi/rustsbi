@@ -11,7 +11,7 @@ fn main() {
     println!("cargo:rustc-link-search={}", out.display());
 }
 
-#[cfg(feature = "fw_payload")]
+#[cfg(feature = "payload")]
 const LINKER_SCRIPT: &[u8] = b"OUTPUT_ARCH(riscv)
 ENTRY(_start) 
 SECTIONS {
@@ -49,11 +49,11 @@ SECTIONS {
         *(.fw_fdt)
     }
     .text 0x80200000 : ALIGN(8) {
-        *(.fw_payload)
+        *(.payload)
     }
 }";
 
-#[cfg(not(feature = "fw_payload"))]
+#[cfg(not(feature = "payload"))]
 const LINKER_SCRIPT: &[u8] = b"OUTPUT_ARCH(riscv)
 ENTRY(_start) 
 SECTIONS {

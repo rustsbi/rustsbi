@@ -10,10 +10,10 @@ mod macros;
 
 mod board;
 mod dt;
-#[cfg(not(feature = "fw_payload"))]
+#[cfg(not(feature = "payload"))]
 mod dynamic;
 mod fail;
-#[cfg(feature = "fw_payload")]
+#[cfg(feature = "payload")]
 mod payload;
 mod riscv_spec;
 mod sbi;
@@ -37,29 +37,29 @@ use crate::sbi::SBI;
 #[no_mangle]
 extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     // parse dynamic information
-    #[cfg(not(feature = "fw_payload"))]
+    #[cfg(not(feature = "payload"))]
     let info = dynamic::read_paddr(nonstandard_a2).unwrap_or_else(fail::no_dynamic_info_available);
     static GENESIS: AtomicBool = AtomicBool::new(true);
     static SBI_READY: AtomicBool = AtomicBool::new(false);
 
-    #[cfg(not(feature = "fw_payload"))]
+    #[cfg(not(feature = "payload"))]
     let is_boot_hart = if info.boot_hart == usize::MAX {
         GENESIS.swap(false, Ordering::AcqRel)
     } else {
         current_hartid() == info.boot_hart
     };
-    #[cfg(feature = "fw_payload")]
+    #[cfg(feature = "payload")]
     let is_boot_hart = true;
 
-    #[cfg(feature = "fw_payload")]
+    #[cfg(feature = "payload")]
     let fdt_address = payload::get_fdt_address();
-    #[cfg(not(feature = "fw_payload"))]
+    #[cfg(not(feature = "payload"))]
     let fdt_address = opaque;
 
     if is_boot_hart {
-        #[cfg(feature = "fw_payload")]
+        #[cfg(feature = "payload")]
         let (mpp, next_addr) = (mstatus::MPP::Supervisor, payload::get_image_address());
-        #[cfg(not(feature = "fw_payload"))]
+        #[cfg(not(feature = "payload"))]
         let (mpp, next_addr) =
             dynamic::mpp_next_addr(&info).unwrap_or_else(fail::invalid_dynamic_data);
 
@@ -199,7 +199,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
 #[naked]
 #[link_section = ".text.entry"]
 #[export_name = "_start"]
-#[cfg(not(feature = "fw_payload"))]
+#[cfg(not(feature = "payload"))]
 unsafe extern "C" fn start() -> ! {
     core::arch::asm!(
         // 1. Turn off interrupt
@@ -240,7 +240,7 @@ unsafe extern "C" fn start() -> ! {
 #[naked]
 #[link_section = ".text.entry"]
 #[export_name = "_start"]
-#[cfg(feature = "fw_payload")]
+#[cfg(feature = "payload")]
 unsafe extern "C" fn start() -> ! {
     core::arch::asm!(
         // 1. Turn off interrupt
