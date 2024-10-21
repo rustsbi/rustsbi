@@ -70,3 +70,15 @@ pub fn no_dynamic_info_available(err: dynamic::DynamicReadError) -> dynamic::Dyn
     }
     reset::fail()
 }
+
+#[cold]
+pub fn use_lottery(_err: dynamic::DynamicReadError) -> dynamic::DynamicInfo {
+    dynamic::DynamicInfo {
+        magic: 0,
+        version: 0,
+        next_addr: 0,
+        next_mode: 0,
+        options: 0,
+        boot_hart: usize::MAX,
+    }
+}

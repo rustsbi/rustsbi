@@ -34,7 +34,7 @@ use crate::sbi::SBI;
 #[no_mangle]
 extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     // parse dynamic information
-    let info = dynamic::read_paddr(nonstandard_a2).unwrap_or_else(fail::no_dynamic_info_available);
+    let info = dynamic::read_paddr(nonstandard_a2).unwrap_or_else(fail::use_lottery);
     static GENESIS: AtomicBool = AtomicBool::new(true);
     static SBI_READY: AtomicBool = AtomicBool::new(false);
 
@@ -45,10 +45,6 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     };
 
     if is_boot_hart {
-        let (mpp, next_addr) =
-            dynamic::mpp_next_addr(&info).unwrap_or_else(fail::invalid_dynamic_data);
-
-        // parse the device tree
 
         // 1. Init FDT
         let dtb = dt::parse_device_tree(opaque).unwrap_or_else(fail::device_tree_format);
@@ -127,6 +123,9 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         // 设置陷入栈
         trap_stack::prepare_for_trap();
 
+        let dynamic_info = dynamic::read_paddr(nonstandard_a2).unwrap_or_else(fail::no_dynamic_info_available);
+        let (mpp, next_addr) =
+            dynamic::mpp_next_addr(&dynamic_info).unwrap_or_else(fail::invalid_dynamic_data);
         // 设置内核入口
         local_remote_hsm().start(NextStage {
             start_addr: next_addr,
