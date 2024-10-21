@@ -185,3 +185,57 @@ pub mod firmware_event {
     /// The `event_data` configuration (or parameter) contains the event encoding.
     pub const PLATFORM: usize = 65535;
 }
+
+/// Find and configure a matching counter.
+/// Start a set of counters.
+/// Stop a set of counters.
+///  
+/// Declared in §11.7 §11.8 §11.9.
+pub mod counter_related {
+    use bitflags::bitflags;
+
+    bitflags! {
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        /// Declared in Table 36.
+        pub struct CounterCfgFlags: usize{
+            /// Skip the counter matching.
+            const SKIP_MATCH = 1 << 0;
+            /// Clear (or zero) the counter value in counter configuration.
+            const CLEAR_VALUE = 1 << 1;
+            /// Start the counter after configuring a matching counter.
+            const AUTO_START = 1 << 2;
+            /// Event counting inhibited in VU-mode.
+            const SET_VUINH = 1 << 3;
+            /// Event counting inhibited in VS-mode.
+            const SET_VSINH = 1 << 4;
+            /// Event counting inhibited in U-mode.
+            const SET_UINH = 1 << 5;
+            /// Event counting inhibited in S-mode.
+            const SET_SINH = 1 << 6;
+            /// Event counting inhibited in M-mode.
+            const SET_MINH = 1 << 7;
+        }
+    }
+
+    bitflags! {
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        /// Declared in Table 38
+        pub struct CounterStartFlags: usize{
+            /// Set the value of counters based on the initial_value parameter.
+            const INIT_VALUE = 1 << 0;
+            /// Initialize the given counters from shared memory if available.
+            const INIT_SNAPSHOT = 1 << 1;
+        }
+    }
+
+    bitflags! {
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        /// Declared in Table 40.
+        pub struct CounterStopFlags: usize{
+            /// Reset the counter to event mapping.
+            const RESET = 1 << 0;
+            /// Save a snapshot of the given counter’s values in the shared memory if available.
+            const TAKE_SNAPSHOT = 1 << 1;
+        }
+    }
+}
