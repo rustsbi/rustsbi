@@ -18,7 +18,7 @@ exclude = ["/.github"]
 
 [dependencies]
 sbi-spec = { version = "0.0.7", path = "sbi-spec" }
-riscv = { version = "0.11.1", optional = true }
+riscv = { version = "0.12.0", optional = true, default-features = false }
 sbi-rt = { version = "0.0.3", features = ["integer-impls"], optional = true, path = "sbi-rt" }
 rustsbi-macros = { version = "0.0.2", path = "macros" }
 

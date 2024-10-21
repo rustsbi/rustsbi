@@ -1,7 +1,13 @@
 //! Timer programmer extension test suite.
 
 use crate::thread::Thread;
-use riscv::register::scause::{self, Trap};
+use riscv::{
+    interrupt::supervisor::{Exception, Interrupt},
+    register::{
+        scause::{self, Trap},
+        sie, time,
+    },
+};
 
 /// Timer programmer extension test cases.
 #[derive(Clone, Debug)]
@@ -29,15 +35,13 @@ pub enum Case {
     /// Test process for timer has been set.
     SetTimer,
     /// Test failed for unexpected trap during timer test.
-    UnexpectedTrap(Trap),
+    UnexpectedTrap(Trap<usize, usize>),
     /// All test cases on timer extension has passed.
     Pass,
 }
 
 /// Test timer extension.
 pub fn test(delay: u64, mut f: impl FnMut(Case)) {
-    use riscv::register::{scause::Interrupt, sie, time};
-
     if sbi::probe_extension(sbi::Timer).is_unavailable() {
         f(Case::NotExist);
         return;
@@ -84,13 +88,14 @@ pub fn test(delay: u64, mut f: impl FnMut(Case)) {
         sie::set_stimer();
         thread.execute();
     }
-    match scause::read().cause() {
-        Trap::Interrupt(Interrupt::SupervisorTimer) => {
+    let trap = scause::read().cause();
+    match trap.try_into::<Interrupt, Exception>() {
+        Ok(Trap::Interrupt(Interrupt::SupervisorTimer)) => {
             sbi::set_timer(u64::MAX);
             f(Case::SetTimer);
             f(Case::Pass);
         }
-        trap => {
+        _ => {
             f(Case::UnexpectedTrap(trap));
         }
     }
