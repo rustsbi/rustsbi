@@ -176,6 +176,7 @@ fn generated_extensions() {
     assert_eq!(sbi.handle_ecall(0x504D55, 4, [0; 6]), SbiRet::success(22));
     assert_eq!(sbi.handle_ecall(0x504D55, 5, [0; 6]), SbiRet::success(23));
     assert_eq!(sbi.handle_ecall(0x504D55, 6, [0; 6]), SbiRet::success(24));
+    // TODO eid and fid of snapshot_set_shmem
     assert_eq!(sbi.handle_ecall(0x53525354, 0, [0; 6]), SbiRet::success(25));
     assert_eq!(sbi.handle_ecall(0x52464E43, 0, [0; 6]), SbiRet::success(26));
     assert_eq!(sbi.handle_ecall(0x52464E43, 1, [0; 6]), SbiRet::success(27));
@@ -310,6 +311,7 @@ impl rustsbi::Pmu for DummyPmu {
     fn counter_fw_read_hi(&self, _: usize) -> SbiRet {
         SbiRet::success(24)
     }
+    // TODO fn snapshot_set_shmem
 }
 
 struct DummyReset;
