@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+- pmu: fix serial number issues in docs.
+
 ### Added
 
 - base: add Coreboot and Oreboot to `impl_id` module

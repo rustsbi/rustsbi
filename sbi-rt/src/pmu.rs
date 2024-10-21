@@ -6,7 +6,7 @@ use sbi_spec::{
     binary::{SbiRet, SharedPtr},
     pmu::{
         shmem_size::SIZE, COUNTER_CONFIG_MATCHING, COUNTER_FW_READ, COUNTER_FW_READ_HI,
-        COUNTER_GET_INFO, COUNTER_START, COUNTER_STOP, EID_PMU, NUM_COUNTERS,
+        COUNTER_GET_INFO, COUNTER_START, COUNTER_STOP, EID_PMU, NUM_COUNTERS, SNAPSHOT_SET_SHMEM,
     },
 };
 
@@ -14,7 +14,7 @@ use sbi_spec::{
 ///
 /// This call would always succeed without returning any error.
 ///
-/// This function is defined in RISC-V SBI Specification chapter 11.5.
+/// This function is defined in RISC-V SBI Specification chapter 11.6.
 #[inline]
 pub fn pmu_num_counters() -> usize {
     sbi_call_0(EID_PMU, NUM_COUNTERS).value
@@ -35,8 +35,6 @@ pub fn pmu_num_counters() -> usize {
 /// ```
 /// If `counter_info.type` == `1` then `counter_info.csr` and `counter_info.width` should be ignored.
 ///
-/// This function is defined in RISC-V SBI Specification chapter 11.6.
-///
 /// # Return value
 ///
 /// Returns the `counter_info` described above in `SbiRet.value`.
@@ -48,7 +46,7 @@ pub fn pmu_num_counters() -> usize {
 /// | `SbiRet::success()`       | `counter_info` read successfully.
 /// | `SbiRet::invalid_param()` | `counter_idx` points to an invalid counter.
 ///
-/// This function is defined in RISC-V SBI Specification chapter 11.6.
+/// This function is defined in RISC-V SBI Specification chapter 11.7.
 #[inline]
 pub fn pmu_counter_get_info(counter_idx: usize) -> SbiRet {
     sbi_call_1(EID_PMU, COUNTER_GET_INFO, counter_idx)
@@ -103,7 +101,7 @@ pub fn pmu_counter_get_info(counter_idx: usize) -> SbiRet {
 /// | `SbiRet::invalid_param()` | set of counters has an invalid counter.
 /// | `SbiRet::not_supported()` | none of the counters can monitor specified event.
 ///
-/// This function is defined in RISC-V SBI Specification chapter 11.7.
+/// This function is defined in RISC-V SBI Specification chapter 11.8.
 #[inline]
 pub fn pmu_counter_config_matching<T>(
     counter_idx_base: usize,
@@ -167,7 +165,7 @@ where
 /// | `SbiRet::invalid_param()`   | some of the counters specified in parameters are invalid.
 /// | `SbiRet::already_started()` | some of the counters specified in parameters are already started.
 ///
-/// This function is defined in RISC-V SBI Specification chapter 11.8.
+/// This function is defined in RISC-V SBI Specification chapter 11.9.
 #[inline]
 pub fn pmu_counter_start<T>(
     counter_idx_base: usize,
@@ -223,7 +221,7 @@ where
 /// | `SbiRet::invalid_param()`   | some of the counters specified in parameters are invalid.
 /// | `SbiRet::already_stopped()` | some of the counters specified in parameters are already stopped.
 ///
-/// This function is defined in RISC-V SBI Specification chapter 11.9.
+/// This function is defined in RISC-V SBI Specification chapter 11.10.
 #[inline]
 pub fn pmu_counter_stop<T>(
     counter_idx_base: usize,
@@ -261,7 +259,7 @@ where
 /// | `SbiRet::success()`       | firmware counter read successfully.
 /// | `SbiRet::invalid_param()` | `counter_idx` points to a hardware counter or an invalid counter.
 ///
-/// This function is defined in RISC-V SBI Specification chapter 11.10.
+/// This function is defined in RISC-V SBI Specification chapter 11.11.
 #[inline]
 pub fn pmu_counter_fw_read(counter_idx: usize) -> SbiRet {
     sbi_call_1(EID_PMU, COUNTER_FW_READ, counter_idx)
@@ -280,7 +278,7 @@ pub fn pmu_counter_fw_read(counter_idx: usize) -> SbiRet {
 /// | `SbiRet::success()`       | firmware counter read successfully.
 /// | `SbiRet::invalid_param()` | `counter_idx` points to a hardware counter or an invalid counter.
 ///
-/// This function is defined in RISC-V SBI Specification chapter 11.11.
+/// This function is defined in RISC-V SBI Specification chapter 11.12.
 #[inline]
 pub fn pmu_counter_fw_read_hi(counter_idx: usize) -> SbiRet {
     sbi_call_1(EID_PMU, COUNTER_FW_READ_HI, counter_idx)
@@ -288,15 +286,41 @@ pub fn pmu_counter_fw_read_hi(counter_idx: usize) -> SbiRet {
 
 /// Set and enable the PMU snapshot shared memory on the calling hart.
 ///
-/// TODO detailed documents from rustsbi library
+/// This function should be invoked only once per hart at boot time. Once configured, the SBI
+/// implementation has read/write access to the shared memory when `sbi_pmu_counter_stop` is
+/// invoked with the `SBI_PMU_STOP_FLAG_TAKE_SNAPSHOT` flag set.
+///
+/// # Parameters
+///
+/// If both `shmem_phys_lo` and `shmem_phys_hi` parameters are not all-ones bitwise then
+/// `shmem_phys_lo` specifies the lower XLEN bits and `shmem_phys_hi` specifies the upper XLEN bits
+/// of the snapshot shared memory physical base address. The `shmem_phys_lo` MUST be 4096 bytes
+/// (i.e. page) aligned and the size of the snapshot shared memory must be 4096 bytes.
+///
+/// The `flags` parameter is reserved for future use and must be zero.
+///
+/// # Return value
+///
+/// The possible return error codes returned in `SbiRet.error` are shown in the table below:
+///
+/// | Return code                 | Description
+/// |:----------------------------|:----------------------------------------------
+/// | `SbiRet::success()`         | Shared memory was set or cleared successfully.
+/// | `SbiRet::not_supported()`   | The SBI PMU snapshot functionality is not available in the SBI implementation.
+/// | `SbiRet::invalid_param()`   | The flags parameter is not zero or the `shmem_phys_lo` parameter is not 4096 bytes aligned.
+/// | `SbiRet::invalid_address()` | The shared memory pointed to by the `shmem_phys_lo` and `shmem_phys_hi` parameters is not writable
+/// |                             | or does not satisfy other requirements of RISC-V SBI Specification chapter 3.2.
+/// | `SbiRet::failed()`          | The request failed for unspecified or unknown other reasons.
+/// This function is defined in RISC-V SBI Specification chapter 11.13.
 #[inline]
 pub fn pmu_snapshot_set_shmem(shmem: SharedPtr<[u8; SIZE]>, flags: usize) -> SbiRet {
-    // TODO call sbi_call_3 for this argument list:
-    // struct sbiret sbi_pmu_snapshot_set_shmem(unsigned long shmem_phys_lo,
-    //     unsigned long shmem_phys_hi,
-    //     unsigned long flags)
-    let _ = (shmem, flags);
-    todo!()
+    sbi_call_3(
+        EID_PMU,
+        SNAPSHOT_SET_SHMEM,
+        shmem.phys_addr_lo(),
+        shmem.phys_addr_hi(),
+        flags,
+    )
 }
 
 /// Flags to configure performance counter.
