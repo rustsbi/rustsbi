@@ -29,7 +29,7 @@ pub const RET_ERR_FAILED: usize = -1isize as _;
 pub const RET_ERR_NOT_SUPPORTED: usize = -2isize as _;
 /// Error for invalid parameter.
 pub const RET_ERR_INVALID_PARAM: usize = -3isize as _;
-/// Error for denied (unused in standard extensions).
+/// Error for denied.
 pub const RET_ERR_DENIED: usize = -4isize as _;
 /// Error for invalid address.
 pub const RET_ERR_INVALID_ADDRESS: usize = -5isize as _;
@@ -69,7 +69,7 @@ pub enum Error {
     NotSupported,
     /// Error for invalid parameter.
     InvalidParam,
-    /// Error for denied (unused in standard extensions).
+    /// Error for denied.
     Denied,
     /// Error for invalid address.
     InvalidAddress,
@@ -126,12 +126,8 @@ impl SbiRet {
             value: 0,
         }
     }
-    /// SBI call denied.
-    ///
-    /// As the time this document was written,
-    /// there is currently no function in SBI standard that returns this error.
-    /// However, custom extensions or future standard functions may return this
-    /// error if appropriate.
+    /// SBI call denied for unsatisfied entry criteria, or insufficient access
+    /// permission to debug console or CPPC register.
     #[inline]
     pub const fn denied() -> Self {
         Self {

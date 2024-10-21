@@ -76,9 +76,9 @@ pub trait Susp {
     /// | --------------------------- | -------------------
     /// | `SbiRet::success()`         | System has been suspended and resumed successfully.
     /// | `SbiRet::invalid_param()`   | `sleep_type` is reserved or is platform-specific and unimplemented.
-    /// | `SbiRet::not_supported()`   | `sleep_type` is not reserved and is implemented,
-    /// but the platform does not support it due to one or more missing dependencies.
+    /// | `SbiRet::not_supported()`   | `sleep_type` is not reserved and is implemented, but the platform does not support it due to one or more missing dependencies.
     /// | `SbiRet::invalid_address()` | `resume_addr` is not valid, possibly because it is not a valid physical address, or because executable access is prohibited (e.g. by physical memory protection or H-extension G-stage for supervisor mode).
+    /// | `SbiRet::denied()` | The suspend request failed due to unsatisfied entry criteria.
     /// | `SbiRet::failed()` | The suspend request failed for unspecified or unknown other reasons.
     fn system_suspend(&self, sleep_type: u32, resume_addr: usize, opaque: usize) -> SbiRet;
     /// Function internal to macros. Do not use.

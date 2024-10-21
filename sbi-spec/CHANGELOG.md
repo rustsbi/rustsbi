@@ -14,6 +14,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Modified
 
+- binary: amend documentation on `SbiRet::denied()` error.
+
 ### Fixed
 
 ## [0.0.7] - 2024-02-05
