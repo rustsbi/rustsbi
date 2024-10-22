@@ -7,12 +7,15 @@ use riscv::register::mstatus;
 
 pub struct BootInfo {
     pub next_address: usize,
-    pub fdt_address: usize,
-    pub is_boot_hart: bool,
     pub mpp: mstatus::MPP,
 }
 
+pub struct BootHart {
+    pub fdt_address: usize,
+    pub is_boot_hart: bool,
+}
+
 #[cfg(not(feature = "payload"))]
-pub use dynamic::get_boot_info;
+pub use dynamic::{get_boot_hart, get_boot_info};
 #[cfg(feature = "payload")]
-pub use payload::get_boot_info;
+pub use payload::{get_boot_hart, get_boot_info};

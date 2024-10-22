@@ -1,14 +1,19 @@
-use super::BootInfo;
+use super::{BootHart, BootInfo};
 use core::arch::asm;
 
 use riscv::register::mstatus;
 
-pub fn get_boot_info(_opaque: usize, _nonstandard_a2: usize) -> BootInfo {
-    BootInfo {
+pub fn get_boot_hart(_opaque: usize, _nonstandard_a2: usize) -> BootHart {
+    BootHart {
         fdt_address: get_fdt_address(),
+        is_boot_hart: true,
+    }
+}
+
+pub fn get_boot_info(_nonstandard_a2: usize) -> BootInfo {
+    BootInfo {
         next_address: get_image_address(),
         mpp: mstatus::MPP::Supervisor,
-        is_boot_hart: true,
     }
 }
 

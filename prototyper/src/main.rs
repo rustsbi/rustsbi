@@ -38,12 +38,10 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     // parse dynamic information
     static SBI_READY: AtomicBool = AtomicBool::new(false);
 
-    let boot_info = platform::get_boot_info(opaque, nonstandard_a2);
+    let boot_hart_info = platform::get_boot_hart(opaque, nonstandard_a2);
 
-    if boot_info.is_boot_hart {
-        let mpp = boot_info.mpp;
-        let next_addr = boot_info.next_address;
-        let fdt_addr = boot_info.fdt_address;
+    if boot_hart_info.is_boot_hart {
+        let fdt_addr = boot_hart_info.fdt_address;
 
         // 1. Init FDT
         // parse the device tree
@@ -129,6 +127,8 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         // 设置陷入栈
         trap_stack::prepare_for_trap();
 
+        let boot_info = platform::get_boot_info(nonstandard_a2);
+        let (mpp, next_addr) = (boot_info.mpp, boot_info.next_address);
         // 设置内核入口
         local_remote_hsm().start(NextStage {
             start_addr: next_addr,
@@ -156,7 +156,9 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         trap_stack::prepare_for_trap();
 
         // waiting for sbi ready
-        while !SBI_READY.load(Ordering::Relaxed) { core::hint::spin_loop() }
+        while !SBI_READY.load(Ordering::Relaxed) {
+            core::hint::spin_loop()
+        }
     }
 
     ipi::clear_all();
@@ -181,7 +183,6 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
 #[naked]
 #[link_section = ".text.entry"]
 #[export_name = "_start"]
-#[cfg(not(feature = "payload"))]
 unsafe extern "C" fn start() -> ! {
     core::arch::asm!(
         // 1. Turn off interrupt
@@ -189,60 +190,34 @@ unsafe extern "C" fn start() -> ! {
         // 2. Initialize programming langauge runtime
         // only clear bss if hartid matches preferred boot hart id
         "   csrr    t0, mhartid",
-        "   ld      t1, 0(a2)",
-        "   li      t2, {magic}",
-        "   bne     t1, t2, 3f",
-        "   ld      t2, 40(a2)",
-        "   bne     t0, t2, 2f",
-        "   j       4f",
-        "3:",
-        "   j       3b", // TODO multi hart preempt for runtime init
-        "4:",
-        // 3. clear bss segment
+        "   bne     t0, zero, 4f",
+        "1:",
+        // 3. Hart 0 clear bss segment
         "   la      t0, sbss
             la      t1, ebss
-        1:  bgeu    t0, t1, 2f
+         2: bgeu    t0, t1, 3f
             sd      zero, 0(t0)
             addi    t0, t0, 8
-            j       1b",
-        "2:",
+            j       2b",
+        "3: ", // Hart 0 set bss ready signal
+        "   la      t0, 6f
+            li      t1, 1
+            amoadd.w t0, t1, 0(t0)
+            j       5f",
+        "4:", // Other harts are waiting for bss ready signal
+        "   li      t1, 1
+            la      t0, 6f
+            lw      t0, 0(t0)
+            bne     t0, t1, 4b", 
+        "5:",
          // 4. Prepare stack for each hart
         "   call    {locate_stack}",
         "   call    {main}",
         "   csrw    mscratch, sp",
         "   j       {hart_boot}",
-        magic = const dynamic::MAGIC,
-        locate_stack = sym trap_stack::locate,
-        main         = sym rust_main,
-        hart_boot    = sym trap::msoft,
-        options(noreturn)
-    )
-}
-
-#[naked]
-#[link_section = ".text.entry"]
-#[export_name = "_start"]
-#[cfg(feature = "payload")]
-unsafe extern "C" fn start() -> ! {
-    core::arch::asm!(
-        // 1. Turn off interrupt
-        "   csrw    mie, zero",
-        // 2. Initialize programming langauge runtime
-        // only clear bss if hartid matches preferred boot hart id
-        "   csrr    t0, mhartid",
-        // 3. clear bss segment
-        "   la      t0, sbss
-            la      t1, ebss
-        1:  bgeu    t0, t1, 2f
-            sd      zero, 0(t0)
-            addi    t0, t0, 8
-            j       1b",
-        "2:",
-         // 4. Prepare stack for each hart
-        "   call    {locate_stack}",
-        "   call    {main}",
-        "   csrw    mscratch, sp",
-        "   j       {hart_boot}",
+        "  .balign  4",
+        "6:",  // bss ready signal
+        "  .word    0",
         locate_stack = sym trap_stack::locate,
         main         = sym rust_main,
         hart_boot    = sym trap::msoft,

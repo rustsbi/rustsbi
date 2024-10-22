@@ -3,26 +3,33 @@
 use core::ops::Range;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use super::BootInfo;
+use super::{BootHart, BootInfo};
 use crate::fail;
 use crate::riscv_spec::current_hartid;
 
 use riscv::register::mstatus;
 
-pub fn get_boot_info(opaque: usize, nonstandard_a2: usize) -> BootInfo {
+pub fn get_boot_hart(opaque: usize, nonstandard_a2: usize) -> BootHart {
     static GENESIS: AtomicBool = AtomicBool::new(true);
-    let info = read_paddr(nonstandard_a2).unwrap_or_else(fail::no_dynamic_info_available);
+    let info = read_paddr(nonstandard_a2).unwrap_or_else(fail::use_lottery);
     let is_boot_hart = if info.boot_hart == usize::MAX {
         GENESIS.swap(false, Ordering::AcqRel)
     } else {
         current_hartid() == info.boot_hart
     };
-    let (mpp, next_addr) = mpp_next_addr(&info).unwrap_or_else(fail::invalid_dynamic_data);
-    BootInfo {
+    BootHart {
         fdt_address: opaque,
+        is_boot_hart,
+    }
+}
+
+pub fn get_boot_info(nonstandard_a2: usize) -> BootInfo {
+    static GENESIS: AtomicBool = AtomicBool::new(true);
+    let dynamic_info = read_paddr(nonstandard_a2).unwrap_or_else(fail::no_dynamic_info_available);
+    let (mpp, next_addr) = mpp_next_addr(&dynamic_info).unwrap_or_else(fail::invalid_dynamic_data);
+    BootInfo {
         next_address: next_addr,
         mpp,
-        is_boot_hart,
     }
 }
 
