@@ -185,29 +185,34 @@ unsafe extern "C" fn start() -> ! {
         // 2. Initialize programming langauge runtime
         // only clear bss if hartid matches preferred boot hart id
         "   csrr    t0, mhartid",
-        "   ld      t1, 0(a2)",
-        "   li      t2, {magic}",
-        "   bne     t1, t2, 3f",
-        "   ld      t2, 40(a2)",
-        "   bne     t0, t2, 2f",
-        "   j       4f",
-        "3:",
-        "   j       3b", // TODO multi hart preempt for runtime init
-        "4:",
-        // 3. clear bss segment
+        "   bne     t0, zero, 4f",
+        "1:",
+        // 3. Hart 0 clear bss segment
         "   la      t0, sbss
             la      t1, ebss
-        1:  bgeu    t0, t1, 2f
+         2: bgeu    t0, t1, 3f
             sd      zero, 0(t0)
             addi    t0, t0, 8
-            j       1b",
-        "2:",
+            j       2b",
+        "3: ", // Hart 0 set bss ready signal
+        "   la      t0, 6f
+            li      t1, 1
+            amoadd.w t0, t1, 0(t0)
+            j       5f",
+        "4:", // Other harts are waiting for bss ready signal
+        "   li      t1, 1
+            la      t0, 6f
+            lw      t0, 0(t0)
+            bne     t0, t1, 4b", 
+        "5:",
          // 4. Prepare stack for each hart
         "   call    {locate_stack}",
         "   call    {main}",
         "   csrw    mscratch, sp",
         "   j       {hart_boot}",
-        magic = const dynamic::MAGIC,
+        "  .balign  4",
+        "6:",  // bss ready signal
+        "  .word    0",
         locate_stack = sym trap_stack::locate,
         main         = sym rust_main,
         hart_boot    = sym trap::msoft,
