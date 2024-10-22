@@ -75,6 +75,7 @@ pub fn no_dynamic_info_available(err: dynamic::DynamicReadError) -> dynamic::Dyn
 }
 
 #[cold]
+#[cfg(not(feature = "payload"))]
 pub fn use_lottery(_err: dynamic::DynamicReadError) -> dynamic::DynamicInfo {
     dynamic::DynamicInfo {
         magic: 0,
