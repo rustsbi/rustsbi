@@ -1,11 +1,12 @@
-use riscv::register::mstatus;
 use serde_device_tree::Dtb;
 
 use crate::dt::{self, ParseDeviceTreeError, Tree};
 use crate::sbi::reset;
 
 #[cfg(not(feature = "payload"))]
-use crate::dynamic;
+use crate::platform::dynamic;
+#[cfg(not(feature = "payload"))]
+use riscv::register::mstatus;
 
 #[cold]
 pub fn device_tree_format(err: dt::ParseDeviceTreeError) -> Dtb {

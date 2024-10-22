@@ -10,11 +10,8 @@ mod macros;
 
 mod board;
 mod dt;
-#[cfg(not(feature = "payload"))]
-mod dynamic;
 mod fail;
-#[cfg(feature = "payload")]
-mod payload;
+mod platform;
 mod riscv_spec;
 mod sbi;
 
@@ -22,6 +19,8 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use core::{arch::asm, mem::MaybeUninit};
 
 use crate::board::{SBI_IMPL, SIFIVECLINT, SIFIVETEST, UART};
+#[cfg(not(feature = "payload"))]
+use crate::platform::dynamic;
 use crate::riscv_spec::{current_hartid, menvcfg};
 use crate::sbi::console::SbiConsole;
 use crate::sbi::hart_context::NextStage;
@@ -37,35 +36,18 @@ use crate::sbi::SBI;
 #[no_mangle]
 extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     // parse dynamic information
-    #[cfg(not(feature = "payload"))]
-    let info = dynamic::read_paddr(nonstandard_a2).unwrap_or_else(fail::no_dynamic_info_available);
-    static GENESIS: AtomicBool = AtomicBool::new(true);
     static SBI_READY: AtomicBool = AtomicBool::new(false);
 
-    #[cfg(not(feature = "payload"))]
-    let is_boot_hart = if info.boot_hart == usize::MAX {
-        GENESIS.swap(false, Ordering::AcqRel)
-    } else {
-        current_hartid() == info.boot_hart
-    };
-    #[cfg(feature = "payload")]
-    let is_boot_hart = true;
+    let boot_info = platform::get_boot_info(opaque, nonstandard_a2);
 
-    #[cfg(feature = "payload")]
-    let fdt_address = payload::get_fdt_address();
-    #[cfg(not(feature = "payload"))]
-    let fdt_address = opaque;
-
-    if is_boot_hart {
-        #[cfg(feature = "payload")]
-        let (mpp, next_addr) = (mstatus::MPP::Supervisor, payload::get_image_address());
-        #[cfg(not(feature = "payload"))]
-        let (mpp, next_addr) =
-            dynamic::mpp_next_addr(&info).unwrap_or_else(fail::invalid_dynamic_data);
+    if boot_info.is_boot_hart {
+        let mpp = boot_info.mpp;
+        let next_addr = boot_info.next_address;
+        let fdt_addr = boot_info.fdt_address;
 
         // 1. Init FDT
         // parse the device tree
-        let dtb = dt::parse_device_tree(fdt_address).unwrap_or_else(fail::device_tree_format);
+        let dtb = dt::parse_device_tree(fdt_addr).unwrap_or_else(fail::device_tree_format);
         let dtb = dtb.share();
         let tree =
             serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize);
@@ -151,7 +133,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         local_remote_hsm().start(NextStage {
             start_addr: next_addr,
             next_mode: mpp,
-            opaque: fdt_address,
+            opaque: fdt_addr,
         });
 
         info!(
