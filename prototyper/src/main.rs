@@ -80,7 +80,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
                     Some(value) => value,
                     None => return false,
                 };
-                isa.iter().find(|&x| x == "sstc").is_some()
+                isa.iter().any(|x| x == "sstc")
             })
             .all(|x| x);
         #[cfg(feature = "nemu")]
@@ -156,7 +156,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         trap_stack::prepare_for_trap();
 
         // waiting for sbi ready
-        while !SBI_READY.load(Ordering::Relaxed) {}
+        while !SBI_READY.load(Ordering::Relaxed) { core::hint::spin_loop() }
     }
 
     ipi::clear_all();

@@ -57,7 +57,7 @@ impl<T: Copy + Clone> Fifo<T> {
         } as usize;
 
         self.avil -= 1;
-        let result = unsafe { self.data[head].assume_init_ref() }.clone();
+        let result = *unsafe { self.data[head].assume_init_ref() };
         unsafe { self.data[head].assume_init_drop() }
         Ok(result)
     }
