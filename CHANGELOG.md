@@ -8,6 +8,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Added
+- ci: add `check-changlog` and `check-commit-signatures` in `workflows`.
 - pmu: add missing `snapshot_set_shmem` function and testcases in `Pmu` trait.
 
 ### Added
