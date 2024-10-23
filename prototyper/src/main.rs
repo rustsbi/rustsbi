@@ -10,8 +10,8 @@ mod macros;
 
 mod board;
 mod dt;
-mod dynamic;
 mod fail;
+mod platform;
 mod riscv_spec;
 mod sbi;
 
@@ -19,6 +19,8 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use core::{arch::asm, mem::MaybeUninit};
 
 use crate::board::{SBI_IMPL, SIFIVECLINT, SIFIVETEST, UART};
+#[cfg(not(feature = "payload"))]
+use crate::platform::dynamic;
 use crate::riscv_spec::{current_hartid, menvcfg};
 use crate::sbi::console::SbiConsole;
 use crate::sbi::hart_context::NextStage;
@@ -34,37 +36,34 @@ use crate::sbi::SBI;
 #[no_mangle]
 extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     // parse dynamic information
-    let info = dynamic::read_paddr(nonstandard_a2).unwrap_or_else(fail::no_dynamic_info_available);
-    static GENESIS: AtomicBool = AtomicBool::new(true);
     static SBI_READY: AtomicBool = AtomicBool::new(false);
 
-    let is_boot_hart = if info.boot_hart == usize::MAX {
-        GENESIS.swap(false, Ordering::AcqRel)
-    } else {
-        current_hartid() == info.boot_hart
-    };
+    let boot_hart_info = platform::get_boot_hart(opaque, nonstandard_a2);
 
-    if is_boot_hart {
-        let (mpp, next_addr) =
-            dynamic::mpp_next_addr(&info).unwrap_or_else(fail::invalid_dynamic_data);
-
-        // parse the device tree
+    if boot_hart_info.is_boot_hart {
+        let fdt_addr = boot_hart_info.fdt_address;
 
         // 1. Init FDT
-        let dtb = dt::parse_device_tree(opaque).unwrap_or_else(fail::device_tree_format);
+        // parse the device tree
+        let dtb = dt::parse_device_tree(fdt_addr).unwrap_or_else(fail::device_tree_format);
         let dtb = dtb.share();
         let tree =
             serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize);
 
         // 2. Init device
         // TODO: The device base address should be find in a better way
-        let reset_device = tree.soc.test.unwrap().iter().next().unwrap();
         let console_base = tree.soc.serial.unwrap().iter().next().unwrap();
         let clint_device = tree.soc.clint.unwrap().iter().next().unwrap();
-        let reset_base_address = reset_device.at();
         let console_base_address = console_base.at();
         let ipi_base_address = clint_device.at();
-        board::reset_dev_init(usize::from_str_radix(reset_base_address, 16).unwrap());
+
+        // Set reset device if found it
+        if let Some(test) = tree.soc.test {
+            let reset_device = test.iter().next().unwrap();
+            let reset_base_address = reset_device.at();
+            board::reset_dev_init(usize::from_str_radix(reset_base_address, 16).unwrap());
+        }
+
         board::console_dev_init(usize::from_str_radix(console_base_address, 16).unwrap());
         board::ipi_dev_init(usize::from_str_radix(ipi_base_address, 16).unwrap());
         // Assume sstc is enabled only if all hart has sstc ext
@@ -79,9 +78,11 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
                     Some(value) => value,
                     None => return false,
                 };
-                isa.iter().find(|&x| x == "sstc").is_some()
+                isa.iter().any(|x| x == "sstc")
             })
             .all(|x| x);
+        #[cfg(feature = "nemu")]
+        let sstc_support = true;
         // 3. Init SBI
         unsafe {
             SBI_IMPL = MaybeUninit::new(SBI {
@@ -105,7 +106,6 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         info!("Support sstc: {sstc_support}");
         info!("Clint device: {}", ipi_base_address);
         info!("Console deivce: {}", console_base_address);
-        info!("Reset device: {}", reset_base_address);
         info!(
             "Chosen stdout item: {}",
             tree.chosen
@@ -127,11 +127,13 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         // 设置陷入栈
         trap_stack::prepare_for_trap();
 
+        let boot_info = platform::get_boot_info(nonstandard_a2);
+        let (mpp, next_addr) = (boot_info.mpp, boot_info.next_address);
         // 设置内核入口
         local_remote_hsm().start(NextStage {
             start_addr: next_addr,
             next_mode: mpp,
-            opaque,
+            opaque: fdt_addr,
         });
 
         info!(
@@ -154,7 +156,9 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         trap_stack::prepare_for_trap();
 
         // waiting for sbi ready
-        while !SBI_READY.load(Ordering::Relaxed) {}
+        while !SBI_READY.load(Ordering::Relaxed) {
+            core::hint::spin_loop()
+        }
     }
 
     ipi::clear_all();
@@ -186,29 +190,34 @@ unsafe extern "C" fn start() -> ! {
         // 2. Initialize programming langauge runtime
         // only clear bss if hartid matches preferred boot hart id
         "   csrr    t0, mhartid",
-        "   ld      t1, 0(a2)",
-        "   li      t2, {magic}",
-        "   bne     t1, t2, 3f",
-        "   ld      t2, 40(a2)",
-        "   bne     t0, t2, 2f",
-        "   j       4f",
-        "3:",
-        "   j       3b", // TODO multi hart preempt for runtime init
-        "4:",
-        // 3. clear bss segment
+        "   bne     t0, zero, 4f",
+        "1:",
+        // 3. Hart 0 clear bss segment
         "   la      t0, sbss
             la      t1, ebss
-        1:  bgeu    t0, t1, 2f
+         2: bgeu    t0, t1, 3f
             sd      zero, 0(t0)
             addi    t0, t0, 8
-            j       1b",
-        "2:",
+            j       2b",
+        "3: ", // Hart 0 set bss ready signal
+        "   la      t0, 6f
+            li      t1, 1
+            amoadd.w t0, t1, 0(t0)
+            j       5f",
+        "4:", // Other harts are waiting for bss ready signal
+        "   li      t1, 1
+            la      t0, 6f
+            lw      t0, 0(t0)
+            bne     t0, t1, 4b", 
+        "5:",
          // 4. Prepare stack for each hart
         "   call    {locate_stack}",
         "   call    {main}",
         "   csrw    mscratch, sp",
         "   j       {hart_boot}",
-        magic = const dynamic::MAGIC,
+        "  .balign  4",
+        "6:",  // bss ready signal
+        "  .word    0",
         locate_stack = sym trap_stack::locate,
         main         = sym rust_main,
         hart_boot    = sym trap::msoft,
