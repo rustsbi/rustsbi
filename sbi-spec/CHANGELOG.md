@@ -9,14 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - base: add Coreboot and Oreboot to `impl_id` module
-- binary: add counter index mask type
+- binary: add counter index mask type ([#71](https://github.com/rustsbi/rustsbi/pull/71))
 - pmu: add `shmem_size` module for PMU snapshot shared memory, add unit test for `pmu::shmem_size::SIZE`
-- binary: change `SbiRet::and` signature to `fn and<U>(self, res: Result<U, Error>) -> Result<U, Error>`
 - binary: add function `is_ok_and`, `is_err_and`, `inspect` and `inspect_err` for `SbiRet` structure
 
 ### Modified
 
 - binary: amend documentation on `SbiRet::denied()` error.
+- binary: change `SbiRet::and` signature to `fn and<U>(self, res: Result<U, Error>) -> Result<U, Error>`
 
 ### Fixed
 
