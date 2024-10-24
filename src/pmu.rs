@@ -111,6 +111,7 @@ pub trait Pmu {
     /// | `SbiRet::success()`       | counter found and configured successfully.
     /// | `SbiRet::invalid_param()` | the set of counters has at least one invalid counter.
     /// | `SbiRet::not_supported()` | none of the counters can monitor the specified event.
+    // TODO: (breaking change) change parameter `counter_idx_base` and `counter_idx_mask` into `CounterMask` for RustSBI 0.5.0
     fn counter_config_matching(
         &self,
         counter_idx_base: usize,
@@ -145,6 +146,7 @@ pub trait Pmu {
     /// | `SbiRet::success()`         | counter started successfully.
     /// | `SbiRet::invalid_param()`   | the set of counters has at least one invalid counter.
     /// | `SbiRet::already_started()` | the set of counters includes at least one counter which is already started.
+    // TODO: (breaking change) change parameter `counter_idx_base` and `counter_idx_mask` into `CounterMask` for RustSBI 0.5.0
     fn counter_start(
         &self,
         counter_idx_base: usize,
@@ -173,6 +175,7 @@ pub trait Pmu {
     /// | `SbiRet::success()`         | counter stopped successfully.
     /// | `SbiRet::invalid_param()`   | the set of counters has at least one invalid counter.
     /// | `SbiRet::already_stopped()` | the set of counters includes at least one counter which is already stopped.
+    // TODO: (breaking change) change parameter `counter_idx_base` and `counter_idx_mask` into `CounterMask` for RustSBI 0.5.0
     fn counter_stop(
         &self,
         counter_idx_base: usize,

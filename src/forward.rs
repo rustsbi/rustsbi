@@ -1,6 +1,6 @@
 use crate::{Console, Cppc, EnvInfo, Fence, Hsm, Ipi, Nacl, Pmu, Reset, Sta, Susp, Timer};
 use sbi_spec::{
-    binary::{HartMask, Physical, SbiRet, SharedPtr},
+    binary::{CounterMask, HartMask, Physical, SbiRet, SharedPtr},
     nacl, pmu,
 };
 
@@ -413,24 +413,18 @@ impl Pmu for Forward {
         event_idx: usize,
         event_data: u64,
     ) -> SbiRet {
+        let counter_mask = CounterMask::from_mask_base(counter_idx_mask, counter_idx_base);
         match () {
             #[cfg(feature = "forward")]
             () => sbi_rt::pmu_counter_config_matching(
-                counter_idx_base,
-                counter_idx_mask,
+                counter_mask,
                 config_flags,
                 event_idx,
                 event_data,
             ),
             #[cfg(not(feature = "forward"))]
             () => {
-                let _ = (
-                    counter_idx_base,
-                    counter_idx_mask,
-                    config_flags,
-                    event_idx,
-                    event_data,
-                );
+                let _ = (counter_mask, config_flags, event_idx, event_data);
                 unimplemented!()
             }
         }
@@ -444,22 +438,13 @@ impl Pmu for Forward {
         start_flags: usize,
         initial_value: u64,
     ) -> SbiRet {
+        let counter_mask = CounterMask::from_mask_base(counter_idx_mask, counter_idx_base);
         match () {
             #[cfg(feature = "forward")]
-            () => sbi_rt::pmu_counter_start(
-                counter_idx_base,
-                counter_idx_mask,
-                start_flags,
-                initial_value,
-            ),
+            () => sbi_rt::pmu_counter_start(counter_mask, start_flags, initial_value),
             #[cfg(not(feature = "forward"))]
             () => {
-                let _ = (
-                    counter_idx_base,
-                    counter_idx_mask,
-                    start_flags,
-                    initial_value,
-                );
+                let _ = (counter_mask, start_flags, initial_value);
                 unimplemented!()
             }
         }
@@ -472,12 +457,13 @@ impl Pmu for Forward {
         counter_idx_mask: usize,
         stop_flags: usize,
     ) -> SbiRet {
+        let counter_mask = CounterMask::from_mask_base(counter_idx_mask, counter_idx_base);
         match () {
             #[cfg(feature = "forward")]
-            () => sbi_rt::pmu_counter_stop(counter_idx_base, counter_idx_mask, stop_flags),
+            () => sbi_rt::pmu_counter_stop(counter_mask, stop_flags),
             #[cfg(not(feature = "forward"))]
             () => {
-                let _ = (counter_idx_base, counter_idx_mask, stop_flags);
+                let _ = (counter_mask, stop_flags);
                 unimplemented!()
             }
         }

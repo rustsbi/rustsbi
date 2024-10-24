@@ -8,13 +8,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+
 - pmu: add missing `pmu_snapshot_set_shmem` function.
-
-### Added
-
-- `pmu_snapshot_set_shmem` function signature, TODO: documents and implementation
+- pmu: `pmu_snapshot_set_shmem` function signature, TODO: documents and implementation
 
 ### Modified
+
+- pmu: change `counter_idx_mask` and `counter_idx_base` parameters into `counter_idx` with type `CounterMask`.
 
 ### Fixed
 

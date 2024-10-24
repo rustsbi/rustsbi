@@ -3,7 +3,7 @@
 use crate::binary::{sbi_call_0, sbi_call_1, sbi_call_3};
 
 use sbi_spec::{
-    binary::{SbiRet, SharedPtr},
+    binary::{CounterMask, SbiRet, SharedPtr},
     pmu::{
         shmem_size::SIZE, COUNTER_CONFIG_MATCHING, COUNTER_FW_READ, COUNTER_FW_READ_HI,
         COUNTER_GET_INFO, COUNTER_START, COUNTER_STOP, EID_PMU, NUM_COUNTERS, SNAPSHOT_SET_SHMEM,
@@ -59,7 +59,7 @@ pub fn pmu_counter_get_info(counter_idx: usize) -> SbiRet {
 ///
 /// # Parameters
 ///
-/// The `counter_idx_base` and `counter_idx_mask` parameters represent the set of counters,
+/// The `counter_idx` parameter represent the set of counters,
 /// whereas the `event_idx` represent the event to be monitored
 /// and `event_data` represents any additional event configuration.
 ///
@@ -80,7 +80,7 @@ pub fn pmu_counter_get_info(counter_idx: usize) -> SbiRet {
 ///
 /// *NOTE:* When *SBI_PMU_CFG_FLAG_SKIP_MATCH* is set in `config_flags`, the
 /// SBI implementation will unconditionally select the first counter from the
-/// set of counters specified by the `counter_idx_base` and `counter_idx_mask`.
+/// set of counters specified by the `counter_idx`.
 ///
 /// *NOTE:* The *SBI_PMU_CFG_FLAG_AUTO_START* flag in `config_flags` has no
 /// impact on the value of the counter.
@@ -104,8 +104,7 @@ pub fn pmu_counter_get_info(counter_idx: usize) -> SbiRet {
 /// This function is defined in RISC-V SBI Specification chapter 11.8.
 #[inline]
 pub fn pmu_counter_config_matching<T>(
-    counter_idx_base: usize,
-    counter_idx_mask: usize,
+    counter_idx: CounterMask,
     config_flags: T,
     event_idx: usize,
     event_data: u64,
@@ -113,6 +112,7 @@ pub fn pmu_counter_config_matching<T>(
 where
     T: ConfigFlags,
 {
+    let (counter_idx_mask, counter_idx_base) = counter_idx.into_inner();
     match () {
         #[cfg(target_pointer_width = "32")]
         () => crate::binary::sbi_call_6(
@@ -142,7 +142,7 @@ where
 ///
 /// # Parameters
 ///
-/// The `counter_idx_base` and `counter_idx_mask` parameters represent the set of counters.
+/// The `counter_idx` parameter represent the set of counters.
 /// whereas the `initial_value` parameter specifies the initial value of the counter.
 ///
 /// The bit definitions of the `start_flags` parameter are shown in the table below:
@@ -167,15 +167,11 @@ where
 ///
 /// This function is defined in RISC-V SBI Specification chapter 11.9.
 #[inline]
-pub fn pmu_counter_start<T>(
-    counter_idx_base: usize,
-    counter_idx_mask: usize,
-    start_flags: T,
-    initial_value: u64,
-) -> SbiRet
+pub fn pmu_counter_start<T>(counter_idx: CounterMask, start_flags: T, initial_value: u64) -> SbiRet
 where
     T: StartFlags,
 {
+    let (counter_idx_mask, counter_idx_base) = counter_idx.into_inner();
     match () {
         #[cfg(target_pointer_width = "32")]
         () => crate::binary::sbi_call_5(
@@ -203,7 +199,7 @@ where
 ///
 /// # Parameters
 ///
-/// The `counter_idx_base` and `counter_idx_mask` parameters represent the set of counters.
+/// The `counter_idx` parameter represents the set of counters.
 /// The bit definitions of the `stop_flags` parameter are shown in the table below:
 ///
 /// | Flag Name               | Bits       | Description
@@ -223,14 +219,11 @@ where
 ///
 /// This function is defined in RISC-V SBI Specification chapter 11.10.
 #[inline]
-pub fn pmu_counter_stop<T>(
-    counter_idx_base: usize,
-    counter_idx_mask: usize,
-    stop_flags: T,
-) -> SbiRet
+pub fn pmu_counter_stop<T>(counter_idx: CounterMask, stop_flags: T) -> SbiRet
 where
     T: StopFlags,
 {
+    let (counter_idx_mask, counter_idx_base) = counter_idx.into_inner();
     sbi_call_3(
         EID_PMU,
         COUNTER_STOP,
