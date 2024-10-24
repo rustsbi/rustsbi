@@ -6,20 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-### Fixed
-- pmu: fix serial number issues in docs.
-
 ### Added
 
 - base: add Coreboot and Oreboot to `impl_id` module
 - binary: add counter index mask type
 - pmu: add `shmem_size` module for PMU snapshot shared memory, add unit test for `pmu::shmem_size::SIZE`
+- binary: change `SbiRet::and` signature to `fn and<U>(self, res: Result<U, Error>) -> Result<U, Error>`
+- binary: add function `is_ok_and`, `is_err_and`, `inspect` and `inspect_err` for `SbiRet` structure
 
 ### Modified
 
 - binary: amend documentation on `SbiRet::denied()` error.
 
 ### Fixed
+
+- pmu: fix serial number issues in docs.
 
 ## [0.0.7] - 2024-02-05
 
