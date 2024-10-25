@@ -255,6 +255,9 @@ pub fn _rustsbi_pmu<T: crate::Pmu>(pmu: &T, param: [usize; 6], function: usize) 
                 spec::pmu::COUNTER_STOP => pmu.counter_stop(param0, param1, param2),
                 spec::pmu::COUNTER_FW_READ => pmu.counter_fw_read(param0),
                 spec::pmu::COUNTER_FW_READ_HI => pmu.counter_fw_read_hi(param0),
+                spec::pmu::SNAPSHOT_SET_SHMEM => {
+                    pmu.snapshot_set_shmem(SharedPtr::new(param0, param1), param2)
+                }
                 _ => SbiRet::not_supported(),
             }
         }
@@ -278,6 +281,9 @@ pub fn _rustsbi_pmu<T: crate::Pmu>(pmu: &T, param: [usize; 6], function: usize) 
                 spec::pmu::COUNTER_STOP => pmu.counter_stop(param0, param1, param2),
                 spec::pmu::COUNTER_FW_READ => pmu.counter_fw_read(param0),
                 spec::pmu::COUNTER_FW_READ_HI => pmu.counter_fw_read_hi(param0),
+                spec::pmu::SNAPSHOT_SET_SHMEM => {
+                    pmu.snapshot_set_shmem(SharedPtr::new(param0, param1), param2)
+                }
                 _ => SbiRet::not_supported(),
             }
         }

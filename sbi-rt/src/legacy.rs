@@ -1,8 +1,11 @@
-﻿//! Chapter 5. Legacy Extensions (EIDs #0x00 - #0x0F)
+﻿//! Legacy Extensions (EIDs #0x00 - #0x0F).
+//!
+//! The legacy SBI extensions is deprecated in favor of the other extensions in the RISC-V SBI Specification.
+//! Developers should use new extensions instead of the deprecated legacy extensions listed below.
 
-pub use sbi_spec::legacy::*;
+use sbi_spec::legacy::*;
 
-/// §5.1
+/// Use [`set_timer`](super::set_timer) from [`TIME`](crate::base::Timer) extension instead.
 #[deprecated = "replaced by `set_timer` from Timer extension"]
 #[inline]
 pub fn set_timer(stime_value: u64) -> usize {
@@ -14,72 +17,57 @@ pub fn set_timer(stime_value: u64) -> usize {
     }
 }
 
-/// §5.2
-///
-/// No replacement.
-#[deprecated = "no replacement"]
+/// Use [`console_write`](super::console_write) and [`console_write_byte`](super::console_write_byte)
+/// from [`DBCN`](crate::base::Console) extension instead.
+#[deprecated = "replaced by `console_write` and `console_write_byte` from `DBCN` extension"]
 #[inline]
 pub fn console_putchar(c: usize) -> usize {
     sbi_call_legacy_1(LEGACY_CONSOLE_PUTCHAR, c)
 }
 
-/// §5.3
-///
-/// No replacement.
-#[deprecated = "no replacement"]
+/// Use [`console_read`](super::console_read) from [`DBCN`](crate::base::Console) extension instead.
+#[deprecated = "replaced by `console_read` from `DBCN` extension"]
 #[inline]
 pub fn console_getchar() -> usize {
     sbi_call_legacy_0(LEGACY_CONSOLE_GETCHAR)
 }
 
-/// §5.4
-///
-/// No replacement. Just clear `sip.SSIP` directly.
+/// Clear `sip.SSIP` CSR field instead.
 #[deprecated = "you can clear `sip.SSIP` CSR bit directly"]
 #[inline]
 pub fn clear_ipi() -> usize {
     sbi_call_legacy_0(LEGACY_CLEAR_IPI)
 }
 
-/// §5.5
-///
-/// Replaced by [`send_ipi`](super::send_ipi) from [`sPI`](super::EID_SPI) extension.
+/// Use [`send_ipi`](super::send_ipi) from [`sPI`](crate::base::Ipi) extension instead.
 #[deprecated = "replaced by `send_ipi` from `sPI` extension"]
 #[inline]
 pub fn send_ipi(hart_mask: usize) -> usize {
     sbi_call_legacy_1(LEGACY_SEND_IPI, hart_mask)
 }
 
-/// §5.6
-///
-/// Replaced by [`remote_fence_i`](super::remote_fence_i) from [`RFNC`](super::EID_RFNC) extension.
+/// Use [`remote_fence_i`](super::remote_fence_i) from [`RFNC`](crate::base::Fence) extension instead.
 #[deprecated = "replaced by `remote_fence_i` from `RFNC` extension"]
 #[inline]
 pub fn remote_fence_i(hart_mask: usize) -> usize {
     sbi_call_legacy_1(LEGACY_REMOTE_FENCE_I, hart_mask)
 }
 
-/// §5.7
-///
-/// Replaced by [`remote_sfence_vma`](super::remote_sfence_vma) from [`RFNC`](super::EID_RFNC) extension.
+/// Use [`remote_sfence_vma`](super::remote_sfence_vma) from [`RFNC`](crate::base::Fence) extension instead.
 #[deprecated = "replaced by `remote_sfence_vma` from `RFNC` extension"]
 #[inline]
 pub fn remote_fence_vma(hart_mask: usize, start: usize, size: usize) -> usize {
     sbi_call_legacy_3(LEGACY_REMOTE_SFENCE_VMA, hart_mask, start, size)
 }
 
-/// §5.8
-///
-/// Replaced by [`remote_sfence_vma_asid`](super::remote_sfence_vma_asid) from [`RFNC`](super::EID_RFNC) extension.
+/// Use [`remote_sfence_vma_asid`](super::remote_sfence_vma_asid) from [`RFNC`](crate::base::Fence) extension instead.
 #[deprecated = "replaced by `remote_sfence_vma_asid` from `RFNC` extension"]
 #[inline]
 pub fn remote_fence_vma_asid(hart_mask: usize, start: usize, size: usize, asid: usize) -> usize {
     sbi_call_legacy_4(LEGACY_REMOTE_SFENCE_VMA_ASID, hart_mask, start, size, asid)
 }
 
-/// §5.9
-///
-/// Replaced by [`system_reset`](super::system_reset) in the [`SRST`](super::EID_SRST) extension.
+/// Use [`system_reset`](super::system_reset) in the [`SRST`](crate::base::Reset) extension instead.
 #[deprecated = "replaced by `system_reset` from System `SRST` extension"]
 #[inline]
 pub fn shutdown() -> ! {

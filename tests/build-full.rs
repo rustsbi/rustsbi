@@ -3,6 +3,7 @@ use rustsbi::RustSBI;
 use sbi_spec::{
     binary::{HartMask, Physical, SbiRet, SharedPtr},
     nacl::shmem_size::NATIVE,
+    pmu::shmem_size::SIZE,
 };
 
 #[derive(RustSBI)]
@@ -176,21 +177,23 @@ fn generated_extensions() {
     assert_eq!(sbi.handle_ecall(0x504D55, 4, [0; 6]), SbiRet::success(22));
     assert_eq!(sbi.handle_ecall(0x504D55, 5, [0; 6]), SbiRet::success(23));
     assert_eq!(sbi.handle_ecall(0x504D55, 6, [0; 6]), SbiRet::success(24));
-    assert_eq!(sbi.handle_ecall(0x53525354, 0, [0; 6]), SbiRet::success(25));
-    assert_eq!(sbi.handle_ecall(0x52464E43, 0, [0; 6]), SbiRet::success(26));
-    assert_eq!(sbi.handle_ecall(0x52464E43, 1, [0; 6]), SbiRet::success(27));
-    assert_eq!(sbi.handle_ecall(0x52464E43, 2, [0; 6]), SbiRet::success(28));
-    assert_eq!(sbi.handle_ecall(0x52464E43, 3, [0; 6]), SbiRet::success(29));
-    assert_eq!(sbi.handle_ecall(0x52464E43, 4, [0; 6]), SbiRet::success(30));
-    assert_eq!(sbi.handle_ecall(0x52464E43, 5, [0; 6]), SbiRet::success(31));
-    assert_eq!(sbi.handle_ecall(0x52464E43, 6, [0; 6]), SbiRet::success(32));
-    assert_eq!(sbi.handle_ecall(0x535441, 0, [0; 6]), SbiRet::success(33));
-    assert_eq!(sbi.handle_ecall(0x53555350, 0, [0; 6]), SbiRet::success(34));
+    assert_eq!(sbi.handle_ecall(0x504D55, 7, [0; 6]), SbiRet::success(25));
+    // TODO eid and fid of snapshot_set_shmem
+    assert_eq!(sbi.handle_ecall(0x53525354, 0, [0; 6]), SbiRet::success(26));
+    assert_eq!(sbi.handle_ecall(0x52464E43, 0, [0; 6]), SbiRet::success(27));
+    assert_eq!(sbi.handle_ecall(0x52464E43, 1, [0; 6]), SbiRet::success(28));
+    assert_eq!(sbi.handle_ecall(0x52464E43, 2, [0; 6]), SbiRet::success(29));
+    assert_eq!(sbi.handle_ecall(0x52464E43, 3, [0; 6]), SbiRet::success(30));
+    assert_eq!(sbi.handle_ecall(0x52464E43, 4, [0; 6]), SbiRet::success(31));
+    assert_eq!(sbi.handle_ecall(0x52464E43, 5, [0; 6]), SbiRet::success(32));
+    assert_eq!(sbi.handle_ecall(0x52464E43, 6, [0; 6]), SbiRet::success(33));
+    assert_eq!(sbi.handle_ecall(0x535441, 0, [0; 6]), SbiRet::success(34));
+    assert_eq!(sbi.handle_ecall(0x53555350, 0, [0; 6]), SbiRet::success(35));
     assert!(sbi.handle_ecall(0x54494D45, 0, [0; 6]).is_ok());
-    assert_eq!(sbi.timer.0.take(), 35);
-    assert_eq!(sbi.handle_ecall(0x10, 4, [0; 6]), SbiRet::success(36));
-    assert_eq!(sbi.handle_ecall(0x10, 5, [0; 6]), SbiRet::success(37));
-    assert_eq!(sbi.handle_ecall(0x10, 6, [0; 6]), SbiRet::success(38));
+    assert_eq!(sbi.timer.0.take(), 36);
+    assert_eq!(sbi.handle_ecall(0x10, 4, [0; 6]), SbiRet::success(37));
+    assert_eq!(sbi.handle_ecall(0x10, 5, [0; 6]), SbiRet::success(38));
+    assert_eq!(sbi.handle_ecall(0x10, 6, [0; 6]), SbiRet::success(39));
 }
 
 struct DummyConsole;
@@ -310,13 +313,18 @@ impl rustsbi::Pmu for DummyPmu {
     fn counter_fw_read_hi(&self, _: usize) -> SbiRet {
         SbiRet::success(24)
     }
+
+    fn snapshot_set_shmem(&self, _: SharedPtr<[u8; SIZE]>, _: usize) -> SbiRet {
+        SbiRet::success(25)
+    }
+    // TODO fn snapshot_set_shmem
 }
 
 struct DummyReset;
 
 impl rustsbi::Reset for DummyReset {
     fn system_reset(&self, _: u32, _: u32) -> SbiRet {
-        SbiRet::success(25)
+        SbiRet::success(26)
     }
 }
 
@@ -324,31 +332,31 @@ struct DummyFence;
 
 impl rustsbi::Fence for DummyFence {
     fn remote_fence_i(&self, _: HartMask) -> SbiRet {
-        SbiRet::success(26)
-    }
-
-    fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
         SbiRet::success(27)
     }
 
-    fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
+    fn remote_sfence_vma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
         SbiRet::success(28)
     }
 
-    fn remote_hfence_gvma_vmid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
+    fn remote_sfence_vma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
         SbiRet::success(29)
     }
 
-    fn remote_hfence_gvma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
+    fn remote_hfence_gvma_vmid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
         SbiRet::success(30)
     }
 
-    fn remote_hfence_vvma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
+    fn remote_hfence_gvma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
         SbiRet::success(31)
     }
 
-    fn remote_hfence_vvma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
+    fn remote_hfence_vvma_asid(&self, _: HartMask, _: usize, _: usize, _: usize) -> SbiRet {
         SbiRet::success(32)
+    }
+
+    fn remote_hfence_vvma(&self, _: HartMask, _: usize, _: usize) -> SbiRet {
+        SbiRet::success(33)
     }
 }
 
@@ -356,7 +364,7 @@ struct DummySta;
 
 impl rustsbi::Sta for DummySta {
     fn set_shmem(&self, _: SharedPtr<[u8; 64]>, _: usize) -> SbiRet {
-        SbiRet::success(33)
+        SbiRet::success(34)
     }
 }
 
@@ -364,7 +372,7 @@ struct DummySusp;
 
 impl rustsbi::Susp for DummySusp {
     fn system_suspend(&self, _: u32, _: usize, _: usize) -> SbiRet {
-        SbiRet::success(34)
+        SbiRet::success(35)
     }
 }
 
@@ -372,7 +380,7 @@ struct DummyTimer(RefCell<u64>);
 
 impl rustsbi::Timer for DummyTimer {
     fn set_timer(&self, _: u64) {
-        self.0.replace(35);
+        self.0.replace(36);
     }
 }
 
@@ -380,14 +388,14 @@ struct DummyEnvInfo;
 
 impl rustsbi::EnvInfo for DummyEnvInfo {
     fn mvendorid(&self) -> usize {
-        36
-    }
-
-    fn marchid(&self) -> usize {
         37
     }
 
-    fn mimpid(&self) -> usize {
+    fn marchid(&self) -> usize {
         38
+    }
+
+    fn mimpid(&self) -> usize {
+        39
     }
 }

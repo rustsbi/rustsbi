@@ -109,7 +109,7 @@ impl Thread {
 /// 裸函数。
 #[naked]
 unsafe extern "C" fn execute_naked() {
-    core::arch::asm!(
+    core::arch::naked_asm!(
         r"  .altmacro
             .macro SAVE n
                 sd x\n, \n*8(sp)
@@ -176,6 +176,5 @@ unsafe extern "C" fn execute_naked() {
         // 返回调度
         "   ret",
         "   .option pop",
-        options(noreturn)
     )
 }

@@ -22,7 +22,6 @@ use spec::{
 /// *NOTE:* The M-mode firmware should not implement the SBI nested acceleration
 /// extension if the underlying platform has the RISC-V H-extension implemented
 /// in hardware.
-
 pub trait Nacl {
     /// Probe nested acceleration feature.
     ///

@@ -8,35 +8,35 @@ pub use fid::*;
 mod fid {
     /// Function ID to get the number of counters, both hardware and firmware.
     ///
-    /// Declared in §11.5.
+    /// Declared in §11.6.
     pub const NUM_COUNTERS: usize = 0;
     /// Function ID to get details about the specified counter.
     ///
-    /// Declared in §11.6.
+    /// Declared in §11.7.
     pub const COUNTER_GET_INFO: usize = 1;
     /// Function ID to find and configure a counter from a set of counters.
     ///
-    /// Declared in §11.7.
+    /// Declared in §11.8.
     pub const COUNTER_CONFIG_MATCHING: usize = 2;
     /// Function ID to start or enable a set of counters on the calling hart with the specified initial value.
     ///
-    /// Declared in §11.8.
+    /// Declared in §11.9.
     pub const COUNTER_START: usize = 3;
     /// Function ID to stop or disable a set of counters on the calling hart.
     ///
-    /// Declared in §11.9.
+    /// Declared in §11.10.
     pub const COUNTER_STOP: usize = 4;
     /// Function ID to provide the current value of a firmware counter.
     ///
-    /// Declared in §11.10.
+    /// Declared in §11.11.
     pub const COUNTER_FW_READ: usize = 5;
     /// Function ID to provide the upper 32 bits from the value of the current firmware counter.
     ///
-    /// Declared in §11.11.
+    /// Declared in §11.12.
     pub const COUNTER_FW_READ_HI: usize = 6;
     /// Function ID to set and enable the PMU snapshot shared memory.
     ///
-    /// Declared in §11.12.
+    /// Declared in §11.13.
     pub const SNAPSHOT_SET_SHMEM: usize = 7;
 }
 
@@ -184,6 +184,14 @@ pub mod firmware_event {
     ///
     /// The `event_data` configuration (or parameter) contains the event encoding.
     pub const PLATFORM: usize = 65535;
+}
+
+/// Size of shared memory on PMU extension set by supervisor software for current hart.
+pub mod shmem_size {
+    /// Size of PMU snapshot shared memory.
+    ///
+    /// PMU snapshot memory size must be 4096 size on all architecture XLEN configurations.
+    pub const SIZE: usize = 4096;
 }
 
 /// Find and configure a matching counter.

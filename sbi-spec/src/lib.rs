@@ -106,6 +106,8 @@ mod tests {
         const_assert_eq!(6, impl_id::COFFER);
         const_assert_eq!(7, impl_id::XEN);
         const_assert_eq!(8, impl_id::POLARFIRE_HSS);
+        const_assert_eq!(9, impl_id::COREBOOT);
+        const_assert_eq!(10, impl_id::OREBOOT);
     }
     // §5
     #[cfg(feature = "legacy")]
@@ -249,6 +251,8 @@ mod tests {
         const_assert_eq!(20, firmware_event::HFENCE_VVMA_ASID_SENT);
         const_assert_eq!(21, firmware_event::HFENCE_VVMA_ASID_RECEIVED);
         const_assert_eq!(65535, firmware_event::PLATFORM);
+
+        const_assert_eq!(4096, shmem_size::SIZE);
         const_assert_eq!(1, flags::CounterCfgFlags::SKIP_MATCH.bits());
         const_assert_eq!(2, flags::CounterCfgFlags::CLEAR_VALUE.bits());
         const_assert_eq!(4, flags::CounterCfgFlags::AUTO_START.bits());

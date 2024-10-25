@@ -1,0 +1,34 @@
+name: DCO
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  CARGO_UNSTABLE_SPARSE_REGISTRY: true
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-commit-signatures:
+    name: Check commit signatures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check if commit is signed
+        run: |
+          COMMIT=$(git log -1)
+          if echo "$COMMIT" | grep -q "Author: "; then
+              echo "Commit is signed."
+          else
+              echo "Commit is NOT signed."
+              exit 1
+          fi
+      - name: Print author's information
+        run: |
+          AUTHOR_NAME=$(git log -1 --format='%an')
+          AUTHOR_EMAIL=$(git log -1 --format='%ae')
+          echo "Author's name: $AUTHOR_NAME"
+          echo "Author's email: $AUTHOR_EMAIL"

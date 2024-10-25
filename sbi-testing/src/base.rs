@@ -90,6 +90,8 @@ pub fn test(mut f: impl FnMut(Case)) {
         impl_id::COFFER => Ok("Coffer"),
         impl_id::XEN => Ok("Xen Project"),
         impl_id::POLARFIRE_HSS => Ok("PolarFire Hart Software Services"),
+        impl_id::COREBOOT => Ok("Coreboot"),
+        impl_id::OREBOOT => Ok("Oreboot"),
         unknown => Err(unknown),
     }));
     f(Case::GetSbiImplVersion(sbi::get_sbi_impl_version()));

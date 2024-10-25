@@ -7,6 +7,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- pmu: add missing `pmu_snapshot_set_shmem` function.
+- pmu: `pmu_snapshot_set_shmem` function signature, documents and implementation
+- lib: re-export `sbi_spec::base::CounterMask` on crate root.
+
+### Modified
+
+- pmu: change `counter_idx_mask` and `counter_idx_base` parameters into `counter_idx` with type `CounterMask`.
+
+### Fixed
+
 ## [0.0.3] - 2024-02-08
 
 This version adds support to the RISC-V SBI Specification version 2.0 ratified.

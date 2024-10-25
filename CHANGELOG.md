@@ -9,7 +9,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- ci: add `check-changlog` and `check-commit-signatures` in `workflows`.
+- pmu: add missing `snapshot_set_shmem` function and testcases in `Pmu` trait.
+- pmu: add missing `snapshot_set_shmem` function in `Pmu` trait, impl for `&T` and `Option<T>` and `Forward` structure
+- forward: derive `Copy`, `Default`, `PartialEq`, `Eq` and `Hash` for struct Forward
+- pmu: mark that signatures of `pmu_counter_{config_matching, start, stop}` would be changed in RustSBI 0.5.0, as they are breaking changes.
+- lib: re-export `CounterMask` structure from `sbi-spec` crate.
+
 ### Modified
+
+- susp: amend documentation on `system_suspend` function.
 
 ### Removed
 

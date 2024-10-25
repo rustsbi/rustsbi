@@ -14,6 +14,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 - Add missing impl_id: Xen: 7 and PolarFire: 8 in chapter4
 
+## [0.0.8] - 2024-10-25
+
+### Added
+
+- base: add Coreboot and Oreboot to `impl_id` module
+- binary: add counter index mask type ([#71](https://github.com/rustsbi/rustsbi/pull/71))
+- pmu: add `shmem_size` module for PMU snapshot shared memory, add unit test for `pmu::shmem_size::SIZE`
+- binary: add function `is_ok_and`, `is_err_and`, `inspect` and `inspect_err` for `SbiRet` structure
+- base: impl `Eq`, `PartialEq`, `Ord`, `PartialOrd` and `Hash` for `Version`, add unit tests
+
+### Modified
+
+- binary: amend documentation on `SbiRet::denied()` error.
+- binary: change `SbiRet::and` signature to `fn and<U>(self, res: Result<U, Error>) -> Result<U, Error>`
+
+### Fixed
+
+- pmu: fix serial number issues in docs.
+
 ## [0.0.7] - 2024-02-05
 
 `sbi-spec` crate now supports RISC-V SBI version 2.0 ratified.

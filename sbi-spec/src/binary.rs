@@ -29,7 +29,7 @@ pub const RET_ERR_FAILED: usize = -1isize as _;
 pub const RET_ERR_NOT_SUPPORTED: usize = -2isize as _;
 /// Error for invalid parameter.
 pub const RET_ERR_INVALID_PARAM: usize = -3isize as _;
-/// Error for denied (unused in standard extensions).
+/// Error for denied.
 pub const RET_ERR_DENIED: usize = -4isize as _;
 /// Error for invalid address.
 pub const RET_ERR_INVALID_ADDRESS: usize = -5isize as _;
@@ -69,7 +69,7 @@ pub enum Error {
     NotSupported,
     /// Error for invalid parameter.
     InvalidParam,
-    /// Error for denied (unused in standard extensions).
+    /// Error for denied.
     Denied,
     /// Error for invalid address.
     InvalidAddress,
@@ -126,12 +126,8 @@ impl SbiRet {
             value: 0,
         }
     }
-    /// SBI call denied.
-    ///
-    /// As the time this document was written,
-    /// there is currently no function in SBI standard that returns this error.
-    /// However, custom extensions or future standard functions may return this
-    /// error if appropriate.
+    /// SBI call denied for unsatisfied entry criteria, or insufficient access
+    /// permission to debug console or CPPC register.
     #[inline]
     pub const fn denied() -> Self {
         Self {
@@ -231,6 +227,29 @@ impl SbiRet {
         matches!(self.error, RET_SUCCESS)
     }
 
+    /// Returns `true` if the SBI call succeeded and the value inside of it matches a predicate.
+    ///
+    /// # Examples
+    ///
+    /// Basic usage:
+    ///
+    /// ```
+    /// # use sbi_spec::binary::SbiRet;
+    /// let x = SbiRet::success(2);
+    /// assert_eq!(x.is_ok_and(|x| x > 1), true);
+    ///
+    /// let x = SbiRet::success(0);
+    /// assert_eq!(x.is_ok_and(|x| x > 1), false);
+    ///
+    /// let x = SbiRet::no_shmem();
+    /// assert_eq!(x.is_ok_and(|x| x > 1), false);
+    /// ```
+    #[must_use]
+    #[inline]
+    pub fn is_ok_and(self, f: impl FnOnce(usize) -> bool) -> bool {
+        self.into_result().is_ok_and(f)
+    }
+
     /// Returns `true` if current SBI return is an error.
     ///
     /// # Examples
@@ -249,6 +268,27 @@ impl SbiRet {
     #[inline]
     pub const fn is_err(&self) -> bool {
         !self.is_ok()
+    }
+
+    /// Returns `true` if the result is an error and the value inside of it matches a predicate.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sbi_spec::binary::{SbiRet, Error};
+    /// let x = SbiRet::denied();
+    /// assert_eq!(x.is_err_and(|x| x == Error::Denied), true);
+    ///
+    /// let x = SbiRet::invalid_address();
+    /// assert_eq!(x.is_err_and(|x| x == Error::Denied), false);
+    ///
+    /// let x = SbiRet::success(0);
+    /// assert_eq!(x.is_err_and(|x| x == Error::Denied), false);
+    /// ```
+    #[must_use]
+    #[inline]
+    pub fn is_err_and(self, f: impl FnOnce(Error) -> bool) -> bool {
+        self.into_result().is_err_and(f)
     }
 
     /// Converts from `SbiRet` to [`Option<usize>`].
@@ -415,6 +455,54 @@ impl SbiRet {
         self.into_result().map_err(op)
     }
 
+    /// Calls a function with a reference to the contained value if current SBI call succeeded.
+    ///
+    /// Returns the original result.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sbi_spec::binary::SbiRet;
+    /// // Assume that SBI debug console have read 512 bytes into a buffer.
+    /// let ret = SbiRet::success(512);
+    /// // Inspect the SBI DBCN call result.
+    /// let idx = ret
+    ///     .inspect(|x| println!("bytes written: {x}"))
+    ///     .map(|x| x - 1)
+    ///     .expect("SBI DBCN call failed");
+    /// assert_eq!(idx, 511);
+    /// ```
+    #[inline]
+    pub fn inspect<F: FnOnce(&usize)>(self, f: F) -> Self {
+        if let Ok(ref t) = self.into_result() {
+            f(t);
+        }
+
+        self
+    }
+
+    /// Calls a function with a reference to the contained value if current SBI result is an error.
+    ///
+    /// Returns the original result.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sbi_spec::binary::SbiRet;
+    /// // Assume that SBI debug console write operation failed for invalid parameter.
+    /// let ret = SbiRet::invalid_param();
+    /// // Print the error if SBI DBCN call failed.
+    /// let ret = ret.inspect_err(|e| eprintln!("failed to read from SBI console: {e:?}"));
+    /// ```
+    #[inline]
+    pub fn inspect_err<F: FnOnce(&Error)>(self, f: F) -> Self {
+        if let Err(ref e) = self.into_result() {
+            f(e);
+        }
+
+        self
+    }
+
     /// Returns the contained success value, consuming the `self` value.
     ///
     /// # Panics
@@ -543,7 +631,7 @@ impl SbiRet {
     // fixme: should be pub const fn once this function in Result is stablized in constant
     // fixme: should parameter be `res: SbiRet`?
     #[inline]
-    pub fn and(self, res: Result<usize, Error>) -> Result<usize, Error> {
+    pub fn and<U>(self, res: Result<U, Error>) -> Result<U, Error> {
         self.into_result().and(res)
     }
 
