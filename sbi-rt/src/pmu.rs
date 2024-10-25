@@ -303,6 +303,7 @@ pub fn pmu_counter_fw_read_hi(counter_idx: usize) -> SbiRet {
 /// | `SbiRet::invalid_param()`   | The flags parameter is not zero or the `shmem` parameter is not 4096 bytes aligned.
 /// | `SbiRet::invalid_address()` | The shared memory pointed to by the `shmem` parameter is not writable or does not satisfy other requirements of RISC-V SBI Specification chapter 3.2.
 /// | `SbiRet::failed()`          | The request failed for unspecified or unknown other reasons.
+///
 /// This function is defined in RISC-V SBI Specification chapter 11.13.
 #[inline]
 pub fn pmu_snapshot_set_shmem(shmem: SharedPtr<[u8; SIZE]>, flags: usize) -> SbiRet {
