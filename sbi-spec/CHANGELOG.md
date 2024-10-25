@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - binary: add counter index mask type ([#71](https://github.com/rustsbi/rustsbi/pull/71))
 - pmu: add `shmem_size` module for PMU snapshot shared memory, add unit test for `pmu::shmem_size::SIZE`
 - binary: add function `is_ok_and`, `is_err_and`, `inspect` and `inspect_err` for `SbiRet` structure
-- base: impl `Eq`, `PartialEq`, `Ord`, `PartialOrd` for `Version`, add unit tests
+- base: impl `Eq`, `PartialEq`, `Ord`, `PartialOrd` and `Hash` for `Version`, add unit tests
 
 ### Modified
 

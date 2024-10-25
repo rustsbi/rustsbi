@@ -14,7 +14,7 @@ pub const UNAVAILABLE_EXTENSION: usize = 0;
 /// Not to be confused with 'implementation version'.
 ///
 /// Declared in §4.1.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, Hash)]
 #[repr(transparent)]
 pub struct Version {
     raw: usize,
