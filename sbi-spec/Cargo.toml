@@ -1,7 +1,7 @@
 [package]
 name = "sbi-spec"
-description = "Definitions and constants in RISC-V Supervisor Binary Interface (RISC-V SBI)"
-version = "0.0.8-rc.1"
+description = "Definitions and constants in the RISC-V Supervisor Binary Interface (RISC-V SBI)"
+version = "0.0.8"
 authors = ["YdrMaster <ydrml@hotmail.com>", "Luo Jia <me@luojia.cc>"]
 documentation = "https://docs.rs/sbi-spec"
 edition.workspace = true

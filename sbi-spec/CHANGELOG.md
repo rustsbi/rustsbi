@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+### Modified
+
+### Fixed
+
+## [0.0.8] - 2024-10-25
+
+### Added
+
 - base: add Coreboot and Oreboot to `impl_id` module
 - binary: add counter index mask type ([#71](https://github.com/rustsbi/rustsbi/pull/71))
 - pmu: add `shmem_size` module for PMU snapshot shared memory, add unit test for `pmu::shmem_size::SIZE`
