@@ -583,7 +583,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub extern crate sbi_spec as spec;
 
-pub use sbi_spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
+pub use sbi_spec::binary::{CounterMask, HartMask, Physical, SbiRet, SharedPtr};
 
 /// Generate `RustSBI` implementation for structure of each extension.
 ///

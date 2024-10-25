@@ -33,7 +33,7 @@ mod sta;
 
 pub use sbi_spec::{
     base::Version,
-    binary::{HartMask, Physical, SbiRet, SharedPtr},
+    binary::{CounterMask, HartMask, Physical, SbiRet, SharedPtr},
 };
 
 // module `binary` includes crate-local `sbi_call_*` functions and is thus not re-exported

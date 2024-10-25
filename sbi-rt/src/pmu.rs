@@ -281,14 +281,14 @@ pub fn pmu_counter_fw_read_hi(counter_idx: usize) -> SbiRet {
 ///
 /// This function should be invoked only once per hart at boot time. Once configured, the SBI
 /// implementation has read/write access to the shared memory when `sbi_pmu_counter_stop` is
-/// invoked with the `SBI_PMU_STOP_FLAG_TAKE_SNAPSHOT` flag set.
+/// invoked with the `TAKE_SNAPSHOT` flag set.
 ///
 /// # Parameters
 ///
-/// If both `shmem_phys_lo` and `shmem_phys_hi` parameters are not all-ones bitwise then
-/// `shmem_phys_lo` specifies the lower XLEN bits and `shmem_phys_hi` specifies the upper XLEN bits
-/// of the snapshot shared memory physical base address. The `shmem_phys_lo` MUST be 4096 bytes
-/// (i.e. page) aligned and the size of the snapshot shared memory must be 4096 bytes.
+/// If `shmem` address parameter are not all-ones bitwise then
+/// `shmem` specifies the shared memory physical base address.
+/// The `shmem` physical address MUST be 4096 bytes (i.e. page) aligned
+/// and the size of the snapshot shared memory must be 4096 bytes.
 ///
 /// The `flags` parameter is reserved for future use and must be zero.
 ///
@@ -300,9 +300,8 @@ pub fn pmu_counter_fw_read_hi(counter_idx: usize) -> SbiRet {
 /// |:----------------------------|:----------------------------------------------
 /// | `SbiRet::success()`         | Shared memory was set or cleared successfully.
 /// | `SbiRet::not_supported()`   | The SBI PMU snapshot functionality is not available in the SBI implementation.
-/// | `SbiRet::invalid_param()`   | The flags parameter is not zero or the `shmem_phys_lo` parameter is not 4096 bytes aligned.
-/// | `SbiRet::invalid_address()` | The shared memory pointed to by the `shmem_phys_lo` and `shmem_phys_hi` parameters is not writable
-/// |                             | or does not satisfy other requirements of RISC-V SBI Specification chapter 3.2.
+/// | `SbiRet::invalid_param()`   | The flags parameter is not zero or the `shmem` parameter is not 4096 bytes aligned.
+/// | `SbiRet::invalid_address()` | The shared memory pointed to by the `shmem` parameter is not writable or does not satisfy other requirements of RISC-V SBI Specification chapter 3.2.
 /// | `SbiRet::failed()`          | The request failed for unspecified or unknown other reasons.
 /// This function is defined in RISC-V SBI Specification chapter 11.13.
 #[inline]
