@@ -190,14 +190,14 @@ pub mod firmware_event {
 /// Start a set of counters.
 /// Stop a set of counters.
 ///  
-/// Declared in §11.7 §11.8 §11.9.
-pub mod counter_related {
+/// Declared in §11.7, §11.8 and §11.9.
+pub mod flags {
     use bitflags::bitflags;
 
     bitflags! {
         #[derive(Clone, Copy, PartialEq, Eq)]
         /// Declared in Table 36.
-        pub struct CounterCfgFlags: usize{
+        pub struct CounterCfgFlags: usize {
             /// Skip the counter matching.
             const SKIP_MATCH = 1 << 0;
             /// Clear (or zero) the counter value in counter configuration.
@@ -220,7 +220,7 @@ pub mod counter_related {
     bitflags! {
         #[derive(Clone, Copy, PartialEq, Eq)]
         /// Declared in Table 38
-        pub struct CounterStartFlags: usize{
+        pub struct CounterStartFlags: usize {
             /// Set the value of counters based on the initial_value parameter.
             const INIT_VALUE = 1 << 0;
             /// Initialize the given counters from shared memory if available.
@@ -231,7 +231,7 @@ pub mod counter_related {
     bitflags! {
         #[derive(Clone, Copy, PartialEq, Eq)]
         /// Declared in Table 40.
-        pub struct CounterStopFlags: usize{
+        pub struct CounterStopFlags: usize {
             /// Reset the counter to event mapping.
             const RESET = 1 << 0;
             /// Save a snapshot of the given counter’s values in the shared memory if available.
