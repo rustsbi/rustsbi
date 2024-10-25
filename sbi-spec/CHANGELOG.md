@@ -7,12 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
-- Add config flags with bitflags in chapter 11
+- pmu: add config flags with bitflags in chapter 11
 
 ### Modified
 
 ### Fixed
-- Add missing impl_id: Xen: 7 and PolarFire: 8 in chapter4
 
 ## [0.0.8] - 2024-10-25
 
