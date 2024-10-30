@@ -1,10 +1,10 @@
 use core::ptr::NonNull;
+use core::sync::atomic::AtomicU8;
 use fast_trap::FlowContext;
 use riscv::register::mstatus;
-
 use crate::sbi::hsm::HsmCell;
 use crate::sbi::rfence::RFenceCell;
-use core::sync::atomic::AtomicU8;
+use crate::sbi::extensions::HartExtensions;
 
 pub(crate) struct HartContext {
     /// trap context
@@ -12,6 +12,7 @@ pub(crate) struct HartContext {
     pub hsm: HsmCell<NextStage>,
     pub rfence: RFenceCell,
     pub ipi_type: AtomicU8,
+    pub extensions: HartExtensions,
 }
 
 impl HartContext {

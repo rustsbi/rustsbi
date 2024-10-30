@@ -7,6 +7,7 @@ use crate::sbi::hsm::remote_hsm;
 use crate::sbi::rfence;
 use crate::sbi::trap;
 use crate::sbi::trap_stack::ROOT_STACK;
+use crate::sbi::extensions::{hart_extension_probe, Extension};
 
 pub(crate) const IPI_TYPE_SSOFT: u8 = 1 << 0;
 pub(crate) const IPI_TYPE_FENCE: u8 = 1 << 1;
@@ -25,13 +26,12 @@ pub trait IpiDevice {
 pub struct SbiIpi<'a, T: IpiDevice> {
     pub ipi_dev: &'a AtomicPtr<T>,
     pub max_hart_id: usize,
-    pub sstc_support: bool,
 }
 
 impl<'a, T: IpiDevice> rustsbi::Timer for SbiIpi<'a, T> {
     #[inline]
     fn set_timer(&self, stime_value: u64) {
-        if self.sstc_support {
+        if hart_extension_probe(current_hartid(),Extension::SSTC) {
             stimecmp::set(stime_value);
             unsafe {
                 riscv::register::mie::set_mtimer();
@@ -64,11 +64,10 @@ impl<'a, T: IpiDevice> rustsbi::Ipi for SbiIpi<'a, T> {
 }
 
 impl<'a, T: IpiDevice> SbiIpi<'a, T> {
-    pub fn new(ipi_dev: &'a AtomicPtr<T>, max_hart_id: usize, sstc_support: bool) -> Self {
+    pub fn new(ipi_dev: &'a AtomicPtr<T>, max_hart_id: usize) -> Self {
         Self {
             ipi_dev,
             max_hart_id,
-            sstc_support,
         }
     }
 
@@ -175,12 +174,4 @@ pub fn clear_all() {
         .as_ref()
         .unwrap()
         .clear();
-}
-
-pub fn has_sstc() -> bool {
-    unsafe { SBI_IMPL.assume_init_ref() }
-        .ipi
-        .as_ref()
-        .unwrap()
-        .sstc_support
 }
