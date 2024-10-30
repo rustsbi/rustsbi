@@ -1,12 +1,15 @@
-use super::{BootHart, BootInfo};
 use core::arch::asm;
-
+use core::sync::atomic::{AtomicBool, Ordering};
 use riscv::register::mstatus;
 
+use super::{BootHart, BootInfo};
+
 pub fn get_boot_hart(_opaque: usize, _nonstandard_a2: usize) -> BootHart {
+    static GENESIS: AtomicBool = AtomicBool::new(true);
+    let is_boot_hart = GENESIS.swap(false, Ordering::AcqRel);
     BootHart {
         fdt_address: get_fdt_address(),
-        is_boot_hart: true,
+        is_boot_hart,
     }
 }
 

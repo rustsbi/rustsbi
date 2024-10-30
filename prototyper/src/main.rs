@@ -19,8 +19,6 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use core::{arch::asm, mem::MaybeUninit};
 
 use crate::board::{SBI_IMPL, SIFIVECLINT, SIFIVETEST, UART};
-#[cfg(not(feature = "payload"))]
-use crate::platform::dynamic;
 use crate::riscv_spec::{current_hartid, menvcfg};
 use crate::sbi::console::SbiConsole;
 use crate::sbi::hart_context::NextStage;

@@ -20,6 +20,7 @@ pub(crate) static mut SBI_IMPL: MaybeUninit<
 
 /// Console Device: Uart16550
 #[doc(hidden)]
+#[allow(unused)]
 pub enum MachineConsole {
     Uart16550(*const Uart16550<u8>),
     UartAxiLite(MmioUartAxiLite),
