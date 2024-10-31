@@ -18,11 +18,12 @@ mod sbi;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::{arch::asm, mem::MaybeUninit};
 
+use sbi::extensions;
+
 use crate::board::{SBI_IMPL, SIFIVECLINT, SIFIVETEST, UART};
-#[cfg(not(feature = "payload"))]
-use crate::platform::dynamic;
 use crate::riscv_spec::{current_hartid, menvcfg};
 use crate::sbi::console::SbiConsole;
+use crate::sbi::extensions::{hart_extension_probe, Extension};
 use crate::sbi::hart_context::NextStage;
 use crate::sbi::hsm::{local_remote_hsm, SbiHsm};
 use crate::sbi::ipi::{self, SbiIpi};
@@ -30,7 +31,7 @@ use crate::sbi::logger;
 use crate::sbi::reset::SbiReset;
 use crate::sbi::rfence::SbiRFence;
 use crate::sbi::trap::{self, trap_vec};
-use crate::sbi::trap_stack::{self, NUM_HART_MAX};
+use crate::sbi::trap_stack;
 use crate::sbi::SBI;
 
 #[no_mangle]
@@ -39,21 +40,26 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     static SBI_READY: AtomicBool = AtomicBool::new(false);
 
     let boot_hart_info = platform::get_boot_hart(opaque, nonstandard_a2);
-
+    // boot hart task entry
     if boot_hart_info.is_boot_hart {
         let fdt_addr = boot_hart_info.fdt_address;
 
         // 1. Init FDT
         // parse the device tree
+        // TODO: shoule remove `fail:device_tree_format`
         let dtb = dt::parse_device_tree(fdt_addr).unwrap_or_else(fail::device_tree_format);
         let dtb = dtb.share();
+
+        // TODO: should remove `fail:device_tree_deserialize`
         let tree =
             serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize);
+
 
         // 2. Init device
         // TODO: The device base address should be find in a better way
         let console_base = tree.soc.serial.unwrap().iter().next().unwrap();
         let clint_device = tree.soc.clint.unwrap().iter().next().unwrap();
+        let cpu_num = tree.cpus.cpu.len();
         let console_base_address = console_base.at();
         let ipi_base_address = clint_device.at();
 
@@ -66,44 +72,32 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
 
         board::console_dev_init(usize::from_str_radix(console_base_address, 16).unwrap());
         board::ipi_dev_init(usize::from_str_radix(ipi_base_address, 16).unwrap());
-        // Assume sstc is enabled only if all hart has sstc ext
-        let sstc_support = tree
-            .cpus
-            .cpu
-            .iter()
-            .map(|cpu_iter| {
-                use crate::dt::Cpu;
-                let cpu = cpu_iter.deserialize::<Cpu>();
-                let isa = match cpu.isa {
-                    Some(value) => value,
-                    None => return false,
-                };
-                isa.iter().any(|x| x == "sstc")
-            })
-            .all(|x| x);
-        #[cfg(feature = "nemu")]
-        let sstc_support = true;
+
         // 3. Init SBI
         unsafe {
             SBI_IMPL = MaybeUninit::new(SBI {
                 console: Some(SbiConsole::new(&UART)),
-                ipi: Some(SbiIpi::new(&SIFIVECLINT, NUM_HART_MAX, sstc_support)),
+                ipi: Some(SbiIpi::new(&SIFIVECLINT, cpu_num)),
                 hsm: Some(SbiHsm),
                 reset: Some(SbiReset::new(&SIFIVETEST)),
                 rfence: Some(SbiRFence),
             });
         }
+        // 设置陷入栈
+        trap_stack::prepare_for_trap();
+        extensions::init(&tree.cpus.cpu);
         SBI_READY.swap(true, Ordering::AcqRel);
         // 4. Init Logger
         logger::Logger::init();
+
         info!("RustSBI version {}", rustsbi::VERSION);
         rustsbi::LOGO.lines().for_each(|line| info!("{}", line));
         info!("Initializing RustSBI machine-mode environment.");
 
+        info!("Number of CPU: {}", cpu_num);
         if let Some(model) = tree.model {
             info!("Model: {}", model.iter().next().unwrap_or("<unspecified>"));
         }
-        info!("Support sstc: {sstc_support}");
         info!("Clint device: {}", ipi_base_address);
         info!("Console deivce: {}", console_base_address);
         info!(
@@ -124,8 +118,6 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             pmpaddr1::write(usize::MAX >> 2);
         }
 
-        // 设置陷入栈
-        trap_stack::prepare_for_trap();
 
         let boot_info = platform::get_boot_info(nonstandard_a2);
         let (mpp, next_addr) = (boot_info.mpp, boot_info.next_address);
@@ -169,7 +161,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         use riscv::register::{medeleg, mtvec};
         medeleg::clear_supervisor_env_call();
         medeleg::clear_illegal_instruction();
-        if ipi::has_sstc() {
+        if hart_extension_probe(current_hartid(),Extension::Sstc) {
             menvcfg::set_bits(
                 menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
             );
@@ -232,8 +224,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
         "[rustsbi-panic] hart {} {info}",
         riscv::register::mhartid::read()
     );
-    println!(
-        "-----------------------------
+    println!("-----------------------------
 > mcause:  {:?}
 > mepc:    {:#018x}
 > mtval:   {:#018x}

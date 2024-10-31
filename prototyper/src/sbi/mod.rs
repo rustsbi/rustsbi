@@ -11,6 +11,7 @@ pub mod hart_context;
 pub mod logger;
 pub mod trap;
 pub mod trap_stack;
+pub mod extensions;
 
 use console::{ConsoleDevice, SbiConsole};
 use hsm::SbiHsm;

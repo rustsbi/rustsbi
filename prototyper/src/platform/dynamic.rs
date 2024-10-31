@@ -24,7 +24,6 @@ pub fn get_boot_hart(opaque: usize, nonstandard_a2: usize) -> BootHart {
 }
 
 pub fn get_boot_info(nonstandard_a2: usize) -> BootInfo {
-    static GENESIS: AtomicBool = AtomicBool::new(true);
     let dynamic_info = read_paddr(nonstandard_a2).unwrap_or_else(fail::no_dynamic_info_available);
     let (mpp, next_addr) = mpp_next_addr(&dynamic_info).unwrap_or_else(fail::invalid_dynamic_data);
     BootInfo {

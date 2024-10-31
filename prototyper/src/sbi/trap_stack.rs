@@ -1,6 +1,5 @@
 use core::mem::forget;
 use fast_trap::FreeTrapStack;
-
 use crate::riscv_spec::current_hartid;
 use crate::sbi::hart_context::HartContext;
 use crate::sbi::trap::fast_handler;

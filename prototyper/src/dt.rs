@@ -28,6 +28,7 @@ pub struct Cpus<'a> {
 pub struct Cpu<'a> {
     #[serde(rename = "riscv,isa-extensions")]
     pub isa: Option<StrSeq<'a>>,
+    pub reg: Reg<'a>,
 }
 
 #[derive(Deserialize, Debug)]
