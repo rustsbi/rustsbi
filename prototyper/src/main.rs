@@ -161,7 +161,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         use riscv::register::{medeleg, mtvec};
         medeleg::clear_supervisor_env_call();
         medeleg::clear_illegal_instruction();
-        if hart_extension_probe(current_hartid(),Extension::SSTC) {
+        if hart_extension_probe(current_hartid(),Extension::Sstc) {
             menvcfg::set_bits(
                 menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
             );

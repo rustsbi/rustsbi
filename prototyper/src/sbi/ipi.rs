@@ -31,7 +31,7 @@ pub struct SbiIpi<'a, T: IpiDevice> {
 impl<'a, T: IpiDevice> rustsbi::Timer for SbiIpi<'a, T> {
     #[inline]
     fn set_timer(&self, stime_value: u64) {
-        if hart_extension_probe(current_hartid(),Extension::SSTC) {
+        if hart_extension_probe(current_hartid(),Extension::Sstc) {
             stimecmp::set(stime_value);
             unsafe {
                 riscv::register::mie::set_mtimer();

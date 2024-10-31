@@ -5,16 +5,16 @@ pub struct HartExtensions([bool; Extension::COUNT]);
 
 #[derive(Copy, Clone)]
 pub enum Extension {
-    SSTC = 0,
+    Sstc = 0,
 }
 
 impl Extension {
     const COUNT: usize = 1;
-    const ITER: [Self;Extension::COUNT] = [Extension::SSTC];
+    const ITER: [Self;Extension::COUNT] = [Extension::Sstc];
 
-    pub fn to_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &'static str {
         match self {
-            Extension::SSTC => "sstc",
+            Extension::Sstc => "sstc",
         }
     }
 
@@ -32,6 +32,7 @@ pub fn hart_extension_probe(hart_id: usize, ext: Extension) -> bool {
     }
 }
 
+#[cfg(not(feature = "nemu"))]
 pub fn init(cpus: &NodeSeq) {
     use crate::dt::Cpu;
     for cpu_iter in cpus.iter() {
@@ -40,17 +41,8 @@ pub fn init(cpus: &NodeSeq) {
         let mut hart_exts = [false;Extension::COUNT];
         let isa = cpu.isa.unwrap();
         Extension::ITER.iter().for_each(|ext| {
-            if isa.iter().any(|e| e == ext.to_str()) {
-                hart_exts[ext.index()] = true;
-            } else {
-                hart_exts[ext.index()] = false;
-            }
+            hart_exts[ext.index()] = isa.iter().any(|e| e == ext.as_str());
         });
-
-        #[cfg(feature = "nemu")] 
-        {
-            hart_exts[Extension::SSTC.index()] = true;
-        }
 
         unsafe {
             ROOT_STACK
@@ -59,3 +51,17 @@ pub fn init(cpus: &NodeSeq) {
         }
     }
 }
+
+#[cfg(feature = "nemu")] 
+pub fn init(cpus: &NodeSeq) {
+    for hart_id in 0..cpus.len() {
+        let mut hart_exts = [false;Extension::COUNT];
+        hart_exts[Extension::Sstc.index()] = true;
+        unsafe {
+            ROOT_STACK
+                .get_mut(hart_id)
+                .map(|stack| stack.hart_context().extensions = HartExtensions(hart_exts)).unwrap()
+        }
+    }
+}
+    
