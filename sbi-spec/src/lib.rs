@@ -46,6 +46,7 @@ pub mod cppc;
 pub mod nacl;
 // §16
 pub mod sta;
+pub mod fwft;
 
 /// Converts SBI EID from str.
 const fn eid_from_str(name: &str) -> i32 {
@@ -334,5 +335,13 @@ mod tests {
         use crate::sta::*;
         const_assert_eq!(0x535441, EID_STA);
         const_assert_eq!(0, SET_SHMEM);
+    }
+    // §18
+    #[test]
+    fn test_fwft(){
+        use crate::fwft::*;
+        const_assert_eq!(0x46574654, EID_FWFT);
+        const_assert_eq!(0,SET);
+        const_assert_eq!(1,GET);
     }
 }
