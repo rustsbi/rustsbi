@@ -443,6 +443,7 @@ fn delegate() {
         } else {
             sstatus::set_spp(sstatus::SPP::User);
         }
+        mstatus::set_mpp(mstatus::MPP::Supervisor);
         mepc::write(stvec::read().address());
     }
 }
