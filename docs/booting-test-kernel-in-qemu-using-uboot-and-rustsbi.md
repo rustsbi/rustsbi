@@ -29,7 +29,7 @@
 
 ### 安装交叉编译器、QEMU和相关依赖
 
-For Arhc Linux:
+For Arch Linux:
 
 ``` shell
 $ sudo pacman -S git riscv64-linux-gnu-gcc qemu-system-riscv uboot-tools

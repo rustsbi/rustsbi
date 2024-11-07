@@ -35,7 +35,7 @@ OpenSBI 有三种 Firmware：
 
 ### 安装交叉编译器和QEMU
 
-For Arhc Linux:
+For Arch Linux:
 
 ``` shell
 $ sudo pacman -S git riscv64-linux-gnu-gcc qemu-system-riscv
