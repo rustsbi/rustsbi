@@ -25,7 +25,7 @@ RustSBI 原型系统提供动态固件，根据前一个阶段传入的信息动
 
 ### 安装交叉编译器和QEMU
 
-For Arhc Linux:
+For Arch Linux:
 
 ``` shell
 $ sudo pacman -S git riscv64-linux-gnu-gcc qemu-system-riscv
