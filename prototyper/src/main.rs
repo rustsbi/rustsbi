@@ -34,6 +34,9 @@ use crate::sbi::trap::{self, trap_vec};
 use crate::sbi::trap_stack;
 use crate::sbi::SBI;
 
+pub const START_ADDRESS: usize = 0x80000000;
+pub const R_RISCV_RELATIVE: usize = 3;
+
 #[no_mangle]
 extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     // parse dynamic information
@@ -53,7 +56,6 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         // TODO: should remove `fail:device_tree_deserialize`
         let tree =
             serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize);
-
 
         // 2. Init device
         // TODO: The device base address should be find in a better way
@@ -118,7 +120,6 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             pmpaddr1::write(usize::MAX >> 2);
         }
 
-
         let boot_info = platform::get_boot_info(nonstandard_a2);
         let (mpp, next_addr) = (boot_info.mpp, boot_info.next_address);
         // 设置内核入口
@@ -161,7 +162,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         use riscv::register::{medeleg, mtvec};
         medeleg::clear_supervisor_env_call();
         medeleg::clear_illegal_instruction();
-        if hart_extension_probe(current_hartid(),Extension::Sstc) {
+        if hart_extension_probe(current_hartid(), Extension::Sstc) {
             menvcfg::set_bits(
                 menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
             );
@@ -183,22 +184,23 @@ unsafe extern "C" fn start() -> ! {
         // only clear bss if hartid matches preferred boot hart id
         "   csrr    t0, mhartid",
         "   bne     t0, zero, 4f",
+        "   call    {relocation_update}",
         "1:",
         // 3. Hart 0 clear bss segment
-        "   la      t0, sbss
-            la      t1, ebss
+        "   lla     t0, sbss
+            lla     t1, ebss
          2: bgeu    t0, t1, 3f
             sd      zero, 0(t0)
             addi    t0, t0, 8
             j       2b",
         "3: ", // Hart 0 set bss ready signal
-        "   la      t0, 6f
+        "   lla     t0, 6f
             li      t1, 1
             amoadd.w t0, t1, 0(t0)
             j       5f",
         "4:", // Other harts are waiting for bss ready signal
         "   li      t1, 1
-            la      t0, 6f
+            lla     t0, 6f
             lw      t0, 0(t0)
             bne     t0, t1, 4b", 
         "5:",
@@ -210,9 +212,42 @@ unsafe extern "C" fn start() -> ! {
         "  .balign  4",
         "6:",  // bss ready signal
         "  .word    0",
+        relocation_update = sym relocation_update,
         locate_stack = sym trap_stack::locate,
         main         = sym rust_main,
         hart_boot    = sym trap::msoft,
+        options(noreturn)
+    )
+}
+
+#[naked]
+unsafe extern "C" fn relocation_update() {
+    asm!(
+        // Get load offset
+        "   li t0, {START_ADDRESS}",
+        "   lla t1, .text.entry",
+        "   sub t2, t1, t0",
+
+        // Foreach rela.dyn and update relocation
+        "   lla t0, __rel_dyn_start",
+        "   lla t1, __rel_dyn_end",
+        "   li  t3, {R_RISCV_RELATIVE}",
+        "1:",
+        "   ld  t4, 8(t0)",
+        "   bne t4, t3, 2f",
+        "   ld t4, 0(t0)",
+        "   ld t5, 16(t0)",
+        "   add t4, t4, t2",
+        "   add t5, t5, t2",
+        "   sd t5, 0(t4)",
+        "   addi t0, t0, 24",
+        "2:",
+        "   blt t0, t1, 1b",
+
+        // Return
+        "   ret",
+        R_RISCV_RELATIVE = const R_RISCV_RELATIVE,
+        START_ADDRESS = const START_ADDRESS,
         options(noreturn)
     )
 }
@@ -224,7 +259,8 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
         "[rustsbi-panic] hart {} {info}",
         riscv::register::mhartid::read()
     );
-    println!("-----------------------------
+    println!(
+        "-----------------------------
 > mcause:  {:?}
 > mepc:    {:#018x}
 > mtval:   {:#018x}
