@@ -235,12 +235,12 @@ unsafe extern "C" fn relocation_update() {
         "1:",
         "   ld  t4, 8(t0)",
         "   bne t4, t3, 2f",
-        "   ld t4, 0(t0)",
-        "   ld t5, 16(t0)",
-        "   add t4, t4, t2",
+        "   ld t4, 0(t0)", // Get offset
+        "   ld t5, 16(t0)", // Get append
+        "   add t4, t4, t2", // Add load offset to offset add append
         "   add t5, t5, t2",
-        "   sd t5, 0(t4)",
-        "   addi t0, t0, 24",
+        "   sd t5, 0(t4)", // Update address
+        "   addi t0, t0, 24", // Get next rela item
         "2:",
         "   blt t0, t1, 1b",
 
