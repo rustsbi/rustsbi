@@ -25,8 +25,16 @@ SECTIONS {
         *(.rodata .rodata.*)
         *(.srodata .srodata.*)
         . = ALIGN(8);  
-        erodata = .;
     } 
+    .dynsym : ALIGN(8) {
+        *(.dynsym)
+    }
+    .rela.dyn : ALIGN(8) {
+        __rel_dyn_start = .;
+        *(.rela*)
+        __rel_dyn_end = .;
+    }
+    erodata = .;
     .data : ALIGN(8) { 
         sdata = .;
         *(.data .data.*)
@@ -57,7 +65,7 @@ SECTIONS {
 const LINKER_SCRIPT: &[u8] = b"OUTPUT_ARCH(riscv)
 ENTRY(_start) 
 SECTIONS {
-    . = 0x80100000;
+    . = 0x80000000;
     .text : ALIGN(8) { 
         *(.text.entry)
         *(.text .text.*)
@@ -67,8 +75,18 @@ SECTIONS {
         *(.rodata .rodata.*)
         *(.srodata .srodata.*)
         . = ALIGN(8);  
-        erodata = .;
     } 
+    .dynsym : ALIGN(8) {
+        *(.dynsym)
+    }
+    .rela.dyn : ALIGN(8) {
+        __rel_dyn_start = .;
+        *(.rela*)
+        __rel_dyn_end = .;
+    }
+
+    erodata = .;
+
     .data : ALIGN(8) { 
         sdata = .;
         *(.data .data.*)
