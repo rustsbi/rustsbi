@@ -55,6 +55,7 @@ SECTIONS {
         *(.eh_frame)
     }
 
+    . = ALIGN(8);
     sbi_end = .;
 
     .text 0x80100000 : ALIGN(8) {

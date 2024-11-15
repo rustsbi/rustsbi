@@ -32,9 +32,9 @@ pub fn set_pmp() {
         pmpcfg0::set_pmp(0, Range::OFF, Permission::NONE, false);
         pmpaddr0::write(0);
         pmpcfg0::set_pmp(1, Range::TOR, Permission::RWX, false);
-        pmpaddr1::write(sbi_start_address);
+        pmpaddr1::write(sbi_start_address >> 2);
         pmpcfg0::set_pmp(2, Range::TOR, Permission::NONE, false);
-        pmpaddr2::write(sbi_end_address);
+        pmpaddr2::write(sbi_end_address >> 2);
         pmpcfg0::set_pmp(3, Range::TOR, Permission::RWX, false);
         pmpaddr3::write(usize::MAX >> 2);
     }
