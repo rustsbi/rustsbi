@@ -10,7 +10,7 @@ pub enum Extension {
 
 impl Extension {
     const COUNT: usize = 1;
-    const ITER: [Self;Extension::COUNT] = [Extension::Sstc];
+    const ITER: [Self; Extension::COUNT] = [Extension::Sstc];
 
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -28,7 +28,8 @@ pub fn hart_extension_probe(hart_id: usize, ext: Extension) -> bool {
     unsafe {
         ROOT_STACK
             .get_mut(hart_id)
-            .map(|x| x.hart_context().extensions.0[ext.index()]).unwrap()
+            .map(|x| x.hart_context().extensions.0[ext.index()])
+            .unwrap()
     }
 }
 
@@ -38,7 +39,7 @@ pub fn init(cpus: &NodeSeq) {
     for cpu_iter in cpus.iter() {
         let cpu = cpu_iter.deserialize::<Cpu>();
         let hart_id = cpu.reg.iter().next().unwrap().0.start;
-        let mut hart_exts = [false;Extension::COUNT];
+        let mut hart_exts = [false; Extension::COUNT];
         let isa = cpu.isa.unwrap();
         Extension::ITER.iter().for_each(|ext| {
             hart_exts[ext.index()] = isa.iter().any(|e| e == ext.as_str());
@@ -47,21 +48,22 @@ pub fn init(cpus: &NodeSeq) {
         unsafe {
             ROOT_STACK
                 .get_mut(hart_id)
-                .map(|stack| stack.hart_context().extensions = HartExtensions(hart_exts)).unwrap()
+                .map(|stack| stack.hart_context().extensions = HartExtensions(hart_exts))
+                .unwrap()
         }
     }
 }
 
-#[cfg(feature = "nemu")] 
+#[cfg(feature = "nemu")]
 pub fn init(cpus: &NodeSeq) {
     for hart_id in 0..cpus.len() {
-        let mut hart_exts = [false;Extension::COUNT];
+        let mut hart_exts = [false; Extension::COUNT];
         hart_exts[Extension::Sstc.index()] = true;
         unsafe {
             ROOT_STACK
                 .get_mut(hart_id)
-                .map(|stack| stack.hart_context().extensions = HartExtensions(hart_exts)).unwrap()
+                .map(|stack| stack.hart_context().extensions = HartExtensions(hart_exts))
+                .unwrap()
         }
     }
 }
-    

@@ -13,10 +13,12 @@ use crate::sbi::hsm::local_hsm;
 use crate::sbi::ipi;
 use crate::sbi::rfence::{self, local_rfence, RFenceType};
 
+// Constants for page and TLB management
 const PAGE_SIZE: usize = 4096;
 // TODO: `TLB_FLUSH_LIMIT` is a platform-dependent parameter
 const TLB_FLUSH_LIMIT: usize = 4 * PAGE_SIZE;
 
+/// Trap vector table entry point. Maps different trap types to their handlers.
 #[naked]
 pub(crate) unsafe extern "C" fn trap_vec() {
     asm!(
@@ -43,19 +45,18 @@ pub(crate) unsafe extern "C" fn trap_vec() {
     )
 }
 
-/// machine timer 中断代理
+/// Machine timer interrupt handler.
+/// Saves context, clears mtimecmp, sets STIP bit, and restores context.
 ///
 /// # Safety
 ///
-/// 裸函数。
+/// This is a naked function that directly manipulates registers and stack.
 #[naked]
 unsafe extern "C" fn mtimer() {
     asm!(
-        // 换栈：
-        // sp      : M sp
-        // mscratch: S sp
+        // Switch stacks: sp <-> mscratch
         "   csrrw sp, mscratch, sp",
-        // 保护
+        // Save registers to stack
         "   addi   sp, sp, -30*8",
         "   sd     ra, 0*8(sp)
             sd      gp, 2*8(sp)
@@ -87,13 +88,13 @@ unsafe extern "C" fn mtimer() {
             sd      t4, 28*8(sp)
             sd      t5, 29*8(sp)
             sd      t6, 1*8(sp)",
-        // 清除 mtimecmp
+        // Clear machine timer compare register
         "    call  {clear_mtime}",
-        // 设置 stip
+        // Set supervisor timer interrupt pending bit
         "   li    a0, {mip_stip}
             csrrs zero, mip, a0
         ",
-        // 恢复
+        // Restore registers from stack
         "   ld     ra, 0*8(sp)
             ld      gp, 2*8(sp)
             ld      tp, 3*8(sp)
@@ -125,11 +126,9 @@ unsafe extern "C" fn mtimer() {
             ld      t5, 29*8(sp)
             ld      t6, 1*8(sp)",
         "   addi   sp, sp, 30*8",
-        // 换栈：
-        // sp      : S sp
-        // mscratch: M sp
+        // Switch stacks back: sp <-> mscratch
         "   csrrw sp, mscratch, sp",
-        // 返回
+        // Return from machine mode
         "   mret",
         mip_stip    = const 1 << 5,
         clear_mtime = sym ipi::clear_mtime,
@@ -137,14 +136,18 @@ unsafe extern "C" fn mtimer() {
     )
 }
 
-/// machine soft 中断代理
+/// Machine software interrupt handler.
 ///
+/// Handles inter-processor interrupts.
 #[naked]
 pub unsafe extern "C" fn msoft() -> ! {
     asm!(
         ".align 2",
+        // Switch stacks
         "csrrw  sp, mscratch, sp",
+        // Allocate stack space
         "addi   sp, sp, -32*8",
+        // Save registers
         "sd     ra, 0*8(sp)
         sd      gp, 2*8(sp)
         sd      tp, 3*8(sp)
@@ -175,14 +178,18 @@ pub unsafe extern "C" fn msoft() -> ! {
         sd      t4, 28*8(sp)
         sd      t5, 29*8(sp)
         sd      t6, 30*8(sp)",
+        // Save mepc and mscratch
         "csrr   t0, mepc
         sd      t0, 31*8(sp)",
         "csrr   t2, mscratch",
         "sd     t2, 1*8(sp)",
+        // Call handler with context pointer
         "mv     a0, sp",
         "call   {msoft_hanlder}",
+        // Restore mepc
         "ld     t0, 31*8(sp)
         csrw    mepc, t0",
+        // Restore registers
         "ld     ra, 0*8(sp)
         ld      gp, 2*8(sp)
         ld      tp, 3*8(sp)
@@ -213,14 +220,20 @@ pub unsafe extern "C" fn msoft() -> ! {
         ld      t4, 28*8(sp)
         ld      t5, 29*8(sp)
         ld      t6, 30*8(sp)",
+        // Restore stack pointer
         "addi   sp, sp, 32*8",
+        // Switch stacks back
         "csrrw  sp, mscratch, sp",
+        // Return from machine mode
         "mret",
         msoft_hanlder = sym msoft_hanlder,
         options(noreturn)
     );
 }
 
+/// Machine software interrupt handler implementation.
+///
+/// Handles HSM (Hart State Management) and RFence operations.
 pub extern "C" fn msoft_hanlder(ctx: &mut SupervisorContext) {
     #[inline(always)]
     fn boot(ctx: &mut SupervisorContext, start_addr: usize, opaque: usize) {
@@ -234,7 +247,7 @@ pub extern "C" fn msoft_hanlder(ctx: &mut SupervisorContext) {
     }
 
     match local_hsm().start() {
-        // HSM Start
+        // Handle HSM Start
         Ok(next_stage) => {
             ipi::clear_msip();
             unsafe {
@@ -245,6 +258,7 @@ pub extern "C" fn msoft_hanlder(ctx: &mut SupervisorContext) {
             }
             boot(ctx, next_stage.start_addr, next_stage.opaque);
         }
+        // Handle HSM Stop
         Err(rustsbi::spec::hsm::HART_STOP) => {
             ipi::clear_msip();
             unsafe {
@@ -252,21 +266,24 @@ pub extern "C" fn msoft_hanlder(ctx: &mut SupervisorContext) {
             }
             riscv::asm::wfi();
         }
-        // RFence
+        // Handle RFence
         _ => {
             msoft_ipi_handler();
         }
     }
 }
 
-pub fn rfence_signle_handler() {
+/// Handles a single remote fence operation.
+pub fn rfence_single_handler() {
     let rfence_context = local_rfence().unwrap().get();
     if let Some((ctx, id)) = rfence_context {
         match ctx.op {
+            // Handle instruction fence
             RFenceType::FenceI => unsafe {
                 asm!("fence.i");
                 rfence::remote_rfence(id).unwrap().sub();
             },
+            // Handle virtual memory address fence
             RFenceType::SFenceVma => {
                 // If the flush size is greater than the maximum limit then simply flush all
                 if (ctx.start_addr == 0 && ctx.size == 0)
@@ -286,6 +303,7 @@ pub fn rfence_signle_handler() {
                 }
                 rfence::remote_rfence(id).unwrap().sub();
             }
+            // Handle virtual memory address fence with ASID
             RFenceType::SFenceVmaAsid => {
                 let asid = ctx.asid;
                 // If the flush size is greater than the maximum limit then simply flush all
@@ -313,27 +331,31 @@ pub fn rfence_signle_handler() {
     }
 }
 
+/// Process all pending remote fence operations.
 pub fn rfence_handler() {
     while !local_rfence().unwrap().is_empty() {
-        rfence_signle_handler();
+        rfence_single_handler();
     }
 }
 
+/// Handle machine software inter-processor interrupts.
 pub fn msoft_ipi_handler() {
     use ipi::get_and_reset_ipi_type;
     ipi::clear_msip();
     let ipi_type = get_and_reset_ipi_type();
+    // Handle supervisor software interrupt
     if (ipi_type & ipi::IPI_TYPE_SSOFT) != 0 {
         unsafe {
             riscv::register::mip::set_ssoft();
         }
     }
+    // Handle fence operation
     if (ipi_type & ipi::IPI_TYPE_FENCE) != 0 {
         rfence_handler();
     }
 }
 
-/// Fast trap
+/// Fast trap handler for SBI calls and illegal instructions.
 pub extern "C" fn fast_handler(
     mut ctx: FastContext,
     a1: usize,
@@ -356,7 +378,7 @@ pub extern "C" fn fast_handler(
         ctx.call(2)
     }
     match mcause::read().cause() {
-        // SBI call
+        // Handle SBI calls
         T::Exception(E::SupervisorEnvCall) => {
             use sbi_spec::{base, hsm, legacy};
             let mut ret = unsafe { SBI_IMPL.assume_init_ref() }.handle_ecall(
@@ -366,13 +388,13 @@ pub extern "C" fn fast_handler(
             );
             if ret.is_ok() {
                 match (a7, a6) {
-                    // 不可恢复挂起
+                    // Handle non-retentive suspend
                     (hsm::EID_HSM, hsm::HART_SUSPEND)
                         if matches!(ctx.a0() as u32, hsm::suspend_type::NON_RETENTIVE) =>
                     {
                         return resume(ctx, a1, a2);
                     }
-                    // legacy console 探测
+                    // Handle legacy console probe
                     (base::EID_BASE, base::PROBE_EXTENSION)
                         if matches!(
                             ctx.a0(),
@@ -400,6 +422,7 @@ pub extern "C" fn fast_handler(
             mepc::write(mepc::read() + 4);
             ctx.restore()
         }
+        // Handle illegal instructions
         T::Exception(E::IllegalInstruction) => {
             if mstatus::read().mpp() == mstatus::MPP::Machine {
                 panic!("Cannot handle illegal instruction exception from M-MODE");
@@ -411,7 +434,7 @@ pub extern "C" fn fast_handler(
             }
             ctx.restore()
         }
-        // 其他陷入
+        // Handle other traps
         trap => {
             println!(
                 "
@@ -429,6 +452,7 @@ pub extern "C" fn fast_handler(
     }
 }
 
+/// Delegate trap handling to supervisor mode.
 #[inline]
 fn delegate() {
     use riscv::register::{mcause, mepc, mtval, scause, sepc, sstatus, stval, stvec};
@@ -448,6 +472,7 @@ fn delegate() {
     }
 }
 
+/// Handle illegal instructions, particularly CSR access.
 #[inline]
 fn illegal_instruction_handler(ctx: &mut FastContext) -> bool {
     use riscv::register::{mepc, mtval};
@@ -488,6 +513,7 @@ fn illegal_instruction_handler(ctx: &mut FastContext) -> bool {
     true
 }
 
+/// Supervisor context structure containing saved register state.
 #[derive(Debug)]
 #[repr(C)]
 pub struct SupervisorContext {

@@ -11,17 +11,19 @@ use crate::riscv_spec::current_hartid;
 use crate::sbi::hart_context::NextStage;
 use crate::sbi::trap_stack::ROOT_STACK;
 
+/// Special state indicating a hart is in the process of starting.
 const HART_STATE_START_PENDING_EXT: usize = usize::MAX;
 
 type HsmState = AtomicUsize;
 
+/// Cell for managing hart state and shared data between harts.
 pub(crate) struct HsmCell<T> {
     status: HsmState,
     inner: UnsafeCell<Option<T>>,
 }
 
 impl<T> HsmCell<T> {
-    /// 创建一个新的共享对象。
+    /// Creates a new HsmCell with STOPPED state and no inner data.
     pub const fn new() -> Self {
         Self {
             status: HsmState::new(hart_state::STOPPED),
@@ -29,34 +31,37 @@ impl<T> HsmCell<T> {
         }
     }
 
-    /// 从当前硬件线程的状态中获取线程间共享对象。
+    /// Gets a local view of this cell for the current hart.
     ///
     /// # Safety
     ///
-    /// 用户需要确保对象属于当前硬件线程。
+    /// Caller must ensure this cell belongs to the current hart.
     #[inline]
     pub unsafe fn local(&self) -> LocalHsmCell<'_, T> {
         LocalHsmCell(self)
     }
 
-    /// 取出共享对象。
+    /// Gets a remote view of this cell for accessing from other harts.
     #[inline]
     pub fn remote(&self) -> RemoteHsmCell<'_, T> {
         RemoteHsmCell(self)
     }
 }
 
-/// 当前硬件线程的共享对象。
+/// View of HsmCell for operations on the current hart.
 pub struct LocalHsmCell<'a, T>(&'a HsmCell<T>);
 
-/// 任意硬件线程的共享对象。
+/// View of HsmCell for operations from other harts.
 pub struct RemoteHsmCell<'a, T>(&'a HsmCell<T>);
 
+// Mark HsmCell as safe to share between threads
 unsafe impl<T: Send> Sync for HsmCell<T> {}
 unsafe impl<T: Send> Send for HsmCell<T> {}
 
 impl<T> LocalHsmCell<'_, T> {
-    /// 从启动挂起状态的硬件线程取出共享数据，并将其状态设置为启动，如果成功返回取出的数据，否则返回当前状态。
+    /// Attempts to transition hart from START_PENDING to STARTED state.
+    ///
+    /// Returns inner data if successful, otherwise returns current state.
     #[inline]
     pub fn start(&self) -> Result<T, usize> {
         loop {
@@ -73,14 +78,14 @@ impl<T> LocalHsmCell<'_, T> {
         }
     }
 
-    /// 关闭。
+    /// Transitions hart to STOPPED state.
     #[allow(unused)]
     #[inline]
     pub fn stop(&self) {
         self.0.status.store(hart_state::STOPPED, Ordering::Release)
     }
 
-    /// 关闭。
+    /// Transitions hart to SUSPENDED state.
     #[allow(unused)]
     #[inline]
     pub fn suspend(&self) {
@@ -89,7 +94,7 @@ impl<T> LocalHsmCell<'_, T> {
             .store(hart_state::SUSPENDED, Ordering::Relaxed)
     }
 
-    /// 关闭。
+    /// Transitions hart to STARTED state.
     #[allow(unused)]
     #[inline]
     pub fn resume(&self) {
@@ -98,7 +103,9 @@ impl<T> LocalHsmCell<'_, T> {
 }
 
 impl<T: core::fmt::Debug> RemoteHsmCell<'_, T> {
-    /// 向关闭状态的硬件线程传入共享数据，并将其状态设置为启动挂起，返回是否放入成功。
+    /// Attempts to start a stopped hart by providing startup data.
+    ///
+    /// Returns true if successful, false if hart was not in STOPPED state.
     #[inline]
     pub fn start(&self, t: T) -> bool {
         if self
@@ -122,7 +129,7 @@ impl<T: core::fmt::Debug> RemoteHsmCell<'_, T> {
         }
     }
 
-    /// 取出当前状态。
+    /// Gets the current state of the hart.
     #[allow(unused)]
     #[inline]
     pub fn sbi_get_status(&self) -> usize {
@@ -132,7 +139,7 @@ impl<T: core::fmt::Debug> RemoteHsmCell<'_, T> {
         }
     }
 
-    /// 判断这个 HART 能否接收 IPI。
+    /// Checks if hart can receive IPIs (must be STARTED or SUSPENDED).
     #[allow(unused)]
     #[inline]
     pub fn allow_ipi(&self) -> bool {
@@ -143,7 +150,7 @@ impl<T: core::fmt::Debug> RemoteHsmCell<'_, T> {
     }
 }
 
-/// 获取此 hart 的 local hsm 对象。
+/// Gets the local HSM cell for the current hart.
 pub(crate) fn local_hsm() -> LocalHsmCell<'static, NextStage> {
     unsafe {
         ROOT_STACK
@@ -154,7 +161,7 @@ pub(crate) fn local_hsm() -> LocalHsmCell<'static, NextStage> {
     }
 }
 
-/// 获取此 hart 的 remote hsm 对象。
+/// Gets a remote view of the current hart's HSM cell.
 pub(crate) fn local_remote_hsm() -> RemoteHsmCell<'static, NextStage> {
     unsafe {
         ROOT_STACK
@@ -165,7 +172,7 @@ pub(crate) fn local_remote_hsm() -> RemoteHsmCell<'static, NextStage> {
     }
 }
 
-/// 获取任意 hart 的 remote hsm 对象。
+/// Gets a remote view of any hart's HSM cell.
 #[allow(unused)]
 pub(crate) fn remote_hsm(hart_id: usize) -> Option<RemoteHsmCell<'static, NextStage>> {
     unsafe {
@@ -175,10 +182,11 @@ pub(crate) fn remote_hsm(hart_id: usize) -> Option<RemoteHsmCell<'static, NextSt
     }
 }
 
-/// HSM
+/// Implementation of SBI HSM (Hart State Management) extension.
 pub(crate) struct SbiHsm;
 
 impl rustsbi::Hsm for SbiHsm {
+    /// Starts execution on a stopped hart.
     fn hart_start(&self, hartid: usize, start_addr: usize, opaque: usize) -> SbiRet {
         match remote_hsm(hartid) {
             Some(remote) => {
@@ -201,6 +209,7 @@ impl rustsbi::Hsm for SbiHsm {
         }
     }
 
+    /// Stops execution on the current hart.
     #[inline]
     fn hart_stop(&self) -> SbiRet {
         local_hsm().stop();
@@ -216,6 +225,7 @@ impl rustsbi::Hsm for SbiHsm {
         SbiRet::success(0)
     }
 
+    /// Gets the current state of a hart.
     #[inline]
     fn hart_get_status(&self, hartid: usize) -> SbiRet {
         match remote_hsm(hartid) {
@@ -224,6 +234,7 @@ impl rustsbi::Hsm for SbiHsm {
         }
     }
 
+    /// Suspends execution on the current hart.
     fn hart_suspend(&self, suspend_type: u32, _resume_addr: usize, _opaque: usize) -> SbiRet {
         use rustsbi::spec::hsm::suspend_type::{NON_RETENTIVE, RETENTIVE};
         if matches!(suspend_type, NON_RETENTIVE | RETENTIVE) {
