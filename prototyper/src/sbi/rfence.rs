@@ -106,7 +106,7 @@ impl LocalRFenceCell<'_> {
             match self.0.queue.lock().push((ctx, current_hartid())) {
                 Ok(_) => break,
                 Err(FifoError::Full) => {
-                    trap::rfence_signle_handler();
+                    trap::rfence_single_handler();
                     continue;
                 }
                 _ => panic!("Unable to push fence ops to fifo"),
@@ -123,7 +123,7 @@ impl RemoteRFenceCell<'_> {
             match self.0.queue.lock().push((ctx, current_hartid())) {
                 Ok(_) => break,
                 Err(FifoError::Full) => {
-                    trap::rfence_signle_handler();
+                    trap::rfence_single_handler();
                     continue;
                 }
                 _ => panic!("Unable to push fence ops to fifo"),

@@ -3,11 +3,11 @@ use rustsbi::SbiRet;
 
 use crate::board::SBI_IMPL;
 use crate::riscv_spec::{current_hartid, stimecmp};
+use crate::sbi::extensions::{hart_extension_probe, Extension};
 use crate::sbi::hsm::remote_hsm;
 use crate::sbi::rfence;
 use crate::sbi::trap;
 use crate::sbi::trap_stack::ROOT_STACK;
-use crate::sbi::extensions::{hart_extension_probe, Extension};
 
 pub(crate) const IPI_TYPE_SSOFT: u8 = 1 << 0;
 pub(crate) const IPI_TYPE_FENCE: u8 = 1 << 1;
@@ -31,7 +31,7 @@ pub struct SbiIpi<'a, T: IpiDevice> {
 impl<'a, T: IpiDevice> rustsbi::Timer for SbiIpi<'a, T> {
     #[inline]
     fn set_timer(&self, stime_value: u64) {
-        if hart_extension_probe(current_hartid(),Extension::Sstc) {
+        if hart_extension_probe(current_hartid(), Extension::Sstc) {
             stimecmp::set(stime_value);
             unsafe {
                 riscv::register::mie::set_mtimer();
@@ -92,7 +92,7 @@ impl<'a, T: IpiDevice> SbiIpi<'a, T> {
             }
         }
         while !rfence::local_rfence().unwrap().is_sync() {
-            trap::rfence_signle_handler();
+            trap::rfence_single_handler();
         }
         SbiRet::success(0)
     }
