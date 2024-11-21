@@ -259,7 +259,7 @@ pub extern "C" fn msoft_hanlder(ctx: &mut SupervisorContext) {
     }
 }
 
-pub fn rfence_signle_handler() {
+pub fn rfence_single_handler() {
     let rfence_context = local_rfence().unwrap().get();
     if let Some((ctx, id)) = rfence_context {
         match ctx.op {
@@ -315,7 +315,7 @@ pub fn rfence_signle_handler() {
 
 pub fn rfence_handler() {
     while !local_rfence().unwrap().is_empty() {
-        rfence_signle_handler();
+        rfence_single_handler();
     }
 }
 
