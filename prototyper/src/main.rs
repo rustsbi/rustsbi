@@ -114,14 +114,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
                 .unwrap_or("<unspecified>")
         );
 
-        // TODO: PMP configuration needs to be obtained through the memory range in the device tree
-        use riscv::register::*;
-        unsafe {
-            pmpcfg0::set_pmp(0, Range::OFF, Permission::NONE, false);
-            pmpaddr0::write(0);
-            pmpcfg0::set_pmp(1, Range::TOR, Permission::RWX, false);
-            pmpaddr1::write(usize::MAX >> 2);
-        }
+        platform::set_pmp();
 
         // Get boot information and prepare for kernel entry.
         let boot_info = platform::get_boot_info(nonstandard_a2);
@@ -141,24 +134,15 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             mpp
         );
     } else {
-        // Non-boot hart initialization path.
-
-        // TODO: PMP configuration needs to be obtained through the memory range in the device tree.
-        use riscv::register::*;
-        unsafe {
-            pmpcfg0::set_pmp(0, Range::OFF, Permission::NONE, false);
-            pmpaddr0::write(0);
-            pmpcfg0::set_pmp(1, Range::TOR, Permission::RWX, false);
-            pmpaddr1::write(usize::MAX >> 2);
-        }
-
-        // Setup trap handling.
+        // 设置陷入栈
         trap_stack::prepare_for_trap();
 
         // Wait for boot hart to complete SBI initialization.
         while !SBI_READY.load(Ordering::Relaxed) {
             core::hint::spin_loop()
         }
+
+        platform::set_pmp();
     }
 
     // Clear all pending IPIs.
@@ -240,7 +224,7 @@ unsafe extern "C" fn relocation_update() {
     asm!(
         // Get load offset.
         "   li t0, {START_ADDRESS}",
-        "   lla t1, .text.entry",
+        "   lla t1, sbi_start",
         "   sub t2, t1, t0",
 
         // Foreach rela.dyn and update relocation.

@@ -11,11 +11,11 @@ fn main() {
     println!("cargo:rustc-link-search={}", out.display());
 }
 
-#[cfg(feature = "payload")]
 const LINKER_SCRIPT: &[u8] = b"OUTPUT_ARCH(riscv)
 ENTRY(_start) 
 SECTIONS {
     . = 0x80000000;
+    sbi_start = .;
     .text : ALIGN(8) { 
         *(.text.entry)
         *(.text .text.*)
@@ -34,6 +34,7 @@ SECTIONS {
         *(.rela*)
         __rel_dyn_end = .;
     }
+
     erodata = .;
     .data : ALIGN(8) { 
         sdata = .;
@@ -53,56 +54,13 @@ SECTIONS {
     /DISCARD/ : {
         *(.eh_frame)
     }
+
+    sbi_end = .;
+
     .text 0x80100000 : ALIGN(8) {
         *(.fw_fdt)
     }
     .text 0x80200000 : ALIGN(8) {
         *(.payload)
-    }
-}";
-
-#[cfg(not(feature = "payload"))]
-const LINKER_SCRIPT: &[u8] = b"OUTPUT_ARCH(riscv)
-ENTRY(_start) 
-SECTIONS {
-    . = 0x80000000;
-    .text : ALIGN(8) { 
-        *(.text.entry)
-        *(.text .text.*)
-    }
-    .rodata : ALIGN(8) { 
-        srodata = .;
-        *(.rodata .rodata.*)
-        *(.srodata .srodata.*)
-        . = ALIGN(8);  
-    } 
-    .dynsym : ALIGN(8) {
-        *(.dynsym)
-    }
-    .rela.dyn : ALIGN(8) {
-        __rel_dyn_start = .;
-        *(.rela*)
-        __rel_dyn_end = .;
-    }
-
-    erodata = .;
-
-    .data : ALIGN(8) { 
-        sdata = .;
-        *(.data .data.*)
-        *(.sdata .sdata.*)
-        . = ALIGN(8); 
-        edata = .;
-    }
-    sidata = LOADADDR(.data);
-    .bss (NOLOAD) : ALIGN(8) {  
-        *(.bss.uninit)
-        sbss = .;
-        *(.bss .bss.*)
-        *(.sbss .sbss.*)
-        ebss = .;
-    } 
-    /DISCARD/ : {
-        *(.eh_frame)
     }
 }";

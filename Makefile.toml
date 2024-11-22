@@ -7,7 +7,8 @@ args = ["clean"]
 
 [tasks.prototyper-nemu-build]
 command = "cargo"
-args = ["build", "-prustsbi-prototyper", "--release", "--features=nemu,payload"]
+args = ["build", "-prustsbi-prototyper", "--release", "--target", "riscv64imac-unknown-none-elf", "-Zbuild-std=core", "--features=nemu,payload"]
+env = {"RUSTFLAGS"="-C relocation-model=pie -C link-arg=-pie" }
 
 [tasks.prototyper-nemu]
 command = "rust-objcopy"
