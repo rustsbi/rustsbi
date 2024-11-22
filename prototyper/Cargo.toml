@@ -15,7 +15,7 @@ panic-halt = "0.2.0"
 riscv = "0.11.1"
 rustsbi = { version = "0.4.0", features = ["machine"] }
 sbi-spec = { version = "0.0.7", features = ["legacy"] }
-serde = { version = "1.0.202", default-features = false, features = ["derive"]}
+serde = { version = "1.0.202", default-features = false, features = ["derive"] }
 serde-device-tree = { git = "https://github.com/rustsbi/serde-device-tree", default-features = false }
 sifive-test-device = "0.0.0"
 spin = "0.9.8"

@@ -8,6 +8,7 @@ use crate::platform::dynamic;
 #[cfg(not(feature = "payload"))]
 use riscv::register::mstatus;
 
+/// Handles device tree format parsing errors by logging and resetting.
 #[cold]
 pub fn device_tree_format(err: dt::ParseDeviceTreeError) -> Dtb {
     match err {
@@ -16,12 +17,14 @@ pub fn device_tree_format(err: dt::ParseDeviceTreeError) -> Dtb {
     reset::fail()
 }
 
+/// Handles device tree deserialization errors by logging and resetting.
 #[cold]
 pub fn device_tree_deserialize<'a>(err: serde_device_tree::error::Error) -> Tree<'a> {
     error!("Device tree deserialization error: {:?}", err);
     reset::fail()
 }
 
+/// Handles invalid dynamic information data by logging details and resetting.
 #[cold]
 #[cfg(not(feature = "payload"))]
 pub fn invalid_dynamic_data(err: dynamic::DynamicError) -> (mstatus::MPP, usize) {
@@ -45,6 +48,7 @@ pub fn invalid_dynamic_data(err: dynamic::DynamicError) -> (mstatus::MPP, usize)
     reset::fail()
 }
 
+/// Handles case where dynamic information is not available by logging details and resetting.
 #[cold]
 #[cfg(not(feature = "payload"))]
 pub fn no_dynamic_info_available(err: dynamic::DynamicReadError) -> dynamic::DynamicInfo {
@@ -74,6 +78,9 @@ pub fn no_dynamic_info_available(err: dynamic::DynamicReadError) -> dynamic::Dyn
     reset::fail()
 }
 
+/// Fallback function that returns default dynamic info with boot_hart set to MAX.
+///
+/// Used when dynamic info read fails but execution should continue.
 #[cold]
 #[cfg(not(feature = "payload"))]
 pub fn use_lottery(_err: dynamic::DynamicReadError) -> dynamic::DynamicInfo {
