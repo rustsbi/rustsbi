@@ -48,8 +48,6 @@ pub struct Cpu<'a> {
 /// System-on-chip components.
 #[derive(Deserialize, Debug)]
 pub struct Soc<'a> {
-    /// Serial (UART) device nodes.
-    pub serial: Option<NodeSeq<'a>>,
     /// Test device nodes.
     pub test: Option<NodeSeq<'a>>,
     /// CLINT (Core Local Interruptor) nodes.

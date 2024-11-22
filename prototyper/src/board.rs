@@ -1,7 +1,7 @@
 use aclint::SifiveClint;
 use core::{
     ops::Range,
-    ptr::{null, null_mut},
+    ptr::null_mut,
     sync::atomic::{AtomicPtr, Ordering::Release},
 };
 use sifive_test_device::SifiveTestDevice;
@@ -16,7 +16,7 @@ use crate::sbi::Sbi;
 
 pub struct Device {
     pub memory_range: Option<Range<usize>>,
-    pub uart: Mutex<MachineConsole>,
+    pub uart: Option<Mutex<MachineConsole>>,
     pub sifive_test: AtomicPtr<SifiveTestDevice>,
     pub sifive_clint: AtomicPtr<SifiveClint>,
 }
@@ -29,10 +29,7 @@ pub struct Board<'a> {
 pub(crate) static mut BOARD: Board<'static> = Board {
     device: Device {
         memory_range: None,
-        #[cfg(feature = "nemu")]
-        uart: Mutex::new(MachineConsole::UartAxiLite(MmioUartAxiLite::new(0))),
-        #[cfg(not(feature = "nemu"))]
-        uart: Mutex::new(MachineConsole::Uart16550(null())),
+        uart: None,
         sifive_test: AtomicPtr::new(null_mut()),
         sifive_clint: AtomicPtr::new(null_mut()),
     },
@@ -46,6 +43,12 @@ pub(crate) static mut BOARD: Board<'static> = Board {
 };
 
 /// Console Device: Uart16550
+#[doc(hidden)]
+#[allow(unused)]
+pub enum MachineConsoleType {
+    Uart16550,
+    UartAxiLite,
+}
 #[doc(hidden)]
 #[allow(unused)]
 pub enum MachineConsole {
@@ -72,15 +75,13 @@ impl ConsoleDevice for MachineConsole {
     }
 }
 
-// TODO: select driver follow fdt
-
 #[doc(hidden)]
-pub(crate) fn console_dev_init(base: usize) {
-    let new_console = match *unsafe { BOARD.device.uart.lock() } {
-        MachineConsole::Uart16550(_) => MachineConsole::Uart16550(base as _),
-        MachineConsole::UartAxiLite(_) => MachineConsole::UartAxiLite(MmioUartAxiLite::new(base)),
+pub(crate) fn console_dev_init(console_type: MachineConsoleType, base: usize) {
+    let new_console = match console_type {
+        MachineConsoleType::Uart16550 => MachineConsole::Uart16550(base as _),
+        MachineConsoleType::UartAxiLite => MachineConsole::UartAxiLite(MmioUartAxiLite::new(base)),
     };
-    *unsafe { BOARD.device.uart.lock() } = new_console;
+    unsafe { BOARD.device.uart = Some(Mutex::new(new_console)) };
 }
 
 /// Ipi Device: Sifive Clint

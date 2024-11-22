@@ -20,7 +20,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use sbi::extensions;
 
-use crate::board::BOARD;
+use crate::board::{MachineConsoleType, BOARD};
 use crate::riscv_spec::{current_hartid, menvcfg};
 use crate::sbi::console::SbiConsole;
 use crate::sbi::extensions::{hart_extension_probe, Extension};
@@ -53,14 +53,62 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         let dtb = dtb.share();
 
         // TODO: should remove `fail:device_tree_deserialize`.
+        let root: serde_device_tree::buildin::Node = serde_device_tree::from_raw_mut(&dtb).unwrap();
         let tree =
             serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize);
         // 2. Init device
         // TODO: The device base address should be find in a better way.
-        let console_base = tree.soc.serial.unwrap().iter().next().unwrap();
+        'console_finder: for console_path in tree.chosen.stdout_path.iter() {
+            if let Some(node) = root.find(console_path) {
+                let compatible = node
+                    .props()
+                    .map(|mut prop_iter| {
+                        prop_iter
+                            .find(|prop_item| prop_item.get_name() == "compatible")
+                            .map(|prop_item| {
+                                prop_item.deserialize::<serde_device_tree::buildin::StrSeq>()
+                            })
+                    })
+                    .map_or_else(|| None, |v| v);
+                let regs = node
+                    .props()
+                    .map(|mut prop_iter| {
+                        prop_iter
+                            .find(|prop_item| prop_item.get_name() == "reg")
+                            .map(|prop_item| {
+                                let reg =
+                                    prop_item.deserialize::<serde_device_tree::buildin::Reg>();
+                                if let Some(range) = reg.iter().next() {
+                                    return Some(range);
+                                }
+                                None
+                            })
+                            .map_or_else(|| None, |v| v)
+                    })
+                    .map_or_else(|| None, |v| v);
+                if compatible.is_some() && regs.is_some() {
+                    for device_id in compatible.unwrap().iter() {
+                        if device_id == "ns16550a" {
+                            board::console_dev_init(
+                                MachineConsoleType::Uart16550,
+                                regs.unwrap().0.start,
+                            );
+                            break 'console_finder;
+                        }
+                        if device_id == "xlnx,xps-uartlite-1.00.a" {
+                            board::console_dev_init(
+                                MachineConsoleType::UartAxiLite,
+                                regs.unwrap().0.start,
+                            );
+                            break 'console_finder;
+                        }
+                    }
+                }
+            }
+        }
+
         let clint_device = tree.soc.clint.unwrap().iter().next().unwrap();
         let cpu_num = tree.cpus.cpu.len();
-        let console_base_address = console_base.at();
         let ipi_base_address = clint_device.at();
 
         // Initialize reset device if present.
@@ -71,7 +119,6 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         }
 
         // Initialize console and IPI devices.
-        board::console_dev_init(usize::from_str_radix(console_base_address, 16).unwrap());
         board::ipi_dev_init(usize::from_str_radix(ipi_base_address, 16).unwrap());
 
         // 3. Init the SBI implementation
@@ -89,7 +136,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         unsafe {
             BOARD.device.memory_range = Some(memory_range);
             BOARD.sbi = Sbi {
-                console: Some(SbiConsole::new(&BOARD.device.uart)),
+                console: Some(SbiConsole::new(BOARD.device.uart.as_ref().unwrap())),
                 ipi: Some(SbiIpi::new(&BOARD.device.sifive_clint, cpu_num)),
                 hsm: Some(SbiHsm),
                 reset: Some(SbiReset::new(&BOARD.device.sifive_test)),
@@ -114,7 +161,6 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             info!("Model: {}", model.iter().next().unwrap_or("<unspecified>"));
         }
         info!("Clint device: {}", ipi_base_address);
-        info!("Console deivce: {}", console_base_address);
         info!(
             "Chosen stdout item: {}",
             tree.chosen
