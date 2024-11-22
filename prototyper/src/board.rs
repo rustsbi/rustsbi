@@ -14,6 +14,11 @@ use crate::sbi::ipi::IpiDevice;
 use crate::sbi::reset::ResetDevice;
 use crate::sbi::Sbi;
 
+pub(crate) const UART16650_COMPATIBLE: &str = "ns16550a";
+pub(crate) const UARTAXILITE_COMPATIBLE: &str = "xlnx,xps-uartlite-1.00.a";
+pub(crate) const SIFIVETEST_COMPATIBLE: &str = "sifive,test0";
+pub(crate) const SIFIVECLINT_COMPATIBLE: &str = "riscv,clint0";
+
 pub struct Device {
     pub memory_range: Option<Range<usize>>,
     pub uart: Option<Mutex<MachineConsole>>,
