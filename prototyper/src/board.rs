@@ -1,6 +1,6 @@
 use aclint::SifiveClint;
-use core::mem::MaybeUninit;
 use core::{
+    ops::Range,
     ptr::{null, null_mut},
     sync::atomic::{AtomicPtr, Ordering::Release},
 };
@@ -12,11 +12,38 @@ use uart_xilinx::uart_lite::uart::MmioUartAxiLite;
 use crate::sbi::console::ConsoleDevice;
 use crate::sbi::ipi::IpiDevice;
 use crate::sbi::reset::ResetDevice;
-use crate::sbi::SBI;
+use crate::sbi::Sbi;
 
-pub(crate) static mut SBI_IMPL: MaybeUninit<
-    SBI<'static, MachineConsole, SifiveClint, SifiveTestDevice>,
-> = MaybeUninit::uninit();
+pub struct Device {
+    pub memory_range: Option<Range<usize>>,
+    pub uart: Mutex<MachineConsole>,
+    pub sifive_test: AtomicPtr<SifiveTestDevice>,
+    pub sifive_clint: AtomicPtr<SifiveClint>,
+}
+
+pub struct Board<'a> {
+    pub sbi: Sbi<'a, MachineConsole, SifiveClint, SifiveTestDevice>,
+    pub device: Device,
+}
+
+pub(crate) static mut BOARD: Board<'static> = Board {
+    device: Device {
+        memory_range: None,
+        #[cfg(feature = "nemu")]
+        uart: Mutex::new(MachineConsole::UartAxiLite(MmioUartAxiLite::new(0))),
+        #[cfg(not(feature = "nemu"))]
+        uart: Mutex::new(MachineConsole::Uart16550(null())),
+        sifive_test: AtomicPtr::new(null_mut()),
+        sifive_clint: AtomicPtr::new(null_mut()),
+    },
+    sbi: Sbi {
+        console: None,
+        ipi: None,
+        reset: None,
+        hsm: None,
+        rfence: None,
+    },
+};
 
 /// Console Device: Uart16550
 #[doc(hidden)]
@@ -48,17 +75,12 @@ impl ConsoleDevice for MachineConsole {
 // TODO: select driver follow fdt
 
 #[doc(hidden)]
-#[cfg(feature = "nemu")]
-pub(crate) static UART: Mutex<MachineConsole> =
-    Mutex::new(MachineConsole::UartAxiLite(MmioUartAxiLite::new(0)));
-#[cfg(not(feature = "nemu"))]
-pub(crate) static UART: Mutex<MachineConsole> = Mutex::new(MachineConsole::Uart16550(null()));
 pub(crate) fn console_dev_init(base: usize) {
-    let new_console = match *UART.lock() {
+    let new_console = match *unsafe { BOARD.device.uart.lock() } {
         MachineConsole::Uart16550(_) => MachineConsole::Uart16550(base as _),
         MachineConsole::UartAxiLite(_) => MachineConsole::UartAxiLite(MmioUartAxiLite::new(base)),
     };
-    *UART.lock() = new_console;
+    *unsafe { BOARD.device.uart.lock() } = new_console;
 }
 
 /// Ipi Device: Sifive Clint
@@ -100,9 +122,10 @@ impl IpiDevice for SifiveClint {
 }
 
 #[doc(hidden)]
-pub(crate) static SIFIVECLINT: AtomicPtr<SifiveClint> = AtomicPtr::new(null_mut());
 pub(crate) fn ipi_dev_init(base: usize) {
-    SIFIVECLINT.store(base as _, Release);
+    unsafe {
+        BOARD.device.sifive_clint.store(base as _, Release);
+    }
 }
 
 /// Reset Device: SifiveTestDevice
@@ -124,7 +147,8 @@ impl ResetDevice for SifiveTestDevice {
 }
 
 #[doc(hidden)]
-pub(crate) static SIFIVETEST: AtomicPtr<SifiveTestDevice> = AtomicPtr::new(null_mut());
 pub fn reset_dev_init(base: usize) {
-    SIFIVETEST.store(base as _, Release);
+    unsafe {
+        BOARD.device.sifive_test.store(base as _, Release);
+    }
 }

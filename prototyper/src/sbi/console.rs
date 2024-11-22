@@ -1,4 +1,4 @@
-use crate::board::SBI_IMPL;
+use crate::board::BOARD;
 use core::fmt::{self, Write};
 use rustsbi::{Console, Physical, SbiRet};
 use spin::Mutex;
@@ -114,19 +114,11 @@ impl<'a, T: ConsoleDevice> fmt::Write for SbiConsole<'a, T> {
 /// Global function to write a character to the console.
 #[inline]
 pub fn putchar(c: usize) -> usize {
-    unsafe { SBI_IMPL.assume_init_mut() }
-        .console
-        .as_mut()
-        .unwrap()
-        .putchar(c)
+    unsafe { BOARD.sbi.console.as_mut().unwrap().putchar(c) }
 }
 
 /// Global function to read a character from the console.
 #[inline]
 pub fn getchar() -> usize {
-    unsafe { SBI_IMPL.assume_init_mut() }
-        .console
-        .as_mut()
-        .unwrap()
-        .getchar()
+    unsafe { BOARD.sbi.console.as_mut().unwrap().getchar() }
 }

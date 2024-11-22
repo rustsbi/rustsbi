@@ -14,7 +14,6 @@ pub mod trap;
 pub mod trap_stack;
 
 use console::{ConsoleDevice, SbiConsole};
-use core::ops::Range;
 use hsm::SbiHsm;
 use ipi::{IpiDevice, SbiIpi};
 use reset::{ResetDevice, SbiReset};
@@ -22,7 +21,7 @@ use rfence::SbiRFence;
 
 #[derive(RustSBI, Default)]
 #[rustsbi(dynamic)]
-pub struct SBI<'a, C: ConsoleDevice, I: IpiDevice, R: ResetDevice> {
+pub struct Sbi<'a, C: ConsoleDevice, I: IpiDevice, R: ResetDevice> {
     #[rustsbi(console)]
     pub console: Option<SbiConsole<'a, C>>,
     #[rustsbi(ipi, timer)]
@@ -33,5 +32,4 @@ pub struct SBI<'a, C: ConsoleDevice, I: IpiDevice, R: ResetDevice> {
     pub reset: Option<SbiReset<'a, R>>,
     #[rustsbi(fence)]
     pub rfence: Option<SbiRFence>,
-    pub memory_range: Range<usize>,
 }

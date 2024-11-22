@@ -6,7 +6,7 @@ use core::{
 use riscv::register::mstatus::MPP;
 use rustsbi::{spec::hsm::hart_state, SbiRet};
 
-use crate::board::SBI_IMPL;
+use crate::board::BOARD;
 use crate::riscv_spec::current_hartid;
 use crate::sbi::hart_context::NextStage;
 use crate::sbi::trap_stack::ROOT_STACK;
@@ -195,11 +195,9 @@ impl rustsbi::Hsm for SbiHsm {
                     opaque,
                     next_mode: MPP::Supervisor,
                 }) {
-                    unsafe { SBI_IMPL.assume_init_ref() }
-                        .ipi
-                        .as_ref()
-                        .unwrap()
-                        .set_msip(hartid);
+                    unsafe {
+                        BOARD.sbi.ipi.as_ref().unwrap().set_msip(hartid);
+                    }
                     SbiRet::success(0)
                 } else {
                     SbiRet::already_started()
@@ -213,11 +211,9 @@ impl rustsbi::Hsm for SbiHsm {
     #[inline]
     fn hart_stop(&self) -> SbiRet {
         local_hsm().stop();
-        unsafe { SBI_IMPL.assume_init_ref() }
-            .ipi
-            .as_ref()
-            .unwrap()
-            .clear_msip(current_hartid());
+        unsafe {
+            BOARD.sbi.ipi.as_ref().unwrap().clear_msip(current_hartid());
+        }
         unsafe {
             riscv::register::mie::clear_msoft();
         }
@@ -239,11 +235,9 @@ impl rustsbi::Hsm for SbiHsm {
         use rustsbi::spec::hsm::suspend_type::{NON_RETENTIVE, RETENTIVE};
         if matches!(suspend_type, NON_RETENTIVE | RETENTIVE) {
             local_hsm().suspend();
-            unsafe { SBI_IMPL.assume_init_ref() }
-                .ipi
-                .as_ref()
-                .unwrap()
-                .clear_msip(current_hartid());
+            unsafe {
+                BOARD.sbi.ipi.as_ref().unwrap().clear_msip(current_hartid());
+            }
             unsafe {
                 riscv::register::mie::set_msoft();
             }

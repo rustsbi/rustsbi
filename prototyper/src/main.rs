@@ -15,12 +15,12 @@ mod platform;
 mod riscv_spec;
 mod sbi;
 
+use core::arch::asm;
 use core::sync::atomic::{AtomicBool, Ordering};
-use core::{arch::asm, mem::MaybeUninit};
 
 use sbi::extensions;
 
-use crate::board::{SBI_IMPL, SIFIVECLINT, SIFIVETEST, UART};
+use crate::board::BOARD;
 use crate::riscv_spec::{current_hartid, menvcfg};
 use crate::sbi::console::SbiConsole;
 use crate::sbi::extensions::{hart_extension_probe, Extension};
@@ -32,7 +32,7 @@ use crate::sbi::reset::SbiReset;
 use crate::sbi::rfence::SbiRFence;
 use crate::sbi::trap::{self, trap_vec};
 use crate::sbi::trap_stack;
-use crate::sbi::SBI;
+use crate::sbi::Sbi;
 
 pub const START_ADDRESS: usize = 0x80000000;
 pub const R_RISCV_RELATIVE: usize = 3;
@@ -87,14 +87,14 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
 
         // 3. Init SBI
         unsafe {
-            SBI_IMPL = MaybeUninit::new(SBI {
-                console: Some(SbiConsole::new(&UART)),
-                ipi: Some(SbiIpi::new(&SIFIVECLINT, cpu_num)),
+            BOARD.device.memory_range = Some(memory_range);
+            BOARD.sbi = Sbi {
+                console: Some(SbiConsole::new(&BOARD.device.uart)),
+                ipi: Some(SbiIpi::new(&BOARD.device.sifive_clint, cpu_num)),
                 hsm: Some(SbiHsm),
-                reset: Some(SbiReset::new(&SIFIVETEST)),
+                reset: Some(SbiReset::new(&BOARD.device.sifive_test)),
                 rfence: Some(SbiRFence),
-                memory_range,
-            });
+            };
         }
 
         // Setup trap handling.
@@ -124,7 +124,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
                 .unwrap_or("<unspecified>")
         );
 
-        platform::set_pmp(&unsafe { SBI_IMPL.assume_init_ref() }.memory_range);
+        platform::set_pmp(unsafe { BOARD.device.memory_range.as_ref().unwrap() });
 
         // Get boot information and prepare for kernel entry.
         let boot_info = platform::get_boot_info(nonstandard_a2);
@@ -152,7 +152,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             core::hint::spin_loop()
         }
 
-        platform::set_pmp(&unsafe { SBI_IMPL.assume_init_ref() }.memory_range);
+        platform::set_pmp(unsafe { BOARD.device.memory_range.as_ref().unwrap() });
     }
 
     // Clear all pending IPIs.

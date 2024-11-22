@@ -1,7 +1,7 @@
 use core::sync::atomic::{AtomicPtr, Ordering::Relaxed};
 use rustsbi::SbiRet;
 
-use crate::board::SBI_IMPL;
+use crate::board::BOARD;
 use crate::riscv_spec::{current_hartid, stimecmp};
 use crate::sbi::extensions::{hart_extension_probe, Extension};
 use crate::sbi::hsm::remote_hsm;
@@ -213,7 +213,7 @@ pub fn get_and_reset_ipi_type() -> u8 {
 /// Clear machine software interrupt pending for current hart.
 #[inline]
 pub fn clear_msip() {
-    match unsafe { SBI_IMPL.as_ptr().as_ref().and_then(|sbi| sbi.ipi.as_ref()) } {
+    match unsafe { BOARD.sbi.ipi.as_ref() } {
         Some(ipi) => ipi.clear_msip(current_hartid()),
         None => error!("SBI or IPI device not initialized"),
     }
@@ -222,7 +222,7 @@ pub fn clear_msip() {
 /// Clear machine timer interrupt for current hart.
 #[inline]
 pub fn clear_mtime() {
-    match unsafe { SBI_IMPL.as_ptr().as_ref().and_then(|sbi| sbi.ipi.as_ref()) } {
+    match unsafe { BOARD.sbi.ipi.as_ref() } {
         Some(ipi) => ipi.write_mtimecmp(current_hartid(), u64::MAX),
         None => error!("SBI or IPI device not initialized"),
     }
@@ -231,7 +231,7 @@ pub fn clear_mtime() {
 /// Clear all pending interrupts for current hart.
 #[inline]
 pub fn clear_all() {
-    match unsafe { SBI_IMPL.as_ptr().as_ref().and_then(|sbi| sbi.ipi.as_ref()) } {
+    match unsafe { BOARD.sbi.ipi.as_ref() } {
         Some(ipi) => ipi.clear(),
         None => error!("SBI or IPI device not initialized"),
     }

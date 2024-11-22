@@ -1,7 +1,7 @@
 use core::sync::atomic::{AtomicPtr, Ordering::Relaxed};
 use rustsbi::SbiRet;
 
-use crate::board::SBI_IMPL;
+use crate::board::BOARD;
 
 pub trait ResetDevice {
     fn fail(&self, code: u16) -> !;
@@ -61,9 +61,5 @@ impl<'a, T: ResetDevice> rustsbi::Reset for SbiReset<'a, T> {
 }
 
 pub fn fail() -> ! {
-    unsafe { SBI_IMPL.assume_init_ref() }
-        .reset
-        .as_ref()
-        .unwrap()
-        .fail()
+    unsafe { BOARD.sbi.reset.as_ref().unwrap().fail() }
 }
