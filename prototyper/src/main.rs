@@ -45,18 +45,16 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     let boot_hart_info = platform::get_boot_hart(opaque, nonstandard_a2);
     // boot hart task entry.
     if boot_hart_info.is_boot_hart {
-        let fdt_addr = boot_hart_info.fdt_address;
-
         // 1. Init FDT
-        // parse the device tree.
-        // TODO: shoule remove `fail:device_tree_format`.
+        // parse the device tree
+        // TODO: shoule remove `fail:device_tree_format`
+        let fdt_addr = boot_hart_info.fdt_address;
         let dtb = dt::parse_device_tree(fdt_addr).unwrap_or_else(fail::device_tree_format);
         let dtb = dtb.share();
 
         // TODO: should remove `fail:device_tree_deserialize`.
         let tree =
             serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize);
-
         // 2. Init device
         // TODO: The device base address should be find in a better way.
         let console_base = tree.soc.serial.unwrap().iter().next().unwrap();
@@ -77,6 +75,17 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         board::ipi_dev_init(usize::from_str_radix(ipi_base_address, 16).unwrap());
 
         // 3. Init the SBI implementation
+        // TODO: More than one memory node or range?
+        let memory_reg = tree
+            .memory
+            .iter()
+            .next()
+            .unwrap()
+            .deserialize::<dt::Memory>()
+            .reg;
+        let memory_range = memory_reg.iter().next().unwrap().0;
+
+        // 3. Init SBI
         unsafe {
             SBI_IMPL = MaybeUninit::new(SBI {
                 console: Some(SbiConsole::new(&UART)),
@@ -84,6 +93,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
                 hsm: Some(SbiHsm),
                 reset: Some(SbiReset::new(&SIFIVETEST)),
                 rfence: Some(SbiRFence),
+                memory_range,
             });
         }
 
@@ -114,7 +124,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
                 .unwrap_or("<unspecified>")
         );
 
-        platform::set_pmp();
+        platform::set_pmp(&unsafe { SBI_IMPL.assume_init_ref() }.memory_range);
 
         // Get boot information and prepare for kernel entry.
         let boot_info = platform::get_boot_info(nonstandard_a2);
@@ -142,7 +152,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             core::hint::spin_loop()
         }
 
-        platform::set_pmp();
+        platform::set_pmp(&unsafe { SBI_IMPL.assume_init_ref() }.memory_range);
     }
 
     // Clear all pending IPIs.

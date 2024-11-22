@@ -11,6 +11,8 @@ pub struct Tree<'a> {
     pub model: Option<StrSeq<'a>>,
     /// Chosen node containing boot parameters.
     pub chosen: Chosen<'a>,
+    /// Memory information.
+    pub memory: NodeSeq<'a>,
     /// CPU information.
     pub cpus: Cpus<'a>,
     /// System-on-chip components.
@@ -59,6 +61,13 @@ pub struct Soc<'a> {
 #[derive(Deserialize, Debug)]
 pub struct Device<'a> {
     /// Device register information.
+    pub reg: Reg<'a>,
+}
+
+/// Memory range.
+#[derive(Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct Memory<'a> {
     pub reg: Reg<'a>,
 }
 
