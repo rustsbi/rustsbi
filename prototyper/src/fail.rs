@@ -1,6 +1,6 @@
 use serde_device_tree::Dtb;
 
-use crate::dt::{self, ParseDeviceTreeError, Tree};
+use crate::dt::{self, Tree};
 use crate::sbi::reset;
 
 #[cfg(not(feature = "payload"))]
@@ -8,20 +8,31 @@ use crate::platform::dynamic;
 #[cfg(not(feature = "payload"))]
 use riscv::register::mstatus;
 
+// TODO: Need a better way to handle device tree parsing errors
+
 /// Handles device tree format parsing errors by logging and resetting.
 #[cold]
-pub fn device_tree_format(err: dt::ParseDeviceTreeError) -> Dtb {
-    match err {
-        ParseDeviceTreeError::Format => error!("- FDT format error"),
+pub fn device_tree_format(_err: dt::ParseDeviceTreeError) -> Dtb {
+    loop {
+        core::hint::spin_loop()
     }
-    reset::fail()
 }
 
 /// Handles device tree deserialization errors by logging and resetting.
 #[cold]
-pub fn device_tree_deserialize<'a>(err: serde_device_tree::error::Error) -> Tree<'a> {
-    error!("Device tree deserialization error: {:?}", err);
-    reset::fail()
+pub fn device_tree_deserialize<'a>(_err: serde_device_tree::error::Error) -> Tree<'a> {
+    loop {
+        core::hint::spin_loop()
+    }
+}
+
+#[cold]
+pub fn device_tree_deserialize_root<'a>(
+    _err: serde_device_tree::error::Error,
+) -> serde_device_tree::buildin::Node<'a> {
+    loop {
+        core::hint::spin_loop()
+    }
 }
 
 /// Handles invalid dynamic information data by logging details and resetting.

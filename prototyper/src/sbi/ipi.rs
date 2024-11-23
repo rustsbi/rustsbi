@@ -34,14 +34,14 @@ pub trait IpiDevice {
 }
 
 /// SBI IPI implementation.
-pub struct SbiIpi<'a, T: IpiDevice> {
+pub struct SbiIpi<T: IpiDevice> {
     /// Reference to atomic pointer to IPI device.
-    pub ipi_dev: &'a AtomicPtr<T>,
+    pub ipi_dev: AtomicPtr<T>,
     /// Maximum hart ID in the system
     pub max_hart_id: usize,
 }
 
-impl<'a, T: IpiDevice> rustsbi::Timer for SbiIpi<'a, T> {
+impl<T: IpiDevice> rustsbi::Timer for SbiIpi<T> {
     /// Set timer value for current hart.
     #[inline]
     fn set_timer(&self, stime_value: u64) {
@@ -64,7 +64,7 @@ impl<'a, T: IpiDevice> rustsbi::Timer for SbiIpi<'a, T> {
     }
 }
 
-impl<'a, T: IpiDevice> rustsbi::Ipi for SbiIpi<'a, T> {
+impl<T: IpiDevice> rustsbi::Ipi for SbiIpi<T> {
     /// Send IPI to specified harts.
     #[inline]
     fn send_ipi(&self, hart_mask: rustsbi::HartMask) -> SbiRet {
@@ -92,10 +92,10 @@ impl<'a, T: IpiDevice> rustsbi::Ipi for SbiIpi<'a, T> {
     }
 }
 
-impl<'a, T: IpiDevice> SbiIpi<'a, T> {
+impl<T: IpiDevice> SbiIpi<T> {
     /// Create new SBI IPI instance.
     #[inline]
-    pub fn new(ipi_dev: &'a AtomicPtr<T>, max_hart_id: usize) -> Self {
+    pub fn new(ipi_dev: AtomicPtr<T>, max_hart_id: usize) -> Self {
         Self {
             ipi_dev,
             max_hart_id,

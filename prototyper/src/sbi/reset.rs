@@ -9,12 +9,12 @@ pub trait ResetDevice {
     fn reset(&self) -> !;
 }
 
-pub struct SbiReset<'a, T: ResetDevice> {
-    pub reset_dev: &'a AtomicPtr<T>,
+pub struct SbiReset<T: ResetDevice> {
+    pub reset_dev: AtomicPtr<T>,
 }
 
-impl<'a, T: ResetDevice> SbiReset<'a, T> {
-    pub fn new(reset_dev: &'a AtomicPtr<T>) -> Self {
+impl<'a, T: ResetDevice> SbiReset<T> {
+    pub fn new(reset_dev: AtomicPtr<T>) -> Self {
         Self { reset_dev }
     }
 
@@ -32,7 +32,7 @@ impl<'a, T: ResetDevice> SbiReset<'a, T> {
     }
 }
 
-impl<'a, T: ResetDevice> rustsbi::Reset for SbiReset<'a, T> {
+impl<T: ResetDevice> rustsbi::Reset for SbiReset<T> {
     #[inline]
     fn system_reset(&self, reset_type: u32, reset_reason: u32) -> SbiRet {
         use rustsbi::spec::srst::{
@@ -61,5 +61,8 @@ impl<'a, T: ResetDevice> rustsbi::Reset for SbiReset<'a, T> {
 }
 
 pub fn fail() -> ! {
-    unsafe { BOARD.sbi.reset.as_ref().unwrap().fail() }
+    match unsafe { BOARD.sbi.reset.as_ref() } {
+        Some(reset) => reset.fail(),
+        None => panic!("SBI or IPI device not initialized"),
+    }
 }

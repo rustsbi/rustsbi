@@ -16,23 +16,15 @@ mod riscv_spec;
 mod sbi;
 
 use core::arch::asm;
-use core::sync::atomic::{AtomicBool, Ordering};
 
-use sbi::extensions;
-
-use crate::board::{MachineConsoleType, BOARD};
+use crate::board::BOARD;
 use crate::riscv_spec::{current_hartid, menvcfg};
-use crate::sbi::console::SbiConsole;
 use crate::sbi::extensions::{hart_extension_probe, Extension};
 use crate::sbi::hart_context::NextStage;
-use crate::sbi::hsm::{local_remote_hsm, SbiHsm};
-use crate::sbi::ipi::{self, SbiIpi};
-use crate::sbi::logger;
-use crate::sbi::reset::SbiReset;
-use crate::sbi::rfence::SbiRFence;
+use crate::sbi::hsm::local_remote_hsm;
+use crate::sbi::ipi;
 use crate::sbi::trap::{self, trap_vec};
 use crate::sbi::trap_stack;
-use crate::sbi::Sbi;
 
 pub const START_ADDRESS: usize = 0x80000000;
 pub const R_RISCV_RELATIVE: usize = 3;
@@ -40,121 +32,20 @@ pub const R_RISCV_RELATIVE: usize = 3;
 #[no_mangle]
 extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     // Track whether SBI is initialized and ready.
-    static SBI_READY: AtomicBool = AtomicBool::new(false);
 
     let boot_hart_info = platform::get_boot_hart(opaque, nonstandard_a2);
     // boot hart task entry.
     if boot_hart_info.is_boot_hart {
-        // 1. Init FDT
         // parse the device tree
-        // TODO: shoule remove `fail:device_tree_format`
         let fdt_addr = boot_hart_info.fdt_address;
         let dtb = dt::parse_device_tree(fdt_addr).unwrap_or_else(fail::device_tree_format);
         let dtb = dtb.share();
 
-        // TODO: should remove `fail:device_tree_deserialize`.
-        let root: serde_device_tree::buildin::Node = serde_device_tree::from_raw_mut(&dtb).unwrap();
-        let tree =
-            serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize);
-        // 2. Init device
-        // TODO: The device base address should be find in a better way.
-        for console_path in tree.chosen.stdout_path.iter() {
-            if let Some(node) = root.find(console_path) {
-                let info = dt::get_compatible_and_range(&node);
-                let result = info.is_some_and(|info| {
-                    let (compatible, regs) = info;
-                    for device_id in compatible.iter() {
-                        if device_id == board::UART16650_COMPATIBLE {
-                            board::console_dev_init(MachineConsoleType::Uart16550, regs.start);
-                            return true;
-                        }
-                        if device_id == board::UARTAXILITE_COMPATIBLE {
-                            board::console_dev_init(MachineConsoleType::UartAxiLite, regs.start);
-                            return true;
-                        }
-                    }
-                    false
-                });
-                if result {
-                    break;
-                }
-            }
-        }
-
-        let mut clint_device_address: Option<usize> = None;
-        let mut find_device = |node: &serde_device_tree::buildin::Node| {
-            let info = dt::get_compatible_and_range(node);
-            if let Some(info) = info {
-                let (compatible, regs) = info;
-                let base_address = regs.start;
-                for device_id in compatible.iter() {
-                    // Initialize clint device.
-                    if device_id == board::SIFIVECLINT_COMPATIBLE {
-                        clint_device_address = Some(base_address);
-                        board::ipi_dev_init(base_address);
-                    }
-                    // Initialize reset device.
-                    if device_id == board::SIFIVETEST_COMPATIBLE {
-                        board::reset_dev_init(base_address);
-                    }
-                }
-            }
-        };
-        root.search(&mut find_device);
-        let cpu_num = tree.cpus.cpu.len();
-
-        // Initialize console and IPI devices.
-
-        // 3. Init the SBI implementation
-        // TODO: More than one memory node or range?
-        let memory_reg = tree
-            .memory
-            .iter()
-            .next()
-            .unwrap()
-            .deserialize::<dt::Memory>()
-            .reg;
-        let memory_range = memory_reg.iter().next().unwrap().0;
-
-        // 3. Init SBI
         unsafe {
-            BOARD.device.memory_range = Some(memory_range);
-            BOARD.sbi = Sbi {
-                console: Some(SbiConsole::new(BOARD.device.uart.as_ref().unwrap())),
-                ipi: Some(SbiIpi::new(&BOARD.device.sifive_clint, cpu_num)),
-                hsm: Some(SbiHsm),
-                reset: Some(SbiReset::new(&BOARD.device.sifive_test)),
-                rfence: Some(SbiRFence),
-            };
+            BOARD.init(&dtb);
+            BOARD.print_board_info();
         }
-
-        // Setup trap handling.
-        trap_stack::prepare_for_trap();
-        extensions::init(&tree.cpus.cpu);
-        SBI_READY.swap(true, Ordering::AcqRel);
-
-        // 4. Init Logger
-        logger::Logger::init().unwrap();
-
-        info!("RustSBI version {}", rustsbi::VERSION);
-        rustsbi::LOGO.lines().for_each(|line| info!("{}", line));
-        info!("Initializing RustSBI machine-mode environment.");
-
-        info!("Number of CPU: {}", cpu_num);
-        if let Some(model) = tree.model {
-            info!("Model: {}", model.iter().next().unwrap_or("<unspecified>"));
-        }
-        info!("Clint device: {:x?}", clint_device_address);
-        info!(
-            "Chosen stdout item: {}",
-            tree.chosen
-                .stdout_path
-                .iter()
-                .next()
-                .unwrap_or("<unspecified>")
-        );
-
-        platform::set_pmp(unsafe { BOARD.device.memory_range.as_ref().unwrap() });
+        platform::set_pmp(unsafe { BOARD.info.memory_range.as_ref().unwrap() });
 
         // Get boot information and prepare for kernel entry.
         let boot_info = platform::get_boot_info(nonstandard_a2);
@@ -178,11 +69,11 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         trap_stack::prepare_for_trap();
 
         // Wait for boot hart to complete SBI initialization.
-        while !SBI_READY.load(Ordering::Relaxed) {
+        while !unsafe { BOARD.ready() } {
             core::hint::spin_loop()
         }
 
-        platform::set_pmp(unsafe { BOARD.device.memory_range.as_ref().unwrap() });
+        platform::set_pmp(unsafe { BOARD.info.memory_range.as_ref().unwrap() });
     }
 
     // Clear all pending IPIs.

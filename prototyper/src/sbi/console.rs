@@ -22,17 +22,17 @@ pub trait ConsoleDevice {
 ///
 /// This provides a safe interface for interacting with console hardware through the
 /// SBI specification.
-pub struct SbiConsole<'a, T: ConsoleDevice> {
-    inner: &'a Mutex<T>,
+pub struct SbiConsole<T: ConsoleDevice> {
+    inner: Mutex<T>,
 }
 
-impl<'a, T: ConsoleDevice> SbiConsole<'a, T> {
+impl<T: ConsoleDevice> SbiConsole<T> {
     /// Creates a new SBI console that wraps the provided locked console device.
     ///
     /// # Arguments
     /// * `inner` - A mutex containing the console device implementation
     #[inline]
-    pub fn new(inner: &'a Mutex<T>) -> Self {
+    pub fn new(inner: Mutex<T>) -> Self {
         Self { inner }
     }
 
@@ -67,7 +67,7 @@ impl<'a, T: ConsoleDevice> SbiConsole<'a, T> {
     }
 }
 
-impl<'a, T: ConsoleDevice> Console for SbiConsole<'a, T> {
+impl<T: ConsoleDevice> Console for SbiConsole<T> {
     /// Write a physical memory buffer to the console.
     #[inline]
     fn write(&self, bytes: Physical<&[u8]>) -> SbiRet {
@@ -96,7 +96,7 @@ impl<'a, T: ConsoleDevice> Console for SbiConsole<'a, T> {
     }
 }
 
-impl<'a, T: ConsoleDevice> fmt::Write for SbiConsole<'a, T> {
+impl<T: ConsoleDevice> fmt::Write for SbiConsole<T> {
     /// Implement Write trait for string formatting.
     #[inline]
     fn write_str(&mut self, s: &str) -> fmt::Result {
