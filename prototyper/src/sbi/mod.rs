@@ -21,6 +21,7 @@ use rfence::SbiRFence;
 
 #[derive(RustSBI, Default)]
 #[rustsbi(dynamic)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct SBI<'a, C: ConsoleDevice, I: IpiDevice, R: ResetDevice> {
     #[rustsbi(console)]
     pub console: Option<SbiConsole<'a, C>>,
