@@ -76,26 +76,16 @@ pub fn parse_device_tree(opaque: usize) -> Result<Dtb, ParseDeviceTreeError> {
 
 pub fn get_compatible_and_range<'de>(node: &Node) -> Option<(StrSeq<'de>, Range<usize>)> {
     let compatible = node
-        .props()
-        .map(|mut prop_iter| {
-            prop_iter
-                .find(|prop_item| prop_item.get_name() == "compatible")
-                .map(|prop_item| prop_item.deserialize::<serde_device_tree::buildin::StrSeq>())
-        })
-        .map_or_else(|| None, |v| v);
+        .get_prop("compatible")
+        .map(|prop_item| prop_item.deserialize::<StrSeq<'de>>());
     let regs = node
-        .props()
-        .map(|mut prop_iter| {
-            prop_iter
-                .find(|prop_item| prop_item.get_name() == "reg")
-                .map(|prop_item| {
-                    let reg = prop_item.deserialize::<serde_device_tree::buildin::Reg>();
-                    if let Some(range) = reg.iter().next() {
-                        return Some(range);
-                    }
-                    None
-                })
-                .map_or_else(|| None, |v| v)
+        .get_prop("reg")
+        .map(|prop_item| {
+            let reg = prop_item.deserialize::<serde_device_tree::buildin::Reg>();
+            if let Some(range) = reg.iter().next() {
+                return Some(range);
+            }
+            None
         })
         .map_or_else(|| None, |v| v);
     if let Some(compatible) = compatible {

@@ -139,8 +139,7 @@ impl Board {
         // TODO: should remove `fail:device_tree_deserialize`.
         let root: serde_device_tree::buildin::Node = serde_device_tree::from_raw_mut(&dtb)
             .unwrap_or_else(fail::device_tree_deserialize_root);
-        let tree =
-            serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize);
+        let tree: dt::Tree = root.deserialize();
 
         //  Get console device info
         for console_path in tree.chosen.stdout_path.iter() {
