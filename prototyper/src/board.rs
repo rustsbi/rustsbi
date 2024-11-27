@@ -40,12 +40,15 @@ impl<const N: usize> Display for StringInline<N> {
     }
 }
 
+type CpuEnableList = [bool; trap_stack::NUM_HART_MAX];
+
 pub struct BoardInfo {
     pub memory_range: Option<Range<usize>>,
     pub console: Option<(BaseAddress, MachineConsoleType)>,
     pub reset: Option<BaseAddress>,
     pub ipi: Option<BaseAddress>,
     pub cpu_num: Option<usize>,
+    pub cpu_enabled: Option<CpuEnableList>,
     pub model: StringInline<128>,
 }
 
@@ -56,6 +59,7 @@ impl BoardInfo {
             console: None,
             reset: None,
             ipi: None,
+            cpu_enabled: None,
             cpu_num: None,
             model: StringInline(0, [0u8; 128]),
         }
@@ -213,6 +217,16 @@ impl Board {
 
         // TODO: Need a better extension initialization method
         extensions::init(&tree.cpus.cpu);
+
+        // Find which hart is enabled by fdt
+        let mut cpu_list: CpuEnableList = [false; trap_stack::NUM_HART_MAX];
+        for cpu_iter in tree.cpus.cpu.iter() {
+            use dt::Cpu;
+            let cpu = cpu_iter.deserialize::<Cpu>();
+            let hart_id = cpu.reg.iter().next().unwrap().0.start;
+            cpu_list.get_mut(hart_id).map(|x| *x = true);
+        }
+        self.info.cpu_enabled = Some(cpu_list);
     }
 
     fn sbi_init(&mut self) {
