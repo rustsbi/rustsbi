@@ -134,6 +134,7 @@ impl Board {
         rustsbi::LOGO.lines().for_each(|line| info!("{}", line));
         info!("Initializing RustSBI machine-mode environment.");
         info!("Number of CPU: {:?}", self.info.cpu_num);
+        info!("Enabled hart: {:?}", self.info.cpu_enabled);
         info!("Model: {}", self.info.model);
         info!("Clint device: {:x?}", self.info.ipi);
         info!("Console device: {:x?}", self.info.console);
