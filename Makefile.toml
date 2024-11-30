@@ -31,6 +31,7 @@ dependencies = ["prototyper-build"]
 [tasks.test-kernel-build]
 command = "cargo"
 args = ["build", "-prustsbi-test-kernel", "--release"]
+env = { "RUSTFLAGS"= { unset = true }}
 
 [tasks.test-kernel]
 command = "rust-objcopy"
