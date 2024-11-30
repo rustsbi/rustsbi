@@ -794,6 +794,12 @@ pub struct HartMask {
     hart_mask_base: usize,
 }
 
+/// Iteration for HartMask, from low to high.
+pub struct HartMaskIter {
+    inner: HartMask,
+    visited_mask: usize,
+}
+
 impl HartMask {
     /// Special value to ignore the `mask`, and consider all `bit`s as set.
     pub const IGNORE_MASK: usize = usize::MAX;
@@ -828,6 +834,35 @@ impl HartMask {
             Self::IGNORE_MASK,
             hart_id,
         )
+    }
+
+    /// Returns [HartMaskIter] of self.
+    #[inline]
+    pub const fn iter(&self) -> HartMaskIter {
+        HartMaskIter {
+            inner: HartMask {
+                hart_mask: self.hart_mask,
+                hart_mask_base: self.hart_mask_base,
+            },
+            visited_mask: 0,
+        }
+    }
+}
+
+impl Iterator for HartMaskIter {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let non_visited_mask = (!self.visited_mask) & (self.inner.hart_mask);
+        if non_visited_mask == 0 {
+            None
+        } else {
+            let low_bit = non_visited_mask.trailing_zeros();
+            let hart_id = usize::try_from(low_bit).unwrap() + self.inner.hart_mask_base;
+            self.visited_mask |= 1usize << low_bit;
+
+            Some(hart_id)
+        }
     }
 }
 
@@ -1052,6 +1087,12 @@ mod tests {
             assert!(mask.has_bit(i));
         }
         assert!(mask.has_bit(usize::MAX));
+        let mut mask_iter = HartMask::from_mask_base(0b101011, 1).iter();
+        assert_eq!(mask_iter.next(), Some(1usize));
+        assert_eq!(mask_iter.next(), Some(2usize));
+        assert_eq!(mask_iter.next(), Some(4usize));
+        assert_eq!(mask_iter.next(), Some(6usize));
+        assert_eq!(mask_iter.next(), None);
     }
 
     #[test]
