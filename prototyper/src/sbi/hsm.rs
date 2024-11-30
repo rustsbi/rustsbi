@@ -212,9 +212,6 @@ impl rustsbi::Hsm for SbiHsm {
     fn hart_stop(&self) -> SbiRet {
         local_hsm().stop();
         unsafe {
-            BOARD.sbi.ipi.as_ref().unwrap().clear_msip(current_hartid());
-        }
-        unsafe {
             riscv::register::mie::clear_msoft();
         }
         riscv::asm::wfi();
