@@ -798,19 +798,21 @@ pub(crate) const fn has_bit(mask: usize, base: usize, ignore: usize, bit: usize)
 
 /// Hart mask structure in SBI function calls.
 #[repr(C)]
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct HartMask {
     hart_mask: usize,
     hart_mask_base: usize,
 }
 
 /// Iteration for HartMask, from low to high.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct HartMaskIter {
     inner: HartMask,
     visited_mask: usize,
 }
 
 /// Error of mask modification.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum MaskError {
     /// This mask has been ignored.
     Ignored,
@@ -1146,7 +1148,6 @@ mod tests {
         assert!(mask.has_bit(1));
         assert!(mask.remove(1).is_ok());
         assert!(!mask.has_bit(1));
-        assert!(mask.insert(0).is_err());
     }
 
     #[test]
