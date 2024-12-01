@@ -761,6 +761,20 @@ impl SbiRet {
     }
 }
 
+/// Check if the implementation can contains the provided `bit`.
+#[inline]
+pub(crate) const fn valid_bit(base: usize, bit: usize) -> bool {
+    if bit < base {
+        // invalid index, under minimum range.
+        false
+    } else if (bit - base) >= usize::BITS as usize {
+        // invalid index, over max range.
+        false
+    } else {
+        true
+    }
+}
+
 /// Check if the implementation contains the provided `bit`.
 ///
 /// ## Parameters
@@ -774,11 +788,7 @@ pub(crate) const fn has_bit(mask: usize, base: usize, ignore: usize, bit: usize)
     if base == ignore {
         // ignore the `mask`, consider all `bit`s as set.
         true
-    } else if bit < base {
-        // invalid index, under minimum range.
-        false
-    } else if (bit - base) >= usize::BITS as usize {
-        // invalid index, over max range.
+    } else if !valid_bit(base, bit) {
         false
     } else {
         // index is in range, check if it is set in the mask.
@@ -798,6 +808,14 @@ pub struct HartMask {
 pub struct HartMaskIter {
     inner: HartMask,
     visited_mask: usize,
+}
+
+/// Error of mask modification.
+pub enum MaskError {
+    /// This mask has been ignored.
+    Ignored,
+    /// Request bit is invalid.
+    InvalidBit,
 }
 
 impl HartMask {
@@ -834,6 +852,34 @@ impl HartMask {
             Self::IGNORE_MASK,
             hart_id,
         )
+    }
+
+    /// Add a hart id to this [HartMark].
+    /// Returns error when hart_id is invalid.
+    #[inline]
+    pub fn insert(&mut self, hart_id: usize) -> Result<(), MaskError> {
+        if self.hart_mask_base == Self::IGNORE_MASK {
+            Ok(())
+        } else if valid_bit(self.hart_mask_base, hart_id) {
+            self.hart_mask |= 1usize << (hart_id - self.hart_mask_base);
+            Ok(())
+        } else {
+            Err(MaskError::InvalidBit)
+        }
+    }
+
+    /// Remove a hart id from this [HartMark].
+    /// Returns error when hart_id is invalid, or it has been ignored.
+    #[inline]
+    pub fn remove(&mut self, hart_id: usize) -> Result<(), MaskError> {
+        if self.hart_mask_base == Self::IGNORE_MASK {
+            Err(MaskError::Ignored)
+        } else if valid_bit(self.hart_mask_base, hart_id) {
+            self.hart_mask &= !(1usize << (hart_id - self.hart_mask_base));
+            Ok(())
+        } else {
+            Err(MaskError::InvalidBit)
+        }
     }
 
     /// Returns [HartMaskIter] of self.
@@ -1087,12 +1133,20 @@ mod tests {
             assert!(mask.has_bit(i));
         }
         assert!(mask.has_bit(usize::MAX));
+        // Test HartMaskIter
         let mut mask_iter = HartMask::from_mask_base(0b101011, 1).iter();
         assert_eq!(mask_iter.next(), Some(1usize));
         assert_eq!(mask_iter.next(), Some(2usize));
         assert_eq!(mask_iter.next(), Some(4usize));
         assert_eq!(mask_iter.next(), Some(6usize));
         assert_eq!(mask_iter.next(), None);
+        let mut mask = HartMask::from_mask_base(0, 1);
+        assert!(!mask.has_bit(1));
+        assert!(mask.insert(1).is_ok());
+        assert!(mask.has_bit(1));
+        assert!(mask.remove(1).is_ok());
+        assert!(!mask.has_bit(1));
+        assert!(mask.insert(0).is_err());
     }
 
     #[test]
