@@ -900,6 +900,7 @@ impl HartMask {
 impl Iterator for HartMaskIter {
     type Item = usize;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let non_visited_mask = (!self.visited_mask) & (self.inner.hart_mask);
         if non_visited_mask == 0 {
