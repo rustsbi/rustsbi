@@ -185,7 +185,7 @@ pub unsafe extern "C" fn msoft() -> ! {
         "sd     t2, 1*8(sp)",
         // Call handler with context pointer
         "mv     a0, sp",
-        "call   {msoft_hanlder}",
+        "call   {msoft_handler}",
         // Restore mepc
         "ld     t0, 31*8(sp)
         csrw    mepc, t0",
@@ -226,7 +226,7 @@ pub unsafe extern "C" fn msoft() -> ! {
         "csrrw  sp, mscratch, sp",
         // Return from machine mode
         "mret",
-        msoft_hanlder = sym msoft_hanlder,
+        msoft_handler = sym msoft_handler,
         options(noreturn)
     );
 }
@@ -234,7 +234,7 @@ pub unsafe extern "C" fn msoft() -> ! {
 /// Machine software interrupt handler implementation.
 ///
 /// Handles HSM (Hart State Management) and RFence operations.
-pub extern "C" fn msoft_hanlder(ctx: &mut SupervisorContext) {
+pub extern "C" fn msoft_handler(ctx: &mut SupervisorContext) {
     #[inline(always)]
     fn boot(ctx: &mut SupervisorContext, start_addr: usize, opaque: usize) {
         unsafe {

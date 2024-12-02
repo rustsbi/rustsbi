@@ -10,9 +10,9 @@
 
 [环境配置](#环境配置)小节给出了本教程的环境配置方法，用户在使用本教程时需要先完成环境配置小节内容。
 
-[使用U-Boot SPL启动Test Kerenl](#使用U-Boot-SPL启动Test-Kerenl)小节给出了只使用U-Boot SPL的启动流程。
+[使用U-Boot SPL启动Test Kernel](#使用U-Boot-SPL启动Test-Kernel)小节给出了只使用U-Boot SPL的启动流程。
 
-[使用U-Boot SPL和U-Boot启动Test Kerenl](#使用U-Boot-SPL和U-Boot启动Test-Kerenl)小节给出了同时使用U-Boot SPL和U-Boot的启动流程。
+[使用U-Boot SPL和U-Boot启动Test Kernel](#使用U-Boot-SPL和U-Boot启动Test-Kernel)小节给出了同时使用U-Boot SPL和U-Boot的启动流程。
 
 本教程使用软件版本如下：
 
@@ -52,7 +52,7 @@ $ riscv64-linux-gnu-gcc --version
 
 它将输出以下版本信息
 
-``` 
+```
 riscv64-linux-gnu-gcc (GCC) 14.1.0
 Copyright (C) 2024 Free Software Foundation, Inc.
 This is free software; see the source for copying conditions.  There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -66,7 +66,7 @@ $ qemu-system-riscv64 --version
 
 它将输出以下版本信息
 
-``` 
+```
 QEMU emulator version 9.0.1
 Copyright (c) 2003-2024 Fabrice Bellard and the QEMU Project developers
 ```
@@ -91,7 +91,7 @@ Clone U-Boot
 $ git clone https://github.com/u-boot/u-boot.git && cd u-boot && git checkout v2024.04 && cd ..
 ```
 
-## 使用U-Boot SPL启动Test Kerenl
+## 使用U-Boot SPL启动Test Kernel
 ### 编译RustSBI  Prototyper和Test Kernel
 
 进入prototyper目录
@@ -121,7 +121,7 @@ $ cd u-boot
 ``` shell
 $ export ARCH=riscv
 $ export CROSS_COMPILE=riscv64-linux-gnu-
-$ export OPENSBI=../prototyper/target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin 
+$ export OPENSBI=../prototyper/target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin
 ```
 
 生成`.config`文件
@@ -155,10 +155,10 @@ $ cd workshop
 ``` shell
 $ qemu-system-riscv64 -M virt -smp 1 -m 256M -nographic \
           -bios ./u-boot/spl/u-boot-spl \
-          -device loader,file=./prototyper/target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.itb,addr=0x80200000 
+          -device loader,file=./prototyper/target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.itb,addr=0x80200000
 ```
 
-## 使用U-Boot SPL和U-Boot启动Test Kerenl
+## 使用U-Boot SPL和U-Boot启动Test Kernel
 ### 编译RustSBI  Prototyper和Test Kernel
 
 进入prototyper目录
@@ -188,7 +188,7 @@ $ cd u-boot
 ``` shell
 $ export ARCH=riscv
 $ export CROSS_COMPILE=riscv64-linux-gnu-
-$ export OPENSBI=../prototyper/target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin 
+$ export OPENSBI=../prototyper/target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin
 ```
 
 生成`.config`文件
@@ -202,7 +202,7 @@ $ make menuconfig
 
 U-Boot 配置选项将加载到终端。导航到 `Boot options` $\rightarrow$ `bootcmd value` 并将以下内容写入 `bootcmd` 值：
 
-``` 
+```
 ext4load virtio 0:1 84000000 rustsbi-test-kernel.bin; booti 0x84000000 - ${fdtcontroladdr}
 ```
 

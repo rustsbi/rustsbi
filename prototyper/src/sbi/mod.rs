@@ -21,7 +21,8 @@ use rfence::SbiRFence;
 
 #[derive(RustSBI, Default)]
 #[rustsbi(dynamic)]
-pub struct Sbi<C: ConsoleDevice, I: IpiDevice, R: ResetDevice> {
+#[allow(clippy::upper_case_acronyms)]
+pub struct SBI<C: ConsoleDevice, I: IpiDevice, R: ResetDevice> {
     #[rustsbi(console)]
     pub console: Option<SbiConsole<C>>,
     #[rustsbi(ipi, timer)]
@@ -34,9 +35,9 @@ pub struct Sbi<C: ConsoleDevice, I: IpiDevice, R: ResetDevice> {
     pub rfence: Option<SbiRFence>,
 }
 
-impl<C: ConsoleDevice, I: IpiDevice, R: ResetDevice> Sbi<C, I, R> {
+impl<C: ConsoleDevice, I: IpiDevice, R: ResetDevice> SBI<C, I, R> {
     pub const fn new() -> Self {
-        Sbi {
+        SBI {
             console: None,
             ipi: None,
             hsm: None,

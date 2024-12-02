@@ -36,7 +36,7 @@ unsafe extern "C" fn start() -> ! {
     asm!(
         // 1. Turn off interrupt
         "   csrw    sie, zero",
-        // 2. Initialize programming langauge runtime
+        // 2. Initialize programming language runtime
         // only initialize if it is boot hart (hart ID 0)
         "   bnez    a0, 3f",
         // clear bss segment

@@ -41,6 +41,9 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         let dtb = dt::parse_device_tree(fdt_addr).unwrap_or_else(fail::device_tree_format);
         let dtb = dtb.share();
 
+        // 1. Init FDT
+        // parse the device tree.
+        // TODO: should remove `fail:device_tree_format`.
         unsafe {
             BOARD.init(&dtb);
             BOARD.print_board_info();
@@ -109,7 +112,7 @@ unsafe extern "C" fn start() -> ! {
     core::arch::asm!(
         // 1. Turn off interrupt.
         "   csrw    mie, zero",
-        // 2. Initialize programming langauge runtime.
+        // 2. Initialize programming language runtime.
         // only clear bss if hartid matches preferred boot hart id.
         "   csrr    t0, mhartid",
         "   bne     t0, zero, 4f",
@@ -131,7 +134,7 @@ unsafe extern "C" fn start() -> ! {
         "   li      t1, 1
             lla     t0, 6f
             lw      t0, 0(t0)
-            bne     t0, t1, 4b", 
+            bne     t0, t1, 4b",
         "5:",
          // 4. Prepare stack for each hart.
         "   call    {locate_stack}",

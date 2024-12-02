@@ -20,7 +20,7 @@ use crate::sbi::logger;
 use crate::sbi::reset::{ResetDevice, SbiReset};
 use crate::sbi::trap_stack;
 use crate::sbi::trap_stack::NUM_HART_MAX;
-use crate::sbi::Sbi;
+use crate::sbi::SBI;
 use crate::{dt, sbi::rfence::SbiRFence};
 
 pub(crate) const UART16650_COMPATIBLE: &str = "ns16550a";
@@ -68,7 +68,7 @@ impl BoardInfo {
 
 pub struct Board {
     pub info: BoardInfo,
-    pub sbi: Sbi<MachineConsole, SifiveClint, SifiveTestDevice>,
+    pub sbi: SBI<MachineConsole, SifiveClint, SifiveTestDevice>,
     pub ready: AtomicBool,
 }
 
@@ -77,7 +77,7 @@ impl Board {
     pub const fn new() -> Self {
         Board {
             info: BoardInfo::new(),
-            sbi: Sbi::new(),
+            sbi: SBI::new(),
             ready: AtomicBool::new(false),
         }
     }
