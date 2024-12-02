@@ -806,7 +806,7 @@ pub struct HartMask {
 
 /// Iteration for HartMask, from low to high.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub struct HartMaskIter {
+pub struct HartIds {
     inner: HartMask,
     visited_mask: usize,
 }
@@ -884,10 +884,10 @@ impl HartMask {
         }
     }
 
-    /// Returns [HartMaskIter] of self.
+    /// Returns [HartIds] of self.
     #[inline]
-    pub const fn iter(&self) -> HartMaskIter {
-        HartMaskIter {
+    pub const fn iter(&self) -> HartIds {
+        HartIds {
             inner: HartMask {
                 hart_mask: self.hart_mask,
                 hart_mask_base: self.hart_mask_base,
@@ -897,7 +897,7 @@ impl HartMask {
     }
 }
 
-impl Iterator for HartMaskIter {
+impl Iterator for HartIds {
     type Item = usize;
 
     #[inline]
@@ -1136,7 +1136,7 @@ mod tests {
             assert!(mask.has_bit(i));
         }
         assert!(mask.has_bit(usize::MAX));
-        // Test HartMaskIter
+        // Test HartIds
         let mut mask_iter = HartMask::from_mask_base(0b101011, 1).iter();
         assert_eq!(mask_iter.next(), Some(1usize));
         assert_eq!(mask_iter.next(), Some(2usize));
