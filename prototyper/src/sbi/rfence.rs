@@ -182,12 +182,7 @@ fn validate_address_range(start_addr: usize, size: usize) -> Result<usize, SbiRe
         return Err(SbiRet::invalid_address());
     }
 
-    let end_addr = start_addr + size;
-    if end_addr > usize::MAX {
-        Ok(usize::MAX)
-    } else {
-        Ok(size)
-    }
+    Ok(size)
 }
 
 /// Processes a remote fence operation by sending IPI to target harts.

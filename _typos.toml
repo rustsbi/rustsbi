@@ -1,0 +1,7 @@
+[default.extend-words]
+rela = "rela"
+sie = "sie"
+stip = "stip"
+
+[files]
+extend-exclude = ["CHANGELOG.md"]
