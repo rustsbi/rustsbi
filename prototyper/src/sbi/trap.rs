@@ -6,7 +6,7 @@ use riscv::register::{
 };
 use rustsbi::RustSBI;
 
-use crate::board::SBI_IMPL;
+use crate::board::BOARD;
 use crate::riscv_spec::{current_hartid, CSR_TIME, CSR_TIMEH};
 use crate::sbi::console;
 use crate::sbi::hsm::local_hsm;
@@ -381,11 +381,11 @@ pub extern "C" fn fast_handler(
         // Handle SBI calls
         T::Exception(E::SupervisorEnvCall) => {
             use sbi_spec::{base, hsm, legacy};
-            let mut ret = unsafe { SBI_IMPL.assume_init_ref() }.handle_ecall(
-                a7,
-                a6,
-                [ctx.a0(), a1, a2, a3, a4, a5],
-            );
+            let mut ret = unsafe {
+                BOARD
+                    .sbi
+                    .handle_ecall(a7, a6, [ctx.a0(), a1, a2, a3, a4, a5])
+            };
             if ret.is_ok() {
                 match (a7, a6) {
                     // Handle non-retentive suspend
@@ -487,11 +487,8 @@ fn illegal_instruction_handler(ctx: &mut FastContext) -> bool {
                     "Unsupported CSR rd: {}",
                     csr.rd()
                 );
-                ctx.regs().a[(csr.rd() - 10) as usize] = unsafe { SBI_IMPL.assume_init_ref() }
-                    .ipi
-                    .as_ref()
-                    .unwrap()
-                    .get_time();
+                ctx.regs().a[(csr.rd() - 10) as usize] =
+                    unsafe { BOARD.sbi.ipi.as_ref() }.unwrap().get_time();
             }
             CSR_TIMEH => {
                 assert!(
@@ -499,11 +496,8 @@ fn illegal_instruction_handler(ctx: &mut FastContext) -> bool {
                     "Unsupported CSR rd: {}",
                     csr.rd()
                 );
-                ctx.regs().a[(csr.rd() - 10) as usize] = unsafe { SBI_IMPL.assume_init_ref() }
-                    .ipi
-                    .as_ref()
-                    .unwrap()
-                    .get_timeh();
+                ctx.regs().a[(csr.rd() - 10) as usize] =
+                    unsafe { BOARD.sbi.ipi.as_ref() }.unwrap().get_timeh();
             }
             _ => return false,
         },

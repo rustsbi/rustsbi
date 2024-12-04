@@ -15,24 +15,16 @@ mod platform;
 mod riscv_spec;
 mod sbi;
 
-use core::sync::atomic::{AtomicBool, Ordering};
-use core::{arch::asm, mem::MaybeUninit};
+use core::arch::asm;
 
-use sbi::extensions;
-
-use crate::board::{SBI_IMPL, SIFIVECLINT, SIFIVETEST, UART};
+use crate::board::BOARD;
 use crate::riscv_spec::{current_hartid, menvcfg};
-use crate::sbi::console::SbiConsole;
 use crate::sbi::extensions::{hart_extension_probe, Extension};
 use crate::sbi::hart_context::NextStage;
-use crate::sbi::hsm::{local_remote_hsm, SbiHsm};
-use crate::sbi::ipi::{self, SbiIpi};
-use crate::sbi::logger;
-use crate::sbi::reset::SbiReset;
-use crate::sbi::rfence::SbiRFence;
+use crate::sbi::hsm::local_remote_hsm;
+use crate::sbi::ipi;
 use crate::sbi::trap::{self, trap_vec};
 use crate::sbi::trap_stack;
-use crate::sbi::SBI;
 
 pub const START_ADDRESS: usize = 0x80000000;
 pub const R_RISCV_RELATIVE: usize = 3;
@@ -40,88 +32,23 @@ pub const R_RISCV_RELATIVE: usize = 3;
 #[no_mangle]
 extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     // Track whether SBI is initialized and ready.
-    static SBI_READY: AtomicBool = AtomicBool::new(false);
 
     let boot_hart_info = platform::get_boot_hart(opaque, nonstandard_a2);
     // boot hart task entry.
     if boot_hart_info.is_boot_hart {
+        // parse the device tree
         let fdt_addr = boot_hart_info.fdt_address;
+        let dtb = dt::parse_device_tree(fdt_addr).unwrap_or_else(fail::device_tree_format);
+        let dtb = dtb.share();
 
         // 1. Init FDT
         // parse the device tree.
         // TODO: should remove `fail:device_tree_format`.
-        let dtb = dt::parse_device_tree(fdt_addr).unwrap_or_else(fail::device_tree_format);
-        let dtb = dtb.share();
-
-        // TODO: should remove `fail:device_tree_deserialize`.
-        let tree =
-            serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize);
-
-        // 2. Init device
-        // TODO: The device base address should be find in a better way.
-        let console_base = tree.soc.serial.unwrap().iter().next().unwrap();
-        let clint_device = tree.soc.clint.unwrap().iter().next().unwrap();
-        let cpu_num = tree.cpus.cpu.len();
-        let console_base_address = console_base.at();
-        let ipi_base_address = clint_device.at();
-
-        // Initialize reset device if present.
-        if let Some(test) = tree.soc.test {
-            let reset_device = test.iter().next().unwrap();
-            let reset_base_address = reset_device.at();
-            board::reset_dev_init(usize::from_str_radix(reset_base_address, 16).unwrap());
-        }
-
-        // Initialize console and IPI devices.
-        board::console_dev_init(usize::from_str_radix(console_base_address, 16).unwrap());
-        board::ipi_dev_init(usize::from_str_radix(ipi_base_address, 16).unwrap());
-
-        // 3. Init the SBI implementation
         unsafe {
-            SBI_IMPL = MaybeUninit::new(SBI {
-                console: Some(SbiConsole::new(&UART)),
-                ipi: Some(SbiIpi::new(&SIFIVECLINT, cpu_num)),
-                hsm: Some(SbiHsm),
-                reset: Some(SbiReset::new(&SIFIVETEST)),
-                rfence: Some(SbiRFence),
-            });
+            BOARD.init(&dtb);
+            BOARD.print_board_info();
         }
-
-        // Setup trap handling.
-        trap_stack::prepare_for_trap();
-        extensions::init(&tree.cpus.cpu);
-        SBI_READY.swap(true, Ordering::AcqRel);
-
-        // 4. Init Logger
-        logger::Logger::init().unwrap();
-
-        info!("RustSBI version {}", rustsbi::VERSION);
-        rustsbi::LOGO.lines().for_each(|line| info!("{}", line));
-        info!("Initializing RustSBI machine-mode environment.");
-
-        info!("Number of CPU: {}", cpu_num);
-        if let Some(model) = tree.model {
-            info!("Model: {}", model.iter().next().unwrap_or("<unspecified>"));
-        }
-        info!("Clint device: {}", ipi_base_address);
-        info!("Console device: {}", console_base_address);
-        info!(
-            "Chosen stdout item: {}",
-            tree.chosen
-                .stdout_path
-                .iter()
-                .next()
-                .unwrap_or("<unspecified>")
-        );
-
-        // TODO: PMP configuration needs to be obtained through the memory range in the device tree
-        use riscv::register::*;
-        unsafe {
-            pmpcfg0::set_pmp(0, Range::OFF, Permission::NONE, false);
-            pmpaddr0::write(0);
-            pmpcfg0::set_pmp(1, Range::TOR, Permission::RWX, false);
-            pmpaddr1::write(usize::MAX >> 2);
-        }
+        platform::set_pmp(unsafe { BOARD.info.memory_range.as_ref().unwrap() });
 
         // Get boot information and prepare for kernel entry.
         let boot_info = platform::get_boot_info(nonstandard_a2);
@@ -141,24 +68,15 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             mpp
         );
     } else {
-        // Non-boot hart initialization path.
-
-        // TODO: PMP configuration needs to be obtained through the memory range in the device tree.
-        use riscv::register::*;
-        unsafe {
-            pmpcfg0::set_pmp(0, Range::OFF, Permission::NONE, false);
-            pmpaddr0::write(0);
-            pmpcfg0::set_pmp(1, Range::TOR, Permission::RWX, false);
-            pmpaddr1::write(usize::MAX >> 2);
-        }
-
-        // Setup trap handling.
+        // 设置陷入栈
         trap_stack::prepare_for_trap();
 
         // Wait for boot hart to complete SBI initialization.
-        while !SBI_READY.load(Ordering::Relaxed) {
+        while !unsafe { BOARD.ready() } {
             core::hint::spin_loop()
         }
+
+        platform::set_pmp(unsafe { BOARD.info.memory_range.as_ref().unwrap() });
     }
 
     // Clear all pending IPIs.
@@ -240,7 +158,7 @@ unsafe extern "C" fn relocation_update() {
     asm!(
         // Get load offset.
         "   li t0, {START_ADDRESS}",
-        "   lla t1, .text.entry",
+        "   lla t1, sbi_start",
         "   sub t2, t1, t0",
 
         // Foreach rela.dyn and update relocation.

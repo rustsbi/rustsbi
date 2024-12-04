@@ -1,7 +1,7 @@
 use core::sync::atomic::{AtomicPtr, Ordering::Relaxed};
-use rustsbi::SbiRet;
+use rustsbi::{HartMask, SbiRet};
 
-use crate::board::SBI_IMPL;
+use crate::board::BOARD;
 use crate::riscv_spec::{current_hartid, stimecmp};
 use crate::sbi::extensions::{hart_extension_probe, Extension};
 use crate::sbi::hsm::remote_hsm;
@@ -34,14 +34,14 @@ pub trait IpiDevice {
 }
 
 /// SBI IPI implementation.
-pub struct SbiIpi<'a, T: IpiDevice> {
+pub struct SbiIpi<T: IpiDevice> {
     /// Reference to atomic pointer to IPI device.
-    pub ipi_dev: &'a AtomicPtr<T>,
+    pub ipi_dev: AtomicPtr<T>,
     /// Maximum hart ID in the system
     pub max_hart_id: usize,
 }
 
-impl<'a, T: IpiDevice> rustsbi::Timer for SbiIpi<'a, T> {
+impl<T: IpiDevice> rustsbi::Timer for SbiIpi<T> {
     /// Set timer value for current hart.
     #[inline]
     fn set_timer(&self, stime_value: u64) {
@@ -64,22 +64,42 @@ impl<'a, T: IpiDevice> rustsbi::Timer for SbiIpi<'a, T> {
     }
 }
 
-impl<'a, T: IpiDevice> rustsbi::Ipi for SbiIpi<'a, T> {
+impl<T: IpiDevice> rustsbi::Ipi for SbiIpi<T> {
     /// Send IPI to specified harts.
     #[inline]
     fn send_ipi(&self, hart_mask: rustsbi::HartMask) -> SbiRet {
         let ipi_dev = unsafe { &*self.ipi_dev.load(Relaxed) };
+        let mut hart_mask = hart_mask;
 
         for hart_id in 0..=self.max_hart_id {
             if !hart_mask.has_bit(hart_id) {
                 continue;
             }
 
+            // There are 2 situation to return invalid_param:
+            // 1. We can not get hsm, which usually means this hart_id is bigger than MAX_HART_ID.
+            // 2. BOARD hasn't init or this hart_id is not enabled by device tree.
+            // In the next loop, we'll assume that all of above situation will not happend and
+            // directly send ipi.
             let Some(hsm) = remote_hsm(hart_id) else {
-                continue;
+                return SbiRet::invalid_param();
             };
 
+            if unsafe {
+                BOARD
+                    .info
+                    .cpu_enabled
+                    .is_none_or(|list| list.get(hart_id).is_none_or(|res| !(*res)))
+            } {
+                return SbiRet::invalid_param();
+            }
+
             if !hsm.allow_ipi() {
+                hart_mask = hart_mask_clear(hart_mask, hart_id);
+            }
+        }
+        for hart_id in 0..=self.max_hart_id {
+            if !hart_mask.has_bit(hart_id) {
                 continue;
             }
 
@@ -92,10 +112,10 @@ impl<'a, T: IpiDevice> rustsbi::Ipi for SbiIpi<'a, T> {
     }
 }
 
-impl<'a, T: IpiDevice> SbiIpi<'a, T> {
+impl<T: IpiDevice> SbiIpi<T> {
     /// Create new SBI IPI instance.
     #[inline]
-    pub fn new(ipi_dev: &'a AtomicPtr<T>, max_hart_id: usize) -> Self {
+    pub fn new(ipi_dev: AtomicPtr<T>, max_hart_id: usize) -> Self {
         Self {
             ipi_dev,
             max_hart_id,
@@ -110,18 +130,39 @@ impl<'a, T: IpiDevice> SbiIpi<'a, T> {
     ) -> SbiRet {
         let current_hart = current_hartid();
         let ipi_dev = unsafe { &*self.ipi_dev.load(Relaxed) };
+        let mut hart_mask = hart_mask;
 
-        // Send fence operations to target harts
         for hart_id in 0..=self.max_hart_id {
             if !hart_mask.has_bit(hart_id) {
                 continue;
             }
 
+            // There are 2 situation to return invalid_param:
+            // 1. We can not get hsm, which usually means this hart_id is bigger than MAX_HART_ID.
+            // 2. BOARD hasn't init or this hart_id is not enabled by device tree.
+            // In the next loop, we'll assume that all of above situation will not happend and
+            // directly send ipi.
             let Some(hsm) = remote_hsm(hart_id) else {
-                continue;
+                return SbiRet::invalid_param();
             };
 
+            if unsafe {
+                BOARD
+                    .info
+                    .cpu_enabled
+                    .is_none_or(|list| list.get(hart_id).is_none_or(|res| !(*res)))
+            } {
+                return SbiRet::invalid_param();
+            }
+
             if !hsm.allow_ipi() {
+                hart_mask = hart_mask_clear(hart_mask, hart_id);
+            }
+        }
+
+        // Send fence operations to target harts
+        for hart_id in 0..=self.max_hart_id {
+            if !hart_mask.has_bit(hart_id) {
                 continue;
             }
 
@@ -213,7 +254,7 @@ pub fn get_and_reset_ipi_type() -> u8 {
 /// Clear machine software interrupt pending for current hart.
 #[inline]
 pub fn clear_msip() {
-    match unsafe { SBI_IMPL.as_ptr().as_ref().and_then(|sbi| sbi.ipi.as_ref()) } {
+    match unsafe { BOARD.sbi.ipi.as_ref() } {
         Some(ipi) => ipi.clear_msip(current_hartid()),
         None => error!("SBI or IPI device not initialized"),
     }
@@ -222,7 +263,7 @@ pub fn clear_msip() {
 /// Clear machine timer interrupt for current hart.
 #[inline]
 pub fn clear_mtime() {
-    match unsafe { SBI_IMPL.as_ptr().as_ref().and_then(|sbi| sbi.ipi.as_ref()) } {
+    match unsafe { BOARD.sbi.ipi.as_ref() } {
         Some(ipi) => ipi.write_mtimecmp(current_hartid(), u64::MAX),
         None => error!("SBI or IPI device not initialized"),
     }
@@ -231,8 +272,22 @@ pub fn clear_mtime() {
 /// Clear all pending interrupts for current hart.
 #[inline]
 pub fn clear_all() {
-    match unsafe { SBI_IMPL.as_ptr().as_ref().and_then(|sbi| sbi.ipi.as_ref()) } {
+    match unsafe { BOARD.sbi.ipi.as_ref() } {
         Some(ipi) => ipi.clear(),
         None => error!("SBI or IPI device not initialized"),
     }
+}
+
+pub fn hart_mask_clear(hart_mask: HartMask, hart_id: usize) -> HartMask {
+    let (mask, mask_base) = hart_mask.into_inner();
+    if mask_base == usize::MAX {
+        return HartMask::from_mask_base(mask & (!(1 << hart_id)), 0);
+    }
+    let Some(idx) = hart_id.checked_sub(mask_base) else {
+        return hart_mask;
+    };
+    if idx >= usize::BITS as usize {
+        return hart_mask;
+    }
+    HartMask::from_mask_base(mask & (!(1 << hart_id)), mask_base)
 }

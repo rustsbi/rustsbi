@@ -4,9 +4,11 @@
 macro_rules! print {
     ($($arg:tt)*) => {
         use core::fmt::Write;
-        let console = unsafe { $crate::board::SBI_IMPL.assume_init_mut() }.console.as_mut().unwrap();
-        console.write_fmt(core::format_args!($($arg)*)).unwrap();
-        drop(console);
+        if unsafe {$crate::board::BOARD.have_console()} {
+            let console = unsafe { $crate::board::BOARD.sbi.console.as_mut().unwrap() };
+            console.write_fmt(core::format_args!($($arg)*)).unwrap();
+            drop(console);
+        }
     }
 }
 
@@ -15,8 +17,10 @@ macro_rules! println {
     () => ($crate::print!("\n"));
     ($($arg:tt)*) => {{
         use core::fmt::Write;
-        let console = unsafe { $crate::board::SBI_IMPL.assume_init_mut() }.console.as_mut().unwrap();
-        console.write_fmt(core::format_args!($($arg)*)).unwrap();
-        console.write_char('\n').unwrap();
+        if unsafe {$crate::board::BOARD.have_console()} {
+            let console = unsafe { $crate::board::BOARD.sbi.console.as_mut().unwrap() };
+            console.write_fmt(core::format_args!($($arg)*)).unwrap();
+            console.write_char('\n').unwrap();
+        }
     }}
 }
