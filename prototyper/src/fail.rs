@@ -1,6 +1,6 @@
 use serde_device_tree::Dtb;
 
-use crate::dt::{self, Tree};
+use crate::dt;
 use crate::sbi::reset;
 
 #[cfg(not(feature = "payload"))]
@@ -13,14 +13,6 @@ use riscv::register::mstatus;
 /// Handles device tree format parsing errors by logging and resetting.
 #[cold]
 pub fn device_tree_format(_err: dt::ParseDeviceTreeError) -> Dtb {
-    loop {
-        core::hint::spin_loop()
-    }
-}
-
-/// Handles device tree deserialization errors by logging and resetting.
-#[cold]
-pub fn device_tree_deserialize<'a>(_err: serde_device_tree::error::Error) -> Tree<'a> {
     loop {
         core::hint::spin_loop()
     }
