@@ -12,11 +12,11 @@ macro_rules! print {
 
 #[allow(unused)]
 macro_rules! println {
-    () => ($crate::print!("\n"));
+    () => ($crate::print!("\n\r"));
     ($($arg:tt)*) => {{
         use core::fmt::Write;
         let console = unsafe { $crate::board::SBI_IMPL.assume_init_mut() }.console.as_mut().unwrap();
         console.write_fmt(core::format_args!($($arg)*)).unwrap();
-        console.write_char('\n').unwrap();
+        console.write_str("\n\r").unwrap();
     }}
 }

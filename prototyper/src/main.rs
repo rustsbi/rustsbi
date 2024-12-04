@@ -270,20 +270,12 @@ unsafe extern "C" fn relocation_update() {
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     use riscv::register::*;
-    println!(
-        "[rustsbi-panic] hart {} {info}",
-        riscv::register::mhartid::read()
-    );
-    println!(
-        "-----------------------------
-> mcause:  {:?}
-> mepc:    {:#018x}
-> mtval:   {:#018x}
------------------------------",
-        mcause::read().cause(),
-        mepc::read(),
-        mtval::read()
-    );
-    println!("[rustsbi-panic] system shutdown scheduled due to RustSBI panic");
+    error!("Hart {} {info}", riscv::register::mhartid::read());
+    error!("-----------------------------");
+    error!("mcause:  {:?}", mcause::read().cause());
+    error!("mepc:    {:#018x}", mepc::read());
+    error!("mtval:   {:#018x}", mtval::read());
+    error!("-----------------------------");
+    error!("System shutdown scheduled due to RustSBI panic");
     loop {}
 }
