@@ -41,9 +41,6 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         let dtb = dt::parse_device_tree(fdt_addr).unwrap_or_else(fail::device_tree_format);
         let dtb = dtb.share();
 
-        // 1. Init FDT
-        // parse the device tree.
-        // TODO: should remove `fail:device_tree_format`.
         unsafe {
             BOARD.init(&dtb);
             BOARD.print_board_info();
@@ -188,20 +185,12 @@ unsafe extern "C" fn relocation_update() {
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     use riscv::register::*;
-    println!(
-        "[rustsbi-panic] hart {} {info}",
-        riscv::register::mhartid::read()
-    );
-    println!(
-        "-----------------------------
-> mcause:  {:?}
-> mepc:    {:#018x}
-> mtval:   {:#018x}
------------------------------",
-        mcause::read().cause(),
-        mepc::read(),
-        mtval::read()
-    );
-    println!("[rustsbi-panic] system shutdown scheduled due to RustSBI panic");
+    error!("Hart {} {info}", riscv::register::mhartid::read());
+    error!("-----------------------------");
+    error!("mcause:  {:?}", mcause::read().cause());
+    error!("mepc:    {:#018x}", mepc::read());
+    error!("mtval:   {:#018x}", mtval::read());
+    error!("-----------------------------");
+    error!("System shutdown scheduled due to RustSBI panic");
     loop {}
 }

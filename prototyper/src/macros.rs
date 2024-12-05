@@ -14,13 +14,13 @@ macro_rules! print {
 
 #[allow(unused)]
 macro_rules! println {
-    () => ($crate::print!("\n"));
+    () => ($crate::print!("\n\r"));
     ($($arg:tt)*) => {{
         use core::fmt::Write;
         if unsafe {$crate::board::BOARD.have_console()} {
             let console = unsafe { $crate::board::BOARD.sbi.console.as_mut().unwrap() };
             console.write_fmt(core::format_args!($($arg)*)).unwrap();
-            console.write_char('\n').unwrap();
+            console.write_str("\n\r").unwrap();
         }
     }}
 }
