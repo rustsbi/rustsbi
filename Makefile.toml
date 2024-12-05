@@ -7,24 +7,38 @@ args = ["clean"]
 
 [tasks.prototyper-nemu-build]
 command = "cargo"
-args = ["build", "-prustsbi-prototyper", "--release", "--features=nemu,payload"]
+args = ["build", "-prustsbi-prototyper", "--release", "--target", "riscv64imac-unknown-none-elf", "-Zbuild-std=core", "--features=nemu,payload"]
+env = {"RUSTFLAGS"="-C relocation-model=pie -C link-arg=-pie" }
 
 [tasks.prototyper-nemu]
 command = "rust-objcopy"
-args = ["--binary-architecture=riscv64", "target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper",
-        "--output-target=binary", "target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin"
+args = [
+        "--binary-architecture=riscv64",
+        "target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper",
+        "--output-target=binary",
+        "target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin",
 ]
 dependencies = ["prototyper-nemu-build"]
 
 [tasks.prototyper-build]
 command = "cargo"
-args = ["build", "-prustsbi-prototyper", "--release", "--target", "riscv64imac-unknown-none-elf", "-Zbuild-std=core"]
-env = {"RUSTFLAGS"="-C relocation-model=pie -C link-arg=-pie" }
+args = [
+        "build",
+        "-prustsbi-prototyper",
+        "--release",
+        "--target",
+        "riscv64imac-unknown-none-elf",
+        "-Zbuild-std=core",
+]
+env = { "RUSTFLAGS" = "-C relocation-model=pie -C link-arg=-pie" }
 
 [tasks.prototyper]
 command = "rust-objcopy"
-args = ["--binary-architecture=riscv64", "target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper",
-        "--output-target=binary", "target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin"
+args = [
+        "--binary-architecture=riscv64",
+        "target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper",
+        "--output-target=binary",
+        "target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin",
 ]
 dependencies = ["prototyper-build"]
 
@@ -35,8 +49,11 @@ env = { "RUSTFLAGS"= { unset = true }}
 
 [tasks.test-kernel]
 command = "rust-objcopy"
-args = ["--binary-architecture=riscv64", "target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel",
-        "--output-target=binary", "target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.bin"
+args = [
+        "--binary-architecture=riscv64",
+        "target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel",
+        "--output-target=binary",
+        "target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.bin",
 ]
 dependencies = ["test-kernel-build"]
 
@@ -49,4 +66,3 @@ rm rustsbi-test-kernel.its
 cd ../../../
 '''
 dependencies = ["prototyper", "test-kernel"]
-

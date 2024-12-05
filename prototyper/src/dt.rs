@@ -1,8 +1,10 @@
 use serde::Deserialize;
 use serde_device_tree::{
-    buildin::{NodeSeq, Reg, StrSeq},
+    buildin::{Node, NodeSeq, Reg, StrSeq},
     Dtb, DtbPtr,
 };
+
+use core::ops::Range;
 
 /// Root device tree structure containing system information.
 #[derive(Deserialize)]
@@ -11,10 +13,10 @@ pub struct Tree<'a> {
     pub model: Option<StrSeq<'a>>,
     /// Chosen node containing boot parameters.
     pub chosen: Chosen<'a>,
+    /// Memory information.
+    pub memory: NodeSeq<'a>,
     /// CPU information.
     pub cpus: Cpus<'a>,
-    /// System-on-chip components.
-    pub soc: Soc<'a>,
 }
 
 /// Chosen node containing boot parameters.
@@ -43,22 +45,18 @@ pub struct Cpu<'a> {
     pub reg: Reg<'a>,
 }
 
-/// System-on-chip components.
-#[derive(Deserialize, Debug)]
-pub struct Soc<'a> {
-    /// Serial (UART) device nodes.
-    pub serial: Option<NodeSeq<'a>>,
-    /// Test device nodes.
-    pub test: Option<NodeSeq<'a>>,
-    /// CLINT (Core Local Interruptor) nodes.
-    pub clint: Option<NodeSeq<'a>>,
-}
-
 /// Generic device node information.
 #[allow(unused)]
 #[derive(Deserialize, Debug)]
 pub struct Device<'a> {
     /// Device register information.
+    pub reg: Reg<'a>,
+}
+
+/// Memory range.
+#[derive(Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct Memory<'a> {
     pub reg: Reg<'a>,
 }
 
@@ -74,4 +72,29 @@ pub fn parse_device_tree(opaque: usize) -> Result<Dtb, ParseDeviceTreeError> {
     };
     let dtb = Dtb::from(ptr);
     Ok(dtb)
+}
+
+pub fn get_compatible_and_range<'de>(node: &Node) -> Option<(StrSeq<'de>, Range<usize>)> {
+    let compatible = node
+        .get_prop("compatible")
+        .map(|prop_item| prop_item.deserialize::<StrSeq<'de>>());
+    let regs = node
+        .get_prop("reg")
+        .map(|prop_item| {
+            let reg = prop_item.deserialize::<serde_device_tree::buildin::Reg>();
+            if let Some(range) = reg.iter().next() {
+                return Some(range);
+            }
+            None
+        })
+        .map_or_else(|| None, |v| v);
+    if let Some(compatible) = compatible {
+        if let Some(regs) = regs {
+            Some((compatible, regs.0))
+        } else {
+            None
+        }
+    } else {
+        None
+    }
 }

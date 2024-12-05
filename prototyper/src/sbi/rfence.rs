@@ -1,7 +1,7 @@
 use rustsbi::{HartMask, SbiRet};
 use spin::Mutex;
 
-use crate::board::SBI_IMPL;
+use crate::board::BOARD;
 use crate::riscv_spec::current_hartid;
 use crate::sbi::fifo::{Fifo, FifoError};
 use crate::sbi::trap;
@@ -182,19 +182,12 @@ fn validate_address_range(start_addr: usize, size: usize) -> Result<usize, SbiRe
         return Err(SbiRet::invalid_address());
     }
 
-    let end_addr = start_addr + size;
-    if end_addr > usize::MAX {
-        Ok(usize::MAX)
-    } else {
-        Ok(size)
-    }
+    Ok(size)
 }
 
 /// Processes a remote fence operation by sending IPI to target harts.
 fn remote_fence_process(rfence_ctx: RFenceContext, hart_mask: HartMask) -> SbiRet {
-    let sbi_ret = unsafe { SBI_IMPL.assume_init_mut() }
-        .ipi
-        .as_ref()
+    let sbi_ret = unsafe { BOARD.sbi.ipi.as_ref() }
         .unwrap()
         .send_ipi_by_fence(hart_mask, rfence_ctx);
 
