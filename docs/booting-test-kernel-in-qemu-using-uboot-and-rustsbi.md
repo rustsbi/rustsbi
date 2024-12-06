@@ -103,7 +103,8 @@ $ cd prototyper
 编译RustSBI Prototyper和Test Kernel
 
 ``` shell
-$ cargo make test-kernel-itb
+$ cargo prototyper
+$ cargo test-kernel --pack
 ```
 
 本小节将使用二进制文件 `./target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.itb`。

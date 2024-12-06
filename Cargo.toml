@@ -3,7 +3,8 @@ resolver = "2"
 members = [
   "prototyper",
   "test-kernel",
-  "supervisor"
+  "supervisor", 
+  "xtask"
 ]
 
 [workspace.package]

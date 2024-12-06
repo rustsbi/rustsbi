@@ -24,7 +24,7 @@ pub fn get_boot_info(_nonstandard_a2: usize) -> BootInfo {
 #[link_section = ".fw_fdt"]
 pub unsafe extern "C" fn raw_fdt() {
     asm!(
-        concat!(".incbin \"", env!("PROTOTYPER_FDT"), "\""),
+        concat!(".incbin \"", env!("PROTOTYPER_FDT_PATH"), "\""),
         options(noreturn)
     );
 }
@@ -33,7 +33,7 @@ pub unsafe extern "C" fn raw_fdt() {
 #[link_section = ".payload"]
 pub unsafe extern "C" fn payload_image() {
     asm!(
-        concat!(".incbin \"", env!("PROTOTYPER_IMAGE"), "\""),
+        concat!(".incbin \"", env!("PROTOTYPER_PAYLOAD_PATH"), "\""),
         options(noreturn)
     );
 }
