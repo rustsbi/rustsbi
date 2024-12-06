@@ -4,14 +4,6 @@ RustSBI Prototyper is a developing RISC-V Secure Bootloader solution. It can be 
 
 ## Setting Up the Development Environment
 
-### Install Cargo Make
-
-Cargo Make is a Rust task runner and build tool, which is essential for development.
-
-```bash
-cargo install cargo-make
-```
-
 ### Optional Tools
 
 The following tools are not mandatory but can be useful for enhancing your development experience.
