@@ -3,33 +3,28 @@
 use core::ops::Range;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use super::{BootHart, BootInfo};
+use super::BootInfo;
 use crate::fail;
 use crate::riscv_spec::current_hartid;
 
 use riscv::register::mstatus;
 
-/// Gets boot hart information based on opaque and nonstandard_a2 parameters.
+/// Determine whether the current hart is boot hart.
 ///
-/// Returns a BootHart struct containing FDT address and whether this is the boot hart.
-pub fn get_boot_hart(opaque: usize, nonstandard_a2: usize) -> BootHart {
+/// Return true if the current hart is boot hart.
+pub fn is_boot_hart(nonstandard_a2: usize) -> bool {
     // Track whether this is the first hart to boot
     static GENESIS: AtomicBool = AtomicBool::new(true);
 
     let info = read_paddr(nonstandard_a2).unwrap_or_else(fail::use_lottery);
 
     // Determine if this is the boot hart based on hart ID
-    let is_boot_hart = if info.boot_hart == usize::MAX {
+    if info.boot_hart == usize::MAX {
         // If boot_hart is MAX, use atomic bool to determine first hart
         GENESIS.swap(false, Ordering::AcqRel)
     } else {
         // Otherwise check if current hart matches designated boot hart
         current_hartid() == info.boot_hart
-    };
-
-    BootHart {
-        fdt_address: opaque,
-        is_boot_hart,
     }
 }
 

@@ -51,7 +51,7 @@ pub fn run(arg: &PrototyperArg) -> Option<ExitStatus> {
             env::current_dir()
                 .unwrap()
                 .join("target")
-                .join(arch.to_string())
+                .join(arch)
                 .join("release")
                 .join("rustsbi-prototyper"),
         )
@@ -59,7 +59,7 @@ pub fn run(arg: &PrototyperArg) -> Option<ExitStatus> {
             env::current_dir()
                 .unwrap()
                 .join("target")
-                .join(arch.to_string())
+                .join(arch)
                 .join("release")
                 .join("rustsbi-prototyper.bin"),
         )

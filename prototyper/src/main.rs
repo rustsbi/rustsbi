@@ -1,4 +1,5 @@
 #![feature(naked_functions)]
+#![feature(fn_align)]
 #![no_std]
 #![no_main]
 #![allow(static_mut_refs)]
@@ -11,7 +12,7 @@ mod macros;
 mod board;
 mod dt;
 mod fail;
-mod platform;
+mod firmware;
 mod riscv_spec;
 mod sbi;
 
@@ -33,7 +34,7 @@ pub const R_RISCV_RELATIVE: usize = 3;
 extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     // Track whether SBI is initialized and ready.
 
-    let boot_hart_info = platform::get_boot_hart(opaque, nonstandard_a2);
+    let boot_hart_info = firmware::get_boot_hart(opaque, nonstandard_a2);
     // boot hart task entry.
     if boot_hart_info.is_boot_hart {
         // parse the device tree
@@ -45,10 +46,10 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             BOARD.init(&dtb);
             BOARD.print_board_info();
         }
-        platform::set_pmp(unsafe { BOARD.info.memory_range.as_ref().unwrap() });
+        firmware::set_pmp(unsafe { BOARD.info.memory_range.as_ref().unwrap() });
 
         // Get boot information and prepare for kernel entry.
-        let boot_info = platform::get_boot_info(nonstandard_a2);
+        let boot_info = firmware::get_boot_info(nonstandard_a2);
         let (mpp, next_addr) = (boot_info.mpp, boot_info.next_address);
 
         // Start kernel.
@@ -73,7 +74,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             core::hint::spin_loop()
         }
 
-        platform::set_pmp(unsafe { BOARD.info.memory_range.as_ref().unwrap() });
+        firmware::set_pmp(unsafe { BOARD.info.memory_range.as_ref().unwrap() });
     }
 
     // Clear all pending IPIs.

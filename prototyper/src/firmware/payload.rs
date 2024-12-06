@@ -4,13 +4,13 @@ use riscv::register::mstatus;
 
 use super::{BootHart, BootInfo};
 
-pub fn get_boot_hart(_opaque: usize, _nonstandard_a2: usize) -> BootHart {
+/// Determine whether the current hart is boot hart.
+///
+/// Return true if the current hart is boot hart.
+pub fn is_boot_hart(_nonstandard_a2: usize) -> bool {
     static GENESIS: AtomicBool = AtomicBool::new(true);
-    let is_boot_hart = GENESIS.swap(false, Ordering::AcqRel);
-    BootHart {
-        fdt_address: get_fdt_address(),
-        is_boot_hart,
-    }
+    GENESIS.swap(false, Ordering::AcqRel)
+
 }
 
 pub fn get_boot_info(_nonstandard_a2: usize) -> BootInfo {
@@ -21,26 +21,12 @@ pub fn get_boot_info(_nonstandard_a2: usize) -> BootInfo {
 }
 
 #[naked]
-#[link_section = ".fw_fdt"]
-pub unsafe extern "C" fn raw_fdt() {
-    asm!(
-        concat!(".incbin \"", env!("PROTOTYPER_FDT_PATH"), "\""),
-        options(noreturn)
-    );
-}
-
-#[naked]
 #[link_section = ".payload"]
 pub unsafe extern "C" fn payload_image() {
     asm!(
         concat!(".incbin \"", env!("PROTOTYPER_PAYLOAD_PATH"), "\""),
         options(noreturn)
     );
-}
-
-#[inline]
-fn get_fdt_address() -> usize {
-    raw_fdt as usize
 }
 
 #[inline]

@@ -91,38 +91,23 @@ impl Board {
     }
 
     pub fn have_console(&self) -> bool {
-        match self.sbi.console {
-            None => false,
-            Some(_) => true,
-        }
+        self.sbi.console.is_some()
     }
 
     pub fn have_reset(&self) -> bool {
-        match self.sbi.reset {
-            None => false,
-            Some(_) => true,
-        }
+        self.sbi.reset.is_some()
     }
 
     pub fn have_ipi(&self) -> bool {
-        match self.sbi.ipi {
-            None => false,
-            Some(_) => true,
-        }
+        self.sbi.ipi.is_some() 
     }
 
     pub fn have_hsm(&self) -> bool {
-        match self.sbi.hsm {
-            None => false,
-            Some(_) => true,
-        }
+        self.sbi.hsm.is_some()
     }
 
     pub fn have_rfence(&self) -> bool {
-        match self.sbi.rfence {
-            None => false,
-            Some(_) => true,
-        }
+        self.sbi.rfence.is_some() 
     }
 
     pub fn ready(&self) -> bool {
@@ -273,7 +258,7 @@ impl Board {
 
     fn sbi_hsm_init(&mut self) {
         // TODO: Can HSM work properly when there is no ipi device?
-        if let Some(_) = self.info.ipi {
+        if self.info.ipi.is_some() {
             self.sbi.hsm = Some(SbiHsm);
         } else {
             self.sbi.hsm = None;
@@ -282,7 +267,7 @@ impl Board {
 
     fn sbi_rfence_init(&mut self) {
         // TODO: Can rfence work properly when there is no ipi device?
-        if let Some(_) = self.info.ipi {
+        if self.info.ipi.is_some() {
             self.sbi.rfence = Some(SbiRFence);
         } else {
             self.sbi.rfence = None;

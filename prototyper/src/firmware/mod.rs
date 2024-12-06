@@ -17,10 +17,50 @@ pub struct BootHart {
     pub is_boot_hart: bool,
 }
 
+
+#[naked]
+#[link_section = ".rodata.fw_fdt"]
+#[repr(align(16))]
+#[cfg(feature = "fdt")]
+pub unsafe extern "C" fn raw_fdt() {
+    asm!(
+        concat!(".incbin \"", env!("PROTOTYPER_FDT_PATH"), "\""),
+        options(noreturn)
+    );
+}
+
+#[inline]
+#[cfg(feature = "fdt")]
+fn get_fdt_address() -> usize {
+    raw_fdt as usize
+}
+
+
 #[cfg(not(feature = "payload"))]
-pub use dynamic::{get_boot_hart, get_boot_info};
+pub use dynamic::{is_boot_hart, get_boot_info};
 #[cfg(feature = "payload")]
-pub use payload::{get_boot_hart, get_boot_info};
+pub use payload::{is_boot_hart, get_boot_info};
+
+/// Gets boot hart information based on opaque and nonstandard_a2 parameters.
+///
+/// Returns a BootHart struct containing FDT address and whether this is the boot hart.
+#[allow(unused_mut, unused_assignments)]
+pub fn get_boot_hart(opaque: usize, nonstandard_a2: usize) -> BootHart {
+    let is_boot_hart = is_boot_hart(nonstandard_a2);
+
+    let mut fdt_address = opaque;
+
+    #[cfg(feature = "fdt")]
+    {
+        fdt_address = get_fdt_address();
+    }
+
+    BootHart {
+        fdt_address,
+        is_boot_hart,
+    }
+}
+
 
 pub fn set_pmp(memory_range: &Range<usize>) {
     unsafe {

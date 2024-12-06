@@ -33,3 +33,4 @@ bench = false
 [features]
 nemu = []
 payload = []
+fdt = []

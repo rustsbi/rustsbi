@@ -4,7 +4,7 @@ use crate::dt;
 use crate::sbi::reset;
 
 #[cfg(not(feature = "payload"))]
-use crate::platform::dynamic;
+use crate::firmware::dynamic;
 #[cfg(not(feature = "payload"))]
 use riscv::register::mstatus;
 

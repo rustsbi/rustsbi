@@ -22,7 +22,7 @@ pub fn run(arg: &TestArg) -> Option<ExitStatus> {
         .as_ref()
         .unwrap()
         .join("target")
-        .join(arch.to_string())
+        .join(arch)
         .join("release");
 
     cargo::Cargo::new("build")
