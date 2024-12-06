@@ -1,0 +1,4 @@
+[alias]
+xtask = "run --package xtask --release --"
+prototyper = "xtask prototyper"
+test-kernel = "xtask test"
