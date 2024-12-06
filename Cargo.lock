@@ -201,6 +201,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "de96540e0ebde571dc55c73d60ef407c653844e6f9a1e2fdbd40c07b9252d812"
 
 [[package]]
+name = "paste"
+version = "1.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -239,10 +245,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "riscv"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ea8ff73d3720bdd0a97925f0bf79ad2744b6da8ff36be3840c48ac81191d7a7"
+dependencies = [
+ "critical-section",
+ "embedded-hal",
+ "paste",
+ "riscv-pac",
+]
+
+[[package]]
 name = "riscv-decode"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8b4cfb0da0528321d22daee4299a23a8c5ac8848623d716e898d2a9eec0694"
+
+[[package]]
+name = "riscv-pac"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8188909339ccc0c68cfb5a04648313f09621e8b87dc03095454f1a11f6c5d436"
 
 [[package]]
 name = "rustsbi"
@@ -250,9 +274,24 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "44c13763120794ed11d64bac885fb31d384ae385c3287b0697711b97affbf8ab"
 dependencies = [
- "riscv",
+ "riscv 0.11.1",
  "rustsbi-macros",
- "sbi-spec",
+ "sbi-spec 0.0.7",
+]
+
+[[package]]
+name = "rustsbi-bench-kernel"
+version = "0.0.0"
+dependencies = [
+ "log",
+ "rcore-console",
+ "riscv 0.11.1",
+ "sbi-spec 0.0.8",
+ "sbi-testing 0.0.3-alpha.2 (git+https://github.com/rustsbi/rustsbi?rev=4821073)",
+ "serde",
+ "serde-device-tree",
+ "spin",
+ "uart16550",
 ]
 
 [[package]]
@@ -274,10 +313,10 @@ dependencies = [
  "fast-trap",
  "log",
  "panic-halt",
- "riscv",
+ "riscv 0.11.1",
  "riscv-decode",
  "rustsbi",
- "sbi-spec",
+ "sbi-spec 0.0.7",
  "serde",
  "serde-device-tree",
  "sifive-test-device",
@@ -291,7 +330,7 @@ name = "rustsbi-supervisor"
 version = "0.1.0"
 dependencies = [
  "naked-function",
- "sbi-rt",
+ "sbi-rt 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -301,8 +340,8 @@ dependencies = [
  "dtb-walker",
  "log",
  "rcore-console",
- "riscv",
- "sbi-testing",
+ "riscv 0.11.1",
+ "sbi-testing 0.0.3-alpha.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "spin",
  "uart16550",
 ]
@@ -313,7 +352,15 @@ version = "0.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fbaa69be1eedc61c426e6d489b2260482e928b465360576900d52d496a58bd0"
 dependencies = [
- "sbi-spec",
+ "sbi-spec 0.0.7",
+]
+
+[[package]]
+name = "sbi-rt"
+version = "0.0.3"
+source = "git+https://github.com/rustsbi/rustsbi?rev=4821073#4821073b56a7223781c11a49aba743785d89d3ea"
+dependencies = [
+ "sbi-spec 0.0.8",
 ]
 
 [[package]]
@@ -323,15 +370,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e36312fb5ddc10d08ecdc65187402baba4ac34585cb9d1b78522ae2358d890"
 
 [[package]]
+name = "sbi-spec"
+version = "0.0.8"
+source = "git+https://github.com/rustsbi/rustsbi?rev=4821073#4821073b56a7223781c11a49aba743785d89d3ea"
+dependencies = [
+ "bitflags",
+]
+
+[[package]]
 name = "sbi-testing"
 version = "0.0.3-alpha.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "135c0f1ce07ede77a7e1c3daff35d20d37b54fd1037ac02ab9595c231518531e"
 dependencies = [
  "log",
- "riscv",
- "sbi-rt",
- "sbi-spec",
+ "riscv 0.11.1",
+ "sbi-rt 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sbi-spec 0.0.7",
+]
+
+[[package]]
+name = "sbi-testing"
+version = "0.0.3-alpha.2"
+source = "git+https://github.com/rustsbi/rustsbi?rev=4821073#4821073b56a7223781c11a49aba743785d89d3ea"
+dependencies = [
+ "log",
+ "riscv 0.12.1",
+ "sbi-rt 0.0.3 (git+https://github.com/rustsbi/rustsbi?rev=4821073)",
+ "sbi-spec 0.0.8",
 ]
 
 [[package]]

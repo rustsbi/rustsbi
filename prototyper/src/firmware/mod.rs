@@ -17,9 +17,8 @@ pub struct BootHart {
     pub is_boot_hart: bool,
 }
 
-
 #[naked]
-#[link_section = ".rodata.fw_fdt"]
+#[link_section = ".rodata.fdt"]
 #[repr(align(16))]
 #[cfg(feature = "fdt")]
 pub unsafe extern "C" fn raw_fdt() {
@@ -35,11 +34,10 @@ fn get_fdt_address() -> usize {
     raw_fdt as usize
 }
 
-
 #[cfg(not(feature = "payload"))]
-pub use dynamic::{is_boot_hart, get_boot_info};
+pub use dynamic::{get_boot_info, is_boot_hart};
 #[cfg(feature = "payload")]
-pub use payload::{is_boot_hart, get_boot_info};
+pub use payload::{get_boot_info, is_boot_hart};
 
 /// Gets boot hart information based on opaque and nonstandard_a2 parameters.
 ///
@@ -60,7 +58,6 @@ pub fn get_boot_hart(opaque: usize, nonstandard_a2: usize) -> BootHart {
         is_boot_hart,
     }
 }
-
 
 pub fn set_pmp(memory_range: &Range<usize>) {
     unsafe {

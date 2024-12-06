@@ -1,0 +1,44 @@
+/*
+ * Configuration to load RustSBI before RustSBI Test Kernel
+ */
+ 
+/dts-v1/;
+
+/ {
+			description = "Configuration to load RustSBI before RustSBI Test Kernel";
+
+			images {
+				kernel {
+					description = "rustsbi-bench-kernel";
+					data = /incbin/("./rustsbi-bench-kernel.bin");
+					type = "standalone";
+					os = "u-boot";
+					arch = "riscv";
+					compression = "none";
+					load = /bits/ 64 <0x80200000>;
+				};
+
+				rustsbi {
+					description = "RustSBI Firmware";
+					data = /incbin/("./rustsbi-prototyper.bin");
+					type = "firmware";
+					os = "opensbi";
+					arch = "riscv";
+					compression = "none";
+					load = /bits/ 64 <0x80100000>;
+					entry = /bits/ 64 <0x80100000>;
+				};
+
+			};
+
+		configurations {
+				default = "conf-1";
+
+				conf-1 {
+					description = "RustSBI & RustSBI Bench Kernel";
+					firmware = "rustsbi";
+					loadables = "kernel";
+				};
+		};
+};
+

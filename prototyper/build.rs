@@ -19,27 +19,23 @@ SECTIONS {
     . = ALIGN(0x1000); /* Need this to create proper sections */
 
     sbi_start = .;
-    .text : ALIGN(8) { 
+    .text : ALIGN(0x1000) { 
         *(.text.entry)
         *(.text .text.*)
     }
 
-    . = ALIGN(0x1000); /* Ensure next section is page aligned */
-
-    .rodata : ALIGN(8) { 
+    .rodata : ALIGN(0x1000) { 
         srodata = .;
         *(.rodata .rodata.*)
         *(.srodata .srodata.*)
-        . = ALIGN(8);  
+        . = ALIGN(0x1000);  
     } 
 
-    .dynsym : ALIGN(8) {
+    .dynsym : ALIGN(0x1000) {
         *(.dynsym)
     }
 
-    . = ALIGN(0x1000); /* Ensure next section is page aligned */
-
-    .rela.dyn : ALIGN(8) {
+    .rela.dyn : ALIGN(0x1000) {
         __rel_dyn_start = .;
         *(.rela*)
         __rel_dyn_end = .;
@@ -54,18 +50,16 @@ SECTIONS {
 	. = ALIGN(1 << LOG2CEIL((SIZEOF(.rodata) + SIZEOF(.text)
 				+ SIZEOF(.dynsym) + SIZEOF(.rela.dyn))));
 
-    .data : ALIGN(8) { 
+    .data : ALIGN(0x1000) { 
         sdata = .;
         *(.data .data.*)
         *(.sdata .sdata.*)
-        . = ALIGN(8); 
+        . = ALIGN(0x1000); 
         edata = .;
     }
     sidata = LOADADDR(.data);
 
-    . = ALIGN(0x1000); /* Ensure next section is page aligned */
-
-    .bss (NOLOAD) : ALIGN(8) {  
+    .bss (NOLOAD) : ALIGN(0x1000) {  
         *(.bss.uninit)
         sbss = .;
         *(.bss .bss.*)
@@ -79,7 +73,7 @@ SECTIONS {
 	. = ALIGN(0x1000); /* Need this to create proper sections */
     sbi_end = .;
 
-    .text 0x80200000 : ALIGN(8) {
+    .text 0x80200000 : ALIGN(0x1000) {
         *(.payload)
     }
 }";
