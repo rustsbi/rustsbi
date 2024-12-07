@@ -91,13 +91,13 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         medeleg::clear_supervisor_env_call();
         medeleg::clear_illegal_instruction();
         // Configure environment features based on available extensions.
-        if hart_extension_probe(current_hartid(), Extension::Sstc) {
-            menvcfg::set_bits(
-                menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
-            );
-        } else {
-            menvcfg::set_bits(menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
-        }
+        // if hart_extension_probe(current_hartid(), Extension::Sstc) {
+        //     menvcfg::set_bits(
+        //         menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
+        //     );
+        // } else {
+        //     menvcfg::set_bits(menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
+        // }
         // Set up vectored trap handling.
         mtvec::write(trap_vec as _, mtvec::TrapMode::Vectored);
     }
@@ -117,8 +117,8 @@ unsafe extern "C" fn start() -> ! {
         "   call    {relocation_update}",
         "1:",
         // 3. Hart 0 clear bss segment.
-        "   lla     t0, sbss
-            lla     t1, ebss
+        "   lla     t0, sbi_bss_start
+            lla     t1, sbi_bss_end
          2: bgeu    t0, t1, 3f
             sd      zero, 0(t0)
             addi    t0, t0, 8

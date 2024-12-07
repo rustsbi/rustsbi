@@ -23,10 +23,11 @@ use crate::sbi::trap_stack::NUM_HART_MAX;
 use crate::sbi::SBI;
 use crate::{dt, sbi::rfence::SbiRFence};
 
-pub(crate) const UART16650_COMPATIBLE: &str = "ns16550a";
-pub(crate) const UARTAXILITE_COMPATIBLE: &str = "xlnx,xps-uartlite-1.00.a";
-pub(crate) const SIFIVETEST_COMPATIBLE: &str = "sifive,test0";
-pub(crate) const SIFIVECLINT_COMPATIBLE: &str = "riscv,clint0";
+pub(crate) const UART16650U8_COMPATIBLE: [&str; 1] = ["ns16550a"];
+pub(crate) const UART16650U32_COMPATIBLE: [&str; 1] = ["snps,dw-apb-uart"];
+pub(crate) const UARTAXILITE_COMPATIBLE: [&str; 1] = ["xlnx,xps-uartlite-1.00.a"];
+pub(crate) const SIFIVETEST_COMPATIBLE: [&str; 1] = ["sifive,test0"];
+pub(crate) const SIFIVECLINT_COMPATIBLE: [&str; 1] = ["riscv,clint0"];
 
 type BaseAddress = usize;
 /// Store finite-length string on the stack.
@@ -137,11 +138,15 @@ impl Board {
                 let result = info.is_some_and(|info| {
                     let (compatible, regs) = info;
                     for device_id in compatible.iter() {
-                        if device_id == UART16650_COMPATIBLE {
-                            self.info.console = Some((regs.start, MachineConsoleType::Uart16550));
+                        if UART16650U8_COMPATIBLE.contains(&device_id) {
+                            self.info.console = Some((regs.start, MachineConsoleType::Uart16550U8));
                             return true;
                         }
-                        if device_id == UARTAXILITE_COMPATIBLE {
+                        if UART16650U32_COMPATIBLE.contains(&device_id) {
+                            self.info.console = Some((regs.start, MachineConsoleType::Uart16550U32));
+                            return true;
+                        }
+                        if UARTAXILITE_COMPATIBLE.contains(&device_id) {
                             self.info.console = Some((regs.start, MachineConsoleType::UartAxiLite));
                             return true;
                         }
@@ -162,11 +167,11 @@ impl Board {
                 let base_address = regs.start;
                 for device_id in compatible.iter() {
                     // Initialize clint device.
-                    if device_id == SIFIVECLINT_COMPATIBLE {
+                    if SIFIVECLINT_COMPATIBLE.contains(&device_id) {
                         self.info.ipi = Some(base_address);
                     }
                     // Initialize reset device.
-                    if device_id == SIFIVETEST_COMPATIBLE {
+                    if SIFIVETEST_COMPATIBLE.contains(&device_id) {
                         self.info.reset = Some(base_address);
                     }
                 }
@@ -225,7 +230,8 @@ impl Board {
     fn sbi_console_init(&mut self) {
         if let Some((base, console_type)) = self.info.console {
             let new_console = match console_type {
-                MachineConsoleType::Uart16550 => MachineConsole::Uart16550(base as _),
+                MachineConsoleType::Uart16550U8 => MachineConsole::Uart16550U8(base as _),
+                MachineConsoleType::Uart16550U32 => MachineConsole::Uart16550U32(base as _),
                 MachineConsoleType::UartAxiLite => {
                     MachineConsole::UartAxiLite(MmioUartAxiLite::new(base))
                 }
@@ -281,13 +287,15 @@ pub(crate) static mut BOARD: Board = Board::new();
 #[allow(unused)]
 #[derive(Clone, Copy, Debug)]
 pub enum MachineConsoleType {
-    Uart16550,
+    Uart16550U8,
+    Uart16550U32,
     UartAxiLite,
 }
 #[doc(hidden)]
 #[allow(unused)]
 pub enum MachineConsole {
-    Uart16550(*const Uart16550<u8>),
+    Uart16550U8(*const Uart16550<u8>),
+    Uart16550U32(*const Uart16550<u32>),
     UartAxiLite(MmioUartAxiLite),
 }
 
@@ -297,14 +305,16 @@ unsafe impl Sync for MachineConsole {}
 impl ConsoleDevice for MachineConsole {
     fn read(&self, buf: &mut [u8]) -> usize {
         match self {
-            Self::Uart16550(uart16550) => unsafe { (**uart16550).read(buf) },
+            Self::Uart16550U8(uart16550) => unsafe { (**uart16550).read(buf) },
+            Self::Uart16550U32(uart16550) => unsafe { (**uart16550).read(buf) },
             Self::UartAxiLite(axilite) => axilite.read(buf),
         }
     }
 
     fn write(&self, buf: &[u8]) -> usize {
         match self {
-            MachineConsole::Uart16550(uart16550) => unsafe { (**uart16550).write(buf) },
+            MachineConsole::Uart16550U8(uart16550) => unsafe { (**uart16550).write(buf) },
+            MachineConsole::Uart16550U32(uart16550) => unsafe { (**uart16550).write(buf) },
             Self::UartAxiLite(axilite) => axilite.write(buf),
         }
     }

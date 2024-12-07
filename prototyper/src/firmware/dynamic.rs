@@ -64,7 +64,7 @@ pub struct DynamicInfo {
 const DYNAMIC_INFO_INVALID_ADDRESSES: usize = 0x00000000;
 const NEXT_ADDR_VALID_ADDRESSES: Range<usize> = 0x80000000..0x90000000;
 pub(crate) const MAGIC: usize = 0x4942534f;
-const SUPPORTED_VERSION: Range<usize> = 2..3;
+const SUPPORTED_VERSION: Range<usize> = 0..3;
 
 /// Error type for dynamic info read failures.
 pub struct DynamicReadError {

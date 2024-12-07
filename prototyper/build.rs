@@ -25,23 +25,23 @@ SECTIONS {
     }
 
     .rodata : ALIGN(0x1000) { 
-        srodata = .;
+        sbi_rodata_start = .;
         *(.rodata .rodata.*)
         *(.srodata .srodata.*)
         . = ALIGN(0x1000);  
     } 
 
-    .dynsym : ALIGN(0x1000) {
+    .dynsym : ALIGN(8) {
         *(.dynsym)
     }
 
-    .rela.dyn : ALIGN(0x1000) {
+    .rela.dyn : ALIGN(8) {
         __rel_dyn_start = .;
         *(.rela*)
         __rel_dyn_end = .;
     }
 
-    erodata = .;
+    sbi_rodata_end = .;
 
 	/*
 	 * PMP regions must be to be power-of-2. RX/RW will have separate
@@ -51,20 +51,20 @@ SECTIONS {
 				+ SIZEOF(.dynsym) + SIZEOF(.rela.dyn))));
 
     .data : ALIGN(0x1000) { 
-        sdata = .;
+        sbi_data_start = .;
         *(.data .data.*)
         *(.sdata .sdata.*)
         . = ALIGN(0x1000); 
-        edata = .;
+        sbi_data_end = .;
     }
     sidata = LOADADDR(.data);
 
     .bss (NOLOAD) : ALIGN(0x1000) {  
         *(.bss.uninit)
-        sbss = .;
+        sbi_bss_start = .;
         *(.bss .bss.*)
         *(.sbss .sbss.*)
-        ebss = .;
+        sbi_bss_end = .;
     } 
     /DISCARD/ : {
         *(.eh_frame)

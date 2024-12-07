@@ -289,7 +289,7 @@ dependencies = [
  "sbi-spec 0.0.8",
  "sbi-testing 0.0.3-alpha.2 (git+https://github.com/rustsbi/rustsbi?rev=4821073)",
  "serde",
- "serde-device-tree",
+ "serde-device-tree 0.0.1 (git+https://github.com/rustsbi/serde-device-tree)",
  "spin",
  "uart16550",
 ]
@@ -318,7 +318,7 @@ dependencies = [
  "rustsbi",
  "sbi-spec 0.0.7",
  "serde",
- "serde-device-tree",
+ "serde-device-tree 0.0.1 (git+https://github.com/woshiluo/serde-device-tree?branch=aliases)",
  "sifive-test-device",
  "spin",
  "uart16550",
@@ -413,6 +413,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6513c1ad0b11a9376da888e3e0baa0077f1aed55c17f50e7b2397136129fb88f"
 dependencies = [
  "serde_derive",
+]
+
+[[package]]
+name = "serde-device-tree"
+version = "0.0.1"
+source = "git+https://github.com/woshiluo/serde-device-tree?branch=aliases#2f51fdf7fbe3ed394af41d83652c45f8acd51636"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
