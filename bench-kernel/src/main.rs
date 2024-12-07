@@ -24,7 +24,7 @@ use uart16550::Uart16550;
 const RISCV_HEAD_FLAGS: u64 = 0;
 const RISCV_HEADER_VERSION: u32 = 0x2;
 const RISCV_IMAGE_MAGIC: u64 = 0x5643534952; /* Magic number, little endian, "RISCV" */
-const RISCV_INAGE_MAGIC2: u32 = 0x05435352; /* Magic number 2, little endian, "RSC\x05" */
+const RISCV_IMAGE_MAGIC2: u32 = 0x05435352; /* Magic number 2, little endian, "RSC\x05" */
 
 /// boot header
 #[naked]
@@ -48,7 +48,7 @@ unsafe extern "C" fn _boot_header() -> ! {
         RISCV_HEAD_FLAGS = const RISCV_HEAD_FLAGS,
         RISCV_HEADER_VERSION = const RISCV_HEADER_VERSION,
         RISCV_IMAGE_MAGIC = const RISCV_IMAGE_MAGIC,
-        RISCV_IMAGE_MAGIC2 = const RISCV_INAGE_MAGIC2,
+        RISCV_IMAGE_MAGIC2 = const RISCV_IMAGE_MAGIC2,
         options(noreturn)
     );
 }
@@ -61,6 +61,7 @@ const MAX_HART_NUM: usize = 128;
 struct HartStack([u8; STACK_SIZE]);
 
 impl HartStack {
+    #[inline]
     pub const fn new() -> Self {
         HartStack([0; STACK_SIZE])
     }
