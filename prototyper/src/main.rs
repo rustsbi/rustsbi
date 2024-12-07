@@ -20,7 +20,10 @@ use core::arch::asm;
 
 use crate::board::BOARD;
 use crate::riscv_spec::{current_hartid, menvcfg};
-use crate::sbi::extensions::{hart_extension_probe, Extension};
+use crate::sbi::extensions::{
+    hart_extension_probe, hart_privileged_version, privileged_version_detection, Extension,
+    PrivilegedVersion,
+};
 use crate::sbi::hart_context::NextStage;
 use crate::sbi::hsm::local_remote_hsm;
 use crate::sbi::ipi;
@@ -77,6 +80,8 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         firmware::set_pmp(unsafe { BOARD.info.memory_range.as_ref().unwrap() });
     }
 
+    // Detection Priv Ver
+    privileged_version_detection();
     // Clear all pending IPIs.
     ipi::clear_all();
 
@@ -90,14 +95,16 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         // Keep supervisor environment calls and illegal instructions in M-mode.
         medeleg::clear_supervisor_env_call();
         medeleg::clear_illegal_instruction();
-        // Configure environment features based on available extensions.
-        // if hart_extension_probe(current_hartid(), Extension::Sstc) {
-        //     menvcfg::set_bits(
-        //         menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
-        //     );
-        // } else {
-        //     menvcfg::set_bits(menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
-        // }
+        if hart_privileged_version(current_hartid()) >= PrivilegedVersion::Version1_12 {
+            // Configure environment features based on available extensions.
+            if hart_extension_probe(current_hartid(), Extension::Sstc) {
+                menvcfg::set_bits(
+                    menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
+                );
+            } else {
+                menvcfg::set_bits(menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
+            }
+        }
         // Set up vectored trap handling.
         mtvec::write(trap_vec as _, mtvec::TrapMode::Vectored);
     }

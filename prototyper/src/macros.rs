@@ -24,3 +24,27 @@ macro_rules! println {
         }
     }}
 }
+
+#[allow(unused)]
+macro_rules! csr_test {
+    ($($x: expr)*) => {{
+            use core::arch::asm;
+            use riscv::register::mtvec;
+            let res: usize;
+            unsafe {
+                // Backup old mtvec
+                let mtvec = mtvec::read().bits();
+                // Write expected_trap
+                mtvec::write(expected_trap as _, mtvec::TrapMode::Direct);
+                asm!("addi a0, zero, 0",
+                    "addi a1, zero, 0",
+                    "csrr a2, {}",
+                    "mv {}, a0",
+                    const $($x)*,
+                    out(reg) res,
+                    options(nomem));
+                asm!("csrw mtvec, {}", in(reg) mtvec);
+            }
+            res == 0
+    }};
+}

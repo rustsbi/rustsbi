@@ -100,7 +100,7 @@ impl Board {
     }
 
     pub fn have_ipi(&self) -> bool {
-        self.sbi.ipi.is_some() 
+        self.sbi.ipi.is_some()
     }
 
     pub fn have_hsm(&self) -> bool {
@@ -108,7 +108,7 @@ impl Board {
     }
 
     pub fn have_rfence(&self) -> bool {
-        self.sbi.rfence.is_some() 
+        self.sbi.rfence.is_some()
     }
 
     pub fn ready(&self) -> bool {
@@ -143,7 +143,8 @@ impl Board {
                             return true;
                         }
                         if UART16650U32_COMPATIBLE.contains(&device_id) {
-                            self.info.console = Some((regs.start, MachineConsoleType::Uart16550U32));
+                            self.info.console =
+                                Some((regs.start, MachineConsoleType::Uart16550U32));
                             return true;
                         }
                         if UARTAXILITE_COMPATIBLE.contains(&device_id) {
