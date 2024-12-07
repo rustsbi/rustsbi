@@ -1,7 +1,6 @@
 use serde_device_tree::buildin::NodeSeq;
 
 use crate::riscv_spec::current_hartid;
-use crate::sbi::trap::expected_trap;
 use crate::sbi::trap_stack::ROOT_STACK;
 
 pub struct HartFeatures {

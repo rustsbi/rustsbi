@@ -30,6 +30,7 @@ macro_rules! has_csr {
     ($($x: expr)*) => {{
             use core::arch::asm;
             use riscv::register::mtvec;
+            use crate::sbi::early_trap::expected_trap;
             let res: usize;
             unsafe {
                 // Backup old mtvec
