@@ -126,7 +126,6 @@ impl Board {
     }
 
     fn info_init(&mut self, dtb: &RefCell<Dtb>) {
-        // TODO: should remove `fail:device_tree_deserialize`.
         let root: serde_device_tree::buildin::Node = serde_device_tree::from_raw_mut(&dtb)
             .unwrap_or_else(fail::device_tree_deserialize_root);
         let tree: dt::Tree = root.deserialize();

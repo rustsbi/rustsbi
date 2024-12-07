@@ -40,6 +40,8 @@ pub struct Cpus<'a> {
 pub struct Cpu<'a> {
     /// RISC-V ISA extensions supported by this CPU.
     #[serde(rename = "riscv,isa-extensions")]
+    pub isa_extensions: Option<StrSeq<'a>>,
+    #[serde(rename = "riscv,isa")]
     pub isa: Option<StrSeq<'a>>,
     /// CPU register information.
     pub reg: Reg<'a>,

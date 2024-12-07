@@ -40,10 +40,18 @@ pub fn init(cpus: &NodeSeq) {
         let cpu = cpu_iter.deserialize::<Cpu>();
         let hart_id = cpu.reg.iter().next().unwrap().0.start;
         let mut hart_exts = [false; Extension::COUNT];
-        let isa = cpu.isa.unwrap();
-        Extension::ITER.iter().for_each(|ext| {
-            hart_exts[ext.index()] = isa.iter().any(|e| e == ext.as_str());
-        });
+        if cpu.isa_extensions.is_some() {
+            let isa = cpu.isa_extensions.unwrap();
+            Extension::ITER.iter().for_each(|ext| {
+                hart_exts[ext.index()] = isa.iter().any(|e| e == ext.as_str());
+            });
+        } else if cpu.isa.is_some() {
+            let isa_iter = cpu.isa.unwrap();
+            let isa = isa_iter.iter().next().unwrap_or_default();
+            Extension::ITER.iter().for_each(|ext| {
+                hart_exts[ext.index()] = isa.find(ext.as_str()).is_some();
+            })
+        }
 
         unsafe {
             ROOT_STACK
