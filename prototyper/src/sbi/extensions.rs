@@ -91,11 +91,11 @@ pub fn privileged_version_detection() {
         const CSR_MCOUNTINHIBIT: u64 = 0x320;
         const CSR_MENVCFG: u64 = 0x30a;
 
-        if csr_test!(CSR_MCOUNTEREN) {
+        if has_csr!(CSR_MCOUNTEREN) {
             current_priv_ver = PrivilegedVersion::Version1_10;
-            if csr_test!(CSR_MCOUNTINHIBIT) {
+            if has_csr!(CSR_MCOUNTINHIBIT) {
                 current_priv_ver = PrivilegedVersion::Version1_11;
-                if csr_test!(CSR_MENVCFG) {
+                if has_csr!(CSR_MENVCFG) {
                     current_priv_ver = PrivilegedVersion::Version1_12;
                 }
             }

@@ -26,7 +26,7 @@ macro_rules! println {
 }
 
 #[allow(unused)]
-macro_rules! csr_test {
+macro_rules! has_csr {
     ($($x: expr)*) => {{
             use core::arch::asm;
             use riscv::register::mtvec;
