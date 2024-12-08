@@ -167,10 +167,10 @@ impl<T: IpiDevice> SbiIpi<T> {
             }
 
             if let Some(remote) = rfence::remote_rfence(hart_id) {
-                remote.set(ctx);
                 if let Some(local) = rfence::local_rfence() {
                     local.add();
                 }
+                remote.set(ctx);
                 if hart_id != current_hart {
                     let old_ipi_type = set_ipi_type(hart_id, IPI_TYPE_FENCE);
                     if old_ipi_type == 0 {

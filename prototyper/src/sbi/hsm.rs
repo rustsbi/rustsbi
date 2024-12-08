@@ -231,14 +231,15 @@ impl rustsbi::Hsm for SbiHsm {
     fn hart_suspend(&self, suspend_type: u32, _resume_addr: usize, _opaque: usize) -> SbiRet {
         use rustsbi::spec::hsm::suspend_type::{NON_RETENTIVE, RETENTIVE};
         if matches!(suspend_type, NON_RETENTIVE | RETENTIVE) {
-            local_hsm().suspend();
             unsafe {
                 BOARD.sbi.ipi.as_ref().unwrap().clear_msip(current_hartid());
             }
             unsafe {
                 riscv::register::mie::set_msoft();
             }
+            local_hsm().suspend();
             riscv::asm::wfi();
+            crate::trap::msoft_ipi_handler();
             local_hsm().resume();
             SbiRet::success(0)
         } else {
