@@ -1,11 +1,11 @@
 /*
- * Configuration to load RustSBI before RustSBI Test Kernel
+ * Configuration to load RustSBI before RustSBI Bench Kernel
  */
  
 /dts-v1/;
 
 / {
-			description = "Configuration to load RustSBI before RustSBI Test Kernel";
+			description = "Configuration to load RustSBI before RustSBI Bench Kernel";
 
 			images {
 				kernel {
