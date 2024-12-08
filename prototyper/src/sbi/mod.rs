@@ -6,6 +6,7 @@ pub mod ipi;
 pub mod reset;
 pub mod rfence;
 
+pub mod early_trap;
 pub mod extensions;
 pub mod fifo;
 pub mod hart_context;

@@ -1,11 +1,24 @@
 use serde_device_tree::buildin::NodeSeq;
 
+use crate::riscv_spec::current_hartid;
 use crate::sbi::trap_stack::ROOT_STACK;
-pub struct HartExtensions([bool; Extension::COUNT]);
+
+pub struct HartFeatures {
+    extension: [bool; Extension::COUNT],
+    privileged_version: PrivilegedVersion,
+}
 
 #[derive(Copy, Clone)]
 pub enum Extension {
     Sstc = 0,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PrivilegedVersion {
+    Unknown = 0,
+    Version1_10 = 1,
+    Version1_11 = 2,
+    Version1_12 = 3,
 }
 
 impl Extension {
@@ -28,7 +41,16 @@ pub fn hart_extension_probe(hart_id: usize, ext: Extension) -> bool {
     unsafe {
         ROOT_STACK
             .get_mut(hart_id)
-            .map(|x| x.hart_context().extensions.0[ext.index()])
+            .map(|x| x.hart_context().features.extension[ext.index()])
+            .unwrap()
+    }
+}
+
+pub fn hart_privileged_version(hart_id: usize) -> PrivilegedVersion {
+    unsafe {
+        ROOT_STACK
+            .get_mut(hart_id)
+            .map(|x| x.hart_context().features.privileged_version)
             .unwrap()
     }
 }
@@ -40,17 +62,49 @@ pub fn init(cpus: &NodeSeq) {
         let cpu = cpu_iter.deserialize::<Cpu>();
         let hart_id = cpu.reg.iter().next().unwrap().0.start;
         let mut hart_exts = [false; Extension::COUNT];
-        let isa = cpu.isa.unwrap();
-        Extension::ITER.iter().for_each(|ext| {
-            hart_exts[ext.index()] = isa.iter().any(|e| e == ext.as_str());
-        });
+        if cpu.isa_extensions.is_some() {
+            let isa = cpu.isa_extensions.unwrap();
+            Extension::ITER.iter().for_each(|ext| {
+                hart_exts[ext.index()] = isa.iter().any(|e| e == ext.as_str());
+            });
+        } else if cpu.isa.is_some() {
+            let isa_iter = cpu.isa.unwrap();
+            let isa = isa_iter.iter().next().unwrap_or_default();
+            Extension::ITER.iter().for_each(|ext| {
+                hart_exts[ext.index()] = isa.find(ext.as_str()).is_some();
+            })
+        }
 
         unsafe {
             ROOT_STACK
                 .get_mut(hart_id)
-                .map(|stack| stack.hart_context().extensions = HartExtensions(hart_exts))
+                .map(|stack| stack.hart_context().features.extension = hart_exts)
                 .unwrap()
         }
+    }
+}
+pub fn privileged_version_detection() {
+    let mut current_priv_ver = PrivilegedVersion::Unknown;
+    {
+        const CSR_MCOUNTEREN: u64 = 0x306;
+        const CSR_MCOUNTINHIBIT: u64 = 0x320;
+        const CSR_MENVCFG: u64 = 0x30a;
+
+        if has_csr!(CSR_MCOUNTEREN) {
+            current_priv_ver = PrivilegedVersion::Version1_10;
+            if has_csr!(CSR_MCOUNTINHIBIT) {
+                current_priv_ver = PrivilegedVersion::Version1_11;
+                if has_csr!(CSR_MENVCFG) {
+                    current_priv_ver = PrivilegedVersion::Version1_12;
+                }
+            }
+        }
+    }
+    unsafe {
+        ROOT_STACK
+            .get_mut(current_hartid())
+            .map(|stack| stack.hart_context().features.privileged_version = current_priv_ver)
+            .unwrap()
     }
 }
 
@@ -62,7 +116,7 @@ pub fn init(cpus: &NodeSeq) {
         unsafe {
             ROOT_STACK
                 .get_mut(hart_id)
-                .map(|stack| stack.hart_context().extensions = HartExtensions(hart_exts))
+                .map(|stack| stack.hart_context().extensions = HartFeatures(hart_exts))
                 .unwrap()
         }
     }

@@ -1,4 +1,5 @@
 #![feature(naked_functions)]
+#![feature(fn_align)]
 #![no_std]
 #![no_main]
 #![allow(static_mut_refs)]
@@ -11,7 +12,7 @@ mod macros;
 mod board;
 mod dt;
 mod fail;
-mod platform;
+mod firmware;
 mod riscv_spec;
 mod sbi;
 
@@ -19,7 +20,10 @@ use core::arch::asm;
 
 use crate::board::BOARD;
 use crate::riscv_spec::{current_hartid, menvcfg};
-use crate::sbi::extensions::{hart_extension_probe, Extension};
+use crate::sbi::extensions::{
+    hart_extension_probe, hart_privileged_version, privileged_version_detection, Extension,
+    PrivilegedVersion,
+};
 use crate::sbi::hart_context::NextStage;
 use crate::sbi::hsm::local_remote_hsm;
 use crate::sbi::ipi;
@@ -33,29 +37,27 @@ pub const R_RISCV_RELATIVE: usize = 3;
 extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     // Track whether SBI is initialized and ready.
 
-    let boot_hart_info = platform::get_boot_hart(opaque, nonstandard_a2);
+    let boot_hart_info = firmware::get_boot_hart(opaque, nonstandard_a2);
     // boot hart task entry.
     if boot_hart_info.is_boot_hart {
         // parse the device tree
-        let fdt_addr = boot_hart_info.fdt_address;
-        let dtb = dt::parse_device_tree(fdt_addr).unwrap_or_else(fail::device_tree_format);
-        let dtb = dtb.share();
+        let fdt_address = boot_hart_info.fdt_address;
 
         unsafe {
-            BOARD.init(&dtb);
+            BOARD.init(fdt_address);
             BOARD.print_board_info();
         }
-        platform::set_pmp(unsafe { BOARD.info.memory_range.as_ref().unwrap() });
+        firmware::set_pmp(unsafe { BOARD.info.memory_range.as_ref().unwrap() });
 
         // Get boot information and prepare for kernel entry.
-        let boot_info = platform::get_boot_info(nonstandard_a2);
+        let boot_info = firmware::get_boot_info(nonstandard_a2);
         let (mpp, next_addr) = (boot_info.mpp, boot_info.next_address);
 
         // Start kernel.
         local_remote_hsm().start(NextStage {
             start_addr: next_addr,
             next_mode: mpp,
-            opaque: fdt_addr,
+            opaque: fdt_address,
         });
 
         info!(
@@ -73,9 +75,11 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             core::hint::spin_loop()
         }
 
-        platform::set_pmp(unsafe { BOARD.info.memory_range.as_ref().unwrap() });
+        firmware::set_pmp(unsafe { BOARD.info.memory_range.as_ref().unwrap() });
     }
 
+    // Detection Priv Ver
+    privileged_version_detection();
     // Clear all pending IPIs.
     ipi::clear_all();
 
@@ -89,13 +93,15 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         // Keep supervisor environment calls and illegal instructions in M-mode.
         medeleg::clear_supervisor_env_call();
         medeleg::clear_illegal_instruction();
-        // Configure environment features based on available extensions.
-        if hart_extension_probe(current_hartid(), Extension::Sstc) {
-            menvcfg::set_bits(
-                menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
-            );
-        } else {
-            menvcfg::set_bits(menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
+        if hart_privileged_version(current_hartid()) >= PrivilegedVersion::Version1_12 {
+            // Configure environment features based on available extensions.
+            if hart_extension_probe(current_hartid(), Extension::Sstc) {
+                menvcfg::set_bits(
+                    menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
+                );
+            } else {
+                menvcfg::set_bits(menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
+            }
         }
         // Set up vectored trap handling.
         mtvec::write(trap_vec as _, mtvec::TrapMode::Vectored);
@@ -116,8 +122,8 @@ unsafe extern "C" fn start() -> ! {
         "   call    {relocation_update}",
         "1:",
         // 3. Hart 0 clear bss segment.
-        "   lla     t0, sbss
-            lla     t1, ebss
+        "   lla     t0, sbi_bss_start
+            lla     t1, sbi_bss_end
          2: bgeu    t0, t1, 3f
             sd      zero, 0(t0)
             addi    t0, t0, 8

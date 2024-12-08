@@ -1,11 +1,9 @@
 use aclint::SifiveClint;
 use core::{
-    cell::RefCell,
     fmt::{Display, Formatter, Result},
     ops::Range,
     sync::atomic::{AtomicBool, AtomicPtr, Ordering},
 };
-use serde_device_tree::Dtb;
 use sifive_test_device::SifiveTestDevice;
 use spin::Mutex;
 use uart16550::Uart16550;
@@ -23,10 +21,11 @@ use crate::sbi::trap_stack::NUM_HART_MAX;
 use crate::sbi::SBI;
 use crate::{dt, sbi::rfence::SbiRFence};
 
-pub(crate) const UART16650_COMPATIBLE: &str = "ns16550a";
-pub(crate) const UARTAXILITE_COMPATIBLE: &str = "xlnx,xps-uartlite-1.00.a";
-pub(crate) const SIFIVETEST_COMPATIBLE: &str = "sifive,test0";
-pub(crate) const SIFIVECLINT_COMPATIBLE: &str = "riscv,clint0";
+pub(crate) const UART16650U8_COMPATIBLE: [&str; 1] = ["ns16550a"];
+pub(crate) const UART16650U32_COMPATIBLE: [&str; 1] = ["snps,dw-apb-uart"];
+pub(crate) const UARTAXILITE_COMPATIBLE: [&str; 1] = ["xlnx,xps-uartlite-1.00.a"];
+pub(crate) const SIFIVETEST_COMPATIBLE: [&str; 1] = ["sifive,test0"];
+pub(crate) const SIFIVECLINT_COMPATIBLE: [&str; 1] = ["riscv,clint0"];
 
 type BaseAddress = usize;
 /// Store finite-length string on the stack.
@@ -82,8 +81,8 @@ impl Board {
         }
     }
 
-    pub fn init(&mut self, dtb: &RefCell<Dtb>) {
-        self.info_init(dtb);
+    pub fn init(&mut self, fdt_address: usize) {
+        self.info_init(fdt_address);
         self.sbi_init();
         logger::Logger::init().unwrap();
         trap_stack::prepare_for_trap();
@@ -91,38 +90,23 @@ impl Board {
     }
 
     pub fn have_console(&self) -> bool {
-        match self.sbi.console {
-            None => false,
-            Some(_) => true,
-        }
+        self.sbi.console.is_some()
     }
 
     pub fn have_reset(&self) -> bool {
-        match self.sbi.reset {
-            None => false,
-            Some(_) => true,
-        }
+        self.sbi.reset.is_some()
     }
 
     pub fn have_ipi(&self) -> bool {
-        match self.sbi.ipi {
-            None => false,
-            Some(_) => true,
-        }
+        self.sbi.ipi.is_some()
     }
 
     pub fn have_hsm(&self) -> bool {
-        match self.sbi.hsm {
-            None => false,
-            Some(_) => true,
-        }
+        self.sbi.hsm.is_some()
     }
 
     pub fn have_rfence(&self) -> bool {
-        match self.sbi.rfence {
-            None => false,
-            Some(_) => true,
-        }
+        self.sbi.rfence.is_some()
     }
 
     pub fn ready(&self) -> bool {
@@ -140,8 +124,10 @@ impl Board {
         info!("Console device: {:x?}", self.info.console);
     }
 
-    fn info_init(&mut self, dtb: &RefCell<Dtb>) {
-        // TODO: should remove `fail:device_tree_deserialize`.
+    fn info_init(&mut self, fdt_address: usize) {
+        let dtb = dt::parse_device_tree(fdt_address).unwrap_or_else(fail::device_tree_format);
+        let dtb = dtb.share();
+
         let root: serde_device_tree::buildin::Node = serde_device_tree::from_raw_mut(&dtb)
             .unwrap_or_else(fail::device_tree_deserialize_root);
         let tree: dt::Tree = root.deserialize();
@@ -153,11 +139,16 @@ impl Board {
                 let result = info.is_some_and(|info| {
                     let (compatible, regs) = info;
                     for device_id in compatible.iter() {
-                        if device_id == UART16650_COMPATIBLE {
-                            self.info.console = Some((regs.start, MachineConsoleType::Uart16550));
+                        if UART16650U8_COMPATIBLE.contains(&device_id) {
+                            self.info.console = Some((regs.start, MachineConsoleType::Uart16550U8));
                             return true;
                         }
-                        if device_id == UARTAXILITE_COMPATIBLE {
+                        if UART16650U32_COMPATIBLE.contains(&device_id) {
+                            self.info.console =
+                                Some((regs.start, MachineConsoleType::Uart16550U32));
+                            return true;
+                        }
+                        if UARTAXILITE_COMPATIBLE.contains(&device_id) {
                             self.info.console = Some((regs.start, MachineConsoleType::UartAxiLite));
                             return true;
                         }
@@ -178,11 +169,11 @@ impl Board {
                 let base_address = regs.start;
                 for device_id in compatible.iter() {
                     // Initialize clint device.
-                    if device_id == SIFIVECLINT_COMPATIBLE {
+                    if SIFIVECLINT_COMPATIBLE.contains(&device_id) {
                         self.info.ipi = Some(base_address);
                     }
                     // Initialize reset device.
-                    if device_id == SIFIVETEST_COMPATIBLE {
+                    if SIFIVETEST_COMPATIBLE.contains(&device_id) {
                         self.info.reset = Some(base_address);
                     }
                 }
@@ -241,7 +232,8 @@ impl Board {
     fn sbi_console_init(&mut self) {
         if let Some((base, console_type)) = self.info.console {
             let new_console = match console_type {
-                MachineConsoleType::Uart16550 => MachineConsole::Uart16550(base as _),
+                MachineConsoleType::Uart16550U8 => MachineConsole::Uart16550U8(base as _),
+                MachineConsoleType::Uart16550U32 => MachineConsole::Uart16550U32(base as _),
                 MachineConsoleType::UartAxiLite => {
                     MachineConsole::UartAxiLite(MmioUartAxiLite::new(base))
                 }
@@ -273,7 +265,7 @@ impl Board {
 
     fn sbi_hsm_init(&mut self) {
         // TODO: Can HSM work properly when there is no ipi device?
-        if let Some(_) = self.info.ipi {
+        if self.info.ipi.is_some() {
             self.sbi.hsm = Some(SbiHsm);
         } else {
             self.sbi.hsm = None;
@@ -282,7 +274,7 @@ impl Board {
 
     fn sbi_rfence_init(&mut self) {
         // TODO: Can rfence work properly when there is no ipi device?
-        if let Some(_) = self.info.ipi {
+        if self.info.ipi.is_some() {
             self.sbi.rfence = Some(SbiRFence);
         } else {
             self.sbi.rfence = None;
@@ -297,13 +289,15 @@ pub(crate) static mut BOARD: Board = Board::new();
 #[allow(unused)]
 #[derive(Clone, Copy, Debug)]
 pub enum MachineConsoleType {
-    Uart16550,
+    Uart16550U8,
+    Uart16550U32,
     UartAxiLite,
 }
 #[doc(hidden)]
 #[allow(unused)]
 pub enum MachineConsole {
-    Uart16550(*const Uart16550<u8>),
+    Uart16550U8(*const Uart16550<u8>),
+    Uart16550U32(*const Uart16550<u32>),
     UartAxiLite(MmioUartAxiLite),
 }
 
@@ -313,14 +307,16 @@ unsafe impl Sync for MachineConsole {}
 impl ConsoleDevice for MachineConsole {
     fn read(&self, buf: &mut [u8]) -> usize {
         match self {
-            Self::Uart16550(uart16550) => unsafe { (**uart16550).read(buf) },
+            Self::Uart16550U8(uart16550) => unsafe { (**uart16550).read(buf) },
+            Self::Uart16550U32(uart16550) => unsafe { (**uart16550).read(buf) },
             Self::UartAxiLite(axilite) => axilite.read(buf),
         }
     }
 
     fn write(&self, buf: &[u8]) -> usize {
         match self {
-            MachineConsole::Uart16550(uart16550) => unsafe { (**uart16550).write(buf) },
+            MachineConsole::Uart16550U8(uart16550) => unsafe { (**uart16550).write(buf) },
+            MachineConsole::Uart16550U32(uart16550) => unsafe { (**uart16550).write(buf) },
             Self::UartAxiLite(axilite) => axilite.write(buf),
         }
     }

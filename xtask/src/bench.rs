@@ -8,14 +8,14 @@ use clap::Args;
 use crate::utils::cargo;
 
 #[derive(Debug, Args, Clone)]
-pub struct TestArg {
+pub struct BenchArg {
     /// Package Prototyper and Test-Kernel
     #[clap(long)]
     pub pack: bool,
 }
 
 #[must_use]
-pub fn run(arg: &TestArg) -> Option<ExitStatus> {
+pub fn run(arg: &BenchArg) -> Option<ExitStatus> {
     let arch = "riscv64imac-unknown-none-elf";
     let current_dir = env::current_dir();
     let target_dir = current_dir
@@ -26,7 +26,7 @@ pub fn run(arg: &TestArg) -> Option<ExitStatus> {
         .join("release");
 
     cargo::Cargo::new("build")
-        .package("rustsbi-test-kernel")
+        .package("rustsbi-bench-kernel")
         .target(arch)
         .release()
         .status()
@@ -35,8 +35,8 @@ pub fn run(arg: &TestArg) -> Option<ExitStatus> {
     let exit_status = Command::new("rust-objcopy")
         .args(["-O", "binary"])
         .arg("--binary-architecture=riscv64")
-        .arg(target_dir.join("rustsbi-test-kernel"))
-        .arg(target_dir.join("rustsbi-test-kernel.bin"))
+        .arg(target_dir.join("rustsbi-bench-kernel"))
+        .arg(target_dir.join("rustsbi-bench-kernel.bin"))
         .status()
         .ok()?;
 
@@ -54,19 +54,19 @@ pub fn run(arg: &TestArg) -> Option<ExitStatus> {
             current_dir
                 .as_ref()
                 .unwrap()
-                .join("test-kernel")
+                .join("bench-kernel")
                 .join("scripts")
-                .join("rustsbi-test-kernel.its"),
-            target_dir.join("rustsbi-test-kernel.its"),
+                .join("rustsbi-bench-kernel.its"),
+            target_dir.join("rustsbi-bench-kernel.its"),
         )
         .ok()?;
         env::set_current_dir(&target_dir).ok()?;
         Command::new("mkimage")
-            .args(["-f", "rustsbi-test-kernel.its"])
-            .arg("rustsbi-test-kernel.itb")
+            .args(["-f", "rustsbi-bench-kernel.its"])
+            .arg("rustsbi-bench-kernel.itb")
             .status()
             .ok()?;
-        fs::remove_file(env::current_dir().unwrap().join("rustsbi-test-kernel.its")).ok()?;
+        fs::remove_file(env::current_dir().unwrap().join("rustsbi-bench-kernel.its")).ok()?;
     }
     Some(exit_status)
 }

@@ -1,4 +1,4 @@
-pub mod cargo; 
+pub mod cargo;
 
 #[macro_use]
 pub mod envs;

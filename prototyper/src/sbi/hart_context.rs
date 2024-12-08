@@ -1,4 +1,4 @@
-use crate::sbi::extensions::HartExtensions;
+use crate::sbi::extensions::HartFeatures;
 use crate::sbi::hsm::HsmCell;
 use crate::sbi::rfence::RFenceCell;
 use core::ptr::NonNull;
@@ -16,8 +16,8 @@ pub(crate) struct HartContext {
     pub rfence: RFenceCell,
     /// Type of inter-processor interrupt pending.
     pub ipi_type: AtomicU8,
-    /// Supported hart extensions.
-    pub extensions: HartExtensions,
+    /// Supported hart features.
+    pub features: HartFeatures,
 }
 
 impl HartContext {
