@@ -1,11 +1,9 @@
 use aclint::SifiveClint;
 use core::{
-    cell::RefCell,
     fmt::{Display, Formatter, Result},
     ops::Range,
     sync::atomic::{AtomicBool, AtomicPtr, Ordering},
 };
-use serde_device_tree::Dtb;
 use sifive_test_device::SifiveTestDevice;
 use spin::Mutex;
 use uart16550::Uart16550;
@@ -83,8 +81,8 @@ impl Board {
         }
     }
 
-    pub fn init(&mut self, dtb: &RefCell<Dtb>) {
-        self.info_init(dtb);
+    pub fn init(&mut self, fdt_address: usize) {
+        self.info_init(fdt_address);
         self.sbi_init();
         logger::Logger::init().unwrap();
         trap_stack::prepare_for_trap();
@@ -126,7 +124,10 @@ impl Board {
         info!("Console device: {:x?}", self.info.console);
     }
 
-    fn info_init(&mut self, dtb: &RefCell<Dtb>) {
+    fn info_init(&mut self, fdt_address: usize) {
+        let dtb = dt::parse_device_tree(fdt_address).unwrap_or_else(fail::device_tree_format);
+        let dtb = dtb.share();
+
         let root: serde_device_tree::buildin::Node = serde_device_tree::from_raw_mut(&dtb)
             .unwrap_or_else(fail::device_tree_deserialize_root);
         let tree: dt::Tree = root.deserialize();

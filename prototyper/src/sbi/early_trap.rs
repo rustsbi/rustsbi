@@ -1,7 +1,7 @@
 use core::arch::asm;
 
 /// When you expected some insts will cause trap, use this.
-/// If trap happend, a0 will set to 1, otherwise will be 0.
+/// If trap happened, a0 will set to 1, otherwise will be 0.
 ///
 /// This function will change a0 and a1 and will NOT change them back.
 #[naked]

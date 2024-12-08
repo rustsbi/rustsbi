@@ -79,7 +79,7 @@ impl<T: IpiDevice> rustsbi::Ipi for SbiIpi<T> {
             // There are 2 situation to return invalid_param:
             // 1. We can not get hsm, which usually means this hart_id is bigger than MAX_HART_ID.
             // 2. BOARD hasn't init or this hart_id is not enabled by device tree.
-            // In the next loop, we'll assume that all of above situation will not happend and
+            // In the next loop, we'll assume that all of above situation will not happened and
             // directly send ipi.
             let Some(hsm) = remote_hsm(hart_id) else {
                 return SbiRet::invalid_param();
@@ -140,7 +140,7 @@ impl<T: IpiDevice> SbiIpi<T> {
             // There are 2 situation to return invalid_param:
             // 1. We can not get hsm, which usually means this hart_id is bigger than MAX_HART_ID.
             // 2. BOARD hasn't init or this hart_id is not enabled by device tree.
-            // In the next loop, we'll assume that all of above situation will not happend and
+            // In the next loop, we'll assume that all of above situation will not happened and
             // directly send ipi.
             let Some(hsm) = remote_hsm(hart_id) else {
                 return SbiRet::invalid_param();

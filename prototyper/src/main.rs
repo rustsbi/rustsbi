@@ -41,12 +41,10 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     // boot hart task entry.
     if boot_hart_info.is_boot_hart {
         // parse the device tree
-        let fdt_addr = boot_hart_info.fdt_address;
-        let dtb = dt::parse_device_tree(fdt_addr).unwrap_or_else(fail::device_tree_format);
-        let dtb = dtb.share();
+        let fdt_address = boot_hart_info.fdt_address;
 
         unsafe {
-            BOARD.init(&dtb);
+            BOARD.init(fdt_address);
             BOARD.print_board_info();
         }
         firmware::set_pmp(unsafe { BOARD.info.memory_range.as_ref().unwrap() });
@@ -59,7 +57,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         local_remote_hsm().start(NextStage {
             start_addr: next_addr,
             next_mode: mpp,
-            opaque: fdt_addr,
+            opaque: fdt_address,
         });
 
         info!(
