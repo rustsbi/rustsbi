@@ -23,7 +23,7 @@ uart16550 = "0.0.1"
 riscv-decode = "0.2.1"
 fast-trap = { version = "0.0.1", features = ["riscv-m"] }
 uart_xilinx = { git = "https://github.com/duskmoon314/uart-rs/" }
-
+xuantie-riscv = { git= "https://github.com/guttatus/xuantie", branch = "edtion" }
 
 [[bin]]
 name = "rustsbi-prototyper"

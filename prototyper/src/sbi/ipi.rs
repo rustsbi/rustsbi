@@ -1,7 +1,7 @@
-use core::sync::atomic::{AtomicPtr, Ordering::Relaxed};
+use core::sync::atomic::Ordering::Relaxed;
 use rustsbi::{HartMask, SbiRet};
-
-use crate::board::BOARD;
+use spin::Mutex;
+use crate::platform::PLATFORM;
 use crate::riscv_spec::{current_hartid, stimecmp};
 use crate::sbi::extensions::{hart_extension_probe, Extension};
 use crate::sbi::hsm::remote_hsm;
@@ -36,7 +36,7 @@ pub trait IpiDevice {
 /// SBI IPI implementation.
 pub struct SbiIpi<T: IpiDevice> {
     /// Reference to atomic pointer to IPI device.
-    pub ipi_dev: AtomicPtr<T>,
+    pub ipi_dev: Mutex<T>,
     /// Maximum hart ID in the system
     pub max_hart_id: usize,
 }
@@ -68,7 +68,6 @@ impl<T: IpiDevice> rustsbi::Ipi for SbiIpi<T> {
     /// Send IPI to specified harts.
     #[inline]
     fn send_ipi(&self, hart_mask: rustsbi::HartMask) -> SbiRet {
-        let ipi_dev = unsafe { &*self.ipi_dev.load(Relaxed) };
         let mut hart_mask = hart_mask;
 
         for hart_id in 0..=self.max_hart_id {
@@ -86,7 +85,7 @@ impl<T: IpiDevice> rustsbi::Ipi for SbiIpi<T> {
             };
 
             if unsafe {
-                BOARD
+                PLATFORM
                     .info
                     .cpu_enabled
                     .is_none_or(|list| list.get(hart_id).is_none_or(|res| !(*res)))
@@ -104,7 +103,7 @@ impl<T: IpiDevice> rustsbi::Ipi for SbiIpi<T> {
             }
 
             if set_ipi_type(hart_id, IPI_TYPE_SSOFT) == 0 {
-                ipi_dev.set_msip(hart_id);
+                self.set_msip(hart_id);
             }
         }
 
@@ -115,7 +114,7 @@ impl<T: IpiDevice> rustsbi::Ipi for SbiIpi<T> {
 impl<T: IpiDevice> SbiIpi<T> {
     /// Create new SBI IPI instance.
     #[inline]
-    pub fn new(ipi_dev: AtomicPtr<T>, max_hart_id: usize) -> Self {
+    pub fn new(ipi_dev: Mutex<T>, max_hart_id: usize) -> Self {
         Self {
             ipi_dev,
             max_hart_id,
@@ -129,7 +128,6 @@ impl<T: IpiDevice> SbiIpi<T> {
         ctx: rfence::RFenceContext,
     ) -> SbiRet {
         let current_hart = current_hartid();
-        let ipi_dev = unsafe { &*self.ipi_dev.load(Relaxed) };
         let mut hart_mask = hart_mask;
 
         for hart_id in 0..=self.max_hart_id {
@@ -147,7 +145,7 @@ impl<T: IpiDevice> SbiIpi<T> {
             };
 
             if unsafe {
-                BOARD
+                PLATFORM
                     .info
                     .cpu_enabled
                     .is_none_or(|list| list.get(hart_id).is_none_or(|res| !(*res)))
@@ -174,7 +172,7 @@ impl<T: IpiDevice> SbiIpi<T> {
                 if hart_id != current_hart {
                     let old_ipi_type = set_ipi_type(hart_id, IPI_TYPE_FENCE);
                     if old_ipi_type == 0 {
-                        ipi_dev.set_msip(hart_id);
+                        self.set_msip(hart_id);
                     }
                 }
             }
@@ -191,31 +189,31 @@ impl<T: IpiDevice> SbiIpi<T> {
     /// Get lower 32 bits of machine time.
     #[inline]
     pub fn get_time(&self) -> usize {
-        unsafe { (*self.ipi_dev.load(Relaxed)).read_mtime() as usize }
+        self.ipi_dev.lock().read_mtime() as usize
     }
 
     /// Get upper 32 bits of machine time.
     #[inline]
     pub fn get_timeh(&self) -> usize {
-        unsafe { ((*self.ipi_dev.load(Relaxed)).read_mtime() >> 32) as usize }
+        ( self.ipi_dev.lock().read_mtime() >> 32) as usize
     }
 
     /// Set machine software interrupt pending for hart.
     #[inline]
     pub fn set_msip(&self, hart_idx: usize) {
-        unsafe { (*self.ipi_dev.load(Relaxed)).set_msip(hart_idx) }
+        self.ipi_dev.lock().set_msip(hart_idx);
     }
 
     /// Clear machine software interrupt pending for hart.
     #[inline]
     pub fn clear_msip(&self, hart_idx: usize) {
-        unsafe { (*self.ipi_dev.load(Relaxed)).clear_msip(hart_idx) }
+        self.ipi_dev.lock().clear_msip(hart_idx);
     }
 
     /// Write machine timer compare value for hart.
     #[inline]
     pub fn write_mtimecmp(&self, hart_idx: usize, val: u64) {
-        unsafe { (*self.ipi_dev.load(Relaxed)).write_mtimecmp(hart_idx, val) }
+        self.ipi_dev.lock().write_mtimecmp(hart_idx, val);
     }
 
     /// Clear all pending interrupts for current hart.
@@ -223,7 +221,7 @@ impl<T: IpiDevice> SbiIpi<T> {
     pub fn clear(&self) {
         let hart_id = current_hartid();
         // Load ipi_dev once instead of twice
-        let ipi_dev = unsafe { &*self.ipi_dev.load(Relaxed) };
+        let ipi_dev = self.ipi_dev.lock();
         ipi_dev.clear_msip(hart_id);
         ipi_dev.write_mtimecmp(hart_id, u64::MAX);
     }
@@ -254,7 +252,7 @@ pub fn get_and_reset_ipi_type() -> u8 {
 /// Clear machine software interrupt pending for current hart.
 #[inline]
 pub fn clear_msip() {
-    match unsafe { BOARD.sbi.ipi.as_ref() } {
+    match unsafe { PLATFORM.sbi.ipi.as_ref() } {
         Some(ipi) => ipi.clear_msip(current_hartid()),
         None => error!("SBI or IPI device not initialized"),
     }
@@ -263,7 +261,7 @@ pub fn clear_msip() {
 /// Clear machine timer interrupt for current hart.
 #[inline]
 pub fn clear_mtime() {
-    match unsafe { BOARD.sbi.ipi.as_ref() } {
+    match unsafe { PLATFORM.sbi.ipi.as_ref() } {
         Some(ipi) => ipi.write_mtimecmp(current_hartid(), u64::MAX),
         None => error!("SBI or IPI device not initialized"),
     }
@@ -272,7 +270,7 @@ pub fn clear_mtime() {
 /// Clear all pending interrupts for current hart.
 #[inline]
 pub fn clear_all() {
-    match unsafe { BOARD.sbi.ipi.as_ref() } {
+    match unsafe { PLATFORM.sbi.ipi.as_ref() } {
         Some(ipi) => ipi.clear(),
         None => error!("SBI or IPI device not initialized"),
     }

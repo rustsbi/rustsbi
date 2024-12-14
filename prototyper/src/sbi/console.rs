@@ -1,7 +1,7 @@
-use crate::board::BOARD;
 use core::fmt::{self, Write};
 use rustsbi::{Console, Physical, SbiRet};
 use spin::Mutex;
+use crate::platform::PLATFORM;
 
 /// A trait that must be implemented by console devices to provide basic I/O functionality.
 pub trait ConsoleDevice {
@@ -114,11 +114,11 @@ impl<T: ConsoleDevice> fmt::Write for SbiConsole<T> {
 /// Global function to write a character to the console.
 #[inline]
 pub fn putchar(c: usize) -> usize {
-    unsafe { BOARD.sbi.console.as_mut().unwrap().putchar(c) }
+    unsafe { PLATFORM.sbi.console.as_mut().unwrap().putchar(c) }
 }
 
 /// Global function to read a character from the console.
 #[inline]
 pub fn getchar() -> usize {
-    unsafe { BOARD.sbi.console.as_mut().unwrap().getchar() }
+    unsafe { PLATFORM.sbi.console.as_mut().unwrap().getchar() }
 }

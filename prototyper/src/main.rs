@@ -9,7 +9,7 @@ extern crate log;
 #[macro_use]
 mod macros;
 
-mod board;
+mod platform;
 mod dt;
 mod fail;
 mod firmware;
@@ -18,7 +18,7 @@ mod sbi;
 
 use core::arch::asm;
 
-use crate::board::BOARD;
+use crate::platform::PLATFORM;
 use crate::riscv_spec::{current_hartid, menvcfg};
 use crate::sbi::extensions::{
     hart_extension_probe, hart_privileged_version, privileged_version_detection, Extension,
@@ -44,10 +44,10 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         let fdt_address = boot_hart_info.fdt_address;
 
         unsafe {
-            BOARD.init(fdt_address);
-            BOARD.print_board_info();
+            PLATFORM.init(fdt_address);
+            PLATFORM.print_board_info();
         }
-        firmware::set_pmp(unsafe { BOARD.info.memory_range.as_ref().unwrap() });
+        firmware::set_pmp(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });
 
         // Get boot information and prepare for kernel entry.
         let boot_info = firmware::get_boot_info(nonstandard_a2);
@@ -71,11 +71,11 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         trap_stack::prepare_for_trap();
 
         // Wait for boot hart to complete SBI initialization.
-        while !unsafe { BOARD.ready() } {
+        while !unsafe { PLATFORM.ready() } {
             core::hint::spin_loop()
         }
 
-        firmware::set_pmp(unsafe { BOARD.info.memory_range.as_ref().unwrap() });
+        firmware::set_pmp(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });
     }
 
     // Detection Priv Ver

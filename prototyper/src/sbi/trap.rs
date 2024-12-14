@@ -6,7 +6,7 @@ use riscv::register::{
 };
 use rustsbi::RustSBI;
 
-use crate::board::BOARD;
+use crate::platform::PLATFORM;
 use crate::riscv_spec::{current_hartid, CSR_TIME, CSR_TIMEH};
 use crate::sbi::console;
 use crate::sbi::hsm::local_hsm;
@@ -382,7 +382,7 @@ pub extern "C" fn fast_handler(
         T::Exception(E::SupervisorEnvCall) => {
             use sbi_spec::{base, hsm, legacy};
             let mut ret = unsafe {
-                BOARD
+                PLATFORM
                     .sbi
                     .handle_ecall(a7, a6, [ctx.a0(), a1, a2, a3, a4, a5])
             };
@@ -436,17 +436,11 @@ pub extern "C" fn fast_handler(
         }
         // Handle other traps
         trap => {
-            println!(
-                "
------------------------------
-> trap:    {trap:?}
-> mepc:    {:#018x}
-> mtval:   {:#018x}
------------------------------
-            ",
-                mepc::read(),
-                mtval::read()
-            );
+            error!("-----------------------------");
+            error!("trap:    {trap:?}");
+            error!("mepc:    {:#018x}", mepc::read());
+            error!("mtval:   {:#018x}", mtval::read());
+            error!("-----------------------------");
             panic!("Stopped with unsupported trap")
         }
     }
@@ -488,7 +482,7 @@ fn illegal_instruction_handler(ctx: &mut FastContext) -> bool {
                     csr.rd()
                 );
                 ctx.regs().a[(csr.rd() - 10) as usize] =
-                    unsafe { BOARD.sbi.ipi.as_ref() }.unwrap().get_time();
+                    unsafe { PLATFORM.sbi.ipi.as_ref() }.unwrap().get_time();
             }
             CSR_TIMEH => {
                 assert!(
@@ -497,7 +491,7 @@ fn illegal_instruction_handler(ctx: &mut FastContext) -> bool {
                     csr.rd()
                 );
                 ctx.regs().a[(csr.rd() - 10) as usize] =
-                    unsafe { BOARD.sbi.ipi.as_ref() }.unwrap().get_timeh();
+                    unsafe { PLATFORM.sbi.ipi.as_ref() }.unwrap().get_timeh();
             }
             _ => return false,
         },
