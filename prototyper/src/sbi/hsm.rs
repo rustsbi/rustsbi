@@ -6,7 +6,7 @@ use core::{
 use riscv::register::mstatus::MPP;
 use rustsbi::{spec::hsm::hart_state, SbiRet};
 
-use crate::board::BOARD;
+use crate::platform::PLATFORM;
 use crate::riscv_spec::current_hartid;
 use crate::sbi::hart_context::NextStage;
 use crate::sbi::trap_stack::ROOT_STACK;
@@ -196,7 +196,7 @@ impl rustsbi::Hsm for SbiHsm {
                     next_mode: MPP::Supervisor,
                 }) {
                     unsafe {
-                        BOARD.sbi.ipi.as_ref().unwrap().set_msip(hartid);
+                        PLATFORM.sbi.ipi.as_ref().unwrap().set_msip(hartid);
                     }
                     SbiRet::success(0)
                 } else {
@@ -232,7 +232,7 @@ impl rustsbi::Hsm for SbiHsm {
         use rustsbi::spec::hsm::suspend_type::{NON_RETENTIVE, RETENTIVE};
         if matches!(suspend_type, NON_RETENTIVE | RETENTIVE) {
             unsafe {
-                BOARD.sbi.ipi.as_ref().unwrap().clear_msip(current_hartid());
+                PLATFORM.sbi.ipi.as_ref().unwrap().clear_msip(current_hartid());
             }
             unsafe {
                 riscv::register::mie::set_msoft();

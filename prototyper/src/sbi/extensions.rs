@@ -116,7 +116,10 @@ pub fn init(cpus: &NodeSeq) {
         unsafe {
             ROOT_STACK
                 .get_mut(hart_id)
-                .map(|stack| stack.hart_context().extensions = HartFeatures(hart_exts))
+                .map(|stack| stack.hart_context().features = HartFeatures{
+                    extension: hart_exts,
+                    privileged_version: PrivilegedVersion::Version1_12,
+                })
                 .unwrap()
         }
     }

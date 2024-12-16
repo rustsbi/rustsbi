@@ -1,7 +1,7 @@
 use core::sync::atomic::{AtomicPtr, Ordering::Relaxed};
 use rustsbi::SbiRet;
 
-use crate::board::BOARD;
+use crate::platform::PLATFORM;
 
 pub trait ResetDevice {
     fn fail(&self, code: u16) -> !;
@@ -18,6 +18,7 @@ impl<'a, T: ResetDevice> SbiReset<T> {
         Self { reset_dev }
     }
 
+    #[allow(unused)]
     pub fn fail(&self) -> ! {
         let reset_dev = self.reset_dev.load(Relaxed);
         if reset_dev.is_null() {
@@ -60,8 +61,9 @@ impl<T: ResetDevice> rustsbi::Reset for SbiReset<T> {
     }
 }
 
+#[allow(unused)]
 pub fn fail() -> ! {
-    match unsafe { BOARD.sbi.reset.as_ref() } {
+    match unsafe { PLATFORM.sbi.reset.as_ref() } {
         Some(reset) => reset.fail(),
         None => panic!("SBI or IPI device not initialized"),
     }

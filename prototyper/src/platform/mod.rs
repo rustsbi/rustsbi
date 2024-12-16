@@ -1,4 +1,20 @@
-use aclint::SifiveClint;
+use crate::fail;
+use crate::platform::clint::{MachineClint, MachineClintType, CLINT_COMPATIBLE};
+use crate::platform::console::{
+    MachineConsole, MachineConsoleType, UART16650U32_COMPATIBLE, UART16650U8_COMPATIBLE,
+    UARTAXILITE_COMPATIBLE,
+};
+use crate::platform::reset::SIFIVETEST_COMPATIBLE;
+use crate::sbi::console::SbiConsole;
+use crate::sbi::extensions;
+use crate::sbi::hsm::SbiHsm;
+use crate::sbi::ipi::SbiIpi;
+use crate::sbi::logger;
+use crate::sbi::reset::SbiReset;
+use crate::sbi::trap_stack;
+use crate::sbi::trap_stack::NUM_HART_MAX;
+use crate::sbi::SBI;
+use crate::{dt, sbi::rfence::SbiRFence};
 use core::{
     fmt::{Display, Formatter, Result},
     ops::Range,
@@ -6,26 +22,11 @@ use core::{
 };
 use sifive_test_device::SifiveTestDevice;
 use spin::Mutex;
-use uart16550::Uart16550;
-use uart_xilinx::uart_lite::uart::MmioUartAxiLite;
+use uart_xilinx::MmioUartAxiLite;
 
-use crate::fail;
-use crate::sbi::console::{ConsoleDevice, SbiConsole};
-use crate::sbi::extensions;
-use crate::sbi::hsm::SbiHsm;
-use crate::sbi::ipi::{IpiDevice, SbiIpi};
-use crate::sbi::logger;
-use crate::sbi::reset::{ResetDevice, SbiReset};
-use crate::sbi::trap_stack;
-use crate::sbi::trap_stack::NUM_HART_MAX;
-use crate::sbi::SBI;
-use crate::{dt, sbi::rfence::SbiRFence};
-
-pub(crate) const UART16650U8_COMPATIBLE: [&str; 1] = ["ns16550a"];
-pub(crate) const UART16650U32_COMPATIBLE: [&str; 1] = ["snps,dw-apb-uart"];
-pub(crate) const UARTAXILITE_COMPATIBLE: [&str; 1] = ["xlnx,xps-uartlite-1.00.a"];
-pub(crate) const SIFIVETEST_COMPATIBLE: [&str; 1] = ["sifive,test0"];
-pub(crate) const SIFIVECLINT_COMPATIBLE: [&str; 1] = ["riscv,clint0"];
+mod clint;
+mod console;
+mod reset;
 
 type BaseAddress = usize;
 /// Store finite-length string on the stack.
@@ -45,7 +46,7 @@ pub struct BoardInfo {
     pub memory_range: Option<Range<usize>>,
     pub console: Option<(BaseAddress, MachineConsoleType)>,
     pub reset: Option<BaseAddress>,
-    pub ipi: Option<BaseAddress>,
+    pub ipi: Option<(BaseAddress, MachineClintType)>,
     pub cpu_num: Option<usize>,
     pub cpu_enabled: Option<CpuEnableList>,
     pub model: StringInline<128>,
@@ -65,16 +66,15 @@ impl BoardInfo {
     }
 }
 
-pub struct Board {
+pub struct Platform {
     pub info: BoardInfo,
-    pub sbi: SBI<MachineConsole, SifiveClint, SifiveTestDevice>,
+    pub sbi: SBI<MachineConsole, MachineClint, SifiveTestDevice>,
     pub ready: AtomicBool,
 }
 
-#[allow(unused)]
-impl Board {
+impl Platform {
     pub const fn new() -> Self {
-        Board {
+        Platform {
             info: BoardInfo::new(),
             sbi: SBI::new(),
             ready: AtomicBool::new(false),
@@ -87,30 +87,6 @@ impl Board {
         logger::Logger::init().unwrap();
         trap_stack::prepare_for_trap();
         self.ready.swap(true, Ordering::Release);
-    }
-
-    pub fn have_console(&self) -> bool {
-        self.sbi.console.is_some()
-    }
-
-    pub fn have_reset(&self) -> bool {
-        self.sbi.reset.is_some()
-    }
-
-    pub fn have_ipi(&self) -> bool {
-        self.sbi.ipi.is_some()
-    }
-
-    pub fn have_hsm(&self) -> bool {
-        self.sbi.hsm.is_some()
-    }
-
-    pub fn have_rfence(&self) -> bool {
-        self.sbi.rfence.is_some()
-    }
-
-    pub fn ready(&self) -> bool {
-        self.ready.load(Ordering::Acquire)
     }
 
     pub fn print_board_info(&self) {
@@ -169,8 +145,12 @@ impl Board {
                 let base_address = regs.start;
                 for device_id in compatible.iter() {
                     // Initialize clint device.
-                    if SIFIVECLINT_COMPATIBLE.contains(&device_id) {
-                        self.info.ipi = Some(base_address);
+                    if CLINT_COMPATIBLE.contains(&device_id) {
+                        if node.get_prop("clint,has-no-64bit-mmio").is_some() {
+                            self.info.ipi = Some((base_address, MachineClintType::TheadClint));
+                        } else {
+                            self.info.ipi = Some((base_address, MachineClintType::SiFiveClint));
+                        }
                     }
                     // Initialize reset device.
                     if SIFIVETEST_COMPATIBLE.contains(&device_id) {
@@ -253,9 +233,13 @@ impl Board {
     }
 
     fn sbi_ipi_init(&mut self) {
-        if let Some(base) = self.info.ipi {
+        if let Some((base, clint_type)) = self.info.ipi {
+            let new_clint = match clint_type {
+                MachineClintType::SiFiveClint => MachineClint::SiFive(base as _),
+                MachineClintType::TheadClint => MachineClint::THead(base as _),
+            };
             self.sbi.ipi = Some(SbiIpi::new(
-                AtomicPtr::new(base as _),
+                Mutex::new(new_clint),
                 self.info.cpu_num.unwrap_or(NUM_HART_MAX),
             ));
         } else {
@@ -282,98 +266,31 @@ impl Board {
     }
 }
 
-pub(crate) static mut BOARD: Board = Board::new();
-
-/// Console Device: Uart16550
-#[doc(hidden)]
 #[allow(unused)]
-#[derive(Clone, Copy, Debug)]
-pub enum MachineConsoleType {
-    Uart16550U8,
-    Uart16550U32,
-    UartAxiLite,
-}
-#[doc(hidden)]
-#[allow(unused)]
-pub enum MachineConsole {
-    Uart16550U8(*const Uart16550<u8>),
-    Uart16550U32(*const Uart16550<u32>),
-    UartAxiLite(MmioUartAxiLite),
-}
-
-unsafe impl Send for MachineConsole {}
-unsafe impl Sync for MachineConsole {}
-
-impl ConsoleDevice for MachineConsole {
-    fn read(&self, buf: &mut [u8]) -> usize {
-        match self {
-            Self::Uart16550U8(uart16550) => unsafe { (**uart16550).read(buf) },
-            Self::Uart16550U32(uart16550) => unsafe { (**uart16550).read(buf) },
-            Self::UartAxiLite(axilite) => axilite.read(buf),
-        }
+impl Platform {
+    pub fn have_console(&self) -> bool {
+        self.sbi.console.is_some()
     }
 
-    fn write(&self, buf: &[u8]) -> usize {
-        match self {
-            MachineConsole::Uart16550U8(uart16550) => unsafe { (**uart16550).write(buf) },
-            MachineConsole::Uart16550U32(uart16550) => unsafe { (**uart16550).write(buf) },
-            Self::UartAxiLite(axilite) => axilite.write(buf),
-        }
+    pub fn have_reset(&self) -> bool {
+        self.sbi.reset.is_some()
+    }
+
+    pub fn have_ipi(&self) -> bool {
+        self.sbi.ipi.is_some()
+    }
+
+    pub fn have_hsm(&self) -> bool {
+        self.sbi.hsm.is_some()
+    }
+
+    pub fn have_rfence(&self) -> bool {
+        self.sbi.rfence.is_some()
+    }
+
+    pub fn ready(&self) -> bool {
+        self.ready.load(Ordering::Acquire)
     }
 }
 
-/// Ipi Device: Sifive Clint
-impl IpiDevice for SifiveClint {
-    #[inline(always)]
-    fn read_mtime(&self) -> u64 {
-        self.read_mtime()
-    }
-
-    #[inline(always)]
-    fn write_mtime(&self, val: u64) {
-        self.write_mtime(val)
-    }
-
-    #[inline(always)]
-    fn read_mtimecmp(&self, hart_idx: usize) -> u64 {
-        self.read_mtimecmp(hart_idx)
-    }
-
-    #[inline(always)]
-    fn write_mtimecmp(&self, hart_idx: usize, val: u64) {
-        self.write_mtimecmp(hart_idx, val)
-    }
-
-    #[inline(always)]
-    fn read_msip(&self, hart_idx: usize) -> bool {
-        self.read_msip(hart_idx)
-    }
-
-    #[inline(always)]
-    fn set_msip(&self, hart_idx: usize) {
-        self.set_msip(hart_idx)
-    }
-
-    #[inline(always)]
-    fn clear_msip(&self, hart_idx: usize) {
-        self.clear_msip(hart_idx)
-    }
-}
-
-/// Reset Device: SifiveTestDevice
-impl ResetDevice for SifiveTestDevice {
-    #[inline]
-    fn fail(&self, code: u16) -> ! {
-        self.fail(code)
-    }
-
-    #[inline]
-    fn pass(&self) -> ! {
-        self.pass()
-    }
-
-    #[inline]
-    fn reset(&self) -> ! {
-        self.reset()
-    }
-}
+pub(crate) static mut PLATFORM: Platform = Platform::new();

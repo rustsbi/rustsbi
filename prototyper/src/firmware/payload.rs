@@ -2,7 +2,7 @@ use core::arch::asm;
 use core::sync::atomic::{AtomicBool, Ordering};
 use riscv::register::mstatus;
 
-use super::{BootHart, BootInfo};
+use super::BootInfo;
 
 /// Determine whether the current hart is boot hart.
 ///
