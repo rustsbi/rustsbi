@@ -1,5 +1,5 @@
 use std::{
-    env,
+    env, fs,
     process::{Command, ExitStatus},
 };
 
@@ -25,6 +25,13 @@ pub fn run(arg: &PrototyperArg) -> Option<ExitStatus> {
     let arch = "riscv64imac-unknown-none-elf";
     let fdt = arg.fdt.clone();
     let payload = arg.payload.clone();
+    let current_dir = env::current_dir();
+    let target_dir = current_dir
+        .as_ref()
+        .unwrap()
+        .join("target")
+        .join(arch)
+        .join("release");
 
     cargo::Cargo::new("build")
         .package("rustsbi-prototyper")
@@ -44,25 +51,35 @@ pub fn run(arg: &PrototyperArg) -> Option<ExitStatus> {
         .status()
         .ok()?;
 
-    Command::new("rust-objcopy")
+    let exit_status = Command::new("rust-objcopy")
         .args(["-O", "binary"])
         .arg("--binary-architecture=riscv64")
-        .arg(
-            env::current_dir()
-                .unwrap()
-                .join("target")
-                .join(arch)
-                .join("release")
-                .join("rustsbi-prototyper"),
-        )
-        .arg(
-            env::current_dir()
-                .unwrap()
-                .join("target")
-                .join(arch)
-                .join("release")
-                .join("rustsbi-prototyper.bin"),
-        )
+        .arg(target_dir.join("rustsbi-prototyper"))
+        .arg(target_dir.join("rustsbi-prototyper.bin"))
         .status()
-        .ok()
+        .ok()?;
+
+    if arg.payload.is_some() {
+        fs::copy(
+            target_dir.join("rustsbi-prototyper"),
+            target_dir.join("rustsbi-prototyper-payload.elf"),
+        )
+        .ok()?;
+        fs::copy(
+            target_dir.join("rustsbi-prototyper.bin"),
+            target_dir.join("rustsbi-prototyper-payload.bin"),
+        )
+        .ok()?;
+    } else {
+        fs::copy(
+            target_dir.join("rustsbi-prototyper"),
+            target_dir.join("rustsbi-prototyper-dynamic.elf"),
+        )
+        .ok()?;
+        fs::copy(
+            target_dir.join("rustsbi-prototyper.bin"),
+            target_dir.join("rustsbi-prototyper-dynamic.bin"),
+        ).ok()?;
+    }
+    Some(exit_status)
 }
