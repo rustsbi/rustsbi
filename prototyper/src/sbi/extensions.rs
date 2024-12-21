@@ -71,7 +71,7 @@ pub fn init(cpus: &NodeSeq) {
             let isa_iter = cpu.isa.unwrap();
             let isa = isa_iter.iter().next().unwrap_or_default();
             Extension::ITER.iter().for_each(|ext| {
-                hart_exts[ext.index()] = isa.find(ext.as_str()).is_some();
+                hart_exts[ext.index()] = isa.contains(ext.as_str());
             })
         }
 
@@ -116,9 +116,11 @@ pub fn init(cpus: &NodeSeq) {
         unsafe {
             ROOT_STACK
                 .get_mut(hart_id)
-                .map(|stack| stack.hart_context().features = HartFeatures{
-                    extension: hart_exts,
-                    privileged_version: PrivilegedVersion::Version1_12,
+                .map(|stack| {
+                    stack.hart_context().features = HartFeatures {
+                        extension: hart_exts,
+                        privileged_version: PrivilegedVersion::Version1_12,
+                    }
                 })
                 .unwrap()
         }

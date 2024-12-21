@@ -10,7 +10,6 @@ use super::BootInfo;
 pub fn is_boot_hart(_nonstandard_a2: usize) -> bool {
     static GENESIS: AtomicBool = AtomicBool::new(true);
     GENESIS.swap(false, Ordering::AcqRel)
-
 }
 
 pub fn get_boot_info(_nonstandard_a2: usize) -> BootInfo {

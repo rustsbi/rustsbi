@@ -13,7 +13,7 @@ pub struct SbiReset<T: ResetDevice> {
     pub reset_dev: AtomicPtr<T>,
 }
 
-impl<'a, T: ResetDevice> SbiReset<T> {
+impl<T: ResetDevice> SbiReset<T> {
     pub fn new(reset_dev: AtomicPtr<T>) -> Self {
         Self { reset_dev }
     }

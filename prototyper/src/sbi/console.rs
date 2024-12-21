@@ -1,7 +1,7 @@
+use crate::platform::PLATFORM;
 use core::fmt::{self, Write};
 use rustsbi::{Console, Physical, SbiRet};
 use spin::Mutex;
-use crate::platform::PLATFORM;
 
 /// A trait that must be implemented by console devices to provide basic I/O functionality.
 pub trait ConsoleDevice {
