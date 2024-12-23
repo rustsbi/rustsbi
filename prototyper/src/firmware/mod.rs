@@ -59,6 +59,11 @@ pub fn get_boot_hart(opaque: usize, nonstandard_a2: usize) -> BootHart {
     }
 }
 
+static mut SBI_START_ADDRESS: usize = 0;
+static mut SBI_END_ADDRESS: usize = 0;
+static mut RODATA_START_ADDRESS: usize = 0;
+static mut RODATA_END_ADDRESS: usize = 0;
+
 pub fn set_pmp(memory_range: &Range<usize>) {
     unsafe {
         // [0..memory_range.start] RW
@@ -69,29 +74,59 @@ pub fn set_pmp(memory_range: &Range<usize>) {
         // [sbi_end..memory_range.end] RWX
         // [memory_range.end..INF] RW
         use riscv::register::*;
-        let mut sbi_start_address: usize;
-        let mut sbi_end_address: usize;
-        let mut rodata_start_address: usize;
-        let mut rodata_end_address: usize;
-        asm!("la {}, sbi_start", out(reg) sbi_start_address, options(nomem));
-        asm!("la {}, sbi_end", out(reg) sbi_end_address, options(nomem));
-        asm!("la {}, sbi_rodata_start", out(reg) rodata_start_address, options(nomem));
-        asm!("la {}, sbi_rodata_end", out(reg) rodata_end_address, options(nomem));
+
+        asm!("la {}, sbi_start", out(reg) SBI_START_ADDRESS, options(nomem));
+        asm!("la {}, sbi_end", out(reg) SBI_END_ADDRESS, options(nomem));
+        asm!("la {}, sbi_rodata_start", out(reg) RODATA_START_ADDRESS, options(nomem));
+        asm!("la {}, sbi_rodata_end", out(reg) RODATA_END_ADDRESS, options(nomem));
+
         pmpcfg0::set_pmp(0, Range::OFF, Permission::NONE, false);
         pmpaddr0::write(0);
         pmpcfg0::set_pmp(1, Range::TOR, Permission::RW, false);
         pmpaddr1::write(memory_range.start >> 2);
         pmpcfg0::set_pmp(2, Range::TOR, Permission::RWX, false);
-        pmpaddr2::write(sbi_start_address >> 2);
+        pmpaddr2::write(SBI_START_ADDRESS >> 2);
         pmpcfg0::set_pmp(3, Range::TOR, Permission::NONE, false);
-        pmpaddr3::write(rodata_start_address >> 2);
+        pmpaddr3::write(RODATA_START_ADDRESS >> 2);
         pmpcfg0::set_pmp(4, Range::TOR, Permission::RW, false);
-        pmpaddr4::write(rodata_end_address >> 2);
+        pmpaddr4::write(RODATA_END_ADDRESS >> 2);
         pmpcfg0::set_pmp(5, Range::TOR, Permission::NONE, false);
-        pmpaddr5::write(sbi_end_address >> 2);
+        pmpaddr5::write(SBI_END_ADDRESS >> 2);
         pmpcfg0::set_pmp(6, Range::TOR, Permission::RWX, false);
         pmpaddr6::write(memory_range.end >> 2);
         pmpcfg0::set_pmp(7, Range::TOR, Permission::RW, false);
         pmpaddr7::write(usize::MAX >> 2);
+    }
+}
+
+pub fn log_pmp_cfg(memory_range: &Range<usize>) {
+    unsafe {
+        info!("PMP Configuration");
+
+        info!(
+            "{:<10} {:<10} {:<15} {:<30}",
+            "PMP", "Range", "Permission", "Address"
+        );
+
+        info!("{:<10} {:<10} {:<15} 0x{:08x}", "PMP 0:", "OFF", "NONE", 0);
+        info!(
+            "{:<10} {:<10} {:<15} 0x{:08x} - 0x{:08x}",
+            "PMP 1-2:", "TOR", "RW/RWX", memory_range.start, SBI_START_ADDRESS
+        );
+        info!(
+            "{:<10} {:<10} {:<15} 0x{:08x} - 0x{:08x} - 0x{:08x}",
+            "PMP 3-5:", "TOR", "NONE/RW", RODATA_START_ADDRESS, RODATA_END_ADDRESS, SBI_END_ADDRESS
+        );
+        info!(
+            "{:<10} {:<10} {:<15} 0x{:08x}",
+            "PMP 6:", "TOR", "RWX", memory_range.end
+        );
+        info!(
+            "{:<10} {:<10} {:<15} 0x{:08x}",
+            "PMP 7:",
+            "TOR",
+            "RW",
+            usize::MAX
+        );
     }
 }

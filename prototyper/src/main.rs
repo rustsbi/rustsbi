@@ -47,11 +47,22 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             PLATFORM.init(fdt_address);
             PLATFORM.print_board_info();
         }
+
         firmware::set_pmp(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });
+        firmware::log_pmp_cfg(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });
 
         // Get boot information and prepare for kernel entry.
         let boot_info = firmware::get_boot_info(nonstandard_a2);
         let (mpp, next_addr) = (boot_info.mpp, boot_info.next_address);
+
+        // Log boot hart ID and PMP information
+        let hart_id = current_hartid();
+        info!("{:<30}: {}", "Boot HART ID", hart_id);
+
+        // Detection Priv Ver
+        privileged_version_detection();
+        let priv_version = hart_privileged_version(hart_id);
+        info!("{:<30}: {:?}", "Boot HART Privileged Version", priv_version);
 
         // Start kernel.
         local_remote_hsm().start(NextStage {
@@ -67,7 +78,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             mpp
         );
     } else {
-        // 设置陷入栈
+        // Other harts task entry.
         trap_stack::prepare_for_trap();
 
         // Wait for boot hart to complete SBI initialization.
@@ -77,9 +88,6 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
 
         firmware::set_pmp(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });
     }
-
-    // Detection Priv Ver
-    privileged_version_detection();
     // Clear all pending IPIs.
     ipi::clear_all();
 
