@@ -25,6 +25,7 @@ pub fn run(arg: &BenchArg) -> Option<ExitStatus> {
         .join(arch)
         .join("release");
 
+    info!("Building bench kernel");
     cargo::Cargo::new("build")
         .package("rustsbi-bench-kernel")
         .target(arch)
@@ -32,6 +33,7 @@ pub fn run(arg: &BenchArg) -> Option<ExitStatus> {
         .status()
         .ok()?;
 
+    info!("Copy to binary");
     let exit_status = Command::new("rust-objcopy")
         .args(["-O", "binary"])
         .arg("--binary-architecture=riscv64")
@@ -41,6 +43,7 @@ pub fn run(arg: &BenchArg) -> Option<ExitStatus> {
         .ok()?;
 
     if arg.pack {
+        info!("Pack to image");
         match fs::exists(target_dir.join("rustsbi-prototyper.bin")) {
             Ok(true) => {}
             Ok(false) => {

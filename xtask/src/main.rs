@@ -7,6 +7,10 @@ mod bench;
 mod prototyper;
 mod test;
 
+extern crate pretty_env_logger;
+#[macro_use]
+extern crate log;
+
 use crate::bench::BenchArg;
 use crate::prototyper::PrototyperArg;
 use crate::test::TestArg;
@@ -30,14 +34,17 @@ enum Cmd {
 }
 
 fn main() -> ExitCode {
+    pretty_env_logger::init();
     if let Some(code) = match Cli::parse().cmd {
         Cmd::Prototyper(ref arg) => prototyper::run(arg),
         Cmd::Test(ref arg) => test::run(arg),
         Cmd::Bench(ref arg) => bench::run(arg),
     } {
         if code.success() {
+            info!("Finished");
             return ExitCode::SUCCESS;
         }
     }
+    error!("Failed to run task!");
     ExitCode::FAILURE
 }
