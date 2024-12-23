@@ -4,6 +4,14 @@ RustSBI Prototyper is a developing RISC-V Secure Bootloader solution. It can be 
 
 ## Setting Up the Development Environment
 
+### Packages to be installed
+
+```bash
+cargo install cargo-binutils
+sudo apt install u-boot-tools
+```
+
+
 ### Optional Tools
 
 The following tools are not mandatory but can be useful for enhancing your development experience.
