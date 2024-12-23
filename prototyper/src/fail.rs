@@ -3,9 +3,9 @@ use serde_device_tree::Dtb;
 use crate::dt;
 
 #[cfg(not(feature = "payload"))]
-use crate::sbi::reset;
-#[cfg(not(feature = "payload"))]
 use crate::firmware::dynamic;
+#[cfg(not(feature = "payload"))]
+use crate::sbi::reset;
 #[cfg(not(feature = "payload"))]
 use riscv::register::mstatus;
 

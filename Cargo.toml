@@ -1,12 +1,6 @@
 [workspace]
 resolver = "2"
-members = [
-  "prototyper",
-  "bench-kernel",
-  "test-kernel",
-  "supervisor", 
-  "xtask"
-]
+members = ["prototyper", "bench-kernel", "test-kernel", "supervisor", "xtask"]
 
 [workspace.package]
 edition = "2021"

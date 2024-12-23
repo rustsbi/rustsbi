@@ -1,5 +1,5 @@
-use core::arch::asm;
 use aclint::SifiveClint;
+use core::arch::asm;
 use xuantie_riscv::peripheral::clint::THeadClint;
 
 use crate::sbi::ipi::IpiDevice;

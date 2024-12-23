@@ -9,10 +9,10 @@ extern crate log;
 #[macro_use]
 mod macros;
 
-mod platform;
 mod dt;
 mod fail;
 mod firmware;
+mod platform;
 mod riscv_spec;
 mod sbi;
 

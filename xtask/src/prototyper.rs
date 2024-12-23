@@ -21,6 +21,7 @@ pub struct PrototyperArg {
 }
 
 #[must_use]
+#[rustfmt::skip] // "export_env!("PROTOTYPER_FDT_PATH" ?= fdt.unwrap());" is a macro, rustfmt will not format it correctly
 pub fn run(arg: &PrototyperArg) -> Option<ExitStatus> {
     let arch = "riscv64imac-unknown-none-elf";
     let fdt = arg.fdt.clone();
@@ -33,7 +34,7 @@ pub fn run(arg: &PrototyperArg) -> Option<ExitStatus> {
         .join(arch)
         .join("release");
 
-    cargo::Cargo::new("build")
+    let status = cargo::Cargo::new("build")
         .package("rustsbi-prototyper")
         .target(arch)
         .unstable("build-std", ["core"])
@@ -51,35 +52,40 @@ pub fn run(arg: &PrototyperArg) -> Option<ExitStatus> {
         .status()
         .ok()?;
 
-    let exit_status = Command::new("rust-objcopy")
-        .args(["-O", "binary"])
-        .arg("--binary-architecture=riscv64")
-        .arg(target_dir.join("rustsbi-prototyper"))
-        .arg(target_dir.join("rustsbi-prototyper.bin"))
-        .status()
-        .ok()?;
+    if status.success() {
+        let exit_status = Command::new("rust-objcopy")
+            .args(["-O", "binary"])
+            .arg("--binary-architecture=riscv64")
+            .arg(target_dir.join("rustsbi-prototyper"))
+            .arg(target_dir.join("rustsbi-prototyper.bin"))
+            .status()
+            .ok()?;
 
-    if arg.payload.is_some() {
-        fs::copy(
-            target_dir.join("rustsbi-prototyper"),
-            target_dir.join("rustsbi-prototyper-payload.elf"),
-        )
-        .ok()?;
-        fs::copy(
-            target_dir.join("rustsbi-prototyper.bin"),
-            target_dir.join("rustsbi-prototyper-payload.bin"),
-        )
-        .ok()?;
+        if arg.payload.is_some() {
+            fs::copy(
+                target_dir.join("rustsbi-prototyper"),
+                target_dir.join("rustsbi-prototyper-payload.elf"),
+            )
+            .ok()?;
+            fs::copy(
+                target_dir.join("rustsbi-prototyper.bin"),
+                target_dir.join("rustsbi-prototyper-payload.bin"),
+            )
+            .ok()?;
+        } else {
+            fs::copy(
+                target_dir.join("rustsbi-prototyper"),
+                target_dir.join("rustsbi-prototyper-dynamic.elf"),
+            )
+            .ok()?;
+            fs::copy(
+                target_dir.join("rustsbi-prototyper.bin"),
+                target_dir.join("rustsbi-prototyper-dynamic.bin"),
+            ).ok()?;
+        }
+        return Some(exit_status);
     } else {
-        fs::copy(
-            target_dir.join("rustsbi-prototyper"),
-            target_dir.join("rustsbi-prototyper-dynamic.elf"),
-        )
-        .ok()?;
-        fs::copy(
-            target_dir.join("rustsbi-prototyper.bin"),
-            target_dir.join("rustsbi-prototyper-dynamic.bin"),
-        ).ok()?;
+        eprintln!("Build failed with status: {:?}", status);
+        return Some(status);
     }
-    Some(exit_status)
 }

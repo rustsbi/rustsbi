@@ -196,7 +196,9 @@ impl Platform {
             use dt::Cpu;
             let cpu = cpu_iter.deserialize::<Cpu>();
             let hart_id = cpu.reg.iter().next().unwrap().0.start;
-            cpu_list.get_mut(hart_id).map(|x| *x = true);
+            if let Some(x) = cpu_list.get_mut(hart_id) {
+                *x = true;
+            }
         }
         self.info.cpu_enabled = Some(cpu_list);
     }

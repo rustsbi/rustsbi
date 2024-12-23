@@ -1,6 +1,3 @@
-use core::sync::atomic::Ordering::Relaxed;
-use rustsbi::{HartMask, SbiRet};
-use spin::Mutex;
 use crate::platform::PLATFORM;
 use crate::riscv_spec::{current_hartid, stimecmp};
 use crate::sbi::extensions::{hart_extension_probe, Extension};
@@ -8,6 +5,9 @@ use crate::sbi::hsm::remote_hsm;
 use crate::sbi::rfence;
 use crate::sbi::trap;
 use crate::sbi::trap_stack::ROOT_STACK;
+use core::sync::atomic::Ordering::Relaxed;
+use rustsbi::{HartMask, SbiRet};
+use spin::Mutex;
 
 /// IPI type for supervisor software interrupt.
 pub(crate) const IPI_TYPE_SSOFT: u8 = 1 << 0;
@@ -195,7 +195,7 @@ impl<T: IpiDevice> SbiIpi<T> {
     /// Get upper 32 bits of machine time.
     #[inline]
     pub fn get_timeh(&self) -> usize {
-        ( self.ipi_dev.lock().read_mtime() >> 32) as usize
+        (self.ipi_dev.lock().read_mtime() >> 32) as usize
     }
 
     /// Set machine software interrupt pending for hart.

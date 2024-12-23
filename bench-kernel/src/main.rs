@@ -223,7 +223,7 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     let frequency = tree.cpus.timebase_frequency;
     info!(
         r"
- ____                  _       _  __                    _ 
+ ____                  _       _  __                    _
 | __ )  ___ _ __   ___| |__   | |/ /___ _ __ _ __   ___| |
 |  _ \ / _ \ '_ \ / __| '_ \  | ' // _ \ '__| '_ \ / _ \ |
 | |_) |  __/ | | | (__| | | | | . \  __/ |  | | | |  __/ |
@@ -256,8 +256,8 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     for i in 0..4 {
         info!("Test #{i} started");
         unsafe {
-            for i in 0..smp {
-                IPI_SENT[i].assume_init_mut().swap(false, Ordering::AcqRel);
+            for (i, ipi_sent) in IPI_SENT.iter_mut().enumerate().take(smp) {
+                ipi_sent.assume_init_mut().swap(false, Ordering::AcqRel);
                 if i != hartid {
                     while sbi::hart_get_status(i) != SUSPENDED {}
                 }

@@ -232,7 +232,12 @@ impl rustsbi::Hsm for SbiHsm {
         use rustsbi::spec::hsm::suspend_type::{NON_RETENTIVE, RETENTIVE};
         if matches!(suspend_type, NON_RETENTIVE | RETENTIVE) {
             unsafe {
-                PLATFORM.sbi.ipi.as_ref().unwrap().clear_msip(current_hartid());
+                PLATFORM
+                    .sbi
+                    .ipi
+                    .as_ref()
+                    .unwrap()
+                    .clear_msip(current_hartid());
             }
             unsafe {
                 riscv::register::mie::set_msoft();
