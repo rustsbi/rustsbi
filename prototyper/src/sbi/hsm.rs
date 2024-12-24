@@ -200,7 +200,7 @@ impl rustsbi::Hsm for SbiHsm {
                     }
                     SbiRet::success(0)
                 } else {
-                    SbiRet::already_started()
+                    SbiRet::already_available()
                 }
             }
             None => SbiRet::invalid_param(),
