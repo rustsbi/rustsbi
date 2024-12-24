@@ -89,17 +89,6 @@ impl Platform {
         self.ready.swap(true, Ordering::Release);
     }
 
-    pub fn print_board_info(&self) {
-        info!("RustSBI version {}", rustsbi::VERSION);
-        rustsbi::LOGO.lines().for_each(|line| info!("{}", line));
-        info!("Initializing RustSBI machine-mode environment.");
-        info!("Number of CPU: {:?}", self.info.cpu_num);
-        info!("Enabled hart: {:?}", self.info.cpu_enabled);
-        info!("Model: {}", self.info.model);
-        info!("Clint device: {:x?}", self.info.ipi);
-        info!("Console device: {:x?}", self.info.console);
-    }
-
     fn info_init(&mut self, fdt_address: usize) {
         let dtb = dt::parse_device_tree(fdt_address).unwrap_or_else(fail::device_tree_format);
         let dtb = dtb.share();
@@ -264,6 +253,145 @@ impl Platform {
             self.sbi.rfence = Some(SbiRFence);
         } else {
             self.sbi.rfence = None;
+        }
+    }
+
+    pub fn print_board_info(&self) {
+        info!("RustSBI version {}", rustsbi::VERSION);
+        rustsbi::LOGO.lines().for_each(|line| info!("{}", line));
+        info!("Initializing RustSBI machine-mode environment.");
+
+        self.print_platform_info();
+        self.print_cpu_info();
+        self.print_device_info();
+        self.print_memory_info();
+        self.print_additional_info();
+    }
+
+    #[inline]
+    fn print_platform_info(&self) {
+        info!("{:<30}: {}", "Platform Name", self.info.model);
+    }
+
+    fn print_cpu_info(&self) {
+        info!(
+            "{:<30}: {:?}",
+            "Platform HART Count",
+            self.info.cpu_num.unwrap_or(0)
+        );
+
+        if let Some(cpu_enabled) = &self.info.cpu_enabled {
+            let mut enabled_harts = [0; trap_stack::NUM_HART_MAX];
+            let mut count = 0;
+            for (i, &enabled) in cpu_enabled.iter().enumerate() {
+                if enabled {
+                    enabled_harts[count] = i;
+                    count += 1;
+                }
+            }
+            info!("{:<30}: {:?}", "Enabled HARTs", &enabled_harts[..count]);
+        } else {
+            warn!("{:<30}: Not Available", "Enabled HARTs");
+        }
+    }
+
+    #[inline]
+    fn print_device_info(&self) {
+        self.print_clint_info();
+        self.print_console_info();
+        self.print_reset_info();
+        self.print_hsm_info();
+        self.print_rfence_info();
+    }
+
+    #[inline]
+    fn print_clint_info(&self) {
+        match self.info.ipi {
+            Some((base, device)) => {
+                info!(
+                    "{:<30}: {:?} (Base Address: 0x{:x})",
+                    "Platform IPI Device", device, base
+                );
+            }
+            None => warn!("{:<30}: Not Available", "Platform IPI Device"),
+        }
+    }
+
+    #[inline]
+    fn print_console_info(&self) {
+        match self.info.console {
+            Some((base, device)) => {
+                info!(
+                    "{:<30}: {:?} (Base Address: 0x{:x})",
+                    "Platform Console Device", device, base
+                );
+            }
+            None => warn!("{:<30}: Not Available", "Platform Console Device"),
+        }
+    }
+
+    #[inline]
+    fn print_reset_info(&self) {
+        if let Some(base) = self.info.reset {
+            info!(
+                "{:<30}: Available (Base Address: 0x{:x})",
+                "Platform Reset Device", base
+            );
+        } else {
+            warn!("{:<30}: Not Available", "Platform Reset Device");
+        }
+    }
+
+    #[inline]
+    fn print_memory_info(&self) {
+        if let Some(memory_range) = &self.info.memory_range {
+            info!(
+                "{:<30}: 0x{:x} - 0x{:x}",
+                "Memory range", memory_range.start, memory_range.end
+            );
+        } else {
+            warn!("{:<30}: Not Available", "Memory range");
+        }
+    }
+
+    #[inline]
+    fn print_hsm_info(&self) {
+        info!(
+            "{:<30}: {}",
+            "Platform HSM Device",
+            if self.have_hsm() {
+                "Available"
+            } else {
+                "Not Available"
+            }
+        );
+    }
+
+    #[inline]
+    fn print_rfence_info(&self) {
+        info!(
+            "{:<30}: {}",
+            "Platform RFence Device",
+            if self.have_rfence() {
+                "Available"
+            } else {
+                "Not Available"
+            }
+        );
+    }
+
+    #[inline]
+    fn print_additional_info(&self) {
+        if !self.ready.load(Ordering::Acquire) {
+            warn!(
+                "{:<30}: Platform initialization is not complete.",
+                "Platform Status"
+            );
+        } else {
+            info!(
+                "{:<30}: Platform initialization complete and ready.",
+                "Platform Status"
+            );
         }
     }
 }

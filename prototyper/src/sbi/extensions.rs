@@ -13,7 +13,7 @@ pub enum Extension {
     Sstc = 0,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PrivilegedVersion {
     Unknown = 0,
     Version1_10 = 1,
@@ -83,6 +83,7 @@ pub fn init(cpus: &NodeSeq) {
         }
     }
 }
+
 pub fn privileged_version_detection() {
     let mut current_priv_ver = PrivilegedVersion::Unknown;
     {
