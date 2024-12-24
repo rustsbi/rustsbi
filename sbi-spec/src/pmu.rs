@@ -38,6 +38,10 @@ mod fid {
     ///
     /// Declared in §11.13.
     pub const SNAPSHOT_SET_SHMEM: usize = 7;
+    /// Function ID to get details about any PMU event via shared memory.
+    ///
+    /// Declared in §11.14.
+    pub const EVENT_GET_INFO: usize = 8;
 }
 
 /// PMU Event Types.
@@ -56,9 +60,13 @@ pub mod event_type {
     ///
     /// Declared in §11.3.
     pub const HARDWARE_RAW: usize = 2;
-    /// Type for all firmware events.
+    /// Type for all hardware raw events v2.
     ///
     /// Declared in §11.4.
+    pub const HARDWARE_RAW_V2: usize = 3;
+    /// Type for all firmware events.
+    ///
+    /// Declared in §11.5.
     pub const FIRMWARE: usize = 15;
 }
 
@@ -78,7 +86,7 @@ pub mod hardware_event {
     pub const CACHE_MISSES: usize = 4;
     /// Event for a branch instruction.
     pub const BRANCH_INSTRUCTIONS: usize = 5;
-    /// Event for a branch mis-prediction.
+    /// Event for a branch misprediction.
     pub const BRANCH_MISSES: usize = 6;
     /// Event for each BUS cycle.
     pub const BUS_CYCLES: usize = 7;
@@ -134,7 +142,7 @@ pub mod cache_result {
 
 /// Firmware Event Codes.
 ///
-/// Declared in §11.4.
+/// Declared in §11.5.
 pub mod firmware_event {
     /// Misaligned load trap event.
     pub const MISALIGNED_LOAD: usize = 0;
@@ -198,13 +206,13 @@ pub mod shmem_size {
 /// Start a set of counters.
 /// Stop a set of counters.
 ///  
-/// Declared in §11.7, §11.8 and §11.9.
+/// Declared in §11.8, §11.9 and §11.10.
 pub mod flags {
     use bitflags::bitflags;
 
     bitflags! {
         #[derive(Clone, Copy, PartialEq, Eq)]
-        /// Declared in Table 36.
+        /// Declared in Table 37.
         pub struct CounterCfgFlags: usize {
             /// Skip the counter matching.
             const SKIP_MATCH = 1 << 0;
@@ -227,7 +235,7 @@ pub mod flags {
 
     bitflags! {
         #[derive(Clone, Copy, PartialEq, Eq)]
-        /// Declared in Table 38
+        /// Declared in Table 39.
         pub struct CounterStartFlags: usize {
             /// Set the value of counters based on the initial_value parameter.
             const INIT_VALUE = 1 << 0;
@@ -238,7 +246,7 @@ pub mod flags {
 
     bitflags! {
         #[derive(Clone, Copy, PartialEq, Eq)]
-        /// Declared in Table 40.
+        /// Declared in Table 41.
         pub struct CounterStopFlags: usize {
             /// Reset the counter to event mapping.
             const RESET = 1 << 0;
