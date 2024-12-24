@@ -18,6 +18,9 @@ pub struct PrototyperArg {
 
     #[clap(long, env = "PROTOTYPER_PAYLOAD_PATH")]
     pub payload: Option<String>,
+
+    #[clap(long, default_value = "INFO")]
+    pub log_level: String,
 }
 
 #[must_use]
@@ -42,13 +45,14 @@ pub fn run(arg: &PrototyperArg) -> Option<ExitStatus> {
         .env("RUSTFLAGS", "-C relocation-model=pie -C link-arg=-pie")
         .features(&arg.features)
         .optional(arg.fdt.is_some(), |cargo| {
-            export_env!("PROTOTYPER_FDT_PATH" ?= fdt.unwrap());
+            cargo.env("PROTOTYPER_FDT_PATH", fdt.as_ref().unwrap());
             cargo.features(["fdt".to_string()])
         })
         .optional(payload.is_some(), |cargo| {
-            export_env!("PROTOTYPER_PAYLOAD_PATH" ?= payload.unwrap());
+            cargo.env("PROTOTYPER_PAYLOAD_PATH", payload.as_ref().unwrap());
             cargo.features(["payload".to_string()])
         })
+        .env("RUST_LOG", &arg.log_level)
         .release()
         .status()
         .ok()?;
