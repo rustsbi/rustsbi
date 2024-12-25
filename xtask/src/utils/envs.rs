@@ -1,3 +1,4 @@
+#[allow(unused)]
 macro_rules! export_env {
     ($env:literal ?= $val:expr) => {
         if std::env::vars_os().all(|(k, _)| k != $env) {
