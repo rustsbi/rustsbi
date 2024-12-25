@@ -50,6 +50,9 @@ pub mod sta;
 pub mod sse;
 // §18
 pub mod fwft;
+// §19
+pub mod dbtr;
+
 /// Converts SBI EID from str.
 const fn eid_from_str(name: &str) -> i32 {
     match *name.as_bytes() {
@@ -361,5 +364,19 @@ mod tests {
         const_assert_eq!(0x46574654, EID_FWFT);
         const_assert_eq!(0, SET);
         const_assert_eq!(1, GET);
+    }
+    // §19
+    #[test]
+    fn test_dbtr() {
+        use crate::dbtr::*;
+        const_assert_eq!(0x44425452, EID_DBTR);
+        const_assert_eq!(0, NUM_TRIGGERS);
+        const_assert_eq!(1, SET_SHMEM);
+        const_assert_eq!(2, READ_TRIGGERS);
+        const_assert_eq!(3, INSTALL_TRIGGERS);
+        const_assert_eq!(4, UPDATE_TRIGGERS);
+        const_assert_eq!(5, UNINSTALL_TRIGGERS);
+        const_assert_eq!(6, ENABLE_TRIGGERS);
+        const_assert_eq!(7, DISABLE_TRIGGERS);
     }
 }
