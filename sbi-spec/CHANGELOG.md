@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - fwft: add support for FWFT extension in chapter 18
 - sse: add support for Supervisor Software Events Extension in chapter 17
 - binary: add `HartIds` structure for an iterator over `HartMask`
+- Support `DBTR` extension in Chapter 19
 
 ### Modified
 
