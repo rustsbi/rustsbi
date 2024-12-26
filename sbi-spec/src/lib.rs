@@ -52,6 +52,8 @@ pub mod sse;
 pub mod fwft;
 // §19
 pub mod dbtr;
+// §20
+pub mod mpxy;
 
 /// Converts SBI EID from str.
 const fn eid_from_str(name: &str) -> i32 {
@@ -378,5 +380,18 @@ mod tests {
         const_assert_eq!(5, UNINSTALL_TRIGGERS);
         const_assert_eq!(6, ENABLE_TRIGGERS);
         const_assert_eq!(7, DISABLE_TRIGGERS);
+    }
+    // §20
+    #[test]
+    fn test_mpxy() {
+        use crate::mpxy::*;
+        const_assert_eq!(0x4D505859, EID_MPXY);
+        const_assert_eq!(0, SET_SHMEM);
+        const_assert_eq!(1, GET_CHANNEL_IDS);
+        const_assert_eq!(2, READ_ATTRIBUTE);
+        const_assert_eq!(3, WRITE_ATTRIBUTE);
+        const_assert_eq!(4, SEND_MESSAGE_WITH_RESPONSE);
+        const_assert_eq!(5, SEND_MESSAGE_WITHOUT_RESPONSE);
+        const_assert_eq!(6, GET_NOTIFICATION_EVENTS);
     }
 }
