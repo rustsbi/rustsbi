@@ -188,6 +188,27 @@ impl SbiRet {
     }
 }
 
+impl From<Error> for SbiRet {
+    #[inline]
+    fn from(value: Error) -> Self {
+        match value {
+            Error::Failed => SbiRet::failed(),
+            Error::NotSupported => SbiRet::not_supported(),
+            Error::InvalidParam => SbiRet::invalid_param(),
+            Error::Denied => SbiRet::denied(),
+            Error::InvalidAddress => SbiRet::invalid_address(),
+            Error::AlreadyAvailable => SbiRet::already_available(),
+            Error::AlreadyStarted => SbiRet::already_started(),
+            Error::AlreadyStopped => SbiRet::already_stopped(),
+            Error::NoShmem => SbiRet::no_shmem(),
+            Error::Custom(error) => SbiRet {
+                error: usize::from_ne_bytes(error.to_ne_bytes()),
+                value: 0,
+            },
+        }
+    }
+}
+
 impl SbiRet {
     /// Converts to a [`Result`] of value and error.
     #[inline]
@@ -503,6 +524,9 @@ impl SbiRet {
         self
     }
 
+    // TODO: pub fn iter(&self) -> Iter
+    // TODO: pub fn iter_mut(&mut self) -> IterMut
+
     /// Returns the contained success value, consuming the `self` value.
     ///
     /// # Panics
@@ -551,6 +575,8 @@ impl SbiRet {
         self.into_result().unwrap()
     }
 
+    // Note: No unwrap_or_default as we cannot determine a meaningful default value for a successful SbiRet.
+
     /// Returns the contained error as [`Error`] struct, consuming the `self` value.
     ///
     /// # Panics
@@ -596,6 +622,9 @@ impl SbiRet {
     pub fn unwrap_err(self) -> Error {
         self.into_result().unwrap_err()
     }
+
+    // TODO: pub fn into_ok(self) -> usize and pub fn into_err(self) -> Error
+    // once `unwrap_infallible` is stablized
 
     /// Returns `res` if self is success value, otherwise otherwise returns the contained error
     /// of `self` as [`Error`] struct.
@@ -759,7 +788,123 @@ impl SbiRet {
     pub fn unwrap_or_else<F: FnOnce(Error) -> usize>(self, op: F) -> usize {
         self.into_result().unwrap_or_else(op)
     }
+
+    /// Returns the contained success value, consuming the `self` value,
+    /// without checking that the `SbiRet` contains an error value.
+    ///
+    /// # Safety
+    ///
+    /// Calling this method on an `SbiRet` containing an error value results
+    /// in *undefined behavior*.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sbi_spec::binary::{SbiRet, Error};
+    /// let x = SbiRet::success(3);
+    /// assert_eq!(unsafe { x.unwrap_unchecked() }, 3);
+    /// ```
+    ///
+    /// ```no_run
+    /// # use sbi_spec::binary::SbiRet;
+    /// let x = SbiRet::no_shmem();
+    /// unsafe { x.unwrap_unchecked(); } // Undefined behavior!
+    /// ```
+    #[inline]
+    pub unsafe fn unwrap_unchecked(self) -> usize {
+        self.into_result().unwrap_unchecked()
+    }
+
+    /// Returns the contained `Error` value, consuming the `self` value,
+    /// without checking that the `SbiRet` does not contain a success value.
+    ///
+    /// # Safety
+    ///
+    /// Calling this method on an `SbiRet` containing a success value results
+    /// in *undefined behavior*.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use sbi_spec::binary::SbiRet;
+    /// let x = SbiRet::success(4);
+    /// unsafe { x.unwrap_unchecked(); } // Undefined behavior!
+    /// ```
+    ///
+    /// ```
+    /// # use sbi_spec::binary::{SbiRet, Error};
+    /// let x = SbiRet::failed();
+    /// assert_eq!(unsafe { x.unwrap_err_unchecked() }, Error::Failed);
+    /// ```
+    #[inline]
+    pub unsafe fn unwrap_err_unchecked(self) -> Error {
+        self.into_result().unwrap_err_unchecked()
+    }
 }
+
+impl IntoIterator for SbiRet {
+    type Item = usize;
+    type IntoIter = core::result::IntoIter<usize>;
+
+    /// Returns a consuming iterator over the possibly contained value.
+    ///
+    /// The iterator yields one value if the result contains a success value, otherwise none.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sbi_spec::binary::SbiRet;
+    /// let x = SbiRet::success(5);
+    /// let v: Vec<usize> = x.into_iter().collect();
+    /// assert_eq!(v, [5]);
+    ///
+    /// let x = SbiRet::not_supported();
+    /// let v: Vec<usize> = x.into_iter().collect();
+    /// assert_eq!(v, []);
+    /// ```
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.into_result().into_iter()
+    }
+}
+
+// TODO: implement Try and FromResidual for SbiRet once those traits are stablized
+/*
+impl core::ops::Try for SbiRet {
+    type Output = usize;
+    type Residual = Result<core::convert::Infallible, Error>;
+
+    #[inline]
+    fn from_output(output: Self::Output) -> Self {
+        SbiRet::success(output)
+    }
+
+    #[inline]
+    fn branch(self) -> core::ops::ControlFlow<Self::Residual, Self::Output> {
+        self.into_result().branch()
+    }
+}
+
+impl core::ops::FromResidual<Result<core::convert::Infallible, Error>> for SbiRet {
+    #[inline]
+    #[track_caller]
+    fn from_residual(residual: Result<core::convert::Infallible, Error>) -> Self {
+        match residual {
+            Err(e) => e.into(),
+        }
+    }
+}
+
+/// ```
+/// # use sbi_spec::binary::SbiRet;
+/// fn test() -> SbiRet {
+///     let value = SbiRet::failed()?;
+///     SbiRet::success(0)
+/// }
+/// assert_eq!(test(), SbiRet::failed());
+/// ```
+mod test_try_trait_for_sbiret {}
+*/
 
 /// Check if the implementation can contains the provided `bit`.
 #[inline]

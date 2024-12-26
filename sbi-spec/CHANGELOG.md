@@ -14,6 +14,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - binary: add `HartIds` structure for an iterator over `HartMask`
 - Support `DBTR` extension in Chapter 19
 - mpxy: add support for MPXY extension in chapter 20
+- binary: `impl From<Error> for SbiRet`, `impl IntoIterator for SbiRet`
+- binary: unsafe functions `SbiRet::{unwrap_unchecked, unwrap_err_unchecked}`
 
 ### Modified
 
