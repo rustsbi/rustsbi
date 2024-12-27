@@ -41,6 +41,14 @@ pub const RET_ERR_ALREADY_STARTED: usize = -7isize as _;
 pub const RET_ERR_ALREADY_STOPPED: usize = -8isize as _;
 /// Error for shared memory not available.
 pub const RET_ERR_NO_SHMEM: usize = -9isize as _;
+/// Error for invalid state.
+pub const RET_ERR_INVALID_STATE: usize = -10isize as _;
+/// Error for bad or invalid range.
+pub const RET_ERR_BAD_RANGE: usize = -11isize as _;
+/// Error for failed due to timeout.
+pub const RET_ERR_TIMEOUT: usize = -12isize as _;
+/// Error for input or output error.
+pub const RET_ERR_IO: usize = -13isize as _;
 
 impl core::fmt::Debug for SbiRet {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -55,6 +63,10 @@ impl core::fmt::Debug for SbiRet {
             RET_ERR_ALREADY_STARTED => write!(f, "<SBI already started>"),
             RET_ERR_ALREADY_STOPPED => write!(f, "<SBI already stopped>"),
             RET_ERR_NO_SHMEM => write!(f, "<SBI shared memory not available>"),
+            RET_ERR_INVALID_STATE => write!(f, "<SBI invalid state>"),
+            RET_ERR_BAD_RANGE => write!(f, "<SBI bad range>"),
+            RET_ERR_TIMEOUT => write!(f, "<SBI timeout>"),
+            RET_ERR_IO => write!(f, "<SBI input/output error>"),
             unknown => write!(f, "[SBI Unknown error: {unknown:#x}]"),
         }
     }
@@ -81,6 +93,14 @@ pub enum Error {
     AlreadyStopped,
     /// Error for shared memory not available.
     NoShmem,
+    /// Error for invalid state.
+    InvalidState,
+    /// Error for bad or invalid range.
+    BadRange,
+    /// Error for failed due to timeout.
+    Timeout,
+    /// Error for input or output error.
+    Io,
     /// Custom error code.
     Custom(isize),
 }
@@ -186,6 +206,45 @@ impl SbiRet {
             value: 0,
         }
     }
+
+    /// SBI call failed for invalid state,
+    /// e.g. register a software event but the event is not in unused state.
+    #[inline]
+    pub const fn invalid_state() -> Self {
+        Self {
+            error: RET_ERR_INVALID_STATE,
+            value: 0,
+        }
+    }
+
+    /// SBI call failed for bad or invalid range,
+    /// e.g. the software event is not exist in the specified range.
+    #[inline]
+    pub const fn bad_range() -> Self {
+        Self {
+            error: RET_ERR_BAD_RANGE,
+            value: 0,
+        }
+    }
+
+    /// SBI call failed for timeout,
+    /// e.g. message send timeout.
+    #[inline]
+    pub const fn timeout() -> Self {
+        Self {
+            error: RET_ERR_TIMEOUT,
+            value: 0,
+        }
+    }
+
+    /// SBI call failed for input or output error.
+    #[inline]
+    pub const fn io() -> Self {
+        Self {
+            error: RET_ERR_IO,
+            value: 0,
+        }
+    }
 }
 
 impl From<Error> for SbiRet {
@@ -201,6 +260,10 @@ impl From<Error> for SbiRet {
             Error::AlreadyStarted => SbiRet::already_started(),
             Error::AlreadyStopped => SbiRet::already_stopped(),
             Error::NoShmem => SbiRet::no_shmem(),
+            Error::InvalidState => SbiRet::invalid_state(),
+            Error::BadRange => SbiRet::bad_range(),
+            Error::Timeout => SbiRet::timeout(),
+            Error::Io => SbiRet::io(),
             Error::Custom(error) => SbiRet {
                 error: usize::from_ne_bytes(error.to_ne_bytes()),
                 value: 0,
@@ -224,6 +287,10 @@ impl SbiRet {
             RET_ERR_ALREADY_STARTED => Err(Error::AlreadyStarted),
             RET_ERR_ALREADY_STOPPED => Err(Error::AlreadyStopped),
             RET_ERR_NO_SHMEM => Err(Error::NoShmem),
+            RET_ERR_INVALID_STATE => Err(Error::InvalidState),
+            RET_ERR_BAD_RANGE => Err(Error::BadRange),
+            RET_ERR_TIMEOUT => Err(Error::Timeout),
+            RET_ERR_IO => Err(Error::Io),
             unknown => Err(Error::Custom(unknown as _)),
         }
     }
