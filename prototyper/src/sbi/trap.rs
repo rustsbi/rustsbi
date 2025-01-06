@@ -6,17 +6,14 @@ use riscv::register::{
 };
 use rustsbi::RustSBI;
 
+use crate::cfg::{PAGE_SIZE, TLB_FLUSH_LIMIT};
 use crate::platform::PLATFORM;
-use crate::riscv_spec::{current_hartid, CSR_TIME, CSR_TIMEH};
+use crate::riscv::csr::{CSR_TIME, CSR_TIMEH};
+use crate::riscv::current_hartid;
 use crate::sbi::console;
 use crate::sbi::hsm::local_hsm;
 use crate::sbi::ipi;
 use crate::sbi::rfence::{self, local_rfence, RFenceType};
-
-// Constants for page and TLB management
-const PAGE_SIZE: usize = 4096;
-// TODO: `TLB_FLUSH_LIMIT` is a platform-dependent parameter
-const TLB_FLUSH_LIMIT: usize = 4 * PAGE_SIZE;
 
 /// Trap vector table entry point. Maps different trap types to their handlers.
 #[naked]

@@ -1,3 +1,5 @@
+use crate::cfg::NUM_HART_MAX;
+use crate::devicetree::*;
 use crate::fail;
 use crate::platform::clint::{MachineClint, MachineClintType, CLINT_COMPATIBLE};
 use crate::platform::console::{
@@ -11,10 +13,9 @@ use crate::sbi::hsm::SbiHsm;
 use crate::sbi::ipi::SbiIpi;
 use crate::sbi::logger;
 use crate::sbi::reset::SbiReset;
+use crate::sbi::rfence::SbiRFence;
 use crate::sbi::trap_stack;
-use crate::sbi::trap_stack::NUM_HART_MAX;
 use crate::sbi::SBI;
-use crate::{dt, sbi::rfence::SbiRFence};
 use core::{
     fmt::{Display, Formatter, Result},
     ops::Range,
@@ -40,7 +41,7 @@ impl<const N: usize> Display for StringInline<N> {
     }
 }
 
-type CpuEnableList = [bool; trap_stack::NUM_HART_MAX];
+type CpuEnableList = [bool; NUM_HART_MAX];
 
 pub struct BoardInfo {
     pub memory_range: Option<Range<usize>>,
@@ -90,17 +91,17 @@ impl Platform {
     }
 
     fn info_init(&mut self, fdt_address: usize) {
-        let dtb = dt::parse_device_tree(fdt_address).unwrap_or_else(fail::device_tree_format);
+        let dtb = parse_device_tree(fdt_address).unwrap_or_else(fail::device_tree_format);
         let dtb = dtb.share();
 
         let root: serde_device_tree::buildin::Node = serde_device_tree::from_raw_mut(&dtb)
             .unwrap_or_else(fail::device_tree_deserialize_root);
-        let tree: dt::Tree = root.deserialize();
+        let tree: Tree = root.deserialize();
 
         //  Get console device info
         for console_path in tree.chosen.stdout_path.iter() {
             if let Some(node) = root.find(console_path) {
-                let info = dt::get_compatible_and_range(&node);
+                let info = get_compatible_and_range(&node);
                 let result = info.is_some_and(|info| {
                     let (compatible, regs) = info;
                     for device_id in compatible.iter() {
@@ -128,7 +129,7 @@ impl Platform {
 
         // Get ipi and reset device info
         let mut find_device = |node: &serde_device_tree::buildin::Node| {
-            let info = dt::get_compatible_and_range(node);
+            let info = get_compatible_and_range(node);
             if let Some(info) = info {
                 let (compatible, regs) = info;
                 let base_address = regs.start;
@@ -157,7 +158,7 @@ impl Platform {
             .iter()
             .next()
             .unwrap()
-            .deserialize::<dt::Memory>()
+            .deserialize::<Memory>()
             .reg;
         let memory_range = memory_reg.iter().next().unwrap().0;
         self.info.memory_range = Some(memory_range);
@@ -180,9 +181,8 @@ impl Platform {
         extensions::init(&tree.cpus.cpu);
 
         // Find which hart is enabled by fdt
-        let mut cpu_list: CpuEnableList = [false; trap_stack::NUM_HART_MAX];
+        let mut cpu_list: CpuEnableList = [false; NUM_HART_MAX];
         for cpu_iter in tree.cpus.cpu.iter() {
-            use dt::Cpu;
             let cpu = cpu_iter.deserialize::<Cpu>();
             let hart_id = cpu.reg.iter().next().unwrap().0.start;
             if let Some(x) = cpu_list.get_mut(hart_id) {
@@ -281,7 +281,7 @@ impl Platform {
         );
 
         if let Some(cpu_enabled) = &self.info.cpu_enabled {
-            let mut enabled_harts = [0; trap_stack::NUM_HART_MAX];
+            let mut enabled_harts = [0; NUM_HART_MAX];
             let mut count = 0;
             for (i, &enabled) in cpu_enabled.iter().enumerate() {
                 if enabled {

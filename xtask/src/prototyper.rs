@@ -19,6 +19,9 @@ pub struct PrototyperArg {
     #[clap(long, env = "PROTOTYPER_PAYLOAD_PATH")]
     pub payload: Option<String>,
 
+    #[clap(long)]
+    pub jump: bool,
+
     #[clap(long, default_value = "INFO")]
     pub log_level: String,
 }
@@ -29,6 +32,7 @@ pub fn run(arg: &PrototyperArg) -> Option<ExitStatus> {
     let arch = "riscv64imac-unknown-none-elf";
     let fdt = arg.fdt.clone();
     let payload = arg.payload.clone();
+    let jump = arg.jump;
     let current_dir = env::current_dir();
     let target_dir = current_dir
         .as_ref()
@@ -51,6 +55,9 @@ pub fn run(arg: &PrototyperArg) -> Option<ExitStatus> {
         .optional(payload.is_some(), |cargo| {
             cargo.env("PROTOTYPER_PAYLOAD_PATH", payload.as_ref().unwrap());
             cargo.features(["payload".to_string()])
+        })
+        .optional(jump, |cargo| {
+            cargo.features(["jump".to_string()])
         })
         .env("RUST_LOG", &arg.log_level)
         .release()
@@ -82,6 +89,18 @@ pub fn run(arg: &PrototyperArg) -> Option<ExitStatus> {
             target_dir.join("rustsbi-prototyper-payload.bin"),
         )
         .ok()?;
+    } else if arg.jump {
+        info!("Copy for jump mode");
+        fs::copy(
+            target_dir.join("rustsbi-prototyper"),
+            target_dir.join("rustsbi-prototyper-jump.elf"),
+        )
+        .ok()?;
+        fs::copy(
+            target_dir.join("rustsbi-prototyper.bin"),
+            target_dir.join("rustsbi-prototyper-jump.bin"),
+        )
+        .ok()?;
     } else {
         info!("Copy for dynamic mode");
         fs::copy(
@@ -94,6 +113,7 @@ pub fn run(arg: &PrototyperArg) -> Option<ExitStatus> {
             target_dir.join("rustsbi-prototyper-dynamic.bin"),
         )
         .ok()?;
+
     }
 
     Some(exit_status)

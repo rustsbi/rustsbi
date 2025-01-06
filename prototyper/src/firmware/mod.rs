@@ -1,7 +1,15 @@
-#[cfg(not(feature = "payload"))]
-pub mod dynamic;
-#[cfg(feature = "payload")]
-pub mod payload;
+cfg_if::cfg_if! {
+    if #[cfg(feature = "payload")] {
+        pub mod payload;
+        pub use payload::{get_boot_info, is_boot_hart};
+    } else if #[cfg(feature = "jump")] {
+        pub mod jump;
+        pub use jump::{get_boot_info, is_boot_hart};
+    } else {
+        pub mod dynamic;
+        pub use dynamic::{get_boot_info, is_boot_hart};
+    }
+}
 
 use core::arch::asm;
 use core::ops::Range;
@@ -34,10 +42,6 @@ fn get_fdt_address() -> usize {
     raw_fdt as usize
 }
 
-#[cfg(not(feature = "payload"))]
-pub use dynamic::{get_boot_info, is_boot_hart};
-#[cfg(feature = "payload")]
-pub use payload::{get_boot_info, is_boot_hart};
 
 /// Gets boot hart information based on opaque and nonstandard_a2 parameters.
 ///

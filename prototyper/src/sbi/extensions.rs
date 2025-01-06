@@ -1,6 +1,6 @@
 use serde_device_tree::buildin::NodeSeq;
 
-use crate::riscv_spec::current_hartid;
+use crate::riscv::current_hartid;
 use crate::sbi::trap_stack::ROOT_STACK;
 
 pub struct HartFeatures {
@@ -57,7 +57,7 @@ pub fn hart_privileged_version(hart_id: usize) -> PrivilegedVersion {
 
 #[cfg(not(feature = "nemu"))]
 pub fn init(cpus: &NodeSeq) {
-    use crate::dt::Cpu;
+    use crate::devicetree::Cpu;
     for cpu_iter in cpus.iter() {
         let cpu = cpu_iter.deserialize::<Cpu>();
         let hart_id = cpu.reg.iter().next().unwrap().0.start;

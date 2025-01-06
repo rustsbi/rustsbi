@@ -7,7 +7,7 @@ use riscv::register::mstatus::MPP;
 use rustsbi::{spec::hsm::hart_state, SbiRet};
 
 use crate::platform::PLATFORM;
-use crate::riscv_spec::current_hartid;
+use crate::riscv::current_hartid;
 use crate::sbi::hart_context::NextStage;
 use crate::sbi::trap_stack::ROOT_STACK;
 
