@@ -1,9 +1,11 @@
+#![feature(alloc_error_handler)]
 #![feature(naked_functions)]
 #![feature(fn_align)]
 #![no_std]
 #![no_main]
 #![allow(static_mut_refs)]
 
+extern crate alloc;
 #[macro_use]
 extern crate log;
 #[macro_use]
@@ -19,6 +21,8 @@ mod sbi;
 
 use core::arch::asm;
 
+use sbi::heap::heap_test;
+
 use crate::platform::PLATFORM;
 use crate::riscv::csr::menvcfg;
 use crate::riscv::current_hartid;
@@ -31,6 +35,7 @@ use crate::sbi::hsm::local_remote_hsm;
 use crate::sbi::ipi;
 use crate::sbi::trap::{self, trap_vec};
 use crate::sbi::trap_stack;
+use crate::sbi::heap::sbi_heap_init;
 
 pub const START_ADDRESS: usize = 0x80000000;
 pub const R_RISCV_RELATIVE: usize = 3;
@@ -42,6 +47,9 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     let boot_hart_info = firmware::get_boot_hart(opaque, nonstandard_a2);
     // boot hart task entry.
     if boot_hart_info.is_boot_hart {
+        // Initialize the sbi heap
+        sbi_heap_init();
+        
         // parse the device tree
         let fdt_address = boot_hart_info.fdt_address;
 
@@ -52,6 +60,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
 
         firmware::set_pmp(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });
         firmware::log_pmp_cfg(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });
+        heap_test();
 
         // Get boot information and prepare for kernel entry.
         let boot_info = firmware::get_boot_info(nonstandard_a2);
@@ -199,15 +208,3 @@ unsafe extern "C" fn relocation_update() {
     )
 }
 
-#[panic_handler]
-fn panic(info: &core::panic::PanicInfo) -> ! {
-    use ::riscv::register::*;
-    error!("Hart {} {info}", current_hartid());
-    error!("-----------------------------");
-    error!("mcause:  {:?}", mcause::read().cause());
-    error!("mepc:    {:#018x}", mepc::read());
-    error!("mtval:   {:#018x}", mtval::read());
-    error!("-----------------------------");
-    error!("System shutdown scheduled due to RustSBI panic");
-    loop {}
-}

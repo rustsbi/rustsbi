@@ -45,7 +45,7 @@ pub fn run(arg: &PrototyperArg) -> Option<ExitStatus> {
     cargo::Cargo::new("build")
         .package("rustsbi-prototyper")
         .target(arch)
-        .unstable("build-std", ["core"])
+        .unstable("build-std", ["core","alloc"])
         .env("RUSTFLAGS", "-C relocation-model=pie -C link-arg=-pie")
         .features(&arg.features)
         .optional(arg.fdt.is_some(), |cargo| {

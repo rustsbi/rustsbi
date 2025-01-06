@@ -1,10 +1,23 @@
 use serde_device_tree::Dtb;
+use crate::riscv::current_hartid;
 
 use crate::devicetree;
 
 #[cfg(all(feature = "payload", feature = "jump"))]
 compile_error!("feature \"payload\" and feature \"jump\" cannot be enabled at the same time");
 
+#[panic_handler]
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    use ::riscv::register::*;
+    error!("Hart {} {info}", current_hartid());
+    error!("-----------------------------");
+    error!("mcause:  {:?}", mcause::read().cause());
+    error!("mepc:    {:#018x}", mepc::read());
+    error!("mtval:   {:#018x}", mtval::read());
+    error!("-----------------------------");
+    error!("System shutdown scheduled due to RustSBI panic");
+    loop {}
+}
 
 /// Handles device tree format parsing errors by logging and resetting.
 #[cold]

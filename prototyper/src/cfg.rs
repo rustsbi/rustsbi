@@ -2,6 +2,8 @@
 pub const NUM_HART_MAX: usize = 8;
 /// Stack size per hart (hardware thread) in bytes.
 pub const LEN_STACK_PER_HART: usize = 16 * 1024;
+/// Heap Size of SBI firmware
+pub const HEAP_SIZE: usize = 32 * 1024;
 /// Page size
 pub const PAGE_SIZE: usize = 4096;
 /// TLB_FLUSH_LIMIT defines the TLB refresh range limit. 
