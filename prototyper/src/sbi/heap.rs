@@ -1,11 +1,11 @@
-use buddy_system_allocator::LockedHeap;
 use crate::cfg::HEAP_SIZE;
+use buddy_system_allocator::LockedHeap;
 
 #[link_section = ".bss.heap"]
 static mut HEAP: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 
 #[global_allocator]
-static HEAP_ALLOCATOR: LockedHeap::<15> = LockedHeap::<15>::empty();
+static HEAP_ALLOCATOR: LockedHeap<15> = LockedHeap::<15>::empty();
 
 pub fn sbi_heap_init() {
     unsafe {

@@ -1,5 +1,5 @@
-use serde_device_tree::Dtb;
 use crate::riscv::current_hartid;
+use serde_device_tree::Dtb;
 
 use crate::devicetree;
 

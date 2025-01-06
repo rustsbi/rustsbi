@@ -6,10 +6,9 @@ pub const LEN_STACK_PER_HART: usize = 16 * 1024;
 pub const HEAP_SIZE: usize = 32 * 1024;
 /// Page size
 pub const PAGE_SIZE: usize = 4096;
-/// TLB_FLUSH_LIMIT defines the TLB refresh range limit. 
+/// TLB_FLUSH_LIMIT defines the TLB refresh range limit.
 /// If the TLB refresh range is greater than TLB_FLUSH_LIMIT, the entire TLB is refreshed.
 pub const TLB_FLUSH_LIMIT: usize = 4 * PAGE_SIZE;
-
 
 #[cfg(feature = "jump")]
 pub const JUMP_ADDRESS: usize = 0x80200000;

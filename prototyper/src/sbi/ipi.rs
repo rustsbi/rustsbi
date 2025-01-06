@@ -6,6 +6,7 @@ use crate::sbi::hsm::remote_hsm;
 use crate::sbi::rfence;
 use crate::sbi::trap;
 use crate::sbi::trap_stack::ROOT_STACK;
+use alloc::boxed::Box;
 use core::sync::atomic::Ordering::Relaxed;
 use rustsbi::{HartMask, SbiRet};
 use spin::Mutex;
@@ -35,14 +36,14 @@ pub trait IpiDevice {
 }
 
 /// SBI IPI implementation.
-pub struct SbiIpi<T: IpiDevice> {
+pub struct SbiIpi {
     /// Reference to atomic pointer to IPI device.
-    pub ipi_dev: Mutex<T>,
+    pub ipi_dev: Mutex<Box<dyn IpiDevice>>,
     /// Maximum hart ID in the system
     pub max_hart_id: usize,
 }
 
-impl<T: IpiDevice> rustsbi::Timer for SbiIpi<T> {
+impl rustsbi::Timer for SbiIpi {
     /// Set timer value for current hart.
     #[inline]
     fn set_timer(&self, stime_value: u64) {
@@ -65,7 +66,7 @@ impl<T: IpiDevice> rustsbi::Timer for SbiIpi<T> {
     }
 }
 
-impl<T: IpiDevice> rustsbi::Ipi for SbiIpi<T> {
+impl rustsbi::Ipi for SbiIpi {
     /// Send IPI to specified harts.
     #[inline]
     fn send_ipi(&self, hart_mask: rustsbi::HartMask) -> SbiRet {
@@ -112,10 +113,10 @@ impl<T: IpiDevice> rustsbi::Ipi for SbiIpi<T> {
     }
 }
 
-impl<T: IpiDevice> SbiIpi<T> {
+impl SbiIpi {
     /// Create new SBI IPI instance.
     #[inline]
-    pub fn new(ipi_dev: Mutex<T>, max_hart_id: usize) -> Self {
+    pub fn new(ipi_dev: Mutex<Box<dyn IpiDevice>>, max_hart_id: usize) -> Self {
         Self {
             ipi_dev,
             max_hart_id,

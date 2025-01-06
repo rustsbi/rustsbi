@@ -1,10 +1,21 @@
+use alloc::boxed::Box;
+use clint::{SifiveClintWrap, THeadClintWrap};
+use core::{
+    fmt::{Display, Formatter, Result},
+    ops::Range,
+    sync::atomic::{AtomicBool, Ordering},
+};
+use reset::SifiveTestDeviceWrap;
+use spin::Mutex;
+use uart_xilinx::MmioUartAxiLite;
+
 use crate::cfg::NUM_HART_MAX;
 use crate::devicetree::*;
 use crate::fail;
-use crate::platform::clint::{MachineClint, MachineClintType, CLINT_COMPATIBLE};
+use crate::platform::clint::{MachineClintType, CLINT_COMPATIBLE};
+use crate::platform::console::Uart16550Wrap;
 use crate::platform::console::{
-    MachineConsole, MachineConsoleType, UART16650U32_COMPATIBLE, UART16650U8_COMPATIBLE,
-    UARTAXILITE_COMPATIBLE,
+    MachineConsoleType, UART16650U32_COMPATIBLE, UART16650U8_COMPATIBLE, UARTAXILITE_COMPATIBLE,
 };
 use crate::platform::reset::SIFIVETEST_COMPATIBLE;
 use crate::sbi::console::SbiConsole;
@@ -16,14 +27,6 @@ use crate::sbi::reset::SbiReset;
 use crate::sbi::rfence::SbiRFence;
 use crate::sbi::trap_stack;
 use crate::sbi::SBI;
-use core::{
-    fmt::{Display, Formatter, Result},
-    ops::Range,
-    sync::atomic::{AtomicBool, AtomicPtr, Ordering},
-};
-use sifive_test_device::SifiveTestDevice;
-use spin::Mutex;
-use uart_xilinx::MmioUartAxiLite;
 
 mod clint;
 mod console;
@@ -69,7 +72,7 @@ impl BoardInfo {
 
 pub struct Platform {
     pub info: BoardInfo,
-    pub sbi: SBI<MachineConsole, MachineClint, SifiveTestDevice>,
+    pub sbi: SBI,
     pub ready: AtomicBool,
 }
 
@@ -202,14 +205,17 @@ impl Platform {
 
     fn sbi_console_init(&mut self) {
         if let Some((base, console_type)) = self.info.console {
-            let new_console = match console_type {
-                MachineConsoleType::Uart16550U8 => MachineConsole::Uart16550U8(base as _),
-                MachineConsoleType::Uart16550U32 => MachineConsole::Uart16550U32(base as _),
-                MachineConsoleType::UartAxiLite => {
-                    MachineConsole::UartAxiLite(MmioUartAxiLite::new(base))
-                }
+            self.sbi.console = match console_type {
+                MachineConsoleType::Uart16550U8 => Some(SbiConsole::new(Mutex::new(Box::new(
+                    Uart16550Wrap::<u8>::new(base),
+                )))),
+                MachineConsoleType::Uart16550U32 => Some(SbiConsole::new(Mutex::new(Box::new(
+                    Uart16550Wrap::<u32>::new(base),
+                )))),
+                MachineConsoleType::UartAxiLite => Some(SbiConsole::new(Mutex::new(Box::new(
+                    MmioUartAxiLite::new(base),
+                )))),
             };
-            self.sbi.console = Some(SbiConsole::new(Mutex::new(new_console)));
         } else {
             self.sbi.console = None;
         }
@@ -217,7 +223,9 @@ impl Platform {
 
     fn sbi_reset_init(&mut self) {
         if let Some(base) = self.info.reset {
-            self.sbi.reset = Some(SbiReset::new(AtomicPtr::new(base as _)));
+            self.sbi.reset = Some(SbiReset::new(Mutex::new(Box::new(
+                SifiveTestDeviceWrap::new(base),
+            ))));
         } else {
             self.sbi.reset = None;
         }
@@ -225,14 +233,16 @@ impl Platform {
 
     fn sbi_ipi_init(&mut self) {
         if let Some((base, clint_type)) = self.info.ipi {
-            let new_clint = match clint_type {
-                MachineClintType::SiFiveClint => MachineClint::SiFive(base as _),
-                MachineClintType::TheadClint => MachineClint::THead(base as _),
+            self.sbi.ipi = match clint_type {
+                MachineClintType::SiFiveClint => Some(SbiIpi::new(
+                    Mutex::new(Box::new(SifiveClintWrap::new(base))),
+                    self.info.cpu_num.unwrap_or(NUM_HART_MAX),
+                )),
+                MachineClintType::TheadClint => Some(SbiIpi::new(
+                    Mutex::new(Box::new(THeadClintWrap::new(base))),
+                    self.info.cpu_num.unwrap_or(NUM_HART_MAX),
+                )),
             };
-            self.sbi.ipi = Some(SbiIpi::new(
-                Mutex::new(new_clint),
-                self.info.cpu_num.unwrap_or(NUM_HART_MAX),
-            ));
         } else {
             self.sbi.ipi = None;
         }

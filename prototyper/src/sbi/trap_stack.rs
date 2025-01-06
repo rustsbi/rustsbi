@@ -1,9 +1,9 @@
+use crate::cfg::{LEN_STACK_PER_HART, NUM_HART_MAX};
 use crate::riscv::current_hartid;
 use crate::sbi::hart_context::HartContext;
 use crate::sbi::trap::fast_handler;
 use core::mem::forget;
 use fast_trap::FreeTrapStack;
-use crate::cfg::{NUM_HART_MAX, LEN_STACK_PER_HART};
 
 /// Root stack array for all harts, placed in BSS Stack section.
 #[link_section = ".bss.stack"]

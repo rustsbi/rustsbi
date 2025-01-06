@@ -13,77 +13,109 @@ pub enum MachineClintType {
     TheadClint,
 }
 
-#[doc(hidden)]
-#[allow(unused)]
-pub enum MachineClint {
-    SiFive(*const SifiveClint),
-    THead(*const THeadClint),
+/// For SiFive Clint
+pub struct SifiveClintWrap {
+    inner: *const SifiveClint,
 }
 
-/// Ipi Device: Sifive Clint
-impl IpiDevice for MachineClint {
+impl SifiveClintWrap {
+    pub fn new(base: usize) -> Self {
+        Self {
+            inner: base as *const SifiveClint,
+        }
+    }
+}
+
+impl IpiDevice for SifiveClintWrap {
     #[inline(always)]
     fn read_mtime(&self) -> u64 {
-        match self {
-            Self::SiFive(sifive_clint) => unsafe { (**sifive_clint).read_mtime() },
-            Self::THead(_) => unsafe {
-                let mut mtime: u64 = 0;
-                asm!(
-                    "rdtime {}",
-                    inout(reg) mtime,
-                );
-                mtime
-            },
-        }
+        unsafe { (*self.inner).read_mtime() }
     }
 
     #[inline(always)]
     fn write_mtime(&self, val: u64) {
-        match self {
-            Self::SiFive(sifive_clint) => unsafe { (**sifive_clint).write_mtime(val) },
-            Self::THead(_) => {
-                unimplemented!()
-            }
-        }
+        unsafe { (*self.inner).write_mtime(val) }
     }
 
     #[inline(always)]
     fn read_mtimecmp(&self, hart_idx: usize) -> u64 {
-        match self {
-            Self::SiFive(sifive_clint) => unsafe { (**sifive_clint).read_mtimecmp(hart_idx) },
-            Self::THead(thead_clint) => unsafe { (**thead_clint).read_mtimecmp(hart_idx) },
-        }
+        unsafe { (*self.inner).read_mtimecmp(hart_idx) }
     }
 
     #[inline(always)]
     fn write_mtimecmp(&self, hart_idx: usize, val: u64) {
-        match self {
-            Self::SiFive(sifive_clint) => unsafe { (**sifive_clint).write_mtimecmp(hart_idx, val) },
-            Self::THead(thead_clint) => unsafe { (**thead_clint).write_mtimecmp(hart_idx, val) },
-        }
+        unsafe { (*self.inner).write_mtimecmp(hart_idx, val) }
     }
 
     #[inline(always)]
     fn read_msip(&self, hart_idx: usize) -> bool {
-        match self {
-            Self::SiFive(sifive_clint) => unsafe { (**sifive_clint).read_msip(hart_idx) },
-            Self::THead(thead_clint) => unsafe { (**thead_clint).read_msip(hart_idx) },
-        }
+        unsafe { (*self.inner).read_msip(hart_idx) }
     }
 
     #[inline(always)]
     fn set_msip(&self, hart_idx: usize) {
-        match self {
-            Self::SiFive(sifive_clint) => unsafe { (**sifive_clint).set_msip(hart_idx) },
-            Self::THead(thead_clint) => unsafe { (**thead_clint).set_msip(hart_idx) },
-        }
+        unsafe { (*self.inner).set_msip(hart_idx) }
     }
 
     #[inline(always)]
     fn clear_msip(&self, hart_idx: usize) {
-        match self {
-            Self::SiFive(sifive_clint) => unsafe { (**sifive_clint).clear_msip(hart_idx) },
-            Self::THead(thead_clint) => unsafe { (**thead_clint).clear_msip(hart_idx) },
+        unsafe { (*self.inner).clear_msip(hart_idx) }
+    }
+}
+
+/// For T-Head Clint
+pub struct THeadClintWrap {
+    inner: *const THeadClint,
+}
+
+impl THeadClintWrap {
+    pub fn new(base: usize) -> Self {
+        Self {
+            inner: base as *const THeadClint,
         }
+    }
+}
+
+impl IpiDevice for THeadClintWrap {
+    #[inline(always)]
+    fn read_mtime(&self) -> u64 {
+        unsafe {
+            let mut mtime: u64 = 0;
+            asm!(
+                "rdtime {}",
+                inout(reg) mtime,
+            );
+            mtime
+        }
+    }
+
+    #[inline(always)]
+    fn write_mtime(&self, _val: u64) {
+        unimplemented!()
+    }
+
+    #[inline(always)]
+    fn read_mtimecmp(&self, hart_idx: usize) -> u64 {
+        unsafe { (*self.inner).read_mtimecmp(hart_idx) }
+    }
+
+    #[inline(always)]
+    fn write_mtimecmp(&self, hart_idx: usize, val: u64) {
+        unsafe { (*self.inner).write_mtimecmp(hart_idx, val) }
+    }
+
+    #[inline(always)]
+    fn read_msip(&self, hart_idx: usize) -> bool {
+        unsafe { (*self.inner).read_msip(hart_idx) }
+    }
+
+    #[inline(always)]
+    fn set_msip(&self, hart_idx: usize) {
+        unsafe { (*self.inner).set_msip(hart_idx) }
+    }
+
+    #[inline(always)]
+    fn clear_msip(&self, hart_idx: usize) {
+        unsafe { (*self.inner).clear_msip(hart_idx) }
     }
 }
