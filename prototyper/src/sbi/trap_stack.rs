@@ -1,13 +1,9 @@
-use crate::riscv_spec::current_hartid;
+use crate::riscv::current_hartid;
 use crate::sbi::hart_context::HartContext;
 use crate::sbi::trap::fast_handler;
 use core::mem::forget;
 use fast_trap::FreeTrapStack;
-
-/// Stack size per hart (hardware thread) in bytes.
-const LEN_STACK_PER_HART: usize = 16 * 1024;
-/// Maximum number of supported harts.
-pub const NUM_HART_MAX: usize = 8;
+use crate::cfg::{NUM_HART_MAX, LEN_STACK_PER_HART};
 
 /// Root stack array for all harts, placed in uninitialized BSS section.
 #[link_section = ".bss.uninit"]

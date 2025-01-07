@@ -9,17 +9,19 @@ extern crate log;
 #[macro_use]
 mod macros;
 
-mod dt;
+mod cfg;
+mod devicetree;
 mod fail;
 mod firmware;
 mod platform;
-mod riscv_spec;
+mod riscv;
 mod sbi;
 
 use core::arch::asm;
 
 use crate::platform::PLATFORM;
-use crate::riscv_spec::{current_hartid, menvcfg};
+use crate::riscv::csr::menvcfg;
+use crate::riscv::current_hartid;
 use crate::sbi::extensions::{
     hart_extension_probe, hart_privileged_version, privileged_version_detection, Extension,
     PrivilegedVersion,
@@ -98,7 +100,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         asm!("csrw medeleg,    {}", in(reg) !0);
         asm!("csrw mcounteren, {}", in(reg) !0);
         asm!("csrw scounteren, {}", in(reg) !0);
-        use riscv::register::{medeleg, mtvec};
+        use ::riscv::register::{medeleg, mtvec};
         // Keep supervisor environment calls and illegal instructions in M-mode.
         medeleg::clear_supervisor_env_call();
         medeleg::clear_illegal_instruction();
@@ -199,8 +201,8 @@ unsafe extern "C" fn relocation_update() {
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    use riscv::register::*;
-    error!("Hart {} {info}", riscv::register::mhartid::read());
+    use ::riscv::register::*;
+    error!("Hart {} {info}", current_hartid());
     error!("-----------------------------");
     error!("mcause:  {:?}", mcause::read().cause());
     error!("mepc:    {:#018x}", mepc::read());

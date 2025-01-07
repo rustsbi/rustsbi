@@ -2,7 +2,7 @@ use rustsbi::{HartMask, SbiRet};
 use spin::Mutex;
 
 use crate::platform::PLATFORM;
-use crate::riscv_spec::current_hartid;
+use crate::riscv::current_hartid;
 use crate::sbi::fifo::{Fifo, FifoError};
 use crate::sbi::trap;
 use crate::sbi::trap_stack::ROOT_STACK;

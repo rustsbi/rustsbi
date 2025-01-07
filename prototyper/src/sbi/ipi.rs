@@ -1,5 +1,6 @@
 use crate::platform::PLATFORM;
-use crate::riscv_spec::{current_hartid, stimecmp};
+use crate::riscv::csr::stimecmp;
+use crate::riscv::current_hartid;
 use crate::sbi::extensions::{hart_extension_probe, Extension};
 use crate::sbi::hsm::remote_hsm;
 use crate::sbi::rfence;

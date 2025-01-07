@@ -5,7 +5,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use super::BootInfo;
 use crate::fail;
-use crate::riscv_spec::current_hartid;
+use crate::riscv::current_hartid;
 
 use riscv::register::mstatus;
 
