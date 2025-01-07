@@ -1,5 +1,6 @@
-use core::sync::atomic::{AtomicPtr, Ordering::Relaxed};
+use alloc::boxed::Box;
 use rustsbi::SbiRet;
+use spin::Mutex;
 
 use crate::platform::PLATFORM;
 
@@ -9,31 +10,23 @@ pub trait ResetDevice {
     fn reset(&self) -> !;
 }
 
-pub struct SbiReset<T: ResetDevice> {
-    pub reset_dev: AtomicPtr<T>,
+pub struct SbiReset {
+    pub reset_dev: Mutex<Box<dyn ResetDevice>>,
 }
 
-impl<T: ResetDevice> SbiReset<T> {
-    pub fn new(reset_dev: AtomicPtr<T>) -> Self {
+impl SbiReset {
+    pub fn new(reset_dev: Mutex<Box<dyn ResetDevice>>) -> Self {
         Self { reset_dev }
     }
 
     #[allow(unused)]
     pub fn fail(&self) -> ! {
-        let reset_dev = self.reset_dev.load(Relaxed);
-        if reset_dev.is_null() {
-            trace!("test fail, begin dead loop");
-            loop {
-                core::hint::spin_loop()
-            }
-        } else {
-            trace!("Test fail, invoke process exit procedure on Reset device");
-            unsafe { (*reset_dev).fail(0) }
-        }
+        trace!("Test fail, invoke process exit procedure on Reset device");
+        self.reset_dev.lock().fail(0);
     }
 }
 
-impl<T: ResetDevice> rustsbi::Reset for SbiReset<T> {
+impl rustsbi::Reset for SbiReset {
     #[inline]
     fn system_reset(&self, reset_type: u32, reset_reason: u32) -> SbiRet {
         use rustsbi::spec::srst::{
@@ -42,19 +35,11 @@ impl<T: ResetDevice> rustsbi::Reset for SbiReset<T> {
         };
         match reset_type {
             RESET_TYPE_SHUTDOWN => match reset_reason {
-                RESET_REASON_NO_REASON => unsafe {
-                    (*self.reset_dev.load(Relaxed)).pass();
-                },
-                RESET_REASON_SYSTEM_FAILURE => unsafe {
-                    (*self.reset_dev.load(Relaxed)).fail(u16::MAX);
-                },
-                value => unsafe {
-                    (*self.reset_dev.load(Relaxed)).fail(value as _);
-                },
+                RESET_REASON_NO_REASON => self.reset_dev.lock().pass(),
+                RESET_REASON_SYSTEM_FAILURE => self.reset_dev.lock().fail(u16::MAX),
+                value => self.reset_dev.lock().fail(value as _),
             },
-            RESET_TYPE_COLD_REBOOT | RESET_TYPE_WARM_REBOOT => unsafe {
-                (*self.reset_dev.load(Relaxed)).reset();
-            },
+            RESET_TYPE_COLD_REBOOT | RESET_TYPE_WARM_REBOOT => self.reset_dev.lock().reset(),
 
             _ => SbiRet::invalid_param(),
         }
@@ -65,6 +50,11 @@ impl<T: ResetDevice> rustsbi::Reset for SbiReset<T> {
 pub fn fail() -> ! {
     match unsafe { PLATFORM.sbi.reset.as_ref() } {
         Some(reset) => reset.fail(),
-        None => panic!("SBI or IPI device not initialized"),
+        None => {
+            trace!("test fail, begin dead loop");
+            loop {
+                core::hint::spin_loop()
+            }
+        }
     }
 }

@@ -76,6 +76,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b048fb63fd8b5923fc5aa7b340d8e156aec7ec02f0c78fa8a6ddc2613f6f71de"
 
 [[package]]
+name = "buddy_system_allocator"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1a0108968a3a2dab95b089c0fc3f1afa7759aa5ebe6f1d86d206d6f7ba726eb"
+dependencies = [
+ "spin",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -332,6 +341,7 @@ name = "rustsbi-prototyper"
 version = "0.0.0"
 dependencies = [
  "aclint",
+ "buddy_system_allocator",
  "cfg-if",
  "fast-trap",
  "log",

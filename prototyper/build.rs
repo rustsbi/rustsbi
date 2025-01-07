@@ -60,7 +60,10 @@ SECTIONS {
     sidata = LOADADDR(.data);
 
     .bss (NOLOAD) : ALIGN(0x1000) {  
-        *(.bss.uninit)
+        *(.bss.stack)
+        sbi_heap_start = .;
+        *(.bss.heap)
+        sbi_heap_end = .;
         sbi_bss_start = .;
         *(.bss .bss.*)
         *(.sbss .sbss.*)

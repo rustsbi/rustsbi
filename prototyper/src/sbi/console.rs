@@ -1,7 +1,9 @@
-use crate::platform::PLATFORM;
+use alloc::boxed::Box;
 use core::fmt::{self, Write};
 use rustsbi::{Console, Physical, SbiRet};
 use spin::Mutex;
+
+use crate::platform::PLATFORM;
 
 /// A trait that must be implemented by console devices to provide basic I/O functionality.
 pub trait ConsoleDevice {
@@ -22,17 +24,17 @@ pub trait ConsoleDevice {
 ///
 /// This provides a safe interface for interacting with console hardware through the
 /// SBI specification.
-pub struct SbiConsole<T: ConsoleDevice> {
-    inner: Mutex<T>,
+pub struct SbiConsole {
+    inner: Mutex<Box<dyn ConsoleDevice>>,
 }
 
-impl<T: ConsoleDevice> SbiConsole<T> {
+impl SbiConsole {
     /// Creates a new SBI console that wraps the provided locked console device.
     ///
     /// # Arguments
     /// * `inner` - A mutex containing the console device implementation
     #[inline]
-    pub fn new(inner: Mutex<T>) -> Self {
+    pub fn new(inner: Mutex<Box<dyn ConsoleDevice>>) -> Self {
         Self { inner }
     }
 
@@ -67,7 +69,7 @@ impl<T: ConsoleDevice> SbiConsole<T> {
     }
 }
 
-impl<T: ConsoleDevice> Console for SbiConsole<T> {
+impl Console for SbiConsole {
     /// Write a physical memory buffer to the console.
     #[inline]
     fn write(&self, bytes: Physical<&[u8]>) -> SbiRet {
@@ -96,7 +98,7 @@ impl<T: ConsoleDevice> Console for SbiConsole<T> {
     }
 }
 
-impl<T: ConsoleDevice> fmt::Write for SbiConsole<T> {
+impl fmt::Write for SbiConsole {
     /// Implement Write trait for string formatting.
     #[inline]
     fn write_str(&mut self, s: &str) -> fmt::Result {

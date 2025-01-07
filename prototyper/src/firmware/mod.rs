@@ -42,7 +42,6 @@ fn get_fdt_address() -> usize {
     raw_fdt as usize
 }
 
-
 /// Gets boot hart information based on opaque and nonstandard_a2 parameters.
 ///
 /// Returns a BootHart struct containing FDT address and whether this is the boot hart.

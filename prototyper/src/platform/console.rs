@@ -1,4 +1,4 @@
-use uart16550::Uart16550;
+use uart16550::{Register, Uart16550};
 use uart_xilinx::MmioUartAxiLite;
 
 use crate::sbi::console::ConsoleDevice;
@@ -14,31 +14,35 @@ pub enum MachineConsoleType {
     Uart16550U32,
     UartAxiLite,
 }
-#[doc(hidden)]
-#[allow(unused)]
-pub enum MachineConsole {
-    Uart16550U8(*const Uart16550<u8>),
-    Uart16550U32(*const Uart16550<u32>),
-    UartAxiLite(MmioUartAxiLite),
+
+pub struct Uart16550Wrap<R: Register> {
+    inner: *const Uart16550<R>,
 }
 
-unsafe impl Send for MachineConsole {}
-unsafe impl Sync for MachineConsole {}
-
-impl ConsoleDevice for MachineConsole {
-    fn read(&self, buf: &mut [u8]) -> usize {
-        match self {
-            Self::Uart16550U8(uart16550) => unsafe { (**uart16550).read(buf) },
-            Self::Uart16550U32(uart16550) => unsafe { (**uart16550).read(buf) },
-            Self::UartAxiLite(axilite) => axilite.read(buf),
+impl<R: Register> Uart16550Wrap<R> {
+    pub fn new(base: usize) -> Self {
+        Self {
+            inner: base as *const Uart16550<R>,
         }
+    }
+}
+
+impl<R: Register> ConsoleDevice for Uart16550Wrap<R> {
+    fn read(&self, buf: &mut [u8]) -> usize {
+        unsafe { (*self.inner).read(buf) }
     }
 
     fn write(&self, buf: &[u8]) -> usize {
-        match self {
-            MachineConsole::Uart16550U8(uart16550) => unsafe { (**uart16550).write(buf) },
-            MachineConsole::Uart16550U32(uart16550) => unsafe { (**uart16550).write(buf) },
-            Self::UartAxiLite(axilite) => axilite.write(buf),
-        }
+        unsafe { (*self.inner).write(buf) }
+    }
+}
+
+impl ConsoleDevice for MmioUartAxiLite {
+    fn read(&self, buf: &mut [u8]) -> usize {
+        self.read(buf)
+    }
+
+    fn write(&self, buf: &[u8]) -> usize {
+        self.write(buf)
     }
 }

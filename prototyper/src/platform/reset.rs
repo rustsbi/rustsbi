@@ -3,20 +3,32 @@ use sifive_test_device::SifiveTestDevice;
 use crate::sbi::reset::ResetDevice;
 pub(crate) const SIFIVETEST_COMPATIBLE: [&str; 1] = ["sifive,test0"];
 
+pub struct SifiveTestDeviceWrap {
+    inner: *const SifiveTestDevice,
+}
+
+impl SifiveTestDeviceWrap {
+    pub fn new(base: usize) -> Self {
+        Self {
+            inner: base as *const SifiveTestDevice,
+        }
+    }
+}
+
 /// Reset Device: SifiveTestDevice
-impl ResetDevice for SifiveTestDevice {
+impl ResetDevice for SifiveTestDeviceWrap {
     #[inline]
     fn fail(&self, code: u16) -> ! {
-        self.fail(code)
+        unsafe { (*self.inner).fail(code) }
     }
 
     #[inline]
     fn pass(&self) -> ! {
-        self.pass()
+        unsafe { (*self.inner).pass() }
     }
 
     #[inline]
     fn reset(&self) -> ! {
-        self.reset()
+        unsafe { (*self.inner).reset() }
     }
 }

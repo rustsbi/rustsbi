@@ -16,15 +16,16 @@ riscv = "0.11.1"
 rustsbi = { version = "0.4.0", features = ["machine"] }
 sbi-spec = { version = "0.0.8", features = ["legacy"] }
 serde = { version = "1.0.202", default-features = false, features = ["derive"] }
-serde-device-tree = { git = "https://github.com/rustsbi/serde-device-tree", default-features = false }
 sifive-test-device = "0.0.0"
 spin = "0.9.8"
 uart16550 = "0.0.1"
 riscv-decode = "0.2.1"
+cfg-if = "1.0.0"
+buddy_system_allocator = "0.11.0"
 fast-trap = { version = "0.0.1", features = ["riscv-m"] }
+serde-device-tree = { git = "https://github.com/rustsbi/serde-device-tree", default-features = false }
 uart_xilinx = { git = "https://github.com/duskmoon314/uart-rs/" }
 xuantie-riscv = { git= "https://github.com/rustsbi/xuantie" }
-cfg-if = "1.0.0"
 
 [[bin]]
 name = "rustsbi-prototyper"

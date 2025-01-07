@@ -10,33 +10,34 @@ pub mod early_trap;
 pub mod extensions;
 pub mod fifo;
 pub mod hart_context;
+pub mod heap;
 pub mod logger;
 pub mod trap;
 pub mod trap_stack;
 
-use console::{ConsoleDevice, SbiConsole};
+use console::SbiConsole;
 use hsm::SbiHsm;
-use ipi::{IpiDevice, SbiIpi};
-use reset::{ResetDevice, SbiReset};
+use ipi::SbiIpi;
+use reset::SbiReset;
 use rfence::SbiRFence;
 
 #[derive(RustSBI, Default)]
 #[rustsbi(dynamic)]
 #[allow(clippy::upper_case_acronyms)]
-pub struct SBI<C: ConsoleDevice, I: IpiDevice, R: ResetDevice> {
+pub struct SBI {
     #[rustsbi(console)]
-    pub console: Option<SbiConsole<C>>,
+    pub console: Option<SbiConsole>,
     #[rustsbi(ipi, timer)]
-    pub ipi: Option<SbiIpi<I>>,
+    pub ipi: Option<SbiIpi>,
     #[rustsbi(hsm)]
     pub hsm: Option<SbiHsm>,
     #[rustsbi(reset)]
-    pub reset: Option<SbiReset<R>>,
+    pub reset: Option<SbiReset>,
     #[rustsbi(fence)]
     pub rfence: Option<SbiRFence>,
 }
 
-impl<C: ConsoleDevice, I: IpiDevice, R: ResetDevice> SBI<C, I, R> {
+impl SBI {
     pub const fn new() -> Self {
         SBI {
             console: None,
