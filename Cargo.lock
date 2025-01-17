@@ -603,7 +603,7 @@ dependencies = [
 [[package]]
 name = "serde-device-tree"
 version = "0.0.1"
-source = "git+https://github.com/rustsbi/serde-device-tree#b3597a098a27640e499c369fd740722181bd181e"
+source = "git+https://github.com/rustsbi/serde-device-tree#e7f9404fc07bc3f8cce4e7a833be6a0fff93b5c4"
 dependencies = [
  "serde",
 ]
