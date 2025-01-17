@@ -11,20 +11,10 @@ use core::ops::Range;
 pub struct Tree<'a> {
     /// Optional model name string.
     pub model: Option<StrSeq<'a>>,
-    /// Chosen node containing boot parameters.
-    pub chosen: Chosen<'a>,
     /// Memory information.
     pub memory: NodeSeq<'a>,
     /// CPU information.
     pub cpus: Cpus<'a>,
-}
-
-/// Chosen node containing boot parameters.
-#[derive(Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct Chosen<'a> {
-    /// Path to stdout device.
-    pub stdout_path: StrSeq<'a>,
 }
 
 /// CPU information container.
