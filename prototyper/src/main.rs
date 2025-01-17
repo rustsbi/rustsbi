@@ -35,7 +35,6 @@ use crate::sbi::ipi;
 use crate::sbi::trap::{self, trap_vec};
 use crate::sbi::trap_stack;
 
-pub const START_ADDRESS: usize = 0x80000000;
 pub const R_RISCV_RELATIVE: usize = 3;
 
 #[no_mangle]
@@ -200,7 +199,7 @@ unsafe extern "C" fn relocation_update() {
         // Return
         "   ret",
         R_RISCV_RELATIVE = const R_RISCV_RELATIVE,
-        START_ADDRESS = const START_ADDRESS,
+        START_ADDRESS = const cfg::SBI_LINK_START_ADDRESS,
         options(noreturn)
     )
 }

@@ -12,10 +12,12 @@ use uart_xilinx::MmioUartAxiLite;
 use crate::cfg::NUM_HART_MAX;
 use crate::devicetree::*;
 use crate::fail;
-use crate::platform::clint::{MachineClintType, CLINT_COMPATIBLE};
+use crate::platform::clint::{MachineClintType, SIFIVE_CLINT_COMPATIBLE, THEAD_CLINT_COMPATIBLE};
 use crate::platform::console::Uart16550Wrap;
+use crate::platform::console::UartBflbWrap;
 use crate::platform::console::{
     MachineConsoleType, UART16650U32_COMPATIBLE, UART16650U8_COMPATIBLE, UARTAXILITE_COMPATIBLE,
+    UARTBFLB_COMPATIBLE,
 };
 use crate::platform::reset::SIFIVETEST_COMPATIBLE;
 use crate::sbi::console::SbiConsole;
@@ -88,7 +90,6 @@ impl Platform {
     pub fn init(&mut self, fdt_address: usize) {
         self.info_init(fdt_address);
         self.sbi_init();
-        logger::Logger::init().unwrap();
         trap_stack::prepare_for_trap();
         self.ready.swap(true, Ordering::Release);
     }
@@ -101,34 +102,8 @@ impl Platform {
             .unwrap_or_else(fail::device_tree_deserialize_root);
         let tree: Tree = root.deserialize();
 
-        //  Get console device info
-        for console_path in tree.chosen.stdout_path.iter() {
-            if let Some(node) = root.find(console_path) {
-                let info = get_compatible_and_range(&node);
-                let result = info.is_some_and(|info| {
-                    let (compatible, regs) = info;
-                    for device_id in compatible.iter() {
-                        if UART16650U8_COMPATIBLE.contains(&device_id) {
-                            self.info.console = Some((regs.start, MachineConsoleType::Uart16550U8));
-                            return true;
-                        }
-                        if UART16650U32_COMPATIBLE.contains(&device_id) {
-                            self.info.console =
-                                Some((regs.start, MachineConsoleType::Uart16550U32));
-                            return true;
-                        }
-                        if UARTAXILITE_COMPATIBLE.contains(&device_id) {
-                            self.info.console = Some((regs.start, MachineConsoleType::UartAxiLite));
-                            return true;
-                        }
-                    }
-                    false
-                });
-                if result {
-                    break;
-                }
-            }
-        }
+        // Get console device, init sbi console and logger
+        self.sbi_find_and_init_console(&root);
 
         // Get ipi and reset device info
         let mut find_device = |node: &serde_device_tree::buildin::Node| {
@@ -138,12 +113,14 @@ impl Platform {
                 let base_address = regs.start;
                 for device_id in compatible.iter() {
                     // Initialize clint device.
-                    if CLINT_COMPATIBLE.contains(&device_id) {
+                    if SIFIVE_CLINT_COMPATIBLE.contains(&device_id) {
                         if node.get_prop("clint,has-no-64bit-mmio").is_some() {
                             self.info.ipi = Some((base_address, MachineClintType::TheadClint));
                         } else {
                             self.info.ipi = Some((base_address, MachineClintType::SiFiveClint));
                         }
+                    } else if THEAD_CLINT_COMPATIBLE.contains(&device_id) {
+                        self.info.ipi = Some((base_address, MachineClintType::TheadClint));
                     }
                     // Initialize reset device.
                     if SIFIVETEST_COMPATIBLE.contains(&device_id) {
@@ -196,11 +173,41 @@ impl Platform {
     }
 
     fn sbi_init(&mut self) {
-        self.sbi_console_init();
         self.sbi_ipi_init();
         self.sbi_hsm_init();
         self.sbi_reset_init();
         self.sbi_rfence_init();
+    }
+
+    fn sbi_find_and_init_console(&mut self, root: &serde_device_tree::buildin::Node) {
+        //  Get console device info
+        if let Some(stdout_path) = root.chosen_stdout_path() {
+            if let Some(node) = root.find(stdout_path) {
+                let info = get_compatible_and_range(&node);
+                if let Some((compatible, regs)) = info {
+                    for device_id in compatible.iter() {
+                        if UART16650U8_COMPATIBLE.contains(&device_id) {
+                            self.info.console = Some((regs.start, MachineConsoleType::Uart16550U8));
+                        }
+                        if UART16650U32_COMPATIBLE.contains(&device_id) {
+                            self.info.console =
+                                Some((regs.start, MachineConsoleType::Uart16550U32));
+                        }
+                        if UARTAXILITE_COMPATIBLE.contains(&device_id) {
+                            self.info.console = Some((regs.start, MachineConsoleType::UartAxiLite));
+                        }
+                        if UARTBFLB_COMPATIBLE.contains(&device_id) {
+                            self.info.console = Some((regs.start, MachineConsoleType::UartBflb));
+                        }
+                    }
+                }
+            }
+        }
+
+        // init console and logger
+        self.sbi_console_init();
+        logger::Logger::init().unwrap();
+        info!("Hello RustSBI!");
     }
 
     fn sbi_console_init(&mut self) {
@@ -214,6 +221,9 @@ impl Platform {
                 )))),
                 MachineConsoleType::UartAxiLite => Some(SbiConsole::new(Mutex::new(Box::new(
                     MmioUartAxiLite::new(base),
+                )))),
+                MachineConsoleType::UartBflb => Some(SbiConsole::new(Mutex::new(Box::new(
+                    UartBflbWrap::new(base),
                 )))),
             };
         } else {

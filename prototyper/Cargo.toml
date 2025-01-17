@@ -26,6 +26,7 @@ fast-trap = { version = "0.0.1", features = ["riscv-m"] }
 serde-device-tree = { git = "https://github.com/rustsbi/serde-device-tree", default-features = false }
 uart_xilinx = { git = "https://github.com/duskmoon314/uart-rs/" }
 xuantie-riscv = { git= "https://github.com/rustsbi/xuantie" }
+bouffalo-hal = { git = "https://github.com/rustsbi/bouffalo-hal", rev = "968b949", features = ["bl808"] }
 
 [[bin]]
 name = "rustsbi-prototyper"
