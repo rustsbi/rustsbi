@@ -244,7 +244,7 @@ impl rustsbi::Hsm for SbiHsm {
             }
             local_hsm().suspend();
             riscv::asm::wfi();
-            crate::trap::msoft_ipi_handler();
+            crate::sbi::trap::handler::msoft_ipi_handler();
             local_hsm().resume();
             SbiRet::success(0)
         } else {

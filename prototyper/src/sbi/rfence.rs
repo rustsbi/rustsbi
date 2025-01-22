@@ -1,11 +1,12 @@
 use rustsbi::{HartMask, SbiRet};
 use spin::Mutex;
 
+use crate::cfg::{PAGE_SIZE, TLB_FLUSH_LIMIT};
 use crate::platform::PLATFORM;
 use crate::riscv::current_hartid;
 use crate::sbi::fifo::{Fifo, FifoError};
-use crate::sbi::trap;
 use crate::sbi::trap_stack::ROOT_STACK;
+use core::arch::asm;
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
@@ -134,7 +135,7 @@ impl LocalRFenceCell<'_> {
                 Ok(_) => break,
                 Err(FifoError::Full) => {
                     drop(queue);
-                    trap::rfence_single_handler();
+                    rfence_single_handler();
                 }
                 Err(_) => panic!("Unable to push fence ops to fifo"),
             }
@@ -153,7 +154,7 @@ impl RemoteRFenceCell<'_> {
                 Ok(_) => return,
                 Err(FifoError::Full) => {
                     drop(queue);
-                    trap::rfence_single_handler();
+                    rfence_single_handler();
                 }
                 Err(_) => panic!("Unable to push fence ops to fifo"),
             }
@@ -251,5 +252,72 @@ impl rustsbi::Fence for SbiRFence {
             },
             hart_mask,
         )
+    }
+}
+
+/// Handles a single remote fence operation.
+#[inline]
+pub fn rfence_single_handler() {
+    let rfence_context = local_rfence().unwrap().get();
+    if let Some((ctx, id)) = rfence_context {
+        match ctx.op {
+            // Handle instruction fence
+            RFenceType::FenceI => unsafe {
+                asm!("fence.i");
+                remote_rfence(id).unwrap().sub();
+            },
+            // Handle virtual memory address fence
+            RFenceType::SFenceVma => {
+                // If the flush size is greater than the maximum limit then simply flush all
+                if (ctx.start_addr == 0 && ctx.size == 0)
+                    || (ctx.size == usize::MAX)
+                    || (ctx.size > TLB_FLUSH_LIMIT)
+                {
+                    unsafe {
+                        asm!("sfence.vma");
+                    }
+                } else {
+                    for offset in (0..ctx.size).step_by(PAGE_SIZE) {
+                        let addr = ctx.start_addr + offset;
+                        unsafe {
+                            asm!("sfence.vma {}", in(reg) addr);
+                        }
+                    }
+                }
+                remote_rfence(id).unwrap().sub();
+            }
+            // Handle virtual memory address fence with ASID
+            RFenceType::SFenceVmaAsid => {
+                let asid = ctx.asid;
+                // If the flush size is greater than the maximum limit then simply flush all
+                if (ctx.start_addr == 0 && ctx.size == 0)
+                    || (ctx.size == usize::MAX)
+                    || (ctx.size > TLB_FLUSH_LIMIT)
+                {
+                    unsafe {
+                        asm!("sfence.vma {}, {}", in(reg) 0, in(reg) asid);
+                    }
+                } else {
+                    for offset in (0..ctx.size).step_by(PAGE_SIZE) {
+                        let addr = ctx.start_addr + offset;
+                        unsafe {
+                            asm!("sfence.vma {}, {}", in(reg) addr, in(reg) asid);
+                        }
+                    }
+                }
+                remote_rfence(id).unwrap().sub();
+            }
+            rfencetype => {
+                error!("Unsupported RFence Type: {:?}!", rfencetype);
+            }
+        }
+    }
+}
+
+/// Process all pending remote fence operations.
+#[inline]
+pub fn rfence_handler() {
+    while !local_rfence().unwrap().is_empty() {
+        rfence_single_handler();
     }
 }

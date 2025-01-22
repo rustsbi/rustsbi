@@ -4,7 +4,6 @@ use crate::riscv::current_hartid;
 use crate::sbi::extensions::{hart_extension_probe, Extension};
 use crate::sbi::hsm::remote_hsm;
 use crate::sbi::rfence;
-use crate::sbi::trap;
 use crate::sbi::trap_stack::ROOT_STACK;
 use alloc::boxed::Box;
 use core::sync::atomic::Ordering::Relaxed;
@@ -182,7 +181,7 @@ impl SbiIpi {
 
         // Wait for all fence operations to complete
         while !rfence::local_rfence().unwrap().is_sync() {
-            trap::rfence_single_handler();
+            rfence::rfence_single_handler();
         }
 
         SbiRet::success(0)
