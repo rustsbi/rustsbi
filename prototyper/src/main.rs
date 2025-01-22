@@ -32,7 +32,7 @@ use crate::sbi::hart_context::NextStage;
 use crate::sbi::heap::sbi_heap_init;
 use crate::sbi::hsm::local_remote_hsm;
 use crate::sbi::ipi;
-use crate::sbi::trap::{self, trap_vec};
+use crate::sbi::trap;
 use crate::sbi::trap_stack;
 
 pub const R_RISCV_RELATIVE: usize = 3;
@@ -119,8 +119,8 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
                 menvcfg::set_bits(menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
             }
         }
-        // Set up vectored trap handling.
-        mtvec::write(trap_vec as _, mtvec::TrapMode::Vectored);
+        // Set up trap handling.
+        mtvec::write(fast_trap::trap_entry as _, mtvec::TrapMode::Direct);
     }
 }
 
@@ -166,7 +166,7 @@ unsafe extern "C" fn start() -> ! {
         relocation_update = sym relocation_update,
         locate_stack = sym trap_stack::locate,
         main         = sym rust_main,
-        hart_boot    = sym trap::msoft,
+        hart_boot    = sym trap::boot::boot,
         options(noreturn)
     )
 }
