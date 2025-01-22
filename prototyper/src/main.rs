@@ -66,7 +66,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         let hart_id = current_hartid();
         info!("{:<30}: {}", "Boot HART ID", hart_id);
 
-        // Detection Priv Ver
+        // Detection Priv Version
         privileged_version_detection();
         let priv_version = hart_privileged_version(hart_id);
         info!("{:<30}: {:?}", "Boot HART Privileged Version", priv_version);
@@ -94,6 +94,8 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         }
 
         firmware::set_pmp(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });
+        // Detection Priv Version
+        privileged_version_detection();
     }
     // Clear all pending IPIs.
     ipi::clear_all();
