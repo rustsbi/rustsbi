@@ -19,6 +19,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Modified
 
 - susp: amend documentation on `system_suspend` function.
+- lib: replace map+unwrap_or with Option::map_or in impls
 
 ### Removed
 

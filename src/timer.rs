@@ -27,8 +27,7 @@ impl<T: Timer> Timer for Option<T> {
     #[inline]
     fn set_timer(&self, stime_value: u64) {
         self.as_ref()
-            .map(|inner| T::set_timer(inner, stime_value))
-            .unwrap_or(())
+            .map_or((), |inner| T::set_timer(inner, stime_value))
     }
     #[inline]
     fn _rustsbi_probe(&self) -> usize {

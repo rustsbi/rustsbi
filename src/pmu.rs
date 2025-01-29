@@ -359,15 +359,13 @@ impl<T: Pmu> Pmu for &T {
 impl<T: Pmu> Pmu for Option<T> {
     #[inline]
     fn num_counters(&self) -> usize {
-        self.as_ref()
-            .map(|inner| T::num_counters(inner))
-            .unwrap_or(0)
+        self.as_ref().map_or(0, |inner| T::num_counters(inner))
     }
     #[inline]
     fn counter_get_info(&self, counter_idx: usize) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::counter_get_info(inner, counter_idx))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::counter_get_info(inner, counter_idx)
+        })
     }
     #[inline]
     fn counter_config_matching(
@@ -397,17 +395,15 @@ impl<T: Pmu> Pmu for Option<T> {
         start_flags: usize,
         initial_value: u64,
     ) -> SbiRet {
-        self.as_ref()
-            .map(|inner| {
-                T::counter_start(
-                    inner,
-                    counter_idx_base,
-                    counter_idx_mask,
-                    start_flags,
-                    initial_value,
-                )
-            })
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::counter_start(
+                inner,
+                counter_idx_base,
+                counter_idx_mask,
+                start_flags,
+                initial_value,
+            )
+        })
     }
     #[inline]
     fn counter_stop(
@@ -416,27 +412,27 @@ impl<T: Pmu> Pmu for Option<T> {
         counter_idx_mask: usize,
         stop_flags: usize,
     ) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::counter_stop(inner, counter_idx_base, counter_idx_mask, stop_flags))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::counter_stop(inner, counter_idx_base, counter_idx_mask, stop_flags)
+        })
     }
     #[inline]
     fn counter_fw_read(&self, counter_idx: usize) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::counter_fw_read(inner, counter_idx))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::counter_fw_read(inner, counter_idx)
+        })
     }
     #[inline]
     fn counter_fw_read_hi(&self, counter_idx: usize) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::counter_fw_read_hi(inner, counter_idx))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::counter_fw_read_hi(inner, counter_idx)
+        })
     }
     #[inline]
     fn snapshot_set_shmem(&self, shmem: SharedPtr<[u8; SIZE]>, flags: usize) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::snapshot_set_shmem(inner, shmem, flags))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::snapshot_set_shmem(inner, shmem, flags)
+        })
     }
     #[inline]
     fn _rustsbi_probe(&self) -> usize {

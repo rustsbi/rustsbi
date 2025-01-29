@@ -99,9 +99,9 @@ impl<T: Susp> Susp for &T {
 impl<T: Susp> Susp for Option<T> {
     #[inline]
     fn system_suspend(&self, sleep_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::system_suspend(inner, sleep_type, resume_addr, opaque))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::system_suspend(inner, sleep_type, resume_addr, opaque)
+        })
     }
     #[inline]
     fn _rustsbi_probe(&self) -> usize {

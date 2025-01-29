@@ -74,9 +74,9 @@ impl<T: Sta> Sta for &T {
 impl<T: Sta> Sta for Option<T> {
     #[inline]
     fn set_shmem(&self, shmem: SharedPtr<[u8; 64]>, flags: usize) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::set_shmem(inner, shmem, flags))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::set_shmem(inner, shmem, flags)
+        })
     }
     #[inline]
     fn _rustsbi_probe(&self) -> usize {

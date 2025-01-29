@@ -174,33 +174,31 @@ impl<T: Nacl> Nacl for &T {
 impl<T: Nacl> Nacl for Option<T> {
     #[inline]
     fn probe_feature(&self, feature_id: u32) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::probe_feature(inner, feature_id))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::probe_feature(inner, feature_id)
+        })
     }
     #[inline]
     fn set_shmem(&self, shmem: SharedPtr<[u8; NATIVE]>, flags: usize) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::set_shmem(inner, shmem, flags))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::set_shmem(inner, shmem, flags)
+        })
     }
     #[inline]
     fn sync_csr(&self, csr_num: usize) -> SbiRet {
         self.as_ref()
-            .map(|inner| T::sync_csr(inner, csr_num))
-            .unwrap_or(SbiRet::not_supported())
+            .map_or(SbiRet::not_supported(), |inner| T::sync_csr(inner, csr_num))
     }
     #[inline]
     fn sync_hfence(&self, entry_index: usize) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::sync_hfence(inner, entry_index))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::sync_hfence(inner, entry_index)
+        })
     }
     #[inline]
     fn sync_sret(&self) -> SbiRet {
         self.as_ref()
-            .map(|inner| T::sync_sret(inner))
-            .unwrap_or(SbiRet::not_supported())
+            .map_or(SbiRet::not_supported(), |inner| T::sync_sret(inner))
     }
     #[inline]
     fn _rustsbi_probe(&self) -> usize {

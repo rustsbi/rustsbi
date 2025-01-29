@@ -28,9 +28,9 @@ impl<T: Ipi> Ipi for &T {
 impl<T: Ipi> Ipi for Option<T> {
     #[inline]
     fn send_ipi(&self, hart_mask: HartMask) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::send_ipi(inner, hart_mask))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::send_ipi(inner, hart_mask)
+        })
     }
     #[inline]
     fn _rustsbi_probe(&self) -> usize {

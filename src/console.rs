@@ -111,20 +111,17 @@ impl<T: Console> Console for Option<T> {
     #[inline]
     fn write(&self, bytes: Physical<&[u8]>) -> SbiRet {
         self.as_ref()
-            .map(|inner| T::write(inner, bytes))
-            .unwrap_or(SbiRet::not_supported())
+            .map_or(SbiRet::not_supported(), |inner| T::write(inner, bytes))
     }
     #[inline]
     fn read(&self, bytes: Physical<&mut [u8]>) -> SbiRet {
         self.as_ref()
-            .map(|inner| T::read(inner, bytes))
-            .unwrap_or(SbiRet::not_supported())
+            .map_or(SbiRet::not_supported(), |inner| T::read(inner, bytes))
     }
     #[inline]
     fn write_byte(&self, byte: u8) -> SbiRet {
         self.as_ref()
-            .map(|inner| T::write_byte(inner, byte))
-            .unwrap_or(SbiRet::not_supported())
+            .map_or(SbiRet::not_supported(), |inner| T::write_byte(inner, byte))
     }
     #[inline]
     fn _rustsbi_probe(&self) -> usize {

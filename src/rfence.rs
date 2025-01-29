@@ -196,15 +196,15 @@ impl<T: Rfence> Rfence for &T {
 impl<T: Rfence> Rfence for Option<T> {
     #[inline]
     fn remote_fence_i(&self, hart_mask: HartMask) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::remote_fence_i(inner, hart_mask))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::remote_fence_i(inner, hart_mask)
+        })
     }
     #[inline]
     fn remote_sfence_vma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::remote_sfence_vma(inner, hart_mask, start_addr, size))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::remote_sfence_vma(inner, hart_mask, start_addr, size)
+        })
     }
     #[inline]
     fn remote_sfence_vma_asid(
@@ -214,9 +214,9 @@ impl<T: Rfence> Rfence for Option<T> {
         size: usize,
         asid: usize,
     ) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::remote_sfence_vma_asid(inner, hart_mask, start_addr, size, asid))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::remote_sfence_vma_asid(inner, hart_mask, start_addr, size, asid)
+        })
     }
     #[inline]
     fn remote_hfence_gvma_vmid(
@@ -226,15 +226,15 @@ impl<T: Rfence> Rfence for Option<T> {
         size: usize,
         vmid: usize,
     ) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::remote_hfence_gvma_vmid(inner, hart_mask, start_addr, size, vmid))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::remote_hfence_gvma_vmid(inner, hart_mask, start_addr, size, vmid)
+        })
     }
     #[inline]
     fn remote_hfence_gvma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::remote_hfence_gvma(inner, hart_mask, start_addr, size))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::remote_hfence_gvma(inner, hart_mask, start_addr, size)
+        })
     }
     #[inline]
     fn remote_hfence_vvma_asid(
@@ -244,15 +244,15 @@ impl<T: Rfence> Rfence for Option<T> {
         size: usize,
         asid: usize,
     ) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::remote_hfence_vvma_asid(inner, hart_mask, start_addr, size, asid))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::remote_hfence_vvma_asid(inner, hart_mask, start_addr, size, asid)
+        })
     }
     #[inline]
     fn remote_hfence_vvma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::remote_hfence_vvma(inner, hart_mask, start_addr, size))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::remote_hfence_vvma(inner, hart_mask, start_addr, size)
+        })
     }
     #[inline]
     fn _rustsbi_probe(&self) -> usize {

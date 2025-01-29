@@ -231,27 +231,26 @@ impl<T: Hsm> Hsm for &T {
 impl<T: Hsm> Hsm for Option<T> {
     #[inline]
     fn hart_start(&self, hartid: usize, start_addr: usize, opaque: usize) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::hart_start(inner, hartid, start_addr, opaque))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::hart_start(inner, hartid, start_addr, opaque)
+        })
     }
     #[inline]
     fn hart_stop(&self) -> SbiRet {
         self.as_ref()
-            .map(|inner| T::hart_stop(inner))
-            .unwrap_or(SbiRet::not_supported())
+            .map_or(SbiRet::not_supported(), |inner| T::hart_stop(inner))
     }
     #[inline]
     fn hart_get_status(&self, hartid: usize) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::hart_get_status(inner, hartid))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::hart_get_status(inner, hartid)
+        })
     }
     #[inline]
     fn hart_suspend(&self, suspend_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::hart_suspend(inner, suspend_type, resume_addr, opaque))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::hart_suspend(inner, suspend_type, resume_addr, opaque)
+        })
     }
     #[inline]
     fn _rustsbi_probe(&self) -> usize {

@@ -144,26 +144,23 @@ impl<T: Cppc> Cppc for Option<T> {
     #[inline]
     fn probe(&self, reg_id: u32) -> SbiRet {
         self.as_ref()
-            .map(|inner| T::probe(inner, reg_id))
-            .unwrap_or(SbiRet::not_supported())
+            .map_or(SbiRet::not_supported(), |inner| T::probe(inner, reg_id))
     }
     #[inline]
     fn read(&self, reg_id: u32) -> SbiRet {
         self.as_ref()
-            .map(|inner| T::read(inner, reg_id))
-            .unwrap_or(SbiRet::not_supported())
+            .map_or(SbiRet::not_supported(), |inner| T::read(inner, reg_id))
     }
     #[inline]
     fn read_hi(&self, reg_id: u32) -> SbiRet {
         self.as_ref()
-            .map(|inner| T::read_hi(inner, reg_id))
-            .unwrap_or(SbiRet::not_supported())
+            .map_or(SbiRet::not_supported(), |inner| T::read_hi(inner, reg_id))
     }
     #[inline]
     fn write(&self, reg_id: u32, val: u64) -> SbiRet {
-        self.as_ref()
-            .map(|inner| T::write(inner, reg_id, val))
-            .unwrap_or(SbiRet::not_supported())
+        self.as_ref().map_or(SbiRet::not_supported(), |inner| {
+            T::write(inner, reg_id, val)
+        })
     }
     #[inline]
     fn _rustsbi_probe(&self) -> usize {
