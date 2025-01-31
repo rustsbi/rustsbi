@@ -1,6 +1,6 @@
+use bouffalo_hal::uart::RegisterBlock as BflbUartRegisterBlock;
 use uart16550::{Register, Uart16550};
 use uart_xilinx::MmioUartAxiLite;
-use bouffalo_hal::uart::RegisterBlock as BflbUartRegisterBlock;
 
 use crate::sbi::console::ConsoleDevice;
 pub(crate) const UART16650U8_COMPATIBLE: [&str; 1] = ["ns16550a"];
@@ -41,7 +41,6 @@ impl<R: Register> ConsoleDevice for Uart16550Wrap<R> {
     }
 }
 
-
 /// For Uart AxiLite
 impl ConsoleDevice for MmioUartAxiLite {
     fn read(&self, buf: &mut [u8]) -> usize {
@@ -55,21 +54,20 @@ impl ConsoleDevice for MmioUartAxiLite {
 
 /// For Uart BFLB
 pub struct UartBflbWrap {
-    inner: *const BflbUartRegisterBlock
+    inner: *const BflbUartRegisterBlock,
 }
 
 impl UartBflbWrap {
     pub fn new(base: usize) -> Self {
         Self {
-            inner: base as *const BflbUartRegisterBlock
+            inner: base as *const BflbUartRegisterBlock,
         }
-        
     }
 }
 
 impl ConsoleDevice for UartBflbWrap {
     fn read(&self, buf: &mut [u8]) -> usize {
-        let  uart = unsafe {&(*self.inner) };
+        let uart = unsafe { &(*self.inner) };
         while uart.fifo_config_1.read().receive_available_bytes() == 0 {
             core::hint::spin_loop();
         }
@@ -84,16 +82,17 @@ impl ConsoleDevice for UartBflbWrap {
     }
 
     fn write(&self, buf: &[u8]) -> usize {
-        let  uart = unsafe {&(*self.inner) };
+        let uart = unsafe { &(*self.inner) };
         let mut count = 0;
         for current in buf {
             if uart.fifo_config_1.read().transmit_available_bytes() == 0 {
                 break;
             }
             count += 1;
-            unsafe { uart.fifo_write.write(*current); }
+            unsafe {
+                uart.fifo_write.write(*current);
+            }
         }
         count
     }
-    
 }
