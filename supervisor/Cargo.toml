@@ -6,7 +6,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-naked-function = "0.1.5"
-sbi-rt = "0.0.3"
-rcore-console = "0.0.0"
-uart16550 = "0.0.1"
+axstd = { git = "https://github.com/arceos-org/arceos.git", optional = true }
+
+[features]
+default = ["axstd"]
+axstd = ["dep:axstd"]
+
+log-level-trace = ["axstd/log-level-trace"]
