@@ -1,0 +1,13 @@
+[package]
+name = "arceboot"
+version = "0.0.0"
+edition = "2024"
+
+[dependencies]
+axstd = { git = "https://github.com/arceos-org/arceos.git", optional = true }
+
+[features]
+default = []
+axstd = ["dep:axstd"]
+
+log-level-trace = ["axstd/log-level-trace"]
