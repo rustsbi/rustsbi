@@ -43,6 +43,14 @@ jobs:
           PASS=1
           for COMMIT in $commits; do
             echo "Checking commit $COMMIT"
+
+            PARENTS=$(git log -1 --format='%P' "$COMMIT")
+            NUM_PARENTS=$(echo "$PARENTS" | wc -w)
+            if [ "$NUM_PARENTS" -gt 1 ]; then
+              echo "Commit $COMMIT is a merge commit, skipping signature check."
+              continue
+            fi
+
             COMMIT_MSG=$(git log -1 --format=%B $COMMIT)
             if echo "$COMMIT_MSG" | grep -q "Signed-off-by:"; then
               echo ":) Commit $COMMIT is signed."
