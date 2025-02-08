@@ -19,6 +19,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Modified
 
+- base: don't derive `PartialOrd` for `Version`, instead manually implement `Ord` and forward it into `PartialOrd`.
+
 ### Fixed
 
 ## [0.0.8] - 2024-10-25

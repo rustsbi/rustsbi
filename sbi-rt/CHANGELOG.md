@@ -20,6 +20,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - base: fix wrong `extension_id` of `Suspend` structure
+- binary: allow 8 arguments on internal function `sbi_call_6`.
 
 ## [0.0.3] - 2024-02-08
 

@@ -2,6 +2,9 @@
 // This module is designated to use under RISC-V only, but it builds under non-RISC-V targets
 // to allow unit tests and `cargo fix` operations.
 
+// `sbi_call_6` has 8 arguments which is allowed
+#![allow(clippy::too_many_arguments)]
+
 use sbi_spec::binary::SbiRet;
 
 #[inline(always)]
