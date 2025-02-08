@@ -71,4 +71,10 @@ jobs:
 
       - name: Print authors' information
         run: |
-          git log --pretty="format:%h - %an <%ae> [%G?]" ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
+          if [ -n "$GITHUB_BASE_REF" ]; then
+            git fetch origin $GITHUB_BASE_REF
+            RANGE="origin/$GITHUB_BASE_REF..HEAD"
+          else
+            RANGE="HEAD~1..HEAD"
+          fi
+          git log --pretty="format:%h - %an <%ae> [%G?]" $RANGE
