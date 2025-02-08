@@ -338,7 +338,7 @@ fn impl_derive_rustsbi_static(name: &Ident, imp: StaticImpl, generics: &Generics
         })
     }
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-    let r#gen = quote! {
+    let generated = quote! {
     impl #impl_generics ::rustsbi::RustSBI for #name #ty_generics #where_clause {
         #[inline]
         fn handle_ecall(&self, extension: usize, function: usize, param: [usize; 6]) -> ::rustsbi::SbiRet {
@@ -349,7 +349,7 @@ fn impl_derive_rustsbi_static(name: &Ident, imp: StaticImpl, generics: &Generics
         }
     }
         };
-    r#gen.into()
+    generated.into()
 }
 
 fn impl_derive_rustsbi_dynamic(name: &Ident, imp: DynamicImpl, generics: &Generics) -> TokenStream {
@@ -573,7 +573,7 @@ fn impl_derive_rustsbi_dynamic(name: &Ident, imp: DynamicImpl, generics: &Generi
         }
     };
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-    let r#gen = quote! {
+    let generated = quote! {
         impl #impl_generics ::rustsbi::RustSBI for #name #ty_generics #where_clause {
             #[inline]
             fn handle_ecall(&self, extension: usize, function: usize, param: [usize; 6]) -> ::rustsbi::SbiRet {
@@ -599,5 +599,5 @@ fn impl_derive_rustsbi_dynamic(name: &Ident, imp: DynamicImpl, generics: &Generi
             }
         }
     };
-    r#gen.into()
+    generated.into()
 }
