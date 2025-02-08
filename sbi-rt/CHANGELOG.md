@@ -19,6 +19,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- base: fix wrong `extension_id` of `Suspend` structure
+
 ## [0.0.3] - 2024-02-08
 
 This version adds support to the RISC-V SBI Specification version 2.0 ratified.

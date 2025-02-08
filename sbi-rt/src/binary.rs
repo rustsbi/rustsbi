@@ -1,8 +1,11 @@
-﻿//! Chapter 3. Binary Encoding
+//! Chapter 3. Binary Encoding
+// This module is designated to use under RISC-V only, but it builds under non-RISC-V targets
+// to allow unit tests and `cargo fix` operations.
 
 use sbi_spec::binary::SbiRet;
 
 #[inline(always)]
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub(crate) fn sbi_call_0(eid: usize, fid: usize) -> SbiRet {
     let (error, value);
     unsafe {
@@ -18,6 +21,13 @@ pub(crate) fn sbi_call_0(eid: usize, fid: usize) -> SbiRet {
 }
 
 #[inline(always)]
+#[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+pub(crate) fn sbi_call_0(_eid: usize, _fid: usize) -> SbiRet {
+    unimplemented!("unsupported architecture")
+}
+
+#[inline(always)]
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub(crate) fn sbi_call_1(eid: usize, fid: usize, arg0: usize) -> SbiRet {
     let (error, value);
     unsafe {
@@ -33,6 +43,13 @@ pub(crate) fn sbi_call_1(eid: usize, fid: usize, arg0: usize) -> SbiRet {
 }
 
 #[inline(always)]
+#[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+pub(crate) fn sbi_call_1(_eid: usize, _fid: usize, _arg0: usize) -> SbiRet {
+    unimplemented!("unsupported architecture")
+}
+
+#[inline(always)]
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub(crate) fn sbi_call_2(eid: usize, fid: usize, arg0: usize, arg1: usize) -> SbiRet {
     let (error, value);
     unsafe {
@@ -48,6 +65,13 @@ pub(crate) fn sbi_call_2(eid: usize, fid: usize, arg0: usize, arg1: usize) -> Sb
 }
 
 #[inline(always)]
+#[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+pub(crate) fn sbi_call_2(_eid: usize, _fid: usize, _arg0: usize, _arg1: usize) -> SbiRet {
+    unimplemented!("unsupported architecture")
+}
+
+#[inline(always)]
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub(crate) fn sbi_call_3(eid: usize, fid: usize, arg0: usize, arg1: usize, arg2: usize) -> SbiRet {
     let (error, value);
     unsafe {
@@ -64,6 +88,19 @@ pub(crate) fn sbi_call_3(eid: usize, fid: usize, arg0: usize, arg1: usize, arg2:
 }
 
 #[inline(always)]
+#[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+pub(crate) fn sbi_call_3(
+    _eid: usize,
+    _fid: usize,
+    _arg0: usize,
+    _arg1: usize,
+    _arg2: usize,
+) -> SbiRet {
+    unimplemented!("unsupported architecture")
+}
+
+#[inline(always)]
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub(crate) fn sbi_call_4(
     eid: usize,
     fid: usize,
@@ -88,6 +125,20 @@ pub(crate) fn sbi_call_4(
 }
 
 #[inline(always)]
+#[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+pub(crate) fn sbi_call_4(
+    _eid: usize,
+    _fid: usize,
+    _arg0: usize,
+    _arg1: usize,
+    _arg2: usize,
+    _arg3: usize,
+) -> SbiRet {
+    unimplemented!("unsupported architecture")
+}
+
+#[inline(always)]
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub(crate) fn sbi_call_5(
     eid: usize,
     fid: usize,
@@ -113,8 +164,23 @@ pub(crate) fn sbi_call_5(
     SbiRet { error, value }
 }
 
-#[cfg(target_pointer_width = "32")]
 #[inline(always)]
+#[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+pub(crate) fn sbi_call_5(
+    _eid: usize,
+    _fid: usize,
+    _arg0: usize,
+    _arg1: usize,
+    _arg2: usize,
+    _arg3: usize,
+    _arg4: usize,
+) -> SbiRet {
+    unimplemented!("unsupported architecture")
+}
+
+#[inline(always)]
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+#[allow(unused)] // only used on RV32 for RISC-V SBI 2.0 specification
 pub(crate) fn sbi_call_6(
     eid: usize,
     fid: usize,
@@ -140,4 +206,20 @@ pub(crate) fn sbi_call_6(
         );
     }
     SbiRet { error, value }
+}
+
+#[inline(always)]
+#[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+#[allow(unused)] // only used on RV32 for RISC-V SBI 2.0 specification
+pub(crate) fn sbi_call_6(
+    _eid: usize,
+    _fid: usize,
+    _arg0: usize,
+    _arg1: usize,
+    _arg2: usize,
+    _arg3: usize,
+    _arg4: usize,
+    _arg5: usize,
+) -> SbiRet {
+    unimplemented!("unsupported architecture")
 }
