@@ -5,8 +5,8 @@ use crate::binary::{sbi_call_0, sbi_call_1, sbi_call_3};
 use sbi_spec::{
     binary::{CounterMask, SbiRet, SharedPtr},
     pmu::{
-        shmem_size::SIZE, COUNTER_CONFIG_MATCHING, COUNTER_FW_READ, COUNTER_FW_READ_HI,
-        COUNTER_GET_INFO, COUNTER_START, COUNTER_STOP, EID_PMU, NUM_COUNTERS, SNAPSHOT_SET_SHMEM,
+        COUNTER_CONFIG_MATCHING, COUNTER_FW_READ, COUNTER_FW_READ_HI, COUNTER_GET_INFO,
+        COUNTER_START, COUNTER_STOP, EID_PMU, NUM_COUNTERS, SNAPSHOT_SET_SHMEM, shmem_size::SIZE,
     },
 };
 

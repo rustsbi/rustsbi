@@ -235,18 +235,22 @@ fn test_batch(batch: &[usize], mut f: impl FnMut(Case)) -> bool {
 /// 测试用启动入口
 #[naked]
 unsafe extern "C" fn test_entry(hartid: usize, opaque: *mut ItemPerHart) -> ! {
-    core::arch::naked_asm!(
-        "csrw sie, zero",   // 关中断
-        "call {set_stack}", // 设置栈
-        "j    {rust_main}", // 进入 rust
-        set_stack = sym set_stack,
-        rust_main = sym rust_main,
-    )
+    unsafe {
+        core::arch::naked_asm!(
+            "csrw sie, zero",   // 关中断
+            "call {set_stack}", // 设置栈
+            "j    {rust_main}", // 进入 rust
+            set_stack = sym set_stack,
+            rust_main = sym rust_main,
+        )
+    }
 }
 
 #[naked]
 unsafe extern "C" fn set_stack(hart_id: usize, ptr: *const ItemPerHart) {
-    core::arch::naked_asm!("addi sp, a1, 512", "ret");
+    unsafe {
+        core::arch::naked_asm!("addi sp, a1, 512", "ret");
+    }
 }
 
 #[inline(never)]

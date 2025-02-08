@@ -879,7 +879,7 @@ impl SbiRet {
     /// ```
     #[inline]
     pub unsafe fn unwrap_unchecked(self) -> usize {
-        self.into_result().unwrap_unchecked()
+        unsafe { self.into_result().unwrap_unchecked() }
     }
 
     /// Returns the contained `Error` value, consuming the `self` value,
@@ -905,7 +905,7 @@ impl SbiRet {
     /// ```
     #[inline]
     pub unsafe fn unwrap_err_unchecked(self) -> Error {
-        self.into_result().unwrap_err_unchecked()
+        unsafe { self.into_result().unwrap_err_unchecked() }
     }
 }
 
