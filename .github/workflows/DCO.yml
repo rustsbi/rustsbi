@@ -13,22 +13,62 @@ env:
 
 jobs:
   check-commit-signatures:
-    name: Check commit signatures
+    name: Check all commit signatures
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Check if commit is signed
+        with:
+          fetch-depth: 0  # 获取完整提交历史以访问所有PR提交
+
+      - name: Verify all commits are signed
         run: |
-          COMMIT=$(git log -1)
-          if echo "$COMMIT" | grep -q "Author: "; then
-              echo "Commit is signed."
+          if [ -n "$GITHUB_BASE_REF" ]; then
+            echo "Pull Request detected. Using base ref: $GITHUB_BASE_REF"
+            # 拉取目标分支的最新状态
+            git fetch origin $GITHUB_BASE_REF
+            RANGE="origin/$GITHUB_BASE_REF..HEAD"
           else
-              echo "Commit is NOT signed."
-              exit 1
+            echo "Not Pull Request, checking one latest commit"
+            # 如果不是 PR，则只检查最近一次提交（可根据实际情况调整）
+            RANGE="HEAD~1..HEAD"
           fi
-      - name: Print author's information
+
+          commits=$(git rev-list $RANGE)
+          
+          if [ -z "$commits" ]; then
+            echo "Error: No commits found in the pull request range."
+            exit 1
+          fi
+
+          PASS=1
+          for COMMIT in $commits; do
+            echo "Checking commit $COMMIT"
+
+            PARENTS=$(git log -1 --format='%P' "$COMMIT")
+            NUM_PARENTS=$(echo "$PARENTS" | wc -w)
+            if [ "$NUM_PARENTS" -gt 1 ]; then
+              echo "Commit $COMMIT is a merge commit, skipping signature check."
+              continue
+            fi
+
+            COMMIT_MSG=$(git log -1 --format=%B $COMMIT)
+            if echo "$COMMIT_MSG" | grep -q "Signed-off-by:"; then
+              echo ":) Commit $COMMIT is signed."
+            else
+              echo ":( Commit $COMMIT is NOT signed."
+              echo "Commit information: "
+              git log -1 $COMMIT
+              PASS=0
+            fi
+          done
+
+          if [ "$PASS" -eq 1 ]; then
+            echo "✔ All commits are properly signed!"
+          else
+            echo "❌ At least one commit is not properly signed (using Signed-off-by)."
+            exit 1
+          fi
+
+      - name: Print authors' information
         run: |
-          AUTHOR_NAME=$(git log -1 --format='%an')
-          AUTHOR_EMAIL=$(git log -1 --format='%ae')
-          echo "Author's name: $AUTHOR_NAME"
-          echo "Author's email: $AUTHOR_EMAIL"
+          git log --pretty="format:%h - %an <%ae> [%G?]" ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
