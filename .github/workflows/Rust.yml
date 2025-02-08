@@ -20,6 +20,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: rustfmt
+          toolchain: nightly # support 2024 edition rustfmt checks
       - name: Cache Dependencies
         uses: Swatinem/rust-cache@v2
       - name: Rustfmt Check
