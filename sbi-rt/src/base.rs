@@ -111,7 +111,7 @@ pub trait Extension {
 }
 
 macro_rules! define_extension {
-    ($($struct:ident($value:expr_2021) #[$doc:meta])*) => {
+    ($($struct:ident($value:expr) #[$doc:meta])*) => {
         $(
             #[derive(Clone, Copy, Debug)]
             #[$doc]

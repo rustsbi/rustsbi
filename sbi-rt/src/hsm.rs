@@ -217,7 +217,7 @@ impl SuspendType for u32 {
 }
 
 macro_rules! define_suspend_type {
-    ($($struct:ident($value:expr_2021) #[$doc:meta])*) => {
+    ($($struct:ident($value:expr) #[$doc:meta])*) => {
         $(
             #[derive(Clone, Copy, Debug)]
             #[$doc]

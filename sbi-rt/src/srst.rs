@@ -89,7 +89,7 @@ impl ResetReason for i32 {
 }
 
 macro_rules! define_reset_param {
-    ($($struct:ident($value:expr_2021): $trait:ident #[$doc:meta])*) => {
+    ($($struct:ident($value:expr): $trait:ident #[$doc:meta])*) => {
         $(
             #[derive(Clone, Copy, Debug)]
             #[$doc]
