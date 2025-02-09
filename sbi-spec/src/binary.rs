@@ -1440,6 +1440,28 @@ mod tests {
     use super::*;
 
     #[test]
+    #[rustfmt::skip]
+    fn rustsbi_sbi_ret_constructors() {
+        assert_eq!(SbiRet::success(0), SbiRet { value: 0, error: 0 });
+        assert_eq!(SbiRet::success(1037), SbiRet { value: 1037, error: 0 });
+        assert_eq!(SbiRet::success(usize::MAX), SbiRet { value: usize::MAX, error: 0 });
+
+        assert_eq!(SbiRet::failed(), SbiRet { value: 0, error: usize::MAX - 1 + 1 });
+        assert_eq!(SbiRet::not_supported(), SbiRet { value: 0, error: usize::MAX - 2 + 1 });
+        assert_eq!(SbiRet::invalid_param(), SbiRet { value: 0, error: usize::MAX - 3 + 1 });
+        assert_eq!(SbiRet::denied(), SbiRet { value: 0, error: usize::MAX - 4 + 1 });
+        assert_eq!(SbiRet::invalid_address(), SbiRet { value: 0, error: usize::MAX - 5 + 1 });
+        assert_eq!(SbiRet::already_available(), SbiRet { value: 0, error: usize::MAX - 6 + 1 });
+        assert_eq!(SbiRet::already_started(), SbiRet { value: 0, error: usize::MAX - 7 + 1 });
+        assert_eq!(SbiRet::already_stopped(), SbiRet { value: 0, error: usize::MAX - 8 + 1 });
+        assert_eq!(SbiRet::no_shmem(), SbiRet { value: 0, error: usize::MAX - 9 + 1 });
+        assert_eq!(SbiRet::invalid_state(), SbiRet { value: 0, error: usize::MAX - 10 + 1 });
+        assert_eq!(SbiRet::bad_range(), SbiRet { value: 0, error: usize::MAX - 11 + 1 });
+        assert_eq!(SbiRet::timeout(), SbiRet { value: 0, error: usize::MAX - 12 + 1 });
+        assert_eq!(SbiRet::io(), SbiRet { value: 0, error: usize::MAX - 13 + 1 });
+    }
+
+    #[test]
     fn rustsbi_hart_mask() {
         let mask = HartMask::from_mask_base(0b1, 400);
         assert!(!mask.has_bit(0));
