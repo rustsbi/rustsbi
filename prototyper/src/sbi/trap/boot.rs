@@ -1,7 +1,7 @@
 use crate::riscv::current_hartid;
 use crate::sbi::hsm::local_hsm;
 use crate::sbi::ipi;
-use core::arch::asm;
+use core::arch::naked_asm;
 use riscv::register::{mie, mstatus, satp, sstatus};
 
 /// Boot Function.
@@ -9,31 +9,32 @@ use riscv::register::{mie, mstatus, satp, sstatus};
 /// so we can store a0, a1 and mepc only.
 #[naked]
 pub unsafe extern "C" fn boot() -> ! {
-    asm!(
-        ".align 2",
-        // Switch stacks
-        "csrrw  sp, mscratch, sp",
-        // Allocate stack space
-        "addi   sp, sp, -3*8",
-        // Call handler with context pointer
-        "mv     a0, sp",
-        "call   {boot_handler}",
-        // Restore mepc
-        "ld     t0, 0*8(sp)
-        csrw    mepc, t0",
-        // Restore registers
-        "
+    unsafe {
+        naked_asm!(
+            ".align 2",
+            // Switch stacks
+            "csrrw  sp, mscratch, sp",
+            // Allocate stack space
+            "addi   sp, sp, -3*8",
+            // Call handler with context pointer
+            "mv     a0, sp",
+            "call   {boot_handler}",
+            // Restore mepc
+            "ld     t0, 0*8(sp)
+            csrw    mepc, t0",
+            // Restore registers
+            "
         ld      a0, 1*8(sp)
         ld      a1, 2*8(sp)",
-        // Restore stack pointer
-        "addi   sp, sp, 3*8",
-        // Switch stacks back
-        "csrrw  sp, mscratch, sp",
-        // Return from machine mode
-        "mret",
-        boot_handler = sym boot_handler,
-        options(noreturn)
-    );
+            // Restore stack pointer
+            "addi   sp, sp, 3*8",
+            // Switch stacks back
+            "csrrw  sp, mscratch, sp",
+            // Return from machine mode
+            "mret",
+            boot_handler = sym boot_handler,
+        );
+    }
 }
 
 /// Boot Handler.

@@ -1,9 +1,9 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = ["prototyper", "bench-kernel", "test-kernel", "supervisor", "xtask"]
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
 license = "MulanPSL-2.0 OR MIT"
 repository = "https://github.com/rustsbi/prototyper"
 

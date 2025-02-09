@@ -16,10 +16,11 @@ use crate::platform::clint::{MachineClintType, SIFIVE_CLINT_COMPATIBLE, THEAD_CL
 use crate::platform::console::Uart16550Wrap;
 use crate::platform::console::UartBflbWrap;
 use crate::platform::console::{
-    MachineConsoleType, UART16650U32_COMPATIBLE, UART16650U8_COMPATIBLE, UARTAXILITE_COMPATIBLE,
+    MachineConsoleType, UART16650U8_COMPATIBLE, UART16650U32_COMPATIBLE, UARTAXILITE_COMPATIBLE,
     UARTBFLB_COMPATIBLE,
 };
 use crate::platform::reset::SIFIVETEST_COMPATIBLE;
+use crate::sbi::SBI;
 use crate::sbi::console::SbiConsole;
 use crate::sbi::extensions;
 use crate::sbi::hsm::SbiHsm;
@@ -28,7 +29,6 @@ use crate::sbi::logger;
 use crate::sbi::reset::SbiReset;
 use crate::sbi::rfence::SbiRFence;
 use crate::sbi::trap_stack;
-use crate::sbi::SBI;
 
 mod clint;
 mod console;

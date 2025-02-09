@@ -149,7 +149,7 @@ pub fn delegate(ctx: &mut FastContext) {
 #[inline]
 pub fn illegal_instruction_handler(ctx: &mut FastContext) -> bool {
     use riscv::register::{mepc, mtval};
-    use riscv_decode::{decode, Instruction};
+    use riscv_decode::{Instruction, decode};
 
     let inst = decode(mtval::read() as u32);
     match inst {

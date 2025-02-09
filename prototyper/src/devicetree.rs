@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use serde_device_tree::{
-    buildin::{Node, NodeSeq, Reg, StrSeq},
     Dtb, DtbPtr,
+    buildin::{Node, NodeSeq, Reg, StrSeq},
 };
 
 use core::ops::Range;
