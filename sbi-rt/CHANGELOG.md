@@ -16,6 +16,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Modified
 
 - pmu: change `counter_idx_mask` and `counter_idx_base` parameters into `counter_idx` with type `CounterMask`.
+- Migrate sbi-rt crate to Rust 2024 edition.
 
 ### Fixed
 

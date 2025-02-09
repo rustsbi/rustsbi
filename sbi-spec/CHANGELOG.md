@@ -19,6 +19,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Modified
 
+- Migrate sbi-rt crate to Rust 2024 edition.
+
 ### Fixed
 
 ## [0.0.8] - 2024-10-25

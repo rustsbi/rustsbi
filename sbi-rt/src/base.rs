@@ -3,8 +3,8 @@
 use crate::binary::{sbi_call_0, sbi_call_1};
 
 use sbi_spec::base::{
-    Version, EID_BASE, GET_MARCHID, GET_MIMPID, GET_MVENDORID, GET_SBI_IMPL_ID,
-    GET_SBI_IMPL_VERSION, GET_SBI_SPEC_VERSION, PROBE_EXTENSION,
+    EID_BASE, GET_MARCHID, GET_MIMPID, GET_MVENDORID, GET_SBI_IMPL_ID, GET_SBI_IMPL_VERSION,
+    GET_SBI_SPEC_VERSION, PROBE_EXTENSION, Version,
 };
 
 /// Return the current SBI specification version.

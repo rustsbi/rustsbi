@@ -1,4 +1,4 @@
-﻿/// 线程上下文。
+/// 线程上下文。
 #[repr(C)]
 pub struct Thread {
     sctx: usize,
@@ -71,16 +71,17 @@ impl Thread {
     /// 将修改 `sscratch`、`sepc`、`sstatus` 和 `stvec`。
     #[inline]
     pub unsafe fn execute(&mut self) -> usize {
-        // 设置线程仍在 S 态并打开中断
-        let mut sstatus: usize;
-        core::arch::asm!("csrr {}, sstatus", out(reg) sstatus);
-        const PREVILEGE_BIT: usize = 1 << 8;
-        const INTERRUPT_BIT: usize = 1 << 5;
-        sstatus |= PREVILEGE_BIT | INTERRUPT_BIT;
-        // 执行线程
-        // TODO support RV32 instruction set
-        core::arch::asm!(
-            "   csrw sscratch, {sscratch}
+        unsafe {
+            // 设置线程仍在 S 态并打开中断
+            let mut sstatus: usize;
+            core::arch::asm!("csrr {}, sstatus", out(reg) sstatus);
+            const PREVILEGE_BIT: usize = 1 << 8;
+            const INTERRUPT_BIT: usize = 1 << 5;
+            sstatus |= PREVILEGE_BIT | INTERRUPT_BIT;
+            // 执行线程
+            // TODO support RV32 instruction set
+            core::arch::asm!(
+                "   csrw sscratch, {sscratch}
                 csrw sepc    , {sepc}
                 csrw sstatus , {sstatus}
                 addi sp, sp, -8
@@ -91,12 +92,13 @@ impl Thread {
                 csrr {sepc}   , sepc
                 csrr {sstatus}, sstatus
             ",
-            sscratch      = in(reg) self,
-            sepc          = inlateout(reg) self.sepc,
-            sstatus       = inlateout(reg) sstatus,
-            execute_naked = sym execute_naked,
-        );
-        sstatus
+                sscratch      = in(reg) self,
+                sepc          = inlateout(reg) self.sepc,
+                sstatus       = inlateout(reg) sstatus,
+                execute_naked = sym execute_naked,
+            );
+            sstatus
+        }
     }
 }
 
@@ -109,8 +111,9 @@ impl Thread {
 /// 裸函数。
 #[naked]
 unsafe extern "C" fn execute_naked() {
-    core::arch::naked_asm!(
-        r"  .altmacro
+    unsafe {
+        core::arch::naked_asm!(
+            r"  .altmacro
             .macro SAVE n
                 sd x\n, \n*8(sp)
             .endm
@@ -135,46 +138,47 @@ unsafe extern "C" fn execute_naked() {
                 .endr
             .endm
         ",
-        // 位置无关加载
-        "   .option push
+            // 位置无关加载
+            "   .option push
             .option nopic
         ",
-        // 保存调度上下文
-        "   addi sp, sp, -32*8
+            // 保存调度上下文
+            "   addi sp, sp, -32*8
             SAVE_ALL
         ",
-        // 设置陷入入口
-        "   la   t0, 1f
+            // 设置陷入入口
+            "   la   t0, 1f
             csrw stvec, t0
         ",
-        // 保存调度上下文地址并切换上下文
-        "   csrr t0, sscratch
+            // 保存调度上下文地址并切换上下文
+            "   csrr t0, sscratch
             sd   sp, (t0)
             mv   sp, t0
         ",
-        // 恢复线程上下文
-        "   LOAD_ALL
+            // 恢复线程上下文
+            "   LOAD_ALL
             ld   sp, 2*8(sp)
         ",
-        // 执行线程
-        "   sret",
-        // 陷入
-        "   .align 2",
-        // 切换上下文
-        "1: csrrw sp, sscratch, sp",
-        // 保存线程上下文
-        "   SAVE_ALL
+            // 执行线程
+            "   sret",
+            // 陷入
+            "   .align 2",
+            // 切换上下文
+            "1: csrrw sp, sscratch, sp",
+            // 保存线程上下文
+            "   SAVE_ALL
             csrrw t0, sscratch, sp
             sd    t0, 2*8(sp)
         ",
-        // 切换上下文
-        "   ld sp, (sp)",
-        // 恢复调度上下文
-        "   LOAD_ALL
+            // 切换上下文
+            "   ld sp, (sp)",
+            // 恢复调度上下文
+            "   LOAD_ALL
             addi sp, sp, 32*8
         ",
-        // 返回调度
-        "   ret",
-        "   .option pop",
-    )
+            // 返回调度
+            "   ret",
+            "   .option pop",
+        )
+    }
 }
