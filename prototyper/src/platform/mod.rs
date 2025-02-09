@@ -1,7 +1,7 @@
-use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::{boxed::Box, string::ToString};
 use clint::{SifiveClintWrap, THeadClintWrap};
 use core::{
-    fmt::{Display, Formatter, Result},
     ops::Range,
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -35,16 +35,6 @@ mod console;
 mod reset;
 
 type BaseAddress = usize;
-/// Store finite-length string on the stack.
-pub(crate) struct StringInline<const N: usize>(usize, [u8; N]);
-
-impl<const N: usize> Display for StringInline<N> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "{}", unsafe {
-            core::str::from_utf8_unchecked(&self.1[..self.0])
-        })
-    }
-}
 
 type CpuEnableList = [bool; NUM_HART_MAX];
 
@@ -55,7 +45,7 @@ pub struct BoardInfo {
     pub ipi: Option<(BaseAddress, MachineClintType)>,
     pub cpu_num: Option<usize>,
     pub cpu_enabled: Option<CpuEnableList>,
-    pub model: StringInline<128>,
+    pub model: String,
 }
 
 impl BoardInfo {
@@ -67,7 +57,7 @@ impl BoardInfo {
             ipi: None,
             cpu_enabled: None,
             cpu_num: None,
-            model: StringInline(0, [0u8; 128]),
+            model: String::new(),
         }
     }
 }
@@ -149,12 +139,10 @@ impl Platform {
         // Get model info
         if let Some(model) = tree.model {
             let model = model.iter().next().unwrap_or("<unspecified>");
-            self.info.model.0 = model.as_bytes().len();
-            self.info.model.1[..self.info.model.0].copy_from_slice(model.as_bytes());
+            self.info.model = model.to_string();
         } else {
             let model = "<unspecified>";
-            self.info.model.0 = model.as_bytes().len();
-            self.info.model.1[..self.info.model.0].copy_from_slice(model.as_bytes());
+            self.info.model = model.to_string();
         }
 
         // TODO: Need a better extension initialization method

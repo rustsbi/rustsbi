@@ -73,6 +73,7 @@ pub fn msoft_handler(ctx: FastContext) -> FastResult {
 }
 
 #[inline]
+#[allow(clippy::too_many_arguments)]
 pub fn sbi_call_handler(
     mut ctx: FastContext,
     a1: usize,

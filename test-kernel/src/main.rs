@@ -6,7 +6,10 @@
 #[macro_use]
 extern crate rcore_console;
 
-use core::{arch::{asm, naked_asm} , ptr::null};
+use core::{
+    arch::{asm, naked_asm},
+    ptr::null,
+};
 use sbi_testing::sbi;
 use uart16550::Uart16550;
 
