@@ -1,7 +1,7 @@
 use crate::cfg::HEAP_SIZE;
 use buddy_system_allocator::LockedHeap;
 
-#[link_section = ".bss.heap"]
+#[unsafe(link_section = ".bss.heap")]
 static mut HEAP: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 
 #[global_allocator]

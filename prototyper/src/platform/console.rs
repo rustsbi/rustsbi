@@ -1,6 +1,6 @@
 use bouffalo_hal::uart::RegisterBlock as BflbUartRegisterBlock;
-use uart16550::{Register, Uart16550};
 use uart_xilinx::MmioUartAxiLite;
+use uart16550::{Register, Uart16550};
 
 use crate::sbi::console::ConsoleDevice;
 pub(crate) const UART16650U8_COMPATIBLE: [&str; 1] = ["ns16550a"];

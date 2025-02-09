@@ -5,8 +5,8 @@ use std::{
 
 use clap::Args;
 
-use crate::utils::cargo;
 use crate::utils::CmdOptional;
+use crate::utils::cargo;
 
 #[derive(Debug, Args, Clone)]
 pub struct PrototyperArg {

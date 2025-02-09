@@ -6,7 +6,7 @@ use core::mem::forget;
 use fast_trap::FreeTrapStack;
 
 /// Root stack array for all harts, placed in BSS Stack section.
-#[link_section = ".bss.stack"]
+#[unsafe(link_section = ".bss.stack")]
 pub(crate) static mut ROOT_STACK: [Stack; NUM_HART_MAX] = [Stack::ZERO; NUM_HART_MAX];
 
 /// Locates and initializes stack for each hart.
@@ -14,8 +14,9 @@ pub(crate) static mut ROOT_STACK: [Stack; NUM_HART_MAX] = [Stack::ZERO; NUM_HART
 /// This is a naked function that sets up the stack pointer based on hart ID.
 #[naked]
 pub(crate) unsafe extern "C" fn locate() {
-    core::arch::asm!(
-        "   la   sp, {stack}            // Load stack base address
+    unsafe {
+        core::arch::naked_asm!(
+            "   la   sp, {stack}            // Load stack base address
             li   t0, {per_hart_stack_size} // Load stack size per hart
             csrr t1, mhartid            // Get current hart ID
             addi t1, t1,  1             // Add 1 to hart ID
@@ -25,11 +26,11 @@ pub(crate) unsafe extern "C" fn locate() {
             call t1, {move_stack}       // Call stack reuse function
             ret                         // Return
         ",
-        per_hart_stack_size = const LEN_STACK_PER_HART,
-        stack               =   sym ROOT_STACK,
-        move_stack          =   sym fast_trap::reuse_stack_for_trap,
-        options(noreturn),
-    )
+            per_hart_stack_size = const LEN_STACK_PER_HART,
+            stack               =   sym ROOT_STACK,
+            move_stack          =   sym fast_trap::reuse_stack_for_trap,
+        )
+    }
 }
 
 /// Prepares trap stack for current hart

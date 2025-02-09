@@ -47,10 +47,14 @@ pub fn run(arg: &BenchArg) -> Option<ExitStatus> {
         match fs::exists(target_dir.join("rustsbi-prototyper.bin")) {
             Ok(true) => {}
             Ok(false) => {
-                panic!(" Couldn't open \"rustsbi-prototyper.bin\": No such file or directory. Please compile Prototyper first");
+                panic!(
+                    " Couldn't open \"rustsbi-prototyper.bin\": No such file or directory. Please compile Prototyper first"
+                );
             }
             Err(_) => {
-                panic!("Can't check existence of file rustsbi-prototyper.bin, please compile Prototyper first");
+                panic!(
+                    "Can't check existence of file rustsbi-prototyper.bin, please compile Prototyper first"
+                );
             }
         }
         fs::copy(

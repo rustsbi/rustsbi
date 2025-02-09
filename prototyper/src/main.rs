@@ -19,14 +19,14 @@ mod platform;
 mod riscv;
 mod sbi;
 
-use core::arch::asm;
+use core::arch::{asm, naked_asm};
 
 use crate::platform::PLATFORM;
 use crate::riscv::csr::menvcfg;
 use crate::riscv::current_hartid;
 use crate::sbi::extensions::{
-    hart_extension_probe, hart_privileged_version, privileged_version_detection, Extension,
-    PrivilegedVersion,
+    Extension, PrivilegedVersion, hart_extension_probe, hart_privileged_version,
+    privileged_version_detection,
 };
 use crate::sbi::hart_context::NextStage;
 use crate::sbi::heap::sbi_heap_init;
@@ -37,7 +37,7 @@ use crate::sbi::trap_stack;
 
 pub const R_RISCV_RELATIVE: usize = 3;
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     // Track whether SBI is initialized and ready.
 
@@ -127,81 +127,84 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
 }
 
 #[naked]
-#[link_section = ".text.entry"]
-#[export_name = "_start"]
+#[unsafe(link_section = ".text.entry")]
+#[unsafe(export_name = "_start")]
 unsafe extern "C" fn start() -> ! {
-    core::arch::asm!(
-        // 1. Turn off interrupt.
-        "   csrw    mie, zero",
-        // 2. Initialize programming language runtime.
-        // only clear bss if hartid matches preferred boot hart id.
-        "   csrr    t0, mhartid",
-        "   bne     t0, zero, 4f",
-        "   call    {relocation_update}",
-        "1:",
-        // 3. Hart 0 clear bss segment.
-        "   lla     t0, sbi_bss_start
+    unsafe {
+        naked_asm!(
+            ".option arch, +a",
+            // 1. Turn off interrupt.
+            "   csrw    mie, zero",
+            // 2. Initialize programming language runtime.
+            // only clear bss if hartid matches preferred boot hart id.
+            "   csrr    t0, mhartid",
+            "   bne     t0, zero, 4f",
+            "   call    {relocation_update}",
+            "1:",
+            // 3. Hart 0 clear bss segment.
+            "   lla     t0, sbi_bss_start
             lla     t1, sbi_bss_end
          2: bgeu    t0, t1, 3f
             sd      zero, 0(t0)
             addi    t0, t0, 8
             j       2b",
-        "3: ", // Hart 0 set bss ready signal.
-        "   lla     t0, 6f
+            "3: ", // Hart 0 set bss ready signal.
+            "   lla     t0, 6f
             li      t1, 1
             amoadd.w t0, t1, 0(t0)
             j       5f",
-        "4:", // Other harts are waiting for bss ready signal.
-        "   li      t1, 1
+            "4:", // Other harts are waiting for bss ready signal.
+            "   li      t1, 1
             lla     t0, 6f
             lw      t0, 0(t0)
             bne     t0, t1, 4b",
-        "5:",
-         // 4. Prepare stack for each hart.
-        "   call    {locate_stack}",
-        "   call    {main}",
-        "   csrw    mscratch, sp",
-        "   j       {hart_boot}",
-        "  .balign  4",
-        "6:",  // bss ready signal.
-        "  .word    0",
-        relocation_update = sym relocation_update,
-        locate_stack = sym trap_stack::locate,
-        main         = sym rust_main,
-        hart_boot    = sym trap::boot::boot,
-        options(noreturn)
-    )
+            "5:",
+             // 4. Prepare stack for each hart.
+            "   call    {locate_stack}",
+            "   call    {main}",
+            "   csrw    mscratch, sp",
+            "   j       {hart_boot}",
+            "  .balign  4",
+            "6:",  // bss ready signal.
+            "  .word    0",
+            relocation_update = sym relocation_update,
+            locate_stack = sym trap_stack::locate,
+            main         = sym rust_main,
+            hart_boot    = sym trap::boot::boot,
+        )
+    }
 }
 
 // Handle relocations for position-independent code
 #[naked]
 unsafe extern "C" fn relocation_update() {
-    asm!(
-        // Get load offset.
-        "   li t0, {START_ADDRESS}",
-        "   lla t1, sbi_start",
-        "   sub t2, t1, t0",
+    unsafe {
+        naked_asm!(
+            // Get load offset.
+            "   li t0, {START_ADDRESS}",
+            "   lla t1, sbi_start",
+            "   sub t2, t1, t0",
 
-        // Foreach rela.dyn and update relocation.
-        "   lla t0, __rel_dyn_start",
-        "   lla t1, __rel_dyn_end",
-        "   li  t3, {R_RISCV_RELATIVE}",
-        "1:",
-        "   ld  t4, 8(t0)",
-        "   bne t4, t3, 2f",
-        "   ld t4, 0(t0)", // Get offset
-        "   ld t5, 16(t0)", // Get append
-        "   add t4, t4, t2", // Add load offset to offset add append
-        "   add t5, t5, t2",
-        "   sd t5, 0(t4)", // Update address
-        "   addi t0, t0, 24", // Get next rela item
-        "2:",
-        "   blt t0, t1, 1b",
+            // Foreach rela.dyn and update relocation.
+            "   lla t0, __rel_dyn_start",
+            "   lla t1, __rel_dyn_end",
+            "   li  t3, {R_RISCV_RELATIVE}",
+            "1:",
+            "   ld  t4, 8(t0)",
+            "   bne t4, t3, 2f",
+            "   ld t4, 0(t0)", // Get offset
+            "   ld t5, 16(t0)", // Get append
+            "   add t4, t4, t2", // Add load offset to offset add append
+            "   add t5, t5, t2",
+            "   sd t5, 0(t4)", // Update address
+            "   addi t0, t0, 24", // Get next rela item
+            "2:",
+            "   blt t0, t1, 1b",
 
-        // Return
-        "   ret",
-        R_RISCV_RELATIVE = const R_RISCV_RELATIVE,
-        START_ADDRESS = const cfg::SBI_LINK_START_ADDRESS,
-        options(noreturn)
-    )
+            // Return
+            "   ret",
+            R_RISCV_RELATIVE = const R_RISCV_RELATIVE,
+            START_ADDRESS = const cfg::SBI_LINK_START_ADDRESS,
+        )
+    }
 }

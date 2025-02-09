@@ -4,7 +4,7 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 use riscv::register::mstatus::MPP;
-use rustsbi::{spec::hsm::hart_state, SbiRet};
+use rustsbi::{SbiRet, spec::hsm::hart_state};
 
 use crate::platform::PLATFORM;
 use crate::riscv::current_hartid;
