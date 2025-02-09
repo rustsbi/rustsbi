@@ -11,7 +11,8 @@ cfg_if::cfg_if! {
     }
 }
 
-use core::arch::asm;
+#[allow(unused)]
+use core::arch::{asm, naked_asm};
 use core::ops::Range;
 use riscv::register::mstatus;
 
@@ -26,14 +27,11 @@ pub struct BootHart {
 }
 
 #[naked]
-#[link_section = ".rodata.fdt"]
+#[unsafe(link_section = ".rodata.fdt")]
 #[repr(align(16))]
 #[cfg(feature = "fdt")]
-pub unsafe extern "C" fn raw_fdt() {
-    asm!(
-        concat!(".incbin \"", env!("PROTOTYPER_FDT_PATH"), "\""),
-        options(noreturn)
-    );
+pub extern "C" fn raw_fdt() {
+    unsafe { naked_asm!(concat!(".incbin \"", env!("PROTOTYPER_FDT_PATH"), "\""),) }
 }
 
 #[inline]

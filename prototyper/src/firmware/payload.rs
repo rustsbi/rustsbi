@@ -1,4 +1,4 @@
-use core::arch::asm;
+use core::arch::naked_asm;
 use core::sync::atomic::{AtomicBool, Ordering};
 use riscv::register::mstatus;
 
@@ -20,12 +20,9 @@ pub fn get_boot_info(_nonstandard_a2: usize) -> BootInfo {
 }
 
 #[naked]
-#[link_section = ".payload"]
-pub unsafe extern "C" fn payload_image() {
-    asm!(
-        concat!(".incbin \"", env!("PROTOTYPER_PAYLOAD_PATH"), "\""),
-        options(noreturn)
-    );
+#[unsafe(link_section = ".payload")]
+pub extern "C" fn payload_image() {
+    unsafe { naked_asm!(concat!(".incbin \"", env!("PROTOTYPER_PAYLOAD_PATH"), "\""),) }
 }
 
 #[inline]
