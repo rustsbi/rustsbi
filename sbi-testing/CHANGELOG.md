@@ -13,6 +13,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Modified
 
+- Migrate sbi-rt crate to Rust 2024 edition.
 - Update sbi-spec to version 0.0.7
 - Update sbi-rt to version 0.0.3
 - Rename `MArchId` and `MVendorId` into `MarchId` and `MvendorId` in `BaseCase`

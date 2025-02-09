@@ -2,9 +2,9 @@ name: Rust
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
   workflow_dispatch:
 
 env:
@@ -20,6 +20,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: rustfmt
+          toolchain: nightly # support 2024 edition rustfmt checks
       - name: Cache Dependencies
         uses: Swatinem/rust-cache@v2
       - name: Rustfmt Check
@@ -31,8 +32,8 @@ jobs:
     needs: fmt
     strategy:
       matrix:
+        TOOLCHAIN: [nightly]
         TARGET: [riscv64imac-unknown-none-elf, riscv32imac-unknown-none-elf]
-        TOOLCHAIN: [stable, nightly]
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -63,7 +64,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: stable
+          toolchain: nightly
       - uses: Swatinem/rust-cache@v2
       - name: Run tests (no default features)
         run: |
@@ -81,13 +82,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: stable
+          toolchain: nightly
       - uses: Swatinem/rust-cache@v2
       # - name: Check clippy
       #   run: cargo clippy -- -D warnings
       - name: Run tests
         run: cargo test -p sbi-spec --verbose
-  
+
   build-sbi-rt:
     name: Build sbi-rt
     needs: fmt
@@ -100,7 +101,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: ${{ matrix.TARGET }}
-          toolchain: stable
+          toolchain: nightly
       - uses: Swatinem/rust-cache@v2
       - name: Build
         run: |
@@ -140,6 +141,48 @@ jobs:
         run: |
           cargo build --target ${{ matrix.TARGET }} --verbose -p sbi-testing --features "log"
 
+  msrv-test:
+    name: MSRV Test (Rust 1.83.0)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rustsbi_TARGET:
+          - riscv64imac-unknown-none-elf
+          - riscv32imac-unknown-none-elf
+        sbi_rt_TARGET:
+          - riscv64imac-unknown-none-elf
+        sbi_testing_TARGET:
+          - riscv64imac-unknown-none-elf
+        sbi_spec_TARGET:
+          - riscv64imac-unknown-none-elf
+          - riscv32imac-unknown-none-elf
+        TOOLCHAIN:
+          - nightly-2024-11-28
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install MSRV toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ matrix.TOOLCHAIN }}
+          override: true
+      - name: Install target
+        run: |
+          rustup target add ${{ matrix.rustsbi_TARGET }}
+          rustup target add ${{ matrix.sbi_rt_TARGET }}
+          rustup target add ${{ matrix.sbi_testing_TARGET }}
+          rustup target add ${{ matrix.sbi_spec_TARGET }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.TOOLCHAIN }}
+      - name: Check rustsbi
+        run: cargo check --target ${{ matrix.rustsbi_TARGET }} -p rustsbi
+      - name: Check sbi-rt
+        run: cargo check --target ${{ matrix.sbi_rt_TARGET }} -p sbi-rt
+      - name: Check sbi-testing
+        run: cargo check --target ${{ matrix.sbi_testing_TARGET }} -p sbi-testing
+      - name: Check sbi-spec (compilation check)
+        run: cargo check --target ${{ matrix.sbi_spec_TARGET }} -p sbi-spec
 # sbi-testing:
 #     name: Run rust-clippy analyzing
 #     runs-on: ubuntu-latest

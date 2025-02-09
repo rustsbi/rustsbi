@@ -4,7 +4,7 @@ use crate::binary::{sbi_call_0, sbi_call_1, sbi_call_3};
 
 use sbi_spec::{
     binary::{SbiRet, SharedPtr},
-    nacl::{shmem_size, EID_NACL, PROBE_FEATURE, SET_SHMEM, SYNC_CSR, SYNC_HFENCE, SYNC_SRET},
+    nacl::{EID_NACL, PROBE_FEATURE, SET_SHMEM, SYNC_CSR, SYNC_HFENCE, SYNC_SRET, shmem_size},
 };
 
 /// Probe a nested acceleration feature.

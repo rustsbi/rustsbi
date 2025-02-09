@@ -16,22 +16,22 @@ pub use log_test::Testing;
 
 // §4
 mod base;
-pub use base::{test as test_base, Case as BaseCase, Extensions};
+pub use base::{Case as BaseCase, Extensions, test as test_base};
 // §6
 mod time;
-pub use time::{test as test_timer, Case as TimerCase};
+pub use time::{Case as TimerCase, test as test_timer};
 // §7
 mod spi;
-pub use spi::{test as test_ipi, Case as IpiCase};
+pub use spi::{Case as IpiCase, test as test_ipi};
 // §8
 // pub mod rfnc;
 // §9
 mod hsm;
-pub use hsm::{test as test_hsm, Case as HsmCase};
+pub use hsm::{Case as HsmCase, test as test_hsm};
 // §10
 // pub mod srst;
 // §11
 // pub mod pmu;
 // §12
 mod dbcn;
-pub use dbcn::{test as test_dbcn, Case as DbcnCase};
+pub use dbcn::{Case as DbcnCase, test as test_dbcn};
