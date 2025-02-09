@@ -140,9 +140,13 @@ macro_rules! impl_sbi_register {
 }
 
 impl_sbi_register!(usize, isize);
+impl_sbi_register!(isize, isize);
 impl_sbi_register!(u32, i32);
+impl_sbi_register!(i32, i32);
 impl_sbi_register!(u64, i64);
+impl_sbi_register!(i64, i64);
 impl_sbi_register!(u128, i128);
+impl_sbi_register!(i128, i128);
 
 impl<T: SbiRegister + core::fmt::LowerHex> core::fmt::Debug for SbiRet<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -1538,8 +1542,8 @@ mod tests {
     #[test]
     #[rustfmt::skip]
     fn rustsbi_sbi_ret_constructors() {
-        assert_eq!(SbiRet::success(0_usize), SbiRet { value: 0, error: 0 });
-        assert_eq!(SbiRet::success(1037_usize), SbiRet { value: 1037, error: 0 });
+        assert_eq!(SbiRet::success(0), SbiRet { value: 0, error: 0 });
+        assert_eq!(SbiRet::success(1037), SbiRet { value: 1037, error: 0 });
         assert_eq!(SbiRet::success(usize::MAX), SbiRet { value: usize::MAX, error: 0 });
 
         assert_eq!(SbiRet::failed(), SbiRet { value: 0, error: usize::MAX - 1 + 1 });
