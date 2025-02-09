@@ -135,7 +135,7 @@ define_extension! {
     Reset(sbi_spec::srst::EID_SRST) /// System Reset extension.
     Pmu(sbi_spec::pmu::EID_PMU) /// Performance Monitoring Unit extension.
     Console(sbi_spec::dbcn::EID_DBCN) /// Debug Console extension.
-    Suspend(sbi_spec::susp::SUSPEND) /// System Suspend extension.
+    Suspend(sbi_spec::susp::EID_SUSP) /// System Suspend extension.
     Cppc(sbi_spec::cppc::EID_CPPC) /// SBI CPPC extension.
     Nacl(sbi_spec::nacl::EID_NACL) /// Nested Acceleration extension.
     Sta(sbi_spec::sta::EID_STA) /// Steal-time Accounting extension.

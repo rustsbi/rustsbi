@@ -14,7 +14,7 @@ pub const UNAVAILABLE_EXTENSION: usize = 0;
 /// Not to be confused with 'implementation version'.
 ///
 /// Declared in §4.1.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct Version {
     raw: usize,
@@ -50,9 +50,16 @@ impl core::fmt::Display for Version {
 impl core::cmp::PartialOrd for Version {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl core::cmp::Ord for Version {
+    #[inline]
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.major()
-            .partial_cmp(&other.major())
-            .map(|ordering| ordering.then_with(|| self.minor().cmp(&other.minor())))
+            .cmp(&other.major())
+            .then_with(|| self.minor().cmp(&other.minor()))
     }
 }
 
