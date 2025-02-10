@@ -407,6 +407,7 @@ dependencies = [
  "critical-section",
  "embedded-hal 1.0.0",
  "paste",
+ "riscv-macros",
  "riscv-pac",
 ]
 
@@ -415,6 +416,17 @@ name = "riscv-decode"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8b4cfb0da0528321d22daee4299a23a8c5ac8848623d716e898d2a9eec0694"
+
+[[package]]
+name = "riscv-macros"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f265be5d634272320a7de94cea15c22a3bfdd4eb42eb43edc528415f066a1f25"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "riscv-pac"
@@ -470,7 +482,7 @@ dependencies = [
  "fast-trap",
  "log",
  "panic-halt",
- "riscv 0.11.1",
+ "riscv 0.12.1",
  "riscv-decode",
  "rustsbi",
  "sbi-spec 0.0.8 (registry+https://github.com/rust-lang/crates.io-index)",
