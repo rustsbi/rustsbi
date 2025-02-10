@@ -1,53 +1,11 @@
-[package]
-name = "rustsbi"
-description = "Minimal RISC-V's SBI implementation library in Rust"
-version = "0.4.0"
-authors = [
-    "Luo Jia <me@luojia.cc>",
-    "Campbell He <hkp18@mails.tsinghua.edu.cn>",
-    "Yifan Wu <shinbokuow@163.com>",
-]
-documentation = "https://docs.rs/rustsbi"
-edition.workspace = true
-license.workspace = true
-repository.workspace = true
-readme = "README.md"
-keywords = ["riscv", "sbi", "rustsbi"]
-categories = ["os", "embedded", "hardware-support", "no-std"]
-exclude = ["/.github"]
-
-[dependencies]
-sbi-spec = { version = "0.0.8", path = "sbi-spec" }
-riscv = { version = "0.12.0", optional = true, default-features = false }
-sbi-rt = { version = "0.0.3", features = ["integer-impls"], optional = true, path = "sbi-rt" }
-rustsbi-macros = { version = "0.0.2", path = "macros" }
-
-[features]
-default = []
-# Run RustSBI on machine mode.
-# This feature enables to use RISC-V primitives on current machine mode environment
-# If you are developing a cross-architecture virtual machine, consider disabling this feature
-# to customize environment variables for RISC-V architecture like mvendorid, mimpid, etc.
-machine = ["rustsbi-macros/machine", "dep:riscv"]
-# Enables the struct `Forward`.
-# Struct `Forward` uses the current SBI environment to implement the RustSBI environment.
-# This feature is only usable when current software runs on another SBI environment,
-# e.g., hypervisors for RISC-V architecture.
-forward = ["dep:sbi-rt"]
-
-[package.metadata.docs.rs]
-default-target = "riscv64imac-unknown-none-elf"
-targets = [
-    "riscv32imac-unknown-none-elf", "riscv64imac-unknown-none-elf",
-]
-
 [workspace]
 resolver = "2"
 members = [
-    "macros",
-    "sbi-rt",
-    "sbi-spec",
-    "sbi-testing",
+    "library/macros",
+    "library/sbi-rt",
+    "library/sbi-spec",
+    "library/sbi-testing",
+    "library/rustsbi",
 ]
 
 [workspace.package]

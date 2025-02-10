@@ -52,13 +52,13 @@ pub fn test(delay: u64, mut f: impl FnMut(Case)) {
     let mut ok = 0xffusize;
     unsafe {
         core::arch::asm!(
-            "   la   {stvec}, 1f
+            "   la   {stvec}, 2f
                 csrw stvec,   {stvec}
                 csrr {begin}, time
                 csrr {end},   time
                 mv   {ok},    zero
             .align 2
-            1:
+            2:
             ",
             stvec = out(reg) _,
             begin = out(reg) begin,
