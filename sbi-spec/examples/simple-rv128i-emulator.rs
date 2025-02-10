@@ -79,7 +79,88 @@ fn main() {
     }
 }
 
+/// Handle an SBI call given the extension and function numbers, along with its parameters.
+///
+/// This is a simple SBI implementation (without using RustSBI) that supports a few functions:
+/// - BASE probe_extension: checks if an SBI extension exists.
+/// - SRST system_reset: performs a system reset (shutdown).
+///
+/// Note that the returned `SbiRet<u128>` represents an `SbiRet` with `u128` as the SBI register
+/// type.
+///
+/// # Parameters
+/// - `extension`: The SBI extension identifier (from register A7).
+/// - `function`: The SBI function number (from register A6).
+/// - `param`: An array containing SBI call parameters (from registers A0-A5).
+///
+/// # Returns
+/// An `SbiRet` structure containing the error and return values.
+fn handle_sbi_call(extension: u128, function: u128, param: [u128; 6]) -> SbiRet<u128> {
+    match (extension, function) {
+        // BASE probe_extension: if the parameter matches the BASE extension identifier, return 1.
+        (0x10, 3) => {
+            if param[0] == 0x10 {
+                SbiRet::success(1)
+            } else {
+                SbiRet::success(0)
+            }
+        }
+        // SRST system_reset: perform a system reset if the reset type is shutdown.
+        (0x53525354, 0) => {
+            let (reset_type, reset_reason) = (param[0], param[1]);
+            if reset_type == sbi_spec::srst::RESET_TYPE_SHUTDOWN as u128 {
+                // Use a special SBI error value (0x114514) to signal platform shutdown.
+                SbiRet {
+                    value: reset_reason,
+                    error: 0x114514,
+                }
+            } else {
+                SbiRet::not_supported()
+            }
+        }
+        // All other SBI calls are not supported.
+        _ => SbiRet::not_supported(),
+    }
+}
+
 /* -- Implementations of SimpleRv128Platform -- */
+
+/// Handle the supervisor call (ecall) exception by performing an SBI call.
+///
+/// This function extracts the parameters from the hart's registers, performs the SBI call, and
+/// then updates the hart's registers and program counter with the results.
+///
+/// # Parameters
+/// - `hart`: A mutable reference to the RV128I hart emulator.
+///
+/// # Returns
+/// - `ControlFlow::Break(value)` if the SBI call indicates that the platform should shutdown.
+/// - `ControlFlow::Continue(())` if the emulation should continue.
+fn handle_ecall(hart: &mut SimpleRv128IHart) -> ControlFlow<u128> {
+    println!("Handle ecall, registers: {:x?}", hart.xregs);
+    // Extract SBI call parameters from registers A0-A5.
+    let param = [
+        hart.xregs[A0 as usize],
+        hart.xregs[A1 as usize],
+        hart.xregs[A2 as usize],
+        hart.xregs[A3 as usize],
+        hart.xregs[A4 as usize],
+        hart.xregs[A5 as usize],
+    ];
+    // Call the SBI handler with the extension and function numbers from registers A7 and A6.
+    let ret = handle_sbi_call(hart.xregs[A7 as usize], hart.xregs[A6 as usize], param);
+    println!("SbiRet: {:?}", ret);
+    // If the SBI call returns the special error value (0x114514), signal shutdown.
+    if ret.error == 0x114514 {
+        return ControlFlow::Break(ret.value);
+    }
+    // Otherwise, store the error and return values into registers A0 and A1, respectively.
+    hart.xregs[A0 as usize] = ret.error;
+    hart.xregs[A1 as usize] = ret.value;
+    // Advance the program counter past the ecall instruction.
+    hart.pc = hart.pc.wrapping_add(4);
+    ControlFlow::Continue(())
+}
 
 /// An instruction memory implementation that holds a fixed number of instructions.
 ///
@@ -274,6 +355,8 @@ impl SimpleRv128IHart {
     }
 }
 
+/* -- RISC-V ISA enumerations and structures -- */
+
 /// RISC-V exceptions that may occur during emulation.
 #[derive(Debug)]
 pub enum Exception {
@@ -456,88 +539,5 @@ impl From<u32> for Offset {
         }
         let ans = i32::from_ne_bytes(u32::to_ne_bytes(value));
         Self(ans)
-    }
-}
-
-// A simple SBI implementation without using RustSBI.
-
-/// Handle the supervisor call (ecall) exception by performing an SBI call.
-///
-/// This function extracts the parameters from the hart's registers, performs the SBI call, and
-/// then updates the hart's registers and program counter with the results.
-///
-/// # Parameters
-/// - `hart`: A mutable reference to the RV128I hart emulator.
-///
-/// # Returns
-/// - `ControlFlow::Break(value)` if the SBI call indicates that the platform should shutdown.
-/// - `ControlFlow::Continue(())` if the emulation should continue.
-fn handle_ecall(hart: &mut SimpleRv128IHart) -> ControlFlow<u128> {
-    println!("Handle ecall, registers: {:x?}", hart.xregs);
-    // Extract SBI call parameters from registers A0-A5.
-    let param = [
-        hart.xregs[A0 as usize],
-        hart.xregs[A1 as usize],
-        hart.xregs[A2 as usize],
-        hart.xregs[A3 as usize],
-        hart.xregs[A4 as usize],
-        hart.xregs[A5 as usize],
-    ];
-    // Call the SBI handler with the extension and function numbers from registers A7 and A6.
-    let ret = handle_sbi_call(hart.xregs[A7 as usize], hart.xregs[A6 as usize], param);
-    println!("SbiRet: {:?}", ret);
-    // If the SBI call returns the special error value (0x114514), signal shutdown.
-    if ret.error == 0x114514 {
-        return ControlFlow::Break(ret.value);
-    }
-    // Otherwise, store the error and return values into registers A0 and A1, respectively.
-    hart.xregs[A0 as usize] = ret.error;
-    hart.xregs[A1 as usize] = ret.value;
-    // Advance the program counter past the ecall instruction.
-    hart.pc = hart.pc.wrapping_add(4);
-    ControlFlow::Continue(())
-}
-
-/// Handle an SBI call given the extension and function numbers, along with its parameters.
-///
-/// This is a simple SBI implementation (without using RustSBI) that supports a few functions:
-/// - BASE probe_extension: checks if an SBI extension exists.
-/// - SRST system_reset: performs a system reset (shutdown).
-///
-/// Note that the returned `SbiRet<u128>` represents an `SbiRet` with `u128` as the SBI register
-/// type.
-///
-/// # Parameters
-/// - `extension`: The SBI extension identifier (from register A7).
-/// - `function`: The SBI function number (from register A6).
-/// - `param`: An array containing SBI call parameters (from registers A0-A5).
-///
-/// # Returns
-/// An `SbiRet` structure containing the error and return values.
-fn handle_sbi_call(extension: u128, function: u128, param: [u128; 6]) -> SbiRet<u128> {
-    match (extension, function) {
-        // BASE probe_extension: if the parameter matches the BASE extension identifier, return 1.
-        (0x10, 3) => {
-            if param[0] == 0x10 {
-                SbiRet::success(1)
-            } else {
-                SbiRet::success(0)
-            }
-        }
-        // SRST system_reset: perform a system reset if the reset type is shutdown.
-        (0x53525354, 0) => {
-            let (reset_type, reset_reason) = (param[0], param[1]);
-            if reset_type == sbi_spec::srst::RESET_TYPE_SHUTDOWN as u128 {
-                // Use a special SBI error value (0x114514) to signal platform shutdown.
-                SbiRet {
-                    value: reset_reason,
-                    error: 0x114514,
-                }
-            } else {
-                SbiRet::not_supported()
-            }
-        }
-        // All other SBI calls are not supported.
-        _ => SbiRet::not_supported(),
     }
 }
