@@ -78,8 +78,8 @@ mod tests {
         use crate::binary::*;
         assert_eq_align!(SbiRet, usize);
         assert_eq_size!(SbiRet, [usize; 2]);
-        assert_fields!(SbiRet: error);
-        assert_fields!(SbiRet: value);
+        assert_fields!(SbiRet<usize>: error);
+        assert_fields!(SbiRet<usize>: value);
         assert_impl_all!(SbiRet: Copy, Clone, PartialEq, Eq, core::fmt::Debug);
 
         const_assert_eq!(0, RET_SUCCESS as isize);

@@ -16,11 +16,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - mpxy: add support for MPXY extension in chapter 20
 - binary: `impl From<Error> for SbiRet`, `impl IntoIterator for SbiRet`
 - binary: unsafe functions `SbiRet::{unwrap_unchecked, unwrap_err_unchecked}`
+- binary: internal unit tests for `SbiRet` constructors
 
 ### Modified
 
 - Migrate sbi-rt crate to Rust 2024 edition.
 - base: don't derive `PartialOrd` for `Version`, instead manually implement `Ord` and forward it into `PartialOrd`.
+- base: refactor `SbiRet` to be generic of registers and introduce the `SbiRegister` trait
+- base: implement `SbiRegister` for `i32`, `i64`, `i128` and `isize` primitive types
 
 ### Fixed
 

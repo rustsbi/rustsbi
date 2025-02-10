@@ -14,67 +14,167 @@ use core::marker::PhantomData;
 /// this structure in FFI code.
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
-pub struct SbiRet {
+pub struct SbiRet<T = usize> {
     /// Error number.
-    pub error: usize,
+    pub error: T,
     /// Result value.
-    pub value: usize,
+    pub value: T,
 }
 
 /// SBI success state return value.
-pub const RET_SUCCESS: usize = 0;
+pub const RET_SUCCESS: usize = <usize as SbiRegister>::RET_SUCCESS;
 /// Error for SBI call failed for unknown reasons.
-pub const RET_ERR_FAILED: usize = -1isize as _;
+pub const RET_ERR_FAILED: usize = <usize as SbiRegister>::RET_ERR_FAILED;
 /// Error for target operation not supported.
-pub const RET_ERR_NOT_SUPPORTED: usize = -2isize as _;
+pub const RET_ERR_NOT_SUPPORTED: usize = <usize as SbiRegister>::RET_ERR_NOT_SUPPORTED;
 /// Error for invalid parameter.
-pub const RET_ERR_INVALID_PARAM: usize = -3isize as _;
+pub const RET_ERR_INVALID_PARAM: usize = <usize as SbiRegister>::RET_ERR_INVALID_PARAM;
 /// Error for denied.
-pub const RET_ERR_DENIED: usize = -4isize as _;
+pub const RET_ERR_DENIED: usize = <usize as SbiRegister>::RET_ERR_DENIED;
 /// Error for invalid address.
-pub const RET_ERR_INVALID_ADDRESS: usize = -5isize as _;
+pub const RET_ERR_INVALID_ADDRESS: usize = <usize as SbiRegister>::RET_ERR_INVALID_ADDRESS;
 /// Error for resource already available.
-pub const RET_ERR_ALREADY_AVAILABLE: usize = -6isize as _;
+pub const RET_ERR_ALREADY_AVAILABLE: usize = <usize as SbiRegister>::RET_ERR_ALREADY_AVAILABLE;
 /// Error for resource already started.
-pub const RET_ERR_ALREADY_STARTED: usize = -7isize as _;
+pub const RET_ERR_ALREADY_STARTED: usize = <usize as SbiRegister>::RET_ERR_ALREADY_STARTED;
 /// Error for resource already stopped.
-pub const RET_ERR_ALREADY_STOPPED: usize = -8isize as _;
+pub const RET_ERR_ALREADY_STOPPED: usize = <usize as SbiRegister>::RET_ERR_ALREADY_STOPPED;
 /// Error for shared memory not available.
-pub const RET_ERR_NO_SHMEM: usize = -9isize as _;
+pub const RET_ERR_NO_SHMEM: usize = <usize as SbiRegister>::RET_ERR_NO_SHMEM;
 /// Error for invalid state.
-pub const RET_ERR_INVALID_STATE: usize = -10isize as _;
+pub const RET_ERR_INVALID_STATE: usize = <usize as SbiRegister>::RET_ERR_INVALID_STATE;
 /// Error for bad or invalid range.
-pub const RET_ERR_BAD_RANGE: usize = -11isize as _;
+pub const RET_ERR_BAD_RANGE: usize = <usize as SbiRegister>::RET_ERR_BAD_RANGE;
 /// Error for failed due to timeout.
-pub const RET_ERR_TIMEOUT: usize = -12isize as _;
+pub const RET_ERR_TIMEOUT: usize = <usize as SbiRegister>::RET_ERR_TIMEOUT;
 /// Error for input or output error.
-pub const RET_ERR_IO: usize = -13isize as _;
+pub const RET_ERR_IO: usize = <usize as SbiRegister>::RET_ERR_IO;
 
-impl core::fmt::Debug for SbiRet {
+/// Data type of register that can be passed to the RISC-V SBI ABI.
+///
+/// This trait defines the requirements for types that are used as the underlying
+/// representation for both the `value` and `error` fields in the `SbiRet` structure.
+/// In most cases, this trait is implemented for primitive integer types (e.g., `usize`),
+/// but it can also be implemented for other types that satisfy the constraints.
+///
+/// # Examples
+///
+/// Implemented automatically for all types that satisfy `Copy`, `Eq`, and `Debug`.
+pub trait SbiRegister: Copy + Eq + core::fmt::Debug {
+    /// SBI success state return value.
+    const RET_SUCCESS: Self;
+    /// Error for SBI call failed for unknown reasons.
+    const RET_ERR_FAILED: Self;
+    /// Error for target operation not supported.
+    const RET_ERR_NOT_SUPPORTED: Self;
+    /// Error for invalid parameter.
+    const RET_ERR_INVALID_PARAM: Self;
+    /// Error for denied.
+    const RET_ERR_DENIED: Self;
+    /// Error for invalid address.
+    const RET_ERR_INVALID_ADDRESS: Self;
+    /// Error for resource already available.
+    const RET_ERR_ALREADY_AVAILABLE: Self;
+    /// Error for resource already started.
+    const RET_ERR_ALREADY_STARTED: Self;
+    /// Error for resource already stopped.
+    const RET_ERR_ALREADY_STOPPED: Self;
+    /// Error for shared memory not available.
+    const RET_ERR_NO_SHMEM: Self;
+    /// Error for invalid state.
+    const RET_ERR_INVALID_STATE: Self;
+    /// Error for bad or invalid range.
+    const RET_ERR_BAD_RANGE: Self;
+    /// Error for failed due to timeout.
+    const RET_ERR_TIMEOUT: Self;
+    /// Error for input or output error.
+    const RET_ERR_IO: Self;
+
+    /// Zero value for this type; this is used on `value` fields once `SbiRet` returns an error.
+    const ZERO: Self;
+
+    /// Converts an `SbiRet` of this type to a `Result` of self and `Error`.
+    fn into_result(ret: SbiRet<Self>) -> Result<Self, Error<Self>>;
+}
+
+macro_rules! impl_sbi_register {
+    ($ty:ty, $signed:ty) => {
+        impl SbiRegister for $ty {
+            const RET_SUCCESS: Self = 0;
+            const RET_ERR_FAILED: Self = -1 as $signed as $ty;
+            const RET_ERR_NOT_SUPPORTED: Self = -2 as $signed as $ty;
+            const RET_ERR_INVALID_PARAM: Self = -3 as $signed as $ty;
+            const RET_ERR_DENIED: Self = -4 as $signed as $ty;
+            const RET_ERR_INVALID_ADDRESS: Self = -5 as $signed as $ty;
+            const RET_ERR_ALREADY_AVAILABLE: Self = -6 as $signed as $ty;
+            const RET_ERR_ALREADY_STARTED: Self = -7 as $signed as $ty;
+            const RET_ERR_ALREADY_STOPPED: Self = -8 as $signed as $ty;
+            const RET_ERR_NO_SHMEM: Self = -9 as $signed as $ty;
+            const RET_ERR_INVALID_STATE: Self = -10 as $signed as $ty;
+            const RET_ERR_BAD_RANGE: Self = -11 as $signed as $ty;
+            const RET_ERR_TIMEOUT: Self = -12 as $signed as $ty;
+            const RET_ERR_IO: Self = -13 as $signed as $ty;
+            const ZERO: Self = 0;
+
+            fn into_result(ret: SbiRet<Self>) -> Result<Self, Error<Self>> {
+                match ret.error {
+                    Self::RET_SUCCESS => Ok(ret.value),
+                    Self::RET_ERR_FAILED => Err(Error::Failed),
+                    Self::RET_ERR_NOT_SUPPORTED => Err(Error::NotSupported),
+                    Self::RET_ERR_INVALID_PARAM => Err(Error::InvalidParam),
+                    Self::RET_ERR_DENIED => Err(Error::Denied),
+                    Self::RET_ERR_INVALID_ADDRESS => Err(Error::InvalidAddress),
+                    Self::RET_ERR_ALREADY_AVAILABLE => Err(Error::AlreadyAvailable),
+                    Self::RET_ERR_ALREADY_STARTED => Err(Error::AlreadyStarted),
+                    Self::RET_ERR_ALREADY_STOPPED => Err(Error::AlreadyStopped),
+                    Self::RET_ERR_NO_SHMEM => Err(Error::NoShmem),
+                    Self::RET_ERR_INVALID_STATE => Err(Error::InvalidState),
+                    Self::RET_ERR_BAD_RANGE => Err(Error::BadRange),
+                    Self::RET_ERR_TIMEOUT => Err(Error::Timeout),
+                    Self::RET_ERR_IO => Err(Error::Io),
+                    unknown => Err(Error::Custom(unknown as _)),
+                }
+            }
+        }
+    };
+}
+
+impl_sbi_register!(usize, isize);
+impl_sbi_register!(isize, isize);
+impl_sbi_register!(u32, i32);
+impl_sbi_register!(i32, i32);
+impl_sbi_register!(u64, i64);
+impl_sbi_register!(i64, i64);
+impl_sbi_register!(u128, i128);
+impl_sbi_register!(i128, i128);
+
+impl<T: SbiRegister + core::fmt::LowerHex> core::fmt::Debug for SbiRet<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.error {
-            RET_SUCCESS => self.value.fmt(f),
-            RET_ERR_FAILED => write!(f, "<SBI call failed>"),
-            RET_ERR_NOT_SUPPORTED => write!(f, "<SBI feature not supported>"),
-            RET_ERR_INVALID_PARAM => write!(f, "<SBI invalid parameter>"),
-            RET_ERR_DENIED => write!(f, "<SBI denied>"),
-            RET_ERR_INVALID_ADDRESS => write!(f, "<SBI invalid address>"),
-            RET_ERR_ALREADY_AVAILABLE => write!(f, "<SBI already available>"),
-            RET_ERR_ALREADY_STARTED => write!(f, "<SBI already started>"),
-            RET_ERR_ALREADY_STOPPED => write!(f, "<SBI already stopped>"),
-            RET_ERR_NO_SHMEM => write!(f, "<SBI shared memory not available>"),
-            RET_ERR_INVALID_STATE => write!(f, "<SBI invalid state>"),
-            RET_ERR_BAD_RANGE => write!(f, "<SBI bad range>"),
-            RET_ERR_TIMEOUT => write!(f, "<SBI timeout>"),
-            RET_ERR_IO => write!(f, "<SBI input/output error>"),
-            unknown => write!(f, "[SBI Unknown error: {unknown:#x}]"),
+        match T::into_result(*self) {
+            Ok(value) => write!(f, "{:?}", value),
+            Err(err) => match err {
+                Error::Failed => write!(f, "<SBI call failed>"),
+                Error::NotSupported => write!(f, "<SBI feature not supported>"),
+                Error::InvalidParam => write!(f, "<SBI invalid parameter>"),
+                Error::Denied => write!(f, "<SBI denied>"),
+                Error::InvalidAddress => write!(f, "<SBI invalid address>"),
+                Error::AlreadyAvailable => write!(f, "<SBI already available>"),
+                Error::AlreadyStarted => write!(f, "<SBI already started>"),
+                Error::AlreadyStopped => write!(f, "<SBI already stopped>"),
+                Error::NoShmem => write!(f, "<SBI shared memory not available>"),
+                Error::InvalidState => write!(f, "<SBI invalid state>"),
+                Error::BadRange => write!(f, "<SBI bad range>"),
+                Error::Timeout => write!(f, "<SBI timeout>"),
+                Error::Io => write!(f, "<SBI input/output error>"),
+                Error::Custom(unknown) => write!(f, "[SBI Unknown error: {:#x}]", unknown),
+            },
         }
     }
 }
 
 /// RISC-V SBI error in enumeration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Error {
+pub enum Error<T = usize> {
     /// Error for SBI call failed for unknown reasons.
     Failed,
     /// Error for target operation not supported.
@@ -102,15 +202,15 @@ pub enum Error {
     /// Error for input or output error.
     Io,
     /// Custom error code.
-    Custom(isize),
+    Custom(T),
 }
 
-impl SbiRet {
+impl<T: SbiRegister> SbiRet<T> {
     /// Returns success SBI state with given `value`.
     #[inline]
-    pub const fn success(value: usize) -> Self {
+    pub const fn success(value: T) -> Self {
         Self {
-            error: RET_SUCCESS,
+            error: T::RET_SUCCESS,
             value,
         }
     }
@@ -119,8 +219,8 @@ impl SbiRet {
     #[inline]
     pub const fn failed() -> Self {
         Self {
-            error: RET_ERR_FAILED,
-            value: 0,
+            error: T::RET_ERR_FAILED,
+            value: T::ZERO,
         }
     }
 
@@ -130,8 +230,8 @@ impl SbiRet {
     #[inline]
     pub const fn not_supported() -> Self {
         Self {
-            error: RET_ERR_NOT_SUPPORTED,
-            value: 0,
+            error: T::RET_ERR_NOT_SUPPORTED,
+            value: T::ZERO,
         }
     }
 
@@ -142,8 +242,8 @@ impl SbiRet {
     #[inline]
     pub const fn invalid_param() -> Self {
         Self {
-            error: RET_ERR_INVALID_PARAM,
-            value: 0,
+            error: T::RET_ERR_INVALID_PARAM,
+            value: T::ZERO,
         }
     }
     /// SBI call denied for unsatisfied entry criteria, or insufficient access
@@ -151,8 +251,8 @@ impl SbiRet {
     #[inline]
     pub const fn denied() -> Self {
         Self {
-            error: RET_ERR_DENIED,
-            value: 0,
+            error: T::RET_ERR_DENIED,
+            value: T::ZERO,
         }
     }
 
@@ -162,8 +262,8 @@ impl SbiRet {
     #[inline]
     pub const fn invalid_address() -> Self {
         Self {
-            error: RET_ERR_INVALID_ADDRESS,
-            value: 0,
+            error: T::RET_ERR_INVALID_ADDRESS,
+            value: T::ZERO,
         }
     }
 
@@ -172,8 +272,8 @@ impl SbiRet {
     #[inline]
     pub const fn already_available() -> Self {
         Self {
-            error: RET_ERR_ALREADY_AVAILABLE,
-            value: 0,
+            error: T::RET_ERR_ALREADY_AVAILABLE,
+            value: T::ZERO,
         }
     }
 
@@ -182,8 +282,8 @@ impl SbiRet {
     #[inline]
     pub const fn already_started() -> Self {
         Self {
-            error: RET_ERR_ALREADY_STARTED,
-            value: 0,
+            error: T::RET_ERR_ALREADY_STARTED,
+            value: T::ZERO,
         }
     }
 
@@ -192,8 +292,8 @@ impl SbiRet {
     #[inline]
     pub const fn already_stopped() -> Self {
         Self {
-            error: RET_ERR_ALREADY_STOPPED,
-            value: 0,
+            error: T::RET_ERR_ALREADY_STOPPED,
+            value: T::ZERO,
         }
     }
 
@@ -202,8 +302,8 @@ impl SbiRet {
     #[inline]
     pub const fn no_shmem() -> Self {
         Self {
-            error: RET_ERR_NO_SHMEM,
-            value: 0,
+            error: T::RET_ERR_NO_SHMEM,
+            value: T::ZERO,
         }
     }
 
@@ -212,8 +312,8 @@ impl SbiRet {
     #[inline]
     pub const fn invalid_state() -> Self {
         Self {
-            error: RET_ERR_INVALID_STATE,
-            value: 0,
+            error: T::RET_ERR_INVALID_STATE,
+            value: T::ZERO,
         }
     }
 
@@ -222,8 +322,8 @@ impl SbiRet {
     #[inline]
     pub const fn bad_range() -> Self {
         Self {
-            error: RET_ERR_BAD_RANGE,
-            value: 0,
+            error: T::RET_ERR_BAD_RANGE,
+            value: T::ZERO,
         }
     }
 
@@ -232,8 +332,8 @@ impl SbiRet {
     #[inline]
     pub const fn timeout() -> Self {
         Self {
-            error: RET_ERR_TIMEOUT,
-            value: 0,
+            error: T::RET_ERR_TIMEOUT,
+            value: T::ZERO,
         }
     }
 
@@ -241,15 +341,15 @@ impl SbiRet {
     #[inline]
     pub const fn io() -> Self {
         Self {
-            error: RET_ERR_IO,
-            value: 0,
+            error: T::RET_ERR_IO,
+            value: T::ZERO,
         }
     }
 }
 
-impl From<Error> for SbiRet {
+impl<T: SbiRegister> From<Error<T>> for SbiRet<T> {
     #[inline]
-    fn from(value: Error) -> Self {
+    fn from(value: Error<T>) -> Self {
         match value {
             Error::Failed => SbiRet::failed(),
             Error::NotSupported => SbiRet::not_supported(),
@@ -265,8 +365,8 @@ impl From<Error> for SbiRet {
             Error::Timeout => SbiRet::timeout(),
             Error::Io => SbiRet::io(),
             Error::Custom(error) => SbiRet {
-                error: usize::from_ne_bytes(error.to_ne_bytes()),
-                value: 0,
+                error,
+                value: T::ZERO,
             },
         }
     }
@@ -1438,6 +1538,28 @@ impl<T> Copy for SharedPtr<T> {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[rustfmt::skip]
+    fn rustsbi_sbi_ret_constructors() {
+        assert_eq!(SbiRet::success(0), SbiRet { value: 0, error: 0 });
+        assert_eq!(SbiRet::success(1037), SbiRet { value: 1037, error: 0 });
+        assert_eq!(SbiRet::success(usize::MAX), SbiRet { value: usize::MAX, error: 0 });
+
+        assert_eq!(SbiRet::failed(), SbiRet { value: 0, error: usize::MAX - 1 + 1 });
+        assert_eq!(SbiRet::not_supported(), SbiRet { value: 0, error: usize::MAX - 2 + 1 });
+        assert_eq!(SbiRet::invalid_param(), SbiRet { value: 0, error: usize::MAX - 3 + 1 });
+        assert_eq!(SbiRet::denied(), SbiRet { value: 0, error: usize::MAX - 4 + 1 });
+        assert_eq!(SbiRet::invalid_address(), SbiRet { value: 0, error: usize::MAX - 5 + 1 });
+        assert_eq!(SbiRet::already_available(), SbiRet { value: 0, error: usize::MAX - 6 + 1 });
+        assert_eq!(SbiRet::already_started(), SbiRet { value: 0, error: usize::MAX - 7 + 1 });
+        assert_eq!(SbiRet::already_stopped(), SbiRet { value: 0, error: usize::MAX - 8 + 1 });
+        assert_eq!(SbiRet::no_shmem(), SbiRet { value: 0, error: usize::MAX - 9 + 1 });
+        assert_eq!(SbiRet::invalid_state(), SbiRet { value: 0, error: usize::MAX - 10 + 1 });
+        assert_eq!(SbiRet::bad_range(), SbiRet { value: 0, error: usize::MAX - 11 + 1 });
+        assert_eq!(SbiRet::timeout(), SbiRet { value: 0, error: usize::MAX - 12 + 1 });
+        assert_eq!(SbiRet::io(), SbiRet { value: 0, error: usize::MAX - 13 + 1 });
+    }
 
     #[test]
     fn rustsbi_hart_mask() {
