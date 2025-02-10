@@ -3,6 +3,9 @@ use serde_device_tree::Dtb;
 
 use crate::devicetree;
 
+use riscv::interrupt::machine::{Exception, Interrupt};
+use riscv::register::{mcause::Trap, mepc, mtval};
+
 #[cfg(all(feature = "payload", feature = "jump"))]
 compile_error!("feature \"payload\" and feature \"jump\" cannot be enabled at the same time");
 
@@ -17,6 +20,15 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     error!("-----------------------------");
     error!("System shutdown scheduled due to RustSBI panic");
     loop {}
+}
+
+pub fn unsupported_trap(trap: Option<Trap<Interrupt, Exception>>) -> ! {
+    error!("-----------------------------");
+    error!("trap:    {trap:?}");
+    error!("mepc:    {:#018x}", mepc::read());
+    error!("mtval:   {:#018x}", mtval::read());
+    error!("-----------------------------");
+    panic!("Stopped with unsupported trap")
 }
 
 /// Handles device tree format parsing errors by logging and resetting.
