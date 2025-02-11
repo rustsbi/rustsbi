@@ -61,6 +61,7 @@ pub fn run(arg: &BenchArg) -> Option<ExitStatus> {
             current_dir
                 .as_ref()
                 .unwrap()
+                .join("prototyper")
                 .join("bench-kernel")
                 .join("scripts")
                 .join("rustsbi-bench-kernel.its"),

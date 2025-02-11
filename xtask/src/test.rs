@@ -61,6 +61,7 @@ pub fn run(arg: &TestArg) -> Option<ExitStatus> {
             current_dir
                 .as_ref()
                 .unwrap()
+                .join("prototyper")
                 .join("test-kernel")
                 .join("scripts")
                 .join("rustsbi-test-kernel.its"),
