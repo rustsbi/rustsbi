@@ -1,0 +1,40 @@
+cargo-features = ["per-package-target"]
+
+[package]
+name = "rustsbi-prototyper"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+forced-target = "riscv64imac-unknown-none-elf"
+
+[dependencies]
+aclint = "=0.1.0"
+log = "0.4"
+panic-halt = "1.0.0"
+riscv = "0.12.1"
+sifive-test-device = "0.0.0"
+spin = "0.9.8"
+uart16550 = "0.0.1"
+riscv-decode = "0.2.1"
+cfg-if = "1.0.0"
+buddy_system_allocator = "0.11.0"
+rustsbi = { version = "0.4.0", features = ["machine"] }
+sbi-spec = { version = "0.0.8", features = ["legacy"] }
+serde = { version = "1.0.202", default-features = false, features = ["derive"] }
+fast-trap = { version = "0.1.0",  features = ["riscv-m"] }
+serde-device-tree = { git = "https://github.com/rustsbi/serde-device-tree", default-features = false }
+uart_xilinx = { git = "https://github.com/duskmoon314/uart-rs/" }
+xuantie-riscv = { git= "https://github.com/rustsbi/xuantie" }
+bouffalo-hal = { git = "https://github.com/rustsbi/bouffalo-hal", rev = "968b949", features = ["bl808"] }
+
+[[bin]]
+name = "rustsbi-prototyper"
+test = false
+bench = false
+
+[features]
+nemu = []
+payload = []
+jump = []
+fdt = []
