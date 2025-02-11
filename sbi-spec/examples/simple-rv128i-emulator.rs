@@ -50,6 +50,7 @@ fn main() {
 
     // --- Initialize the emulator hart ---
     let mut hart = SimpleRv128IHart::new(memory);
+    println!("Starting SimpleRv128IHart...");
 
     // Run the emulation loop, executing one instruction at a time.
     // The loop breaks when an SBI call requests to shutdown the emulator (returns a special error value).
@@ -222,13 +223,17 @@ impl<const BASE: usize, const N_INSNS: usize> InstMemory<BASE, N_INSNS> {
     /// # Parameters
     /// - `idx`: The byte offset at which to place the instructions.
     /// - `rd`: The destination register.
-    /// - `imm`: The immediate value (32-bit).
-    pub fn li(&mut self, idx: usize, rd: XReg, imm: u32) {
-        let simm20 = (imm >> 12) & 0xFFFFF;
-        let simm12 = imm & 0xFFF;
+    /// - `imm`: The immediate value (128-bit).
+    pub fn li(&mut self, idx: usize, rd: XReg, imm: u128) {
+        assert!(
+            imm <= 0xFFFFFFFF,
+            "in this example `li` only supports immediate values less than 0xFFFFFFFF"
+        );
+        let imm = imm as u32;
+        let (simm20, simm12) = (imm >> 12, imm & 0xFFF);
         if simm20 != 0 {
             self.lui(idx, rd, simm20);
-            self.addi(idx + 0x4, rd, rd, simm12);
+            self.addi(idx + 4, rd, rd, simm12);
         } else {
             self.addi(idx, rd, XReg::Zero, simm12);
         }
@@ -313,20 +318,20 @@ impl SimpleRv128IHart {
 
     /// Execute one instruction step.
     ///
-    /// This function fetches the instruction at the current program counter (PC),
-    /// decodes it, and then executes it. The PC is updated accordingly.
+    /// Fetches, decodes, and executes the instruction at the current program counter (PC),
+    /// updating the PC accordingly.
     ///
     /// # Returns
-    /// - `Ok(())` if the instruction executed normally.
-    /// - `Err(Exception::SupervisorEcall)` if an ecall instruction was encountered (SBI call).
-    /// - `Err(e)` for any other exceptions.
+    /// - `Ok(())` if executed normally.
+    /// - `Err(Exception::SupervisorEcall)` if an ecall instruction was encountered.
+    /// - `Err(e)` for other exceptions.
     pub fn stepi(&mut self) -> Result<(), Exception> {
         let raw_insn = self
             .inst_memory
             .get(self.pc)
             .ok_or(Exception::InstructionAccessFault)?;
 
-        println!("Raw insn at 0x{:x?} is 0x{:x?}", self.pc, raw_insn);
+        println!("Insn at 0x{:x}: 0x{:x}", self.pc, raw_insn);
 
         // Attempt to decode the raw instruction into one of the supported instruction variants.
         let parsed_insn =
