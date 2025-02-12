@@ -147,7 +147,7 @@ unsafe extern "C" fn execute_naked() {
             SAVE_ALL
         ",
             // 设置陷入入口
-            "   la   t0, 1f
+            "   la   t0, 2f
             csrw stvec, t0
         ",
             // 保存调度上下文地址并切换上下文
@@ -164,7 +164,7 @@ unsafe extern "C" fn execute_naked() {
             // 陷入
             "   .align 2",
             // 切换上下文
-            "1: csrrw sp, sscratch, sp",
+            "2: csrrw sp, sscratch, sp",
             // 保存线程上下文
             "   SAVE_ALL
             csrrw t0, sscratch, sp

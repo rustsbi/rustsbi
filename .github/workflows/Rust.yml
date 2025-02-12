@@ -45,16 +45,16 @@ jobs:
           key: ${{ matrix.TARGET }}
       - name: Build (no default features)
         run: |
-          cargo build --target ${{ matrix.TARGET }} --verbose
+          cargo build -p rustsbi --target ${{ matrix.TARGET }} --verbose
       - name: Build (machine)
         run: |
-          cargo build --target ${{ matrix.TARGET }} --verbose --features "machine"
+          cargo build -p rustsbi --target ${{ matrix.TARGET }} --verbose --features "machine"
       - name: Build (forward)
         run: |
-          cargo build --target ${{ matrix.TARGET }} --verbose --features "forward"
+          cargo build -p rustsbi --target ${{ matrix.TARGET }} --verbose --features "forward"
       - name: Build (machine + forward)
         run: |
-          cargo build --target ${{ matrix.TARGET }} --verbose --features "machine, forward"
+          cargo build -p rustsbi --target ${{ matrix.TARGET }} --verbose --features "machine, forward"
 
   test-rustsbi:
     name: Test rustsbi

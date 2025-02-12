@@ -9,7 +9,7 @@ documentation = "https://docs.rs/rustsbi"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-readme = "../README.md"
+readme = "../../README.md"
 keywords = ["riscv", "sbi", "rustsbi"]
 categories = ["os", "embedded", "hardware-support", "no-std"]
 

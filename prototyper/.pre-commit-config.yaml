@@ -1,0 +1,87 @@
+fail_fast: false
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.3.0
+    hooks:
+      - id: check-byte-order-marker
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+  - repo: https://github.com/psf/black
+    rev: 22.10.0
+    hooks:
+      - id: black
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        description: Format files with rustfmt.
+        entry: bash -c 'cargo fmt -- --check'
+        language: rust
+        files: \.rs$
+        args: []
+      - id: typos
+        name: typos
+        description: check typo
+        entry: bash -c 'typos'
+        language: rust
+        files: \.*$
+        pass_filenames: false
+      - id: cargo-check
+        name: cargo check
+        description: Check the package for errors.
+        entry: |
+          bash -c '
+            # Get all packages in the workspace
+            packages=$(cargo metadata --format-version 1 | jq -r ".packages[] | select(.name != \"xtask\") | .name")
+
+            # Check each package
+            for package in $packages; do
+              echo "Checking package: $package"
+              cargo check -p "$package" --target riscv64imac-unknown-none-elf
+              check_status=$?
+
+              # If the check fails, exit with the error code
+              if [ "$check_status" -ne 0 ]; then
+                echo "Package $package check failed, exit status: $check_status!"
+                exit $check_status
+              fi
+            done
+
+            echo "All packages checked successfully."
+            exit 0
+          '
+        language: rust
+        files: \.rs$
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        description: Lint Rust sources.
+        entry: |
+          bash -c '
+            # Get all packages in the workspace
+            packages=$(cargo metadata --format-version 1 | jq -r ".packages[] | select(.name != \"xtask\") | .name")
+
+            # Lint each package
+            for package in $packages; do
+              echo "Linting package: $package"
+              cargo clippy -p "$package" --target riscv64imac-unknown-none-elf -- -D warnings
+              clippy_status=$?
+
+              # If the linting fails, exit with the error code
+              if [ "$clippy_status" -ne 0 ]; then
+                echo "Package $package clippy check failed, exit status: $clippy_status!"
+                exit $clippy_status
+              fi
+            done
+
+            echo "All packages linted successfully."
+            exit 0
+          '
+        language: rust
+        files: \.rs$
+        pass_filenames: false
