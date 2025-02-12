@@ -27,6 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - base: don't derive `PartialOrd` for `Version`, instead manually implement `Ord` and forward it into `PartialOrd`.
 - base: refactor `SbiRet` to be generic of registers and introduce the `SbiRegister` trait
 - base: implement `SbiRegister` for `i32`, `i64`, `i128` and `isize` primitive types
+- base: make HartMask and CounterMask generic over SBI registers
 
 ### Fixed
 
