@@ -1,19 +1,16 @@
-cargo-features = ["per-package-target"]
-
 [package]
 name = "rustsbi-bench-kernel"
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-forced-target = "riscv64imac-unknown-none-elf"
 publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-sbi-testing = { git = "https://github.com/rustsbi/rustsbi", rev = "4821073", features = ["log"] }
-sbi-spec = { git = "https://github.com/rustsbi/rustsbi", rev = "4821073" }
+sbi-testing = { path = "../../library/sbi-testing", features = ["log"] }
+sbi-spec = { version = "0.0.8", path = "../../library/sbi-spec" }
 serde-device-tree = { git = "https://github.com/rustsbi/serde-device-tree", default-features = false }
 serde = { version = "1.0.202", default-features = false, features = ["derive"] }
 log = "0.4"

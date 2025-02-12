@@ -1,18 +1,15 @@
-cargo-features = ["per-package-target"]
-
 [package]
 name = "rustsbi-test-kernel"
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-forced-target = "riscv64imac-unknown-none-elf"
 publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-sbi-testing = { git = "https://github.com/rustsbi/rustsbi" , features = ["log"] }
+sbi-testing = { features = ["log"], path = "../../library/sbi-testing" }
 log = "0.4"
 riscv = "0.11.1"
 spin = "0.9"
