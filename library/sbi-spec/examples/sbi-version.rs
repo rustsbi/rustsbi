@@ -1,5 +1,5 @@
-/// This example illustrates how to use the `Version` structure which represents a valid
-/// RISC-V SBI version.
+//! This example illustrates how to use the `Version` structure which represents a valid
+//! RISC-V SBI version.
 
 /// Import the version type defined in the SBI specification, used for representing and
 /// manipulating SBI version numbers.
