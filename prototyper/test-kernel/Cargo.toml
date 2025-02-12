@@ -11,7 +11,7 @@ publish = false
 [dependencies]
 sbi-testing = { features = ["log"], path = "../../library/sbi-testing" }
 log = "0.4"
-riscv = "0.11.1"
+riscv = "0.12.1"
 spin = "0.9"
 uart16550 = "0.0.1"
 rcore-console = "0.0.0"
