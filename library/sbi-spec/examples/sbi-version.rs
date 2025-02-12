@@ -8,8 +8,8 @@ use sbi_spec::base::Version;
 /// We mock a S-mode software (kernel, etc.) that runs on minimum SBI version of v1.0;
 /// it will detect from the environment and judge if it meets the minimum SBI version demand.
 fn main() {
-    // Create a version number representing RISC-V SBI v1.0.
-    let v1_0 = Version::from_raw(0x100_0000);
+    // Create a version structure representing the minimum version at RISC-V SBI v1.0.
+    let minimum_version = Version::V1_0;
 
     // Call the mock SBI runtime to obtain the current version number.
     println!("Probing SBI version of current environment...");
@@ -20,7 +20,7 @@ fn main() {
 
     // Version comparison: Check whether the current version meets the minimum
     // requirement (v1.0 or higher).
-    if current_version >= v1_0 {
+    if current_version >= minimum_version {
         // The version meets the requirement, output success message.
         println!("The SBI version meets minimum demand of RISC-V SBI v1.0.");
         println!("✓ Test success!");
