@@ -1,5 +1,5 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
     "library/macros",
     "library/sbi-rt",
@@ -19,4 +19,5 @@ repository = "https://github.com/rustsbi/rustsbi"
 
 [profile.release]
 debug = true
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

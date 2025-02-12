@@ -1,12 +1,9 @@
-cargo-features = ["per-package-target"]
-
 [package]
 name = "rustsbi-prototyper"
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-forced-target = "riscv64imac-unknown-none-elf"
 
 [dependencies]
 aclint = "=0.1.0"
@@ -19,8 +16,8 @@ uart16550 = "0.0.1"
 riscv-decode = "0.2.1"
 cfg-if = "1.0.0"
 buddy_system_allocator = "0.11.0"
-rustsbi = { version = "0.4.0", features = ["machine"] }
-sbi-spec = { version = "0.0.8", features = ["legacy"] }
+rustsbi = { version = "0.4.0", features = ["machine"], path = "../../library/rustsbi" }
+sbi-spec = { version = "0.0.8", features = ["legacy"], path = "../../library/sbi-spec" }
 serde = { version = "1.0.202", default-features = false, features = ["derive"] }
 fast-trap = { version = "0.1.0",  features = ["riscv-m"] }
 serde-device-tree = { git = "https://github.com/rustsbi/serde-device-tree", default-features = false }
