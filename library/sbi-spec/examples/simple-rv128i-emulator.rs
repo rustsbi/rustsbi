@@ -284,9 +284,9 @@ impl<const BASE: usize, const N_INSNS: usize> InstMemory<BASE, N_INSNS> {
     ///
     /// # Parameters
     /// - `offset`: The byte offset at which to place the ecall instruction.
-    pub fn ecall(&mut self, offset: usize) {
+    pub fn ecall(&mut self, idx: usize) {
         let word = 0b000000000000_00000_000_00000_1110011;
-        self.inner[offset / 4] = word;
+        self.inner[idx / 4] = word;
     }
 
     /// Retrieve an instruction word from instruction memory based on the given pointer.

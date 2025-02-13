@@ -60,7 +60,7 @@ pub const RET_ERR_IO: usize = <usize as SbiRegister>::RET_ERR_IO;
 /// # Examples
 ///
 /// Implemented automatically for all types that satisfy `Copy`, `Eq`, and `Debug`.
-pub trait SbiRegister: Copy + Eq + core::fmt::Debug {
+pub trait SbiRegister: Copy + Eq + Ord + core::fmt::Debug {
     /// SBI success state return value.
     const RET_SUCCESS: Self;
     /// Error for SBI call failed for unknown reasons.
@@ -92,6 +92,9 @@ pub trait SbiRegister: Copy + Eq + core::fmt::Debug {
 
     /// Zero value for this type; this is used on `value` fields once `SbiRet` returns an error.
     const ZERO: Self;
+    /// Full-ones value for this type; this is used on SBI mask structures like `CounterMask`
+    /// and `HartMask`.
+    const FULL_MASK: Self;
 
     /// Converts an `SbiRet` of this type to a `Result` of self and `Error`.
     fn into_result(ret: SbiRet<Self>) -> Result<Self, Error<Self>>;
@@ -115,6 +118,7 @@ macro_rules! impl_sbi_register {
             const RET_ERR_TIMEOUT: Self = -12 as $signed as $ty;
             const RET_ERR_IO: Self = -13 as $signed as $ty;
             const ZERO: Self = 0;
+            const FULL_MASK: Self = !0;
 
             fn into_result(ret: SbiRet<Self>) -> Result<Self, Error<Self>> {
                 match ret.error {
@@ -1111,18 +1115,18 @@ pub(crate) const fn has_bit(mask: usize, base: usize, ignore: usize, bit: usize)
 /// Hart mask structure in SBI function calls.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub struct HartMask {
-    hart_mask: usize,
-    hart_mask_base: usize,
+pub struct HartMask<T = usize> {
+    hart_mask: T,
+    hart_mask_base: T,
 }
 
-impl HartMask {
+impl<T: SbiRegister> HartMask<T> {
     /// Special value to ignore the `mask`, and consider all `bit`s as set.
-    pub const IGNORE_MASK: usize = usize::MAX;
+    pub const IGNORE_MASK: T = T::FULL_MASK;
 
     /// Construct a [HartMask] from mask value and base hart id.
     #[inline]
-    pub const fn from_mask_base(hart_mask: usize, hart_mask_base: usize) -> Self {
+    pub const fn from_mask_base(hart_mask: T, hart_mask_base: T) -> Self {
         Self {
             hart_mask,
             hart_mask_base,
@@ -1138,23 +1142,27 @@ impl HartMask {
     #[inline]
     pub const fn all() -> Self {
         Self {
-            hart_mask: 0,
-            hart_mask_base: usize::MAX,
+            hart_mask: T::ZERO,
+            hart_mask_base: T::FULL_MASK,
         }
     }
 
     /// Gets the special value for ignoring the `mask` parameter.
     #[inline]
-    pub const fn ignore_mask(&self) -> usize {
+    pub const fn ignore_mask(&self) -> T {
         Self::IGNORE_MASK
     }
 
     /// Returns `mask` and `base` parameters from the [HartMask].
     #[inline]
-    pub const fn into_inner(self) -> (usize, usize) {
+    pub const fn into_inner(self) -> (T, T) {
         (self.hart_mask, self.hart_mask_base)
     }
+}
 
+// FIXME: implement for T: SbiRegister once we can implement this using const traits.
+// Ref: https://rust-lang.github.io/rust-project-goals/2024h2/const-traits.html
+impl HartMask<usize> {
     /// Returns whether the [HartMask] contains the provided `hart_id`.
     #[inline]
     pub const fn has_bit(self, hart_id: usize) -> bool {
@@ -1349,18 +1357,18 @@ pub enum MaskError {
 /// Counter index mask structure in SBI function calls for the `PMU` extension §11.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct CounterMask {
-    counter_idx_mask: usize,
-    counter_idx_base: usize,
+pub struct CounterMask<T = usize> {
+    counter_idx_mask: T,
+    counter_idx_base: T,
 }
 
-impl CounterMask {
+impl<T: SbiRegister> CounterMask<T> {
     /// Special value to ignore the `mask`, and consider all `bit`s as set.
-    pub const IGNORE_MASK: usize = usize::MAX;
+    pub const IGNORE_MASK: T = T::FULL_MASK;
 
     /// Construct a [CounterMask] from mask value and base counter index.
     #[inline]
-    pub const fn from_mask_base(counter_idx_mask: usize, counter_idx_base: usize) -> Self {
+    pub const fn from_mask_base(counter_idx_mask: T, counter_idx_base: T) -> Self {
         Self {
             counter_idx_mask,
             counter_idx_base,
@@ -1369,16 +1377,20 @@ impl CounterMask {
 
     /// Gets the special value for ignoring the `mask` parameter.
     #[inline]
-    pub const fn ignore_mask(&self) -> usize {
+    pub const fn ignore_mask(&self) -> T {
         Self::IGNORE_MASK
     }
 
     /// Returns `mask` and `base` parameters from the [CounterMask].
     #[inline]
-    pub const fn into_inner(self) -> (usize, usize) {
+    pub const fn into_inner(self) -> (T, T) {
         (self.counter_idx_mask, self.counter_idx_base)
     }
+}
 
+// FIXME: implement for T: SbiRegister once we can implement this using const traits.
+// Ref: https://rust-lang.github.io/rust-project-goals/2024h2/const-traits.html
+impl CounterMask<usize> {
     /// Returns whether the [CounterMask] contains the provided `counter`.
     #[inline]
     pub const fn has_bit(self, counter: usize) -> bool {
@@ -1860,5 +1872,24 @@ mod tests {
             assert!(!null_mask.has_bit(i));
         });
         assert!(mask.has_bit(usize::MAX));
+    }
+
+    #[test]
+    fn rustsbi_mask_non_usize() {
+        assert_eq!(CounterMask::<i32>::IGNORE_MASK, -1);
+        assert_eq!(CounterMask::<i64>::IGNORE_MASK, -1);
+        assert_eq!(CounterMask::<i128>::IGNORE_MASK, -1);
+        assert_eq!(CounterMask::<u32>::IGNORE_MASK, u32::MAX);
+        assert_eq!(CounterMask::<u64>::IGNORE_MASK, u64::MAX);
+        assert_eq!(CounterMask::<u128>::IGNORE_MASK, u128::MAX);
+
+        assert_eq!(HartMask::<i32>::IGNORE_MASK, -1);
+        assert_eq!(HartMask::<i64>::IGNORE_MASK, -1);
+        assert_eq!(HartMask::<i128>::IGNORE_MASK, -1);
+        assert_eq!(HartMask::<u32>::IGNORE_MASK, u32::MAX);
+        assert_eq!(HartMask::<u64>::IGNORE_MASK, u64::MAX);
+        assert_eq!(HartMask::<u128>::IGNORE_MASK, u128::MAX);
+
+        assert_eq!(HartMask::<i32>::all(), HartMask::from_mask_base(0, -1));
     }
 }

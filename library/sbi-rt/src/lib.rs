@@ -1,4 +1,14 @@
-//! Simple RISC-V SBI runtime primitives.
+//! RISC-V SBI runtime primitives library.
+//!
+//! `sbi-rt` provides fundamental runtime primitives for the RISC-V Supervisor Binary
+//! Interface (SBI), wrapping low-level SBI calls in safe Rust interfaces that return
+//! `SbiRet` results.
+//!
+//! All the `SbiRet` types returned by SBI call functions of this crate are `SbiRet<usize>`,
+//! representing the pointer width of the current RISC-V SBI platform.
+//! Those calls only works at RISC-V targets when building supervisor software
+//! (e.g. kernels or hypervisors); it builds under non-RISC-V targets but for tests
+//! or `cargo fix` purposes only.
 #![no_std]
 #[cfg_attr(not(feature = "legacy"), deny(missing_docs))]
 // §3
