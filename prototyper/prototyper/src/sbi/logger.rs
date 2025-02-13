@@ -7,10 +7,8 @@ pub struct Logger;
 impl Logger {
     /// Initialize the logger with log level from RUST_LOG env var or default to Info.
     pub fn init() -> Result<(), log::SetLoggerError> {
-        // Set max log level from RUST_LOG env var if present, otherwise use Info
-        let max_level = option_env!("RUST_LOG")
-            .and_then(|s| LevelFilter::from_str(s).ok())
-            .unwrap_or(LevelFilter::Info);
+        // Set max log level from LOG_LEVEL from config file, otherwise use Info
+        let max_level = LevelFilter::from_str(crate::cfg::LOG_LEVEL).unwrap_or(LevelFilter::Info);
 
         log::set_max_level(max_level);
         log::set_logger(&Logger)
