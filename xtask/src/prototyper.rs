@@ -22,8 +22,8 @@ pub struct PrototyperArg {
     #[clap(long)]
     pub jump: bool,
 
-    #[clap(long, default_value = "INFO")]
-    pub log_level: String,
+    #[clap(long, short = 'c', required = true)]
+    pub config_file: String,
 }
 
 #[must_use]
@@ -33,13 +33,27 @@ pub fn run(arg: &PrototyperArg) -> Option<ExitStatus> {
     let fdt = arg.fdt.clone();
     let payload = arg.payload.clone();
     let jump = arg.jump;
+
     let current_dir = env::current_dir();
-    let target_dir = current_dir
+    let raw_target_dir = current_dir
         .as_ref()
         .unwrap()
-        .join("target")
+        .join("target");
+    let target_dir = raw_target_dir
         .join(arch)
         .join("release");
+    let target_config_toml = raw_target_dir.join("config.toml");
+
+    if fs::exists(&target_config_toml).ok()? {
+        info!("Delete old config");
+        fs::remove_file(&target_config_toml).ok()?;
+    }
+
+    info!("Copy config");
+    fs::copy(
+        &arg.config_file,
+        target_config_toml
+    ).ok()?;
 
     info!("Building Protoyper");
     cargo::Cargo::new("build")
@@ -59,7 +73,6 @@ pub fn run(arg: &PrototyperArg) -> Option<ExitStatus> {
         .optional(jump, |cargo| {
             cargo.features(["jump".to_string()])
         })
-        .env("RUST_LOG", &arg.log_level)
         .release()
         .status()
         .ok()?;

@@ -24,6 +24,7 @@ serde-device-tree = { git = "https://github.com/rustsbi/serde-device-tree", defa
 uart_xilinx = { git = "https://github.com/duskmoon314/uart-rs/" }
 xuantie-riscv = { git= "https://github.com/rustsbi/xuantie" }
 bouffalo-hal = { git = "https://github.com/rustsbi/bouffalo-hal", rev = "968b949", features = ["bl808"] }
+static-toml = "1"
 
 [[bin]]
 name = "rustsbi-prototyper"
