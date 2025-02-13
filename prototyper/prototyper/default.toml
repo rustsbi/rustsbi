@@ -4,3 +4,4 @@ heap_size = 32768 # 32 * 1024
 page_size = 4096
 log_level = "INFO"
 jump_address = 0x80200000
+tlb_flush_limit = 16384 # page_size * 4

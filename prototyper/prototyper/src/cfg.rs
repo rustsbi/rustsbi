@@ -20,7 +20,6 @@ pub const LOG_LEVEL: &'static str = CONFIG.log_level;
 /// Address for jump mode.
 #[cfg(feature = "jump")]
 pub const JUMP_ADDRESS: usize = CONFIG.jump_address as usize;
-
 /// TLB_FLUSH_LIMIT defines the TLB refresh range limit.
 /// If the TLB refresh range is greater than TLB_FLUSH_LIMIT, the entire TLB is refreshed.
-pub const TLB_FLUSH_LIMIT: usize = 4 * PAGE_SIZE;
+pub const TLB_FLUSH_LIMIT: usize = CONFIG.tlb_flush_limit as usize;
