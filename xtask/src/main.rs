@@ -34,6 +34,7 @@ enum Cmd {
     Prototyper(PrototyperArg),
     Test(TestArg),
     Bench(BenchArg),
+    Qemu(PrototyperArg),
 }
 
 fn main() -> ExitCode {
@@ -44,6 +45,7 @@ fn main() -> ExitCode {
         Cmd::Prototyper(ref arg) => prototyper::run(arg),
         Cmd::Test(ref arg) => test::run(arg),
         Cmd::Bench(ref arg) => bench::run(arg),
+        Cmd::Qemu(ref arg) => prototyper::qemu_run(arg),
     } {
         if code.success() {
             info!("Finished");

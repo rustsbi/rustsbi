@@ -118,3 +118,31 @@ pub fn run(arg: &PrototyperArg) -> Option<ExitStatus> {
 
     Some(exit_status)
 }
+
+pub fn qemu_run(arg: &PrototyperArg) -> Option<std::process::ExitStatus> {
+    run(arg)?;
+
+    let arch = "riscv64imac-unknown-none-elf";
+    let current_dir = env::current_dir();
+    let sbi_dir = current_dir
+        .as_ref()
+        .unwrap()
+        .join("target")
+        .join(arch)
+        .join("release");
+    let target = if arg.payload.is_some() {
+        "rustsbi-prototyper-payload.bin"
+    } else if arg.jump {
+        "rustsbi-prototyper-jump.bin"
+    } else {
+        "rustsbi-prototyper-dynamic.bin"
+    };
+    Command::new("qemu-system-riscv64")
+        .arg("-machine")
+        .arg("virt")
+        .arg("-nographic")
+        .arg("-bios")
+        .arg(sbi_dir.join(target))
+        .status()
+        .ok()
+}
