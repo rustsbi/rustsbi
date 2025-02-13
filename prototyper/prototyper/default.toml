@@ -1,0 +1,6 @@
+num_hart_max = 8
+len_stack_per_hart = 16384 # 16 * 1024
+heap_size = 32768 # 32 * 1024
+page_size = 4096
+log_level = "INFO"
+jump_address = 0x80200000

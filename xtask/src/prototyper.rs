@@ -1,5 +1,6 @@
 use std::{
     env, fs,
+    path::PathBuf,
     process::{Command, ExitStatus},
 };
 
@@ -22,8 +23,8 @@ pub struct PrototyperArg {
     #[clap(long)]
     pub jump: bool,
 
-    #[clap(long, short = 'c', required = true)]
-    pub config_file: String,
+    #[clap(long, short = 'c')]
+    pub config_file: Option<PathBuf>,
 }
 
 #[must_use]
@@ -44,6 +45,14 @@ pub fn run(arg: &PrototyperArg) -> Option<ExitStatus> {
         .join("release");
     let target_config_toml = raw_target_dir.join("config.toml");
 
+    let default_config_file = current_dir
+        .as_ref()
+        .unwrap()
+        .join("prototyper")
+        .join("prototyper")
+        .join("default.toml");
+    let config_file = arg.config_file.clone().unwrap_or(default_config_file);
+
     if fs::exists(&target_config_toml).ok()? {
         info!("Delete old config");
         fs::remove_file(&target_config_toml).ok()?;
@@ -51,7 +60,7 @@ pub fn run(arg: &PrototyperArg) -> Option<ExitStatus> {
 
     info!("Copy config");
     fs::copy(
-        &arg.config_file,
+        &config_file,
         target_config_toml
     ).ok()?;
 
