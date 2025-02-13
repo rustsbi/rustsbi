@@ -1,5 +1,6 @@
 [alias]
 xtask = "run --package xtask --release --"
 prototyper = "xtask prototyper"
+qemu = "xtask qemu"
 test-kernel = "xtask test"
 bench-kernel = "xtask bench"
