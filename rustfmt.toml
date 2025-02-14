@@ -1,3 +1,4 @@
 # Use rustfmt to format code
 
+edition = "2024"
 # Empty file.
