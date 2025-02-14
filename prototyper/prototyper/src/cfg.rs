@@ -10,7 +10,7 @@ static_toml! {
 /// Maximum number of supported harts.
 pub const NUM_HART_MAX: usize = CONFIG.num_hart_max as usize;
 /// Stack size per hart (hardware thread) in bytes.
-pub const LEN_STACK_PER_HART: usize = CONFIG.len_stack_per_hart as usize;
+pub const STACK_SIZE_PER_HART: usize = CONFIG.stack_size_per_hart as usize;
 /// Heap Size of SBI firmware.
 pub const HEAP_SIZE: usize = CONFIG.heap_size as usize;
 /// Platform page size.

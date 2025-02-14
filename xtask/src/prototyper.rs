@@ -50,6 +50,7 @@ pub fn run(arg: &PrototyperArg) -> Option<ExitStatus> {
         .unwrap()
         .join("prototyper")
         .join("prototyper")
+        .join("config")
         .join("default.toml");
     let config_file = arg.config_file.clone().unwrap_or(default_config_file);
 

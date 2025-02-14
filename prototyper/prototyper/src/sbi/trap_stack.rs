@@ -1,4 +1,4 @@
-use crate::cfg::{LEN_STACK_PER_HART, NUM_HART_MAX};
+use crate::cfg::{NUM_HART_MAX, STACK_SIZE_PER_HART};
 use crate::riscv::current_hartid;
 use crate::sbi::hart_context::HartContext;
 use crate::sbi::trap::fast_handler;
@@ -26,7 +26,7 @@ pub(crate) unsafe extern "C" fn locate() {
             call t1, {move_stack}       // Call stack reuse function
             ret                         // Return
         ",
-            per_hart_stack_size = const LEN_STACK_PER_HART,
+            per_hart_stack_size = const STACK_SIZE_PER_HART,
             stack               =   sym ROOT_STACK,
             move_stack          =   sym fast_trap::reuse_stack_for_trap,
         )
@@ -51,10 +51,10 @@ pub(crate) fn prepare_for_trap() {
 ///
 /// Each hart has a single stack that contains both its context and working space.
 #[repr(C, align(128))]
-pub(crate) struct Stack([u8; LEN_STACK_PER_HART]);
+pub(crate) struct Stack([u8; STACK_SIZE_PER_HART]);
 
 impl Stack {
-    const ZERO: Self = Self([0; LEN_STACK_PER_HART]);
+    const ZERO: Self = Self([0; STACK_SIZE_PER_HART]);
 
     /// Gets mutable reference to hart context at bottom of stack.
     #[inline]
