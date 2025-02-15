@@ -1,1 +1,1 @@
-# allwnner-hal 全志芯片支持包
+# allwinner-hal 全志芯片支持包
