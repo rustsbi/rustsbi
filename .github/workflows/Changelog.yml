@@ -12,39 +12,45 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check-changelog:
-    name: Check if CHANGELOG.md is updated
+  check-changelogs:
+    name: Check changelogs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Get latest updated files
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # 需要完整提交历史来比较差异
+
+      - name: Get changed files
         run: |
-          updated_files=$(git show --name-only --pretty=format: HEAD)
-      - name: Check if changlog is updated
+          # 获取基准和当前提交的差异文件列表
+          git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} > changed_files.txt
+
+      - name: Validate changes
         run: |
-          if git show --name-only --pretty=format: HEAD | grep -q "CHANGELOG.md"; then
-            echo "Main CHANGELOG.md changed in the latest commit."
-          else
-            echo "Main CHANGELOG.md is not changed in the latest commit."
-            exit 1
-          fi
-          for file in $updated_files; do
-            first_path=$(dirname "$file")
-            if [[ "$first_path" == *"sbi-rt"* ]]; then
-              file_path = "./sbi-rt"
-            elif [[ "$first_path" == *"sbi-spec"* ]]; then
-              file_path = "./sbi-spec"
-            elif [[ "$first_path" == *"sbi-testing"* ]]; then
-              file_path = "./sbi-testing"
-            else
-              file_path = "./"
-            fi
-            changelog_path="$file_path/CHANGELOG.md"
-            # Check if changelog is updated
-            if git diff --name-only "$file_path" | grep -q "CHANGELOG.md"; then
-              echo "File $changelog_path changed in the latest commit."
-            else
-              echo "File $changelog_path is not changed in the latest commit."
-              exit 1
-            fi
-          done
+          # 需要检查的目录数组
+          directories=(
+            "library/sbi-rt"
+            "library/sbi-spec" 
+            "library/sbi-testing" 
+            "library/rustsbi"
+            "library/macros"
+          )
+
+          exit_code=0
+          while IFS= read -r file; do
+            for dir in "${directories[@]}"; do
+              # 检查文件是否属于当前目录
+              if [[ "$file" == "$dir/"* ]]; then
+                # 检查对应的CHANGELOG是否被修改
+                if ! grep -q "^$dir/CHANGELOG.md" changed_files.txt; then
+                  echo "::error file=$dir/CHANGELOG.md::Detected changes in $dir but the corresponding CHANGELOG.md was not updated"
+                  exit_code=1
+                else
+                  echo "CHANGELOG.md updated for $dir file changes."
+                fi
+                break  # 已匹配目录，跳出内层循环
+              fi
+            done
+          done < changed_files.txt
+
+          exit $exit_code
