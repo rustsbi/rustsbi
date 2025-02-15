@@ -1,0 +1,6 @@
+[book]
+authors = ["The RustSBI Community"]
+language = "zh"
+multilingual = false
+src = "src"
+title = "The RustSBI Manual"
