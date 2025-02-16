@@ -9,6 +9,7 @@ use sbi_spec::binary::SbiRet;
 
 #[inline(always)]
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+#[doc(alias = "sbi_call_0")]
 pub(crate) fn sbi_call_0(eid: usize, fid: usize) -> SbiRet {
     let (error, value);
     unsafe {
@@ -25,12 +26,14 @@ pub(crate) fn sbi_call_0(eid: usize, fid: usize) -> SbiRet {
 
 #[inline(always)]
 #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+#[doc(alias = "sbi_call_0")]
 pub(crate) fn sbi_call_0(_eid: usize, _fid: usize) -> SbiRet {
     unimplemented!("unsupported architecture")
 }
 
 #[inline(always)]
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+#[doc(alias = "sbi_call_1")]
 pub(crate) fn sbi_call_1(eid: usize, fid: usize, arg0: usize) -> SbiRet {
     let (error, value);
     unsafe {
@@ -47,12 +50,14 @@ pub(crate) fn sbi_call_1(eid: usize, fid: usize, arg0: usize) -> SbiRet {
 
 #[inline(always)]
 #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+#[doc(alias = "sbi_call_1")]
 pub(crate) fn sbi_call_1(_eid: usize, _fid: usize, _arg0: usize) -> SbiRet {
     unimplemented!("unsupported architecture")
 }
 
 #[inline(always)]
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+#[doc(alias = "sbi_call_2")]
 pub(crate) fn sbi_call_2(eid: usize, fid: usize, arg0: usize, arg1: usize) -> SbiRet {
     let (error, value);
     unsafe {
@@ -69,12 +74,14 @@ pub(crate) fn sbi_call_2(eid: usize, fid: usize, arg0: usize, arg1: usize) -> Sb
 
 #[inline(always)]
 #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+#[doc(alias = "sbi_call_2")]
 pub(crate) fn sbi_call_2(_eid: usize, _fid: usize, _arg0: usize, _arg1: usize) -> SbiRet {
     unimplemented!("unsupported architecture")
 }
 
 #[inline(always)]
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+#[doc(alias = "sbi_call_3")]
 pub(crate) fn sbi_call_3(eid: usize, fid: usize, arg0: usize, arg1: usize, arg2: usize) -> SbiRet {
     let (error, value);
     unsafe {
@@ -92,6 +99,7 @@ pub(crate) fn sbi_call_3(eid: usize, fid: usize, arg0: usize, arg1: usize, arg2:
 
 #[inline(always)]
 #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+#[doc(alias = "sbi_call_3")]
 pub(crate) fn sbi_call_3(
     _eid: usize,
     _fid: usize,
@@ -104,6 +112,7 @@ pub(crate) fn sbi_call_3(
 
 #[inline(always)]
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+#[doc(alias = "sbi_call_4")]
 pub(crate) fn sbi_call_4(
     eid: usize,
     fid: usize,
@@ -129,6 +138,7 @@ pub(crate) fn sbi_call_4(
 
 #[inline(always)]
 #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+#[doc(alias = "sbi_call_4")]
 pub(crate) fn sbi_call_4(
     _eid: usize,
     _fid: usize,
@@ -142,6 +152,7 @@ pub(crate) fn sbi_call_4(
 
 #[inline(always)]
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+#[doc(alias = "sbi_call_5")]
 pub(crate) fn sbi_call_5(
     eid: usize,
     fid: usize,
@@ -169,6 +180,7 @@ pub(crate) fn sbi_call_5(
 
 #[inline(always)]
 #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+#[doc(alias = "sbi_call_5")]
 pub(crate) fn sbi_call_5(
     _eid: usize,
     _fid: usize,
@@ -184,6 +196,7 @@ pub(crate) fn sbi_call_5(
 #[inline(always)]
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 #[allow(unused)] // only used on RV32 for RISC-V SBI 2.0 specification
+#[doc(alias = "sbi_call_6")]
 pub(crate) fn sbi_call_6(
     eid: usize,
     fid: usize,
@@ -214,6 +227,7 @@ pub(crate) fn sbi_call_6(
 #[inline(always)]
 #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
 #[allow(unused)] // only used on RV32 for RISC-V SBI 2.0 specification
+#[doc(alias = "sbi_call_6")]
 pub(crate) fn sbi_call_6(
     _eid: usize,
     _fid: usize,

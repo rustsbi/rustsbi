@@ -24,6 +24,7 @@ use sbi_spec::{
 ///
 /// This function is defined in RISC-V SBI Specification chapter 15.5.
 #[inline]
+#[doc(alias = "sbi_nacl_probe_feature")]
 pub fn nacl_probe_feature(feature_id: u32) -> SbiRet {
     sbi_call_1(EID_NACL, PROBE_FEATURE, feature_id as _)
 }
@@ -53,6 +54,7 @@ pub fn nacl_probe_feature(feature_id: u32) -> SbiRet {
 ///
 /// This function is defined in RISC-V SBI Specification chapter 15.6.
 #[inline]
+#[doc(alias = "sbi_nacl_set_shmem")]
 pub fn nacl_set_shmem(shmem: SharedPtr<[u8; shmem_size::NATIVE]>, flags: usize) -> SbiRet {
     sbi_call_3(
         EID_NACL,
@@ -89,6 +91,7 @@ pub fn nacl_set_shmem(shmem: SharedPtr<[u8; shmem_size::NATIVE]>, flags: usize) 
 ///
 /// This function is defined in RISC-V SBI Specification chapter 15.7.
 #[inline]
+#[doc(alias = "sbi_nacl_sync_csr")]
 pub fn nacl_sync_csr(csr_num: usize) -> SbiRet {
     sbi_call_1(EID_NACL, SYNC_CSR, csr_num)
 }
@@ -118,6 +121,7 @@ pub fn nacl_sync_csr(csr_num: usize) -> SbiRet {
 ///
 /// This function is defined in RISC-V SBI Specification chapter 15.8.
 #[inline]
+#[doc(alias = "sbi_nacl_sync_hfence")]
 pub fn nacl_sync_hfence(entry_index: usize) -> SbiRet {
     sbi_call_1(EID_NACL, SYNC_HFENCE, entry_index)
 }
@@ -141,6 +145,7 @@ pub fn nacl_sync_hfence(entry_index: usize) -> SbiRet {
 ///
 /// This function is defined in RISC-V SBI Specification chapter 15.9.
 #[inline]
+#[doc(alias = "sbi_nacl_sync_sret")]
 pub fn nacl_sync_sret() -> SbiRet {
     sbi_call_0(EID_NACL, SYNC_SRET)
 }

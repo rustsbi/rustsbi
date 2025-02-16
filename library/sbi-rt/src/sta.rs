@@ -56,6 +56,7 @@ use sbi_spec::{
 ///
 /// This function is defined in RISC-V SBI Specification chapter 16.1.
 #[inline]
+#[doc(alias = "sbi_sta_set_shmem")]
 pub fn sta_set_shmem(shmem: SharedPtr<[u8; 64]>, flags: usize) -> SbiRet {
     sbi_call_3(
         EID_STA,

@@ -31,6 +31,7 @@ use sbi_spec::{
 ///
 /// This function is defined in RISC-V SBI Specification chapter 10.1.
 #[inline]
+#[doc(alias = "sbi_system_reset")]
 pub fn system_reset<T, R>(reset_type: T, reset_reason: R) -> SbiRet
 where
     T: ResetType,

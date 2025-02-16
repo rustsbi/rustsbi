@@ -17,6 +17,7 @@ use sbi_spec::{
 ///
 /// This function is defined in RISC-V SBI Specification chapter 7.1.
 #[inline]
+#[doc(alias = "sbi_send_ipi")]
 pub fn send_ipi(hart_mask: HartMask) -> SbiRet {
     let (hart_mask, hart_mask_base) = hart_mask.into_inner();
     sbi_call_2(EID_SPI, SEND_IPI, hart_mask, hart_mask_base)

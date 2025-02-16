@@ -10,6 +10,7 @@ use std::{
 };
 
 /// Number of simulated hardware threads (harts) in the environment.
+#[doc(alias = "sbi_n_threads")]
 const N_THREADS: usize = 8;
 
 /// Array of thread handles wrapped in a `Mutex` for safe concurrent access.

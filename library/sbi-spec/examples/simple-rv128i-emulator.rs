@@ -171,10 +171,15 @@ pub struct InstMemory<const BASE: usize, const N_INSNS: usize> {
 }
 
 /// Opcode and function constant definitions for a simplified RISC-V subset.
+#[doc(alias = "sbi_opcode_op_imm")]
 const OPCODE_OP_IMM: u32 = 0b001_0011;
+#[doc(alias = "sbi_opcode_lui")]
 const OPCODE_LUI: u32 = 0b011_0111;
+#[doc(alias = "sbi_opcode_branch")]
 const OPCODE_BRANCH: u32 = 0b110_0011;
+#[doc(alias = "sbi_funct3_op_add_sub")]
 const FUNCT3_OP_ADD_SUB: u32 = 0b000;
+#[doc(alias = "sbi_funct3_branch_beq")]
 const FUNCT3_BRANCH_BEQ: u32 = 0b000;
 
 impl<const BASE: usize, const N_INSNS: usize> InstMemory<BASE, N_INSNS> {

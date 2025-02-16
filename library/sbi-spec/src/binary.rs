@@ -22,32 +22,46 @@ pub struct SbiRet<T = usize> {
 }
 
 /// SBI success state return value.
+#[doc(alias = "sbi_ret_success")]
 pub const RET_SUCCESS: usize = <usize as SbiRegister>::RET_SUCCESS;
 /// Error for SBI call failed for unknown reasons.
+#[doc(alias = "sbi_ret_err_failed")]
 pub const RET_ERR_FAILED: usize = <usize as SbiRegister>::RET_ERR_FAILED;
 /// Error for target operation not supported.
+#[doc(alias = "sbi_ret_err_not_supported")]
 pub const RET_ERR_NOT_SUPPORTED: usize = <usize as SbiRegister>::RET_ERR_NOT_SUPPORTED;
 /// Error for invalid parameter.
+#[doc(alias = "sbi_ret_err_invalid_param")]
 pub const RET_ERR_INVALID_PARAM: usize = <usize as SbiRegister>::RET_ERR_INVALID_PARAM;
 /// Error for denied.
+#[doc(alias = "sbi_ret_err_denied")]
 pub const RET_ERR_DENIED: usize = <usize as SbiRegister>::RET_ERR_DENIED;
 /// Error for invalid address.
+#[doc(alias = "sbi_ret_err_invalid_address")]
 pub const RET_ERR_INVALID_ADDRESS: usize = <usize as SbiRegister>::RET_ERR_INVALID_ADDRESS;
 /// Error for resource already available.
+#[doc(alias = "sbi_ret_err_already_available")]
 pub const RET_ERR_ALREADY_AVAILABLE: usize = <usize as SbiRegister>::RET_ERR_ALREADY_AVAILABLE;
 /// Error for resource already started.
+#[doc(alias = "sbi_ret_err_already_started")]
 pub const RET_ERR_ALREADY_STARTED: usize = <usize as SbiRegister>::RET_ERR_ALREADY_STARTED;
 /// Error for resource already stopped.
+#[doc(alias = "sbi_ret_err_already_stopped")]
 pub const RET_ERR_ALREADY_STOPPED: usize = <usize as SbiRegister>::RET_ERR_ALREADY_STOPPED;
 /// Error for shared memory not available.
+#[doc(alias = "sbi_ret_err_no_shmem")]
 pub const RET_ERR_NO_SHMEM: usize = <usize as SbiRegister>::RET_ERR_NO_SHMEM;
 /// Error for invalid state.
+#[doc(alias = "sbi_ret_err_invalid_state")]
 pub const RET_ERR_INVALID_STATE: usize = <usize as SbiRegister>::RET_ERR_INVALID_STATE;
 /// Error for bad or invalid range.
+#[doc(alias = "sbi_ret_err_bad_range")]
 pub const RET_ERR_BAD_RANGE: usize = <usize as SbiRegister>::RET_ERR_BAD_RANGE;
 /// Error for failed due to timeout.
+#[doc(alias = "sbi_ret_err_timeout")]
 pub const RET_ERR_TIMEOUT: usize = <usize as SbiRegister>::RET_ERR_TIMEOUT;
 /// Error for input or output error.
+#[doc(alias = "sbi_ret_err_io")]
 pub const RET_ERR_IO: usize = <usize as SbiRegister>::RET_ERR_IO;
 
 /// Data type of register that can be passed to the RISC-V SBI ABI.
@@ -62,38 +76,54 @@ pub const RET_ERR_IO: usize = <usize as SbiRegister>::RET_ERR_IO;
 /// Implemented automatically for all types that satisfy `Copy`, `Eq`, and `Debug`.
 pub trait SbiRegister: Copy + Eq + Ord + core::fmt::Debug {
     /// SBI success state return value.
+    #[doc(alias = "sbi_ret_success")]
     const RET_SUCCESS: Self;
     /// Error for SBI call failed for unknown reasons.
+    #[doc(alias = "sbi_ret_err_failed")]
     const RET_ERR_FAILED: Self;
     /// Error for target operation not supported.
+    #[doc(alias = "sbi_ret_err_not_supported")]
     const RET_ERR_NOT_SUPPORTED: Self;
     /// Error for invalid parameter.
+    #[doc(alias = "sbi_ret_err_invalid_param")]
     const RET_ERR_INVALID_PARAM: Self;
     /// Error for denied.
+    #[doc(alias = "sbi_ret_err_denied")]
     const RET_ERR_DENIED: Self;
     /// Error for invalid address.
+    #[doc(alias = "sbi_ret_err_invalid_address")]
     const RET_ERR_INVALID_ADDRESS: Self;
     /// Error for resource already available.
+    #[doc(alias = "sbi_ret_err_already_available")]
     const RET_ERR_ALREADY_AVAILABLE: Self;
     /// Error for resource already started.
+    #[doc(alias = "sbi_ret_err_already_started")]
     const RET_ERR_ALREADY_STARTED: Self;
     /// Error for resource already stopped.
+    #[doc(alias = "sbi_ret_err_already_stopped")]
     const RET_ERR_ALREADY_STOPPED: Self;
     /// Error for shared memory not available.
+    #[doc(alias = "sbi_ret_err_no_shmem")]
     const RET_ERR_NO_SHMEM: Self;
     /// Error for invalid state.
+    #[doc(alias = "sbi_ret_err_invalid_state")]
     const RET_ERR_INVALID_STATE: Self;
     /// Error for bad or invalid range.
+    #[doc(alias = "sbi_ret_err_bad_range")]
     const RET_ERR_BAD_RANGE: Self;
     /// Error for failed due to timeout.
+    #[doc(alias = "sbi_ret_err_timeout")]
     const RET_ERR_TIMEOUT: Self;
     /// Error for input or output error.
+    #[doc(alias = "sbi_ret_err_io")]
     const RET_ERR_IO: Self;
 
     /// Zero value for this type; this is used on `value` fields once `SbiRet` returns an error.
+    #[doc(alias = "sbi_zero")]
     const ZERO: Self;
     /// Full-ones value for this type; this is used on SBI mask structures like `CounterMask`
     /// and `HartMask`.
+    #[doc(alias = "sbi_full_mask")]
     const FULL_MASK: Self;
 
     /// Converts an `SbiRet` of this type to a `Result` of self and `Error`.
@@ -103,21 +133,37 @@ pub trait SbiRegister: Copy + Eq + Ord + core::fmt::Debug {
 macro_rules! impl_sbi_register {
     ($ty:ty, $signed:ty) => {
         impl SbiRegister for $ty {
+            #[doc(alias = "sbi_ret_success")]
             const RET_SUCCESS: Self = 0;
+            #[doc(alias = "sbi_ret_err_failed")]
             const RET_ERR_FAILED: Self = -1 as $signed as $ty;
+            #[doc(alias = "sbi_ret_err_not_supported")]
             const RET_ERR_NOT_SUPPORTED: Self = -2 as $signed as $ty;
+            #[doc(alias = "sbi_ret_err_invalid_param")]
             const RET_ERR_INVALID_PARAM: Self = -3 as $signed as $ty;
+            #[doc(alias = "sbi_ret_err_denied")]
             const RET_ERR_DENIED: Self = -4 as $signed as $ty;
+            #[doc(alias = "sbi_ret_err_invalid_address")]
             const RET_ERR_INVALID_ADDRESS: Self = -5 as $signed as $ty;
+            #[doc(alias = "sbi_ret_err_already_available")]
             const RET_ERR_ALREADY_AVAILABLE: Self = -6 as $signed as $ty;
+            #[doc(alias = "sbi_ret_err_already_started")]
             const RET_ERR_ALREADY_STARTED: Self = -7 as $signed as $ty;
+            #[doc(alias = "sbi_ret_err_already_stopped")]
             const RET_ERR_ALREADY_STOPPED: Self = -8 as $signed as $ty;
+            #[doc(alias = "sbi_ret_err_no_shmem")]
             const RET_ERR_NO_SHMEM: Self = -9 as $signed as $ty;
+            #[doc(alias = "sbi_ret_err_invalid_state")]
             const RET_ERR_INVALID_STATE: Self = -10 as $signed as $ty;
+            #[doc(alias = "sbi_ret_err_bad_range")]
             const RET_ERR_BAD_RANGE: Self = -11 as $signed as $ty;
+            #[doc(alias = "sbi_ret_err_timeout")]
             const RET_ERR_TIMEOUT: Self = -12 as $signed as $ty;
+            #[doc(alias = "sbi_ret_err_io")]
             const RET_ERR_IO: Self = -13 as $signed as $ty;
+            #[doc(alias = "sbi_zero")]
             const ZERO: Self = 0;
+            #[doc(alias = "sbi_full_mask")]
             const FULL_MASK: Self = !0;
 
             fn into_result(ret: SbiRet<Self>) -> Result<Self, Error<Self>> {
@@ -1122,6 +1168,7 @@ pub struct HartMask<T = usize> {
 
 impl<T: SbiRegister> HartMask<T> {
     /// Special value to ignore the `mask`, and consider all `bit`s as set.
+    #[doc(alias = "sbi_ignore_mask")]
     pub const IGNORE_MASK: T = T::FULL_MASK;
 
     /// Construct a [HartMask] from mask value and base hart id.
@@ -1364,6 +1411,7 @@ pub struct CounterMask<T = usize> {
 
 impl<T: SbiRegister> CounterMask<T> {
     /// Special value to ignore the `mask`, and consider all `bit`s as set.
+    #[doc(alias = "sbi_ignore_mask")]
     pub const IGNORE_MASK: T = T::FULL_MASK;
 
     /// Construct a [CounterMask] from mask value and base counter index.
