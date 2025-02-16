@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - examples: an SBI version example for usage of the Version structure
 - base: add special constant `V1_0` and `V2_0` for structure `Version`
 - examples: add an example on non-usize `HartMask` structure
+- examples: add an example for custom SBI error code
 
 ### Modified
 
