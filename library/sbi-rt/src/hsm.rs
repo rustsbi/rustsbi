@@ -58,6 +58,7 @@ use sbi_spec::{
 ///
 /// This function is defined in RISC-V SBI Specification chapter 9.1.
 #[inline]
+#[doc(alias = "sbi_hart_start")]
 pub fn hart_start(hartid: usize, start_addr: usize, opaque: usize) -> SbiRet {
     sbi_call_3(EID_HSM, HART_START, hartid, start_addr, opaque)
 }
@@ -80,6 +81,7 @@ pub fn hart_start(hartid: usize, start_addr: usize, opaque: usize) -> SbiRet {
 ///
 /// This function is defined in RISC-V SBI Specification chapter 9.2.
 #[inline]
+#[doc(alias = "sbi_hart_stop")]
 pub fn hart_stop() -> SbiRet {
     sbi_call_0(EID_HSM, HART_STOP)
 }
@@ -113,6 +115,7 @@ pub fn hart_stop() -> SbiRet {
 ///
 /// This function is defined in RISC-V SBI Specification chapter 9.3.
 #[inline]
+#[doc(alias = "sbi_hart_get_status")]
 pub fn hart_get_status(hartid: usize) -> SbiRet {
     sbi_call_1(EID_HSM, HART_GET_STATUS, hartid)
 }
@@ -189,6 +192,7 @@ pub fn hart_get_status(hartid: usize) -> SbiRet {
 ///
 /// This function is defined in RISC-V SBI Specification chapter 9.4.
 #[inline]
+#[doc(alias = "sbi_hart_suspend")]
 pub fn hart_suspend<T>(suspend_type: T, resume_addr: usize, opaque: usize) -> SbiRet
 where
     T: SuspendType,

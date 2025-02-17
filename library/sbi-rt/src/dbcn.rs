@@ -31,6 +31,7 @@ use sbi_spec::{
 ///
 /// This function is defined in RISC-V SBI Specification chapter 12.1.
 #[inline]
+#[doc(alias = "sbi_console_write")]
 pub fn console_write(bytes: Physical<&[u8]>) -> SbiRet {
     sbi_call_3(
         EID_DBCN,
@@ -68,6 +69,7 @@ pub fn console_write(bytes: Physical<&[u8]>) -> SbiRet {
 /// | `SbiRet::failed()`        | Failed to read due to I/O errors.
 ///
 /// This function is defined in RISC-V SBI Specification chapter 12.2.
+#[doc(alias = "sbi_console_read")]
 pub fn console_read(bytes: Physical<&mut [u8]>) -> SbiRet {
     sbi_call_3(
         EID_DBCN,
@@ -97,6 +99,7 @@ pub fn console_read(bytes: Physical<&mut [u8]>) -> SbiRet {
 ///
 /// This function is defined in RISC-V SBI Specification chapter 12.3.
 #[inline]
+#[doc(alias = "sbi_console_write_byte")]
 pub fn console_write_byte(byte: u8) -> SbiRet {
     sbi_call_1(EID_DBCN, CONSOLE_WRITE_BYTE, byte as usize)
 }

@@ -8,6 +8,7 @@ use sbi_spec::legacy::*;
 /// Use [`set_timer`](super::set_timer) from [`TIME`](crate::base::Timer) extension instead.
 #[deprecated = "replaced by `set_timer` from Timer extension"]
 #[inline]
+#[doc(alias = "sbi_set_timer")]
 pub fn set_timer(stime_value: u64) -> usize {
     match () {
         #[cfg(target_pointer_width = "32")]
@@ -21,6 +22,7 @@ pub fn set_timer(stime_value: u64) -> usize {
 /// from [`DBCN`](crate::base::Console) extension instead.
 #[deprecated = "replaced by `console_write` and `console_write_byte` from `DBCN` extension"]
 #[inline]
+#[doc(alias = "sbi_console_putchar")]
 pub fn console_putchar(c: usize) -> usize {
     sbi_call_legacy_1(LEGACY_CONSOLE_PUTCHAR, c)
 }
@@ -28,6 +30,7 @@ pub fn console_putchar(c: usize) -> usize {
 /// Use [`console_read`](super::console_read) from [`DBCN`](crate::base::Console) extension instead.
 #[deprecated = "replaced by `console_read` from `DBCN` extension"]
 #[inline]
+#[doc(alias = "sbi_console_getchar")]
 pub fn console_getchar() -> usize {
     sbi_call_legacy_0(LEGACY_CONSOLE_GETCHAR)
 }
@@ -35,6 +38,7 @@ pub fn console_getchar() -> usize {
 /// Clear `sip.SSIP` CSR field instead.
 #[deprecated = "you can clear `sip.SSIP` CSR bit directly"]
 #[inline]
+#[doc(alias = "sbi_clear_ipi")]
 pub fn clear_ipi() -> usize {
     sbi_call_legacy_0(LEGACY_CLEAR_IPI)
 }
@@ -42,6 +46,7 @@ pub fn clear_ipi() -> usize {
 /// Use [`send_ipi`](super::send_ipi) from [`sPI`](crate::base::Ipi) extension instead.
 #[deprecated = "replaced by `send_ipi` from `sPI` extension"]
 #[inline]
+#[doc(alias = "sbi_send_ipi")]
 pub fn send_ipi(hart_mask: usize) -> usize {
     sbi_call_legacy_1(LEGACY_SEND_IPI, hart_mask)
 }
@@ -49,6 +54,7 @@ pub fn send_ipi(hart_mask: usize) -> usize {
 /// Use [`remote_fence_i`](super::remote_fence_i) from [`RFNC`](crate::base::Fence) extension instead.
 #[deprecated = "replaced by `remote_fence_i` from `RFNC` extension"]
 #[inline]
+#[doc(alias = "sbi_remote_fence_i")]
 pub fn remote_fence_i(hart_mask: usize) -> usize {
     sbi_call_legacy_1(LEGACY_REMOTE_FENCE_I, hart_mask)
 }
@@ -56,6 +62,7 @@ pub fn remote_fence_i(hart_mask: usize) -> usize {
 /// Use [`remote_sfence_vma`](super::remote_sfence_vma) from [`RFNC`](crate::base::Fence) extension instead.
 #[deprecated = "replaced by `remote_sfence_vma` from `RFNC` extension"]
 #[inline]
+#[doc(alias = "sbi_remote_fence_vma")]
 pub fn remote_fence_vma(hart_mask: usize, start: usize, size: usize) -> usize {
     sbi_call_legacy_3(LEGACY_REMOTE_SFENCE_VMA, hart_mask, start, size)
 }
@@ -63,6 +70,7 @@ pub fn remote_fence_vma(hart_mask: usize, start: usize, size: usize) -> usize {
 /// Use [`remote_sfence_vma_asid`](super::remote_sfence_vma_asid) from [`RFNC`](crate::base::Fence) extension instead.
 #[deprecated = "replaced by `remote_sfence_vma_asid` from `RFNC` extension"]
 #[inline]
+#[doc(alias = "sbi_remote_fence_vma_asid")]
 pub fn remote_fence_vma_asid(hart_mask: usize, start: usize, size: usize, asid: usize) -> usize {
     sbi_call_legacy_4(LEGACY_REMOTE_SFENCE_VMA_ASID, hart_mask, start, size, asid)
 }
@@ -70,12 +78,14 @@ pub fn remote_fence_vma_asid(hart_mask: usize, start: usize, size: usize, asid: 
 /// Use [`system_reset`](super::system_reset) in the [`SRST`](crate::base::Reset) extension instead.
 #[deprecated = "replaced by `system_reset` from System `SRST` extension"]
 #[inline]
+#[doc(alias = "sbi_shutdown")]
 pub fn shutdown() -> ! {
     sbi_call_legacy_0(LEGACY_SHUTDOWN);
     unreachable!()
 }
 
 #[inline(always)]
+#[doc(alias = "sbi_call_legacy_0")]
 fn sbi_call_legacy_0(eid: usize) -> usize {
     let error;
     unsafe {
@@ -89,6 +99,7 @@ fn sbi_call_legacy_0(eid: usize) -> usize {
 }
 
 #[inline(always)]
+#[doc(alias = "sbi_call_legacy_1")]
 fn sbi_call_legacy_1(eid: usize, arg0: usize) -> usize {
     let error;
     unsafe {
@@ -103,6 +114,7 @@ fn sbi_call_legacy_1(eid: usize, arg0: usize) -> usize {
 
 #[cfg(target_pointer_width = "32")]
 #[inline(always)]
+#[doc(alias = "sbi_call_legacy_2")]
 fn sbi_call_legacy_2(eid: usize, arg0: usize, arg1: usize) -> usize {
     let error;
     unsafe {
@@ -117,6 +129,7 @@ fn sbi_call_legacy_2(eid: usize, arg0: usize, arg1: usize) -> usize {
 }
 
 #[inline(always)]
+#[doc(alias = "sbi_call_legacy_3")]
 fn sbi_call_legacy_3(eid: usize, arg0: usize, arg1: usize, arg2: usize) -> usize {
     let error;
     unsafe {
@@ -132,6 +145,7 @@ fn sbi_call_legacy_3(eid: usize, arg0: usize, arg1: usize, arg2: usize) -> usize
 }
 
 #[inline(always)]
+#[doc(alias = "sbi_call_legacy_4")]
 fn sbi_call_legacy_4(eid: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize) -> usize {
     let error;
     unsafe {

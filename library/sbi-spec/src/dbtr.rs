@@ -1,6 +1,7 @@
 //! Chapter 19. Debug Triggers Extension (EID #0x44425452 "DBTR")
 
 /// Extension ID for Debug Triggers Extension.
+#[doc(alias = "sbi_eid_dbtr")]
 pub const EID_DBTR: usize = crate::eid_from_str("DBTR") as _;
 pub use fid::*;
 
@@ -9,33 +10,41 @@ mod fid {
     /// Function ID to get the number of debug triggers on the calling hart.
     ///
     /// Declared in §19.1.
+    #[doc(alias = "sbi_num_triggers")]
     pub const NUM_TRIGGERS: usize = 0;
     /// Function ID to set and enable the shared memory for debug trigger configuration on the calling hart.
     ///
     /// Declared in §19.2.
+    #[doc(alias = "sbi_set_shmem")]
     pub const SET_SHMEM: usize = 1;
     /// Function ID to read the debug trigger state and configuration into shared memory.
     ///
     /// Declared in §19.3.
+    #[doc(alias = "sbi_read_triggers")]
     pub const READ_TRIGGERS: usize = 2;
     /// Function ID to install debug triggers based on an array of trigger configurations.
     ///
     /// Declared in §19.4.
+    #[doc(alias = "sbi_install_triggers")]
     pub const INSTALL_TRIGGERS: usize = 3;
     /// Function ID to update already installed debug triggers based on a trigger configuration array.
     ///
     /// Declared in 19.5.
+    #[doc(alias = "sbi_update_triggers")]
     pub const UPDATE_TRIGGERS: usize = 4;
     /// Function ID to uninstall a set of debug triggers.
     ///
     /// Declared in 19.6.
+    #[doc(alias = "sbi_uninstall_triggers")]
     pub const UNINSTALL_TRIGGERS: usize = 5;
     /// Function ID to enable a set of debug triggers.
     ///
     /// Declared in 19.7.
+    #[doc(alias = "sbi_enable_triggers")]
     pub const ENABLE_TRIGGERS: usize = 6;
     /// Function ID to disable a set of debug triggers.
     ///
     /// Declared in 19.8.
+    #[doc(alias = "sbi_disable_triggers")]
     pub const DISABLE_TRIGGERS: usize = 7;
 }

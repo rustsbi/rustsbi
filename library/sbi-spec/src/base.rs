@@ -1,10 +1,12 @@
 //! Chapter 4. Base Extension (EID #0x10).
 
 /// Extension ID for RISC-V SBI Base extension.
+#[doc(alias = "sbi_eid_base")]
 pub const EID_BASE: usize = 0x10;
 pub use fid::*;
 
 /// Default probe value for the target SBI extension is unavailable.
+#[doc(alias = "sbi_UNAVAILABLE_EXTENSION")]
 pub const UNAVAILABLE_EXTENSION: usize = 0;
 
 /// SBI specification version.
@@ -74,30 +76,37 @@ mod fid {
     /// Function ID to get the current SBI specification version.
     ///
     /// Declared in §4.1.
+    #[doc(alias = "sbi_get_sbi_spec_version")]
     pub const GET_SBI_SPEC_VERSION: usize = 0x0;
     /// Function ID to get the current SBI implementation ID.
     ///
     /// Declared in §4.2.
+    #[doc(alias = "sbi_get_sbi_impl_id")]
     pub const GET_SBI_IMPL_ID: usize = 0x1;
     /// Function ID to get the current SBI implementation version.
     ///
     /// Declared in §4.3.
+    #[doc(alias = "sbi_get_sbi_impl_version")]
     pub const GET_SBI_IMPL_VERSION: usize = 0x2;
     /// Function ID to probe information about one SBI extension from the current environment.
     ///
     /// Declared in §4.4.
+    #[doc(alias = "sbi_probe_extension")]
     pub const PROBE_EXTENSION: usize = 0x3;
     /// Function ID to get the value of `mvendorid` register in the current environment.
     ///
     /// Declared in §4.5.
+    #[doc(alias = "sbi_get_mvendorid")]
     pub const GET_MVENDORID: usize = 0x4;
     /// Function ID to get the value of `marchid` register in the current environment.
     ///
     /// Declared in §4.6.
+    #[doc(alias = "sbi_get_marchid")]
     pub const GET_MARCHID: usize = 0x5;
     /// Function ID to get the value of `mimpid` register in the current environment.
     ///
     /// Declared in §4.7.
+    #[doc(alias = "sbi_get_mimpid")]
     pub const GET_MIMPID: usize = 0x6;
 }
 
@@ -106,26 +115,37 @@ mod fid {
 /// Declared in §4.9.
 pub mod impl_id {
     /// Berkley Bootloader.
+    #[doc(alias = "sbi_bbl")]
     pub const BBL: usize = 0;
     /// OpenSBI.
+    #[doc(alias = "sbi_open_sbi")]
     pub const OPEN_SBI: usize = 1;
     /// Xvisor.
+    #[doc(alias = "sbi_xvisor")]
     pub const XVISOR: usize = 2;
     /// KVM.
+    #[doc(alias = "sbi_kvm")]
     pub const KVM: usize = 3;
     /// RustSBI.
+    #[doc(alias = "sbi_rust_sbi")]
     pub const RUST_SBI: usize = 4;
     /// Diosix.
+    #[doc(alias = "sbi_diosix")]
     pub const DIOSIX: usize = 5;
     /// Coffer.
+    #[doc(alias = "sbi_coffer")]
     pub const COFFER: usize = 6;
     /// Xen Project.
+    #[doc(alias = "sbi_xen")]
     pub const XEN: usize = 7;
     /// PolarFire Hart Software Services.
+    #[doc(alias = "sbi_polarfire_hss")]
     pub const POLARFIRE_HSS: usize = 8;
     /// Coreboot.
+    #[doc(alias = "sbi_coreboot")]
     pub const COREBOOT: usize = 9;
     /// Oreboot.
+    #[doc(alias = "sbi_oreboot")]
     pub const OREBOOT: usize = 10;
 }
 
