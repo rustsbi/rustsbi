@@ -20,14 +20,12 @@ use sbi_spec::{
 ///
 /// | Error code                  | Description
 /// |:----------------------------|:---------------------------------
-/// | `SbiRet::success()`               | `feature` was set successfully.
-/// | `SbiRet::not_supported()`     | `feature` is not reserved and valid, but the platform does not support it due to one or more missing dependencies (Hardware or SBI implementation).
-/// | `SbiRet::invalid_param()`     | Provided `value` or `flags` parameter is invalid.
-/// | `SbiRet::denied()`            | `feature` set operation failed because either:
-///                             - it was denied by the SBI implementation
-///                             - `feature` is reserved or is platform-specific and unimplemented
-/// | `SbiRet::denied_locked()`     | `feature` set operation failed because the `feature` is locked.
-/// | `SbiRet::failed()`            | The set operation failed for unspecified or unknown other reasons.
+/// | `SbiRet::success()`         | `feature` was set successfully.
+/// | `SbiRet::not_supported()`   | `feature` is not reserved and valid, but the platform does not support it due to one or more missing dependencies (Hardware or SBI implementation).
+/// | `SbiRet::invalid_param()`   | Provided `value` or `flags` parameter is invalid.
+/// | `SbiRet::denied()`          | `feature` set operation failed because either it was denied by the SBI implementation, or`feature` is reserved or is platform-specific and unimplemented.
+/// | `SbiRet::denied_locked()`   | `feature` set operation failed because the `feature` is locked.
+/// | `SbiRet::failed()`          | The set operation failed for unspecified or unknown other reasons.
 ///
 /// This function is defined in RISC-V SBI Specification chapter 18.1.
 #[inline]
@@ -47,10 +45,10 @@ pub fn fwft_set(feature: u32, value: usize, flags: usize) -> SbiRet {
 ///
 /// | Error code                  | Description
 /// |:----------------------------|:---------------------------------
-/// | `SbiRet::success()`               | Feature status was retrieved successfully.
-/// | `SbiRet::not_supported()`     | `feature` is not reserved and valid, but the platform does not support it due to one or more missing dependencies (Hardware or SBI implementation).
-/// | `SbiRet::denied()`            | `feature` is reserved or is platform-specific and unimplemented.
-/// | `SbiRet::failed()`            | The get operation failed for unspecified or unknown other reasons.
+/// | `SbiRet::success()`         | Feature status was retrieved successfully.
+/// | `SbiRet::not_supported()`   | `feature` is not reserved and valid, but the platform does not support it due to one or more missing dependencies (Hardware or SBI implementation).
+/// | `SbiRet::denied()`          | `feature` is reserved or is platform-specific and unimplemented.
+/// | `SbiRet::failed()`          | The get operation failed for unspecified or unknown other reasons.
 ///
 /// This function is defined in RISC-V SBI Specification chapter 18.2.
 #[inline]
