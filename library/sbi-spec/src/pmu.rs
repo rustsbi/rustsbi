@@ -1,6 +1,7 @@
 //! Chapter 11. Performance Monitoring Unit Extension (EID #0x504D55 "PMU").
 
 /// Extension ID for Performance Monitoring Unit extension.
+#[doc(alias = "SBI_EXT_PMU")]
 pub const EID_PMU: usize = crate::eid_from_str("PMU") as _;
 pub use fid::*;
 
@@ -9,38 +10,47 @@ mod fid {
     /// Function ID to get the number of counters, both hardware and firmware.
     ///
     /// Declared in §11.6.
+    #[doc(alias = "SBI_EXT_PMU_NUM_COUNTERS")]
     pub const NUM_COUNTERS: usize = 0;
     /// Function ID to get details about the specified counter.
     ///
     /// Declared in §11.7.
+    #[doc(alias = "SBI_EXT_PMU_COUNTER_GET_INFO")]
     pub const COUNTER_GET_INFO: usize = 1;
     /// Function ID to find and configure a counter from a set of counters.
     ///
     /// Declared in §11.8.
+    #[doc(alias = "SBI_EXT_PMU_COUNTER_CFG_MATCH")]
     pub const COUNTER_CONFIG_MATCHING: usize = 2;
     /// Function ID to start or enable a set of counters on the calling hart with the specified initial value.
     ///
     /// Declared in §11.9.
+    #[doc(alias = "SBI_EXT_PMU_COUNTER_START")]
     pub const COUNTER_START: usize = 3;
     /// Function ID to stop or disable a set of counters on the calling hart.
     ///
     /// Declared in §11.10.
+    #[doc(alias = "SBI_EXT_PMU_COUNTER_STOP")]
     pub const COUNTER_STOP: usize = 4;
     /// Function ID to provide the current value of a firmware counter.
     ///
     /// Declared in §11.11.
+    #[doc(alias = "SBI_EXT_PMU_COUNTER_FW_READ")]
     pub const COUNTER_FW_READ: usize = 5;
     /// Function ID to provide the upper 32 bits from the value of the current firmware counter.
     ///
     /// Declared in §11.12.
+    #[doc(alias = "SBI_EXT_PMU_COUNTER_FW_READ_HI")]
     pub const COUNTER_FW_READ_HI: usize = 6;
     /// Function ID to set and enable the PMU snapshot shared memory.
     ///
     /// Declared in §11.13.
+    #[doc(alias = "SBI_EXT_PMU_SNAPSHOT_SET_SHMEM")]
     pub const SNAPSHOT_SET_SHMEM: usize = 7;
     /// Function ID to get details about any PMU event via shared memory.
     ///
     /// Declared in §11.14.
+    #[doc(alias = "SBI_EXT_PMU_EVENT_GET_INFO")]
     pub const EVENT_GET_INFO: usize = 8;
 }
 

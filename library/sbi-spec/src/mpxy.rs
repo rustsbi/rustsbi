@@ -1,6 +1,7 @@
 //! Chapter 20. Message Proxy Extension (EID #0x4D505859 "MPXY")
 
 /// Extension ID for Message Proxy Extension.
+#[doc(alias = "SBI_EXT_MPXY")]
 pub const EID_MPXY: usize = crate::eid_from_str("MPXY") as _;
 pub use fid::*;
 
