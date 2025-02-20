@@ -16,6 +16,7 @@ use sbi_spec::{
 ///
 /// This function is defined in RISC-V SBI Specification chapter 11.6.
 #[inline]
+#[doc(alias = "sbi_pmu_num_counters")]
 pub fn pmu_num_counters() -> usize {
     sbi_call_0(EID_PMU, NUM_COUNTERS).value
 }
@@ -48,6 +49,7 @@ pub fn pmu_num_counters() -> usize {
 ///
 /// This function is defined in RISC-V SBI Specification chapter 11.7.
 #[inline]
+#[doc(alias = "sbi_pmu_counter_get_info")]
 pub fn pmu_counter_get_info(counter_idx: usize) -> SbiRet {
     sbi_call_1(EID_PMU, COUNTER_GET_INFO, counter_idx)
 }
@@ -103,6 +105,7 @@ pub fn pmu_counter_get_info(counter_idx: usize) -> SbiRet {
 ///
 /// This function is defined in RISC-V SBI Specification chapter 11.8.
 #[inline]
+#[doc(alias = "sbi_pmu_counter_config_matching")]
 pub fn pmu_counter_config_matching<T>(
     counter_idx: CounterMask,
     config_flags: T,
@@ -167,6 +170,7 @@ where
 ///
 /// This function is defined in RISC-V SBI Specification chapter 11.9.
 #[inline]
+#[doc(alias = "sbi_pmu_counter_start")]
 pub fn pmu_counter_start<T>(counter_idx: CounterMask, start_flags: T, initial_value: u64) -> SbiRet
 where
     T: StartFlags,
@@ -219,6 +223,7 @@ where
 ///
 /// This function is defined in RISC-V SBI Specification chapter 11.10.
 #[inline]
+#[doc(alias = "sbi_pmu_counter_stop")]
 pub fn pmu_counter_stop<T>(counter_idx: CounterMask, stop_flags: T) -> SbiRet
 where
     T: StopFlags,
@@ -254,6 +259,7 @@ where
 ///
 /// This function is defined in RISC-V SBI Specification chapter 11.11.
 #[inline]
+#[doc(alias = "sbi_pmu_counter_fw_read")]
 pub fn pmu_counter_fw_read(counter_idx: usize) -> SbiRet {
     sbi_call_1(EID_PMU, COUNTER_FW_READ, counter_idx)
 }
@@ -273,6 +279,7 @@ pub fn pmu_counter_fw_read(counter_idx: usize) -> SbiRet {
 ///
 /// This function is defined in RISC-V SBI Specification chapter 11.12.
 #[inline]
+#[doc(alias = "sbi_pmu_counter_fw_read_hi")]
 pub fn pmu_counter_fw_read_hi(counter_idx: usize) -> SbiRet {
     sbi_call_1(EID_PMU, COUNTER_FW_READ_HI, counter_idx)
 }
@@ -306,6 +313,7 @@ pub fn pmu_counter_fw_read_hi(counter_idx: usize) -> SbiRet {
 ///
 /// This function is defined in RISC-V SBI Specification chapter 11.13.
 #[inline]
+#[doc(alias = "sbi_pmu_snapshot_set_shmem")]
 pub fn pmu_snapshot_set_shmem(shmem: SharedPtr<[u8; SIZE]>, flags: usize) -> SbiRet {
     sbi_call_3(
         EID_PMU,

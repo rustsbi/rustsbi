@@ -41,6 +41,7 @@ use sbi_spec::{
 ///
 /// This function is defined in RISC-V SBI Specification chapter 13.1.
 #[inline]
+#[doc(alias = "sbi_system_suspend")]
 pub fn system_suspend<T>(sleep_type: T, resume_addr: usize, opaque: usize) -> SbiRet
 where
     T: SleepType,
