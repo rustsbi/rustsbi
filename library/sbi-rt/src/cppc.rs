@@ -31,6 +31,7 @@ use sbi_spec::{
 ///
 /// This function is defined in RISC-V SBI Specification chapter 14.1.
 #[inline]
+#[doc(alias = "sbi_cppc_probe")]
 pub fn cppc_probe(cppc_reg_id: u32) -> SbiRet {
     sbi_call_1(EID_CPPC, PROBE, cppc_reg_id as _)
 }
@@ -58,6 +59,7 @@ pub fn cppc_probe(cppc_reg_id: u32) -> SbiRet {
 ///
 /// This function is defined in RISC-V SBI Specification chapter 14.2.
 #[inline]
+#[doc(alias = "sbi_cppc_read")]
 pub fn cppc_read(cppc_reg_id: u32) -> SbiRet {
     sbi_call_1(EID_CPPC, READ, cppc_reg_id as _)
 }
@@ -85,6 +87,7 @@ pub fn cppc_read(cppc_reg_id: u32) -> SbiRet {
 ///
 /// This function is defined in RISC-V SBI Specification chapter 14.3.
 #[inline]
+#[doc(alias = "sbi_cppc_read_hi")]
 pub fn cppc_read_hi(cppc_reg_id: u32) -> SbiRet {
     sbi_call_1(EID_CPPC, READ_HI, cppc_reg_id as _)
 }
@@ -111,6 +114,7 @@ pub fn cppc_read_hi(cppc_reg_id: u32) -> SbiRet {
 ///
 /// This function is defined in RISC-V SBI Specification chapter 14.4.
 #[inline]
+#[doc(alias = "sbi_cppc_write")]
 pub fn cppc_write(cppc_reg_id: u32, value: u64) -> SbiRet {
     match () {
         #[cfg(target_pointer_width = "32")]

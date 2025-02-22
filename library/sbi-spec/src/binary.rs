@@ -22,32 +22,46 @@ pub struct SbiRet<T = usize> {
 }
 
 /// SBI success state return value.
+#[doc(alias = "SBI_SUCCESS")]
 pub const RET_SUCCESS: usize = <usize as SbiRegister>::RET_SUCCESS;
 /// Error for SBI call failed for unknown reasons.
+#[doc(alias = "SBI_ERR_FAILED")]
 pub const RET_ERR_FAILED: usize = <usize as SbiRegister>::RET_ERR_FAILED;
 /// Error for target operation not supported.
+#[doc(alias = "SBI_ERR_NOT_SUPPORTED")]
 pub const RET_ERR_NOT_SUPPORTED: usize = <usize as SbiRegister>::RET_ERR_NOT_SUPPORTED;
 /// Error for invalid parameter.
+#[doc(alias = "SBI_ERR_INVALID_PARAM")]
 pub const RET_ERR_INVALID_PARAM: usize = <usize as SbiRegister>::RET_ERR_INVALID_PARAM;
 /// Error for denied.
+#[doc(alias = "SBI_ERR_DENIED")]
 pub const RET_ERR_DENIED: usize = <usize as SbiRegister>::RET_ERR_DENIED;
 /// Error for invalid address.
+#[doc(alias = "SBI_ERR_INVALID_ADDRESS")]
 pub const RET_ERR_INVALID_ADDRESS: usize = <usize as SbiRegister>::RET_ERR_INVALID_ADDRESS;
 /// Error for resource already available.
+#[doc(alias = "SBI_ERR_ALREADY_AVAILABLE")]
 pub const RET_ERR_ALREADY_AVAILABLE: usize = <usize as SbiRegister>::RET_ERR_ALREADY_AVAILABLE;
 /// Error for resource already started.
+#[doc(alias = "SBI_ERR_ALREADY_STARTED")]
 pub const RET_ERR_ALREADY_STARTED: usize = <usize as SbiRegister>::RET_ERR_ALREADY_STARTED;
 /// Error for resource already stopped.
+#[doc(alias = "SBI_ERR_ALREADY_STOPPED")]
 pub const RET_ERR_ALREADY_STOPPED: usize = <usize as SbiRegister>::RET_ERR_ALREADY_STOPPED;
 /// Error for shared memory not available.
+#[doc(alias = "SBI_ERR_NO_SHMEM")]
 pub const RET_ERR_NO_SHMEM: usize = <usize as SbiRegister>::RET_ERR_NO_SHMEM;
 /// Error for invalid state.
+#[doc(alias = "SBI_ERR_INVALID_STATE")]
 pub const RET_ERR_INVALID_STATE: usize = <usize as SbiRegister>::RET_ERR_INVALID_STATE;
 /// Error for bad or invalid range.
+#[doc(alias = "SBI_ERR_BAD_RANGE")]
 pub const RET_ERR_BAD_RANGE: usize = <usize as SbiRegister>::RET_ERR_BAD_RANGE;
 /// Error for failed due to timeout.
+#[doc(alias = "SBI_ERR_TIMEOUT")]
 pub const RET_ERR_TIMEOUT: usize = <usize as SbiRegister>::RET_ERR_TIMEOUT;
 /// Error for input or output error.
+#[doc(alias = "SBI_ERR_IO")]
 pub const RET_ERR_IO: usize = <usize as SbiRegister>::RET_ERR_IO;
 
 /// Data type of register that can be passed to the RISC-V SBI ABI.

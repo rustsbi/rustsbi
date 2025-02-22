@@ -29,6 +29,7 @@ use sbi_spec::{
 ///
 /// This function is defined in RISC-V SBI Specification chapter 18.1.
 #[inline]
+#[doc(alias = "sbi_fwft_set")]
 pub fn fwft_set(feature: u32, value: usize, flags: usize) -> SbiRet {
     sbi_call_3(EID_FWFT, SET, feature as _, value, flags)
 }
@@ -52,6 +53,7 @@ pub fn fwft_set(feature: u32, value: usize, flags: usize) -> SbiRet {
 ///
 /// This function is defined in RISC-V SBI Specification chapter 18.2.
 #[inline]
+#[doc(alias = "sbi_fwft_get")]
 pub fn fwft_get(feature: u32) -> SbiRet {
     sbi_call_1(EID_FWFT, GET, feature as _)
 }
