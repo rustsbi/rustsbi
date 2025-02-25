@@ -1,11 +1,18 @@
+use seq_macro::seq;
 use serde_device_tree::buildin::NodeSeq;
 
+use crate::riscv::csr::*;
 use crate::riscv::current_hartid;
-use crate::sbi::trap_stack::ROOT_STACK;
+use crate::sbi::early_trap::{TrapInfo, csr_read_allow, csr_write_allow};
+use crate::sbi::trap_stack::hart_context;
+
+use super::early_trap::csr_swap;
 
 pub struct HartFeatures {
     extension: [bool; Extension::COUNT],
     privileged_version: PrivilegedVersion,
+    mhpm_mask: u32,
+    mhpm_bits: u32,
 }
 
 #[derive(Copy, Clone)]
@@ -37,26 +44,22 @@ impl Extension {
     }
 }
 
+/// access hart feature
 pub fn hart_extension_probe(hart_id: usize, ext: Extension) -> bool {
-    unsafe {
-        ROOT_STACK
-            .get_mut(hart_id)
-            .map(|x| x.hart_context().features.extension[ext.index()])
-            .unwrap()
-    }
+    hart_context(hart_id).features.extension[ext.index()]
 }
 
 pub fn hart_privileged_version(hart_id: usize) -> PrivilegedVersion {
-    unsafe {
-        ROOT_STACK
-            .get_mut(hart_id)
-            .map(|x| x.hart_context().features.privileged_version)
-            .unwrap()
-    }
+    hart_context(hart_id).features.privileged_version
 }
 
+pub fn hart_mhpm_mask(hart_id: usize) -> u32 {
+    hart_context(hart_id).features.mhpm_mask
+}
+
+/// Hart features detection
 #[cfg(not(feature = "nemu"))]
-pub fn init(cpus: &NodeSeq) {
+pub fn extension_detection(cpus: &NodeSeq) {
     use crate::devicetree::Cpu;
     for cpu_iter in cpus.iter() {
         let cpu = cpu_iter.deserialize::<Cpu>();
@@ -74,23 +77,13 @@ pub fn init(cpus: &NodeSeq) {
                 hart_exts[ext.index()] = isa.contains(ext.as_str());
             })
         }
-
-        unsafe {
-            ROOT_STACK
-                .get_mut(hart_id)
-                .map(|stack| stack.hart_context().features.extension = hart_exts)
-                .unwrap()
-        }
+        hart_context(hart_id).features.extension = hart_exts;
     }
 }
 
-pub fn privileged_version_detection() {
+fn privileged_version_detection() {
     let mut current_priv_ver = PrivilegedVersion::Unknown;
     {
-        const CSR_MCOUNTEREN: u64 = 0x306;
-        const CSR_MCOUNTINHIBIT: u64 = 0x320;
-        const CSR_MENVCFG: u64 = 0x30a;
-
         if has_csr!(CSR_MCOUNTEREN) {
             current_priv_ver = PrivilegedVersion::Version1_10;
             if has_csr!(CSR_MCOUNTINHIBIT) {
@@ -101,12 +94,46 @@ pub fn privileged_version_detection() {
             }
         }
     }
-    unsafe {
-        ROOT_STACK
-            .get_mut(current_hartid())
-            .map(|stack| stack.hart_context().features.privileged_version = current_priv_ver)
-            .unwrap()
+    hart_context(current_hartid()).features.privileged_version = current_priv_ver;
+}
+
+fn mhpm_detection() {
+    // The standard specifies that mcycle,minstret,mtime must be implemented
+    let mut current_mhpm_mask: u32 = 0b111;
+    let mut trap_info: TrapInfo = TrapInfo::default();
+
+    fn check_mhpm_csr<const CSR_NUM: u32>(trap_info: *mut TrapInfo, mhpm_mask: &mut u32) {
+        unsafe {
+            let old_value = csr_read_allow::<CSR_NUM>(trap_info);
+            if (*trap_info).mcause == usize::MAX {
+                csr_write_allow::<CSR_NUM>(trap_info, 1);
+                if (*trap_info).mcause == usize::MAX && csr_swap::<CSR_NUM>(old_value) == 1 {
+                    (*mhpm_mask) |= 1 << (CSR_NUM - CSR_MCYCLE);
+                }
+            }
+        }
     }
+
+    macro_rules! m_check_mhpm_csr {
+        ($csr_num:expr, $trap_info:expr, $value:expr) => {
+            check_mhpm_csr::<$csr_num>($trap_info, $value)
+        };
+    }
+
+    // CSR_MHPMCOUNTER3:   0xb03
+    // CSR_MHPMCOUNTER31:  0xb1f
+    seq!(csr_num in 0xb03..=0xb1f{
+        m_check_mhpm_csr!(csr_num, &mut trap_info, &mut current_mhpm_mask);
+    });
+
+    hart_context(current_hartid()).features.mhpm_mask = current_mhpm_mask;
+    // TODO: at present, rustsbi prptotyper only supports 64bit.
+    hart_context(current_hartid()).features.mhpm_bits = 64;
+}
+
+pub fn hart_features_detection() {
+    privileged_version_detection();
+    mhpm_detection();
 }
 
 #[cfg(feature = "nemu")]
@@ -114,16 +141,9 @@ pub fn init(cpus: &NodeSeq) {
     for hart_id in 0..cpus.len() {
         let mut hart_exts = [false; Extension::COUNT];
         hart_exts[Extension::Sstc.index()] = true;
-        unsafe {
-            ROOT_STACK
-                .get_mut(hart_id)
-                .map(|stack| {
-                    stack.hart_context().features = HartFeatures {
-                        extension: hart_exts,
-                        privileged_version: PrivilegedVersion::Version1_12,
-                    }
-                })
-                .unwrap()
+        hart_context(hart_id).features = HartFeatures {
+            extension: hart_exts,
+            privileged_version: PrivilegedVersion::Version1_12,
         }
     }
 }

@@ -1,4 +1,4 @@
-use crate::sbi::extensions::HartFeatures;
+use crate::sbi::features::HartFeatures;
 use crate::sbi::hsm::HsmCell;
 use crate::sbi::rfence::RFenceCell;
 use core::ptr::NonNull;

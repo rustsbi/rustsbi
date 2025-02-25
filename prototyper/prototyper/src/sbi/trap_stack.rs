@@ -42,6 +42,10 @@ pub(crate) fn prepare_for_trap() {
     };
 }
 
+pub fn hart_context(hart_id: usize) -> &'static mut HartContext {
+    unsafe { ROOT_STACK.get_mut(hart_id).unwrap().hart_context() }
+}
+
 /// Stack type for each hart.
 ///
 /// Memory layout:
