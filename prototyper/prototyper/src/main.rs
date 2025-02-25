@@ -21,12 +21,14 @@ mod sbi;
 
 use core::arch::{asm, naked_asm};
 
+use sbi::features::hart_mhpm_mask;
+
 use crate::platform::PLATFORM;
 use crate::riscv::csr::menvcfg;
 use crate::riscv::current_hartid;
-use crate::sbi::extensions::{
-    Extension, PrivilegedVersion, hart_extension_probe, hart_privileged_version,
-    privileged_version_detection,
+use crate::sbi::features::{
+    Extension, PrivilegedVersion, hart_extension_probe, hart_features_detection,
+    hart_privileged_version,
 };
 use crate::sbi::hart_context::NextStage;
 use crate::sbi::heap::sbi_heap_init;
@@ -66,10 +68,15 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         let hart_id = current_hartid();
         info!("{:<30}: {}", "Boot HART ID", hart_id);
 
-        // Detection Priv Version
-        privileged_version_detection();
+        // Detection Hart Features
+        hart_features_detection();
         let priv_version = hart_privileged_version(hart_id);
-        info!("{:<30}: {:?}", "Boot HART Privileged Version", priv_version);
+        let mhpm_mask = hart_mhpm_mask(hart_id);
+        info!(
+            "{:<30}: {:?}",
+            "Boot HART Privileged Version:", priv_version
+        );
+        info!("{:<30}: 0x{:08x}", "Boot HART MHPM Mask:", mhpm_mask);
 
         // Start kernel.
         local_remote_hsm().start(NextStage {
@@ -95,7 +102,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
 
         firmware::set_pmp(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });
         // Detection Priv Version
-        privileged_version_detection();
+        hart_features_detection();
     }
     // Clear all pending IPIs.
     ipi::clear_all();

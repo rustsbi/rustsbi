@@ -1,7 +1,7 @@
 use crate::platform::PLATFORM;
 use crate::riscv::csr::stimecmp;
 use crate::riscv::current_hartid;
-use crate::sbi::extensions::{Extension, hart_extension_probe};
+use crate::sbi::features::{Extension, hart_extension_probe};
 use crate::sbi::hsm::remote_hsm;
 use crate::sbi::rfence;
 use crate::sbi::trap_stack::ROOT_STACK;

@@ -3,11 +3,12 @@ use rustsbi::RustSBI;
 pub mod console;
 pub mod hsm;
 pub mod ipi;
+pub mod pmu;
 pub mod reset;
 pub mod rfence;
 
 pub mod early_trap;
-pub mod extensions;
+pub mod features;
 pub mod fifo;
 pub mod hart_context;
 pub mod heap;

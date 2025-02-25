@@ -22,7 +22,7 @@ use crate::platform::console::{
 use crate::platform::reset::SIFIVETEST_COMPATIBLE;
 use crate::sbi::SBI;
 use crate::sbi::console::SbiConsole;
-use crate::sbi::extensions;
+use crate::sbi::features::extension_detection;
 use crate::sbi::hsm::SbiHsm;
 use crate::sbi::ipi::SbiIpi;
 use crate::sbi::logger;
@@ -146,7 +146,7 @@ impl Platform {
         }
 
         // TODO: Need a better extension initialization method
-        extensions::init(&tree.cpus.cpu);
+        extension_detection(&tree.cpus.cpu);
 
         // Find which hart is enabled by fdt
         let mut cpu_list: CpuEnableList = [false; NUM_HART_MAX];
