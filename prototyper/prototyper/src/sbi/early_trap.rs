@@ -59,7 +59,7 @@ pub(crate) unsafe extern "C" fn expected_trap() {
     }
 }
 
-pub(crate) unsafe fn csr_read_allow<const CSR_NUM: u32>(trap_info: *mut TrapInfo) -> usize {
+pub(crate) unsafe fn csr_read_allow<const CSR_NUM: u16>(trap_info: *mut TrapInfo) -> usize {
     let tinfo = trap_info as usize;
     let mut ret: usize;
     // Backup old mtvec
@@ -83,7 +83,7 @@ pub(crate) unsafe fn csr_read_allow<const CSR_NUM: u32>(trap_info: *mut TrapInfo
     ret
 }
 
-pub(crate) unsafe fn csr_write_allow<const CSR_NUM: u32>(trap_info: *mut TrapInfo, value: usize) {
+pub(crate) unsafe fn csr_write_allow<const CSR_NUM: u16>(trap_info: *mut TrapInfo, value: usize) {
     let tinfo = trap_info as usize;
     // Backup old mtvec
     let mtvec = mtvec::read().bits();
@@ -105,7 +105,7 @@ pub(crate) unsafe fn csr_write_allow<const CSR_NUM: u32>(trap_info: *mut TrapInf
     }
 }
 
-pub(crate) unsafe fn csr_swap<const CSR_NUM: u32>(val: usize) -> usize {
+pub(crate) unsafe fn csr_swap<const CSR_NUM: u16>(val: usize) -> usize {
     let ret: usize;
 
     unsafe {

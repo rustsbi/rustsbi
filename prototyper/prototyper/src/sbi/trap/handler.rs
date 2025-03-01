@@ -157,7 +157,7 @@ pub extern "C" fn illegal_instruction_handler(raw_ctx: EntireContext) -> EntireR
 
     let inst = decode(mtval::read() as u32);
     match inst {
-        Ok(Instruction::Csrrs(csr)) => match csr.csr() {
+        Ok(Instruction::Csrrs(csr)) => match csr.csr() as u16 {
             CSR_TIME => {
                 save_reg_x(
                     &mut ctx,

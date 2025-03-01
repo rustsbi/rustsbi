@@ -145,6 +145,22 @@ impl Platform {
             self.info.model = model.to_string();
         }
 
+        //
+        // WARN: Test PMU Parser, Should be delete
+        //
+        if tree.pmu.is_some() {
+            let pmu = tree.pmu.unwrap();
+            for device_id in pmu.compatible.iter() {
+                info!("PMU: {}", device_id);
+            }
+            // if pmu.event_to_mhpmcounters.is_some() {
+            //     let e_t_m = pmu.event_to_mhpmcounters.unwrap();
+            //     for value in e_t_m.iter() {
+            //         info!("{}",value);
+            //     }
+            // }
+        }
+
         // TODO: Need a better extension initialization method
         extension_detection(&tree.cpus.cpu);
 

@@ -4,7 +4,7 @@ use serde_device_tree::buildin::NodeSeq;
 use crate::riscv::csr::*;
 use crate::riscv::current_hartid;
 use crate::sbi::early_trap::{TrapInfo, csr_read_allow, csr_write_allow};
-use crate::sbi::trap_stack::hart_context;
+use crate::sbi::trap_stack::{hart_context, hart_context_mut};
 
 use super::early_trap::csr_swap;
 
@@ -77,7 +77,7 @@ pub fn extension_detection(cpus: &NodeSeq) {
                 hart_exts[ext.index()] = isa.contains(ext.as_str());
             })
         }
-        hart_context(hart_id).features.extension = hart_exts;
+        hart_context_mut(hart_id).features.extension = hart_exts;
     }
 }
 
@@ -94,7 +94,7 @@ fn privileged_version_detection() {
             }
         }
     }
-    hart_context(current_hartid()).features.privileged_version = current_priv_ver;
+    hart_context_mut(current_hartid()).features.privileged_version = current_priv_ver;
 }
 
 fn mhpm_detection() {
@@ -102,7 +102,7 @@ fn mhpm_detection() {
     let mut current_mhpm_mask: u32 = 0b111;
     let mut trap_info: TrapInfo = TrapInfo::default();
 
-    fn check_mhpm_csr<const CSR_NUM: u32>(trap_info: *mut TrapInfo, mhpm_mask: &mut u32) {
+    fn check_mhpm_csr<const CSR_NUM: u16>(trap_info: *mut TrapInfo, mhpm_mask: &mut u32) {
         unsafe {
             let old_value = csr_read_allow::<CSR_NUM>(trap_info);
             if (*trap_info).mcause == usize::MAX {
@@ -126,9 +126,9 @@ fn mhpm_detection() {
         m_check_mhpm_csr!(csr_num, &mut trap_info, &mut current_mhpm_mask);
     });
 
-    hart_context(current_hartid()).features.mhpm_mask = current_mhpm_mask;
+    hart_context_mut(current_hartid()).features.mhpm_mask = current_mhpm_mask;
     // TODO: at present, rustsbi prptotyper only supports 64bit.
-    hart_context(current_hartid()).features.mhpm_bits = 64;
+    hart_context_mut(current_hartid()).features.mhpm_bits = 64;
 }
 
 pub fn hart_features_detection() {

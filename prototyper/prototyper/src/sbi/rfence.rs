@@ -10,6 +10,7 @@ use core::arch::asm;
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
+
 /// Cell for managing remote fence operations between harts.
 pub(crate) struct RFenceCell {
     // Queue of fence operations with source hart ID
