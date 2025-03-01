@@ -6,6 +6,8 @@ use core::sync::atomic::AtomicU8;
 use fast_trap::FlowContext;
 use riscv::register::mstatus;
 
+use super::pmu::PmuState;
+
 /// Context for managing hart (hardware thread) state and operations.
 pub(crate) struct HartContext {
     /// Trap context for handling exceptions and interrupts.
@@ -18,6 +20,8 @@ pub(crate) struct HartContext {
     pub ipi_type: AtomicU8,
     /// Supported hart features.
     pub features: HartFeatures,
+    /// PMU State
+    pub pmu_state: PmuState,
 }
 
 impl HartContext {
@@ -26,6 +30,7 @@ impl HartContext {
     pub fn init(&mut self) {
         self.hsm = HsmCell::new();
         self.rfence = RFenceCell::new();
+        self.pmu_state = PmuState::new();
     }
 
     /// Get a non-null pointer to the trap context.

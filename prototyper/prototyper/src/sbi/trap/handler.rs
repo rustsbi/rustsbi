@@ -154,7 +154,7 @@ pub fn illegal_instruction_handler(ctx: &mut FastContext) -> bool {
 
     let inst = decode(mtval::read() as u32);
     match inst {
-        Ok(Instruction::Csrrs(csr)) => match csr.csr() {
+        Ok(Instruction::Csrrs(csr)) => match csr.csr() as u16 {
             CSR_TIME => {
                 assert!(
                     10 <= csr.rd() && csr.rd() <= 17,

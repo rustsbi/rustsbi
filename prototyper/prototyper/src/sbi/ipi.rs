@@ -4,11 +4,13 @@ use crate::riscv::current_hartid;
 use crate::sbi::features::{Extension, hart_extension_probe};
 use crate::sbi::hsm::remote_hsm;
 use crate::sbi::rfence;
-use crate::sbi::trap_stack::ROOT_STACK;
+use crate::sbi::trap_stack::hart_context;
 use alloc::boxed::Box;
 use core::sync::atomic::Ordering::Relaxed;
 use rustsbi::{HartMask, SbiRet};
 use spin::Mutex;
+
+use super::hart_context;
 
 /// IPI type for supervisor software interrupt.
 pub(crate) const IPI_TYPE_SSOFT: u8 = 1 << 0;
@@ -230,24 +232,12 @@ impl SbiIpi {
 
 /// Set IPI type for specified hart.
 pub fn set_ipi_type(hart_id: usize, event_id: u8) -> u8 {
-    unsafe {
-        ROOT_STACK
-            .get_unchecked_mut(hart_id)
-            .hart_context()
-            .ipi_type
-            .fetch_or(event_id, Relaxed)
-    }
+    hart_context(hart_id).ipi_type.fetch_or(event_id, Relaxed)
 }
 
 /// Get and reset IPI type for current hart.
 pub fn get_and_reset_ipi_type() -> u8 {
-    unsafe {
-        ROOT_STACK
-            .get_unchecked_mut(current_hartid())
-            .hart_context()
-            .ipi_type
-            .swap(0, Relaxed)
-    }
+    hart_context(current_hartid()).ipi_type.swap(0, Relaxed)
 }
 
 /// Clear machine software interrupt pending for current hart.

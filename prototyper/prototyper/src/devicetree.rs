@@ -15,6 +15,8 @@ pub struct Tree<'a> {
     pub memory: NodeSeq<'a>,
     /// CPU information.
     pub cpus: Cpus<'a>,
+    /// PMU information
+    pub pmu: Option<Pmu<'a>>,
 }
 
 /// CPU information container.
@@ -50,6 +52,17 @@ pub struct Device<'a> {
 #[serde(rename_all = "kebab-case")]
 pub struct Memory<'a> {
     pub reg: Reg<'a>,
+}
+
+#[derive(Deserialize)]
+pub struct Pmu<'a> {
+    pub compatible: StrSeq<'a>,
+    #[serde(rename = "riscv,event-to-mhpmevent")]
+    pub event_to_mhpmevent: Option<Reg<'a>>,
+    #[serde(rename = "riscv,event-to-mhpmcounters")]
+    pub event_to_mhpmcounters: Option<Reg<'a>>,
+    #[serde(rename = "riscv,raw-event-to-mhpmcounters")]
+    pub raw_event_to_mhpmcounters: Option<Reg<'a>>,
 }
 
 /// Errors that can occur during device tree parsing.
