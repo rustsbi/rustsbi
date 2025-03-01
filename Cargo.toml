@@ -11,6 +11,12 @@ members = [
     "prototyper/test-kernel",
     "xtask",
 ]
+default-members = [
+    "library/macros",
+    "library/sbi-rt",
+    "library/sbi-spec",
+    "library/rustsbi",
+]
 
 [workspace.package]
 edition = "2024"

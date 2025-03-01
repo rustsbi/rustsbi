@@ -25,6 +25,12 @@ We are going to target stable Rustc once 2024 edition is landed (on 2025-02-20).
 
 ## Build this project
 
+### For firmware user
+
+If you need to build RustSBI firmware for M-mode, please refer to the [RustSBI Prototyper](prototyper/README.md) documentation.
+
+### For library user
+
 RustSBI is usually used as a library or dependency. If you wish to, you may build RustSBI library itself using the
 following command:
 
@@ -68,7 +74,7 @@ Check it out at [RustSBI document main page](https://docs.rs/rustsbi).
 2. Can I use RustSBI on C based kernels?
 
 Yes, you can! RustSBI strictly follows RISC-V SBI standard. All features are prepares for all programming languages,
-as long as they support RISC-V SBI defined calling convention. 
+as long as they support RISC-V SBI defined calling convention.
 
 If your kernel language supports other SBI implementations, usually it will support RustSBI in the same way.
 
@@ -89,7 +95,7 @@ slides and blog articles of these talks are available at [RustSBI/slides](https:
 2. Contributions are welcomed! We welcome to implement and test RustSBI for both FPGA cores and real cores.
    Implementations for emulators are also welcomed. If you are ready, start your own binary project and use
    RustSBI in it!
-3. If there is a bug in RustSBI project itself, fire an issue or pull request to let us know! 
+3. If there is a bug in RustSBI project itself, fire an issue or pull request to let us know!
 
 ## License & Copyright
 
