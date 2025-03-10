@@ -1,17 +1,25 @@
+use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
+use riscv::register::*;
 use rustsbi::{Pmu, SbiRet};
 use sbi_spec::binary::SharedPtr;
 use sbi_spec::pmu::shmem_size::SIZE;
 use sbi_spec::pmu::*;
 
-use crate::riscv::csr::CSR_CYCLE;
+use crate::riscv::csr::*;
 use crate::{riscv::current_hartid, sbi::features::hart_mhpm_mask};
 
+use super::features::{PrivilegedVersion, hart_privileged_version};
 use super::trap_stack::{hart_context, hart_context_mut};
 
 const HARDWARE_COUNTER_MAX: usize = 32;
 const FIRMWARE_COUNTER_MAX: usize = 16;
+const PMU_EVENT_IDX_INVALID: usize = usize::MAX;
+// mcycle, time, minstret's event if fixed
+const PMU_FIXED_COUNTER_MASK: usize = 0x7;
 
 /// PMU activation event and firmware counters
+#[repr(C)]
 pub struct PmuState {
     active_event: [usize; HARDWARE_COUNTER_MAX + FIRMWARE_COUNTER_MAX],
     // Firmware counter status mask, each bit represents a firmware counter.
@@ -28,7 +36,13 @@ impl PmuState {
         let hw_counters_num = mhpm_mask.count_ones() as usize;
         let total_counters_num = hw_counters_num + FIRMWARE_COUNTER_MAX;
 
-        let active_event = [0; HARDWARE_COUNTER_MAX + FIRMWARE_COUNTER_MAX];
+        let mut active_event = [PMU_EVENT_IDX_INVALID; HARDWARE_COUNTER_MAX + FIRMWARE_COUNTER_MAX];
+        // mcycle always map `HW_CPU_CYCLES`
+        active_event[0] = 0x1;
+        // time is mmio register
+        active_event[1] = 0x0;
+        // minstret return alway map `HW_INSTRUCTIONS`
+        active_event[2] = 0x2;
 
         Self {
             active_event,
@@ -37,6 +51,16 @@ impl PmuState {
             hw_counters_num,
             total_counters_num,
         }
+    }
+
+    #[inline]
+    pub fn get_hw_counter_num(&self) -> usize {
+        return self.hw_counters_num;
+    }
+
+    #[inline]
+    pub fn get_total_counters_num(&self) -> usize {
+        return self.total_counters_num;
     }
 
     #[inline]
@@ -77,14 +101,20 @@ impl PmuState {
     }
 }
 
-struct SbiPmu;
+struct SbiPmu {
+    event_to_mhpmevent: Option<BTreeMap<u32, u64>>,
+    event_to_mhpmcounter: Option<Vec<EventToCounterMap>>,
+    raw_event_to_mhpmcounter: Option<Vec<RawEventToCounterMap>>,
+}
 
 impl Pmu for SbiPmu {
+    /// DONE:
     #[inline]
     fn num_counters(&self) -> usize {
         hart_context(current_hartid()).pmu_state.total_counters_num
     }
 
+    /// DONE:
     #[inline]
     fn counter_get_info(&self, counter_idx: usize) -> SbiRet {
         if counter_idx >= self.num_counters() {
@@ -111,6 +141,7 @@ impl Pmu for SbiPmu {
         SbiRet::success(CounterInfo::with_firmware_info().inner())
     }
 
+    ///TODO:
     /// Find and configure a matching counter (FID #2)
     #[inline]
     fn counter_config_matching(
@@ -128,49 +159,63 @@ impl Pmu for SbiPmu {
 
         let event = EventIdx::new(event_idx);
         let pmu_state = &mut hart_context_mut(current_hartid()).pmu_state;
-        let is_firmware_event = event.event_type() == event_type::FIRMWARE;
+        let is_firmware_event = event.is_firmware_event();
 
         if counter_idx_base >= pmu_state.total_counters_num
             || (counter_idx_mask & ((1 << pmu_state.total_counters_num) - 1)) == 0
             || !event.check_event_type()
-            || (is_firmware_event && !event.is_firmware_event_valid())
+            || (is_firmware_event && !event.firmware_event_valid())
         {
             return SbiRet::invalid_param();
         }
 
-        let effective_mask = counter_idx_mask & ((1 << pmu_state.total_counters_num) - 1);
-        let max_counters = pmu_state
-            .total_counters_num
-            .saturating_sub(counter_idx_base);
         let skip_match = flags.contains(flags::CounterCfgFlags::SKIP_MATCH);
 
-        // Unified counter selection and configuration
-        for i in 0..max_counters {
-            let counter_idx = counter_idx_base + i;
-            if effective_mask & (1 << i) == 0 {
-                continue;
-            }
+        let counter_idx;
 
-            // Check counter suitability based on skip_match flag
-            if !skip_match
-                && (!is_counter_started(pmu_state, counter_idx)
-                    || !can_monitor_event(
-                        counter_idx,
-                        pmu_state.hw_counters_num,
-                        is_firmware_event,
-                    ))
-            {
-                continue;
+        if skip_match {
+            if let Some(ctr_idx) = CounterMask::new(counter_idx_base, counter_idx_mask).next() {
+                if pmu_state.active_event[ctr_idx] == PMU_EVENT_IDX_INVALID {
+                    return SbiRet::invalid_param();
+                }
+                counter_idx = ctr_idx;
+            } else {
+                return SbiRet::invalid_param();
             }
-
-            // Configure the counter (applies all flags)
-            if configure_counter(pmu_state, counter_idx, event, flags, event_data) {
-                return SbiRet::success(counter_idx);
+        } else {
+            let match_result: Result<usize, SbiRet>;
+            if event.is_firmware_event() {
+                match_result = self.find_firmware_counter(
+                    counter_idx_base,
+                    counter_idx_mask,
+                    event_idx,
+                    pmu_state,
+                );
+            } else {
+                match_result = self.find_hardware_counter(
+                    counter_idx_base,
+                    counter_idx_mask,
+                    event_idx,
+                    event_data,
+                    pmu_state,
+                );
             }
-            return SbiRet::failed();
+            match match_result {
+                Ok(ctr_idx) => {
+                    counter_idx = ctr_idx;
+                }
+                Err(err) => {
+                    return err;
+                }
+            }
+            pmu_state.active_event[counter_idx] = event_idx;
         }
 
-        SbiRet::not_supported()
+        if configure_counter(pmu_state, counter_idx, event, flags) {
+            return SbiRet::success(counter_idx);
+        }
+
+        return SbiRet::not_supported();
     }
 
     /// Start one or more counters (FID #3)
@@ -200,15 +245,9 @@ impl Pmu for SbiPmu {
             return SbiRet::no_shmem();
         }
 
-        let effective_mask = counter_idx_mask & ((1 << pmu_state.total_counters_num) - 1);
-        let max_counters = pmu_state
-            .total_counters_num
-            .saturating_sub(counter_idx_base);
-
-        for i in 0..max_counters {
-            let counter_idx = counter_idx_base + i;
-            if effective_mask & (1 << i) == 0 {
-                continue;
+        for counter_idx in CounterMask::new(counter_idx_base, counter_idx_mask) {
+            if counter_idx >= pmu_state.total_counters_num {
+                return SbiRet::invalid_param();
             }
 
             if is_counter_started(pmu_state, counter_idx) {
@@ -225,14 +264,15 @@ impl Pmu for SbiPmu {
                 }
                 pmu_state.fw_counter_state |= 1 << fw_idx;
             } else {
-                if flags.contains(flags::CounterStartFlags::INIT_VALUE) {
-                    // TODO: Write initial value to CSR
-                    // write_mhpmcounterN (counter_idx, initial_value)
+                let is_update_value = flags.contains(flags::CounterStartFlags::INIT_VALUE);
+                let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
+                match start_hardware_counter(mhpm_offset, initial_value, is_update_value) {
+                    Ok(_) => {}
+                    Err(StartCounterErr::OffsetInvalid) => return SbiRet::invalid_param(),
+                    Err(StartCounterErr::AlreadyStart) => return SbiRet::already_started(),
                 }
-                // TODO: Enable counter via CSR
             }
         }
-
         SbiRet::success(0)
     }
 
@@ -261,21 +301,13 @@ impl Pmu for SbiPmu {
             return SbiRet::no_shmem();
         }
 
-        let effective_mask = counter_idx_mask & ((1 << pmu_state.total_counters_num) - 1);
-        let max_counters = pmu_state
-            .total_counters_num
-            .saturating_sub(counter_idx_base);
-
-        for i in 0..max_counters {
-            let counter_idx = counter_idx_base + i;
-            if effective_mask & (1 << i) == 0 {
-                continue;
+        for counter_idx in CounterMask::new(counter_idx_base, counter_idx_mask) {
+            if counter_idx >= pmu_state.total_counters_num {
+                return SbiRet::invalid_param();
             }
-
             if !is_counter_started(pmu_state, counter_idx) {
                 return SbiRet::already_stopped();
             }
-
             if counter_idx >= pmu_state.hw_counters_num {
                 let fw_idx = counter_idx - pmu_state.hw_counters_num;
                 if fw_idx >= FIRMWARE_COUNTER_MAX {
@@ -283,16 +315,20 @@ impl Pmu for SbiPmu {
                 }
                 pmu_state.fw_counter_state &= !(1 << fw_idx);
                 if flags.contains(flags::CounterStopFlags::RESET) {
-                    pmu_state.active_event[counter_idx] = 0;
+                    pmu_state.active_event[counter_idx] = PMU_EVENT_IDX_INVALID;
                 }
             } else {
                 if flags.contains(flags::CounterStopFlags::RESET) {
-                    pmu_state.active_event[counter_idx] = 0;
+                    pmu_state.active_event[counter_idx] = PMU_EVENT_IDX_INVALID;
                 }
-                // TODO: Disable counter via CSR
+                let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
+                match stop_hardware_counter(mhpm_offset) {
+                    Ok(()) => {}
+                    Err(StopCounterErr::OffsetInvalid) => return SbiRet::invalid_param(),
+                    Err(StopCounterErr::AlreadyStop) => return SbiRet::already_stopped(),
+                }
             }
         }
-
         SbiRet::success(0)
     }
 
@@ -301,7 +337,7 @@ impl Pmu for SbiPmu {
     fn counter_fw_read(&self, counter_idx: usize) -> SbiRet {
         let pmu_state = &hart_context(current_hartid()).pmu_state;
         match pmu_state.get_event_idx(counter_idx, true) {
-            Some(event_id) if event_id.is_firmware_event_valid() => {
+            Some(event_id) if event_id.firmware_event_valid() => {
                 if event_id.event_code() == firmware_event::PLATFORM {
                     // TODO: Handle platform-specific PMU events
                     return SbiRet::invalid_param();
@@ -317,7 +353,7 @@ impl Pmu for SbiPmu {
 
     #[inline]
     fn counter_fw_read_hi(&self, _counter_idx: usize) -> SbiRet {
-        // The Specification states the this function  always returns zero in sbiret.value for RV64 (or higher) systems.
+        // The Specification states the this function always return zero in sbiret.value for RV64 (or higher) systems.
         // Currently RustSBI Prototyper only supports RV64 systems
         SbiRet::success(0)
     }
@@ -330,16 +366,140 @@ impl Pmu for SbiPmu {
     }
 }
 
-struct EventToCounterMap {
-    counters_mask: u32,   // Bitmask of supported counters
-    event_start_idx: u32, // Start of event code range
-    event_end_id: u32,    // End of event code range
-}
+impl SbiPmu {
+    fn find_firmware_counter(
+        &self,
+        counter_idx_base: usize,
+        counter_idx_mask: usize,
+        event_idx: usize,
+        pmu_state: &PmuState,
+    ) -> Result<usize, SbiRet> {
+        // TODO: support `PLATFORM` event
+        let event = EventIdx::new(event_idx);
+        if !event.firmware_event_valid() {
+            return Err(SbiRet::not_supported());
+        }
+        for counter_idx in CounterMask::new(counter_idx_base, counter_idx_mask) {
+            // If counter idx is not a firmware time index, skip this index
+            if counter_idx < pmu_state.hw_counters_num
+                || counter_idx >= pmu_state.total_counters_num
+            {
+                continue;
+            }
+            // If the firmware counter currently executed by counter idx is already occupied, skip this index
+            if pmu_state.active_event[counter_idx] != PMU_EVENT_IDX_INVALID {
+                continue;
+            }
+            return Ok(counter_idx);
+        }
+        return Err(SbiRet::not_supported());
+    }
 
-struct RawEventToCounterMap {
-    counters_mask: u32,    // Bitmask of supported counters
-    raw_event_select: u64, // Value to program into mhpmeventX
-    select_mask: u64,      // Mask for selecting bits (optional use)
+    fn find_hardware_counter(
+        &self,
+        counter_idx_base: usize,
+        counter_idx_mask: usize,
+        event_idx: usize,
+        event_data: u64,
+        pmu_state: &PmuState,
+    ) -> Result<usize, SbiRet> {
+        let event = EventIdx::new(event_idx);
+        let mut hw_counters_mask = 0;
+        // Find the counters available for the event.
+        if event.is_raw_event() {
+            if let Some(ref raw_event_map_vec) = self.raw_event_to_mhpmcounter {
+                for raw_event_map in raw_event_map_vec {
+                    if raw_event_map.have_event(event_data) {
+                        hw_counters_mask = raw_event_map.get_counter_mask();
+                        break;
+                    }
+                }
+            } else {
+                return Err(SbiRet::not_supported());
+            }
+        } else {
+            // event is general event or cache event
+            if let Some(ref sbi_hw_event_map_vec) = self.event_to_mhpmcounter {
+                for sbi_hw_event_map in sbi_hw_event_map_vec {
+                    if sbi_hw_event_map.have_event(event_idx as u32) {
+                        hw_counters_mask = sbi_hw_event_map.get_counter_mask();
+                        break;
+                    }
+                }
+            } else {
+                return Err(SbiRet::not_supported());
+            }
+        }
+        // mcycle, time, minstret cannot be use for other events.
+        let can_use_counter_mask = hw_counters_mask as usize & (!PMU_FIXED_COUNTER_MASK);
+
+        // Find a counter that meets the conditions from a set of counters
+        for counter_idx in CounterMask::new(counter_idx_base, counter_idx_mask) {
+            // Skip counter indices that are not in the range of hardware counter indices.
+            if counter_idx > pmu_state.hw_counters_num {
+                continue;
+            }
+
+            // If the counter idx corresponding to the hardware counter index cannot be used by the event,
+            // or has already be used, the counter idx is skipped.
+            let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
+            if (can_use_counter_mask >> mhpm_offset) & 0x1 == 0
+                || pmu_state.active_event[counter_idx] != PMU_EVENT_IDX_INVALID
+            {
+                continue;
+            }
+            // If the counter idx corresponding to the hardware counter index has already started counting, skip the counter
+            if hart_privileged_version(current_hartid()) >= PrivilegedVersion::Version1_11 {
+                let inhibit = riscv::register::mcountinhibit::read();
+                if (inhibit.bits() & (1 << mhpm_offset)) == 0 {
+                    continue;
+                }
+            }
+
+            // Find the counter that meets the conditions and write the event value to the corresponding mhpmevent
+            self.pmu_update_hardware_mhpmevent(mhpm_offset, event_idx, event_data)?;
+            return Ok(counter_idx);
+        }
+        return Err(SbiRet::not_supported());
+    }
+
+    fn pmu_update_hardware_mhpmevent(
+        &self,
+        mhpm_offset: u16,
+        event_idx: usize,
+        event_data: u64,
+    ) -> Result<(), SbiRet> {
+        let event = EventIdx::new(event_idx);
+        let mhpmevent_val;
+        if event.is_raw_event() {
+            mhpmevent_val = event_data;
+        } else {
+            if let Some(ref event_to_mhpmevent) = self.event_to_mhpmevent {
+                let eindex = event_idx as u32;
+                if let Some(val) = event_to_mhpmevent.get(&eindex) {
+                    mhpmevent_val = *val;
+                } else {
+                    return Err(SbiRet::not_supported());
+                }
+            } else {
+                // In the `riscv,pmu` manual, it is specified that:
+                // `riscv,event-to-mhpmcounters` is mandatory if `riscv,event-to-mhpmevent` is present.
+                // Otherwise, it can be omitted.
+                // However, Qemu's device tree only provides the `riscv,event-to-mhpmcounters` field,
+                // which directly uses the sbi event index as the pmu raw event index.
+                if self.event_to_mhpmcounter.is_some() {
+                    mhpmevent_val = event_idx as u64;
+                } else {
+                    return Err(SbiRet::not_supported());
+                }
+            }
+        }
+        if mhpm_offset < 3 || mhpm_offset > 31 {
+            return Err(SbiRet::not_supported());
+        }
+        write_mhpmevent(mhpm_offset, mhpmevent_val);
+        Ok(())
+    }
 }
 
 /// Configures a counter to monitor an event based on the given flags.
@@ -351,9 +511,42 @@ fn configure_counter(
     counter_idx: usize,
     event: EventIdx,
     flags: flags::CounterCfgFlags,
-    event_data: u64,
 ) -> bool {
-    todo!()
+    let auto_start = flags.contains(flags::CounterCfgFlags::AUTO_START);
+    let clear_value = flags.contains(flags::CounterCfgFlags::CLEAR_VALUE);
+    if event.is_firmware_event() {
+        let firmware_event_idx = counter_idx - pmu_state.hw_counters_num;
+        if clear_value {
+            pmu_state.fw_counter[firmware_event_idx] = 0;
+        }
+        if auto_start {
+            pmu_state.fw_counter_state |= 1 << firmware_event_idx;
+        }
+    } else {
+        let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
+        if clear_value {
+            write_mhpmcounter(mhpm_offset, 0);
+        }
+        if auto_start {
+            return start_hardware_counter(mhpm_offset, 0, false).is_ok();
+        }
+    }
+    true
+}
+
+/// Get the offset of the mhpmcounter CSR corresponding to counter_idx relative to mcycle
+fn get_mhpm_csr_offset(counter_idx: usize) -> Option<u16> {
+    let mhpm_mask = hart_mhpm_mask(current_hartid());
+    let mut count = 0;
+    for offset in 0..32 {
+        if (mhpm_mask >> offset) & 1 == 1 {
+            if count == counter_idx {
+                return Some(offset as u16);
+            }
+            count += 1;
+        }
+    }
+    None
 }
 
 /// Checks if a counter is currently started.
@@ -363,8 +556,13 @@ fn configure_counter(
 fn is_counter_started(pmu_state: &PmuState, counter_idx: usize) -> bool {
     if counter_idx < pmu_state.hw_counters_num {
         // Hardware counter: Check mcountinhibit CSR
-        let inhibit = riscv::register::mcountinhibit::read();
-        (inhibit.bits() & (1 << counter_idx)) == 0
+        if hart_privileged_version(current_hartid()) >= PrivilegedVersion::Version1_11 {
+            let inhibit = riscv::register::mcountinhibit::read();
+            let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
+            return (inhibit.bits() & (1 << mhpm_offset)) == 0;
+        } else {
+            return pmu_state.active_event[counter_idx] != PMU_EVENT_IDX_INVALID;
+        }
     } else {
         // Firmware counter: Check fw_counter_state bitmask
         let fw_idx = counter_idx - pmu_state.hw_counters_num;
@@ -381,6 +579,151 @@ fn can_monitor_event(counter_idx: usize, hw_counters_num: usize, is_firmware_eve
     }
 }
 
+/// Start Hardware Counter
+enum StartCounterErr {
+    OffsetInvalid,
+    AlreadyStart,
+}
+
+fn start_hardware_counter(
+    mhpm_offset: u16,
+    new_value: u64,
+    is_update_value: bool,
+) -> Result<(), StartCounterErr> {
+    if mhpm_offset == 1 || mhpm_offset > 31 {
+        return Err(StartCounterErr::OffsetInvalid);
+    }
+
+    if hart_privileged_version(current_hartid()) < PrivilegedVersion::Version1_11 {
+        if is_update_value {
+            write_mhpmcounter(mhpm_offset, new_value);
+        }
+        return Ok(());
+    }
+
+    // already start
+    if mcountinhibit::read().bits() & (1 << mhpm_offset) == 0 {
+        return Err(StartCounterErr::AlreadyStart);
+    }
+
+    if is_update_value {
+        write_mhpmcounter(mhpm_offset, new_value);
+    }
+
+    unsafe {
+        match mhpm_offset {
+            0 => mcountinhibit::clear_cy(),
+            2 => mcountinhibit::clear_ir(),
+            _ => mcountinhibit::clear_hpm(mhpm_offset as usize),
+        }
+    }
+    Ok(())
+}
+
+/// Stop Hardware Counter
+enum StopCounterErr {
+    OffsetInvalid,
+    AlreadyStop,
+}
+
+fn stop_hardware_counter(mhpm_offset: u16) -> Result<(), StopCounterErr> {
+    if mhpm_offset == 1 || mhpm_offset > 31 {
+        return Err(StopCounterErr::OffsetInvalid);
+    }
+
+    if hart_privileged_version(current_hartid()) < PrivilegedVersion::Version1_11 {
+        return Ok(());
+    }
+
+    // already stop
+    if mcountinhibit::read().bits() & (1 << mhpm_offset) != 0 {
+        return Err(StopCounterErr::AlreadyStop);
+    }
+
+    unsafe {
+        match mhpm_offset {
+            0 => mcountinhibit::set_cy(),
+            2 => mcountinhibit::set_ir(),
+            _ => mcountinhibit::set_hpm(mhpm_offset as usize),
+        }
+    }
+    Ok(())
+}
+
+/// Write MHPMEVENT or MHPMCOUNTER
+fn write_mhpmevent(mhpm_offset: u16, mhpmevent_val: u64) {
+    match CSR_MHPMEVENT3 + mhpm_offset - 3 {
+        CSR_MCYCLE => crate::riscv::csr::mcycle::write(mhpmevent_val),
+        CSR_MINSTRET => crate::riscv::csr::minstret::write(mhpmevent_val),
+        CSR_MHPMEVENT3 => mhpmevent3::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT4 => mhpmevent4::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT5 => mhpmevent5::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT6 => mhpmevent6::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT7 => mhpmevent7::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT8 => mhpmevent8::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT9 => mhpmevent9::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT10 => mhpmevent10::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT11 => mhpmevent11::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT12 => mhpmevent12::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT13 => mhpmevent13::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT14 => mhpmevent14::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT15 => mhpmevent15::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT16 => mhpmevent16::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT17 => mhpmevent17::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT18 => mhpmevent18::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT19 => mhpmevent19::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT20 => mhpmevent20::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT21 => mhpmevent21::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT22 => mhpmevent22::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT23 => mhpmevent23::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT24 => mhpmevent24::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT25 => mhpmevent25::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT26 => mhpmevent26::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT27 => mhpmevent27::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT28 => mhpmevent28::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT29 => mhpmevent29::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT30 => mhpmevent30::write(mhpmevent_val as usize),
+        CSR_MHPMEVENT31 => mhpmevent31::write(mhpmevent_val as usize),
+        _ => {}
+    }
+}
+
+fn write_mhpmcounter(mhpm_offset: u16, mhpmevent_val: u64) {
+    match CSR_MCYCLE + mhpm_offset {
+        CSR_MHPMCOUNTER3 => mhpmcounter3::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER4 => mhpmcounter4::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER5 => mhpmcounter5::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER6 => mhpmcounter6::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER7 => mhpmcounter7::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER8 => mhpmcounter8::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER9 => mhpmcounter9::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER10 => mhpmcounter10::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER11 => mhpmcounter11::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER12 => mhpmcounter12::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER13 => mhpmcounter13::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER14 => mhpmcounter14::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER15 => mhpmcounter15::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER16 => mhpmcounter16::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER17 => mhpmcounter17::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER18 => mhpmcounter18::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER19 => mhpmcounter19::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER20 => mhpmcounter20::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER21 => mhpmcounter21::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER22 => mhpmcounter22::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER23 => mhpmcounter23::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER24 => mhpmcounter24::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER25 => mhpmcounter25::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER26 => mhpmcounter26::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER27 => mhpmcounter27::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER28 => mhpmcounter28::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER29 => mhpmcounter29::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER30 => mhpmcounter30::write(mhpmevent_val as usize),
+        CSR_MHPMCOUNTER31 => mhpmcounter31::write(mhpmevent_val as usize),
+        _ => {}
+    }
+}
+
+/// Wrap for counter info
 struct CounterInfo {
     inner: usize,
 }
@@ -433,7 +776,7 @@ impl Default for CounterInfo {
 }
 
 #[derive(Clone, Copy)]
-struct EventIdx {
+pub struct EventIdx {
     inner: usize,
 }
 
@@ -444,31 +787,61 @@ impl EventIdx {
     }
 
     #[inline]
-    pub const fn event_type(self) -> usize {
+    pub const fn event_type(&self) -> usize {
         (self.inner >> 16) & 0xF
     }
 
     #[inline]
-    pub const fn event_code(self) -> usize {
+    pub const fn event_code(&self) -> usize {
         self.inner & 0xFFFF
     }
 
     /// Extracts the cache ID for HARDWARE_CACHE events (13 bits, [15:3])
     #[inline]
-    pub const fn cache_id(self) -> usize {
+    pub const fn cache_id(&self) -> usize {
         (self.inner >> 3) & 0x1FFF
     }
 
     /// Extracts the cache operation ID (2 bits, [2:1])
     #[inline]
-    pub const fn cache_op_id(self) -> usize {
+    pub const fn cache_op_id(&self) -> usize {
         (self.inner >> 1) & 0x3
     }
 
     /// Extracts the cache result ID (1 bit, [0])
     #[inline]
-    pub const fn cache_result_id(self) -> usize {
+    pub const fn cache_result_id(&self) -> usize {
         self.inner & 0x1
+    }
+
+    #[inline]
+    pub const fn is_general_event(&self) -> bool {
+        self.event_type() == event_type::HARDWARE_GENERAL
+    }
+
+    #[inline]
+    pub const fn is_cache_event(&self) -> bool {
+        self.event_type() == event_type::HARDWARE_CACHE
+    }
+
+    #[inline]
+    pub const fn is_raw_event_v1(&self) -> bool {
+        self.event_type() == event_type::HARDWARE_RAW
+    }
+
+    #[inline]
+    pub const fn is_raw_event_v2(&self) -> bool {
+        self.event_type() == event_type::HARDWARE_RAW_V2
+    }
+
+    #[inline]
+    pub const fn is_raw_event(&self) -> bool {
+        self.is_raw_event_v1() || self.is_raw_event_v2()
+    }
+
+    #[inline]
+    pub const fn is_firmware_event(&self) -> bool {
+        self.event_type() == event_type::FIRMWARE
     }
 
     #[inline]
@@ -490,9 +863,145 @@ impl EventIdx {
     }
 
     #[inline]
-    pub fn is_firmware_event_valid(self) -> bool {
-        self.event_code() <= firmware_event::HFENCE_VVMA_ASID_RECEIVED
-            || (self.event_code() >= firmware_event::PLATFORM
-                && self.event_code() != firmware_event::PLATFORM)
+    pub fn firmware_event_valid(self) -> bool {
+        let event_type = self.event_type();
+        let event_code = self.event_code();
+        if event_type != event_type::FIRMWARE {
+            return false;
+        }
+        if (event_code > firmware_event::HFENCE_VVMA_ASID_RECEIVED
+            && event_code < firmware_event::PLATFORM)
+            || event_code >= firmware_event::PLATFORM
+        {
+            // TODO:Currently RustSBI Prototyper does not support PLATFORM practice
+            return false;
+        }
+        true
+    }
+}
+
+/// event to mhpmcounter map
+struct EventToCounterMap {
+    counters_mask: u32,   // Bitmask of supported counters
+    event_start_idx: u32, // Start of event code range
+    event_end_idx: u32,   // End of event code range
+}
+
+impl EventToCounterMap {
+    pub fn new(counters_mask: u32, event_start_idx: u32, event_end_idx: u32) -> Self {
+        Self {
+            counters_mask,
+            event_start_idx,
+            event_end_idx,
+        }
+    }
+
+    #[inline]
+    pub const fn have_event(&self, event_idx: u32) -> bool {
+        event_idx >= self.event_start_idx && event_idx <= self.event_end_idx
+    }
+
+    #[inline]
+    pub fn get_counter_mask(&self) -> u32 {
+        self.counters_mask
+    }
+
+    #[inline]
+    pub fn is_overlop(&self, other_map: &EventToCounterMap) -> bool {
+        if (self.event_end_idx < other_map.event_start_idx
+            && self.event_end_idx < other_map.event_end_idx)
+            || (self.event_start_idx > other_map.event_start_idx
+                && self.event_start_idx > other_map.event_end_idx)
+        {
+            return false;
+        }
+        true
+    }
+
+    #[inline]
+    pub fn can_use_counter(&self, counter_idx: usize) -> bool {
+        let pmu_state = &hart_context_mut(current_hartid()).pmu_state;
+        if counter_idx >= pmu_state.hw_counters_num {
+            return false;
+        }
+        if let Some(mhpm_offset) = get_mhpm_csr_offset(counter_idx) {
+            return self.counters_mask & (1 << mhpm_offset) != 0;
+        } else {
+            return false;
+        }
+    }
+}
+
+struct RawEventToCounterMap {
+    counters_mask: u32,    // Bitmask of supported counters
+    raw_event_select: u64, // Value to program into mhpmeventX
+    select_mask: u64,      // Mask for selecting bits (optional use)
+}
+
+impl RawEventToCounterMap {
+    pub fn new(counters_mask: u32, raw_event_select: u64, select_mask: u64) -> Self {
+        Self {
+            counters_mask,
+            raw_event_select,
+            select_mask,
+        }
+    }
+
+    #[inline]
+    pub const fn have_event(&self, event_idx: u64) -> bool {
+        self.raw_event_select == (event_idx & self.select_mask)
+    }
+
+    #[inline]
+    pub const fn get_counter_mask(&self) -> u32 {
+        self.counters_mask
+    }
+
+    #[inline]
+    pub const fn is_overlop(&self, other_map: &RawEventToCounterMap) -> bool {
+        self.select_mask == other_map.select_mask
+            && self.raw_event_select == other_map.raw_event_select
+    }
+
+    #[inline]
+    pub fn can_use_counter(&self, counter_idx: usize) -> bool {
+        let pmu_state = &hart_context(current_hartid()).pmu_state;
+        if counter_idx >= pmu_state.hw_counters_num {
+            return false;
+        }
+        if let Some(mhpm_offset) = get_mhpm_csr_offset(counter_idx) {
+            return self.counters_mask & (1 << mhpm_offset) != 0;
+        } else {
+            return false;
+        }
+    }
+}
+
+struct CounterMask {
+    counter_idx_base: usize,
+    counter_idx_mask: usize,
+}
+
+impl CounterMask {
+    pub fn new(counter_idx_base: usize, counter_idx_mask: usize) -> Self {
+        Self {
+            counter_idx_base,
+            counter_idx_mask,
+        }
+    }
+}
+
+impl Iterator for CounterMask {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.counter_idx_mask == 0 {
+            return None;
+        } else {
+            let low_bit = self.counter_idx_mask.trailing_zeros();
+            let hart_id = usize::try_from(low_bit).unwrap() + self.counter_idx_base;
+            self.counter_idx_mask &= !(1usize << low_bit);
+            Some(hart_id)
+        }
     }
 }

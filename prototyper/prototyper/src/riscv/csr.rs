@@ -3,7 +3,6 @@
 /// CSR addresses
 pub const CSR_STIMECMP: u16 = 0x14D;
 pub const CSR_MCOUNTEREN: u16 = 0x306;
-pub const CSR_MCOUNTINHIBIT: u16 = 0x320;
 pub const CSR_MENVCFG: u16 = 0x30a;
 pub const CSR_MCYCLE: u16 = 0xb00;
 pub const CSR_MINSTRET: u16 = 0xb02;
@@ -100,6 +99,41 @@ pub const CSR_HPMCOUNTER28: u16 = 0xc1c;
 pub const CSR_HPMCOUNTER29: u16 = 0xc1d;
 pub const CSR_HPMCOUNTER30: u16 = 0xc1e;
 pub const CSR_HPMCOUNTER31: u16 = 0xc1f;
+/// MHPMEVENT
+pub const CSR_MCOUNTINHIBIT: u16 = 0x320;
+pub const CSR_MCYCLECFG: u16 = 0x321;
+pub const CSR_MINSTRETCFG: u16 = 0x322;
+pub const CSR_MHPMEVENT3: u16 = 0x323;
+pub const CSR_MHPMEVENT4: u16 = 0x324;
+pub const CSR_MHPMEVENT5: u16 = 0x325;
+pub const CSR_MHPMEVENT6: u16 = 0x326;
+pub const CSR_MHPMEVENT7: u16 = 0x327;
+pub const CSR_MHPMEVENT8: u16 = 0x328;
+pub const CSR_MHPMEVENT9: u16 = 0x329;
+pub const CSR_MHPMEVENT10: u16 = 0x32a;
+pub const CSR_MHPMEVENT11: u16 = 0x32b;
+pub const CSR_MHPMEVENT12: u16 = 0x32c;
+pub const CSR_MHPMEVENT13: u16 = 0x32d;
+pub const CSR_MHPMEVENT14: u16 = 0x32e;
+pub const CSR_MHPMEVENT15: u16 = 0x32f;
+pub const CSR_MHPMEVENT16: u16 = 0x330;
+pub const CSR_MHPMEVENT17: u16 = 0x331;
+pub const CSR_MHPMEVENT18: u16 = 0x332;
+pub const CSR_MHPMEVENT19: u16 = 0x333;
+pub const CSR_MHPMEVENT20: u16 = 0x334;
+pub const CSR_MHPMEVENT21: u16 = 0x335;
+pub const CSR_MHPMEVENT22: u16 = 0x336;
+pub const CSR_MHPMEVENT23: u16 = 0x337;
+pub const CSR_MHPMEVENT24: u16 = 0x338;
+pub const CSR_MHPMEVENT25: u16 = 0x339;
+pub const CSR_MHPMEVENT26: u16 = 0x33a;
+pub const CSR_MHPMEVENT27: u16 = 0x33b;
+pub const CSR_MHPMEVENT28: u16 = 0x33c;
+pub const CSR_MHPMEVENT29: u16 = 0x33d;
+pub const CSR_MHPMEVENT30: u16 = 0x33e;
+pub const CSR_MHPMEVENT31: u16 = 0x33f;
+
+// For RV32
 pub const CSR_CYCLEH: u16 = 0xc80;
 pub const CSR_TIMEH: u16 = 0xc81;
 pub const CSR_INSTRETH: u16 = 0xc82;
@@ -182,6 +216,24 @@ pub mod stimecmp {
     pub fn set(value: u64) {
         unsafe {
             asm!("csrrw zero, stimecmp, {}", in(reg) value, options(nomem));
+        }
+    }
+}
+
+pub mod mcycle {
+    use core::arch::asm;
+    pub fn write(value: u64) {
+        unsafe {
+            asm!("csrrw zero, mcycle, {}", in(reg) value, options(nomem));
+        }
+    }
+}
+
+pub mod minstret {
+    use core::arch::asm;
+    pub fn write(value: u64) {
+        unsafe {
+            asm!("csrrw zero, minstret, {}", in(reg) value, options(nomem));
         }
     }
 }

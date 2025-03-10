@@ -10,8 +10,6 @@ use core::sync::atomic::Ordering::Relaxed;
 use rustsbi::{HartMask, SbiRet};
 use spin::Mutex;
 
-use super::hart_context;
-
 /// IPI type for supervisor software interrupt.
 pub(crate) const IPI_TYPE_SSOFT: u8 = 1 << 0;
 /// IPI type for memory fence operations.
