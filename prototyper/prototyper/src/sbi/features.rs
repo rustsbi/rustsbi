@@ -94,7 +94,9 @@ fn privileged_version_detection() {
             }
         }
     }
-    hart_context_mut(current_hartid()).features.privileged_version = current_priv_ver;
+    hart_context_mut(current_hartid())
+        .features
+        .privileged_version = current_priv_ver;
 }
 
 fn mhpm_detection() {

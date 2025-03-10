@@ -70,6 +70,8 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
 
         // Detection Hart Features
         hart_features_detection();
+        // Other harts task entry.
+        trap_stack::prepare_for_trap();
         let priv_version = hart_privileged_version(hart_id);
         let mhpm_mask = hart_mhpm_mask(hart_id);
         info!(
@@ -92,6 +94,8 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             mpp
         );
     } else {
+        // Detection Hart feature
+        hart_features_detection();
         // Other harts task entry.
         trap_stack::prepare_for_trap();
 
@@ -101,8 +105,6 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         }
 
         firmware::set_pmp(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });
-        // Detection Priv Version
-        hart_features_detection();
     }
     // Clear all pending IPIs.
     ipi::clear_all();

@@ -50,7 +50,6 @@ pub fn hart_context(hart_id: usize) -> &'static HartContext {
     unsafe { ROOT_STACK.get(hart_id).unwrap().hart_context() }
 }
 
-
 /// Stack type for each hart.
 ///
 /// Memory layout:

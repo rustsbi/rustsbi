@@ -28,7 +28,6 @@ use crate::sbi::ipi::SbiIpi;
 use crate::sbi::logger;
 use crate::sbi::reset::SbiReset;
 use crate::sbi::rfence::SbiRFence;
-use crate::sbi::trap_stack;
 
 mod clint;
 mod console;
@@ -80,7 +79,6 @@ impl Platform {
     pub fn init(&mut self, fdt_address: usize) {
         self.info_init(fdt_address);
         self.sbi_init();
-        trap_stack::prepare_for_trap();
         self.ready.swap(true, Ordering::Release);
     }
 
