@@ -14,6 +14,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - lib: re-export `sbi_spec::base::CounterMask` on crate root.
 - rt: add FWFT extension support to SBI implementation.
 - Add C language naming alias tags to all functions of the sbi-rt library
+- rt: add DBTR extension support to SBI implementation.
 
 ### Modified
 

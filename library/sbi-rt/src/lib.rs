@@ -42,6 +42,8 @@ mod nacl;
 mod sta;
 // §18
 mod fwft;
+// §19
+mod dbtr;
 
 pub use sbi_spec::{
     base::Version,
@@ -54,6 +56,7 @@ pub use sbi_spec::{
 pub use base::*;
 pub use cppc::*;
 pub use dbcn::*;
+pub use dbtr::*;
 pub use fwft::*;
 pub use hsm::*;
 pub use nacl::*;
