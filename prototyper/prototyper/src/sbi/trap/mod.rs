@@ -42,7 +42,7 @@ pub extern "C" fn fast_handler(
 
                     ipi::clear_mtime();
                     unsafe {
-                        mip::clear_stimer();
+                        mip::set_stimer();
                     }
                     save_regs(&mut ctx);
                     ctx.restore()
