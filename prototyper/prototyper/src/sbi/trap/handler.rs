@@ -272,17 +272,16 @@ pub extern "C" fn store_misaligned_handler(ctx: EntireContext) -> EntireResult {
     let (target_reg, var_type, len) = inst_type;
     let raw_data = get_reg_x(&mut ctx, target_reg as usize);
 
-    // TODO: Is there anyway to avoid vec? (or necessary)
     // TODO: Float support
     let read_data = match var_type {
         VarType::Signed => match len {
             _ => panic!("Can not store signed data"),
         },
         VarType::UnSigned => match len {
-            1 => (raw_data as u8).to_le_bytes().to_vec(),
-            2 => (raw_data as u16).to_le_bytes().to_vec(),
-            4 => (raw_data as u32).to_le_bytes().to_vec(),
-            8 => (raw_data as u64).to_le_bytes().to_vec(),
+            1 => &(raw_data as u8).to_le_bytes()[..],
+            2 => &(raw_data as u16).to_le_bytes()[..],
+            4 => &(raw_data as u32).to_le_bytes()[..],
+            8 => &(raw_data as u64).to_le_bytes()[..],
             _ => panic!("Invalid len"),
         },
         VarType::Float => match len {
