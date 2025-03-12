@@ -70,7 +70,7 @@ pub fn debug_set_shmem(shmem: SharedPtr<u8>, flags: usize) -> SbiRet {
 /// debug trigger state and configuration consisting of four XLEN-bit words are written in
 /// little-endian format at `offset = i * (XLEN / 2)` of the shared memory as follows:
 ///
-/// ```no_run
+/// ```text
 /// word[0] = `trig_state` written by the SBI implementation
 /// word[1] = `trig_tdata1` written by the SBI implementation
 /// word[2] = `trig_tdata2` written by the SBI implementation
@@ -100,7 +100,7 @@ pub fn debug_read_triggers(trig_idx_base: usize, trig_count: usize) -> SbiRet {
 /// consists of four consecutive XLEN-bit words in little-endian format which are
 /// organized as follows:
 ///
-/// ```no_run
+/// ```text
 /// word[0] = `trig_idx` written back by the SBI implementation
 /// word[1] = `trig_tdata1` read by the SBI implementation
 /// word[2] = `trig_tdata2` read by the SBI implementation
@@ -134,7 +134,7 @@ pub fn debug_install_triggers(trig_count: usize) -> SbiRet {
 /// The i'th trigger configuration at `offset = i * (XLEN / 2)` in the shared memory
 /// consists of four consecutive XLEN-bit words in little-endian format as follows:
 ///
-/// ```no_run
+/// ```text
 /// word[0] = `trig_idx` read by the SBI implementation
 /// word[1] = `trig_tdata1` read by the SBI implementation
 /// word[2] = `trig_tdata2` read by the SBI implementation
