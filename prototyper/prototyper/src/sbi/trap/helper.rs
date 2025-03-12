@@ -36,7 +36,7 @@ pub fn write_tp(data: usize) {
     unsafe { asm!("mv tp, {}", in(reg) data, options(nomem)) };
 }
 
-// If inline this and next function will cause carsh. It looks like magic.
+// If inline this and next function will cause crash. It looks like magic.
 #[inline(never)]
 pub fn get_unsigned_byte(addr: usize) -> u8 {
     let mut data: usize = 0;
