@@ -32,14 +32,11 @@ pub fn debug_num_triggers(trig_tdata1: usize) -> SbiRet {
 
 /// Set and enable the shared memory for debug trigger configuration on the calling hart.
 ///
-/// If both `shmem.phys_addr_lo` and `shmem.phys_addr_hi` parameters are not all-ones bitwise then
-/// `shmem.phys_addr_lo` specifies the lower XLEN bits and `shmem.phys_addr_hi` specifies
-/// the upper XLEN bits of the shared memory physical base address. The
-/// `shmem.phys_addr_lo` MUST be `(XLEN / 8)` bytes aligned and the size of shared
+/// If `shmem` is not all-ones bitwise then `shmem` specifies the bits of the shared memory physical base address.
+/// The `shmem` MUST be `(XLEN / 8)` bytes aligned and the size of shared
 /// memory is assumed to be `trig_max * (XLEN / 2)` bytes.
 ///
-/// If both `shmem.phys_addr_lo` and `shmem.phys_addr_hi` parameters are all-ones bitwise
-/// then shared memory for debug trigger configuration is disabled.
+/// If `shmem` is all-ones bitwise then shared memory for debug trigger configuration is disabled
 ///
 /// The `flags` parameter is reserved for future use and MUST be zero.
 ///
@@ -49,7 +46,7 @@ pub fn debug_num_triggers(trig_tdata1: usize) -> SbiRet {
 /// |:------------------------------|:---------------------------------
 /// | `SbiRet::success()`           | Shared memory was set or cleared successfully.
 /// | `SbiRet::invalid_param()`     | The `flags` parameter is not zero or the `shmem.phys_addr_lo` parameter is not `(XLEN / 8)` bytes aligned.
-/// | `SbiRet::invalid_address()`   | The shared memory pointed to by the `shmem.phys_addr_lo` and `shmem.phys_addr_hi` parameters does not satisfy the requirements.
+/// | `SbiRet::invalid_address()`   | The shared memory pointed to by the `shmem` parameter does not satisfy the requirements.
 /// | `SbiRet::failed()`            | The request failed for unspecified or unknown other reasons.
 #[doc(alias = "sbi_debug_set_shmem")]
 #[inline]
@@ -125,6 +122,7 @@ pub fn debug_read_triggers(trig_idx_base: usize, trig_count: usize) -> SbiRet {
 pub fn debug_install_triggers(trig_count: usize) -> SbiRet {
     sbi_call_1(EID_DBTR, INSTALL_TRIGGERS, trig_count)
 }
+
 /// Update already installed debug triggers based on a trigger configuration array in the
 /// shared memory of the calling hart.
 ///
@@ -144,7 +142,7 @@ pub fn debug_install_triggers(trig_count: usize) -> SbiRet {
 /// the array index and starting with array index `0`. To install a debug trigger for the
 /// trigger configuration at array index `i` in the shared memory, the SBI implementation
 /// MUST do the following:
-
+///
 /// - Map an unused HW debug trigger which matches the trigger configuration to an
 ///   an unused `trig_idx`.
 /// - Save a copy of the `trig_tdata1.vs`, `trig_tdata1.vu`, `trig_tdata1.s`, and
