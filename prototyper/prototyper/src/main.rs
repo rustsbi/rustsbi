@@ -110,6 +110,8 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         use ::riscv::register::{medeleg, mtvec};
         // Keep supervisor environment calls and illegal instructions in M-mode.
         medeleg::clear_supervisor_env_call();
+        medeleg::clear_load_misaligned();
+        medeleg::clear_store_misaligned();
         medeleg::clear_illegal_instruction();
         if hart_privileged_version(current_hartid()) >= PrivilegedVersion::Version1_12 {
             // Configure environment features based on available extensions.
@@ -134,38 +136,47 @@ unsafe extern "C" fn start() -> ! {
         naked_asm!(
             ".option arch, +a",
             // 1. Turn off interrupt.
-            "   csrw    mie, zero",
+            "
+            csrw    mie, zero",
             // 2. Initialize programming language runtime.
             // only clear bss if hartid matches preferred boot hart id.
-            "   csrr    t0, mhartid",
-            "   bne     t0, zero, 4f",
-            "   call    {relocation_update}",
-            "1:",
-            // 3. Hart 0 clear bss segment.
-            "   lla     t0, sbi_bss_start
-            lla     t1, sbi_bss_end
-         2: bgeu    t0, t1, 3f
+            // Race
+            "
+            lla      t0, 6f
+            li       t1, 1
+            amoadd.w t0, t1, 0(t0)
+            bnez     t0, 4f
+            call     {relocation_update}",
+            // 3. Boot hart clear bss segment.
+            "1:
+            lla     t0, sbi_bss_start
+            lla     t1, sbi_bss_end",
+            "2:
+            bgeu    t0, t1, 3f
             sd      zero, 0(t0)
             addi    t0, t0, 8
             j       2b",
-            "3: ", // Hart 0 set bss ready signal.
-            "   lla     t0, 6f
+            // 3.1 Boot hart set bss ready signal.
+            "3:
+            lla     t0, 7f
             li      t1, 1
             amoadd.w t0, t1, 0(t0)
             j       5f",
-            "4:", // Other harts are waiting for bss ready signal.
-            "   li      t1, 1
-            lla     t0, 6f
+            // 3.2 Other harts are waiting for bss ready signal.
+            "4:
+            lla     t0, 7f
             lw      t0, 0(t0)
-            bne     t0, t1, 4b",
-            "5:",
-             // 4. Prepare stack for each hart.
-            "   call    {locate_stack}",
-            "   call    {main}",
-            "   csrw    mscratch, sp",
-            "   j       {hart_boot}",
-            "  .balign  4",
-            "6:",  // bss ready signal.
+            beqz    t0, 4b",
+            // 4. Prepare stack for each hart.
+            "5:
+            call    {locate_stack}
+            call    {main}
+            csrw    mscratch, sp
+            j       {hart_boot}
+            .balign  4",
+            "6:", // boot hart race signal.
+            "  .word    0",
+            "7:", // bss ready signal.
             "  .word    0",
             relocation_update = sym relocation_update,
             locate_stack = sym trap_stack::locate,
@@ -200,6 +211,7 @@ unsafe extern "C" fn relocation_update() {
             "   addi t0, t0, 24", // Get next rela item
             "2:",
             "   blt t0, t1, 1b",
+            "   fence.i",
 
             // Return
             "   ret",

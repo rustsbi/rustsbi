@@ -1,5 +1,6 @@
-use fast_trap::{FastContext, FastResult};
-use riscv::register::{mepc, mie, mstatus, satp, sstatus};
+use fast_trap::{EntireContext, EntireContextSeparated, EntireResult, FastContext, FastResult};
+use riscv::register::{mepc, mie, mstatus, mtval, satp, sstatus};
+use riscv_decode::{Instruction, decode};
 use rustsbi::RustSBI;
 
 use crate::platform::PLATFORM;
@@ -9,6 +10,8 @@ use crate::sbi::console;
 use crate::sbi::hsm::local_hsm;
 use crate::sbi::ipi;
 use crate::sbi::rfence;
+
+use super::helper::*;
 
 #[inline]
 pub fn switch(mut ctx: FastContext, start_addr: usize, opaque: usize) -> FastResult {
@@ -123,14 +126,15 @@ pub fn sbi_call_handler(
         }
     }
     ctx.regs().a = [ret.error, ret.value, a2, a3, a4, a5, a6, a7];
-    mepc::write(mepc::read() + 4);
+    let epc = mepc::read();
+    mepc::write(epc + get_inst(epc).1);
     ctx.restore()
 }
 
 /// Delegate trap handling to supervisor mode.
 #[inline]
-pub fn delegate(ctx: &mut FastContext) {
-    use riscv::register::{mcause, mepc, mtval, scause, sepc, sstatus, stval, stvec};
+pub fn delegate(ctx: &mut EntireContextSeparated) {
+    use riscv::register::{mcause, scause, sepc, sstatus, stval, stvec};
     unsafe {
         sepc::write(ctx.regs().pc);
         scause::write(mcause::read().bits());
@@ -148,35 +152,153 @@ pub fn delegate(ctx: &mut FastContext) {
 
 /// Handle illegal instructions, particularly CSR access.
 #[inline]
-pub fn illegal_instruction_handler(ctx: &mut FastContext) -> bool {
-    use riscv::register::{mepc, mtval};
-    use riscv_decode::{Instruction, decode};
+pub extern "C" fn illegal_instruction_handler(raw_ctx: EntireContext) -> EntireResult {
+    let mut ctx = raw_ctx.split().0;
 
     let inst = decode(mtval::read() as u32);
     match inst {
         Ok(Instruction::Csrrs(csr)) => match csr.csr() {
             CSR_TIME => {
-                assert!(
-                    10 <= csr.rd() && csr.rd() <= 17,
-                    "Unsupported CSR rd: {}",
-                    csr.rd()
+                save_reg_x(
+                    &mut ctx,
+                    csr.rd() as usize,
+                    unsafe { PLATFORM.sbi.ipi.as_ref() }.unwrap().get_time(),
                 );
-                ctx.regs().a[(csr.rd() - 10) as usize] =
-                    unsafe { PLATFORM.sbi.ipi.as_ref() }.unwrap().get_time();
             }
             CSR_TIMEH => {
-                assert!(
-                    10 <= csr.rd() && csr.rd() <= 17,
-                    "Unsupported CSR rd: {}",
-                    csr.rd()
+                save_reg_x(
+                    &mut ctx,
+                    csr.rd() as usize,
+                    unsafe { PLATFORM.sbi.ipi.as_ref() }.unwrap().get_timeh(),
                 );
-                ctx.regs().a[(csr.rd() - 10) as usize] =
-                    unsafe { PLATFORM.sbi.ipi.as_ref() }.unwrap().get_timeh();
             }
-            _ => return false,
+            _ => {
+                delegate(&mut ctx);
+                return ctx.restore();
+            }
         },
-        _ => return false,
+        _ => {
+            delegate(&mut ctx);
+            return ctx.restore();
+        }
     }
-    mepc::write(mepc::read() + 4);
-    true
+    let epc = mepc::read();
+    mepc::write(epc + get_inst(epc).1);
+    ctx.restore()
+}
+
+#[inline]
+pub extern "C" fn load_misaligned_handler(ctx: EntireContext) -> EntireResult {
+    let mut ctx = ctx.split().0;
+    let current_pc = mepc::read();
+    let current_addr = mtval::read();
+
+    let (current_inst, inst_len) = get_inst(current_pc);
+    debug!(
+        "Misaligned load: inst/{:x?}, load {:x?} in {:x?}",
+        current_inst, current_addr, current_pc
+    );
+    let decode_result = decode(current_inst as u32);
+
+    // TODO: INST FLD c.*sp
+    // TODO: maybe can we reduce the time to update csr for read virtual-address.
+    let inst_type = match decode_result {
+        Ok(Instruction::Lb(data)) => (data.rd(), VarType::Signed, 1),
+        Ok(Instruction::Lbu(data)) => (data.rd(), VarType::UnSigned, 1),
+        Ok(Instruction::Lh(data)) => (data.rd(), VarType::Signed, 2),
+        Ok(Instruction::Lhu(data)) => (data.rd(), VarType::UnSigned, 2),
+        Ok(Instruction::Lw(data)) => (data.rd(), VarType::Signed, 4),
+        Ok(Instruction::Lwu(data)) => (data.rd(), VarType::UnSigned, 4),
+        Ok(Instruction::Ld(data)) => (data.rd(), VarType::Signed, 8),
+        Ok(Instruction::Flw(data)) => (data.rd(), VarType::Float, 4),
+        _ => panic!("Unsupported inst"),
+    };
+    let (target_reg, var_type, len) = inst_type;
+    let raw_data = get_data(current_addr, len);
+    let read_data = match var_type {
+        VarType::Signed => match len {
+            1 => raw_data as i8 as usize,
+            2 => raw_data as i16 as usize,
+            4 => raw_data as i32 as usize,
+            8 => raw_data as i64 as usize,
+            _ => panic!("Invalid len"),
+        },
+        VarType::UnSigned => match len {
+            1 => raw_data as u8 as usize,
+            2 => raw_data as u16 as usize,
+            4 => raw_data as u32 as usize,
+            8 => raw_data as u64 as usize,
+            _ => panic!("Invalid len"),
+        },
+        VarType::Float => match len {
+            // 4 => raw_data as f32 as usize,
+            // 8 => raw_data as f64 as usize,
+            _ => panic!("Misaligned float is unsupported"),
+        },
+    };
+    debug!(
+        "read 0x{:x} from 0x{:x} to x{}, len 0x{:x}",
+        read_data, current_addr, target_reg, len
+    );
+    save_reg_x(&mut ctx, target_reg as usize, read_data);
+    mepc::write(current_pc + inst_len);
+    ctx.restore()
+}
+
+#[inline]
+pub extern "C" fn store_misaligned_handler(ctx: EntireContext) -> EntireResult {
+    let mut ctx = ctx.split().0;
+    let current_pc = mepc::read();
+    let current_addr = mtval::read();
+
+    let (current_inst, inst_len) = get_inst(current_pc);
+    debug!(
+        "Misaligned store: inst/{:x?}, store {:x?} in {:x?}",
+        current_inst, current_addr, current_pc
+    );
+
+    let decode_result = decode(current_inst as u32);
+
+    // TODO: INST FSD c.*sp
+    // TODO: maybe can we reduce the time to update csr for read virtual-address.
+    let inst_type = match decode_result {
+        Ok(Instruction::Sb(data)) => (data.rs2(), VarType::UnSigned, 1),
+        Ok(Instruction::Sh(data)) => (data.rs2(), VarType::UnSigned, 2),
+        Ok(Instruction::Sw(data)) => (data.rs2(), VarType::UnSigned, 4),
+        Ok(Instruction::Sd(data)) => (data.rs2(), VarType::UnSigned, 8),
+        Ok(Instruction::Fsw(data)) => (data.rs2(), VarType::Float, 4),
+        _ => panic!("Unsupported inst"),
+    };
+    let (target_reg, var_type, len) = inst_type;
+    let raw_data = get_reg_x(&mut ctx, target_reg as usize);
+
+    // TODO: Float support
+    let read_data = match var_type {
+        VarType::Signed => match len {
+            _ => panic!("Can not store signed data"),
+        },
+        VarType::UnSigned => match len {
+            1 => &(raw_data as u8).to_le_bytes()[..],
+            2 => &(raw_data as u16).to_le_bytes()[..],
+            4 => &(raw_data as u32).to_le_bytes()[..],
+            8 => &(raw_data as u64).to_le_bytes()[..],
+            _ => panic!("Invalid len"),
+        },
+        VarType::Float => match len {
+            // 4 => (raw_data as f32).to_le_bytes().to_vec(),
+            // 8 => (raw_data as f64).to_le_bytes().to_vec(),
+            _ => panic!("Misaligned float is unsupported"),
+        },
+    };
+
+    debug!(
+        "save 0x{:x} to 0x{:x}, len 0x{:x}",
+        raw_data, current_addr, len
+    );
+    for i in 0..read_data.len() {
+        save_byte(current_addr + i, read_data[i] as usize);
+    }
+
+    mepc::write(current_pc + inst_len);
+    ctx.restore()
 }

@@ -4,6 +4,7 @@ use core::arch::naked_asm;
 /// If trap happened, a0 will set to 1, otherwise will be 0.
 ///
 /// This function will change a0 and a1 and will NOT change them back.
+// TODO: Support save trap info.
 #[naked]
 #[repr(align(16))]
 pub(crate) unsafe extern "C" fn expected_trap() {

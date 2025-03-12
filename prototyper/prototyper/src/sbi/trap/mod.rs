@@ -1,6 +1,8 @@
 pub mod boot;
 pub mod handler;
 
+mod helper;
+
 use crate::fail::unsupported_trap;
 
 use fast_trap::{FastContext, FastResult};
@@ -56,12 +58,16 @@ pub extern "C" fn fast_handler(
                     if mstatus::read().mpp() == mstatus::MPP::Machine {
                         panic!("Cannot handle illegal instruction exception from M-MODE");
                     }
-
                     save_regs(&mut ctx);
-                    if !handler::illegal_instruction_handler(&mut ctx) {
-                        handler::delegate(&mut ctx);
-                    }
-                    ctx.restore()
+                    ctx.continue_with(handler::illegal_instruction_handler, ())
+                }
+                Trap::Exception(Exception::LoadMisaligned) => {
+                    save_regs(&mut ctx);
+                    ctx.continue_with(handler::load_misaligned_handler, ())
+                }
+                Trap::Exception(Exception::StoreMisaligned) => {
+                    save_regs(&mut ctx);
+                    ctx.continue_with(handler::store_misaligned_handler, ())
                 }
                 // Handle other traps
                 trap => unsupported_trap(Some(trap)),
