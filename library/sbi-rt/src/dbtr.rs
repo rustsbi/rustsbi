@@ -26,8 +26,8 @@ use sbi_spec::dbtr::*;
 /// debug triggers in `SbiRet.value`.
 #[doc(alias = "sbi_debug_num_triggers")]
 #[inline]
-pub fn debug_num_triggers(trig_tdata1: usize) -> SbiRet {
-    sbi_call_1(EID_DBTR, NUM_TRIGGERS, trig_tdata1)
+pub fn debug_num_triggers(trig_tdata1: usize) -> usize {
+    sbi_call_1(EID_DBTR, NUM_TRIGGERS, trig_tdata1).value
 }
 
 /// Set and enable the shared memory for debug trigger configuration on the calling hart.
