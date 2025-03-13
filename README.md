@@ -8,10 +8,10 @@ RISC-V Supervisor Binary Interface ([SBI](https://github.com/riscv-non-isa/riscv
 
 ## Binary downloads
 
-Most users would get RustSBI binary download from the RustSBI Prototyping System. Check out the link
-[here](https://github.com/rustsbi/standalone) to download binary package for your platform.
+Most users would get RustSBI binary download from the RustSBI Prototyper. Check out the documents [here](https://github.com/rustsbi/rustsbi/tree/main/prototyper)
+to build or download images for supported platforms.
 
-Boards, SoC vendors and research groups would provide dedicated RustSBI package for supported platforms.
+Boards, SoC vendors and research groups may sometimes provide dedicated RustSBI package for supported platforms.
 There are packages exists on [awesome-rustsbi](https://github.com/rustsbi/awesome-rustsbi): it is a curated list of
 awesome things related to RustSBI, which includes some implementation projects maintained by individuals or the community.
 
