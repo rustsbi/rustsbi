@@ -15,7 +15,7 @@
 //! called `trig_idx` by the SBI implementation where `-1 < trig_idx < trig_max`.
 
 use crate::binary::{sbi_call_1, sbi_call_2, sbi_call_3};
-use sbi_spec::binary::{SbiRet, SharedPtr};
+use sbi_spec::binary::{SbiRet, SharedPtr, TriggerMask};
 use sbi_spec::dbtr::*;
 
 /// Get the number of debug triggers on the calling hart which can support the trigger
@@ -45,7 +45,7 @@ pub fn debug_num_triggers(trig_tdata1: usize) -> usize {
 /// | Error code                    | Description
 /// |:------------------------------|:---------------------------------
 /// | `SbiRet::success()`           | Shared memory was set or cleared successfully.
-/// | `SbiRet::invalid_param()`     | The `flags` parameter is not zero or the `shmem.phys_addr_lo` parameter is not `(XLEN / 8)` bytes aligned.
+/// | `SbiRet::invalid_param()`     | The `flags` parameter is not zero or the `shmem` parameter is not `(XLEN / 8)` bytes aligned.
 /// | `SbiRet::invalid_address()`   | The shared memory pointed to by the `shmem` parameter does not satisfy the requirements.
 /// | `SbiRet::failed()`            | The request failed for unspecified or unknown other reasons.
 #[doc(alias = "sbi_debug_set_shmem")]
@@ -178,11 +178,9 @@ pub fn debug_update_triggers(trig_count: usize) -> SbiRet {
     sbi_call_1(EID_DBTR, UPDATE_TRIGGERS, trig_count)
 }
 
-/// Uninstall a set of debug triggers specified by the `trig_idx_base` and `trig_idx_mask`
-/// parameters on the calling hart.
+/// Uninstall a set of debug triggers specified by the `triggers` mask parameter on the calling hart.
 ///
-/// The `trig_idx_base` specifies the starting trigger index, while the `trig_idx_mask` is a
-/// bitmask indicating which triggers, relative to the base, are to be uninstalled.
+/// The `triggers` specifies which triggers are to be uninstalled.
 /// Each bit in the mask corresponds to a specific trigger, allowing for batch operations
 /// on multiple triggers simultaneously.
 ///
@@ -200,15 +198,14 @@ pub fn debug_update_triggers(trig_count: usize) -> SbiRet {
 /// | `SbiRet::invalid_param()`   | One of the debug triggers with index `trig_idx` in the specified set of debug triggers either not mapped to any HW debug trigger OR has `trig_idx >= trig_max`.
 #[doc(alias = "sbi_debug_uninstall_triggers")]
 #[inline]
-pub fn debug_uninstall_triggers(trig_idx_base: usize, trig_idx_mask: usize) -> SbiRet {
+pub fn debug_uninstall_triggers(triggers: TriggerMask) -> SbiRet {
+    let (trig_idx_mask, trig_idx_base) = triggers.into_inner();
     sbi_call_2(EID_DBTR, UNINSTALL_TRIGGERS, trig_idx_base, trig_idx_mask)
 }
 
-/// Enable a set of debug triggers specified by the `trig_idx_base` and `trig_idx_mask`
-/// parameters on the calling hart.
+/// Enable a set of debug triggers specified by the `triggers` mask parameter on the calling hart.
 ///
-/// The `trig_idx_base` specifies the starting trigger index, while the `trig_idx_mask` is a
-/// bitmask indicating which triggers, relative to the base, are to be enabled.
+/// The `triggers` specifies which triggers are to be enabled.
 /// Each bit in the mask corresponds to a specific trigger, allowing for batch operations
 /// on multiple triggers simultaneously.
 ///
@@ -224,15 +221,14 @@ pub fn debug_uninstall_triggers(trig_idx_base: usize, trig_idx_mask: usize) -> S
 /// | `SbiRet::invalid_param()`   | One of the debug triggers with index `trig_idx` in the specified set of debug triggers either not mapped to any HW debug trigger OR has `trig_idx >= trig_max`.
 #[doc(alias = "sbi_debug_enable_triggers")]
 #[inline]
-pub fn debug_enable_triggers(trig_idx_base: usize, trig_idx_mask: usize) -> SbiRet {
+pub fn debug_enable_triggers(triggers: TriggerMask) -> SbiRet {
+    let (trig_idx_mask, trig_idx_base) = triggers.into_inner();
     sbi_call_2(EID_DBTR, ENABLE_TRIGGERS, trig_idx_base, trig_idx_mask)
 }
 
-/// Disable a set of debug triggers specified by the `trig_idx_base` and `trig_idx_mask`
-/// parameters on the calling hart.
+/// Disable a set of debug triggers specified by the `triggers` mask parameter on the calling hart.
 ///
-/// The `trig_idx_base` specifies the starting trigger index, while the `trig_idx_mask` is a
-/// bitmask indicating which triggers, relative to the base, are to be disabled.
+/// The `triggers` specifies which triggers are to be disabled.
 /// Each bit in the mask corresponds to a specific trigger, allowing for batch operations
 /// on multiple triggers simultaneously.
 ///
@@ -247,6 +243,7 @@ pub fn debug_enable_triggers(trig_idx_base: usize, trig_idx_mask: usize) -> SbiR
 /// | `SbiRet::invalid_param()`   | One of the debug triggers with index `trig_idx` in the specified set of debug triggers either not mapped to any HW debug trigger OR has `trig_idx >= trig_max`.
 #[doc(alias = "sbi_debug_disable_triggers")]
 #[inline]
-pub fn debug_disable_triggers(trig_idx_base: usize, trig_idx_mask: usize) -> SbiRet {
+pub fn debug_disable_triggers(triggers: TriggerMask) -> SbiRet {
+    let (trig_idx_mask, trig_idx_base) = triggers.into_inner();
     sbi_call_2(EID_DBTR, DISABLE_TRIGGERS, trig_idx_base, trig_idx_mask)
 }
