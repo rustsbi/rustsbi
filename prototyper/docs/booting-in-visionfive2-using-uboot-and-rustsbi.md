@@ -9,6 +9,35 @@
 |          gcc          | **10.5.0**  |
 |  RustSBI Prototyper   |  0.0.0  |
 
+## 烧录 Payload 镜像
+
+> 你可以通过[ 这个链接 ](https://github.com/rustsbi/rustsbi/releases/download/v0.0.0-oscomp-2020/rustsbi_visionfive2_fw_payload.img)下载预编译的 `visionfive2_fw_payload.img`。如果你希望自行编译相关内容，请先跳过此节。
+
+VisionFive2 支持从 1-bit QSPI Nor Flash、SDIO3.0、eMMC 中启动，对于不同启动模式，烧录方式有所不同。
+
+你可以参照[ 昉·星光 2启动模式设置 ](https://doc.rvspace.org/VisionFive2/SDK_Quick_Start_Guide/VisionFive2_SDK_QSG/boot_mode_settings.html)来修改启动模式。
+
+### 从 Flash 中启动
+
+参照 [更新Flash中的SPL和U-Boot](https://doc.rvspace.org/VisionFive2/SDK_Quick_Start_Guide/VisionFive2_SDK_QSG/updating_spl_and_u_boot%20-%20vf2.html) 或 [恢复Bootloader](https://doc.rvspace.org/VisionFive2/SDK_Quick_Start_Guide/VisionFive2_SDK_QSG/recovering_bootloader%20-%20vf2.html) 来更新 Flash 中的 U-Boot 部分。
+
+### 从 EMMC 或 SD 卡中启动
+
+> 非 Flash 的启动方式并不被 VisionFive2 官方文档建议。
+
+首先，你需要确保你的对应磁盘（如 SD 卡）按照[ 启动地址分配 -  昉·惊鸿-7110启动手册 ](https://doc.rvspace.org/VisionFive2/Developing_and_Porting_Guide/JH7110_Boot_UG/JH7110_SDK/boot_address_allocation.html)进行分区。
+
+如果你不清楚如何对磁盘进行分区，你可以选择先完成[烧录 Debian 镜像](#烧录-debian-镜像)一节，这样你对应磁盘的分区表就应已满足上述要求。
+
+之后，将上文得到的 `visionfive2_fw_payload.img` 写入表中所指向的 2 号分区即可。
+
+**本命令仅为参考，请根据自己的磁盘路径修改**
+```shell
+$ cd workshop
+$ dd if=./visionfive2_fw_payload.img of=/dev/sda2 status=progress
+```
+
+
 ## 准备工作
 
 创建工作目录
@@ -18,6 +47,8 @@ $ mkdir workshop
 ```
 
 ### 下载 VisionFive2 Debian 镜像
+
+> 这里仅使用 Debian 镜像提供分区表。如果需要启动其他操作系统，可以在进入 U-Boot 后自行启动。
 
 前往 <https://debian.starfivetech.com/> 下载最新 Debian 镜像。
 
@@ -102,32 +133,6 @@ $ cargo prototyper --payload ../work/u-boot/u-boot.bin --fdt ../work/u-boot/arch
 ```shell
 $ cd workshop/VisionFive2
 $ mkimage -f payload_image.its -A riscv -O u-boot -T firmware visionfive2_fw_payload.img
-```
-
-## 烧录 Payload 镜像
-
-VisionFive2 支持从 1-bit QSPI Nor Flash、SDIO3.0、eMMC 中启动，对于不同启动模式，烧录方式有所不同。
-
-你可以参照[ 昉·星光 2启动模式设置 ](https://doc.rvspace.org/VisionFive2/SDK_Quick_Start_Guide/VisionFive2_SDK_QSG/boot_mode_settings.html)来修改启动模式。
-
-### 从 Flash 中启动
-
-参照 [更新Flash中的SPL和U-Boot](https://doc.rvspace.org/VisionFive2/SDK_Quick_Start_Guide/VisionFive2_SDK_QSG/updating_spl_and_u_boot%20-%20vf2.html) 或 [恢复Bootloader](https://doc.rvspace.org/VisionFive2/SDK_Quick_Start_Guide/VisionFive2_SDK_QSG/recovering_bootloader%20-%20vf2.html) 来更新 Flash 中的 U-Boot 部分。
-
-### 从 EMMC 或 SD 卡中启动
-
-> 非 Flash 的启动方式并不被 VisionFive2 官方文档建议。
-
-首先，你需要确保你的对应磁盘（如 SD 卡）按照[ 启动地址分配 -  昉·惊鸿-7110启动手册 ](https://doc.rvspace.org/VisionFive2/Developing_and_Porting_Guide/JH7110_Boot_UG/JH7110_SDK/boot_address_allocation.html)进行分区。
-
-你可以先完成[烧录 Debian 镜像](#烧录-bebian-镜像)一节，这样你的对应磁盘的分区表就应已满足上述要求。
-
-之后，将上文得到的 `visionfive2_fw_payload.img` 写入表中所指向的 2 号分区即可。
-
-**本命令仅为参考，请根据自己的磁盘路径修改**
-```shell
-$ cd workshop
-$ dd if=./visionfive2_fw_payload.img of=/dev/sda2 status=progress
 ```
 
 ## 烧录 Debian 镜像
