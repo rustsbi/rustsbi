@@ -146,6 +146,10 @@ define_extension! {
     Cppc(sbi_spec::cppc::EID_CPPC) /// SBI CPPC extension.
     Nacl(sbi_spec::nacl::EID_NACL) /// Nested Acceleration extension.
     Sta(sbi_spec::sta::EID_STA) /// Steal-time Accounting extension.
+    Sse(sbi_spec::sse::EID_SSE) /// Supervisor Software Events extension.
+    Fwft(sbi_spec::fwft::EID_FWFT) /// Firmware Features extension.
+    Dbtr(sbi_spec::dbtr::EID_DBTR) /// Debug Triggers extension.
+    Mpxy(sbi_spec::mpxy::EID_MPXY) /// Message Proxy extension.
 }
 
 #[cfg(feature = "integer-impls")]
@@ -201,5 +205,9 @@ mod tests {
         assert_eq!(crate::Cppc.extension_id(), 0x43505043);
         assert_eq!(crate::Nacl.extension_id(), 0x4E41434C);
         assert_eq!(crate::Sta.extension_id(), 0x535441);
+        assert_eq!(crate::Sse.extension_id(), 0x535345);
+        assert_eq!(crate::Fwft.extension_id(), 0x46574654);
+        assert_eq!(crate::Dbtr.extension_id(), 0x44425452);
+        assert_eq!(crate::Mpxy.extension_id(), 0x4D505859);
     }
 }

@@ -16,6 +16,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Add C language naming alias tags to all functions of the sbi-rt library
 - rt: add DBTR extension support to SBI implementation.
 - dbtr: use `TriggerMask` structure in sbi-rt DBTR functions
+- rt: add structure for SSE, FWFT, DBTR, and MPXY extensions
 
 ### Modified
 
@@ -73,3 +74,4 @@ If user chooses to use `integer-impls` feature, it would fall back to older styl
 [0.0.3]: https://github.com/rustsbi/sbi-rt/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/rustsbi/sbi-rt/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/rustsbi/sbi-rt/releases/tag/v0.0.1
+
