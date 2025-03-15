@@ -16,16 +16,23 @@ uart16550 = "0.0.1"
 riscv-decode = "0.2.1"
 cfg-if = "1.0.0"
 buddy_system_allocator = "0.11.0"
-rustsbi = { version = "0.4.0", features = ["machine"], path = "../../library/rustsbi" }
-sbi-spec = { version = "0.0.8", features = ["legacy"], path = "../../library/sbi-spec" }
+rustsbi = { version = "0.4.0", features = [
+    "machine",
+], path = "../../library/rustsbi" }
+sbi-spec = { version = "0.0.8", features = [
+    "legacy",
+], path = "../../library/sbi-spec" }
 serde = { version = "1.0.202", default-features = false, features = ["derive"] }
-fast-trap = { version = "0.1.0",  features = ["riscv-m"] }
-serde-device-tree = { git = "https://github.com/rustsbi/serde-device-tree", rev = "e7f9404f",  default-features = false }
+fast-trap = { version = "0.1.0", features = ["riscv-m"] }
+serde-device-tree = { git = "https://github.com/rustsbi/serde-device-tree", rev = "e7f9404f", default-features = false }
 uart_xilinx = { git = "https://github.com/duskmoon314/uart-rs/" }
-xuantie-riscv = { git= "https://github.com/rustsbi/xuantie" }
-bouffalo-hal = { git = "https://github.com/rustsbi/bouffalo-hal", rev = "968b949", features = ["bl808"] }
+xuantie-riscv = { git = "https://github.com/rustsbi/xuantie" }
+bouffalo-hal = { git = "https://github.com/rustsbi/bouffalo-hal", rev = "968b949", features = [
+    "bl808",
+] }
 static-toml = "1"
 seq-macro = "0.3.5"
+pastey = "0.1.0"
 
 [[bin]]
 name = "rustsbi-prototyper"
