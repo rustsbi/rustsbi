@@ -2,6 +2,7 @@ use fast_trap::{EntireContext, EntireContextSeparated, EntireResult, FastContext
 use riscv::register::{mepc, mie, mstatus, mtval, satp, sstatus};
 use riscv_decode::{Instruction, decode};
 use rustsbi::RustSBI;
+use sbi_spec::pmu::firmware_event;
 
 use crate::platform::PLATFORM;
 use crate::riscv::csr::{CSR_TIME, CSR_TIMEH};
@@ -9,6 +10,7 @@ use crate::riscv::current_hartid;
 use crate::sbi::console;
 use crate::sbi::hsm::local_hsm;
 use crate::sbi::ipi;
+use crate::sbi::pmu::pmu_firmware_counter_increment;
 use crate::sbi::rfence;
 
 use super::helper::*;
@@ -34,6 +36,7 @@ pub fn msoft_ipi_handler() {
     let ipi_type = get_and_reset_ipi_type();
     // Handle supervisor software interrupt
     if (ipi_type & ipi::IPI_TYPE_SSOFT) != 0 {
+        pmu_firmware_counter_increment(firmware_event::IPI_RECEIVED);
         unsafe {
             riscv::register::mip::set_ssoft();
         }
@@ -67,7 +70,7 @@ pub fn msoft_handler(ctx: FastContext) -> FastResult {
             riscv::asm::wfi();
             ctx.restore()
         }
-        // Handle RFence
+        // Handle IPI and RFence
         _ => {
             msoft_ipi_handler();
             ctx.restore()

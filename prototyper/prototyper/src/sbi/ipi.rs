@@ -1,3 +1,4 @@
+use super::pmu::pmu_firmware_counter_increment;
 use crate::platform::PLATFORM;
 use crate::riscv::csr::stimecmp;
 use crate::riscv::current_hartid;
@@ -8,6 +9,7 @@ use crate::sbi::trap_stack::hart_context;
 use alloc::boxed::Box;
 use core::sync::atomic::Ordering::Relaxed;
 use rustsbi::{HartMask, SbiRet};
+use sbi_spec::pmu::firmware_event;
 use spin::Mutex;
 
 /// IPI type for supervisor software interrupt.
@@ -46,6 +48,7 @@ impl rustsbi::Timer for SbiIpi {
     /// Set timer value for current hart.
     #[inline]
     fn set_timer(&self, stime_value: u64) {
+        pmu_firmware_counter_increment(firmware_event::SET_TIMER);
         let hart_id = current_hartid();
         let uses_sstc = hart_extension_probe(hart_id, Extension::Sstc);
 
@@ -69,6 +72,7 @@ impl rustsbi::Ipi for SbiIpi {
     /// Send IPI to specified harts.
     #[inline]
     fn send_ipi(&self, hart_mask: rustsbi::HartMask) -> SbiRet {
+        pmu_firmware_counter_increment(firmware_event::IPI_SENT);
         let mut hart_mask = hart_mask;
 
         for hart_id in 0..=self.max_hart_id {

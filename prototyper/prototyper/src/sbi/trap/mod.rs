@@ -64,10 +64,12 @@ pub extern "C" fn fast_handler(
                     ctx.continue_with(handler::illegal_instruction_handler, ())
                 }
                 Trap::Exception(Exception::LoadMisaligned) => {
+                    pmu_firmware_counter_increment(firmware_event::MISALIGNED_LOAD);
                     save_regs(&mut ctx);
                     ctx.continue_with(handler::load_misaligned_handler, ())
                 }
                 Trap::Exception(Exception::StoreMisaligned) => {
+                    pmu_firmware_counter_increment(firmware_event::MISALIGNED_STORE);
                     save_regs(&mut ctx);
                     ctx.continue_with(handler::store_misaligned_handler, ())
                 }
