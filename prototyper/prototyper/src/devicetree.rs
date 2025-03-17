@@ -2,6 +2,7 @@ use serde::Deserialize;
 use serde_device_tree::{
     Dtb, DtbPtr,
     buildin::{Node, NodeSeq, Reg, StrSeq},
+    value::riscv_pmu::{EventToMhpmcounters, EventToMhpmevent, RawEventToMhpcounters},
 };
 
 use core::ops::Range;
@@ -56,13 +57,12 @@ pub struct Memory<'a> {
 
 #[derive(Deserialize)]
 pub struct Pmu<'a> {
-    pub compatible: StrSeq<'a>,
     #[serde(rename = "riscv,event-to-mhpmevent")]
-    pub event_to_mhpmevent: Option<Reg<'a>>,
+    pub event_to_mhpmevent: Option<EventToMhpmevent<'a>>,
     #[serde(rename = "riscv,event-to-mhpmcounters")]
-    pub event_to_mhpmcounters: Option<Reg<'a>>,
+    pub event_to_mhpmcounters: Option<EventToMhpmcounters<'a>>,
     #[serde(rename = "riscv,raw-event-to-mhpmcounters")]
-    pub raw_event_to_mhpmcounters: Option<Reg<'a>>,
+    pub raw_event_to_mhpmcounters: Option<RawEventToMhpcounters<'a>>,
 }
 
 /// Errors that can occur during device tree parsing.

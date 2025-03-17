@@ -26,6 +26,7 @@ use crate::sbi::features::extension_detection;
 use crate::sbi::hsm::SbiHsm;
 use crate::sbi::ipi::SbiIpi;
 use crate::sbi::logger;
+use crate::sbi::pmu::{EventToCounterMap, RawEventToCounterMap};
 use crate::sbi::reset::SbiReset;
 use crate::sbi::rfence::SbiRFence;
 
@@ -77,12 +78,6 @@ impl Platform {
     }
 
     pub fn init(&mut self, fdt_address: usize) {
-        self.info_init(fdt_address);
-        self.sbi_init();
-        self.ready.swap(true, Ordering::Release);
-    }
-
-    fn info_init(&mut self, fdt_address: usize) {
         let dtb = parse_device_tree(fdt_address).unwrap_or_else(fail::device_tree_format);
         let dtb = dtb.share();
 
@@ -90,95 +85,16 @@ impl Platform {
             .unwrap_or_else(fail::device_tree_deserialize_root);
         let tree: Tree = root.deserialize();
 
-        // Get console device, init sbi console and logger
+        // Get console device, init sbi console and logger.
         self.sbi_find_and_init_console(&root);
+        // Get clint and reset device, init sbi ipi, reset, hsm and rfence.
+        self.sbi_init_ipi_reset_hsm_rfence(&root);
+        // Initialize pmu extension
+        self.sbi_init_pmu(&tree);
+        // Get other info
+        self.sbi_mics_init(&tree);
 
-        // Get ipi and reset device info
-        let mut find_device = |node: &serde_device_tree::buildin::Node| {
-            let info = get_compatible_and_range(node);
-            if let Some(info) = info {
-                let (compatible, regs) = info;
-                let base_address = regs.start;
-                for device_id in compatible.iter() {
-                    // Initialize clint device.
-                    if SIFIVE_CLINT_COMPATIBLE.contains(&device_id) {
-                        if node.get_prop("clint,has-no-64bit-mmio").is_some() {
-                            self.info.ipi = Some((base_address, MachineClintType::TheadClint));
-                        } else {
-                            self.info.ipi = Some((base_address, MachineClintType::SiFiveClint));
-                        }
-                    } else if THEAD_CLINT_COMPATIBLE.contains(&device_id) {
-                        self.info.ipi = Some((base_address, MachineClintType::TheadClint));
-                    }
-                    // Initialize reset device.
-                    if SIFIVETEST_COMPATIBLE.contains(&device_id) {
-                        self.info.reset = Some(base_address);
-                    }
-                }
-            }
-        };
-        root.search(&mut find_device);
-
-        // Get memory info
-        // TODO: More than one memory node or range?
-        let memory_reg = tree
-            .memory
-            .iter()
-            .next()
-            .unwrap()
-            .deserialize::<Memory>()
-            .reg;
-        let memory_range = memory_reg.iter().next().unwrap().0;
-        self.info.memory_range = Some(memory_range);
-
-        // Get cpu number info
-        self.info.cpu_num = Some(tree.cpus.cpu.len());
-
-        // Get model info
-        if let Some(model) = tree.model {
-            let model = model.iter().next().unwrap_or("<unspecified>");
-            self.info.model = model.to_string();
-        } else {
-            let model = "<unspecified>";
-            self.info.model = model.to_string();
-        }
-
-        //
-        // WARN: Test PMU Parser, Should be delete
-        //
-        if tree.pmu.is_some() {
-            let pmu = tree.pmu.unwrap();
-            for device_id in pmu.compatible.iter() {
-                info!("PMU: {}", device_id);
-            }
-            // if pmu.event_to_mhpmcounters.is_some() {
-            //     let e_t_m = pmu.event_to_mhpmcounters.unwrap();
-            //     for value in e_t_m.iter() {
-            //         info!("{}",value);
-            //     }
-            // }
-        }
-
-        // TODO: Need a better extension initialization method
-        extension_detection(&tree.cpus.cpu);
-
-        // Find which hart is enabled by fdt
-        let mut cpu_list: CpuEnableList = [false; NUM_HART_MAX];
-        for cpu_iter in tree.cpus.cpu.iter() {
-            let cpu = cpu_iter.deserialize::<Cpu>();
-            let hart_id = cpu.reg.iter().next().unwrap().0.start;
-            if let Some(x) = cpu_list.get_mut(hart_id) {
-                *x = true;
-            }
-        }
-        self.info.cpu_enabled = Some(cpu_list);
-    }
-
-    fn sbi_init(&mut self) {
-        self.sbi_ipi_init();
-        self.sbi_hsm_init();
-        self.sbi_reset_init();
-        self.sbi_rfence_init();
+        self.ready.swap(true, Ordering::Release);
     }
 
     fn sbi_find_and_init_console(&mut self, root: &serde_device_tree::buildin::Node) {
@@ -210,6 +126,124 @@ impl Platform {
         self.sbi_console_init();
         logger::Logger::init().unwrap();
         info!("Hello RustSBI!");
+    }
+
+    fn sbi_init_ipi_reset_hsm_rfence(&mut self, root: &serde_device_tree::buildin::Node) {
+        // Get ipi and reset device info
+        let mut find_device = |node: &serde_device_tree::buildin::Node| {
+            let info = get_compatible_and_range(node);
+            if let Some(info) = info {
+                let (compatible, regs) = info;
+                let base_address = regs.start;
+                for device_id in compatible.iter() {
+                    // Initialize clint device.
+                    if SIFIVE_CLINT_COMPATIBLE.contains(&device_id) {
+                        if node.get_prop("clint,has-no-64bit-mmio").is_some() {
+                            self.info.ipi = Some((base_address, MachineClintType::TheadClint));
+                        } else {
+                            self.info.ipi = Some((base_address, MachineClintType::SiFiveClint));
+                        }
+                    } else if THEAD_CLINT_COMPATIBLE.contains(&device_id) {
+                        self.info.ipi = Some((base_address, MachineClintType::TheadClint));
+                    }
+                    // Initialize reset device.
+                    if SIFIVETEST_COMPATIBLE.contains(&device_id) {
+                        self.info.reset = Some(base_address);
+                    }
+                }
+            }
+        };
+        root.search(&mut find_device);
+        self.sbi_ipi_init();
+        self.sbi_hsm_init();
+        self.sbi_reset_init();
+        self.sbi_rfence_init();
+    }
+
+    fn sbi_init_pmu(&mut self, tree: &Tree) {
+        if let Some(ref pmu) = tree.pmu {
+            let sbi_pmu = self.sbi.pmu.get_or_insert_default();
+            if let Some(ref event_to_mhpmevent) = pmu.event_to_mhpmevent {
+                let len = event_to_mhpmevent.len();
+                for idx in 0..len {
+                    let event = event_to_mhpmevent.get_event_id(idx);
+                    let mhpmevent = event_to_mhpmevent.get_selector_value(idx);
+                    sbi_pmu.insert_event_to_mhpmevent(event, mhpmevent);
+                    debug!(
+                        "pmu: insert event: 0x{:08x}, mhpmevent: {:#016x}",
+                        event, mhpmevent
+                    );
+                }
+            }
+
+            if let Some(ref event_to_mhpmcounters) = pmu.event_to_mhpmcounters {
+                let len = event_to_mhpmcounters.len();
+                for idx in 0..len {
+                    let events = event_to_mhpmcounters.get_event_idx_range(idx);
+                    let mhpmcounters = event_to_mhpmcounters.get_counter_bitmap(idx);
+                    let event_to_counter =
+                        EventToCounterMap::new(mhpmcounters, *events.start(), *events.end());
+                    debug!("pmu: insert event_to_mhpmcounter: {:x?}", event_to_counter);
+                    sbi_pmu.insert_event_to_mhpmcounter(event_to_counter);
+                }
+            }
+
+            if let Some(ref raw_evnet_to_mhpmcounters) = pmu.raw_event_to_mhpmcounters {
+                let len = raw_evnet_to_mhpmcounters.len();
+                for idx in 0..len {
+                    let raw_event_select = raw_evnet_to_mhpmcounters.get_event_idx_base(idx);
+                    let select_mask = raw_evnet_to_mhpmcounters.get_event_idx_mask(idx);
+                    let counters_mask = raw_evnet_to_mhpmcounters.get_counter_bitmap(idx);
+                    let raw_event_to_counter =
+                        RawEventToCounterMap::new(counters_mask, raw_event_select, select_mask);
+                    debug!(
+                        "pmu: insert raw_event_to_mhpmcounter: {:x?}",
+                        raw_event_to_counter
+                    );
+                    sbi_pmu.insert_raw_event_to_mhpmcounter(raw_event_to_counter);
+                }
+            }
+        }
+    }
+
+    fn sbi_mics_init(&mut self, tree: &Tree) {
+        // Get memory info
+        // TODO: More than one memory node or range?
+        let memory_reg = tree
+            .memory
+            .iter()
+            .next()
+            .unwrap()
+            .deserialize::<Memory>()
+            .reg;
+        let memory_range = memory_reg.iter().next().unwrap().0;
+        self.info.memory_range = Some(memory_range);
+
+        // Get cpu number info
+        self.info.cpu_num = Some(tree.cpus.cpu.len());
+
+        // Get model info
+        if let Some(ref model) = tree.model {
+            let model = model.iter().next().unwrap_or("<unspecified>");
+            self.info.model = model.to_string();
+        } else {
+            let model = "<unspecified>";
+            self.info.model = model.to_string();
+        }
+
+        // TODO: Need a better extension initialization method
+        extension_detection(&tree.cpus.cpu);
+
+        // Find which hart is enabled by fdt
+        let mut cpu_list: CpuEnableList = [false; NUM_HART_MAX];
+        for cpu_iter in tree.cpus.cpu.iter() {
+            let cpu = cpu_iter.deserialize::<Cpu>();
+            let hart_id = cpu.reg.iter().next().unwrap().0.start;
+            if let Some(x) = cpu_list.get_mut(hart_id) {
+                *x = true;
+            }
+        }
+        self.info.cpu_enabled = Some(cpu_list);
     }
 
     fn sbi_console_init(&mut self) {
@@ -324,6 +358,7 @@ impl Platform {
         self.print_reset_info();
         self.print_hsm_info();
         self.print_rfence_info();
+        self.print_pmu_info();
     }
 
     #[inline]
@@ -332,7 +367,7 @@ impl Platform {
             Some((base, device)) => {
                 info!(
                     "{:<30}: {:?} (Base Address: 0x{:x})",
-                    "Platform IPI Device", device, base
+                    "Platform IPI Extension", device, base
                 );
             }
             None => warn!("{:<30}: Not Available", "Platform IPI Device"),
@@ -345,7 +380,7 @@ impl Platform {
             Some((base, device)) => {
                 info!(
                     "{:<30}: {:?} (Base Address: 0x{:x})",
-                    "Platform Console Device", device, base
+                    "Platform Console Extension", device, base
                 );
             }
             None => warn!("{:<30}: Not Available", "Platform Console Device"),
@@ -357,7 +392,7 @@ impl Platform {
         if let Some(base) = self.info.reset {
             info!(
                 "{:<30}: Available (Base Address: 0x{:x})",
-                "Platform Reset Device", base
+                "Platform Reset Extension", base
             );
         } else {
             warn!("{:<30}: Not Available", "Platform Reset Device");
@@ -365,22 +400,10 @@ impl Platform {
     }
 
     #[inline]
-    fn print_memory_info(&self) {
-        if let Some(memory_range) = &self.info.memory_range {
-            info!(
-                "{:<30}: 0x{:x} - 0x{:x}",
-                "Memory range", memory_range.start, memory_range.end
-            );
-        } else {
-            warn!("{:<30}: Not Available", "Memory range");
-        }
-    }
-
-    #[inline]
     fn print_hsm_info(&self) {
         info!(
             "{:<30}: {}",
-            "Platform HSM Device",
+            "Platform HSM Extension",
             if self.have_hsm() {
                 "Available"
             } else {
@@ -393,13 +416,38 @@ impl Platform {
     fn print_rfence_info(&self) {
         info!(
             "{:<30}: {}",
-            "Platform RFence Device",
+            "Platform RFence Extension",
             if self.have_rfence() {
                 "Available"
             } else {
                 "Not Available"
             }
         );
+    }
+
+    #[inline]
+    fn print_pmu_info(&self) {
+        info!(
+            "{:<30}: {}",
+            "Platform PMU Extension",
+            if self.have_pmu() {
+                "Available"
+            } else {
+                "Not Available"
+            }
+        );
+    }
+
+    #[inline]
+    fn print_memory_info(&self) {
+        if let Some(memory_range) = &self.info.memory_range {
+            info!(
+                "{:<30}: 0x{:x} - 0x{:x}",
+                "Memory range", memory_range.start, memory_range.end
+            );
+        } else {
+            warn!("{:<30}: Not Available", "Memory range");
+        }
     }
 
     #[inline]
@@ -438,6 +486,10 @@ impl Platform {
 
     pub fn have_rfence(&self) -> bool {
         self.sbi.rfence.is_some()
+    }
+
+    pub fn have_pmu(&self) -> bool {
+        self.sbi.pmu.is_some()
     }
 
     pub fn ready(&self) -> bool {

@@ -19,6 +19,7 @@ pub mod trap_stack;
 use console::SbiConsole;
 use hsm::SbiHsm;
 use ipi::SbiIpi;
+use pmu::SbiPmu;
 use reset::SbiReset;
 use rfence::SbiRFence;
 
@@ -36,6 +37,8 @@ pub struct SBI {
     pub reset: Option<SbiReset>,
     #[rustsbi(fence)]
     pub rfence: Option<SbiRFence>,
+    #[rustsbi(pmu)]
+    pub pmu: Option<SbiPmu>,
 }
 
 impl SBI {
@@ -46,6 +49,7 @@ impl SBI {
             hsm: None,
             reset: None,
             rfence: None,
+            pmu: None,
         }
     }
 }

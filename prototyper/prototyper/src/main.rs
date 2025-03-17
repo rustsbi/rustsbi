@@ -78,7 +78,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             "{:<30}: {:?}",
             "Boot HART Privileged Version:", priv_version
         );
-        info!("{:<30}: 0x{:08x}", "Boot HART MHPM Mask:", mhpm_mask);
+        info!("{:<30}: {:#08x}", "Boot HART MHPM Mask:", mhpm_mask);
 
         // Start kernel.
         local_remote_hsm().start(NextStage {
@@ -88,7 +88,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         });
 
         info!(
-            "Redirecting hart {} to 0x{:0>16x} in {:?} mode.",
+            "Redirecting hart {} to {:#016x} in {:?} mode.",
             current_hartid(),
             next_addr,
             mpp

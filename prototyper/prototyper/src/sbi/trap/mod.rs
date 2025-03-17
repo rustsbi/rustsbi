@@ -2,7 +2,7 @@ pub mod boot;
 pub mod handler;
 
 mod helper;
-
+use super::pmu::pmu_firmware_counter_increment;
 use crate::fail::unsupported_trap;
 
 use fast_trap::{FastContext, FastResult};
@@ -11,6 +11,7 @@ use riscv::register::{
     mcause::{self, Trap},
     mepc, mip, mstatus,
 };
+use sbi_spec::pmu::firmware_event;
 
 /// Fast trap handler for all trap.
 pub extern "C" fn fast_handler(
@@ -55,6 +56,7 @@ pub extern "C" fn fast_handler(
                 }
                 // Handle illegal instructions
                 Trap::Exception(Exception::IllegalInstruction) => {
+                    pmu_firmware_counter_increment(firmware_event::ILLEGAL_INSN);
                     if mstatus::read().mpp() == mstatus::MPP::Machine {
                         panic!("Cannot handle illegal instruction exception from M-MODE");
                     }
