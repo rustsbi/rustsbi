@@ -18,8 +18,6 @@ const PMU_HARDWARE_COUNTER_MAX: usize = 32;
 const PMU_FIRMWARE_COUNTER_MAX: usize = 16;
 /// Marker value for inactive/invalid event indices.
 const PMU_EVENT_IDX_INVALID: usize = usize::MAX;
-/// Bit mask for fixed counters (mcycle, time, minstret).
-const PMU_FIXED_COUNTER_MASK: u32 = 0x7;
 
 /// PMU state tracking hardware and firmware performance counters
 #[repr(C)]
@@ -43,9 +41,7 @@ impl PmuState {
         let mut active_event =
             [PMU_EVENT_IDX_INVALID; PMU_HARDWARE_COUNTER_MAX + PMU_FIRMWARE_COUNTER_MAX];
         // Standard mappings for fixed counters
-        active_event[0] = 0x1; // mcycle -> HW_CPU_CYCLES
         active_event[1] = 0x0; // time (memory-mapped)
-        active_event[2] = 0x2; // minstret -> HW_INSTRUCTIONS
 
         Self {
             active_event,
@@ -359,9 +355,6 @@ impl Pmu for SbiPmu {
             if counter_idx >= pmu_state.total_counters_num {
                 return SbiRet::invalid_param();
             }
-            if !is_counter_started(pmu_state, counter_idx) {
-                return SbiRet::already_stopped();
-            }
 
             let stop_result = if counter_idx >= pmu_state.get_hw_counter_num() {
                 pmu_state.stop_fw_counter(counter_idx, is_reset)
@@ -504,7 +497,7 @@ impl SbiPmu {
         }
         // mcycle, time, minstret cannot be used for other events.
         let mhpm_mask = hart_mhpm_mask(current_hartid());
-        let can_use_counter_mask = hw_counters_mask & (!PMU_FIXED_COUNTER_MASK) & mhpm_mask;
+        let can_use_counter_mask = hw_counters_mask & mhpm_mask;
 
         // Find a counter that meets the conditions from a set of counters
         for counter_idx in CounterMask::new(counter_idx_base, counter_idx_mask) {
@@ -515,9 +508,15 @@ impl SbiPmu {
             // If the counter idx corresponding to the hardware counter index cannot be used by the event,
             // or has already been used, skip this counter idx
             let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
+            // Find a unused counter
             if (can_use_counter_mask >> mhpm_offset) & 0x1 == 0
                 || pmu_state.active_event[counter_idx] != PMU_EVENT_IDX_INVALID
             {
+                continue;
+            }
+            // If mcycle is selected but the event is not SBI_PMU_HW_CPU_CYCLES,
+            // or minstret is selected but the event is not SBI_PMU_HW_INSTRUCTIONS, skip
+            if (mhpm_offset == 0 && event_idx != 1) || (mhpm_offset == 2 && event_idx != 2) {
                 continue;
             }
             // If the counter idx corresponding to the hardware counter index has already started counting, skip the counter
@@ -541,8 +540,13 @@ impl SbiPmu {
         event_idx: usize,
         event_data: u64,
     ) -> Result<(), SbiRet> {
+        // If the event is SBI_PMU_HW_CPU_CYCLES and mcycle is selected,
+        // or the event is SBI_PMU_HW_INSTRUCTIONS and minstret is selected, return directly
+        if (mhpm_offset == 0 && event_idx == 1) || (mhpm_offset == 2 && event_idx == 2) {
+            return Ok(());
+        }
         // Validate counter offset range (only mhpmcounter3-31 are configurable)
-        if mhpm_offset < 3 || mhpm_offset > 31 {
+        if mhpm_offset == 1 || mhpm_offset > 31 {
             return Err(SbiRet::not_supported());
         }
 
@@ -659,27 +663,6 @@ fn get_mhpm_csr_offset(counter_idx: usize) -> Option<u16> {
         }
     }
     None
-}
-
-/// Checks if a counter is currently started.
-///
-/// Returns `true` if the counter is active (not inhibited), `false` otherwise.
-#[inline]
-fn is_counter_started(pmu_state: &PmuState, counter_idx: usize) -> bool {
-    if counter_idx < pmu_state.hw_counters_num {
-        // Hardware counter: Check mcountinhibit CSR
-        if hart_privileged_version(current_hartid()) >= PrivilegedVersion::Version1_11 {
-            let inhibit = riscv::register::mcountinhibit::read();
-            let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
-            return (inhibit.bits() & (1 << mhpm_offset)) == 0;
-        } else {
-            return pmu_state.active_event[counter_idx] != PMU_EVENT_IDX_INVALID;
-        }
-    } else {
-        // Firmware counter: Check fw_counter_state bitmask
-        let fw_idx = counter_idx - pmu_state.hw_counters_num;
-        fw_idx < PMU_FIRMWARE_COUNTER_MAX && (pmu_state.fw_counter_state & (1 << fw_idx)) != 0
-    }
 }
 
 /// Start Hardware Counter
@@ -884,70 +867,82 @@ pub struct EventIdx {
 #[allow(unused)]
 impl EventIdx {
     #[inline]
-    pub const fn new(event_idx: usize) -> Self {
+    const fn new(event_idx: usize) -> Self {
         Self { inner: event_idx }
     }
 
     #[inline]
-    pub const fn event_type(&self) -> usize {
+    fn from_firmwarw_event(firmware_event: usize) -> Self {
+        Self {
+            inner: 0xf << 16 | firmware_event,
+        }
+    }
+
+    #[inline]
+    fn raw(&self) -> usize {
+        self.inner
+    }
+
+    #[inline]
+    const fn event_type(&self) -> usize {
         (self.inner >> 16) & 0xF
     }
 
     #[inline]
-    pub const fn event_code(&self) -> usize {
+    const fn event_code(&self) -> usize {
         self.inner & 0xFFFF
     }
 
     /// Extracts the cache ID for HARDWARE_CACHE events (13 bits, [15:3])
     #[inline]
-    pub const fn cache_id(&self) -> usize {
+    const fn cache_id(&self) -> usize {
         (self.inner >> 3) & 0x1FFF
     }
 
     /// Extracts the cache operation ID (2 bits, [2:1])
     #[inline]
-    pub const fn cache_op_id(&self) -> usize {
+    const fn cache_op_id(&self) -> usize {
         (self.inner >> 1) & 0x3
     }
 
     /// Extracts the cache result ID (1 bit, [0])
     #[inline]
-    pub const fn cache_result_id(&self) -> usize {
+    const fn cache_result_id(&self) -> usize {
         self.inner & 0x1
     }
 
     #[inline]
-    pub const fn is_general_event(&self) -> bool {
+    const fn is_general_event(&self) -> bool {
         self.event_type() == event_type::HARDWARE_GENERAL
     }
 
     #[inline]
-    pub const fn is_cache_event(&self) -> bool {
+    const fn is_cache_event(&self) -> bool {
         self.event_type() == event_type::HARDWARE_CACHE
     }
 
     #[inline]
-    pub const fn is_raw_event_v1(&self) -> bool {
+    const fn is_raw_event_v1(&self) -> bool {
         self.event_type() == event_type::HARDWARE_RAW
     }
 
     #[inline]
-    pub const fn is_raw_event_v2(&self) -> bool {
+    const fn is_raw_event_v2(&self) -> bool {
         self.event_type() == event_type::HARDWARE_RAW_V2
     }
 
     #[inline]
-    pub const fn is_raw_event(&self) -> bool {
+    const fn is_raw_event(&self) -> bool {
         self.is_raw_event_v1() || self.is_raw_event_v2()
     }
 
     #[inline]
-    pub const fn is_firmware_event(&self) -> bool {
+    const fn is_firmware_event(&self) -> bool {
         self.event_type() == event_type::FIRMWARE
     }
 
     #[inline]
-    pub fn check_event_type(self) -> bool {
+    fn check_event_type(self) -> bool {
         let event_type = self.event_type();
         let event_code = self.event_code();
 
@@ -965,7 +960,7 @@ impl EventIdx {
     }
 
     #[inline]
-    pub fn firmware_event_valid(self) -> bool {
+    fn firmware_event_valid(self) -> bool {
         let event_type = self.event_type();
         let event_code = self.event_code();
         if event_type != event_type::FIRMWARE {
@@ -1116,7 +1111,8 @@ pub fn pmu_firmware_counter_increment(firmware_event: usize) {
     let counter_idx_start = pmu_state.hw_counters_num;
     for counter_idx in counter_idx_start..counter_idx_start + PMU_FIRMWARE_COUNTER_MAX {
         let fw_idx = counter_idx - counter_idx_start;
-        if pmu_state.active_event[counter_idx] == firmware_event
+        if pmu_state.active_event[counter_idx]
+            == EventIdx::from_firmwarw_event(firmware_event).raw()
             && pmu_state.is_firmware_event_start(counter_idx)
         {
             pmu_state.fw_counter[fw_idx] += 1;

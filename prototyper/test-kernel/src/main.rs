@@ -10,7 +10,12 @@ use core::{
     arch::{asm, naked_asm},
     ptr::null,
 };
-use sbi_testing::sbi;
+use sbi_spec::{
+    binary::{CounterMask, HartMask, SbiRet},
+    pmu::firmware_event,
+};
+use sbi_testing::sbi::{self, ConfigFlags, StartFlags, StopFlags};
+// use sbi_spec::pmu::*;
 use uart16550::Uart16550;
 
 const RISCV_HEAD_FLAGS: u64 = 0;
@@ -108,7 +113,130 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
         hart_mask_base: 0,
         delay: frequency,
     };
-    if testing.test() {
+    let test_result = testing.test();
+
+    // pmu test, only valid on qemu-system-riscv64 platform
+    let counters_num = sbi::pmu_num_counters();
+    println!("[pmu] counters number: {}", counters_num);
+    for idx in 0..counters_num {
+        let counter_info = sbi::pmu_counter_get_info(idx);
+        let counter_info = CounterInfo::new(counter_info.value);
+        if counter_info.is_firmware_counter() {
+            println!("[pmu] counter index:{:>2}, is a firmware counter", idx);
+        } else {
+            println!(
+                "[pmu] counter index:{:>2}, csr num: {:#03x}, width: {}",
+                idx,
+                counter_info.get_csr(),
+                counter_info.get_width()
+            );
+        }
+    }
+
+    // Hardware event
+    let counter_mask = CounterMask::from_mask_base(0x7ffff, 0);
+    let result = sbi::pmu_counter_config_matching(counter_mask, Flag::new(0b110), 0x1, 0);
+    assert!(result.is_ok());
+    let result = sbi::pmu_counter_config_matching(counter_mask, Flag::new(0b110), 0x2, 0);
+    assert!(result.is_ok());
+    let result = sbi::pmu_counter_config_matching(counter_mask, Flag::new(0b110), 0x10019, 0);
+    assert!(result.is_ok());
+    let result = sbi::pmu_counter_config_matching(counter_mask, Flag::new(0b110), 0x1001b, 0);
+    assert!(result.is_ok());
+    let result = sbi::pmu_counter_config_matching(counter_mask, Flag::new(0b110), 0x10021, 0);
+    assert!(result.is_ok());
+    let result = sbi::pmu_counter_config_matching(counter_mask, Flag::new(0b110), 0x3, 0);
+    assert_eq!(result, SbiRet::not_supported());
+
+    // Firmware  event
+    let counter_mask = CounterMask::from_mask_base(0x7ffffffff, 0);
+
+    // Mapping a counter to the `SBI_PMU_FW_ACCESS_LOAD` event should result in unsupported
+    let result = sbi::pmu_counter_config_matching(
+        counter_mask,
+        Flag::new(0b010),
+        EventIdx::new_firmware_event(firmware_event::ACCESS_LOAD).raw(),
+        0,
+    );
+    assert_eq!(result, SbiRet::not_supported());
+
+    // Map a counter to the `SBI_PMU_FW_IPI_SENT` event.
+    // This counter should be a firmware counter and its value should be initialized to 0.
+    let result = sbi::pmu_counter_config_matching(
+        counter_mask,
+        Flag::new(0b010),
+        EventIdx::new_firmware_event(firmware_event::IPI_SENT).raw(),
+        0,
+    );
+    assert!(result.is_ok());
+    assert!(result.value >= 19);
+    let ipi_counter_idx = result.value;
+    let ipi_num = sbi::pmu_counter_fw_read(ipi_counter_idx);
+    assert!(ipi_num.is_ok());
+    assert_eq!(ipi_num.value, 0);
+
+    // Start counting `SBI_PMU_FW_IPI_SENT` events and assign an initial value of 25 to the event counter
+    let start_result = sbi::pmu_counter_start(
+        CounterMask::from_mask_base(0x1, ipi_counter_idx),
+        Flag::new(0x1),
+        25,
+    );
+    assert!(start_result.is_ok());
+    // Read the value of the `SBI_PMU_FW_IPI_SENT` event counter, which should be 25
+    let ipi_num = sbi::pmu_counter_fw_read(ipi_counter_idx);
+    assert!(ipi_num.is_ok());
+    assert_eq!(ipi_num.value, 25);
+
+    // Send IPI to other core, and the `SBI_PMU_FW_IPI_SENT` event counter value increases by one
+    let send_ipi_result = sbi::send_ipi(HartMask::from_mask_base(0b10, 0));
+    assert_eq!(send_ipi_result, SbiRet::invalid_param());
+
+    // Read the value of the `SBI_PMU_FW_IPI_SENT` event counter, which should be 26
+    let ipi_num = sbi::pmu_counter_fw_read(ipi_counter_idx);
+    assert!(ipi_num.is_ok());
+    assert_eq!(ipi_num.value, 26);
+
+    // Stop counting `SBI_PMU_FW_IPI_SENT` events
+    let stop_result = sbi::pmu_counter_stop(
+        CounterMask::from_mask_base(0x1, ipi_counter_idx),
+        Flag::new(0x0),
+    );
+    assert!(stop_result.is_ok());
+
+    // Restop counting `SBI_PMU_FW_IPI_SENT` events, the result should be already stop
+    let stop_result = sbi::pmu_counter_stop(
+        CounterMask::from_mask_base(0x1, ipi_counter_idx),
+        Flag::new(0x0),
+    );
+    assert_eq!(stop_result, SbiRet::already_stopped());
+
+    // Send IPI to other core, `SBI_PMU_FW_IPI_SENT` event counter should not change
+    let send_ipi_result = sbi::send_ipi(HartMask::from_mask_base(0b10, 0));
+    assert_eq!(send_ipi_result, SbiRet::invalid_param());
+
+    // Read the value of the `SBI_PMU_FW_IPI_SENT` event counter, which should be 26
+    let ipi_num = sbi::pmu_counter_fw_read(ipi_counter_idx);
+    assert!(ipi_num.is_ok());
+    assert_eq!(ipi_num.value, 26);
+
+    // Restart counting `SBI_PMU_FW_IPI_SENT` events
+    let start_result = sbi::pmu_counter_start(
+        CounterMask::from_mask_base(0x1, ipi_counter_idx),
+        Flag::new(0x0),
+        0,
+    );
+    assert!(start_result.is_ok());
+
+    // Send IPI to other core, and the `SBI_PMU_FW_IPI_SENT` event counter value increases by one
+    let send_ipi_result = sbi::send_ipi(HartMask::from_mask_base(0b10, 0));
+    assert_eq!(send_ipi_result, SbiRet::invalid_param());
+
+    // Read the value of the `SBI_PMU_FW_IPI_SENT` event counter, which should be 27
+    let ipi_num = sbi::pmu_counter_fw_read(ipi_counter_idx);
+    assert!(ipi_num.is_ok());
+    assert_eq!(ipi_num.value, 27);
+
+    if test_result {
         sbi::system_reset(sbi::Shutdown, sbi::NoReason);
     } else {
         sbi::system_reset(sbi::Shutdown, sbi::SystemFailure);
@@ -209,5 +337,115 @@ impl rcore_console::Console for Console {
     #[inline]
     fn put_str(&self, s: &str) {
         unsafe { UART.get().write(s.as_bytes()) };
+    }
+}
+
+struct Flag {
+    inner: usize,
+}
+
+impl ConfigFlags for Flag {
+    fn raw(&self) -> usize {
+        self.inner
+    }
+}
+
+impl StartFlags for Flag {
+    fn raw(&self) -> usize {
+        self.inner
+    }
+}
+
+impl StopFlags for Flag {
+    fn raw(&self) -> usize {
+        self.inner
+    }
+}
+
+impl Flag {
+    pub fn new(flag: usize) -> Self {
+        Self { inner: flag }
+    }
+}
+
+/// Wrap for counter info
+struct CounterInfo {
+    /// Packed representation of counter information:
+    /// - Bits [11:0]: CSR number for hardware counters
+    /// - Bits [17:12]: Counter width (typically 63 for RV64)
+    /// - MSB: Set for firmware counters, clear for hardware counters
+    inner: usize,
+}
+
+#[allow(unused)]
+impl CounterInfo {
+    const CSR_MASK: usize = 0xFFF; // Bits [11:0]
+    const WIDTH_MASK: usize = 0x3F << 12; // Bits [17:12]
+    const FIRMWARE_FLAG: usize = 1 << (size_of::<usize>() * 8 - 1); // MSB
+
+    #[inline]
+    pub const fn new(counter_info: usize) -> Self {
+        Self {
+            inner: counter_info,
+        }
+    }
+
+    #[inline]
+    pub fn set_csr(&mut self, csr_num: u16) {
+        self.inner = (self.inner & !Self::CSR_MASK) | ((csr_num as usize) & Self::CSR_MASK);
+    }
+
+    #[inline]
+    pub fn get_csr(&self) -> usize {
+        self.inner & Self::CSR_MASK
+    }
+
+    #[inline]
+    pub fn set_width(&mut self, width: u8) {
+        self.inner = (self.inner & !Self::WIDTH_MASK) | (((width as usize) & 0x3F) << 12);
+    }
+
+    #[inline]
+    pub fn get_width(&self) -> usize {
+        (self.inner & Self::WIDTH_MASK) >> 12
+    }
+
+    #[inline]
+    pub fn is_firmware_counter(&self) -> bool {
+        self.inner & Self::FIRMWARE_FLAG != 0
+    }
+
+    #[inline]
+    pub const fn with_hardware_info(csr_num: u16, width: u8) -> Self {
+        Self {
+            inner: ((csr_num as usize) & Self::CSR_MASK) | (((width as usize) & 0x3F) << 12),
+        }
+    }
+
+    #[inline]
+    pub const fn with_firmware_info() -> Self {
+        Self {
+            inner: Self::FIRMWARE_FLAG,
+        }
+    }
+
+    #[inline]
+    pub const fn inner(self) -> usize {
+        self.inner
+    }
+}
+
+struct EventIdx {
+    inner: usize,
+}
+
+impl EventIdx {
+    fn raw(&self) -> usize {
+        self.inner
+    }
+
+    fn new_firmware_event(event_code: usize) -> Self {
+        let inner = 0xf << 16 | event_code;
+        Self { inner }
     }
 }

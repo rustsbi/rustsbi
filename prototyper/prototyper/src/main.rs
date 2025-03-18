@@ -21,11 +21,10 @@ mod sbi;
 
 use core::arch::{asm, naked_asm};
 
-use sbi::features::hart_mhpm_mask;
-
 use crate::platform::PLATFORM;
 use crate::riscv::csr::menvcfg;
 use crate::riscv::current_hartid;
+use crate::sbi::features::hart_mhpm_mask;
 use crate::sbi::features::{
     Extension, PrivilegedVersion, hart_extension_probe, hart_features_detection,
     hart_privileged_version,
@@ -122,7 +121,12 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         medeleg::clear_load_misaligned();
         medeleg::clear_store_misaligned();
         medeleg::clear_illegal_instruction();
-        if hart_privileged_version(current_hartid()) >= PrivilegedVersion::Version1_12 {
+
+        let hart_priv_version = hart_privileged_version(current_hartid());
+        if hart_priv_version >= PrivilegedVersion::Version1_11 {
+            asm!("csrw mcountinhibit, {}", in(reg) !0b10);
+        }
+        if hart_priv_version >= PrivilegedVersion::Version1_12 {
             // Configure environment features based on available extensions.
             if hart_extension_probe(current_hartid(), Extension::Sstc) {
                 menvcfg::set_bits(
