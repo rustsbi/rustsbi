@@ -90,7 +90,7 @@ impl Platform {
         // Get clint and reset device, init sbi ipi, reset, hsm and rfence.
         self.sbi_init_ipi_reset_hsm_rfence(&root);
         // Initialize pmu extension
-        self.sbi_init_pmu(&tree);
+        self.sbi_init_pmu(&root);
         // Get other info
         self.sbi_mics_init(&tree);
 
@@ -160,8 +160,22 @@ impl Platform {
         self.sbi_rfence_init();
     }
 
-    fn sbi_init_pmu(&mut self, tree: &Tree) {
-        if let Some(ref pmu) = tree.pmu {
+    fn sbi_init_pmu(&mut self, root: &serde_device_tree::buildin::Node) {
+        let mut pmu_node: Option<Pmu> = None;
+        let mut find_pmu = |node: &serde_device_tree::buildin::Node| {
+            let info = get_compatible(node);
+            if let Some(compatible_strseq) = info {
+                let compatible_iter = compatible_strseq.iter();
+                for compatible in compatible_iter {
+                    if compatible == "riscv,pmu" {
+                        pmu_node = Some(node.deserialize::<Pmu>());
+                    }
+                }
+            }
+        };
+        root.search(&mut find_pmu);
+
+        if let Some(ref pmu) = pmu_node {
             let sbi_pmu = self.sbi.pmu.get_or_insert_default();
             if let Some(ref event_to_mhpmevent) = pmu.event_to_mhpmevent {
                 let len = event_to_mhpmevent.len();

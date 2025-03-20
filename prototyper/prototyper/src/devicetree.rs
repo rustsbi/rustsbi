@@ -16,8 +16,6 @@ pub struct Tree<'a> {
     pub memory: NodeSeq<'a>,
     /// CPU information.
     pub cpus: Cpus<'a>,
-    /// PMU information
-    pub pmu: Option<Pmu<'a>>,
 }
 
 /// CPU information container.
@@ -99,6 +97,17 @@ pub fn get_compatible_and_range<'de>(node: &Node) -> Option<(StrSeq<'de>, Range<
         } else {
             None
         }
+    } else {
+        None
+    }
+}
+
+pub fn get_compatible<'de>(node: &Node) -> Option<StrSeq<'de>> {
+    let compatible = node
+        .get_prop("compatible")
+        .map(|prop_item| prop_item.deserialize::<StrSeq<'de>>());
+    if let Some(compatible) = compatible {
+        Some(compatible)
     } else {
         None
     }
