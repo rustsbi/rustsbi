@@ -750,19 +750,15 @@ fn write_mhpmevent(mhpm_offset: u16, mhpmevent_val: u64) {
     if csr >= CSR_MHPMEVENT3 && csr <= CSR_MHPMEVENT31 {
         // Convert CSR value to register index (3-31)
         let idx = csr - CSR_MHPMEVENT3 + 3;
-        macro_rules! write_event {
-            ($($i:literal),*) => {
-                $(
-                    if idx == $i {
-                        pastey::paste!{ [<mhpmevent $i>]::write(mhpmevent_val as usize) };
-                    }
-                )*
-            }
-        }
 
         // Use seq_macro to generate all valid indices from 3 to 31
         seq_macro::seq!(N in 3..=31 {
-            write_event!(N);
+            match idx {
+                #(
+                    N => pastey::paste!{ [<mhpmevent ~N>]::write(mhpmevent_val as usize) },
+                )*
+                _ =>{}
+            }
         });
     }
 }
@@ -782,19 +778,14 @@ fn write_mhpmcounter(mhpm_offset: u16, mhpmcounter_val: u64) {
 
     // Only handle valid counter indices (3-31)
     if counter_idx >= 3 && counter_idx <= 31 {
-        macro_rules! write_counter {
-            ($($i:literal),*) => {
-                $(
-                    if counter_idx == $i {
-                        pastey::paste!{ [<mhpmcounter $i>]::write(mhpmcounter_val as usize) };
-                    }
-                )*
-            }
-        }
-
         // Call the macro with all valid indices
         seq_macro::seq!(N in 3..=31 {
-            write_counter!(N);
+            match counter_idx {
+                #(
+                    N => pastey::paste!{ [<mhpmcounter ~N>]::write(mhpmcounter_val as usize) },
+                )*
+                _ =>{}
+            }
         });
     }
 }
