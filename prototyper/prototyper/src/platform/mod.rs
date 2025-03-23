@@ -92,7 +92,7 @@ impl Platform {
         // Initialize pmu extension
         self.sbi_init_pmu(&root);
         // Get other info
-        self.sbi_mics_init(&tree);
+        self.sbi_misc_init(&tree);
 
         self.ready.swap(true, Ordering::Release);
     }
@@ -220,7 +220,7 @@ impl Platform {
         }
     }
 
-    fn sbi_mics_init(&mut self, tree: &Tree) {
+    fn sbi_misc_init(&mut self, tree: &Tree) {
         // Get memory info
         // TODO: More than one memory node or range?
         let memory_reg = tree
