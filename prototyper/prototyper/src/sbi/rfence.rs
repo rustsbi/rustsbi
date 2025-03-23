@@ -1,4 +1,5 @@
 use rustsbi::{HartMask, SbiRet};
+use sbi_spec::pmu::firmware_event;
 use spin::Mutex;
 
 use crate::cfg::{PAGE_SIZE, TLB_FLUSH_LIMIT};
@@ -9,6 +10,8 @@ use crate::sbi::trap_stack::ROOT_STACK;
 use core::arch::asm;
 
 use core::sync::atomic::{AtomicU32, Ordering};
+
+use super::pmu::pmu_firmware_counter_increment;
 
 /// Cell for managing remote fence operations between harts.
 pub(crate) struct RFenceCell {
@@ -198,6 +201,7 @@ fn remote_fence_process(rfence_ctx: RFenceContext, hart_mask: HartMask) -> SbiRe
 impl rustsbi::Fence for SbiRFence {
     /// Remote instruction fence for specified harts.
     fn remote_fence_i(&self, hart_mask: HartMask) -> SbiRet {
+        pmu_firmware_counter_increment(firmware_event::FENCE_I_SENT);
         remote_fence_process(
             RFenceContext {
                 start_addr: 0,
@@ -212,6 +216,7 @@ impl rustsbi::Fence for SbiRFence {
 
     /// Remote supervisor fence for virtual memory on specified harts.
     fn remote_sfence_vma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
+        pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_SENT);
         let flush_size = match validate_address_range(start_addr, size) {
             Ok(size) => size,
             Err(e) => return e,
@@ -237,6 +242,7 @@ impl rustsbi::Fence for SbiRFence {
         size: usize,
         asid: usize,
     ) -> SbiRet {
+        pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_ASID_SENT);
         let flush_size = match validate_address_range(start_addr, size) {
             Ok(size) => size,
             Err(e) => return e,
@@ -263,11 +269,13 @@ pub fn rfence_single_handler() {
         match ctx.op {
             // Handle instruction fence
             RFenceType::FenceI => unsafe {
+                pmu_firmware_counter_increment(firmware_event::FENCE_I_RECEIVED);
                 asm!("fence.i");
                 remote_rfence(id).unwrap().sub();
             },
             // Handle virtual memory address fence
             RFenceType::SFenceVma => {
+                pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_RECEIVED);
                 // If the flush size is greater than the maximum limit then simply flush all
                 if (ctx.start_addr == 0 && ctx.size == 0)
                     || (ctx.size == usize::MAX)
@@ -288,6 +296,7 @@ pub fn rfence_single_handler() {
             }
             // Handle virtual memory address fence with ASID
             RFenceType::SFenceVmaAsid => {
+                pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_ASID_RECEIVED);
                 let asid = ctx.asid;
                 // If the flush size is greater than the maximum limit then simply flush all
                 if (ctx.start_addr == 0 && ctx.size == 0)

@@ -42,6 +42,14 @@ pub(crate) fn prepare_for_trap() {
     };
 }
 
+pub fn hart_context_mut(hart_id: usize) -> &'static mut HartContext {
+    unsafe { ROOT_STACK.get_mut(hart_id).unwrap().hart_context_mut() }
+}
+
+pub fn hart_context(hart_id: usize) -> &'static HartContext {
+    unsafe { ROOT_STACK.get(hart_id).unwrap().hart_context() }
+}
+
 /// Stack type for each hart.
 ///
 /// Memory layout:
@@ -58,15 +66,21 @@ impl Stack {
 
     /// Gets mutable reference to hart context at bottom of stack.
     #[inline]
-    pub fn hart_context(&mut self) -> &mut HartContext {
+    pub fn hart_context_mut(&mut self) -> &mut HartContext {
         unsafe { &mut *self.0.as_mut_ptr().cast() }
+    }
+
+    /// Gets immutable reference to hart context at bottom of stack.
+    #[inline]
+    pub fn hart_context(&self) -> &HartContext {
+        unsafe { &*self.0.as_ptr().cast() }
     }
 
     /// Initializes stack for trap handling.
     /// - Sets up hart context.
     /// - Creates and loads FreeTrapStack with the stack range.
     fn load_as_stack(&'static mut self) {
-        let hart = self.hart_context();
+        let hart = self.hart_context_mut();
         let context_ptr = hart.context_ptr();
         hart.init();
 

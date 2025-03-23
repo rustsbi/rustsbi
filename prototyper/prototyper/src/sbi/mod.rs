@@ -3,11 +3,12 @@ use rustsbi::RustSBI;
 pub mod console;
 pub mod hsm;
 pub mod ipi;
+pub mod pmu;
 pub mod reset;
 pub mod rfence;
 
 pub mod early_trap;
-pub mod extensions;
+pub mod features;
 pub mod fifo;
 pub mod hart_context;
 pub mod heap;
@@ -18,6 +19,7 @@ pub mod trap_stack;
 use console::SbiConsole;
 use hsm::SbiHsm;
 use ipi::SbiIpi;
+use pmu::SbiPmu;
 use reset::SbiReset;
 use rfence::SbiRFence;
 
@@ -35,6 +37,8 @@ pub struct SBI {
     pub reset: Option<SbiReset>,
     #[rustsbi(fence)]
     pub rfence: Option<SbiRFence>,
+    #[rustsbi(pmu)]
+    pub pmu: Option<SbiPmu>,
 }
 
 impl SBI {
@@ -45,6 +49,7 @@ impl SBI {
             hsm: None,
             reset: None,
             rfence: None,
+            pmu: None,
         }
     }
 }
