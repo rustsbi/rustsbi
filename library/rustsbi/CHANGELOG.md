@@ -22,6 +22,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - susp: amend documentation on `system_suspend` function.
 - lib: replace map+unwrap_or with Option::map_or in impls
 - doc: lib: alter link to Prototyper firmware in documentation.
+- doc: lib: clarify error codes in documents of SBI IPI and RFENCE extensions
 
 ### Removed
 

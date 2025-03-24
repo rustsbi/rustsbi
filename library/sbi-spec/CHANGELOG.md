@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - examples: add an example on non-usize `HartMask` structure
 - examples: add an example for custom SBI error code
 - binary: add `TriggerMask` structure, it would be used in SBI DBTR extension
+- binary: add `SbiRet::denied_locked()` error code
 
 ### Modified
 
@@ -32,6 +33,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - base: implement `SbiRegister` for `i32`, `i64`, `i128` and `isize` primitive types
 - base: make HartMask and CounterMask generic over SBI registers
 - Add C language naming alias tags to all constants in the sbi-spec package
+- binary: refactor code to split binary structures into modules
 
 ### Fixed
 
