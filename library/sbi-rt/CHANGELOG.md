@@ -17,6 +17,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - rt: add DBTR extension support to SBI implementation.
 - dbtr: use `TriggerMask` structure in sbi-rt DBTR functions
 - rt: add structure for SSE, FWFT, DBTR, and MPXY extensions
+- lib: clarify error codes in documents of SBI IPI and RFENCE extensions
 
 ### Modified
 
