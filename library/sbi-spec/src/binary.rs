@@ -63,6 +63,10 @@ pub const RET_ERR_TIMEOUT: usize = <usize as SbiRegister>::RET_ERR_TIMEOUT;
 /// Error for input or output error.
 #[doc(alias = "SBI_ERR_IO")]
 pub const RET_ERR_IO: usize = <usize as SbiRegister>::RET_ERR_IO;
+/// Error for denied or not allowed due to lock status.
+#[doc(alias = "SBI_ERR_DENIED_LOCKED")]
+pub const RET_ERR_DENIED_LOCKED: usize = <usize as SbiRegister>::RET_ERR_DENIED_LOCKED;
+// ^^ Note: remember to add a test case in `rustsbi_sbi_ret_constructors` after adding an error number!
 
 /// Data type of register that can be passed to the RISC-V SBI ABI.
 ///
@@ -103,6 +107,8 @@ pub trait SbiRegister: Copy + Eq + Ord + core::fmt::Debug {
     const RET_ERR_TIMEOUT: Self;
     /// Error for input or output error.
     const RET_ERR_IO: Self;
+    /// Error for denied or not allowed due to lock status.
+    const RET_ERR_DENIED_LOCKED: Self;
 
     /// Zero value for this type; this is used on `value` fields once `SbiRet` returns an error.
     const ZERO: Self;
@@ -131,6 +137,7 @@ macro_rules! impl_sbi_register {
             const RET_ERR_BAD_RANGE: Self = -11 as $signed as $ty;
             const RET_ERR_TIMEOUT: Self = -12 as $signed as $ty;
             const RET_ERR_IO: Self = -13 as $signed as $ty;
+            const RET_ERR_DENIED_LOCKED: Self = -14 as $signed as $ty;
             const ZERO: Self = 0;
             const FULL_MASK: Self = !0;
 
@@ -150,6 +157,7 @@ macro_rules! impl_sbi_register {
                     Self::RET_ERR_BAD_RANGE => Err(Error::BadRange),
                     Self::RET_ERR_TIMEOUT => Err(Error::Timeout),
                     Self::RET_ERR_IO => Err(Error::Io),
+                    Self::RET_ERR_DENIED_LOCKED => Err(Error::DeniedLocked),
                     unknown => Err(Error::Custom(unknown as _)),
                 }
             }
@@ -184,6 +192,7 @@ impl<T: SbiRegister + core::fmt::LowerHex> core::fmt::Debug for SbiRet<T> {
                 Error::BadRange => write!(f, "<SBI bad range>"),
                 Error::Timeout => write!(f, "<SBI timeout>"),
                 Error::Io => write!(f, "<SBI input/output error>"),
+                Error::DeniedLocked => write!(f, "<SBI denied due to locked status>"),
                 Error::Custom(unknown) => write!(f, "[SBI Unknown error: {:#x}]", unknown),
             },
         }
@@ -219,6 +228,8 @@ pub enum Error<T = usize> {
     Timeout,
     /// Error for input or output error.
     Io,
+    /// Error for denied or not allowed due to lock status.
+    DeniedLocked,
     /// Custom error code.
     Custom(T),
 }
@@ -363,6 +374,14 @@ impl<T: SbiRegister> SbiRet<T> {
             value: T::ZERO,
         }
     }
+    /// SBI call failed for denied or not allowed due to lock status.
+    #[inline]
+    pub const fn denied_locked() -> Self {
+        Self {
+            error: T::RET_ERR_DENIED_LOCKED,
+            value: T::ZERO,
+        }
+    }
 }
 
 impl<T: SbiRegister> From<Error<T>> for SbiRet<T> {
@@ -382,6 +401,7 @@ impl<T: SbiRegister> From<Error<T>> for SbiRet<T> {
             Error::BadRange => SbiRet::bad_range(),
             Error::Timeout => SbiRet::timeout(),
             Error::Io => SbiRet::io(),
+            Error::DeniedLocked => SbiRet::denied_locked(),
             Error::Custom(error) => SbiRet {
                 error,
                 value: T::ZERO,
@@ -409,6 +429,7 @@ impl SbiRet {
             RET_ERR_BAD_RANGE => Err(Error::BadRange),
             RET_ERR_TIMEOUT => Err(Error::Timeout),
             RET_ERR_IO => Err(Error::Io),
+            RET_ERR_DENIED_LOCKED => Err(Error::DeniedLocked),
             unknown => Err(Error::Custom(unknown as _)),
         }
     }
@@ -1613,6 +1634,7 @@ mod tests {
         assert_eq!(SbiRet::bad_range(), SbiRet { value: 0, error: usize::MAX - 11 + 1 });
         assert_eq!(SbiRet::timeout(), SbiRet { value: 0, error: usize::MAX - 12 + 1 });
         assert_eq!(SbiRet::io(), SbiRet { value: 0, error: usize::MAX - 13 + 1 });
+        assert_eq!(SbiRet::denied_locked(), SbiRet { value: 0, error: usize::MAX - 14 + 1 });
     }
 
     #[test]
