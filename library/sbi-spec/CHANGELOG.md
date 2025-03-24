@@ -36,6 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Remove redundant license file on module path; the `sbi-spec` module inherits workspace level license files.
+- Fix typos.
 
 ## [0.0.8] - 2024-10-25
 
@@ -112,7 +113,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Modified
 
 - Rename `SbiRet::ok` to `SbiRet::success`
-- Rename `SbiSpecVersion` to struct `Version` 
+- Rename `SbiSpecVersion` to struct `Version`
 
 ## [0.0.3] - 2022-10-06
 
@@ -122,7 +123,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   check implementations during compilation, and provide an item list for developers
 - denied: warnings and unsafe code
 - a github workflow to check building
-- `SbiSpecVersion` type defination for sbi base
+- `SbiSpecVersion` type definition for sbi base
 
 ### Modified
 

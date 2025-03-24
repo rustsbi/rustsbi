@@ -202,12 +202,12 @@ impl Platform {
                 }
             }
 
-            if let Some(ref raw_evnet_to_mhpmcounters) = pmu.raw_event_to_mhpmcounters {
-                let len = raw_evnet_to_mhpmcounters.len();
+            if let Some(ref raw_event_to_mhpmcounters) = pmu.raw_event_to_mhpmcounters {
+                let len = raw_event_to_mhpmcounters.len();
                 for idx in 0..len {
-                    let raw_event_select = raw_evnet_to_mhpmcounters.get_event_idx_base(idx);
-                    let select_mask = raw_evnet_to_mhpmcounters.get_event_idx_mask(idx);
-                    let counters_mask = raw_evnet_to_mhpmcounters.get_counter_bitmap(idx);
+                    let raw_event_select = raw_event_to_mhpmcounters.get_event_idx_base(idx);
+                    let select_mask = raw_event_to_mhpmcounters.get_event_idx_mask(idx);
+                    let counters_mask = raw_event_to_mhpmcounters.get_counter_bitmap(idx);
                     let raw_event_to_counter =
                         RawEventToCounterMap::new(counters_mask, raw_event_select, select_mask);
                     debug!(

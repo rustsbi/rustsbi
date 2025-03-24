@@ -254,7 +254,7 @@ pub trait Pmu {
     ///
     /// Any future revisions to this structure should be made in a backward compatible manner and will be associated with an SBI version.
     ///
-    /// The logical counter indicies in the `counter_overflow_bitmap` and `counter_values` array are
+    /// The logical counter indices in the `counter_overflow_bitmap` and `counter_values` array are
     /// relative w.r.t to `counter_idx_base` argument present in the `pmu_counter_stop` and
     /// `pmu_counter_start` functions.
     /// This allows the users to use snapshot feature for more than `XLEN` counters if required.

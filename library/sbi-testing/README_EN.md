@@ -8,7 +8,7 @@
 
 - [中文自述文件](README.md)
 
-This library provides a set of test cases for supervisors to verify functions of the supervisor executation environment.
+This library provides a set of test cases for supervisors to verify functions of the supervisor execution environment.
 
 Characters implementation of SBI 1.0.0 specification:
 

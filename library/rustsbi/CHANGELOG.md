@@ -9,7 +9,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- ci: add `check-changlog` and `check-commit-signatures` in `workflows`.
+- ci: add `check-changelog` and `check-commit-signatures` in `workflows`.
 - pmu: add missing `snapshot_set_shmem` function and testcases in `Pmu` trait.
 - pmu: add missing `snapshot_set_shmem` function in `Pmu` trait, impl for `&T` and `Option<T>` and `Forward` structure
 - forward: derive `Copy`, `Default`, `PartialEq`, `Eq` and `Hash` for struct Forward
@@ -24,6 +24,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - doc: lib: alter link to Prototyper firmware in documentation.
 
 ### Removed
+
+
+### Fixed
+
+- Fix typos.
 
 ## [0.4.0]
 

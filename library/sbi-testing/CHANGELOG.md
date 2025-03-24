@@ -19,6 +19,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Rename `MArchId` and `MVendorId` into `MarchId` and `MvendorId` in `BaseCase`
 
 ### Fixed
+- Fix typos.
 
 ## [0.0.2] - 2023-01-20
 

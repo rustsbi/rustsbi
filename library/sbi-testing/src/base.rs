@@ -6,7 +6,7 @@ use sbi_spec::base::impl_id;
 /// Base extension test cases.
 #[derive(Clone, Debug)]
 pub enum Case {
-    /// Can't procceed test for base extension does not exist.
+    /// Can't proceed test for base extension does not exist.
     NotExist,
     /// Test begin.
     Begin,
