@@ -40,6 +40,8 @@ mod cppc;
 mod nacl;
 // §16
 mod sta;
+// §17
+mod sse;
 // §18
 mod fwft;
 // §19
@@ -64,6 +66,7 @@ pub use pmu::*;
 pub use rfnc::*;
 pub use spi::*;
 pub use srst::*;
+pub use sse::*;
 pub use sta::*;
 pub use susp::*;
 pub use time::*;
