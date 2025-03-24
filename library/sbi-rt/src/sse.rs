@@ -12,10 +12,10 @@ use sbi_spec::{
 /// and `attr_count` parameters specifies the range of event attribute IDs.
 ///
 /// The event attribute values are written to a output shared memory which is specified
-/// by the `output_phys_lo` and `output_phys_hi` parameters where:
+/// by the `output` parameter where:
 ///
-/// - The `input_phys_lo` parameter MUST be `XLEN / 8`bytes aligned
-/// - The size of input shared memory is assumed to be `(XLEN / 8) * attr_count`
+/// - The `output` parameter MUST be `XLEN / 8` bytes aligned
+/// - The size of output shared memory is assumed to be `(XLEN / 8) * attr_count`
 /// - The value of event attribute with ID `base_attr_id + i` should be read from offset `(XLEN / 8) * (base_attr_id + i)`
 ///
 /// The possible error codes returned in sbiret.error are shown below.
@@ -28,7 +28,7 @@ use sbi_spec::{
 /// | `SbiRet::not_supported()`   | `event_id` is not reserved and valid, but the platform does not support it due to one or more missing dependencies (Hardware or SBI implementation).
 /// | `SbiRet::invalid_param()`   | `event_id` is invalid or `attr_count` is zero.
 /// | `SbiRet::bad_range()`       | One of the event attribute IDs in the range specified by `base_attr_id` and `attr_count` is reserved.
-/// | `SbiRet::invalid_address()` | The shared memory pointed to by the `output_phys_lo` and `output_phys_hi` parameters does not satisfy the requirements.
+/// | `SbiRet::invalid_address()` | The shared memory pointed to by the `output` parameter does not satisfy the requirements.
 /// | `SbiRet::failed()`          | The read failed for unspecified or unknown other reasons.
 #[doc(alias = "sbi_sse_read_attrs")]
 #[inline]
@@ -55,9 +55,9 @@ pub fn sse_read_attrs(
 /// `attr_count` parameters specifies the range of event attribute IDs.
 ///
 /// The event attribute values are read from a input shared memory which is specified
-/// by the input_phys_lo and input_phys_hi parameters where:
+/// by the `input` parameter where:
 ///
-/// - The `input_phys_lo` parameter MUST be `XLEN / 8`bytes aligned
+/// - The `input` parameter MUST be `XLEN / 8` bytes aligned
 /// - The size of input shared memory is assumed to be `(XLEN / 8) * attr_count`
 /// - The value of event attribute with ID `base_attr_id + i` should be read from offset `(XLEN / 8) * (base_attr_id + i)`
 ///
@@ -73,7 +73,7 @@ pub fn sse_read_attrs(
 /// | `SbiRet::not_supported()`   | `event_id` is not reserved and valid, but the platform does not support it due to one or more missing dependencies (Hardware or SBI implementation).
 /// | `SbiRet::invalid_param()`   | `event_id` is invalid or `attr_count` is zero.
 /// | `SbiRet::bad_range()`       | One of the event attribute IDs in the range specified by `base_attr_id` and `attr_count` is reserved or is read-only.
-/// | `SbiRet::invalid_address()` | The shared memory pointed to by the `output_phys_lo` and `output_phys_hi` parameters does not satisfy the requirements.
+/// | `SbiRet::invalid_address()` | The shared memory pointed to by the `input` parameter does not satisfy the requirements.
 /// | `SbiRet::failed()`          | The write failed for unspecified or unknown other reasons.
 #[doc(alias = "sbi_sse_write_attrs")]
 #[inline]
@@ -115,7 +115,7 @@ pub fn sse_write_attrs(
 /// | `SbiRet::success()`         | Event handler is registered successfully.
 /// | `SbiRet::not_supported()`   | `event_id` is not reserved and valid, but the platform does not support it due to one or more missing dependencies (Hardware or SBI implementation).
 /// | `SbiRet::invalid_state()`   | `event_id` is valid but the event is not in `UNUSED` state.
-/// | `SbiRet::invalid_param()`   | `event_id` is invalid or `handler_entry_pc` is not 2-bytes a    
+/// | `SbiRet::invalid_param()`   | `event_id` is invalid or `handler_entry_pc` is not 2-bytes aligned.    
 #[doc(alias = "sbi_sse_register")]
 #[inline]
 pub fn sse_register(event_id: u32, handler_entry_pc: usize, handler_entry_arg: usize) -> SbiRet {
