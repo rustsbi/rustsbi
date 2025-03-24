@@ -13,7 +13,13 @@ use sbi_spec::{
 ///
 /// # Return value
 ///
-/// Should return `SbiRet::success()` if IPI was sent to all the targeted harts successfully.
+/// The possible return error codes returned in `SbiRet.error` are shown in the table below:
+///
+/// | Return code               | Description
+/// |:--------------------------|:----------------------------------------------
+/// | `SbiRet::success()`       | IPI was sent to all the targeted harts successfully.
+/// | `SbiRet::invalid_param()` | At least one hartid constructed from `hart_mask`, is not valid, i.e. either the hartid is not enabled by the platform or is not available to the supervisor.
+/// | `SbiRet::failed()`        | The request failed for unspecified or unknown other reasons.
 ///
 /// This function is defined in RISC-V SBI Specification chapter 7.1.
 #[inline]
