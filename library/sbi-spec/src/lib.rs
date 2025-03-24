@@ -92,6 +92,11 @@ mod tests {
         const_assert_eq!(-7, RET_ERR_ALREADY_STARTED as isize);
         const_assert_eq!(-8, RET_ERR_ALREADY_STOPPED as isize);
         const_assert_eq!(-9, RET_ERR_NO_SHMEM as isize);
+        const_assert_eq!(-10, RET_ERR_INVALID_STATE as isize);
+        const_assert_eq!(-11, RET_ERR_BAD_RANGE as isize);
+        const_assert_eq!(-12, RET_ERR_TIMEOUT as isize);
+        const_assert_eq!(-13, RET_ERR_IO as isize);
+        const_assert_eq!(-14, RET_ERR_DENIED_LOCKED as isize);
     }
     // §4
     #[test]
