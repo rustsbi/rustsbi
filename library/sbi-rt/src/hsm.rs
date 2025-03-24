@@ -122,7 +122,7 @@ pub fn hart_get_status(hartid: usize) -> SbiRet {
 
 /// Put the calling hart into suspend or platform specific lower power states.
 ///
-/// This function requests the SBI implementation to put the calling hart in a platform specfic suspend
+/// This function requests the SBI implementation to put the calling hart in a platform specific suspend
 /// (or low power) state specified by the `suspend_type` parameter.
 ///
 /// The hart will automatically come out of suspended state and resume normal execution

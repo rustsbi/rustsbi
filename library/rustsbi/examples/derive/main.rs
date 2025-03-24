@@ -51,7 +51,7 @@ fn main() {
     // In hypervisor: fill guest supervisor `a0` and `a1` with `SbiRet` value.
     let _ = ret; // It should be filled into context on real programs.
 
-    // Congratulations! You have learned how to use RustSBI to create your SBI implementaion.
+    // Congratulations! You have learned how to use RustSBI to create your SBI implementation.
     // You may consider using the RustSBI Prototyping System, build a standalone
     // binary package with runtime environment from scratch, or begin with your hypervisor
     // development.

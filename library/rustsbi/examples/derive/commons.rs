@@ -1,4 +1,4 @@
-// Mock implementaion module. Actual SBI implementaion should implement
+// Mock implementation module. Actual SBI implementation should implement
 // those SBI extensions with machine environment specific hardware features.
 
 use rustsbi::EnvInfo;

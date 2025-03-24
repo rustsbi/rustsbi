@@ -113,7 +113,7 @@ mod fid {
 ///
 /// Declared in §4.9.
 pub mod impl_id {
-    /// Berkley Bootloader.
+    /// Berkeley Bootloader.
     pub const BBL: usize = 0;
     /// OpenSBI.
     pub const OPEN_SBI: usize = 1;

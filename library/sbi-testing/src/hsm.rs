@@ -7,7 +7,7 @@ use sbi_spec::hsm::hart_state;
 /// Hart state monitor extension test cases.
 #[derive(Clone, Debug)]
 pub enum Case<'a> {
-    /// Can't procceed test for Hart state monitor extension does not exist.
+    /// Can't proceed test for Hart state monitor extension does not exist.
     NotExist,
     /// Test begin.
     Begin,

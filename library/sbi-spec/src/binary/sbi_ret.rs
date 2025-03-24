@@ -540,7 +540,7 @@ impl SbiRet {
     /// let x = SbiRet::invalid_param();
     /// assert_eq!(x.ok(), None);
     /// ```
-    // fixme: should be pub const fn once this function in Result is stablized in constant
+    // fixme: should be pub const fn once this function in Result is stabilized in constant
     #[inline]
     pub fn ok(self) -> Option<usize> {
         self.into_result().ok()
@@ -563,7 +563,7 @@ impl SbiRet {
     /// let x = SbiRet::denied();
     /// assert_eq!(x.err(), Some(Error::Denied));
     /// ```
-    // fixme: should be pub const fn once this function in Result is stablized in constant
+    // fixme: should be pub const fn once this function in Result is stabilized in constant
     #[inline]
     pub fn err(self) -> Option<Error> {
         self.into_result().err()
@@ -835,7 +835,7 @@ impl SbiRet {
     }
 
     // TODO: pub fn into_ok(self) -> usize and pub fn into_err(self) -> Error
-    // once `unwrap_infallible` is stablized
+    // once `unwrap_infallible` is stabilized
 
     /// Returns `res` if self is success value, otherwise otherwise returns the contained error
     /// of `self` as [`Error`] struct.
@@ -868,7 +868,7 @@ impl SbiRet {
     /// let y = SbiRet::success(5).into_result();
     /// assert_eq!(x.and(y), Ok(5));
     /// ```
-    // fixme: should be pub const fn once this function in Result is stablized in constant
+    // fixme: should be pub const fn once this function in Result is stabilized in constant
     // fixme: should parameter be `res: SbiRet`?
     #[inline]
     pub fn and<U>(self, res: Result<U, Error>) -> Result<U, Error> {
@@ -927,7 +927,7 @@ impl SbiRet {
     /// let y = SbiRet::success(100).into_result();
     /// assert_eq!(x.or(y), Ok(4));
     /// ```
-    // fixme: should be pub const fn once this function in Result is stablized in constant
+    // fixme: should be pub const fn once this function in Result is stabilized in constant
     // fixme: should parameter be `res: SbiRet`?
     #[inline]
     pub fn or<F>(self, res: Result<usize, F>) -> Result<usize, F> {
@@ -976,7 +976,7 @@ impl SbiRet {
     /// let x = SbiRet::invalid_param();
     /// assert_eq!(x.unwrap_or(default), default);
     /// ```
-    // fixme: should be pub const fn once this function in Result is stablized in constant
+    // fixme: should be pub const fn once this function in Result is stabilized in constant
     #[inline]
     pub fn unwrap_or(self, default: usize) -> usize {
         self.into_result().unwrap_or(default)
@@ -1079,7 +1079,7 @@ impl IntoIterator for SbiRet {
     }
 }
 
-// TODO: implement Try and FromResidual for SbiRet once those traits are stablized
+// TODO: implement Try and FromResidual for SbiRet once those traits are stabilized
 /*
 impl core::ops::Try for SbiRet {
     type Output = usize;

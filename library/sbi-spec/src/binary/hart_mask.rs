@@ -198,7 +198,7 @@ impl Iterator for HartIds {
         true
     }
 
-    // TODO: implement fn advance_by once it's stablized: https://github.com/rust-lang/rust/issues/77404
+    // TODO: implement fn advance_by once it's stabilized: https://github.com/rust-lang/rust/issues/77404
     // #[inline]
     // fn advance_by(&mut self, n: usize) -> Result<(), core::num::NonZero<usize>> { ... }
 }
@@ -227,7 +227,7 @@ impl DoubleEndedIterator for HartIds {
         }
     }
 
-    // TODO: implement advance_back_by once stablized.
+    // TODO: implement advance_back_by once stabilized.
     // #[inline]
     // fn advance_back_by(&mut self, n: usize) -> Result<(), core::num::NonZero<usize>> { ... }
 }

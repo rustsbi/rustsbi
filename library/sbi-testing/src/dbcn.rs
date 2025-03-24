@@ -6,7 +6,7 @@ use sbi_spec::binary::Physical;
 /// Debug console extension test cases.
 #[derive(Clone, Debug)]
 pub enum Case {
-    /// Can't procceed test for debug console extension does not exist.
+    /// Can't proceed test for debug console extension does not exist.
     NotExist,
     /// Test begin.
     Begin,

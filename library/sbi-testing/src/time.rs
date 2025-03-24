@@ -12,7 +12,7 @@ use riscv::{
 /// Timer programmer extension test cases.
 #[derive(Clone, Debug)]
 pub enum Case {
-    /// Can't procceed test for Timer extension does not exist.
+    /// Can't proceed test for Timer extension does not exist.
     NotExist,
     /// Test begin.
     Begin,

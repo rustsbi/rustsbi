@@ -13,7 +13,7 @@ use sbi::HartMask;
 /// Inter-processor Interrupt extension test cases.
 #[derive(Clone, Debug)]
 pub enum Case {
-    /// Can't procceed test for inter-processor interrupt extension does not exist.
+    /// Can't proceed test for inter-processor interrupt extension does not exist.
     NotExist,
     /// Test begin.
     Begin,

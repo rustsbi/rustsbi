@@ -214,7 +214,7 @@ pub fn sse_complete() -> SbiRet {
 
 /// The supervisor software can inject a software event with this function.
 ///
-/// The `event_id` paramater refers to the ID of the event to be injected.
+/// The `event_id` parameter refers to the ID of the event to be injected.
 ///
 /// For local events, the `hart_id` parameter refers to the hart on which the event is to be injected.
 /// For global events, the `hart_id` parameter is ignored.
