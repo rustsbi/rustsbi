@@ -1,10 +1,16 @@
 [package]
 name = "arceboot"
-version = "0.0.0"
+version = "0.0.1"
 edition = "2024"
+authors = ["Zhihang Shao <dio_ro@outlook.com>"]
 
 [dependencies]
-axstd = { git = "https://github.com/arceos-org/arceos.git", optional = true }
+axstd = { git = "https://github.com/arceos-org/arceos.git", optional = true, features = ["fs", "alloc"] }
+axfs = { git = "https://github.com/arceos-org/arceos.git" }
+axdriver = { git = "https://github.com/arceos-org/arceos.git", features = ["block", "ramdisk"] }
+axtask = { git = "https://github.com/arceos-org/arceos.git", features = ["test"] }
+axdriver_block = { git = "https://github.com/arceos-org/axdriver_crates.git", tag = "v0.1.2", features = ["ramdisk"] }
+object = "0.36.7"
 
 [features]
 default = []
