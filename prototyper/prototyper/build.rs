@@ -17,15 +17,17 @@ SECTIONS {
     . = 0x80000000;
 
     . = ALIGN(0x1000); /* Need this to create proper sections */
-
     sbi_start = .;
+
     .text : ALIGN(0x1000) { 
         *(.text.entry)
         *(.text .text.*)
     }
 
+    . = ALIGN(0x1000);
+    sbi_rodata_start = .;
+
     .rodata : ALIGN(0x1000) { 
-        sbi_rodata_start = .;
         *(.rodata .rodata.*)
         *(.srodata .srodata.*)
         . = ALIGN(0x1000);  
@@ -41,14 +43,15 @@ SECTIONS {
         __rel_dyn_end = .;
     }
 
+    . = ALIGN(0x1000);
     sbi_rodata_end = .;
 
 	/*
 	 * PMP regions must be to be power-of-2. RX/RW will have separate
 	 * regions, so ensure that the split is power-of-2.
 	 */
-	. = ALIGN(1 << LOG2CEIL((SIZEOF(.rodata) + SIZEOF(.text)
-				+ SIZEOF(.dynsym) + SIZEOF(.rela.dyn))));
+	/* . = ALIGN(1 << LOG2CEIL((SIZEOF(.rodata) + SIZEOF(.text)
+				+ SIZEOF(.dynsym) + SIZEOF(.rela.dyn)))); */
 
     .data : ALIGN(0x1000) { 
         sbi_data_start = .;
@@ -73,8 +76,12 @@ SECTIONS {
         *(.eh_frame)
     }
 
-	. = ALIGN(0x1000); /* Need this to create proper sections */
+    . = ALIGN(0x1000);
     sbi_end = .;
+
+    .text : ALIGN(0x1000) {
+        *(.fdt)
+    }
 
     .text 0x80200000 : ALIGN(0x1000) {
         *(.payload)
