@@ -27,7 +27,7 @@ pub struct BootHart {
 }
 
 #[naked]
-#[unsafe(link_section = ".rodata.fdt")]
+#[unsafe(link_section = ".fdt")]
 #[repr(align(16))]
 #[cfg(feature = "fdt")]
 pub extern "C" fn raw_fdt() {
@@ -67,13 +67,13 @@ static mut RODATA_END_ADDRESS: usize = 0;
 
 pub fn set_pmp(memory_range: &Range<usize>) {
     unsafe {
-        // [0..memory_range.start] RW
+        // [0..memory_range.start] RWX
         // [memory_range.start..sbi_start] RWX
         // [sbi_start..sbi_rodata_start] NONE
         // [sbi_rodata_start..sbi_rodata_end] NONE
         // [sbi_rodata_end..sbi_end] NONE
         // [sbi_end..memory_range.end] RWX
-        // [memory_range.end..INF] RW
+        // [memory_range.end..INF] RWX
         use riscv::register::*;
 
         asm!("la {}, sbi_start", out(reg) SBI_START_ADDRESS, options(nomem));
@@ -138,7 +138,7 @@ pub fn log_pmp_cfg(memory_range: &Range<usize>) {
             "{:<10} {:<10} {:<15} 0x{:08x}",
             "PMP 7:",
             "TOR",
-            "RW",
+            "RWX",
             usize::MAX
         );
     }
