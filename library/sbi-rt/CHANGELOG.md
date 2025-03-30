@@ -18,6 +18,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - dbtr: use `TriggerMask` structure in sbi-rt DBTR functions
 - rt: add structure for SSE, FWFT, DBTR, and MPXY extensions
 - rt: add SSE extension support to SBI implementation.
+- feat(rt): add MPXY extension support to SBI runtime library.
 
 ### Modified
 

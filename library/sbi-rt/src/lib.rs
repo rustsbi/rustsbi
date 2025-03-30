@@ -46,6 +46,8 @@ mod sse;
 mod fwft;
 // §19
 mod dbtr;
+// §20
+mod mpxy;
 
 pub use sbi_spec::{
     base::Version,
@@ -61,6 +63,7 @@ pub use dbcn::*;
 pub use dbtr::*;
 pub use fwft::*;
 pub use hsm::*;
+pub use mpxy::*;
 pub use nacl::*;
 pub use pmu::*;
 pub use rfnc::*;
