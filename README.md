@@ -61,6 +61,7 @@ Under normal circumstances these targets in Rust would start with `riscv??-` and
 - Written in Rust, builds under stable Rust
 - Capable to develop with other firmware ecosystem projects
 - Adapted for operating system kernel models on your choice
+- Included a LLM based Agent module called RustSBI Agent (https://github.com/rustsbi/Agent), which is designed to assist system software developers in their development process
 
 ## Frequently asked questions
 
