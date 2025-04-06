@@ -31,26 +31,47 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Build and configure the RustSBI Prototyper bootloader.
     Prototyper(PrototyperArg),
+    /// Build test-kernel for the RustSBI Prototyper.
     Test(TestArg),
+    /// Build bench-kernel for the RustSBI Prototyper.
     Bench(BenchArg),
 }
 
 fn main() -> ExitCode {
     let cli_args = Cli::parse();
-    logger::Logger::init(&cli_args).expect("Unable to init logger");
-
-    if let Some(code) = match cli_args.cmd {
-        Cmd::Prototyper(ref arg) => prototyper::run(arg),
-        Cmd::Test(ref arg) => test::run(arg),
-        Cmd::Bench(ref arg) => bench::run(arg),
-    } {
-        if code.success() {
-            info!("Finished");
-            return ExitCode::SUCCESS;
-        }
+    if let Err(e) = logger::Logger::init(&cli_args) {
+        eprintln!("Logger initialization failed: {}", e);
+        return ExitCode::FAILURE;
     }
 
-    error!("Failed to run task!");
-    ExitCode::FAILURE
+    // Execute the selected command
+    let result = match &cli_args.cmd {
+        Cmd::Prototyper(arg) => prototyper::run(arg),
+        Cmd::Test(arg) => test::run(arg),
+        Cmd::Bench(arg) => bench::run(arg),
+    };
+
+    match result {
+        Some(exit_status) if exit_status.success() => {
+            info!("Task completed successfully");
+            ExitCode::SUCCESS
+        }
+        Some(exit_status) => {
+            let cmd_name = match &cli_args.cmd {
+                Cmd::Prototyper(_) => "prototyper",
+                Cmd::Test(_) => "test",
+                Cmd::Bench(_) => "bench",
+            };
+            error!("Task '{}' failed with exit code: {}", cmd_name, exit_status);
+            ExitCode::FAILURE
+        }
+        None => {
+            error!(
+                "Task execution failed: operation was interrupted or encountered an unrecoverable error"
+            );
+            ExitCode::FAILURE
+        }
+    }
 }

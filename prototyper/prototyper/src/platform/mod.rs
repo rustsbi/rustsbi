@@ -441,15 +441,11 @@ impl Platform {
 
     #[inline]
     fn print_pmu_info(&self) {
-        info!(
-            "{:<30}: {}",
-            "Platform PMU Extension",
-            if self.have_pmu() {
-                "Available"
-            } else {
-                "Not Available"
-            }
-        );
+        if self.have_pmu() {
+            info!("{:<30}: {}", "Platform PMU Extension", "Available");
+        } else {
+            warn!("{:<30}: {}", "Platform PMU Extension", "Not Available");
+        }
     }
 
     #[inline]
