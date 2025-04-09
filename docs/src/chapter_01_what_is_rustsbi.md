@@ -1,6 +1,8 @@
 # 什么是 RustSBI？
 
-感谢您选择 RustSBI！RustSBI 是一款综合的安全引导解决方案。RustSBI 主要由 Rust 语言编写，适用于 RISC-V 的 Supervisor Binary Interface（SBI）架构，是遵守 MIT 或 Mulan-PSL v2 双协议发布的开源软件。RustSBI 在有效提升 RISC-V SBI 接口软件开发效率的同时，提供可供下载的二进制固件包，并包含大模型 Agent 应用模块，便于用户使用和二次开发。
+![logo](https://avatars.githubusercontent.com/u/85245528?s=400)
+
+感谢您选择 RustSBI！RustSBI 是一款综合的安全引导解决方案。RustSBI 主要由 Rust 语言编写，适用于 RISC-V 的 Supervisor Binary Interface（SBI）架构，是遵守 MIT 或 Mulan-PSL v2 双协议发布的开源软件。RustSBI 在有效提升 RISC-V SBI 接口软件开发效率的同时，提供可供下载的二进制固件包和多种生态软件整合方案，并包含大模型 Agent 应用模块，便于用户使用和二次开发。
 
 RustSBI 目前支持 RISC-V SBI 2.0 正式版，并已被 RISC-V 基金会收录为官方推荐的 RISC-V SBI 实现之一，它的实现编号为 4。
 
@@ -31,6 +33,6 @@ RustSBI 项目由以下模块构成。
 
 在第二章中，我们将详细介绍 RustSBI 的核心库，它具有核心抽象、函数和常量支持等多个功能，便于开发模拟器和虚拟化平台。第三章将主要介绍 RustSBI Prototyper 裸机引导程序，它可在裸机平台运行，支持运行于真实硬件和模拟器的裸机操作系统。第四章介绍平台支持模块，它构成组件化的驱动程序，同时运用于 RustSBI 和 Rust 系统软件生态，具有相关的支持程序。
 
-在产品介绍之后，各平台、系统支持将于第五章、第六章介绍。第七章将详细阐述如何运用 RustSBI 开发用户所需的系统软件模块；第八章介绍 RustSBI 孵化中的软件模块，如 RustSBI Agent 等大模型应用和 ArceBoot 引导程序。第九章介绍如何将 RustSBI 与生态中的各个引导软件联动使用，例如与 Oreboot 联合使用；第十章介绍 RustSBI 开源社区生态和贡献方法。
+在产品介绍之后，各平台、系统支持将于第五章、第六章介绍。第七章将详细阐述如何运用 RustSBI 开发系统软件开发者所需的软件包模块；第八章介绍 RustSBI 孵化中的子项目群，如 RustSBI Agent 等大模型应用和 ArceBoot 引导程序。第九章介绍如何将 RustSBI 与生态中的各个引导软件联动使用，例如与 Oreboot 或 Buildroot 联合使用；第十章介绍 RustSBI 开源社区生态和贡献方法。
 
 让我们开始吧！

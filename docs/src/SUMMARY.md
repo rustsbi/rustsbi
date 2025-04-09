@@ -48,6 +48,7 @@
     - [ArceBoot 特权态引导程序](./08_incubating/arceboot.md)
 - [引导生态简介](./chapter_09_ecosystem.md)
     - [Oreboot LinuxBoot 引导解决方案](./09_ecosystem/oreboot.md)
+    - [Buildroot RustSBI 解决方案](./09_ecosystem/buildroot.md)
     - [零阶段引导程序](./09_ecosystem/zsbl.md)
 - [开放源代码指南](./chapter_10_oss_guide.md)
     - [代码获取与构建](./10_oss_guide/01_usage.md)
