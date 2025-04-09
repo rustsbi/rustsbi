@@ -16,6 +16,7 @@ use sbi_spec::{
 ///
 /// This function is defined in RISC-V SBI Specification chapter 6.1.
 #[inline]
+#[doc(alias = "sbi_set_timer")]
 pub fn set_timer(stime_value: u64) -> SbiRet {
     match () {
         #[cfg(target_pointer_width = "32")]

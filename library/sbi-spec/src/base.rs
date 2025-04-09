@@ -1,6 +1,7 @@
 //! Chapter 4. Base Extension (EID #0x10).
 
 /// Extension ID for RISC-V SBI Base extension.
+#[doc(alias = "SBI_EXT_BASE")]
 pub const EID_BASE: usize = 0x10;
 pub use fid::*;
 
@@ -74,30 +75,37 @@ mod fid {
     /// Function ID to get the current SBI specification version.
     ///
     /// Declared in §4.1.
+    #[doc(alias = "SBI_EXT_BASE_GET_SPEC_VERSION")]
     pub const GET_SBI_SPEC_VERSION: usize = 0x0;
     /// Function ID to get the current SBI implementation ID.
     ///
     /// Declared in §4.2.
+    #[doc(alias = "SBI_EXT_BASE_GET_IMP_ID")]
     pub const GET_SBI_IMPL_ID: usize = 0x1;
     /// Function ID to get the current SBI implementation version.
     ///
     /// Declared in §4.3.
+    #[doc(alias = "SBI_EXT_BASE_GET_IMP_VERSION")]
     pub const GET_SBI_IMPL_VERSION: usize = 0x2;
     /// Function ID to probe information about one SBI extension from the current environment.
     ///
     /// Declared in §4.4.
+    #[doc(alias = "SBI_EXT_BASE_PROBE_EXT")]
     pub const PROBE_EXTENSION: usize = 0x3;
     /// Function ID to get the value of `mvendorid` register in the current environment.
     ///
     /// Declared in §4.5.
+    #[doc(alias = "SBI_EXT_BASE_GET_MVENDORID")]
     pub const GET_MVENDORID: usize = 0x4;
     /// Function ID to get the value of `marchid` register in the current environment.
     ///
     /// Declared in §4.6.
+    #[doc(alias = "SBI_EXT_BASE_GET_MARCHID")]
     pub const GET_MARCHID: usize = 0x5;
     /// Function ID to get the value of `mimpid` register in the current environment.
     ///
     /// Declared in §4.7.
+    #[doc(alias = "SBI_EXT_BASE_GET_MIMPID")]
     pub const GET_MIMPID: usize = 0x6;
 }
 
@@ -105,7 +113,7 @@ mod fid {
 ///
 /// Declared in §4.9.
 pub mod impl_id {
-    /// Berkley Bootloader.
+    /// Berkeley Bootloader.
     pub const BBL: usize = 0;
     /// OpenSBI.
     pub const OPEN_SBI: usize = 1;

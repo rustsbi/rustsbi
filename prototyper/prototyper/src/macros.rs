@@ -28,13 +28,13 @@ macro_rules! has_csr {
     ($($x: expr)*) => {{
             use core::arch::asm;
             use riscv::register::mtvec;
-            use crate::sbi::early_trap::expected_trap;
+            use crate::sbi::early_trap::light_expected_trap;
             let res: usize;
             unsafe {
                 // Backup old mtvec
                 let mtvec = mtvec::read().bits();
                 // Write expected_trap
-                mtvec::write(expected_trap as _, mtvec::TrapMode::Direct);
+                mtvec::write(light_expected_trap as _, mtvec::TrapMode::Direct);
                 asm!("addi a0, zero, 0",
                     "addi a1, zero, 0",
                     "csrr a2, {}",

@@ -92,6 +92,11 @@ mod tests {
         const_assert_eq!(-7, RET_ERR_ALREADY_STARTED as isize);
         const_assert_eq!(-8, RET_ERR_ALREADY_STOPPED as isize);
         const_assert_eq!(-9, RET_ERR_NO_SHMEM as isize);
+        const_assert_eq!(-10, RET_ERR_INVALID_STATE as isize);
+        const_assert_eq!(-11, RET_ERR_BAD_RANGE as isize);
+        const_assert_eq!(-12, RET_ERR_TIMEOUT as isize);
+        const_assert_eq!(-13, RET_ERR_IO as isize);
+        const_assert_eq!(-14, RET_ERR_DENIED_LOCKED as isize);
     }
     // §4
     #[test]
@@ -386,12 +391,13 @@ mod tests {
     fn test_mpxy() {
         use crate::mpxy::*;
         const_assert_eq!(0x4D505859, EID_MPXY);
-        const_assert_eq!(0, SET_SHMEM);
-        const_assert_eq!(1, GET_CHANNEL_IDS);
-        const_assert_eq!(2, READ_ATTRIBUTE);
-        const_assert_eq!(3, WRITE_ATTRIBUTE);
-        const_assert_eq!(4, SEND_MESSAGE_WITH_RESPONSE);
-        const_assert_eq!(5, SEND_MESSAGE_WITHOUT_RESPONSE);
-        const_assert_eq!(6, GET_NOTIFICATION_EVENTS);
+        const_assert_eq!(0, GET_SHMEM_SIZE);
+        const_assert_eq!(1, SET_SHMEM);
+        const_assert_eq!(2, GET_CHANNEL_IDS);
+        const_assert_eq!(3, READ_ATTRIBUTE);
+        const_assert_eq!(4, WRITE_ATTRIBUTE);
+        const_assert_eq!(5, SEND_MESSAGE_WITH_RESPONSE);
+        const_assert_eq!(6, SEND_MESSAGE_WITHOUT_RESPONSE);
+        const_assert_eq!(7, GET_NOTIFICATION_EVENTS);
     }
 }

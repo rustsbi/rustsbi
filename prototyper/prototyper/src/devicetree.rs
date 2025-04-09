@@ -2,6 +2,7 @@ use serde::Deserialize;
 use serde_device_tree::{
     Dtb, DtbPtr,
     buildin::{Node, NodeSeq, Reg, StrSeq},
+    value::riscv_pmu::{EventToMhpmcounters, EventToMhpmevent, RawEventToMhpcounters},
 };
 
 use core::ops::Range;
@@ -52,6 +53,16 @@ pub struct Memory<'a> {
     pub reg: Reg<'a>,
 }
 
+#[derive(Deserialize)]
+pub struct Pmu<'a> {
+    #[serde(rename = "riscv,event-to-mhpmevent")]
+    pub event_to_mhpmevent: Option<EventToMhpmevent<'a>>,
+    #[serde(rename = "riscv,event-to-mhpmcounters")]
+    pub event_to_mhpmcounters: Option<EventToMhpmcounters<'a>>,
+    #[serde(rename = "riscv,raw-event-to-mhpmcounters")]
+    pub raw_event_to_mhpmcounters: Option<RawEventToMhpcounters<'a>>,
+}
+
 /// Errors that can occur during device tree parsing.
 pub enum ParseDeviceTreeError {
     /// Invalid device tree format.
@@ -86,6 +97,17 @@ pub fn get_compatible_and_range<'de>(node: &Node) -> Option<(StrSeq<'de>, Range<
         } else {
             None
         }
+    } else {
+        None
+    }
+}
+
+pub fn get_compatible<'de>(node: &Node) -> Option<StrSeq<'de>> {
+    let compatible = node
+        .get_prop("compatible")
+        .map(|prop_item| prop_item.deserialize::<StrSeq<'de>>());
+    if let Some(compatible) = compatible {
+        Some(compatible)
     } else {
         None
     }

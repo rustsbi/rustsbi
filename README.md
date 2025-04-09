@@ -8,10 +8,10 @@ RISC-V Supervisor Binary Interface ([SBI](https://github.com/riscv-non-isa/riscv
 
 ## Binary downloads
 
-Most users would get RustSBI binary download from the RustSBI Prototyping System. Check out the link
-[here](https://github.com/rustsbi/standalone) to download binary package for your platform.
+Most users would get RustSBI binary download from the RustSBI Prototyper. Check out the documents [here](https://github.com/rustsbi/rustsbi/tree/main/prototyper)
+to build or download images for supported platforms.
 
-Boards, SoC vendors and research groups would provide dedicated RustSBI package for supported platforms.
+Boards, SoC vendors and research groups may sometimes provide dedicated RustSBI package for supported platforms.
 There are packages exists on [awesome-rustsbi](https://github.com/rustsbi/awesome-rustsbi): it is a curated list of
 awesome things related to RustSBI, which includes some implementation projects maintained by individuals or the community.
 
@@ -24,6 +24,12 @@ To compile RustSBI library, you need at least nightly Rust version of `rustc 1.8
 We are going to target stable Rustc once 2024 edition is landed (on 2025-02-20).
 
 ## Build this project
+
+### For firmware user
+
+If you need to build RustSBI firmware for M-mode, please refer to the [RustSBI Prototyper](prototyper/README.md) documentation.
+
+### For library user
 
 RustSBI is usually used as a library or dependency. If you wish to, you may build RustSBI library itself using the
 following command:
@@ -55,6 +61,7 @@ Under normal circumstances these targets in Rust would start with `riscv??-` and
 - Written in Rust, builds under stable Rust
 - Capable to develop with other firmware ecosystem projects
 - Adapted for operating system kernel models on your choice
+- Included a LLM based Agent module called RustSBI Agent (https://github.com/rustsbi/Agent), which is designed to assist system software developers in their development process
 
 ## Frequently asked questions
 
@@ -68,7 +75,7 @@ Check it out at [RustSBI document main page](https://docs.rs/rustsbi).
 2. Can I use RustSBI on C based kernels?
 
 Yes, you can! RustSBI strictly follows RISC-V SBI standard. All features are prepares for all programming languages,
-as long as they support RISC-V SBI defined calling convention. 
+as long as they support RISC-V SBI defined calling convention.
 
 If your kernel language supports other SBI implementations, usually it will support RustSBI in the same way.
 
@@ -89,7 +96,7 @@ slides and blog articles of these talks are available at [RustSBI/slides](https:
 2. Contributions are welcomed! We welcome to implement and test RustSBI for both FPGA cores and real cores.
    Implementations for emulators are also welcomed. If you are ready, start your own binary project and use
    RustSBI in it!
-3. If there is a bug in RustSBI project itself, fire an issue or pull request to let us know! 
+3. If there is a bug in RustSBI project itself, fire an issue or pull request to let us know!
 
 ## License & Copyright
 

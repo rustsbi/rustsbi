@@ -1,6 +1,8 @@
 pub mod boot;
 pub mod handler;
 
+mod helper;
+use super::pmu::pmu_firmware_counter_increment;
 use crate::fail::unsupported_trap;
 
 use fast_trap::{FastContext, FastResult};
@@ -9,6 +11,7 @@ use riscv::register::{
     mcause::{self, Trap},
     mepc, mip, mstatus,
 };
+use sbi_spec::pmu::firmware_event;
 
 /// Fast trap handler for all trap.
 pub extern "C" fn fast_handler(
@@ -42,7 +45,7 @@ pub extern "C" fn fast_handler(
 
                     ipi::clear_mtime();
                     unsafe {
-                        mip::clear_stimer();
+                        mip::set_stimer();
                     }
                     save_regs(&mut ctx);
                     ctx.restore()
@@ -53,15 +56,22 @@ pub extern "C" fn fast_handler(
                 }
                 // Handle illegal instructions
                 Trap::Exception(Exception::IllegalInstruction) => {
+                    pmu_firmware_counter_increment(firmware_event::ILLEGAL_INSN);
                     if mstatus::read().mpp() == mstatus::MPP::Machine {
                         panic!("Cannot handle illegal instruction exception from M-MODE");
                     }
-
                     save_regs(&mut ctx);
-                    if !handler::illegal_instruction_handler(&mut ctx) {
-                        handler::delegate(&mut ctx);
-                    }
-                    ctx.restore()
+                    ctx.continue_with(handler::illegal_instruction_handler, ())
+                }
+                Trap::Exception(Exception::LoadMisaligned) => {
+                    pmu_firmware_counter_increment(firmware_event::MISALIGNED_LOAD);
+                    save_regs(&mut ctx);
+                    ctx.continue_with(handler::load_misaligned_handler, ())
+                }
+                Trap::Exception(Exception::StoreMisaligned) => {
+                    pmu_firmware_counter_increment(firmware_event::MISALIGNED_STORE);
+                    save_regs(&mut ctx);
+                    ctx.continue_with(handler::store_misaligned_handler, ())
                 }
                 // Handle other traps
                 trap => unsupported_trap(Some(trap)),

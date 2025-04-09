@@ -1,13 +1,46 @@
 #![allow(unused)]
 
-/// CSR addresses for timer registers.
-///
-/// Time value (lower 32 bits).
-pub const CSR_TIME: u32 = 0xc01;
-/// Time value (upper 32 bits).
-pub const CSR_TIMEH: u32 = 0xc81;
-/// Supervisor timer compare value.
-pub const CSR_STIMECMP: u32 = 0x14D;
+use pastey::paste;
+use seq_macro::seq;
+
+/// CSR addresses
+pub const CSR_STIMECMP: u16 = 0x14D;
+pub const CSR_MCOUNTEREN: u16 = 0x306;
+pub const CSR_MENVCFG: u16 = 0x30a;
+pub const CSR_MCYCLE: u16 = 0xb00;
+pub const CSR_MINSTRET: u16 = 0xb02;
+seq!(N in 3..32 {
+    pub const CSR_MHPMCOUNTER~N: u16 = 0xb00 + N;
+});
+pub const CSR_MCYCLEH: u16 = 0xb80;
+pub const CSR_MINSTRETH: u16 = 0xb82;
+seq!(N in 3..32 {
+    paste! {
+        pub const [<CSR_MHPMCOUNTER ~N H>]: u16 = 0xb80 + N;
+    }
+});
+/* User Counters/Timers */
+pub const CSR_CYCLE: u16 = 0xc00;
+pub const CSR_TIME: u16 = 0xc01;
+pub const CSR_INSTRET: u16 = 0xc02;
+seq!(N in 3..32 {
+    pub const CSR_HPMCOUNTER~N: u16 = 0xc00 + N;
+});
+/// MHPMEVENT
+pub const CSR_MCOUNTINHIBIT: u16 = 0x320;
+pub const CSR_MCYCLECFG: u16 = 0x321;
+pub const CSR_MINSTRETCFG: u16 = 0x322;
+seq!(N in 3..32 {
+    pub const CSR_MHPMEVENT~N: u16 = 0x320 + N;
+});
+
+// For RV32
+pub const CSR_CYCLEH: u16 = 0xc80;
+pub const CSR_TIMEH: u16 = 0xc81;
+pub const CSR_INSTRETH: u16 = 0xc82;
+seq!(N in 3..32 {
+    paste!{ pub const [<CSR_HPMCOUNTER ~N H>]: u16 = 0xc80 + N; }
+});
 
 /// Machine environment configuration register (menvcfg) bit fields.
 pub mod menvcfg {
@@ -58,6 +91,24 @@ pub mod stimecmp {
     pub fn set(value: u64) {
         unsafe {
             asm!("csrrw zero, stimecmp, {}", in(reg) value, options(nomem));
+        }
+    }
+}
+
+pub mod mcycle {
+    use core::arch::asm;
+    pub fn write(value: u64) {
+        unsafe {
+            asm!("csrrw zero, mcycle, {}", in(reg) value, options(nomem));
+        }
+    }
+}
+
+pub mod minstret {
+    use core::arch::asm;
+    pub fn write(value: u64) {
+        unsafe {
+            asm!("csrrw zero, minstret, {}", in(reg) value, options(nomem));
         }
     }
 }

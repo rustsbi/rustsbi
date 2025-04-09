@@ -17,6 +17,7 @@ use sbi_spec::base::{
 /// According to the introduction of chapter 4, all base extension functions
 /// must success and return no error code.
 #[inline]
+#[doc(alias = "sbi_get_spec_version")]
 pub fn get_spec_version() -> Version {
     Version::from_raw(sbi_call_0(EID_BASE, GET_SBI_SPEC_VERSION).value)
 }
@@ -31,6 +32,7 @@ pub fn get_spec_version() -> Version {
 /// According to the introduction of chapter 4, all base extension functions
 /// must success and return no error code.
 #[inline]
+#[doc(alias = "sbi_get_impl_id")]
 pub fn get_sbi_impl_id() -> usize {
     sbi_call_0(EID_BASE, GET_SBI_IMPL_ID).value
 }
@@ -43,6 +45,7 @@ pub fn get_sbi_impl_id() -> usize {
 /// According to the introduction of chapter 4, all base extension functions
 /// must success and return no error code.
 #[inline]
+#[doc(alias = "sbi_get_impl_version")]
 pub fn get_sbi_impl_version() -> usize {
     sbi_call_0(EID_BASE, GET_SBI_IMPL_VERSION).value
 }
@@ -57,6 +60,7 @@ pub fn get_sbi_impl_version() -> usize {
 /// According to the introduction of chapter 4, all base extension functions
 /// must success and return no error code.
 #[inline]
+#[doc(alias = "sbi_probe_extension")]
 pub fn probe_extension<E>(extension: E) -> ExtensionInfo
 where
     E: Extension,
@@ -74,6 +78,7 @@ where
 /// According to the introduction of chapter 4, all base extension functions
 /// must success and return no error code.
 #[inline]
+#[doc(alias = "sbi_get_mvendorid")]
 pub fn get_mvendorid() -> usize {
     sbi_call_0(EID_BASE, GET_MVENDORID).value
 }
@@ -87,6 +92,7 @@ pub fn get_mvendorid() -> usize {
 /// According to the introduction of chapter 4, all base extension functions
 /// must success and return no error code.
 #[inline]
+#[doc(alias = "sbi_get_marchid")]
 pub fn get_marchid() -> usize {
     sbi_call_0(EID_BASE, GET_MARCHID).value
 }
@@ -100,6 +106,7 @@ pub fn get_marchid() -> usize {
 /// According to the introduction of chapter 4, all base extension functions
 /// must success and return no error code.
 #[inline]
+#[doc(alias = "sbi_get_mimpid")]
 pub fn get_mimpid() -> usize {
     sbi_call_0(EID_BASE, GET_MIMPID).value
 }
@@ -139,6 +146,10 @@ define_extension! {
     Cppc(sbi_spec::cppc::EID_CPPC) /// SBI CPPC extension.
     Nacl(sbi_spec::nacl::EID_NACL) /// Nested Acceleration extension.
     Sta(sbi_spec::sta::EID_STA) /// Steal-time Accounting extension.
+    Sse(sbi_spec::sse::EID_SSE) /// Supervisor Software Events extension.
+    Fwft(sbi_spec::fwft::EID_FWFT) /// Firmware Features extension.
+    Dbtr(sbi_spec::dbtr::EID_DBTR) /// Debug Triggers extension.
+    Mpxy(sbi_spec::mpxy::EID_MPXY) /// Message Proxy extension.
 }
 
 #[cfg(feature = "integer-impls")]
@@ -194,5 +205,9 @@ mod tests {
         assert_eq!(crate::Cppc.extension_id(), 0x43505043);
         assert_eq!(crate::Nacl.extension_id(), 0x4E41434C);
         assert_eq!(crate::Sta.extension_id(), 0x535441);
+        assert_eq!(crate::Sse.extension_id(), 0x535345);
+        assert_eq!(crate::Fwft.extension_id(), 0x46574654);
+        assert_eq!(crate::Dbtr.extension_id(), 0x44425452);
+        assert_eq!(crate::Mpxy.extension_id(), 0x4D505859);
     }
 }

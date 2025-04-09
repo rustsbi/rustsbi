@@ -75,9 +75,9 @@ impl Thread {
             // 设置线程仍在 S 态并打开中断
             let mut sstatus: usize;
             core::arch::asm!("csrr {}, sstatus", out(reg) sstatus);
-            const PREVILEGE_BIT: usize = 1 << 8;
+            const PRIVILEGE_BIT: usize = 1 << 8;
             const INTERRUPT_BIT: usize = 1 << 5;
-            sstatus |= PREVILEGE_BIT | INTERRUPT_BIT;
+            sstatus |= PRIVILEGE_BIT | INTERRUPT_BIT;
             // 执行线程
             // TODO support RV32 instruction set
             core::arch::asm!(

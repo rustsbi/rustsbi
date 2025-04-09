@@ -14,10 +14,17 @@ use sbi_spec::{
 ///
 /// # Return value
 ///
-/// Returns `SbiRet::success()` when a remote fence was sent to all the targeted harts successfully.
+/// The possible return error codes returned in `SbiRet.error` are shown in the table below:
+///
+/// | Return code               | Description
+/// |:--------------------------|:----------------------------------------------
+/// | `SbiRet::success()`       | A remote fence was sent to all the targeted harts successfully.
+/// | `SbiRet::invalid_param()` | At least one hartid constructed from `hart_mask`, is not valid, i.e. either the hartid is not enabled by the platform or is not available to the supervisor.
+/// | `SbiRet::failed()`        | The request failed for unspecified or unknown other reasons.
 ///
 /// This function is defined in RISC-V SBI Specification chapter 8.1.
 #[inline]
+#[doc(alias = "sbi_remote_fence_i")]
 pub fn remote_fence_i(hart_mask: HartMask) -> SbiRet {
     let (hart_mask, hart_mask_base) = hart_mask.into_inner();
     sbi_call_2(EID_RFNC, REMOTE_FENCE_I, hart_mask, hart_mask_base)
@@ -36,9 +43,12 @@ pub fn remote_fence_i(hart_mask: HartMask) -> SbiRet {
 /// |:----------------------------|:----------------------------------------------
 /// | `SbiRet::success()`         | A remote fence was sent to all the targeted harts successfully.
 /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
+/// | `SbiRet::invalid_param()`   | At least one hartid constructed from `hart_mask`, is not valid, i.e. either the hartid is not enabled by the platform or is not available to the supervisor.
+/// | `SbiRet::failed()`          | The request failed for unspecified or unknown other reasons.
 ///
 /// This function is defined in RISC-V SBI Specification chapter 8.2.
 #[inline]
+#[doc(alias = "sbi_remote_sfence_vma")]
 pub fn remote_sfence_vma(hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
     let (hart_mask, hart_mask_base) = hart_mask.into_inner();
     sbi_call_4(
@@ -65,9 +75,12 @@ pub fn remote_sfence_vma(hart_mask: HartMask, start_addr: usize, size: usize) ->
 /// |:----------------------------|:----------------------------------------------
 /// | `SbiRet::success()`         | A remote fence was sent to all the targeted harts successfully.
 /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
+/// | `SbiRet::invalid_param()`   | Either `asid`, or at least one hartid constructed from `hart_mask`, is not valid, i.e. either the hartid is not enabled by the platform or is not available to the supervisor.
+/// | `SbiRet::failed()`          | The request failed for unspecified or unknown other reasons.
 ///
 /// This function is defined in RISC-V SBI Specification chapter 8.3.
 #[inline]
+#[doc(alias = "sbi_remote_sfence_vma_asid")]
 pub fn remote_sfence_vma_asid(
     hart_mask: HartMask,
     start_addr: usize,
@@ -103,9 +116,12 @@ pub fn remote_sfence_vma_asid(
 /// | `SbiRet::success()`         | A remote fence was sent to all the targeted harts successfully.
 /// | `SbiRet::not_supported()`   | This function is not supported as it is not implemented or one of the target hart doesn’t support hypervisor extension.
 /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
+/// | `SbiRet::invalid_param()`   | Either `vmid`, or at least one hartid constructed from `hart_mask`, is not valid, i.e. either the hartid is not enabled by the platform or is not available to the supervisor.
+/// | `SbiRet::failed()`          | The request failed for unspecified or unknown other reasons.
 ///
 /// This function is defined in RISC-V SBI Specification chapter 8.4.
 #[inline]
+#[doc(alias = "sbi_remote_hfence_gvma_vmid")]
 pub fn remote_hfence_gvma_vmid(
     hart_mask: HartMask,
     start_addr: usize,
@@ -141,9 +157,12 @@ pub fn remote_hfence_gvma_vmid(
 /// | `SbiRet::success()`         | A remote fence was sent to all the targeted harts successfully.
 /// | `SbiRet::not_supported()`   | This function is not supported as it is not implemented or one of the target hart does not support hypervisor extension.
 /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
+/// | `SbiRet::invalid_param()`   | At least one hartid constructed from `hart_mask`, is not valid, i.e. either the hartid is not enabled by the platform or is not available to the supervisor.
+/// | `SbiRet::failed()`          | The request failed for unspecified or unknown other reasons.
 ///
 /// This function is defined in RISC-V SBI Specification chapter 8.5.
 #[inline]
+#[doc(alias = "sbi_remote_hfence_gvma")]
 pub fn remote_hfence_gvma(hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
     let (hart_mask, hart_mask_base) = hart_mask.into_inner();
     sbi_call_4(
@@ -174,9 +193,12 @@ pub fn remote_hfence_gvma(hart_mask: HartMask, start_addr: usize, size: usize) -
 /// | `SbiRet::success()`         | A remote fence was sent to all the targeted harts successfully.
 /// | `SbiRet::not_supported()`   | This function is not supported as it is not implemented or one of the target hart does not support hypervisor extension.
 /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
+/// | `SbiRet::invalid_param()`   | Either `asid`, or at least one hartid constructed from `hart_mask`, is not valid, i.e. either the hartid is not enabled by the platform or is not available to the supervisor.
+/// | `SbiRet::failed()`          | The request failed for unspecified or unknown other reasons.
 ///
 /// This function is defined in RISC-V SBI Specification chapter 8.6.
 #[inline]
+#[doc(alias = "sbi_remote_hfence_vvma_asid")]
 pub fn remote_hfence_vvma_asid(
     hart_mask: HartMask,
     start_addr: usize,
@@ -212,9 +234,12 @@ pub fn remote_hfence_vvma_asid(
 /// | `SbiRet::success()`         | A remote fence was sent to all the targeted harts successfully.
 /// | `SbiRet::not_supported()`   | This function is not supported as it is not implemented or one of the target hart doesn’t support hypervisor extension.
 /// | `SbiRet::invalid_address()` | `start_addr` or `size` is not valid.
+/// | `SbiRet::invalid_param()`   | At least one hartid constructed from `hart_mask`, is not valid, i.e. either the hartid is not enabled by the platform or is not available to the supervisor.
+/// | `SbiRet::failed()`          | The request failed for unspecified or unknown other reasons.
 ///
 /// This function is defined in RISC-V SBI Specification chapter 8.7.
 #[inline]
+#[doc(alias = "sbi_remote_hfence_vvma")]
 pub fn remote_hfence_vvma(hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
     let (hart_mask, hart_mask_base) = hart_mask.into_inner();
     sbi_call_4(

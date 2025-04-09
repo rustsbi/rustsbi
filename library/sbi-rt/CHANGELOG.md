@@ -12,6 +12,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - pmu: add missing `pmu_snapshot_set_shmem` function.
 - pmu: `pmu_snapshot_set_shmem` function signature, documents and implementation
 - lib: re-export `sbi_spec::base::CounterMask` on crate root.
+- rt: add FWFT extension support to SBI implementation.
+- Add C language naming alias tags to all functions of the sbi-rt library
+- rt: add DBTR extension support to SBI implementation.
+- dbtr: use `TriggerMask` structure in sbi-rt DBTR functions
+- rt: add structure for SSE, FWFT, DBTR, and MPXY extensions
+- rt: add SSE extension support to SBI implementation.
+- feat(rt): add MPXY extension support to SBI runtime library.
 
 ### Modified
 
@@ -23,6 +30,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - base: fix wrong `extension_id` of `Suspend` structure
 - binary: allow 8 arguments on internal function `sbi_call_6`.
+- lib: clarify error codes in documents of SBI IPI and RFENCE extensions.
+- Fix typos.
 
 ## [0.0.3] - 2024-02-08
 
@@ -69,3 +78,4 @@ If user chooses to use `integer-impls` feature, it would fall back to older styl
 [0.0.3]: https://github.com/rustsbi/sbi-rt/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/rustsbi/sbi-rt/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/rustsbi/sbi-rt/releases/tag/v0.0.1
+

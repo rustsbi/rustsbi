@@ -21,6 +21,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - examples: an SBI version example for usage of the Version structure
 - base: add special constant `V1_0` and `V2_0` for structure `Version`
 - examples: add an example on non-usize `HartMask` structure
+- examples: add an example for custom SBI error code
+- binary: add `TriggerMask` structure, it would be used in SBI DBTR extension
+- binary: add `SbiRet::denied_locked()` error code
 
 ### Modified
 
@@ -29,8 +32,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - base: refactor `SbiRet` to be generic of registers and introduce the `SbiRegister` trait
 - base: implement `SbiRegister` for `i32`, `i64`, `i128` and `isize` primitive types
 - base: make HartMask and CounterMask generic over SBI registers
+- Add C language naming alias tags to all constants in the sbi-spec package
+- binary: refactor code to split binary structures into modules
 
 ### Fixed
+
+- Remove redundant license file on module path; the `sbi-spec` module inherits workspace level license files.
+- Fix typos.
 
 ## [0.0.8] - 2024-10-25
 
@@ -107,7 +115,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Modified
 
 - Rename `SbiRet::ok` to `SbiRet::success`
-- Rename `SbiSpecVersion` to struct `Version` 
+- Rename `SbiSpecVersion` to struct `Version`
 
 ## [0.0.3] - 2022-10-06
 
@@ -117,7 +125,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   check implementations during compilation, and provide an item list for developers
 - denied: warnings and unsafe code
 - a github workflow to check building
-- `SbiSpecVersion` type defination for sbi base
+- `SbiSpecVersion` type definition for sbi base
 
 ### Modified
 

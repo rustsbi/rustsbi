@@ -11,6 +11,8 @@ use crate::riscv::current_hartid;
 use crate::sbi::hart_context::NextStage;
 use crate::sbi::trap_stack::ROOT_STACK;
 
+use super::trap_stack::hart_context;
+
 /// Special state indicating a hart is in the process of starting.
 const HART_STATE_START_PENDING_EXT: usize = usize::MAX;
 
@@ -152,24 +154,12 @@ impl<T: core::fmt::Debug> RemoteHsmCell<'_, T> {
 
 /// Gets the local HSM cell for the current hart.
 pub(crate) fn local_hsm() -> LocalHsmCell<'static, NextStage> {
-    unsafe {
-        ROOT_STACK
-            .get_unchecked_mut(current_hartid())
-            .hart_context()
-            .hsm
-            .local()
-    }
+    unsafe { hart_context(current_hartid()).hsm.local() }
 }
 
 /// Gets a remote view of the current hart's HSM cell.
 pub(crate) fn local_remote_hsm() -> RemoteHsmCell<'static, NextStage> {
-    unsafe {
-        ROOT_STACK
-            .get_unchecked_mut(current_hartid())
-            .hart_context()
-            .hsm
-            .remote()
-    }
+    hart_context(current_hartid()).hsm.remote()
 }
 
 /// Gets a remote view of any hart's HSM cell.

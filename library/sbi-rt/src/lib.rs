@@ -40,6 +40,14 @@ mod cppc;
 mod nacl;
 // §16
 mod sta;
+// §17
+mod sse;
+// §18
+mod fwft;
+// §19
+mod dbtr;
+// §20
+mod mpxy;
 
 pub use sbi_spec::{
     base::Version,
@@ -52,12 +60,16 @@ pub use sbi_spec::{
 pub use base::*;
 pub use cppc::*;
 pub use dbcn::*;
+pub use dbtr::*;
+pub use fwft::*;
 pub use hsm::*;
+pub use mpxy::*;
 pub use nacl::*;
 pub use pmu::*;
 pub use rfnc::*;
 pub use spi::*;
 pub use srst::*;
+pub use sse::*;
 pub use sta::*;
 pub use susp::*;
 pub use time::*;
