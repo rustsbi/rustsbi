@@ -2,6 +2,8 @@
 
 本章将详细介绍 RustSBI 核心库的架构设计与功能模块。
 
+> RustSBI 核心库通常用于开发 SBI 生态的系统软件。若需要寻找 RustSBI 提供的 SBI 固件以供下载、安装到真实硬件主板或模拟器，请参阅第三章 RustSBI Prototyper 项目。
+
 RustSBI 核心库采用分层设计理念，将核心功能与机器态实现解耦，通过多个功能模块化的 Rust 包（crate）为 RISC-V SBI 生态提供支持。其模块化架构适用于内核开发、安全固件设计、虚拟化方案及模拟器等不同场景，并不仅限于机器态 RISC-V 固件。它主要包含以下核心组件：
 
 1. [`rustsbi` SBI 服务抽象层](02_libraries/01_rustsbi.md)
