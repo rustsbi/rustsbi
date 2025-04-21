@@ -174,7 +174,7 @@ fn write_byte(&self, byte: u8) -> SbiRet;
 SBI CPPC 扩展应用于实现 ACPI 的系统固件。允许通过 SBI 调用访问系统软件环境中的 CPPC 寄存器。
 
 > ACPI 代表“高级配置和电源管理接口”（Advanced Configuration and Power Management Interface），而 CPPC 代表“协作处理器性能控制”（Collaborative Processor Performance Control）。
-
+>
 > 对不使用 ACPI 的系统环境，固件可不实现此扩展。
 
 CPPC 寄存器定义于 ACPI 标准规范中。每个 CPPC 寄存器都具有 32 位的寄存器编号；寄存器的宽度可能是 32 位或 64 位。许多 CPPC 寄存器是可读写的，也有一些 CPPC 寄存器是只读的。
@@ -310,7 +310,7 @@ fn write(&self, reg_id: u32, val: u64) -> SbiRet;
 | `SbiRet::denied` | CPPC 寄存器是只读的，禁止写入 |
 | `SbiRet::failed` | 写入过程中发生了未指定的错误 |
 
-### 远程栅栏扩展
+### RFNC 远程栅栏扩展
 
 远程栅栏扩展允许系统软件基于缓存同步等需求，指示其它核执行特定的同步指令。
 
@@ -380,6 +380,8 @@ pub trait Fence {
 }
 ```
 
+RFNC 扩展具有以下的函数。
+
 #### 远程执行 `FENCE.I` 指令
 
 ```rust
@@ -418,7 +420,7 @@ fn remote_sfence_vma(
 在对应的远程核上执行 `SFENCE.VMA` 指令，以刷新所有的地址空间中 `start_addr` 和 `size` 规定的虚拟地址段。
 
 > 相当于在对应的核上执行 `sfence.vma vaddr, x0` 或 `sfence.vma x0, x0` 指令。
-
+>
 > 当 `start_addr` 和 `size` 均为 0，或 `size` 等于 `usize::MAX` 时，表示刷新整个地址空间，即执行 `sfence.vma x0, x0` 指令；否则，表示刷新部分地址空间，即执行多个 `sfence.vma vaddr, x0` 指令。
 
 本函数不具有返回值，因而 `SbiRet::success` 永远返回 0。
@@ -493,10 +495,12 @@ fn remote_hfence_gvma_vmid(
 在对应的远程核上执行 `HFENCE.GVMA` 指令，以刷新 `vmid` 规定的虚拟机编号中，`start_addr` 和 `size` 规定的客户机物理地址段。
 
 > 相当于在对应的核上执行 `hfence.gvma x0, vmid` 或 `hfence.gvma gaddr, vmid` 指令。
-
+>
 > 当 `start_addr` 和 `size` 均为 0，或 `size` 等于 `usize::MAX` 时，表示刷新整个地址空间，执行 `hfence.gvma x0, vmid` 指令。
 
-> 代表客户机起始物理地址时，`start_addr`（对应指令中的 `gaddr`）应为实际物理地址向右移动 2 位，因为 RISC-V 允许物理地址位数超过虚拟地址位数 2 位。因此，远程执行的刷新指令必须要求实际物理地址以 4 字节对齐。
+`start_addr` 应为实际物理地址向右移动 2 位。
+
+> 代表客户机起始物理地址时，`start_addr`（对应指令中的 `gaddr`）应为实际物理地址向右移动 2 位，因为 RISC-V 在开启虚拟内存的情况下，允许物理地址位数超过虚拟地址位数 2 位。因此，远程执行的刷新指令必须要求实际物理地址以 4 字节对齐。
 
 函数只有在所有目标核都支持虚拟化 H 扩展时生效。
 
@@ -537,10 +541,12 @@ fn remote_hfence_gvma(
 在对应的远程核上执行 `HFENCE.GVMA` 指令，以刷新所有的虚拟机编号中 `start_addr` 和 `size` 规定的客户机物理地址段。
 
 > 相当于在对应的核上执行 `hfence.gvma x0, x0` 或 `hfence.gvma gaddr, x0` 指令。
-
+>
 > 当 `start_addr` 和 `size` 均为 0，或 `size` 等于 `usize::MAX` 时，表示刷新整个地址空间，执行 `hfence.gvma x0, x0` 指令。
 
-> 代表客户机起始物理地址时，`start_addr`（对应指令中的 `gaddr`）应为实际物理地址向右移动 2 位，因为 RISC-V 允许物理地址位数超过虚拟地址位数 2 位。因此，远程执行的刷新指令必须要求实际物理地址以 4 字节对齐。
+`start_addr` 应为实际物理地址向右移动 2 位。
+
+> 代表客户机起始物理地址时，`start_addr`（对应指令中的 `gaddr`）应为实际物理地址向右移动 2 位，因为 RISC-V 在开启虚拟内存的情况下，允许物理地址位数超过虚拟地址位数 2 位。因此，远程执行的刷新指令必须要求实际物理地址以 4 字节对齐。
 
 函数只有在所有目标核都支持虚拟化 H 扩展时生效。
 
@@ -581,7 +587,7 @@ fn remote_hfence_vvma_asid(
 在对应的远程核上执行 `HFENCE.VVMA` 指令，以刷新当前虚拟机内 `asid` 规定的地址空间中，`start_addr` 和 `size` 规定的虚拟地址段。
 
 > 相当于在对应的核上执行 `hfence.vvma x0, asid` 或 `hfence.vvma vaddr, asid` 指令。当前虚拟机编号可由 `hgatp.VMID` CSR 寄存器位域获得。
-
+>
 > 当 `start_addr` 和 `size` 均为 0，或 `size` 等于 `usize::MAX` 时，表示刷新整个地址空间，执行 `hfence.vvma x0, asid` 指令。
 
 函数只有在所有目标核都支持虚拟化 H 扩展时生效。
@@ -623,7 +629,7 @@ fn remote_hfence_vvma(
 在对应的远程核上执行 `HFENCE.VVMA` 指令，以刷新当前虚拟机内所有地址空间中，`start_addr` 和 `size` 规定的虚拟地址段。
 
 > 相当于在对应的核上执行 `hfence.vvma x0, x0` 或 `hfence.vvma vaddr, x0` 指令。当前虚拟机编号可由 `hgatp.VMID` CSR 寄存器位域获得。
-
+>
 > 当 `start_addr` 和 `size` 均为 0，或 `size` 等于 `usize::MAX` 时，表示刷新整个地址空间，执行 `hfence.vvma x0, x0` 指令。
 
 函数只有在所有目标核都支持虚拟化 H 扩展时生效。
@@ -650,21 +656,154 @@ fn remote_hfence_vvma(
 | `SbiRet::invalid_param` | 至少有一个被 `hart_mask` 选中的处理器核是 S 态中不可使用的 |
 | `SbiRet::failed` | 远程栅栏发生了未指定的错误 |
 
-### 多核管理扩展
+### HSM 多核管理扩展
 
-### 核间中断扩展
+多核管理扩展允许特权态（S 态）系统软件改变处理器核的运行状态。
 
-### 嵌套虚拟化加速扩展
+本扩展的特型描述如下。
 
-### 性能监测扩展
+```rust
+pub trait Hsm {
+    // Required methods
+    fn hart_start(
+        &self,
+        hartid: usize,
+        start_addr: usize,
+        opaque: usize,
+    ) -> SbiRet;
+    fn hart_stop(&self) -> SbiRet;
+    fn hart_get_status(&self, hartid: usize) -> SbiRet;
 
-### 系统重置扩展
+    // Provided method
+    fn hart_suspend(
+        &self,
+        suspend_type: u32,
+        resume_addr: usize,
+        opaque: usize,
+    ) -> SbiRet { ... }
+}
+```
 
-### 丢失时间扩展
+HSM 扩展具有以下的函数。
 
-### 系统挂起扩展
+#### 启动处理器核
 
-### 时钟扩展
+```rust
+fn hart_start(
+    &self,
+    hartid: usize,
+    start_addr: usize,
+    opaque: usize,
+) -> SbiRet;
+```
+
+启动对应处理器核到特权态（S 态）。
+
+启动处理器核到特权态后，处理器核的初始寄存器内容如下。
+
+| 寄存器 | 值 |
+|:------|:----|
+| `satp` | 0 |
+| `sstatus.SIE` | 0 |
+| `a0` | `hartid` |
+| `a1` | `opaque` 参数内容 |
+
+> 使用 HSM 扩展启动处理器核时，寄存器内容和通常的 SBI 启动流程一致。
+
+处理器核启动操作是异步的。只要 SBI 实现确保返回代码正确，启动处理器核函数可以在对应启动操作开始执行之前返回。
+
+若 SBI 实现是机器态（M 态）运行的 SBI 固件，则控制流转移到特权态（S 态）之前，它必须配置支持的任何物理内存保护机制（例如，PMP 定义的保护机制）和其它机器态（M 态）模式的状态。
+
+目标核必须具有 `start_addr` 地址指令的执行权限，否则返回错误。
+
+> 当物理内存保护机制（PMP 机制）或虚拟化 H 扩展的全局阶段（G 阶段）禁止此地址的执行操作时，`start_addr` 地址指令不具有执行权限，本函数应当返回 `SbiRet::invalid_address` 错误。
+
+函数传入 3 个参数：
+
+| 参数 | 说明 |
+|:----|:-----|
+| `hartid` | 需要启动的处理器核编号 |
+| `start_addr` | 处理器核启动时程序指针指向的物理地址 |
+| `opaque` | 处理器核启动时，`a1` 寄存器包含的值 |
+
+> 函数的 `start_addr` 参数表示物理地址，但是并不像通常的 SBI 扩展那样将物理地址分为高、低两部分。因为此时 `satp` 寄存器的内容（0）意味着内存管理单元（MMU）的虚拟内存功能一定被关闭，此时物理地址与虚拟地址的位宽相同。
+
+函数可能返回以下内容或错误：
+
+| 返回值 | 说明 |
+|:----|:-----|
+| `SbiRet::success` | 启动成功，对应核心将从 `start_addr` 开始运行 |
+| `SbiRet::invalid_address` | `start_addr` 无效，因为：它不是合法的物理地址，或物理内存保护机制（PMP 机制）、虚拟化 H 扩展的全局阶段（G 阶段）禁止此地址的执行操作 |
+| `SbiRet::invalid_param` | `hartid` 无效，它不能启动到特权态（S 态） |
+| `SbiRet::already_available` | `hartid` 对应的核已经启动 |
+| `SbiRet::failed` | 启动过程中发生了未指定的错误 |
+
+#### 停止处理器核
+
+```rust
+fn hart_stop(&self) -> SbiRet;
+```
+
+停止当前的处理器核。
+
+> 处理器核停止后，其所有权交还到 SBI 实现。
+
+停止处理器核函数执行成功后，函数不应当返回。
+
+必须在特权态（S 态）中断关闭的情况下停止当前处理器核。
+
+> 出于此 RISC-V SBI 规范标准的约定，SBI 实现不检查特权态中断是否已经关闭。
+
+本函数没有传入参数。
+
+函数可能返回以下错误：
+
+| 返回值 | 说明 |
+|:----|:-----|
+| `SbiRet::failed` | 停止过程中发生了未指定的错误 |
+
+> 停止处理器核函数是特殊的，它不会返回 `SbiRet::success`。
+
+#### 获取处理器核的运行状态
+
+```rust
+fn hart_get_status(&self, hartid: usize) -> SbiRet;
+```
+
+返回 `hartid` 处理器核的运行状态。
+
+> 由于任何并发的 `hart_start`、`hart_stop` 或 `hart_suspend` 操作，处理器核的运行状态可能随时切换。因此，函数的返回值无法代表实时的处理器核的运行状态。
+
+> SBI 实现中，应尽可能返回最新的处理器核运行信息，以减少系统软件中异步原语的调用次数。
+
+函数传入 1 个参数：
+
+| 参数 | 说明 |
+|:----|:-----|
+| `hartid` | 需要获取状态的处理器核编号 |
+
+函数可能返回以下内容或错误：
+
+| 返回值 | 说明 |
+|:----|:-----|
+| `SbiRet::success` | 获取成功，返回对应处理器核的运行状态 |
+| `SbiRet::invalid_param` | `hartid` 无效 |
+
+#### 暂停处理器核
+
+### IPI 核间中断扩展
+
+### NACL 嵌套虚拟化加速扩展
+
+### PMU 性能监测扩展
+
+### SRST（Reset）系统重置扩展
+
+### STA 丢失时间扩展
+
+### SUSP 系统挂起扩展
+
+### TIME（Timer）时钟扩展
 
 ## `EnvInfo` 特型
 
