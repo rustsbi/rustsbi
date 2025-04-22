@@ -20,8 +20,8 @@ or consult vendors if they provide discrete RustSBI package support.
 
 ## Minimum supported Rust version
 
-To compile RustSBI library, you need at least nightly Rust version of `rustc 1.83.0 (6b6a867ae 2024-11-27)`.
-We are going to target stable Rustc once 2024 edition is landed (on 2025-02-20).
+To compile RustSBI library, you need at least nightly Rust version of `rustc 1.88.0-nightly (d6c1e454a 2025-04-21)`.
+We are going to target stable Rustc once version 1.88.0 is landed (on 2025-06-25).
 
 ## Build this project
 

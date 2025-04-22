@@ -157,7 +157,7 @@ jobs:
           - riscv64imac-unknown-none-elf
           - riscv32imac-unknown-none-elf
         TOOLCHAIN:
-          - nightly-2025-04-21
+          - nightly-2025-04-22
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
