@@ -304,7 +304,7 @@ pub fn rfence_single_handler() {
                     || (ctx.size > TLB_FLUSH_LIMIT)
                 {
                     unsafe {
-                        asm!("sfence.vma {}, {}", in(reg) 0, in(reg) asid);
+                        asm!("sfence.vma x0, {}", in(reg) asid);
                     }
                 } else {
                     for offset in (0..ctx.size).step_by(PAGE_SIZE) {
