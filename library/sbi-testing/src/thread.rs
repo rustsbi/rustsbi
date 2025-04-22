@@ -109,76 +109,74 @@ impl Thread {
 /// # Safety
 ///
 /// 裸函数。
-#[naked]
+#[unsafe(naked)]
 unsafe extern "C" fn execute_naked() {
-    unsafe {
-        core::arch::naked_asm!(
-            r"  .altmacro
-            .macro SAVE n
-                sd x\n, \n*8(sp)
-            .endm
-            .macro SAVE_ALL
-                sd x1, 1*8(sp)
-                .set n, 3
-                .rept 29
-                    SAVE %n
-                    .set n, n+1
-                .endr
-            .endm
+    core::arch::naked_asm!(
+        r"  .altmacro
+        .macro SAVE n
+            sd x\n, \n*8(sp)
+        .endm
+        .macro SAVE_ALL
+            sd x1, 1*8(sp)
+            .set n, 3
+            .rept 29
+                SAVE %n
+                .set n, n+1
+            .endr
+        .endm
 
-            .macro LOAD n
-                ld x\n, \n*8(sp)
-            .endm
-            .macro LOAD_ALL
-                ld x1, 1*8(sp)
-                .set n, 3
-                .rept 29
-                    LOAD %n
-                    .set n, n+1
-                .endr
-            .endm
-        ",
-            // 位置无关加载
-            "   .option push
-            .option nopic
-        ",
-            // 保存调度上下文
-            "   addi sp, sp, -32*8
-            SAVE_ALL
-        ",
-            // 设置陷入入口
-            "   la   t0, 2f
-            csrw stvec, t0
-        ",
-            // 保存调度上下文地址并切换上下文
-            "   csrr t0, sscratch
-            sd   sp, (t0)
-            mv   sp, t0
-        ",
-            // 恢复线程上下文
-            "   LOAD_ALL
-            ld   sp, 2*8(sp)
-        ",
-            // 执行线程
-            "   sret",
-            // 陷入
-            "   .align 2",
-            // 切换上下文
-            "2: csrrw sp, sscratch, sp",
-            // 保存线程上下文
-            "   SAVE_ALL
-            csrrw t0, sscratch, sp
-            sd    t0, 2*8(sp)
-        ",
-            // 切换上下文
-            "   ld sp, (sp)",
-            // 恢复调度上下文
-            "   LOAD_ALL
-            addi sp, sp, 32*8
-        ",
-            // 返回调度
-            "   ret",
-            "   .option pop",
-        )
-    }
+        .macro LOAD n
+            ld x\n, \n*8(sp)
+        .endm
+        .macro LOAD_ALL
+            ld x1, 1*8(sp)
+            .set n, 3
+            .rept 29
+                LOAD %n
+                .set n, n+1
+            .endr
+        .endm
+    ",
+        // 位置无关加载
+        "   .option push
+        .option nopic
+    ",
+        // 保存调度上下文
+        "   addi sp, sp, -32*8
+        SAVE_ALL
+    ",
+        // 设置陷入入口
+        "   la   t0, 2f
+        csrw stvec, t0
+    ",
+        // 保存调度上下文地址并切换上下文
+        "   csrr t0, sscratch
+        sd   sp, (t0)
+        mv   sp, t0
+    ",
+        // 恢复线程上下文
+        "   LOAD_ALL
+        ld   sp, 2*8(sp)
+    ",
+        // 执行线程
+        "   sret",
+        // 陷入
+        "   .align 2",
+        // 切换上下文
+        "2: csrrw sp, sscratch, sp",
+        // 保存线程上下文
+        "   SAVE_ALL
+        csrrw t0, sscratch, sp
+        sd    t0, 2*8(sp)
+    ",
+        // 切换上下文
+        "   ld sp, (sp)",
+        // 恢复调度上下文
+        "   LOAD_ALL
+        addi sp, sp, 32*8
+    ",
+        // 返回调度
+        "   ret",
+        "   .option pop",
+    )
 }

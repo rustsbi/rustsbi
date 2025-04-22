@@ -142,7 +142,7 @@ jobs:
           cargo build --target ${{ matrix.TARGET }} --verbose -p sbi-testing --features "log"
 
   msrv-test:
-    name: MSRV Test (Rust 1.83.0)
+    name: MSRV Test (Rust 1.88.0)
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -157,7 +157,7 @@ jobs:
           - riscv64imac-unknown-none-elf
           - riscv32imac-unknown-none-elf
         TOOLCHAIN:
-          - nightly-2024-11-28
+          - nightly-2025-04-21
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
