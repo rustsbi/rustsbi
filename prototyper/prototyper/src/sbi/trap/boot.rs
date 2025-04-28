@@ -1,6 +1,7 @@
 use crate::riscv::current_hartid;
 use crate::sbi::hsm::local_hsm;
 use crate::sbi::ipi;
+use crate::sbi::trap_stack;
 use core::arch::naked_asm;
 use riscv::register::{mie, mstatus, satp, sstatus};
 
@@ -12,8 +13,9 @@ pub unsafe extern "C" fn boot() -> ! {
     unsafe {
         naked_asm!(
             ".align 2",
-            // Switch stacks
-            "csrrw  sp, mscratch, sp",
+            // Reset hart local stack
+            "call    {locate_stack}",
+            "csrw    mscratch, sp",
             // Allocate stack space
             "addi   sp, sp, -3*8",
             // Call handler with context pointer
@@ -23,15 +25,15 @@ pub unsafe extern "C" fn boot() -> ! {
             "ld     t0, 0*8(sp)
             csrw    mepc, t0",
             // Restore registers
-            "
-        ld      a0, 1*8(sp)
-        ld      a1, 2*8(sp)",
+            "ld      a0, 1*8(sp)",
+            "ld      a1, 2*8(sp)",
             // Restore stack pointer
-            "addi   sp, sp, 3*8",
+            "add     sp, sp, 3*8",
             // Switch stacks back
             "csrrw  sp, mscratch, sp",
             // Return from machine mode
             "mret",
+            locate_stack = sym trap_stack::locate,
             boot_handler = sym boot_handler,
         );
     }

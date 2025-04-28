@@ -29,6 +29,7 @@ use crate::sbi::logger;
 use crate::sbi::pmu::{EventToCounterMap, RawEventToCounterMap};
 use crate::sbi::reset::SbiReset;
 use crate::sbi::rfence::SbiRFence;
+use crate::sbi::suspend::SbiSuspend;
 
 mod clint;
 mod console;
@@ -87,7 +88,7 @@ impl Platform {
 
         // Get console device, init sbi console and logger.
         self.sbi_find_and_init_console(&root);
-        // Get clint and reset device, init sbi ipi, reset, hsm and rfence.
+        // Get clint and reset device, init sbi ipi, reset, hsm, rfence and susp extension.
         self.sbi_init_ipi_reset_hsm_rfence(&root);
         // Initialize pmu extension
         self.sbi_init_pmu(&root);
@@ -158,6 +159,7 @@ impl Platform {
         self.sbi_hsm_init();
         self.sbi_reset_init();
         self.sbi_rfence_init();
+        self.sbi_susp_init();
     }
 
     fn sbi_init_pmu(&mut self, root: &serde_device_tree::buildin::Node) {
@@ -255,6 +257,12 @@ impl Platform {
             let hart_id = cpu.reg.iter().next().unwrap().0.start;
             if let Some(x) = cpu_list.get_mut(hart_id) {
                 *x = true;
+            } else {
+                error!(
+                    "The maximum supported hart id is {}, but the hart id {} was obtained. Please check the config!",
+                    NUM_HART_MAX - 1,
+                    hart_id
+                );
             }
         }
         self.info.cpu_enabled = Some(cpu_list);
@@ -326,6 +334,14 @@ impl Platform {
         }
     }
 
+    fn sbi_susp_init(&mut self) {
+        if self.sbi.hsm.is_some() {
+            self.sbi.susp = Some(SbiSuspend);
+        } else {
+            self.sbi.susp = None;
+        }
+    }
+
     pub fn print_board_info(&self) {
         info!("RustSBI version {}", rustsbi::VERSION);
         rustsbi::LOGO.lines().for_each(|line| info!("{}", line));
@@ -372,6 +388,7 @@ impl Platform {
         self.print_reset_info();
         self.print_hsm_info();
         self.print_rfence_info();
+        self.print_susp_info();
         self.print_pmu_info();
     }
 
@@ -415,28 +432,29 @@ impl Platform {
 
     #[inline]
     fn print_hsm_info(&self) {
-        info!(
-            "{:<30}: {}",
-            "Platform HSM Extension",
-            if self.have_hsm() {
-                "Available"
-            } else {
-                "Not Available"
-            }
-        );
+        if self.have_hsm() {
+            info!("{:<30}: {}", "Platform HSM Extension", "Available");
+        } else {
+            warn!("{:<30}: {}", "Platform HSM Extension", "Not Available");
+        }
     }
 
     #[inline]
     fn print_rfence_info(&self) {
-        info!(
-            "{:<30}: {}",
-            "Platform RFence Extension",
-            if self.have_rfence() {
-                "Available"
-            } else {
-                "Not Available"
-            }
-        );
+        if self.have_rfence() {
+            info!("{:<30}: {}", "Platform RFence Extension", "Available");
+        } else {
+            warn!("{:<30}: {}", "Platform RFence Extension", "Not Available");
+        }
+    }
+
+    #[inline]
+    fn print_susp_info(&self) {
+        if self.have_susp() {
+            info!("{:<30}: {}", "Platform SUSP Extension", "Available");
+        } else {
+            warn!("{:<30}: {}", "Platform SUSP Extension", "Not Available");
+        }
     }
 
     #[inline]
@@ -496,6 +514,10 @@ impl Platform {
 
     pub fn have_rfence(&self) -> bool {
         self.sbi.rfence.is_some()
+    }
+
+    pub fn have_susp(&self) -> bool {
+        self.sbi.susp.is_some()
     }
 
     pub fn have_pmu(&self) -> bool {
