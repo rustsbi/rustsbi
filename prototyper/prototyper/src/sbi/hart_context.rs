@@ -1,8 +1,10 @@
 use crate::sbi::features::HartFeatures;
+use crate::sbi::features::PrivilegedVersion;
 use crate::sbi::hsm::HsmCell;
 use crate::sbi::rfence::RFenceCell;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicU8;
+use core::sync::atomic::Ordering;
 use fast_trap::FlowContext;
 use riscv::register::mstatus;
 
@@ -37,6 +39,36 @@ impl HartContext {
     #[inline]
     pub fn context_ptr(&mut self) -> NonNull<FlowContext> {
         unsafe { NonNull::new_unchecked(&mut self.trap) }
+    }
+
+    #[inline]
+    pub fn reset(&mut self) {
+        self.ipi_reset();
+        self.rfence_reset();
+        self.pmu_state_reset();
+    }
+
+    #[inline]
+    fn rfence_reset(&mut self) {
+        self.rfence = RFenceCell::new();
+    }
+
+    #[inline]
+    fn ipi_reset(&mut self) {
+        self.ipi_type.store(0, Ordering::Relaxed);
+    }
+
+    #[inline]
+    fn pmu_state_reset(&mut self) {
+        // stop all hardware pmu event
+        let hart_priv_version = self.features.privileged_version();
+        if hart_priv_version >= PrivilegedVersion::Version1_11 {
+            unsafe {
+                core::arch::asm!("csrw mcountinhibit, {}", in(reg) !0b10);
+            }
+        }
+        // reset hart pmu state
+        self.pmu_state = PmuState::new();
     }
 }
 

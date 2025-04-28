@@ -6,6 +6,7 @@ pub mod ipi;
 pub mod pmu;
 pub mod reset;
 pub mod rfence;
+pub mod suspend;
 
 pub mod early_trap;
 pub mod features;
@@ -22,6 +23,7 @@ use ipi::SbiIpi;
 use pmu::SbiPmu;
 use reset::SbiReset;
 use rfence::SbiRFence;
+use suspend::SbiSuspend;
 
 #[derive(RustSBI, Default)]
 #[rustsbi(dynamic)]
@@ -39,6 +41,8 @@ pub struct SBI {
     pub rfence: Option<SbiRFence>,
     #[rustsbi(pmu)]
     pub pmu: Option<SbiPmu>,
+    #[rustsbi(susp)]
+    pub susp: Option<SbiSuspend>,
 }
 
 impl SBI {
@@ -50,6 +54,7 @@ impl SBI {
             reset: None,
             rfence: None,
             pmu: None,
+            susp: None,
         }
     }
 }

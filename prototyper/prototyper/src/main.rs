@@ -108,7 +108,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     // Clear all pending IPIs.
     ipi::clear_all();
 
-    // Configure CSRs and trap handling.
+    // Configure CSRs
     unsafe {
         // Delegate all interrupts and exceptions to supervisor mode.
         asm!("csrw mideleg,    {}", in(reg) !0);

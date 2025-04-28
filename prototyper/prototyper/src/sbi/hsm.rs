@@ -10,8 +10,9 @@ use crate::platform::PLATFORM;
 use crate::riscv::current_hartid;
 use crate::sbi::hart_context::NextStage;
 use crate::sbi::trap_stack::ROOT_STACK;
+use crate::trap_stack::hart_context_mut;
 
-use super::trap_stack::hart_context;
+use super::{trap::boot::boot, trap_stack::hart_context};
 
 /// Special state indicating a hart is in the process of starting.
 const HART_STATE_START_PENDING_EXT: usize = usize::MAX;
@@ -131,10 +132,36 @@ impl<T: core::fmt::Debug> RemoteHsmCell<'_, T> {
         }
     }
 
+    /// Attempts to resume a suspended hart by providing resume data.
+    ///
+    /// Returns true if successful, false if hart was not in SUSPENDED state.
+    #[inline]
+    pub fn resume(&self, t: T) -> bool {
+        if self
+            .0
+            .status
+            .compare_exchange(
+                hart_state::SUSPENDED,
+                HART_STATE_START_PENDING_EXT,
+                Ordering::Acquire,
+                Ordering::Relaxed,
+            )
+            .is_ok()
+        {
+            unsafe { *self.0.inner.get() = Some(t) };
+            self.0
+                .status
+                .store(hart_state::START_PENDING, Ordering::Release);
+            true
+        } else {
+            false
+        }
+    }
+
     /// Gets the current state of the hart.
     #[allow(unused)]
     #[inline]
-    pub fn sbi_get_status(&self) -> usize {
+    pub fn get_status(&self) -> usize {
         match self.0.status.load(Ordering::Relaxed) {
             HART_STATE_START_PENDING_EXT => hart_state::START_PENDING,
             normal => normal,
@@ -212,33 +239,67 @@ impl rustsbi::Hsm for SbiHsm {
     #[inline]
     fn hart_get_status(&self, hartid: usize) -> SbiRet {
         match remote_hsm(hartid) {
-            Some(remote) => SbiRet::success(remote.sbi_get_status()),
+            Some(remote) => SbiRet::success(remote.get_status()),
             None => SbiRet::invalid_param(),
         }
     }
 
     /// Suspends execution on the current hart.
-    fn hart_suspend(&self, suspend_type: u32, _resume_addr: usize, _opaque: usize) -> SbiRet {
+    fn hart_suspend(&self, suspend_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
         use rustsbi::spec::hsm::suspend_type::{NON_RETENTIVE, RETENTIVE};
-        if matches!(suspend_type, NON_RETENTIVE | RETENTIVE) {
-            unsafe {
-                PLATFORM
-                    .sbi
-                    .ipi
-                    .as_ref()
-                    .unwrap()
-                    .clear_msip(current_hartid());
+
+        if !matches!(suspend_type, NON_RETENTIVE | RETENTIVE) {
+            return SbiRet::invalid_param();
+        }
+
+        crate::sbi::trap::handler::msoft_ipi_handler();
+        unsafe {
+            PLATFORM
+                .sbi
+                .ipi
+                .as_ref()
+                .unwrap()
+                .clear_msip(current_hartid());
+        }
+        unsafe {
+            riscv::register::mie::set_msoft();
+        }
+        local_hsm().suspend();
+        riscv::asm::wfi();
+        crate::sbi::trap::handler::msoft_ipi_handler();
+
+        match suspend_type {
+            RETENTIVE => {
+                local_hsm().resume();
+                return SbiRet::success(0);
             }
-            unsafe {
-                riscv::register::mie::set_msoft();
+            NON_RETENTIVE => return self.hart_resume(current_hartid(), resume_addr, opaque),
+            _ => return SbiRet::invalid_param(),
+        }
+    }
+}
+
+impl SbiHsm {
+    // non retentive resume
+    fn hart_resume(&self, hartid: usize, resume_addr: usize, opaque: usize) -> SbiRet {
+        match remote_hsm(hartid) {
+            Some(remote) => {
+                if remote.resume(NextStage {
+                    start_addr: resume_addr,
+                    opaque,
+                    next_mode: MPP::Supervisor,
+                }) {
+                    // reset the hart local context to prevent the hart context from being polluted
+                    hart_context_mut(hartid).reset();
+                    // boot resume hart from resume addr
+                    unsafe {
+                        boot();
+                    }
+                } else {
+                    SbiRet::failed()
+                }
             }
-            local_hsm().suspend();
-            riscv::asm::wfi();
-            crate::sbi::trap::handler::msoft_ipi_handler();
-            local_hsm().resume();
-            SbiRet::success(0)
-        } else {
-            SbiRet::not_supported()
+            None => SbiRet::failed(),
         }
     }
 }

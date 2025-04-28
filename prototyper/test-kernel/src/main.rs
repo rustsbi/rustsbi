@@ -116,7 +116,19 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     };
     let test_result = testing.test();
 
-    // PMU test, only available in qemu-system-riscv64 single core
+    pmu_test();
+
+    if test_result {
+        sbi::system_reset(sbi::Shutdown, sbi::NoReason);
+    } else {
+        sbi::system_reset(sbi::Shutdown, sbi::SystemFailure);
+    }
+    unreachable!()
+}
+
+#[inline]
+// PMU test, only available in qemu-system-riscv64 single core
+fn pmu_test() {
     let counters_num = sbi::pmu_num_counters();
     println!("[pmu] counters number: {}", counters_num);
     for idx in 0..counters_num {
@@ -278,13 +290,6 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     let ipi_num = sbi::pmu_counter_fw_read(ipi_counter_idx);
     assert!(ipi_num.is_ok());
     assert_eq!(ipi_num.value, 27);
-
-    if test_result {
-        sbi::system_reset(sbi::Shutdown, sbi::NoReason);
-    } else {
-        sbi::system_reset(sbi::Shutdown, sbi::SystemFailure);
-    }
-    unreachable!()
 }
 
 #[cfg_attr(not(test), panic_handler)]

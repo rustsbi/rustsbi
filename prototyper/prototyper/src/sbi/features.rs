@@ -15,6 +15,12 @@ pub struct HartFeatures {
     mhpm_bits: u32,
 }
 
+impl HartFeatures {
+    pub fn privileged_version(&self) -> PrivilegedVersion {
+        self.privileged_version
+    }
+}
+
 #[derive(Copy, Clone)]
 pub enum Extension {
     Sstc = 0,
