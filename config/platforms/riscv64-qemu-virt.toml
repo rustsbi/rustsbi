@@ -1,0 +1,77 @@
+# Architecture identifier.
+arch = "riscv64"                    # str
+# Platform identifier.
+platform = "riscv64-qemu-virt"      # str
+
+#
+# Platform configs
+#
+[plat]
+# Platform family.
+family = "riscv64-qemu-virt"        # str
+
+# Base address of the whole physical memory.
+phys-memory-base = 0x8000_0000      # uint
+# Size of the whole physical memory. (128M)
+phys-memory-size = 0x800_0000       # uint
+# Base physical address of the kernel image.
+kernel-base-paddr = 0x8020_0000     # uint
+# Base virtual address of the kernel image.
+kernel-base-vaddr = "0xffff_ffc0_8020_0000"     # uint
+# Linear mapping offset, for quick conversions between physical and virtual
+# addresses.
+phys-virt-offset = "0xffff_ffc0_0000_0000"      # uint
+# Offset of bus address and phys address. some boards, the bus address is
+# different from the physical address.
+phys-bus-offset = 0                             # uint
+# Kernel address space base.
+kernel-aspace-base = "0xffff_ffc0_0000_0000"    # uint
+# Kernel address space size.
+kernel-aspace-size = "0x0000_003f_ffff_f000"    # uint
+
+#
+# Device specifications
+#
+[devices]
+# MMIO regions with format (`base_paddr`, `size`).
+mmio-regions = [
+    [0x0010_1000, 0x1000],          # RTC
+    [0x0c00_0000, 0x21_0000],       # PLIC
+    [0x1000_0000, 0x1000],          # UART
+    [0x1000_1000, 0x8000],          # VirtIO
+    [0x3000_0000, 0x1000_0000],     # PCI config space
+    [0x4000_0000, 0x4000_0000],     # PCI memory ranges (ranges 1: 32-bit MMIO space)
+]                                   # [(uint, uint)]
+# VirtIO MMIO regions with format (`base_paddr`, `size`).
+virtio-mmio-regions = [
+    [0x1000_1000, 0x1000],
+    [0x1000_2000, 0x1000],
+    [0x1000_3000, 0x1000],
+    [0x1000_4000, 0x1000],
+    [0x1000_5000, 0x1000],
+    [0x1000_6000, 0x1000],
+    [0x1000_7000, 0x1000],
+    [0x1000_8000, 0x1000],
+] # [(uint, uint)]
+# Base physical address of the PCIe ECAM space.
+pci-ecam-base = 0x3000_0000 # uint
+# End PCI bus number (`bus-range` property in device tree).
+pci-bus-end = 0xff # uint
+# PCI device memory ranges (`ranges` property in device tree).
+pci-ranges = [
+    [0x0300_0000, 0x1_0000],        # PIO space
+    [0x4000_0000, 0x4000_0000],     # 32-bit MMIO space
+    [0x4_0000_0000, 0x4_0000_0000], # 64-bit MMIO space
+]                                   # [(uint, uint)]
+
+# Timer interrupt frequency in Hz.
+timer-frequency = 10_000_000        # uint
+
+# rtc@101000 {
+#     interrupts = <0x0b>;
+#     interrupt-parent = <0x03>;
+#     reg = <0x00 0x101000 0x00 0x1000>;
+#     compatible = "google,goldfish-rtc";
+# };
+# RTC (goldfish) Address
+rtc-paddr = 0x10_1000               # uint

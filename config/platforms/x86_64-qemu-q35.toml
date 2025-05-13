@@ -1,0 +1,54 @@
+# Architecture identifier.
+arch = "x86_64"                 # str
+# Platform identifier.
+platform = "x86_64-qemu-q35"    # str
+
+#
+# Platform configs
+#
+[plat]
+# Platform family.
+family = "x86-pc"               # str
+
+# Base address of the whole physical memory.
+phys-memory-base = 0            # uint
+# Size of the whole physical memory. (128M)
+phys-memory-size = 0x800_0000   # uint
+# Base physical address of the kernel image.
+kernel-base-paddr = 0x20_0000   # uint
+# Base virtual address of the kernel image.
+kernel-base-vaddr = "0xffff_8000_0020_0000"     # uint
+# Linear mapping offset, for quick conversions between physical and virtual
+# addresses.
+phys-virt-offset = "0xffff_8000_0000_0000"      # uint
+# Offset of bus address and phys address. some boards, the bus address is
+# different from the physical address.
+phys-bus-offset = 0                             # uint
+# Kernel address space base.
+kernel-aspace-base = "0xffff_8000_0000_0000"    # uint
+# Kernel address space size.
+kernel-aspace-size = "0x0000_7fff_ffff_f000"    # uint
+
+#
+# Device specifications
+#
+[devices]
+# MMIO regions with format (`base_paddr`, `size`).
+mmio-regions = [
+    [0xb000_0000, 0x1000_0000], # PCI config space
+    [0xfe00_0000, 0xc0_0000],   # PCI devices
+    [0xfec0_0000, 0x1000],      # IO APIC
+    [0xfed0_0000, 0x1000],      # HPET
+    [0xfee0_0000, 0x1000],      # Local APIC
+]                               # [(uint, uint)]
+# VirtIO MMIO regions with format (`base_paddr`, `size`).
+virtio-mmio-regions = []        # [(uint, uint)]
+# Base physical address of the PCIe ECAM space (should read from ACPI 'MCFG' table).
+pci-ecam-base = 0xb000_0000     # uint
+# End PCI bus number.
+pci-bus-end = 0xff              # uint
+# PCI device memory ranges (not used on x86).
+pci-ranges = []                 # [(uint, uint)]
+
+# Timer interrupt frequencyin Hz. (4.0GHz)
+timer-frequency = 4_000_000_000     # uint

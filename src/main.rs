@@ -1,57 +1,83 @@
-#![cfg_attr(feature = "axstd", no_std)]
-#![cfg_attr(feature = "axstd", no_main)]
+#![cfg_attr(not(test), no_std)]
+#![no_main]
 
 #[macro_use]
-#[cfg(feature = "axstd")]
-extern crate axstd as std;
+extern crate axlog;
 
-use axdriver::AxDeviceContainer;
-use axdriver_block::ramdisk::RamDisk;
-use axfs::api as fs;
-use fs::File;
-use object::{Object, ObjectSection};
+mod panic;
+mod log;
 
-const IMG_PATH: &'static str = "target/arceboot.img";
+#[cfg_attr(not(test), unsafe(no_mangle))]
+pub extern "C" fn rust_main(_cpu_id: usize, _dtb: usize) -> ! {
+    axlog::init();
+    axlog::set_max_level("debug"); // no effect if set `log-level-*` features
+    info!("Logging is enabled.");
 
-fn make_disk() -> std::io::Result<RamDisk> {
-    let path = std::env::current_dir()?.join(IMG_PATH);
-    println!("Loading disk image from {:?} ...", path);
-    let data = std::fs::read(path)?;
-    println!("size = {} bytes", data.len());
-    Ok(RamDisk::from(&data))
-}
-
-#[cfg_attr(feature = "axstd", unsafe(no_mangle))]
-fn main() {
-    println!("opening arceboot.img...");
-    let disk = make_disk().expect("failed to load disk image");
-    axfs::init_filesystems(AxDeviceContainer::from_one(disk));
-    let fname = "/EFI/BOOT/BOOTRISCV64.EFI";
-    println!("Reading fname: {}", fname);
-    let file = File::options().read(true).write(true).open(fname).unwrap();
-    let file_size = file.metadata().unwrap().len();
-    println!("size = {}", file_size);
-    let binary_data = fs::read(fname).unwrap();
-    let efi = object::File::parse(&*binary_data).unwrap();
-    for section in efi.sections() {
-        println!("{}", section.name().unwrap());
+    info!("Found physcial memory regions:");
+    for r in axhal::mem::memory_regions() {
+        info!(
+            "  [{:x?}, {:x?}) {} ({:?})",
+            r.paddr,
+            r.paddr + r.size,
+            r.name,
+            r.flags
+        );
     }
-    println!("finished opening arceboot.img...");
-    
-    // ... 加载流程
-    
-    // address: usize
-    // let entry = mem_address as Entry;
-    //
-    // let status = entry();
-    // if status.is_error() {
-    //     println!("...")
-    // }
+
+    #[cfg(feature = "alloc")]
+    init_allocator();
+
+    #[cfg(feature = "paging")]
+    axmm::init_memory_management();
+
+    info!("Initialize platform devices...");
+    axhal::platform_init();
+
+    #[cfg(any(feature = "fs", feature = "net", feature = "display"))]
+    {
+        #[allow(unused_variables)]
+        let all_devices = axdriver::init_drivers();
+
+        #[cfg(feature = "fs")]
+        axfs::init_filesystems(all_devices.block);
+
+        #[cfg(feature = "net")]
+        axnet::init_network(all_devices.net);
+
+        #[cfg(feature = "display")]
+        axdisplay::init_display(all_devices.display);
+    }
+    ctor_bare::call_ctors();
+
+    info!("will shut down.");
+
+    axhal::misc::terminate();
 }
 
-// efi_main (EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
-//type Entry = extern "efiapi" fn(uefi::Handle, *const core::ffi::c_void) -> uefi::Status;
+fn init_allocator() {
+    use axhal::mem::{MemRegionFlags, memory_regions, phys_to_virt};
 
-// extern "efiapi" fn output_string(this: *mut SimpleTextOutputProtocol, string: *const Char16) -> Status {
-//
-// }
+    info!("Initialize global memory allocator...");
+    info!("  use {} allocator.", axalloc::global_allocator().name());
+
+    let mut max_region_size = 0;
+    let mut max_region_paddr = 0.into();
+    for r in memory_regions() {
+        if r.flags.contains(MemRegionFlags::FREE) && r.size > max_region_size {
+            max_region_size = r.size;
+            max_region_paddr = r.paddr;
+        }
+    }
+    for r in memory_regions() {
+        if r.flags.contains(MemRegionFlags::FREE) && r.paddr == max_region_paddr {
+            axalloc::global_init(phys_to_virt(r.paddr).as_usize(), r.size);
+            break;
+        }
+    }
+    for r in memory_regions() {
+        if r.flags.contains(MemRegionFlags::FREE) && r.paddr != max_region_paddr {
+            axalloc::global_add_memory(phys_to_virt(r.paddr).as_usize(), r.size)
+                .expect("add heap memory region failed");
+        }
+    }
+}

@@ -2,18 +2,32 @@
 name = "arceboot"
 version = "0.0.1"
 edition = "2024"
-authors = ["Zhihang Shao <dio_ro@outlook.com>"]
-
-[dependencies]
-axstd = { git = "https://github.com/arceos-org/arceos.git", optional = true, features = ["fs", "alloc"] }
-axfs = { git = "https://github.com/arceos-org/arceos.git" }
-axdriver = { git = "https://github.com/arceos-org/arceos.git", features = ["block", "ramdisk"] }
-axtask = { git = "https://github.com/arceos-org/arceos.git", features = ["test"] }
-axdriver_block = { git = "https://github.com/arceos-org/axdriver_crates.git", tag = "v0.1.2", features = ["ramdisk"] }
-object = "0.36.7"
+authors = ["Zhihang Shao <dio_ro@outlook.com>", "Jingxuan Wei <jensenwei007@gmail.com>"]
 
 [features]
-default = []
-axstd = ["dep:axstd"]
+default = ["alloc", "fs", "paging", "disk"]
 
-log-level-trace = ["axstd/log-level-trace"]
+alloc = ["axalloc"]
+paging = ["axhal/paging", "axmm"]
+
+fs = ["axdriver", "axfs"]
+net = ["axdriver", "axnet"]
+display = ["axdriver", "axdisplay"]
+
+disk = ["axdriver/virtio-blk"]
+
+[dependencies]
+axhal = { git = "https://github.com/arceos-org/arceos.git" }
+axlog = { git = "https://github.com/arceos-org/arceos.git" }
+axconfig = { git = "https://github.com/arceos-org/arceos.git" }
+axalloc = { git = "https://github.com/arceos-org/arceos.git", optional = true }
+axmm = { git = "https://github.com/arceos-org/arceos.git", optional = true }
+axdriver = { git = "https://github.com/arceos-org/arceos.git", optional = true }
+axfs = { git = "https://github.com/arceos-org/arceos.git", optional = true }
+axnet = { git = "https://github.com/arceos-org/arceos.git", optional = true }
+axdisplay = { git = "https://github.com/arceos-org/arceos.git", optional = true }
+
+crate_interface = "0.1"
+ctor_bare = "0.2"
+
+chrono = { version = "0.4.38", default-features = false }
