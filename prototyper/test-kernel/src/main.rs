@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(naked_functions)]
 #![allow(static_mut_refs)]
 
 #[macro_use]
@@ -25,39 +24,32 @@ const RISCV_IMAGE_MAGIC: u64 = 0x5643534952; /* Magic number, little endian, "RI
 const RISCV_IMAGE_MAGIC2: u32 = 0x05435352; /* Magic number 2, little endian, "RSC\x05" */
 
 /// boot header
-#[naked]
+#[unsafe(naked)]
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".head.text")]
 unsafe extern "C" fn _boot_header() -> ! {
-    unsafe {
-        naked_asm!(
-            "j _start",
-            ".word 0",
-            ".balign 8",
-            ".dword 0x200000",
-            ".dword iend - istart",
-            ".dword {RISCV_HEAD_FLAGS}",
-            ".word  {RISCV_HEADER_VERSION}",
-            ".word  0",
-            ".dword 0",
-            ".dword {RISCV_IMAGE_MAGIC}",
-            ".balign 4",
-            ".word  {RISCV_IMAGE_MAGIC2}",
-            ".word  0",
-            RISCV_HEAD_FLAGS = const RISCV_HEAD_FLAGS,
-            RISCV_HEADER_VERSION = const RISCV_HEADER_VERSION,
-            RISCV_IMAGE_MAGIC = const RISCV_IMAGE_MAGIC,
-            RISCV_IMAGE_MAGIC2 = const RISCV_IMAGE_MAGIC2,
-        );
-    }
+    naked_asm!(
+        "j _start",
+        ".word 0",
+        ".balign 8",
+        ".dword 0x200000",
+        ".dword iend - istart",
+        ".dword {RISCV_HEAD_FLAGS}",
+        ".word  {RISCV_HEADER_VERSION}",
+        ".word  0",
+        ".dword 0",
+        ".dword {RISCV_IMAGE_MAGIC}",
+        ".balign 4",
+        ".word  {RISCV_IMAGE_MAGIC2}",
+        ".word  0",
+        RISCV_HEAD_FLAGS = const RISCV_HEAD_FLAGS,
+        RISCV_HEADER_VERSION = const RISCV_HEADER_VERSION,
+        RISCV_IMAGE_MAGIC = const RISCV_IMAGE_MAGIC,
+        RISCV_IMAGE_MAGIC2 = const RISCV_IMAGE_MAGIC2,
+    );
 }
 
-/// 内核入口。
-///
-/// # Safety
-///
-/// 裸函数。
-#[naked]
+#[unsafe(naked)]
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text.entry")]
 unsafe extern "C" fn _start(hartid: usize, device_tree_paddr: usize) -> ! {
@@ -66,23 +58,21 @@ unsafe extern "C" fn _start(hartid: usize, device_tree_paddr: usize) -> ! {
     #[unsafe(link_section = ".bss.uninit")]
     static mut STACK: [u8; STACK_SIZE] = [0u8; STACK_SIZE];
 
-    unsafe {
-        naked_asm!(
-            // clear bss segment
-            "   la      t0, sbss
+    naked_asm!(
+        // clear bss segment
+        "   la      t0, sbss
             la      t1, ebss
         1:  bgeu    t0, t1, 2f
             sd      zero, 0(t0)
             addi    t0, t0, 8
             j       1b",
-            "2:",
-            "   la sp, {stack} + {stack_size}",
-            "   j  {main}",
-            stack_size = const STACK_SIZE,
-            stack      =   sym STACK,
-            main       =   sym rust_main,
-        )
-    }
+        "2:",
+        "   la sp, {stack} + {stack_size}",
+        "   j  {main}",
+        stack_size = const STACK_SIZE,
+        stack      =   sym STACK,
+        main       =   sym rust_main,
+    )
 }
 
 extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
@@ -117,6 +107,7 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     let test_result = testing.test();
 
     pmu_test();
+    fence_test();
 
     if test_result {
         sbi::system_reset(sbi::Shutdown, sbi::NoReason);
@@ -290,6 +281,35 @@ fn pmu_test() {
     let ipi_num = sbi::pmu_counter_fw_read(ipi_counter_idx);
     assert!(ipi_num.is_ok());
     assert_eq!(ipi_num.value, 27);
+}
+
+#[inline]
+// Fence and HFence test
+fn fence_test() {
+    // Fence.i test (should succeed, no-op for PMU, but should not panic)
+    let ret = sbi::remote_fence_i(HartMask::from_mask_base(0x1, 0));
+    assert!(ret.is_ok() || ret == SbiRet::not_supported());
+
+    // SFence.vma test (should succeed, no-op for PMU, but should not panic)
+    let ret = sbi::remote_sfence_vma(HartMask::from_mask_base(0x1, 0), 0, 0);
+    assert!(ret.is_ok() || ret == SbiRet::not_supported());
+
+    // SFence.vma with asid test
+    let ret = sbi::remote_sfence_vma_asid(HartMask::from_mask_base(0x1, 0), 0, 0, 0);
+    assert!(ret.is_ok() || ret == SbiRet::not_supported());
+
+    // HFence tests (if supported)
+    let ret = sbi::remote_hfence_gvma(HartMask::from_mask_base(0x1, 0), 0, 0);
+    assert!(ret.is_ok() || ret == SbiRet::not_supported());
+
+    let ret = sbi::remote_hfence_gvma_vmid(HartMask::from_mask_base(0x1, 0), 0, 0, 0);
+    assert!(ret.is_ok() || ret == SbiRet::not_supported());
+
+    let ret = sbi::remote_hfence_vvma(HartMask::from_mask_base(0x1, 0), 0, 0);
+    assert!(ret.is_ok() || ret == SbiRet::not_supported());
+
+    let ret = sbi::remote_hfence_vvma_asid(HartMask::from_mask_base(0x1, 0), 0, 0, 0);
+    assert!(ret.is_ok() || ret == SbiRet::not_supported());
 }
 
 #[cfg_attr(not(test), panic_handler)]

@@ -94,7 +94,10 @@ fn build_prototyper(arg: &PrototyperArg) -> Option<ExitStatus> {
         .package(PACKAGE_NAME)
         .target(ARCH)
         .unstable("build-std", ["core", "alloc"])
-        .env("RUSTFLAGS", "-C relocation-model=pie -C link-arg=-pie")
+        .env(
+            "RUSTFLAGS",
+            "-C relocation-model=pie -C link-arg=-pie -C target-feature=+h",
+        )
         .features(&arg.features)
         .optional(arg.fdt.is_some(), |cargo| {
             cargo.env("PROTOTYPER_FDT_PATH", arg.fdt.as_ref().unwrap());
@@ -137,9 +140,9 @@ fn build_prototyper(arg: &PrototyperArg) -> Option<ExitStatus> {
     if result.is_none() {
         error!(
             "Failed to execute rust-objcopy. Command not found or failed to start.\n\
-             Source: {}\n\
-             Destination: {}\n\
-             Please install cargo-binutils with cmd: cargo install cargo-binutils",
+            Source: {}\n\
+            Destination: {}\n\
+            Please install cargo-binutils with cmd: cargo install cargo-binutils",
             elf_path.display(),
             bin_path.display()
         );
