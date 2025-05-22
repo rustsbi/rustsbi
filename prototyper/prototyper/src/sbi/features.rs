@@ -9,21 +9,16 @@ use crate::sbi::trap_stack::{hart_context, hart_context_mut};
 use super::early_trap::csr_swap;
 
 pub struct HartFeatures {
-    extension: [bool; Extension::COUNT],
+    extensions: [bool; Extension::COUNT],
     privileged_version: PrivilegedVersion,
     mhpm_mask: u32,
     mhpm_bits: u32,
 }
 
 impl HartFeatures {
-    pub fn privileged_version(&self) -> PrivilegedVersion {
+    pub const fn privileged_version(&self) -> PrivilegedVersion {
         self.privileged_version
     }
-}
-
-#[derive(Copy, Clone)]
-pub enum Extension {
-    Sstc = 0,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -34,57 +29,100 @@ pub enum PrivilegedVersion {
     Version1_12 = 3,
 }
 
-impl Extension {
-    const COUNT: usize = 1;
-    const ITER: [Self; Extension::COUNT] = [Extension::Sstc];
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Extension {
+    Sstc = 0,
+    Hypervisor = 1,
+}
 
-    pub fn as_str(&self) -> &'static str {
+impl Extension {
+    pub const COUNT: usize = 2;
+
+    pub const fn as_str(&self) -> &'static str {
         match self {
-            Extension::Sstc => "sstc",
+            Self::Sstc => "sstc",
+            Self::Hypervisor => "h",
         }
     }
 
     #[inline]
-    pub fn index(&self) -> usize {
+    pub const fn index(&self) -> usize {
         *self as usize
+    }
+
+    pub fn iter() -> impl Iterator<Item = Self> {
+        [Self::Sstc, Self::Hypervisor].into_iter()
     }
 }
 
-/// access hart feature
+/// Probes if a specific extension is supported for the given hart.
+#[inline]
 pub fn hart_extension_probe(hart_id: usize, ext: Extension) -> bool {
-    hart_context(hart_id).features.extension[ext.index()]
+    hart_context(hart_id).features.extensions[ext.index()]
 }
 
+/// Gets the privileged version for the given hart.
+#[inline]
 pub fn hart_privileged_version(hart_id: usize) -> PrivilegedVersion {
     hart_context(hart_id).features.privileged_version
 }
 
+/// Gets the MHPM mask for the given hart.
+#[inline]
 pub fn hart_mhpm_mask(hart_id: usize) -> u32 {
     hart_context(hart_id).features.mhpm_mask
 }
 
-/// Hart features detection
+/// Detects RISC-V extensions from the device tree for all harts.
 #[cfg(not(feature = "nemu"))]
 pub fn extension_detection(cpus: &NodeSeq) {
     use crate::devicetree::Cpu;
+
     for cpu_iter in cpus.iter() {
-        let cpu = cpu_iter.deserialize::<Cpu>();
-        let hart_id = cpu.reg.iter().next().unwrap().0.start;
-        let mut hart_exts = [false; Extension::COUNT];
-        if cpu.isa_extensions.is_some() {
-            let isa = cpu.isa_extensions.unwrap();
-            Extension::ITER.iter().for_each(|ext| {
-                hart_exts[ext.index()] = isa.iter().any(|e| e == ext.as_str());
-            });
-        } else if cpu.isa.is_some() {
-            let isa_iter = cpu.isa.unwrap();
-            let isa = isa_iter.iter().next().unwrap_or_default();
-            Extension::ITER.iter().for_each(|ext| {
-                hart_exts[ext.index()] = isa.contains(ext.as_str());
-            })
+        let cpu_data = cpu_iter.deserialize::<Cpu>();
+        let hart_id = cpu_data.reg.iter().next().unwrap().0.start;
+        let mut extensions = [false; Extension::COUNT];
+
+        for ext in Extension::iter() {
+            let ext_index = ext.index();
+            let ext_name = ext.as_str();
+
+            let dt_supported = check_extension_in_device_tree(ext_name, &cpu_data);
+            extensions[ext_index] = match ext {
+                Extension::Hypervisor if hart_id == current_hartid() => {
+                    let misa_supported = unsafe { misa_check_hypervisor_extension() };
+                    if dt_supported != misa_supported {
+                        warn!(
+                            "Device tree and MISA disagree on 'H' support for hart {}",
+                            hart_id
+                        );
+                    }
+                    misa_supported
+                }
+                _ => dt_supported,
+            };
         }
-        hart_context_mut(hart_id).features.extension = hart_exts;
+
+        hart_context_mut(hart_id).features.extensions = extensions;
     }
+}
+
+fn check_extension_in_device_tree(ext: &str, cpu: &crate::devicetree::Cpu) -> bool {
+    // Check isa-extensions first (preferred, list of strings)
+    if let Some(isa_exts) = &cpu.isa_extensions {
+        return isa_exts.iter().any(|e| e == ext);
+    }
+
+    // Fallback to isa (take first string, default to empty)
+    cpu.isa
+        .iter()
+        .next()
+        .and_then(|isa| isa.iter().next())
+        .map(|isa| {
+            isa.split('_')
+                .any(|part| part == ext || (ext.len() == 1 && part.contains(ext)))
+        })
+        .unwrap_or(false)
 }
 
 fn privileged_version_detection() {
@@ -137,6 +175,15 @@ fn mhpm_detection() {
     hart_context_mut(current_hartid()).features.mhpm_mask = current_mhpm_mask;
     // TODO: at present, rustsbi prptotyper only supports 64bit.
     hart_context_mut(current_hartid()).features.mhpm_bits = 64;
+}
+
+/// Checks if the Hypervisor ('H') extension is supported via the `misa` CSR.
+pub unsafe fn misa_check_hypervisor_extension() -> bool {
+    let misa_val: usize;
+    unsafe {
+        core::arch::asm!("csrr {}, misa", out(reg) misa_val, options(nomem, nostack));
+    }
+    misa_val != 0 && (misa_val >> 7) & 1 != 0 // H extension bit is at position 7
 }
 
 pub fn hart_features_detection() {

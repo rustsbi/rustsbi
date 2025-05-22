@@ -32,7 +32,7 @@ These are necessary for building the firmware and handling RISC-V binary outputs
 #### Options
 
 - `-f, --features <FEATURES>`  
-  Enable specific features during the build (supports multiple values, e.g., `--features "feat1,feat2"`).
+  Enable specific features during the build (supports multiple values, e.g., `--features "hypervisor,feat2"`).
 - `--fdt <PATH>`  
   Specify the path to a Flattened Device Tree (FDT) file.  
   [Environment Variable: `PROTOTYPER_FDT_PATH`]
@@ -52,7 +52,7 @@ These are necessary for building the firmware and handling RISC-V binary outputs
 
 > #### Note on FDT Files
 > 
-> Regardless of the mode (Dynamic Firmware, Payload Firmware, or Jump Firmware), specifying an FDT file with `--fdt` ensures it is used to initialize the hardware platform configuration. The FDT file provides essential hardware setup details and overrides the bootloader’s default settings.
+> Regardless of the mode (Dynamic Firmware, Payload Firmware, or Jump Firmware), specifying an FDT file with `--fdt` ensures it is used to initialize the hardware platform configuration. The FDT file provides essential hardware setup details and overrides the bootloader's default settings.
 
 ### Firmware Compilation
 
