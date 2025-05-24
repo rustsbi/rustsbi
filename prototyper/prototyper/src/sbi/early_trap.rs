@@ -7,20 +7,18 @@ use riscv::register::mtvec;
 ///
 /// This function will change a0 and a1 and will NOT change them back.
 // TODO: Support save trap info.
-#[naked]
+#[unsafe(naked)]
 #[repr(align(16))]
 pub(crate) unsafe extern "C" fn light_expected_trap() {
-    unsafe {
-        naked_asm!(
-            "add a0, zero, zero",
-            "add a1, zero, zero",
-            "csrr a1, mepc",
-            "addi a1, a1, 4",
-            "csrw mepc, a1",
-            "addi a0, zero, 1",
-            "mret",
-        )
-    }
+    naked_asm!(
+        "add a0, zero, zero",
+        "add a1, zero, zero",
+        "csrr a1, mepc",
+        "addi a1, a1, 4",
+        "csrw mepc, a1",
+        "addi a0, zero, 1",
+        "mret",
+    )
 }
 
 #[repr(C)]
@@ -40,23 +38,21 @@ impl Default for TrapInfo {
     }
 }
 
-#[naked]
+#[unsafe(naked)]
 #[repr(align(16))]
 pub(crate) unsafe extern "C" fn expected_trap() {
-    unsafe {
-        naked_asm!(
-            "csrr a4, mepc",
-            "sd a4, 0*8(a3)",
-            "csrr a4, mcause",
-            "sd a4, 1*8(a3)",
-            "csrr a4, mtval",
-            "sd a4, 2*8(a3)",
-            "csrr a4, mepc",
-            "addi a4, a4, 4",
-            "csrw mepc, a4",
-            "mret",
-        )
-    }
+    naked_asm!(
+        "csrr a4, mepc",
+        "sd a4, 0*8(a3)",
+        "csrr a4, mcause",
+        "sd a4, 1*8(a3)",
+        "csrr a4, mtval",
+        "sd a4, 2*8(a3)",
+        "csrr a4, mepc",
+        "addi a4, a4, 4",
+        "csrw mepc, a4",
+        "mret",
+    )
 }
 
 pub(crate) unsafe fn csr_read_allow<const CSR_NUM: u16>(trap_info: *mut TrapInfo) -> usize {

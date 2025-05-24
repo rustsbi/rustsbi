@@ -8,35 +8,33 @@ use riscv::register::{mie, mstatus, satp, sstatus};
 /// Boot Function.
 /// After boot, this flow will never back again,
 /// so we can store a0, a1 and mepc only.
-#[naked]
+#[unsafe(naked)]
 pub unsafe extern "C" fn boot() -> ! {
-    unsafe {
-        naked_asm!(
-            ".align 2",
-            // Reset hart local stack
-            "call    {locate_stack}",
-            "csrw    mscratch, sp",
-            // Allocate stack space
-            "addi   sp, sp, -3*8",
-            // Call handler with context pointer
-            "mv     a0, sp",
-            "call   {boot_handler}",
-            // Restore mepc
-            "ld     t0, 0*8(sp)
-            csrw    mepc, t0",
-            // Restore registers
-            "ld      a0, 1*8(sp)",
-            "ld      a1, 2*8(sp)",
-            // Restore stack pointer
-            "add     sp, sp, 3*8",
-            // Switch stacks back
-            "csrrw  sp, mscratch, sp",
-            // Return from machine mode
-            "mret",
-            locate_stack = sym trap_stack::locate,
-            boot_handler = sym boot_handler,
-        );
-    }
+    naked_asm!(
+        ".align 2",
+        // Reset hart local stack
+        "call    {locate_stack}",
+        "csrw    mscratch, sp",
+        // Allocate stack space
+        "addi   sp, sp, -3*8",
+        // Call handler with context pointer
+        "mv     a0, sp",
+        "call   {boot_handler}",
+        // Restore mepc
+        "ld     t0, 0*8(sp)
+        csrw    mepc, t0",
+        // Restore registers
+        "ld      a0, 1*8(sp)",
+        "ld      a1, 2*8(sp)",
+        // Restore stack pointer
+        "add     sp, sp, 3*8",
+        // Switch stacks back
+        "csrrw  sp, mscratch, sp",
+        // Return from machine mode
+        "mret",
+        locate_stack = sym trap_stack::locate,
+        boot_handler = sym boot_handler,
+    );
 }
 
 /// Boot Handler.
