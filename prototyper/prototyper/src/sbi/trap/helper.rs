@@ -159,3 +159,57 @@ pub fn get_reg_x(ctx: &mut EntireContextSeparated, reg_id: usize) -> usize {
         _ => panic!(),
     }
 }
+
+pub fn get_reg_f(reg_id: usize, len: usize) -> usize {
+    let mut data: usize;
+    match len {
+        4 => {
+            seq_macro::seq!(N in 0..32 {
+                match reg_id {
+                    #(
+                        N => unsafe { asm!("fmv.x.w {data}, f{x}", data = out(reg) data, x = const N, options(nomem)) },
+                    )*
+                    _ => unreachable!()
+                }
+            });
+        }
+        8 => {
+            seq_macro::seq!(N in 0..32 {
+                match reg_id {
+                    #(
+                        N => unsafe { asm!("fmv.x.d {data}, f{x}", data = out(reg) data, x = const N, options(nomem)) },
+                    )*
+                    _ => unreachable!()
+                }
+            });
+        }
+        _ => todo!(),
+    }
+    data
+}
+
+pub fn set_reg_f(reg_id: usize, len: usize, value: usize) {
+    match len {
+        4 => {
+            seq_macro::seq!(N in 0..32 {
+                match reg_id {
+                    #(
+                        N => unsafe { asm!("fmv.w.x f{x}, {data}", data = in(reg) value, x = const N, options(nomem)) },
+                    )*
+                    _ => unreachable!()
+                }
+            });
+        }
+        8 => {
+            seq_macro::seq!(N in 0..32 {
+                match reg_id {
+                    #(
+                        N => unsafe { asm!("fmv.d.x f{x}, {data}", data = in(reg) value, x = const N, options(nomem)) },
+                    )*
+                    _ => unreachable!()
+                }
+            });
+        }
+        _ => todo!(),
+    }
+}

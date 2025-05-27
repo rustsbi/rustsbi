@@ -25,7 +25,7 @@ pub struct PrototyperArg {
     pub config_file: Option<PathBuf>,
 }
 
-const ARCH: &str = "riscv64imac-unknown-none-elf";
+const ARCH: &str = "riscv64gc-unknown-none-elf";
 const PACKAGE_NAME: &str = "rustsbi-prototyper";
 
 #[must_use]
