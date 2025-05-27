@@ -39,7 +39,7 @@ pub struct RFenceContext {
 
 /// Types of remote fence operations supported.
 #[allow(unused)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RFenceType {
     /// Instruction fence.
     FenceI,
@@ -47,13 +47,17 @@ pub enum RFenceType {
     SFenceVma,
     /// Supervisor fence for virtual memory with ASID.
     SFenceVmaAsid,
+    #[cfg(feature = "hypervisor")]
     /// Hypervisor fence for guest virtual memory with VMID.
     HFenceGvmaVmid,
+    #[cfg(feature = "hypervisor")]
     /// Hypervisor fence for guest virtual memory.
     HFenceGvma,
-    /// Hypervisor fence for virtual machine virtual memory with ASID.
+    #[cfg(feature = "hypervisor")]
+    /// Hypervisor fence for guest virtual memory with ASID.
     HFenceVvmaAsid,
-    /// Hypervisor fence for virtual machine virtual memory.
+    #[cfg(feature = "hypervisor")]
+    /// Hypervisor fence for guest virtual memory.
     HFenceVvma,
 }
 
@@ -176,13 +180,13 @@ pub(crate) struct SbiRFence;
 /// Validates address range for fence operations
 #[inline(always)]
 fn validate_address_range(start_addr: usize, size: usize) -> Result<usize, SbiRet> {
-    // Check page alignment using bitwise AND instead of modulo
-    if start_addr & 0xFFF != 0 {
-        return Err(SbiRet::invalid_address());
+    if !((start_addr == 0 && size == 0) || size == usize::MAX) {
+        if start_addr & (PAGE_SIZE - 1) != 0 {
+            return Err(SbiRet::invalid_address());
+        }
     }
 
-    // Avoid checked_add by checking for overflow directly
-    if size > usize::MAX - start_addr {
+    if start_addr > usize::MAX - size {
         return Err(SbiRet::invalid_address());
     }
 
@@ -196,6 +200,11 @@ fn remote_fence_process(rfence_ctx: RFenceContext, hart_mask: HartMask) -> SbiRe
         .send_ipi_by_fence(hart_mask, rfence_ctx);
 
     sbi_ret
+}
+
+#[cfg(feature = "hypervisor")]
+fn supports_hypervisor_extension() -> bool {
+    super::features::hart_extension_probe(current_hartid(), super::features::Extension::Hypervisor)
 }
 
 impl rustsbi::Fence for SbiRFence {
@@ -259,71 +268,232 @@ impl rustsbi::Fence for SbiRFence {
             hart_mask,
         )
     }
+
+    #[cfg(feature = "hypervisor")]
+    fn remote_hfence_gvma_vmid(
+        &self,
+        hart_mask: HartMask,
+        start_addr: usize,
+        size: usize,
+        vmid: usize,
+    ) -> SbiRet {
+        if !supports_hypervisor_extension() {
+            return SbiRet::not_supported();
+        }
+        pmu_firmware_counter_increment(firmware_event::HFENCE_GVMA_VMID_SENT);
+
+        let flush_size = match validate_address_range(start_addr, size) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        remote_fence_process(
+            RFenceContext {
+                start_addr,
+                size: flush_size,
+                asid: 0,
+                vmid,
+                op: RFenceType::HFenceGvmaVmid,
+            },
+            hart_mask,
+        )
+    }
+
+    #[cfg(feature = "hypervisor")]
+    fn remote_hfence_gvma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
+        if !supports_hypervisor_extension() {
+            return SbiRet::not_supported();
+        }
+        pmu_firmware_counter_increment(firmware_event::HFENCE_GVMA_SENT);
+
+        let flush_size = match validate_address_range(start_addr, size) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        remote_fence_process(
+            RFenceContext {
+                start_addr,
+                size: flush_size,
+                asid: 0,
+                vmid: 0,
+                op: RFenceType::HFenceGvma,
+            },
+            hart_mask,
+        )
+    }
+
+    #[cfg(feature = "hypervisor")]
+    fn remote_hfence_vvma_asid(
+        &self,
+        hart_mask: HartMask,
+        start_addr: usize,
+        size: usize,
+        asid: usize,
+    ) -> SbiRet {
+        if !supports_hypervisor_extension() {
+            return SbiRet::not_supported();
+        }
+        pmu_firmware_counter_increment(firmware_event::HFENCE_VVMA_ASID_SENT);
+
+        let flush_size = match validate_address_range(start_addr, size) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        remote_fence_process(
+            RFenceContext {
+                start_addr,
+                size: flush_size,
+                asid,
+                vmid: 0,
+                op: RFenceType::HFenceVvmaAsid,
+            },
+            hart_mask,
+        )
+    }
+
+    #[cfg(feature = "hypervisor")]
+    fn remote_hfence_vvma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
+        if !supports_hypervisor_extension() {
+            return SbiRet::not_supported();
+        }
+        pmu_firmware_counter_increment(firmware_event::HFENCE_VVMA_SENT);
+
+        let flush_size = match validate_address_range(start_addr, size) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        remote_fence_process(
+            RFenceContext {
+                start_addr,
+                size: flush_size,
+                asid: 0,
+                vmid: 0,
+                op: RFenceType::HFenceVvma,
+            },
+            hart_mask,
+        )
+    }
 }
 
 /// Handles a single remote fence operation.
 #[inline]
 pub fn rfence_single_handler() {
-    let rfence_context = local_rfence().unwrap().get();
-    if let Some((ctx, id)) = rfence_context {
+    let local_rf = match local_rfence() {
+        Some(lr) => lr,
+        // TODO: Or return an error, depending on expected invariants
+        None => panic!("rfence_single_handler called with no local rfence context"),
+    };
+
+    if let Some((ctx, source_hart_id)) = local_rf.get() {
+        let full_flush = (ctx.start_addr == 0 && ctx.size == 0)
+            || (ctx.size == usize::MAX)
+            || (ctx.size > TLB_FLUSH_LIMIT && ctx.size != usize::MAX);
+
         match ctx.op {
-            // Handle instruction fence
-            RFenceType::FenceI => unsafe {
+            RFenceType::FenceI => {
                 pmu_firmware_counter_increment(firmware_event::FENCE_I_RECEIVED);
-                asm!("fence.i");
-                remote_rfence(id).unwrap().sub();
-            },
-            // Handle virtual memory address fence
+                unsafe { asm!("fence.i") };
+                remote_rfence(source_hart_id).unwrap().sub();
+            }
             RFenceType::SFenceVma => {
                 pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_RECEIVED);
-                // If the flush size is greater than the maximum limit then simply flush all
-                if (ctx.start_addr == 0 && ctx.size == 0)
-                    || (ctx.size == usize::MAX)
-                    || (ctx.size > TLB_FLUSH_LIMIT)
-                {
-                    unsafe {
-                        asm!("sfence.vma");
-                    }
+                if full_flush {
+                    unsafe { asm!("sfence.vma") };
                 } else {
                     for offset in (0..ctx.size).step_by(PAGE_SIZE) {
-                        let addr = ctx.start_addr + offset;
-                        unsafe {
-                            asm!("sfence.vma {}", in(reg) addr);
-                        }
+                        let addr = ctx.start_addr.wrapping_add(offset);
+                        unsafe { asm!("sfence.vma {}", in(reg) addr) };
                     }
                 }
-                remote_rfence(id).unwrap().sub();
+                if let Some(remote_cell) = remote_rfence(source_hart_id) {
+                    remote_cell.sub();
+                }
             }
-            // Handle virtual memory address fence with ASID
             RFenceType::SFenceVmaAsid => {
                 pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_ASID_RECEIVED);
                 let asid = ctx.asid;
-                // If the flush size is greater than the maximum limit then simply flush all
-                if (ctx.start_addr == 0 && ctx.size == 0)
-                    || (ctx.size == usize::MAX)
-                    || (ctx.size > TLB_FLUSH_LIMIT)
-                {
-                    unsafe {
-                        asm!("sfence.vma x0, {}", in(reg) asid);
-                    }
+                if full_flush {
+                    unsafe { asm!("sfence.vma x0, {}", in(reg) asid) };
                 } else {
                     for offset in (0..ctx.size).step_by(PAGE_SIZE) {
-                        let addr = ctx.start_addr + offset;
-                        unsafe {
-                            asm!("sfence.vma {}, {}", in(reg) addr, in(reg) asid);
-                        }
+                        let addr = ctx.start_addr.wrapping_add(offset);
+                        unsafe { asm!("sfence.vma {}, {}", in(reg) addr, in(reg) asid) };
                     }
                 }
-                remote_rfence(id).unwrap().sub();
+                if let Some(remote_cell) = remote_rfence(source_hart_id) {
+                    remote_cell.sub();
+                }
             }
-            rfencetype => {
-                error!("Unsupported RFence Type: {:?}!", rfencetype);
+            #[cfg(feature = "hypervisor")]
+            RFenceType::HFenceGvmaVmid => {
+                pmu_firmware_counter_increment(firmware_event::HFENCE_GVMA_VMID_RECEIVED);
+                let vmid = ctx.vmid;
+                if full_flush {
+                    unsafe { asm!("hfence.gvma x0, {}", in(reg) vmid) };
+                } else {
+                    for offset in (0..ctx.size).step_by(PAGE_SIZE) {
+                        let addr = ctx.start_addr.wrapping_add(offset);
+                        unsafe { asm!("hfence.gvma {}, {}", in(reg) addr, in(reg) vmid) };
+                    }
+                }
+                if let Some(remote_cell) = remote_rfence(source_hart_id) {
+                    remote_cell.sub();
+                }
+            }
+            #[cfg(feature = "hypervisor")]
+            RFenceType::HFenceGvma => {
+                pmu_firmware_counter_increment(firmware_event::HFENCE_GVMA_RECEIVED);
+                if full_flush {
+                    unsafe { asm!("hfence.gvma x0, x0") };
+                } else {
+                    for offset in (0..ctx.size).step_by(PAGE_SIZE) {
+                        let addr = ctx.start_addr.wrapping_add(offset);
+                        unsafe { asm!("hfence.gvma {}, x0", in(reg) addr) };
+                    }
+                }
+                if let Some(remote_cell) = remote_rfence(source_hart_id) {
+                    remote_cell.sub();
+                }
+            }
+            #[cfg(feature = "hypervisor")]
+            RFenceType::HFenceVvmaAsid => {
+                pmu_firmware_counter_increment(firmware_event::HFENCE_VVMA_ASID_RECEIVED);
+                let asid = ctx.asid;
+                if full_flush {
+                    unsafe { asm!("hfence.vvma x0, {}", in(reg) asid) };
+                } else {
+                    for offset in (0..ctx.size).step_by(PAGE_SIZE) {
+                        let addr = ctx.start_addr.wrapping_add(offset);
+                        unsafe { asm!("hfence.vvma {}, {}", in(reg) addr, in(reg) asid) };
+                    }
+                }
+                if let Some(remote_cell) = remote_rfence(source_hart_id) {
+                    remote_cell.sub();
+                }
+            }
+            #[cfg(feature = "hypervisor")]
+            RFenceType::HFenceVvma => {
+                pmu_firmware_counter_increment(firmware_event::HFENCE_VVMA_RECEIVED);
+                if full_flush {
+                    unsafe { asm!("hfence.vvma x0, x0") };
+                } else {
+                    for offset in (0..ctx.size).step_by(PAGE_SIZE) {
+                        let addr = ctx.start_addr.wrapping_add(offset);
+                        unsafe { asm!("hfence.vvma {}, x0", in(reg) addr) };
+                    }
+                }
+                if let Some(remote_cell) = remote_rfence(source_hart_id) {
+                    remote_cell.sub();
+                }
             }
         }
     }
 }
 
-/// Process all pending remote fence operations.
+/// Process all pending remote fence operations on the current hart.
 #[inline]
 pub fn rfence_handler() {
     while !local_rfence().unwrap().is_empty() {
