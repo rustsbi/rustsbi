@@ -265,7 +265,7 @@
 //!
 //! ```no_run
 //! # #[cfg(nightly)] // disable checks
-//! #[naked]
+//! #[unsafe(naked)]
 //! #[link_section = ".text.entry"]
 //! #[export_name = "_start"]
 //! unsafe extern "C" fn entry() -> ! {
