@@ -1,3 +1,4 @@
+use riscv::register::misa;
 use seq_macro::seq;
 use serde_device_tree::buildin::NodeSeq;
 
@@ -90,14 +91,7 @@ pub fn extension_detection(cpus: &NodeSeq) {
             let dt_supported = check_extension_in_device_tree(ext_name, &cpu_data);
             extensions[ext_index] = match ext {
                 Extension::Hypervisor if hart_id == current_hartid() => {
-                    let misa_supported = unsafe { misa_check_hypervisor_extension() };
-                    if dt_supported != misa_supported {
-                        warn!(
-                            "Device tree and MISA disagree on 'H' support for hart {}",
-                            hart_id
-                        );
-                    }
-                    misa_supported
+                    misa::read().unwrap().has_extension('H')
                 }
                 _ => dt_supported,
             };
@@ -175,15 +169,6 @@ fn mhpm_detection() {
     hart_context_mut(current_hartid()).features.mhpm_mask = current_mhpm_mask;
     // TODO: at present, rustsbi prptotyper only supports 64bit.
     hart_context_mut(current_hartid()).features.mhpm_bits = 64;
-}
-
-/// Checks if the Hypervisor ('H') extension is supported via the `misa` CSR.
-pub unsafe fn misa_check_hypervisor_extension() -> bool {
-    let misa_val: usize;
-    unsafe {
-        core::arch::asm!("csrr {}, misa", out(reg) misa_val, options(nomem, nostack));
-    }
-    misa_val != 0 && (misa_val >> 7) & 1 != 0 // H extension bit is at position 7
 }
 
 pub fn hart_features_detection() {

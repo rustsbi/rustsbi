@@ -19,10 +19,10 @@ pub fn get_boot_info(_nonstandard_a2: usize) -> BootInfo {
     }
 }
 
-#[naked]
+#[unsafe(naked)]
 #[unsafe(link_section = ".payload")]
 pub extern "C" fn payload_image() {
-    unsafe { naked_asm!(concat!(".incbin \"", env!("PROTOTYPER_PAYLOAD_PATH"), "\""),) }
+    naked_asm!(concat!(".incbin \"", env!("PROTOTYPER_PAYLOAD_PATH"), "\""),)
 }
 
 #[inline]

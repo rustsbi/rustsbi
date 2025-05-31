@@ -41,7 +41,30 @@ pub const R_RISCV_RELATIVE: usize = 3;
 extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     // Track whether SBI is initialized and ready.
 
+    // Get boot information and prepare for kernel entry.
+    let boot_info = firmware::get_boot_info(nonstandard_a2);
+    let (mpp, next_addr) = (boot_info.mpp, boot_info.next_address);
+
+    // Check if current cpu support target privillege.
+    //
+    // If not, go to loop trap sliently.
+    use ::riscv::register::{misa, mstatus::MPP};
+    match mpp {
+        MPP::Supervisor => {
+            if !misa::read().unwrap().has_extension('S') {
+                fail::stop();
+            }
+        }
+        MPP::User => {
+            if !misa::read().unwrap().has_extension('U') {
+                fail::stop();
+            }
+        }
+        _ => {}
+    }
+
     let boot_hart_info = firmware::get_boot_hart(opaque, nonstandard_a2);
+
     // boot hart task entry.
     if boot_hart_info.is_boot_hart {
         // Initialize the sbi heap
@@ -57,10 +80,6 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
 
         firmware::set_pmp(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });
         firmware::log_pmp_cfg(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });
-
-        // Get boot information and prepare for kernel entry.
-        let boot_info = firmware::get_boot_info(nonstandard_a2);
-        let (mpp, next_addr) = (boot_info.mpp, boot_info.next_address);
 
         // Log boot hart ID and PMP information
         let hart_id = current_hartid();
