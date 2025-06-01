@@ -26,12 +26,12 @@ pub struct BootHart {
     pub is_boot_hart: bool,
 }
 
-#[naked]
+#[unsafe(naked)]
 #[unsafe(link_section = ".fdt")]
 #[repr(align(16))]
 #[cfg(feature = "fdt")]
 pub extern "C" fn raw_fdt() {
-    unsafe { naked_asm!(concat!(".incbin \"", env!("PROTOTYPER_FDT_PATH"), "\""),) }
+    naked_asm!(concat!(".incbin \"", env!("PROTOTYPER_FDT_PATH"), "\""),)
 }
 
 #[inline]
