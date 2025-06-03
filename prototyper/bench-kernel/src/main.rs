@@ -30,31 +30,29 @@ const RISCV_IMAGE_MAGIC: u64 = 0x5643534952; /* Magic number, little endian, "RI
 const RISCV_IMAGE_MAGIC2: u32 = 0x05435352; /* Magic number 2, little endian, "RSC\x05" */
 
 /// boot header
-#[naked]
+#[unsafe(naked)]
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".head.text")]
 unsafe extern "C" fn _boot_header() -> ! {
-    unsafe {
-        naked_asm!(
-            "j _start",
-            ".word 0",
-            ".balign 8",
-            ".dword 0x200000",
-            ".dword iend - istart",
-            ".dword {RISCV_HEAD_FLAGS}",
-            ".word  {RISCV_HEADER_VERSION}",
-            ".word  0",
-            ".dword 0",
-            ".dword {RISCV_IMAGE_MAGIC}",
-            ".balign 4",
-            ".word  {RISCV_IMAGE_MAGIC2}",
-            ".word  0",
-            RISCV_HEAD_FLAGS = const RISCV_HEAD_FLAGS,
-            RISCV_HEADER_VERSION = const RISCV_HEADER_VERSION,
-            RISCV_IMAGE_MAGIC = const RISCV_IMAGE_MAGIC,
-            RISCV_IMAGE_MAGIC2 = const RISCV_IMAGE_MAGIC2,
-        );
-    }
+    naked_asm!(
+        "j _start",
+        ".word 0",
+        ".balign 8",
+        ".dword 0x200000",
+        ".dword iend - istart",
+        ".dword {RISCV_HEAD_FLAGS}",
+        ".word  {RISCV_HEADER_VERSION}",
+        ".word  0",
+        ".dword 0",
+        ".dword {RISCV_IMAGE_MAGIC}",
+        ".balign 4",
+        ".word  {RISCV_IMAGE_MAGIC2}",
+        ".word  0",
+        RISCV_HEAD_FLAGS = const RISCV_HEAD_FLAGS,
+        RISCV_HEADER_VERSION = const RISCV_HEADER_VERSION,
+        RISCV_IMAGE_MAGIC = const RISCV_IMAGE_MAGIC,
+        RISCV_IMAGE_MAGIC2 = const RISCV_IMAGE_MAGIC2,
+    );
 }
 
 const STACK_SIZE: usize = 512 * 1024; // 512 KiB
@@ -88,53 +86,47 @@ static mut BOOT_HART_ID: usize = 0;
 /// # Safety
 ///
 /// 裸函数。
-#[naked]
+#[unsafe(naked)]
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text.entry")]
 unsafe extern "C" fn _start(hartid: usize, device_tree_paddr: usize) -> ! {
-    unsafe {
-        naked_asm!(
-            // clear bss segment
-            "   la      t0, sbss
+    naked_asm!(
+        // clear bss segment
+        "   la      t0, sbss
             la      t1, ebss
         1:  bgeu    t0, t1, 2f
             sd      zero, 0(t0)
             addi    t0, t0, 8
             j       1b",
-            "2:",
-            "   la sp, {stack} + {stack_size}",
-            "   j  {main}",
-            stack_size = const STACK_SIZE,
-            stack      =   sym STACK,
-            main       =   sym rust_main,
-        )
-    }
+        "2:",
+        "   la sp, {stack} + {stack_size}",
+        "   j  {main}",
+        stack_size = const STACK_SIZE,
+        stack      =   sym STACK,
+        main       =   sym rust_main,
+    )
 }
 
-#[naked]
+#[unsafe(naked)]
 #[unsafe(no_mangle)]
 extern "C" fn init_hart(hartid: usize, opaque: usize) {
-    unsafe {
-        naked_asm!(
-            "add sp, a1, zero",
-            "csrw sscratch, sp",
-            "call {init_main}",
-            init_main = sym init_main,
-        )
-    }
+    naked_asm!(
+        "add sp, a1, zero",
+        "csrw sscratch, sp",
+        "call {init_main}",
+        init_main = sym init_main,
+    )
 }
 
-#[naked]
+#[unsafe(naked)]
 #[unsafe(no_mangle)]
 extern "C" fn core_send_ipi(hartid: usize, opaque: usize) {
-    unsafe {
-        naked_asm!(
-            "add sp, a1, zero",
-            "csrw sscratch, sp",
-            "call {send_ipi}",
-            send_ipi = sym send_ipi,
-        )
-    }
+    naked_asm!(
+        "add sp, a1, zero",
+        "csrw sscratch, sp",
+        "call {send_ipi}",
+        send_ipi = sym send_ipi,
+    )
 }
 
 extern "C" fn send_ipi(hartid: usize) -> ! {
