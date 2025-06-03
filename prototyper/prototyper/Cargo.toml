@@ -33,6 +33,7 @@ bouffalo-hal = { git = "https://github.com/rustsbi/bouffalo-hal", rev = "968b949
 static-toml = "1"
 seq-macro = "0.3.5"
 pastey = "0.1.0"
+uart_sifive = { git = "https://github.com/duskmoon314/uart-rs/" }
 
 [[bin]]
 name = "rustsbi-prototyper"

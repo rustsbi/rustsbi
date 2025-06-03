@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(naked_functions)]
 #![allow(static_mut_refs)]
 
 #[macro_use]

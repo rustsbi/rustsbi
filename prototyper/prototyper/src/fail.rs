@@ -48,6 +48,13 @@ pub fn device_tree_deserialize_root<'a>(
     }
 }
 
+#[cold]
+pub fn stop() -> ! {
+    loop {
+        core::hint::spin_loop()
+    }
+}
+
 cfg_if::cfg_if! {
     if #[cfg(feature = "payload")] {
     } else if #[cfg(feature = "jump")] {
