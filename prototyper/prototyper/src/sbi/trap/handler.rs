@@ -234,16 +234,19 @@ pub extern "C" fn load_misaligned_handler(ctx: EntireContext) -> EntireResult {
             _ => panic!("Invalid len"),
         },
         VarType::Float => match len {
-            // 4 => raw_data as f32 as usize,
-            // 8 => raw_data as f64 as usize,
-            _ => panic!("Misaligned float is unsupported"),
+            4 => raw_data as u32 as usize,
+            8 => raw_data as u64 as usize,
+            _ => panic!("Invalid len"),
         },
     };
     debug!(
         "read 0x{:x} from 0x{:x} to x{}, len 0x{:x}",
         read_data, current_addr, target_reg, len
     );
-    save_reg_x(&mut ctx, target_reg as usize, read_data);
+    match var_type {
+        VarType::Signed | VarType::UnSigned => save_reg_x(&mut ctx, target_reg as usize, read_data),
+        VarType::Float => set_reg_f(target_reg as usize, len, read_data),
+    };
     mepc::write(current_pc + inst_len);
     ctx.restore()
 }
@@ -273,9 +276,11 @@ pub extern "C" fn store_misaligned_handler(ctx: EntireContext) -> EntireResult {
         _ => panic!("Unsupported inst"),
     };
     let (target_reg, var_type, len) = inst_type;
-    let raw_data = get_reg_x(&mut ctx, target_reg as usize);
+    let raw_data = match var_type {
+        VarType::Signed | VarType::UnSigned => get_reg_x(&mut ctx, target_reg as usize),
+        VarType::Float => get_reg_f(target_reg as usize, len),
+    };
 
-    // TODO: Float support
     let read_data = match var_type {
         VarType::Signed => match len {
             _ => panic!("Can not store signed data"),
@@ -288,9 +293,9 @@ pub extern "C" fn store_misaligned_handler(ctx: EntireContext) -> EntireResult {
             _ => panic!("Invalid len"),
         },
         VarType::Float => match len {
-            // 4 => (raw_data as f32).to_le_bytes().to_vec(),
-            // 8 => (raw_data as f64).to_le_bytes().to_vec(),
-            _ => panic!("Misaligned float is unsupported"),
+            4 => &(raw_data as u32).to_le_bytes()[..],
+            8 => &(raw_data as u64).to_le_bytes()[..],
+            _ => panic!("Invalid len"),
         },
     };
 
