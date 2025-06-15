@@ -27,3 +27,5 @@ arceboot.bin
 *.img
 
 rustsbi/
+
+/.axconfig.*

@@ -10,7 +10,7 @@ mod log;
 #[cfg_attr(not(test), unsafe(no_mangle))]
 pub extern "C" fn rust_main(_cpu_id: usize, _dtb: usize) -> ! {
     axlog::init();
-    axlog::set_max_level("debug"); // no effect if set `log-level-*` features
+    axlog::set_max_level(option_env!("AX_LOG").unwrap_or("")); // no effect if set `log-level-*` features
     info!("Logging is enabled.");
 
     info!("Found physcial memory regions:");
