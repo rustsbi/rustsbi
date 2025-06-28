@@ -29,3 +29,5 @@ arceboot.bin
 rustsbi/
 
 /.axconfig.*
+
+*.cpio
