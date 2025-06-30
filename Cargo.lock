@@ -81,6 +81,7 @@ dependencies = [
  "axdriver",
  "axfs",
  "axhal",
+ "axio",
  "axlog",
  "axmm",
  "axnet",

@@ -4,7 +4,7 @@
 #     - `PLATFORM`: Target platform in the `platforms` directory
 #     - `SMP`: Number of CPUs
 #     - `LOG:` Logging level: warn, error, info, debug, trace
-#     - `MEDIA:` Boot Media Type: ramdisk-cpio, virtio-blk
+#     - `MEDIUM:` Boot Medium Type: ramdisk-cpio, virtio-blk
 #     - `EXTRA_CONFIG`: Extra config specification file
 #     - `OUT_CONFIG`: Final config file that takes effect
 # * QEMU options:
@@ -16,13 +16,15 @@ ARCH ?= riscv64
 PLATFORM ?=
 SMP ?= 1
 LOG ?= debug
-MEDIA ?= ramdisk-cpio
+
+# 下面的目前还没用, 现在需要手动去cargo.toml中修改, 后面补上
+MEDIUM ?= ramdisk-cpio
 
 OUT_CONFIG ?= $(PWD)/.axconfig.toml
 EXTRA_CONFIG ?=
 
 # QEMU options
-DISK:= fat32_disk_test.img
+DISK:= disk.img
 SBI:=rustsbi/target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper-payload.elf
 RAMDISK_CPIO:=ramdisk.cpio
 
@@ -50,5 +52,5 @@ build: clean defconfig all
 ramdiskcpio:
 	qemu-system-riscv64 -m 128M -serial mon:stdio -bios $(SBI) -nographic -machine virt -device loader,file=$(RAMDISK_CPIO),addr=0x84000000
 
-run:
+virtiodisk:
 	qemu-system-riscv64 -m 128M -serial mon:stdio -bios $(SBI) -nographic -machine virt -device virtio-blk-pci,drive=disk0 -drive id=disk0,if=none,format=raw,file=$(DISK)

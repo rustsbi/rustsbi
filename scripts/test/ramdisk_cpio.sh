@@ -12,8 +12,9 @@ print_info "此为空镜像, 只含有一个 arceboot.txt 文件, 用于测试 A
 print_info "即将在当前目录执行创建 -------->"
 
 mkdir myramdisk
-touch myramdisk/arceboot.txt
-echo "This is a test file for Arceboot." > myramdisk/arceboot.txt
+mkdir myramdisk/test
+touch myramdisk/test/arceboot.txt
+echo "This is a test file for Arceboot." > myramdisk/test/arceboot.txt
 
 cd myramdisk
 find . | cpio -o --format=newc > ../ramdisk.cpio

@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["Zhihang Shao <dio_ro@outlook.com>", "Jingxuan Wei <jensenwei007@gmail.com>"]
 
 [features]
-default = ["alloc", "fs", "paging", "ramdisk_cpio"]
+default = ["alloc", "fs", "paging", "virtiodisk"]
 
 alloc = ["axalloc"]
 paging = ["axhal/paging", "axmm"]
@@ -15,7 +15,6 @@ net = ["axdriver", "axnet"]
 display = ["axdriver", "axdisplay"]
 
 # Boot Media
-
 virtiodisk = ["axdriver/virtio-blk"]
 ramdisk_cpio = []
 
@@ -35,3 +34,4 @@ ctor_bare = "0.2"
 cfg-if = "1.0"
 
 chrono = { version = "0.4.38", default-features = false }
+axio = { version = "0.1", features = ["alloc"] }

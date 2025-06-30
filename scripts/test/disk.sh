@@ -1,14 +1,25 @@
 #!/bin/bash
 set -e
 
-IMG_NAME="fat32_disk_test.img"
-IMG_SIZE_MB=512
-MOUNT_DIR="mnt_fat32"
+print_info() {
+    printf "\033[1;37m%s\033[0m" "[RustSBI-Arceboot Build For Test] "
+    printf "\033[1;32m%s\033[0m" "[INFO] "
+    printf "\033[36m%s\033[0m\n" "$1"
+}
 
-echo "[1/2] 创建空镜像文件..."
-dd if=/dev/zero of=$IMG_NAME bs=1M count=$IMG_SIZE_MB
+print_info "开始执行 virtio-block 类型的 disk 创建脚本"
+print_info "此为 FAT32 文件系统镜像, 只含有一个 arceboot.txt 文件, 用于测试 Arceboot"
+print_info "即将在当前目录执行创建 -------->"
 
-echo "[2/2] 格式化为 FAT32 文件系统..."
-mkfs.vfat -F 32 $IMG_NAME
+dd if=/dev/zero of=disk.img bs=1M count=512
+mkfs.vfat -F 32 disk.img
 
-echo "======== DONE ========"
+mkdir temp
+sudo mount -o loop disk.img temp
+mkdir -p temp/test
+touch temp/test/arceboot.txt
+echo "This is a test file for Arceboot." > temp/test/arceboot.txt
+sudo umount temp
+rm -rf temp
+
+print_info "创建完成, 生成的 disk.img 位于当前目录"
