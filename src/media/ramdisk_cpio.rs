@@ -1,5 +1,5 @@
-use core::{ptr, str};
 use axhal::mem::phys_to_virt;
+use core::str;
 
 const CPIO_MAGIC: &[u8; 6] = b"070701";
 const CPIO_BASE: usize = 0x8400_0000;
@@ -62,13 +62,15 @@ pub fn parse_cpio_ramdisk() {
         let file_end = file_start + filesize;
 
         if name == "arceboot.txt" {
-            let data = unsafe {
-                core::slice::from_raw_parts(file_start as *const u8, filesize)
-            };
+            let data = unsafe { core::slice::from_raw_parts(file_start as *const u8, filesize) };
             if let Ok(text) = core::str::from_utf8(data) {
                 info!("Content of {}:\n{}", name, text);
             } else {
-                info!("Binary content of {}: {:02x?}", name, &data[0..core::cmp::min(32, data.len())]);
+                info!(
+                    "Binary content of {}: {:02x?}",
+                    name,
+                    &data[0..core::cmp::min(32, data.len())]
+                );
             }
         }
 
