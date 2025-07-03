@@ -33,5 +33,6 @@ axdisplay = { git = "https://github.com/arceos-org/arceos.git", optional = true 
 crate_interface = "0.1"
 ctor_bare = "0.2"
 cfg-if = "1.0"
+object = { version = "0.37.1", default-features = false, features = [ "read" ] }
 
 chrono = { version = "0.4.38", default-features = false }

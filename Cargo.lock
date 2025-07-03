@@ -88,6 +88,7 @@ dependencies = [
  "chrono",
  "crate_interface",
  "ctor_bare",
+ "object",
 ]
 
 [[package]]
@@ -839,6 +840,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "object"
+version = "0.37.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "03fd943161069e1768b4b3d050890ba48730e590f57e56d4aa04e7e090e61b4a"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]

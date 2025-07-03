@@ -56,6 +56,8 @@ pub extern "C" fn rust_main(_cpu_id: usize, _dtb: usize) -> ! {
 
     crate::media::parse_cpio_ramdisk();
 
+    crate::platform::efi_runtime_init();
+
     info!("will shut down.");
 
     axhal::misc::terminate();
