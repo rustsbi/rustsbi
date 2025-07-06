@@ -25,27 +25,11 @@ extern "efiapi" fn mock_output_string(
     _this: *mut EfiSimpleTextOutputProtocol,
     string: *const u16,
 ) -> u64 {
-    unsafe {
-        info!("EFI Output Called");
-    }
-    0
+    info!("EFI Output Called");
+    42
 }
 
 pub fn efi_runtime_init() {
-    let flags = MappingFlags::READ | MappingFlags::WRITE | MappingFlags::EXECUTE;
-    let layout: core::alloc::Layout = core::alloc::Layout::from_size_align(
-        SHELLCODE.len(),
-        4096,
-    ).expect("Invalid layout for shellcode");
-
-    let mapping = axalloc::global_allocator().alloc(layout).expect("Failed to allocate memory for shellcode");
-    let mapping = mapping.as_ptr();
-
-    axmm::kernel_aspace()
-        .lock()
-        .protect(VirtAddr::from_ptr_of(mapping).align_down(4096usize), 0x1000, flags)
-        .expect("Failed to protect efi memory");
-
     let file = File::parse(&*SHELLCODE).unwrap();
     let entry = file.entry();
     info!("Entry point: 0x{:x}", entry);
@@ -65,6 +49,23 @@ pub fn efi_runtime_init() {
         "Mapping memory: 0x{:x} bytes at RVA base 0x{:x}",
         mem_size, base_va
     );
+
+    let page_count = (mem_size + 4095) / 4096;
+
+    // alloc memory for the EFI image
+    let flags = MappingFlags::READ | MappingFlags::WRITE | MappingFlags::EXECUTE;
+    let layout: core::alloc::Layout = core::alloc::Layout::from_size_align(
+        SHELLCODE.len(),
+        4096,
+    ).expect("Invalid layout for shellcode");
+
+    let mapping = axalloc::global_allocator().alloc(layout).expect("Failed to allocate memory for shellcode");
+    let mapping = mapping.as_ptr();
+
+    axmm::kernel_aspace()
+        .lock()
+        .protect(VirtAddr::from_ptr_of(mapping).align_down(4096usize), page_count * 4096, flags)
+        .expect("Failed to protect efi memory");
 
     for section in file.sections() {
         if let Ok(data) = section.data() {
