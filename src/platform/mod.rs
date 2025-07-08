@@ -21,12 +21,21 @@ pub type EfiMainFn = extern "efiapi" fn(
     system_table: *mut EfiSystemTable,
 ) -> u64;
 
-extern "efiapi" fn mock_output_string(
+extern "efiapi" fn output_string(
     _this: *mut EfiSimpleTextOutputProtocol,
     string: *const u16,
 ) -> u64 {
-    info!("EFI Output Called");
-    42
+    unsafe {
+        let mut len = 0;
+        while *string.add(len) != 0 {
+            len += 1;
+        }
+        let message = core::slice::from_raw_parts(string, len as usize).iter();
+        let utf16_message = core::char::decode_utf16(message.cloned());
+        let decoded_message: alloc::string::String = utf16_message.map(|r| r.unwrap_or('\u{FFFD}')).collect();
+        info!("EFI Output: {}", decoded_message);
+    }
+    0
 }
 
 pub fn efi_runtime_init() {
@@ -101,7 +110,7 @@ pub fn efi_runtime_init() {
         console_out_handle: null_mut(),
         con_out: Box::into_raw(Box::new(EfiSimpleTextOutputProtocol {
             reset: 0,
-            output_string: mock_output_string,
+            output_string,
             test_string: 0,
             query_mode: 0,
             set_mode: 0,
