@@ -43,7 +43,7 @@ pub extern "C" fn rust_main(_cpu_id: usize, _dtb: usize) -> ! {
         #[cfg(feature = "fs")]
         // 目前使用ramdisk的cpio格式时，驱动还不完善，用不了，需要注释掉
         // 如果使用virtio-blk驱动，则可以正常使用
-        //axfs::init_filesystems(all_devices.block);
+        axfs::init_filesystems(all_devices.block);
         #[cfg(feature = "net")]
         axnet::init_network(all_devices.net);
 
