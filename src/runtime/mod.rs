@@ -10,35 +10,18 @@ use axhal::{
 use object::File;
 use object::Object;
 use object::ObjectSection;
-use uefi_raw::{protocol::console::SimpleTextOutputProtocol, table::{system::SystemTable, Header}, Status};
+use uefi_raw::{
+    protocol::console::SimpleTextOutputProtocol,
+    table::{Header, system::SystemTable},
+};
 
 extern crate alloc;
 use alloc::boxed::Box;
 
-pub mod efi;
-pub mod protocol;
-pub mod table;
+mod console;
 
 pub type EfiMainFn =
     extern "efiapi" fn(image_handle: *mut core::ffi::c_void, system_table: *mut SystemTable) -> u64;
-
-extern "efiapi" fn output_string(
-    _this: *mut SimpleTextOutputProtocol,
-    string: *const u16,
-) -> Status {
-    unsafe {
-        let mut len = 0;
-        while *string.add(len) != 0 {
-            len += 1;
-        }
-        let message = core::slice::from_raw_parts(string, len as usize).iter();
-        let utf16_message = core::char::decode_utf16(message.cloned());
-        let decoded_message: alloc::string::String =
-            utf16_message.map(|r| r.unwrap_or('\u{FFFD}')).collect();
-        info!("EFI Output: {}", decoded_message);
-    }
-    uefi_raw::Status(0)
-}
 
 pub fn efi_runtime_init() {
     let shellcode =
@@ -102,12 +85,12 @@ pub fn efi_runtime_init() {
 
     let func_addr = (mapping as usize + (entry - base_va) as usize) as *const ();
     let func: EfiMainFn = unsafe { transmute(func_addr) };
-    
+
     let stdout = unsafe {
         Box::into_raw(Box::new(SimpleTextOutputProtocol {
             reset: mem::transmute(0usize),
-            output_string: output_string,
-            test_string: mem::transmute(0usize),
+            output_string: console::simple_text_output::output_string,
+            test_string: console::simple_text_output::test_string,
             query_mode: mem::transmute(0usize),
             set_mode: mem::transmute(0usize),
             set_attribute: mem::transmute(0usize),

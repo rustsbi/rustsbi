@@ -7,7 +7,7 @@ extern crate axlog;
 mod log;
 mod media;
 mod panic;
-mod platform;
+mod runtime;
 
 #[cfg_attr(not(test), unsafe(no_mangle))]
 pub extern "C" fn rust_main(_cpu_id: usize, _dtb: usize) -> ! {
@@ -56,7 +56,7 @@ pub extern "C" fn rust_main(_cpu_id: usize, _dtb: usize) -> ! {
 
     crate::media::parse_cpio_ramdisk();
 
-    crate::platform::efi_runtime_init();
+    crate::runtime::efi_runtime_init();
 
     info!("will shut down.");
 
