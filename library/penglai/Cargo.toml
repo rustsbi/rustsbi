@@ -1,0 +1,14 @@
+[package]
+name = "penglai"
+description = "Definitions and constants in the Penglai PMP extension"
+version = "0.0.0"
+authors = ["Char <jinzhe.oerv@isrc.iscas.ac.cn>", "Luo Jia <me@luojia.cc>"]
+documentation = "https://docs.rs/penglai"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["riscv", "sbi", "rustsbi", "penglai", "tee"]
+categories = ["os", "embedded", "hardware-support", "no-std"]
+
+[dev-dependencies]
+static_assertions = "1.1.0"

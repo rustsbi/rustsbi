@@ -6,6 +6,7 @@ members = [
     "library/sbi-spec",
     "library/sbi-testing",
     "library/rustsbi",
+    "library/penglai",
     "prototyper/prototyper",
     "prototyper/bench-kernel",
     "prototyper/test-kernel",
