@@ -1,5 +1,5 @@
 use core::{
-    mem::{self, transmute},
+    mem::transmute,
     ptr::{copy_nonoverlapping, null_mut},
 };
 
@@ -10,15 +10,15 @@ use axhal::{
 use object::File;
 use object::Object;
 use object::ObjectSection;
-use uefi_raw::{
-    protocol::console::SimpleTextOutputProtocol,
-    table::{Header, system::SystemTable},
-};
+use uefi_raw::table::{Header, system::SystemTable};
 
 extern crate alloc;
 use alloc::boxed::Box;
 
+use crate::runtime::console::simple_text_output;
+
 mod console;
+mod service;
 
 pub type EfiMainFn =
     extern "efiapi" fn(image_handle: *mut core::ffi::c_void, system_table: *mut SystemTable) -> u64;
@@ -86,20 +86,7 @@ pub fn efi_runtime_init() {
     let func_addr = (mapping as usize + (entry - base_va) as usize) as *const ();
     let func: EfiMainFn = unsafe { transmute(func_addr) };
 
-    let stdout = unsafe {
-        Box::into_raw(Box::new(SimpleTextOutputProtocol {
-            reset: mem::transmute(0usize),
-            output_string: console::simple_text_output::output_string,
-            test_string: console::simple_text_output::test_string,
-            query_mode: mem::transmute(0usize),
-            set_mode: mem::transmute(0usize),
-            set_attribute: mem::transmute(0usize),
-            clear_screen: mem::transmute(0usize),
-            set_cursor_position: mem::transmute(0usize),
-            enable_cursor: mem::transmute(0usize),
-            mode: core::ptr::null_mut(),
-        }))
-    };
+    let simple_text_output = unsafe { simple_text_output::Output::new().into_raw() };
 
     let system_table = Box::into_raw(Box::new(SystemTable {
         header: Header::default(),
@@ -111,10 +98,10 @@ pub fn efi_runtime_init() {
         stdin: null_mut(),
 
         stdout_handle: null_mut(),
-        stdout,
+        stdout: simple_text_output,
 
         stderr_handle: null_mut(),
-        stderr: null_mut(),
+        stderr: simple_text_output,
 
         runtime_services: null_mut(),
         boot_services: null_mut(),

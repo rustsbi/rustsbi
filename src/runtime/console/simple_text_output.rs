@@ -1,15 +1,47 @@
-use uefi_raw::{Char16, Status, protocol::console::SimpleTextOutputProtocol};
+use uefi_raw::{
+    Boolean, Char16, Status,
+    protocol::console::{SimpleTextOutputMode, SimpleTextOutputProtocol},
+};
 
 extern crate alloc;
+use alloc::boxed::Box;
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct Output {
-    inner: SimpleTextOutputProtocol,
-}
+pub struct Output(SimpleTextOutputProtocol);
 
 impl Output {
-    const GUID: uefi_raw::Guid = SimpleTextOutputProtocol::GUID;
+    pub fn new() -> Self {
+        let procotol = SimpleTextOutputProtocol {
+            reset,
+            output_string,
+            test_string,
+            query_mode,
+            set_mode,
+            set_attribute,
+            clear_screen,
+            set_cursor_position,
+            enable_cursor,
+            // TODO: The code for the Output structure and 
+            // the "lifecycle" and "ownership mechanism" parts of the Mode structure should be completed, 
+            // that is, all Box::into_raw pointers need to be manually released.
+            mode: Box::into_raw(Box::new(SimpleTextOutputMode::default())),
+        };
+        Output(procotol)
+    }
+
+    pub unsafe fn into_raw(self) -> *mut SimpleTextOutputProtocol {
+        Box::into_raw(Box::new(self.0))
+    }
+
+    pub unsafe fn from_raw(ptr: *mut SimpleTextOutputProtocol) -> &'static mut Self {
+        unsafe { &mut *(ptr as *mut Output) }
+    }
+}
+
+pub extern "efiapi" fn reset(_this: *mut SimpleTextOutputProtocol, _extended: Boolean) -> Status {
+    // Resetting the console is a no-op in this implementation.
+    Status::SUCCESS
 }
 
 pub extern "efiapi" fn output_string(
@@ -52,5 +84,44 @@ pub extern "efiapi" fn test_string(
             return Status::UNSUPPORTED;
         }
     }
+    Status::UNSUPPORTED
+}
+
+pub extern "efiapi" fn query_mode(
+    _this: *mut SimpleTextOutputProtocol,
+    mode: usize,
+    columns: *mut usize,
+    rows: *mut usize,
+) -> Status {
+    Status::UNSUPPORTED
+}
+
+pub extern "efiapi" fn set_mode(_this: *mut SimpleTextOutputProtocol, _mode: usize) -> Status {
+    Status::UNSUPPORTED
+}
+
+pub extern "efiapi" fn set_attribute(
+    _this: *mut SimpleTextOutputProtocol,
+    _attribute: usize,
+) -> Status {
+    Status::UNSUPPORTED
+}
+
+pub extern "efiapi" fn clear_screen(_this: *mut SimpleTextOutputProtocol) -> Status {
+    Status::UNSUPPORTED
+}
+
+pub extern "efiapi" fn set_cursor_position(
+    _this: *mut SimpleTextOutputProtocol,
+    _column: usize,
+    _row: usize,
+) -> Status {
+    Status::UNSUPPORTED
+}
+
+pub extern "efiapi" fn enable_cursor(
+    _this: *mut SimpleTextOutputProtocol,
+    _visible: Boolean,
+) -> Status {
     Status::UNSUPPORTED
 }
