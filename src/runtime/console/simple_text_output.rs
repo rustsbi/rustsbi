@@ -1,3 +1,5 @@
+use axsync::Mutex;
+use lazyinit::LazyInit;
 use uefi_raw::{
     Boolean, Char16, Status,
     protocol::console::{SimpleTextOutputMode, SimpleTextOutputProtocol},
@@ -6,13 +8,18 @@ use uefi_raw::{
 extern crate alloc;
 use alloc::boxed::Box;
 
+static TEXT_OUTPUT: LazyInit<Mutex<Output>> = LazyInit::new();
+
 #[derive(Debug)]
-#[repr(transparent)]
-pub struct Output(SimpleTextOutputProtocol);
+pub struct Output {
+    protocol: SimpleTextOutputProtocol,
+    mode: Box<SimpleTextOutputMode>,
+}
 
 impl Output {
     pub fn new() -> Self {
-        let procotol = SimpleTextOutputProtocol {
+        let mode = Box::new(SimpleTextOutputMode::default());
+        let protocol = SimpleTextOutputProtocol {
             reset,
             output_string,
             test_string,
@@ -22,21 +29,26 @@ impl Output {
             clear_screen,
             set_cursor_position,
             enable_cursor,
-            // TODO: The code for the Output structure and 
-            // the "lifecycle" and "ownership mechanism" parts of the Mode structure should be completed, 
-            // that is, all Box::into_raw pointers need to be manually released.
-            mode: Box::into_raw(Box::new(SimpleTextOutputMode::default())),
+            mode: &*mode as *const _ as *mut _,
         };
-        Output(procotol)
+        Output { protocol, mode }
     }
 
-    pub unsafe fn into_raw(self) -> *mut SimpleTextOutputProtocol {
-        Box::into_raw(Box::new(self.0))
+    pub fn get_protocol(&self) -> *mut SimpleTextOutputProtocol {
+        let guard = TEXT_OUTPUT.lock();
+        &guard.protocol as *const _ as *mut _
     }
+}
 
-    pub unsafe fn from_raw(ptr: *mut SimpleTextOutputProtocol) -> &'static mut Self {
-        unsafe { &mut *(ptr as *mut Output) }
-    }
+unsafe impl Send for Output {}
+unsafe impl Sync for Output {}
+
+pub fn init_simple_text_output() {
+    TEXT_OUTPUT.init_once(Mutex::new(Output::new()));
+}
+
+pub fn get_simple_text_output() -> &'static Mutex<Output> {
+    TEXT_OUTPUT.get().expect("SimpleTextOutput not initialized")
 }
 
 pub extern "efiapi" fn reset(_this: *mut SimpleTextOutputProtocol, _extended: Boolean) -> Status {
