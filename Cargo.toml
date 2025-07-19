@@ -23,6 +23,7 @@ ramdisk_cpio = []
 axhal = { git = "https://github.com/arceos-org/arceos.git" }
 axlog = { git = "https://github.com/arceos-org/arceos.git" }
 axconfig = { git = "https://github.com/arceos-org/arceos.git" }
+axsync = { git = "https://github.com/arceos-org/arceos.git" }
 axalloc = { git = "https://github.com/arceos-org/arceos.git", optional = true }
 axmm = { git = "https://github.com/arceos-org/arceos.git", optional = true }
 axdriver = { git = "https://github.com/arceos-org/arceos.git", optional = true, features = ["virtio-blk"] }
@@ -36,3 +37,4 @@ cfg-if = "1.0.1"
 object = { version = "0.37.1", default-features = false, features = [ "read" ] }
 chrono = { version = "0.4.38", default-features = false }
 uefi-raw = "0.11.0"
+lazyinit = "0.2.2"
