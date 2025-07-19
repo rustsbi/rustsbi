@@ -15,10 +15,12 @@ use uefi_raw::table::{Header, system::SystemTable};
 extern crate alloc;
 use alloc::boxed::Box;
 
-use crate::runtime::console::simple_text_output::{get_simple_text_output, init_simple_text_output};
+use crate::runtime::protocol::simple_text_output::{
+    get_simple_text_output, init_simple_text_output,
+};
 
-mod console;
 mod fs;
+mod protocol;
 mod service;
 
 pub type EfiMainFn =
@@ -86,7 +88,7 @@ pub fn efi_runtime_init() {
 
     let func_addr = (mapping as usize + (entry - base_va) as usize) as *const ();
     let func: EfiMainFn = unsafe { transmute(func_addr) };
-    
+
     let simple_text_output = {
         init_simple_text_output();
         get_simple_text_output().lock().get_protocol()
