@@ -12,13 +12,14 @@ static TEXT_OUTPUT: LazyInit<Mutex<Output>> = LazyInit::new();
 
 #[derive(Debug)]
 pub struct Output {
-    protocol: SimpleTextOutputProtocol,
-    mode: Box<SimpleTextOutputMode>,
+    protocol: &'static mut SimpleTextOutputProtocol,
+    protocol_raw: *mut SimpleTextOutputProtocol,
 }
 
 impl Output {
     pub fn new() -> Self {
         let mode = Box::new(SimpleTextOutputMode::default());
+        let mode_raw = Box::into_raw(mode);
         let protocol = SimpleTextOutputProtocol {
             reset,
             output_string,
@@ -29,19 +30,34 @@ impl Output {
             clear_screen,
             set_cursor_position,
             enable_cursor,
-            mode: &*mode as *const _ as *mut _,
+            mode: mode_raw,
         };
-        Output { protocol, mode }
+        let protocol_raw = Box::into_raw(Box::new(protocol));
+        let protocol = unsafe { &mut *protocol_raw };
+        Output {
+            protocol,
+            protocol_raw,
+        }
     }
 
     pub fn get_protocol(&self) -> *mut SimpleTextOutputProtocol {
         let guard = TEXT_OUTPUT.lock();
-        &guard.protocol as *const _ as *mut _
+        guard.protocol_raw
     }
 }
 
 unsafe impl Send for Output {}
 unsafe impl Sync for Output {}
+
+impl Drop for Output {
+    fn drop(&mut self) {
+        unsafe {
+            let mode_raw = self.protocol.mode;
+            drop(Box::from_raw(mode_raw));
+            drop(Box::from_raw(self.protocol_raw));
+        }
+    }
+}
 
 pub fn init_simple_text_output() {
     TEXT_OUTPUT.init_once(Mutex::new(Output::new()));

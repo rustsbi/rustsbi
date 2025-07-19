@@ -10,18 +10,15 @@ use axhal::{
 use object::File;
 use object::Object;
 use object::ObjectSection;
-use uefi_raw::table::{Header, system::SystemTable};
+use uefi_raw::table::system::SystemTable;
 
 extern crate alloc;
-use alloc::boxed::Box;
 
-use crate::runtime::protocol::simple_text_output::{
-    get_simple_text_output, init_simple_text_output,
-};
+use crate::runtime::table::{get_system_table_raw, init_system_table};
 
-mod fs;
 mod protocol;
 mod service;
+mod table;
 
 pub type EfiMainFn =
     extern "efiapi" fn(image_handle: *mut core::ffi::c_void, system_table: *mut SystemTable) -> u64;
@@ -89,32 +86,10 @@ pub fn efi_runtime_init() {
     let func_addr = (mapping as usize + (entry - base_va) as usize) as *const ();
     let func: EfiMainFn = unsafe { transmute(func_addr) };
 
-    let simple_text_output = {
-        init_simple_text_output();
-        get_simple_text_output().lock().get_protocol()
+    let system_table = {
+        init_system_table();
+        get_system_table_raw()
     };
-
-    let system_table = Box::into_raw(Box::new(SystemTable {
-        header: Header::default(),
-
-        firmware_vendor: null_mut(),
-        firmware_revision: 0,
-
-        stdin_handle: null_mut(),
-        stdin: null_mut(),
-
-        stdout_handle: null_mut(),
-        stdout: simple_text_output,
-
-        stderr_handle: null_mut(),
-        stderr: simple_text_output,
-
-        runtime_services: null_mut(),
-        boot_services: null_mut(),
-
-        number_of_configuration_table_entries: 0,
-        configuration_table: null_mut(),
-    }));
 
     let result = func(null_mut(), system_table);
     info!("efi_main return: {}", result)
