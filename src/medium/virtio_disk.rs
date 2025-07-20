@@ -1,6 +1,6 @@
 extern crate alloc;
 
-use axio::{self as io, prelude::*};
+use axio::{self as io};
 use alloc::{string::String, vec::Vec};
 
 /// Returns the current working directory as a [`String`].
