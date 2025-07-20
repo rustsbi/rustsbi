@@ -7,6 +7,7 @@ extern crate axlog;
 
 mod log;
 mod media;
+mod medium;
 mod panic;
 mod runtime;
 
@@ -45,6 +46,7 @@ pub extern "C" fn rust_main(_cpu_id: usize, _dtb: usize) -> ! {
         // 目前使用ramdisk的cpio格式时，驱动还不完善，用不了，需要注释掉
         // 如果使用virtio-blk驱动，则可以正常使用
         axfs::init_filesystems(all_devices.block);
+        
         #[cfg(feature = "net")]
         axnet::init_network(all_devices.net);
 
@@ -53,9 +55,8 @@ pub extern "C" fn rust_main(_cpu_id: usize, _dtb: usize) -> ! {
     }
     ctor_bare::call_ctors();
 
-    info!("will test cpio.");
-
-    crate::media::parse_cpio_ramdisk();
+    info!("current root dir: {}", crate::medium::current_dir().unwrap());
+    info!("read test file context: {}", crate::medium::read_to_string("/test/arceboot.txt").unwrap());
 
     crate::runtime::efi_runtime_init();
 

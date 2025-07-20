@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["Zhihang Shao <dio_ro@outlook.com>", "Jingxuan Wei <jensenwei007@gmail.com>"]
 
 [features]
-default = ["alloc", "fs", "paging", "ramdisk_cpio"]
+default = ["alloc", "fs", "paging", "virtiodisk"]
 
 alloc = ["axalloc"]
 paging = ["axhal/paging", "axmm"]
@@ -15,7 +15,6 @@ net = ["axdriver", "axnet"]
 display = ["axdriver", "axdisplay"]
 
 # Boot Media
-
 virtiodisk = ["axdriver/virtio-blk"]
 ramdisk_cpio = []
 
@@ -30,6 +29,7 @@ axdriver = { git = "https://github.com/arceos-org/arceos.git", optional = true, 
 axfs = { git = "https://github.com/arceos-org/arceos.git", optional = true }
 axnet = { git = "https://github.com/arceos-org/arceos.git", optional = true }
 axdisplay = { git = "https://github.com/arceos-org/arceos.git", optional = true }
+axio = { version = "0.1", features = ["alloc"] }
 
 crate_interface = "0.1"
 ctor_bare = "0.2"
