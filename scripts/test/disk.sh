@@ -18,7 +18,7 @@ mkdir temp
 sudo mount -o loop disk.img temp
 sudo mkdir -p temp/test
 sudo touch temp/test/arceboot.txt
-sudo echo "This is a test file for Arceboot." > temp/test/arceboot.txt
+echo "This is a test file for Arceboot." | sudo tee temp/test/arceboot.txt > /dev/null
 sudo umount temp
 rm -rf temp
 
