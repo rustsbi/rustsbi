@@ -1,0 +1,76 @@
+name: Test
+
+on: [push, pull_request]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: riscv64gc-unknown-none-elf
+          toolchain: nightly-2025-03-31
+      
+      - name: Install cargo-binutils and rust-objcopy
+        run: |
+          rustup component add llvm-tools-preview
+          cargo install cargo-binutils
+      
+      - name: Prepare for Build
+        run: |
+          # Fix breaking update in rust dependency.
+          cargo fetch
+          find ~/.cargo/git/checkouts/ -type f -name '*.rs' -exec sed -i 's/#\[unsafe(naked)\]/#[naked]/g' {} +
+          
+          # Correct incorrect build directory name in build script.
+          sed -i '/^SBI :=/s#riscv64imac-unknown-none-elf#riscv64gc-unknown-none-elf#' Makefile
+          sed -i '/^SBI :=/s#riscv64imac-unknown-none-elf#riscv64gc-unknown-none-elf#' scripts/make/build.mk
+
+          make clone-rustsbi
+          sed -i -E '/^\s*#\[repr\(align\(16\)\)\]\s*$/d' rustsbi/prototyper/prototyper/src/sbi/early_trap.rs
+
+      - name: Build with Makefile
+        run: |
+          make defconfig
+          make
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y uuid-dev
+
+      - name: Build EDK2
+        run: sh scripts/test/build_edk2.sh
+      
+      - name: Generate disk image
+        run: sh scripts/test/disk.sh
+
+      - name: Create EFI System Partition (ESP)
+        run: sh scripts/test/make_esp.sh
+
+      - name: Set up QEMU
+        run: |
+          sudo apt update
+          sudo apt install -y qemu-system-misc
+
+      - name: Run QEMU
+        run: make run > qemu.log
+
+      - name: Upload QEMU log
+        uses: actions/upload-artifact@v4
+        with:
+          name: log
+          path: qemu.log
+
+      - name: Check QEMU output
+        run: sh scripts/test/check_hello_test.sh

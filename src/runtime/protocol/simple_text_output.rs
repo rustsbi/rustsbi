@@ -117,9 +117,9 @@ pub extern "efiapi" fn test_string(
 
 pub extern "efiapi" fn query_mode(
     _this: *mut SimpleTextOutputProtocol,
-    mode: usize,
-    columns: *mut usize,
-    rows: *mut usize,
+    _mode: usize,
+    _columns: *mut usize,
+    _rows: *mut usize,
 ) -> Status {
     Status::UNSUPPORTED
 }
