@@ -16,9 +16,9 @@ mkfs.vfat -F 32 disk.img
 
 mkdir temp
 sudo mount -o loop disk.img temp
-mkdir -p temp/test
-touch temp/test/arceboot.txt
-echo "This is a test file for Arceboot." > temp/test/arceboot.txt
+sudo mkdir -p temp/test
+sudo touch temp/test/arceboot.txt
+sudo echo "This is a test file for Arceboot." > temp/test/arceboot.txt
 sudo umount temp
 rm -rf temp
 

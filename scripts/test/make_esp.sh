@@ -2,7 +2,7 @@
 set -e
 
 PROJECT_ROOT=$(pwd)
-IMG_NAME="fat32_disk_test.img"
+IMG_NAME="disk.img"
 MOUNT_DIR="mnt_fat32"
 ESP_DIR="$MOUNT_DIR/EFI/BOOT"
 
