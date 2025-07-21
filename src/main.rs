@@ -1,12 +1,14 @@
 #![cfg_attr(not(test), no_std)]
 #![no_main]
+#![allow(dead_code)]
 
 #[macro_use]
 extern crate axlog;
 
-mod panic;
 mod log;
 mod medium;
+mod panic;
+mod runtime;
 
 #[cfg_attr(not(test), unsafe(no_mangle))]
 pub extern "C" fn rust_main(_cpu_id: usize, _dtb: usize) -> ! {
@@ -54,6 +56,8 @@ pub extern "C" fn rust_main(_cpu_id: usize, _dtb: usize) -> ! {
 
     info!("current root dir: {}", crate::medium::current_dir().unwrap());
     info!("read test file context: {}", crate::medium::read_to_string("/test/arceboot.txt").unwrap());
+
+    crate::runtime::efi_runtime_init();
 
     info!("will shut down.");
 
