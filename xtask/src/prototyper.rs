@@ -1,6 +1,6 @@
 use std::{
     env, fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, ExitStatus},
 };
 
@@ -23,6 +23,9 @@ pub struct PrototyperArg {
 
     #[clap(long, short = 'c')]
     pub config_file: Option<PathBuf>,
+
+    #[clap(long)]
+    pub target: Option<String>,
 }
 
 const ARCH: &str = "riscv64gc-unknown-none-elf";
@@ -30,7 +33,7 @@ const PACKAGE_NAME: &str = "rustsbi-prototyper";
 
 #[must_use]
 pub fn run(arg: &PrototyperArg) -> Option<ExitStatus> {
-    let dirs = prepare_directories()?;
+    let dirs = prepare_directories(arg)?;
     setup_config_file(&dirs.target_config_toml, arg)?;
 
     let exit_status = build_prototyper(arg)?;
@@ -51,10 +54,33 @@ struct Directories {
     target_config_toml: PathBuf,
 }
 
-fn prepare_directories() -> Option<Directories> {
+fn prepare_directories(arg: &PrototyperArg) -> Option<Directories> {
+    // The Rustc compiler gets target triple from the `--target` argument using `file_stem`
+    // or the raw target name. Ref: compiler\rustc_target\src\spec\mod.rs of the Rust source code.
+    fn get_target_triple(target: &str) -> String {
+        fn is_target_file(target: &str) -> bool {
+            target.ends_with(".json") && Path::new(target).exists()
+        }
+        if is_target_file(target) {
+            Path::new(target)
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| format!("Invalid file path: {}", target))
+                .unwrap_or_else(|err| {
+                    eprintln!("Warning: {}. Falling back to target string.", err);
+                    target
+                })
+                .to_string()
+        } else {
+            target.to_string()
+        }
+    }
+
     let current_dir = env::current_dir().ok()?;
     let raw_target_dir = current_dir.join("target");
-    let target_dir = raw_target_dir.join(ARCH).join("release");
+    let arch = arg.target.as_deref().unwrap_or(ARCH);
+    let target_triple = get_target_triple(arch);
+    let target_dir = raw_target_dir.join(target_triple).join("release");
     let target_config_toml = raw_target_dir.join("config.toml");
 
     Some(Directories {
@@ -96,10 +122,12 @@ fn build_prototyper(arg: &PrototyperArg) -> Option<ExitStatus> {
         "-C relocation-model=pie -C link-arg=-pie"
     };
 
+    let arch = arg.target.as_deref().unwrap_or(ARCH);
+
     // Build the prototyper
     let status = cargo::Cargo::new("build")
         .package(PACKAGE_NAME)
-        .target(ARCH)
+        .target(arch)
         .unstable("build-std", ["core", "alloc"])
         .env("RUSTFLAGS", rustflags)
         .features(&arg.features)
@@ -124,7 +152,7 @@ fn build_prototyper(arg: &PrototyperArg) -> Option<ExitStatus> {
     }
 
     // Get target directory once instead of recreating it
-    let target_dir = prepare_directories()?.target_dir;
+    let target_dir = prepare_directories(arg)?.target_dir;
     let elf_path = target_dir.join(PACKAGE_NAME);
     let bin_path = target_dir.join(format!("{}.bin", PACKAGE_NAME));
 
