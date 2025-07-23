@@ -59,13 +59,17 @@ fn prepare_directories(arg: &PrototyperArg) -> Option<Directories> {
     // or the raw target name. Ref: compiler\rustc_target\src\spec\mod.rs of the Rust source code.
     fn get_target_triple(target: &str) -> String {
         fn is_target_file(target: &str) -> bool {
-            target.ends_with(".json") || Path::new(target).exists()
+            target.ends_with(".json") && Path::new(target).exists()
         }
         if is_target_file(target) {
             Path::new(target)
                 .file_stem()
                 .and_then(|name| name.to_str())
-                .unwrap_or(target)
+                .ok_or_else(|| format!("Invalid file path: {}", target))
+                .unwrap_or_else(|err| {
+                    eprintln!("Warning: {}. Falling back to target string.", err);
+                    target
+                })
                 .to_string()
         } else {
             target.to_string()
