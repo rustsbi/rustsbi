@@ -9,6 +9,7 @@ mod log;
 mod medium;
 mod panic;
 mod runtime;
+mod shell;
 
 #[cfg_attr(not(test), unsafe(no_mangle))]
 pub extern "C" fn rust_main(_cpu_id: usize, _dtb: usize) -> ! {
@@ -36,7 +37,7 @@ pub extern "C" fn rust_main(_cpu_id: usize, _dtb: usize) -> ! {
     info!("Initialize platform devices...");
     axhal::platform_init();
 
-    #[cfg(any(feature = "fs", feature = "net", feature = "display"))]
+    #[cfg(any(feature = "fs", feature = "net"))]
     {
         #[allow(unused_variables)]
         let all_devices = axdriver::init_drivers();
@@ -48,16 +49,13 @@ pub extern "C" fn rust_main(_cpu_id: usize, _dtb: usize) -> ! {
 
         #[cfg(feature = "net")]
         axnet::init_network(all_devices.net);
-
-        #[cfg(feature = "display")]
-        axdisplay::init_display(all_devices.display);
     }
     ctor_bare::call_ctors();
 
     info!("current root dir: {}", crate::medium::current_dir().unwrap());
     info!("read test file context: {}", crate::medium::read_to_string("/test/arceboot.txt").unwrap());
 
-    crate::runtime::efi_runtime_init();
+    crate::shell::shell_main();
 
     info!("will shut down.");
 

@@ -64,7 +64,8 @@ jobs:
           sudo apt install -y qemu-system-misc
 
       - name: Run QEMU
-        run: make virtiodisk > qemu.log
+        run: |
+          make qemu-run > qemu.log
 
       - name: Upload QEMU log
         uses: actions/upload-artifact@v4

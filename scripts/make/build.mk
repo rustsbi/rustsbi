@@ -7,7 +7,6 @@ ROOT_DIR := $(abspath $(SCRIPT_DIR)/../..)
 ELF := $(ROOT_DIR)/target/$(TARGET)/release/arceboot
 BIN := $(ROOT_DIR)/target/$(TARGET)/release/arceboot.bin
 RUSTSBI_DIR := $(ROOT_DIR)/rustsbi
-SBI := $(RUSTSBI_DIR)/target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper-payload.elf
 
 # 彩色打印
 define print_info
