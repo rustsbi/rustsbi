@@ -32,3 +32,6 @@ myramdisk/
 *.bin
 *.img
 *.cpio
+
+edk2/
+mnt_fat32/
