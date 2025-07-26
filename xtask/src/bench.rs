@@ -58,7 +58,11 @@ pub fn run(arg: &BenchArg) -> Option<ExitStatus> {
             }
             Err(err_msg) => {
                 error!("{}", err_msg);
+                // TODO cross-platform ExitStatus return value
+                #[cfg(unix)]
                 return Some(<ExitStatus as std::os::unix::process::ExitStatusExt>::from_raw(1));
+                #[cfg(not(unix))]
+                return None;
             }
         }
     } else {

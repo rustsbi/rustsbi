@@ -17,6 +17,7 @@ default-members = [
     "library/sbi-rt",
     "library/sbi-spec",
     "library/rustsbi",
+    "library/penglai",
 ]
 
 [workspace.package]
