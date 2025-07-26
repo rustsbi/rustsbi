@@ -89,6 +89,21 @@ jobs:
       - name: Run tests
         run: cargo test -p sbi-spec --verbose
 
+  test-penglai:
+    name: Test `penglai` crate
+    needs: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@v2
+      # - name: Check clippy
+      #   run: cargo clippy -- -D warnings
+      - name: Run tests
+        run: cargo test -p penglai --verbose
+
   build-sbi-rt:
     name: Build sbi-rt
     needs: fmt
@@ -156,6 +171,9 @@ jobs:
         sbi_spec_TARGET:
           - riscv64imac-unknown-none-elf
           - riscv32imac-unknown-none-elf
+        penglai_TARGET:
+          - riscv64imac-unknown-none-elf
+          - riscv32imac-unknown-none-elf
         TOOLCHAIN:
           - nightly-2025-04-22
     steps:
@@ -172,6 +190,7 @@ jobs:
           rustup target add ${{ matrix.sbi_rt_TARGET }}
           rustup target add ${{ matrix.sbi_testing_TARGET }}
           rustup target add ${{ matrix.sbi_spec_TARGET }}
+          rustup target add ${{ matrix.penglai_TARGET }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.TOOLCHAIN }}
@@ -183,6 +202,8 @@ jobs:
         run: cargo check --target ${{ matrix.sbi_testing_TARGET }} -p sbi-testing
       - name: Check sbi-spec (compilation check)
         run: cargo check --target ${{ matrix.sbi_spec_TARGET }} -p sbi-spec
+      - name: Check penglai (compilation check)
+        run: cargo check --target ${{ matrix.penglai_TARGET }} -p penglai
 # sbi-testing:
 #     name: Run rust-clippy analyzing
 #     runs-on: ubuntu-latest
