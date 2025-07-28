@@ -6,6 +6,7 @@ members = [
     "library/sbi-spec",
     "library/sbi-testing",
     "library/rustsbi",
+    "library/riscv-cove",
     "library/penglai",
     "prototyper/prototyper",
     "prototyper/bench-kernel",
@@ -17,6 +18,7 @@ default-members = [
     "library/sbi-rt",
     "library/sbi-spec",
     "library/rustsbi",
+    "library/riscv-cove",
     "library/penglai",
 ]
 
