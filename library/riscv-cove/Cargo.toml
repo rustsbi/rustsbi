@@ -1,0 +1,14 @@
+[package]
+name = "riscv-cove"
+description = "Definitions and constants in the Confidential VM Extension"
+version = "0.0.0"
+authors = ["Longbing Zheng <1211998648@qq.com>", "Luo Jia <me@luojia.cc>"]
+documentation = "https://docs.rs/riscv-cove"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["riscv", "sbi", "rustsbi", "riscv-cove"]
+categories = ["os", "embedded", "hardware-support", "no-std"]
+
+[dev-dependencies]
+static_assertions = "1.1.0"
