@@ -3,6 +3,8 @@ type CmdHandler = fn(&str);
 const CMD_TABLE: &[(&str, &str, CmdHandler)] = &[
     ("help", "-- List the help for ArceBoot", do_help),
     ("exit", "-- Exit ArceBoot", do_exit),
+    ("env", "-- List the envs", do_env),
+    ("setenv", "-- Set the envs(Test now)", do_set_env),
 ];
 
 pub fn run_cmd(line: &[u8]) {
@@ -36,4 +38,31 @@ fn do_help(_args: &str) {
 fn do_exit(_args: &str) {
     axlog::ax_println!("======== ArceBoot will exit and shut down ========");
     axhal::misc::terminate();
+}
+
+fn do_env(_args: &str) {
+    axlog::ax_println!("======== ArceBoot env arguments ========");
+    unsafe {
+        let mut parser = crate::dtb::DtbParser::new(crate::dtb::GLOBAL_NOW_DTB_ADDRESS).unwrap();
+
+        // Bootargs
+        if !parser.read_property_value("/chosen", "bootargs") {
+            error!("Read bootargs failed!");
+        }
+    }
+    axlog::ax_println!("======== ArceBoot env arguments ========");
+}
+
+fn do_set_env(_args: &str) {
+    unsafe {
+        let mut parser = crate::dtb::DtbParser::new(crate::dtb::GLOBAL_NOW_DTB_ADDRESS).unwrap();
+
+        // Bootargs
+        if !parser.modify_property("/chosen", "bootargs", "console=ttyS0,115200") {
+            error!("Change bootargs failed!");
+        }
+
+        // Save new dtb
+        crate::dtb::GLOBAL_NOW_DTB_ADDRESS = parser.save_to_mem();
+    }
 }

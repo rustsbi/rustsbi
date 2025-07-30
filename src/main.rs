@@ -5,6 +5,9 @@
 #[macro_use]
 extern crate axlog;
 
+use axhal::mem::{MemRegionFlags, PhysAddr, memory_regions, phys_to_virt};
+
+mod dtb;
 mod log;
 mod medium;
 mod panic;
@@ -12,7 +15,7 @@ mod runtime;
 mod shell;
 
 #[cfg_attr(not(test), unsafe(no_mangle))]
-pub extern "C" fn rust_main(_cpu_id: usize, _dtb: usize) -> ! {
+pub extern "C" fn rust_main(_cpu_id: usize, dtb: usize) -> ! {
     axlog::init();
     axlog::set_max_level(option_env!("AX_LOG").unwrap_or("")); // no effect if set `log-level-*` features
     info!("Logging is enabled.");
@@ -52,8 +55,27 @@ pub extern "C" fn rust_main(_cpu_id: usize, _dtb: usize) -> ! {
     }
     ctor_bare::call_ctors();
 
-    info!("current root dir: {}", crate::medium::current_dir().unwrap());
-    info!("read test file context: {}", crate::medium::read_to_string("/test/arceboot.txt").unwrap());
+    // Set to DTB_ADDRESS
+    unsafe {
+        dtb::GLOBAL_NOW_DTB_ADDRESS = phys_to_virt(PhysAddr::from_usize(dtb)).as_usize();
+    }
+
+    // if dtb is needed to next stage
+    /*
+    unsafe {
+        let mut parser = dtb::DtbParser::new(phys_to_virt(PhysAddr::from_usize(dtb)).as_usize()).unwrap();
+        parser.dump_all();
+        if parser.modify_property(
+            "/chosen",
+            "bootargs",
+            "console=ttyS0,115200 root=/dev/mmcblk0p2 rw rootwait",
+        ) {
+            error!("modify error!");
+        }
+        let new_dtb: usize = parser.save_to_mem();
+        // Send 'new_dtb' to next stage
+    }
+    */
 
     crate::shell::shell_main();
 
@@ -63,8 +85,6 @@ pub extern "C" fn rust_main(_cpu_id: usize, _dtb: usize) -> ! {
 }
 
 fn init_allocator() {
-    use axhal::mem::{MemRegionFlags, memory_regions, phys_to_virt};
-
     info!("Initialize global memory allocator...");
     info!("  use {} allocator.", axalloc::global_allocator().name());
 
