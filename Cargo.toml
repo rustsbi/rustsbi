@@ -8,6 +8,7 @@ members = [
     "library/rustsbi",
     "library/riscv-cove",
     "library/penglai",
+    "library/pmpm",
     "prototyper/prototyper",
     "prototyper/bench-kernel",
     "prototyper/test-kernel",
@@ -20,6 +21,7 @@ default-members = [
     "library/rustsbi",
     "library/riscv-cove",
     "library/penglai",
+    "library/pmpm"
 ]
 
 [workspace.package]

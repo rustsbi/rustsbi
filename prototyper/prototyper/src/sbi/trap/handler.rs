@@ -10,6 +10,7 @@ use crate::riscv::current_hartid;
 use crate::sbi::console;
 use crate::sbi::hsm::local_hsm;
 use crate::sbi::ipi;
+use crate::sbi::pmpm;
 use crate::sbi::pmu::pmu_firmware_counter_increment;
 use crate::sbi::rfence;
 
@@ -44,6 +45,10 @@ pub fn msoft_ipi_handler() {
     // Handle fence operation
     if (ipi_type & ipi::IPI_TYPE_FENCE) != 0 {
         rfence::rfence_handler();
+    }
+    // Handle PMP synchronous operation.
+    if (ipi_type & ipi::IPI_TYPE_PMP) != 0 {
+        pmpm::pmpsync_handler();
     }
 }
 
