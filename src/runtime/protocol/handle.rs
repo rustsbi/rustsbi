@@ -2,7 +2,6 @@ use axsync::Mutex;
 use lazyinit::LazyInit;
 use uefi_raw::{Guid, Handle};
 
-extern crate alloc;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 

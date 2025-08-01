@@ -1,5 +1,3 @@
-extern crate alloc;
-
 use alloc::{string::String, vec::Vec};
 pub use axio::{BufRead, BufReader, Read, Write};
 use axsync::{Mutex, MutexGuard};

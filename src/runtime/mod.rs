@@ -12,8 +12,6 @@ use object::Object;
 use object::ObjectSection;
 use uefi_raw::table::system::SystemTable;
 
-extern crate alloc;
-
 use crate::runtime::table::{get_system_table_raw, init_system_table};
 
 mod protocol;

@@ -8,7 +8,6 @@ use crate::runtime::protocol::simple_text_output::{
     get_simple_text_output, init_simple_text_output,
 };
 
-extern crate alloc;
 use alloc::boxed::Box;
 
 #[derive(Debug)]

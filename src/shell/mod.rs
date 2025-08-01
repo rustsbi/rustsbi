@@ -12,7 +12,7 @@ const SPACE: u8 = b' ';
 const MAX_CMD_LEN: usize = 256;
 
 fn print_prompt() {
-    axlog::ax_print!("[Arceboot]: {}$ ", &crate::medium::current_dir().unwrap());
+    axlog::ax_print!("[Arceboot]: {}$ ", &crate::medium::virtio_disk::current_dir().unwrap());
 }
 
 pub fn shell_main() {

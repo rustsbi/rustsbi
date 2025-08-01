@@ -1,41 +1,6 @@
-// DTB
-/* Examples
-1. Parse and print the initial DTB structure
-parser.dump_all();
-
-// 2. Modify "bootargs" with a SHORTER value (in-place modification)
-let truly_shorter_bootargs = "test"; // Length 4. Old allocated was 12 bytes.
-if parser.modify_property("/chosen", "bootargs", truly_shorter_bootargs) {
-    parser.dump_all();
-} else {
-    error!("Failed to modify bootargs.");
-}
-
-// 3. Modify "bootargs" with a LONGER value (triggers reallocation)
-let longer_bootargs = "console=ttyS0,115200 root=/dev/mmcblk0p2 rw rootwait custom_arg=hello_world_long_string";
-if parser.modify_property("/chosen", "bootargs", longer_bootargs) {
-    parser.dump_all();
-} else {
-    error!("Failed to modify bootargs.");
-}
-
-// 4. Try to modify a non-existent property
-if !parser.modify_property("/chosen", "non-existent-prop", "test") {
-    error!("Correctly failed to modify non-existent-prop.");
-}
-
-// 5. Try to modify a property in a non-existent node
-if !parser.modify_property("/nonexistent/node", "prop", "value") {
-    error!("Correctly failed to modify property in non-existent node.");
-}
-*/
-
-extern crate alloc;
-
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::fmt::{self, Write};
 use core::mem;
 use core::ptr;
 use core::str;
@@ -48,14 +13,6 @@ const FDT_END: u32 = 0x00000009;
 const FDT_MAGIC: u32 = 0xd00dfeed;
 
 pub static mut GLOBAL_NOW_DTB_ADDRESS: usize = 0;
-
-struct Printer;
-impl Write for Printer {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        axlog::ax_print!("{}", s);
-        Ok(())
-    }
-}
 
 struct DtbMemory<'a> {
     data: &'a mut [u8],
@@ -75,7 +32,7 @@ impl<'a> DtbMemory<'a> {
     fn read_u32(&self, offset: usize) -> Option<u32> {
         if !self.check_bounds(offset, 4) {
             error!(
-                "read_u32 out of bounds: offset={}, len=4, size={}",
+                "read_u32 out of bounds: offset={}, len=4, size={} (It won't panic. Try adjusting and then retry)",
                 offset,
                 self.data.len()
             );
@@ -88,7 +45,7 @@ impl<'a> DtbMemory<'a> {
     fn write_u32(&mut self, offset: usize, value: u32) -> bool {
         if !self.check_bounds(offset, 4) {
             error!(
-                "write_u32 out of bounds: offset={}, len=4, size={}",
+                "write_u32 out of bounds: offset={}, len=4, size={} (It won't panic. Try adjusting and then retry)",
                 offset,
                 self.data.len()
             );
@@ -101,7 +58,7 @@ impl<'a> DtbMemory<'a> {
     fn read_bytes(&self, offset: usize, len: usize) -> Option<&[u8]> {
         if !self.check_bounds(offset, len) {
             error!(
-                "read_bytes out of bounds: offset={}, len={}, size={}",
+                "read_bytes out of bounds: offset={}, len={}, size={} (It won't panic. Try adjusting and then retry)",
                 offset,
                 len,
                 self.data.len()
@@ -114,7 +71,7 @@ impl<'a> DtbMemory<'a> {
     fn write_bytes(&mut self, offset: usize, data: &[u8]) -> bool {
         if !self.check_bounds(offset, data.len()) {
             error!(
-                "write_bytes out of bounds: offset={}, len={}, size={}",
+                "write_bytes out of bounds: offset={}, len={}, size={} (It won't panic. Try adjusting and then retry)",
                 offset,
                 data.len(),
                 self.data.len()
@@ -130,7 +87,7 @@ impl<'a> DtbMemory<'a> {
         while len < 256 {
             if !self.check_bounds(offset + len, 1) {
                 error!(
-                    "read_str out of bounds while searching for null terminator: offset={}, len=1, size={}",
+                    "read_str out of bounds while searching for null terminator: offset={}, len=1, size={} (It won't panic. Try adjusting and then retry)",
                     offset + len,
                     self.data.len()
                 );
@@ -409,7 +366,7 @@ impl DtbParser {
 
         let mut current_path_segments: Vec<String> = Vec::new();
         let mut depth = 0;
-        let mut _node_start_offset: Option<usize> = None;// will get warning if without '_'
+        let mut _node_start_offset: Option<usize> = None; // will get warning if without '_'
 
         while let Some(token) = unsafe { self.next_token() } {
             match token {
@@ -492,6 +449,289 @@ impl DtbParser {
 
         self.current_offset = saved_offset;
         None
+    }
+
+    /// Finds the insertion point for new data within a node.
+    fn find_insertion_point_in_node(&mut self, node_path: &str) -> Option<usize> {
+        let Some(location) = self.find_node(node_path) else {
+            error!("Parent node '{}' not found for insertion.", node_path);
+            return None;
+        };
+
+        let insertion_point_word_offset = location.end_offset - 1;
+        let insertion_point_byte_offset =
+            self.header.off_dt_struct() as usize + insertion_point_word_offset * 4;
+
+        Some(insertion_point_byte_offset)
+    }
+
+    /// Finds or adds a string to the string table and returns its offset.
+    fn get_string_offset(&mut self, s: &str) -> Option<u32> {
+        let current_strings_offset = self.header.off_dt_strings() as usize;
+        let current_strings_size = self.header.size_dt_strings() as usize;
+
+        let mem_view_ro = self.get_memory_view_read_only();
+
+        // Search for existing string
+        let mut offset = 0;
+        while offset < current_strings_size {
+            if let Some(existing_str) = mem_view_ro.read_str(current_strings_offset + offset) {
+                if existing_str == s {
+                    return Some(offset as u32);
+                }
+                offset += existing_str.len() + 1; // Include null terminator
+            } else {
+                error!("get_string_offset: Malformed string table.");
+                return None;
+            }
+        }
+
+        // String not found, append it
+        let string_to_add = s.as_bytes();
+        let string_len_with_null = string_to_add.len() + 1;
+        let aligned_string_len = (string_len_with_null + 3) & !3;
+
+        let new_strings_size = current_strings_size + aligned_string_len;
+        let total_size_increase = aligned_string_len;
+
+        // Reallocate DTB to accommodate new string
+        let old_total_size = self.header.totalsize() as usize;
+        let new_total_size = old_total_size + total_size_increase;
+
+        let mut new_dtb_data = vec![0u8; new_total_size];
+        let mut new_mem_view = DtbMemory::new(&mut new_dtb_data[..]);
+
+        // Copy everything before the string table
+        new_mem_view.write_bytes(0, &self.dtb_data[0..current_strings_offset]);
+
+        // Copy the old string table to its new offset
+        let new_strings_start_byte_offset = current_strings_offset;
+        new_mem_view.write_bytes(
+            new_strings_start_byte_offset,
+            &self.dtb_data[current_strings_offset..current_strings_offset + current_strings_size],
+        );
+
+        // Add the new string
+        let new_string_offset_in_table = current_strings_size;
+        new_mem_view.write_bytes(
+            new_strings_start_byte_offset + new_string_offset_in_table,
+            string_to_add,
+        );
+        new_mem_view.write_u32(
+            new_strings_start_byte_offset + new_string_offset_in_table + string_to_add.len(),
+            0,
+        );
+
+        // Update header
+        let mut new_header = FdtHeader::read(&new_mem_view).unwrap();
+        new_header.set_totalsize(new_total_size as u32);
+        new_header.set_size_dt_strings(new_strings_size as u32);
+        new_header.write(&mut new_mem_view);
+
+        self.dtb_data = new_dtb_data;
+        self.header = new_header;
+
+        debug!(
+            "Added string '{}' to string table. New string table size: {} bytes",
+            s,
+            self.header.size_dt_strings()
+        );
+
+        Some(new_string_offset_in_table as u32)
+    }
+
+    /// Adds a new node under a specified parent node.
+    ///
+    /// # Arguments
+    /// * `parent_path` - The full path to the parent node (e.g., "/chosen").
+    /// * `new_node_name` - The name of the new node (e.g., "my-new-device").
+    ///
+    /// Returns `true` on success, `false` on failure.
+    pub fn add_node(&mut self, parent_path: &str, new_node_name: &str) -> bool {
+        let Some(insertion_byte_offset) = self.find_insertion_point_in_node(parent_path) else {
+            error!(
+                "Could not find insertion point for node '{}' under parent '{}'.",
+                new_node_name, parent_path
+            );
+            return false;
+        };
+
+        // Add node name to string table
+        let Some(_nameoff) = self.get_string_offset(new_node_name) else {
+            error!(
+                "Failed to add node name '{}' to string table.",
+                new_node_name
+            );
+            return false;
+        };
+
+        // Construct the new node data
+        let node_name_bytes = new_node_name.as_bytes();
+        let node_name_len_with_null = node_name_bytes.len() + 1;
+        let aligned_node_name_len = (node_name_len_with_null + 3) & !3;
+
+        let node_data_len = 4 + aligned_node_name_len + 4;
+
+        let mut new_node_bytes = Vec::with_capacity(node_data_len);
+        new_node_bytes.extend_from_slice(&FDT_BEGIN_NODE.to_be_bytes());
+        new_node_bytes.extend_from_slice(node_name_bytes);
+        new_node_bytes.push(0);
+        while new_node_bytes.len() % 4 != 0 {
+            new_node_bytes.push(0);
+        }
+        new_node_bytes.extend_from_slice(&FDT_END_NODE.to_be_bytes());
+
+        let total_size_increase = new_node_bytes.len();
+        let old_total_size = self.header.totalsize() as usize;
+        let new_total_size = old_total_size + total_size_increase;
+
+        let mut new_dtb_data = vec![0u8; new_total_size];
+        let mut new_mem_view = DtbMemory::new(&mut new_dtb_data[..]);
+
+        let old_off_dt_struct = self.header.off_dt_struct() as usize;
+        let old_size_dt_struct = self.header.size_dt_struct() as usize;
+        let old_off_dt_strings = self.header.off_dt_strings() as usize;
+        let old_size_dt_strings = self.header.size_dt_strings() as usize;
+
+        // 1. Copy data BEFORE insertion point (header, rsvmap, struct block up to insertion)
+        new_mem_view.write_bytes(0, &self.dtb_data[0..insertion_byte_offset]);
+
+        // 2. Insert new node data
+        new_mem_view.write_bytes(insertion_byte_offset, &new_node_bytes);
+
+        // 3. Copy data AFTER insertion point, adjusting offsets
+        let old_struct_end_byte_offset = old_off_dt_struct + old_size_dt_struct;
+
+        new_mem_view.write_bytes(
+            insertion_byte_offset + total_size_increase,
+            &self.dtb_data[insertion_byte_offset..old_struct_end_byte_offset],
+        );
+
+        // 4. Copy string table, adjusting its offset
+        let new_strings_start_byte_offset = old_off_dt_strings + total_size_increase;
+        new_mem_view.write_bytes(
+            new_strings_start_byte_offset,
+            &self.dtb_data[old_off_dt_strings..old_off_dt_strings + old_size_dt_strings],
+        );
+
+        // 5. Update the header in the new DTB data
+        let mut new_header = FdtHeader::read(&new_mem_view).unwrap();
+        new_header.set_totalsize(new_total_size as u32);
+        new_header.set_size_dt_struct(old_size_dt_struct as u32 + total_size_increase as u32);
+        new_header.set_off_dt_strings(new_strings_start_byte_offset as u32);
+        new_header.write(&mut new_mem_view);
+
+        // 6. Replace the old dtb_data with the new one
+        self.dtb_data = new_dtb_data;
+        self.header = new_header;
+
+        debug!(
+            "Added node '{}' under '{}'. New total size: {} bytes",
+            new_node_name,
+            parent_path,
+            self.dtb_data.len()
+        );
+
+        true
+    }
+
+    /// Adds a new property to a specified node.
+    ///
+    /// # Arguments
+    /// * `node_path` - The full path to the node where the property will be added.
+    /// * `prop_name` - The name of the new property.
+    /// * `prop_value` - The value of the new property (as a byte slice).
+    ///
+    /// Returns `true` on success, `false` on failure.
+    pub fn add_property(&mut self, node_path: &str, prop_name: &str, prop_value: &[u8]) -> bool {
+        let Some(node_location) = self.find_node(node_path) else {
+            error!(
+                "Node '{}' not found for adding property '{}'.",
+                node_path, prop_name
+            );
+            return false;
+        };
+
+        let insertion_point_word_offset = node_location.end_offset - 1;
+        let insertion_byte_offset =
+            self.header.off_dt_struct() as usize + insertion_point_word_offset * 4;
+
+        // Add property name to string table
+        let Some(nameoff) = self.get_string_offset(prop_name) else {
+            error!(
+                "Failed to add property name '{}' to string table.",
+                prop_name
+            );
+            return false;
+        };
+
+        // Construct the new property data
+        let prop_value_len = prop_value.len();
+        let aligned_prop_value_len = (prop_value_len + 3) & !3;
+
+        let prop_data_len = 4 + 4 + 4 + aligned_prop_value_len;
+
+        let mut new_prop_bytes = Vec::with_capacity(prop_data_len);
+        new_prop_bytes.extend_from_slice(&FDT_PROP.to_be_bytes());
+        new_prop_bytes.extend_from_slice(&(prop_value_len as u32).to_be_bytes());
+        new_prop_bytes.extend_from_slice(&nameoff.to_be_bytes());
+        new_prop_bytes.extend_from_slice(prop_value);
+        while new_prop_bytes.len() % 4 != 0 {
+            new_prop_bytes.push(0);
+        }
+
+        let total_size_increase = new_prop_bytes.len();
+        let old_total_size = self.header.totalsize() as usize;
+        let new_total_size = old_total_size + total_size_increase;
+
+        let mut new_dtb_data = vec![0u8; new_total_size];
+        let mut new_mem_view = DtbMemory::new(&mut new_dtb_data[..]);
+
+        let old_off_dt_struct = self.header.off_dt_struct() as usize;
+        let old_size_dt_struct = self.header.size_dt_struct() as usize;
+        let old_off_dt_strings = self.header.off_dt_strings() as usize;
+        let old_size_dt_strings = self.header.size_dt_strings() as usize;
+
+        // 1. Copy data BEFORE insertion point (header, rsvmap, struct block up to insertion)
+        new_mem_view.write_bytes(0, &self.dtb_data[0..insertion_byte_offset]);
+
+        // 2. Insert new property data
+        new_mem_view.write_bytes(insertion_byte_offset, &new_prop_bytes);
+
+        // 3. Copy data AFTER insertion point, adjusting offsets
+        let old_struct_end_byte_offset = old_off_dt_struct + old_size_dt_struct;
+
+        new_mem_view.write_bytes(
+            insertion_byte_offset + total_size_increase,
+            &self.dtb_data[insertion_byte_offset..old_struct_end_byte_offset],
+        );
+
+        // 4. Copy string table, adjusting its offset
+        let new_strings_start_byte_offset = old_off_dt_strings + total_size_increase;
+        new_mem_view.write_bytes(
+            new_strings_start_byte_offset,
+            &self.dtb_data[old_off_dt_strings..old_off_dt_strings + old_size_dt_strings],
+        );
+
+        // 5. Update the header in the new DTB data
+        let mut new_header = FdtHeader::read(&new_mem_view).unwrap();
+        new_header.set_totalsize(new_total_size as u32);
+        new_header.set_size_dt_struct(old_size_dt_struct as u32 + total_size_increase as u32);
+        new_header.set_off_dt_strings(new_strings_start_byte_offset as u32);
+        new_header.write(&mut new_mem_view);
+
+        // 6. Replace the old dtb_data with the new one
+        self.dtb_data = new_dtb_data;
+        self.header = new_header;
+
+        debug!(
+            "Added property '{}' to node '{}'. New total size: {} bytes",
+            prop_name,
+            node_path,
+            self.dtb_data.len()
+        );
+
+        true
     }
 
     /// Modifies the value of a property within a specified node.

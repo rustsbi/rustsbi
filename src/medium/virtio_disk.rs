@@ -1,5 +1,3 @@
-extern crate alloc;
-
 use axio::{self as io};
 use alloc::{string::String, vec::Vec};
 

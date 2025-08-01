@@ -1,12 +1,10 @@
-extern crate alloc;
-
-use core::{ptr, str};
-use axhal::mem::phys_to_virt;
-use axio::{self as io, prelude::*};
-use alloc::{string::String, vec::Vec, string::ToString};
+use alloc::{string::String, string::ToString, vec::Vec};
+use axhal::mem::{PhysAddr, VirtAddr, phys_to_virt, virt_to_phys};
+use axio::{self as io};
+use core::str;
 
 const CPIO_MAGIC: &[u8; 6] = b"070701";
-const CPIO_BASE: usize = 0x8400_0000;
+pub static mut CPIO_BASE: usize = 0x0;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -44,7 +42,12 @@ pub fn current_dir() -> io::Result<String> {
 
 /// Read the entire contents of a file into a bytes vector.
 pub fn read(path: &str) -> io::Result<Vec<u8>> {
-    let mut ptr = phys_to_virt(CPIO_BASE.into()).as_usize();
+    if unsafe { CPIO_BASE } == 0 {
+        error!("Ramdisk is not enabled!");
+        return core::prelude::v1::Err(io::Error::Unsupported);
+    }
+
+    let mut ptr = phys_to_virt(unsafe { CPIO_BASE.into() }).as_usize();
 
     loop {
         let hdr = unsafe { &*(ptr as *const CpioNewcHeader) };
@@ -76,9 +79,7 @@ pub fn read(path: &str) -> io::Result<Vec<u8>> {
         };
 
         if is_match {
-            let data = unsafe {
-                core::slice::from_raw_parts(file_start as *const u8, filesize)
-            };
+            let data = unsafe { core::slice::from_raw_parts(file_start as *const u8, filesize) };
             let mut bytes = Vec::with_capacity(filesize as usize);
             bytes.extend_from_slice(data);
             return Ok(bytes);
@@ -92,7 +93,12 @@ pub fn read(path: &str) -> io::Result<Vec<u8>> {
 
 /// Read the entire contents of a file into a string.
 pub fn read_to_string(path: &str) -> io::Result<String> {
-    let mut ptr = phys_to_virt(CPIO_BASE.into()).as_usize();
+    if unsafe { CPIO_BASE } == 0 {
+        error!("Ramdisk is not enabled!");
+        return core::prelude::v1::Err(io::Error::Unsupported);
+    }
+
+    let mut ptr = phys_to_virt(unsafe { CPIO_BASE.into() }).as_usize();
 
     loop {
         let hdr = unsafe { &*(ptr as *const CpioNewcHeader) };
@@ -135,4 +141,93 @@ pub fn read_to_string(path: &str) -> io::Result<String> {
     }
 
     core::prelude::v1::Err(io::Error::NotFound)
+}
+
+fn set_ramdisk_addr(addr: usize) {
+    unsafe {
+        CPIO_BASE = addr;
+    }
+}
+
+fn ramdisk_enabled() -> bool {
+    axconfig::boot::USE_RAMDISK
+}
+
+fn ramdisk_load_enabled() -> bool {
+    axconfig::boot::LOAD_RAMDISK
+}
+
+fn do_load_ramdisk() -> Option<(usize, usize)> {
+    let file_data = crate::medium::virtio_disk::read(axconfig::boot::RAMDISK_FILE).unwrap();
+    let file_size = file_data.len();
+
+    let start_addr = axalloc::global_allocator()
+        .alloc_pages(file_size / 4096 + 1, 4096)
+        .unwrap();
+    unsafe {
+        core::ptr::copy_nonoverlapping(file_data.as_ptr(), start_addr as *mut u8, file_size);
+    }
+    debug!(
+        "Ramdisk will be load to {:#x}, size is {:#x}",
+        start_addr, file_size
+    );
+    Some((start_addr, file_size))
+}
+
+fn enable_dtb_ramdisk(addr: usize, size: usize) {
+    unsafe {
+        let mut parser = crate::dtb::DtbParser::new(crate::dtb::GLOBAL_NOW_DTB_ADDRESS).unwrap();
+
+        // linux initrd
+        if !parser.add_property("/chosen", "linux,initrd-start", &addr.to_ne_bytes()) {
+            error!("Change linux,initrd-start failed!");
+        }
+        if !parser.add_property(
+            "/chosen",
+            "linux,initrd-end",
+            &((addr + size).to_ne_bytes()),
+        ) {
+            error!("Change linux,initrd-end failed!");
+        }
+
+        // Save new dtb
+        crate::dtb::GLOBAL_NOW_DTB_ADDRESS = parser.save_to_mem();
+    }
+}
+
+pub fn check_ramdisk() {
+    info!("Checking ramdisk.....");
+    // Check the detailed annotations and explanations in configs/platforms/riscv64-qemu-virt.toml
+    if crate::medium::ramdisk_cpio::ramdisk_enabled() {
+        let mut start_addr_phys: usize = 0;
+        let mut _start_addr_virt: usize = 0;
+        let mut size: usize = 0;
+        if crate::medium::ramdisk_cpio::ramdisk_load_enabled() {
+            if let Some((addr, si)) = crate::medium::ramdisk_cpio::do_load_ramdisk() {
+                _start_addr_virt = addr;
+                start_addr_phys = virt_to_phys(VirtAddr::from_usize(addr)).as_usize();
+                size = si;
+            } else {
+                error!("Load ramdisk failed!");
+            }
+            crate::medium::ramdisk_cpio::set_ramdisk_addr(start_addr_phys);
+            crate::medium::ramdisk_cpio::enable_dtb_ramdisk(start_addr_phys, size);
+            info!(
+                "read test file context: {}",
+                crate::medium::ramdisk_cpio::read_to_string("/test/arceboot.txt").unwrap()
+            );
+        } else {
+            start_addr_phys = axconfig::boot::RAMDISK_START;
+            _start_addr_virt = phys_to_virt(PhysAddr::from_usize(start_addr_phys)).as_usize();
+            size = axconfig::boot::RAMDISK_SIZE;
+
+            crate::medium::ramdisk_cpio::set_ramdisk_addr(start_addr_phys);
+            crate::medium::ramdisk_cpio::enable_dtb_ramdisk(start_addr_phys, size);
+            info!(
+                "read test file context: {}",
+                crate::medium::ramdisk_cpio::read_to_string("/test/arceboot.txt").unwrap()
+            );
+        }
+    }
+    info!("Checking for ramdisk is done!");
 }

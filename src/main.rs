@@ -4,6 +4,7 @@
 
 #[macro_use]
 extern crate axlog;
+extern crate alloc;
 
 use axhal::mem::{MemRegionFlags, PhysAddr, memory_regions, phys_to_virt};
 
@@ -60,22 +61,8 @@ pub extern "C" fn rust_main(_cpu_id: usize, dtb: usize) -> ! {
         dtb::GLOBAL_NOW_DTB_ADDRESS = phys_to_virt(PhysAddr::from_usize(dtb)).as_usize();
     }
 
-    // if dtb is needed to next stage
-    /*
-    unsafe {
-        let mut parser = dtb::DtbParser::new(phys_to_virt(PhysAddr::from_usize(dtb)).as_usize()).unwrap();
-        parser.dump_all();
-        if parser.modify_property(
-            "/chosen",
-            "bootargs",
-            "console=ttyS0,115200 root=/dev/mmcblk0p2 rw rootwait",
-        ) {
-            error!("modify error!");
-        }
-        let new_dtb: usize = parser.save_to_mem();
-        // Send 'new_dtb' to next stage
-    }
-    */
+    // ramdisk check
+    crate::medium::ramdisk_cpio::check_ramdisk();
 
     crate::shell::shell_main();
 

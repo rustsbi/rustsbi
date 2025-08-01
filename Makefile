@@ -47,3 +47,6 @@ build: clean defconfig all
 
 qemu-run:
 	qemu-system-riscv64 -m 128M -serial mon:stdio -bios $(SBI) -nographic -machine virt -nographic -machine virt -device virtio-blk-pci,drive=disk0 -drive id=disk0,if=none,format=raw,file=$(DISK)
+
+qemu-run-ramdisknotload:
+	qemu-system-riscv64 -m 128M -serial mon:stdio -bios $(SBI) -nographic -machine virt -nographic -machine virt -device virtio-blk-pci,drive=disk0 -drive id=disk0,if=none,format=raw,file=$(DISK) -device loader,file=$(RAMDISK_CPIO),addr=0x84000000
