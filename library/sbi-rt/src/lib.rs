@@ -76,8 +76,8 @@ pub use time::*;
 
 /// Raw RISC-V SBI calls.
 ///
-/// This module is not intended for direct use; it should be used by other SBI runtime libraries
-/// to wrap SBI `ecall` instruction into Rust friendly functions.
+/// This module is not intended for direct use; it should be used by runtime libraries for custom
+/// SBI extensions, to wrap SBI `ecall` instruction into Rust friendly functions.
 ///
 /// SBI runtime users should use functions from root of this library, or functions from other SBI
 /// runtime libraries.
