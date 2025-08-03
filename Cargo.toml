@@ -7,6 +7,7 @@ members = [
     "library/sbi-testing",
     "library/rustsbi",
     "library/riscv-cove",
+    "library/riscv-cove-rt",
     "library/penglai",
     "prototyper/prototyper",
     "prototyper/bench-kernel",
