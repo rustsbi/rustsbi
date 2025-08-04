@@ -1,9 +1,9 @@
 extern crate alloc;
 
-use core::{ptr, str};
+use alloc::{string::String, string::ToString, vec::Vec};
 use axhal::mem::phys_to_virt;
 use axio::{self as io, prelude::*};
-use alloc::{string::String, vec::Vec, string::ToString};
+use core::{ptr, str};
 
 const CPIO_MAGIC: &[u8; 6] = b"070701";
 const CPIO_BASE: usize = 0x8400_0000;
@@ -76,9 +76,7 @@ pub fn read(path: &str) -> io::Result<Vec<u8>> {
         };
 
         if is_match {
-            let data = unsafe {
-                core::slice::from_raw_parts(file_start as *const u8, filesize)
-            };
+            let data = unsafe { core::slice::from_raw_parts(file_start as *const u8, filesize) };
             let mut bytes = Vec::with_capacity(filesize as usize);
             bytes.extend_from_slice(data);
             return Ok(bytes);

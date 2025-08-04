@@ -52,7 +52,7 @@ pub fn init_system_table() {
     let configuration_table_raw = Box::into_raw(configuration_table);
 
     let system_table = Box::new(SystemTable {
-        // Build the UEFI Table Header. 
+        // Build the UEFI Table Header.
         // For the System Table, its signature is 'IBI SYST' (little-endian).
         // The Header size is the size of the entire Header structure,
         // and the CRC32 calculation will first fill the CRC32 field with 0 before calculation.

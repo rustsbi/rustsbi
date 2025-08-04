@@ -52,8 +52,14 @@ pub extern "C" fn rust_main(_cpu_id: usize, _dtb: usize) -> ! {
     }
     ctor_bare::call_ctors();
 
-    info!("current root dir: {}", crate::medium::current_dir().unwrap());
-    info!("read test file context: {}", crate::medium::read_to_string("/test/arceboot.txt").unwrap());
+    info!(
+        "current root dir: {}",
+        crate::medium::current_dir().unwrap()
+    );
+    info!(
+        "read test file context: {}",
+        crate::medium::read_to_string("/test/arceboot.txt").unwrap()
+    );
 
     crate::shell::shell_main();
 
