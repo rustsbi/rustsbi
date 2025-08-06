@@ -34,7 +34,7 @@ axio = { version = "0.1", features = ["alloc"] }
 crate_interface = "0.1"
 ctor_bare = "0.2"
 cfg-if = "1.0.1"
-object = { version = "0.37.1", default-features = false, features = [ "read" ] }
+object = { version = "0.37.1", default-features = false, features = [ "read", "pe" ] }
 chrono = { version = "0.4.38", default-features = false }
 uefi-raw = "0.11.0"
 lazyinit = "0.2.2"

@@ -69,27 +69,49 @@ pub fn apply_relocations(file: &File, mapping: *mut u8, loaded_base: u64, origin
         if section.name().unwrap_or("") == ".reloc" {
             let data = section.data().unwrap();
             let mut offset = 0;
+
             while offset < data.len() {
+                if offset + 8 > data.len() {
+                    break;
+                }
+
                 let va = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap());
                 let size = u32::from_le_bytes(data[offset + 4..offset + 8].try_into().unwrap());
                 offset += 8;
 
                 let count = (size - 8) / 2;
                 for _ in 0..count {
+                    if offset + 2 > data.len() {
+                        break;
+                    }
+
                     let entry = u16::from_le_bytes(data[offset..offset + 2].try_into().unwrap());
                     offset += 2;
 
                     let rtype = entry >> 12;
                     let roffset = entry & 0x0fff;
 
-                    if rtype == 3 {
-                        // IMAGE_REL_BASED_HIGHLOW
-                        let patch_va = va as u64 + roffset as u64;
-                        let patch_ptr =
-                            unsafe { mapping.add((patch_va - loaded_base) as usize) as *mut u32 };
-                        unsafe {
-                            let orig = patch_ptr.read();
-                            patch_ptr.write(orig.wrapping_add(delta as u32));
+                    let patch_va = va as u64 + roffset as u64;
+                    let patch_offset = (patch_va - loaded_base) as usize;
+
+                    match rtype {
+                        10 => { // IMAGE_REL_BASED_DIR64
+                            let patch_ptr = unsafe { mapping.add(patch_offset) as *mut u64 };
+                            unsafe {
+                                let orig = patch_ptr.read();
+                                patch_ptr.write(orig.wrapping_add(delta as u64));
+                            }
+                        }
+                        3 => { // IMAGE_REL_BASED_HIGHLOW (32-bit)
+                            let patch_ptr = unsafe { mapping.add(patch_offset) as *mut u32 };
+                            unsafe {
+                                let orig = patch_ptr.read();
+                                patch_ptr.write(orig.wrapping_add(delta as u32));
+                            }
+                        }
+                        0 => { /* IMAGE_REL_BASED_ABSOLUTE, do nothing */ }
+                        _ => {
+                            warn!("Unsupported relocation type: {}", rtype);
                         }
                     }
                 }

@@ -21,7 +21,10 @@ pub fn efi_runtime_init() {
     loader::load_sections(&file, mapping, base_va);
     loader::apply_relocations(&file, mapping, base_va, image_base);
 
-    info!("Loaded EFI file with base VA: 0x{:x}, max VA: 0x{:x}, image base {:x}", base_va, max_va, image_base);
+    info!(
+        "Loaded EFI file with base VA: 0x{:x}, max VA: 0x{:x}, image base {:x}, mapping {:?}, entry: 0x{:x}",
+        base_va, max_va, image_base, mapping, file.entry()
+    );
 
     let func = entry::resolve_entry_func(mapping, file.entry(), base_va);
 
