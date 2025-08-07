@@ -23,7 +23,11 @@ pub fn efi_runtime_init() {
 
     info!(
         "Loaded EFI file with base VA: 0x{:x}, max VA: 0x{:x}, image base {:x}, mapping {:?}, entry: 0x{:x}",
-        base_va, max_va, image_base, mapping, file.entry()
+        base_va,
+        max_va,
+        image_base,
+        mapping,
+        file.entry()
     );
 
     let func = entry::resolve_entry_func(mapping, file.entry(), base_va);

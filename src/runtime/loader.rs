@@ -95,14 +95,16 @@ pub fn apply_relocations(file: &File, mapping: *mut u8, loaded_base: u64, origin
                     let patch_offset = (patch_va - loaded_base) as usize;
 
                     match rtype {
-                        10 => { // IMAGE_REL_BASED_DIR64
+                        10 => {
+                            // IMAGE_REL_BASED_DIR64
                             let patch_ptr = unsafe { mapping.add(patch_offset) as *mut u64 };
                             unsafe {
                                 let orig = patch_ptr.read();
                                 patch_ptr.write(orig.wrapping_add(delta as u64));
                             }
                         }
-                        3 => { // IMAGE_REL_BASED_HIGHLOW (32-bit)
+                        3 => {
+                            // IMAGE_REL_BASED_HIGHLOW (32-bit)
                             let patch_ptr = unsafe { mapping.add(patch_offset) as *mut u32 };
                             unsafe {
                                 let orig = patch_ptr.read();
