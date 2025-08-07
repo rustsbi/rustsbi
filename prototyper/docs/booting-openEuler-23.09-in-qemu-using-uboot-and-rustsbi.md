@@ -12,44 +12,47 @@
 |        U-Boot         | 2024.04 |
 
 ## 准备RustSBI Prototyper， U-Boot ，openEuler 23.09
+
 创建工作目录并进入该目录
 
-``` shell
+```shell
 $ mkdir workshop && cd workshop
 ```
 
 ### Clone RustSBI Prototyper
 
-``` shell
-$ git clone https://github.com/rustsbi/prototyper.git && cd prototyper && git checkout main && cd ..
+```shell
+$ git clone -b main https://github.com/rustsbi/rustsbi.git
 ```
 
 ### Clone U-Boot
 
-``` shell
-$ git clone https://github.com/u-boot/u-boot.git && cd u-boot && git checkout v2024.04 && cd ..
+```shell
+$ git clone -b v2024.04 https://github.com/u-boot/u-boot.git
 ```
+
 ### 下载openEuler 23.09 Qemu磁盘镜像文件
 
 下载链接：[openEuler 23.09](https://mirror.iscas.ac.cn/openeuler-sig-riscv/openEuler-RISC-V/preview/openEuler-23.09-V1-riscv64/QEMU/openEuler-23.09-V1-base-qemu-preview.qcow2.zst)
+
 ```shell
  $ unzstd openEuler-23.09-V1-base-qemu-preview.qcow2.zst
 ```
+
 - The password of user `root` is `openEuler12#$`.
 - The password of the default user `openeuler` is `openEuler12#$`.
 
+## 编译RustSBI Prototyper
 
-## 编译RustSBI  Prototyper
+进入rustsbi目录
 
-进入prototyper目录
-
-``` shell
-$ cd prototyper
+```shell
+$ cd rustsbi
 ```
 
-编译RustSBI  Prototyper
+编译RustSBI Prototyper
 
-``` shell
+```shell
 $ cargo prototyper
 ```
 
@@ -57,21 +60,21 @@ $ cargo prototyper
 
 进入U-Boot目录
 
-``` shell
+```shell
 $ cd u-boot
 ```
 
 导出环境变量
 
-``` shell
+```shell
 $ export ARCH=riscv
 $ export CROSS_COMPILE=riscv64-linux-gnu-
-$ export OPENSBI=../prototyper/target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin 
+$ export OPENSBI=../rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin
 ```
 
 生成`.config`文件,编译U-Boot
 
-``` shell
+```shell
 # To generate .config file out of board configuration file
 $ make qemu-riscv64_spl_defconfig
 $ ./scripts/config -e CMD_BTRFS -e FS_BTRFS
@@ -84,13 +87,13 @@ $ make -j$(nproc)
 
 进入`workshop`目录
 
-``` shell
+```shell
 $ cd workshop
 ```
 
 运行下面命令
 
-``` shell
+```shell
 $ qemu-system-riscv64 \
     -nographic -machine virt \
     -smp 4 -m 8G \

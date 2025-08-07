@@ -8,50 +8,49 @@
 
 ### Clone & Compile RustSBI Prototyper
 
-``` shell
+```shell
 $ cd $workdir
-$ git clone https://github.com/rustsbi/prototyper.git && cd prototyper && git checkout main && cd ..
+$ git clone -b main https://github.com/rustsbi/rustsbi.git
 ```
 
-``` shell
-$ cd prototyper
+```shell
+$ cd rustsbi
 ```
 
-编译RustSBI  Prototyper
+编译RustSBI Prototyper
 
-``` shell
+```shell
 $ cargo prototyper
 ```
 
 ### Clone & Compile U-Boot
 
-``` shell
+```shell
 $ cd $workdir
-$ git clone https://github.com/u-boot/u-boot.git && cd u-boot && git checkout v2024.04 && cd ..
+$ git clone -b v2024.04 https://github.com/u-boot/u-boot.git
 ```
 
 进入U-Boot目录
 
-``` shell
+```shell
 $ cd u-boot
 ```
 
 导出环境变量
 
-``` shell
+```shell
 $ export ARCH=riscv
 $ export CROSS_COMPILE=riscv64-linux-gnu-
-$ export OPENSBI=../prototyper/target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin 
+$ export OPENSBI=../rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin
 ```
 
 生成`.config`文件,编译U-Boot
 
-``` shell
+```shell
 # To generate .config file out of board configuration file
 $ make qemu-riscv64_spl_defconfig
 $ make -j$(nproc)
 ```
-
 
 ### Download & Configure PolyOS
 
@@ -120,6 +119,7 @@ $ losetup -d /dev/loop1
 ### USE Qemu to bootup
 
 使用 qemu 启动：
+
 ```shell
 $ cd $workdir/image
 image_path=`pwd`

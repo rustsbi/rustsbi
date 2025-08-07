@@ -14,7 +14,7 @@ RustSBI 原型系统提供动态固件，根据前一个阶段传入的信息动
 |  qemu-system-riscv64  |  9.1.1  |
 |  RustSBI Prototyper   |  0.0.0  |
 |        U-Boot         | 2024.04 |
-|       FreeBSD         |  14.1   |
+|        FreeBSD        |  14.1   |
 
 ## 环境配置
 
@@ -22,7 +22,7 @@ RustSBI 原型系统提供动态固件，根据前一个阶段传入的信息动
 
 For Arch Linux
 
-``` shell
+```shell
 $ sudo pacman -S git riscv64-linux-gnu-gcc qemu-system-riscv
 ```
 
@@ -30,7 +30,7 @@ $ sudo pacman -S git riscv64-linux-gnu-gcc qemu-system-riscv
 
 For riscv64-linux-gnu-gcc:
 
-``` shell
+```shell
 $ riscv64-linux-gnu-gcc --version
 ```
 
@@ -45,7 +45,7 @@ warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 For QEMU:
 
-``` shell
+```shell
 $ qemu-system-riscv64 --version
 ```
 
@@ -60,39 +60,39 @@ Copyright (c) 2003-2024 Fabrice Bellard and the QEMU Project developers
 
 创建工作目录并进入该目录
 
-``` shell
+```shell
 $ mkdir workshop && cd workshop
 ```
 
 Clone RustSBI Prototyper
 
-``` shell
-$ git clone https://github.com/rustsbi/prototyper.git && cd prototyper && git checkout main && cd ..
+```shell
+$ git clone -b main https://github.com/rustsbi/rustsbi.git
 ```
 
 Clone U-Boot
 
-``` shell
-$ git clone https://github.com/u-boot/u-boot.git && cd u-boot && git checkout v2024.04 && cd ..
+```shell
+$ git clone -b v2024.04 https://github.com/u-boot/u-boot.git
 ```
 
 Download FreeBSD
-``` shell
+
+```shell
 $ wget https://download.freebsd.org/releases/VM-IMAGES/14.1-RELEASE/riscv64/Latest/FreeBSD-14.1-RELEASE-riscv-riscv64.raw.xz && xz -d FreeBSD-14.1-RELEASE-riscv-riscv64.raw.xz
 ```
 
+## 编译RustSBI Prototyper
 
-## 编译RustSBI  Prototyper
+进入rustsbi目录
 
-进入prototyper目录
-
-``` shell
-$ cd prototyper
+```shell
+$ cd rustsbi
 ```
 
-编译RustSBI  Prototyper
+编译RustSBI Prototyper
 
-``` shell
+```shell
 $ cargo prototyper
 ```
 
@@ -100,28 +100,28 @@ $ cargo prototyper
 
 进入U-Boot目录
 
-``` shell
+```shell
 $ cd u-boot
 ```
 
 导出环境变量
 
-``` shell
+```shell
 $ export ARCH=riscv
 $ export CROSS_COMPILE=riscv64-linux-gnu-
-$ export OPENSBI=../prototyper/target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin
+$ export OPENSBI=../rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin
 ```
 
 生成`.config`文件
 
-``` shell
+```shell
 # To generate .config file out of board configuration file
 $ make qemu-riscv64_spl_defconfig
 ```
 
 编译U-Boot
 
-``` shell
+```shell
 # To build U-Boot
 $ make -j$(nproc)
 ```
@@ -132,13 +132,13 @@ $ make -j$(nproc)
 
 进入`workshop`目录
 
-``` shell
+```shell
 $ cd workshop
 ```
 
 运行下面命令
 
-``` shell
+```shell
 $ qemu-system-riscv64 -M virt -smp 1 -m 256M -nographic \
           -bios ./u-boot/spl/u-boot-spl \
           -device loader,file=./u-boot/u-boot.itb,addr=0x80200000 \

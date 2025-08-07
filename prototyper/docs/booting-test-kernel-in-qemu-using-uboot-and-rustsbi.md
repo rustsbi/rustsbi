@@ -3,6 +3,7 @@
 本教程给出了使用RustSBI和U-Boot在QEMU中启动Test Kernel的基本流程。
 
 其中启动流程分为两种类型：
+
 1. 只使用U-Boot SPL的启动流程
 2. 同时使用U-Boot SPL和U-Boot的启动流程。
 
@@ -31,13 +32,13 @@
 
 For Arch Linux:
 
-``` shell
+```shell
 $ sudo pacman -S git riscv64-linux-gnu-gcc qemu-system-riscv uboot-tools
 ```
 
 For Ubuntu:
 
-``` shell
+```shell
 $ sudo apt-get update && sudo apt-get upgrade
 $ sudo apt-get install git qemu-system-misc gcc-riscv64-linux-gnu u-boot-tools
 ```
@@ -46,7 +47,7 @@ $ sudo apt-get install git qemu-system-misc gcc-riscv64-linux-gnu u-boot-tools
 
 For riscv64-linux-gnu-gcc:
 
-``` shell
+```shell
 $ riscv64-linux-gnu-gcc --version
 ```
 
@@ -60,7 +61,7 @@ This is free software; see the source for copying conditions.  There is NO warra
 
 For QEMU:
 
-``` shell
+```shell
 $ qemu-system-riscv64 --version
 ```
 
@@ -75,59 +76,60 @@ Copyright (c) 2003-2024 Fabrice Bellard and the QEMU Project developers
 
 创建工作目录并进入该目录
 
-``` shell
+```shell
 $ mkdir workshop && cd workshop
 ```
 
 Clone RustSBI Prototyper
 
-``` shell
-$ git clone https://github.com/rustsbi/prototyper.git && cd prototyper && git checkout main && cd ..
+```shell
+$ git clone -b main https://github.com/rustsbi/rustsbi.git
 ```
 
 Clone U-Boot
 
-``` shell
-$ git clone https://github.com/u-boot/u-boot.git && cd u-boot && git checkout v2024.04 && cd ..
+```shell
+$ git clone -b v2024.04 https://github.com/u-boot/u-boot.git
 ```
 
 ## 使用U-Boot SPL启动Test Kernel
-### 编译RustSBI  Prototyper和Test Kernel
 
-进入prototyper目录
+### 编译RustSBI Prototyper和Test Kernel
 
-``` shell
-$ cd prototyper
+进入rustsbi目录
+
+```shell
+$ cd rustsbi
 ```
 
 编译RustSBI Prototyper和Test Kernel
 
-``` shell
+```shell
 $ cargo prototyper
 $ cargo test-kernel --pack
 ```
 
-本小节将使用二进制文件 `./target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.itb`。
+本小节将使用二进制文件 `./target/riscv64gc-unknown-none-elf/release/rustsbi-test-kernel.itb`。
 
 ### 编译U-Boot SPL
 
 进入U-Boot目录
 
-``` shell
+```shell
 $ cd u-boot
 ```
 
 导出环境变量
 
-``` shell
+```shell
 $ export ARCH=riscv
 $ export CROSS_COMPILE=riscv64-linux-gnu-
-$ export OPENSBI=../prototyper/target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin
+$ export OPENSBI=../rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin
 ```
 
 生成`.config`文件
 
-``` shell
+```shell
 # To generate .config file out of board configuration file
 $ make qemu-riscv64_spl_defconfig
 # add bootcmd value
@@ -136,7 +138,7 @@ $ make menuconfig
 
 编译U-Boot
 
-``` shell
+```shell
 # To build U-Boot
 $ make -j$(nproc)
 ```
@@ -147,54 +149,56 @@ $ make -j$(nproc)
 
 进入`workshop`目录
 
-``` shell
+```shell
 $ cd workshop
 ```
 
 运行下面命令
 
-``` shell
+```shell
 $ qemu-system-riscv64 -M virt -smp 1 -m 256M -nographic \
           -bios ./u-boot/spl/u-boot-spl \
-          -device loader,file=./prototyper/target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.itb,addr=0x80200000
+          -device loader,file=./rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-test-kernel.itb,addr=0x80200000
 ```
 
 ## 使用U-Boot SPL和U-Boot启动Test Kernel
-### 编译RustSBI  Prototyper和Test Kernel
 
-进入prototyper目录
+### 编译RustSBI Prototyper和Test Kernel
 
-``` shell
-$ cd prototyper
+进入rustsbi目录
+
+```shell
+$ cd rustsbi
 ```
 
 编译RustSBI Prototyper和Test Kernel
 
-``` shell
-$ cargo make prototyper
-$ cargo make test-kernel
+```shell
+$ cargo prototyper
+$ cargo test-kernel
 ```
-本小节将使用二进制文件 `./target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin`和`./target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.bin`。
+
+本小节将使用二进制文件 `./target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin`和`./target/riscv64gc-unknown-none-elf/release/rustsbi-test-kernel.bin`。
 
 ### 编译U-Boot SPL
 
 进入U-Boot目录
 
-``` shell
+```shell
 $ cd u-boot
 ```
 
 导出环境变量
 
-``` shell
+```shell
 $ export ARCH=riscv
 $ export CROSS_COMPILE=riscv64-linux-gnu-
-$ export OPENSBI=../prototyper/target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin
+$ export OPENSBI=../rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin
 ```
 
 生成`.config`文件
 
-``` shell
+```shell
 # To generate .config file out of board configuration file
 $ make qemu-riscv64_spl_defconfig
 # add bootcmd value
@@ -209,7 +213,7 @@ ext4load virtio 0:1 84000000 rustsbi-test-kernel.bin; booti 0x84000000 - ${fdtco
 
 编译U-Boot
 
-``` shell
+```shell
 # To build U-Boot
 $ make -j$(nproc)
 ```
@@ -217,9 +221,10 @@ $ make -j$(nproc)
 本小节将使用二进制文件 `./spl/u-boot-spl`和`./u-boot.itb `。
 
 ### 创建启动盘
+
 在`workshop`目录运行以下命令来创建一个256 MB的磁盘镜像
 
-``` shell
+```shell
 # Create a 256 MB disk image
 $ qemu-img create test-kernel.img 256m
 ```
@@ -230,13 +235,13 @@ $ qemu-img create test-kernel.img 256m
 
 `parted`命令将用于在镜像`test-kernel.img`中创建分区。在镜像中创建分区表：
 
-``` shell
+```shell
 $ sudo parted test-kernel.img mklabel gpt
 ```
 
 现在`test-kernel.img`中有一个分区表。将`test-kernel.img`挂载为loop device，以便它可以用作块设备。将`test-kernel.img`挂载为块设备将允许在其中创建分区。
 
-``` shell
+```shell
 # Attach test-kernel.img with the first available loop device
 $ sudo losetup --find --show test-kernel.img
 ```
@@ -248,7 +253,7 @@ $ sudo losetup --find --show test-kernel.img
 
 对`/dev/loop0`分区
 
-``` shell
+```shell
 # Create a couple of primary partitions
 $ sudo parted --align minimal /dev/loop0 mkpart primary ext4 0 100%
 
@@ -259,7 +264,7 @@ $ sudo parted /dev/loop0 print
 
 通过以下命令查看分区：
 
-``` shell
+```shell
 $ ls -l /dev/loop0*
 ```
 
@@ -267,7 +272,7 @@ $ ls -l /dev/loop0*
 
 格式化分区并创建`ext4`文件系统，同时将分区设置为可引导分区。
 
-``` shell
+```shell
 $ sudo mkfs.ext4 /dev/loop0p1
 
 # Mark first partition as bootable
@@ -276,27 +281,29 @@ $ sudo parted /dev/loop0 set 1 boot on
 
 #### 将Linux Kernel和根文件系统拷贝进启动盘
 
-``` shell
+```shell
 # Mount the 1st partition
 $ sudo mkdir test-kernel
 $ sudo mount /dev/loop0p1 test-kernel
 $ cd test-kernel
 ```
+
 拷贝Linux Kernel镜像
-``` shell
-$ sudo cp ../prototyper/target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.bin .
+
+```shell
+$ sudo cp ../rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-test-kernel.bin .
 ```
 
 卸载`test-kernel`
 
-``` shell
+```shell
 $ cd workshop
 $ sudo umount test-kernel
 ```
 
 将`/dev/loop0`分离
 
-``` shell
+```shell
 $ sudo losetup -d /dev/loop0
 ```
 
@@ -304,13 +311,13 @@ $ sudo losetup -d /dev/loop0
 
 进入`workshop`目录
 
-``` shell
+```shell
 $ cd workshop
 ```
 
 运行下面命令
 
-``` shell
+```shell
 $ qemu-system-riscv64 -M virt -smp 1 -m 256M -nographic \
           -bios ./u-boot/spl/u-boot-spl \
           -device loader,file=./u-boot/u-boot.itb,addr=0x80200000 \
