@@ -11,28 +11,30 @@
 |  RustSBI Prototyper   |  0.0.0  |
 |        U-Boot         | 2024.04 |
 
-## 准备RustSBI Prototyper， U-Boot ，Fedora 
+## 准备RustSBI Prototyper， U-Boot ，Fedora
 
 创建工作目录并进入该目录
 
-``` shell
+```shell
 $ mkdir workshop && cd workshop
 ```
 
-### Clone RustSBI Prototyper
+### Clone RustSBI
 
-``` shell
-$ git clone https://github.com/rustsbi/prototyper.git && cd prototyper && git checkout main && cd ..
+```shell
+$ git clone -b main https://github.com/rustsbi/rustsbi.git
 ```
 
 ### Clone U-Boot
 
-``` shell
-$ git clone https://github.com/u-boot/u-boot.git && cd u-boot && git checkout v2024.04 && cd ..
+```shell
+$ git clone -b v2024.04 https://github.com/u-boot/u-boot.git
 ```
+
 ### 下载 Fedora 镜像文件
 
 下载链接：<https://dl.fedoraproject.org/pub/alt/risc-v/disk_images/Fedora-40/Fedora.riscv64-40-20240429.n.0.qcow2>
+
 ```shell
 $ mkdir -p fedora
 $ cd fedora
@@ -40,17 +42,17 @@ $ wget https://dl.fedoraproject.org/pub/alt/risc-v/disk_images/Fedora-40/Fedora.
 $ cd ..
 ```
 
-## 编译RustSBI  Prototyper
+## 编译RustSBI Prototyper
 
-进入prototyper目录
+进入rustsbi目录
 
-``` shell
-$ cd prototyper
+```shell
+$ cd rustsbi
 ```
 
-编译RustSBI  Prototyper
+编译RustSBI Prototyper
 
-``` shell
+```shell
 $ cargo prototyper
 ```
 
@@ -58,7 +60,7 @@ $ cargo prototyper
 
 进入U-Boot目录
 
-``` shell
+```shell
 $ cd u-boot
 ```
 
@@ -67,7 +69,7 @@ $ cd u-boot
 ```shell
 $ export ARCH=riscv
 $ export CROSS_COMPILE=riscv64-linux-gnu-
-$ export OPENSBI=../prototyper/target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper.bin 
+$ export OPENSBI=../rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin
 ```
 
 生成`.config`文件,编译U-Boot
@@ -103,13 +105,13 @@ genisoimage \
 
 进入`workshop`目录
 
-``` shell
+```shell
 $ cd workshop
 ```
 
 运行下面命令
 
-``` shell
+```shell
 $ qemu-system-riscv64 \
     -nographic -machine virt \
     -smp 4 -m 8G \
