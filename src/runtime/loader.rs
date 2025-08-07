@@ -1,5 +1,3 @@
-extern crate alloc;
-
 use object::FileKind;
 use object::read::pe::ImageOptionalHeader;
 use object::{File, Object, ObjectSection, pe, read::pe::ImageNtHeaders};

@@ -4,6 +4,7 @@
 
 #[macro_use]
 extern crate axlog;
+extern crate alloc;
 
 mod log;
 mod medium;

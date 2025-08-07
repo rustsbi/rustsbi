@@ -10,7 +10,6 @@ use uefi_raw::{
     },
 };
 
-extern crate alloc;
 use alloc::boxed::Box;
 
 static TEXT_FILE_SYSTEM: LazyInit<Mutex<SimpleFileSystem>> = LazyInit::new();

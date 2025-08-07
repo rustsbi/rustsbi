@@ -10,7 +10,6 @@ use uefi_raw::{
     },
 };
 
-extern crate alloc;
 use alloc::boxed::Box;
 
 static DEVICE_PATH_TO_TEXT: LazyInit<Mutex<DevicePathToText>> = LazyInit::new();

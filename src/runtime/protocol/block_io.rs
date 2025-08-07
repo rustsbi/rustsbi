@@ -7,7 +7,6 @@ use uefi_raw::{
     protocol::block::{BlockIoMedia, BlockIoProtocol, Lba},
 };
 
-extern crate alloc;
 use alloc::boxed::Box;
 
 static BLOCK_IO: LazyInit<Mutex<BlockIo>> = LazyInit::new();

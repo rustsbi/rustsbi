@@ -5,7 +5,6 @@ use uefi_raw::{
     protocol::console::{SimpleTextOutputMode, SimpleTextOutputProtocol},
 };
 
-extern crate alloc;
 use alloc::boxed::Box;
 
 static TEXT_OUTPUT: LazyInit<Mutex<Output>> = LazyInit::new();

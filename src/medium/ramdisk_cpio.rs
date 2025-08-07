@@ -1,5 +1,3 @@
-extern crate alloc;
-
 use alloc::{string::String, string::ToString, vec::Vec};
 use axhal::mem::phys_to_virt;
 use axio::{self as io, prelude::*};
