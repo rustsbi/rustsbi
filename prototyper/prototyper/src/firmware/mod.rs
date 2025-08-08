@@ -28,7 +28,7 @@ pub struct BootHart {
 
 #[unsafe(naked)]
 #[unsafe(link_section = ".fdt")]
-#[repr(align(16))]
+#[rustc_align(16)]
 #[cfg(feature = "fdt")]
 pub extern "C" fn raw_fdt() {
     naked_asm!(concat!(".incbin \"", env!("PROTOTYPER_FDT_PATH"), "\""),)
