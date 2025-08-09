@@ -4,8 +4,10 @@ use axsync::Mutex;
 use lazyinit::LazyInit;
 use uefi_raw::table::{Header, configuration::ConfigurationTable, system::SystemTable};
 
-use crate::runtime::protocol::simple_text_output::{
-    get_simple_text_output, init_simple_text_output,
+use crate::runtime::protocol::{
+    block_io::init_block_io,
+    device_path::init_device_path,
+    simple_text_output::{get_simple_text_output, init_simple_text_output},
 };
 
 use alloc::boxed::Box;
@@ -39,6 +41,13 @@ static VENDOR: &[u16] = &[
 static REVERSION: u32 = 0x0001_0000;
 
 pub fn init_system_table() {
+    init_block_io();
+    init_device_path();
+    #[cfg(feature = "display")]
+    crate::runtime::protocol::graphics_output::init_graphics_output();
+    #[cfg(feature = "fs")]
+    crate::runtime::protocol::simple_file_system::init_simple_file_system();
+
     let simple_text_output = {
         init_simple_text_output();
         get_simple_text_output().lock().get_protocol()

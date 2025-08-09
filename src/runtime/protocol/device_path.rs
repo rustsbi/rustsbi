@@ -44,6 +44,12 @@ impl DevicePathToText {
 unsafe impl Send for DevicePathToText {}
 unsafe impl Sync for DevicePathToText {}
 
+pub fn init_device_path() {
+    DEVICE_PATH_TO_TEXT.init_once(Mutex::new(DevicePathToText::new()));
+    DEVICE_PATH_FROM_TEXT.init_once(Mutex::new(DevicePathFromText::new()));
+    DEVICE_PATH_UTILITIES.init_once(Mutex::new(DevicePathUtilities::new()));
+}
+
 pub extern "efiapi" fn convert_device_node_to_text(
     _device_node: *const DevicePathProtocol,
     _display_only: Boolean,

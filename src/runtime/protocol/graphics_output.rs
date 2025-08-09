@@ -10,7 +10,7 @@ use uefi_raw::{
     },
 };
 
-static GOP: LazyInit<Mutex<GraphicsOutput>> = LazyInit::new();
+static GRAPHICS_OUTPUT: LazyInit<Mutex<GraphicsOutput>> = LazyInit::new();
 
 #[derive(Debug)]
 pub struct GraphicsOutput {
@@ -45,6 +45,31 @@ impl GraphicsOutput {
 
 unsafe impl Send for GraphicsOutput {}
 unsafe impl Sync for GraphicsOutput {}
+
+impl Drop for GraphicsOutput {
+    fn drop(&mut self) {
+        unsafe {
+            drop(Box::from_raw(self.protocol_raw));
+        }
+    }
+}
+
+pub fn init_graphics_output() {
+    #[cfg(feature = "display")]
+    {
+        let display_info = axdisplay::framebuffer_info();
+        let frame_buffer_base = display_info.fb_base_vaddr;
+        let frame_buffer_size = display_info.fb_size;
+
+        unsafe {
+            core::ptr::write_bytes(frame_buffer_base as *mut u8, 0xFF, frame_buffer_size);
+        }
+
+        axdisplay::framebuffer_flush();
+
+        GRAPHICS_OUTPUT.init_once(Mutex::new(GraphicsOutput::new()));
+    }
+}
 
 pub unsafe extern "efiapi" fn query_mode(
     _this: *const GraphicsOutputProtocol,

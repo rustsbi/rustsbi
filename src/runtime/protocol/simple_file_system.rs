@@ -42,6 +42,10 @@ impl SimpleFileSystem {
 unsafe impl Send for SimpleFileSystem {}
 unsafe impl Sync for SimpleFileSystem {}
 
+pub fn init_simple_file_system() {
+    TEXT_FILE_SYSTEM.init_once(Mutex::new(SimpleFileSystem::new()));
+}
+
 pub extern "efiapi" fn open_volume(
     _this: *mut SimpleFileSystemProtocol,
     _root: *mut *mut FileProtocolV1,

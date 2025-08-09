@@ -47,6 +47,10 @@ impl BlockIo {
 unsafe impl Send for BlockIo {}
 unsafe impl Sync for BlockIo {}
 
+pub fn init_block_io() {
+    BLOCK_IO.init_once(Mutex::new(BlockIo::new()));
+}
+
 pub extern "efiapi" fn reset(
     _this: *mut BlockIoProtocol,
     _extended_verification: Boolean,

@@ -38,7 +38,7 @@ pub extern "C" fn rust_main(_cpu_id: usize, _dtb: usize) -> ! {
     info!("Initialize platform devices...");
     axhal::platform_init();
 
-    #[cfg(any(feature = "fs", feature = "net"))]
+    #[cfg(any(feature = "fs", feature = "net", feature = "display"))]
     {
         #[allow(unused_variables)]
         let all_devices = axdriver::init_drivers();
@@ -50,6 +50,9 @@ pub extern "C" fn rust_main(_cpu_id: usize, _dtb: usize) -> ! {
 
         #[cfg(feature = "net")]
         axnet::init_network(all_devices.net);
+
+        #[cfg(feature = "display")]
+        axdisplay::init_display(all_devices.display);
     }
     ctor_bare::call_ctors();
 
