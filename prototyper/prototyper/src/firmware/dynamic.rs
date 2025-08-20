@@ -117,7 +117,7 @@ pub struct DynamicError<'a> {
 /// Validates and extracts privilege mode and next address from dynamic info.
 ///
 /// Returns Result containing tuple of (MPP, next_addr) or error details.
-pub fn mpp_next_addr(info: &DynamicInfo) -> Result<(mstatus::MPP, usize), DynamicError> {
+pub fn mpp_next_addr(info: &DynamicInfo) -> Result<(mstatus::MPP, usize), DynamicError<'_>> {
     let mut error = DynamicError {
         invalid_mpp: false,
         invalid_next_addr: false,
