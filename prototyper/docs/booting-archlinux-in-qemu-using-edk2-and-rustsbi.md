@@ -109,7 +109,7 @@ cd mnt
 sudo bsdtar -kpxf ../archriscv-rootfs.tar.zst
 ```
 
-### 编译Linux RISC-内核
+### 编译Linux RISC-V内核
 
 这里不能使用Arch RISC-官方打包的Linux镜像，因为官方打包的镜像进行了压缩，不符合UEFI启动的标准，无法使用UEFI直接启动。
 
@@ -141,7 +141,7 @@ sudo ARCH=riscv make CROSS_COMPILE=riscv64-linux-gnu- modules_install INSTALL_MO
 
 ### 生成初始化RAM磁盘
 
-使用如下的命令`systemd-nswapd`切换进行rootfs文件系统中。
+使用如下的命`systemd-nspawn切换进行rootfs文件系统中。
 
 ```bash
 sudo systemd-nspawn -D mnt /bin/bash
@@ -177,7 +177,7 @@ default_image="/boot/initramfs-6.15.9.img"
 mkinitcpio -P
 ```
 
-退出`systemd-nswapd`。
+退出`systemd-nspawn`。
 
 ### 生成启动脚本
 
@@ -187,7 +187,7 @@ mkinitcpio -P
 export uuid=$(sudo findmnt mnt -o uuid -n)
 ```
 
-在`mnt/boot中生成启动脚本
+在`mnt/boot`中生成启动脚本
 
 ```bash
 cd mnt/boot
