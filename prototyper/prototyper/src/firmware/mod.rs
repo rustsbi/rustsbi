@@ -11,10 +11,15 @@ cfg_if::cfg_if! {
     }
 }
 
+use alloc::format;
 #[allow(unused)]
 use core::arch::{asm, naked_asm};
 use core::ops::Range;
+
+use crate::fail;
+
 use riscv::register::mstatus;
+use serde::Serialize;
 
 pub struct BootInfo {
     pub next_address: usize,
@@ -33,6 +38,8 @@ pub struct BootHart {
 pub extern "C" fn raw_fdt() {
     naked_asm!(concat!(".incbin \"", env!("PROTOTYPER_FDT_PATH"), "\""),)
 }
+#[unsafe(link_section = ".patched_fdt")]
+static mut DEVICE_TREE_BUFFER: [u8; 0x10000] = [0u8; 0x10000];
 
 #[inline]
 #[cfg(feature = "fdt")]
@@ -57,6 +64,85 @@ pub fn get_boot_hart(opaque: usize, nonstandard_a2: usize) -> BootHart {
     BootHart {
         fdt_address,
         is_boot_hart,
+    }
+}
+
+pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
+    use serde_device_tree::buildin::Node;
+    use serde_device_tree::ser::serializer::ValueType;
+    use serde_device_tree::*;
+    let Ok(ptr) = DtbPtr::from_raw(device_tree_ptr as *mut _) else {
+        panic!("Can not parse device tree!");
+    };
+    let origin_size = ptr.align();
+    let dtb = Dtb::from(ptr);
+    // TODO: use probe length instead of a magic const number.
+    if unsafe { origin_size + 2048 > DEVICE_TREE_BUFFER.len() } {
+        panic!("dtb file is too big!");
+    }
+
+    // Update const
+    unsafe {
+        asm!("la {}, sbi_start", out(reg) SBI_START_ADDRESS, options(nomem));
+        asm!("la {}, sbi_end", out(reg) SBI_END_ADDRESS, options(nomem));
+    }
+
+    let dtb = dtb.share();
+    let root: serde_device_tree::buildin::Node =
+        serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize_root);
+    let tree: Node = root.deserialize();
+
+    #[derive(Serialize)]
+    struct ReversedMemory {
+        #[serde(rename = "#address-cells")]
+        pub address_cell: u32,
+        #[serde(rename = "#size-cells")]
+        pub size_cell: u32,
+        pub ranges: (),
+    }
+    #[derive(Serialize)]
+    struct ReversedMemoryItem {
+        pub reg: [u32; 4],
+        #[serde(rename = "no-map")]
+        pub no_map: (),
+    }
+    // Make patch list and generate reversed-memory node.
+    let sbi_length: u32 = unsafe { (SBI_END_ADDRESS - SBI_START_ADDRESS) as u32 };
+    let new_base = ReversedMemory {
+        address_cell: 2,
+        size_cell: 2,
+        ranges: (),
+    };
+    let new_base_2 = unsafe {
+        ReversedMemoryItem {
+            reg: [
+                (SBI_START_ADDRESS >> 32) as u32,
+                (SBI_START_ADDRESS as u32),
+                0,
+                sbi_length,
+            ],
+            no_map: (),
+        }
+    };
+    let patch1 = serde_device_tree::ser::patch::Patch::new(
+        "/reversed-memory",
+        &new_base as _,
+        ValueType::Node,
+    );
+    let path_name = unsafe { format!("/reversed-memory/mmode_resv1@{:x}", SBI_START_ADDRESS) };
+    let patch2 =
+        serde_device_tree::ser::patch::Patch::new(&path_name, &new_base_2 as _, ValueType::Node);
+    let raw_list = [patch1, patch2];
+    // Only patch `reversed-memory` when it not exists.
+    let list = if tree.find("/reversed-memory").is_some() {
+        &raw_list[1..]
+    } else {
+        &raw_list[..]
+    };
+
+    unsafe {
+        serde_device_tree::ser::to_dtb(&tree, &list, &mut DEVICE_TREE_BUFFER).unwrap();
+        DEVICE_TREE_BUFFER.as_ptr() as _
     }
 }
 
@@ -94,11 +180,11 @@ pub fn set_pmp(memory_range: &Range<usize>) {
         pmpaddr1::write(memory_range.start >> 2);
         pmpcfg0::set_pmp(2, Range::TOR, Permission::RWX, false);
         pmpaddr2::write(SBI_START_ADDRESS >> 2);
-        pmpcfg0::set_pmp(3, Range::TOR, Permission::NONE, false);
+        pmpcfg0::set_pmp(3, Range::TOR, Permission::R, false);
         pmpaddr3::write(RODATA_START_ADDRESS >> 2);
         pmpcfg0::set_pmp(4, Range::TOR, Permission::NONE, false);
         pmpaddr4::write(RODATA_END_ADDRESS >> 2);
-        pmpcfg0::set_pmp(5, Range::TOR, Permission::NONE, false);
+        pmpcfg0::set_pmp(5, Range::TOR, Permission::R, false);
         pmpaddr5::write(SBI_END_ADDRESS >> 2);
         pmpcfg0::set_pmp(6, Range::TOR, Permission::RWX, false);
         pmpaddr6::write(memory_range.end >> 2);

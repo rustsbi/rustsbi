@@ -77,11 +77,12 @@ SECTIONS {
     }
 
     . = ALIGN(0x1000);
-    sbi_end = .;
 
     .text : ALIGN(0x1000) {
         *(.fdt)
+        *(.patched_fdt)
     }
+    sbi_end = .;
 
     .text 0x80200000 : ALIGN(0x1000) {
         *(.payload)
