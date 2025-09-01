@@ -38,8 +38,9 @@ pub struct BootHart {
 pub extern "C" fn raw_fdt() {
     naked_asm!(concat!(".incbin \"", env!("PROTOTYPER_FDT_PATH"), "\""),)
 }
+const DEVICE_TREE_BUFFER_LENGTH: usize = 0x10000;
 #[unsafe(link_section = ".patched_fdt")]
-static mut DEVICE_TREE_BUFFER: [u8; 0x10000] = [0u8; 0x10000];
+static mut DEVICE_TREE_BUFFER: [u8; DEVICE_TREE_BUFFER_LENGTH] = [0u8; DEVICE_TREE_BUFFER_LENGTH];
 
 #[inline]
 #[cfg(feature = "fdt")]
@@ -77,7 +78,7 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
     let origin_size = ptr.align();
     let dtb = Dtb::from(ptr);
     // TODO: use probe length instead of a magic const number.
-    if unsafe { origin_size + 2048 > DEVICE_TREE_BUFFER.len() } {
+    if origin_size + 2048 > DEVICE_TREE_BUFFER_LENGTH {
         panic!("dtb file is too big!");
     }
 
@@ -86,6 +87,8 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
         asm!("la {}, sbi_start", out(reg) SBI_START_ADDRESS, options(nomem));
         asm!("la {}, sbi_end", out(reg) SBI_END_ADDRESS, options(nomem));
     }
+    let sbi_start = unsafe { SBI_START_ADDRESS };
+    let sbi_end = unsafe { SBI_END_ADDRESS };
 
     let dtb = dtb.share();
     let root: serde_device_tree::buildin::Node =
@@ -107,29 +110,22 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
         pub no_map: (),
     }
     // Make patch list and generate reversed-memory node.
-    let sbi_length: u32 = unsafe { (SBI_END_ADDRESS - SBI_START_ADDRESS) as u32 };
+    let sbi_length: u32 = (sbi_end - sbi_start) as u32;
     let new_base = ReversedMemory {
         address_cell: 2,
         size_cell: 2,
         ranges: (),
     };
-    let new_base_2 = unsafe {
-        ReversedMemoryItem {
-            reg: [
-                (SBI_START_ADDRESS >> 32) as u32,
-                (SBI_START_ADDRESS as u32),
-                0,
-                sbi_length,
-            ],
-            no_map: (),
-        }
+    let new_base_2 = ReversedMemoryItem {
+        reg: [(sbi_end >> 32) as u32, sbi_end as u32, 0, sbi_length],
+        no_map: (),
     };
     let patch1 = serde_device_tree::ser::patch::Patch::new(
         "/reversed-memory",
         &new_base as _,
         ValueType::Node,
     );
-    let path_name = unsafe { format!("/reversed-memory/mmode_resv1@{:x}", SBI_START_ADDRESS) };
+    let path_name = format!("/reversed-memory/mmode_resv1@{:x}", sbi_start);
     let patch2 =
         serde_device_tree::ser::patch::Patch::new(&path_name, &new_base_2 as _, ValueType::Node);
     let raw_list = [patch1, patch2];
