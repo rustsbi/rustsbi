@@ -96,7 +96,7 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
     let tree: Node = root.deserialize();
 
     #[derive(Serialize)]
-    struct ReversedMemory {
+    struct ReservedMemory {
         #[serde(rename = "#address-cells")]
         pub address_cell: u32,
         #[serde(rename = "#size-cells")]
@@ -104,33 +104,33 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
         pub ranges: (),
     }
     #[derive(Serialize)]
-    struct ReversedMemoryItem {
+    struct ReservedMemoryItem {
         pub reg: [u32; 4],
         #[serde(rename = "no-map")]
         pub no_map: (),
     }
-    // Make patch list and generate reversed-memory node.
+    // Make patch list and generate reserved-memory node.
     let sbi_length: u32 = (sbi_end - sbi_start) as u32;
-    let new_base = ReversedMemory {
+    let new_base = ReservedMemory {
         address_cell: 2,
         size_cell: 2,
         ranges: (),
     };
-    let new_base_2 = ReversedMemoryItem {
-        reg: [(sbi_end >> 32) as u32, sbi_end as u32, 0, sbi_length],
+    let new_base_2 = ReservedMemoryItem {
+        reg: [(sbi_start >> 32) as u32, sbi_start as u32, 0, sbi_length],
         no_map: (),
     };
     let patch1 = serde_device_tree::ser::patch::Patch::new(
-        "/reversed-memory",
+        "/reserved-memory",
         &new_base as _,
         ValueType::Node,
     );
-    let path_name = format!("/reversed-memory/mmode_resv1@{:x}", sbi_start);
+    let path_name = format!("/reserved-memory/mmode_resv1@{:x}", sbi_start);
     let patch2 =
         serde_device_tree::ser::patch::Patch::new(&path_name, &new_base_2 as _, ValueType::Node);
     let raw_list = [patch1, patch2];
-    // Only patch `reversed-memory` when it not exists.
-    let list = if tree.find("/reversed-memory").is_some() {
+    // Only patch `reserved-memory` when it not exists.
+    let list = if tree.find("/reserved-memory").is_some() {
         &raw_list[1..]
     } else {
         &raw_list[..]
