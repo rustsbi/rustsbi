@@ -1,4 +1,9 @@
+use arm_pl011_uart::{
+    DataBits, LineConfig, PL011Registers, Parity, StopBits, Uart, UniqueMmioPointer,
+};
 use bouffalo_hal::uart::RegisterBlock as BflbUartRegisterBlock;
+use core::cell::UnsafeCell;
+use core::ptr::NonNull;
 use uart_sifive::MmioUartSifive;
 use uart_xilinx::MmioUartAxiLite;
 use uart16550::{Register, Uart16550};
@@ -10,6 +15,7 @@ pub(crate) const UART16650U32_COMPATIBLE: [&str; 1] = ["snps,dw-apb-uart"];
 pub(crate) const UARTAXILITE_COMPATIBLE: [&str; 1] = ["xlnx,xps-uartlite-1.00.a"];
 pub(crate) const UARTBFLB_COMPATIBLE: [&str; 1] = ["bflb,bl808-uart"];
 pub(crate) const UARTSIFIVE_COMPATIBLE: [&str; 1] = ["sifive,uart0"];
+pub(crate) const UARTPL011_COMPATIBLE: [&str; 1] = ["pl011"];
 
 #[doc(hidden)]
 #[allow(unused)]
@@ -20,6 +26,7 @@ pub enum MachineConsoleType {
     UartAxiLite,
     UartBflb,
     UartSifive,
+    UartPl011,
 }
 
 /// For Uart 16550
@@ -125,5 +132,71 @@ impl ConsoleDevice for UartBflbWrap {
             }
         }
         count
+    }
+}
+
+/// PL011 UART wrapper for RustSBI console
+pub struct UartPl011Wrap {
+    uart: UnsafeCell<Uart<'static>>,
+}
+
+impl UartPl011Wrap {
+    /// Create a new PL011 UART wrapper
+    pub fn new(base: usize) -> Self {
+        let uart_pointer =
+            unsafe { UniqueMmioPointer::new(NonNull::new(base as *mut PL011Registers).unwrap()) };
+
+        let mut uart = Uart::new(uart_pointer);
+
+        // Configure and enable UART with default settings
+        let line_config = LineConfig {
+            data_bits: DataBits::Bits8,
+            parity: Parity::None,
+            stop_bits: StopBits::One,
+        };
+        if let Err(_) = uart.enable(line_config, 115_200, 24_000_000) {
+            // If enabling fails, we still create the wrapper but it may not work properly
+        }
+        Self {
+            uart: UnsafeCell::new(uart),
+        }
+    }
+
+    unsafe fn uart_mut(&self) -> &mut Uart<'static> {
+        unsafe { &mut *self.uart.get() }
+    }
+}
+
+unsafe impl Send for UartPl011Wrap {}
+unsafe impl Sync for UartPl011Wrap {}
+
+impl ConsoleDevice for UartPl011Wrap {
+    fn read(&self, buf: &mut [u8]) -> usize {
+        let mut count = 0;
+
+        let uart = unsafe { self.uart_mut() };
+
+        for slot in buf.iter_mut() {
+            match uart.read_word() {
+                Ok(Some(byte)) => {
+                    *slot = byte;
+                    count += 1;
+                }
+                Ok(None) => break,
+                Err(_) => break,
+            }
+        }
+
+        count
+    }
+
+    fn write(&self, buf: &[u8]) -> usize {
+        let uart = unsafe { self.uart_mut() };
+
+        for &byte in buf {
+            uart.write_word(byte);
+        }
+
+        buf.len()
     }
 }
