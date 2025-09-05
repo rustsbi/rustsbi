@@ -34,6 +34,7 @@ static-toml = "1"
 seq-macro = "0.3.5"
 pastey = "0.1.0"
 uart_sifive = { git = "https://github.com/duskmoon314/uart-rs/" }
+arm-pl011-uart = "0.3.2"
 
 [[bin]]
 name = "rustsbi-prototyper"
