@@ -36,6 +36,9 @@ jobs:
       - name: Install required cargo
         run: cargo install clippy-sarif sarif-fmt
 
+      - name: Install required target
+        run: rustup target add riscv64imac-unknown-none-elf
+
       - name: Run rust-clippy
         run: |
           cargo clippy -p rustsbi-prototyper --target riscv64imac-unknown-none-elf  --message-format=json  | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
