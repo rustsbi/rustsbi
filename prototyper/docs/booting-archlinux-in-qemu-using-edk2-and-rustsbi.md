@@ -228,60 +228,6 @@ truncate -s 32M Build/RiscVVirtQemu/RELEASE_GCC5/FV/RISCV_VIRT_VARS.fd
 truncate -s 32M Build/RiscVVirtQemu/RELEASE_GCC5/FV/RISCV_VIRT_CODE.fd
 ```
 
-使用QEMU的启动指令导出启动时使用的设备树并进行修改，下面的指令会将QEMU启动之后使用的设备树导出为`virt.dtb`。
-
-```bash
-qemu-system-riscv64 \
-        -machine virt,dumpdtb=virt.dtb \
-        -smp 1 \
-        -m 4G \
-        -bios rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.bin \
-        -device virtio-blk-device,drive=hd0 \
-        -drive file=rustsbi-edk2-archriscv.img,format=qcow2,id=hd0,if=none \ 
-        -object rng-random,filename=/dev/urandom,id=rng0 \
-        -device virtio-rng-device,rng=rng0 \
-        -monitor unix:/tmp/qemu-monitor,server,nowait \
-        -nographic \
-        -serial mon:stdio
-```
-
-使用`dtc`编译器将`dtb`文件还原为`dts`文件。
-
-```bash
-dtc -I dtb -o dts virt.dtb -o virt.dts
-```
-
-在`model`属性下，添加下面的`reserved-memory`属性：
-
-```dts
-    reserved-memory {
-		#address-cells = <0x00000002>;
-		#size-cells = <0x00000002>;
-		ranges;
-		mmode_resv1@80040000 {
-			reg = <0x00000000 0x80040000 0x00000000 0x00040000>;
-			no-map;
-		};
-		mmode_resv0@80000000 {
-			reg = <0x00000000 0x80000000 0x00000000 0x00040000>;
-			no-map;
-		};
-	};
-```
-
-重新将该`dts`文件编译为`dtb`文件。
-
-```bash
-dtc -I dts -O dtb virt.dts -o virt.dtb
-```
-
-重新编译RustSBI，使用上面编辑之后的设备树作为嵌入的设备树。
-
-```bash
-cd rustsbi
-cargo prototyper --fdt ../virt.dtb
-```
-
 ## 启动QEMU
 
 使用如下的指令启动QEMU：
