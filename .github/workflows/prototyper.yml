@@ -34,7 +34,7 @@ jobs:
             cargo test -p rustsbi-prototyper
 
       - name: Install required cargo
-        run: cargo install clippy-sarif sarif-fmt
+        run: cargo install clippy-sarif sarif-fmt cargo-binutils
 
       - name: Install required target
         run: rustup target add riscv64imac-unknown-none-elf
