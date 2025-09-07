@@ -34,7 +34,14 @@ jobs:
             cargo test -p rustsbi-prototyper
 
       - name: Install required cargo
-        run: cargo install clippy-sarif sarif-fmt
+        run: cargo install clippy-sarif sarif-fmt cargo-binutils
+
+      - name: Install required target
+        run: rustup target add riscv64imac-unknown-none-elf
+      
+      # Build the prototyper is needed before running cargo clippy for it, as the build is dependent on some logic controlled by xtask.
+      - name: Build cargo prototyper
+        run: cargo prototyper
 
       - name: Run rust-clippy
         run: |
