@@ -38,7 +38,7 @@ cargo prototyper
 然后拉取EDK2的源代码并编译EDK2:
 
 ```bash
-git clone --recurse-submodule git@github.com:tianocore/edk2.git -b edk2-stable202505
+git clone --recurse-submodules https://github.com/tianocore/edk2.git -b edk2-stable202505
 cd edk2
 export GCC5_RISCV64_PREFIX=riscv64-linux-gnu-
 source edksetup.sh
