@@ -39,7 +39,7 @@ jobs:
       - name: Install required target
         run: rustup target add riscv64imac-unknown-none-elf
       
-      # Build the prototyper is needded before running cargo clippy for it, as the build is dependent on some logic controlled by xtask.
+      # Build the prototyper is needed before running cargo clippy for it, as the build is dependent on some logic controlled by xtask.
       - name: Build cargo prototyper
         run: cargo prototyper
 
