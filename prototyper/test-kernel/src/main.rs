@@ -332,7 +332,7 @@ struct BoardInfo {
 
 impl BoardInfo {
     fn parse(dtb_pa: usize) -> Self {
-        use dtb_walker::{Dtb, DtbObj, HeaderError as E, Property, Str, WalkOperation::*};
+        use dtb_walker::{Dtb, DtbObj, HeaderError as E, Property, WalkOperation::*};
 
         let mut ans = Self {
             smp: 0,
@@ -347,13 +347,14 @@ impl BoardInfo {
         .unwrap()
         .walk(|ctx, obj| match obj {
             DtbObj::SubNode { name } => {
-                if ctx.is_root() && (name == Str::from("cpus") || name == Str::from("soc")) {
+                if ctx.level() == 0 && (name == b"cpus" || name == b"soc") {
                     StepInto
-                } else if ctx.name() == Str::from("cpus") && name.starts_with("cpu@") {
+                } else if ctx.level() == 1 && ctx.last() == b"cpus" && name.starts_with(b"cpu@") {
                     ans.smp += 1;
                     StepOver
-                } else if ctx.name() == Str::from("soc")
-                    && (name.starts_with("uart") || name.starts_with("serial"))
+                } else if ctx.level() == 1
+                    && ctx.last() == b"soc"
+                    && (name.starts_with(b"uart") || name.starts_with(b"serial"))
                 {
                     StepInto
                 } else {
@@ -361,13 +362,18 @@ impl BoardInfo {
                 }
             }
             DtbObj::Property(Property::Reg(mut reg)) => {
-                if ctx.name().starts_with("uart") || ctx.name().starts_with("serial") {
+                if ctx.level() >= 2
+                    && (ctx.last().starts_with(b"uart") || ctx.last().starts_with(b"serial"))
+                {
                     ans.uart = reg.next().unwrap().start;
                 }
                 StepOut
             }
             DtbObj::Property(Property::General { name, value }) => {
-                if ctx.name() == Str::from("cpus") && name == Str::from("timebase-frequency") {
+                if ctx.level() == 1
+                    && ctx.last() == b"cpus"
+                    && name.as_bytes() == b"timebase-frequency"
+                {
                     ans.frequency = match *value {
                         [a, b, c, d] => u32::from_be_bytes([a, b, c, d]) as _,
                         [a, b, c, d, e, f, g, h] => u64::from_be_bytes([a, b, c, d, e, f, g, h]),
@@ -439,8 +445,8 @@ impl Flag {
 /// Wrap for counter info
 struct CounterInfo {
     /// Packed representation of counter information:
-    /// - Bits [11:0]: CSR number for hardware counters
-    /// - Bits [17:12]: Counter width (typically 63 for RV64)
+    /// - Bits \[11:0\]: CSR number for hardware counters
+    /// - Bits \[17:12\]: Counter width (typically 63 for RV64)
     /// - MSB: Set for firmware counters, clear for hardware counters
     inner: usize,
 }
