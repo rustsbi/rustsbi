@@ -5,7 +5,7 @@ mod loader;
 mod memory;
 mod protocol;
 mod service;
-mod table;
+mod system_table;
 
 pub fn efi_runtime_init() {
     let load_bootloader = loader::load_efi_file("/EFI/BOOT/BOOTRISCV64.EFI");
@@ -33,8 +33,8 @@ pub fn efi_runtime_init() {
     let func = entry::resolve_entry_func(mapping, file.entry(), base_va);
 
     let system_table = {
-        table::init_system_table();
-        table::get_system_table_raw()
+        system_table::init_system_table();
+        system_table::get_system_table_raw()
     };
 
     let result = func(core::ptr::null_mut(), system_table);
