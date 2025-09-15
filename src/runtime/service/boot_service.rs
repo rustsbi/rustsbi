@@ -10,6 +10,7 @@ use uefi_raw::{
 };
 
 /// Type of allocation to perform.
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub enum AllocateType {
     /// Allocate any possible pages.
