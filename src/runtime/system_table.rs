@@ -41,23 +41,29 @@ static VENDOR: &[u16] = &[
 static REVERSION: u32 = 0x0001_0000;
 
 pub fn init_system_table() {
+    // Initialize the protocols
     init_block_io();
     init_device_path();
     #[cfg(feature = "display")]
     crate::runtime::protocol::graphics_output::init_graphics_output();
     #[cfg(feature = "fs")]
     crate::runtime::protocol::simple_file_system::init_simple_file_system();
-
     let simple_text_output = {
         init_simple_text_output();
         get_simple_text_output().lock().get_protocol()
     };
 
+    // Initialize the services
+    crate::runtime::service::init_service();
+    let runtime_services = get_runtime_service();
+    let boot_services = get_boot_service();
+
+    // Initialize the * table
     let configuration_table = Box::new(ConfigurationTable {
         vendor_guid: uefi_raw::Guid::default(),
         vendor_table: null_mut(),
     });
-    let configuration_table_raw = Box::into_raw(configuration_table);
+    let configuration_table = Box::into_raw(configuration_table);
 
     let system_table = Box::new(SystemTable {
         // Build the UEFI Table Header.
@@ -78,11 +84,11 @@ pub fn init_system_table() {
         stderr_handle: null_mut(),
         stderr: simple_text_output,
 
-        runtime_services: get_runtime_service(),
-        boot_services: get_boot_service(),
+        runtime_services,
+        boot_services,
 
         number_of_configuration_table_entries: 0,
-        configuration_table: configuration_table_raw,
+        configuration_table,
     });
     let system_table_raw = Box::into_raw(system_table);
     let system_table = unsafe { &mut *system_table_raw };

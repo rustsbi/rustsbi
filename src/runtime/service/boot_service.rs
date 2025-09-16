@@ -9,16 +9,85 @@ use uefi_raw::{
     },
 };
 
-/// Type of allocation to perform.
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub enum AllocateType {
-    /// Allocate any possible pages.
-    AnyPages,
-    /// Allocate pages at any address below the given address.
-    MaxAddress(PhysicalAddress),
-    /// Allocate pages at the specified address.
-    Address(PhysicalAddress),
+use alloc::boxed::Box;
+
+#[derive(Debug)]
+pub struct Boot {
+    services: &'static mut uefi_raw::table::boot::BootServices,
+    services_raw: *mut uefi_raw::table::boot::BootServices,
+}
+
+impl Boot {
+    pub fn new() -> Self {
+        let services = uefi_raw::table::boot::BootServices {
+            header: Default::default(),
+            raise_tpl,
+            restore_tpl,
+            allocate_pages,
+            free_pages,
+            get_memory_map,
+            allocate_pool,
+            free_pool,
+            create_event,
+            set_timer,
+            wait_for_event,
+            signal_event,
+            close_event,
+            check_event,
+            install_protocol_interface,
+            reinstall_protocol_interface,
+            uninstall_protocol_interface,
+            handle_protocol,
+            reserved: core::ptr::null_mut::<c_void>(),
+            register_protocol_notify,
+            locate_handle,
+            locate_device_path,
+            install_configuration_table,
+            load_image,
+            start_image,
+            exit,
+            unload_image,
+            exit_boot_services,
+            get_next_monotonic_count,
+            stall,
+            set_watchdog_timer,
+            connect_controller,
+            disconnect_controller,
+            open_protocol,
+            close_protocol,
+            open_protocol_information,
+            protocols_per_handle,
+            locate_handle_buffer,
+            locate_protocol,
+            install_multiple_protocol_interfaces,
+            uninstall_multiple_protocol_interfaces,
+            calculate_crc32,
+            copy_mem,
+            set_mem,
+            create_event_ex, // UEFI 2.0+
+        };
+        let services_raw = Box::into_raw(Box::new(services));
+        let services = unsafe { &mut *services_raw };
+        Boot {
+            services,
+            services_raw,
+        }
+    }
+
+    pub fn get_services(&self) -> *mut uefi_raw::table::boot::BootServices {
+        self.services_raw
+    }
+}
+
+unsafe impl Send for Boot {}
+unsafe impl Sync for Boot {}
+
+impl Drop for Boot {
+    fn drop(&mut self) {
+        unsafe {
+            drop(Box::from_raw(self.services_raw));
+        }
+    }
 }
 
 // Task Priority services
@@ -29,7 +98,7 @@ pub unsafe extern "efiapi" fn restore_tpl(_old_tpl: Tpl) {}
 
 // Memory allocation functions
 pub unsafe extern "efiapi" fn allocate_pages(
-    _alloc_ty: AllocateType,
+    _alloc_ty: u32,
     _mem_ty: MemoryType,
     _count: usize,
     _addr: *mut PhysicalAddress,
@@ -274,13 +343,14 @@ pub unsafe extern "efiapi" fn locate_protocol(
 }
 pub unsafe extern "C" fn install_multiple_protocol_interfaces(
     _handle: *mut Handle,
-    // variadic, ignored
+    ...
 ) -> Status {
     Status::UNSUPPORTED
 }
+
 pub unsafe extern "C" fn uninstall_multiple_protocol_interfaces(
     _handle: Handle,
-    // variadic, ignored
+    ...
 ) -> Status {
     Status::UNSUPPORTED
 }

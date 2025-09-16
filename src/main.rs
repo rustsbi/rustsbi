@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), no_std)]
 #![no_main]
 #![allow(dead_code)]
+#![feature(c_variadic)]
 
 #[macro_use]
 extern crate axlog;

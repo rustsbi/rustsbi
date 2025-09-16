@@ -9,6 +9,57 @@ use uefi_raw::{
     time::Time,
 };
 
+use alloc::boxed::Box;
+
+#[derive(Debug)]
+pub struct Runtime {
+    services: &'static mut uefi_raw::table::runtime::RuntimeServices,
+    services_raw: *mut uefi_raw::table::runtime::RuntimeServices,
+}
+
+impl Runtime {
+    pub fn new() -> Self {
+        let services = uefi_raw::table::runtime::RuntimeServices {
+            header: Default::default(),
+            get_time,
+            set_time,
+            get_wakeup_time,
+            set_wakeup_time,
+            set_virtual_address_map,
+            convert_pointer,
+            get_variable,
+            get_next_variable_name,
+            set_variable,
+            reset_system,
+            update_capsule,
+            query_capsule_capabilities,
+            query_variable_info,
+            get_next_high_monotonic_count,
+        };
+        let services_raw = Box::into_raw(Box::new(services));
+        let services = unsafe { &mut *services_raw };
+        Self {
+            services,
+            services_raw,
+        }
+    }
+
+    pub fn get_services(&self) -> *mut uefi_raw::table::runtime::RuntimeServices {
+        self.services_raw
+    }
+}
+
+unsafe impl Send for Runtime {}
+unsafe impl Sync for Runtime {}
+
+impl Drop for Runtime {
+    fn drop(&mut self) {
+        unsafe {
+            drop(Box::from_raw(self.services_raw));
+        }
+    }
+}
+
 // Time services
 pub unsafe extern "efiapi" fn get_time(
     _time: *mut Time,
