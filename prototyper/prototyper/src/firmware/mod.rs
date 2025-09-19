@@ -11,7 +11,7 @@ cfg_if::cfg_if! {
     }
 }
 
-use alloc::format;
+use alloc::{format, vec};
 #[allow(unused)]
 use core::arch::{asm, naked_asm};
 use core::ops::Range;
@@ -38,9 +38,6 @@ pub struct BootHart {
 pub extern "C" fn raw_fdt() {
     naked_asm!(concat!(".incbin \"", env!("PROTOTYPER_FDT_PATH"), "\""),)
 }
-const DEVICE_TREE_BUFFER_LENGTH: usize = 0x10000;
-#[unsafe(link_section = ".patched_fdt")]
-static mut DEVICE_TREE_BUFFER: [u8; DEVICE_TREE_BUFFER_LENGTH] = [0u8; DEVICE_TREE_BUFFER_LENGTH];
 
 #[inline]
 #[cfg(feature = "fdt")]
@@ -71,16 +68,12 @@ pub fn get_boot_hart(opaque: usize, nonstandard_a2: usize) -> BootHart {
 pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
     use serde_device_tree::buildin::Node;
     use serde_device_tree::ser::serializer::ValueType;
-    use serde_device_tree::*;
+    use serde_device_tree::{Dtb, DtbPtr};
     let Ok(ptr) = DtbPtr::from_raw(device_tree_ptr as *mut _) else {
         panic!("Can not parse device tree!");
     };
-    let origin_size = ptr.align();
+    let original_length = ptr.align();
     let dtb = Dtb::from(ptr);
-    // TODO: use probe length instead of a magic const number.
-    if origin_size + 2048 > DEVICE_TREE_BUFFER_LENGTH {
-        panic!("dtb file is too big!");
-    }
 
     // Update const
     unsafe {
@@ -91,7 +84,7 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
     let sbi_end = unsafe { SBI_END_ADDRESS };
 
     let dtb = dtb.share();
-    let root: serde_device_tree::buildin::Node =
+    let root: Node =
         serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize_root);
     let tree: Node = root.deserialize();
 
@@ -129,17 +122,32 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
     let patch2 =
         serde_device_tree::ser::patch::Patch::new(&path_name, &new_base_2 as _, ValueType::Node);
     let raw_list = [patch1, patch2];
-    // Only patch `reserved-memory` when it not exists.
+    // Only add `reserved-memory` section when it not exists.
     let list = if tree.find("/reserved-memory").is_some() {
         &raw_list[1..]
     } else {
         &raw_list[..]
     };
 
-    unsafe {
-        serde_device_tree::ser::to_dtb(&tree, &list, &mut DEVICE_TREE_BUFFER).unwrap();
-        DEVICE_TREE_BUFFER.as_ptr() as _
-    }
+    // Firstly, allocate a temporary buffer to store the fdt and get the real total size of the patched fdt.
+    // TODO: The serde_device_tree can provide a function to calculate the accurancy size of patched fdt.
+    let mut temporary_buffer = vec![0u8; original_length + 2048];
+    serde_device_tree::ser::to_dtb(&tree, &list, &mut temporary_buffer).unwrap();
+    let Ok(patched_dtb_ptr) = DtbPtr::from_raw(temporary_buffer.as_mut_ptr()) else {
+        panic!("Failed to parse the patched dtb.")
+    };
+    let patched_length = patched_dtb_ptr.align();
+
+    // Secondly, allocate the exactly buffer to store the fdt.
+    let mut patched_dtb_buffer = vec![0u8; patched_length];
+    serde_device_tree::ser::to_dtb(&tree, &list, &mut patched_dtb_buffer).unwrap();
+    let patched_dtb = patched_dtb_buffer.leak();
+    info!(
+        "The patched dtb is located at 0x{:x} with length 0x{:x}.",
+        patched_dtb.as_ptr() as usize,
+        patched_length
+    );
+    patched_dtb.as_ptr() as usize
 }
 
 static mut SBI_START_ADDRESS: usize = 0;
