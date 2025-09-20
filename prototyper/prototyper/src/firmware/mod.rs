@@ -130,7 +130,7 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
     };
 
     // Firstly, allocate a temporary buffer to store the fdt and get the real total size of the patched fdt.
-    // TODO: The serde_device_tree can provide a function to calculate the accurancy size of patched fdt.
+    // TODO: The serde_device_tree can provide a function to calculate the accuracy size of patched fdt.
     let mut temporary_buffer = vec![0u8; original_length + 2048];
     serde_device_tree::ser::to_dtb(&tree, &list, &mut temporary_buffer).unwrap();
     let Ok(patched_dtb_ptr) = DtbPtr::from_raw(temporary_buffer.as_mut_ptr()) else {
@@ -141,6 +141,8 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
     // Secondly, allocate the exactly buffer to store the fdt.
     let mut patched_dtb_buffer = vec![0u8; patched_length];
     serde_device_tree::ser::to_dtb(&tree, &list, &mut patched_dtb_buffer).unwrap();
+    // Intentionally leak the buffer so that the patched DTB remains valid for the lifetime of the firmware.
+    // This is required because the returned pointer is used elsewhere and must not be deallocated.
     let patched_dtb = patched_dtb_buffer.leak();
     info!(
         "The patched dtb is located at 0x{:x} with length 0x{:x}.",
