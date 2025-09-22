@@ -4,8 +4,8 @@ use uefi_raw::table::{boot::BootServices, runtime::RuntimeServices};
 
 use crate::runtime::service::{boot_service::Boot, runtime_service::Runtime};
 
-pub(crate) mod memory;
 pub(crate) mod boot_service;
+pub(crate) mod memory;
 pub(crate) mod runtime_service;
 
 static BOOT_SERVICE: LazyInit<Mutex<Boot>> = LazyInit::new();

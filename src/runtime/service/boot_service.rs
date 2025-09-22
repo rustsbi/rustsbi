@@ -1,5 +1,6 @@
 use core::ffi::c_void;
 
+use axhal::mem::PhysAddr;
 use uefi_raw::{
     Boolean, Char16, Event, Guid, Handle, PhysicalAddress, Status,
     protocol::device_path::DevicePathProtocol,
@@ -119,7 +120,8 @@ pub unsafe extern "efiapi" fn allocate_pages(
     Status::SUCCESS
 }
 pub unsafe extern "efiapi" fn free_pages(addr: PhysicalAddress, pages: usize) -> Status {
-    unsafe { free_pages(addr, pages) };
+    let phys_addr = PhysAddr::from_usize(addr.try_into().unwrap());
+    let _ = crate::runtime::service::memory::free_pages(phys_addr, pages);
 
     Status::SUCCESS
 }
