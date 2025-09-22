@@ -1,8 +1,10 @@
 use object::Object;
+use uefi_raw::table::boot::MemoryType;
+
+use crate::runtime::service::memory::AllocateType;
 
 mod entry;
 mod loader;
-mod memory;
 mod protocol;
 mod service;
 mod system_table;
@@ -16,7 +18,12 @@ pub fn efi_runtime_init() {
     let (base_va, max_va) = loader::analyze_sections(&file);
     let mem_size = (max_va - base_va) as usize;
 
-    let mapping = memory::alloc_and_map_memory(mem_size, &load_bootloader);
+    // let mapping = crate::runtime::service::memory::alloc_and_map_memory(mem_size, &load_bootloader);
+    let mapping = crate::runtime::service::memory::alloc_pages(
+        AllocateType::AnyPages,
+        MemoryType::LOADER_CODE,
+        mem_size / 4096 + 1,
+    );
 
     loader::load_sections(&file, mapping, base_va);
     loader::apply_relocations(&file, mapping, base_va, image_base);

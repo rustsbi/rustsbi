@@ -11,6 +11,8 @@ use uefi_raw::{
 
 use alloc::boxed::Box;
 
+use crate::runtime::service::memory::AllocateType;
+
 #[derive(Debug)]
 pub struct Boot {
     services: &'static mut uefi_raw::table::boot::BootServices,
@@ -98,15 +100,28 @@ pub unsafe extern "efiapi" fn restore_tpl(_old_tpl: Tpl) {}
 
 // Memory allocation functions
 pub unsafe extern "efiapi" fn allocate_pages(
-    _alloc_ty: u32,
-    _mem_ty: MemoryType,
-    _count: usize,
-    _addr: *mut PhysicalAddress,
+    alloc_ty: u32,
+    mem_ty: MemoryType,
+    count: usize,
+    addr: *mut PhysicalAddress,
 ) -> Status {
-    Status::UNSUPPORTED
+    let alloc_ty = match AllocateType::try_from(alloc_ty) {
+        Ok(t) => t,
+        Err(_) => return Status::INVALID_PARAMETER,
+    };
+
+    let ptr = crate::runtime::service::memory::alloc_pages(alloc_ty, mem_ty, count);
+    if ptr.is_null() {
+        return Status::OUT_OF_RESOURCES;
+    }
+
+    unsafe { *addr = ptr as u64 };
+    Status::SUCCESS
 }
-pub unsafe extern "efiapi" fn free_pages(_addr: PhysicalAddress, _pages: usize) -> Status {
-    Status::UNSUPPORTED
+pub unsafe extern "efiapi" fn free_pages(addr: PhysicalAddress, pages: usize) -> Status {
+    unsafe { free_pages(addr, pages) };
+
+    Status::SUCCESS
 }
 pub unsafe extern "efiapi" fn get_memory_map(
     _size: *mut usize,
@@ -341,17 +356,11 @@ pub unsafe extern "efiapi" fn locate_protocol(
 ) -> Status {
     Status::UNSUPPORTED
 }
-pub unsafe extern "C" fn install_multiple_protocol_interfaces(
-    _handle: *mut Handle,
-    ...
-) -> Status {
+pub unsafe extern "C" fn install_multiple_protocol_interfaces(_handle: *mut Handle, ...) -> Status {
     Status::UNSUPPORTED
 }
 
-pub unsafe extern "C" fn uninstall_multiple_protocol_interfaces(
-    _handle: Handle,
-    ...
-) -> Status {
+pub unsafe extern "C" fn uninstall_multiple_protocol_interfaces(_handle: Handle, ...) -> Status {
     Status::UNSUPPORTED
 }
 

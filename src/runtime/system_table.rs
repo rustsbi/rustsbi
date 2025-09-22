@@ -4,11 +4,14 @@ use axsync::Mutex;
 use lazyinit::LazyInit;
 use uefi_raw::table::{Header, configuration::ConfigurationTable, system::SystemTable};
 
-use crate::runtime::{protocol::{
-    block_io::init_block_io,
-    device_path::init_device_path,
-    simple_text_output::{get_simple_text_output, init_simple_text_output},
-}, service::{get_boot_service, get_runtime_service}};
+use crate::runtime::{
+    protocol::{
+        block_io::init_block_io,
+        device_path::init_device_path,
+        simple_text_output::{get_simple_text_output, init_simple_text_output},
+    },
+    service::{get_boot_service, get_runtime_service},
+};
 
 use alloc::boxed::Box;
 
