@@ -8,6 +8,7 @@ mod loader;
 mod protocol;
 mod service;
 mod system_table;
+mod utils;
 
 pub fn efi_runtime_init() {
     let load_bootloader = loader::load_efi_file("/EFI/BOOT/BOOTRISCV64.EFI");

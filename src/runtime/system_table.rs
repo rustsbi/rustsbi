@@ -50,7 +50,7 @@ pub fn init_system_table() {
     #[cfg(feature = "display")]
     crate::runtime::protocol::graphics_output::init_graphics_output();
     #[cfg(feature = "fs")]
-    crate::runtime::protocol::simple_file_system::init_simple_file_system();
+    crate::runtime::protocol::fs::simple_file_system::init_simple_file_system();
     let simple_text_output = {
         init_simple_text_output();
         get_simple_text_output().lock().get_protocol()
