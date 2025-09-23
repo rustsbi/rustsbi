@@ -4,7 +4,7 @@ use buddy_system_allocator::LockedHeap;
 #[unsafe(link_section = ".bss.heap")]
 static mut HEAP: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 
-const BUDDY_MAX_ORDER: usize = 17;
+const BUDDY_MAX_ORDER: usize = 20;
 #[global_allocator]
 static HEAP_ALLOCATOR: LockedHeap<BUDDY_MAX_ORDER> = LockedHeap::<BUDDY_MAX_ORDER>::empty();
 

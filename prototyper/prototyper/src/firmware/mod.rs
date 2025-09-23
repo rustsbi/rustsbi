@@ -131,6 +131,10 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
 
     // Firstly, allocate a temporary buffer to store the fdt and get the real total size of the patched fdt.
     // TODO: The serde_device_tree can provide a function to calculate the accuracy size of patched fdt.
+    debug!(
+        "Allocate temporary DTB buffer with length 0x{:x}.",
+        original_length + 2048
+    );
     let mut temporary_buffer = vec![0u8; original_length + 2048];
     serde_device_tree::ser::to_dtb(&tree, &list, &mut temporary_buffer).unwrap();
     let Ok(patched_dtb_ptr) = DtbPtr::from_raw(temporary_buffer.as_mut_ptr()) else {
