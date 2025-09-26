@@ -47,3 +47,6 @@ build: clean defconfig all
 
 qemu-run:
 	qemu-system-riscv64 -m 128M -serial mon:stdio -bios $(SBI) -nographic -machine virt -nographic -machine virt -device virtio-blk-pci,drive=disk0 -drive id=disk0,if=none,format=raw,file=$(DISK)
+
+qemu-display:
+	qemu-system-riscv64 -m 128M -serial mon:stdio -bios $(SBI) -machine virt -device virtio-blk-pci,drive=disk0 -drive id=disk0,if=none,format=raw,file=$(DISK) -device virtio-gpu-pci,xres=1024,yres=768

@@ -249,6 +249,7 @@ source = "git+https://github.com/arceos-org/axdriver_crates.git?tag=v0.1.2#84eb2
 dependencies = [
  "axdriver_base",
  "axdriver_block",
+ "axdriver_display",
  "virtio-drivers",
 ]
 

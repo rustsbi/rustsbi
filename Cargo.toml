@@ -25,7 +25,7 @@ axconfig = { git = "https://github.com/arceos-org/arceos.git" }
 axsync = { git = "https://github.com/arceos-org/arceos.git" }
 axalloc = { git = "https://github.com/arceos-org/arceos.git", optional = true }
 axmm = { git = "https://github.com/arceos-org/arceos.git", optional = true }
-axdriver = { git = "https://github.com/arceos-org/arceos.git", optional = true, features = ["virtio-blk"] }
+axdriver = { git = "https://github.com/arceos-org/arceos.git", optional = true, features = ["virtio-blk", "virtio-gpu"] }
 axfs = { git = "https://github.com/arceos-org/arceos.git", optional = true }
 axnet = { git = "https://github.com/arceos-org/arceos.git", optional = true }
 axdisplay = { git = "https://github.com/arceos-org/arceos.git", optional = true }
