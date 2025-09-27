@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-LOG_FILE="qemu.log"
+LOG_FILE="qemu-hello.log"
 TARGET_STRING="EFI Output: Hello, World!"
 
 if [ ! -f "$LOG_FILE" ]; then

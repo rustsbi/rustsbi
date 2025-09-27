@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-LOG_FILE="qemu.log"
+LOG_FILE="qemu-allocate.log"
 TARGET_STRING="EFI Output: 0xDEADBEEF12345678"
 
 if [ ! -f "$LOG_FILE" ]; then
