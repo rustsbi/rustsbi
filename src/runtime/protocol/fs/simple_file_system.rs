@@ -9,7 +9,7 @@ use alloc::boxed::Box;
 
 use crate::runtime::protocol::fs::file_protocol_v1::open_root;
 
-static TEXT_FILE_SYSTEM: LazyInit<Mutex<SimpleFileSystem>> = LazyInit::new();
+static SIMPLE_FILE_SYSTEM: LazyInit<Mutex<SimpleFileSystem>> = LazyInit::new();
 
 #[repr(C)]
 #[derive(Debug)]
@@ -41,7 +41,7 @@ unsafe impl Send for SimpleFileSystem {}
 unsafe impl Sync for SimpleFileSystem {}
 
 pub fn init_simple_file_system() {
-    TEXT_FILE_SYSTEM.init_once(Mutex::new(SimpleFileSystem::new()));
+    SIMPLE_FILE_SYSTEM.init_once(Mutex::new(SimpleFileSystem::new()));
 }
 
 // impl SimpleFileSystem. Refer to UEFI Spec 2.11 Section 13.4.

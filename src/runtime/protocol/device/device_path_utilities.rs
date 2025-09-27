@@ -20,81 +20,89 @@ const END_INSTANCE_DEVICE_PATH_SUBTYPE: u8 = 0x01;
 // End node subtype: 0xFF = End Entire (marks end of the whole device path)
 const END_ENTIRE_DEVICE_PATH_SUBTYPE: u8 = 0xFF;
 // Common header size for every Device Path node (Type + SubType + Length[2])
-const DEV_PATH_HEADER_LEN: usize = 4;
+const DEVICE_PATH_HEADER_LENGTH: usize = 4;
 
 static DEVICE_PATH_UTILITIES: LazyInit<Mutex<DevicePathUtilities>> = LazyInit::new();
 
 #[inline]
-unsafe fn node_type(p: *const DevicePathProtocol) -> u8 {
-    unsafe { *(p as *const u8) }
+unsafe fn get_node_type(protocol: *const DevicePathProtocol) -> u8 {
+    unsafe { *(protocol as *const u8) }
 }
 #[inline]
-unsafe fn node_subtype(p: *const DevicePathProtocol) -> u8 {
-    unsafe { *((p as *const u8).add(1)) }
+unsafe fn get_node_subtype(protocol: *const DevicePathProtocol) -> u8 {
+    unsafe { *((protocol as *const u8).add(1)) }
 }
 #[inline]
-unsafe fn node_len_u16(p: *const DevicePathProtocol) -> u16 {
+unsafe fn get_node_length_u16(protocol: *const DevicePathProtocol) -> u16 {
     // Little-endian 2 bytes at offset 2
     // equivalent to read_unaligned((b+2) as *const u16)
-    unsafe { *(p as *const u16).add(1) }
+    unsafe { *(protocol as *const u16).add(1) }
 }
 #[inline]
-unsafe fn node_len(p: *const DevicePathProtocol) -> usize {
-    unsafe { node_len_u16(p) as usize }
+unsafe fn get_node_length(protocol: *const DevicePathProtocol) -> usize {
+    unsafe { get_node_length_u16(protocol) as usize }
 }
 #[inline]
-unsafe fn is_end(p: *const DevicePathProtocol) -> bool {
-    unsafe { node_type(p) == END_DEVICE_PATH_TYPE && node_len(p) >= DEV_PATH_HEADER_LEN }
+unsafe fn is_end_node(protocol: *const DevicePathProtocol) -> bool {
+    unsafe {
+        get_node_type(protocol) == END_DEVICE_PATH_TYPE
+            && get_node_length(protocol) >= DEVICE_PATH_HEADER_LENGTH
+    }
 }
 #[inline]
-unsafe fn is_end_entire(p: *const DevicePathProtocol) -> bool {
-    unsafe { is_end(p) && node_subtype(p) == END_ENTIRE_DEVICE_PATH_SUBTYPE }
+unsafe fn is_end_entire_node(protocol: *const DevicePathProtocol) -> bool {
+    unsafe { is_end_node(protocol) && get_node_subtype(protocol) == END_ENTIRE_DEVICE_PATH_SUBTYPE }
 }
 #[inline]
-unsafe fn is_end_instance(p: *const DevicePathProtocol) -> bool {
-    unsafe { is_end(p) && node_subtype(p) == END_INSTANCE_DEVICE_PATH_SUBTYPE }
+unsafe fn is_end_instance_node(protocol: *const DevicePathProtocol) -> bool {
+    unsafe {
+        is_end_node(protocol) && get_node_subtype(protocol) == END_INSTANCE_DEVICE_PATH_SUBTYPE
+    }
 }
 
 #[inline]
-unsafe fn total_path_size(dp: *const DevicePathProtocol) -> Option<usize> {
-    if dp.is_null() {
+unsafe fn compute_total_device_path_size(
+    device_path_ptr: *const DevicePathProtocol,
+) -> Option<usize> {
+    if device_path_ptr.is_null() {
         return Some(0);
     }
-    let mut cur = dp;
-    let mut total: usize = 0;
-    let hard_cap: usize = 1 << 20;
+    let mut current_ptr = device_path_ptr;
+    let mut total_size: usize = 0;
+    let hard_size_cap: usize = 1 << 20;
 
     loop {
-        let len = unsafe { node_len(cur) };
-        if len < DEV_PATH_HEADER_LEN {
+        let node_length = unsafe { get_node_length(current_ptr) };
+        if node_length < DEVICE_PATH_HEADER_LENGTH {
             return None;
         }
-        total = total.checked_add(len)?;
-        if total > hard_cap {
+        total_size = total_size.checked_add(node_length)?;
+        if total_size > hard_size_cap {
             return None;
         }
-        if unsafe { is_end_entire(cur) } {
+        if unsafe { is_end_entire_node(current_ptr) } {
             break;
         }
-        cur = unsafe { (cur as *const u8).add(len) } as *const DevicePathProtocol;
+        current_ptr =
+            unsafe { (current_ptr as *const u8).add(node_length) } as *const DevicePathProtocol;
     }
-    Some(total)
+    Some(total_size)
 }
 
 #[inline]
-unsafe fn copy_bytes_to_box(
-    dp: *const DevicePathProtocol,
-    size: usize,
+unsafe fn copy_device_path_bytes_to_box(
+    device_path_ptr: *const DevicePathProtocol,
+    total_size: usize,
 ) -> *const DevicePathProtocol {
-    if size == 0 {
+    if total_size == 0 {
         return ptr::null();
     }
-    let src = unsafe { slice::from_raw_parts(dp as *const u8, size) };
-    let mut buf = Vec::<u8>::with_capacity(size);
-    buf.extend_from_slice(src);
-    let boxed = buf.into_boxed_slice();
-    let ptr_u8 = Box::into_raw(boxed) as *mut u8;
-    ptr_u8 as *const DevicePathProtocol
+    let source_slice = unsafe { slice::from_raw_parts(device_path_ptr as *const u8, total_size) };
+    let mut buffer = Vec::<u8>::with_capacity(total_size);
+    buffer.extend_from_slice(source_slice);
+    let boxed_slice = buffer.into_boxed_slice();
+    let raw_u8_ptr = Box::into_raw(boxed_slice) as *mut u8;
+    raw_u8_ptr as *const DevicePathProtocol
 }
 
 pub struct DevicePathUtilities {
@@ -137,8 +145,8 @@ pub fn init_device_path_uttilities() {
 
 pub extern "efiapi" fn get_device_path_size(device_path: *const DevicePathProtocol) -> usize {
     unsafe {
-        match total_path_size(device_path) {
-            Some(sz) => sz,
+        match compute_total_device_path_size(device_path) {
+            Some(total_size) => total_size,
             None => 0,
         }
     }
@@ -148,49 +156,57 @@ pub extern "efiapi" fn duplicate_device_path(
     device_path: *const DevicePathProtocol,
 ) -> *const DevicePathProtocol {
     unsafe {
-        match total_path_size(device_path) {
+        match compute_total_device_path_size(device_path) {
             Some(0) => ptr::null_mut(),
-            Some(sz) => copy_bytes_to_box(device_path, sz) as *const _,
+            Some(total_size) => copy_device_path_bytes_to_box(device_path, total_size) as *const _,
             None => ptr::null_mut(),
         }
     }
 }
 
 pub extern "efiapi" fn append_device_path(
-    src1: *const DevicePathProtocol,
-    src2: *const DevicePathProtocol,
+    first_path: *const DevicePathProtocol,
+    second_path: *const DevicePathProtocol,
 ) -> *const DevicePathProtocol {
     unsafe {
-        let s1_size = match total_path_size(src1) {
-            Some(0) => DEV_PATH_HEADER_LEN,
-            Some(sz) => sz,
+        let first_total_size = match compute_total_device_path_size(first_path) {
+            Some(0) => DEVICE_PATH_HEADER_LENGTH,
+            Some(total_size) => total_size,
             None => return ptr::null_mut(),
         };
-        let s2_size = match total_path_size(src2) {
-            Some(0) => DEV_PATH_HEADER_LEN,
-            Some(sz) => sz,
+        let second_total_size = match compute_total_device_path_size(second_path) {
+            Some(0) => DEVICE_PATH_HEADER_LENGTH,
+            Some(total_size) => total_size,
             None => return ptr::null_mut(),
         };
 
-        let s1_head = if s1_size >= DEV_PATH_HEADER_LEN {
-            s1_size - DEV_PATH_HEADER_LEN
+        let first_without_end_length = if first_total_size >= DEVICE_PATH_HEADER_LENGTH {
+            first_total_size - DEVICE_PATH_HEADER_LENGTH
         } else {
             0
         };
-        let out_size = s1_head.checked_add(s2_size).unwrap_or(0);
-        if out_size == 0 {
+        let output_total_size = first_without_end_length
+            .checked_add(second_total_size)
+            .unwrap_or(0);
+        if output_total_size == 0 {
             return ptr::null_mut();
         }
 
-        let mut out = Vec::<u8>::with_capacity(out_size);
-        if s1_head > 0 && !src1.is_null() {
-            out.extend_from_slice(slice::from_raw_parts(src1 as *const u8, s1_head));
-        } else {
+        let mut output_bytes = Vec::<u8>::with_capacity(output_total_size);
+        if first_without_end_length > 0 && !first_path.is_null() {
+            output_bytes.extend_from_slice(slice::from_raw_parts(
+                first_path as *const u8,
+                first_without_end_length,
+            ));
         }
-        if s2_size > 0 && !src2.is_null() {
-            out.extend_from_slice(slice::from_raw_parts(src2 as *const u8, s2_size));
+        if second_total_size > 0 && !second_path.is_null() {
+            output_bytes.extend_from_slice(slice::from_raw_parts(
+                second_path as *const u8,
+                second_total_size,
+            ));
         } else {
-            out.extend_from_slice(&[
+            // If second path is empty, terminate with End Entire node
+            output_bytes.extend_from_slice(&[
                 END_DEVICE_PATH_TYPE,
                 END_ENTIRE_DEVICE_PATH_SUBTYPE,
                 0x04,
@@ -198,7 +214,7 @@ pub extern "efiapi" fn append_device_path(
             ]);
         }
 
-        let boxed = out.into_boxed_slice();
+        let boxed = output_bytes.into_boxed_slice();
         Box::into_raw(boxed) as *const DevicePathProtocol
     }
 }
@@ -211,40 +227,46 @@ pub extern "efiapi" fn append_device_node(
         if device_node.is_null() {
             return duplicate_device_path(device_path);
         }
-        let node_len_b = node_len(device_node);
-        if node_len_b < DEV_PATH_HEADER_LEN || is_end(device_node) {
+        let device_node_length = get_node_length(device_node);
+        if device_node_length < DEVICE_PATH_HEADER_LENGTH || is_end_node(device_node) {
             return duplicate_device_path(device_path);
         }
 
-        let dp_size = match total_path_size(device_path) {
-            Some(0) => DEV_PATH_HEADER_LEN,
-            Some(sz) => sz,
+        let device_path_total_size = match compute_total_device_path_size(device_path) {
+            Some(0) => DEVICE_PATH_HEADER_LENGTH,
+            Some(total_size) => total_size,
             None => return ptr::null_mut(),
         };
 
-        let dp_head = dp_size - DEV_PATH_HEADER_LEN;
-        let out_size = dp_head
-            .checked_add(node_len_b)
-            .and_then(|v| v.checked_add(DEV_PATH_HEADER_LEN))
+        let device_path_without_end_length = device_path_total_size - DEVICE_PATH_HEADER_LENGTH;
+        let output_total_size = device_path_without_end_length
+            .checked_add(device_node_length)
+            .and_then(|v| v.checked_add(DEVICE_PATH_HEADER_LENGTH))
             .unwrap_or(0);
-        if out_size == 0 {
+        if output_total_size == 0 {
             return ptr::null_mut();
         }
 
-        let mut out = Vec::<u8>::with_capacity(out_size);
-        if dp_head > 0 && !device_path.is_null() {
-            out.extend_from_slice(slice::from_raw_parts(device_path as *const u8, dp_head));
+        let mut output_bytes = Vec::<u8>::with_capacity(output_total_size);
+        if device_path_without_end_length > 0 && !device_path.is_null() {
+            output_bytes.extend_from_slice(slice::from_raw_parts(
+                device_path as *const u8,
+                device_path_without_end_length,
+            ));
         }
-        out.extend_from_slice(slice::from_raw_parts(device_node as *const u8, node_len_b));
-        // End Entire
-        out.extend_from_slice(&[
+        output_bytes.extend_from_slice(slice::from_raw_parts(
+            device_node as *const u8,
+            device_node_length,
+        ));
+        // Append End Entire node
+        output_bytes.extend_from_slice(&[
             END_DEVICE_PATH_TYPE,
             END_ENTIRE_DEVICE_PATH_SUBTYPE,
             0x04,
             0x00,
         ]);
 
-        let boxed = out.into_boxed_slice();
+        let boxed = output_bytes.into_boxed_slice();
         Box::into_raw(boxed) as *const DevicePathProtocol
     }
 }
@@ -254,118 +276,128 @@ pub extern "efiapi" fn append_device_path_instance(
     device_path_instance: *const DevicePathProtocol,
 ) -> *const DevicePathProtocol {
     unsafe {
-        let dp_size = match total_path_size(device_path) {
-            Some(0) => DEV_PATH_HEADER_LEN,
-            Some(sz) => sz,
+        let device_path_total_size = match compute_total_device_path_size(device_path) {
+            Some(0) => DEVICE_PATH_HEADER_LENGTH,
+            Some(total_size) => total_size,
             None => return ptr::null_mut(),
         };
-        let dp_head = dp_size - DEV_PATH_HEADER_LEN;
+        let device_path_without_end_length = device_path_total_size - DEVICE_PATH_HEADER_LENGTH;
         if device_path_instance.is_null() {
             return duplicate_device_path(device_path);
         }
 
-        let mut cur = device_path_instance;
-        let mut inst_len: usize = 0;
+        let mut current_ptr = device_path_instance;
+        let mut instance_total_length: usize = 0;
         loop {
-            let len = node_len(cur);
-            if len < DEV_PATH_HEADER_LEN {
+            let node_length = get_node_length(current_ptr);
+            if node_length < DEVICE_PATH_HEADER_LENGTH {
                 return ptr::null_mut();
             }
-            inst_len = inst_len.checked_add(len).unwrap_or(0);
-            if is_end_instance(cur) || is_end_entire(cur) {
+            instance_total_length = instance_total_length.checked_add(node_length).unwrap_or(0);
+            if is_end_instance_node(current_ptr) || is_end_entire_node(current_ptr) {
                 break;
             }
-            cur = (cur as *const u8).add(len) as *const DevicePathProtocol;
+            current_ptr = (current_ptr as *const u8).add(node_length) as *const DevicePathProtocol;
         }
 
-        // out = dp_head + inst_len + (End Entire 4B)
-        let out_size = dp_head
-            .checked_add(inst_len)
-            .and_then(|v| v.checked_add(DEV_PATH_HEADER_LEN))
+        // output = device_path_without_end_length + instance_total_length + End Entire (4 bytes)
+        let output_total_size = device_path_without_end_length
+            .checked_add(instance_total_length)
+            .and_then(|v| v.checked_add(DEVICE_PATH_HEADER_LENGTH))
             .unwrap_or(0);
-        if out_size == 0 {
+        if output_total_size == 0 {
             return ptr::null_mut();
         }
 
-        let mut out = Vec::<u8>::with_capacity(out_size);
-        if dp_head > 0 && !device_path.is_null() {
-            out.extend_from_slice(slice::from_raw_parts(device_path as *const u8, dp_head));
-            out.extend_from_slice(&[
+        let mut output_bytes = Vec::<u8>::with_capacity(output_total_size);
+        if device_path_without_end_length > 0 && !device_path.is_null() {
+            output_bytes.extend_from_slice(slice::from_raw_parts(
+                device_path as *const u8,
+                device_path_without_end_length,
+            ));
+            // Insert an End Instance node between instances
+            output_bytes.extend_from_slice(&[
                 END_DEVICE_PATH_TYPE,
                 END_INSTANCE_DEVICE_PATH_SUBTYPE,
                 0x04,
                 0x00,
             ]);
         }
-        out.extend_from_slice(slice::from_raw_parts(
+        output_bytes.extend_from_slice(slice::from_raw_parts(
             device_path_instance as *const u8,
-            inst_len,
+            instance_total_length,
         ));
-        if let Some(_last4) = out.get(out.len().saturating_sub(DEV_PATH_HEADER_LEN)..) {
-            out.truncate(out.len().saturating_sub(DEV_PATH_HEADER_LEN));
+        // Remove the last 4 bytes of the copied instance (its End node), then add End Entire
+        if let Some(_) =
+            output_bytes.get(output_bytes.len().saturating_sub(DEVICE_PATH_HEADER_LENGTH)..)
+        {
+            output_bytes.truncate(output_bytes.len().saturating_sub(DEVICE_PATH_HEADER_LENGTH));
         }
-        out.extend_from_slice(&[
+        output_bytes.extend_from_slice(&[
             END_DEVICE_PATH_TYPE,
             END_ENTIRE_DEVICE_PATH_SUBTYPE,
             0x04,
             0x00,
         ]);
 
-        let boxed = out.into_boxed_slice();
+        let boxed = output_bytes.into_boxed_slice();
         Box::into_raw(boxed) as *const DevicePathProtocol
     }
 }
 
 pub extern "efiapi" fn get_next_device_path_instance(
-    device_path_instance: *mut *const DevicePathProtocol,
-    device_path_instance_size: *mut usize,
+    device_path_instance_ptr: *mut *const DevicePathProtocol,
+    device_path_instance_size_out: *mut usize,
 ) -> *const DevicePathProtocol {
     unsafe {
-        if device_path_instance.is_null() || device_path_instance_size.is_null() {
+        if device_path_instance_ptr.is_null() || device_path_instance_size_out.is_null() {
             return ptr::null_mut();
         }
-        let cur = *device_path_instance;
-        if cur.is_null() {
-            *device_path_instance_size = 0;
+        let current_instance_ptr = *device_path_instance_ptr;
+        if current_instance_ptr.is_null() {
+            *device_path_instance_size_out = 0;
             return ptr::null_mut();
         }
 
-        let start = cur as *const u8;
-        let mut p = cur;
-        let mut inst_bytes: usize = 0;
+        let start_bytes_ptr = current_instance_ptr as *const u8;
+        let mut cursor_ptr = current_instance_ptr;
+        let mut instance_bytes_length: usize = 0;
         loop {
-            let len = node_len(p);
-            if len < DEV_PATH_HEADER_LEN {
+            let node_length = get_node_length(cursor_ptr);
+            if node_length < DEVICE_PATH_HEADER_LENGTH {
                 return ptr::null_mut();
             }
-            inst_bytes = inst_bytes.checked_add(len).unwrap_or(0);
-            if is_end_instance(p) || is_end_entire(p) {
+            instance_bytes_length = instance_bytes_length.checked_add(node_length).unwrap_or(0);
+            if is_end_instance_node(cursor_ptr) || is_end_entire_node(cursor_ptr) {
                 break;
             }
-            p = (p as *const u8).add(len) as *const DevicePathProtocol;
+            cursor_ptr = (cursor_ptr as *const u8).add(node_length) as *const DevicePathProtocol;
         }
 
-        let mut out = Vec::<u8>::with_capacity(inst_bytes);
-        out.extend_from_slice(slice::from_raw_parts(start, inst_bytes));
-        if out.len() >= DEV_PATH_HEADER_LEN {
-            out.truncate(out.len() - DEV_PATH_HEADER_LEN);
+        let mut output_bytes = Vec::<u8>::with_capacity(instance_bytes_length);
+        output_bytes.extend_from_slice(slice::from_raw_parts(
+            start_bytes_ptr,
+            instance_bytes_length,
+        ));
+        if output_bytes.len() >= DEVICE_PATH_HEADER_LENGTH {
+            output_bytes.truncate(output_bytes.len() - DEVICE_PATH_HEADER_LENGTH);
         }
-        out.extend_from_slice(&[
+        output_bytes.extend_from_slice(&[
             END_DEVICE_PATH_TYPE,
             END_ENTIRE_DEVICE_PATH_SUBTYPE,
             0x04,
             0x00,
         ]);
 
-        let after = (p as *const u8).add(DEV_PATH_HEADER_LEN);
-        if is_end_instance(p) {
-            *device_path_instance = after as *const DevicePathProtocol;
+        let after_current_instance = (cursor_ptr as *const u8).add(DEVICE_PATH_HEADER_LENGTH);
+        if is_end_instance_node(cursor_ptr) {
+            *device_path_instance_ptr = after_current_instance as *const DevicePathProtocol;
         } else {
-            *device_path_instance = ptr::null();
+            *device_path_instance_ptr = ptr::null();
         }
 
-        *device_path_instance_size = out.len();
-        let boxed = out.into_boxed_slice();
+        *device_path_instance_size_out = output_bytes.len();
+        let boxed = output_bytes.into_boxed_slice();
         Box::into_raw(boxed) as *const DevicePathProtocol
     }
 }
@@ -377,19 +409,19 @@ pub extern "efiapi" fn is_device_path_multi_instance(
         if device_path.is_null() {
             return false;
         }
-        let mut p = device_path;
+        let mut cursor_ptr = device_path;
         loop {
-            if is_end_instance(p) {
+            if is_end_instance_node(cursor_ptr) {
                 return true;
             }
-            if is_end_entire(p) {
+            if is_end_entire_node(cursor_ptr) {
                 return false;
             }
-            let len = node_len(p);
-            if len < DEV_PATH_HEADER_LEN {
+            let node_length = get_node_length(cursor_ptr);
+            if node_length < DEVICE_PATH_HEADER_LENGTH {
                 return false;
             }
-            p = (p as *const u8).add(len) as *const DevicePathProtocol;
+            cursor_ptr = (cursor_ptr as *const u8).add(node_length) as *const DevicePathProtocol;
         }
     }
 }
@@ -400,18 +432,18 @@ pub extern "efiapi" fn create_device_node(
     node_length: u16,
 ) -> *const DevicePathProtocol {
     unsafe {
-        if usize::from(node_length) < DEV_PATH_HEADER_LEN {
+        if usize::from(node_length) < DEVICE_PATH_HEADER_LENGTH {
             return ptr::null_mut();
         }
-        let mut buf = Vec::<u8>::with_capacity(node_length as usize);
-        buf.resize(node_length as usize, 0u8);
+        let mut buffer = Vec::<u8>::with_capacity(node_length as usize);
+        buffer.resize(node_length as usize, 0u8);
 
-        buf[0] = mem::transmute::<DeviceType, u8>(node_type);
-        buf[1] = mem::transmute::<DeviceSubType, u8>(node_sub_type);
-        buf[2] = (node_length & 0x00FF) as u8;
-        buf[3] = (node_length >> 8) as u8;
+        buffer[0] = mem::transmute::<DeviceType, u8>(node_type);
+        buffer[1] = mem::transmute::<DeviceSubType, u8>(node_sub_type);
+        buffer[2] = (node_length & 0x00FF) as u8;
+        buffer[3] = (node_length >> 8) as u8;
 
-        let boxed = buf.into_boxed_slice();
+        let boxed = buffer.into_boxed_slice();
         Box::into_raw(boxed) as *const DevicePathProtocol
     }
 }

@@ -422,7 +422,6 @@ pub extern "efiapi" fn set_position(this: *mut FileProtocolV1, position: u64) ->
         HandleKind::Dir => Status::UNSUPPORTED,
         HandleKind::File => {
             if position == u64::MAX {
-                // 定位到 EOF：取当前文件长度
                 let size = match axfs::api::metadata(&this.path) {
                     Ok(md) => md.len() as u64,
                     Err(_) => return Status::DEVICE_ERROR,
