@@ -7,7 +7,11 @@ use uefi_raw::table::{Header, configuration::ConfigurationTable, system::SystemT
 use crate::runtime::{
     protocol::{
         block_io::init_block_io,
-        device_path::init_device_path,
+        device::{
+            device_path_from_text::init_device_path_from_text,
+            device_path_to_text::init_device_path_to_text,
+            device_path_utilities::init_device_path_uttilities,
+        },
         simple_text_output::{get_simple_text_output, init_simple_text_output},
     },
     service::{get_boot_service, get_runtime_service},
@@ -44,9 +48,12 @@ static VENDOR: &[u16] = &[
 static REVERSION: u32 = 0x0001_0000;
 
 pub fn init_system_table() {
-    // Initialize the protocols
+    // Initialize the tools.
+    init_device_path_from_text();
+    init_device_path_to_text();
+    init_device_path_uttilities();
+
     init_block_io();
-    init_device_path();
 
     #[cfg(feature = "display")]
     crate::runtime::protocol::graphics_output::init_graphics_output();

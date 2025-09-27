@@ -17,9 +17,10 @@ pub struct BlockIo {
     protocol_raw: *mut BlockIoProtocol,
 }
 
+// https://uefi.org/specs/UEFI/2.11/13_Protocols_Media_Access.html#block-i-o-protocol
 impl BlockIo {
     pub fn new() -> Self {
-        let media: *const BlockIoMedia = core::ptr::null(); // stub; replace with actual media if needed
+        let media: *const BlockIoMedia = core::ptr::null();
 
         let protocol = BlockIoProtocol {
             revision: 0x00010000,

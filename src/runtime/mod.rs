@@ -11,6 +11,13 @@ mod system_table;
 mod utils;
 
 pub fn efi_runtime_init() {
+    // Prepare the UEFI System Table
+    let system_table = {
+        system_table::init_system_table();
+        system_table::get_system_table_raw()
+    };
+
+    // Load the bootloader EFI file
     let load_bootloader = loader::load_efi_file("/EFI/BOOT/BOOTRISCV64.EFI");
     let image_base =
         loader::detect_and_get_image_base(&load_bootloader).expect("Failed to get PE image base");
@@ -39,12 +46,6 @@ pub fn efi_runtime_init() {
     );
 
     let func = entry::resolve_entry_func(mapping, file.entry(), base_va);
-
-    let system_table = {
-        system_table::init_system_table();
-        system_table::get_system_table_raw()
-    };
-
     let result = func(core::ptr::null_mut(), system_table);
     info!("efi_main return: {}", result);
 }
