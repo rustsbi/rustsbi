@@ -1,4 +1,4 @@
-use core::ffi::c_void;
+use core::{ffi::c_void, ptr};
 
 use axhal::mem::PhysAddr;
 use uefi_raw::{
@@ -367,15 +367,67 @@ pub unsafe extern "C" fn uninstall_multiple_protocol_interfaces(_handle: Handle,
 }
 
 // CRC / memory
+const CRC32_TABLE: [u32; 256] = {
+    const P: u32 = 0xEDB8_8320;
+    let mut tbl = [0u32; 256];
+    let mut i = 0usize;
+    while i < 256 {
+        let mut c = i as u32;
+        let mut j = 0;
+        while j < 8 {
+            // reflected step
+            c = if (c & 1) != 0 { (c >> 1) ^ P } else { c >> 1 };
+            j += 1;
+        }
+        tbl[i] = c;
+        i += 1;
+    }
+    tbl
+};
+
 pub unsafe extern "efiapi" fn calculate_crc32(
-    _data: *const c_void,
-    _data_size: usize,
-    _crc32: *mut u32,
+    data: *const c_void,
+    data_size: usize,
+    crc32_out: *mut u32,
 ) -> Status {
-    Status::UNSUPPORTED
+    // Parameter validation
+    if crc32_out.is_null() || (data.is_null() && data_size > 0) {
+        return Status::INVALID_PARAMETER;
+    }
+
+    if data_size == 0 {
+        // Zero-length -> 0
+        unsafe { *crc32_out = 0 };
+        return Status::SUCCESS;
+    }
+
+    let bytes = unsafe { core::slice::from_raw_parts(data as *const u8, data_size) };
+
+    // Reflected algorithm with init/final XOR
+    let mut crc: u32 = 0xFFFF_FFFF;
+    for &b in bytes {
+        let idx = ((crc ^ (b as u32)) & 0xFF) as usize;
+        crc = (crc >> 8) ^ CRC32_TABLE[idx];
+    }
+    crc ^= 0xFFFF_FFFF;
+
+    unsafe { *crc32_out = crc };
+    Status::SUCCESS
 }
-pub unsafe extern "efiapi" fn copy_mem(_dest: *mut u8, _src: *const u8, _len: usize) {}
-pub unsafe extern "efiapi" fn set_mem(_buffer: *mut u8, _len: usize, _value: u8) {}
+
+pub unsafe extern "efiapi" fn copy_mem(dest: *mut u8, src: *const u8, len: usize) {
+    if len == 0 || dest.is_null() || src.is_null() {
+        return;
+    }
+    unsafe { ptr::copy(src, dest, len) };
+}
+
+pub unsafe extern "efiapi" fn set_mem(buffer: *mut u8, len: usize, value: u8) {
+    if len == 0 || buffer.is_null() {
+        return;
+    }
+    unsafe { ptr::write_bytes(buffer, value, len) };
+}
 
 // New event (UEFI 2.0+)
 pub unsafe extern "efiapi" fn create_event_ex(
