@@ -62,11 +62,8 @@ pub struct DynamicInfo {
 // https://github.com/riscv-software-src/opensbi/blob/019a8e69a1dc0c0f011fabd0372e1ba80e40dd7c/include/sbi/fw_dynamic.h#L75
 
 const DYNAMIC_INFO_INVALID_ADDRESSES: usize = 0x00000000;
-const NEXT_ADDR_VALID_ADDRESSES: [Range<usize>; 2] = [
-    // Qemu Virt pflash address
-    0x20000000..0x22000000,
-    0x80000000..0x90000000,
-];
+const NEXT_ADDR_VALID_ADDRESSES: [Range<usize>; 1] =
+    [crate::cfg::VALID_NEXT_ADDR_START..crate::cfg::VALID_NEXT_ADDR_END];
 pub(crate) const MAGIC: usize = 0x4942534f;
 const SUPPORTED_VERSION: Range<usize> = 0..3;
 

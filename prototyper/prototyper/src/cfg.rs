@@ -23,3 +23,9 @@ pub const JUMP_ADDRESS: usize = CONFIG.jump_address as usize;
 /// TLB_FLUSH_LIMIT defines the TLB refresh range limit.
 /// If the TLB refresh range is greater than TLB_FLUSH_LIMIT, the entire TLB is refreshed.
 pub const TLB_FLUSH_LIMIT: usize = CONFIG.tlb_flush_limit as usize;
+
+/// The dynamic valid next address range start.
+pub const VALID_NEXT_ADDR_START: usize = CONFIG.valid_next_addr_start as usize;
+
+/// The dynamic valid next address range end.
+pub const VALID_NEXT_ADDR_END: usize = CONFIG.valid_next_addr_end as usize;
