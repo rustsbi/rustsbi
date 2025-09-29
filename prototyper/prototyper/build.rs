@@ -80,7 +80,6 @@ SECTIONS {
 
     .text : ALIGN(0x1000) {
         *(.fdt)
-        *(.patched_fdt)
     }
     . = ALIGN(4);
     sbi_end = .;
