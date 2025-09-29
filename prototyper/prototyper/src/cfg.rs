@@ -7,6 +7,8 @@ static_toml! {
     const CONFIG = include_toml!("../../target/config.toml");
 }
 
+pub type NextAddr = crate::cfg::config::next_addr::NextAddr;
+
 /// Maximum number of supported harts.
 pub const NUM_HART_MAX: usize = CONFIG.num_hart_max as usize;
 /// Stack size per hart (hardware thread) in bytes.
@@ -24,8 +26,5 @@ pub const JUMP_ADDRESS: usize = CONFIG.jump_address as usize;
 /// If the TLB refresh range is greater than TLB_FLUSH_LIMIT, the entire TLB is refreshed.
 pub const TLB_FLUSH_LIMIT: usize = CONFIG.tlb_flush_limit as usize;
 
-/// The dynamic valid next address range start.
-pub const VALID_NEXT_ADDR_START: usize = CONFIG.valid_next_addr_start as usize;
-
-/// The dynamic valid next address range end.
-pub const VALID_NEXT_ADDR_END: usize = CONFIG.valid_next_addr_end as usize;
+/// The dynamic valid next addr ranges.
+pub const DYNAMIC_NEXT_ADDR_RANGE: &NextAddr = &CONFIG.next_addr;
