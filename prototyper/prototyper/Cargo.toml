@@ -24,7 +24,7 @@ sbi-spec = { version = "0.0.8", features = [
 serde = { version = "1.0.202", default-features = false, features = ["derive"] }
 aclint = { git = "https://github.com/rustsbi/aclint", rev = "b2136a66" }
 fast-trap = { git = "https://github.com/rustsbi/fast-trap", rev = "8d855afa", features = ["riscv-m"] }
-serde-device-tree = { git = "https://github.com/rustsbi/serde-device-tree", rev = "f051687", default-features = false, features = ["ser"] }
+serde-device-tree = { git = "https://github.com/rustsbi/serde-device-tree", rev = "9d48da6", default-features = false, features = ["ser", "alloc"] }
 uart_xilinx = { git = "https://github.com/duskmoon314/uart-rs/", rev = "12be9142" }
 xuantie-riscv = { git = "https://github.com/rustsbi/xuantie", rev = "7a521c04" }
 bouffalo-hal = { git = "https://github.com/rustsbi/bouffalo-hal", rev = "968b949", features = [

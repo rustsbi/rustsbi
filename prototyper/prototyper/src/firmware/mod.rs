@@ -186,7 +186,7 @@ pub fn set_pmp(memory_range: &Range<usize>) {
         pmpaddr3::write(RODATA_START_ADDRESS >> 2);
         pmpcfg0::set_pmp(4, Range::TOR, Permission::NONE, false);
         pmpaddr4::write(RODATA_END_ADDRESS >> 2);
-        pmpcfg0::set_pmp(5, Range::TOR, Permission::RW, false);
+        pmpcfg0::set_pmp(5, Range::TOR, Permission::R, false);
         pmpaddr5::write(SBI_END_ADDRESS >> 2);
         pmpcfg0::set_pmp(6, Range::TOR, Permission::RWX, false);
         pmpaddr6::write(memory_range.end >> 2);
