@@ -72,7 +72,6 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
     let Ok(ptr) = DtbPtr::from_raw(device_tree_ptr as *mut _) else {
         panic!("Can not parse device tree!");
     };
-    let original_length = ptr.align();
     let dtb = Dtb::from(ptr);
 
     // Update const
@@ -129,31 +128,24 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
         &raw_list[..]
     };
 
-    // Firstly, allocate a temporary buffer to store the fdt and get the real total size of the patched fdt.
-    // TODO: The serde_device_tree can provide a function to calculate the accuracy size of patched fdt.
-    debug!(
-        "Allocate temporary DTB buffer with length 0x{:x}.",
-        original_length + 2048
-    );
-    let mut temporary_buffer = vec![0u8; original_length + 2048];
-    serde_device_tree::ser::to_dtb(&tree, &list, &mut temporary_buffer).unwrap();
-    let Ok(patched_dtb_ptr) = DtbPtr::from_raw(temporary_buffer.as_mut_ptr()) else {
-        panic!("Failed to parse the patched dtb.")
-    };
-    let patched_length = patched_dtb_ptr.align();
+    let patched_length = serde_device_tree::ser::probe_dtb_length(&tree, &list).unwrap();
 
-    // Secondly, allocate the exactly buffer to store the fdt.
-    let mut patched_dtb_buffer = vec![0u8; patched_length];
-    serde_device_tree::ser::to_dtb(&tree, &list, &mut patched_dtb_buffer).unwrap();
+    // We need aligned address here, so we use create u64 vec.
+    let patched_dtb_buffer = vec![0u64; patched_length.div_ceil(8)];
     // Intentionally leak the buffer so that the patched DTB remains valid for the lifetime of the firmware.
     // This is required because the returned pointer is used elsewhere and must not be deallocated.
-    let patched_dtb = patched_dtb_buffer.leak();
+    let patched_dtb_buffer = patched_dtb_buffer.leak();
+    let mut patched_dtb_buffer_u8: &'static mut [u8] = unsafe {
+        core::slice::from_raw_parts_mut(patched_dtb_buffer.as_ptr() as *mut u8, patched_length)
+    };
+    serde_device_tree::ser::to_dtb(&tree, &list, &mut patched_dtb_buffer_u8).unwrap();
+
     info!(
         "The patched dtb is located at 0x{:x} with length 0x{:x}.",
-        patched_dtb.as_ptr() as usize,
+        patched_dtb_buffer.as_ptr() as usize,
         patched_length
     );
-    patched_dtb.as_ptr() as usize
+    patched_dtb_buffer.as_ptr() as usize
 }
 
 static mut SBI_START_ADDRESS: usize = 0;
@@ -194,7 +186,7 @@ pub fn set_pmp(memory_range: &Range<usize>) {
         pmpaddr3::write(RODATA_START_ADDRESS >> 2);
         pmpcfg0::set_pmp(4, Range::TOR, Permission::NONE, false);
         pmpaddr4::write(RODATA_END_ADDRESS >> 2);
-        pmpcfg0::set_pmp(5, Range::TOR, Permission::R, false);
+        pmpcfg0::set_pmp(5, Range::TOR, Permission::RW, false);
         pmpaddr5::write(SBI_END_ADDRESS >> 2);
         pmpcfg0::set_pmp(6, Range::TOR, Permission::RWX, false);
         pmpaddr6::write(memory_range.end >> 2);
