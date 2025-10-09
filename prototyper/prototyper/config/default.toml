@@ -5,3 +5,7 @@ page_size = 4096
 log_level = "INFO"
 jump_address = 0x80200000
 tlb_flush_limit = 16384 # page_size * 4
+
+[[next_addr]]
+start = 0x80000000
+end = 0x90000000
