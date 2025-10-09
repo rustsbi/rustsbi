@@ -25,7 +25,7 @@ pmpm = { version = "0.0.0", path = "../../library/pmpm" }
 serde = { version = "1.0.202", default-features = false, features = ["derive"] }
 aclint = { git = "https://github.com/rustsbi/aclint", rev = "b2136a66" }
 fast-trap = { git = "https://github.com/rustsbi/fast-trap", rev = "8d855afa", features = ["riscv-m"] }
-serde-device-tree = { git = "https://github.com/rustsbi/serde-device-tree", rev = "2a5d6ab7", default-features = false }
+serde-device-tree = { git = "https://github.com/rustsbi/serde-device-tree", rev = "f051687", default-features = false, features = ["ser"] }
 uart_xilinx = { git = "https://github.com/duskmoon314/uart-rs/", rev = "12be9142" }
 xuantie-riscv = { git = "https://github.com/rustsbi/xuantie", rev = "7a521c04" }
 bouffalo-hal = { git = "https://github.com/rustsbi/bouffalo-hal", rev = "968b949", features = [
@@ -35,6 +35,7 @@ static-toml = "1"
 seq-macro = "0.3.5"
 pastey = "0.1.0"
 uart_sifive = { git = "https://github.com/duskmoon314/uart-rs/" }
+arm-pl011-uart = "0.3.2"
 
 [[bin]]
 name = "rustsbi-prototyper"

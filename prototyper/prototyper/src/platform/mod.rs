@@ -15,10 +15,11 @@ use crate::fail;
 use crate::platform::clint::{MachineClintType, SIFIVE_CLINT_COMPATIBLE, THEAD_CLINT_COMPATIBLE};
 use crate::platform::console::Uart16550Wrap;
 use crate::platform::console::UartBflbWrap;
+use crate::platform::console::UartPl011Wrap;
 use crate::platform::console::UartSifiveWrap;
 use crate::platform::console::{
     MachineConsoleType, UART16650U8_COMPATIBLE, UART16650U32_COMPATIBLE, UARTAXILITE_COMPATIBLE,
-    UARTBFLB_COMPATIBLE, UARTSIFIVE_COMPATIBLE,
+    UARTBFLB_COMPATIBLE, UARTPL011_COMPATIBLE, UARTSIFIVE_COMPATIBLE,
 };
 use crate::platform::reset::SIFIVETEST_COMPATIBLE;
 use crate::sbi::SBI;
@@ -121,6 +122,9 @@ impl Platform {
                         }
                         if UARTSIFIVE_COMPATIBLE.contains(&device_id) {
                             self.info.console = Some((regs.start, MachineConsoleType::UartSifive));
+                        }
+                        if UARTPL011_COMPATIBLE.contains(&device_id) {
+                            self.info.console = Some((regs.start, MachineConsoleType::UartPl011));
                         }
                     }
                 }
@@ -289,6 +293,9 @@ impl Platform {
                 )))),
                 MachineConsoleType::UartSifive => Some(SbiConsole::new(Mutex::new(Box::new(
                     UartSifiveWrap::new(base),
+                )))),
+                MachineConsoleType::UartPl011 => Some(SbiConsole::new(Mutex::new(Box::new(
+                    UartPl011Wrap::new(base),
                 )))),
             };
         } else {

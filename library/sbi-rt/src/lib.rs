@@ -73,3 +73,34 @@ pub use sse::*;
 pub use sta::*;
 pub use susp::*;
 pub use time::*;
+
+/// Raw RISC-V SBI calls.
+///
+/// This module is not intended for direct use; it should be used by runtime libraries for custom
+/// SBI extensions, to wrap SBI `ecall` instruction into Rust friendly functions.
+///
+/// SBI runtime users should use functions from root of this library, or functions from other SBI
+/// runtime libraries.
+pub mod raw {
+    use sbi_spec::binary::SbiRet;
+
+    /// Raw SBI call with 0 parameters.
+    #[inline(always)]
+    pub unsafe fn sbi_call_0(eid: usize, fid: usize) -> SbiRet {
+        super::binary::sbi_call_0(eid, fid)
+    }
+
+    /// Raw SBI call with 1 parameter.
+    #[inline(always)]
+    pub unsafe fn sbi_call_1(eid: usize, fid: usize, arg0: usize) -> SbiRet {
+        super::binary::sbi_call_1(eid, fid, arg0)
+    }
+
+    /// Raw SBI call with 2 parameters.
+    #[inline(always)]
+    pub unsafe fn sbi_call_2(eid: usize, fid: usize, arg0: usize, arg1: usize) -> SbiRet {
+        super::binary::sbi_call_2(eid, fid, arg0, arg1)
+    }
+
+    // TODO sbi_call_3, ..., sbi_call_6
+}

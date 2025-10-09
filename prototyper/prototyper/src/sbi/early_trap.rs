@@ -8,7 +8,7 @@ use riscv::register::mtvec;
 /// This function will change a0 and a1 and will NOT change them back.
 // TODO: Support save trap info.
 #[unsafe(naked)]
-#[repr(align(16))]
+#[rustc_align(16)]
 pub(crate) unsafe extern "C" fn light_expected_trap() {
     naked_asm!(
         "add a0, zero, zero",
@@ -39,7 +39,7 @@ impl Default for TrapInfo {
 }
 
 #[unsafe(naked)]
-#[repr(align(16))]
+#[rustc_align(16)]
 pub(crate) unsafe extern "C" fn expected_trap() {
     naked_asm!(
         "csrr a4, mepc",

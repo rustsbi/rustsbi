@@ -62,11 +62,6 @@ pub struct DynamicInfo {
 // https://github.com/riscv-software-src/opensbi/blob/019a8e69a1dc0c0f011fabd0372e1ba80e40dd7c/include/sbi/fw_dynamic.h#L75
 
 const DYNAMIC_INFO_INVALID_ADDRESSES: usize = 0x00000000;
-const NEXT_ADDR_VALID_ADDRESSES: [Range<usize>; 2] = [
-    // Qemu Virt pflash address
-    0x20000000..0x22000000,
-    0x80000000..0x90000000,
-];
 pub(crate) const MAGIC: usize = 0x4942534f;
 const SUPPORTED_VERSION: Range<usize> = 0..3;
 
@@ -117,7 +112,7 @@ pub struct DynamicError<'a> {
 /// Validates and extracts privilege mode and next address from dynamic info.
 ///
 /// Returns Result containing tuple of (MPP, next_addr) or error details.
-pub fn mpp_next_addr(info: &DynamicInfo) -> Result<(mstatus::MPP, usize), DynamicError> {
+pub fn mpp_next_addr(info: &DynamicInfo) -> Result<(mstatus::MPP, usize), DynamicError<'_>> {
     let mut error = DynamicError {
         invalid_mpp: false,
         invalid_next_addr: false,
@@ -125,9 +120,9 @@ pub fn mpp_next_addr(info: &DynamicInfo) -> Result<(mstatus::MPP, usize), Dynami
     };
 
     // fail safe, errors will be aggregated after whole checking process.
-    let next_addr_valid = NEXT_ADDR_VALID_ADDRESSES
+    let next_addr_valid = crate::cfg::DYNAMIC_NEXT_ADDR_RANGE
         .iter()
-        .any(|x| x.contains(&info.next_addr));
+        .any(|r| info.next_addr >= r.start as usize && info.next_addr < r.end as usize);
     let mpp_valid = matches!(info.next_mode, 0 | 1 | 3);
 
     if !next_addr_valid {

@@ -78,6 +78,8 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             PLATFORM.print_board_info();
         }
 
+        let fdt_address = firmware::patch_device_tree(fdt_address);
+
         firmware::set_pmp(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });
         firmware::log_pmp_cfg(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });
 
