@@ -66,6 +66,7 @@ pub extern "C" fn rust_main(_cpu_id: usize, dtb: usize) -> ! {
     }
 
     // ramdisk check
+    #[cfg(feature = "ramdisk_cpio")]
     crate::medium::ramdisk_cpio::check_ramdisk();
 
     crate::shell::shell_main();
