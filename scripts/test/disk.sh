@@ -7,6 +7,9 @@ print_info() {
     printf "\033[36m%s\033[0m\n" "$1"
 }
 
+print_info "开始创建 ramdisk 文件"
+bash scripts/test/ramdisk_cpio.sh
+
 print_info "开始执行 virtio-block 类型的 disk 创建脚本"
 print_info "此为 FAT32 文件系统镜像, 只含有一个 arceboot.txt 文件, 用于测试 Arceboot"
 print_info "即将在当前目录执行创建 -------->"
@@ -18,6 +21,7 @@ mkdir temp
 sudo mount -o loop disk.img temp
 sudo mkdir -p temp/test
 sudo touch temp/test/arceboot.txt
+sudo cp ramdisk.cpio temp
 echo "This is a test file for Arceboot." | sudo tee temp/test/arceboot.txt > /dev/null
 sudo umount temp
 rm -rf temp

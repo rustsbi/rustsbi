@@ -75,3 +75,22 @@ timer-frequency = 10_000_000        # uint
 # };
 # RTC (goldfish) Address
 rtc-paddr = 0x10_1000               # uint
+
+#
+# Boot configs
+#
+[boot]
+# Whether to use ramdisk
+# If ramdisk has already been configured in dtb and no assistance from ArceBoot is needed, please set it to false
+# If ArceBoot needs to boot from ramdisk, please set it to true if the next stage boot file that complies with the UEFI standard is saved in ramdisk
+use-ramdisk = true
+# Does this program need to load the ramdisk
+# If the ramdisk file is located in the storage medium and needs to be loaded into memory by Arceboot, set it to true
+load-ramdisk = true
+# Ramdisk file path, If 'use-ramdisk & load-ramdisk' is false, this item will not be enabled
+ramdisk-file = "/ramdisk.cpio"
+# Ramdisk location
+# If 'use-ramdisk & load-ramdisk' is true, Arceboot will load ramdisk to memory(The address of load is random)
+# If 'load-ramdisk' is false, Arceboot will read ramdisk from [ramdisk-start, ramdisk-start + ramdisk-size]
+ramdisk-start = 0x84000000
+ramdisk-size = 0x400
