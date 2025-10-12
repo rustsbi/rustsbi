@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), no_std)]
 #![no_main]
 #![allow(dead_code)]
+#![feature(c_variadic)]
 
 #[macro_use]
 extern crate axlog;
@@ -41,7 +42,7 @@ pub extern "C" fn rust_main(_cpu_id: usize, dtb: usize) -> ! {
     info!("Initialize platform devices...");
     axhal::platform_init();
 
-    #[cfg(any(feature = "fs", feature = "net"))]
+    #[cfg(any(feature = "fs", feature = "net", feature = "display"))]
     {
         #[allow(unused_variables)]
         let all_devices = axdriver::init_drivers();
@@ -53,6 +54,9 @@ pub extern "C" fn rust_main(_cpu_id: usize, dtb: usize) -> ! {
 
         #[cfg(feature = "net")]
         axnet::init_network(all_devices.net);
+
+        #[cfg(feature = "display")]
+        axdisplay::init_display(all_devices.display);
     }
     ctor_bare::call_ctors();
 
@@ -62,6 +66,7 @@ pub extern "C" fn rust_main(_cpu_id: usize, dtb: usize) -> ! {
     }
 
     // ramdisk check
+    #[cfg(feature = "ramdisk_cpio")]
     crate::medium::ramdisk_cpio::check_ramdisk();
 
     crate::shell::shell_main();

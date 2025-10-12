@@ -71,7 +71,7 @@ impl Stdin {
         if buf.is_empty() || read_len > 0 {
             return Ok(read_len);
         }
-        return Ok(0)
+        return Ok(0);
     }
 }
 

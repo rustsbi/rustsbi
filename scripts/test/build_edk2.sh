@@ -7,7 +7,7 @@ EDK_DIR="$WORKSPACE_DIR/edk2"
 
 mkdir -p "$WORKSPACE_DIR"
 
-echo "[1/3] 准备 EDK2 构建环境..."
+echo "[1/4] 准备 EDK2 构建环境..."
 cd "$WORKSPACE_DIR"
 
 if [ ! -d "ToolChain/RISCV" ]; then
@@ -19,7 +19,7 @@ else
     echo "RISCV 工具链已存在，跳过下载。"
 fi
 
-echo "[2/3] 克隆 EDK2 仓库..."
+echo "[2/4] 克隆 EDK2 仓库..."
 if [ ! -d "$EDK_DIR" ]; then
     git clone --recurse-submodule https://github.com/tianocore/edk2.git "$EDK_DIR"
 else
@@ -28,7 +28,7 @@ fi
 
 export PATH="$WORKSPACE_DIR/ToolChain/RISCV/riscv/bin:$PATH"
 
-echo "[3/3] 构建 EDK2..."
+echo "[3/4] 构建 EDK2..."
 cd "$WORKSPACE_DIR"
 
 export WORKSPACE=`pwd`
@@ -40,6 +40,7 @@ export EDK_TOOLS_PATH=$WORKSPACE/edk2/BaseTools
 make -C edk2/BaseTools
 . "$EDK_DIR/edksetup.sh" BaseTools
 
+echo "[4/4] 准备 HelloRiscv 和 AllocatePage 示例..."
 # mkdir -p "$EDK_DIR/Hello"
 # cp -r "$PROJECT_ROOT/tests/edk2-Hello" "$EDK_DIR"
 # mv "$EDK_DIR/edk2-Hello"/* "$EDK_DIR/Hello/"
@@ -50,4 +51,8 @@ cp -r "$PROJECT_ROOT/tests/edk2-HelloRiscv" "$EDK_DIR"
 mv "$EDK_DIR/edk2-HelloRiscv" "$EDK_DIR/HelloRiscv/"
 build -a RISCV64 -t GCC5 -p "$EDK_DIR/HelloRiscv/HelloRiscv.dsc"
 
-echo "EDK2 构建完成。生成的镜像位于：$WORKSPACE_DIR/Build/DEBUG_GCC5/RISCV64/HelloRiscv.efi"
+cp -r "$PROJECT_ROOT/tests/edk2-AllocatePage" "$EDK_DIR"
+mv "$EDK_DIR/edk2-AllocatePage" "$EDK_DIR/AllocatePage/"
+build -a RISCV64 -t GCC5 -p "$EDK_DIR/AllocatePage/AllocatePage.dsc"
+
+echo "EDK2 与示例构建完成。生成的文件位于：$WORKSPACE_DIR/Build/DEBUG_GCC5/RISCV64"

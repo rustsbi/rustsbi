@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-LOG_FILE="qemu-hello.log"
-TARGET_STRING="EFI Output: Hello, World!"
+LOG_FILE="qemu-allocate.log"
+TARGET_STRING="EFI Output: 0xDEADBEEF12345678"
 
 if [ ! -f "$LOG_FILE" ]; then
     echo "❌ $LOG_FILE 不存在"

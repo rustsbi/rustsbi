@@ -8,6 +8,16 @@ ELF := $(ROOT_DIR)/target/$(TARGET)/release/arceboot
 BIN := $(ROOT_DIR)/target/$(TARGET)/release/arceboot.bin
 RUSTSBI_DIR := $(ROOT_DIR)/rustsbi
 
+# 用逗号或者空格分隔 feature 名称
+EXACT_FEATURES ?=
+EXACT_FEATURES_CLEANED := $(subst $(space),$(comma),$(strip $(EXACT_FEATURES)))
+
+ifeq ($(strip $(EXACT_FEATURES)),)
+  FEATURE_ARGS :=
+else
+  FEATURE_ARGS := --features '$(EXACT_FEATURES_CLEANED)'
+endif
+
 # 彩色打印
 define print_info
 	@printf "\033[1;37m%s\033[0m" "[RustSBI-Arceboot Build] "
@@ -22,7 +32,7 @@ all: build-arceboot extract-bin clone-rustsbi build-rustsbi
 
 build-arceboot:
 	$(call print_info,开始编译 ArceBoot...)
-	cargo rustc --release --target $(TARGET) -- \
+	cargo rustc --release --target $(TARGET) $(FEATURE_ARGS) -- \
 		-C opt-level=z \
 		-C panic=abort \
 		-C relocation-model=static \

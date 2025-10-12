@@ -1,5 +1,5 @@
-use axio::{self as io};
 use alloc::{string::String, vec::Vec};
+use axio::{self as io};
 
 /// Returns the current working directory as a [`String`].
 pub fn current_dir() -> io::Result<String> {

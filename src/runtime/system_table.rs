@@ -4,8 +4,17 @@ use axsync::Mutex;
 use lazyinit::LazyInit;
 use uefi_raw::table::{Header, configuration::ConfigurationTable, system::SystemTable};
 
-use crate::runtime::protocol::simple_text_output::{
-    get_simple_text_output, init_simple_text_output,
+use crate::runtime::{
+    protocol::{
+        block_io::init_block_io,
+        device::{
+            device_path_from_text::init_device_path_from_text,
+            device_path_to_text::init_device_path_to_text,
+            device_path_utilities::init_device_path_uttilities,
+        },
+        simple_text_output::{get_simple_text_output, init_simple_text_output},
+    },
+    service::{get_boot_service, get_runtime_service},
 };
 
 use alloc::boxed::Box;
@@ -39,19 +48,37 @@ static VENDOR: &[u16] = &[
 static REVERSION: u32 = 0x0001_0000;
 
 pub fn init_system_table() {
+    // Initialize the tools.
+    init_device_path_from_text();
+    init_device_path_to_text();
+    init_device_path_uttilities();
+
+    init_block_io();
+
+    #[cfg(feature = "display")]
+    crate::runtime::protocol::graphics_output::init_graphics_output();
+    #[cfg(feature = "fs")]
+    crate::runtime::protocol::fs::simple_file_system::init_simple_file_system();
+
     let simple_text_output = {
         init_simple_text_output();
         get_simple_text_output().lock().get_protocol()
     };
 
+    // Initialize the services
+    crate::runtime::service::init_service();
+    let runtime_services = get_runtime_service();
+    let boot_services = get_boot_service();
+
+    // Initialize the * table
     let configuration_table = Box::new(ConfigurationTable {
         vendor_guid: uefi_raw::Guid::default(),
         vendor_table: null_mut(),
     });
-    let configuration_table_raw = Box::into_raw(configuration_table);
+    let configuration_table = Box::into_raw(configuration_table);
 
     let system_table = Box::new(SystemTable {
-        // Build the UEFI Table Header. 
+        // Build the UEFI Table Header.
         // For the System Table, its signature is 'IBI SYST' (little-endian).
         // The Header size is the size of the entire Header structure,
         // and the CRC32 calculation will first fill the CRC32 field with 0 before calculation.
@@ -69,11 +96,11 @@ pub fn init_system_table() {
         stderr_handle: null_mut(),
         stderr: simple_text_output,
 
-        runtime_services: null_mut(),
-        boot_services: null_mut(),
+        runtime_services,
+        boot_services,
 
         number_of_configuration_table_entries: 0,
-        configuration_table: configuration_table_raw,
+        configuration_table,
     });
     let system_table_raw = Box::into_raw(system_table);
     let system_table = unsafe { &mut *system_table_raw };

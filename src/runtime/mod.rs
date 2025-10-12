@@ -1,94 +1,51 @@
-use core::{
-    mem::transmute,
-    ptr::{copy_nonoverlapping, null_mut},
-};
-
-use axhal::{
-    mem::{MemoryAddr, VirtAddr},
-    paging::MappingFlags,
-};
-use object::File;
 use object::Object;
-use object::ObjectSection;
-use uefi_raw::table::system::SystemTable;
+use uefi_raw::table::boot::MemoryType;
 
-use crate::runtime::table::{get_system_table_raw, init_system_table};
+use crate::runtime::service::memory::AllocateType;
 
+mod entry;
+mod loader;
 mod protocol;
 mod service;
-mod table;
-
-pub type EfiMainFn =
-    extern "efiapi" fn(image_handle: *mut core::ffi::c_void, system_table: *mut SystemTable) -> u64;
+mod system_table;
+mod utils;
 
 pub fn efi_runtime_init() {
-    let shellcode =
-        axfs::api::read("/EFI/BOOT/BOOTRISCV64.EFI").expect("Failed to read EFI file from ramdisk");
-
-    let file = File::parse(&*shellcode).unwrap();
-    let entry = file.entry();
-    info!("Entry point: 0x{:x}", entry);
-
-    let mut base_va = u64::MAX;
-    let mut max_va = 0;
-    for section in file.sections() {
-        let size = section.size();
-        let start = section.address();
-        let end = start + size;
-        base_va = base_va.min(start);
-        max_va = max_va.max(end);
-    }
-
-    let mem_size = (max_va - base_va) as usize;
-    info!(
-        "Mapping memory: 0x{:x} bytes at RVA base 0x{:x}",
-        mem_size, base_va
-    );
-
-    let page_count = (mem_size + 4095) / 4096;
-
-    // alloc memory for the EFI image
-    let flags = MappingFlags::READ | MappingFlags::WRITE | MappingFlags::EXECUTE;
-    let layout: core::alloc::Layout = core::alloc::Layout::from_size_align(shellcode.len(), 4096)
-        .expect("Invalid layout for shellcode");
-
-    let mapping = axalloc::global_allocator()
-        .alloc(layout)
-        .expect("Failed to allocate memory for shellcode");
-    let mapping = mapping.as_ptr();
-
-    axmm::kernel_aspace()
-        .lock()
-        .protect(
-            VirtAddr::from_ptr_of(mapping).align_down(4096usize),
-            page_count * 4096,
-            flags,
-        )
-        .expect("Failed to protect efi memory");
-
-    for section in file.sections() {
-        if let Ok(data) = section.data() {
-            let offset = (section.address() - base_va) as usize;
-            info!(
-                "Loading section {} to offset 0x{:x}, size 0x{:x}",
-                section.name().unwrap_or("<unnamed>"),
-                offset,
-                data.len()
-            );
-            unsafe {
-                copy_nonoverlapping(data.as_ptr(), (mapping as *mut u8).add(offset), data.len());
-            }
-        }
-    }
-
-    let func_addr = (mapping as usize + (entry - base_va) as usize) as *const ();
-    let func: EfiMainFn = unsafe { transmute(func_addr) };
-
+    // Prepare the UEFI System Table
     let system_table = {
-        init_system_table();
-        get_system_table_raw()
+        system_table::init_system_table();
+        system_table::get_system_table_raw()
     };
 
-    let result = func(null_mut(), system_table);
-    info!("efi_main return: {}", result)
+    // Load the bootloader EFI file
+    let load_bootloader = loader::load_efi_file("/EFI/BOOT/BOOTRISCV64.EFI");
+    let image_base =
+        loader::detect_and_get_image_base(&load_bootloader).expect("Failed to get PE image base");
+
+    let file = loader::parse_efi_file(&load_bootloader);
+    let (base_va, max_va) = loader::analyze_sections(&file);
+    let mem_size = (max_va - base_va) as usize;
+
+    // let mapping = crate::runtime::service::memory::alloc_and_map_memory(mem_size, &load_bootloader);
+    let mapping = crate::runtime::service::memory::alloc_pages(
+        AllocateType::AnyPages,
+        MemoryType::LOADER_CODE,
+        mem_size / 4096 + 1,
+    );
+
+    loader::load_sections(&file, mapping, base_va);
+    loader::apply_relocations(&file, mapping, base_va, image_base);
+
+    info!(
+        "Loaded EFI file with base VA: 0x{:x}, max VA: 0x{:x}, image base {:x}, mapping {:?}, entry: 0x{:x}",
+        base_va,
+        max_va,
+        image_base,
+        mapping,
+        file.entry()
+    );
+
+    let func = entry::resolve_entry_func(mapping, file.entry(), base_va);
+    let result = func(core::ptr::null_mut(), system_table);
+    info!("efi_main return: {}", result);
 }
