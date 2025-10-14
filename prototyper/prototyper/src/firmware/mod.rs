@@ -11,11 +11,12 @@ cfg_if::cfg_if! {
     }
 }
 
-use crate::fail;
 use alloc::{format, vec};
 #[allow(unused)]
 use core::arch::{asm, naked_asm};
-use core::{ops::Range, usize};
+use core::ops::Range;
+
+use crate::fail;
 
 use riscv::register::mstatus;
 use serde::Serialize;

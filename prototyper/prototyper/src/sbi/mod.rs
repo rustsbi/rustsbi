@@ -14,7 +14,6 @@ pub mod fifo;
 pub mod hart_context;
 pub mod heap;
 pub mod logger;
-pub mod pmpm;
 pub mod trap;
 pub mod trap_stack;
 

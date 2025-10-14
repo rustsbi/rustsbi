@@ -1,7 +1,6 @@
 use crate::sbi::features::HartFeatures;
 use crate::sbi::features::PrivilegedVersion;
 use crate::sbi::hsm::HsmCell;
-use crate::sbi::pmpm::PmpSyncCell;
 use crate::sbi::rfence::RFenceCell;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicU8;
@@ -19,8 +18,6 @@ pub(crate) struct HartContext {
     pub hsm: HsmCell<NextStage>,
     /// Remote fence synchronization cell.
     pub rfence: RFenceCell,
-    /// PMP synchronization cell.
-    pub pmpsync: PmpSyncCell,
     /// Type of inter-processor interrupt pending.
     pub ipi_type: AtomicU8,
     /// Supported hart features.
