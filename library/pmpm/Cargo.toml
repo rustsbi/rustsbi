@@ -1,0 +1,17 @@
+[package]
+name = "pmpm"
+description = "penglai/Keystone style PMP management"
+version = "0.0.0"
+authors = ["Char <jinzhe.oerv@isrc.iscas.ac.cn>", "Luo Jia <me@luojia.cc>"]
+documentation = "https://docs.rs/penglai"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["riscv", "sbi", "rustsbi", "tee"]
+categories = ["os", "embedded", "hardware-support", "no-std"]
+
+[dependencies]
+riscv = "0.12.1"
+
+[dev-dependencies]
+static_assertions = "1.1.0"

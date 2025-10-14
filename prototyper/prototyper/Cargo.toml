@@ -21,6 +21,7 @@ rustsbi = { version = "0.4.0", features = [
 sbi-spec = { version = "0.0.8", features = [
     "legacy",
 ], path = "../../library/sbi-spec" }
+pmpm = { version = "0.0.0", path = "../../library/pmpm" }
 serde = { version = "1.0.202", default-features = false, features = ["derive"] }
 aclint = { git = "https://github.com/rustsbi/aclint", rev = "b2136a66" }
 fast-trap = { git = "https://github.com/rustsbi/fast-trap", rev = "8d855afa", features = ["riscv-m"] }

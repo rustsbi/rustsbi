@@ -19,7 +19,7 @@ pub struct Fifo<T: Copy + Clone> {
 
 impl<T: Copy + Clone> Fifo<T> {
     #[inline]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         // Initialize array with uninitialized values
         let data = [MaybeUninit::uninit(); FIFO_SIZE];
         Self {

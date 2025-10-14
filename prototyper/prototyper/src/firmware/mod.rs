@@ -14,12 +14,13 @@ cfg_if::cfg_if! {
 use alloc::{format, vec};
 #[allow(unused)]
 use core::arch::{asm, naked_asm};
-use core::ops::Range;
-
+use core::{ops::Range, usize};
 use crate::fail;
 
 use riscv::register::mstatus;
 use serde::Serialize;
+
+use pmpm::{PmpSlice, get_pmp_entry, set_pmp_entry};
 
 pub struct BootInfo {
     pub next_address: usize,
@@ -212,30 +213,67 @@ pub fn log_pmp_cfg(memory_range: &Range<usize>) {
             "PMP", "Range", "Permission", "Address"
         );
 
-        info!("{:<10} {:<10} {:<15} 0x{:08x}", "PMP 0:", "OFF", "NONE", 0);
-        info!(
-            "{:<10} {:<10} {:<15} 0x{:08x} - 0x{:08x}",
-            "PMP 1-2:", "TOR", "RWX/RWX", memory_range.start, SBI_START_ADDRESS
+        set_pmp_entry(
+            2,
+            PmpSlice::new(0, SBI_START_ADDRESS, 0),
+            Range::TOR,
+            Permission::RWX,
         );
-        info!(
-            "{:<10} {:<10} {:<15} 0x{:08x} - 0x{:08x} - 0x{:08x}",
-            "PMP 3-5:",
-            "TOR",
-            "NONE/NONE",
-            RODATA_START_ADDRESS,
-            RODATA_END_ADDRESS,
-            SBI_END_ADDRESS
+        set_pmp_entry(
+            3,
+            PmpSlice::new(0, RODATA_START_ADDRESS, 0),
+            Range::TOR,
+            Permission::NONE,
         );
-        info!(
-            "{:<10} {:<10} {:<15} 0x{:08x}",
-            "PMP 6:", "TOR", "RWX", memory_range.end
+        set_pmp_entry(
+            4,
+            PmpSlice::new(0, RODATA_END_ADDRESS, 0),
+            Range::TOR,
+            Permission::NONE,
         );
+        set_pmp_entry(
+            5,
+            PmpSlice::new(0, SBI_END_ADDRESS, 0),
+            Range::TOR,
+            Permission::NONE,
+        );
+        set_pmp_entry(
+            6,
+            PmpSlice::new(0, memory_range.end, 0),
+            Range::TOR,
+            Permission::RWX,
+        );
+        set_pmp_entry(
+            7,
+            PmpSlice::new(0, usize::MAX, 0),
+            Range::TOR,
+            Permission::RWX,
+        );
+
+        set_pmp_entry(
+            8,
+            PmpSlice::new(memory_range.end - memory_range.start, memory_range.start, 0),
+            Range::NAPOT,
+            Permission::RWX,
+        );
+    }
+}
+
+pub fn log_pmp_cfg(memory_range: &Range<usize>) {
+    info!("PMP Configuration");
+    info!(
+        "{:<10} {:<10} {:<15} {:<30}",
+        "PMP", "Range", "Permission", "Address"
+    );
+    for i in 0..16 {
+        let (slice, config) = get_pmp_entry(i);
         info!(
-            "{:<10} {:<10} {:<15} 0x{:08x}",
-            "PMP 7:",
-            "TOR",
-            "RWX",
-            usize::MAX
+            "{:<10} 0x{:<10b} 0x{:<15b} 0x{:08x}+0x{:08x}",
+            format_args!("PMP {}", i),
+            config.range as u8,
+            config.permission as u8,
+            slice.lo(),
+            slice.size()
         );
     }
 }

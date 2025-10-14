@@ -4,6 +4,7 @@ use crate::riscv::csr::stimecmp;
 use crate::riscv::current_hartid;
 use crate::sbi::features::{Extension, hart_extension_probe};
 use crate::sbi::hsm::remote_hsm;
+use crate::sbi::pmpm;
 use crate::sbi::rfence;
 use crate::sbi::trap_stack::hart_context;
 use alloc::boxed::Box;
@@ -16,6 +17,8 @@ use spin::Mutex;
 pub(crate) const IPI_TYPE_SSOFT: u8 = 1 << 0;
 /// IPI type for memory fence operations.
 pub(crate) const IPI_TYPE_FENCE: u8 = 1 << 1;
+/// IPI type for PMP configuration synchronization.
+pub(crate) const IPI_TYPE_PMP: u8 = 1 << 2;
 
 /// Trait defining interface for inter-processor interrupt device
 #[allow(unused)]
@@ -187,6 +190,59 @@ impl SbiIpi {
         while !rfence::local_rfence().unwrap().is_sync() {
             rfence::rfence_single_handler();
         }
+
+        SbiRet::success(0)
+    }
+
+    /// Send IPI for PMP configuration synchronous.
+    pub fn send_ipi_by_pmpsync(&self, ctx: pmpm::PmpSyncContext) -> SbiRet {
+        let mut hart_mask = hart_mask_clear(HartMask::all(), current_hartid());
+
+        for hart_id in 0..=self.max_hart_id {
+            if !hart_mask.has_bit(hart_id) {
+                continue;
+            }
+
+            // There are 2 situation to return invalid_param:
+            // 1. We can not get hsm, which usually means this hart_id is bigger than MAX_HART_ID.
+            // 2. BOARD hasn't init or this hart_id is not enabled by device tree.
+            // In the next loop, we'll assume that all of above situation will not happened and
+            // directly send ipi.
+            let Some(hsm) = remote_hsm(hart_id) else {
+                return SbiRet::invalid_param();
+            };
+
+            if unsafe {
+                PLATFORM
+                    .info
+                    .cpu_enabled
+                    .is_none_or(|list| list.get(hart_id).is_none_or(|res| !(*res)))
+            } {
+                return SbiRet::invalid_param();
+            }
+
+            if !hsm.allow_ipi() {
+                hart_mask = hart_mask_clear(hart_mask, hart_id);
+            }
+        }
+
+        let sender = pmpm::local_pmpctx().unwrap();
+        // Send fence operations to target harts
+        for hart_id in 0..=self.max_hart_id {
+            if !hart_mask.has_bit(hart_id) {
+                continue;
+            }
+            sender.add();
+            if let Some(receiver) = pmpm::remote_pmpctx(hart_id) {
+                receiver.set(ctx);
+                if set_ipi_type(hart_id, IPI_TYPE_PMP) == 0 {
+                    self.set_msip(hart_id);
+                }
+            }
+        }
+
+        // Wait for all hart complete handle
+        while !sender.is_sync() {}
 
         SbiRet::success(0)
     }
