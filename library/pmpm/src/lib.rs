@@ -74,9 +74,9 @@ pub struct PmpSlice {
 impl PmpSlice {
     pub fn new(num_bytes: usize, pa_lo: usize, pa_hi: usize) -> Self {
         PmpSlice {
-            num_bytes: (num_bytes),
-            pa_lo: (pa_lo),
-            pa_hi: (pa_hi),
+            num_bytes,
+            pa_lo,
+            pa_hi,
         }
     }
     #[inline]

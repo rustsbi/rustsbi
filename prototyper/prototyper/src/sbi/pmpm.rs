@@ -160,10 +160,10 @@ pub fn set_pmp_slot(idx: u8, slice: PmpSlice, mode: Range, perm: Permission) -> 
     let sbi_ret = unsafe { PLATFORM.sbi.ipi.as_ref() }
         .unwrap()
         .send_ipi_by_pmpsync(PmpSyncContext {
-            slice: slice,
-            mode: (mode),
-            perm: (perm),
-            idx: (idx),
+            slice,
+            mode,
+            perm,
+            idx,
         });
     // If configure other harts successfully, then configure local PMP.
     set_pmp_entry(idx, slice, mode, perm);

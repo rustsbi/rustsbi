@@ -2,8 +2,8 @@
 name = "pmpm"
 description = "penglai/Keystone style PMP management"
 version = "0.0.0"
-authors = ["Char <jinzhe.oerv@isrc.iscas.ac.cn>", "Luo Jia <me@luojia.cc>"]
-documentation = "https://docs.rs/penglai"
+authors = ["Char <jinzhe.oerv@isrc.iscas.ac.cn>", "Luo Jia <luojia@openatom.club>"]
+documentation = "https://docs.rs/pmpm"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
