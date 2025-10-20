@@ -205,10 +205,9 @@ pub(crate) struct SbiHsm;
 impl rustsbi::Hsm for SbiHsm {
     /// Starts execution on a stopped hart.
     fn hart_start(&self, hartid: usize, start_addr: usize, opaque: usize) -> SbiRet {
-        let hart_num = unsafe { PLATFORM.info.cpu_num.unwrap() };
         let hart_enable = unsafe { PLATFORM.info.cpu_enabled.unwrap() };
         let enabled = hart_enable.get(hartid).copied().unwrap_or(false);
-        if hartid >= hart_num || !enabled {
+        if !enabled {
             return SbiRet::invalid_param();
         }
 
@@ -245,10 +244,9 @@ impl rustsbi::Hsm for SbiHsm {
     /// Gets the current state of a hart.
     #[inline]
     fn hart_get_status(&self, hartid: usize) -> SbiRet {
-        let hart_num = unsafe { PLATFORM.info.cpu_num.unwrap() };
         let hart_enable = unsafe { PLATFORM.info.cpu_enabled.unwrap() };
         let enabled = hart_enable.get(hartid).copied().unwrap_or(false);
-        if hartid >= hart_num || !enabled {
+        if !enabled {
             return SbiRet::invalid_param();
         }
 
