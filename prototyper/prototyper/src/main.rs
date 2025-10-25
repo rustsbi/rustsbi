@@ -37,6 +37,9 @@ use crate::sbi::trap_stack;
 
 pub const R_RISCV_RELATIVE: usize = 3;
 
+use crate::cfg::NUM_HART_MAX;
+static mut ENABLED: [bool; NUM_HART_MAX] = [false; NUM_HART_MAX];
+
 #[unsafe(no_mangle)]
 extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     // Track whether SBI is initialized and ready.
@@ -53,11 +56,19 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         MPP::Supervisor => {
             if !misa::read().unwrap().has_extension('S') {
                 fail::stop();
+            } else {
+                unsafe {
+                    ENABLED[current_hartid()] = true;
+                }
             }
         }
         MPP::User => {
             if !misa::read().unwrap().has_extension('U') {
                 fail::stop();
+            } else {
+                unsafe {
+                    ENABLED[current_hartid()] = true;
+                }
             }
         }
         _ => {}
