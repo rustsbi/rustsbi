@@ -36,6 +36,7 @@ use crate::sbi::suspend::SbiSuspend;
 mod clint;
 mod console;
 mod reset;
+pub static mut CPU_ENABLED: [bool; NUM_HART_MAX] = [false; NUM_HART_MAX];
 
 type BaseAddress = usize;
 
@@ -265,7 +266,7 @@ impl Platform {
             let hart_id = cpu.reg.iter().next().unwrap().0.start;
             if let Some(x) = cpu_list.get_mut(hart_id) {
                 unsafe {
-                    *x = crate::ENABLED[hart_id];
+                    *x = CPU_ENABLED[hart_id];
                 }
             } else {
                 error!(

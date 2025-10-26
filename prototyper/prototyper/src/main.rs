@@ -20,6 +20,7 @@ mod sbi;
 
 use core::arch::{asm, naked_asm};
 
+use crate::platform::CPU_ENABLED;
 use crate::platform::PLATFORM;
 use crate::riscv::csr::menvcfg;
 use crate::riscv::current_hartid;
@@ -36,9 +37,6 @@ use crate::sbi::trap;
 use crate::sbi::trap_stack;
 
 pub const R_RISCV_RELATIVE: usize = 3;
-
-use crate::cfg::NUM_HART_MAX;
-static mut ENABLED: [bool; NUM_HART_MAX] = [false; NUM_HART_MAX];
 
 #[unsafe(no_mangle)]
 extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
@@ -58,7 +56,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
                 fail::stop();
             } else {
                 unsafe {
-                    ENABLED[current_hartid()] = true;
+                    CPU_ENABLED[current_hartid()] = true;
                 }
             }
         }
@@ -67,7 +65,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
                 fail::stop();
             } else {
                 unsafe {
-                    ENABLED[current_hartid()] = true;
+                    CPU_ENABLED[current_hartid()] = true;
                 }
             }
         }
