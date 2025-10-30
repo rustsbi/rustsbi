@@ -9,6 +9,9 @@ use fast_trap::FreeTrapStack;
 #[unsafe(link_section = ".bss.stack")]
 pub(crate) static mut ROOT_STACK: [Stack; NUM_HART_MAX] = [Stack::ZERO; NUM_HART_MAX];
 
+// Make sure stack address can be aligned.
+const _: () = assert!(STACK_SIZE_PER_HART % core::mem::align_of::<Stack>() == 0);
+
 /// Locates and initializes stack for each hart.
 ///
 /// This is a naked function that sets up the stack pointer based on hart ID.
