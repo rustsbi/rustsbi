@@ -20,14 +20,13 @@ mod sbi;
 
 use core::arch::{asm, naked_asm};
 
-use crate::platform::CPU_ENABLED;
 use crate::platform::PLATFORM;
 use crate::riscv::csr::menvcfg;
 use crate::riscv::current_hartid;
 use crate::sbi::features::hart_mhpm_mask;
 use crate::sbi::features::{
     Extension, PrivilegedVersion, hart_extension_probe, hart_features_detection,
-    hart_privileged_version,
+    hart_privileged_check, hart_privileged_version,
 };
 use crate::sbi::hart_context::NextStage;
 use crate::sbi::heap::sbi_heap_init;
@@ -42,52 +41,21 @@ pub const R_RISCV_RELATIVE: usize = 3;
 extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     // Track whether SBI is initialized and ready.
 
-    // Get boot information and prepare for kernel entry.
-    let boot_info = firmware::get_boot_info(nonstandard_a2);
-    let (mpp, next_addr) = (boot_info.mpp, boot_info.next_address);
+    // Get init hart
+    let init_hart_info = firmware::get_work_hart(opaque, nonstandard_a2, false);
 
-    // Check if current cpu support target privillege.
-    //
-    // If not, go to loop trap sliently.
-    use ::riscv::register::{misa, mstatus::MPP};
-    match mpp {
-        MPP::Supervisor => {
-            if !misa::read().unwrap().has_extension('S') {
-                fail::stop();
-            } else {
-                unsafe {
-                    CPU_ENABLED[current_hartid()] = true;
-                }
-            }
-        }
-        MPP::User => {
-            if !misa::read().unwrap().has_extension('U') {
-                fail::stop();
-            } else {
-                unsafe {
-                    CPU_ENABLED[current_hartid()] = true;
-                }
-            }
-        }
-        _ => {}
-    }
-
-    let boot_hart_info = firmware::get_boot_hart(opaque, nonstandard_a2);
-
-    // boot hart task entry.
-    if boot_hart_info.is_boot_hart {
+    // init hart task entry.
+    if init_hart_info.is_boot_hart {
         // Initialize the sbi heap
         sbi_heap_init();
 
         // parse the device tree
-        let fdt_address = boot_hart_info.fdt_address;
+        let fdt_address = init_hart_info.fdt_address;
 
         unsafe {
             PLATFORM.init(fdt_address);
             PLATFORM.print_board_info();
         }
-
-        let fdt_address = firmware::patch_device_tree(fdt_address);
 
         firmware::set_pmp(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });
         firmware::log_pmp_cfg(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });
@@ -107,6 +75,33 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             "Boot HART Privileged Version:", priv_version
         );
         info!("{:<30}: {:#08x}", "Boot HART MHPM Mask:", mhpm_mask);
+    } else {
+        // Detection Hart feature
+        hart_features_detection();
+        // Other harts task entry.
+        trap_stack::prepare_for_trap();
+
+        // Wait for boot hart to complete SBI initialization.
+        while !unsafe { PLATFORM.ready() } {
+            core::hint::spin_loop()
+        }
+
+        firmware::set_pmp(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });
+    }
+
+    // Get boot information and prepare for kernel entry.
+    let boot_info = firmware::get_boot_info(nonstandard_a2);
+    let (mpp, next_addr) = (boot_info.mpp, boot_info.next_address);
+
+    // Check hart privileded.
+    hart_privileged_check(mpp);
+
+    let boot_hart_info = firmware::get_work_hart(opaque, nonstandard_a2, true);
+
+    // boot hart task entry.
+    if boot_hart_info.is_boot_hart {
+        let fdt_address = boot_hart_info.fdt_address;
+        let fdt_address = firmware::patch_device_tree(fdt_address);
 
         // Start kernel.
         local_remote_hsm().start(NextStage {
@@ -121,19 +116,8 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             next_addr,
             mpp
         );
-    } else {
-        // Detection Hart feature
-        hart_features_detection();
-        // Other harts task entry.
-        trap_stack::prepare_for_trap();
-
-        // Wait for boot hart to complete SBI initialization.
-        while !unsafe { PLATFORM.ready() } {
-            core::hint::spin_loop()
-        }
-
-        firmware::set_pmp(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });
     }
+
     // Clear all pending IPIs.
     ipi::clear_all();
 

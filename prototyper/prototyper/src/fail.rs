@@ -56,9 +56,7 @@ pub fn stop() -> ! {
 }
 
 cfg_if::cfg_if! {
-    if #[cfg(feature = "payload")] {
-    } else if #[cfg(feature = "jump")] {
-    } else {
+    if #[cfg(not(any(feature = "payload", feature = "jump")))] {
         use crate::firmware::dynamic;
         use crate::sbi::reset;
         use riscv::register::mstatus;
@@ -118,6 +116,7 @@ cfg_if::cfg_if! {
         ///
         /// Used when dynamic info read fails but execution should continue.
         #[cold]
+        #[allow(unused)]
         pub fn use_lottery(_err: dynamic::DynamicReadError) -> dynamic::DynamicInfo {
             dynamic::DynamicInfo {
                 magic: 0,

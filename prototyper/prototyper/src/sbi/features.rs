@@ -1,7 +1,10 @@
+use ::riscv::register::mstatus::MPP;
 use riscv::register::misa;
 use seq_macro::seq;
 use serde_device_tree::buildin::NodeSeq;
 
+use crate::fail;
+use crate::platform::CPU_PRIVILEGED_ENABLED;
 use crate::riscv::csr::*;
 use crate::riscv::current_hartid;
 use crate::sbi::early_trap::{TrapInfo, csr_read_allow, csr_write_allow};
@@ -185,5 +188,35 @@ pub fn init(cpus: &NodeSeq) {
             extension: hart_exts,
             privileged_version: PrivilegedVersion::Version1_12,
         }
+    }
+}
+
+// Check if current cpu support target privillege.
+//
+// If not, go to loop trap sliently.
+pub fn hart_privileged_check(mpp: MPP) {
+    let hart_id = current_hartid();
+    match mpp {
+        MPP::Supervisor => {
+            if !misa::read().unwrap().has_extension('S') {
+                warn!("Hart {} not support Supervisor mode", hart_id);
+                fail::stop();
+            } else {
+                unsafe {
+                    CPU_PRIVILEGED_ENABLED[hart_id] = true;
+                }
+            }
+        }
+        MPP::User => {
+            if !misa::read().unwrap().has_extension('U') {
+                warn!("Hart {} not support User mode", hart_id);
+                fail::stop();
+            } else {
+                unsafe {
+                    CPU_PRIVILEGED_ENABLED[hart_id] = true;
+                }
+            }
+        }
+        _ => {}
     }
 }

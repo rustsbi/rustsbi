@@ -1,13 +1,55 @@
 cfg_if::cfg_if! {
     if #[cfg(feature = "payload")] {
         pub mod payload;
-        pub use payload::{get_boot_info, is_boot_hart};
+        pub use payload::{get_boot_info};
     } else if #[cfg(feature = "jump")] {
         pub mod jump;
-        pub use jump::{get_boot_info, is_boot_hart};
+        pub use jump::{get_boot_info};
     } else {
         pub mod dynamic;
-        pub use dynamic::{get_boot_info, is_boot_hart};
+        pub use dynamic::{get_boot_info, read_paddr};
+    }
+}
+
+use crate::riscv::current_hartid;
+
+/// Get work hart, for both steps.
+///
+/// Init hart can be random choose when DynamicInfo can not be read.
+pub fn is_work_hart(nonstandard_a2: usize, boot: bool) -> bool {
+    use core::sync::atomic::{AtomicBool, Ordering};
+    // Track whether this is the first hart to boot
+    static GENESIS_INIT: AtomicBool = AtomicBool::new(true);
+    static GENESIS_BOOT: AtomicBool = AtomicBool::new(true);
+
+    cfg_if::cfg_if! {
+        if #[cfg(any(feature = "payload", feature = "jump"))] {
+            let info: _ = None;
+        }
+        else {
+            let info = read_paddr(nonstandard_a2).ok().and_then(|x| Some(x.boot_hart));
+        }
+    }
+
+    let race_boot_hart = move || match boot {
+        true => GENESIS_BOOT.swap(false, Ordering::AcqRel),
+        false => GENESIS_INIT.swap(false, Ordering::AcqRel),
+    };
+
+    // Determine if this is the boot hart based on hart ID
+    match info {
+        Some(info) => {
+            if info == usize::MAX {
+                // If boot_hart is MAX, use atomic bool to determine first hart
+                race_boot_hart()
+            } else {
+                // Otherwise check if current hart matches designated boot hart
+                current_hartid() == info
+            }
+        }
+        // If can not load DynamicInfo, just race a boot hart, this error will
+        // be occurred after board init.
+        None => race_boot_hart(),
     }
 }
 
@@ -48,9 +90,12 @@ fn get_fdt_address() -> usize {
 /// Gets boot hart information based on opaque and nonstandard_a2 parameters.
 ///
 /// Returns a BootHart struct containing FDT address and whether this is the boot hart.
+///
+/// The boot flow is splitted into two steps, first init all devices,
+/// second the really boot stage. When in second step, boot flag should be true.
 #[allow(unused_mut, unused_assignments)]
-pub fn get_boot_hart(opaque: usize, nonstandard_a2: usize) -> BootHart {
-    let is_boot_hart = is_boot_hart(nonstandard_a2);
+pub fn get_work_hart(opaque: usize, nonstandard_a2: usize, boot: bool) -> BootHart {
+    let is_boot_hart = is_work_hart(nonstandard_a2, boot);
 
     let mut fdt_address = opaque;
 
