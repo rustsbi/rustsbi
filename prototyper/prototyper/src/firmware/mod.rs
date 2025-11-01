@@ -11,7 +11,7 @@ cfg_if::cfg_if! {
     }
 }
 
-use crate::current_hartid;
+use crate::riscv::current_hartid;
 
 /// Get work hart, for both steps.
 ///
