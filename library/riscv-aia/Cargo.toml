@@ -1,0 +1,12 @@
+[package]
+name = "riscv-aia"
+description = "Low level access to the RISC-V Advanced Interrupt Architecture (AIA)"
+version = "0.0.0"
+authors = ["Zhouqi Jiang / Luo Jia <luojia@openatom.club>"]
+documentation = "https://docs.rs/riscv-aia"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+riscv = "0.12.1"
