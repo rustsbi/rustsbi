@@ -13,6 +13,29 @@ impl Mireg {
         self.bits
     }
 
+    /// Convenience helpers to perform an indirect read/write using a runtime
+    /// IMSIC device backend.
+    ///
+    /// These mirror the behavior of performing a `miselect` write followed by
+    /// a `mireg` read/write at runtime. They are unsafe because the
+    /// underlying IndirectAccessor API is unsafe.
+    #[inline]
+    pub unsafe fn indirect_read(
+        sel: usize,
+        device: &crate::peripheral::imsic::ImSicDevice,
+    ) -> Result<u32, crate::peripheral::imsic::indirect_access::IndirectAccessError> {
+    unsafe { crate::peripheral::imsic::indirect_access::IndirectAccessor::read_raw(device, sel as u32) }
+    }
+
+    #[inline]
+    pub unsafe fn indirect_write(
+        sel: usize,
+        device: &crate::peripheral::imsic::ImSicDevice,
+        value: u32,
+    ) -> Result<(), crate::peripheral::imsic::indirect_access::IndirectAccessError> {
+    unsafe { crate::peripheral::imsic::indirect_access::IndirectAccessor::write_raw(device, sel as u32, value) }
+    }
+
     /// Raw bits as usize convenience accessor.
     #[inline]
     pub const fn as_usize(self) -> usize {
