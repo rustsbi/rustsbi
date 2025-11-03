@@ -3,63 +3,63 @@
 // -- `Smaia` CSRs --
 
 // Machine-level window to indirectly accessed registers
-// TODO pub mod miselect;
-// TODO pub mod mireg;
+pub mod miselect;
+pub mod mireg;
 
 // Machine-level interrupts
-// TODO pub mod mie;
-// TODO pub mod mip;
+pub mod mie;
+pub mod mip;
 pub mod mtopei;
 pub mod mtopi;
 
 // Machine-level high-half CSRs, RV32 only.
 pub mod midelegh;
-// TODO pub mod mieh;
-// TODO pub mod miph;
-// TODO pub mod mvieh;
-// TODO pub mod mviph;
+pub mod mieh;
+pub mod miph;
+pub mod mvieh;
+pub mod mviph;
 
 // -- `Ssaia` CSRs --
 
 // Supervisor-level window to indirectly accessed registers
-// TODO pub mod siselect;
-// TODO pub mod sireg;
+pub mod siselect;
+pub mod sireg;
 
 // Supervisor-level interrupts
-// TODO pub mod sie;
-// TODO pub mod sip;
-// TODO pub mod stopei;
-// TODO pub mod stopi;
+pub mod sie;
+pub mod sip;
+pub mod stopei;
+pub mod stopi;
 
 // Supervisor-level high-half CSRs, RV32 only.
-// TODO pub mod sieh;
-// TODO pub mod siph;
+pub mod sieh;
+pub mod siph;
 
 // -- Hypervisor and VS CSRs --
 
 // Delegated and virtual interrupts, interrupt priorities, for VS-level
-// TODO pub mod hideleg;
-// TODO pub mod hvien;
-// TODO pub mod hvictl;
-// TODO pub mod hvip;
-// TODO pub mod hviprio1;
-// TODO pub mod hviprio2;
+pub mod hideleg;
+pub mod hvien;
+pub mod hvictl;
+pub mod hvip;
+pub mod hviprio1;
+pub mod hviprio2;
 
 // VS-level window to indirectly accessed registers
-// TODO pub mod vsiselect;
-// TODO pub mod vsireg;
+pub mod vsiselect;
+pub mod vsireg;
 
 // VS-level interrupts
-// TODO pub mod vsie;
-// TODO pub mod vsip;
-// TODO pub mod vstopei;
-// TODO pub mod vstopi;
+pub mod vsie;
+pub mod vsip;
+pub mod vstopei;
+pub mod vstopi;
 
 // Hypervisor and VS-level high-half CSRs, RV32 only.
-// TODO pub mod hidelegh;
-// TODO pub mod hvienh;
-// TODO pub mod hviph;
-// TODO pub mod hviprio1h;
-// TODO pub mod hviprio2h;
-// TODO pub mod vsieh;
-// TODO pub mod vsiph;
+pub mod hidelegh;
+pub mod hvienh;
+pub mod hviph;
+pub mod hviprio1h;
+pub mod hviprio2h;
+pub mod vsieh;
+pub mod vsiph;
