@@ -9,7 +9,9 @@ riscv::read_write_csr! {
 impl Vsiselect {
     /// Current value of `vsiselect` as usize.
     #[inline]
-    pub const fn value(self) -> usize { self.bits as usize }
+    pub const fn value(self) -> usize {
+        self.bits as usize
+    }
 
     // Note: writing to `vsiselect` should be done via the generated CSR API.
 }

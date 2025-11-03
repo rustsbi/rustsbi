@@ -14,15 +14,21 @@ impl Hvien {
 
     /// VS-level software interrupt enable (bit 2).
     #[inline]
-    pub const fn vssip(self) -> bool { self.bit(2) }
+    pub const fn vssip(self) -> bool {
+        self.bit(2)
+    }
 
     /// VS-level timer interrupt enable (bit 6).
     #[inline]
-    pub const fn vstip(self) -> bool { self.bit(6) }
+    pub const fn vstip(self) -> bool {
+        self.bit(6)
+    }
 
     /// VS-level external interrupt enable (bit 10).
     #[inline]
-    pub const fn vseip(self) -> bool { self.bit(10) }
+    pub const fn vseip(self) -> bool {
+        self.bit(10)
+    }
 }
 
 #[cfg(test)]

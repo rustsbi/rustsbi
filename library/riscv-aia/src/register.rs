@@ -3,13 +3,13 @@
 // -- `Smaia` CSRs --
 
 // Machine-level window to indirectly accessed registers
-pub mod miselect;
 pub mod mireg;
+pub mod miselect;
 
 // Machine-level interrupts
+pub mod mideleg;
 pub mod mie;
 pub mod mip;
-pub mod mideleg;
 pub mod mtopei;
 pub mod mtopi;
 
@@ -23,8 +23,8 @@ pub mod mviph;
 // -- `Ssaia` CSRs --
 
 // Supervisor-level window to indirectly accessed registers
-pub mod siselect;
 pub mod sireg;
+pub mod siselect;
 
 // Supervisor-level interrupts
 pub mod sie;
@@ -40,15 +40,15 @@ pub mod siph;
 
 // Delegated and virtual interrupts, interrupt priorities, for VS-level
 pub mod hideleg;
-pub mod hvien;
 pub mod hvictl;
+pub mod hvien;
 pub mod hvip;
 pub mod hviprio1;
 pub mod hviprio2;
 
 // VS-level window to indirectly accessed registers
-pub mod vsiselect;
 pub mod vsireg;
+pub mod vsiselect;
 
 // VS-level interrupts
 pub mod vsie;

@@ -9,7 +9,9 @@ riscv::read_write_csr! {
 impl Hidelegh {
     /// Raw 32-bit value of `hidelegh`.
     #[inline]
-    pub const fn raw(self) -> usize { self.bits }
+    pub const fn raw(self) -> usize {
+        self.bits
+    }
 }
 
 #[cfg(test)]

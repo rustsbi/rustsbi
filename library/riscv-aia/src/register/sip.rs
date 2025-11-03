@@ -15,15 +15,21 @@ impl Sip {
 
     /// Supervisor software interrupt pending (bit 1).
     #[inline]
-    pub const fn ssip(self) -> bool { self.bit(1) }
+    pub const fn ssip(self) -> bool {
+        self.bit(1)
+    }
 
     /// Supervisor timer interrupt pending (bit 5).
     #[inline]
-    pub const fn stip(self) -> bool { self.bit(5) }
+    pub const fn stip(self) -> bool {
+        self.bit(5)
+    }
 
     /// Supervisor external interrupt pending (bit 9).
     #[inline]
-    pub const fn seip(self) -> bool { self.bit(9) }
+    pub const fn seip(self) -> bool {
+        self.bit(9)
+    }
 }
 
 #[cfg(test)]

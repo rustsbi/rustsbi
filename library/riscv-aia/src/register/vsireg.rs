@@ -9,11 +9,15 @@ riscv::read_write_csr! {
 impl Vsireg {
     /// Raw bits read from `vsireg` (width depends on XLEN).
     #[inline]
-    pub const fn raw(self) -> usize { self.bits }
+    pub const fn raw(self) -> usize {
+        self.bits
+    }
 
     /// Convenience accessor returning bits as usize.
     #[inline]
-    pub const fn as_usize(self) -> usize { self.bits }
+    pub const fn as_usize(self) -> usize {
+        self.bits
+    }
 }
 
 #[cfg(test)]

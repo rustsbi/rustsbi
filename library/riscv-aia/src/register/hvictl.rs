@@ -46,7 +46,8 @@ mod tests {
     #[test]
     fn hvictl_fields() {
         // Set vti (bit 30), iid=0x123 (bits 27:16), dpr (bit 9), ipriom (bit 8), iprio=0xAB (bits 7:0)
-        let bits: usize = (1usize << 30) | (0x123usize << 16) | (1usize << 9) | (1usize << 8) | 0xAB;
+        let bits: usize =
+            (1usize << 30) | (0x123usize << 16) | (1usize << 9) | (1usize << 8) | 0xAB;
         let reg = Hvictl::from_bits(bits);
         assert!(reg.vti());
         assert_eq!(reg.iid().map(|i| i.number()), Some(0x123));

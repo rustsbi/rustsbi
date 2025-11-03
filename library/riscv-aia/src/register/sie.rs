@@ -15,15 +15,21 @@ impl Sie {
 
     /// Supervisor software interrupt enable (bit 1).
     #[inline]
-    pub const fn ssip(self) -> bool { self.bit(1) }
+    pub const fn ssip(self) -> bool {
+        self.bit(1)
+    }
 
     /// Supervisor timer interrupt enable (bit 5).
     #[inline]
-    pub const fn stip(self) -> bool { self.bit(5) }
+    pub const fn stip(self) -> bool {
+        self.bit(5)
+    }
 
     /// Supervisor external interrupt enable (bit 9).
     #[inline]
-    pub const fn seip(self) -> bool { self.bit(9) }
+    pub const fn seip(self) -> bool {
+        self.bit(9)
+    }
 }
 
 #[cfg(test)]

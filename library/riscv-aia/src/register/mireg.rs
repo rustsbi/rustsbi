@@ -9,11 +9,15 @@ riscv::read_write_csr! {
 impl Mireg {
     /// Raw bits read from `mireg` (convenience accessors - width depends on XLEN).
     #[inline]
-    pub const fn raw(self) -> usize { self.bits }
+    pub const fn raw(self) -> usize {
+        self.bits
+    }
 
     /// Raw bits as usize convenience accessor.
     #[inline]
-    pub const fn as_usize(self) -> usize { self.bits }
+    pub const fn as_usize(self) -> usize {
+        self.bits
+    }
 }
 
 #[cfg(test)]

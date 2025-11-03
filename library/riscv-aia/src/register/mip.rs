@@ -14,27 +14,39 @@ impl Mip {
 
     /// Supervisor software interrupt pending (bit 1).
     #[inline]
-    pub const fn ssip(self) -> bool { self.bit(1) }
+    pub const fn ssip(self) -> bool {
+        self.bit(1)
+    }
 
     /// Supervisor timer interrupt pending (bit 5).
     #[inline]
-    pub const fn stip(self) -> bool { self.bit(5) }
+    pub const fn stip(self) -> bool {
+        self.bit(5)
+    }
 
     /// Supervisor external interrupt pending (bit 9).
     #[inline]
-    pub const fn seip(self) -> bool { self.bit(9) }
+    pub const fn seip(self) -> bool {
+        self.bit(9)
+    }
 
     /// Machine software interrupt pending (bit 3).
     #[inline]
-    pub const fn msip(self) -> bool { self.bit(3) }
+    pub const fn msip(self) -> bool {
+        self.bit(3)
+    }
 
     /// Machine timer interrupt pending (bit 7).
     #[inline]
-    pub const fn mtip(self) -> bool { self.bit(7) }
+    pub const fn mtip(self) -> bool {
+        self.bit(7)
+    }
 
     /// Machine external interrupt pending (bit 11).
     #[inline]
-    pub const fn meip(self) -> bool { self.bit(11) }
+    pub const fn meip(self) -> bool {
+        self.bit(11)
+    }
 }
 
 #[cfg(test)]
