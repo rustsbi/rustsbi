@@ -10,3 +10,7 @@ repository.workspace = true
 
 [dependencies]
 riscv = "0.12.1"
+volatile-register = "0.2.2"
+
+[dev-dependencies]
+memoffset = "0.9.1"
