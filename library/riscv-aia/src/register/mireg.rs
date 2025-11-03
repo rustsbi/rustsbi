@@ -24,7 +24,11 @@ impl Mireg {
         sel: usize,
         device: &crate::peripheral::imsic::ImSicDevice,
     ) -> Result<u32, crate::peripheral::imsic::indirect_access::IndirectAccessError> {
-    unsafe { crate::peripheral::imsic::indirect_access::IndirectAccessor::read_raw(device, sel as u32) }
+        unsafe {
+            crate::peripheral::imsic::indirect_access::IndirectAccessor::read_raw(
+                device, sel as u32,
+            )
+        }
     }
 
     #[inline]
@@ -33,7 +37,11 @@ impl Mireg {
         device: &crate::peripheral::imsic::ImSicDevice,
         value: u32,
     ) -> Result<(), crate::peripheral::imsic::indirect_access::IndirectAccessError> {
-    unsafe { crate::peripheral::imsic::indirect_access::IndirectAccessor::write_raw(device, sel as u32, value) }
+        unsafe {
+            crate::peripheral::imsic::indirect_access::IndirectAccessor::write_raw(
+                device, sel as u32, value,
+            )
+        }
     }
 
     /// Raw bits as usize convenience accessor.

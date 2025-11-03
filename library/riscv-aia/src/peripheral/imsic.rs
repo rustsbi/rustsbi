@@ -1,7 +1,7 @@
 //! Incoming MSI Controller (IMSIC) peripheral.
 
-use volatile_register::WO;
 use core::sync::atomic::{AtomicU32, Ordering};
+use volatile_register::WO;
 
 /// Incoming MSI Controller (IMSIC) register block.
 ///
@@ -59,7 +59,8 @@ impl ImSicDevice {
         Self {
             eip: {
                 // Initialize array of AtomicU32
-                let mut uninit: [core::mem::MaybeUninit<AtomicU32>; 64] = unsafe { core::mem::MaybeUninit::uninit().assume_init() };
+                let mut uninit: [core::mem::MaybeUninit<AtomicU32>; 64] =
+                    unsafe { core::mem::MaybeUninit::uninit().assume_init() };
                 let mut i = 0usize;
                 while i < 64 {
                     uninit[i].write(AtomicU32::new(0));
@@ -68,7 +69,8 @@ impl ImSicDevice {
                 unsafe { core::mem::transmute::<_, [AtomicU32; 64]>(uninit) }
             },
             eie: {
-                let mut uninit: [core::mem::MaybeUninit<AtomicU32>; 64] = unsafe { core::mem::MaybeUninit::uninit().assume_init() };
+                let mut uninit: [core::mem::MaybeUninit<AtomicU32>; 64] =
+                    unsafe { core::mem::MaybeUninit::uninit().assume_init() };
                 let mut i = 0usize;
                 while i < 64 {
                     uninit[i].write(AtomicU32::new(0));
@@ -260,7 +262,6 @@ impl ImSicDevice {
         }
     }
 }
-
 
 /// External interrupt delivery enable register (`eidelivery`).
 ///
@@ -781,7 +782,7 @@ pub mod system {
 /// Indirect access allows software to read and write IMSIC registers that are
 /// not directly accessible as CSRs.
 pub mod indirect_access {
-    use super::{select, file_ops};
+    use super::{file_ops, select};
     // use crate::register::{miselect::Miselect, mireg::Mireg};
 
     /// Errors that can occur during indirect register access.
@@ -864,7 +865,10 @@ pub mod indirect_access {
         ///
         /// `device` is the runtime IMSIC state. `select` is the value that would
         /// be written to `miselect` CSR to select the target register.
-        pub unsafe fn read_raw(device: &super::ImSicDevice, select: u32) -> Result<u32, IndirectAccessError> {
+        pub unsafe fn read_raw(
+            device: &super::ImSicDevice,
+            select: u32,
+        ) -> Result<u32, IndirectAccessError> {
             Self::validate_select_value(select)?;
 
             if select == select::EIDELIVERY {
@@ -897,7 +901,11 @@ pub mod indirect_access {
         ///
         /// For registers that are read-only (e.g. topei), returns
         /// `IndirectAccessError::ReadOnlyRegister`.
-        pub unsafe fn write_raw(device: &super::ImSicDevice, select: u32, value: u32) -> Result<(), IndirectAccessError> {
+        pub unsafe fn write_raw(
+            device: &super::ImSicDevice,
+            select: u32,
+            value: u32,
+        ) -> Result<(), IndirectAccessError> {
             Self::validate_select_value(select)?;
 
             if select == select::EIDELIVERY {
@@ -940,7 +948,8 @@ pub mod indirect_access {
                     let mut bit = 0u32;
                     while bit < 32 {
                         if (delta & (1u32 << bit)) != 0 {
-                            if let Some(identity) = file_ops::register_to_identity(idx as u32, bit) {
+                            if let Some(identity) = file_ops::register_to_identity(idx as u32, bit)
+                            {
                                 device.deliver_if_needed(identity);
                             }
                         }
@@ -1240,15 +1249,33 @@ mod tests {
     fn guest_eidelivery_rejects_plic_aplic() {
         let dev = ImSicDevice::new_guest();
         // Attempt to write PLIC/APLIC enabled value via indirect access
-        let res = unsafe { crate::peripheral::imsic::indirect_access::IndirectAccessor::write_raw(&dev, select::EIDELIVERY, Eidelivery::PLIC_APLIC_ENABLED.raw()) };
-        assert_eq!(res, Err(crate::peripheral::imsic::indirect_access::IndirectAccessError::InvalidSelectValue));
+        let res = unsafe {
+            crate::peripheral::imsic::indirect_access::IndirectAccessor::write_raw(
+                &dev,
+                select::EIDELIVERY,
+                Eidelivery::PLIC_APLIC_ENABLED.raw(),
+            )
+        };
+        assert_eq!(
+            res,
+            Err(crate::peripheral::imsic::indirect_access::IndirectAccessError::InvalidSelectValue)
+        );
     }
 
     #[test]
     fn guest_write_eithreshold_rejected() {
         let dev = ImSicDevice::new_guest();
-        let res = unsafe { crate::peripheral::imsic::indirect_access::IndirectAccessor::write_raw(&dev, select::EITHRESHOLD, 0x12345678) };
-        assert_eq!(res, Err(crate::peripheral::imsic::indirect_access::IndirectAccessError::InvalidSelectValue));
+        let res = unsafe {
+            crate::peripheral::imsic::indirect_access::IndirectAccessor::write_raw(
+                &dev,
+                select::EITHRESHOLD,
+                0x12345678,
+            )
+        };
+        assert_eq!(
+            res,
+            Err(crate::peripheral::imsic::indirect_access::IndirectAccessError::InvalidSelectValue)
+        );
     }
 
     #[test]
@@ -1256,8 +1283,17 @@ mod tests {
         let dev = ImSicDevice::new_guest();
         // Attempt to write eip0 via indirect access
         let sel = select::EIP_BASE;
-        let res = unsafe { crate::peripheral::imsic::indirect_access::IndirectAccessor::write_raw(&dev, sel, 0xFFFF_FFFF) };
-        assert_eq!(res, Err(crate::peripheral::imsic::indirect_access::IndirectAccessError::InvalidSelectValue));
+        let res = unsafe {
+            crate::peripheral::imsic::indirect_access::IndirectAccessor::write_raw(
+                &dev,
+                sel,
+                0xFFFF_FFFF,
+            )
+        };
+        assert_eq!(
+            res,
+            Err(crate::peripheral::imsic::indirect_access::IndirectAccessError::InvalidSelectValue)
+        );
     }
 
     #[test]
@@ -1265,8 +1301,17 @@ mod tests {
         let dev = ImSicDevice::new_guest();
         // Attempt to write eie0 via indirect access
         let sel = select::EIE_BASE;
-        let res = unsafe { crate::peripheral::imsic::indirect_access::IndirectAccessor::write_raw(&dev, sel, 0xFFFF_FFFF) };
-        assert_eq!(res, Err(crate::peripheral::imsic::indirect_access::IndirectAccessError::InvalidSelectValue));
+        let res = unsafe {
+            crate::peripheral::imsic::indirect_access::IndirectAccessor::write_raw(
+                &dev,
+                sel,
+                0xFFFF_FFFF,
+            )
+        };
+        assert_eq!(
+            res,
+            Err(crate::peripheral::imsic::indirect_access::IndirectAccessError::InvalidSelectValue)
+        );
     }
 
     #[test]
@@ -1284,7 +1329,13 @@ mod tests {
         dev.write_seteipnum_le(msi::encode_le(10));
 
         // Read topei via indirect accessor (select == EIDELIVERY + 0x40)
-        let raw = unsafe { crate::peripheral::imsic::indirect_access::IndirectAccessor::read_raw(&dev, select::EIDELIVERY + 0x40) }.expect("topei read");
+        let raw = unsafe {
+            crate::peripheral::imsic::indirect_access::IndirectAccessor::read_raw(
+                &dev,
+                select::EIDELIVERY + 0x40,
+            )
+        }
+        .expect("topei read");
         let topei = Topei::from_raw(raw);
         assert!(topei.is_pending());
         assert_eq!(topei.interrupt_identity(), 10);
