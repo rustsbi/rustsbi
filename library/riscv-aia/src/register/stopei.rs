@@ -22,3 +22,18 @@ impl Stopei {
 		(self.bits & 0x0000_00FF) as u8
 	}
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stopei_parsing() {
+        let iid_num: u16 = 2047; // max allowed
+        let iprio: u8 = 0xFF;
+        let bits: usize = ((iid_num as usize) << 16) | (iprio as usize);
+        let reg = Stopei::from_bits(bits);
+        assert_eq!(reg.iprio(), iprio);
+        assert_eq!(reg.iid().map(|i| i.number()), Some(iid_num));
+    }
+}

@@ -10,3 +10,15 @@ impl Hviprio1h {
     #[inline]
     pub const fn raw(self) -> usize { self.bits }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hviprio1h_raw_roundtrip() {
+        let bits: usize = 0xDEAD_BEEFusize & 0xFFFF_FFFF;
+        let reg = Hviprio1h::from_bits(bits);
+        assert_eq!(reg.raw(), bits);
+    }
+}

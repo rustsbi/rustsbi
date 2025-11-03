@@ -25,3 +25,22 @@ impl Hideleg {
     #[inline]
     pub const fn seip(self) -> bool { self.bit(9) }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::register::mideleg::Mideleg;
+
+    #[test]
+    fn mideleg_hideleg_bits() {
+        let bits: usize = (1usize << 1) | (1usize << 5) | (1usize << 9);
+        let md = Mideleg::from_bits(bits);
+        let hd = Hideleg::from_bits(bits);
+        assert!(md.ssip());
+        assert!(md.stip());
+        assert!(md.seip());
+        assert!(hd.ssip());
+        assert!(hd.stip());
+        assert!(hd.seip());
+    }
+}

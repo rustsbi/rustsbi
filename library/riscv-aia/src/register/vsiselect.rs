@@ -13,3 +13,15 @@ impl Vsiselect {
 
     // Note: writing to `vsiselect` should be done via the generated CSR API.
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vsiselect_value() {
+        let sel: usize = 0x99;
+        let reg = Vsiselect::from_bits(sel);
+        assert_eq!(reg.value(), sel);
+    }
+}

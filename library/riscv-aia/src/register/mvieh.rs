@@ -10,3 +10,15 @@ impl Mvieh {
     #[inline]
     pub const fn raw(self) -> usize { self.bits }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mvieh_raw_roundtrip() {
+        let bits: usize = 0xCAFEBABEu32 as usize;
+        let reg = Mvieh::from_bits(bits);
+        assert_eq!(reg.raw(), bits);
+    }
+}

@@ -25,3 +25,23 @@ impl Vsie {
     #[inline]
     pub const fn vseip(self) -> bool { self.bit(10) }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::register::vsip::Vsip;
+
+    #[test]
+    fn vsie_vsip_parsing_bits() {
+        // set vssip (bit 2), vstip (bit 6), vseip (bit 10)
+        let bits: usize = (1usize << 2) | (1usize << 6) | (1usize << 10);
+        let en = Vsie::from_bits(bits);
+        let pend = Vsip::from_bits(bits);
+        assert!(en.vssip());
+        assert!(en.vstip());
+        assert!(en.vseip());
+        assert!(pend.vssip());
+        assert!(pend.vstip());
+        assert!(pend.vseip());
+    }
+}

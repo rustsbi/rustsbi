@@ -25,3 +25,25 @@ impl Sie {
     #[inline]
     pub const fn seip(self) -> bool { self.bit(9) }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sie_bits() {
+        let bits: usize = (1usize << 1) | (1usize << 5) | (1usize << 9);
+        let reg = Sie::from_bits(bits);
+        assert!(reg.ssip());
+        assert!(reg.stip());
+        assert!(reg.seip());
+    }
+
+    #[test]
+    fn sie_zero() {
+        let reg = Sie::from_bits(0);
+        assert!(!reg.ssip());
+        assert!(!reg.stip());
+        assert!(!reg.seip());
+    }
+}

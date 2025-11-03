@@ -25,3 +25,25 @@ impl Mvien {
         ((self.bits >> 9) & 1) != 0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mvien_bits() {
+        let bits: usize = (1usize << 1) | (1usize << 5) | (1usize << 9);
+        let reg = Mvien::from_bits(bits);
+        assert!(reg.ssip());
+        assert!(reg.stip());
+        assert!(reg.seip());
+    }
+
+    #[test]
+    fn mvien_zero() {
+        let reg = Mvien::from_bits(0);
+        assert!(!reg.ssip());
+        assert!(!reg.stip());
+        assert!(!reg.seip());
+    }
+}

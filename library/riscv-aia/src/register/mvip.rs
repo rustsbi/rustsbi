@@ -25,3 +25,25 @@ impl Mvip {
         ((self.bits >> 9) & 1) != 0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mvip_bits() {
+        let bits: usize = (1usize << 1) | (1usize << 5) | (1usize << 9);
+        let reg = Mvip::from_bits(bits);
+        assert!(reg.ssip());
+        assert!(reg.stip());
+        assert!(reg.seip());
+    }
+
+    #[test]
+    fn mvip_zero() {
+        let reg = Mvip::from_bits(0);
+        assert!(!reg.ssip());
+        assert!(!reg.stip());
+        assert!(!reg.seip());
+    }
+}

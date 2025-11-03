@@ -9,6 +9,7 @@ pub mod mireg;
 // Machine-level interrupts
 pub mod mie;
 pub mod mip;
+pub mod mideleg;
 pub mod mtopei;
 pub mod mtopi;
 

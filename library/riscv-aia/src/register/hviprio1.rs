@@ -15,3 +15,24 @@ impl Hviprio1 {
         ((self.bits >> shift) & 0xFF) as u8
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::register::hviprio2::Hviprio2;
+
+    #[test]
+    fn hviprio_prio_bytes() {
+        // build a 64-bit value with known bytes: 0x00..07
+        let mut val: usize = 0;
+        for i in 0..8 {
+            val |= (i as usize & 0xFF) << (i * 8);
+        }
+        let r1 = Hviprio1::from_bits(val);
+        let r2 = Hviprio2::from_bits(val);
+        for i in 0..8 {
+            assert_eq!(r1.prio_byte(i), i as u8);
+            assert_eq!(r2.prio_byte(i), i as u8);
+        }
+    }
+}

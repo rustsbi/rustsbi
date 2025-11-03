@@ -27,3 +27,18 @@ impl Mtopei {
 		(self.bits & 0x0000_00FF) as u8
 	}
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mtopei_parsing() {
+        let iid_num: u16 = 1;
+        let iprio: u8 = 0xAA;
+        let bits: usize = ((iid_num as usize) << 16) | (iprio as usize);
+        let reg = Mtopei::from_bits(bits);
+        assert_eq!(reg.iprio(), iprio);
+        assert_eq!(reg.iid().map(|i| i.number()), Some(iid_num));
+    }
+}

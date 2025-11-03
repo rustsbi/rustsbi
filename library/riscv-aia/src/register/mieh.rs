@@ -10,3 +10,15 @@ impl Mieh {
     #[inline]
     pub const fn raw(self) -> usize { self.bits }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mieh_raw_roundtrip() {
+        let bits: usize = 0xDEADBEEFusize & 0xFFFF_FFFF;
+        let reg = Mieh::from_bits(bits);
+        assert_eq!(reg.raw(), bits);
+    }
+}

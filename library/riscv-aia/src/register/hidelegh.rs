@@ -11,3 +11,15 @@ impl Hidelegh {
     #[inline]
     pub const fn raw(self) -> usize { self.bits }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hidelegh_raw_roundtrip() {
+        let bits: usize = 0xDEAD_BEEFusize & 0xFFFF_FFFF;
+        let reg = Hidelegh::from_bits(bits);
+        assert_eq!(reg.raw(), bits);
+    }
+}

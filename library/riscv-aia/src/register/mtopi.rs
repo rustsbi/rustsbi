@@ -24,4 +24,32 @@ impl Mtopi {
     }
 }
 
-// TODO test module of Mtopi and Iid structures.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mtopi_parsing() {
+        // iid = 0x123, iprio = 0x7
+        let iid_num: u16 = 0x123;
+        let iprio: u8 = 0x7;
+        let bits: usize = ((iid_num as usize) << 16) | (iprio as usize);
+        let reg = Mtopi::from_bits(bits);
+        assert_eq!(reg.iprio(), iprio);
+        assert_eq!(reg.iid().map(|i| i.number()), Some(iid_num));
+    }
+
+    #[test]
+    fn mtopi_edge_cases() {
+        // iid = 0 -> none
+        let reg = Mtopi::from_bits(0);
+        assert!(reg.iid().is_none());
+        assert_eq!(reg.iprio(), 0);
+
+        // iid = 1, iprio = 0xFF
+        let bits: usize = (1usize << 16) | 0xFF;
+        let reg2 = Mtopi::from_bits(bits);
+        assert_eq!(reg2.iid().map(|i| i.number()), Some(1));
+        assert_eq!(reg2.iprio(), 0xFF);
+    }
+}

@@ -13,3 +13,15 @@ impl Siselect {
 
     // Note: writing to `siselect` should be done via the generated CSR API.
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn siselect_value() {
+        let sel: usize = 0x42;
+        let reg = Siselect::from_bits(sel);
+        assert_eq!(reg.value(), sel);
+    }
+}

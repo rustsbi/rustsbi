@@ -22,3 +22,17 @@ impl Vstopei {
 		(self.bits & 0x0000_00FF) as u8
 	}
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vstopei_parsing_none() {
+        // zero iid should yield None
+        let bits: usize = 0; // iid==0, iprio==0
+        let reg = Vstopei::from_bits(bits);
+        assert_eq!(reg.iprio(), 0);
+        assert!(reg.iid().is_none());
+    }
+}

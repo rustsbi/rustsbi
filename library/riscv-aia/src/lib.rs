@@ -57,3 +57,16 @@ impl Iid {
         self.number.get()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn iid_new_bounds() {
+        assert!(Iid::new(0).is_none());
+        assert!(Iid::new(1).is_some());
+        assert!(Iid::new(2047).is_some());
+        assert!(Iid::new(2048).is_none());
+    }
+}

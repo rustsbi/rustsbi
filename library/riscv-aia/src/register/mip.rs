@@ -36,3 +36,34 @@ impl Mip {
     #[inline]
     pub const fn meip(self) -> bool { self.bit(11) }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::register::mie::Mie;
+
+    #[test]
+    fn mie_mip_delegate_bits() {
+        // ensure mie/mip still behave as expected alongside delegation
+        let bits: usize = (1usize << 3) | (1usize << 7) | (1usize << 11);
+        let en = Mie::from_bits(bits);
+        let pd = Mip::from_bits(bits);
+        assert!(en.msip());
+        assert!(en.mtip());
+        assert!(en.meip());
+        assert!(pd.msip());
+        assert!(pd.mtip());
+        assert!(pd.meip());
+    }
+
+    #[test]
+    fn mip_parsing_bits() {
+        // set msip (bit 3), mtip (bit 7), meip (bit 11)
+        let bits: usize = (1usize << 3) | (1usize << 7) | (1usize << 11);
+        let reg = Mip::from_bits(bits);
+        assert!(reg.msip());
+        assert!(reg.mtip());
+        assert!(reg.meip());
+        assert!(!reg.ssip());
+    }
+}

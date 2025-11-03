@@ -20,3 +20,25 @@ impl Stopi {
         (self.bits & 0x0000_00FF) as u8
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stopi_parsing() {
+        let iid_num: u16 = 0x123;
+        let iprio: u8 = 0x7;
+        let bits: usize = ((iid_num as usize) << 16) | (iprio as usize);
+        let reg = Stopi::from_bits(bits);
+        assert_eq!(reg.iprio(), iprio);
+        assert_eq!(reg.iid().map(|i| i.number()), Some(iid_num));
+    }
+
+    #[test]
+    fn stopi_zero_iid() {
+        let reg = Stopi::from_bits(0);
+        assert!(reg.iid().is_none());
+        assert_eq!(reg.iprio(), 0);
+    }
+}
