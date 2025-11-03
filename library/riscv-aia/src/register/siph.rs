@@ -5,3 +5,8 @@ riscv::read_write_csr! {
     Siph: 0x154,
     mask: 0xFFFF_FFFF,
 }
+
+impl Siph {
+    #[inline]
+    pub const fn raw(self) -> usize { self.bits }
+}

@@ -5,3 +5,8 @@ riscv::read_write_csr! {
     Hviprio1h: 0x656,
     mask: 0xFFFF_FFFF,
 }
+
+impl Hviprio1h {
+    #[inline]
+    pub const fn raw(self) -> usize { self.bits }
+}

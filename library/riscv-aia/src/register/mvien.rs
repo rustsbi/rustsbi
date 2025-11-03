@@ -5,3 +5,23 @@ riscv::read_write_csr! {
     Mvien: 0x308,
     mask: 0xFFFF_FFFF_FFFF_FFFF,
 }
+
+impl Mvien {
+    /// Supervisor software interrupt enable in mvien (bit 1).
+    #[inline]
+    pub const fn ssip(self) -> bool {
+        ((self.bits >> 1) & 1) != 0
+    }
+
+    /// Supervisor timer interrupt enable in mvien (bit 5).
+    #[inline]
+    pub const fn stip(self) -> bool {
+        ((self.bits >> 5) & 1) != 0
+    }
+
+    /// Supervisor external interrupt enable in mvien (bit 9).
+    #[inline]
+    pub const fn seip(self) -> bool {
+        ((self.bits >> 9) & 1) != 0
+    }
+}

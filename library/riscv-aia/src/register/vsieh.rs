@@ -5,3 +5,8 @@ riscv::read_write_csr! {
     Vsieh: 0x214,
     mask: 0xFFFF_FFFF,
 }
+
+impl Vsieh {
+    #[inline]
+    pub const fn raw(self) -> usize { self.bits }
+}

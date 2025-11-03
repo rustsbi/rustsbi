@@ -5,3 +5,8 @@ riscv::read_write_csr! {
     Mieh: 0x314,
     mask: 0xFFFF_FFFF,
 }
+
+impl Mieh {
+    #[inline]
+    pub const fn raw(self) -> usize { self.bits }
+}

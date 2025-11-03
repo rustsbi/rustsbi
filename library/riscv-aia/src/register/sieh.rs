@@ -5,3 +5,8 @@ riscv::read_write_csr! {
     Sieh: 0x114,
     mask: 0xFFFF_FFFF,
 }
+
+impl Sieh {
+    #[inline]
+    pub const fn raw(self) -> usize { self.bits }
+}

@@ -5,3 +5,8 @@ riscv::read_write_csr! {
     Hvienh: 0x618,
     mask: 0xFFFF_FFFF,
 }
+
+impl Hvienh {
+    #[inline]
+    pub const fn raw(self) -> usize { self.bits }
+}

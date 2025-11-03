@@ -7,3 +7,13 @@ riscv::read_write_csr! {
 }
 
 // Note: miselect controls which register is accessed via `mireg`.
+
+impl Miselect {
+    /// Current value of `miselect` as usize (convenience accessor).
+    #[inline]
+    pub const fn value(self) -> usize {
+        self.bits as usize
+    }
+
+    // Note: writing to `miselect` should be done via the generated CSR API.
+}
