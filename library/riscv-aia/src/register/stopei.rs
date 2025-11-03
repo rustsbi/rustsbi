@@ -1,19 +1,14 @@
-//! Machine-level top external interrupt register (only with an IMSIC).
-//! Machine-level top external interrupt register (only with an IMSIC).
-//!
-//! CSR `mtopei` reports the highest-priority external interrupt that is
-//! pending and enabled for machine-level when an IMSIC is present. Provide a
-//! small typed wrapper similar to `Mtopi` for convenient field extraction.
+//! Supervisor top external interrupt (only with an IMSIC) (stopei)
 
 use crate::Iid;
 
 riscv::read_only_csr! {
-    /// Machine top external interrupt (mtopei).
-    Mtopei: 0x35C,
+    /// Supervisor top external interrupt register.
+    Stopei: 0x15C,
     mask: 0x0FFF_00FF,
 }
 
-impl Mtopei {
+impl Stopei {
     /// Get the major identity number of the highest-priority external interrupt.
     #[inline]
     pub const fn iid(self) -> Option<Iid> {
@@ -33,11 +28,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mtopei_parsing() {
-        let iid_num: u16 = 1;
-        let iprio: u8 = 0xAA;
+    fn stopei_parsing() {
+        let iid_num: u16 = 2047; // max allowed
+        let iprio: u8 = 0xFF;
         let bits: usize = ((iid_num as usize) << 16) | (iprio as usize);
-        let reg = Mtopei::from_bits(bits);
+        let reg = Stopei::from_bits(bits);
         assert_eq!(reg.iprio(), iprio);
         assert_eq!(reg.iid().map(|i| i.number()), Some(iid_num));
     }
