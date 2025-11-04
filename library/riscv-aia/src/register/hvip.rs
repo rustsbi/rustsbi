@@ -3,50 +3,51 @@
 riscv::read_write_csr! {
     /// Hypervisor virtual interrupt pending bits.
     Hvip: 0x645,
-    mask: 0xFFFF_FFFF_FFFF_FFFF,
+    mask: 0x444,
 }
 
-impl Hvip {
-    #[inline]
-    pub const fn bit(self, n: usize) -> bool {
-        ((self.bits >> n) & 1) != 0
-    }
-
-    /// VS-level software interrupt pending (bit 2).
-    #[inline]
-    pub const fn vssip(self) -> bool {
-        self.bit(2)
-    }
-
-    /// VS-level timer interrupt pending (bit 6).
-    #[inline]
-    pub const fn vstip(self) -> bool {
-        self.bit(6)
-    }
-
-    /// VS-level external interrupt pending (bit 10).
-    #[inline]
-    pub const fn vseip(self) -> bool {
-        self.bit(10)
-    }
+riscv::read_only_csr_field! {
+    Hvip,
+    /// Virtual Supervisor Software Interrupt pending.
+    vssoft: 2,
 }
+
+riscv::read_only_csr_field! {
+    Hvip,
+    /// Virtual Supervisor Timer Interrupt pending.
+    vstimer: 6,
+}
+
+riscv::read_only_csr_field! {
+    Hvip,
+    /// Virtual Supervisor External Interrupt pending.
+    vsext: 10,
+}
+
+riscv::set!(0x608);
+riscv::clear!(0x608);
+
+riscv::set_clear_csr!(
+    /// Virtual Supervisor Software Interrupt pending.
+    , set_vssoft, clear_vssoft, 1 << 2);
+riscv::set_clear_csr!(
+    /// Virtual Supervisor Timer Interrupt pending.
+    , set_vstime, clear_vstime, 1 << 6);
+riscv::set_clear_csr!(
+    /// Virtual Supervisor External Interrupt pending.
+    , set_vsext, clear_vsext, 1 << 10);
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::register::hvien::Hvien;
 
     #[test]
-    fn hvien_hvip_bits() {
+    fn hvip_bits() {
         // set vssip (bit 2), vstip (bit 6), vseip (bit 10)
         let bits: usize = (1usize << 2) | (1usize << 6) | (1usize << 10);
-        let en = Hvien::from_bits(bits);
         let pend = Hvip::from_bits(bits);
-        assert!(en.vssip());
-        assert!(en.vstip());
-        assert!(en.vseip());
-        assert!(pend.vssip());
-        assert!(pend.vstip());
-        assert!(pend.vseip());
+        assert!(pend.vssoft());
+        assert!(pend.vstimer());
+        assert!(pend.vsext());
     }
 }

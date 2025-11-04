@@ -1,42 +1,50 @@
 //! Hypervisor virtual interrupt control (hvictl)
 
+use crate::Iid;
+
 riscv::read_write_csr! {
     /// Hypervisor virtual interrupt control.
     Hvictl: 0x609,
-    mask: 0xFFFF_FFFF_FFFF_FFFF,
+    mask: 0xFFFF_FFFF,
 }
 
 impl Hvictl {
-    /// Virtual Trap Interrupt (VTI) bit (bit 30).
-    #[inline]
-    pub const fn vti(self) -> bool {
-        ((self.bits >> 30) & 1) != 0
-    }
-
     /// IID field (bits 27:16) — interrupt identity for a virtual interrupt.
     #[inline]
-    pub const fn iid(self) -> Option<crate::Iid> {
+    pub const fn iid(self) -> Option<Iid> {
         let bits = ((self.bits >> 16) & 0x0FFF) as u16;
-        crate::Iid::new(bits)
-    }
-
-    /// Default Priority Rank (DPR) bit (bit 9).
-    #[inline]
-    pub const fn dpr(self) -> bool {
-        ((self.bits >> 9) & 1) != 0
-    }
-
-    /// IPRIO mode bit (bit 8).
-    #[inline]
-    pub const fn ipriom(self) -> bool {
-        ((self.bits >> 8) & 1) != 0
+        Iid::new(bits)
     }
 
     /// IPRIO field (bits 7:0).
     #[inline]
-    pub const fn iprio(self) -> u8 {
+    pub const fn iprio(&self) -> u8 {
         (self.bits & 0xFF) as u8
     }
+
+    /// Set IPRIO field (bits 7:0).
+    #[inline]
+    pub const fn set_iprio(&mut self, value: u8) {
+        self.bits = (self.bits & !0xFF) | (value as usize)
+    }
+}
+
+riscv::read_write_csr_field! {
+    Hvictl,
+    /// Virtual Trap Interrupt (VTI) control.
+    vti: 30,
+}
+
+riscv::read_write_csr_field! {
+    Hvictl,
+    /// Default Priority Rank (DPR) bit.
+    dpr: 9,
+}
+
+riscv::read_write_csr_field! {
+    Hvictl,
+    /// IPRIO mode bit.
+    ipriom: 8,
 }
 
 #[cfg(test)]
