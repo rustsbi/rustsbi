@@ -358,32 +358,15 @@ pub mod file_ops {
         /// Only registers that have updates are included.
         pub fn set_pending_batch<const N: usize>(identities: &[u16; N]) -> [(u32, Eip); 64] {
             let mut updates = [(0, Eip::from_raw(0)); 64];
-            let mut update_count = 0;
 
             for &identity in identities {
                 if let Some((reg_idx, bit_pos)) = identity_to_register(identity) {
                     if reg_idx < 64 {
-                        // Check if this register already has an update
-                        let mut found = false;
-                        for i in 0..update_count {
-                            if updates[i].0 == reg_idx {
-                                updates[i].1 = updates[i].1.set_pending(bit_pos, true);
-                                found = true;
-                                break;
-                            }
-                        }
-                        if !found {
-                            updates[update_count].0 = reg_idx;
-                            updates[update_count].1 = Eip::from_raw(0).set_pending(bit_pos, true);
-                            update_count += 1;
-                        }
+                        let eip = &mut updates[reg_idx as usize].1;
+                        updates[reg_idx as usize].0 = reg_idx;
+                        *eip = eip.set_pending(bit_pos, true);
                     }
                 }
-            }
-
-            // Mark unused entries as invalid (register index will be > 63)
-            for i in update_count..64 {
-                updates[i].0 = u32::MAX;
             }
 
             updates
