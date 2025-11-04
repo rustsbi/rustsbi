@@ -11,14 +11,14 @@ use volatile_register::WO;
 ///
 /// The rest of the 4-KiB page is reserved and read-only zeros.
 #[repr(C)]
-pub struct ImSic {
+pub struct Imsic {
     /// 0x000 - Set interrupt-pending bit by number, little-endian.
     pub seteipnum_le: WO<u32>,
     /// 0x004 - Set interrupt-pending bit by number, big-endian.
     pub seteipnum_be: WO<u32>,
 }
 
-impl ImSic {
+impl Imsic {
     /// Returns the size of the IMSIC register block.
     pub const fn size() -> usize {
         0x1000 // 4-KiB page

@@ -4,4 +4,4 @@ pub mod aplic;
 pub mod imsic;
 
 pub use aplic::Aplic;
-pub use imsic::ImSic;
+pub use imsic::Imsic;
