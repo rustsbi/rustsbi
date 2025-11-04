@@ -61,7 +61,8 @@ pub struct Aplic {
 pub struct DomainConfig(u32);
 
 impl DomainConfig {
-    const READ_ONLY: u32 = 0x1 << 31;
+    const READ_ONLY_MASK: u32 = 0xFF << 24;
+    const READ_ONLY_VALUE: u32 = 0x80 << 24;
     const IE: u32 = 0x1 << 8;
     const DM: u32 = 0x1 << 2;
     const BE: u32 = 0x1;
@@ -69,7 +70,7 @@ impl DomainConfig {
     /// Get read-only bit (should be true in right endian).
     #[inline]
     pub const fn read_only(self) -> bool {
-        (self.0 & Self::READ_ONLY) != 0
+        (self.0 & Self::READ_ONLY_MASK) == Self::READ_ONLY_VALUE
     }
 
     /// Set interrupt-enable bit.
@@ -251,7 +252,7 @@ impl MachineMsiAddrCfgH {
     /// Set high base PPN.
     #[inline]
     pub const fn set_high_base_ppn(self, ppn: u16) -> Self {
-        assert!(ppn < 0xFFF, "High base PPN out of range: 0..=0xFFF");
+        assert!(ppn <= 0xFFF, "High base PPN out of range: 0..=0xFFF");
         Self((self.0 & !Self::HIGH_BASE_PPN) | (ppn as u32))
     }
 
@@ -288,7 +289,7 @@ impl SupervisorMsiAddrCfgH {
     /// Set high base PPN.
     #[inline]
     pub const fn set_high_base_ppn(self, ppn: u16) -> Self {
-        assert!(ppn < 0xFFF, "High base PPN out of range: 0..=0xFFF");
+        assert!(ppn <= 0xFFF, "High base PPN out of range: 0..=0xFFF");
         Self((self.0 & !Self::HIGH_BASE_PPN) | (ppn as u32))
     }
 
@@ -483,7 +484,8 @@ impl IntTarget {
     /// Set interrupt priority.
     #[inline]
     pub const fn set_iprio(self, iprio: u8) -> Self {
-        Self((self.0 & !Self::IPRIO) | (iprio as u32))
+        let actual_iprio = if iprio == 0 { 1 } else { iprio };
+        Self((self.0 & !Self::IPRIO) | (actual_iprio as u32))
     }
 
     /// Get interrupt priority.
@@ -523,4 +525,416 @@ mod tests {
     }
 
     // TODO unit tests for functions of DomainConfig and other structures.
+}
+
+#[cfg(test)]
+mod domain_config_tests {
+    use super::DomainConfig;
+
+    #[test]
+    fn test_domain_config_read_only() {
+        let config = DomainConfig(0x8000_0000); // bits 31:24 = 0x80
+        assert!(config.read_only());
+
+        let config = DomainConfig(0x0000_0000); // bits 31:24 = 0x00
+        assert!(!config.read_only());
+    }
+
+    #[test]
+    fn test_domain_config_interrupt_enable() {
+        let config = DomainConfig(0x0000_0000);
+        assert!(!config.interrupt_enable());
+
+        let config = config.set_interrupt_enable(true);
+        assert!(config.interrupt_enable());
+
+        let config = config.set_interrupt_enable(false);
+        assert!(!config.interrupt_enable());
+    }
+
+    #[test]
+    fn test_domain_config_delivery_mode() {
+        let config = DomainConfig(0x0000_0000);
+        let config = config.set_delivery_mode(0);
+        assert_eq!(config.0 & 0x4, 0);
+
+        let config = config.set_delivery_mode(1);
+        assert_eq!(config.0 & 0x4, 0x4);
+    }
+
+    #[test]
+    #[should_panic(expected = "Delivery mode out of range: 0..=1")]
+    fn test_domain_config_delivery_mode_out_of_range() {
+        let config = DomainConfig(0x0000_0000);
+        config.set_delivery_mode(2);
+    }
+
+    #[test]
+    fn test_domain_config_big_endian() {
+        let config = DomainConfig(0x0000_0000);
+        assert!(!config.big_endian());
+
+        let config = config.set_big_endian(true);
+        assert!(config.big_endian());
+
+        let config = config.set_big_endian(false);
+        assert!(!config.big_endian());
+    }
+}
+
+#[cfg(test)]
+mod source_config_tests {
+    use super::SourceConfig;
+
+    #[test]
+    fn test_source_config_delegate() {
+        let config = SourceConfig(0x0000_0000);
+        assert!(!config.delegate());
+
+        let config = config.set_delegate(true);
+        assert!(config.delegate());
+
+        let config = config.set_delegate(false);
+        assert!(!config.delegate());
+    }
+
+    #[test]
+    fn test_source_config_child_index() {
+        let config = SourceConfig(0x0000_0000);
+        let config = config.set_child_index(0);
+        assert_eq!(config.child_index(), 0);
+
+        let config = config.set_child_index(1023);
+        assert_eq!(config.child_index(), 1023);
+    }
+
+    #[test]
+    #[should_panic(expected = "Child index out of range: 0..=1023")]
+    fn test_source_config_child_index_out_of_range() {
+        let config = SourceConfig(0x0000_0000);
+        config.set_child_index(1024);
+    }
+
+    #[test]
+    fn test_source_config_source_mode() {
+        let config = SourceConfig(0x0000_0000);
+        let config = config.set_source_mode(0);
+        assert_eq!(config.source_mode(), 0);
+
+        let config = config.set_source_mode(7);
+        assert_eq!(config.source_mode(), 7);
+    }
+
+    #[test]
+    #[should_panic(expected = "Source mode out of range: 0..=7")]
+    fn test_source_config_source_mode_out_of_range() {
+        let config = SourceConfig(0x0000_0000);
+        config.set_source_mode(8);
+    }
+}
+
+#[cfg(test)]
+mod machine_msi_addr_cfg_h_tests {
+    use super::MachineMsiAddrCfgH;
+
+    #[test]
+    fn test_machine_msi_addr_cfg_h_lock() {
+        let config = MachineMsiAddrCfgH(0x0000_0000);
+        assert!(!config.lock());
+
+        let config = config.set_lock(true);
+        assert!(config.lock());
+
+        let config = config.set_lock(false);
+        assert!(!config.lock());
+    }
+
+    #[test]
+    fn test_machine_msi_addr_cfg_h_high_hart_index_shift() {
+        let config = MachineMsiAddrCfgH(0x0000_0000);
+        let config = config.set_high_hart_index_shift(0);
+        assert_eq!(config.high_hart_index_shift(), 0);
+
+        let config = config.set_high_hart_index_shift(31);
+        assert_eq!(config.high_hart_index_shift(), 31);
+    }
+
+    #[test]
+    #[should_panic(expected = "High hart index shift out of range: 0..=31")]
+    fn test_machine_msi_addr_cfg_h_high_hart_index_shift_out_of_range() {
+        let config = MachineMsiAddrCfgH(0x0000_0000);
+        config.set_high_hart_index_shift(32);
+    }
+
+    #[test]
+    fn test_machine_msi_addr_cfg_h_low_hart_index_shift() {
+        let config = MachineMsiAddrCfgH(0x0000_0000);
+        let config = config.set_low_hart_index_shift(0);
+        assert_eq!(config.low_hart_index_shift(), 0);
+
+        let config = config.set_low_hart_index_shift(7);
+        assert_eq!(config.low_hart_index_shift(), 7);
+    }
+
+    #[test]
+    #[should_panic(expected = "Low hart index shift out of range: 0..=7")]
+    fn test_machine_msi_addr_cfg_h_low_hart_index_shift_out_of_range() {
+        let config = MachineMsiAddrCfgH(0x0000_0000);
+        config.set_low_hart_index_shift(8);
+    }
+
+    #[test]
+    fn test_machine_msi_addr_cfg_h_high_hart_index_width() {
+        let config = MachineMsiAddrCfgH(0x0000_0000);
+        let config = config.set_high_hart_index_width(0);
+        assert_eq!(config.high_hart_index_width(), 0);
+
+        let config = config.set_high_hart_index_width(7);
+        assert_eq!(config.high_hart_index_width(), 7);
+    }
+
+    #[test]
+    #[should_panic(expected = "High hart index width out of range: 0..=7")]
+    fn test_machine_msi_addr_cfg_h_high_hart_index_width_out_of_range() {
+        let config = MachineMsiAddrCfgH(0x0000_0000);
+        config.set_high_hart_index_width(8);
+    }
+
+    #[test]
+    fn test_machine_msi_addr_cfg_h_low_hart_index_width() {
+        let config = MachineMsiAddrCfgH(0x0000_0000);
+        let config = config.set_low_hart_index_width(0);
+        assert_eq!(config.low_hart_index_width(), 0);
+
+        let config = config.set_low_hart_index_width(15);
+        assert_eq!(config.low_hart_index_width(), 15);
+    }
+
+    #[test]
+    #[should_panic(expected = "Low hart index width out of range: 0..=15")]
+    fn test_machine_msi_addr_cfg_h_low_hart_index_width_out_of_range() {
+        let config = MachineMsiAddrCfgH(0x0000_0000);
+        config.set_low_hart_index_width(16);
+    }
+
+    #[test]
+    fn test_machine_msi_addr_cfg_h_high_base_ppn() {
+        let config = MachineMsiAddrCfgH(0x0000_0000);
+        let config = config.set_high_base_ppn(0);
+        assert_eq!(config.high_base_ppn(), 0);
+
+        let config = config.set_high_base_ppn(0xFFF);
+        assert_eq!(config.high_base_ppn(), 0xFFF);
+    }
+
+    #[test]
+    #[should_panic(expected = "High base PPN out of range: 0..=0xFFF")]
+    fn test_machine_msi_addr_cfg_h_high_base_ppn_out_of_range() {
+        let config = MachineMsiAddrCfgH(0x0000_0000);
+        config.set_high_base_ppn(0x1000);
+    }
+}
+
+#[cfg(test)]
+mod supervisor_msi_addr_cfg_h_tests {
+    use super::SupervisorMsiAddrCfgH;
+
+    #[test]
+    fn test_supervisor_msi_addr_cfg_h_low_hart_index_shift() {
+        let config = SupervisorMsiAddrCfgH(0x0000_0000);
+        let config = config.set_low_hart_index_shift(0);
+        assert_eq!(config.low_hart_index_shift(), 0);
+
+        let config = config.set_low_hart_index_shift(7);
+        assert_eq!(config.low_hart_index_shift(), 7);
+    }
+
+    #[test]
+    #[should_panic(expected = "Low hart index shift out of range: 0..=7")]
+    fn test_supervisor_msi_addr_cfg_h_low_hart_index_shift_out_of_range() {
+        let config = SupervisorMsiAddrCfgH(0x0000_0000);
+        config.set_low_hart_index_shift(8);
+    }
+
+    #[test]
+    fn test_supervisor_msi_addr_cfg_h_high_base_ppn() {
+        let config = SupervisorMsiAddrCfgH(0x0000_0000);
+        let config = config.set_high_base_ppn(0);
+        assert_eq!(config.high_base_ppn(), 0);
+
+        let config = config.set_high_base_ppn(0xFFF);
+        assert_eq!(config.high_base_ppn(), 0xFFF);
+    }
+
+    #[test]
+    #[should_panic(expected = "High base PPN out of range: 0..=0xFFF")]
+    fn test_supervisor_msi_addr_cfg_h_high_base_ppn_out_of_range() {
+        let config = SupervisorMsiAddrCfgH(0x0000_0000);
+        config.set_high_base_ppn(0x1000);
+    }
+}
+
+#[cfg(test)]
+mod set_int_pending_tests {
+    use super::SetIntPending;
+
+    #[test]
+    fn test_set_int_pending() {
+        let pending = SetIntPending(0x0000_0000);
+        let pending = pending.set_int_pending(0x1234_5678);
+        assert_eq!(pending.int_pending(), 0x1234_5678);
+    }
+}
+
+#[cfg(test)]
+mod clear_int_pending_tests {
+    use super::ClearIntPending;
+
+    #[test]
+    fn test_clear_int_pending() {
+        let pending = ClearIntPending(0x0000_0000);
+        let pending = pending.clear_int_pending(0x1234_5678);
+        assert_eq!(pending.int_pending(), 0x1234_5678);
+    }
+}
+
+#[cfg(test)]
+mod set_int_enable_tests {
+    use super::SetIntEnable;
+
+    #[test]
+    fn test_set_int_enable() {
+        let enable = SetIntEnable(0x0000_0000);
+        let enable = enable.set_int_enable(0x1234_5678);
+        assert_eq!(enable.int_enable(), 0x1234_5678);
+    }
+}
+
+#[cfg(test)]
+mod clear_int_enable_tests {
+    use super::ClearIntEnable;
+
+    #[test]
+    fn test_clear_int_enable() {
+        let enable = ClearIntEnable(0x0000_0000);
+        let enable = enable.clear_int_enable(0x1234_5678);
+        assert_eq!(enable.int_enable(), 0x1234_5678);
+    }
+}
+
+#[cfg(test)]
+mod generate_msi_tests {
+    use super::GenerateMSI;
+
+    #[test]
+    fn test_generate_msi_hart_index() {
+        let msi = GenerateMSI(0x0000_0000);
+        let msi = msi.set_hart_index(0);
+        assert_eq!(msi.hart_index(), 0);
+
+        let msi = msi.set_hart_index(1023);
+        assert_eq!(msi.hart_index(), 1023);
+    }
+
+    #[test]
+    #[should_panic(expected = "Hart index out of range: 0..=1023")]
+    fn test_generate_msi_hart_index_out_of_range() {
+        let msi = GenerateMSI(0x0000_0000);
+        msi.set_hart_index(1024);
+    }
+
+    #[test]
+    fn test_generate_msi_busy() {
+        let msi = GenerateMSI(0x0000_1000); // BUSY bit set
+        assert!(msi.busy());
+
+        let msi = GenerateMSI(0x0000_0000); // BUSY bit not set
+        assert!(!msi.busy());
+    }
+
+    #[test]
+    fn test_generate_msi_eiid() {
+        let msi = GenerateMSI(0x0000_0000);
+        let msi = msi.set_eiid(0);
+        assert_eq!(msi.eiid(), 0);
+
+        let msi = msi.set_eiid(2047);
+        assert_eq!(msi.eiid(), 2047);
+    }
+
+    #[test]
+    #[should_panic(expected = "External interrupt identity out of range: 0..=2047")]
+    fn test_generate_msi_eiid_out_of_range() {
+        let msi = GenerateMSI(0x0000_0000);
+        msi.set_eiid(2048);
+    }
+}
+
+#[cfg(test)]
+mod int_target_tests {
+    use super::IntTarget;
+
+    #[test]
+    fn test_int_target_hart_index() {
+        let target = IntTarget(0x0000_0000);
+        let target = target.set_hart_index(0);
+        assert_eq!(target.hart_index(), 0);
+
+        let target = target.set_hart_index(1023);
+        assert_eq!(target.hart_index(), 1023);
+    }
+
+    #[test]
+    #[should_panic(expected = "Hart index out of range: 0..=1023")]
+    fn test_int_target_hart_index_out_of_range() {
+        let target = IntTarget(0x0000_0000);
+        target.set_hart_index(1024);
+    }
+
+    #[test]
+    fn test_int_target_guest_index() {
+        let target = IntTarget(0x0000_0000);
+        let target = target.set_guest_index(0);
+        assert_eq!(target.guest_index(), 0);
+
+        let target = target.set_guest_index(63);
+        assert_eq!(target.guest_index(), 63);
+    }
+
+    #[test]
+    #[should_panic(expected = "Guest index out of range: 0..=63")]
+    fn test_int_target_guest_index_out_of_range() {
+        let target = IntTarget(0x0000_0000);
+        target.set_guest_index(64);
+    }
+
+    #[test]
+    fn test_int_target_eiid() {
+        let target = IntTarget(0x0000_0000);
+        let target = target.set_eiid(0);
+        assert_eq!(target.eiid(), 0);
+
+        let target = target.set_eiid(2047);
+        assert_eq!(target.eiid(), 2047);
+    }
+
+    #[test]
+    #[should_panic(expected = "External interrupt identity out of range: 0..=2047")]
+    fn test_int_target_eiid_out_of_range() {
+        let target = IntTarget(0x0000_0000);
+        target.set_eiid(2048);
+    }
+
+    #[test]
+    fn test_int_target_iprio() {
+        let target = IntTarget(0x0000_0000);
+        let target = target.set_iprio(0);
+        assert_eq!(target.iprio(), 1); // 0 should be converted to 1
+
+        let target = target.set_iprio(1);
+        assert_eq!(target.iprio(), 1);
+
+        let target = target.set_iprio(255);
+        assert_eq!(target.iprio(), 255);
+    }
 }
