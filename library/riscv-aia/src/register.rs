@@ -2,17 +2,20 @@
 
 // -- `Smaia` CSRs --
 
-// Machine-level window to indirectly accessed registers
+// Machine-level window to indirectly accessed registers.
 pub mod mireg;
 pub mod miselect;
 
-// Machine-level interrupts
-pub mod geilen;
-pub mod mideleg;
+// Machine-level interrupts.
 pub mod mie;
 pub mod mip;
 pub mod mtopei;
 pub mod mtopi;
+
+// Delegated and virtual interrupts for supervisor level.
+pub mod mideleg;
+pub mod mvien;
+pub mod mvip;
 
 // Machine-level high-half CSRs, RV32 only.
 pub mod midelegh;
