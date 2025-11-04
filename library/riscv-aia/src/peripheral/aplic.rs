@@ -482,7 +482,7 @@ impl IntTarget {
     }
 
     /// Set interrupt priority.
-    /// Note: According to RISC-V AIA specification, priority value 0 is reserved.
+    /// *NOTE:* According to RISC-V AIA specification, priority value 0 is reserved.
     /// Hardware automatically converts priority 0 to 1 when writing to this field.
     #[inline]
     pub const fn set_iprio(self, iprio: u8) -> Self {

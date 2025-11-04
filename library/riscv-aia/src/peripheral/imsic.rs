@@ -8,13 +8,14 @@ use volatile_register::WO;
 /// registers for receiving MSI writes. These memory-mapped registers are
 /// located within a naturally aligned 4-KiB region (a page) of physical
 /// address space that exists for the interrupt file.
+///
+/// The rest of the 4-KiB page is reserved and read-only zeros.
 #[repr(C)]
 pub struct ImSic {
     /// 0x000 - Set interrupt-pending bit by number, little-endian.
     pub seteipnum_le: WO<u32>,
     /// 0x004 - Set interrupt-pending bit by number, big-endian.
     pub seteipnum_be: WO<u32>,
-    // The rest of the 4-KiB page is reserved and read-only zeros.
 }
 
 impl ImSic {
@@ -29,7 +30,7 @@ impl ImSic {
 /// This register controls whether interrupts from this interrupt file are
 /// delivered from the IMSIC to the attached hart.
 ///
-/// Note: Guest interrupt files do not support value 0x40000000 for `eidelivery`.
+/// *NOTE:* Guest interrupt files do not support value 0x40000000 for `eidelivery`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct Eidelivery(u32);
@@ -226,8 +227,8 @@ pub mod select {
 pub const MAX_INTERRUPT_IDENTITY: u16 = 2047;
 
 /// Minimum valid interrupt identity number.
-/// Note: Interrupt identity 0 is never valid.
-/// Lower-numbered interrupt identities have higher priority than higher-numbered ones.
+// *NOTE:* Interrupt identity 0 is never valid.
+// Lower-numbered interrupt identities have higher priority than higher-numbered ones.
 pub const MIN_INTERRUPT_IDENTITY: u16 = 1;
 
 /// MSI (Message-Signaled Interrupt) encoding utilities.
@@ -236,26 +237,19 @@ pub mod msi {
 
     /// Encodes an interrupt identity into MSI data.
     ///
-    /// Returns the 32-bit MSI data value for the given interrupt identity.
-    /// The MSI data is simply the interrupt identity number in little-endian byte order.
+    /// Returns the 32-bit MSI data value for the given interrupt identity in little-endian byte order.
     #[inline]
     pub const fn encode_le(identity: u16) -> u32 {
         identity as u32
     }
 
-    /// Encodes an interrupt identity into big-endian MSI data.
-    ///
-    /// Returns the 32-bit MSI data value for the given interrupt identity
-    /// in big-endian byte order.
+    /// Returns the 32-bit MSI data value for the given interrupt identity in big-endian byte order.
     #[inline]
     pub const fn encode_be(identity: u16) -> u32 {
         (identity as u32) << 16
     }
 
-    /// Decodes MSI data into an interrupt identity (little-endian).
-    ///
-    /// Returns `Some(identity)` if the decoded value is a valid interrupt identity,
-    /// or `None` if the value is invalid (0 or > MAX_INTERRUPT_IDENTITY).
+    /// Decodes little-endian MSI data into an interrupt identity, returning `None` if invalid.
     #[inline]
     pub const fn decode_le(data: u32) -> Option<u16> {
         let identity = data as u16;
@@ -266,10 +260,7 @@ pub mod msi {
         }
     }
 
-    /// Decodes MSI data into an interrupt identity (big-endian).
-    ///
-    /// Returns `Some(identity)` if the decoded value is a valid interrupt identity,
-    /// or `None` if the value is invalid (0 or > MAX_INTERRUPT_IDENTITY).
+    /// Decodes big-endian MSI data into an interrupt identity, returning `None` if invalid.
     #[inline]
     pub const fn decode_be(data: u32) -> Option<u16> {
         let identity = ((data >> 16) & 0xFFFF) as u16;
@@ -285,11 +276,7 @@ pub mod msi {
 pub mod file_ops {
     use super::{Eie, Eip, MAX_INTERRUPT_IDENTITY, select};
 
-    /// Calculates the register index and bit position for an interrupt identity.
-    ///
-    /// Returns `(register_index, bit_position)` where:
-    /// - `register_index` is the index into the eip/eie array (0-63)
-    /// - `bit_position` is the bit position within that register (0-31)
+    /// Returns `(register_index, bit_position)` for the given interrupt identity.
     #[inline]
     pub const fn identity_to_register(identity: u16) -> Option<(u32, u32)> {
         if identity == 0 || identity > MAX_INTERRUPT_IDENTITY {
@@ -446,18 +433,16 @@ pub mod system {
     }
 
     impl AddressLayout {
-        /// Creates a default address layout.
-        ///
-        /// This follows the recommended layout from the AIA specification.
+        /// Creates a default address layout following the AIA specification.
         pub const fn default() -> Self {
             Self {
                 machine_base: 0x2800_0000,
                 supervisor_base: 0x2800_4000,
                 guest_base: Some(0x2800_8000),
-                hart_index_bits: 12,   // j = 12
-                group_bits: 24,        // E = 24
-                hart_offset_bits: 12,  // C = 12
-                guest_offset_bits: 12, // D = 12
+                hart_index_bits: 12,
+                group_bits: 24,
+                hart_offset_bits: 12,
+                guest_offset_bits: 12,
             }
         }
 
