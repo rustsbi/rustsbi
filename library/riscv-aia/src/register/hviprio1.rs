@@ -11,7 +11,7 @@ impl Hviprio1 {
     /// Byte 0 corresponds to bits 7:0, byte 1 to bits 15:8, etc.
     #[inline]
     pub const fn prio_byte(self, i: usize) -> u8 {
-        let shift = (i as usize) * 8;
+        let shift = i * 8;
         ((self.bits >> shift) & 0xFF) as u8
     }
 }
