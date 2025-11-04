@@ -12,7 +12,7 @@ impl Miselect {
     /// Current value of `miselect` as usize (convenience accessor).
     #[inline]
     pub const fn value(self) -> usize {
-        self.bits as usize
+        self.bits
     }
 
     // Note: writing to `miselect` should be done via the generated CSR API.

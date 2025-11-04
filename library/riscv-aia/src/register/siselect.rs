@@ -10,7 +10,7 @@ impl Siselect {
     /// Current value of `siselect` as usize.
     #[inline]
     pub const fn value(self) -> usize {
-        self.bits as usize
+        self.bits
     }
 
     // Note: writing to `siselect` should be done via the generated CSR API.
