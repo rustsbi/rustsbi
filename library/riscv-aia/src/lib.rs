@@ -4,6 +4,7 @@
 
 #![no_std]
 
+pub mod geilen;
 pub mod peripheral;
 pub mod register;
 
