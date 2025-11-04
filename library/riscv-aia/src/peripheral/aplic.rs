@@ -49,7 +49,7 @@ pub struct Aplic {
     pub setipnum_be: WO<u32>,
     _padding_0x2008: [u8; 0x0FF8],
     /// 0x3000 - Generate MSI.
-    pub genmsi: RW<GenerateMSI>,
+    pub genmsi: RW<GenerateMsi>,
     /// 0x3004 ..= 0x3FFC - Interrupt targets (`target[1..=1023]`)
     pub target: [RW<IntTarget>; 1023],
 }
@@ -384,9 +384,9 @@ impl ClearIntEnable {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[doc(alias = "genmsi")]
 #[repr(transparent)]
-pub struct GenerateMSI(u32);
+pub struct GenerateMsi(u32);
 
-impl GenerateMSI {
+impl GenerateMsi {
     const HART_INDEX: u32 = 0x3FF << 18;
     const BUSY: u32 = 0x1 << 12;
     const EIID: u32 = 0x7FF;
@@ -823,11 +823,11 @@ mod clear_int_enable_tests {
 
 #[cfg(test)]
 mod generate_msi_tests {
-    use super::GenerateMSI;
+    use super::GenerateMsi;
 
     #[test]
     fn test_generate_msi_hart_index() {
-        let msi = GenerateMSI(0x0000_0000);
+        let msi = GenerateMsi(0x0000_0000);
         let msi = msi.set_hart_index(0);
         assert_eq!(msi.hart_index(), 0);
 
@@ -838,22 +838,22 @@ mod generate_msi_tests {
     #[test]
     #[should_panic(expected = "Hart index out of range: 0..=1023")]
     fn test_generate_msi_hart_index_out_of_range() {
-        let msi = GenerateMSI(0x0000_0000);
+        let msi = GenerateMsi(0x0000_0000);
         msi.set_hart_index(1024);
     }
 
     #[test]
     fn test_generate_msi_busy() {
-        let msi = GenerateMSI(0x0000_1000); // BUSY bit set
+        let msi = GenerateMsi(0x0000_1000); // BUSY bit set
         assert!(msi.busy());
 
-        let msi = GenerateMSI(0x0000_0000); // BUSY bit not set
+        let msi = GenerateMsi(0x0000_0000); // BUSY bit not set
         assert!(!msi.busy());
     }
 
     #[test]
     fn test_generate_msi_eiid() {
-        let msi = GenerateMSI(0x0000_0000);
+        let msi = GenerateMsi(0x0000_0000);
         let msi = msi.set_eiid(0);
         assert_eq!(msi.eiid(), 0);
 
@@ -864,7 +864,7 @@ mod generate_msi_tests {
     #[test]
     #[should_panic(expected = "External interrupt identity out of range: 0..=2047")]
     fn test_generate_msi_eiid_out_of_range() {
-        let msi = GenerateMSI(0x0000_0000);
+        let msi = GenerateMsi(0x0000_0000);
         msi.set_eiid(2048);
     }
 }
