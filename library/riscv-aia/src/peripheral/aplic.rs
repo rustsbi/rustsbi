@@ -482,10 +482,11 @@ impl IntTarget {
     }
 
     /// Set interrupt priority.
+    /// Note: According to RISC-V AIA specification, priority value 0 is reserved.
+    /// Hardware automatically converts priority 0 to 1 when writing to this field.
     #[inline]
     pub const fn set_iprio(self, iprio: u8) -> Self {
-        let actual_iprio = if iprio == 0 { 1 } else { iprio };
-        Self((self.0 & !Self::IPRIO) | (actual_iprio as u32))
+        Self((self.0 & !Self::IPRIO) | (iprio as u32))
     }
 
     /// Get interrupt priority.
@@ -523,8 +524,6 @@ mod tests {
         assert_eq!(offset_of!(Aplic, genmsi), 0x3000);
         assert_eq!(span_of!(Aplic, target), 0x3004..0x4000);
     }
-
-    // TODO unit tests for functions of DomainConfig and other structures.
 }
 
 #[cfg(test)]
@@ -929,7 +928,7 @@ mod int_target_tests {
     fn test_int_target_iprio() {
         let target = IntTarget(0x0000_0000);
         let target = target.set_iprio(0);
-        assert_eq!(target.iprio(), 1); // 0 should be converted to 1
+        assert_eq!(target.iprio(), 0);
 
         let target = target.set_iprio(1);
         assert_eq!(target.iprio(), 1);
