@@ -18,6 +18,16 @@ riscv::read_write_csr_field! {
     high_priority_ras_event: 11, // 43 - 32
 }
 
+riscv::set!(0x313);
+riscv::clear!(0x313);
+
+riscv::set_clear_csr!(
+    /// Virtual Supervisor Timer Interrupt delegation.
+    , set_low_priority_ras_event, clear_low_priority_ras_event, 1 << 3);
+riscv::set_clear_csr!(
+    /// High priority RAS event interrupt delegation.
+    , set_high_priority_ras_event, clear_high_priority_ras_event, 1 << 11);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -25,7 +35,7 @@ mod tests {
     #[test]
     fn midelegh_fields_bits() {
         // low_priority_ras_event is at bit 3, high_priority_ras_event at bit 11
-        let bits: usize = (1usize << 3) | (1usize << 11);
+        let bits: usize = 0x808;
         let reg = Midelegh::from_bits(bits);
         // The macro-generated accessors are expected to be named after the fields.
         assert!(reg.low_priority_ras_event());

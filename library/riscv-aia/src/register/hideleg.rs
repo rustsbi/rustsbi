@@ -3,50 +3,50 @@
 riscv::read_write_csr! {
     /// Hypervisor interrupt delegation.
     Hideleg: 0x603,
-    mask: 0xFFFF_FFFF_FFFF_FFFF,
+    mask: 0x444,
 }
 
-impl Hideleg {
-    /// Test bit `n` of `hideleg` (generic helper).
-    #[inline]
-    pub const fn bit(self, n: usize) -> bool {
-        ((self.bits >> n) & 1) != 0
-    }
-
-    /// Supervisor software interrupt delegation (bit 1).
-    #[inline]
-    pub const fn ssip(self) -> bool {
-        self.bit(1)
-    }
-
-    /// Supervisor timer interrupt delegation (bit 5).
-    #[inline]
-    pub const fn stip(self) -> bool {
-        self.bit(5)
-    }
-
-    /// Supervisor external interrupt delegation (bit 9).
-    #[inline]
-    pub const fn seip(self) -> bool {
-        self.bit(9)
-    }
+riscv::read_write_csr_field! {
+    Hideleg,
+    /// Virtual Supervisor Software Interrupt delegation.
+    vssoft: 2,
 }
+
+riscv::read_write_csr_field! {
+    Hideleg,
+    /// Virtual Supervisor Timer Interrupt delegation.
+    vstimer: 6,
+}
+
+riscv::read_write_csr_field! {
+    Hideleg,
+    /// Virtual Supervisor External Interrupt delegation.
+    vsext: 10,
+}
+
+riscv::set!(0x603);
+riscv::clear!(0x603);
+
+riscv::set_clear_csr!(
+    /// Virtual Supervisor Software Interrupt delegation.
+    , set_vssoft, clear_vssoft, 1 << 2);
+riscv::set_clear_csr!(
+    /// Virtual Supervisor Timer Interrupt delegation.
+    , set_vstime, clear_vstime, 1 << 6);
+riscv::set_clear_csr!(
+    /// Virtual Supervisor External Interrupt delegation.
+    , set_vsext, clear_vsext, 1 << 10);
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::register::mideleg::Mideleg;
 
     #[test]
-    fn mideleg_hideleg_bits() {
-        let bits: usize = (1usize << 1) | (1usize << 5) | (1usize << 9);
-        let md = Mideleg::from_bits(bits);
+    fn hideleg_bits() {
+        let bits = (1usize << 2) | (1usize << 6) | (1usize << 10);
         let hd = Hideleg::from_bits(bits);
-        assert!(md.ssip());
-        assert!(md.stip());
-        assert!(md.seip());
-        assert!(hd.ssip());
-        assert!(hd.stip());
-        assert!(hd.seip());
+        assert!(hd.vssoft());
+        assert!(hd.vstimer());
+        assert!(hd.vsext());
     }
 }
