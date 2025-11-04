@@ -121,11 +121,17 @@ impl Eip {
 
     /// Returns whether the interrupt with the given index (0-31) is pending.
     pub const fn is_pending(self, index: u32) -> bool {
+        if index >= 32 {
+            return false;
+        }
         (self.0 & (1 << index)) != 0
     }
 
     /// Sets the pending status for the interrupt with the given index (0-31).
     pub const fn set_pending(mut self, index: u32, pending: bool) -> Self {
+        if index >= 32 {
+            return self;
+        }
         if pending {
             self.0 |= 1 << index;
         } else {
@@ -155,11 +161,17 @@ impl Eie {
 
     /// Returns whether the interrupt with the given index (0-31) is enabled.
     pub const fn is_enabled(self, index: u32) -> bool {
+        if index >= 32 {
+            return false;
+        }
         (self.0 & (1 << index)) != 0
     }
 
     /// Sets the enable status for the interrupt with the given index (0-31).
     pub const fn set_enabled(mut self, index: u32, enabled: bool) -> Self {
+        if index >= 32 {
+            return self;
+        }
         if enabled {
             self.0 |= 1 << index;
         } else {
