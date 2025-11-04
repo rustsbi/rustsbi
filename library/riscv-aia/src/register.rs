@@ -7,6 +7,7 @@ pub mod mireg;
 pub mod miselect;
 
 // Machine-level interrupts
+pub mod geilen;
 pub mod mideleg;
 pub mod mie;
 pub mod mip;
