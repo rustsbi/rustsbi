@@ -1,0 +1,23 @@
+[package]
+name = "riscv-aia"
+description = "Low level access to the RISC-V Advanced Interrupt Architecture (AIA)"
+version = "0.0.0"
+authors = [
+    "Zhouqi Jiang / Luo Jia <luojia@openatom.club>",
+    "Killy Jack <zicai@openatom.club>",
+    "Chongbing Yu <nanahigh@openatom.club>"
+]
+documentation = "https://docs.rs/riscv-aia"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["riscv", "aia"]
+categories = ["os", "embedded", "hardware-support", "no-std"]
+
+[dependencies]
+riscv = "0.12.1"
+volatile-register = "0.2.2"
+
+[dev-dependencies]
+memoffset = "0.9.1"

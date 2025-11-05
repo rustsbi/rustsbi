@@ -6,6 +6,7 @@ members = [
     "library/sbi-spec",
     "library/sbi-testing",
     "library/rustsbi",
+    "library/riscv-aia",
     "library/riscv-cove",
     "library/riscv-cove-rt",
     "library/penglai",
@@ -20,6 +21,7 @@ default-members = [
     "library/sbi-rt",
     "library/sbi-spec",
     "library/rustsbi",
+    "library/riscv-aia",
     "library/riscv-cove",
     "library/penglai",
     "library/pmpm"

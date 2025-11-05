@@ -35,10 +35,7 @@ impl PmpBitmap {
         loop {
             // Find idx of first free slot in current PMP area and set to used.
             // Beware that reserved PMP slot will set to used when TEE init.
-            let first_free = match (self.start..self.end).find(|&i| cur_map & (1 << i) == 0) {
-                Some(bit) => bit,
-                None => return None,
-            };
+            let first_free = (self.start..self.end).find(|&i| cur_map & (1 << i) == 0)?;
             let new_map = cur_map | (1 << first_free);
 
             // Try to update bitmap by CAS. If update successfully, then return idx.
@@ -115,9 +112,9 @@ pub fn encode_pmp_addr(slice: PmpSlice, mode: Range) -> Option<usize> {
                 None
             }
         }
-        Range::NA4 => return Some(addr >> 2),
-        Range::TOR => return Some(addr >> 2),
-        Range::OFF => return Some(0),
+        Range::NA4 => Some(addr >> 2),
+        Range::TOR => Some(addr >> 2),
+        Range::OFF => Some(0),
     }
 }
 // TODO: Under 32-bit architecture, both length and address may overflow and need to be fixed
