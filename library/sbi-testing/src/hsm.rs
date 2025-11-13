@@ -173,7 +173,7 @@ fn test_batch(batch: &[usize], mut f: impl FnMut(Case)) -> bool {
     // 初始这些核都是停止状态，测试 start
     for (i, hartid) in batch.iter().copied().enumerate() {
         let ptr = unsafe { STACK[i].reset() };
-        let ret = sbi::hart_start(hartid, test_entry as _, ptr as _);
+        let ret = sbi::hart_start(hartid, test_entry as *const () as _, ptr as _);
         if ret.is_err() {
             f(Case::HartStartFailed { hartid, ret });
             return false;
@@ -260,13 +260,14 @@ extern "C" fn rust_main(hart_id: usize, opaque: *mut ItemPerHart) -> ! {
     ) {
         Ok(_) => {
             item.wait_signal();
-            let ret = sbi::hart_suspend(sbi::NonRetentive, test_entry as _, opaque as _);
+            let ret =
+                sbi::hart_suspend(sbi::NonRetentive, test_entry as *const () as _, opaque as _);
             unreachable!("suspend [{hart_id}] but {ret:?}")
         }
         Err(STAGE_STARTED) => {
             item.stage.store(STAGE_RESUMED, Ordering::Release);
             item.wait_signal();
-            let _ = sbi::hart_suspend(sbi::Retentive, test_entry as _, opaque as _);
+            let _ = sbi::hart_suspend(sbi::Retentive, test_entry as *const () as _, opaque as _);
             let ret = sbi::hart_stop();
             unreachable!("suspend [{hart_id}] but {ret:?}")
         }
