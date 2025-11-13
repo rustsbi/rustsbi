@@ -25,6 +25,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 - Fix typos.
+- Avoid direct casting of function item into integers.
 
 ## [0.0.2] - 2023-01-20
 

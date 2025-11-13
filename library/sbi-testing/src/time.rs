@@ -80,7 +80,7 @@ pub fn test(delay: u64, mut f: impl FnMut(Case)) {
     f(Case::Interval { begin, end });
 
     let mut stack = [0usize; 32];
-    let mut thread = Thread::new(riscv::asm::wfi as _);
+    let mut thread = Thread::new(riscv::asm::wfi as *const () as _);
     *thread.sp_mut() = stack.as_mut_ptr_range().end as _;
 
     sbi::set_timer(time::read64() + delay);
