@@ -26,6 +26,13 @@ pub(crate) struct HartContext {
     pub pmu_state: PmuState,
 }
 
+// Make sure HartContext is aligned.
+//
+// HartContext will always at the end of Stack, so we should make sure
+// STACK_SIZE_PER_HART is a multiple of b.
+use crate::cfg::STACK_SIZE_PER_HART;
+const _: () = assert!(STACK_SIZE_PER_HART % core::mem::align_of::<HartContext>() == 0);
+
 impl HartContext {
     /// Initialize the hart context by creating new HSM and RFence cells
     #[inline]

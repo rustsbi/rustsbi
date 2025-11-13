@@ -64,9 +64,11 @@ SECTIONS {
 
     .bss (NOLOAD) : ALIGN(0x1000) {  
         *(.bss.stack)
+        . = ALIGN(0x1000);
         sbi_heap_start = .;
         *(.bss.heap)
         sbi_heap_end = .;
+        . = ALIGN(0x1000); 
         sbi_bss_start = .;
         *(.bss .bss.*)
         *(.sbss .sbss.*)
@@ -81,7 +83,7 @@ SECTIONS {
     .text : ALIGN(0x1000) {
         *(.fdt)
     }
-    . = ALIGN(4);
+    . = ALIGN(0x1000);
     sbi_end = .;
 
     .text 0x80200000 : ALIGN(0x1000) {
