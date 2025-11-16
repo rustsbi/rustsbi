@@ -34,7 +34,7 @@ pub unsafe extern "C" fn boot() -> ! {
         "mret",
         locate_stack = sym trap_stack::locate,
         boot_handler = sym boot_handler,
-    );
+    )
 }
 
 /// Boot Handler.
