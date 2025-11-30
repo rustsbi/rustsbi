@@ -11,6 +11,10 @@ cfg_if::cfg_if! {
     }
 }
 
+use core::fmt;
+
+use riscv::register::{self, Permission};
+
 use crate::riscv::current_hartid;
 
 /// Get work hart, for both steps.
@@ -240,39 +244,61 @@ pub fn set_pmp(memory_range: &Range<usize>) {
     }
 }
 
-pub fn log_pmp_cfg(memory_range: &Range<usize>) {
-    unsafe {
-        info!("PMP Configuration");
+/// For print PMP Permission.
+#[repr(transparent)]
+struct PermissionWrapper(pub Permission);
 
-        info!(
-            "{:<10} {:<10} {:<15} {:<30}",
-            "PMP", "Range", "Permission", "Address"
-        );
+/// For print PMP Range.
+#[repr(transparent)]
+struct RangeWrapper(pub register::Range);
 
-        info!("{:<10} {:<10} {:<15} 0x{:08x}", "PMP 0:", "OFF", "NONE", 0);
-        info!(
-            "{:<10} {:<10} {:<15} 0x{:08x} - 0x{:08x}",
-            "PMP 1-2:", "TOR", "RWX/RWX", memory_range.start, SBI_START_ADDRESS
-        );
-        info!(
-            "{:<10} {:<10} {:<15} 0x{:08x} - 0x{:08x} - 0x{:08x}",
-            "PMP 3-5:",
-            "TOR",
-            "NONE/NONE",
-            RODATA_START_ADDRESS,
-            RODATA_END_ADDRESS,
-            SBI_END_ADDRESS
-        );
-        info!(
-            "{:<10} {:<10} {:<15} 0x{:08x}",
-            "PMP 6:", "TOR", "RWX", memory_range.end
-        );
-        info!(
-            "{:<10} {:<10} {:<15} 0x{:08x}",
-            "PMP 7:",
-            "TOR",
-            "RWX",
-            usize::MAX
-        );
+impl fmt::Display for PermissionWrapper {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.pad(match self.0 {
+            Permission::R => "R",
+            Permission::W => "W",
+            Permission::X => "X",
+            Permission::RW => "RW",
+            Permission::RX => "RX",
+            Permission::WX => "WX",
+            Permission::RWX => "RWX",
+            Permission::NONE => "NONE",
+        })
     }
+}
+
+impl fmt::Display for RangeWrapper {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.pad(match self.0 {
+            register::Range::OFF => "OFF",
+            register::Range::TOR => "TOR",
+            register::Range::NA4 => "NA4",
+            register::Range::NAPOT => "NAPOT",
+        })
+    }
+}
+
+pub fn log_pmp_cfg(_memory_range: &Range<usize>) {
+    use riscv::register::*;
+    let pmp = pmpcfg0::read();
+
+    let get_pmp_range = |i: usize| -> RangeWrapper { RangeWrapper(pmp.into_config(i).range) };
+    let get_pmp_permission =
+        |i: usize| -> PermissionWrapper { PermissionWrapper(pmp.into_config(i).permission) };
+    info!("PMP Configuration");
+
+    info!(
+        "{:<5} {:<10} {:<15} {:<30}",
+        "PMP", "Range", "Permission", "Address"
+    );
+
+    seq_macro::seq!(N in 0..8 {
+        info!(
+            "{:<5} {:<10} {:<15} 0x{:016x}",
+            N,
+            get_pmp_range(N),
+            get_pmp_permission(N),
+            pastey::paste! { [<pmpaddr ~N>]::read() } << 2,
+        );
+    });
 }
