@@ -21,6 +21,9 @@ pub struct PrototyperArg {
     #[clap(long)]
     pub jump: bool,
 
+    #[clap(long)]
+    pub debug: bool,
+
     #[clap(long, short = 'c')]
     pub config_file: Option<PathBuf>,
 
@@ -80,7 +83,11 @@ fn prepare_directories(arg: &PrototyperArg) -> Option<Directories> {
     let raw_target_dir = current_dir.join("target");
     let arch = arg.target.as_deref().unwrap_or(ARCH);
     let target_triple = get_target_triple(arch);
-    let target_dir = raw_target_dir.join(target_triple).join("release");
+    let target_dir = if arg.debug {
+        raw_target_dir.join(target_triple).join("debug")
+    } else {
+        raw_target_dir.join(target_triple).join("release")
+    };
     let target_config_toml = raw_target_dir.join("config.toml");
 
     Some(Directories {
@@ -140,7 +147,7 @@ fn build_prototyper(arg: &PrototyperArg) -> Option<ExitStatus> {
             cargo.features(["payload".to_string()])
         })
         .optional(arg.jump, |cargo| cargo.features(["jump".to_string()]))
-        .release()
+        .optional(!arg.debug, |cargo| cargo.release())
         .status()
         .ok()?;
 
