@@ -102,11 +102,11 @@ slides and blog articles of these talks are available at [RustSBI/slides](https:
 
 The RustSBI project is sponsored by multiple institutions, companies, and individuals.
 
-Individual sponsors:
+Individual sponsors (by order of donation):
 
-| <img src="https://avatars.githubusercontent.com/u/62325246?v=4" data-canonical-src="https://avatars.githubusercontent.com/u/62325246?v=4" width="150" height="150" /> |
-|---|
-| Zevorn (Chao Liu, [@zevorn](https://github.com/zevorn/)) |
+| <img src="https://avatars.githubusercontent.com/u/62325246?v=4" width="150" height="150" /> | <img src="https://avatars.githubusercontent.com/u/107762234?v=4" width="150" height="150" /> |
+|---|---|
+| Chao Liu ([@zevorn](https://github.com/zevorn)) | Zhenchen Wang ([@plucky923](https://github.com/plucky923/)) |
 
 ## License & Copyright
 
