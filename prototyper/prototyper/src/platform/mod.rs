@@ -265,9 +265,7 @@ impl Platform {
             let cpu = cpu_iter.deserialize::<Cpu>();
             let hart_id = cpu.reg.iter().next().unwrap().0.start;
             if let Some(x) = cpu_list.get_mut(hart_id) {
-                unsafe {
-                    *x = CPU_PRIVILEGED_ENABLED[hart_id];
-                }
+                *x = true;
             } else {
                 error!(
                     "The maximum supported hart id is {}, but the hart id {} was obtained. Please check the config!",
@@ -277,6 +275,14 @@ impl Platform {
             }
         }
         self.info.cpu_enabled = Some(cpu_list);
+    }
+
+    pub fn sbi_cpu_init_with_feature(&mut self) {
+        for i in 0..NUM_HART_MAX {
+            if self.info.cpu_enabled.unwrap()[i] {
+                self.info.cpu_enabled.unwrap()[i] = unsafe { CPU_PRIVILEGED_ENABLED[i] };
+            }
+        }
     }
 
     fn sbi_console_init(&mut self) {
