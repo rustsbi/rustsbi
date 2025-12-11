@@ -100,6 +100,9 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
 
     // boot hart task entry.
     if boot_hart_info.is_boot_hart {
+        unsafe {
+            PLATFORM.sbi_cpu_init_with_feature();
+        }
         let fdt_address = boot_hart_info.fdt_address;
         let fdt_address = firmware::patch_device_tree(fdt_address);
 
