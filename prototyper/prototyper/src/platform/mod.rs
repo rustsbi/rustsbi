@@ -32,9 +32,11 @@ use crate::sbi::pmu::{EventToCounterMap, RawEventToCounterMap};
 use crate::sbi::reset::SbiReset;
 use crate::sbi::rfence::SbiRFence;
 use crate::sbi::suspend::SbiSuspend;
+use plic::{PlicType, PlicWrap, RISCV_PLIC_COMPATIBLE, THEAD_PLIC_COMPATIBLE};
 
 mod clint;
 mod console;
+mod plic;
 mod reset;
 pub static mut CPU_PRIVILEGED_ENABLED: [bool; NUM_HART_MAX] = [false; NUM_HART_MAX];
 
@@ -47,6 +49,7 @@ pub struct BoardInfo {
     pub console: Option<(BaseAddress, MachineConsoleType)>,
     pub reset: Option<BaseAddress>,
     pub ipi: Option<(BaseAddress, MachineClintType)>,
+    pub plic: Option<(BaseAddress, PlicType, u32)>,
     pub cpu_num: Option<usize>,
     pub cpu_enabled: Option<CpuEnableList>,
     pub model: String,
@@ -59,6 +62,7 @@ impl BoardInfo {
             console: None,
             reset: None,
             ipi: None,
+            plic: None,
             cpu_enabled: None,
             cpu_num: None,
             model: String::new(),
@@ -93,6 +97,8 @@ impl Platform {
         self.sbi_find_and_init_console(&root);
         // Get clint and reset device, init sbi ipi, reset, hsm, rfence and susp extension.
         self.sbi_init_ipi_reset_hsm_rfence(&root);
+        // Get plic and init it.
+        self.sbi_find_and_init_plic(&root);
         // Initialize pmu extension
         self.sbi_init_pmu(&root);
         // Get other info
@@ -136,6 +142,48 @@ impl Platform {
         self.sbi_console_init();
         logger::Logger::init().unwrap();
         info!("Hello RustSBI!");
+    }
+
+    fn sbi_find_and_init_plic(&mut self, root: &serde_device_tree::buildin::Node) {
+        // Get plic device info
+        let mut thead_flag = false;
+        let mut find_device = |node: &serde_device_tree::buildin::Node| {
+            let info = get_compatible_and_range(node);
+            let ndev = match node.get_prop("riscv,ndev") {
+                Some(prop) => prop.deserialize::<u32>(),
+                None => 128,
+            };
+            if let Some(info) = info {
+                let (compatible, regs) = info;
+                let base_address = regs.start;
+                if compatible
+                    .iter()
+                    .find(|x| THEAD_PLIC_COMPATIBLE.contains(x))
+                    .is_some()
+                {
+                    thead_flag = true;
+                    self.info.plic = Some((base_address, PlicType::TheadPlic, ndev));
+                }
+                if compatible
+                    .iter()
+                    .find(|x| RISCV_PLIC_COMPATIBLE.contains(x))
+                    .is_some()
+                {
+                    self.info.plic = Some((base_address, PlicType::RiscvPlic, ndev));
+                }
+            }
+        };
+        root.search(&mut find_device);
+        match self.info.plic {
+            Some((address, plic_type, ndev)) => {
+                let plic = PlicWrap::new(address, plic_type, ndev);
+                for i in 0..ndev {
+                    plic.set_priority(i as usize, 0);
+                }
+                plic.set_delegate();
+            }
+            _ => {}
+        }
     }
 
     fn sbi_init_ipi_reset_hsm_rfence(&mut self, root: &serde_device_tree::buildin::Node) {
@@ -407,6 +455,7 @@ impl Platform {
     #[inline]
     fn print_device_info(&self) {
         self.print_clint_info();
+        self.print_plic_info();
         self.print_console_info();
         self.print_reset_info();
         self.print_hsm_info();
@@ -425,6 +474,22 @@ impl Platform {
                 );
             }
             None => warn!("{:<30}: Not Available", "Platform IPI Device"),
+        }
+    }
+
+    #[inline]
+    fn print_plic_info(&self) {
+        match self.info.plic {
+            Some((base, device, ndev)) => {
+                info!(
+                    "{:<30}: {:?} (Base Address: 0x{:x}, device number: {})",
+                    "Platform-Level Interrupt Controller", device, base, ndev
+                );
+            }
+            None => warn!(
+                "{:<30}: Not Available",
+                "Platform-Level Interrupt Controller"
+            ),
         }
     }
 
