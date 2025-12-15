@@ -9,5 +9,6 @@ All notable changes to this project will be documented in this file. See [conven
 ### Added
 
 ### Modified
+- Refine CSR group comments.
 
 ### Removed
