@@ -3,30 +3,14 @@
 use pastey::paste;
 use seq_macro::seq;
 
-/// CSR addresses
+// Supervisor Timer Register (Sstc extension)
 pub const CSR_STIMECMP: u16 = 0x14D;
+
+// Machine Counter-Enable and Environment Configuration
 pub const CSR_MCOUNTEREN: u16 = 0x306;
 pub const CSR_MENVCFG: u16 = 0x30a;
-pub const CSR_MCYCLE: u16 = 0xb00;
-pub const CSR_MINSTRET: u16 = 0xb02;
-seq!(N in 3..32 {
-    pub const CSR_MHPMCOUNTER~N: u16 = 0xb00 + N;
-});
-pub const CSR_MCYCLEH: u16 = 0xb80;
-pub const CSR_MINSTRETH: u16 = 0xb82;
-seq!(N in 3..32 {
-    paste! {
-        pub const [<CSR_MHPMCOUNTER ~N H>]: u16 = 0xb80 + N;
-    }
-});
-/* User Counters/Timers */
-pub const CSR_CYCLE: u16 = 0xc00;
-pub const CSR_TIME: u16 = 0xc01;
-pub const CSR_INSTRET: u16 = 0xc02;
-seq!(N in 3..32 {
-    pub const CSR_HPMCOUNTER~N: u16 = 0xc00 + N;
-});
-/// MHPMEVENT
+
+// Machine Counter Setup (Inhibit, Privilege Filtering and Event Selection)
 pub const CSR_MCOUNTINHIBIT: u16 = 0x320;
 pub const CSR_MCYCLECFG: u16 = 0x321;
 pub const CSR_MINSTRETCFG: u16 = 0x322;
@@ -34,7 +18,31 @@ seq!(N in 3..32 {
     pub const CSR_MHPMEVENT~N: u16 = 0x320 + N;
 });
 
-// For RV32
+// Machine Counter/Timers
+pub const CSR_MCYCLE: u16 = 0xb00;
+pub const CSR_MINSTRET: u16 = 0xb02;
+seq!(N in 3..32 {
+    pub const CSR_MHPMCOUNTER~N: u16 = 0xb00 + N;
+});
+
+// Upper 32 bits of Machine Counter/Timers (RV32)
+pub const CSR_MCYCLEH: u16 = 0xb80;
+pub const CSR_MINSTRETH: u16 = 0xb82;
+seq!(N in 3..32 {
+    paste! {
+        pub const [<CSR_MHPMCOUNTER ~N H>]: u16 = 0xb80 + N;
+    }
+});
+
+// User Counter/Timers (Read-only shadows of Machine counters)
+pub const CSR_CYCLE: u16 = 0xc00;
+pub const CSR_TIME: u16 = 0xc01;
+pub const CSR_INSTRET: u16 = 0xc02;
+seq!(N in 3..32 {
+    pub const CSR_HPMCOUNTER~N: u16 = 0xc00 + N;
+});
+
+// Upper 32 bits of User Counter/Timers (RV32)
 pub const CSR_CYCLEH: u16 = 0xc80;
 pub const CSR_TIMEH: u16 = 0xc81;
 pub const CSR_INSTRETH: u16 = 0xc82;
