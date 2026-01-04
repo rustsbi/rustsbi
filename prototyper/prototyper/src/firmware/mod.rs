@@ -206,9 +206,9 @@ pub fn set_pmp(memory_range: &Range<usize>) {
     unsafe {
         // [0..memory_range.start] RWX
         // [memory_range.start..sbi_start] RWX
-        // [sbi_start..sbi_rodata_start] NONE
+        // [sbi_start..sbi_rodata_start] R
         // [sbi_rodata_start..sbi_rodata_end] NONE
-        // [sbi_rodata_end..sbi_end] NONE
+        // [sbi_rodata_end..sbi_end] R
         // [sbi_end..memory_range.end] RWX
         // [memory_range.end..INF] RWX
         use riscv::register::*;
