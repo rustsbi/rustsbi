@@ -7,7 +7,7 @@ documentation = "https://docs.rs/pmpm"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-keywords = ["riscv", "sbi", "rustsbi", "tee"]
+keywords = ["riscv", "sbi", "rustsbi", "pmp", "tee"]
 categories = ["os", "embedded", "hardware-support", "no-std"]
 
 [dependencies]
