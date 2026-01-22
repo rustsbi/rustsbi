@@ -1,0 +1,21 @@
+[package]
+name = "smm"
+description = "Penglai/Keystone style secure memory management"
+version = "0.0.0"
+authors = ["Char <jinzhe.oerv@isrc.iscas.ac.cn>", "Luo Jia <luojia@openatom.club>"]
+documentation = "https://docs.rs/smm"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["riscv", "sbi", "rustsbi", "tee"]
+categories = ["os", "embedded", "hardware-support", "no-std"]
+
+[dependencies]
+riscv = "0.12.1"
+buddy_system_allocator = "0.11.0"
+spin = "0.9"
+log = "0.4"
+pmpm = { version = "0.0.0", path = "../pmpm" }
+
+[dev-dependencies]
+rand = "0.8"
