@@ -234,8 +234,8 @@ unsafe extern "C" fn relocation_update() {
         "   add t4, t4, t2", // Add load offset to offset add append
         "   add t5, t5, t2",
         "   sd t5, 0(t4)", // Update address
-        "   addi t0, t0, 24", // Get next rela item
         "2:",
+        "   addi t0, t0, 24", // Get next rela item
         "   blt t0, t1, 1b",
         "   fence.i",
 
