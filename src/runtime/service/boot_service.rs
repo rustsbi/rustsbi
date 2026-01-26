@@ -135,14 +135,24 @@ pub unsafe extern "efiapi" fn get_memory_map(
     Status::UNSUPPORTED
 }
 pub unsafe extern "efiapi" fn allocate_pool(
-    _pool_type: MemoryType,
-    _size: usize,
-    _buffer: *mut *mut u8,
+    pool_type: MemoryType,
+    size: usize,
+    buffer: *mut *mut u8,
 ) -> Status {
-    Status::UNSUPPORTED
+    if buffer.is_null() {
+        return Status::INVALID_PARAMETER;
+    }
+    let ptr = crate::runtime::service::memory::allocate_pool(pool_type, size);
+    if ptr.is_null() {
+        // UEFI expects OUT_OF_RESOURCES on alloc failure.
+        return Status::OUT_OF_RESOURCES;
+    }
+    unsafe { *buffer = ptr };
+    Status::SUCCESS
 }
 pub unsafe extern "efiapi" fn free_pool(_buffer: *mut u8) -> Status {
-    Status::UNSUPPORTED
+    crate::runtime::service::memory::free_pool(_buffer);
+    Status::SUCCESS
 }
 
 // Event & timer functions

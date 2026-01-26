@@ -19,12 +19,10 @@ pub fn efi_runtime_init() {
 
     // Load the bootloader EFI file
     let load_bootloader = loader::load_efi_file("/EFI/BOOT/BOOTRISCV64.EFI");
-    let image_base =
-        loader::detect_and_get_image_base(&load_bootloader).expect("Failed to get PE image base");
+    let meta = loader::detect_pe_meta(&load_bootloader).expect("Failed to parse PE metadata");
 
     let file = loader::parse_efi_file(&load_bootloader);
-    let (base_va, max_va) = loader::analyze_sections(&file);
-    let mem_size = (max_va - base_va) as usize;
+    let mem_size = meta.size_of_image as usize;
 
     // let mapping = crate::runtime::service::memory::alloc_and_map_memory(mem_size, &load_bootloader);
     let mapping = crate::runtime::service::memory::alloc_pages(
@@ -33,19 +31,40 @@ pub fn efi_runtime_init() {
         mem_size / 4096 + 1,
     );
 
-    loader::load_sections(&file, mapping, base_va);
-    loader::apply_relocations(&file, mapping, base_va, image_base);
-
-    info!(
-        "Loaded EFI file with base VA: 0x{:x}, max VA: 0x{:x}, image base {:x}, mapping {:?}, entry: 0x{:x}",
-        base_va,
-        max_va,
-        image_base,
+    loader::load_image(&load_bootloader, &file, mapping, meta);
+    loader::apply_relocations(
+        &file,
         mapping,
-        file.entry()
+        mapping as u64,
+        meta.image_base,
+        meta.size_of_image,
     );
 
-    let func = entry::resolve_entry_func(mapping, file.entry(), base_va);
-    let result = func(core::ptr::null_mut(), system_table);
+    // Sanity-check the entry semantics from `object` (it should be image_base + entry_rva).
+    let obj_entry = file.entry();
+    let expected_entry = meta.image_base.wrapping_add(meta.entry_rva as u64);
+    if obj_entry != expected_entry {
+        warn!(
+            "Unexpected PE entry: object=0x{:x}, expected(image_base+entry_rva)=0x{:x}",
+            obj_entry, expected_entry
+        );
+    }
+
+    // RISC-V needs an I-cache sync after writing code into memory.
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+    unsafe {
+        core::arch::asm!("fence.i");
+    }
+
+    info!(
+        "Loaded EFI file: machine=0x{:04x}, preferred_image_base=0x{:x}, loaded_image_base=0x{:x}, size_of_image=0x{:x}, entry_rva=0x{:x}, mapping {:?}",
+        meta.machine, meta.image_base, mapping as u64, meta.size_of_image, meta.entry_rva, mapping,
+    );
+
+    let func = entry::resolve_entry_func(mapping, meta.entry_rva as u64);
+    // UEFI applications often expect a non-null ImageHandle (gImageHandle) for library init.
+    static mut DUMMY_IMAGE_HANDLE: usize = 1;
+    let image_handle = core::ptr::addr_of_mut!(DUMMY_IMAGE_HANDLE) as *mut core::ffi::c_void;
+    let result = func(image_handle, system_table);
     info!("efi_main return: {}", result);
 }

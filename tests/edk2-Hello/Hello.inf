@@ -4,6 +4,7 @@
   FILE_GUID                      = 01234567-89ab-cdef-0123-456789abcdef
   MODULE_TYPE                    = UEFI_APPLICATION
   VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = UefiMain
 
 [Sources]
   Hello.c

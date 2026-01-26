@@ -5,7 +5,11 @@ use core::mem::transmute;
 
 use uefi_raw::table::system::SystemTable;
 
-pub fn resolve_entry_func(mapping: *const u8, entry: u64, base_va: u64) -> EfiMainFn {
-    let func_addr = (mapping as usize + (entry - base_va) as usize) as *const ();
+/// Resolve the entry function from an RVA (relative virtual address).
+///
+/// For PE/COFF, the entry point in the optional header is an RVA, and
+/// `object::Object::entry()` returns `image_base + entry_rva`.
+pub fn resolve_entry_func(mapping: *const u8, entry_rva: u64) -> EfiMainFn {
+    let func_addr = (mapping as usize + entry_rva as usize) as *const ();
     unsafe { transmute(func_addr) }
 }

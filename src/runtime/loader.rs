@@ -1,6 +1,16 @@
 use object::FileKind;
+use object::endian::LittleEndian;
 use object::read::pe::ImageOptionalHeader;
 use object::{File, Object, ObjectSection, pe, read::pe::ImageNtHeaders};
+
+#[derive(Debug, Clone, Copy)]
+pub struct PeMeta {
+    pub machine: u16,
+    pub image_base: u64,
+    pub entry_rva: u32,
+    pub size_of_image: u32,
+    pub size_of_headers: u32,
+}
 
 pub fn load_efi_file(path: &str) -> alloc::vec::Vec<u8> {
     axfs::api::read(path).expect("Failed to read EFI file from ramdisk")
@@ -10,49 +20,67 @@ pub fn parse_efi_file(data: &[u8]) -> File {
     File::parse(data).expect("Failed to parse EFI file")
 }
 
-pub fn get_pe_image_base<Pe: ImageNtHeaders>(data: &[u8]) -> Option<u64> {
+fn get_pe_meta_impl<Pe: ImageNtHeaders>(data: &[u8]) -> Option<PeMeta> {
     let mut offset = pe::ImageDosHeader::parse(data)
         .ok()?
         .nt_headers_offset()
         .into();
     let (nt_headers, _) = Pe::parse(data, &mut offset).ok()?;
-    Some(nt_headers.optional_header().image_base())
+    let machine = nt_headers.file_header().machine.get(LittleEndian);
+    let oh = nt_headers.optional_header();
+    Some(PeMeta {
+        machine,
+        image_base: oh.image_base(),
+        entry_rva: oh.address_of_entry_point(),
+        size_of_image: oh.size_of_image(),
+        size_of_headers: oh.size_of_headers(),
+    })
 }
 
-pub fn detect_and_get_image_base(data: &[u8]) -> Option<u64> {
+pub fn detect_pe_meta(data: &[u8]) -> Option<PeMeta> {
     let kind = FileKind::parse(data).ok()?;
     match kind {
-        FileKind::Pe32 => get_pe_image_base::<pe::ImageNtHeaders32>(data),
-        FileKind::Pe64 => get_pe_image_base::<pe::ImageNtHeaders64>(data),
+        FileKind::Pe32 => get_pe_meta_impl::<pe::ImageNtHeaders32>(data),
+        FileKind::Pe64 => get_pe_meta_impl::<pe::ImageNtHeaders64>(data),
         _ => None,
     }
 }
 
-pub fn analyze_sections(file: &File) -> (u64, u64) {
-    let mut base_va = u64::MAX;
-    let mut max_va = 0;
-
-    for section in file.sections() {
-        let size = section.size();
-        let start = section.address();
-        let end = start + size;
-        base_va = base_va.min(start);
-        max_va = max_va.max(end);
+pub fn load_image(data: &[u8], file: &File, mapping: *mut u8, meta: PeMeta) {
+    // Copy PE headers (includes DOS header, NT headers, section headers, etc.)
+    let headers_len = meta.size_of_headers as usize;
+    let copy_len = headers_len.min(data.len());
+    unsafe {
+        core::ptr::copy_nonoverlapping(data.as_ptr(), mapping, copy_len);
+    }
+    if copy_len < headers_len {
+        warn!(
+            "PE headers truncated: size_of_headers=0x{:x} but file size=0x{:x}",
+            headers_len,
+            data.len()
+        );
     }
 
-    (base_va, max_va)
-}
-
-pub fn load_sections(file: &File, mapping: *mut u8, base_va: u64) {
     for section in file.sections() {
         if let Ok(data) = section.data() {
-            let offset = (section.address() - base_va) as usize;
+            // For PE/COFF, section.address() is the section RVA (VirtualAddress).
+            let offset = section.address() as usize;
             info!(
                 "Loading section {} to offset 0x{:x}, size 0x{:x}",
                 section.name().unwrap_or("<unnamed>"),
                 offset,
                 data.len()
             );
+            if offset.checked_add(data.len()).unwrap_or(usize::MAX) > meta.size_of_image as usize {
+                warn!(
+                    "Section {} out of bounds: offset=0x{:x} size=0x{:x} size_of_image=0x{:x}",
+                    section.name().unwrap_or("<unnamed>"),
+                    offset,
+                    data.len(),
+                    meta.size_of_image
+                );
+                continue;
+            }
             unsafe {
                 core::ptr::copy_nonoverlapping(data.as_ptr(), mapping.add(offset), data.len());
             }
@@ -60,8 +88,14 @@ pub fn load_sections(file: &File, mapping: *mut u8, base_va: u64) {
     }
 }
 
-pub fn apply_relocations(file: &File, mapping: *mut u8, loaded_base: u64, original_base: u64) {
-    let delta = loaded_base as i64 - original_base as i64;
+pub fn apply_relocations(
+    file: &File,
+    mapping: *mut u8,
+    loaded_image_base: u64,
+    preferred_image_base: u64,
+    size_of_image: u32,
+) {
+    let delta = loaded_image_base as i64 - preferred_image_base as i64;
 
     for section in file.sections() {
         if section.name().unwrap_or("") == ".reloc" {
@@ -89,8 +123,16 @@ pub fn apply_relocations(file: &File, mapping: *mut u8, loaded_base: u64, origin
                     let rtype = entry >> 12;
                     let roffset = entry & 0x0fff;
 
-                    let patch_va = va as u64 + roffset as u64;
-                    let patch_offset = (patch_va - loaded_base) as usize;
+                    // `va` is the Page RVA for this block; patch address is also an RVA.
+                    let patch_rva = va as u64 + roffset as u64;
+                    if patch_rva >= size_of_image as u64 {
+                        warn!(
+                            "Relocation RVA out of bounds: rva=0x{:x} size_of_image=0x{:x}",
+                            patch_rva, size_of_image
+                        );
+                        continue;
+                    }
+                    let patch_offset = patch_rva as usize;
 
                     match rtype {
                         10 => {
