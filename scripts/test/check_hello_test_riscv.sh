@@ -1,0 +1,18 @@
+#!/bin/bash
+set -e
+
+LOG_FILE="qemu-hello-riscv.log"
+TARGET_STRING="EFI Output: Hello, World!"
+
+if [ ! -f "$LOG_FILE" ]; then
+    echo "❌ $LOG_FILE 不存在"
+    exit 1
+fi
+
+if grep -qF "$TARGET_STRING" "$LOG_FILE"; then
+    echo "✅ 找到匹配日志行"
+    exit 0
+else
+    echo "❌ 未找到匹配日志行"
+    exit 2
+fi

@@ -41,18 +41,22 @@ make -C edk2/BaseTools
 . "$EDK_DIR/edksetup.sh" BaseTools
 
 echo "[4/4] 准备 HelloRiscv 和 AllocatePage 示例..."
-# mkdir -p "$EDK_DIR/Hello"
-# cp -r "$PROJECT_ROOT/tests/edk2-Hello" "$EDK_DIR"
-# mv "$EDK_DIR/edk2-Hello"/* "$EDK_DIR/Hello/"
-# cp -r "$EDK_DIR/MdeModulePkg/MdeModulePkg.dsc" "$EDK_DIR/Hello/Hello.dsc"
-# printf "\n[Components]\n  Hello/Hello.inf\n" >> "$EDK_DIR/Hello/Hello.dsc"
-# build -a RISCV64 -t GCC5 -p "$EDK_DIR/Hello/Hello.dsc"
+# edk2-Hello
+mkdir -p "$EDK_DIR/Hello"
+cp -r "$PROJECT_ROOT/tests/edk2-Hello" "$EDK_DIR"
+mv "$EDK_DIR/edk2-Hello"/* "$EDK_DIR/Hello/"
+cp -r "$EDK_DIR/MdeModulePkg/MdeModulePkg.dsc" "$EDK_DIR/Hello/Hello.dsc"
+printf "\n[Components]\n  Hello/Hello.inf\n" >> "$EDK_DIR/Hello/Hello.dsc"
+build -a RISCV64 -t GCC5 -p "$EDK_DIR/Hello/Hello.dsc"
+
+# edk2-HelloRiscv
 cp -r "$PROJECT_ROOT/tests/edk2-HelloRiscv" "$EDK_DIR"
 mv "$EDK_DIR/edk2-HelloRiscv" "$EDK_DIR/HelloRiscv/"
 build -a RISCV64 -t GCC5 -p "$EDK_DIR/HelloRiscv/HelloRiscv.dsc"
 
+# edk2-AllocatePage
 cp -r "$PROJECT_ROOT/tests/edk2-AllocatePage" "$EDK_DIR"
 mv "$EDK_DIR/edk2-AllocatePage" "$EDK_DIR/AllocatePage/"
 build -a RISCV64 -t GCC5 -p "$EDK_DIR/AllocatePage/AllocatePage.dsc"
 
-echo "EDK2 与示例构建完成。生成的文件位于：$WORKSPACE_DIR/Build/DEBUG_GCC5/RISCV64"
+echo "EDK2 与示例构建完成。"

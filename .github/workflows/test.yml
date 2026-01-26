@@ -16,10 +16,16 @@ jobs:
           target: riscv64gc-unknown-none-elf
           toolchain: nightly-2025-03-31
 
+      - name: Rust version diagnostics
+        run: |
+          rustc -Vv
+          cargo -V
+          rustup show
+
       - name: Install cargo-binutils and rust-objcopy
         run: |
           rustup component add llvm-tools-preview
-          cargo install cargo-binutils
+          cargo install cargo-binutils --locked --version 0.4.0
 
       - name: Build with Makefile
         run: |
@@ -49,23 +55,23 @@ jobs:
 
       # Test 1: HelloRiscv
       - name: Create ESP (HelloRiscv)
-        run: EFI_NAME=HelloRiscv sh scripts/test/make_esp.sh
+        run: EFI_FILE=edk2/Build/DEBUG_GCC5/RISCV64/HelloRiscv.efi sh scripts/test/make_esp.sh
 
       - name: Run QEMU (HelloRiscv)
-        run: make qemu-run > qemu-hello.log
+        run: make qemu-run > qemu-hello-riscv.log
 
       - name: Upload QEMU log (HelloRiscv)
         uses: actions/upload-artifact@v4
         with:
-          name: log-hello
-          path: qemu-hello.log
+          name: log-hello-riscv
+          path: qemu-hello-riscv.log
 
       - name: Check QEMU output (HelloRiscv)
-        run: sh scripts/test/check_hello_test.sh
+        run: sh scripts/test/check_hello_test_riscv.sh
 
       # Test 2: AllocatePage
       - name: Create ESP (AllocatePage)
-        run: EFI_NAME=AllocatePage sh scripts/test/make_esp.sh
+        run: EFI_FILE=edk2/Build/DEBUG_GCC5/RISCV64/AllocatePage.efi sh scripts/test/make_esp.sh
 
       - name: Run QEMU (AllocatePage)
         run: make qemu-run > qemu-allocate.log
@@ -78,3 +84,19 @@ jobs:
 
       - name: Check QEMU output (AllocatePage)
         run: sh scripts/test/check_allocate_test.sh
+
+      # Test 3: Hello
+      - name: Create ESP (Hello)
+        run: EFI_FILE=edk2/Build/MdeModule/DEBUG_GCC5/RISCV64/Hello.efi sh scripts/test/make_esp.sh
+
+      - name: Run QEMU (Hello)
+        run: make qemu-run > qemu-hello.log
+
+      - name: Upload QEMU log (Hello)
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-hello
+          path: qemu-hello.log
+
+      - name: Check QEMU output (Hello)
+        run: sh scripts/test/check_hello_test.sh
