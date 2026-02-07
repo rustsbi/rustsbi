@@ -15,6 +15,7 @@ members = [
     "prototyper/prototyper",
     "prototyper/bench-kernel",
     "prototyper/test-kernel",
+    "arceboot",
     "xtask",
 ]
 default-members = [

@@ -1,0 +1,111 @@
+# Architecture identifier.
+arch = "aarch64"                    # str
+# Platform identifier.
+platform = "aarch64-qemu-virt"      # str
+
+#
+# Platform configs
+#
+[plat]
+# Platform family.
+family = "aarch64-qemu-virt"        # str
+
+# Base address of the whole physical memory.
+phys-memory-base = 0x4000_0000      # uint
+# Size of the whole physical memory. (128M)
+phys-memory-size = 0x800_0000       # uint
+# Base physical address of the kernel image.
+kernel-base-paddr = 0x4020_0000     # uint
+# Base virtual address of the kernel image.
+kernel-base-vaddr = "0xffff_0000_4020_0000"     # uint
+# Linear mapping offset, for quick conversions between physical and virtual
+# addresses.
+phys-virt-offset = "0xffff_0000_0000_0000"      # uint
+# Offset of bus address and phys address. some boards, the bus address is
+# different from the physical address.
+phys-bus-offset = 0                             # uint
+# Kernel address space base.
+kernel-aspace-base = "0xffff_0000_0000_0000"    # uint
+# Kernel address space size.
+kernel-aspace-size = "0x0000_ffff_ffff_f000"    # uint
+
+#
+# Device specifications
+#
+[devices]
+# MMIO regions with format (`base_paddr`, `size`).
+mmio-regions = [
+    [0x0900_0000, 0x1000],      # PL011 UART
+    [0x0910_0000, 0x1000],      # PL031 RTC
+    [0x0800_0000, 0x2_0000],    # GICv2
+    [0x0a00_0000, 0x4000],      # VirtIO
+    [0x1000_0000, 0x2eff_0000],     # PCI memory ranges (ranges 1: 32-bit MMIO space)
+    [0x40_1000_0000, 0x1000_0000],  # PCI config space
+]                                   # [(uint, uint)]
+# VirtIO MMIO regions with format (`base_paddr`, `size`).
+virtio-mmio-regions = [
+    [0x0a00_0000, 0x200],
+    [0x0a00_0200, 0x200],
+    [0x0a00_0400, 0x200],
+    [0x0a00_0600, 0x200],
+    [0x0a00_0800, 0x200],
+    [0x0a00_0a00, 0x200],
+    [0x0a00_0c00, 0x200],
+    [0x0a00_0e00, 0x200],
+    [0x0a00_1000, 0x200],
+    [0x0a00_1200, 0x200],
+    [0x0a00_1400, 0x200],
+    [0x0a00_1600, 0x200],
+    [0x0a00_1800, 0x200],
+    [0x0a00_1a00, 0x200],
+    [0x0a00_1c00, 0x200],
+    [0x0a00_1e00, 0x200],
+    [0x0a00_3000, 0x200],
+    [0x0a00_2200, 0x200],
+    [0x0a00_2400, 0x200],
+    [0x0a00_2600, 0x200],
+    [0x0a00_2800, 0x200],
+    [0x0a00_2a00, 0x200],
+    [0x0a00_2c00, 0x200],
+    [0x0a00_2e00, 0x200],
+    [0x0a00_3000, 0x200],
+    [0x0a00_3200, 0x200],
+    [0x0a00_3400, 0x200],
+    [0x0a00_3600, 0x200],
+    [0x0a00_3800, 0x200],
+    [0x0a00_3a00, 0x200],
+    [0x0a00_3c00, 0x200],
+    [0x0a00_3e00, 0x200],
+]                               # [(uint, uint)]
+# Base physical address of the PCIe ECAM space.
+pci-ecam-base = 0x40_1000_0000  # uint
+# End PCI bus number (`bus-range` property in device tree).
+pci-bus-end = 0xff              # uint
+# PCI device memory ranges (`ranges` property in device tree).
+pci-ranges = [
+    [0x3ef_f0000, 0x1_0000],            # PIO space
+    [0x1000_0000, 0x2eff_0000],         # 32-bit MMIO space
+    [0x80_0000_0000, 0x80_0000_0000],   # 64-bit MMIO space
+]                               # [(uint, uint)]
+# UART Address
+uart-paddr = 0x0900_0000        # uint
+# UART IRQ number
+uart-irq = 1                    # uint
+
+# GIC CPU Interface base address
+gicc-paddr = 0x0801_0000        # uint
+# GIC Distributor base address
+gicd-paddr = 0x0800_0000        # uint
+
+# PSCI
+psci-method = "hvc"             # str
+
+# pl031@9010000 {
+#     clock-names = "apb_pclk";
+#     clocks = <0x8000>;
+#     interrupts = <0x00 0x02 0x04>;
+#     reg = <0x00 0x9010000 0x00 0x1000>;
+#     compatible = "arm,pl031\0arm,primecell";
+# };
+# RTC (PL031) Address
+rtc-paddr = 0x901_0000          # uint

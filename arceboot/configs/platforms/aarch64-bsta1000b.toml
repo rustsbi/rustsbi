@@ -1,0 +1,68 @@
+# Architecture identifier.
+arch = "aarch64"                    # str
+# Platform identifier.
+platform = "aarch64-bsta1000b"      # str
+
+#
+# Platform configs
+#
+[plat]
+# Platform family.
+family = "aarch64-bsta1000b"        # str
+
+# Base address of the whole physical memory.
+phys-memory-base = 0x8000_0000      # uint
+# Size of the whole physical memory.
+phys-memory-size = 0x7000_0000      # uint
+# Base physical address of the kernel image.
+kernel-base-paddr = 0x81000000      # uint
+# Base virtual address of the kernel image.
+kernel-base-vaddr = "0xffff_0000_8100_0000"     # uint
+# Linear mapping offset, for quick conversions between physical and virtual
+# addresses.
+phys-virt-offset = "0xffff_0000_0000_0000"      # uint
+# Offset of bus address and phys address. some boards, the bus address is
+# different from the physical address.
+phys-bus-offset = 0                             # uint
+# Kernel address space base.
+kernel-aspace-base = "0xffff_0000_0000_0000"    # uint
+# Kernel address space size.
+kernel-aspace-size = "0x0000_ffff_ffff_f000"    # uint
+
+#
+# Device specifications
+#
+[devices]
+# MMIO regions with format (`base_paddr`, `size`).
+mmio-regions = [
+    [0x20008000, 0x1000],   # uart8250 UART0
+    [0x32000000, 0x8000],   # arm,gic-400
+    [0x32011000, 0x1000],   # CPU CSR
+    [0x33002000, 0x1000],   # Top CRM
+    [0x70035000, 0x1000],   # CRM reg
+    [0x70038000, 0x1000],   # aon pinmux
+]                           # [(uint, uint)]
+# VirtIO MMIO regions with format (`base_paddr`, `size`).
+virtio-mmio-regions = []    # [(uint, uint)]
+
+# UART Address
+uart-paddr = 0x2000_8000        # uint
+# UART IRQ number
+uart-irq = 0xd5                 # uint
+
+# GIC CPU Interface base address
+gicc-paddr = 0x3200_2000        # uint
+# GIC Distributor base address
+gicd-paddr = 0x3200_1000        # uint
+
+# BST A1000B board registers
+cpu-csr-base = 0x3201_1000          # uint
+a1000base-topcrm = 0x3300_2000      # uint
+a1000base-safetycrm = 0x7003_5000   # uint
+a1000base-aoncfg = 0x7003_8000      # uint
+
+# PSCI
+psci-method = "smc"     # str
+
+# RTC (PL031) Address (Need to read from DTB).
+rtc-paddr = 0x0         # uint
