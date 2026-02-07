@@ -1,5 +1,4 @@
 //! Machine-level top external interrupt register (only with an IMSIC).
-//! Machine-level top external interrupt register (only with an IMSIC).
 //!
 //! CSR `mtopei` reports the highest-priority external interrupt that is
 //! pending and enabled for machine-level when an IMSIC is present. Provide a

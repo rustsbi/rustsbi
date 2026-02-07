@@ -14,7 +14,7 @@ sbi-spec = { version = "0.0.8", features = [
     "legacy",
 ], path = "../../library/sbi-spec" }
 log = "0.4"
-riscv = "0.12.1"
+riscv = { workspace = true }
 spin = "0.9"
 uart16550 = "0.0.1"
 rcore-console = "0.0.0"

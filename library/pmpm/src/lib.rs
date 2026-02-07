@@ -140,25 +140,27 @@ pub fn set_pmp_cfg(idx: u32, config: &PmpConfig) {
     }
 }
 
-fn _set_pmp_addr(idx: u32, addr: usize) {
-    match idx {
-        0 => pmpaddr0::write(addr),
-        1 => pmpaddr1::write(addr),
-        2 => pmpaddr2::write(addr),
-        3 => pmpaddr3::write(addr),
-        4 => pmpaddr4::write(addr),
-        5 => pmpaddr5::write(addr),
-        6 => pmpaddr6::write(addr),
-        7 => pmpaddr7::write(addr),
-        8 => pmpaddr8::write(addr),
-        9 => pmpaddr9::write(addr),
-        10 => pmpaddr10::write(addr),
-        11 => pmpaddr11::write(addr),
-        12 => pmpaddr12::write(addr),
-        13 => pmpaddr13::write(addr),
-        14 => pmpaddr14::write(addr),
-        15 => pmpaddr15::write(addr),
-        _ => panic!("Invalid PMP index for addr"),
+unsafe fn _set_pmp_addr(idx: u32, addr: usize) {
+    unsafe {
+        match idx {
+            0 => pmpaddr0::write(addr),
+            1 => pmpaddr1::write(addr),
+            2 => pmpaddr2::write(addr),
+            3 => pmpaddr3::write(addr),
+            4 => pmpaddr4::write(addr),
+            5 => pmpaddr5::write(addr),
+            6 => pmpaddr6::write(addr),
+            7 => pmpaddr7::write(addr),
+            8 => pmpaddr8::write(addr),
+            9 => pmpaddr9::write(addr),
+            10 => pmpaddr10::write(addr),
+            11 => pmpaddr11::write(addr),
+            12 => pmpaddr12::write(addr),
+            13 => pmpaddr13::write(addr),
+            14 => pmpaddr14::write(addr),
+            15 => pmpaddr15::write(addr),
+            _ => panic!("Invalid PMP index for addr"),
+        }
     }
 }
 
@@ -178,8 +180,10 @@ pub fn set_pmp_entry(idx: u32, addr: usize, len: usize, config: &PmpConfig) -> b
         addr,
         0,
     );
-    _set_pmp_addr(idx, encode_pmp_addr(&slice, config.range));
-    set_pmp_cfg(idx, config);
+    unsafe {
+        _set_pmp_addr(idx, encode_pmp_addr(&slice, config.range));
+        set_pmp_cfg(idx, config);
+    }
     true
 }
 
@@ -194,7 +198,9 @@ pub fn set_pmp_addr(idx: u32, addr: usize, len: usize, range: Range) -> bool {
         addr,
         0,
     );
-    _set_pmp_addr(idx, encode_pmp_addr(&slice, range));
+    unsafe {
+        _set_pmp_addr(idx, encode_pmp_addr(&slice, range));
+    }
     true
 }
 

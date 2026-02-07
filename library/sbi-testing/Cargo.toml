@@ -20,7 +20,7 @@ targets = ["riscv32imac-unknown-none-elf", "riscv64imac-unknown-none-elf"]
 [dependencies]
 sbi-rt = { version = "0.0.3", path = "../sbi-rt" }
 sbi-spec = { version = "0.0.8", path = "../sbi-spec" }
-riscv = { version = "0.12.0", default-features = false }
+riscv = { workspace = true }
 log = { version = "0.4", package = "log", optional = true }
 
 [features]

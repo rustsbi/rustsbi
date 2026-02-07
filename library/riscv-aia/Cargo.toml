@@ -16,7 +16,7 @@ keywords = ["riscv", "aia"]
 categories = ["os", "embedded", "hardware-support", "no-std"]
 
 [dependencies]
-riscv = "0.12.1"
+riscv = { workspace = true }
 volatile-register = "0.2.2"
 
 [dev-dependencies]

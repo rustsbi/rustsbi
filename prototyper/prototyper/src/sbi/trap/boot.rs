@@ -43,7 +43,7 @@ pub extern "C" fn boot_handler(ctx: &mut BootContext) {
     fn boot(ctx: &mut BootContext, start_addr: usize, opaque: usize) {
         unsafe {
             sstatus::clear_sie();
-            satp::write(0);
+            satp::write(satp::Satp::from_bits(0));
         }
         ctx.a0 = current_hartid();
         ctx.a1 = opaque;

@@ -65,9 +65,9 @@ pub fn _rustsbi_base_bare<U: _ExtensionProbe>(
         spec::base::GET_SBI_IMPL_ID => crate::IMPL_ID_RUSTSBI,
         spec::base::GET_SBI_IMPL_VERSION => crate::RUSTSBI_VERSION,
         spec::base::PROBE_EXTENSION => probe.probe_extension(param0),
-        spec::base::GET_MVENDORID => mvendorid::read().map(|r| r.bits()).unwrap_or(0),
-        spec::base::GET_MARCHID => marchid::read().map(|r| r.bits()).unwrap_or(0),
-        spec::base::GET_MIMPID => mimpid::read().map(|r| r.bits()).unwrap_or(0),
+        spec::base::GET_MVENDORID => mvendorid::read().bits(),
+        spec::base::GET_MARCHID => marchid::read().bits(),
+        spec::base::GET_MIMPID => mimpid::read().bits(),
         _ => return SbiRet::not_supported(),
     };
     SbiRet::success(value)

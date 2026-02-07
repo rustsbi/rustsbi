@@ -43,10 +43,11 @@ pub fn get_unsigned_byte(addr: usize) -> u8 {
     let mut status: usize = 0;
     unsafe {
         let prev_mtvec = mtvec::read().bits();
-        mtvec::write(
-            crate::sbi::early_trap::expected_trap as _,
+        let val = mtvec::Mtvec::new(
+            crate::sbi::early_trap::expected_trap as *const () as _,
             mtvec::TrapMode::Direct,
         );
+        mtvec::write(val);
         asm!(
             "csrrs t3, mstatus, t3",
             "lbu t0, 0(t1)",
@@ -71,10 +72,11 @@ pub fn save_byte(addr: usize, data: usize) {
     unsafe {
         let prev_mtvec = mtvec::read().bits();
         let mut status: usize = 0;
-        mtvec::write(
-            crate::sbi::early_trap::expected_trap as _,
+        let val = mtvec::Mtvec::new(
+            crate::sbi::early_trap::expected_trap as *const () as _,
             mtvec::TrapMode::Direct,
         );
+        mtvec::write(val);
         asm!(
               "csrrs t3, mstatus, t3",
               "sb t0, 0(t1)",
@@ -119,7 +121,7 @@ pub fn save_reg_x(ctx: &mut EntireContextSeparated, reg_id: usize, data: usize) 
     match reg_id {
         00 => (),
         01 => ctx.regs().ra = data,
-        02 => sscratch::write(data),
+        02 => unsafe { sscratch::write(data) },
         03 => write_gp(data),
         04 => write_tp(data),
         05 => ctx.regs().t[0] = data,
