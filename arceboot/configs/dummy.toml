@@ -1,0 +1,54 @@
+# Architecture identifier.
+arch = "unknown"            # str
+# Platform identifier.
+platform = "dummy"          # str
+# Stack size of each task.
+task-stack-size = 0x40000   # uint
+# Number of timer ticks per second (Hz). A timer tick may contain several timer
+# interrupts.
+ticks-per-sec = 100         # uint
+# Number of CPUs
+smp = 1                     # uint
+
+#
+# Platform configs
+#
+[plat]
+# Platform family.
+family = "dummy"            # str
+
+# Base address of the whole physical memory.
+phys-memory-base = 0        # uint
+# Size of the whole physical memory.
+phys-memory-size = 0        # uint
+# End address of the whole physical memory.
+phys-memory-end = 0         # uint
+# Base physical address of the kernel image.
+kernel-base-paddr = 0       # uint
+# Base virtual address of the kernel image.
+kernel-base-vaddr = 0       # uint
+# Linear mapping offset, for quick conversions between physical and virtual
+# addresses.
+phys-virt-offset = 0        # uint
+# Offset of bus address and phys address. some boards, the bus address is
+# different from the physical address.
+phys-bus-offset = 0         # uint
+# Kernel address space base.
+kernel-aspace-base = 0      # uint
+# Kernel address space size.
+kernel-aspace-size = 0      # uint
+
+#
+# Device specifications
+#
+[devices]
+# MMIO regions with format (`base_paddr`, `size`).
+mmio-regions = []           # [(uint, uint)]
+# VirtIO MMIO regions with format (`base_paddr`, `size`).
+virtio-mmio-regions = []    # [(uint, uint)]
+# Base physical address of the PCIe ECAM space.
+pci-ecam-base = 0           # uint
+# End PCI bus number.
+pci-bus-end = 0             # uint
+# PCI device memory ranges.
+pci-ranges = []             # [(uint, uint)]

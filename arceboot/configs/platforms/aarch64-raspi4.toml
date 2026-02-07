@@ -1,0 +1,56 @@
+# Architecture identifier.
+arch = "aarch64"                    # str
+# Platform identifier.
+platform = "aarch64-raspi4"         # str
+
+#
+# Platform configs
+#
+[plat]
+# Platform family.
+family = "aarch64-raspi"            # str
+
+# Base address of the whole physical memory.
+phys-memory-base = 0x0              # uint
+# Size of the whole physical memory. (3G 960M)
+phys-memory-size = 0xFC00_0000      # uint
+# Base physical address of the kernel image.
+kernel-base-paddr = 0x8_0000        # uint
+# Base virtual address of the kernel image.
+kernel-base-vaddr = "0xffff_0000_0008_0000"     # uint
+# Linear mapping offset, for quick conversions between physical and virtual
+# addresses.
+phys-virt-offset = "0xffff_0000_0000_0000"      # uint
+# Offset of bus address and phys address. some boards, the bus address is
+# different from the physical address.
+phys-bus-offset = 0xC0000000                    # uint
+# Kernel address space base.
+kernel-aspace-base = "0xffff_0000_0000_0000"    # uint
+# Kernel address space size.
+kernel-aspace-size = "0x0000_ffff_ffff_f000"    # uint
+
+#
+# Device specifications
+#
+[devices]
+# MMIO regions with format (`base_paddr`, `size`).
+mmio-regions = [
+    [0xFE20_1000, 0x1000],      # PL011 UART
+    [0xFE34_0000, 0x1000],      # eMMC
+    [0xFF84_1000, 0x1000],      # GICv2
+]                               # [(uint, uint)]
+# VirtIO MMIO regions with format (`base_paddr`, `size`).
+virtio-mmio-regions = []        # [(uint, uint)]
+
+# UART Address
+uart-paddr = 0xFE20_1000        # uint
+# UART IRQ number
+uart-irq = 0x79                 # uint
+
+# GIC CPU Interface base address
+gicc-paddr = 0xFF84_2000        # uint
+# GIC Distributor base address
+gicd-paddr = 0xFF84_1000        # uint
+
+# RTC (PL031) Address (Need to read from DTB).
+rtc-paddr = 0x0                 # uint

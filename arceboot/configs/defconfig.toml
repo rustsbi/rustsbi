@@ -1,0 +1,9 @@
+# Stack size of each task.
+task-stack-size = 0x40000   # uint
+
+# Number of timer ticks per second (Hz). A timer tick may contain several timer
+# interrupts.
+ticks-per-sec = 100         # uint
+
+# Number of CPUs
+smp = 1                     # uint

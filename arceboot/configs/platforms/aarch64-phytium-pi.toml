@@ -1,0 +1,88 @@
+# Architecture identifier.
+arch = "aarch64"                    # str
+# Platform identifier.
+platform = "aarch64-phytium-pi"     # str
+
+#
+# Platform configs
+#
+[plat]
+# Platform family.
+family = "aarch64-phytium-pi"       # str
+
+# Base address of the whole physical memory.
+phys-memory-base = 0x8000_0000      # uint
+# Size of the whole physical memory. (2G)
+phys-memory-size = 0x8000_0000      # uint
+# Base physical address of the kernel image.
+kernel-base-paddr = 0x9000_0000     # uint
+# Base virtual address of the kernel image.
+kernel-base-vaddr = "0xffff_0000_9000_0000"     # uint
+# Linear mapping offset, for quick conversions between physical and virtual
+# addresses.
+phys-virt-offset = "0xffff_0000_0000_0000"      # uint
+# Offset of bus address and phys address. some boards, the bus address is
+# different from the physical address.
+phys-bus-offset = 0                             # uint
+# Kernel address space base.
+kernel-aspace-base = "0xffff_0000_0000_0000"    # uint
+# Kernel address space size.
+kernel-aspace-size = "0x0000_ffff_ffff_f000"    # uint
+
+#
+# Device specifications
+#
+[devices]
+# MMIO regions with format (`base_paddr`, `size`).
+mmio-regions = [
+    [0x2800_C000, 0x1000],  # UART 0
+    [0x2800_D000, 0x1000],  # UART 1
+    [0x2800_E000, 0x1000],  # UART 2
+    [0x2800_F000, 0x1000],  # UART 3
+
+    [0x3000_0000, 0x800_0000],  # other devices
+    [0x4000_0000, 0x1000_0000], # Pcie ecam
+
+    [0x5800_0000, 0x2800_0000], # 32-bit MMIO space
+
+    [0x2801_4000, 0x2000],  # MIO0 - I2C
+    [0x2801_6000, 0x2000],  # MIO1 - I2C
+    [0x2801_8000, 0x2000],  # MIO2 - I2C
+    [0x2801_A000, 0x2000],  # MIO3 - I2C
+    [0x2801_C000, 0x2000],  # MIO4 - I2C
+
+    [0x000_2803_4000, 0x1000],  # GPIO0
+    [0x000_2803_5000, 0x1000],  # GPIO1
+    [0x000_2803_6000, 0x1000],  # GPIO2
+    [0x000_2803_7000, 0x1000],  # GPIO3
+    [0x000_2803_8000, 0x1000],  # GPIO4
+    [0x000_2803_9000, 0x1000],  # GPIO5
+]                               # [(uint, uint)]
+# VirtIO MMIO regions with format (`base_paddr`, `size`).
+virtio-mmio-regions = []        # [(uint, uint)]
+# Base physical address of the PCIe ECAM space.
+pci-ecam-base = 0x4000_0000     # uint
+# End PCI bus number.
+pci-bus-end = 0x2               # uint
+# PCI device memory ranges.
+pci-ranges = [
+    [0x0, 0x5000_0000],                 # PIO space
+    [0x5800_0000, 0x2800_0000],         # 32-bit MMIO space
+    [0x10_0000_0000, 0x10_0000_0000],   # 64-bit MMIO space
+]                                       # [(uint, uint)]
+# UART Address
+uart-paddr = 0x2800_D000        # uint
+# UART IRQ number
+uart-irq = 0x54                 # uint
+
+# GIC CPU Interface base address
+gicc-paddr = 0x3080_0000        # uint
+# GIC Distributor base address
+# (TODO: gicv3 dosen't support yet, there is no gicd and need a gicr address)
+gicd-paddr = 0x3088_0000        # uint
+
+# PSCI
+psci-method = "smc"             # str
+
+# CPU Hardware ID list
+cpu-id-list = [0x200, 0x201, 0x00, 0x100]

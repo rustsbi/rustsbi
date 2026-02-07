@@ -1,0 +1,40 @@
+[package]
+name = "arceboot"
+version = "0.0.1"
+edition = "2024"
+authors = ["Zhihang Shao <dio_ro@outlook.com>", "Jingxuan Wei <jensenwei007@gmail.com>"]
+
+[features]
+default = ["alloc", "fs", "paging", "virtiodisk"]
+
+alloc = ["axalloc"]
+paging = ["axhal/paging", "axmm"]
+
+fs = ["axdriver", "axfs"]
+net = ["axdriver", "axnet"]
+display = ["axdriver", "axdisplay"]
+
+# Boot Media
+virtiodisk = ["axdriver/virtio-blk"]
+ramdisk_cpio = []
+
+[dependencies]
+axhal = { git = "https://github.com/arceos-org/arceos.git" }
+axlog = { git = "https://github.com/arceos-org/arceos.git" }
+axconfig = { git = "https://github.com/arceos-org/arceos.git" }
+axsync = { git = "https://github.com/arceos-org/arceos.git" }
+axalloc = { git = "https://github.com/arceos-org/arceos.git", optional = true }
+axmm = { git = "https://github.com/arceos-org/arceos.git", optional = true }
+axdriver = { git = "https://github.com/arceos-org/arceos.git", optional = true, features = ["virtio-blk", "virtio-gpu"] }
+axfs = { git = "https://github.com/arceos-org/arceos.git", optional = true }
+axnet = { git = "https://github.com/arceos-org/arceos.git", optional = true }
+axdisplay = { git = "https://github.com/arceos-org/arceos.git", optional = true }
+axio = { version = "0.1", features = ["alloc"] }
+
+crate_interface = "0.1"
+ctor_bare = "0.2"
+cfg-if = "1.0.1"
+object = { version = "0.37.1", default-features = false, features = [ "read", "pe" ] }
+chrono = { version = "0.4.38", default-features = false }
+uefi-raw = "0.11.0"
+lazyinit = "0.2.2"
