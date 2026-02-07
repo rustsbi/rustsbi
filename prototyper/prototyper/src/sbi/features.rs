@@ -38,10 +38,11 @@ pub enum Extension {
     Sstc = 0,
     Hypervisor = 1,
     Smaia = 2,
+    // Remember to increment `Extension::COUNT` while implementing new extensions.
 }
 
 impl Extension {
-    pub const COUNT: usize = 2;
+    pub const COUNT: usize = 3;
 
     pub const fn as_str(&self) -> &'static str {
         match self {
