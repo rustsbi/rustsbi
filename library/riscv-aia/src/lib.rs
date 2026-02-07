@@ -10,6 +10,8 @@ pub mod register;
 
 use core::num::NonZeroU16;
 
+use riscv::InterruptNumber;
+
 /// RISC-V AIA Interrupt Identity (IID).
 ///
 /// An IID is the encoded identity used by AIA/IMSIC to refer to an interrupt.
@@ -49,6 +51,20 @@ use core::num::NonZeroU16;
 ///         // Default interrupt handler.
 ///     }
 /// }
+/// ```
+///
+/// `Iid` can be converted into, or can be tried to convert from the `Interrupt` enum
+/// in the `riscv` crate:
+///
+/// ```
+/// # use riscv_aia::Iid;
+/// use riscv::interrupt::Interrupt;
+///
+/// let interrupt = Interrupt::MachineSoft;
+/// assert_eq!(Iid::MSOFT, interrupt.into());
+///
+/// let iid = Iid::MEXT;
+/// assert_eq!(Ok(Interrupt::MachineExternal), iid.try_into());
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
@@ -97,6 +113,32 @@ impl Iid {
     #[inline]
     pub const fn number(self) -> u16 {
         self.number.get()
+    }
+}
+
+impl From<riscv::interrupt::Interrupt> for Iid {
+    #[inline]
+    fn from(value: riscv::interrupt::Interrupt) -> Self {
+        assert!(value.number() <= u16::MAX as usize && value.number() != 0);
+        Iid::new(value.number() as u16).unwrap()
+    }
+}
+
+impl TryFrom<Iid> for riscv::interrupt::Interrupt {
+    type Error = ();
+
+    #[inline]
+    fn try_from(value: Iid) -> Result<Self, Self::Error> {
+        use riscv::interrupt::Interrupt;
+        match value {
+            Iid::SSOFT => Ok(Interrupt::SupervisorSoft),
+            Iid::MSOFT => Ok(Interrupt::MachineSoft),
+            Iid::STIMER => Ok(Interrupt::SupervisorTimer),
+            Iid::MTIMER => Ok(Interrupt::MachineTimer),
+            Iid::SEXT => Ok(Interrupt::SupervisorExternal),
+            Iid::MEXT => Ok(Interrupt::MachineExternal),
+            _ => Err(()),
+        }
     }
 }
 
@@ -150,6 +192,25 @@ mod tests {
             Some(Iid::MEXT) => unreachable!(),
             // Redundant, can be `_ => unreachable!()` in real use.
             Some(_) | None => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn iid_convert_riscv_crate() {
+        use riscv::interrupt::Interrupt;
+        let irqs = [
+            (Interrupt::SupervisorExternal, Iid::SEXT),
+            (Interrupt::MachineExternal, Iid::MEXT),
+            (Interrupt::SupervisorSoft, Iid::SSOFT),
+            (Interrupt::MachineSoft, Iid::MSOFT),
+            (Interrupt::SupervisorTimer, Iid::STIMER),
+            (Interrupt::MachineTimer, Iid::MTIMER),
+        ];
+        for (riscv_irq, aia_iid) in irqs {
+            assert_eq!(aia_iid, Iid::from(riscv_irq));
+            assert_eq!(aia_iid, riscv_irq.into());
+            assert_eq!(aia_iid.try_into(), Ok(riscv_irq));
+            assert_eq!(Interrupt::try_from(aia_iid), Ok(riscv_irq));
         }
     }
 }
