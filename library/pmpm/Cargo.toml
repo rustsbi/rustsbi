@@ -11,7 +11,7 @@ keywords = ["riscv", "sbi", "rustsbi", "pmp", "tee"]
 categories = ["os", "embedded", "hardware-support", "no-std"]
 
 [dependencies]
-riscv = "0.12.1"
+riscv = { workspace = true }
 
 [dev-dependencies]
 static_assertions = "1.1.0"

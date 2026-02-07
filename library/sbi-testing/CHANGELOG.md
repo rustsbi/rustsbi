@@ -16,6 +16,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Migrate sbi-rt crate to Rust 2024 edition.
 - Update sbi-spec to version 0.0.7
 - Update sbi-rt to version 0.0.3
+- Upgrade dependency `riscv` to 0.16.0.
 - Rename `MArchId` and `MVendorId` into `MarchId` and `MvendorId` in `BaseCase`
 - Replace `#[naked]` with `#[unsafe(naked)]` attribute in sbi-testing module to support stable Rust
     - Modified files:
