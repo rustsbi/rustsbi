@@ -87,10 +87,7 @@ pub fn free_pool(buffer: *mut u8) {
         let (_, layout) = pools.swap_remove(idx);
         // Safety: pointer/layout came from our allocator.
         unsafe {
-            axalloc::global_allocator().dealloc(
-                core::ptr::NonNull::new_unchecked(buffer),
-                layout,
-            )
+            axalloc::global_allocator().dealloc(core::ptr::NonNull::new_unchecked(buffer), layout)
         };
     }
 }
