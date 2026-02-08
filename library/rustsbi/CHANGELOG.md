@@ -19,6 +19,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Modified
 
 - Migrate sbi-rt crate to Rust 2024 edition.
+- Upgrade dependency `riscv` to 0.16.0.
 - susp: amend documentation on `system_suspend` function.
 - lib: replace map+unwrap_or with Option::map_or in impls
 - doc: lib: alter link to Prototyper firmware in documentation.

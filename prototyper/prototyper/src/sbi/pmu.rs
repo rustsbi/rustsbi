@@ -755,7 +755,9 @@ fn write_mhpmevent(mhpm_offset: u16, mhpmevent_val: u64) {
         seq_macro::seq!(N in 3..=31 {
             match idx {
                 #(
-                    N => pastey::paste!{ [<mhpmevent ~N>]::write(mhpmevent_val as usize) },
+                    N => unsafe {
+                        pastey::paste!{ [<mhpmevent ~N>]::write(mhpmevent_val as usize) }
+                    },
                 )*
                 _ =>{}
             }
@@ -782,7 +784,9 @@ fn write_mhpmcounter(mhpm_offset: u16, mhpmcounter_val: u64) {
         seq_macro::seq!(N in 3..=31 {
             match counter_idx {
                 #(
-                    N => pastey::paste!{ [<mhpmcounter ~N>]::write(mhpmcounter_val as usize) },
+                    N => pastey::paste!{ unsafe {
+                        [<mhpmcounter ~N>]::write(mhpmcounter_val as usize) }
+                    },
                 )*
                 _ =>{}
             }

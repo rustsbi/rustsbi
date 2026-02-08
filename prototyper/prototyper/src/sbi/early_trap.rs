@@ -63,7 +63,10 @@ pub(crate) unsafe fn csr_read_allow<const CSR_NUM: u16>(trap_info: *mut TrapInfo
     unsafe {
         core::ptr::write_volatile(&mut (*trap_info).mcause, usize::MAX);
         // Write expected_trap
-        mtvec::write(expected_trap as _, mtvec::TrapMode::Direct);
+        mtvec::write(mtvec::Mtvec::new(
+            expected_trap as *const () as _,
+            mtvec::TrapMode::Direct,
+        ));
 
         asm!(
             "add a3, {tinfo}, zero",
@@ -86,7 +89,8 @@ pub(crate) unsafe fn csr_write_allow<const CSR_NUM: u16>(trap_info: *mut TrapInf
     unsafe {
         core::ptr::write_volatile(&mut (*trap_info).mcause, usize::MAX);
         // Write expected_trap
-        mtvec::write(expected_trap as _, mtvec::TrapMode::Direct);
+        let val = mtvec::Mtvec::new(expected_trap as *const () as _, mtvec::TrapMode::Direct);
+        mtvec::write(val);
 
         asm!(
             "add a3, {tinfo}, zero",

@@ -19,7 +19,7 @@ use super::helper::*;
 pub fn switch(mut ctx: FastContext, start_addr: usize, opaque: usize) -> FastResult {
     unsafe {
         sstatus::clear_sie();
-        satp::write(0);
+        satp::write(satp::Satp::from_bits(0));
     }
 
     ctx.regs().a[0] = current_hartid();
@@ -130,7 +130,7 @@ pub fn sbi_call_handler(
     }
     ctx.regs().a = [ret.error, ret.value, a2, a3, a4, a5, a6, a7];
     let epc = mepc::read();
-    mepc::write(epc + get_inst(epc).1);
+    unsafe { mepc::write(epc + get_inst(epc).1) };
     ctx.restore()
 }
 
@@ -140,7 +140,7 @@ pub fn delegate(ctx: &mut EntireContextSeparated) {
     use riscv::register::{mcause, scause, sepc, sstatus, stval, stvec};
     unsafe {
         sepc::write(ctx.regs().pc);
-        scause::write(mcause::read().bits());
+        scause::write(scause::Scause::from_bits(mcause::read().bits()));
         stval::write(mtval::read());
         sstatus::clear_sie();
         if mstatus::read().mpp() == mstatus::MPP::Supervisor {
@@ -186,7 +186,9 @@ pub extern "C" fn illegal_instruction_handler(raw_ctx: EntireContext) -> EntireR
         }
     }
     let epc = mepc::read();
-    mepc::write(epc + get_inst(epc).1);
+    unsafe {
+        mepc::write(epc + get_inst(epc).1);
+    }
     ctx.restore()
 }
 
@@ -247,7 +249,9 @@ pub extern "C" fn load_misaligned_handler(ctx: EntireContext) -> EntireResult {
         VarType::Signed | VarType::UnSigned => save_reg_x(&mut ctx, target_reg as usize, read_data),
         VarType::Float => set_reg_f(target_reg as usize, len, read_data),
     };
-    mepc::write(current_pc + inst_len);
+    unsafe {
+        mepc::write(current_pc + inst_len);
+    }
     ctx.restore()
 }
 
@@ -307,6 +311,8 @@ pub extern "C" fn store_misaligned_handler(ctx: EntireContext) -> EntireResult {
         save_byte(current_addr + i, read_data[i] as usize);
     }
 
-    mepc::write(current_pc + inst_len);
+    unsafe {
+        mepc::write(current_pc + inst_len);
+    }
     ctx.restore()
 }

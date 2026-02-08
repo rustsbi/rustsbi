@@ -37,15 +37,18 @@ pub enum PrivilegedVersion {
 pub enum Extension {
     Sstc = 0,
     Hypervisor = 1,
+    Smaia = 2,
+    // Remember to increment `Extension::COUNT` while implementing new extensions.
 }
 
 impl Extension {
-    pub const COUNT: usize = 2;
+    pub const COUNT: usize = 3;
 
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Sstc => "sstc",
             Self::Hypervisor => "h",
+            Self::Smaia => "smaia", // TODO verify with DTB standard
         }
     }
 
@@ -55,7 +58,7 @@ impl Extension {
     }
 
     pub fn iter() -> impl Iterator<Item = Self> {
-        [Self::Sstc, Self::Hypervisor].into_iter()
+        [Self::Sstc, Self::Hypervisor, Self::Smaia].into_iter()
     }
 }
 
@@ -94,7 +97,7 @@ pub fn extension_detection(cpus: &NodeSeq) {
             let dt_supported = check_extension_in_device_tree(ext_name, &cpu_data);
             extensions[ext_index] = match ext {
                 Extension::Hypervisor if hart_id == current_hartid() => {
-                    misa::read().unwrap().has_extension('H')
+                    misa::read().has_extension('H')
                 }
                 _ => dt_supported,
             };
@@ -198,7 +201,7 @@ pub fn hart_privileged_check(mpp: MPP) {
     let hart_id = current_hartid();
     match mpp {
         MPP::Supervisor => {
-            if !misa::read().unwrap().has_extension('S') {
+            if !misa::read().has_extension('S') {
                 warn!("Hart {} not support Supervisor mode", hart_id);
                 fail::stop();
             } else {
@@ -208,7 +211,7 @@ pub fn hart_privileged_check(mpp: MPP) {
             }
         }
         MPP::User => {
-            if !misa::read().unwrap().has_extension('U') {
+            if !misa::read().has_extension('U') {
                 warn!("Hart {} not support User mode", hart_id);
                 fail::stop();
             } else {

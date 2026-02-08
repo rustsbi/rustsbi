@@ -8,7 +8,7 @@ repository.workspace = true
 [dependencies]
 log = "0.4"
 panic-halt = "1.0.0"
-riscv = "0.12.1"
+riscv = { workspace = true }
 sifive-test-device = "0.0.0"
 spin = "0.9.8"
 uart16550 = "0.0.1"
@@ -35,6 +35,7 @@ seq-macro = "0.3.5"
 pastey = "0.1.0"
 uart_sifive = { git = "https://github.com/duskmoon314/uart-rs/" }
 arm-pl011-uart = "0.3.2"
+riscv-aia = { version = "0.0.0", path = "../../library/riscv-aia" }
 
 [[bin]]
 name = "rustsbi-prototyper"
