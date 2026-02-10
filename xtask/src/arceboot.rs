@@ -147,11 +147,7 @@ fn generate_config(arceboot_dir: &Path, arg: &ArcebootArg) -> Option<PathBuf> {
     }
 
     let out_config = arceboot_dir.join(".axconfig.toml");
-    let arch = arg
-        .platform
-        .split('-')
-        .next()
-        .unwrap_or("riscv64");
+    let arch = arg.platform.split('-').next().unwrap_or("riscv64");
 
     let status = Command::new("axconfig-gen")
         .arg(defconfig.to_string_lossy().as_ref())
