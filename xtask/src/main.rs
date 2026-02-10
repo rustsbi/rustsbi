@@ -4,6 +4,7 @@ use std::process::ExitCode;
 
 #[macro_use]
 mod utils;
+mod arceboot;
 mod bench;
 mod logger;
 mod prototyper;
@@ -12,6 +13,7 @@ mod test;
 #[macro_use]
 extern crate log;
 
+use crate::arceboot::ArcebootArg;
 use crate::bench::BenchArg;
 use crate::prototyper::PrototyperArg;
 use crate::test::TestArg;
@@ -37,6 +39,8 @@ enum Cmd {
     Test(TestArg),
     /// Build bench-kernel for the RustSBI Prototyper.
     Bench(BenchArg),
+    /// Build ArceBoot bootloader (optionally with Prototyper as payload).
+    Arceboot(ArcebootArg),
 }
 
 fn main() -> ExitCode {
@@ -51,6 +55,7 @@ fn main() -> ExitCode {
         Cmd::Prototyper(arg) => prototyper::run(arg),
         Cmd::Test(arg) => test::run(arg),
         Cmd::Bench(arg) => bench::run(arg),
+        Cmd::Arceboot(arg) => arceboot::run(arg),
     };
 
     match result {
@@ -63,6 +68,7 @@ fn main() -> ExitCode {
                 Cmd::Prototyper(_) => "prototyper",
                 Cmd::Test(_) => "test",
                 Cmd::Bench(_) => "bench",
+                Cmd::Arceboot(_) => "arceboot",
             };
             error!("Task '{}' failed with exit code: {}", cmd_name, exit_status);
             ExitCode::FAILURE

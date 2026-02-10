@@ -243,12 +243,12 @@ impl DtbParser {
     }
 
     /// Provides a mutable `DtbMemory` view of the internal DTB data.
-    fn get_memory_view(&mut self) -> DtbMemory {
+    fn get_memory_view(&mut self) -> DtbMemory<'_> {
         DtbMemory::new(&mut self.dtb_data[..])
     }
 
     /// Provides a read-only `DtbMemory` view of the internal DTB data.
-    fn get_memory_view_read_only(&self) -> DtbMemory {
+    fn get_memory_view_read_only(&self) -> DtbMemory<'_> {
         let const_ptr = self.dtb_data.as_ptr();
         let len = self.dtb_data.len();
         DtbMemory::new(unsafe { core::slice::from_raw_parts_mut(const_ptr as *mut u8, len) })

@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ARCEBOOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+cd "$ARCEBOOT_DIR"
+
 print_info() {
     printf "\033[1;37m%s\033[0m" "[RustSBI-Arceboot Build For Test] "
     printf "\033[1;32m%s\033[0m" "[INFO] "
@@ -9,11 +14,9 @@ print_info() {
 
 print_info "开始执行 ramdisk 类型的 cpio 打包脚本"
 print_info "此为空镜像, 只含有一个 arceboot.txt 文件, 用于测试 Arceboot"
-print_info "即将在当前目录执行创建 -------->"
+print_info "输出目录: $ARCEBOOT_DIR"
 
-mkdir myramdisk
-mkdir myramdisk/test
-touch myramdisk/test/arceboot.txt
+mkdir -p myramdisk/test
 echo "This is a test file for Arceboot." > myramdisk/test/arceboot.txt
 
 cd myramdisk
@@ -22,4 +25,4 @@ cd ..
 
 rm -rf myramdisk
 
-print_info "创建完成, 生成的 ramdisk.cpio 位于当前目录"
+print_info "创建完成, 生成的 ramdisk.cpio 位于 $ARCEBOOT_DIR"

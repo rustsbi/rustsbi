@@ -1,12 +1,23 @@
 #!/bin/bash
 set -e
 
-PROJECT_ROOT=$(pwd)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ARCEBOOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+cd "$ARCEBOOT_DIR"
+
 IMG_NAME="disk.img"
 MOUNT_DIR="mnt_fat32"
 ESP_DIR="$MOUNT_DIR/EFI/BOOT"
 
 EFI_FILE="${EFI_FILE:-edk2/Build/DEBUG_GCC5/RISCV64/BOOTRISCV64.EFI}"
+
+# EFI_FILE 可以是绝对路径或相对于 ARCEBOOT_DIR 的路径
+if [ "${EFI_FILE#/}" = "$EFI_FILE" ]; then
+    SRC_EFI="$ARCEBOOT_DIR/$EFI_FILE"
+else
+    SRC_EFI="$EFI_FILE"
+fi
 
 if [ ! -d "$MOUNT_DIR" ]; then
     mkdir "$MOUNT_DIR"
@@ -19,7 +30,6 @@ echo "[2/3] 创建 ESP 目录结构..."
 sudo mkdir -p "$ESP_DIR"
 
 echo "[3/3] 复制 efi 文件到 ESP..."
-SRC_EFI="$PROJECT_ROOT/$EFI_FILE"
 echo "源文件: $SRC_EFI"
 sudo cp "$SRC_EFI" "$ESP_DIR/BOOTRISCV64.EFI"
 

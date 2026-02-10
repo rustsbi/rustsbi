@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ARCEBOOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+cd "$ARCEBOOT_DIR"
+
 LOG_FILE="qemu-hello.log"
 TARGET_STRING="EFI Output: Hello, World!"
 

@@ -1,8 +1,12 @@
 #!/bin/bash
 set -e
 
-PROJECT_ROOT=$(pwd)
-WORKSPACE_DIR="${PROJECT_ROOT}/edk2"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ARCEBOOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+cd "$ARCEBOOT_DIR"
+
+WORKSPACE_DIR="${ARCEBOOT_DIR}/edk2"
 EDK_DIR="$WORKSPACE_DIR/edk2"
 
 mkdir -p "$WORKSPACE_DIR"
@@ -43,19 +47,19 @@ make -C edk2/BaseTools
 echo "[4/4] 准备 HelloRiscv 和 AllocatePage 示例..."
 # edk2-Hello
 mkdir -p "$EDK_DIR/Hello"
-cp -r "$PROJECT_ROOT/tests/edk2-Hello" "$EDK_DIR"
+cp -r "$ARCEBOOT_DIR/tests/edk2-Hello" "$EDK_DIR"
 mv "$EDK_DIR/edk2-Hello"/* "$EDK_DIR/Hello/"
 cp -r "$EDK_DIR/MdeModulePkg/MdeModulePkg.dsc" "$EDK_DIR/Hello/Hello.dsc"
 printf "\n[Components]\n  Hello/Hello.inf\n" >> "$EDK_DIR/Hello/Hello.dsc"
 build -a RISCV64 -t GCC5 -p "$EDK_DIR/Hello/Hello.dsc"
 
 # edk2-HelloRiscv
-cp -r "$PROJECT_ROOT/tests/edk2-HelloRiscv" "$EDK_DIR"
+cp -r "$ARCEBOOT_DIR/tests/edk2-HelloRiscv" "$EDK_DIR"
 mv "$EDK_DIR/edk2-HelloRiscv" "$EDK_DIR/HelloRiscv/"
 build -a RISCV64 -t GCC5 -p "$EDK_DIR/HelloRiscv/HelloRiscv.dsc"
 
 # edk2-AllocatePage
-cp -r "$PROJECT_ROOT/tests/edk2-AllocatePage" "$EDK_DIR"
+cp -r "$ARCEBOOT_DIR/tests/edk2-AllocatePage" "$EDK_DIR"
 mv "$EDK_DIR/edk2-AllocatePage" "$EDK_DIR/AllocatePage/"
 build -a RISCV64 -t GCC5 -p "$EDK_DIR/AllocatePage/AllocatePage.dsc"
 

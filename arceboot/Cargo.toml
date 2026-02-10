@@ -1,7 +1,9 @@
 [package]
 name = "arceboot"
 version = "0.0.1"
-edition = "2024"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 authors = ["Zhihang Shao <dio_ro@outlook.com>", "Jingxuan Wei <jensenwei007@gmail.com>"]
 
 [features]
@@ -19,16 +21,16 @@ virtiodisk = ["axdriver/virtio-blk"]
 ramdisk_cpio = []
 
 [dependencies]
-axhal = { git = "https://github.com/arceos-org/arceos.git" }
-axlog = { git = "https://github.com/arceos-org/arceos.git" }
-axconfig = { git = "https://github.com/arceos-org/arceos.git" }
-axsync = { git = "https://github.com/arceos-org/arceos.git" }
-axalloc = { git = "https://github.com/arceos-org/arceos.git", optional = true }
-axmm = { git = "https://github.com/arceos-org/arceos.git", optional = true }
-axdriver = { git = "https://github.com/arceos-org/arceos.git", optional = true, features = ["virtio-blk", "virtio-gpu"] }
-axfs = { git = "https://github.com/arceos-org/arceos.git", optional = true }
-axnet = { git = "https://github.com/arceos-org/arceos.git", optional = true }
-axdisplay = { git = "https://github.com/arceos-org/arceos.git", optional = true }
+axhal = { git = "https://github.com/arceos-org/arceos.git", rev = "cde8c47" }
+axlog = { git = "https://github.com/arceos-org/arceos.git", rev = "cde8c47" }
+axconfig = { git = "https://github.com/arceos-org/arceos.git", rev = "cde8c47" }
+axsync = { git = "https://github.com/arceos-org/arceos.git", rev = "cde8c47" }
+axalloc = { git = "https://github.com/arceos-org/arceos.git", rev = "cde8c47", optional = true }
+axmm = { git = "https://github.com/arceos-org/arceos.git", rev = "cde8c47", optional = true }
+axdriver = { git = "https://github.com/arceos-org/arceos.git", rev = "cde8c47", optional = true, features = ["virtio-blk", "virtio-gpu"] }
+axfs = { git = "https://github.com/arceos-org/arceos.git", rev = "cde8c47", optional = true }
+axnet = { git = "https://github.com/arceos-org/arceos.git", rev = "cde8c47", optional = true }
+axdisplay = { git = "https://github.com/arceos-org/arceos.git", rev = "cde8c47", optional = true }
 axio = { version = "0.1", features = ["alloc"] }
 
 crate_interface = "0.1"
@@ -38,3 +40,9 @@ object = { version = "0.37.1", default-features = false, features = [ "read", "p
 chrono = { version = "0.4.38", default-features = false }
 uefi-raw = "0.11.0"
 lazyinit = "0.2.2"
+
+# Pin transitive deps to avoid memory_addr version mismatch with axhal@cde8c47.
+# axhal@cde8c47 uses memory_addr 0.3.x, but page_table_multiarch >= 0.5.4 pulls
+# memory_addr 0.4.x which causes type conflicts.
+page_table_multiarch = "=0.5.3"
+page_table_entry = "=0.5.3"
