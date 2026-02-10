@@ -12,13 +12,14 @@ Cargo.lock
 *.pdb
 
 # This part is used by the process files, executable files, image files, etc. 
-mnt/
-myramdisk/
 /.axconfig.*
 *.bin
-*.img
-*.cpio
 
-# This part is used by the edk2 tool to build the edk2 project
-edk2/
-mnt_fat32/
+# ArceBoot test artifacts (kept inside arceboot/)
+arceboot/mnt/
+arceboot/myramdisk/
+arceboot/mnt_fat32/
+arceboot/edk2/
+arceboot/*.img
+arceboot/*.cpio
+arceboot/qemu-*.log

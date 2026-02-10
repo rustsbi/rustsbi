@@ -42,7 +42,7 @@ pub struct ArcebootArg {
     pub display: bool,
 
     /// Path to the virtual disk image for QEMU
-    #[clap(long, default_value = "disk.img")]
+    #[clap(long, default_value = "arceboot/disk.img")]
     pub disk: String,
 }
 
