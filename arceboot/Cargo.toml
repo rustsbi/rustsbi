@@ -40,3 +40,9 @@ object = { version = "0.37.1", default-features = false, features = [ "read", "p
 chrono = { version = "0.4.38", default-features = false }
 uefi-raw = "0.11.0"
 lazyinit = "0.2.2"
+
+# Pin transitive deps to avoid memory_addr version mismatch with axhal@cde8c47.
+# axhal@cde8c47 uses memory_addr 0.3.x, but page_table_multiarch >= 0.5.4 pulls
+# memory_addr 0.4.x which causes type conflicts.
+page_table_multiarch = "=0.5.3"
+page_table_entry = "=0.5.3"
