@@ -82,7 +82,7 @@ jobs:
         run: |
           timeout 60 qemu-system-riscv64 \
             -m 128M -serial mon:stdio -nographic -machine virt \
-            -bios target/riscv64gc-unknown-none-elf/release/arceboot.bin \
+            -bios target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload.elf \
             -device virtio-blk-pci,drive=disk0 \
             -drive id=disk0,if=none,format=raw,file=disk.img \
             > qemu-hello-riscv.log 2>&1 || true
@@ -104,7 +104,7 @@ jobs:
         run: |
           timeout 60 qemu-system-riscv64 \
             -m 128M -serial mon:stdio -nographic -machine virt \
-            -bios target/riscv64gc-unknown-none-elf/release/arceboot.bin \
+            -bios target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload.elf \
             -device virtio-blk-pci,drive=disk0 \
             -drive id=disk0,if=none,format=raw,file=disk.img \
             > qemu-allocate.log 2>&1 || true
@@ -126,7 +126,7 @@ jobs:
         run: |
           timeout 60 qemu-system-riscv64 \
             -m 128M -serial mon:stdio -nographic -machine virt \
-            -bios target/riscv64gc-unknown-none-elf/release/arceboot.bin \
+            -bios target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload.elf \
             -device virtio-blk-pci,drive=disk0 \
             -drive id=disk0,if=none,format=raw,file=disk.img \
             > qemu-hello.log 2>&1 || true
