@@ -23,6 +23,9 @@ jobs:
       - name: Install required cargo
         run: cargo install clippy-sarif sarif-fmt cargo-binutils axconfig-gen
 
+      - name: Install required target
+        run: rustup target add riscv64gc-unknown-none-elf
+
       - name: Build ArceBoot
         run: cargo xtask arceboot
 
@@ -44,10 +47,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install build dependencies
+      - name: Install required cargo
         run: |
           rustup component add llvm-tools-preview
           cargo install cargo-binutils axconfig-gen
+
+      - name: Install required target
+        run: rustup target add riscv64gc-unknown-none-elf
 
       - name: Build ArceBoot with Prototyper payload
         run: cargo xtask arceboot --payload
@@ -76,7 +82,7 @@ jobs:
         run: |
           timeout 60 qemu-system-riscv64 \
             -m 128M -serial mon:stdio -nographic -machine virt \
-            -bios target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload.elf \
+            -bios target/riscv64gc-unknown-none-elf/release/arceboot.bin \
             -device virtio-blk-pci,drive=disk0 \
             -drive id=disk0,if=none,format=raw,file=disk.img \
             > qemu-hello-riscv.log 2>&1 || true
@@ -98,7 +104,7 @@ jobs:
         run: |
           timeout 60 qemu-system-riscv64 \
             -m 128M -serial mon:stdio -nographic -machine virt \
-            -bios target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload.elf \
+            -bios target/riscv64gc-unknown-none-elf/release/arceboot.bin \
             -device virtio-blk-pci,drive=disk0 \
             -drive id=disk0,if=none,format=raw,file=disk.img \
             > qemu-allocate.log 2>&1 || true
@@ -120,7 +126,7 @@ jobs:
         run: |
           timeout 60 qemu-system-riscv64 \
             -m 128M -serial mon:stdio -nographic -machine virt \
-            -bios target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload.elf \
+            -bios target/riscv64gc-unknown-none-elf/release/arceboot.bin \
             -device virtio-blk-pci,drive=disk0 \
             -drive id=disk0,if=none,format=raw,file=disk.img \
             > qemu-hello.log 2>&1 || true
