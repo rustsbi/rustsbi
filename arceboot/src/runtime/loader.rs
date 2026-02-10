@@ -16,7 +16,7 @@ pub fn load_efi_file(path: &str) -> alloc::vec::Vec<u8> {
     axfs::api::read(path).expect("Failed to read EFI file from ramdisk")
 }
 
-pub fn parse_efi_file(data: &[u8]) -> File {
+pub fn parse_efi_file(data: &[u8]) -> File<'_> {
     File::parse(data).expect("Failed to parse EFI file")
 }
 

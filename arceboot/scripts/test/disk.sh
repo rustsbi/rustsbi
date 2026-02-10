@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ARCEBOOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
 print_info() {
     printf "\033[1;37m%s\033[0m" "[RustSBI-Arceboot Build For Test] "
     printf "\033[1;32m%s\033[0m" "[INFO] "
@@ -8,7 +11,7 @@ print_info() {
 }
 
 print_info "开始创建 ramdisk 文件"
-bash scripts/test/ramdisk_cpio.sh
+bash "$SCRIPT_DIR/ramdisk_cpio.sh"
 
 print_info "开始执行 virtio-block 类型的 disk 创建脚本"
 print_info "此为 FAT32 文件系统镜像, 只含有一个 arceboot.txt 文件, 用于测试 Arceboot"

@@ -7,3 +7,18 @@ Cargo.lock
 
 # Mac OS X hidden files
 .DS_Store
+
+# MSVC Windows builds of rustc generate these, which store debugging information
+*.pdb
+
+# This part is used by the process files, executable files, image files, etc. 
+mnt/
+myramdisk/
+/.axconfig.*
+*.bin
+*.img
+*.cpio
+
+# This part is used by the edk2 tool to build the edk2 project
+edk2/
+mnt_fat32/

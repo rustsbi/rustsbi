@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ARCEBOOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
 PROJECT_ROOT=$(pwd)
 IMG_NAME="disk.img"
 MOUNT_DIR="mnt_fat32"

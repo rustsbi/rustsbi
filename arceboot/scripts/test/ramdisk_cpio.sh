@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ARCEBOOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
 print_info() {
     printf "\033[1;37m%s\033[0m" "[RustSBI-Arceboot Build For Test] "
     printf "\033[1;32m%s\033[0m" "[INFO] "
