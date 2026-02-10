@@ -1,0 +1,135 @@
+name: ArceBoot
+
+on:
+  pull_request:
+  push:
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+
+jobs:
+  build-and-clippy:
+    name: Build and clippy analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check format
+        run: cargo fmt --check -p arceboot
+
+      - name: Install required cargo
+        run: cargo install clippy-sarif sarif-fmt cargo-binutils axconfig-gen
+
+      - name: Build ArceBoot
+        run: cargo xtask arceboot
+
+      - name: Run rust-clippy
+        run: |
+          cargo clippy -p arceboot --target riscv64gc-unknown-none-elf --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
+        continue-on-error: true
+
+      - name: Upload analysis results to GitHub
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: rust-clippy-results.sarif
+          wait-for-processing: true
+
+  integration-test:
+    name: QEMU integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          rustup component add llvm-tools-preview
+          cargo install cargo-binutils axconfig-gen
+
+      - name: Build ArceBoot with Prototyper payload
+        run: cargo xtask arceboot --payload
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y uuid-dev qemu-system-misc
+
+      - name: Build EDK2
+        run: sh arceboot/scripts/test/build_edk2.sh
+
+      - name: Generate disk image
+        run: sh arceboot/scripts/test/disk.sh
+
+      # Test 1: HelloRiscv
+      - name: Create ESP (HelloRiscv)
+        run: EFI_FILE=edk2/Build/DEBUG_GCC5/RISCV64/HelloRiscv.efi sh arceboot/scripts/test/make_esp.sh
+
+      - name: Run QEMU (HelloRiscv)
+        run: |
+          timeout 60 qemu-system-riscv64 \
+            -m 128M -serial mon:stdio -nographic -machine virt \
+            -bios target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload.elf \
+            -device virtio-blk-pci,drive=disk0 \
+            -drive id=disk0,if=none,format=raw,file=disk.img \
+            > qemu-hello-riscv.log 2>&1 || true
+
+      - name: Upload QEMU log (HelloRiscv)
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-hello-riscv
+          path: qemu-hello-riscv.log
+
+      - name: Check QEMU output (HelloRiscv)
+        run: sh arceboot/scripts/test/check_hello_test_riscv.sh
+
+      # Test 2: AllocatePage
+      - name: Create ESP (AllocatePage)
+        run: EFI_FILE=edk2/Build/DEBUG_GCC5/RISCV64/AllocatePage.efi sh arceboot/scripts/test/make_esp.sh
+
+      - name: Run QEMU (AllocatePage)
+        run: |
+          timeout 60 qemu-system-riscv64 \
+            -m 128M -serial mon:stdio -nographic -machine virt \
+            -bios target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload.elf \
+            -device virtio-blk-pci,drive=disk0 \
+            -drive id=disk0,if=none,format=raw,file=disk.img \
+            > qemu-allocate.log 2>&1 || true
+
+      - name: Upload QEMU log (AllocatePage)
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-allocate
+          path: qemu-allocate.log
+
+      - name: Check QEMU output (AllocatePage)
+        run: sh arceboot/scripts/test/check_allocate_test.sh
+
+      # Test 3: Hello
+      - name: Create ESP (Hello)
+        run: EFI_FILE=edk2/Build/MdeModule/DEBUG_GCC5/RISCV64/Hello.efi sh arceboot/scripts/test/make_esp.sh
+
+      - name: Run QEMU (Hello)
+        run: |
+          timeout 60 qemu-system-riscv64 \
+            -m 128M -serial mon:stdio -nographic -machine virt \
+            -bios target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload.elf \
+            -device virtio-blk-pci,drive=disk0 \
+            -drive id=disk0,if=none,format=raw,file=disk.img \
+            > qemu-hello.log 2>&1 || true
+
+      - name: Upload QEMU log (Hello)
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-hello
+          path: qemu-hello.log
+
+      - name: Check QEMU output (Hello)
+        run: sh arceboot/scripts/test/check_hello_test.sh
