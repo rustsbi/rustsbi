@@ -4,8 +4,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ARCEBOOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-PROJECT_ROOT=$(pwd)
-WORKSPACE_DIR="${PROJECT_ROOT}/edk2"
+cd "$ARCEBOOT_DIR"
+
+WORKSPACE_DIR="${ARCEBOOT_DIR}/edk2"
 EDK_DIR="$WORKSPACE_DIR/edk2"
 
 mkdir -p "$WORKSPACE_DIR"

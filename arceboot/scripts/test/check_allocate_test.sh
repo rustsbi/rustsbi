@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ARCEBOOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+cd "$ARCEBOOT_DIR"
+
 LOG_FILE="qemu-allocate.log"
 TARGET_STRING="EFI Output: 0xDEADBEEF12345678"
 
