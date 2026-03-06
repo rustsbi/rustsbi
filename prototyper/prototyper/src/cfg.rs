@@ -7,6 +7,7 @@ static_toml! {
     const CONFIG = include_toml!("../../target/config.toml");
 }
 
+#[cfg(not(any(feature = "payload", feature = "jump")))]
 pub type NextAddr = crate::cfg::config::next_addr::NextAddr;
 
 /// Maximum number of supported harts.
@@ -27,4 +28,5 @@ pub const JUMP_ADDRESS: usize = CONFIG.jump_address as usize;
 pub const TLB_FLUSH_LIMIT: usize = CONFIG.tlb_flush_limit as usize;
 
 /// The dynamic valid next addr ranges.
+#[cfg(not(any(feature = "payload", feature = "jump")))]
 pub const DYNAMIC_NEXT_ADDR_RANGE: &NextAddr = &CONFIG.next_addr;

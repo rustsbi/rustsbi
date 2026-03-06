@@ -10,7 +10,7 @@ use crate::platform::PLATFORM;
 use crate::riscv::current_hartid;
 use crate::sbi::hart_context::NextStage;
 use crate::sbi::trap_stack::ROOT_STACK;
-use crate::trap_stack::hart_context_mut;
+use crate::sbi::trap_stack::hart_context_mut;
 
 use super::{trap::boot::boot, trap_stack::hart_context};
 
