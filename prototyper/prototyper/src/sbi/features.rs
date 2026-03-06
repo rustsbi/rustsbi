@@ -3,6 +3,8 @@ use riscv::register::misa;
 use seq_macro::seq;
 use serde_device_tree::buildin::NodeSeq;
 
+use core::sync::atomic::Ordering;
+
 use crate::fail;
 use crate::platform::CPU_PRIVILEGED_ENABLED;
 use crate::riscv::csr::*;
@@ -204,21 +206,15 @@ pub fn hart_privileged_check(mpp: MPP) {
             if !misa::read().has_extension('S') {
                 warn!("Hart {} not support Supervisor mode", hart_id);
                 fail::stop();
-            } else {
-                unsafe {
-                    CPU_PRIVILEGED_ENABLED[hart_id] = true;
-                }
             }
+            CPU_PRIVILEGED_ENABLED[hart_id].store(true, Ordering::Release);
         }
         MPP::User => {
             if !misa::read().has_extension('U') {
                 warn!("Hart {} not support User mode", hart_id);
                 fail::stop();
-            } else {
-                unsafe {
-                    CPU_PRIVILEGED_ENABLED[hart_id] = true;
-                }
             }
+            CPU_PRIVILEGED_ENABLED[hart_id].store(true, Ordering::Release);
         }
         _ => {}
     }

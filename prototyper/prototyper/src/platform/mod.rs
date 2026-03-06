@@ -36,7 +36,9 @@ use crate::sbi::suspend::SbiSuspend;
 mod clint;
 mod console;
 mod reset;
-pub static mut CPU_PRIVILEGED_ENABLED: [bool; NUM_HART_MAX] = [false; NUM_HART_MAX];
+
+pub(crate) static CPU_PRIVILEGED_ENABLED: [AtomicBool; NUM_HART_MAX] =
+    [const { AtomicBool::new(false) }; NUM_HART_MAX];
 
 type BaseAddress = usize;
 
@@ -287,9 +289,11 @@ impl Platform {
     }
 
     pub fn sbi_cpu_init_with_feature(&mut self) {
-        for i in 0..NUM_HART_MAX {
-            if self.info.cpu_enabled.unwrap()[i] {
-                self.info.cpu_enabled.unwrap()[i] = unsafe { CPU_PRIVILEGED_ENABLED[i] };
+        if let Some(cpu_enabled) = self.info.cpu_enabled.as_mut() {
+            for (hart_id, enabled) in cpu_enabled.iter_mut().enumerate() {
+                if *enabled {
+                    *enabled = CPU_PRIVILEGED_ENABLED[hart_id].load(Ordering::Acquire);
+                }
             }
         }
     }
