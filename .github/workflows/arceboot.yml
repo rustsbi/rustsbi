@@ -69,14 +69,17 @@ jobs:
           sudo apt install -y uuid-dev qemu-system-misc
 
       - name: Build EDK2
-        run: sh arceboot/scripts/test/build_edk2.sh
+        run: bash arceboot/scripts/test/build_edk2.sh
 
       - name: Generate disk image
-        run: sh arceboot/scripts/test/disk.sh
+        run: bash arceboot/scripts/test/disk.sh
 
       # Test 1: HelloRiscv
       - name: Create ESP (HelloRiscv)
-        run: EFI_FILE=edk2/Build/DEBUG_GCC5/RISCV64/HelloRiscv.efi sh arceboot/scripts/test/make_esp.sh
+        run: |
+          EFI_FILE="$(cd arceboot && find edk2/Build -type f -name HelloRiscv.efi -print -quit)"
+          test -n "$EFI_FILE"
+          EFI_FILE="$EFI_FILE" bash arceboot/scripts/test/make_esp.sh
 
       - name: Run QEMU (HelloRiscv)
         run: |
@@ -94,11 +97,14 @@ jobs:
           path: arceboot/qemu-hello-riscv.log
 
       - name: Check QEMU output (HelloRiscv)
-        run: sh arceboot/scripts/test/check_hello_test_riscv.sh
+        run: bash arceboot/scripts/test/check_hello_test_riscv.sh
 
       # Test 2: AllocatePage
       - name: Create ESP (AllocatePage)
-        run: EFI_FILE=edk2/Build/DEBUG_GCC5/RISCV64/AllocatePage.efi sh arceboot/scripts/test/make_esp.sh
+        run: |
+          EFI_FILE="$(cd arceboot && find edk2/Build -type f -name AllocatePage.efi -print -quit)"
+          test -n "$EFI_FILE"
+          EFI_FILE="$EFI_FILE" bash arceboot/scripts/test/make_esp.sh
 
       - name: Run QEMU (AllocatePage)
         run: |
@@ -116,11 +122,14 @@ jobs:
           path: arceboot/qemu-allocate.log
 
       - name: Check QEMU output (AllocatePage)
-        run: sh arceboot/scripts/test/check_allocate_test.sh
+        run: bash arceboot/scripts/test/check_allocate_test.sh
 
       # Test 3: Hello
       - name: Create ESP (Hello)
-        run: EFI_FILE=edk2/Build/MdeModule/DEBUG_GCC5/RISCV64/Hello.efi sh arceboot/scripts/test/make_esp.sh
+        run: |
+          EFI_FILE="$(cd arceboot && find edk2/Build -type f -name Hello.efi -print -quit)"
+          test -n "$EFI_FILE"
+          EFI_FILE="$EFI_FILE" bash arceboot/scripts/test/make_esp.sh
 
       - name: Run QEMU (Hello)
         run: |
@@ -138,4 +147,4 @@ jobs:
           path: arceboot/qemu-hello.log
 
       - name: Check QEMU output (Hello)
-        run: sh arceboot/scripts/test/check_hello_test.sh
+        run: bash arceboot/scripts/test/check_hello_test.sh
