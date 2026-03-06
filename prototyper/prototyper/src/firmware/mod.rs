@@ -20,32 +20,32 @@ use crate::riscv::current_hartid;
 /// Get work hart, for both steps.
 ///
 /// Init hart can be random choose when DynamicInfo can not be read.
-pub fn is_work_hart(nonstandard_a2: usize, boot: bool) -> bool {
-    use core::sync::atomic::{AtomicBool, Ordering};
-    // Track whether this is the first hart to boot
-    static GENESIS_INIT: AtomicBool = AtomicBool::new(true);
-    static GENESIS_BOOT: AtomicBool = AtomicBool::new(true);
+pub fn is_work_hart(_nonstandard_a2: usize, _boot: bool) -> bool {
+    use core::sync::atomic::{AtomicUsize, Ordering};
+    static WORK_HART: AtomicUsize = AtomicUsize::new(usize::MAX);
 
     cfg_if::cfg_if! {
         if #[cfg(any(feature = "payload", feature = "jump"))] {
             let info: _ = None;
         }
         else {
-            let info = read_paddr(nonstandard_a2).ok().and_then(|x| Some(x.boot_hart));
+            let info = read_paddr(_nonstandard_a2).ok().and_then(|x| Some(x.boot_hart));
         }
     }
 
-    let race_boot_hart = move || match boot {
-        true => GENESIS_BOOT.swap(false, Ordering::AcqRel),
-        false => GENESIS_INIT.swap(false, Ordering::AcqRel),
+    let select_work_hart = || {
+        let hart_id = current_hartid();
+        match WORK_HART.compare_exchange(usize::MAX, hart_id, Ordering::AcqRel, Ordering::Acquire) {
+            Ok(_) => true,
+            Err(selected_hart) => selected_hart == hart_id,
+        }
     };
 
     // Determine if this is the boot hart based on hart ID
     match info {
         Some(info) => {
             if info == usize::MAX {
-                // If boot_hart is MAX, use atomic bool to determine first hart
-                race_boot_hart()
+                select_work_hart()
             } else {
                 // Otherwise check if current hart matches designated boot hart
                 current_hartid() == info
@@ -53,7 +53,7 @@ pub fn is_work_hart(nonstandard_a2: usize, boot: bool) -> bool {
         }
         // If can not load DynamicInfo, just race a boot hart, this error will
         // be occurred after board init.
-        None => race_boot_hart(),
+        None => select_work_hart(),
     }
 }
 
