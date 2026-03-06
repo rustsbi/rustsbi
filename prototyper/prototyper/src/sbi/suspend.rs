@@ -18,7 +18,7 @@ impl rustsbi::Susp for SbiSuspend {
         }
 
         let prev_mode = mstatus::read().mpp();
-        if prev_mode != mstatus::MPP::Supervisor || prev_mode != mstatus::MPP::User {
+        if prev_mode != mstatus::MPP::Supervisor && prev_mode != mstatus::MPP::User {
             return SbiRet::failed();
         }
 
@@ -44,12 +44,9 @@ impl rustsbi::Susp for SbiSuspend {
         // TODO: The validity of `resume_addr` should be checked.
         // If it is invalid, `SBI_ERR_INVALID_ADDRESS` should be returned.
 
-        if let Some(hsm) = unsafe { &PLATFORM.sbi.hsm } {
-            hsm.hart_suspend(NON_RETENTIVE, resume_addr, opaque);
-        } else {
-            return SbiRet::not_supported();
+        match unsafe { &PLATFORM.sbi.hsm } {
+            Some(hsm) => hsm.hart_suspend(NON_RETENTIVE, resume_addr, opaque),
+            None => SbiRet::not_supported(),
         }
-
-        unreachable!();
     }
 }

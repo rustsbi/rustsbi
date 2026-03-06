@@ -3,6 +3,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ARCEBOOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_ROOT="$(cd "$ARCEBOOT_DIR/.." && pwd)"
 
 cd "$ARCEBOOT_DIR"
 
@@ -10,13 +11,23 @@ IMG_NAME="disk.img"
 MOUNT_DIR="mnt_fat32"
 ESP_DIR="$MOUNT_DIR/EFI/BOOT"
 
-EFI_FILE="${EFI_FILE:-edk2/Build/DEBUG_GCC5/RISCV64/BOOTRISCV64.EFI}"
+EFI_FILE="${EFI_FILE:-}"
 
-# EFI_FILE 可以是绝对路径或相对于 ARCEBOOT_DIR 的路径
-if [ "${EFI_FILE#/}" = "$EFI_FILE" ]; then
-    SRC_EFI="$ARCEBOOT_DIR/$EFI_FILE"
-else
+if [ -z "$EFI_FILE" ]; then
+    EFI_FILE="$(find "$ARCEBOOT_DIR/edk2/Build" -type f -name BOOTRISCV64.EFI -print -quit)"
+fi
+
+# EFI_FILE 可以是绝对路径、相对于 ARCEBOOT_DIR 的路径，
+# 或者相对于仓库根目录的路径。
+if [ "${EFI_FILE#/}" != "$EFI_FILE" ]; then
     SRC_EFI="$EFI_FILE"
+elif [ -f "$ARCEBOOT_DIR/$EFI_FILE" ]; then
+    SRC_EFI="$ARCEBOOT_DIR/$EFI_FILE"
+elif [ -f "$REPO_ROOT/$EFI_FILE" ]; then
+    SRC_EFI="$REPO_ROOT/$EFI_FILE"
+else
+    echo "EFI file not found: $EFI_FILE" >&2
+    exit 1
 fi
 
 if [ ! -d "$MOUNT_DIR" ]; then

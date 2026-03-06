@@ -36,7 +36,9 @@ use crate::sbi::suspend::SbiSuspend;
 mod clint;
 mod console;
 mod reset;
-pub static mut CPU_PRIVILEGED_ENABLED: [bool; NUM_HART_MAX] = [false; NUM_HART_MAX];
+
+pub(crate) static CPU_PRIVILEGED_ENABLED: [AtomicBool; NUM_HART_MAX] =
+    [const { AtomicBool::new(false) }; NUM_HART_MAX];
 
 type BaseAddress = usize;
 
@@ -91,12 +93,12 @@ impl Platform {
 
         // Get console device, init sbi console and logger.
         self.sbi_find_and_init_console(&root);
+        // Get other info that later platform initialization depends on.
+        self.sbi_misc_init(&tree);
         // Get clint and reset device, init sbi ipi, reset, hsm, rfence and susp extension.
         self.sbi_init_ipi_reset_hsm_rfence(&root);
         // Initialize pmu extension
         self.sbi_init_pmu(&root);
-        // Get other info
-        self.sbi_misc_init(&tree);
 
         self.ready.swap(true, Ordering::Release);
     }
@@ -287,9 +289,11 @@ impl Platform {
     }
 
     pub fn sbi_cpu_init_with_feature(&mut self) {
-        for i in 0..NUM_HART_MAX {
-            if self.info.cpu_enabled.unwrap()[i] {
-                self.info.cpu_enabled.unwrap()[i] = unsafe { CPU_PRIVILEGED_ENABLED[i] };
+        if let Some(cpu_enabled) = self.info.cpu_enabled.as_mut() {
+            for (hart_id, enabled) in cpu_enabled.iter_mut().enumerate() {
+                if *enabled {
+                    *enabled = CPU_PRIVILEGED_ENABLED[hart_id].load(Ordering::Acquire);
+                }
             }
         }
     }
@@ -333,14 +337,20 @@ impl Platform {
 
     fn sbi_ipi_init(&mut self) {
         if let Some((base, clint_type)) = self.info.ipi {
+            let max_hart_id = self
+                .info
+                .cpu_enabled
+                .as_ref()
+                .and_then(|hart_list| hart_list.iter().rposition(|enabled| *enabled))
+                .unwrap_or(NUM_HART_MAX - 1);
             self.sbi.ipi = match clint_type {
                 MachineClintType::SiFiveClint => Some(SbiIpi::new(
                     Mutex::new(Box::new(SifiveClintWrap::new(base))),
-                    self.info.cpu_num.unwrap_or(NUM_HART_MAX),
+                    max_hart_id,
                 )),
                 MachineClintType::TheadClint => Some(SbiIpi::new(
                     Mutex::new(Box::new(THeadClintWrap::new(base))),
-                    self.info.cpu_num.unwrap_or(NUM_HART_MAX),
+                    max_hart_id,
                 )),
             };
         } else {

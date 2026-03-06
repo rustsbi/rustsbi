@@ -671,15 +671,81 @@ enum StartCounterErr {
     AlreadyStart,
 }
 
+#[derive(Clone, Copy)]
+enum HardwareCounter {
+    Cycle,
+    Instret,
+    Hpm(u16),
+}
+
+impl HardwareCounter {
+    #[inline]
+    fn try_from_offset(mhpm_offset: u16) -> Option<Self> {
+        match mhpm_offset {
+            0 => Some(Self::Cycle),
+            2 => Some(Self::Instret),
+            3..=31 => Some(Self::Hpm(mhpm_offset)),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    fn inhibit_mask(self) -> usize {
+        match self {
+            Self::Cycle => 1 << 0,
+            Self::Instret => 1 << 2,
+            Self::Hpm(offset) => 1 << offset,
+        }
+    }
+
+    #[inline]
+    unsafe fn start(self) {
+        match self {
+            Self::Cycle => unsafe { mcountinhibit::clear_cy() },
+            Self::Instret => unsafe { mcountinhibit::clear_ir() },
+            Self::Hpm(offset) => unsafe { mcountinhibit::clear_hpm(offset as usize) },
+        }
+        self.sync_shadow();
+    }
+
+    #[inline]
+    unsafe fn stop(self) {
+        match self {
+            Self::Cycle => unsafe { mcountinhibit::set_cy() },
+            Self::Instret => unsafe { mcountinhibit::set_ir() },
+            Self::Hpm(offset) => unsafe { mcountinhibit::set_hpm(offset as usize) },
+        }
+        self.sync_shadow();
+    }
+
+    #[inline]
+    fn sync_shadow(self) {
+        match self {
+            Self::Cycle => {
+                // `cycle` is the S/U-mode shadow of `mcycle`. Force a machine-level
+                // read after toggling CY so the shadowed counter state is observed
+                // consistently on QEMU before returning to lower privilege modes.
+                let _ = riscv::register::mcycle::read64();
+            }
+            Self::Instret => {
+                // `instret` is the S/U-mode shadow of `minstret`; keep its shadow
+                // state in sync for the same reason as `cycle`.
+                let _ = riscv::register::minstret::read64();
+            }
+            Self::Hpm(_) => {}
+        }
+    }
+}
+
 /// Starts a hardware performance counter specified by the offset.
 fn start_hardware_counter(
     mhpm_offset: u16,
     new_value: u64,
     is_update_value: bool,
 ) -> Result<(), StartCounterErr> {
-    if mhpm_offset == 1 || mhpm_offset > 31 {
+    let Some(counter) = HardwareCounter::try_from_offset(mhpm_offset) else {
         return Err(StartCounterErr::OffsetInvalid);
-    }
+    };
 
     if hart_privileged_version(current_hartid()) < PrivilegedVersion::Version1_11 {
         if is_update_value {
@@ -690,7 +756,7 @@ fn start_hardware_counter(
 
     // Check if counter is already running by testing the inhibit bit
     // A zero bit in mcountinhibit means the counter is running
-    if mcountinhibit::read().bits() & (1 << mhpm_offset) == 0 {
+    if mcountinhibit::read().bits() & counter.inhibit_mask() == 0 {
         return Err(StartCounterErr::AlreadyStart);
     }
 
@@ -699,11 +765,7 @@ fn start_hardware_counter(
     }
 
     unsafe {
-        match mhpm_offset {
-            0 => mcountinhibit::clear_cy(),
-            2 => mcountinhibit::clear_ir(),
-            _ => mcountinhibit::clear_hpm(mhpm_offset as usize),
-        }
+        counter.start();
     }
     Ok(())
 }
@@ -716,9 +778,9 @@ enum StopCounterErr {
 
 /// Stops a hardware performance counter specified by the offset.
 fn stop_hardware_counter(mhpm_offset: u16, is_reset: bool) -> Result<(), StopCounterErr> {
-    if mhpm_offset == 1 || mhpm_offset > 31 {
+    let Some(counter) = HardwareCounter::try_from_offset(mhpm_offset) else {
         return Err(StopCounterErr::OffsetInvalid);
-    }
+    };
 
     if is_reset && mhpm_offset >= 3 && mhpm_offset <= 31 {
         write_mhpmevent(mhpm_offset, 0);
@@ -728,16 +790,12 @@ fn stop_hardware_counter(mhpm_offset: u16, is_reset: bool) -> Result<(), StopCou
         return Ok(());
     }
 
-    if mcountinhibit::read().bits() & (1 << mhpm_offset) != 0 {
+    if mcountinhibit::read().bits() & counter.inhibit_mask() != 0 {
         return Err(StopCounterErr::AlreadyStop);
     }
 
     unsafe {
-        match mhpm_offset {
-            0 => mcountinhibit::set_cy(),
-            2 => mcountinhibit::set_ir(),
-            _ => mcountinhibit::set_hpm(mhpm_offset as usize),
-        }
+        counter.stop();
     }
     Ok(())
 }

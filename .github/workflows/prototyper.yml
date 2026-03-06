@@ -37,7 +37,7 @@ jobs:
         run: cargo install clippy-sarif sarif-fmt cargo-binutils
 
       - name: Install required target
-        run: rustup target add riscv64imac-unknown-none-elf
+        run: rustup target add riscv64gc-unknown-none-elf riscv64imac-unknown-none-elf
       
       # Build the prototyper is needed before running cargo clippy for it, as the build is dependent on some logic controlled by xtask.
       - name: Build cargo prototyper
@@ -45,7 +45,7 @@ jobs:
 
       - name: Run rust-clippy
         run: |
-          cargo clippy -p rustsbi-prototyper --target riscv64imac-unknown-none-elf  --message-format=json  | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
+          cargo clippy -p rustsbi-prototyper --target riscv64gc-unknown-none-elf --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
           cargo clippy -p rustsbi-test-kernel --target riscv64imac-unknown-none-elf --message-format=json  | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
           cargo clippy -p rustsbi-bench-kernel --target riscv64imac-unknown-none-elf --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
         continue-on-error: true
@@ -55,3 +55,94 @@ jobs:
         with:
           sarif_file: rust-clippy-results.sarif
           wait-for-processing: true
+
+  qemu-boot-tests:
+    name: Run prototyper QEMU boot tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-misc
+
+      - name: Install required cargo
+        run: cargo install cargo-binutils
+
+      - name: Install required target
+        run: rustup target add riscv64gc-unknown-none-elf riscv64imac-unknown-none-elf
+
+      - name: Build QEMU boot artifacts
+        shell: bash
+        run: |
+          cargo test-kernel
+          cargo bench-kernel
+          cargo prototyper
+          cargo prototyper --jump
+          cargo prototyper --payload target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.bin
+          mv target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload.elf target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload-test.elf
+          mv target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload.bin target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload-test.bin
+          cargo prototyper --payload target/riscv64imac-unknown-none-elf/release/rustsbi-bench-kernel.bin
+          mv target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload.elf target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload-bench.elf
+          mv target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload.bin target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload-bench.bin
+
+      - name: Run payload test-kernel boot
+        id: payload_test
+        continue-on-error: true
+        shell: bash
+        run: .github/scripts/prototyper-qemu-boot.sh payload test
+
+      - name: Run dynamic test-kernel boot
+        if: always()
+        id: dynamic_test
+        continue-on-error: true
+        shell: bash
+        run: .github/scripts/prototyper-qemu-boot.sh dynamic test
+
+      - name: Run jump test-kernel boot
+        if: always()
+        id: jump_test
+        continue-on-error: true
+        shell: bash
+        run: .github/scripts/prototyper-qemu-boot.sh jump test
+
+      - name: Run payload bench-kernel boot
+        if: always()
+        id: payload_bench
+        continue-on-error: true
+        shell: bash
+        run: .github/scripts/prototyper-qemu-boot.sh payload bench
+
+      - name: Run dynamic bench-kernel boot
+        if: always()
+        id: dynamic_bench
+        continue-on-error: true
+        shell: bash
+        run: .github/scripts/prototyper-qemu-boot.sh dynamic bench
+
+      - name: Run jump bench-kernel boot
+        if: always()
+        id: jump_bench
+        continue-on-error: true
+        shell: bash
+        run: .github/scripts/prototyper-qemu-boot.sh jump bench
+
+      - name: Validate QEMU boot matrix
+        if: always()
+        shell: bash
+        run: |
+          test "${{ steps.payload_test.outcome }}" = "success"
+          test "${{ steps.dynamic_test.outcome }}" = "success"
+          test "${{ steps.jump_test.outcome }}" = "success"
+          test "${{ steps.payload_bench.outcome }}" = "success"
+          test "${{ steps.dynamic_bench.outcome }}" = "success"
+          test "${{ steps.jump_bench.outcome }}" = "success"
+
+      - name: Upload QEMU log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prototyper-qemu-logs
+          path: qemu-logs
