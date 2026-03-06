@@ -7,6 +7,7 @@ use crate::sbi::hsm::remote_hsm;
 use crate::sbi::rfence;
 use crate::sbi::trap_stack::hart_context;
 use alloc::boxed::Box;
+use alloc::vec::Vec;
 use core::sync::atomic::Ordering::Relaxed;
 use rustsbi::{HartMask, SbiRet};
 use sbi_spec::pmu::firmware_event;
@@ -73,18 +74,18 @@ impl rustsbi::Ipi for SbiIpi {
     #[inline]
     fn send_ipi(&self, hart_mask: rustsbi::HartMask) -> SbiRet {
         pmu_firmware_counter_increment(firmware_event::IPI_SENT);
-        let mut hart_mask = hart_mask;
+        let mut deliver_harts = Vec::new();
 
-        for hart_id in 0..=self.max_hart_id {
-            if !hart_mask.has_bit(hart_id) {
-                continue;
-            }
-
+        for hart_id in target_harts(hart_mask, self.max_hart_id) {
             // There are 2 situation to return invalid_param:
             // 1. We can not get hsm, which usually means this hart_id is bigger than MAX_HART_ID.
             // 2. BOARD hasn't init or this hart_id is not enabled by device tree.
             // In the next loop, we'll assume that all of above situation will not happened and
             // directly send ipi.
+            if hart_id > self.max_hart_id {
+                return SbiRet::invalid_param();
+            }
+
             let Some(hsm) = remote_hsm(hart_id) else {
                 return SbiRet::invalid_param();
             };
@@ -98,15 +99,12 @@ impl rustsbi::Ipi for SbiIpi {
                 return SbiRet::invalid_param();
             }
 
-            if !hsm.allow_ipi() {
-                hart_mask = hart_mask_clear(hart_mask, hart_id);
+            if hsm.allow_ipi() {
+                deliver_harts.push(hart_id);
             }
         }
-        for hart_id in 0..=self.max_hart_id {
-            if !hart_mask.has_bit(hart_id) {
-                continue;
-            }
 
+        for hart_id in deliver_harts {
             if set_ipi_type(hart_id, IPI_TYPE_SSOFT) == 0 {
                 self.set_msip(hart_id);
             }
@@ -133,18 +131,18 @@ impl SbiIpi {
         ctx: rfence::RFenceContext,
     ) -> SbiRet {
         let current_hart = current_hartid();
-        let mut hart_mask = hart_mask;
+        let mut deliver_harts = Vec::new();
 
-        for hart_id in 0..=self.max_hart_id {
-            if !hart_mask.has_bit(hart_id) {
-                continue;
-            }
-
+        for hart_id in target_harts(hart_mask, self.max_hart_id) {
             // There are 2 situation to return invalid_param:
             // 1. We can not get hsm, which usually means this hart_id is bigger than MAX_HART_ID.
             // 2. BOARD hasn't init or this hart_id is not enabled by device tree.
             // In the next loop, we'll assume that all of above situation will not happened and
             // directly send ipi.
+            if hart_id > self.max_hart_id {
+                return SbiRet::invalid_param();
+            }
+
             let Some(hsm) = remote_hsm(hart_id) else {
                 return SbiRet::invalid_param();
             };
@@ -158,17 +156,13 @@ impl SbiIpi {
                 return SbiRet::invalid_param();
             }
 
-            if !hsm.allow_ipi() {
-                hart_mask = hart_mask_clear(hart_mask, hart_id);
+            if hsm.allow_ipi() {
+                deliver_harts.push(hart_id);
             }
         }
 
         // Send fence operations to target harts
-        for hart_id in 0..=self.max_hart_id {
-            if !hart_mask.has_bit(hart_id) {
-                continue;
-            }
-
+        for hart_id in deliver_harts {
             if let Some(remote) = rfence::remote_rfence(hart_id) {
                 if let Some(local) = rfence::local_rfence() {
                     local.add();
@@ -269,16 +263,11 @@ pub fn clear_all() {
     }
 }
 
-pub fn hart_mask_clear(hart_mask: HartMask, hart_id: usize) -> HartMask {
-    let (mask, mask_base) = hart_mask.into_inner();
+fn target_harts(hart_mask: HartMask, max_hart_id: usize) -> Vec<usize> {
+    let (_mask, mask_base) = hart_mask.into_inner();
     if mask_base == usize::MAX {
-        return HartMask::from_mask_base(mask & (!(1 << hart_id)), 0);
+        (0..=max_hart_id).collect()
+    } else {
+        hart_mask.into_iter().collect()
     }
-    let Some(idx) = hart_id.checked_sub(mask_base) else {
-        return hart_mask;
-    };
-    if idx >= usize::BITS as usize {
-        return hart_mask;
-    }
-    HartMask::from_mask_base(mask & (!(1 << hart_id)), mask_base)
 }
