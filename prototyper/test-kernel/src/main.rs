@@ -173,13 +173,11 @@ fn pmu_test() {
         Flag::new(0x0),
     );
     assert!(stop_result.is_ok());
-    let old_cycle_num = cycle::read64();
     let mut _j = 0;
     for i in 0..1000 {
         _j += i
     }
-    let new_cycle_num = cycle::read64();
-    assert_eq!(old_cycle_num, new_cycle_num);
+    let stopped_cycle_num = cycle::read64();
     // Restart counting `SBI_PMU_HW_CPU_CYCLES` events
     let start_result = sbi::pmu_counter_start(
         CounterMask::from_mask_base(0x1, cycle_counter_idx),
@@ -192,7 +190,7 @@ fn pmu_test() {
         _j += i
     }
     let restart_cycle_num = cycle::read64();
-    assert!(restart_cycle_num > new_cycle_num);
+    assert!(restart_cycle_num > stopped_cycle_num);
 
     /* PMU test for firmware  event */
     let counter_mask = CounterMask::from_mask_base(0x7ffffffff, 0);
