@@ -266,11 +266,10 @@ impl Pmu for SbiPmu {
             pmu_state.active_event[counter_idx] = event_idx;
         }
 
-        if configure_counter(pmu_state, counter_idx, event, flags) {
-            return SbiRet::success(counter_idx);
+        match configure_counter(pmu_state, counter_idx, event, flags) {
+            Ok(_) => SbiRet::success(counter_idx),
+            Err(e) => e,
         }
-
-        return SbiRet::not_supported();
     }
 
     /// Start one or more counters (FID #3)
@@ -627,11 +626,14 @@ fn configure_counter(
     counter_idx: usize,
     event: EventIdx,
     flags: flags::CounterCfgFlags,
-) -> bool {
+) -> Result<(), SbiRet> {
     let auto_start = flags.contains(flags::CounterCfgFlags::AUTO_START);
     let clear_value = flags.contains(flags::CounterCfgFlags::CLEAR_VALUE);
     if event.is_firmware_event() {
         let firmware_event_idx = counter_idx - pmu_state.hw_counters_num;
+        if firmware_event_idx >= PMU_FIRMWARE_COUNTER_MAX {
+            return Err(SbiRet::invalid_param());
+        }
         if clear_value {
             pmu_state.fw_counter[firmware_event_idx] = 0;
         }
@@ -644,10 +646,12 @@ fn configure_counter(
             write_mhpmcounter(mhpm_offset, 0);
         }
         if auto_start {
-            return start_hardware_counter(mhpm_offset, 0, false).is_ok();
+            if start_hardware_counter(mhpm_offset, 0, false).is_err() {
+                return Err(SbiRet::not_supported());
+            }
         }
     }
-    true
+    Ok(())
 }
 
 /// Get the offset of the mhpmcounter CSR corresponding to counter_idx relative to mcycle
