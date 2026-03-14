@@ -5,6 +5,31 @@ use spin::Mutex;
 
 use crate::platform::PLATFORM;
 
+// Returns the 64-bit physical address composed from the low/high parts.
+#[inline]
+fn physical_addr(lo: usize, hi: usize) -> u64 {
+    ((hi as u64) << 32) | (lo as u64)
+}
+
+// Checks whether the physical range is within platform DRAM and directly addressable.
+#[inline]
+fn is_physical_range_valid(start: u64, len: usize) -> bool {
+    if start > usize::MAX as u64 {
+        return false;
+    }
+
+    let Some(end) = start.checked_add(len as u64) else {
+        return false;
+    };
+
+    let memory_range = unsafe { PLATFORM.info.memory_range.as_ref() };
+
+    match memory_range {
+        Some(range) => start >= range.start as u64 && end <= range.end as u64,
+        None => false,
+    }
+}
+
 /// A trait that must be implemented by console devices to provide basic I/O functionality.
 pub trait ConsoleDevice {
     /// Reads bytes from the console into the provided buffer.
@@ -73,9 +98,15 @@ impl Console for SbiConsole {
     /// Write a physical memory buffer to the console.
     #[inline]
     fn write(&self, bytes: Physical<&[u8]>) -> SbiRet {
-        // TODO: verify valid memory range for a `Physical` slice.
-        let start = bytes.phys_addr_lo();
-        let buf = unsafe { core::slice::from_raw_parts(start as *const u8, bytes.num_bytes()) };
+        let len = bytes.num_bytes();
+        if len == 0 {
+            return SbiRet::success(0);
+        }
+        let start = physical_addr(bytes.phys_addr_lo(), bytes.phys_addr_hi());
+        if !is_physical_range_valid(start, len) {
+            return SbiRet::invalid_param();
+        }
+        let buf = unsafe { core::slice::from_raw_parts(start as *const u8, len) };
         let bytes_written = self.inner.lock().write(buf);
         SbiRet::success(bytes_written)
     }
@@ -83,9 +114,15 @@ impl Console for SbiConsole {
     /// Read from console into a physical memory buffer.
     #[inline]
     fn read(&self, bytes: Physical<&mut [u8]>) -> SbiRet {
-        // TODO: verify valid memory range for a `Physical` slice.
-        let start = bytes.phys_addr_lo();
-        let buf = unsafe { core::slice::from_raw_parts_mut(start as *mut u8, bytes.num_bytes()) };
+        let len = bytes.num_bytes();
+        if len == 0 {
+            return SbiRet::success(0);
+        }
+        let start = physical_addr(bytes.phys_addr_lo(), bytes.phys_addr_hi());
+        if !is_physical_range_valid(start, len) {
+            return SbiRet::invalid_param();
+        }
+        let buf = unsafe { core::slice::from_raw_parts_mut(start as *mut u8, len) };
         let bytes_read = self.inner.lock().read(buf);
         SbiRet::success(bytes_read)
     }
