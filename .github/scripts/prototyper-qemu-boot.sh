@@ -77,6 +77,8 @@ run_once() {
       grep -F 'Sbi `TIME` test pass' "$log_file"
       grep -F 'Sbi `sPI` test pass' "$log_file"
       grep -F 'Sbi `DBCN` test pass' "$log_file"
+      grep -F 'DBCN rejected non-zero upper-half write' "$log_file"
+      grep -F 'DBCN rejected non-zero upper-half read' "$log_file"
       grep -F '[pmu] counters number:' "$log_file"
       ;;
     bench)

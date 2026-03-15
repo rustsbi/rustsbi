@@ -160,6 +160,26 @@ impl Testing {
                     error!(target: TARGET, "reading failed: {ret:?}");
                     result = false;
                 }
+                NonzeroUpperWriteRejected(ret) => {
+                    info!(target: TARGET, "DBCN rejected non-zero upper-half write: {ret:?}");
+                }
+                NonzeroUpperWriteAccepted(len) => {
+                    error!(
+                        target: TARGET,
+                        "DBCN accepted non-zero upper-half write: {len} bytes written"
+                    );
+                    result = false;
+                }
+                NonzeroUpperReadRejected(ret) => {
+                    info!(target: TARGET, "DBCN rejected non-zero upper-half read: {ret:?}");
+                }
+                NonzeroUpperReadAccepted(len) => {
+                    error!(
+                        target: TARGET,
+                        "DBCN accepted non-zero upper-half read: {len} bytes read"
+                    );
+                    result = false;
+                }
             }
         });
         result

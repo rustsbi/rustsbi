@@ -1,4 +1,4 @@
-﻿//! Debug console extension test suite.
+//! Debug console extension test suite.
 
 use sbi::SbiRet;
 use sbi_spec::binary::Physical;
@@ -24,6 +24,14 @@ pub enum Case {
     Read(usize),
     /// Test failed for can't read to buffer.
     ReadingFailed(SbiRet),
+    /// Test process for rejecting a write with a non-zero upper address half.
+    NonzeroUpperWriteRejected(SbiRet),
+    /// Test failed because a write with a non-zero upper address half was accepted.
+    NonzeroUpperWriteAccepted(usize),
+    /// Test process for rejecting a read with a non-zero upper address half.
+    NonzeroUpperReadRejected(SbiRet),
+    /// Test failed because a read with a non-zero upper address half was accepted.
+    NonzeroUpperReadAccepted(usize),
     /// All test cases on debug console extension has passed.
     Pass,
 }
@@ -60,6 +68,33 @@ pub fn test(mut f: impl FnMut(Case)) {
         f(Case::Read(len));
     } else {
         f(Case::ReadingFailed(ret));
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    {
+        let nonzero_upper = 1usize << 32;
+
+        let ret = sbi::console_write(Physical::new(
+            words.len(),
+            words.as_ptr() as _,
+            nonzero_upper,
+        ));
+        if let Some(len) = ret.ok() {
+            f(Case::NonzeroUpperWriteAccepted(len));
+        } else {
+            f(Case::NonzeroUpperWriteRejected(ret));
+        }
+
+        let ret = sbi::console_read(Physical::new(
+            buffer.len(),
+            buffer.as_mut_ptr() as _,
+            nonzero_upper,
+        ));
+        if let Some(len) = ret.ok() {
+            f(Case::NonzeroUpperReadAccepted(len));
+        } else {
+            f(Case::NonzeroUpperReadRejected(ret));
+        }
     }
 
     f(Case::Pass);
