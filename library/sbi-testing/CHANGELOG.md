@@ -10,6 +10,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - Test new extension DBCN
+- Add an RV64 DBCN regression case for rejecting non-zero upper address halves.
 
 ### Modified
 
@@ -45,4 +46,3 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 [Unreleased]: https://github.com/rustsbi/sbi-testing/compare/v0.0.2...HEAD
 [0.0.2]: https://github.com/rustsbi/sbi-testing/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/rustsbi/sbi-testing/compare/v0.0.0...v0.0.1
-
