@@ -77,17 +77,13 @@ impl SbiConsole {
 
     /// Reads a single character from the console.
     ///
-    /// This method will block until a character is available to be read.
-    ///
     /// # Returns
-    /// The read character as a usize
+    /// Returns the character as a usize on success, or '-1' for failure.
     #[inline]
     pub fn getchar(&self) -> usize {
         let mut c = 0u8;
-        while self.inner.lock().read(core::slice::from_mut(&mut c)) == 0 {
-            core::hint::spin_loop();
-        }
-        c as usize
+        let nread = self.inner.lock().read(core::slice::from_mut(&mut c));
+        if nread == 1 { c as usize } else { usize::MAX }
     }
 
     // Rejects buffers that this firmware cannot safely turn into raw slices.
