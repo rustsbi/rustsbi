@@ -106,13 +106,11 @@ impl UartBflbWrap {
 impl ConsoleDevice for UartBflbWrap {
     fn read(&self, buf: &mut [u8]) -> usize {
         let uart = unsafe { &(*self.inner) };
-        while uart.fifo_config_1.read().receive_available_bytes() == 0 {
-            core::hint::spin_loop();
+        let rx_available = uart.fifo_config_1.read().receive_available_bytes() as usize;
+        if rx_available == 0 {
+            return 0;
         }
-        let len = core::cmp::min(
-            uart.fifo_config_1.read().receive_available_bytes() as usize,
-            buf.len(),
-        );
+        let len = core::cmp::min(rx_available, buf.len());
         buf.iter_mut()
             .take(len)
             .for_each(|slot| *slot = uart.fifo_read.read());

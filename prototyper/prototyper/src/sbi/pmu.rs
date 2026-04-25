@@ -591,7 +591,7 @@ impl SbiPmu {
     pub fn insert_event_to_mhpmcounter(&mut self, event_to_counter: EventToCounterMap) {
         let event_to_mhpmcounter_map = self.event_to_mhpmcounter.get_or_insert_default();
         for event_to_mhpmcounter in event_to_mhpmcounter_map.iter() {
-            if event_to_mhpmcounter.is_overlop(&event_to_counter) {
+            if event_to_mhpmcounter.is_overlap(&event_to_counter) {
                 error!(
                     "The mapping of event_to_mhpmcounter {:?} and {:?} overlap, please check the device tree file",
                     event_to_mhpmcounter, event_to_counter
@@ -605,7 +605,7 @@ impl SbiPmu {
     pub fn insert_raw_event_to_mhpmcounter(&mut self, raw_event_to_counter: RawEventToCounterMap) {
         let raw_event_to_mhpmcounter_map = self.raw_event_to_mhpmcounter.get_or_insert_default();
         for raw_event_to_mhpmcounter in raw_event_to_mhpmcounter_map.iter() {
-            if raw_event_to_mhpmcounter.is_overlop(&raw_event_to_counter) {
+            if raw_event_to_mhpmcounter.is_overlap(&raw_event_to_counter) {
                 error!(
                     "The mapping of raw_event_to_mhpmcounter {:?} and {:?} overlap, please check the device tree file",
                     raw_event_to_mhpmcounter, raw_event_to_counter
@@ -1062,7 +1062,7 @@ impl EventToCounterMap {
     }
 
     #[inline]
-    pub fn is_overlop(&self, other_map: &EventToCounterMap) -> bool {
+    pub fn is_overlap(&self, other_map: &EventToCounterMap) -> bool {
         if (self.event_end_idx < other_map.event_start_idx
             && self.event_end_idx < other_map.event_end_idx)
             || (self.event_start_idx > other_map.event_start_idx
@@ -1101,7 +1101,7 @@ impl RawEventToCounterMap {
     }
 
     #[inline]
-    pub const fn is_overlop(&self, other_map: &RawEventToCounterMap) -> bool {
+    pub const fn is_overlap(&self, other_map: &RawEventToCounterMap) -> bool {
         self.select_mask == other_map.select_mask
             && self.raw_event_select == other_map.raw_event_select
     }
