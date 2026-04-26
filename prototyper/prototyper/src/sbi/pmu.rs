@@ -929,7 +929,7 @@ impl EventIdx {
     }
 
     #[inline]
-    fn from_firmwarw_event(firmware_event: usize) -> Self {
+    fn from_firmware_event(firmware_event: usize) -> Self {
         Self {
             inner: 0xf << 16 | firmware_event,
         }
@@ -1198,7 +1198,7 @@ pub fn pmu_firmware_counter_increment(firmware_event: usize) {
     for counter_idx in counter_idx_start..counter_idx_start + PMU_FIRMWARE_COUNTER_MAX {
         let fw_idx = counter_idx - counter_idx_start;
         if pmu_state.active_event[counter_idx]
-            == EventIdx::from_firmwarw_event(firmware_event).raw()
+            == EventIdx::from_firmware_event(firmware_event).raw()
             && pmu_state.is_firmware_event_start(counter_idx)
         {
             pmu_state.fw_counter[fw_idx] += 1;
