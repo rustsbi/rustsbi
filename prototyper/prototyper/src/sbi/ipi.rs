@@ -99,9 +99,11 @@ impl rustsbi::Ipi for SbiIpi {
                 return SbiRet::invalid_param();
             }
 
-            if hsm.allow_ipi() {
-                deliver_harts.push(hart_id);
+            if !hsm.allow_ipi() {
+                return SbiRet::invalid_param();
             }
+
+            deliver_harts.push(hart_id);
         }
 
         for hart_id in deliver_harts {
@@ -156,9 +158,11 @@ impl SbiIpi {
                 return SbiRet::invalid_param();
             }
 
-            if hsm.allow_ipi() {
-                deliver_harts.push(hart_id);
+            if !hsm.allow_ipi() {
+                return SbiRet::invalid_param();
             }
+
+            deliver_harts.push(hart_id);
         }
 
         // Send fence operations to target harts

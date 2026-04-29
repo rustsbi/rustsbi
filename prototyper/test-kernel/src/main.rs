@@ -288,9 +288,15 @@ fn fence_test() {
     let ret = sbi::remote_fence_i(HartMask::from_mask_base(0x1, 0));
     assert!(ret.is_ok() || ret == SbiRet::not_supported());
 
+    let ret = sbi::remote_fence_i(HartMask::from_mask_base(0x2, 0));
+    assert_eq!(ret, SbiRet::invalid_param());
+
     // SFence.vma test (should succeed, no-op for PMU, but should not panic)
     let ret = sbi::remote_sfence_vma(HartMask::from_mask_base(0x1, 0), 0, 0);
     assert!(ret.is_ok() || ret == SbiRet::not_supported());
+
+    let ret = sbi::remote_sfence_vma(HartMask::from_mask_base(0x2, 0), 0, 0);
+    assert_eq!(ret, SbiRet::invalid_param());
 
     // SFence.vma with asid test
     let ret = sbi::remote_sfence_vma_asid(HartMask::from_mask_base(0x1, 0), 0, 0, 0);
