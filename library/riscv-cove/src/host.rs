@@ -109,6 +109,29 @@ mod fid {
     pub const TVM_REMOVE_PAGES: usize = 19;
 }
 
+/// Possible state of a TEE Virtual Machine (TVM).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(u32)]
+pub enum TvmState {
+    /// TVM has been created, but isn’t yet ready to run.
+    Initializing = 0,
+    /// TVM is in a runnable state, and can be executed.
+    Runnable = 1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(u32)]
+pub enum TsmPageType {
+    /// 4 KiB.
+    Page_4K = 0,
+    /// 2 MiB.
+    Page_2MB = 1,
+    /// 1 GiB.
+    Page_1GB = 2,
+    /// 512 GiB.
+    Page_512GB = 3,
+}
+
 /// Possible state of a TEE Security Manager (TSM).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u32)]
@@ -162,6 +185,24 @@ pub struct TsmInfo {
     /// `0` if the TSM does not support the dynamic memory allocation
     /// capability.
     pub tvm_vcpu_state_pages: usize,
+}
+
+/// Specified parameters of creating a confidential TEE Virtual Machine (TVM).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[repr(C)]
+pub struct TvmCreateParams {
+    /// The base physical address of the 16KB confidential memory region
+    /// that should be used for the TVM's page directory.
+    ///
+    /// Must be 16KB-aligned.
+    pub tvm_page_directory_addr: usize,
+    /// The base physical address of the confidential memory region to
+    /// be used to hold the TVM's state.
+    ///
+    /// Must be page-aligned and the number of pages must be at least
+    /// the value returned in tsm_info.vm_state_pages returned by the
+    /// call to sbi_covh_get_tsm_info().
+    pub tvm_state_addr: usize,
 }
 
 // TODO unit tests on offsets of TsmInfo.
