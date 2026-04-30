@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use serde::Deserialize;
 use serde_device_tree::{
     Dtb, DtbPtr,
@@ -77,29 +78,32 @@ pub fn parse_device_tree(opaque: usize) -> Result<Dtb, ParseDeviceTreeError> {
     Ok(dtb)
 }
 
-pub fn get_compatible_and_range<'de>(node: &Node) -> Option<(StrSeq<'de>, Range<usize>)> {
+pub fn get_compatible_and_ranges<'de>(node: &Node) -> Option<(StrSeq<'de>, Vec<Range<usize>>)> {
     let compatible = node
         .get_prop("compatible")
         .map(|prop_item| prop_item.deserialize::<StrSeq<'de>>());
-    let regs = node
-        .get_prop("reg")
-        .map(|prop_item| {
-            let reg = prop_item.deserialize::<serde_device_tree::buildin::Reg>();
-            if let Some(range) = reg.iter().next() {
-                return Some(range);
-            }
-            None
-        })
-        .map_or_else(|| None, |v| v);
+    let regs = node.get_prop("reg").map(|prop_item| {
+        let reg = prop_item.deserialize::<serde_device_tree::buildin::Reg>();
+        reg.iter().map(|range| range.0).collect::<Vec<_>>()
+    });
     if let Some(compatible) = compatible {
         if let Some(regs) = regs {
-            Some((compatible, regs.0))
+            if regs.is_empty() {
+                None
+            } else {
+                Some((compatible, regs))
+            }
         } else {
             None
         }
     } else {
         None
     }
+}
+
+pub fn get_compatible_and_range<'de>(node: &Node) -> Option<(StrSeq<'de>, Range<usize>)> {
+    let (compatible, regs) = get_compatible_and_ranges(node)?;
+    regs.into_iter().next().map(|range| (compatible, range))
 }
 
 pub fn get_compatible<'de>(node: &Node) -> Option<StrSeq<'de>> {

@@ -20,7 +20,7 @@ pub(crate) const IPI_TYPE_FENCE: u8 = 1 << 1;
 
 /// Trait defining interface for inter-processor interrupt device
 #[allow(unused)]
-pub trait IpiDevice {
+pub trait IpiDevice: Send {
     /// Read machine time value.
     fn read_mtime(&self) -> u64;
     /// Write machine time value.
@@ -51,20 +51,16 @@ impl rustsbi::Timer for SbiIpi {
     fn set_timer(&self, stime_value: u64) {
         pmu_firmware_counter_increment(firmware_event::SET_TIMER);
         let hart_id = current_hartid();
-        let uses_sstc = hart_extension_probe(hart_id, Extension::Sstc);
 
         // Set timer value based on extension support.
-        if uses_sstc {
+        if hart_extension_probe(hart_id, Extension::Sstc) {
             stimecmp::set(stime_value);
         } else {
             self.write_mtimecmp(hart_id, stime_value);
             unsafe {
                 riscv::register::mip::clear_stimer();
+                riscv::register::mie::set_mtimer();
             }
-        }
-        // Enable machine timer interrupt.
-        unsafe {
-            riscv::register::mie::set_mtimer();
         }
     }
 }
@@ -242,7 +238,7 @@ pub fn get_and_reset_ipi_type() -> u8 {
 
 /// Clear machine software interrupt pending for current hart.
 #[inline]
-pub fn clear_msip() {
+pub fn claim_ipi() {
     match unsafe { PLATFORM.sbi.ipi.as_ref() } {
         Some(ipi) => ipi.clear_msip(current_hartid()),
         None => error!("SBI or IPI device not initialized"),

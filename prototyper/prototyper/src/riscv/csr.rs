@@ -9,6 +9,10 @@ pub const CSR_STIMECMP: u16 = 0x14D;
 // Machine Counter-Enable and Environment Configuration
 pub const CSR_MCOUNTEREN: u16 = 0x306;
 pub const CSR_MENVCFG: u16 = 0x30a;
+pub const CSR_MSTATEEN0: u16 = 0x30c;
+pub const CSR_MSTATEEN1: u16 = 0x30d;
+pub const CSR_MSTATEEN2: u16 = 0x30e;
+pub const CSR_MSTATEEN3: u16 = 0x30f;
 
 // Machine Counter Setup (Inhibit, Privilege Filtering and Event Selection)
 pub const CSR_MCOUNTINHIBIT: u16 = 0x320;
@@ -87,6 +91,39 @@ pub mod menvcfg {
         unsafe {
             // Write back updated value
             asm!("csrw menvcfg, {}", in(reg) bits, options(nomem));
+        }
+    }
+}
+
+/// Machine state-enable register bit fields.
+pub mod mstateen {
+    use core::arch::asm;
+
+    use super::{CSR_MSTATEEN0, CSR_MSTATEEN1, CSR_MSTATEEN2, CSR_MSTATEEN3};
+
+    /// Counter delegation state.
+    pub const CTR: usize = 1usize << 54;
+    /// Context CSRs.
+    pub const CONTEXT: usize = 1usize << 57;
+    /// IMSIC state.
+    pub const IMSIC: usize = 1usize << 58;
+    /// AIA state.
+    pub const AIA: usize = 1usize << 59;
+    /// Supervisor indirect CSR select state.
+    pub const SVSLCT: usize = 1usize << 60;
+    /// Hypervisor environment configuration state.
+    pub const HSENVCFG: usize = 1usize << 62;
+    /// State-enable CSRs themselves.
+    pub const STATEN: usize = 1usize << 63;
+
+    #[inline(always)]
+    pub fn enable_smode_aia() {
+        let stateen0 = STATEN | CONTEXT | IMSIC | AIA | SVSLCT | HSENVCFG | CTR;
+        unsafe {
+            asm!("csrw {csr}, {value}", csr = const CSR_MSTATEEN0, value = in(reg) stateen0, options(nomem));
+            asm!("csrw {csr}, {value}", csr = const CSR_MSTATEEN1, value = in(reg) STATEN, options(nomem));
+            asm!("csrw {csr}, {value}", csr = const CSR_MSTATEEN2, value = in(reg) STATEN, options(nomem));
+            asm!("csrw {csr}, {value}", csr = const CSR_MSTATEEN3, value = in(reg) STATEN, options(nomem));
         }
     }
 }

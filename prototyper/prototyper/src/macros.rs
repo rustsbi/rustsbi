@@ -27,7 +27,7 @@ macro_rules! println {
 macro_rules! has_csr {
     ($($x: expr)*) => {{
             use core::arch::asm;
-            use riscv::register::mtvec;
+            use ::riscv::register::mtvec;
             use crate::sbi::early_trap::light_expected_trap;
             let res: usize;
             unsafe {

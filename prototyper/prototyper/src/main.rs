@@ -21,7 +21,7 @@ mod sbi;
 use core::arch::{asm, naked_asm};
 
 use crate::platform::PLATFORM;
-use crate::riscv::csr::menvcfg;
+use crate::riscv::csr::{CSR_MSTATEEN0, menvcfg, mstateen};
 use crate::riscv::current_hartid;
 use crate::sbi::features::hart_mhpm_mask;
 use crate::sbi::features::{
@@ -36,6 +36,11 @@ use crate::sbi::trap;
 use crate::sbi::trap_stack;
 
 pub const R_RISCV_RELATIVE: usize = 3;
+
+#[inline(always)]
+fn has_mstateen0() -> bool {
+    has_csr!(CSR_MSTATEEN0)
+}
 
 #[unsafe(no_mangle)]
 extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
@@ -124,6 +129,21 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
     // Clear all pending IPIs.
     ipi::clear_all();
 
+    // Per-hart IMSIC initialization when AIA is active and Smaia is supported.
+    if crate::platform::aia::is_aia_active() {
+        let hart_id = crate::riscv::current_hartid();
+        if crate::sbi::features::hart_extension_probe(
+            hart_id,
+            crate::sbi::features::Extension::Smaia,
+        ) {
+            if let Some(ref aia_info) = unsafe { PLATFORM.info.aia.as_ref() } {
+                crate::platform::aia::imsic_init_hart(aia_info);
+            }
+        } else {
+            warn!("Hart {} lacks Smaia, skipping IMSIC init", hart_id);
+        }
+    }
+
     // Configure CSRs
     unsafe {
         // Delegate all interrupts and exceptions to supervisor mode.
@@ -140,7 +160,7 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
 
         let hart_priv_version = hart_privileged_version(current_hartid());
         if hart_priv_version >= PrivilegedVersion::Version1_11 {
-            asm!("csrw mcountinhibit, {}", in(reg) !0b10);
+            asm!("csrw mcountinhibit, {}", in(reg) !0b111usize);
         }
         if hart_priv_version >= PrivilegedVersion::Version1_12 {
             // Configure environment features based on available extensions.
@@ -150,6 +170,12 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
                 );
             } else {
                 menvcfg::set_bits(menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
+            }
+            if crate::platform::aia::is_aia_active()
+                && hart_extension_probe(current_hartid(), Extension::Smaia)
+                && has_mstateen0()
+            {
+                mstateen::enable_smode_aia();
             }
         }
         // Set up trap handling.

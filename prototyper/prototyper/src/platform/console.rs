@@ -159,10 +159,6 @@ impl UartPl011Wrap {
             uart: UnsafeCell::new(uart),
         }
     }
-
-    unsafe fn uart_mut(&self) -> &mut Uart<'static> {
-        unsafe { &mut *self.uart.get() }
-    }
 }
 
 unsafe impl Send for UartPl011Wrap {}
@@ -172,7 +168,7 @@ impl ConsoleDevice for UartPl011Wrap {
     fn read(&self, buf: &mut [u8]) -> usize {
         let mut count = 0;
 
-        let uart = unsafe { self.uart_mut() };
+        let uart = unsafe { &mut *self.uart.get() };
 
         for slot in buf.iter_mut() {
             match uart.read_word() {
@@ -189,7 +185,7 @@ impl ConsoleDevice for UartPl011Wrap {
     }
 
     fn write(&self, buf: &[u8]) -> usize {
-        let uart = unsafe { self.uart_mut() };
+        let uart = unsafe { &mut *self.uart.get() };
 
         for &byte in buf {
             uart.write_word(byte);
