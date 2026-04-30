@@ -23,3 +23,7 @@ arceboot/edk2/
 arceboot/*.img
 arceboot/*.cpio
 arceboot/qemu-*.log
+
+# AI tooling
+.codex
+.humanize
