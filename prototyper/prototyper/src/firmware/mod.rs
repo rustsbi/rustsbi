@@ -511,62 +511,63 @@ pub fn set_pmp(memory_range: &Range<usize>) {
         // When AIA is active, block S-mode access to M-level interrupt
         // controller regions while keeping other low MMIO visible.
         // This matches OpenSBI's domain isolation approach.
-        if crate::platform::aia::is_aia_active() {
-            if let Some(ref aia_info) = crate::platform::PLATFORM.info.aia.as_ref() {
-                const QEMU_VIRT_M_APLIC_BASE: usize = 0x0c00_0000;
-                const QEMU_VIRT_CLINT_BASE: usize = 0x0200_0000;
-                const QEMU_VIRT_APLIC_SIZE: usize = 0x8000;
-                const QEMU_VIRT_CLINT_SIZE: usize = 0x1_0000;
+        if crate::platform::aia::is_aia_active()
+            && crate::platform::PLATFORM.info.is_qemu_virt()
+            && let Some(aia_info) = crate::platform::PLATFORM.info.aia.as_ref()
+        {
+            const QEMU_VIRT_M_APLIC_BASE: usize = 0x0c00_0000;
+            const QEMU_VIRT_CLINT_BASE: usize = 0x0200_0000;
+            const QEMU_VIRT_APLIC_SIZE: usize = 0x8000;
+            const QEMU_VIRT_CLINT_SIZE: usize = 0x1_0000;
 
-                let clint_base = crate::platform::PLATFORM
-                    .info
-                    .ipi
-                    .as_ref()
-                    .map(|(base, _)| *base)
-                    .unwrap_or(QEMU_VIRT_CLINT_BASE);
-                let clint_end = clint_base + QEMU_VIRT_CLINT_SIZE;
-                let aplic_base = QEMU_VIRT_M_APLIC_BASE;
-                let aplic_end = aplic_base + QEMU_VIRT_APLIC_SIZE;
-                let m_base = aia_info.layout.machine_base;
-                let m_end = aia_info
-                    .hart_imsic_map
-                    .iter()
-                    .flatten()
-                    .copied()
-                    .max()
-                    .and_then(|addr| addr.checked_add(0x1000))
-                    .unwrap_or(m_base + 0x1000);
+            let clint_base = crate::platform::PLATFORM
+                .info
+                .ipi
+                .as_ref()
+                .map(|(base, _)| *base)
+                .unwrap_or(QEMU_VIRT_CLINT_BASE);
+            let clint_end = clint_base + QEMU_VIRT_CLINT_SIZE;
+            let aplic_base = QEMU_VIRT_M_APLIC_BASE;
+            let aplic_end = aplic_base + QEMU_VIRT_APLIC_SIZE;
+            let m_base = aia_info.layout.machine_base;
+            let m_end = aia_info
+                .hart_imsic_map
+                .iter()
+                .flatten()
+                .copied()
+                .max()
+                .and_then(|addr| addr.checked_add(0x1000))
+                .unwrap_or(m_base + 0x1000);
 
-                pmpcfg0::set_pmp(0, Range::OFF, Permission::NONE, false);
-                pmpaddr0::write(0);
-                pmpcfg0::set_pmp(1, Range::TOR, Permission::RWX, false);
-                pmpaddr1::write(clint_base >> 2);
-                pmpcfg0::set_pmp(2, Range::TOR, Permission::NONE, false);
-                pmpaddr2::write(clint_end >> 2);
-                pmpcfg0::set_pmp(3, Range::TOR, Permission::RWX, false);
-                pmpaddr3::write(aplic_base >> 2);
-                pmpcfg0::set_pmp(4, Range::TOR, Permission::NONE, false);
-                pmpaddr4::write(aplic_end >> 2);
-                pmpcfg0::set_pmp(5, Range::TOR, Permission::RWX, false);
-                pmpaddr5::write(m_base >> 2);
-                pmpcfg0::set_pmp(6, Range::TOR, Permission::NONE, false);
-                pmpaddr6::write(m_end >> 2);
-                pmpcfg0::set_pmp(7, Range::TOR, Permission::RWX, false);
-                pmpaddr7::write(memory_range.start >> 2);
-                pmpcfg2::set_pmp(0, Range::TOR, Permission::RWX, false);
-                pmpaddr8::write(SBI_START_ADDRESS >> 2);
-                pmpcfg2::set_pmp(1, Range::TOR, Permission::R, false);
-                pmpaddr9::write(RODATA_START_ADDRESS >> 2);
-                pmpcfg2::set_pmp(2, Range::TOR, Permission::NONE, false);
-                pmpaddr10::write(RODATA_END_ADDRESS >> 2);
-                pmpcfg2::set_pmp(3, Range::TOR, Permission::RW, false);
-                pmpaddr11::write(SBI_END_ADDRESS >> 2);
-                pmpcfg2::set_pmp(4, Range::TOR, Permission::RWX, false);
-                pmpaddr12::write(memory_range.end >> 2);
-                pmpcfg2::set_pmp(5, Range::TOR, Permission::RWX, false);
-                pmpaddr13::write(usize::MAX >> 2);
-                return;
-            }
+            pmpcfg0::set_pmp(0, Range::OFF, Permission::NONE, false);
+            pmpaddr0::write(0);
+            pmpcfg0::set_pmp(1, Range::TOR, Permission::RWX, false);
+            pmpaddr1::write(clint_base >> 2);
+            pmpcfg0::set_pmp(2, Range::TOR, Permission::NONE, false);
+            pmpaddr2::write(clint_end >> 2);
+            pmpcfg0::set_pmp(3, Range::TOR, Permission::RWX, false);
+            pmpaddr3::write(aplic_base >> 2);
+            pmpcfg0::set_pmp(4, Range::TOR, Permission::NONE, false);
+            pmpaddr4::write(aplic_end >> 2);
+            pmpcfg0::set_pmp(5, Range::TOR, Permission::RWX, false);
+            pmpaddr5::write(m_base >> 2);
+            pmpcfg0::set_pmp(6, Range::TOR, Permission::NONE, false);
+            pmpaddr6::write(m_end >> 2);
+            pmpcfg0::set_pmp(7, Range::TOR, Permission::RWX, false);
+            pmpaddr7::write(memory_range.start >> 2);
+            pmpcfg2::set_pmp(0, Range::TOR, Permission::RWX, false);
+            pmpaddr8::write(SBI_START_ADDRESS >> 2);
+            pmpcfg2::set_pmp(1, Range::TOR, Permission::R, false);
+            pmpaddr9::write(RODATA_START_ADDRESS >> 2);
+            pmpcfg2::set_pmp(2, Range::TOR, Permission::NONE, false);
+            pmpaddr10::write(RODATA_END_ADDRESS >> 2);
+            pmpcfg2::set_pmp(3, Range::TOR, Permission::RW, false);
+            pmpaddr11::write(SBI_END_ADDRESS >> 2);
+            pmpcfg2::set_pmp(4, Range::TOR, Permission::RWX, false);
+            pmpaddr12::write(memory_range.end >> 2);
+            pmpcfg2::set_pmp(5, Range::TOR, Permission::RWX, false);
+            pmpaddr13::write(usize::MAX >> 2);
+            return;
         }
 
         pmpcfg0::set_pmp(0, Range::OFF, Permission::NONE, false);

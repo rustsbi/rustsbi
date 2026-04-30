@@ -164,6 +164,10 @@ impl BoardInfo {
             model: String::new(),
         }
     }
+
+    pub fn is_qemu_virt(&self) -> bool {
+        self.model == "riscv-virtio,qemu"
+    }
 }
 
 pub struct Platform {
@@ -669,10 +673,17 @@ impl Platform {
                 let ipi_dev =
                     aia::ImsicDevice::new(aia_info.firmware_ipi_iid, aia_info.hart_imsic_map);
                 self.sbi.ipi = Some(SbiIpi::new(Mutex::new(Box::new(ipi_dev)), max_hart_id));
-                aia::init_qemu_m_aplic_delegation(
-                    aia_info.layout.machine_base,
-                    aia_info.layout.hart_index_bits,
-                );
+                if self.info.is_qemu_virt() {
+                    aia::init_qemu_m_aplic_delegation(
+                        aia_info.layout.machine_base,
+                        aia_info.layout.hart_index_bits,
+                    );
+                } else {
+                    warn!(
+                        "AIA: skipping QEMU virt M-APLIC setup on '{}'",
+                        self.info.model
+                    );
+                }
                 aia::set_aia_active(true);
                 info!("AIA: IMSIC IPI + Sstc timer backend initialized");
                 return;
