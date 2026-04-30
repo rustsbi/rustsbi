@@ -102,5 +102,57 @@ pub mod raw {
         super::binary::sbi_call_2(eid, fid, arg0, arg1)
     }
 
-    // TODO sbi_call_3, ..., sbi_call_6
+    /// Raw SBI call with 3 parameters.
+    #[inline(always)]
+    pub unsafe fn sbi_call_3(
+        eid: usize,
+        fid: usize,
+        arg0: usize,
+        arg1: usize,
+        arg2: usize,
+    ) -> SbiRet {
+        super::binary::sbi_call_3(eid, fid, arg0, arg1, arg2)
+    }
+
+    /// Raw SBI call with 4 parameters.
+    #[inline(always)]
+    pub unsafe fn sbi_call_4(
+        eid: usize,
+        fid: usize,
+        arg0: usize,
+        arg1: usize,
+        arg2: usize,
+        arg3: usize,
+    ) -> SbiRet {
+        super::binary::sbi_call_4(eid, fid, arg0, arg1, arg2, arg3)
+    }
+
+    /// Raw SBI call with 5 parameters.
+    #[inline(always)]
+    pub unsafe fn sbi_call_5(
+        eid: usize,
+        fid: usize,
+        arg0: usize,
+        arg1: usize,
+        arg2: usize,
+        arg3: usize,
+        arg4: usize,
+    ) -> SbiRet {
+        super::binary::sbi_call_5(eid, fid, arg0, arg1, arg2, arg3, arg4)
+    }
+
+    /// Raw SBI call with 6 parameters.
+    #[inline(always)]
+    pub unsafe fn sbi_call_6(
+        eid: usize,
+        fid: usize,
+        arg0: usize,
+        arg1: usize,
+        arg2: usize,
+        arg3: usize,
+        arg4: usize,
+        arg5: usize,
+    ) -> SbiRet {
+        super::binary::sbi_call_6(eid, fid, arg0, arg1, arg2, arg3, arg4, arg5)
+    }
 }
