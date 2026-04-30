@@ -1,0 +1,89 @@
+name: openEuler AIA
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/scripts/prototyper-openeuler-aia.sh"
+      - ".github/workflows/openeuler-aia.yml"
+      - "library/riscv-aia/**"
+      - "prototyper/prototyper/config/default.toml"
+      - "prototyper/prototyper/src/firmware/**"
+      - "prototyper/prototyper/src/main.rs"
+      - "prototyper/prototyper/src/platform/**"
+      - "prototyper/prototyper/src/riscv/csr.rs"
+      - "prototyper/prototyper/src/sbi/hart_context.rs"
+      - "prototyper/prototyper/src/sbi/ipi.rs"
+      - "prototyper/prototyper/src/sbi/trap/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/scripts/prototyper-openeuler-aia.sh"
+      - ".github/workflows/openeuler-aia.yml"
+      - "library/riscv-aia/**"
+      - "prototyper/prototyper/config/default.toml"
+      - "prototyper/prototyper/src/firmware/**"
+      - "prototyper/prototyper/src/main.rs"
+      - "prototyper/prototyper/src/platform/**"
+      - "prototyper/prototyper/src/riscv/csr.rs"
+      - "prototyper/prototyper/src/sbi/hart_context.rs"
+      - "prototyper/prototyper/src/sbi/ipi.rs"
+      - "prototyper/prototyper/src/sbi/trap/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  openeuler-aia-boot:
+    name: Boot openEuler 25.09 with AIA
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl xz-utils zstd
+
+      - name: Install required cargo
+        run: cargo install cargo-binutils
+
+      - name: Install required target
+        run: rustup target add riscv64gc-unknown-none-elf
+
+      - name: Cache openEuler downloads
+        uses: actions/cache@v4
+        with:
+          path: .openeuler-aia/cache
+          key: openeuler-25.09-riscv64-aia-release-v1
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper
+
+      - name: Boot openEuler with AIA
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            -e OPENEULER_AIA_CACHE_DIR=/work/.openeuler-aia/cache \
+            -e OPENEULER_AIA_WORK_DIR=/work/.openeuler-aia/work \
+            -e OPENEULER_AIA_LOG_DIR=/work/qemu-logs \
+            ubuntu:25.10 \
+            bash -lc '
+              set -euo pipefail
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y curl qemu-system-misc qemu-utils xz-utils zstd
+              qemu-system-riscv64 --version
+              .github/scripts/prototyper-openeuler-aia.sh
+            '
+
+      - name: Upload openEuler AIA log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openeuler-aia-log
+          path: qemu-logs/openeuler-aia.log

@@ -23,6 +23,8 @@ arceboot/edk2/
 arceboot/*.img
 arceboot/*.cpio
 arceboot/qemu-*.log
+qemu-logs/
+/.openeuler-aia/
 
 # AI tooling
 .codex
