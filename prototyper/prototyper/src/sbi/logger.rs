@@ -1,8 +1,11 @@
 use core::str::FromStr;
 use log::{Level, LevelFilter};
+use spin::Mutex;
 
 /// Simple logger implementation for RustSBI that supports colored output.
 pub struct Logger;
+
+static LOG_LOCK: Mutex<()> = Mutex::new(());
 
 impl Logger {
     /// Initialize the logger with log level from RUST_LOG env var or default to Info.
@@ -25,6 +28,8 @@ impl log::Log for Logger {
     // Log messages with color-coded levels
     #[inline]
     fn log(&self, record: &log::Record) {
+        let _guard = LOG_LOCK.lock();
+
         // ANSI color codes for different log levels
         const ERROR_COLOR: u8 = 31; // Red
         const WARN_COLOR: u8 = 93; // Bright yellow
