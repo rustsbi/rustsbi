@@ -95,12 +95,24 @@ pub fn msoft_handler(ctx: FastContext) -> FastResult {
 pub fn mext_handler(ctx: FastContext) -> FastResult {
     use ipi::get_and_reset_ipi_type;
 
+    if !crate::platform::aia::is_aia_active()
+        || !hart_extension_probe(current_hartid(), Extension::Smaia)
+    {
+        warn!("MachineExternal: AIA is not available on this hart");
+        return ctx.restore();
+    }
+
+    let Some(firmware_ipi_iid) =
+        (unsafe { PLATFORM.info.aia.as_ref().map(|a| a.firmware_ipi_iid) })
+    else {
+        warn!("MachineExternal: missing AIA platform info");
+        return ctx.restore();
+    };
+
     let iid = crate::platform::aia::mtopei_claim();
 
-    let firmware_ipi_iid = unsafe { PLATFORM.info.aia.as_ref().map(|a| a.firmware_ipi_iid) };
-
     match iid {
-        Some(id) if firmware_ipi_iid.is_some_and(|fw| fw == id) => match local_hsm().start() {
+        Some(id) if firmware_ipi_iid == id => match local_hsm().start() {
             Ok(next_stage) => {
                 unsafe {
                     mstatus::set_mpie();
