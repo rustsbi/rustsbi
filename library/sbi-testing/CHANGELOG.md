@@ -11,6 +11,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Test new extension DBCN
 - Add an RV64 DBCN regression case for rejecting non-zero upper address halves.
+- Add remote RFence verification for HSM started remote harts.
 
 ### Modified
 
