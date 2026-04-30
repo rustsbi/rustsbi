@@ -164,16 +164,15 @@ pub fn sbi_call_handler(
             {
                 return switch(ctx, a1, a2);
             }
-            (base::EID_BASE, base::PROBE_EXTENSION)
-                if matches!(
-                    ctx.a0(),
-                    legacy::LEGACY_SET_TIMER
-                        | legacy::LEGACY_CONSOLE_PUTCHAR
-                        | legacy::LEGACY_CONSOLE_GETCHAR
-                ) =>
-            {
-                ret.value = 1;
-            }
+            (base::EID_BASE, base::PROBE_EXTENSION) => match ctx.a0() {
+                legacy::LEGACY_SET_TIMER => {
+                    ret.value = unsafe { PLATFORM.sbi.ipi.is_some() } as usize;
+                }
+                legacy::LEGACY_CONSOLE_PUTCHAR | legacy::LEGACY_CONSOLE_GETCHAR => {
+                    ret.value = 1;
+                }
+                _ => {}
+            },
             _ => {}
         }
     } else {
