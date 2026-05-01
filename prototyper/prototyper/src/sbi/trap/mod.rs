@@ -63,19 +63,25 @@ fn handle_interrupt(
             handler::msoft_handler(ctx)
         }
         Interrupt::MachineTimer => {
+            use crate::riscv::current_hartid;
+            use crate::sbi::features::{Extension, hart_extension_probe};
             use crate::sbi::ipi;
 
-            ipi::clear_mtime();
             unsafe {
-                mip::set_stimer();
+                riscv::register::mie::clear_mtimer();
+            }
+            if !hart_extension_probe(current_hartid(), Extension::Sstc) {
+                ipi::clear_mtime();
+                unsafe {
+                    mip::set_stimer();
+                }
             }
             save_regs(&mut ctx);
             ctx.restore()
         }
-        // TODO: Handle MachineExternal
         Interrupt::MachineExternal => {
-            error!("TODO: Unhandled MachineExternal interrupt");
-            unsupported_trap(Some(Trap::Interrupt(interrupt)))
+            save_regs(&mut ctx);
+            handler::mext_handler(ctx)
         }
         _ => {
             error!("Unhandled interrupt: {:?}", interrupt);

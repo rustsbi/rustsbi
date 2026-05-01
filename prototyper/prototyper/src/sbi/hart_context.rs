@@ -71,7 +71,7 @@ impl HartContext {
         let hart_priv_version = self.features.privileged_version();
         if hart_priv_version >= PrivilegedVersion::Version1_11 {
             unsafe {
-                core::arch::asm!("csrw mcountinhibit, {}", in(reg) !0b10);
+                core::arch::asm!("csrw mcountinhibit, {}", in(reg) !0b111usize);
             }
         }
         // reset hart pmu state

@@ -130,6 +130,13 @@ impl Testing {
                     debug!(target: TARGET, "hart {id} suspended retentive")
                 }
                 HartStopped(id) => debug!(target: TARGET, "hart {id} stopped"),
+                RemoteRFencePass(id) => {
+                    info!(target: TARGET, "remote RFence to started hart {id} pass")
+                }
+                RemoteRFenceFailed(id, ret) => {
+                    error!(target: TARGET, "remote RFence to started hart {id} failed: {ret:?}");
+                    result = false;
+                }
                 BatchPass(batch) => info!(target: TARGET, "Testing Pass: {batch:?}"),
             }
         });

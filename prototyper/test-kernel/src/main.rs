@@ -106,8 +106,8 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     };
     let test_result = testing.test();
 
-    pmu_test();
-    fence_test();
+    pmu_test(smp);
+    fence_test(hartid, smp);
 
     if test_result {
         sbi::system_reset(sbi::Shutdown, sbi::NoReason);
@@ -119,7 +119,8 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
 
 #[inline]
 // PMU test, only available in qemu-system-riscv64 single core
-fn pmu_test() {
+fn pmu_test(smp: usize) {
+    let invalid_hart = smp + 1;
     let counters_num = sbi::pmu_num_counters();
     println!("[pmu] counters number: {}", counters_num);
     for idx in 0..counters_num {
@@ -153,11 +154,12 @@ fn pmu_test() {
     // `SBI_PMU_HW_CPU_CYCLES` event test
     let result = sbi::pmu_counter_config_matching(counter_mask, Flag::new(0b010), 0x1, 0);
     assert!(result.is_ok());
-    // the counter index should be 0(mcycle)
-    assert_eq!(result.value, 0);
     let cycle_counter_idx = result.value;
-    let cycle_num = cycle::read64();
-    assert_eq!(cycle_num, 0);
+    let counter_info = sbi::pmu_counter_get_info(cycle_counter_idx);
+    assert!(counter_info.is_ok());
+    let counter_info = CounterInfo::new(counter_info.value);
+    assert!(!counter_info.is_firmware_counter());
+    let cycle_counter_csr = counter_info.get_csr();
     // Start counting `SBI_PMU_HW_CPU_CYCLES` events
     let start_result = sbi::pmu_counter_start(
         CounterMask::from_mask_base(0x1, cycle_counter_idx),
@@ -165,7 +167,7 @@ fn pmu_test() {
         0xffff,
     );
     assert!(start_result.is_ok());
-    let cycle_num = cycle::read64();
+    let cycle_num = read_pmu_hardware_counter(cycle_counter_csr);
     assert!(cycle_num >= 0xffff);
     // Stop counting `SBI_PMU_HW_CPU_CYCLES` events
     let stop_result = sbi::pmu_counter_stop(
@@ -177,7 +179,7 @@ fn pmu_test() {
     for i in 0..1000 {
         _j += i
     }
-    let stopped_cycle_num = cycle::read64();
+    let stopped_cycle_num = read_pmu_hardware_counter(cycle_counter_csr);
     // Restart counting `SBI_PMU_HW_CPU_CYCLES` events
     let start_result = sbi::pmu_counter_start(
         CounterMask::from_mask_base(0x1, cycle_counter_idx),
@@ -189,7 +191,7 @@ fn pmu_test() {
     for i in 0..1000 {
         _j += i
     }
-    let restart_cycle_num = cycle::read64();
+    let restart_cycle_num = read_pmu_hardware_counter(cycle_counter_csr);
     assert!(restart_cycle_num > stopped_cycle_num);
 
     /* PMU test for firmware  event */
@@ -231,8 +233,8 @@ fn pmu_test() {
     assert!(ipi_num.is_ok());
     assert_eq!(ipi_num.value, 25);
 
-    // Send IPI to other core, and the `SBI_PMU_FW_IPI_SENT` event counter value increases by one
-    let send_ipi_result = sbi::send_ipi(HartMask::from_mask_base(0b10, 0));
+    // Send IPI to an invalid hart (beyond SMP count) - should return invalid_param
+    let send_ipi_result = sbi::send_ipi(HartMask::from_mask_base(0x1, invalid_hart));
     assert_eq!(send_ipi_result, SbiRet::invalid_param());
 
     // Read the value of the `SBI_PMU_FW_IPI_SENT` event counter, which should be 26
@@ -254,8 +256,8 @@ fn pmu_test() {
     );
     assert_eq!(stop_result, SbiRet::already_stopped());
 
-    // Send IPI to other core, `SBI_PMU_FW_IPI_SENT` event counter should not change
-    let send_ipi_result = sbi::send_ipi(HartMask::from_mask_base(0b10, 0));
+    // Send IPI to invalid hart, `SBI_PMU_FW_IPI_SENT` event counter should not change
+    let send_ipi_result = sbi::send_ipi(HartMask::from_mask_base(0x1, invalid_hart));
     assert_eq!(send_ipi_result, SbiRet::invalid_param());
 
     // Read the value of the `SBI_PMU_FW_IPI_SENT` event counter, which should be 26
@@ -271,8 +273,8 @@ fn pmu_test() {
     );
     assert!(start_result.is_ok());
 
-    // Send IPI to other core, and the `SBI_PMU_FW_IPI_SENT` event counter value increases by one
-    let send_ipi_result = sbi::send_ipi(HartMask::from_mask_base(0b10, 0));
+    // Send IPI to an invalid hart (beyond SMP count) - should return invalid_param
+    let send_ipi_result = sbi::send_ipi(HartMask::from_mask_base(0x1, invalid_hart));
     assert_eq!(send_ipi_result, SbiRet::invalid_param());
 
     // Read the value of the `SBI_PMU_FW_IPI_SENT` event counter, which should be 27
@@ -282,38 +284,82 @@ fn pmu_test() {
 }
 
 #[inline]
+fn read_pmu_hardware_counter(csr_num: usize) -> u64 {
+    match csr_num {
+        0xc00 => cycle::read64(),
+        0xc01 => riscv::register::time::read64(),
+        0xc02 => riscv::register::instret::read64(),
+        0xc03 => riscv::register::hpmcounter3::read64(),
+        0xc04 => riscv::register::hpmcounter4::read64(),
+        0xc05 => riscv::register::hpmcounter5::read64(),
+        0xc06 => riscv::register::hpmcounter6::read64(),
+        0xc07 => riscv::register::hpmcounter7::read64(),
+        0xc08 => riscv::register::hpmcounter8::read64(),
+        0xc09 => riscv::register::hpmcounter9::read64(),
+        0xc0a => riscv::register::hpmcounter10::read64(),
+        0xc0b => riscv::register::hpmcounter11::read64(),
+        0xc0c => riscv::register::hpmcounter12::read64(),
+        0xc0d => riscv::register::hpmcounter13::read64(),
+        0xc0e => riscv::register::hpmcounter14::read64(),
+        0xc0f => riscv::register::hpmcounter15::read64(),
+        0xc10 => riscv::register::hpmcounter16::read64(),
+        0xc11 => riscv::register::hpmcounter17::read64(),
+        0xc12 => riscv::register::hpmcounter18::read64(),
+        0xc13 => riscv::register::hpmcounter19::read64(),
+        0xc14 => riscv::register::hpmcounter20::read64(),
+        0xc15 => riscv::register::hpmcounter21::read64(),
+        0xc16 => riscv::register::hpmcounter22::read64(),
+        0xc17 => riscv::register::hpmcounter23::read64(),
+        0xc18 => riscv::register::hpmcounter24::read64(),
+        0xc19 => riscv::register::hpmcounter25::read64(),
+        0xc1a => riscv::register::hpmcounter26::read64(),
+        0xc1b => riscv::register::hpmcounter27::read64(),
+        0xc1c => riscv::register::hpmcounter28::read64(),
+        0xc1d => riscv::register::hpmcounter29::read64(),
+        0xc1e => riscv::register::hpmcounter30::read64(),
+        0xc1f => riscv::register::hpmcounter31::read64(),
+        _ => panic!("unsupported hardware counter CSR {csr_num:#x}"),
+    }
+}
+
+#[inline]
 // Fence and HFence test
-fn fence_test() {
+fn fence_test(hartid: usize, smp: usize) {
+    let self_mask = HartMask::from_mask_base(0x1, hartid);
+
     // Fence.i test (should succeed, no-op for PMU, but should not panic)
-    let ret = sbi::remote_fence_i(HartMask::from_mask_base(0x1, 0));
+    let ret = sbi::remote_fence_i(self_mask);
     assert!(ret.is_ok() || ret == SbiRet::not_supported());
 
-    let ret = sbi::remote_fence_i(HartMask::from_mask_base(0x2, 0));
+    let invalid_hart = smp + 1;
+    let ret = sbi::remote_fence_i(HartMask::from_mask_base(0x1, invalid_hart));
     assert_eq!(ret, SbiRet::invalid_param());
 
     // SFence.vma test (should succeed, no-op for PMU, but should not panic)
-    let ret = sbi::remote_sfence_vma(HartMask::from_mask_base(0x1, 0), 0, 0);
+    let ret = sbi::remote_sfence_vma(self_mask, 0, 0);
     assert!(ret.is_ok() || ret == SbiRet::not_supported());
 
-    let ret = sbi::remote_sfence_vma(HartMask::from_mask_base(0x2, 0), 0, 0);
+    let ret = sbi::remote_sfence_vma(HartMask::from_mask_base(0x1, invalid_hart), 0, 0);
     assert_eq!(ret, SbiRet::invalid_param());
 
     // SFence.vma with asid test
-    let ret = sbi::remote_sfence_vma_asid(HartMask::from_mask_base(0x1, 0), 0, 0, 0);
+    let ret = sbi::remote_sfence_vma_asid(self_mask, 0, 0, 0);
     assert!(ret.is_ok() || ret == SbiRet::not_supported());
 
     // HFence tests (if supported)
-    let ret = sbi::remote_hfence_gvma(HartMask::from_mask_base(0x1, 0), 0, 0);
+    let ret = sbi::remote_hfence_gvma(self_mask, 0, 0);
     assert!(ret.is_ok() || ret == SbiRet::not_supported());
 
-    let ret = sbi::remote_hfence_gvma_vmid(HartMask::from_mask_base(0x1, 0), 0, 0, 0);
+    let ret = sbi::remote_hfence_gvma_vmid(self_mask, 0, 0, 0);
     assert!(ret.is_ok() || ret == SbiRet::not_supported());
 
-    let ret = sbi::remote_hfence_vvma(HartMask::from_mask_base(0x1, 0), 0, 0);
+    let ret = sbi::remote_hfence_vvma(self_mask, 0, 0);
     assert!(ret.is_ok() || ret == SbiRet::not_supported());
 
-    let ret = sbi::remote_hfence_vvma_asid(HartMask::from_mask_base(0x1, 0), 0, 0, 0);
+    let ret = sbi::remote_hfence_vvma_asid(self_mask, 0, 0, 0);
     assert!(ret.is_ok() || ret == SbiRet::not_supported());
+
+    println!("[34m[ INFO] Sbi `RFNC` test pass[0m");
 }
 
 #[cfg_attr(not(test), panic_handler)]
@@ -453,7 +499,7 @@ struct CounterInfo {
 impl CounterInfo {
     const CSR_MASK: usize = 0xFFF; // Bits [11:0]
     const WIDTH_MASK: usize = 0x3F << 12; // Bits [17:12]
-    const FIRMWARE_FLAG: usize = 1 << (size_of::<usize>() * 8 - 1); // MSB
+    const FIRMWARE_FLAG: usize = 1 << (usize::BITS as usize - 1); // MSB
 
     #[inline]
     pub const fn new(counter_info: usize) -> Self {

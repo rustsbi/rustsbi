@@ -169,13 +169,15 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
     let path_name = format!("/reserved-memory/mmode_resv1@{:x}", sbi_start);
     let patch2 =
         serde_device_tree::ser::patch::Patch::new(&path_name, &new_base_2 as _, ValueType::Node);
-    let raw_list = [patch1, patch2];
+    let patches = alloc::vec![patch1, patch2];
     // Only add `reserved-memory` section when it not exists.
-    let list = if tree.find("/reserved-memory").is_some() {
-        &raw_list[1..]
+    let start_idx = if tree.find("/reserved-memory").is_some() {
+        1
     } else {
-        &raw_list[..]
+        0
     };
+
+    let list = &patches[start_idx..];
 
     let patched_length = serde_device_tree::ser::probe_dtb_length(&tree, &list).unwrap();
 
@@ -189,12 +191,293 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
     };
     serde_device_tree::ser::to_dtb(&tree, &list, &mut patched_dtb_buffer_u8).unwrap();
 
+    // When AIA is active, NOP out M-level IMSIC and APLIC nodes in the
+    // DTB so Linux does not try to probe them. This matches OpenSBI's
+    // fdt_domain_based_fixup approach.
+    if crate::platform::aia::is_aia_active() {
+        let dtb_buf = unsafe {
+            core::slice::from_raw_parts_mut(patched_dtb_buffer.as_ptr() as *mut u8, patched_length)
+        };
+        fdt_nop_m_level_imsic(dtb_buf);
+        if let Some((clint_base, _)) = unsafe { crate::platform::PLATFORM.info.ipi.as_ref() } {
+            let clint_name = format!("clint@{:x}", clint_base);
+            if fdt_nop_node_by_name(dtb_buf, &clint_name) {
+                info!("AIA: NOP'd M-level CLINT node '{}' in DTB", clint_name);
+            }
+        }
+        // Also NOP the M-level APLIC, whose DT node may use either the
+        // generic interrupt-controller name or the APLIC-specific name.
+        fdt_nop_m_level_aplic(dtb_buf);
+    }
+
     info!(
         "The patched dtb is located at 0x{:x} with length 0x{:x}.",
         patched_dtb_buffer.as_ptr() as usize,
         patched_length
     );
     patched_dtb_buffer.as_ptr() as usize
+}
+
+// TODO: Move these raw FDT structure block patch helpers to serde-device-tree.
+const FDT_BEGIN_NODE: u32 = 0x01;
+const FDT_END_NODE: u32 = 0x02;
+const FDT_PROP: u32 = 0x03;
+const FDT_NOP: u32 = 0x04;
+const RISCV_MACHINE_EXTERNAL_IRQ: u32 = 11;
+
+fn fdt_read_u32(buf: &[u8], off: usize) -> u32 {
+    u32::from_be_bytes([buf[off], buf[off + 1], buf[off + 2], buf[off + 3]])
+}
+
+fn fdt_write_u32(buf: &mut [u8], off: usize, val: u32) {
+    let bytes = val.to_be_bytes();
+    buf[off..off + 4].copy_from_slice(&bytes);
+}
+
+fn fdt_nop_node_by_name(dtb: &mut [u8], target_name: &str) -> bool {
+    let struct_off = fdt_read_u32(dtb, 8) as usize;
+    let struct_size = fdt_read_u32(dtb, 36) as usize;
+    let end = struct_off + struct_size;
+    let mut off = struct_off;
+
+    while off + 4 <= end {
+        let token = fdt_read_u32(dtb, off);
+        match token {
+            t if t == FDT_BEGIN_NODE => {
+                let name_start = off + 4;
+                let name = core::ffi::CStr::from_bytes_until_nul(&dtb[name_start..])
+                    .map(|s| s.to_str().unwrap_or(""))
+                    .unwrap_or("");
+                if name == target_name {
+                    let node_start = off;
+                    let mut depth = 1u32;
+                    off += 4 + ((name.len() + 4) & !3);
+                    while depth > 0 && off + 4 <= end {
+                        let t = fdt_read_u32(dtb, off);
+                        if t == FDT_BEGIN_NODE {
+                            depth += 1;
+                            let n = core::ffi::CStr::from_bytes_until_nul(&dtb[off + 4..])
+                                .map(|s| s.to_str().unwrap_or(""))
+                                .unwrap_or("");
+                            off += 4 + ((n.len() + 4) & !3);
+                        } else if t == FDT_END_NODE {
+                            depth -= 1;
+                            off += 4;
+                        } else if t == FDT_PROP {
+                            let prop_len = fdt_read_u32(dtb, off + 4) as usize;
+                            off += 12 + ((prop_len + 3) & !3);
+                        } else if t == FDT_NOP {
+                            off += 4;
+                        } else {
+                            break;
+                        }
+                    }
+                    for i in (node_start..off).step_by(4) {
+                        fdt_write_u32(dtb, i, FDT_NOP);
+                    }
+                    return true;
+                }
+                off += 4 + ((name.len() + 4) & !3);
+            }
+            t if t == FDT_END_NODE => {
+                off += 4;
+            }
+            t if t == FDT_PROP => {
+                let prop_len = fdt_read_u32(dtb, off + 4) as usize;
+                off += 12 + ((prop_len + 3) & !3);
+            }
+            t if t == FDT_NOP => {
+                off += 4;
+            }
+            _ => break,
+        }
+    }
+    false
+}
+
+fn fdt_interrupts_extended_has_irq(data: &[u8], irq: u32) -> bool {
+    let mut chunks = data.chunks_exact(8);
+    let mut found = false;
+    for interrupt in chunks.by_ref() {
+        let interrupt_id =
+            u32::from_be_bytes([interrupt[4], interrupt[5], interrupt[6], interrupt[7]]);
+        if interrupt_id == irq {
+            found = true;
+        }
+    }
+    found && chunks.remainder().is_empty()
+}
+
+fn fdt_nop_m_level_imsic(dtb: &mut [u8]) {
+    let struct_off = fdt_read_u32(dtb, 8) as usize;
+    let struct_size = fdt_read_u32(dtb, 36) as usize;
+    let strings_off = fdt_read_u32(dtb, 12) as usize;
+    let end = struct_off + struct_size;
+    let mut off = struct_off;
+
+    while off + 4 <= end {
+        let token = fdt_read_u32(dtb, off);
+        match token {
+            t if t == FDT_BEGIN_NODE => {
+                let name_start = off + 4;
+                let name = core::ffi::CStr::from_bytes_until_nul(&dtb[name_start..])
+                    .map(|s| s.to_str().unwrap_or(""))
+                    .unwrap_or("");
+                let node_start = off;
+                let name_len = name.len();
+                off += 4 + ((name_len + 4) & !3);
+
+                let mut is_imsic = false;
+                let mut has_m_level_irq = false;
+                let mut scan = off;
+                let mut depth = 1u32;
+
+                while depth > 0 && scan + 4 <= end {
+                    let t = fdt_read_u32(dtb, scan);
+                    if t == FDT_BEGIN_NODE {
+                        depth += 1;
+                        let n = core::ffi::CStr::from_bytes_until_nul(&dtb[scan + 4..])
+                            .map(|s| s.to_str().unwrap_or(""))
+                            .unwrap_or("");
+                        scan += 4 + ((n.len() + 4) & !3);
+                    } else if t == FDT_END_NODE {
+                        depth -= 1;
+                        scan += 4;
+                    } else if t == FDT_PROP {
+                        let prop_len = fdt_read_u32(dtb, scan + 4) as usize;
+                        let name_off = fdt_read_u32(dtb, scan + 8) as usize;
+                        let prop_name =
+                            core::ffi::CStr::from_bytes_until_nul(&dtb[strings_off + name_off..])
+                                .map(|s| s.to_str().unwrap_or(""))
+                                .unwrap_or("");
+                        let data = &dtb[scan + 12..scan + 12 + prop_len];
+                        if depth == 1
+                            && prop_name == "compatible"
+                            && prop_len > 0
+                            && (data.windows(12).any(|w| w == b"riscv,imsics")
+                                || data.windows(11).any(|w| w == b"riscv,imsic"))
+                        {
+                            is_imsic = true;
+                        }
+                        if depth == 1
+                            && prop_name == "interrupts-extended"
+                            && fdt_interrupts_extended_has_irq(data, RISCV_MACHINE_EXTERNAL_IRQ)
+                        {
+                            has_m_level_irq = true;
+                        }
+                        scan += 12 + ((prop_len + 3) & !3);
+                    } else if t == FDT_NOP {
+                        scan += 4;
+                    } else {
+                        break;
+                    }
+                }
+
+                if is_imsic && has_m_level_irq {
+                    let node_name = alloc::string::String::from(name);
+                    for i in (node_start..scan).step_by(4) {
+                        fdt_write_u32(dtb, i, FDT_NOP);
+                    }
+                    info!("AIA: NOP'd M-level IMSIC node '{}' in DTB", node_name);
+                }
+            }
+            t if t == FDT_END_NODE => {
+                off += 4;
+            }
+            t if t == FDT_PROP => {
+                let prop_len = fdt_read_u32(dtb, off + 4) as usize;
+                off += 12 + ((prop_len + 3) & !3);
+            }
+            t if t == FDT_NOP => {
+                off += 4;
+            }
+            _ => break,
+        }
+    }
+}
+
+fn fdt_nop_m_level_aplic(dtb: &mut [u8]) {
+    let struct_off = fdt_read_u32(dtb, 8) as usize;
+    let struct_size = fdt_read_u32(dtb, 36) as usize;
+    let strings_off = fdt_read_u32(dtb, 12) as usize;
+    let end = struct_off + struct_size;
+    let mut off = struct_off;
+
+    while off + 4 <= end {
+        let token = fdt_read_u32(dtb, off);
+        match token {
+            t if t == FDT_BEGIN_NODE => {
+                let name_start = off + 4;
+                let name = core::ffi::CStr::from_bytes_until_nul(&dtb[name_start..])
+                    .map(|s| s.to_str().unwrap_or(""))
+                    .unwrap_or("");
+                let node_start = off;
+                let name_len = name.len();
+                off += 4 + ((name_len + 4) & !3);
+
+                let mut is_aplic = false;
+                let mut has_delegation = false;
+                let mut scan = off;
+                let mut depth = 1u32;
+
+                while depth > 0 && scan + 4 <= end {
+                    let t = fdt_read_u32(dtb, scan);
+                    if t == FDT_BEGIN_NODE {
+                        depth += 1;
+                        let n = core::ffi::CStr::from_bytes_until_nul(&dtb[scan + 4..])
+                            .map(|s| s.to_str().unwrap_or(""))
+                            .unwrap_or("");
+                        scan += 4 + ((n.len() + 4) & !3);
+                    } else if t == FDT_END_NODE {
+                        depth -= 1;
+                        scan += 4;
+                    } else if t == FDT_PROP {
+                        let prop_len = fdt_read_u32(dtb, scan + 4) as usize;
+                        let name_off = fdt_read_u32(dtb, scan + 8) as usize;
+                        let prop_name =
+                            core::ffi::CStr::from_bytes_until_nul(&dtb[strings_off + name_off..])
+                                .map(|s| s.to_str().unwrap_or(""))
+                                .unwrap_or("");
+                        if depth == 1 && prop_name == "compatible" && prop_len > 0 {
+                            let data = &dtb[scan + 12..scan + 12 + prop_len];
+                            if data.windows(11).any(|w| w == b"riscv,aplic") {
+                                is_aplic = true;
+                            }
+                        }
+                        if depth == 1
+                            && (prop_name == "riscv,delegate" || prop_name == "riscv,delegation")
+                        {
+                            has_delegation = true;
+                        }
+                        scan += 12 + ((prop_len + 3) & !3);
+                    } else if t == FDT_NOP {
+                        scan += 4;
+                    } else {
+                        break;
+                    }
+                }
+
+                if is_aplic && has_delegation {
+                    let node_name = alloc::string::String::from(name);
+                    for i in (node_start..scan).step_by(4) {
+                        fdt_write_u32(dtb, i, FDT_NOP);
+                    }
+                    info!("AIA: NOP'd M-level APLIC node '{}' in DTB", node_name);
+                }
+            }
+            t if t == FDT_END_NODE => {
+                off += 4;
+            }
+            t if t == FDT_PROP => {
+                let prop_len = fdt_read_u32(dtb, off + 4) as usize;
+                off += 12 + ((prop_len + 3) & !3);
+            }
+            t if t == FDT_NOP => {
+                off += 4;
+            }
+            _ => break,
+        }
+    }
 }
 
 static mut SBI_START_ADDRESS: usize = 0;
@@ -225,6 +508,68 @@ pub fn set_pmp(memory_range: &Range<usize>) {
         assert_eq!(RODATA_START_ADDRESS & 0x3, 0);
         assert_eq!(RODATA_END_ADDRESS & 0x3, 0);
 
+        // When AIA is active, block S-mode access to M-level interrupt
+        // controller regions while keeping other low MMIO visible.
+        // This matches OpenSBI's domain isolation approach.
+        if crate::platform::aia::is_aia_active()
+            && crate::platform::PLATFORM.info.is_qemu_virt()
+            && let Some(aia_info) = crate::platform::PLATFORM.info.aia.as_ref()
+        {
+            const QEMU_VIRT_M_APLIC_BASE: usize = 0x0c00_0000;
+            const QEMU_VIRT_CLINT_BASE: usize = 0x0200_0000;
+            const QEMU_VIRT_APLIC_SIZE: usize = 0x8000;
+            const QEMU_VIRT_CLINT_SIZE: usize = 0x1_0000;
+
+            let clint_base = crate::platform::PLATFORM
+                .info
+                .ipi
+                .as_ref()
+                .map(|(base, _)| *base)
+                .unwrap_or(QEMU_VIRT_CLINT_BASE);
+            let clint_end = clint_base + QEMU_VIRT_CLINT_SIZE;
+            let aplic_base = QEMU_VIRT_M_APLIC_BASE;
+            let aplic_end = aplic_base + QEMU_VIRT_APLIC_SIZE;
+            let m_base = aia_info.layout.machine_base;
+            let m_end = aia_info
+                .hart_imsic_map
+                .iter()
+                .flatten()
+                .copied()
+                .max()
+                .and_then(|addr| addr.checked_add(0x1000))
+                .unwrap_or(m_base + 0x1000);
+
+            pmpcfg0::set_pmp(0, Range::OFF, Permission::NONE, false);
+            pmpaddr0::write(0);
+            pmpcfg0::set_pmp(1, Range::TOR, Permission::RWX, false);
+            pmpaddr1::write(clint_base >> 2);
+            pmpcfg0::set_pmp(2, Range::TOR, Permission::NONE, false);
+            pmpaddr2::write(clint_end >> 2);
+            pmpcfg0::set_pmp(3, Range::TOR, Permission::RWX, false);
+            pmpaddr3::write(aplic_base >> 2);
+            pmpcfg0::set_pmp(4, Range::TOR, Permission::NONE, false);
+            pmpaddr4::write(aplic_end >> 2);
+            pmpcfg0::set_pmp(5, Range::TOR, Permission::RWX, false);
+            pmpaddr5::write(m_base >> 2);
+            pmpcfg0::set_pmp(6, Range::TOR, Permission::NONE, false);
+            pmpaddr6::write(m_end >> 2);
+            pmpcfg0::set_pmp(7, Range::TOR, Permission::RWX, false);
+            pmpaddr7::write(memory_range.start >> 2);
+            pmpcfg2::set_pmp(0, Range::TOR, Permission::RWX, false);
+            pmpaddr8::write(SBI_START_ADDRESS >> 2);
+            pmpcfg2::set_pmp(1, Range::TOR, Permission::R, false);
+            pmpaddr9::write(RODATA_START_ADDRESS >> 2);
+            pmpcfg2::set_pmp(2, Range::TOR, Permission::NONE, false);
+            pmpaddr10::write(RODATA_END_ADDRESS >> 2);
+            pmpcfg2::set_pmp(3, Range::TOR, Permission::RW, false);
+            pmpaddr11::write(SBI_END_ADDRESS >> 2);
+            pmpcfg2::set_pmp(4, Range::TOR, Permission::RWX, false);
+            pmpaddr12::write(memory_range.end >> 2);
+            pmpcfg2::set_pmp(5, Range::TOR, Permission::RWX, false);
+            pmpaddr13::write(usize::MAX >> 2);
+            return;
+        }
+
         pmpcfg0::set_pmp(0, Range::OFF, Permission::NONE, false);
         pmpaddr0::write(0);
         pmpcfg0::set_pmp(1, Range::TOR, Permission::RWX, false);
@@ -235,7 +580,7 @@ pub fn set_pmp(memory_range: &Range<usize>) {
         pmpaddr3::write(RODATA_START_ADDRESS >> 2);
         pmpcfg0::set_pmp(4, Range::TOR, Permission::NONE, false);
         pmpaddr4::write(RODATA_END_ADDRESS >> 2);
-        pmpcfg0::set_pmp(5, Range::TOR, Permission::RW, false); // Should be Permission::R, temporarily fix for possible S-mode DTB modification
+        pmpcfg0::set_pmp(5, Range::TOR, Permission::RW, false); // FIXME: Should be Permission::R, temporarily fix for possible S-mode DTB modification
         pmpaddr5::write(SBI_END_ADDRESS >> 2);
         pmpcfg0::set_pmp(6, Range::TOR, Permission::RWX, false);
         pmpaddr6::write(memory_range.end >> 2);

@@ -36,6 +36,10 @@ pub enum Case<'a> {
     HartSuspendedRetentive(usize),
     /// Test process for target hart to be tested has stopped.
     HartStopped(usize),
+    /// Remote RFence succeeded on a started remote hart.
+    RemoteRFencePass(usize),
+    /// Remote RFence failed on a started remote hart.
+    RemoteRFenceFailed(usize, SbiRet),
     /// Test process for harts on current batch has passed the tests.
     BatchPass(&'a [usize]),
     /// All test cases on hart state monitor module finished.
@@ -57,7 +61,7 @@ pub fn test(
         return;
     }
     f(Case::Begin);
-    // 分批测试
+    let rfnc_available = sbi::probe_extension(sbi::Fence).is_available();
 
     let mut batch = [0usize; TEST_BATCH_SIZE];
     let mut batch_count = 0;
@@ -71,7 +75,7 @@ pub fn test(
                 batch_size += 1;
                 // 收集一个批次，执行测试
                 if batch_size == TEST_BATCH_SIZE {
-                    if test_batch(&batch, &mut f) {
+                    if test_batch(&batch, rfnc_available, &mut f) {
                         batch_count += 1;
                         batch_size = 0;
                     } else {
@@ -90,7 +94,7 @@ pub fn test(
     }
     // 为不满一批次的核执行测试
     if batch_size > 0 {
-        if test_batch(&batch[..batch_size], &mut f) {
+        if test_batch(&batch[..batch_size], rfnc_available, &mut f) {
             f(Case::Pass);
         }
     }
@@ -168,7 +172,7 @@ impl ItemPerHart {
 }
 
 /// 测试一批核
-fn test_batch(batch: &[usize], mut f: impl FnMut(Case)) -> bool {
+fn test_batch(batch: &[usize], rfnc_available: bool, mut f: impl FnMut(Case)) -> bool {
     f(Case::BatchBegin(batch));
     // 初始这些核都是停止状态，测试 start
     for (i, hartid) in batch.iter().copied().enumerate() {
@@ -187,6 +191,14 @@ fn test_batch(batch: &[usize], mut f: impl FnMut(Case)) -> bool {
             core::hint::spin_loop();
         }
         f(Case::HartStarted(hartid));
+        if rfnc_available {
+            let rfence_ret = sbi::remote_fence_i(HartMask::from_mask_base(1, hartid));
+            if rfence_ret.is_ok() {
+                f(Case::RemoteRFencePass(hartid));
+            } else {
+                f(Case::RemoteRFenceFailed(hartid, rfence_ret));
+            }
+        }
         // 等待信号
         item.wait_start();
         // 发出信号

@@ -1,4 +1,5 @@
 use crate::riscv::current_hartid;
+use crate::sbi::features::{Extension, hart_extension_probe};
 use crate::sbi::hsm::local_hsm;
 use crate::sbi::ipi;
 use crate::sbi::trap_stack;
@@ -37,11 +38,19 @@ pub unsafe extern "C" fn boot() -> ! {
     )
 }
 
-/// Boot Handler.
 pub extern "C" fn boot_handler(ctx: &mut BootContext) {
     #[inline(always)]
     fn boot(ctx: &mut BootContext, start_addr: usize, opaque: usize) {
         unsafe {
+            // stvec BASE is four-byte aligned; HSM entry points may only be two-byte aligned.
+            if start_addr & 0x3 == 0 {
+                core::arch::asm!(
+                    "csrw stvec, {start_addr}",
+                    start_addr = in(reg) start_addr,
+                    options(nomem),
+                );
+            }
+            core::arch::asm!("csrw sscratch, zero", "csrw sie, zero", options(nomem),);
             sstatus::clear_sie();
             satp::write(satp::Satp::from_bits(0));
         }
@@ -51,20 +60,20 @@ pub extern "C" fn boot_handler(ctx: &mut BootContext) {
     }
 
     match local_hsm().start() {
-        // Handle HSM Start
         Ok(next_stage) => {
-            ipi::clear_msip();
+            ipi::claim_ipi();
             unsafe {
                 mstatus::set_mpie();
                 mstatus::set_mpp(next_stage.next_mode);
                 mie::set_msoft();
-                mie::set_mtimer();
+                if !hart_extension_probe(current_hartid(), Extension::Sstc) {
+                    mie::set_mtimer();
+                }
             }
             boot(ctx, next_stage.start_addr, next_stage.opaque);
         }
-        // Handle HSM Stop
         Err(rustsbi::spec::hsm::HART_STOP) => {
-            ipi::clear_msip();
+            ipi::claim_ipi();
             unsafe {
                 mie::set_msoft();
             }
@@ -76,11 +85,10 @@ pub extern "C" fn boot_handler(ctx: &mut BootContext) {
     }
 }
 
-/// Boot context structure containing saved register state.
 #[derive(Debug)]
 #[repr(C)]
 pub struct BootContext {
-    pub mepc: usize, // 0
+    pub mepc: usize,
     pub a0: usize,
-    pub a1: usize, // 2
+    pub a1: usize,
 }
