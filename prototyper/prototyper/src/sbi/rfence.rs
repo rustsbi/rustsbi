@@ -6,7 +6,7 @@ use crate::cfg::{PAGE_SIZE, TLB_FLUSH_LIMIT};
 use crate::platform::PLATFORM;
 use crate::riscv::current_hartid;
 use crate::sbi::fifo::{Fifo, FifoError};
-use crate::sbi::trap_stack::ROOT_STACK;
+use crate::sbi::trap_stack::try_hart_context;
 use core::arch::asm;
 
 use core::sync::atomic::{AtomicU32, Ordering};
@@ -95,20 +95,12 @@ pub struct RemoteRFenceCell<'a>(&'a RFenceCell);
 
 /// Gets the local fence context for the current hart.
 pub(crate) fn local_rfence() -> Option<LocalRFenceCell<'static>> {
-    unsafe {
-        ROOT_STACK
-            .get_mut(current_hartid())
-            .map(|x| x.hart_context().rfence.local())
-    }
+    try_hart_context(current_hartid()).map(|x| x.rfence.local())
 }
 
 /// Gets the remote fence context for a specific hart.
 pub(crate) fn remote_rfence(hart_id: usize) -> Option<RemoteRFenceCell<'static>> {
-    unsafe {
-        ROOT_STACK
-            .get_mut(hart_id)
-            .map(|x| x.hart_context().rfence.remote())
-    }
+    try_hart_context(hart_id).map(|x| x.rfence.remote())
 }
 
 #[allow(unused)]
