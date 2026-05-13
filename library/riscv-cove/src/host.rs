@@ -123,13 +123,13 @@ pub enum TvmState {
 #[repr(u32)]
 pub enum TsmPageType {
     /// 4 KiB.
-    Page_4K = 0,
+    Page4K = 0,
     /// 2 MiB.
-    Page_2MB = 1,
+    Page2M = 1,
     /// 1 GiB.
-    Page_1GB = 2,
+    Page1G = 2,
     /// 512 GiB.
-    Page_512GB = 3,
+    Page512G = 3,
 }
 
 /// Possible state of a TEE Security Manager (TSM).
