@@ -16,7 +16,7 @@ keywords = ["riscv", "sbi", "rustsbi"]
 categories = ["os", "embedded", "hardware-support", "no-std"]
 
 [dependencies]
-sbi-spec = { version = "0.0.8", path = "../sbi-spec" }
+sbi-spec = { version = "0.0.9", path = "../sbi-spec" }
 riscv = { workspace = true, optional = true }
 sbi-rt = { version = "0.0.3", features = ["integer-impls"], optional = true, path = "../sbi-rt" }
 rustsbi-macros = { version = "0.0.2", path = "../macros" }

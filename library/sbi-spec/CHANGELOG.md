@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+### Modified
+
+### Fixed
+
+## [0.0.9] - 2026-05-13
+
+### Added
+
 - pmu: add config flags with bitflags in chapter 11
 - fwft: add support for FWFT extension in chapter 18
 - sse: add support for Supervisor Software Events Extension in chapter 17
@@ -27,7 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Modified
 
-- Migrate sbi-rt crate to Rust 2024 edition.
+- Migrate sbi-spec crate to Rust 2024 edition.
 - base: don't derive `PartialOrd` for `Version`, instead manually implement `Ord` and forward it into `PartialOrd`.
 - base: refactor `SbiRet` to be generic of registers and introduce the `SbiRegister` trait
 - base: implement `SbiRegister` for `i32`, `i64`, `i128` and `isize` primitive types
