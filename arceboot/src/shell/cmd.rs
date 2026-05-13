@@ -37,7 +37,7 @@ fn do_help(_args: &str) {
 
 fn do_exit(_args: &str) {
     axlog::ax_println!("======== ArceBoot will exit and shut down ========");
-    axhal::misc::terminate();
+    axhal::power::system_off();
 }
 
 fn do_env(_args: &str) {

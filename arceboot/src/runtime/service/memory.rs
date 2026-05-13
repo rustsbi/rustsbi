@@ -1,9 +1,10 @@
 use alloc::vec::Vec;
 use axhal::{
-    mem::{MemoryAddr, PhysAddr, VirtAddr},
+    mem::{PhysAddr, VirtAddr},
     paging::MappingFlags,
 };
 use axsync::Mutex;
+use memory_addr::MemoryAddr;
 use uefi_raw::table::boot::MemoryType;
 
 static ALLOCATED_PAGES: Mutex<Vec<(VirtAddr, usize)>> = Mutex::new(Vec::new());
