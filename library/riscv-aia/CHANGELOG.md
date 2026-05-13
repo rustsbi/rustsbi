@@ -8,9 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- RISC-V AIA CSRs
-- RISC-V AIA peripherals including APLIC and IMSIC
-
 ### Modified
 
 ### Removed
+
+## [0.0.0]
+
+### Added
+
+- RISC-V AIA CSRs
+- RISC-V AIA peripherals including APLIC and IMSIC
