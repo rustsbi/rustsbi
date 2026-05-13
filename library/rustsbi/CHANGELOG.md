@@ -9,6 +9,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+### Modified
+
+### Fixed
+
+### Removed
+
+## [0.4.1] - 2026-05-13
+
+### Added
+
 - ci: add `check-changelog` and `check-commit-signatures` in `workflows`.
 - pmu: add missing `snapshot_set_shmem` function and testcases in `Pmu` trait.
 - pmu: add missing `snapshot_set_shmem` function in `Pmu` trait, impl for `&T` and `Option<T>` and `Forward` structure
@@ -25,9 +35,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - doc: lib: alter link to Prototyper firmware in documentation.
 - doc: lib: clarify error codes in documents of SBI IPI and RFENCE extensions
 - doc: rustsbi: update `#[naked]` in docs to `#[unsafe(naked)]`
-
-### Removed
-
 
 ### Fixed
 

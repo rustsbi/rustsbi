@@ -1,9 +1,9 @@
 [package]
 name = "rustsbi"
 description = "Minimal RISC-V's SBI implementation library in Rust"
-version = "0.4.0"
+version = "0.4.1"
 authors = [
-    "Luo Jia <me@luojia.cc>",
+    "Zhouqi Jiang / Luo Jia <luojia@rustsbi.com>",
     "Campbell He <hkp18@mails.tsinghua.edu.cn>",
     "Yifan Wu <shinbokuow@163.com>",
 ]
