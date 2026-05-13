@@ -40,7 +40,7 @@ pub fn mpxy_get_shmem_size() -> usize {
 /// flags[1:0]: Shared memory setup mode (Refer table below).
 /// ```
 ///
-/// | Mode             | flags[1:0]  | Description
+/// | Mode             | flags\[1:0\] | Description
 /// |:-----------------|:------------|:---------------------------------
 /// | OVERWRITE        | 0b00        | Ignore the current shared memory state and force setup the new shared memory based on the passed parameters.
 /// | OVERWRITE-RETURN | 0b01        | Same as `OVERWRITE` mode and additionally after the new shared memory state is enabled, the old shared memory are written in the same order to the new shared memory at offset `0x0`. This flag provide provision to software layers in the supervisor software that want to send messages using the shared memory but do not know the shared memory details that has already been setup. Those software layers can temporarily setup their own shared memory on the calling hart, send messages and then restore back the previous shared memory with the SBI implementation.

@@ -9,6 +9,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+### Modified
+
+### Fixed
+
+## [0.0.4] - 2026-05-13
+
+### Added
+
 - pmu: add missing `pmu_snapshot_set_shmem` function.
 - pmu: `pmu_snapshot_set_shmem` function signature, documents and implementation
 - lib: re-export `sbi_spec::base::CounterMask` on crate root.

@@ -8,4 +8,4 @@ repository.workspace = true
 [dependencies]
 riscv-cove = { version = "0.0.0", path = "../riscv-cove" }
 sbi-spec = { version = "0.0.9", path = "../sbi-spec" }
-sbi-rt = { version = "0.0.3", path = "../sbi-rt" }
+sbi-rt = { version = "0.0.4", path = "../sbi-rt" }
