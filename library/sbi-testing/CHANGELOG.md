@@ -9,6 +9,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+### Modified
+
+### Fixed
+
+## [0.0.3] - 2026-05-13
+
+### Added
+
 - Test new extension DBCN
 - Add an RV64 DBCN regression case for rejecting non-zero upper address halves.
 - Add remote RFence verification for HSM started remote harts.
@@ -16,8 +24,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Modified
 
 - Migrate sbi-rt crate to Rust 2024 edition.
-- Update sbi-spec to version 0.0.7
-- Update sbi-rt to version 0.0.3
+- Update sbi-spec to version 0.0.9
+- Update sbi-rt to version 0.0.4
 - Upgrade dependency `riscv` to 0.16.0.
 - Rename `MArchId` and `MVendorId` into `MarchId` and `MvendorId` in `BaseCase`
 - Replace `#[naked]` with `#[unsafe(naked)]` attribute in sbi-testing module to support stable Rust
@@ -25,6 +33,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
         - `library/sbi-testing/src/thread.rs`
         - `library/sbi-testing/src/hsm.rs`
     - MSRV bumped to 1.88.0 ([PR #134213](https://github.com/rust-lang/rust/pull/134213))
+- Write English README.md only.
 
 ### Fixed
 - Fix typos.
