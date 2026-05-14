@@ -4,3 +4,9 @@ arceboot = "xtask arceboot"
 prototyper = "xtask prototyper"
 test-kernel = "xtask test"
 bench-kernel = "xtask bench"
+
+[env]
+AX_CONFIG_PATH = { value = "arceboot/.axconfig.toml", relative = true }
+
+[target.riscv64gc-unknown-none-elf]
+rustflags = ["-Zcrate-attr=feature(core_io)", "-Aunused-features"]

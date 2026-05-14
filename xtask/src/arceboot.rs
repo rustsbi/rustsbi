@@ -152,7 +152,7 @@ fn generate_config(arceboot_dir: &Path, arg: &ArcebootArg) -> Option<PathBuf> {
     let status = Command::new("axconfig-gen")
         .arg(defconfig.to_string_lossy().as_ref())
         .arg(plat_config.to_string_lossy().as_ref())
-        .args(["-w", &format!("smp={}", arg.smp)])
+        .args(["-w", &format!("plat.max-cpu-num={}", arg.smp)])
         .args(["-w", &format!("arch=\"{}\"", arch)])
         .args(["-w", &format!("platform=\"{}\"", arg.platform)])
         .args(["-o", out_config.to_string_lossy().as_ref()])
@@ -189,7 +189,7 @@ fn build_arceboot(
 ) -> Option<ExitStatus> {
     let linker_script = arceboot_dir.join("link.ld");
     let rustflags = format!(
-        "-C opt-level=z -C panic=abort -C relocation-model=static -C target-cpu=generic -C link-arg=-T{}",
+        "-Zcrate-attr=feature(core_io) -Aunused-features -C opt-level=z -C panic=abort -C relocation-model=static -C target-cpu=generic -C link-arg=-T{}",
         linker_script.display()
     );
 

@@ -368,11 +368,14 @@ pub unsafe extern "efiapi" fn locate_protocol(
 ) -> Status {
     Status::UNSUPPORTED
 }
-pub unsafe extern "C" fn install_multiple_protocol_interfaces(_handle: *mut Handle, ...) -> Status {
+pub unsafe extern "C" fn install_multiple_protocol_interfaces(
+    _handle: *mut Handle,
+    _: ...
+) -> Status {
     Status::UNSUPPORTED
 }
 
-pub unsafe extern "C" fn uninstall_multiple_protocol_interfaces(_handle: Handle, ...) -> Status {
+pub unsafe extern "C" fn uninstall_multiple_protocol_interfaces(_handle: Handle, _: ...) -> Status {
     Status::UNSUPPORTED
 }
 

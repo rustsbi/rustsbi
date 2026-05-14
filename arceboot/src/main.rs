@@ -16,12 +16,17 @@ mod panic;
 mod runtime;
 mod shell;
 
-#[cfg_attr(not(test), unsafe(no_mangle))]
-pub extern "C" fn rust_main(_cpu_id: usize, dtb: usize) -> ! {
+#[cfg_attr(not(test), axplat::main)]
+pub fn rust_main(cpu_id: usize, dtb: usize) -> ! {
+    unsafe { axhal::mem::clear_bss() };
+    axhal::init_percpu(cpu_id);
+    axhal::init_early(cpu_id, dtb);
+
     axlog::init();
     axlog::set_max_level(option_env!("AX_LOG").unwrap_or("")); // no effect if set `log-level-*` features
     info!("Logging is enabled.");
 
+    axhal::mem::init();
     info!("Found physcial memory regions:");
     for r in axhal::mem::memory_regions() {
         info!(
@@ -40,7 +45,7 @@ pub extern "C" fn rust_main(_cpu_id: usize, dtb: usize) -> ! {
     axmm::init_memory_management();
 
     info!("Initialize platform devices...");
-    axhal::platform_init();
+    axhal::init_later(cpu_id, dtb);
 
     #[cfg(any(feature = "fs", feature = "net", feature = "display"))]
     {
@@ -60,12 +65,10 @@ pub extern "C" fn rust_main(_cpu_id: usize, dtb: usize) -> ! {
     }
     ctor_bare::call_ctors();
 
-    // Set to DTB_ADDRESS
     unsafe {
         dtb::GLOBAL_NOW_DTB_ADDRESS = phys_to_virt(PhysAddr::from_usize(dtb)).as_usize();
     }
 
-    // ramdisk check
     #[cfg(feature = "ramdisk_cpio")]
     crate::medium::ramdisk_cpio::check_ramdisk();
 
@@ -73,7 +76,7 @@ pub extern "C" fn rust_main(_cpu_id: usize, dtb: usize) -> ! {
 
     info!("will shut down.");
 
-    axhal::misc::terminate();
+    axhal::power::system_off();
 }
 
 fn init_allocator() {

@@ -2,6 +2,8 @@
 arch = "riscv64"                    # str
 # Platform identifier.
 platform = "riscv64-qemu-virt"      # str
+# Platform package.
+package = "axplat-riscv64-qemu-virt" # str
 
 #
 # Platform configs
@@ -9,11 +11,17 @@ platform = "riscv64-qemu-virt"      # str
 [plat]
 # Platform family.
 family = "riscv64-qemu-virt"        # str
+# Maximum number of CPUs.
+max-cpu-num = 1                      # uint
+# Stack size on bootstrapping. (256K)
+boot-stack-size = 0x40000            # uint
 
 # Base address of the whole physical memory.
 phys-memory-base = 0x8000_0000      # uint
 # Size of the whole physical memory. (128M)
 phys-memory-size = 0x800_0000       # uint
+# End address of the whole physical memory.
+phys-memory-end = 0x8800_0000       # uint
 # Base physical address of the kernel image.
 kernel-base-paddr = 0x8020_0000     # uint
 # Base virtual address of the kernel image.
@@ -33,8 +41,8 @@ kernel-aspace-size = "0x0000_003f_ffff_f000"    # uint
 # Device specifications
 #
 [devices]
-# MMIO regions with format (`base_paddr`, `size`).
-mmio-regions = [
+# MMIO ranges with format (`base_paddr`, `size`).
+mmio-ranges = [
     [0x0010_1000, 0x1000],          # RTC
     [0x0c00_0000, 0x21_0000],       # PLIC
     [0x1000_0000, 0x1000],          # UART
@@ -42,8 +50,8 @@ mmio-regions = [
     [0x3000_0000, 0x1000_0000],     # PCI config space
     [0x4000_0000, 0x4000_0000],     # PCI memory ranges (ranges 1: 32-bit MMIO space)
 ]                                   # [(uint, uint)]
-# VirtIO MMIO regions with format (`base_paddr`, `size`).
-virtio-mmio-regions = [
+# VirtIO MMIO ranges with format (`base_paddr`, `size`).
+virtio-mmio-ranges = [
     [0x1000_1000, 0x1000],
     [0x1000_2000, 0x1000],
     [0x1000_3000, 0x1000],
@@ -66,6 +74,10 @@ pci-ranges = [
 
 # Timer interrupt frequency in Hz.
 timer-frequency = 10_000_000        # uint
+# Timer interrupt number.
+timer-irq = "0x8000_0000_0000_0005" # uint
+# IPI interrupt number.
+ipi-irq = "0x8000_0000_0000_0001"   # uint
 
 # rtc@101000 {
 #     interrupts = <0x0b>;
