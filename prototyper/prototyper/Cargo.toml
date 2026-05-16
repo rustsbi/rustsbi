@@ -15,7 +15,7 @@ uart16550 = "0.0.1"
 riscv-decode = "0.2.1"
 cfg-if = "1.0.0"
 buddy_system_allocator = "0.11.0"
-rustsbi = { version = "0.4.0", features = [
+rustsbi = { version = "0.4.1", features = [
     "machine",
 ], path = "../../library/rustsbi" }
 sbi-spec = { version = "0.0.9", features = [

@@ -6,6 +6,7 @@ test-kernel = "xtask test"
 bench-kernel = "xtask bench"
 
 [env]
+# Environment variables for ArceBoot
 AX_CONFIG_PATH = { value = "arceboot/.axconfig.toml", relative = true }
 
 [target.riscv64gc-unknown-none-elf]

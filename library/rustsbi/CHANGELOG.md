@@ -13,6 +13,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- lib: update dependency version of `rustsbi` to 0.4.1
+
 ### Removed
 
 ## [0.4.1] - 2026-05-13

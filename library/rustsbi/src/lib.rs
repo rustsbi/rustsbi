@@ -141,7 +141,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rustsbi = { version = "0.4.0", features = ["machine"] }
+//! rustsbi = { version = "0.4.1", features = ["machine"] }
 //! ```
 //!
 //! The feature `machine` indicates that RustSBI library is run directly on machine mode RISC-V
@@ -390,7 +390,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rustsbi = "0.4.0"
+//! rustsbi = "0.4.1"
 //! ```
 //!
 //! This will disable the default feature `machine` which will assume that RustSBI runs on M-mode directly,
@@ -677,7 +677,7 @@ pub use sbi_spec::binary::{CounterMask, HartMask, Physical, SbiRet, SharedPtr};
 ///
 /// ```toml
 /// [dependencies]
-/// rustsbi = { version = "0.4.0", features = ["machine"] }
+/// rustsbi = { version = "0.4.1", features = ["machine"] }
 /// ```
 ///
 /// If that's not the case, and we are writing a virtualization-targeted application, we should add a
