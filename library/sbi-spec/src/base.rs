@@ -28,6 +28,9 @@ impl Version {
     /// RISC-V SBI version 2.0, ratified at Feb 1, 2024.
     pub const V2_0: Version = Version::from_raw(0x0200_0000);
 
+    /// RISC-V SBI version 3.0, ratified at Jul 17, 2025.
+    pub const V3_0: Version = Version::from_raw(0x0300_0000);
+
     /// Converts raw extension value into Version structure.
     #[inline]
     pub const fn from_raw(raw: usize) -> Self {
@@ -239,5 +242,7 @@ mod tests {
         assert_eq!(Version::V1_0.minor(), 0);
         assert_eq!(Version::V2_0.major(), 2);
         assert_eq!(Version::V2_0.minor(), 0);
+        assert_eq!(Version::V3_0.major(), 3);
+        assert_eq!(Version::V3_0.minor(), 0);
     }
 }
