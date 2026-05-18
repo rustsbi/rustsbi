@@ -185,6 +185,10 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         );
         mtvec::write(val);
     }
+
+    // Assert that boot-time initialisation did not overflow the trap
+    // stack into adjacent BSS state.
+    trap_stack::assert_stack_pointer_in_range();
 }
 
 #[unsafe(naked)]

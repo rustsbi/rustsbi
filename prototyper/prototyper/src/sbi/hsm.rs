@@ -9,8 +9,8 @@ use rustsbi::{SbiRet, spec::hsm::hart_state};
 use crate::platform::PLATFORM;
 use crate::riscv::current_hartid;
 use crate::sbi::hart_context::NextStage;
-use crate::sbi::trap_stack::ROOT_STACK;
 use crate::sbi::trap_stack::hart_context_mut;
+use crate::sbi::trap_stack::try_hart_context;
 
 use super::{trap::boot::boot, trap_stack::hart_context};
 
@@ -192,11 +192,7 @@ pub(crate) fn local_remote_hsm() -> RemoteHsmCell<'static, NextStage> {
 /// Gets a remote view of any hart's HSM cell.
 #[allow(unused)]
 pub(crate) fn remote_hsm(hart_id: usize) -> Option<RemoteHsmCell<'static, NextStage>> {
-    unsafe {
-        ROOT_STACK
-            .get_mut(hart_id)
-            .map(|x| x.hart_context().hsm.remote())
-    }
+    try_hart_context(hart_id).map(|x| x.hsm.remote())
 }
 
 /// Implementation of SBI HSM (Hart State Management) extension.
