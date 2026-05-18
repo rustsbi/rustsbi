@@ -98,6 +98,12 @@ slides and blog articles of these talks are available at [RustSBI/slides](https:
    RustSBI in it!
 3. If there is a bug in RustSBI project itself, fire an issue or pull request to let us know!
 
+## Security
+
+If you discover a security vulnerability within RustSBI, please send an email to the security team at
+[security@rustsbi.com](mailto:security@rustsbi.com). All security vulnerabilities will be promptly addressed.
+Please do not disclose security issues publicly until they have been addressed by the maintainers.
+
 ## Sponsors
 
 The RustSBI project is sponsored by multiple institutions, companies, and individuals.
