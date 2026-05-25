@@ -25,6 +25,26 @@ The RustSBI Prototyper and ArceBoot requires nightly Rust version of `rustc 1.97
 
 ## Build this project
 
+### With Docker
+
+The repository provides a Docker image for development on hosts that do not match the CI environment.
+It includes the pinned nightly toolchain, RISC-V targets, QEMU, `cargo-binutils` and `axconfig-gen`.
+
+For a one-off check, run:
+
+```bash
+docker build -t rustsbi-dev .
+docker run --rm -v "$PWD:/workspace" -w /workspace rustsbi-dev cargo check
+```
+
+For an interactive shell, run:
+
+```bash
+docker run --rm -it -v "$PWD:/workspace" -w /workspace rustsbi-dev bash
+```
+
+The source tree is mounted at `/workspace`; changes and build artifacts stay on the host.
+
 ### For firmware user
 
 If you need to build RustSBI firmware for M-mode, please refer to the [RustSBI Prototyper](prototyper/README.md) documentation.
