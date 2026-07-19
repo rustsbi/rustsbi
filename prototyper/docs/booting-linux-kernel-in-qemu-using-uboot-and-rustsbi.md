@@ -73,6 +73,7 @@ Copyright (c) 2003-2024 Fabrice Bellard and the QEMU Project developers
 
 ```shell
 $ mkdir workshop && cd workshop
+$ export WORKSHOP_DIR=$(pwd)
 ```
 
 Clone RustSBI Prototyper
@@ -249,19 +250,20 @@ $ sudo cp ../linux/arch/riscv/boot/Image .
 $ sudo cp -r ../busybox/_install/* .
 $ sudo mkdir proc sys dev etc etc/init.d
 $ cd etc/init.d/
-$ sudo cat > rcS << EOF
-  #!/bin/sh
-  mount -t proc none /proc
-  mount -t sysfs none /sys
-  /sbin/mdev -s
-  EOF
+$ sudo tee rcS >/dev/null <<'EOF'
+#!/bin/sh
+mount -t proc none /proc
+mount -t sysfs none /sys
+/sbin/mdev -s
+EOF
 $ sudo chmod +x rcS
+$ sudo sh -n rcS
 ```
 
 卸载`rootfs`
 
 ```shell
-$ cd workshop
+$ cd "$WORKSHOP_DIR"
 $ sudo umount rootfs
 ```
 
@@ -276,7 +278,7 @@ $ sudo losetup -d /dev/loop0
 进入rustsbi目录
 
 ```shell
-$ cd rustsbi
+$ cd "$WORKSHOP_DIR/rustsbi"
 ```
 
 编译RustSBI Prototyper
@@ -290,7 +292,7 @@ $ cargo prototyper
 进入U-Boot目录
 
 ```shell
-$ cd u-boot
+$ cd "$WORKSHOP_DIR/u-boot"
 ```
 
 导出环境变量
@@ -298,7 +300,7 @@ $ cd u-boot
 ```shell
 $ export ARCH=riscv
 $ export CROSS_COMPILE=riscv64-linux-gnu-
-$ export OPENSBI=../rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin
+$ export OPENSBI="$WORKSHOP_DIR/rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin"
 ```
 
 生成`.config`文件
@@ -330,7 +332,7 @@ $ make -j$(nproc)
 进入`workshop`目录
 
 ```shell
-$ cd workshop
+$ cd "$WORKSHOP_DIR"
 ```
 
 运行下面命令

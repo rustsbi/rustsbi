@@ -17,6 +17,7 @@
 
 ```shell
 $ mkdir workshop && cd workshop
+$ export WORKSHOP_DIR=$(pwd)
 ```
 
 ### Clone RustSBI
@@ -47,7 +48,7 @@ $ cd ..
 进入rustsbi目录
 
 ```shell
-$ cd rustsbi
+$ cd "$WORKSHOP_DIR/rustsbi"
 ```
 
 编译RustSBI Prototyper
@@ -61,7 +62,7 @@ $ cargo prototyper
 进入U-Boot目录
 
 ```shell
-$ cd u-boot
+$ cd "$WORKSHOP_DIR/u-boot"
 ```
 
 导出环境变量
@@ -69,7 +70,7 @@ $ cd u-boot
 ```shell
 $ export ARCH=riscv
 $ export CROSS_COMPILE=riscv64-linux-gnu-
-$ export OPENSBI=../rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin
+$ export OPENSBI="$WORKSHOP_DIR/rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin"
 ```
 
 生成`.config`文件,编译U-Boot
@@ -77,7 +78,8 @@ $ export OPENSBI=../rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-pr
 ```shell
 # To generate .config file out of board configuration file
 $ make qemu-riscv64_spl_defconfig
-$ sed -i.bak 's/CONFIG_BOOTCOMMAND=*/CONFIG_BOOTCOMMAND="fatload virtio 0:1 84000000 EFI\/Linux\/6.8.7-300.4.riscv64.fc40.riscv64.efi; setenv bootargs root=UUID=57cbf0ca-8b99-45ae-ae9d-3715598f11c4 ro rootflags=subvol=root rhgb LANG=en_US.UTF-8 console=ttyS0 earlycon=sbi; bootefi 0x84000000 - ${fdtcontroladdr};"/' .config
+$ ./scripts/config --set-str BOOTCOMMAND 'fatload virtio 0:1 84000000 EFI/Linux/6.8.7-300.4.riscv64.fc40.riscv64.efi; setenv bootargs root=UUID=57cbf0ca-8b99-45ae-ae9d-3715598f11c4 ro rootflags=subvol=root rhgb LANG=en_US.UTF-8 console=ttyS0 earlycon=sbi; bootefi 0x84000000 - ${fdtcontroladdr};'
+$ grep '^CONFIG_BOOTCOMMAND=' .config
 $ make -j$(nproc)
 ```
 
@@ -106,7 +108,7 @@ genisoimage \
 进入`workshop`目录
 
 ```shell
-$ cd workshop
+$ cd "$WORKSHOP_DIR"
 ```
 
 运行下面命令

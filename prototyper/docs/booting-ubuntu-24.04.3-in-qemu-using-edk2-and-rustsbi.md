@@ -4,6 +4,12 @@
 
 运行本教程已经在Arch Linux x86_64系统上经过测试，但理论上其他的Linux发行版亦可以参照使用。
 
+先记录工作目录，后续命令均以此目录为基准：
+
+```bash
+export WORKSHOP_DIR=$(pwd)
+```
+
 测试本教程时使用的软件版本如下：
 
 |          软件           |      版本       |
@@ -30,16 +36,18 @@ xz -d ubuntu-24.04.3-preinstalled-server-riscv64.img.xz
 首先拉取RustSBI的源代码并编译RustSBI：
 
 ```bash
-git clone https://github.com/rustsbi/rustsbi.git --depth 1
-cd rustsbi
-cargo prototyper
+git clone https://github.com/rustsbi/rustsbi.git --depth 1 "$WORKSHOP_DIR/rustsbi"
+(
+    cd "$WORKSHOP_DIR/rustsbi"
+    cargo prototyper
+)
 ```
 
 然后拉取EDK2的源代码并编译EDK2:
 
 ```bash
-git clone --recurse-submodules https://github.com/tianocore/edk2.git -b edk2-stable202505
-cd edk2
+git clone --recurse-submodules https://github.com/tianocore/edk2.git -b edk2-stable202505 "$WORKSHOP_DIR/edk2"
+cd "$WORKSHOP_DIR/edk2"
 export GCC5_RISCV64_PREFIX=riscv64-linux-gnu-
 source edksetup.sh
 build -a RISCV64 -b RELEASE -p OvmfPkg/RiscVVirt/RiscVVirtQemu.dsc -t GCC5
@@ -60,9 +68,9 @@ truncate -s 32M Build/RiscVVirtQemu/RELEASE_GCC5/FV/RISCV_VIRT_CODE.fd
 qemu-system-riscv64  \
         -M virt,pflash0=pflash0,pflash1=pflash1,acpi=off \
         -m 4096 -smp 8 \
-        -bios rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.bin \
-        -blockdev node-name=pflash0,driver=file,read-only=on,filename=edk2/Build/RiscVVirtQemu/RELEASE_GCC5/FV/RISCV_VIRT_CODE.fd  \
-        -blockdev node-name=pflash1,driver=file,filename=edk2/Build/RiscVVirtQemu/RELEASE_GCC5/FV/RISCV_VIRT_VARS.fd \
+        -bios "$WORKSHOP_DIR/rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.bin" \
+        -blockdev node-name=pflash0,driver=file,read-only=on,filename="$WORKSHOP_DIR/edk2/Build/RiscVVirtQemu/RELEASE_GCC5/FV/RISCV_VIRT_CODE.fd" \
+        -blockdev node-name=pflash1,driver=file,filename="$WORKSHOP_DIR/edk2/Build/RiscVVirtQemu/RELEASE_GCC5/FV/RISCV_VIRT_VARS.fd" \
         -device virtio-blk-device,drive=hd0  \
         -drive file=ubuntu-24.04.3-preinstalled-server-riscv64.img,format=raw,id=hd0,if=none \
         -netdev user,id=n0 -device virtio-net,netdev=n0 \

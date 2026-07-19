@@ -4,6 +4,12 @@
 
 运行本教程需要在安装了Arch Linux x86_64的系统上进行。
 
+先记录工作目录，后续命令均以此目录为基准：
+
+```bash
+export WORKSHOP_DIR=$(pwd)
+```
+
 ## 创建根文件系统
 
 首先创建一个`rootfs`文件夹并修改权限为`root`。
@@ -37,7 +43,11 @@ sudo pacman  \
 然后设置一下该`rootfs`的`root`账号密码：
 
 ```bash
-sudo usermod --root $(realpath ./rootfs) --password $(openssl passwd -6 "$password") root
+read -r -s -p "Root password: " password
+printf '\n'
+test -n "$password"
+sudo usermod --root "$(realpath ./rootfs)" --password "$(openssl passwd -6 "$password")" root
+unset password
 ```
 
 就可以将`rootfs`打包为压缩包文件备用了。
@@ -141,7 +151,7 @@ sudo ARCH=riscv make CROSS_COMPILE=riscv64-linux-gnu- modules_install INSTALL_MO
 
 ### 生成初始化RAM磁盘
 
-使用如下的命`systemd-nspawn切换进行rootfs文件系统中。
+使用如下命令通过 `systemd-nspawn` 进入 `rootfs` 文件系统。
 
 ```bash
 sudo systemd-nspawn -D mnt /bin/bash
@@ -206,16 +216,18 @@ sudo qemu-nbd -d /dev/nbd0
 首先拉取RustSBI的源代码并编译RustSBI：
 
 ```bash
-git clone https://github.com/rustsbi/rustsbi.git --depth 1
-cd rustsbi
-cargo prototyper
+git clone https://github.com/rustsbi/rustsbi.git --depth 1 "$WORKSHOP_DIR/rustsbi"
+(
+    cd "$WORKSHOP_DIR/rustsbi"
+    cargo prototyper
+)
 ```
 
 然后拉取EDK2的源代码并编译EDK2:
 
 ```bash
-git clone --recurse-submodules https://github.com/tianocore/edk2.git -b edk2-stable202505
-cd edk2
+git clone --recurse-submodules https://github.com/tianocore/edk2.git -b edk2-stable202505 "$WORKSHOP_DIR/edk2"
+cd "$WORKSHOP_DIR/edk2"
 export GCC5_RISCV64_PREFIX=riscv64-linux-gnu-
 source edksetup.sh
 build -a RISCV64 -b RELEASE -p OvmfPkg/RiscVVirt/RiscVVirtQemu.dsc -t GCC5

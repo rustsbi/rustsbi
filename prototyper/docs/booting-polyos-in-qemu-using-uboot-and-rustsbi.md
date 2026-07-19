@@ -4,17 +4,21 @@
 
 本文于此介绍基于 OpenHarmony 的系统 -- PolyOS 使用 RustSBI 和 U-Boot 在 QEMU 中启动的方法。
 
-下令 `$workdir` 表示工作目录。
+先在空目录中记录绝对工作路径，后续命令均以它为基准：
+
+```shell
+$ export WORKDIR=$(pwd)
+```
 
 ### Clone & Compile RustSBI Prototyper
 
 ```shell
-$ cd $workdir
+$ cd "$WORKDIR"
 $ git clone -b main https://github.com/rustsbi/rustsbi.git
 ```
 
 ```shell
-$ cd rustsbi
+$ cd "$WORKDIR/rustsbi"
 ```
 
 编译RustSBI Prototyper
@@ -26,14 +30,14 @@ $ cargo prototyper
 ### Clone & Compile U-Boot
 
 ```shell
-$ cd $workdir
+$ cd "$WORKDIR"
 $ git clone -b v2024.04 https://github.com/u-boot/u-boot.git
 ```
 
 进入U-Boot目录
 
 ```shell
-$ cd u-boot
+$ cd "$WORKDIR/u-boot"
 ```
 
 导出环境变量
@@ -41,7 +45,7 @@ $ cd u-boot
 ```shell
 $ export ARCH=riscv
 $ export CROSS_COMPILE=riscv64-linux-gnu-
-$ export OPENSBI=../rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin
+$ export OPENSBI="$WORKDIR/rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin"
 ```
 
 生成`.config`文件,编译U-Boot
@@ -57,7 +61,7 @@ $ make -j$(nproc)
 下载 PolyOS Mobile 镜像：<https://polyos.iscas.ac.cn/downloads/polyos-mobile-latest.img.tar.xz>。
 
 ```shell
-$ cd $workdir
+$ cd "$WORKDIR"
 $ wget https://polyos.iscas.ac.cn/downloads/polyos-mobile-latest.img.tar.xz
 $ tar xvf polyos-mobile-latest.img.tar.xz
 ```
@@ -81,22 +85,27 @@ $ fdisk boot.img
 挂载本地回环设备：
 
 ```shell
-$ sudo losetup --find --show -P ./boot.img
+$ loop_device=$(sudo losetup --find --show -P ./boot.img)
+$ partition="${loop_device}p1"
 ```
 
-以下假设挂载的本地回环设备为 `/dev/loop1`。
+后续命令使用 `losetup` 返回的实际设备名，避免误写其他回环设备。
 
 将给定的 boot.ext4 写入该分区：
 
 ```shell
-$ dd if=./boot.ext4 of=/dev/loop1p1
+$ printf '即将覆盖 %s，输入 YES 继续: ' "$partition"
+$ read -r confirm
+$ [ "$confirm" = YES ] || exit 1
+$ sudo dd if=./boot.ext4 of="$partition" status=progress conv=fsync
+$ unset confirm
 ```
 
 挂载该分区：
 
 ```shell
 $ mkdir boot
-$ mount /dev/loop1p1 ./boot
+$ sudo mount "$partition" ./boot
 ```
 
 创建 `./boot/extlinux/extlinux.conf`，并写入以下内容：
@@ -112,8 +121,9 @@ label   polyOS-RISC-V
 卸载相关分区和本地回环设备：
 
 ```shell
-$ umount ./boot
-$ losetup -d /dev/loop1
+$ sudo umount ./boot
+$ sudo losetup -d "$loop_device"
+$ unset partition loop_device
 ```
 
 ### USE Qemu to bootup
@@ -121,8 +131,8 @@ $ losetup -d /dev/loop1
 使用 qemu 启动：
 
 ```shell
-$ cd $workdir/image
-image_path=`pwd`
+$ cd "$WORKDIR/image"
+image_path=$(pwd)
 qemu-system-riscv64 \
     -name PolyOS-Mobile \
     -machine virt \

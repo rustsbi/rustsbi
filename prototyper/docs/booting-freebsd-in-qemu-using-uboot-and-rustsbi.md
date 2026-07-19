@@ -62,6 +62,7 @@ Copyright (c) 2003-2024 Fabrice Bellard and the QEMU Project developers
 
 ```shell
 $ mkdir workshop && cd workshop
+$ export WORKSHOP_DIR=$(pwd)
 ```
 
 Clone RustSBI Prototyper
@@ -87,7 +88,7 @@ $ wget https://download.freebsd.org/releases/VM-IMAGES/14.1-RELEASE/riscv64/Late
 进入rustsbi目录
 
 ```shell
-$ cd rustsbi
+$ cd "$WORKSHOP_DIR/rustsbi"
 ```
 
 编译RustSBI Prototyper
@@ -101,7 +102,7 @@ $ cargo prototyper
 进入U-Boot目录
 
 ```shell
-$ cd u-boot
+$ cd "$WORKSHOP_DIR/u-boot"
 ```
 
 导出环境变量
@@ -109,7 +110,7 @@ $ cd u-boot
 ```shell
 $ export ARCH=riscv
 $ export CROSS_COMPILE=riscv64-linux-gnu-
-$ export OPENSBI=../rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin
+$ export OPENSBI="$WORKSHOP_DIR/rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin"
 ```
 
 生成`.config`文件
@@ -128,12 +129,12 @@ $ make -j$(nproc)
 
 本小节将使用二进制文件 `./spl/u-boot-spl`和`./u-boot.itb `。
 
-## 使用RustSBI 原型系统和U-Boot启动Linux Kernel
+## 使用RustSBI原型系统和U-Boot启动FreeBSD
 
 进入`workshop`目录
 
 ```shell
-$ cd workshop
+$ cd "$WORKSHOP_DIR"
 ```
 
 运行下面命令
