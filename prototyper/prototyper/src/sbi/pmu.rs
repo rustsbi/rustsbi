@@ -1,203 +1,318 @@
-use alloc::collections::BTreeMap;
-use alloc::vec::Vec;
-use riscv::register::*;
-use rustsbi::{Pmu, SbiRet};
-use sbi_spec::binary::SharedPtr;
-use sbi_spec::pmu::shmem_size::SIZE;
-use sbi_spec::pmu::*;
+//! Performance-monitoring SBI policy.
 
-use crate::riscv::csr::*;
-use crate::{riscv::current_hartid, sbi::features::hart_mhpm_mask};
+use alloc::vec;
 
-use super::features::{PrivilegedVersion, hart_privileged_version};
-use super::trap_stack::{hart_context, hart_context_mut};
+use machine::{CounterError, CounterId, HartLocal, HartLocalError, PerformanceCounters};
+use rustsbi::SbiRet;
+use sbi_spec::pmu::{
+    cache_event, cache_operation, cache_result, event_type, firmware_event, flags, hardware_event,
+};
 
-/// Maximum number of hardware performance counters supported.
-const PMU_HARDWARE_COUNTER_MAX: usize = 32;
-/// Maximum number of firmware-managed counters supported.
-const PMU_FIRMWARE_COUNTER_MAX: usize = 16;
-/// Marker value for inactive/invalid event indices.
-const PMU_EVENT_IDX_INVALID: usize = usize::MAX;
+const HARDWARE_COUNTER_LIMIT: usize = 32;
+const FIRMWARE_COUNTER_COUNT: usize = 16;
+const COUNTER_LIMIT: usize = HARDWARE_COUNTER_LIMIT + FIRMWARE_COUNTER_COUNT;
+const EVENT_INDEX_MASK: usize = 0x000f_ffff;
 
-/// PMU state tracking hardware and firmware performance counters
-#[repr(C)]
-pub struct PmuState {
-    active_event: [usize; PMU_HARDWARE_COUNTER_MAX + PMU_FIRMWARE_COUNTER_MAX],
-    /// Bitmap of active firmware counters (1 bit per counter)
-    fw_counter_state: usize,
-    /// Values for firmware-managed counters
-    fw_counter: [u64; PMU_FIRMWARE_COUNTER_MAX],
-    hw_counters_num: usize,
-    total_counters_num: usize,
+/// Upper SBI service that assigns architectural and firmware events to the
+/// calling hart's counters.
+pub(super) struct PerformanceMonitor {
+    counters: PerformanceCounters,
+    state: HartLocal<HartState>,
 }
 
-impl PmuState {
-    /// Creates a new PMU state with default configuration.
-    pub fn new() -> Self {
-        let mhpm_mask = hart_mhpm_mask(current_hartid());
-        let hw_counters_num = mhpm_mask.count_ones() as usize;
-        let total_counters_num = hw_counters_num + PMU_FIRMWARE_COUNTER_MAX;
-
-        let mut active_event =
-            [PMU_EVENT_IDX_INVALID; PMU_HARDWARE_COUNTER_MAX + PMU_FIRMWARE_COUNTER_MAX];
-        // Standard mappings for fixed counters
-        active_event[1] = 0x0; // time (memory-mapped)
-
-        Self {
-            active_event,
-            fw_counter_state: 0,
-            fw_counter: [0; PMU_FIRMWARE_COUNTER_MAX],
-            hw_counters_num,
-            total_counters_num,
-        }
-    }
-
-    /// Returns the number of hardware counters available.
-    #[inline(always)]
-    pub fn get_hw_counter_num(&self) -> usize {
-        self.hw_counters_num
-    }
-
-    /// Returns the total number of counters (hardware + firmware).
-    #[inline(always)]
-    pub fn get_total_counters_num(&self) -> usize {
-        self.total_counters_num
-    }
-
-    /// Gets the event index associated with a counter.
-    #[inline]
-    pub fn get_event_idx(&self, counter_idx: usize, firmware_event: bool) -> Option<EventIdx> {
-        if counter_idx >= self.total_counters_num {
-            return None;
-        }
-        if firmware_event && counter_idx < self.hw_counters_num {
-            return None;
-        }
-
-        Some(EventIdx::new(self.active_event[counter_idx]))
-    }
-
-    /// Gets the value of a firmware counter.
-    #[inline]
-    pub fn get_fw_counter(&self, counter_idx: usize) -> Option<u64> {
-        if counter_idx < self.hw_counters_num || counter_idx >= self.total_counters_num {
-            return None;
-        }
-        let fw_idx = counter_idx - self.hw_counters_num;
-        // Safety: fw_idx is guaranteed to be within bounds (0..FIRMWARE_COUNTER_MAX)
-        unsafe { Some(*self.fw_counter.get_unchecked(fw_idx)) }
-    }
-
-    /// start a firmware counter with a optional new value.
-    #[inline]
-    fn start_fw_counter(
-        &mut self,
-        counter_idx: usize,
-        initial_value: u64,
-        is_update_value: bool,
-    ) -> Result<(), StartCounterErr> {
-        if counter_idx < self.hw_counters_num || counter_idx >= self.total_counters_num {
-            return Err(StartCounterErr::OffsetInvalid);
-        }
-        let fw_idx = counter_idx - self.hw_counters_num;
-
-        if self.fw_counter_state & (1 << fw_idx) != 0 {
-            return Err(StartCounterErr::AlreadyStart);
-        }
-
-        if is_update_value {
-            self.fw_counter[fw_idx] = initial_value;
-        }
-        self.fw_counter_state |= 1 << fw_idx; // Mark as active
-        Ok(())
-    }
-
-    /// stop a firmware counter
-    #[inline]
-    fn stop_fw_counter(
-        &mut self,
-        counter_idx: usize,
-        is_reset: bool,
-    ) -> Result<(), StopCounterErr> {
-        if counter_idx < self.hw_counters_num || counter_idx >= self.total_counters_num {
-            return Err(StopCounterErr::OffsetInvalid);
-        }
-        let fw_idx = counter_idx - self.hw_counters_num;
-
-        if self.fw_counter_state & (1 << fw_idx) == 0 {
-            return Err(StopCounterErr::AlreadyStop);
-        }
-
-        if is_reset {
-            self.active_event[counter_idx] = PMU_EVENT_IDX_INVALID;
-        }
-        self.fw_counter_state &= !(1 << fw_idx); // Mark as stop
-        Ok(())
-    }
-
-    #[inline]
-    pub fn is_firmware_event_start(&self, counter_idx: usize) -> bool {
-        if counter_idx < self.hw_counters_num || counter_idx >= self.total_counters_num {
-            return false;
-        }
-        let fw_idx = counter_idx - self.hw_counters_num;
-        self.fw_counter_state & (1 << fw_idx) != 0
-    }
+#[derive(Clone, Copy)]
+struct HartState {
+    initialized: bool,
+    assignments: [Option<Assignment>; COUNTER_LIMIT],
+    firmware_values: [u64; FIRMWARE_COUNTER_COUNT],
 }
 
-pub struct SbiPmu {
-    event_to_mhpmevent: Option<BTreeMap<u32, u64>>,
-    event_to_mhpmcounter: Option<Vec<EventToCounterMap>>,
-    raw_event_to_mhpmcounter: Option<Vec<RawEventToCounterMap>>,
+#[derive(Clone, Copy)]
+enum Assignment {
+    Hardware {
+        counter: CounterId,
+        event: Event,
+        running: bool,
+    },
+    Firmware {
+        event_code: usize,
+        running: bool,
+    },
 }
 
-impl Pmu for SbiPmu {
-    /// Returns the total number of available performance counters
-    ///
-    /// Implements SBI PMU extension function (FID #0)
-    #[inline]
-    fn num_counters(&self) -> usize {
-        hart_context(current_hartid())
-            .pmu_state
-            .get_total_counters_num()
-    }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Event {
+    index: usize,
+    selector: u64,
+    kind: EventKind,
+}
 
-    /// DONE:
-    /// Function: Get details of a counter (FID #1)
-    #[inline]
-    fn counter_get_info(&self, counter_idx: usize) -> SbiRet {
-        if counter_idx >= self.num_counters() {
-            return SbiRet::invalid_param();
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EventKind {
+    Hardware,
+    Firmware(usize),
+}
+
+impl HartState {
+    const NEW: Self = Self {
+        initialized: false,
+        assignments: [None; COUNTER_LIMIT],
+        firmware_values: [0; FIRMWARE_COUNTER_COUNT],
+    };
+
+    fn initialize_fixed(&mut self, counters: &PerformanceCounters) -> Result<(), CounterError> {
+        if self.initialized {
+            return Ok(());
         }
-
-        let pmu_state = &hart_context(current_hartid()).pmu_state;
-        if counter_idx < pmu_state.get_hw_counter_num() {
-            let mask = hart_mhpm_mask(current_hartid());
-
-            // Find the corresponding hardware counter using bit manipulation
-            // This is more efficient than iterating through all possible offsets
-            let mut remaining_mask = mask;
-            let mut count = 0;
-
-            while remaining_mask != 0 {
-                if count == counter_idx {
-                    // Found the counter - get its CSR offset
-                    let offset = remaining_mask.trailing_zeros() as u16;
-                    return SbiRet::success(
-                        CounterInfo::with_hardware_info(CSR_CYCLE + offset, 63).inner(),
-                    );
-                }
-                remaining_mask &= remaining_mask - 1;
-                count += 1;
+        for index in 0..counters.count() {
+            let counter = counters
+                .counter(index)
+                .ok_or(CounterError::MechanismFailure)?;
+            let info = counters.info(counter)?;
+            let event_index = match info.csr_number() {
+                0x0c00 => Some(hardware_event::CPU_CYCLES),
+                0x0c02 => Some(hardware_event::INSTRUCTIONS),
+                _ => None,
+            };
+            if let Some(event_index) = event_index {
+                self.assignments[index] = Some(Assignment::Hardware {
+                    counter,
+                    event: Event {
+                        index: event_index,
+                        selector: event_index as u64,
+                        kind: EventKind::Hardware,
+                    },
+                    running: true,
+                });
             }
-            return SbiRet::invalid_param();
         }
+        self.initialized = true;
+        Ok(())
+    }
+}
 
-        SbiRet::success(CounterInfo::with_firmware_info().inner())
+impl PerformanceMonitor {
+    pub(super) fn new(
+        counters: PerformanceCounters,
+        hart_count: usize,
+    ) -> Result<Self, HartLocalError> {
+        Ok(Self {
+            counters,
+            state: HartLocal::new(vec![HartState::NEW; hart_count])?,
+        })
     }
 
-    /// Find and configure a matching counter (FID #2)
-    #[inline]
+    pub(super) fn record(&self, event_code: usize) {
+        let Ok(mut state) = self.state.current() else {
+            return;
+        };
+        let hardware_count = self.counters.count();
+        for index in 0..FIRMWARE_COUNTER_COUNT {
+            if matches!(
+                state.assignments[hardware_count + index],
+                Some(Assignment::Firmware {
+                    event_code: assigned,
+                    running: true,
+                }) if assigned == event_code
+            ) {
+                state.firmware_values[index] = state.firmware_values[index].wrapping_add(1);
+            }
+        }
+    }
+
+    fn total_counters(&self) -> usize {
+        self.counters.count() + FIRMWARE_COUNTER_COUNT
+    }
+
+    fn current_state(&self) -> Result<machine::HartLocalGuard<'_, HartState>, SbiRet> {
+        let mut state = self.state.current().map_err(|_| SbiRet::failed())?;
+        state
+            .initialize_fixed(&self.counters)
+            .map_err(counter_error)?;
+        Ok(state)
+    }
+
+    fn configure_new_hardware(
+        &self,
+        index: usize,
+        event: Event,
+        flags: flags::CounterCfgFlags,
+        state: &mut HartState,
+    ) -> Result<(), SbiRet> {
+        let counter = self
+            .counters
+            .counter(index)
+            .ok_or_else(SbiRet::invalid_param)?;
+        if state.assignments[index].is_some() {
+            return Err(SbiRet::not_supported());
+        }
+        self.counters
+            .configure(counter, event.index, event.selector)
+            .map_err(counter_error)?;
+        let running = apply_hardware_config(&self.counters, counter, flags)?;
+        state.assignments[index] = Some(Assignment::Hardware {
+            counter,
+            event,
+            running,
+        });
+        Ok(())
+    }
+
+    fn configure_existing(
+        &self,
+        index: usize,
+        event: Event,
+        flags: flags::CounterCfgFlags,
+        state: &mut HartState,
+    ) -> Result<(), SbiRet> {
+        match state.assignments[index] {
+            Some(Assignment::Hardware {
+                counter,
+                event: assigned,
+                running: false,
+            }) if assigned == event => {
+                let running = apply_hardware_config(&self.counters, counter, flags)?;
+                state.assignments[index] = Some(Assignment::Hardware {
+                    counter,
+                    event,
+                    running,
+                });
+                Ok(())
+            }
+            Some(Assignment::Firmware {
+                event_code,
+                running: false,
+            }) if event.kind == EventKind::Firmware(event_code) => {
+                let firmware_index = index - self.counters.count();
+                if flags.contains(flags::CounterCfgFlags::CLEAR_VALUE) {
+                    state.firmware_values[firmware_index] = 0;
+                }
+                state.assignments[index] = Some(Assignment::Firmware {
+                    event_code,
+                    running: flags.contains(flags::CounterCfgFlags::AUTO_START),
+                });
+                Ok(())
+            }
+            _ => Err(SbiRet::invalid_param()),
+        }
+    }
+
+    fn rollback_started(
+        &self,
+        state: &mut HartState,
+        selection: CounterSelection,
+        until: usize,
+        values: &[Option<u64>; COUNTER_LIMIT],
+    ) {
+        for index in selection.take(until) {
+            if let Some(Assignment::Hardware {
+                counter,
+                event,
+                running: true,
+            }) = state.assignments[index]
+            {
+                if self.counters.stop(counter).is_err()
+                    || values[index]
+                        .is_none_or(|value| self.counters.set_value(counter, value).is_err())
+                {
+                    machine::abort(|| {});
+                }
+                state.assignments[index] = Some(Assignment::Hardware {
+                    counter,
+                    event,
+                    running: false,
+                });
+            } else if let Some(Assignment::Firmware {
+                event_code,
+                running: true,
+            }) = state.assignments[index]
+            {
+                if let Some(value) = values[index] {
+                    state.firmware_values[index - self.counters.count()] = value;
+                }
+                state.assignments[index] = Some(Assignment::Firmware {
+                    event_code,
+                    running: false,
+                });
+            }
+        }
+    }
+
+    fn rollback_stopped(
+        &self,
+        state: &mut HartState,
+        selection: CounterSelection,
+        until: usize,
+        values: &[Option<u64>; COUNTER_LIMIT],
+        reset: bool,
+    ) {
+        for index in selection.take(until) {
+            match state.assignments[index] {
+                Some(Assignment::Hardware {
+                    counter,
+                    event,
+                    running: false,
+                }) => {
+                    if reset
+                        && (self
+                            .counters
+                            .configure(counter, event.index, event.selector)
+                            .is_err()
+                            || values[index].is_none_or(|value| {
+                                self.counters.set_value(counter, value).is_err()
+                            }))
+                    {
+                        machine::abort(|| {});
+                    }
+                    if self.counters.start(counter, None).is_err() {
+                        machine::abort(|| {});
+                    }
+                    state.assignments[index] = Some(Assignment::Hardware {
+                        counter,
+                        event,
+                        running: true,
+                    });
+                }
+                Some(Assignment::Firmware {
+                    event_code,
+                    running: false,
+                }) => {
+                    state.assignments[index] = Some(Assignment::Firmware {
+                        event_code,
+                        running: true,
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+impl rustsbi::Pmu for PerformanceMonitor {
+    fn num_counters(&self) -> usize {
+        self.total_counters()
+    }
+
+    fn counter_get_info(&self, counter_idx: usize) -> SbiRet {
+        let hardware_count = self.counters.count();
+        if counter_idx < hardware_count {
+            let Some(counter) = self.counters.counter(counter_idx) else {
+                return SbiRet::invalid_param();
+            };
+            return match self.counters.info(counter) {
+                Ok(info) => SbiRet::success(
+                    usize::from(info.csr_number()) | (usize::from(info.width() - 1) << 12),
+                ),
+                Err(error) => counter_error(error),
+            };
+        }
+        if counter_idx < self.total_counters() {
+            SbiRet::success(1usize << (usize::BITS - 1))
+        } else {
+            SbiRet::invalid_param()
+        }
+    }
+
     fn counter_config_matching(
         &self,
         counter_idx_base: usize,
@@ -206,75 +321,68 @@ impl Pmu for SbiPmu {
         event_idx: usize,
         event_data: u64,
     ) -> SbiRet {
-        let flags = match flags::CounterCfgFlags::from_bits(config_flags) {
-            Some(flags) => flags,
-            None => return SbiRet::invalid_param(), // Reserved bits are set
+        let Some(flags) = flags::CounterCfgFlags::from_bits(config_flags) else {
+            return SbiRet::invalid_param();
+        };
+        let event = match Event::parse(event_idx, event_data) {
+            Ok(event) => event,
+            Err(error) => return error,
+        };
+        let selection = match CounterSelection::new(
+            counter_idx_base,
+            counter_idx_mask,
+            self.total_counters(),
+        ) {
+            Ok(selection) => selection,
+            Err(error) => return error,
+        };
+        let mut state = match self.current_state() {
+            Ok(state) => state,
+            Err(error) => return error,
         };
 
-        let event = EventIdx::new(event_idx);
-        let pmu_state = &mut hart_context_mut(current_hartid()).pmu_state;
-        let is_firmware_event = event.is_firmware_event();
-
-        if counter_idx_base >= pmu_state.total_counters_num
-            || (counter_idx_mask & ((1 << pmu_state.total_counters_num) - 1)) == 0
-            || !event.check_event_type()
-            || (is_firmware_event && !event.firmware_event_valid())
-        {
-            return SbiRet::invalid_param();
+        if flags.contains(flags::CounterCfgFlags::SKIP_MATCH) {
+            let Some(index) = selection.first() else {
+                machine::abort(|| {});
+            };
+            return match self.configure_existing(index, event, flags, &mut state) {
+                Ok(()) => SbiRet::success(index),
+                Err(error) => error,
+            };
         }
 
-        let skip_match = flags.contains(flags::CounterCfgFlags::SKIP_MATCH);
-
-        let counter_idx;
-
-        if skip_match {
-            // If SKIP_MATCH is set, use the first counter in the mask without searching
-            if let Some(ctr_idx) = CounterMask::new(counter_idx_base, counter_idx_mask).next() {
-                if pmu_state.active_event[ctr_idx] == PMU_EVENT_IDX_INVALID {
-                    return SbiRet::invalid_param();
-                }
-                counter_idx = ctr_idx;
-            } else {
-                return SbiRet::invalid_param();
-            }
-        } else {
-            let match_result: Result<usize, SbiRet>;
-            if event.is_firmware_event() {
-                match_result = self.find_firmware_counter(
-                    counter_idx_base,
-                    counter_idx_mask,
-                    event_idx,
-                    pmu_state,
-                );
-            } else {
-                match_result = self.find_hardware_counter(
-                    counter_idx_base,
-                    counter_idx_mask,
-                    event_idx,
-                    event_data,
-                    pmu_state,
-                );
-            }
-            match match_result {
-                Ok(ctr_idx) => {
-                    counter_idx = ctr_idx;
-                }
-                Err(err) => {
-                    return err;
+        match event.kind {
+            EventKind::Firmware(event_code) => {
+                for index in selection {
+                    if index >= self.counters.count() && state.assignments[index].is_none() {
+                        let firmware_index = index - self.counters.count();
+                        if flags.contains(flags::CounterCfgFlags::CLEAR_VALUE) {
+                            state.firmware_values[firmware_index] = 0;
+                        }
+                        state.assignments[index] = Some(Assignment::Firmware {
+                            event_code,
+                            running: flags.contains(flags::CounterCfgFlags::AUTO_START),
+                        });
+                        return SbiRet::success(index);
+                    }
                 }
             }
-            pmu_state.active_event[counter_idx] = event_idx;
+            EventKind::Hardware => {
+                for index in selection {
+                    if index >= self.counters.count() {
+                        continue;
+                    }
+                    match self.configure_new_hardware(index, event, flags, &mut state) {
+                        Ok(()) => return SbiRet::success(index),
+                        Err(error) if error == SbiRet::not_supported() => {}
+                        Err(error) => return error,
+                    }
+                }
+            }
         }
-
-        match configure_counter(pmu_state, counter_idx, event, flags) {
-            Ok(_) => SbiRet::success(counter_idx),
-            Err(e) => e,
-        }
+        SbiRet::not_supported()
     }
 
-    /// Start one or more counters (FID #3)
-    /// Note: The next two functions contain redundant logic and should be refactored.
-    #[inline]
     fn counter_start(
         &self,
         counter_idx_base: usize,
@@ -282,926 +390,397 @@ impl Pmu for SbiPmu {
         start_flags: usize,
         initial_value: u64,
     ) -> SbiRet {
-        let flags = match flags::CounterStartFlags::from_bits(start_flags) {
-            Some(flags) => flags,
-            None => return SbiRet::invalid_param(),
-        };
-
-        let pmu_state = &mut hart_context_mut(current_hartid()).pmu_state;
-        let is_update_value = flags.contains(flags::CounterStartFlags::INIT_VALUE);
-
-        if counter_idx_base >= pmu_state.total_counters_num
-            || (counter_idx_mask & ((1 << pmu_state.total_counters_num) - 1)) == 0
-        {
+        let Some(flags) = flags::CounterStartFlags::from_bits(start_flags) else {
             return SbiRet::invalid_param();
-        }
-
+        };
         if flags.contains(flags::CounterStartFlags::INIT_SNAPSHOT) {
             return SbiRet::no_shmem();
         }
-
-        for counter_idx in CounterMask::new(counter_idx_base, counter_idx_mask) {
-            if counter_idx >= pmu_state.total_counters_num {
-                return SbiRet::invalid_param();
-            }
-
-            let start_result = if counter_idx >= pmu_state.get_hw_counter_num() {
-                pmu_state.start_fw_counter(counter_idx, initial_value, is_update_value)
-            } else {
-                let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
-                start_hardware_counter(mhpm_offset, initial_value, is_update_value)
-            };
-            match start_result {
-                Ok(_) => {}
-                Err(StartCounterErr::AlreadyStart) => {
+        let selection = match CounterSelection::new(
+            counter_idx_base,
+            counter_idx_mask,
+            self.total_counters(),
+        ) {
+            Ok(selection) => selection,
+            Err(error) => return error,
+        };
+        let mut state = match self.current_state() {
+            Ok(state) => state,
+            Err(error) => return error,
+        };
+        for index in selection {
+            match state.assignments[index] {
+                None => return SbiRet::invalid_param(),
+                Some(Assignment::Hardware { running: true, .. })
+                | Some(Assignment::Firmware { running: true, .. }) => {
                     return SbiRet::already_started();
                 }
-                Err(StartCounterErr::OffsetInvalid) => {
-                    return SbiRet::invalid_param();
+                Some(_) => {}
+            }
+        }
+
+        let mut values = [None; COUNTER_LIMIT];
+        for index in selection {
+            values[index] = match state.assignments[index] {
+                Some(Assignment::Hardware { counter, .. }) => match self.counters.read(counter) {
+                    Ok(value) => Some(value),
+                    Err(error) => return counter_error(error),
+                },
+                Some(Assignment::Firmware { .. }) => {
+                    Some(state.firmware_values[index - self.counters.count()])
                 }
+                None => machine::abort(|| {}),
+            };
+        }
+
+        for (completed, index) in selection.into_iter().enumerate() {
+            let Some(assignment) = state.assignments[index] else {
+                machine::abort(|| {});
+            };
+            match assignment {
+                Assignment::Hardware {
+                    counter,
+                    event,
+                    running: false,
+                } => {
+                    let initial = flags
+                        .contains(flags::CounterStartFlags::INIT_VALUE)
+                        .then_some(initial_value);
+                    if let Err(error) = self.counters.start(counter, initial) {
+                        self.rollback_started(&mut state, selection, completed, &values);
+                        return counter_error(error);
+                    }
+                    state.assignments[index] = Some(Assignment::Hardware {
+                        counter,
+                        event,
+                        running: true,
+                    });
+                }
+                Assignment::Firmware {
+                    event_code,
+                    running: false,
+                } => {
+                    if flags.contains(flags::CounterStartFlags::INIT_VALUE) {
+                        state.firmware_values[index - self.counters.count()] = initial_value;
+                    }
+                    state.assignments[index] = Some(Assignment::Firmware {
+                        event_code,
+                        running: true,
+                    });
+                }
+                Assignment::Hardware { running: true, .. }
+                | Assignment::Firmware { running: true, .. } => machine::abort(|| {}),
             }
         }
         SbiRet::success(0)
     }
 
-    /// Stop one or more counters (FID #4)
-    #[inline]
     fn counter_stop(
         &self,
         counter_idx_base: usize,
         counter_idx_mask: usize,
         stop_flags: usize,
     ) -> SbiRet {
-        let flags = match flags::CounterStopFlags::from_bits(stop_flags) {
-            Some(flags) => flags,
-            None => return SbiRet::invalid_param(),
-        };
-
-        let pmu_state = &mut hart_context_mut(current_hartid()).pmu_state;
-        let is_reset = flags.contains(flags::CounterStopFlags::RESET);
-
-        if counter_idx_base >= pmu_state.total_counters_num
-            || (counter_idx_mask & ((1 << pmu_state.total_counters_num) - 1)) == 0
-        {
+        let Some(flags) = flags::CounterStopFlags::from_bits(stop_flags) else {
             return SbiRet::invalid_param();
-        }
-
+        };
         if flags.contains(flags::CounterStopFlags::TAKE_SNAPSHOT) {
             return SbiRet::no_shmem();
         }
-
-        for counter_idx in CounterMask::new(counter_idx_base, counter_idx_mask) {
-            if counter_idx >= pmu_state.total_counters_num {
-                return SbiRet::invalid_param();
-            }
-
-            let stop_result = if counter_idx >= pmu_state.get_hw_counter_num() {
-                pmu_state.stop_fw_counter(counter_idx, is_reset)
-            } else {
-                // If RESET flag is set, mark the counter as inactive
-                if is_reset {
-                    pmu_state.active_event[counter_idx] = PMU_EVENT_IDX_INVALID;
-                }
-                let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
-                stop_hardware_counter(mhpm_offset, is_reset)
-            };
-            match stop_result {
-                Ok(_) => {}
-                Err(StopCounterErr::OffsetInvalid) => return SbiRet::invalid_param(),
-                Err(StopCounterErr::AlreadyStop) => return SbiRet::already_stopped(),
-            }
-        }
-        SbiRet::success(0)
-    }
-
-    /// Reads a firmware counter value
-    /// Function: Read a firmware counter (FID #5).
-    #[inline]
-    fn counter_fw_read(&self, counter_idx: usize) -> SbiRet {
-        let pmu_state = &hart_context(current_hartid()).pmu_state;
-        match pmu_state.get_event_idx(counter_idx, true) {
-            Some(event_id) if event_id.firmware_event_valid() => {
-                if event_id.event_code() == firmware_event::PLATFORM {
-                    // TODO: Handle platform-specific PMU events
-                    return SbiRet::invalid_param();
-                }
-                match pmu_state.get_fw_counter(counter_idx) {
-                    Some(value) => SbiRet::success(value as usize),
-                    None => SbiRet::invalid_param(),
-                }
-            }
-            _ => SbiRet::invalid_param(),
-        }
-    }
-
-    /// Function: Read a firmware counter high bits (FID #6).
-    #[inline]
-    fn counter_fw_read_hi(&self, _counter_idx: usize) -> SbiRet {
-        // The Specification states the this function always return zero in sbiret.value for RV64 (or higher) systems.
-        // Currently RustSBI Prototyper only supports RV64 systems
-        SbiRet::success(0)
-    }
-
-    /// Function: Set PMU snapshot shared memory (FID #7).
-    #[inline]
-    fn snapshot_set_shmem(&self, shmem: SharedPtr<[u8; SIZE]>, flags: usize) -> SbiRet {
-        // Optional function, `not_supported` is returned if not implemented.
-        let _ = (shmem, flags);
-        SbiRet::not_supported()
-    }
-}
-
-impl Default for SbiPmu {
-    fn default() -> Self {
-        Self {
-            event_to_mhpmevent: None,
-            event_to_mhpmcounter: None,
-            raw_event_to_mhpmcounter: None,
-        }
-    }
-}
-
-impl SbiPmu {
-    fn find_firmware_counter(
-        &self,
-        counter_idx_base: usize,
-        counter_idx_mask: usize,
-        event_idx: usize,
-        pmu_state: &PmuState,
-    ) -> Result<usize, SbiRet> {
-        // TODO: support `PLATFORM` event
-        let event = EventIdx::new(event_idx);
-        if !event.firmware_event_valid() {
-            return Err(SbiRet::not_supported());
-        }
-
-        //  TODO: If all firmware events are implemented,
-        // this condition should be removed.
-        if event.event_code() <= 21 {
-            if !PMU_FIRMWARE_EVENT_SUPPORTED[event.event_code()] {
-                return Err(SbiRet::not_supported());
-            }
-        }
-
-        for counter_idx in CounterMask::new(counter_idx_base, counter_idx_mask) {
-            // If counter idx is not a firmware counter index, skip this index
-            if counter_idx < pmu_state.get_hw_counter_num()
-                || counter_idx >= pmu_state.get_total_counters_num()
-            {
-                continue;
-            }
-            // If the firmware counter at this index is already occupied, skip this index
-            if pmu_state.active_event[counter_idx] != PMU_EVENT_IDX_INVALID {
-                continue;
-            }
-            return Ok(counter_idx);
-        }
-        return Err(SbiRet::not_supported());
-    }
-
-    fn find_hardware_counter(
-        &self,
-        counter_idx_base: usize,
-        counter_idx_mask: usize,
-        event_idx: usize,
-        event_data: u64,
-        pmu_state: &PmuState,
-    ) -> Result<usize, SbiRet> {
-        let event = EventIdx::new(event_idx);
-        let mut hw_counters_mask = 0;
-        // Find the counters available for the event.
-        if event.is_raw_event() {
-            if let Some(ref raw_event_map_vec) = self.raw_event_to_mhpmcounter {
-                for raw_event_map in raw_event_map_vec {
-                    if raw_event_map.have_event(event_data) {
-                        hw_counters_mask = raw_event_map.get_counter_mask();
-                        break;
-                    }
-                }
-            } else {
-                return Err(SbiRet::not_supported());
-            }
-        } else {
-            // event is general event or cache event
-            if let Some(ref sbi_hw_event_map_vec) = self.event_to_mhpmcounter {
-                for sbi_hw_event_map in sbi_hw_event_map_vec {
-                    if sbi_hw_event_map.have_event(event_idx as u32) {
-                        hw_counters_mask = sbi_hw_event_map.get_counter_mask();
-                        break;
-                    }
-                }
-            } else {
-                return Err(SbiRet::not_supported());
-            }
-        }
-        // mcycle, time, minstret cannot be used for other events.
-        let mhpm_mask = hart_mhpm_mask(current_hartid());
-        let can_use_counter_mask = hw_counters_mask & mhpm_mask;
-
-        // Find a counter that meets the conditions from a set of counters
-        for counter_idx in CounterMask::new(counter_idx_base, counter_idx_mask) {
-            if counter_idx >= pmu_state.hw_counters_num {
-                continue;
-            }
-
-            // If the counter idx corresponding to the hardware counter index cannot be used by the event,
-            // or has already been used, skip this counter idx
-            let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
-            // Find a unused counter
-            if (can_use_counter_mask >> mhpm_offset) & 0x1 == 0
-                || pmu_state.active_event[counter_idx] != PMU_EVENT_IDX_INVALID
-            {
-                continue;
-            }
-            // If mcycle is selected but the event is not SBI_PMU_HW_CPU_CYCLES,
-            // or minstret is selected but the event is not SBI_PMU_HW_INSTRUCTIONS, skip
-            if (mhpm_offset == 0 && event_idx != 1) || (mhpm_offset == 2 && event_idx != 2) {
-                continue;
-            }
-            // If the counter idx corresponding to the hardware counter index has already started counting, skip the counter
-            if hart_privileged_version(current_hartid()) >= PrivilegedVersion::Version1_11 {
-                let inhibit = riscv::register::mcountinhibit::read();
-                if (inhibit.bits() & (1 << mhpm_offset)) == 0 {
-                    continue;
-                }
-            }
-
-            // Found a counter that meets the conditions - write the event value to the corresponding mhpmevent
-            self.pmu_update_hardware_mhpmevent(mhpm_offset, event_idx, event_data)?;
-            return Ok(counter_idx);
-        }
-        Err(SbiRet::not_supported())
-    }
-
-    fn pmu_update_hardware_mhpmevent(
-        &self,
-        mhpm_offset: u16,
-        event_idx: usize,
-        event_data: u64,
-    ) -> Result<(), SbiRet> {
-        // If the event is SBI_PMU_HW_CPU_CYCLES and mcycle is selected,
-        // or the event is SBI_PMU_HW_INSTRUCTIONS and minstret is selected, return directly
-        if (mhpm_offset == 0 && event_idx == 1) || (mhpm_offset == 2 && event_idx == 2) {
-            return Ok(());
-        }
-        // Validate counter offset range (only mhpmcounter3-31 are configurable)
-        if mhpm_offset == 1 || mhpm_offset > 31 {
-            return Err(SbiRet::not_supported());
-        }
-
-        let event = EventIdx::new(event_idx);
-
-        // Determine the value to write to mhpmevent CSR
-        let mhpmevent_val = if event.is_raw_event() {
-            // For raw events, use the provided event_data directly
-            event_data
-        } else if let Some(ref event_to_mhpmevent) = self.event_to_mhpmevent {
-            // For standard events, look up the corresponding mhpmevent value
-            *event_to_mhpmevent
-                .get(&(event_idx as u32))
-                .ok_or(SbiRet::not_supported())?
-        } else if self.event_to_mhpmcounter.is_some() {
-            // Handle QEMU compatibility case:
-            // When only event_to_mhpmcounter is available (like in QEMU),
-            // use the event index directly as the raw event value
-            event_idx as u64
-        } else {
-            // No mapping available for this event
-            return Err(SbiRet::not_supported());
-        };
-
-        write_mhpmevent(mhpm_offset, mhpmevent_val);
-        Ok(())
-    }
-
-    pub fn insert_event_to_mhpmevent(&mut self, event: u32, mhpmevent: u64) {
-        let event_to_mhpmevent_map = self.event_to_mhpmevent.get_or_insert_default();
-
-        //TODO: When https://github.com/rust-lang/rust/issues/82766 is stable, change this to `try_insert`
-        if let Some(mhpmevent_mapped) = event_to_mhpmevent_map.get(&event) {
-            error!(
-                "Try to map event:0x{:08x} to mhpmevent:0x{:016x}, but the event has been mapped to mhpmevent:{}, please check the device tree file",
-                event, mhpmevent, mhpmevent_mapped
-            );
-        } else {
-            event_to_mhpmevent_map.insert(event, mhpmevent);
-        }
-    }
-
-    pub fn insert_event_to_mhpmcounter(&mut self, event_to_counter: EventToCounterMap) {
-        let event_to_mhpmcounter_map = self.event_to_mhpmcounter.get_or_insert_default();
-        for event_to_mhpmcounter in event_to_mhpmcounter_map.iter() {
-            if event_to_mhpmcounter.is_overlap(&event_to_counter) {
-                error!(
-                    "The mapping of event_to_mhpmcounter {:?} and {:?} overlap, please check the device tree file",
-                    event_to_mhpmcounter, event_to_counter
-                );
-                return;
-            }
-        }
-        event_to_mhpmcounter_map.push(event_to_counter);
-    }
-
-    pub fn insert_raw_event_to_mhpmcounter(&mut self, raw_event_to_counter: RawEventToCounterMap) {
-        let raw_event_to_mhpmcounter_map = self.raw_event_to_mhpmcounter.get_or_insert_default();
-        for raw_event_to_mhpmcounter in raw_event_to_mhpmcounter_map.iter() {
-            if raw_event_to_mhpmcounter.is_overlap(&raw_event_to_counter) {
-                error!(
-                    "The mapping of raw_event_to_mhpmcounter {:?} and {:?} overlap, please check the device tree file",
-                    raw_event_to_mhpmcounter, raw_event_to_counter
-                );
-                return;
-            }
-        }
-        raw_event_to_mhpmcounter_map.push(raw_event_to_counter);
-    }
-}
-
-/// Configures a counter to monitor an event based on the given flags.
-///
-/// Returns `true` if configuration succeeds, `false` otherwise.
-#[inline]
-fn configure_counter(
-    pmu_state: &mut PmuState,
-    counter_idx: usize,
-    event: EventIdx,
-    flags: flags::CounterCfgFlags,
-) -> Result<(), SbiRet> {
-    let auto_start = flags.contains(flags::CounterCfgFlags::AUTO_START);
-    let clear_value = flags.contains(flags::CounterCfgFlags::CLEAR_VALUE);
-    if event.is_firmware_event() {
-        let firmware_event_idx = counter_idx - pmu_state.hw_counters_num;
-        if firmware_event_idx >= PMU_FIRMWARE_COUNTER_MAX {
-            return Err(SbiRet::invalid_param());
-        }
-        if clear_value {
-            pmu_state.fw_counter[firmware_event_idx] = 0;
-        }
-        if auto_start {
-            pmu_state.fw_counter_state |= 1 << firmware_event_idx;
-        }
-    } else {
-        let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
-        if clear_value {
-            write_mhpmcounter(mhpm_offset, 0);
-        }
-        if auto_start {
-            if start_hardware_counter(mhpm_offset, 0, false).is_err() {
-                return Err(SbiRet::not_supported());
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Get the offset of the mhpmcounter CSR corresponding to counter_idx relative to mcycle
-fn get_mhpm_csr_offset(counter_idx: usize) -> Option<u16> {
-    let mhpm_mask = hart_mhpm_mask(current_hartid());
-    let mut count = 0;
-    for offset in 0..32 {
-        if (mhpm_mask >> offset) & 1 == 1 {
-            if count == counter_idx {
-                return Some(offset as u16);
-            }
-            count += 1;
-        }
-    }
-    None
-}
-
-/// Start Hardware Counter
-enum StartCounterErr {
-    OffsetInvalid,
-    AlreadyStart,
-}
-
-#[derive(Clone, Copy)]
-enum HardwareCounter {
-    Cycle,
-    Instret,
-    Hpm(u16),
-}
-
-impl HardwareCounter {
-    #[inline]
-    fn try_from_offset(mhpm_offset: u16) -> Option<Self> {
-        match mhpm_offset {
-            0 => Some(Self::Cycle),
-            2 => Some(Self::Instret),
-            3..=31 => Some(Self::Hpm(mhpm_offset)),
-            _ => None,
-        }
-    }
-
-    #[inline]
-    fn inhibit_mask(self) -> usize {
-        match self {
-            Self::Cycle => 1 << 0,
-            Self::Instret => 1 << 2,
-            Self::Hpm(offset) => 1 << offset,
-        }
-    }
-
-    #[inline]
-    unsafe fn start(self) {
-        match self {
-            Self::Cycle => unsafe { mcountinhibit::clear_cy() },
-            Self::Instret => unsafe { mcountinhibit::clear_ir() },
-            Self::Hpm(offset) => unsafe { mcountinhibit::clear_hpm(offset as usize) },
-        }
-        self.sync_shadow();
-    }
-
-    #[inline]
-    unsafe fn stop(self) {
-        match self {
-            Self::Cycle => unsafe { mcountinhibit::set_cy() },
-            Self::Instret => unsafe { mcountinhibit::set_ir() },
-            Self::Hpm(offset) => unsafe { mcountinhibit::set_hpm(offset as usize) },
-        }
-        self.sync_shadow();
-    }
-
-    #[inline]
-    fn sync_shadow(self) {
-        match self {
-            Self::Cycle => {
-                // `cycle` is the S/U-mode shadow of `mcycle`. Force a machine-level
-                // read after toggling CY so the shadowed counter state is observed
-                // consistently on QEMU before returning to lower privilege modes.
-                let _ = riscv::register::mcycle::read64();
-            }
-            Self::Instret => {
-                // `instret` is the S/U-mode shadow of `minstret`; keep its shadow
-                // state in sync for the same reason as `cycle`.
-                let _ = riscv::register::minstret::read64();
-            }
-            Self::Hpm(_) => {}
-        }
-    }
-}
-
-/// Starts a hardware performance counter specified by the offset.
-fn start_hardware_counter(
-    mhpm_offset: u16,
-    new_value: u64,
-    is_update_value: bool,
-) -> Result<(), StartCounterErr> {
-    let Some(counter) = HardwareCounter::try_from_offset(mhpm_offset) else {
-        return Err(StartCounterErr::OffsetInvalid);
-    };
-
-    if hart_privileged_version(current_hartid()) < PrivilegedVersion::Version1_11 {
-        if is_update_value {
-            write_mhpmcounter(mhpm_offset, new_value);
-        }
-        return Ok(());
-    }
-
-    // Check if counter is already running by testing the inhibit bit
-    // A zero bit in mcountinhibit means the counter is running
-    if mcountinhibit::read().bits() & counter.inhibit_mask() == 0 {
-        return Err(StartCounterErr::AlreadyStart);
-    }
-
-    if is_update_value {
-        write_mhpmcounter(mhpm_offset, new_value);
-    }
-
-    unsafe {
-        counter.start();
-    }
-    Ok(())
-}
-
-/// Stop Hardware Counter
-enum StopCounterErr {
-    OffsetInvalid,
-    AlreadyStop,
-}
-
-/// Stops a hardware performance counter specified by the offset.
-fn stop_hardware_counter(mhpm_offset: u16, is_reset: bool) -> Result<(), StopCounterErr> {
-    let Some(counter) = HardwareCounter::try_from_offset(mhpm_offset) else {
-        return Err(StopCounterErr::OffsetInvalid);
-    };
-
-    if is_reset && mhpm_offset >= 3 && mhpm_offset <= 31 {
-        write_mhpmevent(mhpm_offset, 0);
-    }
-
-    if hart_privileged_version(current_hartid()) < PrivilegedVersion::Version1_11 {
-        return Ok(());
-    }
-
-    if mcountinhibit::read().bits() & counter.inhibit_mask() != 0 {
-        return Err(StopCounterErr::AlreadyStop);
-    }
-
-    unsafe {
-        counter.stop();
-    }
-    Ok(())
-}
-
-/// Write MHPMEVENT or MHPMCOUNTER
-fn write_mhpmevent(mhpm_offset: u16, mhpmevent_val: u64) {
-    let csr = CSR_MHPMEVENT3 + mhpm_offset - 3;
-
-    // Handle MHPMEVENT3-31
-    if csr >= CSR_MHPMEVENT3 && csr <= CSR_MHPMEVENT31 {
-        // Convert CSR value to register index (3-31)
-        let idx = csr - CSR_MHPMEVENT3 + 3;
-
-        // Use seq_macro to generate all valid indices from 3 to 31
-        seq_macro::seq!(N in 3..=31 {
-            match idx {
-                #(
-                    N => unsafe {
-                        pastey::paste!{ [<mhpmevent ~N>]::write(mhpmevent_val as usize) }
-                    },
-                )*
-                _ =>{}
-            }
-        });
-    }
-}
-
-fn write_mhpmcounter(mhpm_offset: u16, mhpmcounter_val: u64) {
-    let counter_idx = mhpm_offset;
-
-    let csr = CSR_MHPMCOUNTER3 + mhpm_offset - 3;
-    // Special cases for cycle and instret
-    if csr == CSR_MCYCLE {
-        crate::riscv::csr::mcycle::write(mhpmcounter_val);
-        return;
-    } else if csr == CSR_MINSTRET {
-        crate::riscv::csr::minstret::write(mhpmcounter_val);
-        return;
-    }
-
-    // Only handle valid counter indices (3-31)
-    if counter_idx >= 3 && counter_idx <= 31 {
-        // Call the macro with all valid indices
-        seq_macro::seq!(N in 3..=31 {
-            match counter_idx {
-                #(
-                    N => pastey::paste!{ unsafe {
-                        [<mhpmcounter ~N>]::write(mhpmcounter_val as usize) }
-                    },
-                )*
-                _ =>{}
-            }
-        });
-    }
-}
-
-/// Wrap for counter info
-struct CounterInfo {
-    /// Packed representation of counter information:
-    /// - Bits [11:0]: CSR number for hardware counters
-    /// - Bits [17:12]: Counter width (typically 63 for RV64)
-    /// - MSB: Set for firmware counters, clear for hardware counters
-    inner: usize,
-}
-
-#[allow(unused)]
-impl CounterInfo {
-    const CSR_MASK: usize = 0xFFF; // Bits [11:0]
-    const WIDTH_MASK: usize = 0x3F << 12; // Bits [17:12]
-    const FIRMWARE_FLAG: usize = 1 << (size_of::<usize>() * 8 - 1); // MSB
-
-    #[inline]
-    pub const fn new() -> Self {
-        Self { inner: 0 }
-    }
-
-    #[inline]
-    pub fn set_csr(&mut self, csr_num: u16) {
-        self.inner = (self.inner & !Self::CSR_MASK) | ((csr_num as usize) & Self::CSR_MASK);
-    }
-
-    #[inline]
-    pub fn set_width(&mut self, width: u8) {
-        self.inner = (self.inner & !Self::WIDTH_MASK) | (((width as usize) & 0x3F) << 12);
-    }
-
-    #[inline]
-    pub const fn with_hardware_info(csr_num: u16, width: u8) -> Self {
-        Self {
-            inner: ((csr_num as usize) & Self::CSR_MASK) | (((width as usize) & 0x3F) << 12),
-        }
-    }
-
-    #[inline]
-    pub const fn with_firmware_info() -> Self {
-        Self {
-            inner: Self::FIRMWARE_FLAG,
-        }
-    }
-
-    #[inline]
-    pub const fn inner(self) -> usize {
-        self.inner
-    }
-}
-
-impl Default for CounterInfo {
-    #[inline]
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct EventIdx {
-    /// Packed representation of event information:
-    /// - Bits [15:0]: Event code
-    /// - Bits [19:16]: Event type
-    inner: usize,
-}
-
-#[allow(unused)]
-impl EventIdx {
-    #[inline]
-    const fn new(event_idx: usize) -> Self {
-        Self { inner: event_idx }
-    }
-
-    #[inline]
-    fn from_firmware_event(firmware_event: usize) -> Self {
-        Self {
-            inner: 0xf << 16 | firmware_event,
-        }
-    }
-
-    #[inline]
-    fn raw(&self) -> usize {
-        self.inner
-    }
-
-    #[inline]
-    const fn event_type(&self) -> usize {
-        (self.inner >> 16) & 0xF
-    }
-
-    #[inline]
-    const fn event_code(&self) -> usize {
-        self.inner & 0xFFFF
-    }
-
-    /// Extracts the cache ID for HARDWARE_CACHE events (13 bits, [15:3])
-    #[inline]
-    const fn cache_id(&self) -> usize {
-        (self.inner >> 3) & 0x1FFF
-    }
-
-    /// Extracts the cache operation ID (2 bits, [2:1])
-    #[inline]
-    const fn cache_op_id(&self) -> usize {
-        (self.inner >> 1) & 0x3
-    }
-
-    /// Extracts the cache result ID (1 bit, [0])
-    #[inline]
-    const fn cache_result_id(&self) -> usize {
-        self.inner & 0x1
-    }
-
-    #[inline]
-    const fn is_general_event(&self) -> bool {
-        self.event_type() == event_type::HARDWARE_GENERAL
-    }
-
-    #[inline]
-    const fn is_cache_event(&self) -> bool {
-        self.event_type() == event_type::HARDWARE_CACHE
-    }
-
-    #[inline]
-    const fn is_raw_event_v1(&self) -> bool {
-        self.event_type() == event_type::HARDWARE_RAW
-    }
-
-    #[inline]
-    const fn is_raw_event_v2(&self) -> bool {
-        self.event_type() == event_type::HARDWARE_RAW_V2
-    }
-
-    #[inline]
-    const fn is_raw_event(&self) -> bool {
-        self.is_raw_event_v1() || self.is_raw_event_v2()
-    }
-
-    #[inline]
-    const fn is_firmware_event(&self) -> bool {
-        self.event_type() == event_type::FIRMWARE
-    }
-
-    #[inline]
-    fn check_event_type(self) -> bool {
-        let event_type = self.event_type();
-        let event_code = self.event_code();
-
-        match event_type {
-            event_type::HARDWARE_GENERAL => event_code <= hardware_event::REF_CPU_CYCLES,
-            event_type::HARDWARE_CACHE => {
-                self.cache_id() <= cache_event::NODE
-                    && self.cache_op_id() <= cache_operation::PREFETCH
-                    && self.cache_result_id() <= cache_result::MISS
-            }
-            event_type::HARDWARE_RAW | event_type::HARDWARE_RAW_V2 => event_code == 0,
-            event_type::FIRMWARE => true,
-            _ => false,
-        }
-    }
-
-    #[inline]
-    fn firmware_event_valid(self) -> bool {
-        let event_type = self.event_type();
-        let event_code = self.event_code();
-        if event_type != event_type::FIRMWARE {
-            return false;
-        }
-        if (event_code > firmware_event::HFENCE_VVMA_ASID_RECEIVED
-            && event_code < firmware_event::PLATFORM)
-            || event_code >= firmware_event::PLATFORM
-        {
-            // TODO:Currently RustSBI Prototyper does not support PLATFORM practice
-            return false;
-        }
-        true
-    }
-}
-
-/// event to mhpmcounter map
-#[derive(Debug)]
-pub struct EventToCounterMap {
-    counters_mask: u32,   // Bitmask of supported counters
-    event_start_idx: u32, // Start of event code range
-    event_end_idx: u32,   // End of event code range
-}
-
-impl EventToCounterMap {
-    pub fn new(counters_mask: u32, event_start_idx: u32, event_end_idx: u32) -> Self {
-        Self {
-            counters_mask,
-            event_start_idx,
-            event_end_idx,
-        }
-    }
-
-    #[inline]
-    pub const fn have_event(&self, event_idx: u32) -> bool {
-        event_idx >= self.event_start_idx && event_idx <= self.event_end_idx
-    }
-
-    #[inline]
-    pub fn get_counter_mask(&self) -> u32 {
-        self.counters_mask
-    }
-
-    #[inline]
-    pub fn is_overlap(&self, other_map: &EventToCounterMap) -> bool {
-        if (self.event_end_idx < other_map.event_start_idx
-            && self.event_end_idx < other_map.event_end_idx)
-            || (self.event_start_idx > other_map.event_start_idx
-                && self.event_start_idx > other_map.event_end_idx)
-        {
-            return false;
-        }
-        true
-    }
-}
-
-#[derive(Debug)]
-pub struct RawEventToCounterMap {
-    counters_mask: u32,    // Bitmask of supported counters
-    raw_event_select: u64, // Value to program into mhpmeventX
-    select_mask: u64,      // Mask for selecting bits (optional use)
-}
-
-impl RawEventToCounterMap {
-    pub fn new(counters_mask: u32, raw_event_select: u64, select_mask: u64) -> Self {
-        Self {
-            counters_mask,
-            raw_event_select,
-            select_mask,
-        }
-    }
-
-    #[inline]
-    pub const fn have_event(&self, event_idx: u64) -> bool {
-        self.raw_event_select == (event_idx & self.select_mask)
-    }
-
-    #[inline]
-    pub const fn get_counter_mask(&self) -> u32 {
-        self.counters_mask
-    }
-
-    #[inline]
-    pub const fn is_overlap(&self, other_map: &RawEventToCounterMap) -> bool {
-        self.select_mask == other_map.select_mask
-            && self.raw_event_select == other_map.raw_event_select
-    }
-}
-
-struct CounterMask {
-    counter_idx_base: usize,
-    counter_idx_mask: usize,
-}
-
-impl CounterMask {
-    pub fn new(counter_idx_base: usize, counter_idx_mask: usize) -> Self {
-        Self {
+        let selection = match CounterSelection::new(
             counter_idx_base,
             counter_idx_mask,
+            self.total_counters(),
+        ) {
+            Ok(selection) => selection,
+            Err(error) => return error,
+        };
+        let mut state = match self.current_state() {
+            Ok(state) => state,
+            Err(error) => return error,
+        };
+        for index in selection {
+            match state.assignments[index] {
+                None => return SbiRet::invalid_param(),
+                Some(Assignment::Hardware { running: false, .. })
+                | Some(Assignment::Firmware { running: false, .. }) => {
+                    return SbiRet::already_stopped();
+                }
+                Some(_) => {}
+            }
+        }
+
+        let mut values = [None; COUNTER_LIMIT];
+        for index in selection {
+            if let Some(Assignment::Hardware { counter, .. }) = state.assignments[index] {
+                values[index] = match self.counters.read(counter) {
+                    Ok(value) => Some(value),
+                    Err(error) => return counter_error(error),
+                };
+            }
+        }
+
+        for (completed, index) in selection.into_iter().enumerate() {
+            let Some(assignment) = state.assignments[index] else {
+                machine::abort(|| {});
+            };
+            match assignment {
+                Assignment::Hardware {
+                    counter,
+                    event,
+                    running: true,
+                } => {
+                    if let Err(error) = self.counters.stop(counter) {
+                        self.rollback_stopped(
+                            &mut state,
+                            selection,
+                            completed,
+                            &values,
+                            flags.contains(flags::CounterStopFlags::RESET),
+                        );
+                        return counter_error(error);
+                    }
+                    if flags.contains(flags::CounterStopFlags::RESET)
+                        && let Err(error) = self.counters.reset(counter)
+                    {
+                        if self.counters.start(counter, None).is_err() {
+                            machine::abort(|| {});
+                        }
+                        self.rollback_stopped(&mut state, selection, completed, &values, true);
+                        return counter_error(error);
+                    }
+                    state.assignments[index] = Some(Assignment::Hardware {
+                        counter,
+                        event,
+                        running: false,
+                    });
+                }
+                Assignment::Firmware {
+                    event_code,
+                    running: true,
+                } => {
+                    state.assignments[index] = Some(Assignment::Firmware {
+                        event_code,
+                        running: false,
+                    });
+                }
+                Assignment::Hardware { running: false, .. }
+                | Assignment::Firmware { running: false, .. } => machine::abort(|| {}),
+            }
+        }
+        if flags.contains(flags::CounterStopFlags::RESET) {
+            for index in selection {
+                state.assignments[index] = None;
+            }
+        }
+        SbiRet::success(0)
+    }
+
+    fn counter_fw_read(&self, counter_idx: usize) -> SbiRet {
+        let hardware_count = self.counters.count();
+        if !(hardware_count..self.total_counters()).contains(&counter_idx) {
+            return SbiRet::invalid_param();
+        }
+        let state = match self.current_state() {
+            Ok(state) => state,
+            Err(error) => return error,
+        };
+        if !matches!(
+            state.assignments[counter_idx],
+            Some(Assignment::Firmware { .. })
+        ) {
+            return SbiRet::invalid_param();
+        }
+        SbiRet::success(state.firmware_values[counter_idx - hardware_count] as usize)
+    }
+
+    fn counter_fw_read_hi(&self, counter_idx: usize) -> SbiRet {
+        #[cfg(target_pointer_width = "64")]
+        {
+            let _ = counter_idx;
+            SbiRet::success(0)
+        }
+        #[cfg(target_pointer_width = "32")]
+        {
+            let hardware_count = self.counters.count();
+            if !(hardware_count..self.total_counters()).contains(&counter_idx) {
+                return SbiRet::invalid_param();
+            }
+            let state = match self.current_state() {
+                Ok(state) => state,
+                Err(error) => return error,
+            };
+            if !matches!(
+                state.assignments[counter_idx],
+                Some(Assignment::Firmware { .. })
+            ) {
+                return SbiRet::invalid_param();
+            }
+            SbiRet::success((state.firmware_values[counter_idx - hardware_count] >> 32) as usize)
         }
     }
 }
 
-impl Iterator for CounterMask {
+impl Event {
+    fn parse(index: usize, data: u64) -> Result<Self, SbiRet> {
+        if index & !EVENT_INDEX_MASK != 0 {
+            return Err(SbiRet::invalid_param());
+        }
+        let kind = (index >> 16) & 0xf;
+        let code = index & 0xffff;
+        match kind {
+            event_type::HARDWARE_GENERAL
+                if (hardware_event::CPU_CYCLES..=hardware_event::REF_CPU_CYCLES)
+                    .contains(&code) =>
+            {
+                Ok(Self {
+                    index,
+                    selector: index as u64,
+                    kind: EventKind::Hardware,
+                })
+            }
+            event_type::HARDWARE_CACHE if valid_cache_event(code) => Ok(Self {
+                index,
+                selector: index as u64,
+                kind: EventKind::Hardware,
+            }),
+            event_type::HARDWARE_RAW | event_type::HARDWARE_RAW_V2 if code == 0 => Ok(Self {
+                index,
+                selector: data,
+                kind: EventKind::Hardware,
+            }),
+            event_type::FIRMWARE if supported_firmware_event(code) && data == 0 => Ok(Self {
+                index,
+                selector: 0,
+                kind: EventKind::Firmware(code),
+            }),
+            event_type::FIRMWARE
+                if code <= firmware_event::HFENCE_VVMA_ASID_RECEIVED
+                    || code == firmware_event::PLATFORM =>
+            {
+                Err(SbiRet::not_supported())
+            }
+            event_type::HARDWARE_GENERAL
+            | event_type::HARDWARE_CACHE
+            | event_type::HARDWARE_RAW
+            | event_type::HARDWARE_RAW_V2
+            | event_type::FIRMWARE => Err(SbiRet::invalid_param()),
+            _ => Err(SbiRet::invalid_param()),
+        }
+    }
+}
+
+fn valid_cache_event(code: usize) -> bool {
+    let cache = (code >> 3) & 0x1fff;
+    let operation = (code >> 1) & 0x3;
+    let result = code & 1;
+    cache <= cache_event::NODE
+        && operation <= cache_operation::PREFETCH
+        && result <= cache_result::MISS
+}
+
+fn supported_firmware_event(code: usize) -> bool {
+    let base = matches!(
+        code,
+        firmware_event::MISALIGNED_LOAD
+            | firmware_event::MISALIGNED_STORE
+            | firmware_event::ILLEGAL_INSN
+            | firmware_event::SET_TIMER
+            | firmware_event::IPI_SENT
+            | firmware_event::FENCE_I_SENT
+            | firmware_event::SFENCE_VMA_SENT
+            | firmware_event::SFENCE_VMA_ASID_SENT
+    );
+    #[cfg(feature = "hypervisor")]
+    {
+        base || matches!(
+            code,
+            firmware_event::HFENCE_GVMA_SENT
+                | firmware_event::HFENCE_GVMA_VMID_SENT
+                | firmware_event::HFENCE_VVMA_SENT
+                | firmware_event::HFENCE_VVMA_ASID_SENT
+        )
+    }
+    #[cfg(not(feature = "hypervisor"))]
+    base
+}
+
+fn apply_hardware_config(
+    counters: &PerformanceCounters,
+    counter: CounterId,
+    flags: flags::CounterCfgFlags,
+) -> Result<bool, SbiRet> {
+    let clear = flags.contains(flags::CounterCfgFlags::CLEAR_VALUE);
+    let auto_start = flags.contains(flags::CounterCfgFlags::AUTO_START);
+    if clear || auto_start {
+        counters
+            .start(counter, clear.then_some(0))
+            .map_err(counter_error)?;
+        if !auto_start && let Err(error) = counters.stop(counter) {
+            let _ = counters.reset(counter);
+            return Err(counter_error(error));
+        }
+    }
+    Ok(auto_start)
+}
+
+fn counter_error(error: CounterError) -> SbiRet {
+    match error {
+        CounterError::InvalidCounter => SbiRet::invalid_param(),
+        CounterError::UnsupportedEvent => SbiRet::not_supported(),
+        CounterError::AlreadyStarted => SbiRet::already_started(),
+        CounterError::AlreadyStopped => SbiRet::already_stopped(),
+        CounterError::MechanismFailure => SbiRet::failed(),
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CounterSelection {
+    base: usize,
+    mask: usize,
+}
+
+impl CounterSelection {
+    fn new(base: usize, mask: usize, total: usize) -> Result<Self, SbiRet> {
+        if mask == 0 || base >= total {
+            return Err(SbiRet::invalid_param());
+        }
+        let highest = usize::BITS as usize - 1 - mask.leading_zeros() as usize;
+        if base.checked_add(highest).is_none_or(|index| index >= total) {
+            return Err(SbiRet::invalid_param());
+        }
+        Ok(Self { base, mask })
+    }
+
+    fn first(self) -> Option<usize> {
+        self.into_iter().next()
+    }
+
+    fn take(self, count: usize) -> impl Iterator<Item = usize> {
+        self.into_iter().take(count)
+    }
+}
+
+impl IntoIterator for CounterSelection {
+    type Item = usize;
+    type IntoIter = CounterSelectionIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        CounterSelectionIter(self)
+    }
+}
+
+struct CounterSelectionIter(CounterSelection);
+
+impl Iterator for CounterSelectionIter {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.counter_idx_mask == 0 {
+        let bit = self.0.mask.trailing_zeros();
+        if bit == usize::BITS {
             return None;
-        } else {
-            let low_bit = self.counter_idx_mask.trailing_zeros();
-            let hart_id = usize::try_from(low_bit).unwrap() + self.counter_idx_base;
-            self.counter_idx_mask &= !(1usize << low_bit);
-            Some(hart_id)
         }
-    }
-}
-
-// TODO: If all firmware events are implemented,
-// `PMU_FIRMWARE_EVENT_SUPPORTED` should be removed.
-cfg_if::cfg_if! {
-    if #[cfg(feature = "hypervisor")] {
-        const PMU_FIRMWARE_EVENT_SUPPORTED: [bool; 22] = [
-            true,  // SBI_PMU_FW_MISALIGNED_LOAD
-            true,  // SBI_PMU_FW_MISALIGNED_STORE
-            false, // SBI_PMU_FW_ACCESS_LOAD
-            false, // SBI_PMU_FW_ACCESS_STORE
-            true,  // SBI_PMU_FW_ILLEGAL_INSN
-            true,  // SBI_PMU_FW_SET_TIMER
-            true,  // SBI_PMU_FW_IPI_SENT
-            true,  // SBI_PMU_FW_IPI_RECEIVED
-            true,  // SBI_PMU_FW_FENCE_I_SENT
-            true,  // SBI_PMU_FW_FENCE_I_RECEIVED
-            true,  // SBI_PMU_FW_SFENCE_VMA_SENT
-            true,  // SBI_PMU_FW_SFENCE_VMA_RECEIVED
-            true,  // SBI_PMU_FW_SFENCE_VMA_ASID_SENT
-            true,  // SBI_PMU_FW_SFENCE_VMA_ASID_RECEIVED
-            true,  // SBI_PMU_FW_HFENCE_GVMA_SENT
-            true,  // SBI_PMU_FW_HFENCE_GVMA_RECEIVED
-            true,  // SBI_PMU_FW_HFENCE_GVMA_VMID_SENT
-            true,  // SBI_PMU_FW_HFENCE_GVMA_VMID_RECEIVED
-            true,  // SBI_PMU_FW_HFENCE_VVMA_SENT
-            true,  // SBI_PMU_FW_HFENCE_VVMA_RECEIVED
-            true,  // SBI_PMU_FW_HFENCE_VVMA_ASID_SENT
-            true,  // SBI_PMU_FW_HFENCE_VVMA_ASID_RECEIVED
-        ];
-    } else {
-        const PMU_FIRMWARE_EVENT_SUPPORTED: [bool; 22] = [
-            true,  // SBI_PMU_FW_MISALIGNED_LOAD
-            true,  // SBI_PMU_FW_MISALIGNED_STORE
-            false, // SBI_PMU_FW_ACCESS_LOAD
-            false, // SBI_PMU_FW_ACCESS_STORE
-            true,  // SBI_PMU_FW_ILLEGAL_INSN
-            true,  // SBI_PMU_FW_SET_TIMER
-            true,  // SBI_PMU_FW_IPI_SENT
-            true,  // SBI_PMU_FW_IPI_RECEIVED
-            true,  // SBI_PMU_FW_FENCE_I_SENT
-            true,  // SBI_PMU_FW_FENCE_I_RECEIVED
-            true,  // SBI_PMU_FW_SFENCE_VMA_SENT
-            true,  // SBI_PMU_FW_SFENCE_VMA_RECEIVED
-            true,  // SBI_PMU_FW_SFENCE_VMA_ASID_SENT
-            true,  // SBI_PMU_FW_SFENCE_VMA_ASID_RECEIVED
-            false, // SBI_PMU_FW_HFENCE_GVMA_SENT
-            false, // SBI_PMU_FW_HFENCE_GVMA_RECEIVED
-            false, // SBI_PMU_FW_HFENCE_GVMA_VMID_SENT
-            false, // SBI_PMU_FW_HFENCE_GVMA_VMID_RECEIVED
-            false, // SBI_PMU_FW_HFENCE_VVMA_SENT
-            false, // SBI_PMU_FW_HFENCE_VVMA_RECEIVED
-            false, // SBI_PMU_FW_HFENCE_VVMA_ASID_SENT
-            false, // SBI_PMU_FW_HFENCE_VVMA_ASID_RECEIVED
-        ];
-    }
-}
-
-pub fn pmu_firmware_counter_increment(firmware_event: usize) {
-    let pmu_state = &mut hart_context_mut(current_hartid()).pmu_state;
-    let counter_idx_start = pmu_state.hw_counters_num;
-    for counter_idx in counter_idx_start..counter_idx_start + PMU_FIRMWARE_COUNTER_MAX {
-        let fw_idx = counter_idx - counter_idx_start;
-        if pmu_state.active_event[counter_idx]
-            == EventIdx::from_firmware_event(firmware_event).raw()
-            && pmu_state.is_firmware_event_start(counter_idx)
-        {
-            pmu_state.fw_counter[fw_idx] += 1;
-        }
+        self.0.mask &= !(1usize << bit);
+        Some(self.0.base + bit as usize)
     }
 }

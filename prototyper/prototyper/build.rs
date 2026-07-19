@@ -4,14 +4,29 @@ fn main() {
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let ld = &out.join("rustsbi-prototyper.ld");
 
-    std::fs::write(ld, LINKER_SCRIPT).unwrap();
+    let mtest_section = if env::var_os("CARGO_FEATURE_MTEST").is_some() {
+        let descriptor_size = match env::var("CARGO_CFG_TARGET_POINTER_WIDTH").as_deref() {
+            Ok("32") => 12,
+            Ok("64") => 24,
+            _ => panic!("mtest requires a 32-bit or 64-bit pointer target"),
+        };
+        format!(
+            ".mtest_array : ALIGN(8) {{\n        __mtest_start = .;\n        KEEP(*(.mtest_array))\n        __mtest_end = .;\n    }}\n    ASSERT(__mtest_end > __mtest_start, \"machine-test registry is empty\")\n    ASSERT((__mtest_end - __mtest_start) % {descriptor_size} == 0, \"machine-test descriptor layout mismatch\")"
+        )
+    } else {
+        String::new()
+    };
+    let script = LINKER_SCRIPT.replace("/* MTEST_SECTION */", &mtest_section);
+    std::fs::write(ld, script).unwrap();
 
-    println!("cargo:rerun-if-env-changed=RUST_LOG,PROTOTYPER_FDT,PROTOTYPER_IMAGE");
+    println!(
+        "cargo:rerun-if-env-changed=RUST_LOG,PROTOTYPER_FDT,PROTOTYPER_IMAGE,RUSTSBI_MTEST_FILTER,RUSTSBI_TEST_SHARD,RUSTSBI_TEST_RUN_ID,RUSTSBI_TEST_DIGEST"
+    );
     println!("cargo:rustc-link-arg=-T{}", ld.display());
     println!("cargo:rustc-link-search={}", out.display());
 }
 
-const LINKER_SCRIPT: &[u8] = b"OUTPUT_ARCH(riscv)
+const LINKER_SCRIPT: &str = "OUTPUT_ARCH(riscv)
 ENTRY(_start) 
 SECTIONS {
     . = 0x80000000;
@@ -32,6 +47,8 @@ SECTIONS {
         *(.srodata .srodata.*)
         . = ALIGN(0x1000);  
     } 
+
+    /* MTEST_SECTION */
 
     .dynsym : ALIGN(8) {
         *(.dynsym)
@@ -74,6 +91,7 @@ SECTIONS {
         *(.sbss .sbss.*)
         sbi_bss_end = .;
     } 
+
     /DISCARD/ : {
         *(.eh_frame)
     }
@@ -85,6 +103,14 @@ SECTIONS {
     }
     . = ALIGN(0x1000);
     sbi_end = .;
+
+    .handoff (NOLOAD) : ALIGN(0x1000) {
+        sbi_handoff_start = .;
+        KEEP(*(.handoff))
+        . = ALIGN(0x1000);
+        sbi_handoff_end = .;
+    }
+    ASSERT(sbi_handoff_end <= 0x80200000, \"firmware handoff storage overlaps payload\")
 
     .text 0x80200000 : ALIGN(0x1000) {
         *(.payload)

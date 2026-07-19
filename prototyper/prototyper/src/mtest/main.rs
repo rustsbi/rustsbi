@@ -1,4 +1,3 @@
-#![doc = include_str!("../../README.md")]
 #![feature(alloc_error_handler)]
 #![no_std]
 #![no_main]
@@ -10,12 +9,12 @@ use core::panic::PanicInfo;
 machine::entry!(main);
 
 fn main(boot: machine::BootInfo) -> ! {
-    rustsbi_prototyper::run(boot)
+    rustsbi_prototyper::run_mtest(boot)
 }
 
 #[panic_handler]
-fn panic(info: &PanicInfo<'_>) -> ! {
-    machine::abort(|| rustsbi_prototyper::report_panic(info.location()))
+fn panic(_: &PanicInfo<'_>) -> ! {
+    machine::abort(rustsbi_prototyper::report_mtest_panic)
 }
 
 #[alloc_error_handler]
