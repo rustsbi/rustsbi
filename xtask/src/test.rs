@@ -82,6 +82,7 @@ fn build_test_kernel() -> Option<ExitStatus> {
     cargo::Cargo::new("build")
         .package(TEST_KERNEL_NAME)
         .target(ARCH)
+        .unstable("build-std", ["core", "alloc"])
         .release()
         .status()
         .ok()

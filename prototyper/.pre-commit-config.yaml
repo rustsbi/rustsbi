@@ -36,8 +36,8 @@ repos:
         description: Check the package for errors.
         entry: |
           bash -c '
-            # Get all packages in the workspace
-            packages=$(cargo metadata --format-version 1 | jq -r ".packages[] | select(.name != \"xtask\") | .name")
+            # Package IDs from --no-deps contain workspace members only.
+            packages=$(cargo metadata --format-version 1 --no-deps | jq -r ".packages[] | select(.name != \"xtask\") | .id")
 
             # Check each package
             for package in $packages; do
@@ -63,8 +63,8 @@ repos:
         description: Lint Rust sources.
         entry: |
           bash -c '
-            # Get all packages in the workspace
-            packages=$(cargo metadata --format-version 1 | jq -r ".packages[] | select(.name != \"xtask\") | .name")
+            # Package IDs from --no-deps contain workspace members only.
+            packages=$(cargo metadata --format-version 1 --no-deps | jq -r ".packages[] | select(.name != \"xtask\") | .id")
 
             # Lint each package
             for package in $packages; do

@@ -85,6 +85,7 @@ fn build_bench_kernel() -> Option<ExitStatus> {
     cargo::Cargo::new("build")
         .package(BENCH_KERNEL_NAME)
         .target(ARCH)
+        .unstable("build-std", ["core", "alloc"])
         .release()
         .status()
         .ok()

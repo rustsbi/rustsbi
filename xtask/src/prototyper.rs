@@ -96,7 +96,7 @@ fn prepare_directories(arg: &PrototyperArg) -> Option<Directories> {
     })
 }
 
-fn setup_config_file(target_config_toml: &PathBuf, arg: &PrototyperArg) -> Option<()> {
+fn setup_config_file(target_config_toml: &Path, arg: &PrototyperArg) -> Option<()> {
     // Delete old config if exists
     if fs::exists(target_config_toml).ok()? {
         info!("Delete old config");
@@ -122,12 +122,7 @@ fn setup_config_file(target_config_toml: &PathBuf, arg: &PrototyperArg) -> Optio
 fn build_prototyper(arg: &PrototyperArg) -> Option<ExitStatus> {
     info!("Building Prototyper");
 
-    let enable_h = arg.features.iter().any(|f| f == "hypervisor");
-    let rustflags = if enable_h {
-        "-C relocation-model=pie -C link-arg=-pie -C target-feature=+h"
-    } else {
-        "-C relocation-model=pie -C link-arg=-pie"
-    };
+    let rustflags = "-C relocation-model=pie -C link-arg=-pie";
 
     let arch = arg.target.as_deref().unwrap_or(ARCH);
 
@@ -165,11 +160,16 @@ fn build_prototyper(arg: &PrototyperArg) -> Option<ExitStatus> {
 
     // Create binary from ELF
     info!("Converting ELF to binary with rust-objcopy");
+    let binary_arch = if arch.contains("riscv32") {
+        "riscv32"
+    } else {
+        "riscv64"
+    };
     let result = Command::new("rust-objcopy")
         .args([
             "-O",
             "binary",
-            "--binary-architecture=riscv64",
+            &format!("--binary-architecture={binary_arch}"),
             &elf_path.to_string_lossy(),
             &bin_path.to_string_lossy(),
         ])
@@ -190,7 +190,7 @@ fn build_prototyper(arg: &PrototyperArg) -> Option<ExitStatus> {
     result
 }
 
-fn copy_output_files(target_dir: &PathBuf, arg: &PrototyperArg) -> Option<()> {
+fn copy_output_files(target_dir: &Path, arg: &PrototyperArg) -> Option<()> {
     let mode_suffix = if arg.payload.is_some() {
         info!("Copy for payload mode");
         "payload"
