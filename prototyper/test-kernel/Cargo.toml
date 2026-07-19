@@ -15,8 +15,6 @@ sbi-spec = { version = "0.0.9", features = [
 ], path = "../../library/sbi-spec" }
 log = "0.4"
 riscv = { workspace = true }
-spin = "0.9"
-uart16550 = "0.0.1"
 rcore-console = "0.0.0"
 dtb-walker = "=0.2.0-alpha.3"
 

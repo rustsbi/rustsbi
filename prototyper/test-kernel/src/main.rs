@@ -7,21 +7,70 @@ extern crate rcore_console;
 
 use core::{
     arch::{asm, naked_asm},
-    ptr::null,
+    fmt::{self, Write},
 };
-use riscv::register::cycle;
+use rcore_console::Console as _;
+use riscv::register::{cycle, satp, sie, sstatus, time};
 use sbi_spec::{
-    binary::{CounterMask, HartMask, SbiRet},
+    binary::{CounterMask, HartMask, Physical, SbiRet},
     pmu::firmware_event,
 };
-use sbi_testing::sbi::{self, ConfigFlags, StartFlags, StopFlags};
+use sbi_testing::{
+    protocol::{self, Run},
+    sbi::{self, ConfigFlags, StartFlags, StopFlags},
+};
 // use sbi_spec::pmu::*;
-use uart16550::Uart16550;
 
 const RISCV_HEAD_FLAGS: u64 = 0;
 const RISCV_HEADER_VERSION: u32 = 0x2;
 const RISCV_IMAGE_MAGIC: u64 = 0x5643534952; /* Magic number, little endian, "RISCV" */
 const RISCV_IMAGE_MAGIC2: u32 = 0x05435352; /* Magic number 2, little endian, "RSC\x05" */
+const SYSTEM_SUSPEND_OPAQUE: usize = 0x5355_5350;
+const SYSTEM_RESUME_STACK_SIZE: usize = 16 * 1024;
+const TEST_SHARD: &str = match option_env!("RUSTSBI_TEST_SHARD") {
+    Some(value) => value,
+    None => "s-mode-local",
+};
+const TEST_RUN: &str = match option_env!("RUSTSBI_TEST_RUN_ID") {
+    Some(value) => value,
+    None => "local",
+};
+const TEST_DIGEST: &str = "74106ac03c66d91e29f11059cd5aeed52607d8dcad6c57ea432be48d9571630c";
+const TEST_CASES: usize = 4;
+
+const fn test_run() -> Run<'static> {
+    Run {
+        shard: TEST_SHARD,
+        run: TEST_RUN,
+        attempt: 1,
+        seed: 0,
+        digest: TEST_DIGEST,
+    }
+}
+
+struct ProtocolOutput;
+
+impl Write for ProtocolOutput {
+    fn write_str(&mut self, value: &str) -> fmt::Result {
+        Console.put_str(value);
+        Ok(())
+    }
+}
+
+fn protocol_record(write: impl FnOnce(&mut ProtocolOutput) -> fmt::Result) {
+    let _ = write(&mut ProtocolOutput);
+}
+
+struct InvalidSleepType;
+
+impl sbi::SleepType for InvalidSleepType {
+    fn raw(&self) -> u32 {
+        1
+    }
+}
+
+#[unsafe(link_section = ".bss.uninit")]
+static mut SYSTEM_RESUME_STACK: [u8; SYSTEM_RESUME_STACK_SIZE] = [0; SYSTEM_RESUME_STACK_SIZE];
 
 /// boot header
 #[unsafe(naked)]
@@ -49,39 +98,50 @@ unsafe extern "C" fn _boot_header() -> ! {
     );
 }
 
-#[unsafe(naked)]
-#[unsafe(no_mangle)]
-#[unsafe(link_section = ".text.entry")]
-unsafe extern "C" fn _start(hartid: usize, device_tree_paddr: usize) -> ! {
-    const STACK_SIZE: usize = 16384; // 16 KiB
+macro_rules! define_start {
+    ($store:literal, $stride:literal) => {
+        #[unsafe(naked)]
+        #[unsafe(no_mangle)]
+        #[unsafe(link_section = ".text.entry")]
+        unsafe extern "C" fn _start(hartid: usize, device_tree_paddr: usize) -> ! {
+            const STACK_SIZE: usize = 16384; // 16 KiB
 
-    #[unsafe(link_section = ".bss.uninit")]
-    static mut STACK: [u8; STACK_SIZE] = [0u8; STACK_SIZE];
+            #[unsafe(link_section = ".bss.uninit")]
+            static mut STACK: [u8; STACK_SIZE] = [0u8; STACK_SIZE];
 
-    naked_asm!(
-        // clear bss segment
-        "   la      t0, sbss
+            naked_asm!(
+                // Clear BSS with one native-width store per iteration.
+                concat!(
+                    "   la      t0, sbss
             la      t1, ebss
         1:  bgeu    t0, t1, 2f
-            sd      zero, 0(t0)
-            addi    t0, t0, 8
+            ",
+                    $store,
+                    " zero, 0(t0)
+            addi    t0, t0, ",
+                    $stride,
+                    "
             j       1b",
-        "2:",
-        "   la sp, {stack} + {stack_size}",
-        "   j  {main}",
-        stack_size = const STACK_SIZE,
-        stack      =   sym STACK,
-        main       =   sym rust_main,
-    )
+                ),
+                "2:",
+                "   la sp, {stack} + {stack_size}",
+                "   j  {main}",
+                stack_size = const STACK_SIZE,
+                stack      =   sym STACK,
+                main       =   sym rust_main,
+            )
+        }
+    };
 }
 
+#[cfg(target_pointer_width = "32")]
+define_start!("sw", "4");
+
+#[cfg(target_pointer_width = "64")]
+define_start!("sd", "8");
+
 extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
-    let BoardInfo {
-        smp,
-        frequency,
-        uart,
-    } = BoardInfo::parse(dtb_pa);
-    unsafe { UART = Uart16550Map(uart as _) };
+    let BoardInfo { smp, frequency } = BoardInfo::parse(dtb_pa);
     rcore_console::init_console(&Console);
     rcore_console::set_log_level(option_env!("LOG"));
     println!(
@@ -104,16 +164,66 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
         hart_mask_base: 0,
         delay: frequency,
     };
+    protocol_record(|output| protocol::run_start(output, test_run(), TEST_CASES));
+    protocol_record(|output| protocol::case_start(output, test_run(), "sbi.core"));
     let test_result = testing.test();
-
-    pmu_test(smp);
-    fence_test(hartid, smp);
-
-    if test_result {
-        sbi::system_reset(sbi::Shutdown, sbi::NoReason);
-    } else {
+    if !test_result {
+        protocol_record(|output| protocol::case_fail(output, test_run(), "sbi.core", "SBI_CORE"));
+        protocol_record(|output| protocol::run_fail(output, test_run(), 0, 1, "SBI_CORE"));
         sbi::system_reset(sbi::Shutdown, sbi::SystemFailure);
     }
+    protocol_record(|output| protocol::case_pass(output, test_run(), "sbi.core"));
+
+    protocol_record(|output| protocol::case_start(output, test_run(), "sbi.pmu"));
+    pmu_test(smp);
+    protocol_record(|output| protocol::case_pass(output, test_run(), "sbi.pmu"));
+
+    protocol_record(|output| protocol::case_start(output, test_run(), "sbi.rfence"));
+    fence_test(hartid, smp);
+    protocol_record(|output| protocol::case_pass(output, test_run(), "sbi.rfence"));
+
+    protocol_record(|output| protocol::case_start(output, test_run(), "sbi.susp"));
+    system_suspend_test(frequency);
+    unreachable!()
+}
+
+fn system_suspend_test(delay: u64) {
+    assert!(sbi::probe_extension(sbi::Suspend).is_available());
+    assert_eq!(
+        sbi::system_suspend(InvalidSleepType, system_resume as *const () as usize, 0),
+        SbiRet::invalid_param()
+    );
+
+    sbi::set_timer(time::read64() + delay);
+    unsafe { sie::set_stimer() };
+    let ret = sbi::system_suspend(
+        sbi::SuspendToRam,
+        system_resume as *const () as usize,
+        SYSTEM_SUSPEND_OPAQUE,
+    );
+    panic!("system suspend returned instead of resuming: {ret:?}")
+}
+
+#[unsafe(naked)]
+unsafe extern "C" fn system_resume(hartid: usize, opaque: usize) -> ! {
+    naked_asm!(
+        "la sp, {stack} + {stack_size}",
+        "j {main}",
+        stack = sym SYSTEM_RESUME_STACK,
+        stack_size = const SYSTEM_RESUME_STACK_SIZE,
+        main = sym system_resume_main,
+    )
+}
+
+extern "C" fn system_resume_main(hartid: usize, opaque: usize) -> ! {
+    sbi::set_timer(u64::MAX);
+    assert_eq!(opaque, SYSTEM_SUSPEND_OPAQUE);
+    assert_eq!(satp::read().bits(), 0);
+    assert!(!sstatus::read().sie());
+    println!("[susp] resumed hart {hartid} with the required entry state");
+    protocol_record(|output| protocol::case_pass(output, test_run(), "sbi.susp"));
+    protocol_record(|output| protocol::run_pass(output, test_run(), TEST_CASES));
+    sbi::system_reset(sbi::Shutdown, sbi::NoReason);
     unreachable!()
 }
 
@@ -149,7 +259,7 @@ fn pmu_test(smp: usize) {
     let result = sbi::pmu_counter_config_matching(counter_mask, Flag::new(0b110), 0x10021, 0);
     assert!(result.is_ok());
     let result = sbi::pmu_counter_config_matching(counter_mask, Flag::new(0b110), 0x3, 0);
-    assert_eq!(result, SbiRet::not_supported());
+    assert!(result.is_ok());
 
     // `SBI_PMU_HW_CPU_CYCLES` event test
     let result = sbi::pmu_counter_config_matching(counter_mask, Flag::new(0b010), 0x1, 0);
@@ -195,7 +305,10 @@ fn pmu_test(smp: usize) {
     assert!(restart_cycle_num > stopped_cycle_num);
 
     /* PMU test for firmware  event */
-    let counter_mask = CounterMask::from_mask_base(0x7ffffffff, 0);
+    let complete_mask = 1usize
+        .checked_shl(counters_num as u32)
+        .map_or(usize::MAX, |end| end - 1);
+    let counter_mask = CounterMask::from_mask_base(complete_mask, 0);
 
     // Mapping a counter to the `SBI_PMU_FW_ACCESS_LOAD` event should result in unsupported
     let result = sbi::pmu_counter_config_matching(
@@ -215,8 +328,10 @@ fn pmu_test(smp: usize) {
         0,
     );
     assert!(result.is_ok());
-    assert!(result.value >= 19);
     let ipi_counter_idx = result.value;
+    let counter_info = sbi::pmu_counter_get_info(ipi_counter_idx);
+    assert!(counter_info.is_ok());
+    assert!(CounterInfo::new(counter_info.value).is_firmware_counter());
     let ipi_num = sbi::pmu_counter_fw_read(ipi_counter_idx);
     assert!(ipi_num.is_ok());
     assert_eq!(ipi_num.value, 0);
@@ -347,17 +462,22 @@ fn fence_test(hartid: usize, smp: usize) {
     assert!(ret.is_ok() || ret == SbiRet::not_supported());
 
     // HFence tests (if supported)
-    let ret = sbi::remote_hfence_gvma(self_mask, 0, 0);
-    assert!(ret.is_ok() || ret == SbiRet::not_supported());
-
-    let ret = sbi::remote_hfence_gvma_vmid(self_mask, 0, 0, 0);
-    assert!(ret.is_ok() || ret == SbiRet::not_supported());
-
-    let ret = sbi::remote_hfence_vvma(self_mask, 0, 0);
-    assert!(ret.is_ok() || ret == SbiRet::not_supported());
-
-    let ret = sbi::remote_hfence_vvma_asid(self_mask, 0, 0, 0);
-    assert!(ret.is_ok() || ret == SbiRet::not_supported());
+    let hfence = [
+        sbi::remote_hfence_gvma(self_mask, 0, 0),
+        sbi::remote_hfence_gvma_vmid(self_mask, 0, 0, 0),
+        sbi::remote_hfence_vvma(self_mask, 0, 0),
+        sbi::remote_hfence_vvma_asid(self_mask, 0, 0, 0),
+    ];
+    let supported = hfence.iter().all(SbiRet::is_ok);
+    let unavailable = hfence
+        .iter()
+        .all(|result| *result == SbiRet::not_supported());
+    assert!(supported || unavailable);
+    if supported {
+        println!("[fence] HFENCE operations pass");
+    } else {
+        println!("[fence] HFENCE operations are not supported");
+    }
 
     println!("[34m[ INFO] Sbi `RFNC` test pass[0m");
 }
@@ -377,7 +497,6 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 struct BoardInfo {
     smp: usize,
     frequency: u64,
-    uart: usize,
 }
 
 impl BoardInfo {
@@ -387,7 +506,6 @@ impl BoardInfo {
         let mut ans = Self {
             smp: 0,
             frequency: 0,
-            uart: 0,
         };
         unsafe {
             Dtb::from_raw_parts_filtered(dtb_pa as _, |e| {
@@ -397,24 +515,14 @@ impl BoardInfo {
         .unwrap()
         .walk(|ctx, obj| match obj {
             DtbObj::SubNode { name } => {
-                if ctx.is_root() && (name == Str::from("cpus") || name == Str::from("soc")) {
+                if ctx.is_root() && name == Str::from("cpus") {
                     StepInto
                 } else if ctx.name() == Str::from("cpus") && name.starts_with("cpu@") {
                     ans.smp += 1;
                     StepOver
-                } else if ctx.name() == Str::from("soc")
-                    && (name.starts_with("uart") || name.starts_with("serial"))
-                {
-                    StepInto
                 } else {
                     StepOver
                 }
-            }
-            DtbObj::Property(Property::Reg(mut reg)) => {
-                if ctx.name().starts_with("uart") || ctx.name().starts_with("serial") {
-                    ans.uart = reg.next().unwrap().start;
-                }
-                StepOut
             }
             DtbObj::Property(Property::General { name, value }) => {
                 if ctx.name() == Str::from("cpus") && name == Str::from("timebase-frequency") {
@@ -433,28 +541,28 @@ impl BoardInfo {
 }
 
 struct Console;
-static mut UART: Uart16550Map = Uart16550Map(null());
-
-pub struct Uart16550Map(*const Uart16550<u8>);
-
-unsafe impl Sync for Uart16550Map {}
-
-impl Uart16550Map {
-    #[inline]
-    pub fn get(&self) -> &Uart16550<u8> {
-        unsafe { &*self.0 }
-    }
-}
 
 impl rcore_console::Console for Console {
     #[inline]
     fn put_char(&self, c: u8) {
-        unsafe { UART.get().write(core::slice::from_ref(&c)) };
+        let _ = sbi::console_write_byte(c);
     }
 
     #[inline]
-    fn put_str(&self, s: &str) {
-        unsafe { UART.get().write(s.as_bytes()) };
+    fn put_str(&self, mut value: &str) {
+        while !value.is_empty() {
+            let bytes = Physical::new(value.len(), value.as_ptr() as usize, 0);
+            let Some(written) = sbi::console_write(bytes).ok() else {
+                return;
+            };
+            if written == 0 {
+                return;
+            }
+            let Some(remaining) = value.get(written..) else {
+                return;
+            };
+            value = remaining;
+        }
     }
 }
 
