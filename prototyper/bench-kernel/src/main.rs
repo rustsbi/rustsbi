@@ -5,12 +5,9 @@
 #[macro_use]
 extern crate rcore_console;
 
+use core::arch::{asm, naked_asm};
 use core::mem::MaybeUninit;
 use core::sync::{atomic::AtomicBool, atomic::AtomicU64, atomic::Ordering};
-use core::{
-    arch::{asm, naked_asm},
-    ptr::null,
-};
 use log::*;
 use sbi::SbiRet;
 use sbi_spec::binary::{HartMask, MaskError};
@@ -21,6 +18,7 @@ use serde_device_tree::{
     Dtb, DtbPtr,
     buildin::{Node, NodeSeq, Reg, StrSeq},
 };
+use spin::Once;
 use uart16550::Uart16550;
 
 const RISCV_HEAD_FLAGS: u64 = 0;
@@ -59,6 +57,7 @@ const MAX_HART_NUM: usize = 128;
 
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
+#[repr(C, align(16))]
 struct HartStack([u8; STACK_SIZE]);
 
 impl HartStack {
@@ -79,6 +78,19 @@ static mut IPI_SENT: [MaybeUninit<AtomicBool>; MAX_HART_NUM] =
 static mut SMP_COUNT: usize = 0;
 #[unsafe(link_section = ".bss.uninit")]
 static mut BOOT_HART_ID: usize = 0;
+
+fn hart_stack_top(hartid: usize) -> Option<usize> {
+    let next = hartid.checked_add(1)?;
+    if next > MAX_HART_NUM {
+        return None;
+    }
+    let base = core::ptr::addr_of!(HART_STACK).cast::<HartStack>();
+    // SAFETY: `next` is at most the array length, so this computes either an
+    // in-array element address or the permitted one-past pointer. The result
+    // is used only as a descending stack pointer and is never dereferenced at
+    // the one-past address.
+    Some(unsafe { base.add(next) } as usize)
+}
 
 /// 内核入口。
 ///
@@ -129,6 +141,10 @@ extern "C" fn core_send_ipi(hartid: usize, opaque: usize) {
 }
 
 extern "C" fn send_ipi(hartid: usize) -> ! {
+    let stack_top = hart_stack_top(hartid).unwrap_or_else(|| {
+        sbi::system_reset(sbi::Shutdown, sbi::SystemFailure);
+        unreachable!()
+    });
     if unsafe { !(IPI_SENT[hartid].assume_init_mut().load(Ordering::Relaxed)) } {
         unsafe {
             IPI_SENT[hartid]
@@ -156,21 +172,31 @@ extern "C" fn send_ipi(hartid: usize) -> ! {
         }
         unsafe {
             WAIT_COUNT.fetch_sub(1, Ordering::AcqRel);
-            while WAIT_COUNT.load(Ordering::Relaxed) != 0 {}
+            while WAIT_COUNT.load(Ordering::Relaxed) != 0 {
+                core::hint::spin_loop();
+            }
         }
     } else {
         unreachable!("resend {}", hartid);
     }
-    sbi::hart_suspend(sbi::NonRetentive, core_send_ipi as _, unsafe {
-        core::ptr::addr_of!(HART_STACK[hartid + 1]) as _
-    });
+    sbi::hart_suspend(
+        sbi::NonRetentive,
+        core_send_ipi as *const () as _,
+        stack_top,
+    );
     unreachable!()
 }
 
 extern "C" fn init_main(hartid: usize) -> ! {
-    sbi::hart_suspend(sbi::NonRetentive, core_send_ipi as _, unsafe {
-        core::ptr::addr_of!(HART_STACK[hartid + 1]) as _
+    let stack_top = hart_stack_top(hartid).unwrap_or_else(|| {
+        sbi::system_reset(sbi::Shutdown, sbi::SystemFailure);
+        unreachable!()
     });
+    sbi::hart_suspend(
+        sbi::NonRetentive,
+        core_send_ipi as *const () as _,
+        stack_top,
+    );
     unreachable!()
 }
 
@@ -205,19 +231,32 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     struct Chosen<'a> {
         stdout_path: StrSeq<'a>,
     }
-    rcore_console::init_console(&Console);
-    rcore_console::set_log_level(option_env!("LOG"));
     let dtb_ptr = DtbPtr::from_raw(dtb_pa as _).unwrap();
     let dtb = Dtb::from(dtb_ptr).share();
     let root: Node = serde_device_tree::from_raw_mut(&dtb).unwrap();
     let tree: Tree = root.deserialize();
     let stdout_path = tree.chosen.stdout_path.iter().next().unwrap();
-    if let Some(node) = root.find(stdout_path) {
-        let reg = node.get_prop("reg").unwrap().deserialize::<Reg>();
-        let address = reg.iter().next().unwrap().0.start;
-        unsafe { UART = Uart16550Map(address as _) };
+    if let Some(address) = root
+        .find(stdout_path)
+        .and_then(|node| {
+            let property = node.get_prop("reg")?;
+            property
+                .deserialize::<Reg>()
+                .iter()
+                .next()
+                .map(|range| range.0.start)
+        })
+        .filter(|address| *address != 0)
+    {
+        UART.call_once(|| Uart16550Map(address));
+        rcore_console::init_console(&Console);
+        rcore_console::set_log_level(option_env!("LOG"));
     }
     let smp = tree.cpus.cpu.len();
+    if smp == 0 || smp > MAX_HART_NUM || hartid >= smp {
+        sbi::system_reset(sbi::Shutdown, sbi::SystemFailure);
+        unreachable!()
+    }
     let frequency = tree.cpus.timebase_frequency;
     info!(
         r"
@@ -237,14 +276,13 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
         SMP_COUNT = smp;
         BOOT_HART_ID = hartid;
     }
-    for i in 0..smp {
-        unsafe {
-            IPI_SENT[i].write(AtomicBool::new(false));
-        }
+    // SAFETY: `smp` was bounded by `MAX_HART_NUM`, and the boot hart performs
+    // this one-time initialization before starting any secondary hart.
+    for (i, ipi_sent) in unsafe { IPI_SENT.iter_mut().enumerate().take(smp) } {
+        ipi_sent.write(AtomicBool::new(false));
         if i != hartid {
-            sbi::hart_start(i, init_hart as _, unsafe {
-                core::ptr::addr_of!(HART_STACK[i + 1]) as _
-            });
+            let stack_top = hart_stack_top(i).expect("validated hart range has a stack");
+            sbi::hart_start(i, init_hart as *const () as _, stack_top);
             while sbi::hart_get_status(i) != SUSPENDED {
                 core::hint::spin_loop();
             }
@@ -257,7 +295,9 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
             for (i, ipi_sent) in IPI_SENT.iter_mut().enumerate().take(smp) {
                 ipi_sent.assume_init_mut().swap(false, Ordering::AcqRel);
                 if i != hartid {
-                    while sbi::hart_get_status(i) != SUSPENDED {}
+                    while sbi::hart_get_status(i) != SUSPENDED {
+                        core::hint::spin_loop();
+                    }
                 }
             }
             WAIT_COUNT.swap((smp - 1) as u64, Ordering::AcqRel);
@@ -283,7 +323,9 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
         if let Some(mask) = mask {
             sbi::send_ipi(mask);
         }
-        while unsafe { WAIT_COUNT.load(Ordering::Acquire) } != 0 {}
+        while unsafe { WAIT_COUNT.load(Ordering::Acquire) } != 0 {
+            core::hint::spin_loop();
+        }
         let end_time = get_time();
         println!("Test #{}: {}", i, end_time - start_time);
     }
@@ -304,27 +346,36 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 }
 
 struct Console;
-static mut UART: Uart16550Map = Uart16550Map(null());
+static UART: Once<Uart16550Map> = Once::new();
 
-pub struct Uart16550Map(*const Uart16550<u8>);
+pub struct Uart16550Map(usize);
 
+// The UART mapping is immutable after DT validation. Device-level concurrent
+// access is supported by the byte-wide MMIO interface used by this benchmark.
 unsafe impl Sync for Uart16550Map {}
 
 impl Uart16550Map {
     #[inline]
     pub fn get(&self) -> &Uart16550<u8> {
-        unsafe { &*self.0 }
+        // SAFETY: construction occurs only after a nonzero DT `reg` address is
+        // decoded for the selected console, and the mapping lives for the
+        // complete benchmark execution.
+        unsafe { &*(self.0 as *const Uart16550<u8>) }
     }
 }
 
 impl rcore_console::Console for Console {
     #[inline]
     fn put_char(&self, c: u8) {
-        unsafe { UART.get().write(core::slice::from_ref(&c)) };
+        if let Some(uart) = UART.get() {
+            uart.get().write(core::slice::from_ref(&c));
+        }
     }
 
     #[inline]
     fn put_str(&self, s: &str) {
-        unsafe { UART.get().write(s.as_bytes()) };
+        if let Some(uart) = UART.get() {
+            uart.get().write(s.as_bytes());
+        }
     }
 }
