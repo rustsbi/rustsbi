@@ -79,7 +79,7 @@ impl Thread {
             const INTERRUPT_BIT: usize = 1 << 5;
             sstatus |= PRIVILEGE_BIT | INTERRUPT_BIT;
             // 执行线程
-            // TODO support RV32 instruction set
+            #[cfg(target_pointer_width = "64")]
             core::arch::asm!(
                 "   csrw sscratch, {sscratch}
                 csrw sepc    , {sepc}
@@ -89,6 +89,24 @@ impl Thread {
                 call {execute_naked}
                 ld   ra, (sp)
                 addi sp, sp,  8
+                csrr {sepc}   , sepc
+                csrr {sstatus}, sstatus
+            ",
+                sscratch      = in(reg) self,
+                sepc          = inlateout(reg) self.sepc,
+                sstatus       = inlateout(reg) sstatus,
+                execute_naked = sym execute_naked,
+            );
+            #[cfg(target_pointer_width = "32")]
+            core::arch::asm!(
+                "   csrw sscratch, {sscratch}
+                csrw sepc    , {sepc}
+                csrw sstatus , {sstatus}
+                addi sp, sp, -4
+                sw   ra, (sp)
+                call {execute_naked}
+                lw   ra, (sp)
+                addi sp, sp,  4
                 csrr {sepc}   , sepc
                 csrr {sstatus}, sstatus
             ",
@@ -109,15 +127,25 @@ impl Thread {
 /// # Safety
 ///
 /// 裸函数。
-#[unsafe(naked)]
-unsafe extern "C" fn execute_naked() {
-    core::arch::naked_asm!(
-        r"  .altmacro
+macro_rules! define_execute_naked {
+    ($store:literal, $load:literal, $bytes:literal) => {
+        #[unsafe(naked)]
+        unsafe extern "C" fn execute_naked() {
+            core::arch::naked_asm!(concat!(
+                r"  .altmacro
         .macro SAVE n
-            sd x\n, \n*8(sp)
+            ",
+                $store,
+                r" x\n, \n*",
+                $bytes,
+                r"(sp)
         .endm
         .macro SAVE_ALL
-            sd x1, 1*8(sp)
+            ",
+                $store,
+                " x1, 1*",
+                $bytes,
+                r"(sp)
             .set n, 3
             .rept 29
                 SAVE %n
@@ -126,10 +154,18 @@ unsafe extern "C" fn execute_naked() {
         .endm
 
         .macro LOAD n
-            ld x\n, \n*8(sp)
+            ",
+                $load,
+                r" x\n, \n*",
+                $bytes,
+                r"(sp)
         .endm
         .macro LOAD_ALL
-            ld x1, 1*8(sp)
+            ",
+                $load,
+                " x1, 1*",
+                $bytes,
+                r"(sp)
             .set n, 3
             .rept 29
                 LOAD %n
@@ -137,46 +173,65 @@ unsafe extern "C" fn execute_naked() {
             .endr
         .endm
     ",
-        // 位置无关加载
-        "   .option push
+                // 位置无关加载
+                "   .option push
         .option nopic
     ",
-        // 保存调度上下文
-        "   addi sp, sp, -32*8
+                // 保存调度上下文
+                "   addi sp, sp, -32*",
+                $bytes,
+                r"
         SAVE_ALL
     ",
-        // 设置陷入入口
-        "   la   t0, 2f
+                // 设置陷入入口
+                r"   la   t0, 2f
         csrw stvec, t0
     ",
-        // 保存调度上下文地址并切换上下文
-        "   csrr t0, sscratch
-        sd   sp, (t0)
+                // 保存调度上下文地址并切换上下文
+                r"   csrr t0, sscratch
+        ",
+                $store,
+                r" sp, (t0)
         mv   sp, t0
     ",
-        // 恢复线程上下文
-        "   LOAD_ALL
-        ld   sp, 2*8(sp)
+                // 恢复线程上下文
+                r"   LOAD_ALL
+        ",
+                $load,
+                " sp, 2*",
+                $bytes,
+                r"(sp)
     ",
-        // 执行线程
-        "   sret",
-        // 陷入
-        "   .align 2",
-        // 切换上下文
-        "2: csrrw sp, sscratch, sp",
-        // 保存线程上下文
-        "   SAVE_ALL
+                // 执行线程、陷入并切换上下文。
+                r"   sret
+        .align 2
+    2:  csrrw sp, sscratch, sp
+        SAVE_ALL
         csrrw t0, sscratch, sp
-        sd    t0, 2*8(sp)
+        ",
+                $store,
+                " t0, 2*",
+                $bytes,
+                r"(sp)
     ",
-        // 切换上下文
-        "   ld sp, (sp)",
-        // 恢复调度上下文
-        "   LOAD_ALL
-        addi sp, sp, 32*8
+                // 切换上下文并恢复调度上下文。
+                "   ",
+                $load,
+                r" sp, (sp)
+        LOAD_ALL
+        addi sp, sp, 32*",
+                $bytes,
+                r"
+        ret
+        .option pop
     ",
-        // 返回调度
-        "   ret",
-        "   .option pop",
-    )
+            ))
+        }
+    };
 }
+
+#[cfg(target_pointer_width = "32")]
+define_execute_naked!("sw", "lw", "4");
+
+#[cfg(target_pointer_width = "64")]
+define_execute_naked!("sd", "ld", "8");
