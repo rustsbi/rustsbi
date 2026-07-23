@@ -34,7 +34,7 @@ pub(super) extern "C" fn cold_entry(
     options: usize,
     boot_hart: usize,
 ) -> ! {
-    crate::memory::heap::initialize();
+    super::allocator::initialize();
     let words = DynamicWords {
         magic,
         version,
@@ -67,14 +67,18 @@ pub(super) extern "C" fn cold_entry(
 }
 
 #[cfg(any(feature = "jump", feature = "payload"))]
-pub(super) extern "C" fn cold_fixed_entry(hart_id: usize, dtb_address: usize) -> ! {
-    crate::memory::heap::initialize();
-    let next_address = fixed_next_address();
+pub(super) extern "C" fn cold_configured_entry(hart_id: usize, dtb_address: usize) -> ! {
+    super::allocator::initialize();
+    let next_address = configured_next_stage_address();
     // SAFETY: raw entry established unique initialization authority, BSS, and
     // a valid stack. The selected DTB envelope remains stable and readable
     // until this bounded owned copy ends.
     match unsafe {
-        boot::import::prepare_fixed_boot(next_address, configured_dtb_address(dtb_address), hart_id)
+        boot::import::prepare_configured_boot(
+            next_address,
+            configured_dtb_address(dtb_address),
+            hart_id,
+        )
     } {
         Ok(boot) => {
             EARLY_STATE.store(EARLY_READY, Ordering::Release);
@@ -85,12 +89,12 @@ pub(super) extern "C" fn cold_fixed_entry(hart_id: usize, dtb_address: usize) ->
 }
 
 #[cfg(feature = "jump")]
-fn fixed_next_address() -> usize {
+fn configured_next_stage_address() -> usize {
     crate::config::FIXED_NEXT_ADDRESS
 }
 
 #[cfg(feature = "payload")]
-fn fixed_next_address() -> usize {
+fn configured_next_stage_address() -> usize {
     payload_image as *const () as usize
 }
 

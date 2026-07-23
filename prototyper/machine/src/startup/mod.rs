@@ -1,5 +1,6 @@
 //! Machine startup from raw CPU arrival to typed Rust execution.
 
+mod allocator;
 mod raw;
 mod relocation;
 mod runtime;

@@ -35,7 +35,7 @@ pub(crate) unsafe fn prepare_dynamic_boot(
 /// `dtb_address` must satisfy the previous-stage stable readable-memory
 /// contract, and the caller must own unique cold-boot initialization authority.
 #[cfg(any(feature = "jump", feature = "payload"))]
-pub(crate) unsafe fn prepare_fixed_boot(
+pub(crate) unsafe fn prepare_configured_boot(
     next_address: usize,
     dtb_address: usize,
     init_hart: usize,
