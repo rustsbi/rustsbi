@@ -9,8 +9,8 @@ use alloc::vec::Vec;
 use super::{BootDtb, BootInfoError, NextStage};
 #[cfg(test)]
 use super::{BootDtbStorage, NextMode};
-use crate::counter::{CounterError, PerformanceCounters};
 use crate::hart::HartAdmission;
+use crate::pmu::{CounterError, PerformanceCounters};
 use crate::timer::Operations as TimerOperations;
 
 /// The complete owned input delivered exactly once to upper firmware policy.
@@ -25,6 +25,7 @@ pub struct BootInfo {
     pub(super) hart_admission: Option<Arc<HartAdmission>>,
     pub(super) timer: Option<&'static TimerOperations>,
     pub(super) counters: Option<PerformanceCounters>,
+    pub(super) protection: Option<crate::pmp::Configuration>,
 }
 
 impl BootInfo {
@@ -55,6 +56,7 @@ impl BootInfo {
             hart_admission: None,
             timer: None,
             counters: None,
+            protection: None,
         };
         if boot.invariants_hold() {
             Ok(boot)
@@ -87,6 +89,21 @@ impl BootInfo {
         let counters = PerformanceCounters::unprepared()?;
         self.counters = Some(counters.share());
         Ok(counters)
+    }
+
+    /// Selects the immutable lower-privilege physical-memory policy.
+    ///
+    /// Machine-owned ranges are added as higher-priority deny entries during
+    /// terminal preparation and cannot be weakened by this configuration.
+    pub fn set_memory_protection(
+        &mut self,
+        configuration: crate::pmp::Configuration,
+    ) -> Result<(), crate::pmp::PmpError> {
+        if self.protection.is_some() {
+            return Err(crate::pmp::PmpError::InconsistentCapability);
+        }
+        self.protection = Some(configuration);
+        Ok(())
     }
 
     /// Builds bounded access to supervisor-visible physical memory.
@@ -166,6 +183,7 @@ impl BootInfo {
             hart_admission: None,
             timer: None,
             counters: None,
+            protection: None,
         }
     }
 }

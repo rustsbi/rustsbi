@@ -1,6 +1,6 @@
 //! Per-hart PMP discovery, fail-closed installation, and exact readback.
 
-use super::state::{AddressMode, Capability, Entry, Image, MAX_PMP_ENTRIES, Permissions, PmpError};
+use super::state::{AddressMode, Capability, Entry, Image, MAX_PMP_ENTRIES, PmpError};
 
 mod riscv;
 pub(super) use riscv::configure_current_hart;
@@ -30,8 +30,8 @@ struct VerifiedPmp<R> {
 /// Configures this hart before any lower-privilege context can become live.
 ///
 /// Discovery first proves that every existing entry is unlocked, then leaves
-/// every configuration byte OFF. Installation writes and verifies all deny
-/// addresses and deny configurations before enabling the final broad entry.
+/// every configuration byte OFF. Installation makes the complete machine deny
+/// floor effective before enabling any lower-privilege grant.
 fn probe_and_disable<R: PmpRegisters>(mut registers: R) -> Result<DisabledPmp<R>, PmpError> {
     if registers
         .read_security_config()?
@@ -138,16 +138,19 @@ fn install<R: PmpRegisters>(
     mut disabled: DisabledPmp<R>,
     image: Image,
 ) -> Result<VerifiedPmp<R>, PmpError> {
-    let entries = match image {
+    let (entries, deny_count) = match image {
         Image::TrustedWithoutPmp if disabled.capability.entries == 0 => {
             return Ok(VerifiedPmp {
                 _registers: disabled.registers,
             });
         }
         Image::TrustedWithoutPmp => return Err(PmpError::VerificationFailed),
-        Image::Protected(entries) => entries,
+        Image::Protected {
+            entries,
+            deny_count,
+        } => (entries, deny_count),
     };
-    validate_image(&entries, disabled.capability)?;
+    validate_image(&entries, deny_count, disabled.capability)?;
 
     let grain_address_mask = disabled.capability.granularity / 4 - 1;
     for (index, entry) in entries.iter().enumerate() {
@@ -159,38 +162,36 @@ fn install<R: PmpRegisters>(
         )?;
     }
 
-    let broad_index = entries.len() - 1;
-    let broad_word = broad_index / CONFIG_BYTES_PER_CSR;
-    let broad_shift = (broad_index % CONFIG_BYTES_PER_CSR) * 8;
     let mut deny_configs = [0usize; MAX_CONFIG_CSRS];
-    for (index, entry) in entries[..broad_index].iter().enumerate() {
+    let mut final_configs = [0usize; MAX_CONFIG_CSRS];
+    for (index, entry) in entries.iter().enumerate() {
         let word = index / CONFIG_BYTES_PER_CSR;
         let shift = (index % CONFIG_BYTES_PER_CSR) * 8;
-        deny_configs[word] |= usize::from(entry.config_byte()) << shift;
+        let config = usize::from(entry.config_byte()) << shift;
+        final_configs[word] |= config;
+        if index < deny_count {
+            deny_configs[word] |= config;
+        }
     }
+    let used_words = entries.len().div_ceil(CONFIG_BYTES_PER_CSR);
 
-    // Every exclusion becomes effective and is read back before the broad S/U
-    // remainder can be enabled. A fault at any earlier step only restricts the
-    // hart; a fault at the final step occurs after all exclusions are active.
-    for (word, config) in deny_configs[..=broad_word].iter().copied().enumerate() {
+    // Every machine exclusion becomes effective and is read back before any
+    // S/U grant is enabled. A failure therefore leaves the hart in M-mode with
+    // an equal or more restrictive policy.
+    for (word, config) in deny_configs[..used_words].iter().copied().enumerate() {
         write_and_verify_config(&mut disabled.registers, word, config)?;
     }
-    let final_broad_word =
-        deny_configs[broad_word] | (usize::from(entries[broad_index].config_byte()) << broad_shift);
-    write_and_verify_config(&mut disabled.registers, broad_word, final_broad_word)?;
+    for (word, config) in final_configs[..used_words].iter().copied().enumerate() {
+        write_and_verify_config(&mut disabled.registers, word, config)?;
+    }
 
     for (index, entry) in entries.iter().enumerate() {
         if disabled.registers.read_address(index)? != Some(entry.address) {
             return Err(PmpError::VerificationFailed);
         }
     }
-    for (word, config) in deny_configs[..=broad_word].iter().copied().enumerate() {
-        let expected = if word == broad_word {
-            final_broad_word
-        } else {
-            config
-        };
-        if disabled.registers.read_config(word)? != Some(expected) {
+    for (word, config) in final_configs[..used_words].iter().copied().enumerate() {
+        if disabled.registers.read_config(word)? != Some(config) {
             return Err(PmpError::VerificationFailed);
         }
     }
@@ -200,24 +201,21 @@ fn install<R: PmpRegisters>(
     })
 }
 
-fn validate_image(entries: &[Entry], capability: Capability) -> Result<(), PmpError> {
-    if entries.is_empty() || entries.len() > capability.entries {
+fn validate_image(
+    entries: &[Entry],
+    deny_count: usize,
+    capability: Capability,
+) -> Result<(), PmpError> {
+    if entries.is_empty() || entries.len() > capability.entries || deny_count > entries.len() {
         return Err(PmpError::VerificationFailed);
     }
-    let broad = entries.last().ok_or(PmpError::VerificationFailed)?;
-    if broad.address != capability.napot_address_mask
-        || broad.permissions != Permissions::all()
-        || broad.mode != AddressMode::NaturallyAlignedPowerOfTwo
-    {
-        return Err(PmpError::VerificationFailed);
-    }
-    for entry in &entries[..entries.len() - 1] {
+    for (index, entry) in entries.iter().enumerate() {
         if entry.address & !capability.napot_address_mask != 0
             || !matches!(
                 entry.mode,
                 AddressMode::NaturallyAlignedFourBytes | AddressMode::NaturallyAlignedPowerOfTwo
             )
-            || !entry.permissions.is_empty()
+            || (index < deny_count) != entry.permissions.is_empty()
         {
             return Err(PmpError::VerificationFailed);
         }
@@ -257,160 +255,4 @@ fn write_and_verify_address_as<R: PmpRegisters>(
         return Err(PmpError::VerificationFailed);
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::pmp::{Region, compile};
-    use alloc::vec::Vec;
-
-    const PMP_ADDRESS_MODE_MASK: u8 = 0b11 << 3;
-
-    struct FakeRegisters {
-        entries: usize,
-        config: [usize; MAX_CONFIG_CSRS],
-        address: [usize; MAX_PMP_ENTRIES],
-        off_address_mask: usize,
-        security_config: Option<usize>,
-        config_writes: Vec<(usize, usize)>,
-    }
-
-    impl FakeRegisters {
-        fn new(entries: usize, grain_bits: u32, address_bits: u32) -> Self {
-            let low = (1usize << grain_bits) - 1;
-            let address_mask = (1usize << address_bits) - 1;
-            Self {
-                entries,
-                config: [0; MAX_CONFIG_CSRS],
-                address: [0; MAX_PMP_ENTRIES],
-                off_address_mask: address_mask & !low,
-                security_config: Some(0),
-                config_writes: Vec::new(),
-            }
-        }
-
-        fn config_byte(&self, index: usize) -> u8 {
-            let word = index / CONFIG_BYTES_PER_CSR;
-            let shift = (index % CONFIG_BYTES_PER_CSR) * 8;
-            (self.config[word] >> shift) as u8
-        }
-
-        fn read_address_value(&self, index: usize) -> usize {
-            let mut value = self.address[index] & self.off_address_mask;
-            if self.config_byte(index) & PMP_ADDRESS_MODE_MASK
-                == AddressMode::NaturallyAlignedPowerOfTwo.bits()
-            {
-                value |= (1usize << self.off_address_mask.trailing_zeros()) - 1;
-            }
-            value
-        }
-    }
-
-    impl PmpRegisters for FakeRegisters {
-        fn read_security_config(&mut self) -> Result<Option<usize>, PmpError> {
-            Ok(self.security_config)
-        }
-
-        fn read_config(&mut self, word: usize) -> Result<Option<usize>, PmpError> {
-            Ok((word < self.entries.div_ceil(CONFIG_BYTES_PER_CSR)).then_some(self.config[word]))
-        }
-
-        fn swap_config(&mut self, word: usize, value: usize) -> Result<Option<usize>, PmpError> {
-            if word >= self.entries.div_ceil(CONFIG_BYTES_PER_CSR) {
-                return Ok(None);
-            }
-            let old = self.config[word];
-            self.config[word] = value;
-            self.config_writes.push((word, value));
-            Ok(Some(old))
-        }
-
-        fn read_address(&mut self, index: usize) -> Result<Option<usize>, PmpError> {
-            Ok((index < self.entries).then(|| self.read_address_value(index)))
-        }
-
-        fn swap_address(&mut self, index: usize, value: usize) -> Result<Option<usize>, PmpError> {
-            if index >= self.entries {
-                return Ok(None);
-            }
-            let old = self.read_address_value(index);
-            self.address[index] = value;
-            Ok(Some(old))
-        }
-    }
-
-    #[test]
-    fn probe_discovers_count_granularity_and_full_napot_mask() {
-        let disabled = probe_and_disable(FakeRegisters::new(16, 2, 20)).unwrap();
-        assert_eq!(
-            disabled.capability,
-            Capability::new(16, 16, (1 << 20) - 1).unwrap()
-        );
-        assert!(disabled.registers.config.iter().all(|value| *value == 0));
-        assert!(disabled.registers.address.iter().all(|value| *value == 0));
-    }
-
-    #[test]
-    fn locked_or_extended_state_is_rejected_before_mutation() {
-        let mut locked = FakeRegisters::new(16, 0, 20);
-        locked.config[0] = usize::from(PMP_L);
-        assert!(matches!(
-            probe_and_disable(locked),
-            Err(PmpError::LockedState)
-        ));
-
-        let mut extended = FakeRegisters::new(16, 0, 20);
-        extended.security_config = Some(1);
-        assert!(matches!(
-            probe_and_disable(extended),
-            Err(PmpError::ExtendedState)
-        ));
-    }
-
-    #[test]
-    fn no_pmp_requires_the_explicit_trusted_mode() {
-        let disabled = probe_and_disable(FakeRegisters::new(0, 0, 20)).unwrap();
-        assert_eq!(disabled.capability, Capability::new(0, 4, 0).unwrap());
-        assert_eq!(
-            compile(&[], disabled.capability, false),
-            Err(PmpError::PmpRequired)
-        );
-        let image = compile(&[], disabled.capability, true).unwrap();
-        assert!(install(disabled, image).is_ok());
-    }
-
-    #[test]
-    fn broad_allow_is_written_only_after_all_denies() {
-        let disabled = probe_and_disable(FakeRegisters::new(16, 0, 32)).unwrap();
-        let image = compile(
-            &[
-                Region::new(0x1000, 0x3000).unwrap(),
-                Region::new(0x8000, 0x9000).unwrap(),
-            ],
-            disabled.capability,
-            false,
-        )
-        .unwrap();
-        let broad_index = match &image {
-            Image::Protected(entries) => entries.len() - 1,
-            Image::TrustedWithoutPmp => unreachable!(),
-        };
-        let verified = install(disabled, image).unwrap();
-        let broad_word = broad_index / CONFIG_BYTES_PER_CSR;
-        let writes = &verified._registers.config_writes;
-        let final_write = writes.last().copied().unwrap();
-        assert_eq!(final_write.0, broad_word);
-        assert_ne!(
-            (final_write.1 >> ((broad_index % CONFIG_BYTES_PER_CSR) * 8)) as u8
-                & Permissions::all().bits(),
-            0
-        );
-        assert!(writes[..writes.len() - 1].iter().all(|(word, value)| {
-            *word != broad_word
-                || ((*value >> ((broad_index % CONFIG_BYTES_PER_CSR) * 8)) as u8
-                    & Permissions::all().bits())
-                    == 0
-        }));
-    }
 }

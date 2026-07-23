@@ -1,4 +1,4 @@
-//! Exact compilation of machine-owned ranges into PMP entries.
+//! Exact compilation of the machine floor and explicit lower-mode grants.
 
 use alloc::vec::Vec;
 
@@ -6,6 +6,7 @@ use super::state::*;
 
 pub(super) fn compile(
     machine_ranges: &[Region],
+    grants: &[Grant],
     capability: Capability,
     trusted_without_pmp: bool,
 ) -> Result<Image, PmpError> {
@@ -18,29 +19,38 @@ pub(super) fn compile(
     let ranges = normalize(machine_ranges, capability)?;
     let mut entries = Vec::new();
     for range in ranges {
-        decompose(range, capability, &mut entries)?;
+        decompose(range, Permissions::empty(), capability, &mut entries)?;
     }
-    entries.push(Entry {
-        address: capability.napot_address_mask,
-        permissions: Permissions::all(),
-        mode: AddressMode::NaturallyAlignedPowerOfTwo,
-    });
+    let deny_count = entries.len();
+    for grant in grants {
+        validate_region(grant.region, capability)?;
+        decompose(grant.region, grant.permissions, capability, &mut entries)?;
+    }
     if entries.len() > capability.entries {
         return Err(PmpError::InsufficientEntries);
     }
-    Ok(Image::Protected(entries))
+    Ok(Image::Protected {
+        entries,
+        deny_count,
+    })
 }
 
 pub(super) fn compile_machine_policy(
     image: Region,
     machine_only_ranges: &[Region],
+    configuration: &Configuration,
     capability: Capability,
     trusted_without_pmp: bool,
 ) -> Result<Image, PmpError> {
     let mut mandatory = Vec::with_capacity(machine_only_ranges.len() + 1);
     mandatory.push(image);
     mandatory.extend_from_slice(machine_only_ranges);
-    compile(&mandatory, capability, trusted_without_pmp)
+    compile(
+        &mandatory,
+        &configuration.grants,
+        capability,
+        trusted_without_pmp,
+    )
 }
 
 fn normalize(ranges: &[Region], capability: Capability) -> Result<Vec<Region>, PmpError> {
@@ -77,6 +87,7 @@ fn validate_region(region: Region, capability: Capability) -> Result<(), PmpErro
 
 fn decompose(
     region: Region,
+    permissions: Permissions,
     capability: Capability,
     entries: &mut Vec<Entry>,
 ) -> Result<(), PmpError> {
@@ -93,7 +104,7 @@ fn decompose(
         if size < capability.granularity {
             return Err(PmpError::Unrepresentable);
         }
-        let entry = encode_block(start, size)?;
+        let entry = encode_block(start, size, permissions)?;
         if entry.address & !capability.napot_address_mask != 0 {
             return Err(PmpError::AddressOutOfRange);
         }
@@ -110,20 +121,20 @@ fn highest_power_of_two(value: usize) -> usize {
     1usize << (usize::BITS - 1 - value.leading_zeros())
 }
 
-fn encode_block(start: usize, size: usize) -> Result<Entry, PmpError> {
+fn encode_block(start: usize, size: usize, permissions: Permissions) -> Result<Entry, PmpError> {
     if !size.is_power_of_two() || !start.is_multiple_of(size) || size < 4 {
         return Err(PmpError::Unrepresentable);
     }
     if size == 4 {
         return Ok(Entry {
             address: start >> 2,
-            permissions: Permissions::empty(),
+            permissions,
             mode: AddressMode::NaturallyAlignedFourBytes,
         });
     }
     Ok(Entry {
         address: (start >> 2) | ((size >> 3) - 1),
-        permissions: Permissions::empty(),
+        permissions,
         mode: AddressMode::NaturallyAlignedPowerOfTwo,
     })
 }

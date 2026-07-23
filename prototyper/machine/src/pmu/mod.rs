@@ -1,4 +1,4 @@
-//! Typed access to the calling hart's architectural performance counters.
+//! Typed access to the calling hart's RISC-V performance counters.
 //!
 //! Counter CSR selection is closed inside this module. Public identifiers are
 //! values obtained from one probed capability; they do not carry generic CSR
@@ -9,14 +9,14 @@ use core::sync::atomic::{AtomicU8, Ordering};
 
 use crate::boot::NextMode;
 
-mod arch;
 mod control;
 mod counters;
+mod hart;
 mod probe;
-mod state;
+mod riscv;
 
 pub use counters::PerformanceCounters;
-pub use state::{CounterError, CounterId, CounterInfo};
+pub use hart::{CounterError, CounterInfo};
 
 const COUNTERS_EMPTY: u8 = 0;
 const COUNTERS_WRITING: u8 = 1;
@@ -69,7 +69,7 @@ pub(crate) fn prepare_current(mode: NextMode) -> Result<(), CounterError> {
         return Ok(());
     };
     counters.prepare_current()?;
-    crate::csr::prepare_counter_access(mode, counters).map_err(|_| CounterError::MechanismFailure)
+    riscv::prepare_counter_access(mode, counters)
 }
 
 #[cfg(test)]

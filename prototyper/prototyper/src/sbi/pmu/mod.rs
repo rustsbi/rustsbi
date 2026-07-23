@@ -2,93 +2,27 @@
 
 use alloc::vec;
 
-use machine::{CounterError, CounterId, HartLocal, HartLocalError, PerformanceCounters};
+use machine::{CounterError, HartLocal, HartLocalError, PerformanceCounters};
 use rustsbi::SbiRet;
-use sbi_spec::pmu::{
-    cache_event, cache_operation, cache_result, event_type, firmware_event, flags, hardware_event,
-};
+use sbi_spec::pmu::flags;
+
+mod event;
+mod selection;
+mod state;
+
+use event::{Event, EventKind};
+use selection::CounterSelection;
+use state::{Assignment, HartState};
 
 const HARDWARE_COUNTER_LIMIT: usize = 32;
 const FIRMWARE_COUNTER_COUNT: usize = 16;
 const COUNTER_LIMIT: usize = HARDWARE_COUNTER_LIMIT + FIRMWARE_COUNTER_COUNT;
-const EVENT_INDEX_MASK: usize = 0x000f_ffff;
 
 /// Upper SBI service that assigns architectural and firmware events to the
 /// calling hart's counters.
 pub(super) struct PerformanceMonitor {
     counters: PerformanceCounters,
     state: HartLocal<HartState>,
-}
-
-#[derive(Clone, Copy)]
-struct HartState {
-    initialized: bool,
-    assignments: [Option<Assignment>; COUNTER_LIMIT],
-    firmware_values: [u64; FIRMWARE_COUNTER_COUNT],
-}
-
-#[derive(Clone, Copy)]
-enum Assignment {
-    Hardware {
-        counter: CounterId,
-        event: Event,
-        running: bool,
-    },
-    Firmware {
-        event_code: usize,
-        running: bool,
-    },
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct Event {
-    index: usize,
-    selector: u64,
-    kind: EventKind,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum EventKind {
-    Hardware,
-    Firmware(usize),
-}
-
-impl HartState {
-    const NEW: Self = Self {
-        initialized: false,
-        assignments: [None; COUNTER_LIMIT],
-        firmware_values: [0; FIRMWARE_COUNTER_COUNT],
-    };
-
-    fn initialize_fixed(&mut self, counters: &PerformanceCounters) -> Result<(), CounterError> {
-        if self.initialized {
-            return Ok(());
-        }
-        for index in 0..counters.count() {
-            let counter = counters
-                .counter(index)
-                .ok_or(CounterError::MechanismFailure)?;
-            let info = counters.info(counter)?;
-            let event_index = match info.csr_number() {
-                0x0c00 => Some(hardware_event::CPU_CYCLES),
-                0x0c02 => Some(hardware_event::INSTRUCTIONS),
-                _ => None,
-            };
-            if let Some(event_index) = event_index {
-                self.assignments[index] = Some(Assignment::Hardware {
-                    counter,
-                    event: Event {
-                        index: event_index,
-                        selector: event_index as u64,
-                        kind: EventKind::Hardware,
-                    },
-                    running: true,
-                });
-            }
-        }
-        self.initialized = true;
-        Ok(())
-    }
 }
 
 impl PerformanceMonitor {
@@ -139,10 +73,10 @@ impl PerformanceMonitor {
         flags: flags::CounterCfgFlags,
         state: &mut HartState,
     ) -> Result<(), SbiRet> {
-        let counter = self
-            .counters
-            .counter(index)
-            .ok_or_else(SbiRet::invalid_param)?;
+        if index >= self.counters.count() {
+            return Err(SbiRet::invalid_param());
+        }
+        let counter = index;
         if state.assignments[index].is_some() {
             return Err(SbiRet::not_supported());
         }
@@ -296,10 +230,7 @@ impl rustsbi::Pmu for PerformanceMonitor {
     fn counter_get_info(&self, counter_idx: usize) -> SbiRet {
         let hardware_count = self.counters.count();
         if counter_idx < hardware_count {
-            let Some(counter) = self.counters.counter(counter_idx) else {
-                return SbiRet::invalid_param();
-            };
-            return match self.counters.info(counter) {
+            return match self.counters.info(counter_idx) {
                 Ok(info) => SbiRet::success(
                     usize::from(info.csr_number()) | (usize::from(info.width() - 1) << 12),
                 ),
@@ -621,93 +552,9 @@ impl rustsbi::Pmu for PerformanceMonitor {
     }
 }
 
-impl Event {
-    fn parse(index: usize, data: u64) -> Result<Self, SbiRet> {
-        if index & !EVENT_INDEX_MASK != 0 {
-            return Err(SbiRet::invalid_param());
-        }
-        let kind = (index >> 16) & 0xf;
-        let code = index & 0xffff;
-        match kind {
-            event_type::HARDWARE_GENERAL
-                if (hardware_event::CPU_CYCLES..=hardware_event::REF_CPU_CYCLES)
-                    .contains(&code) =>
-            {
-                Ok(Self {
-                    index,
-                    selector: index as u64,
-                    kind: EventKind::Hardware,
-                })
-            }
-            event_type::HARDWARE_CACHE if valid_cache_event(code) => Ok(Self {
-                index,
-                selector: index as u64,
-                kind: EventKind::Hardware,
-            }),
-            event_type::HARDWARE_RAW | event_type::HARDWARE_RAW_V2 if code == 0 => Ok(Self {
-                index,
-                selector: data,
-                kind: EventKind::Hardware,
-            }),
-            event_type::FIRMWARE if supported_firmware_event(code) && data == 0 => Ok(Self {
-                index,
-                selector: 0,
-                kind: EventKind::Firmware(code),
-            }),
-            event_type::FIRMWARE
-                if code <= firmware_event::HFENCE_VVMA_ASID_RECEIVED
-                    || code == firmware_event::PLATFORM =>
-            {
-                Err(SbiRet::not_supported())
-            }
-            event_type::HARDWARE_GENERAL
-            | event_type::HARDWARE_CACHE
-            | event_type::HARDWARE_RAW
-            | event_type::HARDWARE_RAW_V2
-            | event_type::FIRMWARE => Err(SbiRet::invalid_param()),
-            _ => Err(SbiRet::invalid_param()),
-        }
-    }
-}
-
-fn valid_cache_event(code: usize) -> bool {
-    let cache = (code >> 3) & 0x1fff;
-    let operation = (code >> 1) & 0x3;
-    let result = code & 1;
-    cache <= cache_event::NODE
-        && operation <= cache_operation::PREFETCH
-        && result <= cache_result::MISS
-}
-
-fn supported_firmware_event(code: usize) -> bool {
-    let base = matches!(
-        code,
-        firmware_event::MISALIGNED_LOAD
-            | firmware_event::MISALIGNED_STORE
-            | firmware_event::ILLEGAL_INSN
-            | firmware_event::SET_TIMER
-            | firmware_event::IPI_SENT
-            | firmware_event::FENCE_I_SENT
-            | firmware_event::SFENCE_VMA_SENT
-            | firmware_event::SFENCE_VMA_ASID_SENT
-    );
-    #[cfg(feature = "hypervisor")]
-    {
-        base || matches!(
-            code,
-            firmware_event::HFENCE_GVMA_SENT
-                | firmware_event::HFENCE_GVMA_VMID_SENT
-                | firmware_event::HFENCE_VVMA_SENT
-                | firmware_event::HFENCE_VVMA_ASID_SENT
-        )
-    }
-    #[cfg(not(feature = "hypervisor"))]
-    base
-}
-
 fn apply_hardware_config(
     counters: &PerformanceCounters,
-    counter: CounterId,
+    counter: usize,
     flags: flags::CounterCfgFlags,
 ) -> Result<bool, SbiRet> {
     let clear = flags.contains(flags::CounterCfgFlags::CLEAR_VALUE);
@@ -731,56 +578,5 @@ fn counter_error(error: CounterError) -> SbiRet {
         CounterError::AlreadyStarted => SbiRet::already_started(),
         CounterError::AlreadyStopped => SbiRet::already_stopped(),
         CounterError::MechanismFailure => SbiRet::failed(),
-    }
-}
-
-#[derive(Clone, Copy)]
-struct CounterSelection {
-    base: usize,
-    mask: usize,
-}
-
-impl CounterSelection {
-    fn new(base: usize, mask: usize, total: usize) -> Result<Self, SbiRet> {
-        if mask == 0 || base >= total {
-            return Err(SbiRet::invalid_param());
-        }
-        let highest = usize::BITS as usize - 1 - mask.leading_zeros() as usize;
-        if base.checked_add(highest).is_none_or(|index| index >= total) {
-            return Err(SbiRet::invalid_param());
-        }
-        Ok(Self { base, mask })
-    }
-
-    fn first(self) -> Option<usize> {
-        self.into_iter().next()
-    }
-
-    fn take(self, count: usize) -> impl Iterator<Item = usize> {
-        self.into_iter().take(count)
-    }
-}
-
-impl IntoIterator for CounterSelection {
-    type Item = usize;
-    type IntoIter = CounterSelectionIter;
-
-    fn into_iter(self) -> Self::IntoIter {
-        CounterSelectionIter(self)
-    }
-}
-
-struct CounterSelectionIter(CounterSelection);
-
-impl Iterator for CounterSelectionIter {
-    type Item = usize;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let bit = self.0.mask.trailing_zeros();
-        if bit == usize::BITS {
-            return None;
-        }
-        self.0.mask &= !(1usize << bit);
-        Some(self.0.base + bit as usize)
     }
 }

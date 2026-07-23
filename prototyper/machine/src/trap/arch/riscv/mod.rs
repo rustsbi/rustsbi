@@ -3,6 +3,7 @@
 use crate::boot::{NextMode, NextStage};
 use crate::trap::Trap;
 use crate::trap::dispatch::dispatch;
+use crate::trap::expected::{ExpectedResult, probe_csr};
 use crate::trap::frame::{self, Frame};
 use crate::trap::{features, stack};
 
@@ -59,13 +60,60 @@ pub(crate) fn current_index() -> Option<usize> {
 
 pub(crate) fn prepare_hypervisor_metadata() -> Result<(), TrapInstallError> {
     let index = current_index().ok_or(TrapInstallError::InvalidIndex)?;
-    if crate::csr::probe_hypervisor_metadata().map_err(|_| TrapInstallError::FeatureProbe)?
+    if probe_hypervisor_metadata().map_err(|_| TrapInstallError::FeatureProbe)?
         && (!features::enable_hypervisor_metadata(index)
             || !crate::trap::expected::enable_hypervisor_metadata(index))
     {
         return Err(TrapInstallError::InvalidIndex);
     }
     Ok(())
+}
+
+const MISA: u16 = 0x301;
+const MTINST: u16 = 0x34a;
+const MTVAL2: u16 = 0x34b;
+const HSTATUS: u16 = 0x600;
+const MISA_H: usize = 1 << 7;
+
+fn probe_hypervisor_metadata() -> Result<bool, ()> {
+    let Some(misa) = probe_optional::<MISA>()? else {
+        return Ok(false);
+    };
+    if misa & MISA_H == 0 {
+        return Ok(false);
+    }
+    if probe_optional::<MTINST>()?.is_some()
+        && probe_optional::<MTVAL2>()?.is_some()
+        && probe_optional::<HSTATUS>()?.is_some()
+    {
+        Ok(true)
+    } else {
+        Err(())
+    }
+}
+
+fn probe_optional<const CSR: u16>() -> Result<Option<usize>, ()> {
+    // SAFETY: each instantiation names a fixed CSR owned by trap setup.
+    match unsafe { probe_csr::<CSR>() } {
+        ExpectedResult::Value(value) => Ok(Some(value)),
+        ExpectedResult::Fault(fault) if fault.cause == 2 => Ok(None),
+        ExpectedResult::Fault(_) | ExpectedResult::Busy | ExpectedResult::Unavailable => Err(()),
+    }
+}
+
+#[crate::mtest]
+fn machine_identity_matches_xlen() {
+    let expected_mxl = if usize::BITS == 32 { 1 } else { 2 };
+    let misa = probe_optional::<MISA>()
+        .expect("misa probe must complete")
+        .expect("misa must be implemented");
+    assert_eq!(misa >> (usize::BITS - 2), expected_mxl);
+}
+
+#[cfg(test)]
+#[test]
+fn hypervisor_detection_uses_the_standard_misa_bit() {
+    assert_eq!(MISA_H, 1 << 7);
 }
 
 pub(crate) fn hypervisor_available(index: usize) -> bool {
@@ -77,7 +125,7 @@ pub(crate) fn prepare_timer() -> Result<(), crate::TimerError> {
 }
 
 pub(crate) fn prepare_counters(mode: NextMode) -> Result<(), crate::CounterError> {
-    crate::counter::prepare_current(mode)
+    crate::pmu::prepare_current(mode)
 }
 
 /// Abandons the stopped supervisor frame and rejoins the warm loop.

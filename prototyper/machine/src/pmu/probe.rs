@@ -1,10 +1,10 @@
 //! Per-hart discovery of implemented and controllable counters.
 
-use super::arch::*;
 use super::control::read_inhibit;
-use super::state::*;
+use super::hart::*;
+use super::riscv::csr::*;
 
-pub(super) fn probe_current() -> Result<CounterFacts, CounterError> {
+pub(super) fn probe_current() -> Result<HartCounters, CounterError> {
     let mut accessible = 0u32;
     for offset in 0..=LAST_COUNTER_OFFSET {
         if offset == 1 {
@@ -18,7 +18,7 @@ pub(super) fn probe_current() -> Result<CounterFacts, CounterError> {
     }
     let controllable = probe_controllable(accessible)?;
     let wide_events = probe_wide_events(controllable)?;
-    Ok(CounterFacts {
+    Ok(HartCounters {
         accessible,
         controllable,
         wide_events,

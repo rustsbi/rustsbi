@@ -1,8 +1,8 @@
-use super::state::CounterFacts;
+use super::hart::HartCounters;
 use super::*;
 
-fn facts(mask: u32) -> CounterFacts {
-    CounterFacts {
+fn facts(mask: u32) -> HartCounters {
+    HartCounters {
         accessible: mask,
         controllable: mask,
         wide_events: mask & !0b111,
@@ -12,7 +12,7 @@ fn facts(mask: u32) -> CounterFacts {
 
 #[test]
 fn access_permission_does_not_publish_uncontrollable_pmu_counters() {
-    let facts = CounterFacts {
+    let facts = HartCounters {
         accessible: (1 << 0) | (1 << 2) | (1 << 7),
         controllable: 1 << 7,
         wide_events: 1 << 7,
@@ -20,35 +20,26 @@ fn access_permission_does_not_publish_uncontrollable_pmu_counters() {
     };
     assert_eq!(facts.accessible.count_ones(), 3);
     assert_eq!(facts.count(), 1);
-    assert_eq!(facts.counter(0).unwrap().csr_number, 0xc07);
-    assert_eq!(facts.counter(1), None);
+    assert_eq!(facts.offset(0), Some(7));
+    assert_eq!(facts.offset(1), None);
 }
 
 #[test]
 fn dense_indices_skip_absent_and_time_counters() {
     let counters = facts((1 << 0) | (1 << 2) | (1 << 7));
     assert_eq!(counters.count(), 3);
-    assert_eq!(counters.counter(0).unwrap().csr_number, 0xc00);
-    assert_eq!(counters.counter(1).unwrap().csr_number, 0xc02);
-    assert_eq!(counters.counter(2).unwrap().csr_number, 0xc07);
-    assert_eq!(counters.counter(3), None);
+    assert_eq!(counters.offset(0), Some(0));
+    assert_eq!(counters.offset(1), Some(2));
+    assert_eq!(counters.offset(2), Some(7));
+    assert_eq!(counters.offset(3), None);
 }
 
 #[test]
-fn identifiers_are_revalidated_against_current_facts() {
+fn dense_indices_are_revalidated_against_current_hart_facts() {
     let source = facts((1 << 0) | (1 << 7));
     let target = facts(1 << 0);
-    let counter = source.counter(1).unwrap();
-    assert_eq!(target.validate(counter), Err(CounterError::InvalidCounter));
-
-    let forged_internal = CounterId {
-        offset: 0,
-        csr_number: 0xc07,
-    };
-    assert_eq!(
-        source.validate(forged_internal),
-        Err(CounterError::InvalidCounter)
-    );
+    assert_eq!(source.validate(1), Ok(7));
+    assert_eq!(target.validate(1), Err(CounterError::InvalidCounter));
 }
 
 #[test]

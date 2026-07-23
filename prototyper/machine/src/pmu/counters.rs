@@ -8,17 +8,17 @@ use crate::config::HART_CAPACITY;
 use crate::hart::{HartLocal, HartLocalError};
 
 use super::control::*;
+use super::hart::*;
 use super::probe::probe_current;
-use super::state::*;
 
 /// Safe access to hardware performance counters on every admitted hart.
 pub struct PerformanceCounters {
-    facts: Arc<HartLocal<CounterFacts>>,
+    facts: Arc<HartLocal<HartCounters>>,
 }
 
 impl PerformanceCounters {
     pub(crate) fn unprepared() -> Result<Self, CounterError> {
-        let facts = vec![CounterFacts::UNINITIALIZED; HART_CAPACITY];
+        let facts = vec![HartCounters::UNINITIALIZED; HART_CAPACITY];
         Ok(Self {
             facts: Arc::new(HartLocal::new(facts).map_err(map_local_error)?),
         })
@@ -43,15 +43,10 @@ impl PerformanceCounters {
         self.current_facts().map_or(0, |facts| facts.count())
     }
 
-    /// Returns the opaque identity at a dense SBI-visible index.
-    pub fn counter(&self, index: usize) -> Option<CounterId> {
-        self.current_facts().ok()?.counter(index)
-    }
-
-    /// Returns read-only facts for a counter belonging to the current hart.
-    pub fn info(&self, counter: CounterId) -> Result<CounterInfo, CounterError> {
+    /// Returns read-only facts for one dense current-hart counter index.
+    pub fn info(&self, index: usize) -> Result<CounterInfo, CounterError> {
         let facts = self.current_facts()?;
-        let offset = facts.validate(counter)?;
+        let offset = facts.validate(index)?;
         Ok(CounterInfo {
             csr_number: supervisor_csr(offset),
             width: 64,
@@ -64,7 +59,7 @@ impl PerformanceCounters {
     /// `event_data` is the already selected architectural event value.
     pub fn configure(
         &self,
-        counter: CounterId,
+        index: usize,
         event_id: usize,
         event_data: u64,
     ) -> Result<(), CounterError> {
@@ -72,7 +67,7 @@ impl PerformanceCounters {
             return Err(CounterError::UnsupportedEvent);
         }
         let facts = self.current_facts()?;
-        let offset = facts.validate(counter)?;
+        let offset = facts.validate(index)?;
         match offset {
             CYCLE_OFFSET if event_id == CYCLE_EVENT => Ok(()),
             INSTRET_OFFSET if event_id == INSTRUCTION_EVENT => Ok(()),
@@ -94,9 +89,9 @@ impl PerformanceCounters {
     }
 
     /// Starts a stopped counter, optionally replacing its initial value.
-    pub fn start(&self, counter: CounterId, initial: Option<u64>) -> Result<(), CounterError> {
+    pub fn start(&self, index: usize, initial: Option<u64>) -> Result<(), CounterError> {
         let facts = self.current_facts()?;
-        let offset = facts.validate(counter)?;
+        let offset = facts.validate(index)?;
         require_stopped(offset)?;
         let previous = initial.map(|_| read_counter(offset)).transpose()?;
         if let Some(value) = initial
@@ -116,9 +111,9 @@ impl PerformanceCounters {
     }
 
     /// Stops a running counter without discarding its event assignment.
-    pub fn stop(&self, counter: CounterId) -> Result<(), CounterError> {
+    pub fn stop(&self, index: usize) -> Result<(), CounterError> {
         let facts = self.current_facts()?;
-        let offset = facts.validate(counter)?;
+        let offset = facts.validate(index)?;
         require_started(offset)?;
         match set_inhibited(offset, true) {
             Ok(()) => Ok(()),
@@ -130,9 +125,9 @@ impl PerformanceCounters {
     }
 
     /// Replaces the value of a stopped counter without changing its event.
-    pub fn set_value(&self, counter: CounterId, value: u64) -> Result<(), CounterError> {
+    pub fn set_value(&self, index: usize, value: u64) -> Result<(), CounterError> {
         let facts = self.current_facts()?;
-        let offset = facts.validate(counter)?;
+        let offset = facts.validate(index)?;
         require_stopped(offset)?;
         let previous = read_counter(offset)?;
         match write_counter(offset, value) {
@@ -145,9 +140,9 @@ impl PerformanceCounters {
     }
 
     /// Resets a stopped counter to its unassigned baseline.
-    pub fn reset(&self, counter: CounterId) -> Result<(), CounterError> {
+    pub fn reset(&self, index: usize) -> Result<(), CounterError> {
         let facts = self.current_facts()?;
-        let offset = facts.validate(counter)?;
+        let offset = facts.validate(index)?;
         require_stopped(offset)?;
         let previous_value = read_counter(offset)?;
         let wide = facts.event_is_wide(offset);
@@ -172,9 +167,9 @@ impl PerformanceCounters {
     }
 
     /// Reads one complete 64-bit counter value.
-    pub fn read(&self, counter: CounterId) -> Result<u64, CounterError> {
+    pub fn read(&self, index: usize) -> Result<u64, CounterError> {
         let facts = self.current_facts()?;
-        let offset = facts.validate(counter)?;
+        let offset = facts.validate(index)?;
         read_counter(offset)
     }
 
@@ -184,7 +179,7 @@ impl PerformanceCounters {
         reset_all(*facts)
     }
 
-    fn current_facts(&self) -> Result<impl Deref<Target = CounterFacts> + '_, CounterError> {
+    fn current_facts(&self) -> Result<impl Deref<Target = HartCounters> + '_, CounterError> {
         self.facts.current().map_err(map_local_error)
     }
 

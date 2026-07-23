@@ -1,4 +1,4 @@
-//! Counter identities and per-hart capability facts.
+//! Per-hart hardware-counter facts discovered from RISC-V CSRs.
 
 pub(super) const CYCLE_OFFSET: u8 = 0;
 pub(super) const INSTRET_OFFSET: u8 = 2;
@@ -7,13 +7,6 @@ pub(super) const LAST_COUNTER_OFFSET: u8 = 31;
 pub(super) const CYCLE_EVENT: usize = 1;
 pub(super) const INSTRUCTION_EVENT: usize = 2;
 pub(super) const EVENT_INDEX_MASK: usize = 0x000f_ffff;
-
-/// Opaque identity of one hardware performance counter.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CounterId {
-    pub(super) offset: u8,
-    pub(super) csr_number: u16,
-}
 
 /// Read-only architectural facts about one counter.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -37,7 +30,7 @@ impl CounterInfo {
 /// Failure while operating one hardware performance counter.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CounterError {
-    /// The identifier is not present in the calling hart's probed set.
+    /// The dense index is not present in the calling hart's probed set.
     InvalidCounter,
     /// The counter cannot represent the requested event.
     UnsupportedEvent,
@@ -49,8 +42,13 @@ pub enum CounterError {
     MechanismFailure,
 }
 
+/// Hardware-counter availability discovered for one admitted hart.
+///
+/// This type contains no SBI assignment, event-allocation, or logical running
+/// policy. Its masks only describe accessible and controllable RISC-V
+/// architectural counters.
 #[derive(Clone, Copy)]
-pub(super) struct CounterFacts {
+pub(super) struct HartCounters {
     // Access and control are independent architectural facts. A counter may
     // be readable below M-mode even when its inhibit bit is absent or locked;
     // only the controllable subset is published through the SBI PMU service.
@@ -63,7 +61,7 @@ pub(super) struct CounterFacts {
     pub(super) initialized: bool,
 }
 
-impl CounterFacts {
+impl HartCounters {
     pub(super) const UNINITIALIZED: Self = Self {
         accessible: 0,
         controllable: 0,
@@ -75,7 +73,7 @@ impl CounterFacts {
         self.controllable.count_ones() as usize
     }
 
-    pub(super) fn counter(self, index: usize) -> Option<CounterId> {
+    pub(super) fn offset(self, index: usize) -> Option<u8> {
         if !self.initialized {
             return None;
         }
@@ -84,23 +82,18 @@ impl CounterFacts {
             remaining &= remaining.checked_sub(1)?;
         }
         let offset = u8::try_from(remaining.trailing_zeros()).ok()?;
-        (offset <= LAST_COUNTER_OFFSET).then_some(CounterId {
-            offset,
-            csr_number: supervisor_csr(offset),
-        })
+        (offset <= LAST_COUNTER_OFFSET).then_some(offset)
     }
 
-    pub(super) fn validate(self, counter: CounterId) -> Result<u8, CounterError> {
-        let Some(bit) = 1u32.checked_shl(u32::from(counter.offset)) else {
+    pub(super) fn validate(self, index: usize) -> Result<u8, CounterError> {
+        let Some(offset) = self.offset(index) else {
             return Err(CounterError::InvalidCounter);
         };
-        if !self.initialized
-            || self.controllable & bit == 0
-            || counter.csr_number != supervisor_csr(counter.offset)
-        {
+        let bit = 1u32 << offset;
+        if !self.initialized || self.controllable & bit == 0 {
             return Err(CounterError::InvalidCounter);
         }
-        Ok(counter.offset)
+        Ok(offset)
     }
 
     pub(super) fn event_is_wide(self, offset: u8) -> bool {

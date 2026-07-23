@@ -11,12 +11,14 @@ struct MachineRegisters;
 /// Configures this hart before any lower-privilege context can become live.
 pub(crate) fn configure_current_hart(
     machine_ranges: &[Region],
+    configuration: &crate::pmp::Configuration,
     trusted_without_pmp: bool,
 ) -> Result<(), PmpError> {
     let disabled = probe_and_disable(MachineRegisters)?;
     let image = compile_machine_policy(
         machine_image()?,
         machine_ranges,
+        configuration,
         disabled.capability,
         trusted_without_pmp,
     )?;

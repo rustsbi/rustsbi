@@ -73,6 +73,7 @@ pub fn install(
         registers: layout.registers,
         harts: harts.clone(),
     }));
+    let clint_pointer = ptr::from_mut(&mut *clint);
     let device: Arc<dyn IpiDevice> = Arc::new(ClintIpi(clint));
     let wake_by_ipi = alloc::vec![true; harts.len()];
     let admission = HartAdmission::new(device, &harts, boot.init_hart_id(), &wake_by_ipi)
@@ -80,7 +81,7 @@ pub fn install(
     INSTALLED_CLINT
         .compare_exchange(
             ptr::null_mut(),
-            ptr::from_mut(clint),
+            clint_pointer,
             Ordering::AcqRel,
             Ordering::Relaxed,
         )

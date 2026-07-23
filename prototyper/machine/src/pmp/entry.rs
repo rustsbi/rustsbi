@@ -31,6 +31,7 @@ const POLICY_READY: u32 = 2;
 struct PublishedPolicy {
     state: AtomicU32,
     ranges: UnsafeCell<Option<&'static [Range<usize>]>>,
+    configuration: UnsafeCell<Option<&'static Configuration>>,
 }
 
 // SAFETY: one claimant initializes the leaked immutable slice before Release
@@ -40,9 +41,13 @@ unsafe impl Sync for PublishedPolicy {}
 static POLICY: PublishedPolicy = PublishedPolicy {
     state: AtomicU32::new(POLICY_EMPTY),
     ranges: UnsafeCell::new(None),
+    configuration: UnsafeCell::new(None),
 };
 
-pub(crate) fn publish(ranges: &[Range<usize>]) -> Result<(), PmpError> {
+pub(crate) fn publish(
+    ranges: &[Range<usize>],
+    configuration: &Configuration,
+) -> Result<(), PmpError> {
     let ranges = ranges
         .iter()
         .map(|range| Region::new(range.start, range.end))
@@ -61,9 +66,13 @@ pub(crate) fn publish(ranges: &[Range<usize>]) -> Result<(), PmpError> {
         )
         .map_err(|_| PmpError::InconsistentCapability)?;
     let ranges = Box::leak(ranges.into_boxed_slice());
+    let configuration = Box::leak(Box::new(configuration.clone()));
     // SAFETY: this caller owns the writing state and the leaked slice is
     // immutable for the remaining firmware lifetime.
     unsafe { POLICY.ranges.get().write(Some(ranges)) };
+    // SAFETY: the same one-time claimant owns publication of this immutable
+    // semantic configuration.
+    unsafe { POLICY.configuration.get().write(Some(configuration)) };
     POLICY.state.store(POLICY_READY, Ordering::Release);
     Ok(())
 }
@@ -74,11 +83,14 @@ pub(crate) fn configure_current_hart() -> Result<(), PmpError> {
     }
     // SAFETY: Acquire observed the one-time immutable publication.
     let ranges = unsafe { (&*POLICY.ranges.get()).ok_or(PmpError::InconsistentCapability)? };
+    // SAFETY: the same Acquire observation publishes both immutable fields.
+    let configuration =
+        unsafe { (&*POLICY.configuration.get()).ok_or(PmpError::InconsistentCapability)? };
     let ranges = ranges
         .iter()
         .map(|range| Region::new(range.start, range.end))
         .collect::<Result<Vec<_>, _>>()?;
-    hardware::configure_current_hart(&ranges, crate::config::TRUSTED_TARGET)
+    hardware::configure_current_hart(&ranges, configuration, crate::config::TRUSTED_TARGET)
 }
 
 #[crate::mtest]

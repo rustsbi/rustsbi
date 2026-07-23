@@ -17,12 +17,11 @@ pub mod clint;
 #[path = "startup/config.rs"]
 mod config;
 mod console;
-mod counter;
-mod csr;
 pub mod drivers;
 mod hart;
 pub mod memory;
-mod pmp;
+pub mod pmp;
+mod pmu;
 mod power;
 mod startup;
 #[cfg(feature = "mtest")]
@@ -35,12 +34,12 @@ extern crate std;
 
 pub use boot::{BootDtb, BootInfo, NextStage};
 pub use console::{Console, ConsoleError};
-pub use counter::{CounterError, CounterId, CounterInfo, PerformanceCounters};
 pub use hart::{
     HartControl, HartError, HartLocal, HartLocalError, HartLocalGuard, HartStatus, HartTargets,
     Ipi, IpiError, RemoteFence, RemoteFenceError,
 };
 pub use machine_macros::{entry, mtest};
+pub use pmu::{CounterError, CounterInfo, PerformanceCounters};
 pub use power::abort;
 #[cfg(feature = "mtest")]
 pub use test_support::{MachineTests as Tests, prepare as prepare_tests};

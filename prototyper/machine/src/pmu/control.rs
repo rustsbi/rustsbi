@@ -1,9 +1,9 @@
 //! Transactional counter, inhibit, and event-selector operations.
 
-use super::arch::*;
-use super::state::*;
+use super::hart::*;
+use super::riscv::csr::*;
 
-pub(super) fn reset_all(facts: CounterFacts) -> Result<(), CounterError> {
+pub(super) fn reset_all(facts: HartCounters) -> Result<(), CounterError> {
     let programmable = facts.controllable & !0b111;
     if programmable != 0 {
         replace_inhibit(|value| value | programmable as usize)?;

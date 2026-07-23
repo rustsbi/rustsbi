@@ -83,7 +83,7 @@ pub(crate) fn prepare_runtime(
         terminal_failure(TerminalFailure::TimerPreparation);
     }
     if let Some(counters) = boot.counters.as_ref()
-        && crate::counter::install(counters.share()).is_err()
+        && crate::pmu::install(counters.share()).is_err()
     {
         terminal_failure(TerminalFailure::CounterPreparation);
     }
@@ -107,7 +107,10 @@ pub(crate) fn prepare_runtime(
     if crate::trap::prepare_counters(boot.next_stage.mode()).is_err() {
         terminal_failure(TerminalFailure::CounterPreparation);
     }
-    if crate::pmp::publish(&boot.machine_ranges).is_err() {
+    let Some(protection) = boot.protection.as_ref() else {
+        terminal_failure(TerminalFailure::ProtectionPublication);
+    };
+    if crate::pmp::publish(&boot.machine_ranges, protection).is_err() {
         terminal_failure(TerminalFailure::ProtectionPublication);
     }
     if crate::pmp::configure_current_hart().is_err() {

@@ -1,10 +1,10 @@
-//! Closed CSR dispatch for architectural counters and event selectors.
+//! Closed CSR-immediate dispatch for Zicntr and Zihpm counters.
 
 use crate::trap::expected::{ExpectedResult, probe_csr, swap_csr};
 
-use super::state::CounterError;
+use crate::pmu::hart::CounterError;
 
-pub(super) fn low_value(result: LowResult) -> Result<usize, CounterError> {
+pub(in crate::pmu) fn low_value(result: LowResult) -> Result<usize, CounterError> {
     match result {
         LowResult::Value(value) => Ok(value),
         LowResult::Illegal | LowResult::Failure => Err(CounterError::MechanismFailure),
@@ -12,13 +12,13 @@ pub(super) fn low_value(result: LowResult) -> Result<usize, CounterError> {
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum LowResult {
+pub(in crate::pmu) enum LowResult {
     Value(usize),
     Illegal,
     Failure,
 }
 
-pub(super) fn expected_read<const CSR: u16>() -> LowResult {
+pub(in crate::pmu) fn expected_read<const CSR: u16>() -> LowResult {
     // SAFETY: every instantiation is selected by the closed matches below and
     // names only a counter, event-selector, or counter-inhibit CSR.
     match unsafe { probe_csr::<CSR>() } {
@@ -30,7 +30,7 @@ pub(super) fn expected_read<const CSR: u16>() -> LowResult {
     }
 }
 
-pub(super) fn expected_swap<const CSR: u16>(value: usize) -> LowResult {
+pub(in crate::pmu) fn expected_swap<const CSR: u16>(value: usize) -> LowResult {
     // SAFETY: every instantiation is selected by the closed matches below.
     // Counter and selector values are architecturally WARL; required effects
     // are checked by the owning typed operation before success is returned.
@@ -82,11 +82,11 @@ macro_rules! counter_match {
     };
 }
 
-pub(super) fn read_counter_low(offset: u8) -> LowResult {
+pub(in crate::pmu) fn read_counter_low(offset: u8) -> LowResult {
     counter_match!(offset, expected_read)
 }
 
-pub(super) fn write_counter_low(offset: u8, value: usize) -> LowResult {
+pub(in crate::pmu) fn write_counter_low(offset: u8, value: usize) -> LowResult {
     counter_match!(offset, expected_swap, value)
 }
 
@@ -131,12 +131,12 @@ macro_rules! counter_high_match {
 }
 
 #[cfg(target_pointer_width = "32")]
-pub(super) fn read_counter_high(offset: u8) -> LowResult {
+pub(in crate::pmu) fn read_counter_high(offset: u8) -> LowResult {
     counter_high_match!(offset, expected_read)
 }
 
 #[cfg(target_pointer_width = "32")]
-pub(super) fn write_counter_high(offset: u8, value: usize) -> LowResult {
+pub(in crate::pmu) fn write_counter_high(offset: u8, value: usize) -> LowResult {
     counter_high_match!(offset, expected_swap, value)
 }
 
@@ -177,11 +177,11 @@ macro_rules! event_match {
     };
 }
 
-pub(super) fn write_event_low(offset: u8, value: usize) -> LowResult {
+pub(in crate::pmu) fn write_event_low(offset: u8, value: usize) -> LowResult {
     event_match!(offset, expected_swap, value)
 }
 
-pub(super) fn read_event_low(offset: u8) -> LowResult {
+pub(in crate::pmu) fn read_event_low(offset: u8) -> LowResult {
     event_match!(offset, expected_read)
 }
 
@@ -224,11 +224,11 @@ macro_rules! event_high_match {
 }
 
 #[cfg(target_pointer_width = "32")]
-pub(super) fn write_event_high(offset: u8, value: usize) -> LowResult {
+pub(in crate::pmu) fn write_event_high(offset: u8, value: usize) -> LowResult {
     event_high_match!(offset, expected_swap, value)
 }
 
 #[cfg(target_pointer_width = "32")]
-pub(super) fn read_event_high(offset: u8) -> LowResult {
+pub(in crate::pmu) fn read_event_high(offset: u8) -> LowResult {
     event_high_match!(offset, expected_read)
 }

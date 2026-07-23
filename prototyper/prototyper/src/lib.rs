@@ -40,6 +40,12 @@ fn initialize(mut boot: machine::BootInfo) -> Initialized {
     let power = facts.power.as_ref().map(|power| {
         machine::drivers::sifive_test::build(&mut boot, &power.path).unwrap_or_else(|_| fail())
     });
+    let protection = machine::pmp::config! {
+        facts.memory.clone() => [read, write, execute];
+    }
+    .unwrap_or_else(|_| fail());
+    boot.set_memory_protection(protection)
+        .unwrap_or_else(|_| fail());
     let memory = boot.supervisor_memory().unwrap_or_else(|_| fail());
     let counters = boot
         .performance_counters()
