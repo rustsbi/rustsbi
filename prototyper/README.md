@@ -19,24 +19,28 @@ The build also requires the Rust toolchain selected by this repository.
 Run the build command from the repository root:
 
 ```bash
-cargo prototyper [OPTIONS]
+cargo prototyper build [OPTIONS]
 ```
 
 The most commonly used options are:
 
 - `-f, --features <FEATURES>` enables a comma-separated Cargo feature set.
 - `--fdt <PATH>` embeds the supplied flattened device tree.
-- `--payload <PATH>` builds a payload image containing the supplied ELF file.
+- `--payload <PATH>` builds a payload image containing the supplied flat
+  executable image.
 - `--jump` builds a fixed-address jump image.
 - `-c, --config-file <PATH>` selects a custom configuration file.
-- `-v, --verbose` and `-q, --quiet` adjust build output.
+- `--target <TARGET>` selects RV32 or RV64.
+- `--image <ROLE>` selects `firmware`, `mtest`, `test`, or `bench`.
 
 Use `cargo prototyper --help` for the complete command-line reference.
+The old `cargo prototyper [OPTIONS]` form remains a temporary alias for
+`cargo prototyper build [OPTIONS]`.
 
 ### Dynamic image
 
 ```bash
-cargo prototyper
+cargo prototyper build
 ```
 
 This produces `rustsbi-prototyper-dynamic.elf` and
@@ -45,7 +49,7 @@ This produces `rustsbi-prototyper-dynamic.elf` and
 ### Payload image
 
 ```bash
-cargo prototyper --payload <PAYLOAD_ELF>
+cargo prototyper build --payload <PAYLOAD_BIN>
 ```
 
 This produces `rustsbi-prototyper-payload.elf` and
@@ -54,7 +58,7 @@ This produces `rustsbi-prototyper-payload.elf` and
 ### Jump image
 
 ```bash
-cargo prototyper --jump
+cargo prototyper build --jump
 ```
 
 This produces `rustsbi-prototyper-jump.elf` and
@@ -79,17 +83,17 @@ address ranges consistent with the target platform.
 
 ## Running in QEMU
 
-For a basic dynamic-image boot:
+Build the default S-mode test payload, embed it in the firmware and launch the
+complete image through the supervised QEMU runner:
 
 ```bash
-qemu-system-riscv64 \
-  -machine virt \
-  -bios target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.elf \
-  -display none \
-  -serial stdio
+cargo prototyper run
 ```
 
-More complete examples are available in the [boot guides](docs/).
+The tool resolves the firmware ELF, QEMU architecture, `virt` defaults, serial
+capture, timeout and process outcome from one checked plan. More complete
+examples are available in the [boot guides](docs/). Use
+`cargo prototyper run --payload <PAYLOAD_BIN>` only for a custom payload.
 
 ## Development checks
 
@@ -97,10 +101,17 @@ Run the ordinary Rust checks before submitting a change:
 
 ```bash
 cargo fmt --all -- --check
+cargo test -p cargo-prototyper
 cargo test -p rustsbi-prototyper-machine
 cargo test -p rustsbi-prototyper
 cargo test -p xtask
+cargo prototyper check
+cargo prototyper clippy
 ```
+
+Ordinary direct Cargo checks remain supported for source validation. Only
+`cargo prototyper build` promises a bootable image with the reviewed linker
+contract, ELF-to-binary conversion and stable artifact names.
 
 Install the optional repository checks as needed:
 
