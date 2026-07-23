@@ -123,18 +123,17 @@ fn try_main() -> Result<i32, cargo_prototyper::Error> {
             build(&project, CargoAction::Clippy, arguments).map(|_| 0)
         }
         Some(Command::Run(arguments)) => {
-            let plan =
-                ExecutionPlan::resolve(&project, CargoAction::Build, arguments.image.into())?;
-            eprintln!(
-                "cargo prototyper: building {} for {}",
-                plan.image.role.name(),
-                plan.image.target
-            );
-            let artifacts = execute(&plan)?;
-            eprintln!(
-                "cargo prototyper: binary {}",
-                artifacts.named_binary.display()
-            );
+            let mut options: BuildOptions = arguments.image.into();
+            if options.role == ImageRole::Firmware && options.payload.is_none() && !options.jump {
+                let payload = execute_options(
+                    &project,
+                    CargoAction::Build,
+                    default_payload_options(&options),
+                )?
+                .1;
+                options.payload = Some(payload.binary);
+            }
+            let (plan, artifacts) = execute_options(&project, CargoAction::Build, options)?;
             let plan = LaunchPlan::qemu_virt(
                 project.root().to_path_buf(),
                 &plan.image,
@@ -160,7 +159,15 @@ fn build(
     action: CargoAction,
     arguments: ImageArgs,
 ) -> Result<cargo_prototyper::ArtifactSet, cargo_prototyper::Error> {
-    let plan = ExecutionPlan::resolve(project, action, arguments.into())?;
+    execute_options(project, action, arguments.into()).map(|(_, artifacts)| artifacts)
+}
+
+fn execute_options(
+    project: &Project,
+    action: CargoAction,
+    options: BuildOptions,
+) -> Result<(ExecutionPlan, cargo_prototyper::ArtifactSet), cargo_prototyper::Error> {
+    let plan = ExecutionPlan::resolve(project, action, options)?;
     eprintln!(
         "cargo prototyper: {} {} for {}",
         match action {
@@ -178,5 +185,34 @@ fn build(
             artifacts.named_binary.display()
         );
     }
-    Ok(artifacts)
+    Ok((plan, artifacts))
+}
+
+fn default_payload_options(firmware: &BuildOptions) -> BuildOptions {
+    BuildOptions {
+        role: ImageRole::Test,
+        target: firmware.target.clone(),
+        release: firmware.release,
+        test_link_address: firmware.test_link_address.clone(),
+        ..BuildOptions::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_run_uses_the_matching_s_mode_test_payload() {
+        let firmware = BuildOptions {
+            target: Some("riscv32imac-unknown-none-elf".into()),
+            release: false,
+            ..BuildOptions::default()
+        };
+        let payload = default_payload_options(&firmware);
+        assert_eq!(payload.role, ImageRole::Test);
+        assert_eq!(payload.target, firmware.target);
+        assert!(!payload.release);
+        assert!(payload.payload.is_none());
+    }
 }
