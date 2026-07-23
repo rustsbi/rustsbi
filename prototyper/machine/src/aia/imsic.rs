@@ -1,4 +1,4 @@
-//! Validated machine-level IMSIC binding for firmware work notification.
+//! Validated machine-level IMSIC topology for firmware work notification.
 
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -13,9 +13,9 @@ use crate::boot::device_tree::{
 };
 use crate::hart::{IpiDevice, IpiError, Notification};
 
-mod arch;
-
-use arch::{claim_current_file, current_hart_id, device_fence, initialize_current_file};
+use super::riscv::imsic::{
+    claim_current_file, current_hart_id, device_fence, initialize_current_file,
+};
 
 const QEMU_MODEL: &str = "riscv-virtio,qemu";
 const QEMU_MACHINE_BASE: usize = 0x2400_0000;
@@ -33,7 +33,7 @@ pub(super) enum ImsicError {
 }
 
 /// Validated address and identity layout of one machine-level IMSIC instance.
-pub(super) struct ImsicLayout {
+pub(super) struct ImsicTopology {
     pub(super) register_ranges: Vec<Range<usize>>,
     hart_files: Vec<HartInterruptFile>,
     interrupt_identity_count: u16,
@@ -48,7 +48,7 @@ struct HartInterruptFile {
     address: usize,
 }
 
-impl ImsicLayout {
+impl ImsicTopology {
     pub(super) fn from_dtb(boot: &BootInfo, path: &str) -> Result<Self, ImsicError> {
         let fdt = Fdt::new(boot.dtb().as_bytes())
             .map_err(|_| ImsicError::Binding(BindingError::DeviceTree))?;
@@ -136,14 +136,13 @@ impl ImsicLayout {
         })
     }
 
-    pub(super) fn into_device(self) -> (Arc<dyn IpiDevice>, Vec<usize>) {
-        let harts = self.hart_files.iter().map(|file| file.hart_id).collect();
+    pub(super) fn into_device(self) -> Arc<dyn IpiDevice> {
         let device: Arc<dyn IpiDevice> = Arc::new(Imsic {
             hart_files: self.hart_files,
             interrupt_identity_count: self.interrupt_identity_count,
             notification_identity: self.notification_identity,
         });
-        (device, harts)
+        device
     }
 
     pub(super) fn hart_ids(&self) -> Vec<usize> {

@@ -77,8 +77,8 @@ pub(crate) fn prepare_runtime(
     }
 
     let handler: &'static dyn crate::SbiHandler = Box::leak(handler);
-    if let Some(timer) = boot.timer.as_ref()
-        && crate::timer::install(Arc::clone(timer)).is_err()
+    if let Some(timer) = boot.timer
+        && crate::timer::install(timer).is_err()
     {
         terminal_failure(TerminalFailure::TimerPreparation);
     }

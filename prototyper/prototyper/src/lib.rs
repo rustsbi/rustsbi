@@ -28,21 +28,8 @@ struct Initialized {
 
 fn initialize(mut boot: machine::BootInfo) -> Initialized {
     let facts = platform::discover(&*boot.dtb_mut()).unwrap_or_else(|_| fail());
-    let (timer, ipi, fence, harts) = match (&facts.imsic, &facts.aplic, &facts.clint) {
-        (Some(imsic), Some(aplic), _) => {
-            let (timer, ipi, fence, harts) =
-                machine::drivers::build_aia(&mut boot, &imsic.path, &aplic.path)
-                    .unwrap_or_else(|_| fail());
-            (Some(timer), Some(ipi), Some(fence), Some(harts))
-        }
-        (None, None, Some(clint)) => {
-            let (timer, ipi, fence, harts) =
-                machine::drivers::clint::build(&mut boot, &clint.path).unwrap_or_else(|_| fail());
-            (Some(timer), Some(ipi), Some(fence), Some(harts))
-        }
-        (None, None, None) => (None, None, None, None),
-        _ => fail(),
-    };
+    let (timer, ipi, fence, harts) =
+        platform::install_timer_and_ipi(&mut boot, &facts).unwrap_or_else(|_| fail());
 
     let console = facts.console.as_ref().map(|console| {
         machine::drivers::uart::build(&mut boot, &console.path).unwrap_or_else(|_| fail())

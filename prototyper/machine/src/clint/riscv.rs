@@ -1,11 +1,11 @@
-//! RISC-V CLINT-local CSR and ordering operations.
+//! RISC-V CLINT register and interrupt operations.
 
-pub(in crate::drivers::clint) fn device_fence() {
+pub(super) fn device_fence() {
     // SAFETY: conservative I/O and memory ordering fence.
     unsafe { core::arch::asm!("fence iorw, iorw", options(nostack)) };
 }
 
-pub(in crate::drivers::clint) fn enable_machine_timer() {
+pub(super) fn enable_machine_timer() {
     const MTIE: usize = 1 << 7;
     const STIP: usize = 1 << 5;
     // SAFETY: clears the prior S timer manifestation before enabling MTIE.
@@ -20,7 +20,7 @@ pub(in crate::drivers::clint) fn enable_machine_timer() {
     }
 }
 
-pub(in crate::drivers::clint) fn current_hart_id() -> usize {
+pub(super) fn current_hart_id() -> usize {
     let hart_id;
     // SAFETY: `mhartid` is a mandatory read-only machine CSR.
     unsafe {
@@ -29,13 +29,13 @@ pub(in crate::drivers::clint) fn current_hart_id() -> usize {
     hart_id
 }
 
-pub(in crate::drivers::clint) fn enable_machine_software_interrupt() {
+pub(super) fn enable_machine_software_interrupt() {
     const MSIE: usize = 1 << 3;
     // SAFETY: the claimed CLINT source was cleared before this local enable.
     unsafe { core::arch::asm!("csrs mie, {msie}", msie = in(reg) MSIE, options(nostack)) }
 }
 
-pub(in crate::drivers::clint) fn manifest_supervisor_timer() {
+pub(super) fn manifest_supervisor_timer() {
     const MTIE: usize = 1 << 7;
     const STIP: usize = 1 << 5;
     // SAFETY: masks MTIE before publishing the supervisor pending bit.
@@ -50,7 +50,7 @@ pub(in crate::drivers::clint) fn manifest_supervisor_timer() {
     }
 }
 
-pub(in crate::drivers::clint) fn read_time_csr() -> u64 {
+pub(super) fn read_time_csr() -> u64 {
     #[cfg(target_pointer_width = "64")]
     {
         let value;

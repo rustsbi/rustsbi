@@ -10,7 +10,10 @@ const MENVCFG: u16 = 0x30a;
 const MENVCFGH: u16 = 0x31a;
 const COUNTEREN_TIME: usize = 1 << 1;
 
-pub(in crate::drivers::sstc) fn prepare_current_hart() -> Result<(), TimerError> {
+pub(super) fn prepare_sstc() -> Result<(), TimerError> {
+    if crate::hart::resolve(current_hart_id()).is_none() {
+        return Err(TimerError::InvalidHart);
+    }
     // SAFETY: every CSR and capability bit is fixed by this driver.
     unsafe {
         set_csr_bits::<MCOUNTEREN>(COUNTEREN_TIME)?;
@@ -43,7 +46,7 @@ unsafe fn set_csr_bits<const CSR: u16>(bits: usize) -> Result<(), TimerError> {
     Err(TimerError::Unavailable)
 }
 
-pub(in crate::drivers::sstc) fn current_hart_id() -> usize {
+fn current_hart_id() -> usize {
     let value;
     // SAFETY: `mhartid` is a mandatory read-only machine CSR.
     unsafe {
@@ -52,7 +55,7 @@ pub(in crate::drivers::sstc) fn current_hart_id() -> usize {
     value
 }
 
-pub(in crate::drivers::sstc) fn read_time() -> u64 {
+pub(super) fn read_time() -> u64 {
     #[cfg(target_pointer_width = "64")]
     {
         let value;
@@ -85,7 +88,7 @@ pub(in crate::drivers::sstc) fn read_time() -> u64 {
     }
 }
 
-pub(in crate::drivers::sstc) fn write_stimecmp(deadline: u64) {
+pub(super) fn write_stimecmp(deadline: u64) {
     #[cfg(target_pointer_width = "64")]
     // SAFETY: preparation proved the Sstc CSR exists.
     unsafe {

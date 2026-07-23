@@ -1,6 +1,6 @@
 //! RISC-V IMSIC CSR and ordering operations.
 
-use super::super::ImsicError;
+use crate::aia::imsic::ImsicError;
 use crate::trap::expected::{ExpectedResult, probe_csr, swap_csr};
 
 const MISELECT: u16 = 0x350;
@@ -11,7 +11,7 @@ const EITHRESHOLD: usize = 0x72;
 const EIP_BASE: usize = 0x80;
 const EIE_BASE: usize = 0xc0;
 
-pub(in crate::drivers::imsic) fn initialize_current_file(
+pub(in crate::aia) fn initialize_current_file(
     num_ids: u16,
     firmware_iid: u16,
 ) -> Result<(), ImsicError> {
@@ -59,7 +59,7 @@ unsafe fn indirect_write(selector: usize, value: usize) -> Result<(), ImsicError
     }
 }
 
-pub(in crate::drivers::imsic) fn current_hart_id() -> usize {
+pub(in crate::aia) fn current_hart_id() -> usize {
     let value;
     // SAFETY: `mhartid` is a mandatory read-only machine CSR.
     unsafe {
@@ -68,7 +68,7 @@ pub(in crate::drivers::imsic) fn current_hart_id() -> usize {
     value
 }
 
-pub(in crate::drivers::imsic) fn claim_current_file(hart_id: usize) {
+pub(in crate::aia) fn claim_current_file(hart_id: usize) {
     if hart_id != current_hart_id() {
         return;
     }
@@ -77,7 +77,7 @@ pub(in crate::drivers::imsic) fn claim_current_file(hart_id: usize) {
     device_fence();
 }
 
-pub(in crate::drivers::imsic) fn device_fence() {
+pub(in crate::aia) fn device_fence() {
     // SAFETY: the full device fence carries no memory operand.
     unsafe { core::arch::asm!("fence iorw, iorw", options(nostack)) }
 }

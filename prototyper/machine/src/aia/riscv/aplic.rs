@@ -1,6 +1,6 @@
 //! MMIO transport for a validated RISC-V machine APLIC.
 
-use super::super::{AplicError, Registers, configure};
+use crate::aia::aplic::{AplicError, Registers, configure};
 
 struct Mmio {
     base: usize,
@@ -23,7 +23,7 @@ impl Registers for Mmio {
     }
 }
 
-pub(in crate::drivers::aplic) fn configure_device(
+pub(in crate::aia) fn configure_device(
     base: usize,
     source_count: u32,
     machine_imsic_base: u64,

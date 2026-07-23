@@ -8,5 +8,7 @@ mod dt;
 mod facts;
 mod hart;
 mod power;
+mod timer_and_ipi;
 
 pub(crate) use facts::discover;
+pub(crate) use timer_and_ipi::install as install_timer_and_ipi;

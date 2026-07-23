@@ -11,7 +11,7 @@ use super::{BootDtb, BootInfoError, NextStage};
 use super::{BootDtbStorage, NextMode};
 use crate::counter::{CounterError, PerformanceCounters};
 use crate::hart::HartAdmission;
-use crate::timer::TimerDevice;
+use crate::timer::Operations as TimerOperations;
 
 /// The complete owned input delivered exactly once to upper firmware policy.
 pub struct BootInfo {
@@ -23,7 +23,7 @@ pub struct BootInfo {
     pub(super) init_hart: usize,
     pub(super) machine_ranges: Vec<Range<usize>>,
     pub(super) hart_admission: Option<Arc<HartAdmission>>,
-    pub(super) timer: Option<Arc<dyn TimerDevice>>,
+    pub(super) timer: Option<&'static TimerOperations>,
     pub(super) counters: Option<PerformanceCounters>,
 }
 
@@ -111,7 +111,7 @@ impl BootInfo {
     pub(crate) fn install_runtime(
         &mut self,
         admission: Arc<HartAdmission>,
-        timer: Arc<dyn TimerDevice>,
+        timer: &'static TimerOperations,
     ) -> Result<(), RuntimeInstallError> {
         self.ensure_runtime_unbound()?;
         self.hart_admission = Some(admission);

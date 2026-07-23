@@ -11,7 +11,9 @@
 
 extern crate alloc;
 
+pub mod aia;
 mod boot;
+pub mod clint;
 #[path = "startup/config.rs"]
 mod config;
 mod console;

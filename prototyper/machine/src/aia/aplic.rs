@@ -1,4 +1,4 @@
-//! Retained QEMU machine-APLIC delegation protocol.
+//! Validated QEMU machine-APLIC routing description.
 
 use core::ops::Range;
 
@@ -10,7 +10,7 @@ use crate::boot::device_tree::{
     BindingError, compatible, enabled, exact_node, model, reg_ranges, u32_property,
 };
 
-mod arch;
+use super::riscv::aplic as arch;
 
 const QEMU_MODEL: &str = "riscv-virtio,qemu";
 const QEMU_MACHINE_BASE: usize = 0x0c00_0000;
@@ -43,12 +43,12 @@ pub(super) enum AplicError {
     Readback,
 }
 
-pub(super) struct Binding {
+pub(super) struct AplicDescription {
     pub(super) range: Range<usize>,
     source_count: u32,
 }
 
-impl Binding {
+impl AplicDescription {
     pub(super) fn from_dtb(boot: &BootInfo, path: &str) -> Result<Self, AplicError> {
         let fdt = Fdt::new(boot.dtb().as_bytes())
             .map_err(|_| AplicError::Binding(BindingError::DeviceTree))?;
@@ -96,13 +96,13 @@ impl Binding {
     }
 }
 
-pub(in crate::drivers::aplic) trait Registers {
+pub(in crate::aia) trait Registers {
     fn read(&mut self, offset: usize) -> u32;
     fn write(&mut self, offset: usize, value: u32);
     fn fence(&mut self);
 }
 
-pub(in crate::drivers::aplic) fn configure<R: Registers>(
+pub(in crate::aia) fn configure<R: Registers>(
     registers: &mut R,
     source_count: u32,
     machine_imsic_base: u64,

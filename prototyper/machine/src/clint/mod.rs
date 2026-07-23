@@ -1,24 +1,26 @@
-//! Validated CLINT binding shared by the timer and IPI roles.
+//! Validated CLINT installation shared by the timer and IPI roles.
 
+use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::ops::Range;
+use core::ptr;
+use core::sync::atomic::{AtomicPtr, Ordering};
 
 use dtoolkit::fdt::{Fdt, FdtNode};
 use dtoolkit::{Node, Property};
 
-use super::DriverError;
 use crate::boot::device_tree::{BindingError, enabled, exact_node, hart_ids, model, reg_ranges};
 use crate::boot::{BootInfo, MachineRangeError};
 use crate::config::TRUSTED_TARGET;
 use crate::hart::{
     HartAdmission, HartControl, Ipi, IpiDevice, IpiError, Notification, RemoteFence,
 };
-use crate::timer::{Timer, TimerDevice};
+use crate::timer::{Operations as TimerOperations, Timer};
 
-mod arch;
+mod riscv;
 
-use arch::{
+use riscv::{
     current_hart_id, device_fence, enable_machine_software_interrupt, enable_machine_timer,
     manifest_supervisor_timer, read_time_csr,
 };
@@ -33,91 +35,119 @@ const MTIME_OFFSET: usize = 0xbff8;
 const SIFIVE_COMPATIBLE: [&str; 3] = ["riscv,clint0", "starfive,jh7110-clint", "sifive,clint0"];
 const THEAD_COMPATIBLE: [&str; 1] = ["thead,c900-clint"];
 
+/// Failure while installing one selected CLINT.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InstallError {
+    /// The owned device tree is malformed or the exact node is absent.
+    DeviceTree,
+    /// The node does not describe a supported CLINT register convention.
+    Unsupported,
+    /// The register range cannot contain every admitted hart's registers.
+    InvalidLayout,
+    /// The binding is outside the configured trusted platform.
+    Unauthorized,
+    /// The range or singleton CLINT installation was already claimed.
+    AlreadyOwned,
+    /// Hart admission could not be constructed.
+    Hardware,
+}
+
 /// Validates and binds one CLINT exactly once, returning independent timer and
 /// IPI capabilities over one stable private driver allocation.
-pub fn build(
+pub fn install(
     boot: &mut BootInfo,
     node_path: &str,
-) -> Result<(Timer, Ipi, RemoteFence, HartControl), DriverError> {
-    let binding = Binding::from_dtb(boot, node_path)?;
+) -> Result<(Timer, Ipi, RemoteFence, HartControl), InstallError> {
+    let layout = ClintLayout::from_dtb(boot, node_path)?;
     boot.ensure_runtime_unbound()
-        .map_err(|_| DriverError::AlreadyOwned)?;
-    boot.claim_machine_range(binding.range.clone())
+        .map_err(|_| InstallError::AlreadyOwned)?;
+    boot.claim_machine_range(layout.range.clone())
         .map_err(|error| match error {
-            MachineRangeError::Invalid => DriverError::InvalidRange,
-            MachineRangeError::AlreadyClaimed => DriverError::AlreadyOwned,
+            MachineRangeError::Invalid => InstallError::InvalidLayout,
+            MachineRangeError::AlreadyClaimed => InstallError::AlreadyOwned,
         })?;
 
-    let harts = binding.harts;
-    let driver = Arc::new(Clint {
-        base: binding.range.start,
-        kind: binding.kind,
+    let harts = layout.harts;
+    let clint = Box::leak(Box::new(Clint {
+        base: layout.range.start,
+        registers: layout.registers,
         harts: harts.clone(),
-    });
-    let timer: Arc<dyn TimerDevice> = driver.clone();
-    let device: Arc<dyn IpiDevice> = driver;
+    }));
+    let device: Arc<dyn IpiDevice> = Arc::new(ClintIpi(clint));
     let wake_by_ipi = alloc::vec![true; harts.len()];
     let admission = HartAdmission::new(device, &harts, boot.init_hart_id(), &wake_by_ipi)
-        .map_err(|_| DriverError::Hardware)?;
-    boot.install_runtime(admission.clone(), timer.clone())
-        .map_err(|_| DriverError::AlreadyOwned)?;
+        .map_err(|_| InstallError::Hardware)?;
+    INSTALLED_CLINT
+        .compare_exchange(
+            ptr::null_mut(),
+            ptr::from_mut(clint),
+            Ordering::AcqRel,
+            Ordering::Relaxed,
+        )
+        .map_err(|_| InstallError::AlreadyOwned)?;
+    boot.install_runtime(admission.clone(), &CLINT_TIMER)
+        .map_err(|_| InstallError::AlreadyOwned)?;
     Ok((
-        Timer::new(timer),
+        Timer::new(&CLINT_TIMER),
         Ipi::new(admission.clone()),
         RemoteFence::new(admission.clone()),
         HartControl::new(admission),
     ))
 }
 
-struct Binding {
+struct ClintLayout {
     range: Range<usize>,
-    kind: Kind,
+    registers: RegisterLayout,
     harts: Vec<usize>,
 }
 
-impl Binding {
-    fn from_dtb(boot: &BootInfo, path: &str) -> Result<Self, DriverError> {
-        let fdt = Fdt::new(boot.dtb().as_bytes()).map_err(|_| DriverError::DeviceTree)?;
+impl ClintLayout {
+    fn from_dtb(boot: &BootInfo, path: &str) -> Result<Self, InstallError> {
+        let fdt = Fdt::new(boot.dtb().as_bytes()).map_err(|_| InstallError::DeviceTree)?;
         let node = exact_node(&fdt, path).map_err(map_binding_error)?;
         if !enabled(&node) {
-            return Err(DriverError::Unsupported);
+            return Err(InstallError::Unsupported);
         }
 
-        let kind = Kind::from_node(&node).ok_or(DriverError::Unsupported)?;
+        let registers = RegisterLayout::from_node(&node).ok_or(InstallError::Unsupported)?;
         let ranges = reg_ranges(node).map_err(map_binding_error)?;
         if ranges.len() != 1 {
-            return Err(DriverError::InvalidRange);
+            return Err(InstallError::InvalidLayout);
         }
         let range = ranges.into_iter().next().unwrap();
         let harts = hart_ids(&fdt).map_err(map_binding_error)?;
-        validate_registers(&range, kind, &harts)?;
+        validate_registers(&range, registers, &harts)?;
 
         let canonical_qemu = model(&fdt) == QEMU_MODEL
             && range.start == QEMU_CLINT_BASE
             && range.end >= QEMU_CLINT_BASE + QEMU_CLINT_SIZE;
         if !canonical_qemu && !TRUSTED_TARGET {
-            return Err(DriverError::Unauthorized);
+            return Err(InstallError::Unauthorized);
         }
 
-        Ok(Self { range, kind, harts })
+        Ok(Self {
+            range,
+            registers,
+            harts,
+        })
     }
 }
 
-fn map_binding_error(error: BindingError) -> DriverError {
+fn map_binding_error(error: BindingError) -> InstallError {
     match error {
-        BindingError::DeviceTree => DriverError::DeviceTree,
-        BindingError::Unsupported => DriverError::Unsupported,
-        BindingError::InvalidRange => DriverError::InvalidRange,
+        BindingError::DeviceTree => InstallError::DeviceTree,
+        BindingError::Unsupported => InstallError::Unsupported,
+        BindingError::InvalidRange => InstallError::InvalidLayout,
     }
 }
 
 #[derive(Clone, Copy)]
-enum Kind {
+enum RegisterLayout {
     SiFive,
     THead,
 }
 
-impl Kind {
+impl RegisterLayout {
     fn from_node(node: &FdtNode<'_>) -> Option<Self> {
         node.property("compatible")?
             .as_str_list()
@@ -138,42 +168,51 @@ impl Kind {
 
 fn validate_registers(
     range: &Range<usize>,
-    kind: Kind,
+    registers: RegisterLayout,
     harts: &[usize],
-) -> Result<(), DriverError> {
+) -> Result<(), InstallError> {
     for &hart_id in harts {
         let msip_end = hart_id
             .checked_mul(4)
             .and_then(|offset| MSIP_OFFSET.checked_add(offset))
             .and_then(|offset| offset.checked_add(4))
             .and_then(|offset| range.start.checked_add(offset))
-            .ok_or(DriverError::InvalidRange)?;
+            .ok_or(InstallError::InvalidLayout)?;
         let compare_end = hart_id
             .checked_mul(8)
             .and_then(|offset| MTIMECMP_OFFSET.checked_add(offset))
             .and_then(|offset| offset.checked_add(8))
             .and_then(|offset| range.start.checked_add(offset))
-            .ok_or(DriverError::InvalidRange)?;
+            .ok_or(InstallError::InvalidLayout)?;
         if msip_end > range.end || compare_end > range.end {
-            return Err(DriverError::InvalidRange);
+            return Err(InstallError::InvalidLayout);
         }
     }
-    if matches!(kind, Kind::SiFive)
+    if matches!(registers, RegisterLayout::SiFive)
         && range
             .start
             .checked_add(MTIME_OFFSET + 8)
             .is_none_or(|end| end > range.end)
     {
-        return Err(DriverError::InvalidRange);
+        return Err(InstallError::InvalidLayout);
     }
     Ok(())
 }
 
 struct Clint {
     base: usize,
-    kind: Kind,
+    registers: RegisterLayout,
     harts: Vec<usize>,
 }
+
+static INSTALLED_CLINT: AtomicPtr<Clint> = AtomicPtr::new(ptr::null_mut());
+
+static CLINT_TIMER: TimerOperations = TimerOperations {
+    prepare_current_hart: timer_prepare_current_hart,
+    read_time: timer_read_time,
+    set_deadline: timer_set_deadline,
+    handle_interrupt: timer_handle_interrupt,
+};
 
 impl Clint {
     fn contains_hart(&self, hart_id: usize) -> bool {
@@ -206,40 +245,58 @@ impl Clint {
     }
 }
 
-impl TimerDevice for Clint {
-    fn read_time(&self) -> u64 {
-        match self.kind {
-            Kind::SiFive => self.read_time_register(),
-            Kind::THead => read_time_csr(),
-        }
-    }
-
-    fn set_compare(&self, hart_id: usize, deadline: u64) {
-        if !self.contains_hart(hart_id) {
-            return;
-        }
-        let register = self.mtimecmp(hart_id);
-        // The low-max/high/low sequence prevents an intermediate compare below
-        // both the old and new deadlines on a 32-bit register interface.
-        // SAFETY: construction validates this hart's complete compare pair.
-        unsafe { register.write_volatile(u32::MAX) };
-        // SAFETY: second word of the same validated pair.
-        unsafe { register.add(1).write_volatile((deadline >> 32) as u32) };
-        // SAFETY: first word of the same validated pair.
-        unsafe { register.write_volatile(deadline as u32) };
-        enable_machine_timer();
-    }
-
-    fn handle_interrupt(&self) -> bool {
-        manifest_supervisor_timer();
-        true
-    }
+fn installed() -> Option<&'static Clint> {
+    let clint = INSTALLED_CLINT.load(Ordering::Acquire);
+    // SAFETY: a non-null pointer names the leaked, immutable CLINT installed
+    // before publication and retained for the firmware lifetime.
+    unsafe { clint.as_ref() }
 }
 
-impl IpiDevice for Clint {
+fn timer_prepare_current_hart() -> Result<(), crate::TimerError> {
+    let Some(clint) = installed() else {
+        return Err(crate::TimerError::Unavailable);
+    };
+    clint
+        .contains_hart(current_hart_id())
+        .then_some(())
+        .ok_or(crate::TimerError::InvalidHart)
+}
+
+fn timer_read_time() -> u64 {
+    installed().map_or(0, |clint| match clint.registers {
+        RegisterLayout::SiFive => clint.read_time_register(),
+        RegisterLayout::THead => read_time_csr(),
+    })
+}
+
+fn timer_set_deadline(deadline: u64) {
+    let hart_id = current_hart_id();
+    let Some(clint) = installed().filter(|clint| clint.contains_hart(hart_id)) else {
+        return;
+    };
+    let register = clint.mtimecmp(hart_id);
+    // The low-max/high/low sequence prevents an intermediate compare below
+    // both the old and new deadlines on a 32-bit register interface.
+    // SAFETY: construction validates this hart's complete compare pair.
+    unsafe { register.write_volatile(u32::MAX) };
+    // SAFETY: second word of the same validated pair.
+    unsafe { register.add(1).write_volatile((deadline >> 32) as u32) };
+    // SAFETY: first word of the same validated pair.
+    unsafe { register.write_volatile(deadline as u32) };
+    enable_machine_timer();
+}
+
+fn timer_handle_interrupt() -> bool {
+    manifest_supervisor_timer();
+    true
+}
+
+struct ClintIpi(&'static Clint);
+
+impl IpiDevice for ClintIpi {
     fn prepare_current_hart(&self) -> Result<(), IpiError> {
         let hart_id = current_hart_id();
-        if !self.contains_hart(hart_id) {
+        if !self.0.contains_hart(hart_id) {
             return Err(IpiError::InvalidHart);
         }
         self.claim(hart_id);
@@ -248,23 +305,23 @@ impl IpiDevice for Clint {
     }
 
     fn notify(&self, hart_id: usize) {
-        if !self.contains_hart(hart_id) {
+        if !self.0.contains_hart(hart_id) {
             return;
         }
         device_fence();
         // SAFETY: construction validates this hart's MSIP word and claims the
         // complete CLINT range for this one driver.
-        unsafe { self.msip(hart_id).write_volatile(1) };
+        unsafe { self.0.msip(hart_id).write_volatile(1) };
         device_fence();
     }
 
     fn claim(&self, hart_id: usize) {
-        if !self.contains_hart(hart_id) {
+        if !self.0.contains_hart(hart_id) {
             return;
         }
         // SAFETY: construction validates this hart's MSIP word and claims the
         // complete CLINT range for this one driver.
-        unsafe { self.msip(hart_id).write_volatile(0) };
+        unsafe { self.0.msip(hart_id).write_volatile(0) };
         device_fence();
     }
 
@@ -315,33 +372,35 @@ mod tests {
 
     #[test]
     fn sparse_hart_registers_must_fit_the_complete_range() {
-        assert!(validate_registers(&(0x200_0000..0x201_0000), Kind::SiFive, &[0, 8]).is_ok());
+        assert!(
+            validate_registers(&(0x200_0000..0x201_0000), RegisterLayout::SiFive, &[0, 8]).is_ok()
+        );
         assert_eq!(
-            validate_registers(&(0x200_0000..0x200_4040), Kind::SiFive, &[8]),
-            Err(DriverError::InvalidRange)
+            validate_registers(&(0x200_0000..0x200_4040), RegisterLayout::SiFive, &[8]),
+            Err(InstallError::InvalidLayout)
         );
     }
 
     #[test]
     fn thead_time_does_not_require_an_mtime_mmio_register() {
-        assert!(validate_registers(&(0x1000..0x6000), Kind::THead, &[0]).is_ok());
+        assert!(validate_registers(&(0x1000..0x6000), RegisterLayout::THead, &[0]).is_ok());
         assert_eq!(
-            validate_registers(&(0x1000..0x6000), Kind::SiFive, &[0]),
-            Err(DriverError::InvalidRange)
+            validate_registers(&(0x1000..0x6000), RegisterLayout::SiFive, &[0]),
+            Err(InstallError::InvalidLayout)
         );
     }
 
     #[test]
     fn binding_uses_exact_node_identity_and_claims_the_range_once() {
         let mut boot = BootInfo::from_test_dtb(qemu_dtb("timer@2000000"));
-        assert!(build(&mut boot, "/timer@2000000").is_ok());
+        assert!(install(&mut boot, "/timer@2000000").is_ok());
         assert_eq!(
-            build(&mut boot, "/timer@2000000").err(),
-            Some(DriverError::AlreadyOwned)
+            install(&mut boot, "/timer@2000000").err(),
+            Some(InstallError::AlreadyOwned)
         );
         assert_eq!(
-            build(&mut boot, "/clint@2000000").err(),
-            Some(DriverError::DeviceTree)
+            install(&mut boot, "/clint@2000000").err(),
+            Some(InstallError::DeviceTree)
         );
     }
 }

@@ -1,40 +1,32 @@
-//! Timer capability and its private physical-device role.
+//! Current-hart supervisor timer deadlines.
 
-use alloc::sync::Arc;
-use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::ptr;
+use core::sync::atomic::{AtomicPtr, Ordering};
 
-mod arch;
-mod device;
-
-pub(crate) use device::TimerDevice;
+mod riscv;
+pub(crate) mod sstc;
 
 /// Authority to program the current hart's supervisor timer deadline.
 ///
 /// The physical timer address and register convention remain private. This
 /// capability is intentionally not `Clone`.
 pub struct Timer {
-    device: Arc<dyn TimerDevice>,
+    operations: &'static Operations,
 }
 
-const DEVICE_EMPTY: u8 = 0;
-const DEVICE_WRITING: u8 = 1;
-const DEVICE_READY: u8 = 2;
-
-struct InstalledTimer {
-    state: AtomicU8,
-    device: UnsafeCell<Option<Arc<dyn TimerDevice>>>,
+/// Closed operations installed by one validated timer mechanism.
+///
+/// This is a private function table rather than a device abstraction: Sstc is
+/// an architectural CSR facility, while CLINT is sensitive MMIO. The two
+/// mechanisms share only the timer semantics consumed by trap and SBI paths.
+pub(crate) struct Operations {
+    pub(crate) prepare_current_hart: fn() -> Result<(), TimerError>,
+    pub(crate) read_time: fn() -> u64,
+    pub(crate) set_deadline: fn(u64),
+    pub(crate) handle_interrupt: fn() -> bool,
 }
 
-// SAFETY: one boot-time writer initializes the Arc before Release
-// publication. Readers first observe DEVICE_READY with Acquire, and the
-// published Arc is never replaced.
-unsafe impl Sync for InstalledTimer {}
-
-static INSTALLED_TIMER: InstalledTimer = InstalledTimer {
-    state: AtomicU8::new(DEVICE_EMPTY),
-    device: UnsafeCell::new(None),
-};
+static INSTALLED_TIMER: AtomicPtr<Operations> = AtomicPtr::new(ptr::null_mut());
 
 /// Failure while preparing a hart-local timer mechanism.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -46,13 +38,13 @@ pub enum TimerError {
 }
 
 impl Timer {
-    pub(crate) fn new(device: Arc<dyn TimerDevice>) -> Self {
-        Self { device }
+    pub(crate) const fn new(operations: &'static Operations) -> Self {
+        Self { operations }
     }
 
     /// Programs the current hart's next timer deadline.
     pub fn set_deadline(&self, deadline: u64) {
-        self.device.set_compare(arch::current_hart_id(), deadline);
+        (self.operations.set_deadline)(deadline);
     }
 
     /// Disables the current hart's timer by selecting the maximal deadline.
@@ -60,45 +52,49 @@ impl Timer {
         self.set_deadline(u64::MAX);
     }
 
-    pub(crate) fn trap_device(&self) -> Arc<dyn TimerDevice> {
-        Arc::clone(&self.device)
+    pub(crate) const fn operations(&self) -> &'static Operations {
+        self.operations
     }
 }
 
-pub(crate) fn install(device: Arc<dyn TimerDevice>) -> Result<(), TimerError> {
+pub(crate) fn install(operations: &'static Operations) -> Result<(), TimerError> {
+    let operations = ptr::from_ref(operations).cast_mut();
     INSTALLED_TIMER
-        .state
         .compare_exchange(
-            DEVICE_EMPTY,
-            DEVICE_WRITING,
-            Ordering::Acquire,
+            ptr::null_mut(),
+            operations,
+            Ordering::AcqRel,
             Ordering::Relaxed,
         )
         .map_err(|_| TimerError::Unavailable)?;
-    // SAFETY: this caller uniquely owns DEVICE_WRITING and readers cannot
-    // inspect the slot before the Release store below.
-    unsafe { INSTALLED_TIMER.device.get().write(Some(device)) };
-    INSTALLED_TIMER.state.store(DEVICE_READY, Ordering::Release);
     Ok(())
 }
 
-fn installed() -> Option<&'static dyn TimerDevice> {
-    if INSTALLED_TIMER.state.load(Ordering::Acquire) != DEVICE_READY {
-        return None;
-    }
-    // SAFETY: Acquire observed the sole Release publication. The Arc remains
-    // stored and immutable for the firmware lifetime.
-    unsafe { (&*INSTALLED_TIMER.device.get()).as_deref() }
+fn installed() -> Option<&'static Operations> {
+    let operations = INSTALLED_TIMER.load(Ordering::Acquire);
+    // SAFETY: every non-null value came from a `&'static Operations` in the
+    // sole successful installation and is never replaced or freed.
+    unsafe { operations.as_ref() }
 }
 
 pub(crate) fn prepare_current_hart() -> Result<(), TimerError> {
-    installed().map_or(Ok(()), TimerDevice::prepare_current_hart)
+    installed().map_or(Ok(()), |operations| (operations.prepare_current_hart)())
 }
 
 pub(crate) fn read_time() -> Option<u64> {
-    installed().map(TimerDevice::read_time)
+    installed().map(|operations| (operations.read_time)())
 }
 
 pub(crate) fn handle_interrupt() -> bool {
-    installed().is_some_and(TimerDevice::handle_interrupt)
+    installed().is_some_and(|operations| (operations.handle_interrupt)())
+}
+
+#[crate::mtest]
+fn installed_timer_has_current_hart_deadline_semantics() {
+    prepare_current_hart().expect("installed timer must prepare the admitted hart");
+    let before = read_time().expect("installed timer must expose architectural time");
+    let after = read_time().expect("installed timer must remain readable");
+    assert!(after >= before);
+    let operations = installed().expect("timer installation precedes M-test execution");
+    (operations.set_deadline)(u64::MAX);
 }
