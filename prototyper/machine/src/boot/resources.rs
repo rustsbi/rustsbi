@@ -48,6 +48,7 @@ impl BootInfo {
         next_stage: NextStage,
         init_hart: usize,
     ) -> Result<Self, BootInfoError> {
+        crate::memory::initialize(dtb.as_bytes()).map_err(|_| BootInfoError::InvalidOwnedState)?;
         let boot = Self {
             dtb,
             next_stage,
@@ -163,6 +164,12 @@ impl BootInfo {
                 return Err(MachineRangeError::AlreadyClaimed);
             }
         }
+        crate::memory::reserve_ranges(ranges).map_err(|error| match error {
+            crate::memory::IoMemError::InvalidRange
+            | crate::memory::IoMemError::OutOfBounds
+            | crate::memory::IoMemError::Misaligned => MachineRangeError::Invalid,
+            crate::memory::IoMemError::AlreadyClaimed => MachineRangeError::AlreadyClaimed,
+        })?;
         self.machine_ranges.extend(ranges.iter().cloned());
         Ok(())
     }

@@ -107,10 +107,13 @@ pub(crate) fn prepare_runtime(
     if crate::trap::prepare_counters(boot.next_stage.mode()).is_err() {
         terminal_failure(TerminalFailure::CounterPreparation);
     }
+    crate::memory::seal();
     let Some(protection) = boot.protection.as_ref() else {
         terminal_failure(TerminalFailure::ProtectionPublication);
     };
-    if crate::pmp::publish(&boot.machine_ranges, protection).is_err() {
+    let mut machine_ranges = boot.machine_ranges.clone();
+    machine_ranges.extend(crate::memory::claimed_ranges());
+    if crate::pmp::publish(&machine_ranges, protection).is_err() {
         terminal_failure(TerminalFailure::ProtectionPublication);
     }
     if crate::pmp::configure_current_hart().is_err() {

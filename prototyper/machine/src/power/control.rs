@@ -1,4 +1,4 @@
-//! Physical device role behind the whole-machine power capability.
+//! Injected whole-machine power-control provider.
 
 use super::{PowerReason, RebootKind};
 
@@ -7,7 +7,7 @@ use super::{PowerReason, RebootKind};
 /// Implementations own their MMIO convention. Capability code calls the
 /// `can_*` query before publishing the irreversible terminal transition, so a
 /// supported operation must not later return from its matching commit method.
-pub(crate) trait PowerDevice: Send + Sync {
+pub trait PowerControl: Send + Sync + 'static {
     /// Reports whether `shutdown` can commit the requested reason.
     fn can_shutdown(&self, reason: PowerReason) -> bool;
 
@@ -15,8 +15,8 @@ pub(crate) trait PowerDevice: Send + Sync {
     fn can_reboot(&self, kind: RebootKind, reason: PowerReason) -> bool;
 
     /// Commits a previously accepted whole-machine shutdown.
-    fn shutdown(&self, reason: PowerReason) -> !;
+    fn shutdown(&self, reason: PowerReason);
 
     /// Commits a previously accepted whole-machine reboot.
-    fn reboot(&self, kind: RebootKind, reason: PowerReason) -> !;
+    fn reboot(&self, kind: RebootKind, reason: PowerReason);
 }

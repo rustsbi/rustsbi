@@ -1,10 +1,5 @@
 //! Inert facts for the selected firmware console.
 
-#![expect(
-    dead_code,
-    reason = "complete validated facts are retained for DT policy and construction cross-checks"
-)]
-
 use alloc::string::{String, ToString};
 use core::ops::Range;
 
@@ -71,6 +66,21 @@ pub(super) fn discover(root: &DeviceTreeNode) -> Result<Option<Console>, Discove
         range: reg_at_path(root, selected).map_err(|_| DiscoverError::DeviceRange)?,
         kind,
     }))
+}
+
+pub(crate) fn install(console: &Console) -> Result<machine::Console, machine::memory::IoMemError> {
+    match console.kind {
+        ConsoleKind::Uart16550U8 => {
+            uart_16550::install(console.range.clone(), uart_16550::Access::Byte)
+        }
+        ConsoleKind::Uart16550U32 => {
+            uart_16550::install(console.range.clone(), uart_16550::Access::Word)
+        }
+        ConsoleKind::UartAxiLite => uartlite::install(console.range.clone()),
+        ConsoleKind::UartBflb => uart_bl808::install(console.range.clone()),
+        ConsoleKind::UartSifive => uart_sifive::install(console.range.clone()),
+        ConsoleKind::UartPl011 => uart_pl011::install(console.range.clone()),
+    }
 }
 
 fn resolve_alias<'a>(root: &'a DeviceTreeNode, selected: &'a str) -> Option<&'a str> {

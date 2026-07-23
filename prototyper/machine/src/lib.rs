@@ -17,12 +17,11 @@ pub mod clint;
 #[path = "startup/config.rs"]
 mod config;
 mod console;
-pub mod drivers;
 mod hart;
 pub mod memory;
 pub mod pmp;
 mod pmu;
-mod power;
+pub mod power;
 mod startup;
 #[cfg(feature = "mtest")]
 mod test_support;
@@ -33,7 +32,7 @@ mod trap;
 extern crate std;
 
 pub use boot::{BootDtb, BootInfo, NextStage};
-pub use console::{Console, ConsoleError};
+pub use console::{Console, ConsoleDevice, ConsoleError};
 pub use hart::{
     HartControl, HartError, HartLocal, HartLocalError, HartLocalGuard, HartStatus, HartTargets,
     Ipi, IpiError, RemoteFence, RemoteFenceError,
@@ -49,6 +48,5 @@ pub use test_support::{MachineTests as Tests, prepare as prepare_tests};
 pub mod __private_mtest {
     pub use machine_test::Descriptor;
 }
-pub use power::{Power, PowerError, PowerReason, RebootKind};
 pub use timer::{Timer, TimerError};
 pub use trap::{SbiCall, SbiHandler, SbiResponse, TrapEvent};

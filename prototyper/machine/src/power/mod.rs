@@ -1,14 +1,14 @@
-//! Whole-machine shutdown and reboot capability.
+//! Whole-machine terminal arbitration and injected power control.
 
 use alloc::boxed::Box;
-use alloc::sync::Arc;
+use core::convert::Infallible;
 
 mod arch;
-mod device;
+mod control;
 mod terminal;
 
 pub(crate) use arch::halt;
-pub(crate) use device::PowerDevice;
+pub use control::PowerControl;
 pub use terminal::abort;
 pub(crate) use terminal::is_terminal;
 
@@ -33,54 +33,60 @@ pub enum RebootKind {
 /// Pre-commit power-control failure.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PowerError {
-    /// The bound platform does not implement the requested action.
+    /// No provider is installed or it does not implement the requested action.
     Unsupported,
 }
 
-/// Authority to control whole-machine power state.
-pub struct Power {
-    device: Arc<dyn PowerDevice>,
+/// Failure while injecting the process-lifetime power provider.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PowerInstallError {
+    /// A provider was already injected.
+    AlreadyInstalled,
 }
 
-impl Power {
-    pub(crate) fn new(device: Box<dyn PowerDevice>) -> Option<Self> {
-        let device = Arc::<dyn PowerDevice>::from(device);
-        terminal::install_device(Arc::clone(&device)).then_some(Self { device })
-    }
+/// Injects the only whole-machine power-control implementation.
+pub fn inject(control: Box<dyn PowerControl>) -> Result<(), PowerInstallError> {
+    terminal::install_control(control)
+}
 
-    /// Shuts down the complete machine.
-    ///
-    /// `Unsupported` is returned before any shared state changes. Soundness
-    /// invariant: after terminal publication and peer notification, this call
-    /// cannot return to a partially quiesced supervisor context.
-    pub fn shutdown(&self, reason: PowerReason) -> PowerError {
-        if !self.device.can_shutdown(reason) {
-            return PowerError::Unsupported;
-        }
-        if !terminal::begin_power_transition() {
-            arch::halt();
-        }
-        arch::mask_local_interrupts();
-        crate::hart::notify_terminal_peers();
-        // Security/compatibility policy: the validated explicit shutdown
-        // request is committed only after peer quiescence becomes terminal.
-        self.device.shutdown(reason)
-    }
+/// Returns whether a power-control implementation has been injected.
+pub fn available() -> bool {
+    terminal::control().is_some()
+}
 
-    /// Reboots the complete machine.
-    ///
-    /// `Unsupported` is returned before commit; every committed path diverges.
-    pub fn reboot(&self, kind: RebootKind, reason: PowerReason) -> PowerError {
-        if !self.device.can_reboot(kind, reason) {
-            return PowerError::Unsupported;
-        }
-        if !terminal::begin_power_transition() {
-            arch::halt();
-        }
-        arch::mask_local_interrupts();
-        crate::hart::notify_terminal_peers();
-        // Security/compatibility policy: reboot is selected only by this
-        // explicit standard request, never as an automatic panic response.
-        self.device.reboot(kind, reason)
+/// Shuts down the complete machine.
+///
+/// Unsupported requests return before terminal publication. Once committed,
+/// this function never returns, even if the provider's hardware operation
+/// unexpectedly returns.
+pub fn shutdown(reason: PowerReason) -> Result<Infallible, PowerError> {
+    let control = terminal::control().ok_or(PowerError::Unsupported)?;
+    if !control.can_shutdown(reason) {
+        return Err(PowerError::Unsupported);
     }
+    commit();
+    control.shutdown(reason);
+    arch::halt()
+}
+
+/// Reboots the complete machine.
+///
+/// Unsupported requests return before terminal publication; committed
+/// requests never return.
+pub fn reboot(kind: RebootKind, reason: PowerReason) -> Result<Infallible, PowerError> {
+    let control = terminal::control().ok_or(PowerError::Unsupported)?;
+    if !control.can_reboot(kind, reason) {
+        return Err(PowerError::Unsupported);
+    }
+    commit();
+    control.reboot(kind, reason);
+    arch::halt()
+}
+
+fn commit() {
+    if !terminal::begin_power_transition() {
+        arch::halt();
+    }
+    arch::mask_local_interrupts();
+    crate::hart::notify_terminal_peers();
 }

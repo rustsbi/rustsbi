@@ -19,7 +19,7 @@ struct Initialized {
     ipi: Option<machine::Ipi>,
     harts: Option<machine::HartControl>,
     fence: Option<machine::RemoteFence>,
-    power: Option<machine::Power>,
+    power: bool,
     console: Option<machine::Console>,
     memory: machine::memory::SupervisorMemory,
     counters: Option<machine::PerformanceCounters>,
@@ -31,14 +31,16 @@ fn initialize(mut boot: machine::BootInfo) -> Initialized {
     let (timer, ipi, fence, harts) =
         platform::install_timer_and_ipi(&mut boot, &facts).unwrap_or_else(|_| fail());
 
-    let console = facts.console.as_ref().map(|console| {
-        machine::drivers::uart::build(&mut boot, &console.path).unwrap_or_else(|_| fail())
-    });
+    let console = facts
+        .console
+        .as_ref()
+        .map(|console| platform::install_console(console).unwrap_or_else(|_| fail()));
     if let Some(console) = console.as_ref() {
         logger::install(console.clone(), facts.harts.len()).unwrap_or_else(|_| fail());
     }
-    let power = facts.power.as_ref().map(|power| {
-        machine::drivers::sifive_test::build(&mut boot, &power.path).unwrap_or_else(|_| fail())
+    let power = facts.power.as_ref().is_some_and(|power| {
+        platform::install_power(power).unwrap_or_else(|_| fail());
+        true
     });
     let protection = machine::pmp::config! {
         facts.memory.clone() => [read, write, execute];

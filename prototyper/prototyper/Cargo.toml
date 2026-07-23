@@ -14,6 +14,12 @@ rustsbi = { version = "0.4.1", features = [
 sbi-spec = { version = "0.0.9", path = "../../library/sbi-spec" }
 dtoolkit = { version = "0.3.0", default-features = false, features = ["write"] }
 spin = "0.9.8"
+uart-16550 = { package = "rustsbi-prototyper-uart-16550", path = "../drivers/uart-16550" }
+uart-pl011 = { package = "rustsbi-prototyper-uart-pl011", path = "../drivers/uart-pl011" }
+uart-sifive = { package = "rustsbi-prototyper-uart-sifive", path = "../drivers/uart-sifive" }
+uartlite = { package = "rustsbi-prototyper-uartlite", path = "../drivers/uartlite" }
+uart-bl808 = { package = "rustsbi-prototyper-uart-bl808", path = "../drivers/uart-bl808" }
+sifive-test = { package = "rustsbi-prototyper-sifive-test", path = "../drivers/sifive-test" }
 sbi-testing = { version = "0.0.3", path = "../../library/sbi-testing", optional = true }
 
 [lib]

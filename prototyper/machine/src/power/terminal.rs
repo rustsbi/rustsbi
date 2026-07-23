@@ -1,11 +1,11 @@
 //! Always-available global failure transition.
 
-use alloc::sync::Arc;
-use core::sync::atomic::{AtomicU8, Ordering};
+use alloc::boxed::Box;
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use spin::Once;
 
-use super::{PowerDevice, PowerReason};
+use super::{PowerControl, PowerInstallError, PowerReason};
 
 #[derive(Clone, Copy)]
 #[repr(u8)]
@@ -22,7 +22,8 @@ impl Phase {
 }
 
 static STATE: AbortState = AbortState::new();
-static DEVICE: Once<Arc<dyn PowerDevice>> = Once::new();
+static CONTROL: Once<Box<dyn PowerControl>> = Once::new();
+static CONTROL_CLAIMED: AtomicBool = AtomicBool::new(false);
 
 struct AbortState {
     phase: AtomicU8,
@@ -65,9 +66,21 @@ impl AbortState {
     }
 }
 
-pub(crate) fn install_device(device: Arc<dyn PowerDevice>) -> bool {
-    let installed = DEVICE.call_once(|| Arc::clone(&device));
-    Arc::ptr_eq(installed, &device)
+pub(crate) fn install_control(control: Box<dyn PowerControl>) -> Result<(), PowerInstallError> {
+    claim_control(&CONTROL_CLAIMED)?;
+    CONTROL.call_once(|| control);
+    Ok(())
+}
+
+fn claim_control(claimed: &AtomicBool) -> Result<(), PowerInstallError> {
+    claimed
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .map(|_| ())
+        .map_err(|_| PowerInstallError::AlreadyInstalled)
+}
+
+pub(crate) fn control() -> Option<&'static dyn PowerControl> {
+    CONTROL.get().map(Box::as_ref)
 }
 
 pub(crate) fn begin_power_transition() -> bool {
@@ -96,10 +109,10 @@ pub fn abort(report: impl FnOnce()) -> ! {
         // Security/compatibility policy: a fatal firmware failure requests
         // shutdown, never automatic reboot. Missing or unsupported control
         // falls through to the same terminal wait.
-        if let Some(device) = DEVICE.get()
-            && device.can_shutdown(PowerReason::SystemFailure)
+        if let Some(control) = CONTROL.get()
+            && control.can_shutdown(PowerReason::SystemFailure)
         {
-            device.shutdown(PowerReason::SystemFailure)
+            control.shutdown(PowerReason::SystemFailure);
         }
     }
     super::arch::halt()
@@ -127,5 +140,15 @@ mod tests {
         assert!(abort.begin());
         assert!(!abort.begin_power());
         assert!(abort.terminal());
+    }
+
+    #[test]
+    fn power_provider_can_be_claimed_exactly_once() {
+        let claimed = AtomicBool::new(false);
+        assert_eq!(claim_control(&claimed), Ok(()));
+        assert_eq!(
+            claim_control(&claimed),
+            Err(PowerInstallError::AlreadyInstalled)
+        );
     }
 }

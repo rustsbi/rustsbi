@@ -1,16 +1,14 @@
 //! Whole-machine reset protocol adapter.
 
-use machine::{Power, PowerError, PowerReason, RebootKind};
+use machine::power::{self, PowerError, PowerReason, RebootKind};
 use rustsbi::SbiRet;
 use sbi_spec::srst;
 
-pub(super) struct Reset {
-    power: Power,
-}
+pub(super) struct Reset;
 
 impl Reset {
-    pub(super) fn new(power: Power) -> Self {
-        Self { power }
+    pub(super) const fn new() -> Self {
+        Self
     }
 }
 
@@ -22,13 +20,14 @@ impl rustsbi::Reset for Reset {
             _ => return SbiRet::invalid_param(),
         };
         let error = match reset_type {
-            srst::RESET_TYPE_SHUTDOWN => self.power.shutdown(reason),
-            srst::RESET_TYPE_COLD_REBOOT => self.power.reboot(RebootKind::Cold, reason),
-            srst::RESET_TYPE_WARM_REBOOT => self.power.reboot(RebootKind::Warm, reason),
+            srst::RESET_TYPE_SHUTDOWN => power::shutdown(reason),
+            srst::RESET_TYPE_COLD_REBOOT => power::reboot(RebootKind::Cold, reason),
+            srst::RESET_TYPE_WARM_REBOOT => power::reboot(RebootKind::Warm, reason),
             _ => return SbiRet::invalid_param(),
         };
         match error {
-            PowerError::Unsupported => SbiRet::not_supported(),
+            Err(PowerError::Unsupported) => SbiRet::not_supported(),
+            Ok(never) => match never {},
         }
     }
 }

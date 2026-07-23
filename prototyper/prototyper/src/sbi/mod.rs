@@ -9,7 +9,7 @@ mod rfence;
 mod timer;
 
 use machine::{
-    Console, HartControl, Ipi as MachineIpi, Power, RemoteFence as MachineRemoteFence,
+    Console, HartControl, Ipi as MachineIpi, RemoteFence as MachineRemoteFence,
     Timer as MachineTimer,
 };
 use rustsbi::RustSBI;
@@ -57,7 +57,7 @@ impl Handler {
         ipi: Option<MachineIpi>,
         hsm: Option<HartControl>,
         rfence: Option<MachineRemoteFence>,
-        power: Option<Power>,
+        power: bool,
         console: Option<Console>,
         memory: machine::memory::SupervisorMemory,
         counters: Option<machine::PerformanceCounters>,
@@ -68,7 +68,7 @@ impl Handler {
             ipi: ipi.map(Ipi::new),
             hsm: hsm.map(Hsm::new),
             rfence: rfence.map(Rfence::new),
-            reset: power.map(Reset::new),
+            reset: power.then(Reset::new),
             console: console.map(|console| DebugConsole::new(console, memory)),
             pmu: counters.map(|counters| {
                 PerformanceMonitor::new(counters, hart_count)

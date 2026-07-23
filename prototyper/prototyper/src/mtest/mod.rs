@@ -42,7 +42,9 @@ pub(super) fn run(boot: machine::BootInfo) -> ! {
         hart_count: _,
     } = initialize(boot);
     let console = console.unwrap_or_else(fail);
-    let power = power.unwrap_or_else(fail);
+    if !power {
+        return fail();
+    }
     let tests = machine::prepare_tests(boot, console.clone());
     let metadata = run_metadata();
     let mut output = Output(console);
@@ -51,35 +53,32 @@ pub(super) fn run(boot: machine::BootInfo) -> ! {
         tests.visit(|name| {
             failed |= writeln!(output, "@@RUSTSBI_MTEST type=CASE name={name}").is_err();
         });
-        terminate(
-            power,
-            if failed {
-                machine::PowerReason::SystemFailure
-            } else {
-                machine::PowerReason::Unspecified
-            },
-        )
+        terminate(if failed {
+            machine::power::PowerReason::SystemFailure
+        } else {
+            machine::power::PowerReason::Unspecified
+        })
     }
 
     let filter = option_env!("RUSTSBI_MTEST_FILTER").unwrap_or("");
     let Some(test) = tests.select(filter) else {
         let _ = protocol::harness_fail(&mut output, metadata, "TEST_NOT_FOUND");
-        terminate(power, machine::PowerReason::SystemFailure)
+        terminate(machine::power::PowerReason::SystemFailure)
     };
 
     if protocol::run_start(&mut output, metadata, 1).is_err()
         || protocol::case_start(&mut output, metadata, test.name()).is_err()
     {
-        terminate(power, machine::PowerReason::SystemFailure)
+        terminate(machine::power::PowerReason::SystemFailure)
     }
     let name = test.name();
     test.run();
     if protocol::case_pass(&mut output, metadata, name).is_err()
         || protocol::run_pass(&mut output, metadata, 1).is_err()
     {
-        terminate(power, machine::PowerReason::SystemFailure)
+        terminate(machine::power::PowerReason::SystemFailure)
     }
-    terminate(power, machine::PowerReason::Unspecified)
+    terminate(machine::power::PowerReason::Unspecified)
 }
 
 pub(super) fn report_panic() {
@@ -87,7 +86,7 @@ pub(super) fn report_panic() {
     logger::try_report_test_failure(metadata.shard, metadata.run, "UNEXPECTED_PANIC")
 }
 
-fn terminate(power: machine::Power, reason: machine::PowerReason) -> ! {
-    power.shutdown(reason);
+fn terminate(reason: machine::power::PowerReason) -> ! {
+    let _ = machine::power::shutdown(reason);
     fail()
 }

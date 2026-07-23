@@ -1,10 +1,5 @@
 //! Inert power-control facts derived during cold boot.
 
-#![expect(
-    dead_code,
-    reason = "the validated range remains available for construction cross-checks"
-)]
-
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::ops::Range;
@@ -75,6 +70,10 @@ pub(super) fn discover(root: &DeviceTreeNode) -> Result<Option<Power>, DiscoverE
         }
     }
     Ok(Some(power))
+}
+
+pub(crate) fn install(power: &Power) -> Result<(), sifive_test::InstallError> {
+    sifive_test::install(power.range.clone())
 }
 
 fn property_u32(property: &dtoolkit::model::DeviceTreeProperty) -> Option<u32> {

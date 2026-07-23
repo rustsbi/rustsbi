@@ -5,8 +5,15 @@ use core::fmt::{self, Write};
 
 use spin::{Mutex, MutexGuard};
 
-pub(crate) trait ConsoleDevice: Send {
+/// Non-blocking byte transport implemented by one ordinary console driver.
+///
+/// Implementations must return after making finite progress; serialization and
+/// complete formatted-record retry policy are owned by [`Console`].
+pub trait ConsoleDevice: Send {
+    /// Reads at most `destination.len()` immediately available bytes.
     fn read(&mut self, destination: &mut [u8]) -> Result<usize, ConsoleError>;
+
+    /// Writes as many immediately accepted source bytes as possible.
     fn write(&mut self, source: &[u8]) -> Result<usize, ConsoleError>;
 }
 
@@ -31,7 +38,8 @@ pub struct Console {
 }
 
 impl Console {
-    pub(crate) fn new(device: Box<dyn ConsoleDevice>) -> Self {
+    /// Creates the serialized firmware console around one selected driver.
+    pub fn new(device: Box<dyn ConsoleDevice>) -> Self {
         let state = Box::leak(Box::new(ConsoleState {
             device: Mutex::new(device),
         }));

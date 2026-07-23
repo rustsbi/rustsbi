@@ -4,7 +4,13 @@ use core::marker::PhantomData;
 use core::mem::{align_of, size_of};
 use core::ops::Range;
 
-use crate::boot::{BootInfo, MachineRangeError};
+use alloc::vec::Vec;
+use dtoolkit::fdt::{Fdt, FdtNode};
+use dtoolkit::{Node, Property};
+use spin::Mutex;
+
+use crate::boot::device_tree::{enabled, model, reg_ranges};
+use crate::config::TRUSTED_TARGET;
 
 mod sealed {
     pub trait Sealed {}
@@ -69,14 +75,11 @@ pub struct IoMem {
 impl IoMem {
     /// Permanently claims an ordinary MMIO range during boot.
     ///
-    /// This constructor is crate-private until the external-driver child
-    /// installs the public classified acquisition registry.
-    pub(crate) fn acquire(boot: &mut BootInfo, range: Range<usize>) -> Result<Self, IoMemError> {
-        boot.claim_machine_range(range.clone())
-            .map_err(|error| match error {
-                MachineRangeError::Invalid => IoMemError::InvalidRange,
-                MachineRangeError::AlreadyClaimed => IoMemError::AlreadyClaimed,
-            })?;
+    /// The range must exactly match one enabled ordinary device range from the
+    /// owned boot tree. Sensitive machine-control ranges and arbitrary physical
+    /// memory are never eligible for this API.
+    pub fn acquire(range: Range<usize>) -> Result<Self, IoMemError> {
+        REGISTRY.lock().acquire(&range)?;
         Ok(Self {
             range,
             _not_sendable_by_layout_accident: PhantomData,
@@ -111,12 +114,159 @@ impl IoMem {
     pub fn write_once<T: IoValue>(&self, offset: usize, value: T) -> Result<(), IoMemError> {
         write_once(&self.range, offset, value)
     }
+
+    /// Validates one scalar register offset without accessing the device.
+    pub fn validate<T: IoValue>(&self, offset: usize) -> Result<(), IoMemError> {
+        checked_address::<T>(&self.range, offset).map(|_| ())
+    }
 }
 
 /// A borrowed, bounded view into an [`IoMem`] capability.
 pub struct IoMemRegion<'io> {
     range: Range<usize>,
     owner: PhantomData<&'io IoMem>,
+}
+
+/// Orders ordinary MMIO accesses against other RISC-V I/O and memory accesses.
+pub fn io_fence() {
+    // SAFETY: this closed ordering operation has no address or register input.
+    unsafe { core::arch::asm!("fence iorw, iorw", options(nostack)) }
+}
+
+const ORDINARY_COMPATIBLES: [&str; 7] = [
+    "ns16550a",
+    "snps,dw-apb-uart",
+    "xlnx,xps-uartlite-1.00.a",
+    "bflb,bl808-uart",
+    "sifive,uart0",
+    "pl011",
+    "sifive,test0",
+];
+const QEMU_MODEL: &str = "riscv-virtio,qemu";
+const QEMU_UART_BASE: usize = 0x1000_0000;
+const QEMU_TEST_BASE: usize = 0x0010_0000;
+
+struct Registry {
+    initialized: bool,
+    sealed: bool,
+    eligible: Vec<Range<usize>>,
+    reserved: Vec<Range<usize>>,
+    claimed: Vec<Range<usize>>,
+}
+
+static REGISTRY: Mutex<Registry> = Mutex::new(Registry {
+    initialized: false,
+    sealed: false,
+    eligible: Vec::new(),
+    reserved: Vec::new(),
+    claimed: Vec::new(),
+});
+
+pub(crate) fn initialize(bytes: &[u8]) -> Result<(), IoMemError> {
+    let fdt = Fdt::new(bytes).map_err(|_| IoMemError::InvalidRange)?;
+    let mut eligible = Vec::new();
+    let canonical_qemu = model(&fdt) == QEMU_MODEL;
+    collect_ordinary_ranges(fdt.root(), canonical_qemu, &mut eligible)?;
+    let mut registry = REGISTRY.lock();
+    if registry.initialized {
+        return Err(IoMemError::AlreadyClaimed);
+    }
+    if eligible
+        .iter()
+        .enumerate()
+        .any(|(index, range)| eligible[..index].iter().any(|other| overlaps(range, other)))
+    {
+        return Err(IoMemError::InvalidRange);
+    }
+    registry.eligible = eligible;
+    registry.initialized = true;
+    Ok(())
+}
+
+fn collect_ordinary_ranges(
+    node: FdtNode<'_>,
+    canonical_qemu: bool,
+    destination: &mut Vec<Range<usize>>,
+) -> Result<(), IoMemError> {
+    let compatible = node.property("compatible").and_then(|property| {
+        property
+            .as_str_list()
+            .find(|compatible| ORDINARY_COMPATIBLES.contains(compatible))
+    });
+    if enabled(&node) && compatible.is_some() {
+        let ranges = reg_ranges(node).map_err(|_| IoMemError::InvalidRange)?;
+        for range in ranges {
+            if TRUSTED_TARGET
+                || canonical_qemu
+                    && matches!(
+                        (compatible, range.start),
+                        (Some("ns16550a"), QEMU_UART_BASE) | (Some("sifive,test0"), QEMU_TEST_BASE)
+                    )
+            {
+                destination.push(range);
+            }
+        }
+    }
+    for child in node.children() {
+        collect_ordinary_ranges(child, canonical_qemu, destination)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn reserve_ranges(ranges: &[Range<usize>]) -> Result<(), IoMemError> {
+    let mut registry = REGISTRY.lock();
+    if registry.sealed
+        || ranges.iter().enumerate().any(|(index, range)| {
+            invalid_range(range)
+                || registry
+                    .claimed
+                    .iter()
+                    .chain(registry.reserved.iter())
+                    .any(|known| overlaps(range, known))
+                || ranges[..index].iter().any(|known| overlaps(range, known))
+        })
+    {
+        return Err(IoMemError::AlreadyClaimed);
+    }
+    registry.reserved.extend_from_slice(ranges);
+    Ok(())
+}
+
+pub(crate) fn claimed_ranges() -> Vec<Range<usize>> {
+    REGISTRY.lock().claimed.clone()
+}
+
+pub(crate) fn seal() {
+    REGISTRY.lock().sealed = true;
+}
+
+impl Registry {
+    fn acquire(&mut self, range: &Range<usize>) -> Result<(), IoMemError> {
+        if !self.initialized || self.sealed || invalid_range(range) {
+            return Err(IoMemError::InvalidRange);
+        }
+        if !self.eligible.contains(range) {
+            return Err(IoMemError::OutOfBounds);
+        }
+        if self
+            .reserved
+            .iter()
+            .chain(self.claimed.iter())
+            .any(|known| overlaps(range, known))
+        {
+            return Err(IoMemError::AlreadyClaimed);
+        }
+        self.claimed.push(range.clone());
+        Ok(())
+    }
+}
+
+fn invalid_range(range: &Range<usize>) -> bool {
+    range.start >= range.end || !range.start.is_multiple_of(4) || !range.end.is_multiple_of(4)
+}
+
+fn overlaps(left: &Range<usize>, right: &Range<usize>) -> bool {
+    left.start < right.end && right.start < left.end
 }
 
 impl IoMemRegion<'_> {

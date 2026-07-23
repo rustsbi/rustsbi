@@ -13,7 +13,7 @@ use dtoolkit::{Node, Property};
 
 use super::aia_facts::{self, Aplic, Imsic};
 use super::clint_facts::{self, Clint};
-use super::console_facts::{self, Console};
+use super::console::{self, Console};
 use super::dt::{DtbError, PlatformDtb, cell_count, enabled, first_reg};
 use super::hart::{self, HartInfo};
 use super::power::{self, Power};
@@ -77,7 +77,7 @@ pub fn discover(boot: &machine::BootDtb) -> Result<Platform, DiscoverError> {
     let harts = hart::discover(&tree)?;
     let (imsic, aplic) = aia_facts::discover(&tree, &harts)?;
     let clint = clint_facts::discover(&tree.tree().root)?;
-    let console = console_facts::discover(&tree.tree().root)?;
+    let console = console::discover(&tree.tree().root)?;
     let power = power::discover(&tree.tree().root)?;
 
     Ok(Platform {
