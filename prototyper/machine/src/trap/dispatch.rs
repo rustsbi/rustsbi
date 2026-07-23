@@ -87,10 +87,11 @@ pub(super) unsafe extern "C" fn dispatch(frame: *mut Frame, stack_top: usize) ->
         _ => None,
     };
     if let Some(notification) = notification {
-        let Some(runtime) = crate::hart::runtime::runtime() else {
+        let Some(admission) = crate::hart::protocol::installed() else {
             crate::power::abort(|| {});
         };
-        if !runtime.handles_notification(notification) || runtime.handle_notification().is_err() {
+        if !admission.handles_notification(notification) || admission.handle_notification().is_err()
+        {
             crate::power::abort(|| {});
         }
         arch::restore(Trap { frame, stack_top })

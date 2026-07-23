@@ -11,7 +11,9 @@ use super::DriverError;
 use crate::boot::device_tree::{BindingError, enabled, exact_node, hart_ids, model, reg_ranges};
 use crate::boot::{BootInfo, MachineRangeError};
 use crate::config::TRUSTED_TARGET;
-use crate::hart::{HartControl, HartRuntime, Ipi, IpiDevice, IpiError, Notification, RemoteFence};
+use crate::hart::{
+    HartAdmission, HartControl, Ipi, IpiDevice, IpiError, Notification, RemoteFence,
+};
 use crate::timer::{Timer, TimerDevice};
 
 mod arch;
@@ -55,15 +57,15 @@ pub fn build(
     let timer: Arc<dyn TimerDevice> = driver.clone();
     let device: Arc<dyn IpiDevice> = driver;
     let wake_by_ipi = alloc::vec![true; harts.len()];
-    let runtime = HartRuntime::new(device, &harts, boot.init_hart_id(), &wake_by_ipi)
+    let admission = HartAdmission::new(device, &harts, boot.init_hart_id(), &wake_by_ipi)
         .map_err(|_| DriverError::Hardware)?;
-    boot.install_runtime(runtime.clone(), timer.clone())
+    boot.install_runtime(admission.clone(), timer.clone())
         .map_err(|_| DriverError::AlreadyOwned)?;
     Ok((
         Timer::new(timer),
-        Ipi::new(runtime.clone()),
-        RemoteFence::new(runtime.clone()),
-        HartControl::new(runtime),
+        Ipi::new(admission.clone()),
+        RemoteFence::new(admission.clone()),
+        HartControl::new(admission),
     ))
 }
 

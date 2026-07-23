@@ -1,8 +1,8 @@
 //! Two-hart handoff protocol for starting a stopped hart.
 
+use super::admission::AdmissionError;
 use super::arch::protocol_fence;
-use super::runtime::{HartRuntime, map_hart_error};
-use super::state::HartStateError;
+use super::protocol::{HartAdmission, map_hart_error};
 use crate::boot::{NextMode, NextStage};
 use crate::hart::{HartError, HartStatus};
 
@@ -40,52 +40,52 @@ pub(super) struct PendingStart {
 
 impl StartHandshake {
     /// Publishes successful target-local preparation exactly once.
-    pub(crate) fn publish_prepared(&mut self) -> Result<(), HartStateError> {
+    pub(crate) fn publish_prepared(&mut self) -> Result<(), AdmissionError> {
         if self.result != StartResult::Waiting || self.proceed {
-            return Err(HartStateError::InvalidTransition);
+            return Err(AdmissionError::InvalidTransition);
         }
         self.result = StartResult::Prepared;
         Ok(())
     }
 
     /// Publishes failed target-local preparation exactly once.
-    pub(crate) fn publish_failed(&mut self) -> Result<(), HartStateError> {
+    pub(crate) fn publish_failed(&mut self) -> Result<(), AdmissionError> {
         if self.result != StartResult::Waiting || self.proceed {
-            return Err(HartStateError::InvalidTransition);
+            return Err(AdmissionError::InvalidTransition);
         }
         self.result = StartResult::Failed;
         Ok(())
     }
 
     /// Allows a prepared target to consume its next-stage entry.
-    pub(crate) fn source_proceed(&mut self) -> Result<(), HartStateError> {
+    pub(crate) fn source_proceed(&mut self) -> Result<(), AdmissionError> {
         if self.result != StartResult::Prepared || self.proceed {
-            return Err(HartStateError::InvalidTransition);
+            return Err(AdmissionError::InvalidTransition);
         }
         self.proceed = true;
         Ok(())
     }
 
     /// Completes a successful handoff and resets the reusable handshake slot.
-    pub(crate) fn target_consume(&mut self) -> Result<(), HartStateError> {
+    pub(crate) fn target_consume(&mut self) -> Result<(), AdmissionError> {
         if self.result != StartResult::Prepared || !self.proceed {
-            return Err(HartStateError::InvalidTransition);
+            return Err(AdmissionError::InvalidTransition);
         }
         *self = Self::default();
         Ok(())
     }
 
     /// Acknowledges target preparation failure and resets the handshake slot.
-    pub(crate) fn source_observed_failure(&mut self) -> Result<(), HartStateError> {
+    pub(crate) fn source_observed_failure(&mut self) -> Result<(), AdmissionError> {
         if self.result != StartResult::Failed || self.proceed {
-            return Err(HartStateError::InvalidTransition);
+            return Err(AdmissionError::InvalidTransition);
         }
         *self = Self::default();
         Ok(())
     }
 }
 
-impl HartRuntime {
+impl HartAdmission {
     /// Returns the privilege mode requested by a pending start operation.
     pub(crate) fn pending_start_mode(&self, hart_id: usize) -> Option<NextMode> {
         let state = self.state.lock();
@@ -102,7 +102,7 @@ impl HartRuntime {
 
     /// Starts a stopped hart after its target-local preparation succeeds.
     pub(crate) fn start(&self, hart_id: usize, next_stage: NextStage) -> Result<(), HartError> {
-        let target = {
+        let (target, physical) = {
             let mut state = self.state.lock();
             let target = state.resolve_physical(hart_id).map_err(map_hart_error)?;
             match state.state(target).map_err(map_hart_error)? {
@@ -126,12 +126,15 @@ impl HartRuntime {
                 failure: None,
             });
 
-            protocol_fence();
             let physical = state.committed_physical_id(target);
-            self.device.notify(physical);
-            protocol_fence();
-            target
+            (target, physical)
         };
+        // The start request and its entry authority are fully committed before
+        // ringing the target. Device latency can never extend the admission
+        // critical section.
+        protocol_fence();
+        self.device.notify(physical);
+        protocol_fence();
 
         loop {
             let mut state = self.state.lock();

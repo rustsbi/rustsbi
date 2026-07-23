@@ -57,21 +57,21 @@ pub(crate) fn enter_warm_hart(hart_id: usize, index: usize) -> ! {
     if crate::trap::prepare_hypervisor_metadata().is_err() {
         crate::trap::abort();
     }
-    let Some(runtime) = crate::hart::runtime::runtime() else {
+    let Some(admission) = crate::hart::protocol::installed() else {
         crate::trap::abort();
     };
-    if runtime.prepare_current_hart().is_err() {
+    if admission.prepare_current_hart().is_err() {
         crate::trap::abort();
     }
     #[cfg(feature = "mtest")]
     crate::test_support::mark_warm_parked();
-    enable_machine_notification(runtime.notification());
+    enable_machine_notification(admission.notification());
 
     loop {
         if crate::power::is_terminal() {
             crate::power::halt();
         }
-        let Some(mode) = runtime.pending_start_mode(hart_id) else {
+        let Some(mode) = admission.pending_start_mode(hart_id) else {
             // SAFETY: the dedicated stack and trap vector remain installed;
             // the device's enabled machine notification resumes this wait.
             unsafe { core::arch::asm!("wfi", options(nomem, nostack)) };
@@ -89,17 +89,17 @@ pub(crate) fn enter_warm_hart(hart_id: usize, index: usize) -> ! {
             .and_then(|()| {
                 crate::trap::prepare_delegation(mode).map_err(|_| crate::HartError::Failed)
             });
-        if runtime.publish_start_result(hart_id, prepared).is_err() {
+        if admission.publish_start_result(hart_id, prepared).is_err() {
             crate::trap::abort();
         }
         if prepared.is_err() {
-            while runtime.status(hart_id) != Ok(crate::HartStatus::Stopped) {
+            while admission.status(hart_id) != Ok(crate::HartStatus::Stopped) {
                 core::hint::spin_loop();
             }
-            enable_machine_notification(runtime.notification());
+            enable_machine_notification(admission.notification());
             continue;
         }
-        let next_stage = match runtime.take_start(hart_id) {
+        let next_stage = match admission.take_start(hart_id) {
             Ok(next_stage) => next_stage,
             Err(_) => crate::trap::abort(),
         };

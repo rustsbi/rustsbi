@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 
 use crate::boot::device_tree::BindingError;
 use crate::boot::{BootInfo, MachineRangeError};
-use crate::hart::HartRuntime;
+use crate::hart::HartAdmission;
 use crate::{HartControl, Ipi, RemoteFence, Timer};
 
 mod aplic;
@@ -73,15 +73,15 @@ pub fn build_aia(
     let timer = sstc::build(imsic.hart_ids()).map_err(|_| DriverError::Hardware)?;
     let (device, harts) = imsic.into_device();
     let wake_by_ipi = alloc::vec![true; harts.len()];
-    let runtime = HartRuntime::new(device, &harts, boot.init_hart_id(), &wake_by_ipi)
+    let admission = HartAdmission::new(device, &harts, boot.init_hart_id(), &wake_by_ipi)
         .map_err(|_| DriverError::Hardware)?;
-    boot.install_runtime(runtime.clone(), timer.trap_device())
+    boot.install_runtime(admission.clone(), timer.trap_device())
         .map_err(|_| DriverError::AlreadyOwned)?;
     Ok((
         timer,
-        Ipi::new(runtime.clone()),
-        RemoteFence::new(runtime.clone()),
-        HartControl::new(runtime),
+        Ipi::new(admission.clone()),
+        RemoteFence::new(admission.clone()),
+        HartControl::new(admission),
     ))
 }
 

@@ -2,9 +2,9 @@
 
 use alloc::sync::Arc;
 
+use super::admission::{AdmissionError, HartSet};
 use super::arch::current_hart_id;
-use super::runtime::{HartNotifications, HartRuntime};
-use super::state::{HartSet, HartStateError};
+use super::protocol::{HartAdmission, HartNotifications};
 use crate::hart::HartTargets;
 
 /// One immutable architectural fence copied to every selected hart.
@@ -83,12 +83,12 @@ pub enum RemoteFenceError {
 
 /// Authority to execute architectural fences on admitted remote harts.
 pub struct RemoteFence {
-    runtime: Arc<HartRuntime>,
+    admission: Arc<HartAdmission>,
 }
 
 impl RemoteFence {
-    pub(crate) fn new(runtime: Arc<HartRuntime>) -> Self {
-        Self { runtime }
+    pub(crate) fn new(admission: Arc<HartAdmission>) -> Self {
+        Self { admission }
     }
 
     /// Synchronizes instruction fetch with prior stores on every target.
@@ -213,26 +213,26 @@ impl RemoteFence {
         targets: HartTargets,
         request: RemoteFenceRequest,
     ) -> Result<(), RemoteFenceError> {
-        self.runtime
+        self.admission
             .remote_fence(targets, request)
             .map_err(map_error)
     }
 }
 
-impl HartRuntime {
+impl HartAdmission {
     /// Commits one remote fence and waits until every target has executed it.
     pub(crate) fn remote_fence(
         &self,
         targets: HartTargets,
         request: RemoteFenceRequest,
-    ) -> Result<(), HartStateError> {
+    ) -> Result<(), AdmissionError> {
         let current_hart = current_hart_id();
         let (source, resolved, notifications) = {
             let mut state = self.state.lock();
             let source = state.resolve_physical(current_hart)?;
             let resolved = state.resolve_targets(targets)?;
             if !targets_support_request(request, resolved, crate::trap::hypervisor_available) {
-                return Err(HartStateError::NotSupported);
+                return Err(AdmissionError::NotSupported);
             }
             state.commit_rfence(source, resolved, request)?;
             let notifications = HartNotifications::from_state(&state, source, resolved);
@@ -245,7 +245,7 @@ impl HartRuntime {
 
         loop {
             self.drain(current_hart, false)
-                .map_err(|_| HartStateError::InvalidHart)?;
+                .map_err(|_| AdmissionError::InvalidHart)?;
             let mut state = self.state.lock();
             if state.ready_to_retire(source)? {
                 state.retire(source)?;
@@ -264,14 +264,14 @@ fn validate_range(start: usize, size: usize) -> Result<(), RemoteFenceError> {
     Ok(())
 }
 
-fn map_error(error: HartStateError) -> RemoteFenceError {
+fn map_error(error: AdmissionError) -> RemoteFenceError {
     match error {
-        HartStateError::InvalidHart | HartStateError::Unavailable => RemoteFenceError::InvalidHart,
-        HartStateError::NotSupported => RemoteFenceError::NotSupported,
-        HartStateError::SourceBusy
-        | HartStateError::BatchBusy
-        | HartStateError::MissingRelation
-        | HartStateError::InvalidTransition => RemoteFenceError::Failed,
+        AdmissionError::InvalidHart | AdmissionError::Unavailable => RemoteFenceError::InvalidHart,
+        AdmissionError::NotSupported => RemoteFenceError::NotSupported,
+        AdmissionError::SourceBusy
+        | AdmissionError::BatchBusy
+        | AdmissionError::MissingRelation
+        | AdmissionError::InvalidTransition => RemoteFenceError::Failed,
     }
 }
 

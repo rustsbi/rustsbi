@@ -60,13 +60,20 @@ pub(crate) fn prepare_runtime(
         Some(index) => index,
         None => terminal_failure(TerminalFailure::InitHart),
     };
-    if hart_ids.len() > 1 && boot.runtime.is_none() {
-        terminal_failure(TerminalFailure::MissingHartRuntime);
+    if hart_ids.len() > 1 && boot.hart_admission.is_none() {
+        terminal_failure(TerminalFailure::MissingHartAdmission);
     }
-    if let Some(runtime) = boot.runtime.as_ref()
-        && crate::hart::runtime::publish(Arc::clone(runtime)).is_err()
+    if boot
+        .hart_admission
+        .as_ref()
+        .is_some_and(|admission| !admission.matches_harts(&hart_ids))
     {
-        terminal_failure(TerminalFailure::HartRuntimePublication);
+        terminal_failure(TerminalFailure::HartDescription);
+    }
+    if let Some(admission) = boot.hart_admission.as_ref()
+        && crate::hart::protocol::publish(Arc::clone(admission)).is_err()
+    {
+        terminal_failure(TerminalFailure::HartAdmissionPublication);
     }
 
     let handler: &'static dyn crate::SbiHandler = Box::leak(handler);
@@ -92,10 +99,10 @@ pub(crate) fn prepare_runtime(
     if crate::trap::prepare_timer().is_err() {
         terminal_failure(TerminalFailure::TimerPreparation);
     }
-    if let Some(runtime) = &boot.runtime
-        && runtime.prepare_current_hart().is_err()
+    if let Some(admission) = &boot.hart_admission
+        && admission.prepare_current_hart().is_err()
     {
-        terminal_failure(TerminalFailure::HartRuntimePreparation);
+        terminal_failure(TerminalFailure::HartAdmissionPreparation);
     }
     if crate::trap::prepare_counters(boot.next_stage.mode()).is_err() {
         terminal_failure(TerminalFailure::CounterPreparation);
@@ -124,12 +131,12 @@ enum TerminalFailure {
     HartDescription,
     HartPublication,
     InitHart,
-    MissingHartRuntime,
-    HartRuntimePublication,
+    MissingHartAdmission,
+    HartAdmissionPublication,
     TrapPreparation,
     TrapActivation,
     TimerPreparation,
-    HartRuntimePreparation,
+    HartAdmissionPreparation,
     CounterPreparation,
     ProtectionPublication,
     ProtectionInstallation,

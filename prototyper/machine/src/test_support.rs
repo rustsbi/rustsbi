@@ -84,6 +84,10 @@ pub(crate) fn mark_warm_parked() {
     WARM_PARKED.fetch_add(1, Ordering::Release);
 }
 
+pub(crate) fn warm_parked_count() -> usize {
+    WARM_PARKED.load(Ordering::Acquire)
+}
+
 pub(crate) fn console() -> Option<&'static Console> {
     CONSOLE.get()
 }

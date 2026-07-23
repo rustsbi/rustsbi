@@ -99,10 +99,10 @@ pub(crate) fn park_current_hart() -> ! {
 pub(crate) fn enter_resumed_stage(next_stage: NextStage) -> ! {
     let hart_id = current_hart_id();
     disable_interrupts_and_arm_double_trap();
-    let Some(runtime) = crate::hart::runtime::runtime() else {
+    let Some(admission) = crate::hart::protocol::installed() else {
         crate::trap::abort();
     };
-    if runtime.prepare_current_hart().is_err() {
+    if admission.prepare_current_hart().is_err() {
         crate::trap::abort();
     }
     crate::boot::enter(next_stage, hart_id, None)

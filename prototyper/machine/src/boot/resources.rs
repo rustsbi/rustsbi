@@ -10,7 +10,7 @@ use super::{BootDtb, BootInfoError, NextStage};
 #[cfg(test)]
 use super::{BootDtbStorage, NextMode};
 use crate::counter::{CounterError, PerformanceCounters};
-use crate::hart::HartRuntime;
+use crate::hart::HartAdmission;
 use crate::timer::TimerDevice;
 
 /// The complete owned input delivered exactly once to upper firmware policy.
@@ -22,7 +22,7 @@ pub struct BootInfo {
     // contains the initializer before publishing warm-hart state.
     pub(super) init_hart: usize,
     pub(super) machine_ranges: Vec<Range<usize>>,
-    pub(super) runtime: Option<Arc<HartRuntime>>,
+    pub(super) hart_admission: Option<Arc<HartAdmission>>,
     pub(super) timer: Option<Arc<dyn TimerDevice>>,
     pub(super) counters: Option<PerformanceCounters>,
 }
@@ -52,7 +52,7 @@ impl BootInfo {
             next_stage,
             init_hart,
             machine_ranges: Vec::new(),
-            runtime: None,
+            hart_admission: None,
             timer: None,
             counters: None,
         };
@@ -101,7 +101,7 @@ impl BootInfo {
     }
 
     pub(crate) fn ensure_runtime_unbound(&self) -> Result<(), RuntimeInstallError> {
-        if self.runtime.is_some() || self.timer.is_some() {
+        if self.hart_admission.is_some() || self.timer.is_some() {
             Err(RuntimeInstallError::AlreadyInstalled)
         } else {
             Ok(())
@@ -110,11 +110,11 @@ impl BootInfo {
 
     pub(crate) fn install_runtime(
         &mut self,
-        runtime: Arc<HartRuntime>,
+        admission: Arc<HartAdmission>,
         timer: Arc<dyn TimerDevice>,
     ) -> Result<(), RuntimeInstallError> {
         self.ensure_runtime_unbound()?;
-        self.runtime = Some(runtime);
+        self.hart_admission = Some(admission);
         self.timer = Some(timer);
         Ok(())
     }
@@ -163,7 +163,7 @@ impl BootInfo {
             },
             init_hart: 0,
             machine_ranges: Vec::new(),
-            runtime: None,
+            hart_admission: None,
             timer: None,
             counters: None,
         }

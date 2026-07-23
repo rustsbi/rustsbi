@@ -3,14 +3,14 @@
 use alloc::sync::Arc;
 
 use super::arch::current_hart_id;
-use super::runtime::{HartNotifications, HartRuntime, map_ipi_error};
+use super::protocol::{HartAdmission, HartNotifications, map_ipi_error};
 use crate::hart::HartTargets;
 
 /// Physical mechanism used to wake a hart for machine-owned work.
 ///
 /// Implementations bind one validated interrupt source and translate physical
 /// hart IDs to device-specific targets. The protocol state remains owned by
-/// `HartRuntime`; a device only rings or acknowledges the selected source.
+/// `HartAdmission`; a device only rings or acknowledges the selected source.
 pub(crate) trait IpiDevice: Send + Sync {
     /// Initializes the calling hart's notification endpoint before use.
     fn prepare_current_hart(&self) -> Result<(), IpiError> {
@@ -19,7 +19,7 @@ pub(crate) trait IpiDevice: Send + Sync {
 
     /// Rings the endpoint associated with `hart_id`.
     ///
-    /// Invalid IDs have already been rejected by the runtime. Implementations
+    /// Invalid IDs have already been rejected by admission. Implementations
     /// must not retain a reference to protocol state or wait for completion.
     fn notify(&self, hart_id: usize);
 
@@ -60,21 +60,21 @@ pub enum IpiError {
 ///
 /// Raw software-interrupt registers and device indices are not exposed.
 pub struct Ipi {
-    runtime: Arc<HartRuntime>,
+    admission: Arc<HartAdmission>,
 }
 
 impl Ipi {
-    pub(crate) fn new(runtime: Arc<HartRuntime>) -> Self {
-        Self { runtime }
+    pub(crate) fn new(admission: Arc<HartAdmission>) -> Self {
+        Self { admission }
     }
 
     /// Sends one coalescible supervisor IPI to every validated target.
     pub fn send(&self, targets: HartTargets) -> Result<(), IpiError> {
-        self.runtime.send(targets)
+        self.admission.send(targets)
     }
 }
 
-impl HartRuntime {
+impl HartAdmission {
     /// Commits a coalescible supervisor IPI before ringing physical targets.
     pub(crate) fn send(&self, targets: HartTargets) -> Result<(), IpiError> {
         let current_hart = current_hart_id();

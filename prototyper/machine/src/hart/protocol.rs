@@ -1,4 +1,4 @@
-//! Runtime orchestration for hart lifecycle, IPI, and remote fences.
+//! Shared work-admission boundary for hart protocols.
 
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -6,15 +6,19 @@ use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+use super::admission::*;
 use super::arch::{current_hart_id, execute, manifest_supervisor_ipi, protocol_fence};
 use super::ipi::{IpiDevice, IpiError};
 use super::lock::TicketLock;
 use super::start::PendingStart;
-use super::state::*;
 use crate::config::HART_CAPACITY;
 use crate::hart::{HartError, HartStatus};
-pub(crate) struct HartRuntime {
-    pub(super) state: TicketLock<HartRuntimeState>,
+/// Narrow atomic boundary shared by HSM, IPI, and RFENCE.
+///
+/// The object owns no combined per-hart record. It serializes only operations
+/// whose acceptance must be ordered against stop and suspend gates.
+pub(crate) struct HartAdmission {
+    pub(super) state: TicketLock<AdmissionState>,
     pub(super) device: Arc<dyn IpiDevice>,
     physical_ids: Box<[usize]>,
 }
@@ -23,23 +27,23 @@ const RUNTIME_EMPTY: usize = 0;
 const RUNTIME_WRITING: usize = 1;
 const RUNTIME_READY: usize = 2;
 
-struct PublishedHartRuntime {
+struct PublishedHartAdmission {
     state: AtomicUsize,
-    value: UnsafeCell<Option<Arc<HartRuntime>>>,
+    value: UnsafeCell<Option<Arc<HartAdmission>>>,
 }
 
 // SAFETY: only the successful empty-to-writing claimant initializes `value`.
 // It is immutable after Release publication and all readers first Acquire the
 // ready state.
-unsafe impl Sync for PublishedHartRuntime {}
+unsafe impl Sync for PublishedHartAdmission {}
 
-static RUNTIME: PublishedHartRuntime = PublishedHartRuntime {
+static ADMISSION: PublishedHartAdmission = PublishedHartAdmission {
     state: AtomicUsize::new(RUNTIME_EMPTY),
     value: UnsafeCell::new(None),
 };
 
-pub(crate) fn publish(runtime: Arc<HartRuntime>) -> Result<(), IpiError> {
-    RUNTIME
+pub(crate) fn publish(admission: Arc<HartAdmission>) -> Result<(), IpiError> {
+    ADMISSION
         .state
         .compare_exchange(
             RUNTIME_EMPTY,
@@ -50,46 +54,46 @@ pub(crate) fn publish(runtime: Arc<HartRuntime>) -> Result<(), IpiError> {
         .map_err(|_| IpiError::Failed)?;
     // SAFETY: this caller uniquely owns the writing state, and readers cannot
     // inspect the field until the Release publication below.
-    unsafe { RUNTIME.value.get().write(Some(runtime)) };
-    RUNTIME.state.store(RUNTIME_READY, Ordering::Release);
+    unsafe { ADMISSION.value.get().write(Some(admission)) };
+    ADMISSION.state.store(RUNTIME_READY, Ordering::Release);
     Ok(())
 }
 
-pub(crate) fn runtime() -> Option<&'static HartRuntime> {
-    if RUNTIME.state.load(Ordering::Acquire) != RUNTIME_READY {
+pub(crate) fn installed() -> Option<&'static HartAdmission> {
+    if ADMISSION.state.load(Ordering::Acquire) != RUNTIME_READY {
         return None;
     }
     // SAFETY: the Acquire load observed the sole Release publication. The Arc
     // remains stored and immutable for the firmware lifetime.
-    unsafe { (&*RUNTIME.value.get()).as_deref() }
+    unsafe { (&*ADMISSION.value.get()).as_deref() }
 }
 
 pub(crate) fn notify_terminal_peers() {
-    if let Some(runtime) = runtime() {
-        runtime.notify_terminal_peers();
+    if let Some(admission) = installed() {
+        admission.notify_terminal_peers();
     }
 }
 
-pub(super) struct HartRuntimeState {
-    work: HartState<HART_CAPACITY>,
+pub(super) struct AdmissionState {
+    pub(super) work: HartAdmissionState<HART_CAPACITY>,
     pub(super) starts: [Option<PendingStart>; HART_CAPACITY],
 }
 
-impl Deref for HartRuntimeState {
-    type Target = HartState<HART_CAPACITY>;
+impl Deref for AdmissionState {
+    type Target = HartAdmissionState<HART_CAPACITY>;
 
     fn deref(&self) -> &Self::Target {
         &self.work
     }
 }
 
-impl DerefMut for HartRuntimeState {
+impl DerefMut for AdmissionState {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.work
     }
 }
 
-impl HartRuntime {
+impl HartAdmission {
     pub(crate) fn new(
         device: Arc<dyn IpiDevice>,
         physical_ids: &[usize],
@@ -112,16 +116,22 @@ impl HartRuntime {
             .position(|hart| *hart == boot_hart)
             .ok_or(IpiError::InvalidHart)?;
         states[boot_index] = HartStatus::Started;
-        let state = HartState::new_with_count(ids, states, wake, physical_ids.len())
+        let state = HartAdmissionState::new_with_count(ids, states, wake, physical_ids.len())
             .map_err(map_ipi_error)?;
         Ok(Arc::new(Self {
-            state: TicketLock::new(HartRuntimeState {
+            state: TicketLock::new(AdmissionState {
                 work: state,
                 starts: core::array::from_fn(|_| None),
             }),
             device,
             physical_ids: physical_ids.to_vec().into_boxed_slice(),
         }))
+    }
+
+    /// Confirms that device construction and architectural discovery admitted
+    /// the same ordered physical-hart set.
+    pub(crate) fn matches_harts(&self, physical_ids: &[usize]) -> bool {
+        self.physical_ids.as_ref() == physical_ids
     }
 
     fn notify_terminal_peers(&self) {
@@ -156,10 +166,14 @@ impl HartRuntime {
         let (target, mut batch) = {
             let mut state = self.state.lock();
             let target = state
+                .work
                 .resolve_physical(physical_hart)
                 .map_err(map_ipi_error)?;
-            let mut batch = PendingHartWork::default();
-            state.claim(target, &mut batch).map_err(map_ipi_error)?;
+            let mut batch = ClaimedWork::default();
+            state
+                .work
+                .claim(target, &mut batch)
+                .map_err(map_ipi_error)?;
             (target, batch)
         };
         let supervisor_interrupt = batch.supervisor_ipi;
@@ -171,12 +185,14 @@ impl HartRuntime {
             let request = {
                 let state = self.state.lock();
                 state
+                    .work
                     .copy_request(target, source, &batch)
                     .map_err(map_ipi_error)?
             };
             execute(request);
             let mut state = self.state.lock();
             state
+                .work
                 .complete(target, source, &mut batch)
                 .map_err(map_ipi_error)?;
         }
@@ -199,7 +215,7 @@ pub(super) struct HartNotifications {
 
 impl HartNotifications {
     pub(super) fn from_state(
-        state: &HartState<HART_CAPACITY>,
+        state: &HartAdmissionState<HART_CAPACITY>,
         source: usize,
         targets: HartSet,
     ) -> Self {
@@ -220,26 +236,57 @@ impl HartNotifications {
     }
 }
 
-pub(super) fn map_ipi_error(error: HartStateError) -> IpiError {
+pub(super) fn map_ipi_error(error: AdmissionError) -> IpiError {
     match error {
-        HartStateError::InvalidHart | HartStateError::Unavailable => IpiError::InvalidHart,
-        HartStateError::SourceBusy
-        | HartStateError::BatchBusy
-        | HartStateError::MissingRelation
-        | HartStateError::InvalidTransition
-        | HartStateError::NotSupported => IpiError::Failed,
+        AdmissionError::InvalidHart | AdmissionError::Unavailable => IpiError::InvalidHart,
+        AdmissionError::SourceBusy
+        | AdmissionError::BatchBusy
+        | AdmissionError::MissingRelation
+        | AdmissionError::InvalidTransition
+        | AdmissionError::NotSupported => IpiError::Failed,
     }
 }
 
-pub(super) fn map_hart_error(error: HartStateError) -> HartError {
+pub(super) fn map_hart_error(error: AdmissionError) -> HartError {
     match error {
-        HartStateError::InvalidHart | HartStateError::Unavailable => HartError::InvalidHart,
-        HartStateError::SourceBusy
-        | HartStateError::BatchBusy
-        | HartStateError::MissingRelation
-        | HartStateError::InvalidTransition
-        | HartStateError::NotSupported => HartError::Failed,
+        AdmissionError::InvalidHart | AdmissionError::Unavailable => HartError::InvalidHart,
+        AdmissionError::SourceBusy
+        | AdmissionError::BatchBusy
+        | AdmissionError::MissingRelation
+        | AdmissionError::InvalidTransition
+        | AdmissionError::NotSupported => HartError::Failed,
     }
+}
+
+#[crate::mtest]
+fn admitted_hart_has_ratified_started_state() {
+    let admission = installed().expect("hart admission must be published");
+    assert_eq!(admission.status(current_hart_id()), Ok(HartStatus::Started));
+}
+
+#[crate::mtest]
+fn peer_hart_reaches_the_warm_wait_loop() {
+    assert!(crate::test_support::warm_parked_count() >= 1);
+}
+
+#[crate::mtest]
+fn notification_claim_drains_an_empty_snapshot() {
+    let admission = installed().expect("hart admission must be published");
+    assert!(admission.handle_notification().is_ok());
+}
+
+#[crate::mtest]
+fn local_remote_fence_completes_through_the_admission_protocol() {
+    let admission = installed().expect("hart admission must be published");
+    let current = current_hart_id();
+    assert!(
+        admission
+            .remote_fence(
+                crate::HartTargets::selected(1, current),
+                crate::hart::fence::RemoteFenceRequest::FenceI,
+            )
+            .is_ok()
+    );
 }
 
 #[cfg(test)]

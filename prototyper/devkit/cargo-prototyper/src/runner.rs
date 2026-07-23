@@ -42,7 +42,9 @@ impl Default for QemuConfig {
         Self {
             machine: QemuMachine::Virt,
             memory_mib: 128,
-            harts: 1,
+            // Two harts exercise the firmware's warm-entry and HSM paths while
+            // remaining the smallest useful SMP configuration.
+            harts: 2,
             serial: SerialMode::Captured,
             extra_arguments: Vec::new(),
         }
@@ -246,7 +248,7 @@ mod tests {
         assert_eq!(
             plan.arguments,
             [
-                "-machine", "virt", "-m", "128M", "-smp", "1", "-display", "none", "-serial",
+                "-machine", "virt", "-m", "128M", "-smp", "2", "-display", "none", "-serial",
                 "stdio", "-bios", "raw"
             ]
         );

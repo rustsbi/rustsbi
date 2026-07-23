@@ -7,8 +7,8 @@ use crate::hart::fence::targets_support_request;
 use crate::hart::start::StartHandshake;
 use crate::{HartTargets, NextStage};
 
-fn started<const N: usize>() -> HartState<N> {
-    HartState::new(
+fn started<const N: usize>() -> HartAdmissionState<N> {
+    HartAdmissionState::new(
         core::array::from_fn(|index| index),
         [HartStatus::Started; N],
         [true; N],
@@ -18,15 +18,15 @@ fn started<const N: usize>() -> HartState<N> {
 
 #[test]
 fn hart_status_allows_only_the_defined_success_edges() {
-    let mut start = HartState::new([0], [HartStatus::Stopped], [true]).unwrap();
+    let mut start = HartAdmissionState::new([0], [HartStatus::Stopped], [true]).unwrap();
     start.begin_start(0).unwrap();
     assert_eq!(start.state(0), Ok(HartStatus::StartPending));
-    assert_eq!(start.begin_start(0), Err(HartStateError::InvalidTransition));
+    assert_eq!(start.begin_start(0), Err(AdmissionError::InvalidTransition));
     start.complete_start(0).unwrap();
 
     let mut stop = started::<1>();
     stop.begin_stop(0).unwrap();
-    stop.finish_stop(0, &PendingHartWork::default()).unwrap();
+    stop.finish_stop(0, &ClaimedWork::default()).unwrap();
 
     let mut suspend = started::<1>();
     suspend.begin_suspend(0).unwrap();
@@ -37,7 +37,7 @@ fn hart_status_allows_only_the_defined_success_edges() {
 
 #[test]
 fn only_the_target_can_publish_started_after_prepared_and_proceed() {
-    let mut work = HartState::new([0], [HartStatus::Stopped], [true]).unwrap();
+    let mut work = HartAdmissionState::new([0], [HartStatus::Stopped], [true]).unwrap();
     let mut handshake = StartHandshake::default();
     work.begin_start(0).unwrap();
     assert_eq!(work.state(0), Ok(HartStatus::StartPending));
@@ -50,7 +50,7 @@ fn only_the_target_can_publish_started_after_prepared_and_proceed() {
     assert_eq!(work.state(0), Ok(HartStatus::Started));
 
     let mut failed = StartHandshake::default();
-    let mut stopped = HartState::new([0], [HartStatus::Stopped], [true]).unwrap();
+    let mut stopped = HartAdmissionState::new([0], [HartStatus::Stopped], [true]).unwrap();
     stopped.begin_start(0).unwrap();
     failed.publish_failed().unwrap();
     failed.source_observed_failure().unwrap();
@@ -60,7 +60,7 @@ fn only_the_target_can_publish_started_after_prepared_and_proceed() {
 
 #[test]
 fn failed_multi_target_commit_changes_nothing() {
-    let mut work = HartState::new(
+    let mut work = HartAdmissionState::new(
         [0, 1, 2],
         [
             HartStatus::Started,
@@ -75,15 +75,15 @@ fn failed_multi_target_commit_changes_nothing() {
     targets.insert(1).unwrap();
     assert_eq!(
         work.commit_rfence(2, targets, RemoteFenceRequest::FenceI),
-        Err(HartStateError::Unavailable)
+        Err(AdmissionError::Unavailable)
     );
     assert_eq!(work, before);
-    assert!(work.invariants_hold(&[PendingHartWork::default(); 3]));
+    assert!(work.invariants_hold(&[ClaimedWork::default(); 3]));
 }
 
 #[test]
 fn sparse_physical_targets_resolve_inside_one_lifecycle_snapshot() {
-    let work = HartState::new(
+    let work = HartAdmissionState::new(
         [0, 8, 0x1000],
         [
             HartStatus::Started,
@@ -95,11 +95,11 @@ fn sparse_physical_targets_resolve_inside_one_lifecycle_snapshot() {
     .unwrap();
     assert_eq!(
         work.resolve_targets(HartTargets::selected(1, 8)),
-        Err(HartStateError::Unavailable)
+        Err(AdmissionError::Unavailable)
     );
     assert_eq!(
         work.resolve_targets(HartTargets::selected(1, 9)),
-        Err(HartStateError::InvalidHart)
+        Err(AdmissionError::InvalidHart)
     );
     assert_eq!(
         work.resolve_targets(HartTargets::all_available()),
@@ -119,8 +119,8 @@ fn stop_gate_drains_the_pre_gate_finite_batch_before_stopped() {
     work.commit_rfence(0, target, RemoteFenceRequest::FenceI)
         .unwrap();
     work.begin_stop(1).unwrap();
-    assert_eq!(work.commit_ipi(target), Err(HartStateError::Unavailable));
-    let mut batches = [PendingHartWork::default(); 2];
+    assert_eq!(work.commit_ipi(target), Err(AdmissionError::Unavailable));
+    let mut batches = [ClaimedWork::default(); 2];
     work.claim(1, &mut batches[1]).unwrap();
     batches[1].supervisor_ipi = false;
     work.complete(1, 0, &mut batches[1]).unwrap();
@@ -136,10 +136,10 @@ fn suspend_cannot_publish_sleep_while_accepted_work_is_pending() {
     let target = HartSet::singleton(0).unwrap();
     work.commit_ipi(target).unwrap();
     work.begin_suspend(0).unwrap();
-    assert_eq!(work.finish_suspend(0), Err(HartStateError::MissingRelation));
+    assert_eq!(work.finish_suspend(0), Err(AdmissionError::MissingRelation));
     assert_eq!(work.state(0), Ok(HartStatus::SuspendPending));
 
-    let mut batch = PendingHartWork::default();
+    let mut batch = ClaimedWork::default();
     work.claim(0, &mut batch).unwrap();
     batch.supervisor_ipi = false;
     assert!(batch.is_empty());
@@ -153,14 +153,14 @@ fn system_suspend_checks_all_peers_at_the_transition_commit() {
     let before = work.clone();
     assert_eq!(
         work.begin_system_suspend(0),
-        Err(HartStateError::Unavailable)
+        Err(AdmissionError::Unavailable)
     );
     assert_eq!(work, before);
 
     work.begin_stop(1).unwrap();
-    work.finish_stop(1, &PendingHartWork::default()).unwrap();
+    work.finish_stop(1, &ClaimedWork::default()).unwrap();
     work.begin_stop(2).unwrap();
-    work.finish_stop(2, &PendingHartWork::default()).unwrap();
+    work.finish_stop(2, &ClaimedWork::default()).unwrap();
     work.begin_system_suspend(0).unwrap();
     assert_eq!(work.state(0), Ok(HartStatus::SuspendPending));
     assert_eq!(work.state(1), Ok(HartStatus::Stopped));
@@ -170,12 +170,12 @@ fn system_suspend_checks_all_peers_at_the_transition_commit() {
 #[test]
 fn resume_edges_are_closed_around_the_suspended_state() {
     let mut work = started::<1>();
-    assert_eq!(work.begin_resume(0), Err(HartStateError::InvalidTransition));
+    assert_eq!(work.begin_resume(0), Err(AdmissionError::InvalidTransition));
     work.begin_suspend(0).unwrap();
     work.finish_suspend(0).unwrap();
     work.begin_resume(0).unwrap();
     assert_eq!(work.state(0), Ok(HartStatus::ResumePending));
-    assert_eq!(work.begin_resume(0), Err(HartStateError::InvalidTransition));
+    assert_eq!(work.begin_resume(0), Err(AdmissionError::InvalidTransition));
     work.finish_resume(0).unwrap();
     assert_eq!(work.state(0), Ok(HartStatus::Started));
 }
@@ -187,18 +187,18 @@ fn complete_claim_owns_a_finite_snapshot_and_retires_once() {
     targets.insert(2).unwrap();
     work.commit_rfence(0, targets, RemoteFenceRequest::FenceI)
         .unwrap();
-    let mut batches = [PendingHartWork::default(); 3];
+    let mut batches = [ClaimedWork::default(); 3];
     work.claim(1, &mut batches[1]).unwrap();
     assert_eq!(
         work.copy_request(1, 0, &batches[1]),
         Ok(RemoteFenceRequest::FenceI)
     );
     work.complete(1, 0, &mut batches[1]).unwrap();
-    assert_eq!(work.retire(0), Err(HartStateError::MissingRelation));
+    assert_eq!(work.retire(0), Err(AdmissionError::MissingRelation));
     work.claim(2, &mut batches[2]).unwrap();
     work.complete(2, 0, &mut batches[2]).unwrap();
     assert_eq!(work.retire(0), Ok(RemoteFenceRequest::FenceI));
-    assert_eq!(work.retire(0), Err(HartStateError::MissingRelation));
+    assert_eq!(work.retire(0), Err(AdmissionError::MissingRelation));
     assert!(work.invariants_hold(&batches));
 }
 
@@ -214,7 +214,7 @@ fn resume_finishes_at_the_capture_cut_despite_later_arrival() {
     )
     .unwrap();
     work.begin_resume(1).unwrap();
-    let mut batches = [PendingHartWork::default(); 3];
+    let mut batches = [ClaimedWork::default(); 3];
     work.claim(1, &mut batches[1]).unwrap();
     work.commit_rfence(
         2,
@@ -246,9 +246,9 @@ fn simultaneous_sources_remain_distinct_and_active_storage_is_immutable() {
     work.commit_rfence(1, target, second).unwrap();
     assert_eq!(
         work.commit_rfence(0, target, RemoteFenceRequest::FenceI),
-        Err(HartStateError::SourceBusy)
+        Err(AdmissionError::SourceBusy)
     );
-    let mut batches = [PendingHartWork::default(); 3];
+    let mut batches = [ClaimedWork::default(); 3];
     work.claim(2, &mut batches[2]).unwrap();
     assert_eq!(
         batches[2].sources.iter().collect::<alloc::vec::Vec<_>>(),
@@ -272,7 +272,7 @@ fn a_claimed_high_source_cannot_be_overtaken_by_low_source_reissue() {
         .unwrap();
     work.commit_rfence(1, target, RemoteFenceRequest::FenceI)
         .unwrap();
-    let mut batches = [PendingHartWork::default(); 3];
+    let mut batches = [ClaimedWork::default(); 3];
     work.claim(2, &mut batches[2]).unwrap();
     work.complete(2, 0, &mut batches[2]).unwrap();
     work.retire(0).unwrap();
@@ -280,7 +280,7 @@ fn a_claimed_high_source_cannot_be_overtaken_by_low_source_reissue() {
         .unwrap();
     assert!(batches[2].sources.contains(1));
     assert!(!batches[2].sources.contains(0));
-    assert!(work.harts[2].pending_sources.contains(0));
+    assert!(work.fence_pending(2, 0));
     work.complete(2, 1, &mut batches[2]).unwrap();
     work.retire(1).unwrap();
     assert!(work.invariants_hold(&batches));
@@ -331,7 +331,7 @@ fn delayed_ring_and_spurious_handler_cannot_lose_committed_work() {
     device.prepare(true).unwrap();
     untouched.commit_ipi(targets).unwrap();
     device.notify(targets);
-    let mut batches = [PendingHartWork::default(); 2];
+    let mut batches = [ClaimedWork::default(); 2];
     // A spurious handler before physical delivery still consumes the
     // authoritative software level. The later delayed ring is harmless.
     untouched.claim(1, &mut batches[1]).unwrap();
@@ -350,7 +350,7 @@ fn ordinary_ipi_coalesces_before_claim_and_reappears_during_drain() {
     let target = HartSet::singleton(1).unwrap();
     work.commit_ipi(target).unwrap();
     work.commit_ipi(target).unwrap();
-    let mut batches = [PendingHartWork::default(); 2];
+    let mut batches = [ClaimedWork::default(); 2];
     work.claim(1, &mut batches[1]).unwrap();
     assert!(batches[1].supervisor_ipi);
     work.commit_ipi(target).unwrap();
@@ -374,7 +374,7 @@ enum MutualAction {
 #[test]
 fn explores_mutual_rfence_schedules_without_a_wait_cycle() {
     let work = started::<2>();
-    let batches = [PendingHartWork::default(); 2];
+    let batches = [ClaimedWork::default(); 2];
     let actions = [
         MutualAction::Commit0,
         MutualAction::Commit1,
@@ -410,19 +410,19 @@ fn explores_three_hart_cycle_claim_and_completion_schedules() {
     )
     .unwrap();
     let mut terminals = 0;
-    explore_cycle(work, [PendingHartWork::default(); 3], 0, &mut terminals);
+    explore_cycle(work, [ClaimedWork::default(); 3], 0, &mut terminals);
     assert!(terminals >= 6);
 }
 
 fn explore_cycle(
-    work: HartState<3>,
-    batches: [PendingHartWork; 3],
+    work: HartAdmissionState<3>,
+    batches: [ClaimedWork; 3],
     used: u8,
     terminals: &mut usize,
 ) {
     assert!(work.invariants_hold(&batches));
     if used == 0b11_1111 {
-        assert!(work.harts.iter().all(|hart| hart.active.is_none()));
+        assert!(work.all_fence_sources_idle());
         *terminals += 1;
         return;
     }
@@ -455,15 +455,15 @@ fn explore_cycle(
 }
 
 fn explore(
-    work: HartState<2>,
-    batches: [PendingHartWork; 2],
+    work: HartAdmissionState<2>,
+    batches: [ClaimedWork; 2],
     actions: &[MutualAction; 6],
     used: u8,
     terminals: &mut usize,
 ) {
     assert!(work.invariants_hold(&batches));
     if used == 0b11_1111 {
-        assert!(work.harts.iter().all(|hart| hart.active.is_none()));
+        assert!(work.all_fence_sources_idle());
         *terminals += 1;
         return;
     }
@@ -539,33 +539,33 @@ impl IpiDevice for BlockingIpi {
     fn claim(&self, _hart_id: usize) {}
 }
 
-fn two_hart_runtime(device: Arc<RecordedIpi>) -> Arc<HartRuntime> {
-    let runtime = HartRuntime::new(device, &[0, 8], 0, &[true, true]).unwrap();
+fn two_hart_admission(device: Arc<RecordedIpi>) -> Arc<HartAdmission> {
+    let admission = HartAdmission::new(device, &[0, 8], 0, &[true, true]).unwrap();
     {
-        let mut state = runtime.state.lock();
+        let mut state = admission.state.lock();
         state.begin_start(1).unwrap();
         state.complete_start(1).unwrap();
     }
-    runtime
+    admission
 }
 
 #[test]
-fn runtime_commits_before_ring_and_claims_by_physical_id() {
+fn admission_commits_before_ring_and_claims_by_physical_id() {
     let device = Arc::new(RecordedIpi::default());
-    let runtime = two_hart_runtime(device.clone());
+    let admission = two_hart_admission(device.clone());
 
-    runtime.send(HartTargets::selected(1, 8)).unwrap();
+    admission.send(HartTargets::selected(1, 8)).unwrap();
     assert_eq!(*device.notified.lock().unwrap(), [8]);
     {
-        let state = runtime.state.lock();
-        assert!(state.harts[1].supervisor_ipi);
+        let state = admission.state.lock();
+        assert!(state.ipi_pending(1));
     }
 
-    runtime.drain(8, true).unwrap();
+    admission.drain(8, true).unwrap();
     assert_eq!(*device.claimed.lock().unwrap(), [8]);
-    let state = runtime.state.lock();
-    assert!(!state.harts[1].supervisor_ipi);
-    assert!(state.harts[1].pending_sources.is_empty());
+    let state = admission.state.lock();
+    assert!(!state.ipi_pending(1));
+    assert!(!state.fence_pending(1, 0));
 }
 
 #[test]
@@ -578,18 +578,18 @@ fn device_notification_does_not_hold_the_protocol_lock() {
         entered: entered_tx,
         release: std::sync::Mutex::new(release_rx),
     });
-    let runtime = HartRuntime::new(device, &[0, 8], 0, &[true, true]).unwrap();
+    let admission = HartAdmission::new(device, &[0, 8], 0, &[true, true]).unwrap();
     {
-        let mut state = runtime.state.lock();
+        let mut state = admission.state.lock();
         state.begin_start(1).unwrap();
         state.complete_start(1).unwrap();
     }
 
-    let sender = runtime.clone();
+    let sender = admission.clone();
     let send = std::thread::spawn(move || sender.send(HartTargets::selected(1, 8)));
     entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
-    let observer = runtime.clone();
+    let observer = admission.clone();
     let (status_tx, status_rx) = std::sync::mpsc::channel();
     let status = std::thread::spawn(move || status_tx.send(observer.status(0)).unwrap());
     let observed = status_rx.recv_timeout(Duration::from_secs(1));
@@ -603,43 +603,43 @@ fn device_notification_does_not_hold_the_protocol_lock() {
 #[test]
 fn terminal_notification_rings_peers_without_protocol_state() {
     let device = Arc::new(RecordedIpi::default());
-    let runtime = two_hart_runtime(device.clone());
+    let admission = two_hart_admission(device.clone());
 
-    runtime.notify_terminal_peers();
+    admission.notify_terminal_peers();
     assert_eq!(*device.notified.lock().unwrap(), [8]);
-    let state = runtime.state.lock();
-    assert!(!state.harts[0].supervisor_ipi);
-    assert!(!state.harts[1].supervisor_ipi);
+    let state = admission.state.lock();
+    assert!(!state.ipi_pending(0));
+    assert!(!state.ipi_pending(1));
 }
 
 #[test]
-fn runtime_rejects_suspend_without_a_constructed_ipi_wake_path() {
+fn admission_rejects_suspend_without_a_constructed_ipi_wake_path() {
     let device = Arc::new(RecordedIpi::default());
-    let runtime = HartRuntime::new(device, &[0], 0, &[false]).unwrap();
+    let admission = HartAdmission::new(device, &[0], 0, &[false]).unwrap();
 
-    assert_eq!(runtime.suspend_current(), Err(HartError::NotSupported));
-    assert_eq!(runtime.status(0), Ok(HartStatus::Started));
+    assert_eq!(admission.suspend_current(), Err(HartError::NotSupported));
+    assert_eq!(admission.status(0), Ok(HartStatus::Started));
 }
 
 #[test]
 fn pre_gate_ipi_makes_retentive_suspend_resume_immediately() {
     let device = Arc::new(RecordedIpi::default());
-    let runtime = HartRuntime::new(device.clone(), &[0], 0, &[true]).unwrap();
+    let admission = HartAdmission::new(device.clone(), &[0], 0, &[true]).unwrap();
     {
-        let mut state = runtime.state.lock();
+        let mut state = admission.state.lock();
         state.commit_ipi(HartSet::singleton(0).unwrap()).unwrap();
     }
 
-    assert_eq!(runtime.suspend_current(), Ok(()));
-    assert_eq!(runtime.status(0), Ok(HartStatus::Started));
+    assert_eq!(admission.suspend_current(), Ok(()));
+    assert_eq!(admission.status(0), Ok(HartStatus::Started));
     assert_eq!(*device.claimed.lock().unwrap(), [0]);
 }
 
 #[test]
 fn remote_fence_returns_only_after_target_completion() {
     let device = Arc::new(RecordedIpi::default());
-    let runtime = two_hart_runtime(device.clone());
-    let source = runtime.clone();
+    let admission = two_hart_admission(device.clone());
+    let source = admission.clone();
     let request = std::thread::spawn(move || {
         source.remote_fence(
             HartTargets::selected(1, 8),
@@ -654,12 +654,12 @@ fn remote_fence_returns_only_after_target_completion() {
         std::thread::yield_now();
     }
     assert!(!request.is_finished());
-    runtime.drain(8, true).unwrap();
+    admission.drain(8, true).unwrap();
     assert_eq!(request.join().unwrap(), Ok(()));
 
-    let state = runtime.state.lock();
-    assert!(state.harts[0].active.is_none());
-    assert!(state.harts[1].pending_sources.is_empty());
+    let state = admission.state.lock();
+    assert!(state.fence_source_idle(0));
+    assert!(!state.fence_pending(1, 0));
 }
 
 #[test]
@@ -683,40 +683,40 @@ fn ticket_lock_serializes_contenders_without_lost_updates() {
 }
 
 #[test]
-fn runtime_start_waits_for_preparation_and_target_publishes_started() {
+fn admission_start_waits_for_preparation_and_target_publishes_started() {
     let device = Arc::new(RecordedIpi::default());
-    let runtime = HartRuntime::new(device.clone(), &[0, 8], 0, &[true, true]).unwrap();
-    let source = runtime.clone();
+    let admission = HartAdmission::new(device.clone(), &[0, 8], 0, &[true, true]).unwrap();
+    let source = admission.clone();
     let start = std::thread::spawn(move || source.start(8, NextStage::for_test(0x8020_0000)));
 
     while device.notification_count.load(Ordering::Acquire) == 0 {
         std::thread::yield_now();
     }
-    assert_eq!(runtime.status(8), Ok(HartStatus::StartPending));
-    runtime.publish_start_result(8, Ok(())).unwrap();
+    assert_eq!(admission.status(8), Ok(HartStatus::StartPending));
+    admission.publish_start_result(8, Ok(())).unwrap();
     assert_eq!(start.join().unwrap(), Ok(()));
-    assert_eq!(runtime.status(8), Ok(HartStatus::StartPending));
+    assert_eq!(admission.status(8), Ok(HartStatus::StartPending));
 
-    let _next_stage = runtime.take_start(8).unwrap();
-    assert_eq!(runtime.status(8), Ok(HartStatus::Started));
+    let _next_stage = admission.take_start(8).unwrap();
+    assert_eq!(admission.status(8), Ok(HartStatus::Started));
 }
 
 #[test]
-fn runtime_start_failure_restores_stopped_and_preserves_error() {
+fn admission_start_failure_restores_stopped_and_preserves_error() {
     let device = Arc::new(RecordedIpi::default());
-    let runtime = HartRuntime::new(device.clone(), &[0, 8], 0, &[true, true]).unwrap();
-    let source = runtime.clone();
+    let admission = HartAdmission::new(device.clone(), &[0, 8], 0, &[true, true]).unwrap();
+    let source = admission.clone();
     let start = std::thread::spawn(move || source.start(8, NextStage::for_test(0x8020_0000)));
 
     while device.notification_count.load(Ordering::Acquire) == 0 {
         std::thread::yield_now();
     }
-    runtime
+    admission
         .publish_start_result(8, Err(HartError::NotSupported))
         .unwrap();
     assert_eq!(start.join().unwrap(), Err(HartError::NotSupported));
-    assert_eq!(runtime.status(8), Ok(HartStatus::Stopped));
-    assert!(runtime.state.lock().starts[1].is_none());
+    assert_eq!(admission.status(8), Ok(HartStatus::Stopped));
+    assert!(admission.state.lock().starts[1].is_none());
 }
 
 #[cfg(feature = "hypervisor")]

@@ -2,9 +2,9 @@
 
 use alloc::sync::Arc;
 
+use super::admission::{AdmissionError, ClaimedWork};
 use super::arch::{clear_supervisor_ipi, current_hart_id, wait_for_wake_event};
-use super::runtime::{HartRuntime, map_hart_error};
-use super::state::{HartStateError, PendingHartWork};
+use super::protocol::{HartAdmission, map_hart_error};
 use crate::boot::NextStage;
 
 /// Ratified hart lifecycle state.
@@ -43,27 +43,27 @@ pub enum HartError {
 
 /// Authority to inspect and change admitted hart lifecycle state.
 pub struct HartControl {
-    runtime: Arc<HartRuntime>,
+    admission: Arc<HartAdmission>,
 }
 
 impl HartControl {
-    pub(crate) fn new(runtime: Arc<HartRuntime>) -> Self {
-        Self { runtime }
+    pub(crate) fn new(admission: Arc<HartAdmission>) -> Self {
+        Self { admission }
     }
 
     /// Starts one stopped hart at the validated next stage.
     pub fn start(&self, hart_id: usize, next_stage: NextStage) -> Result<(), HartError> {
-        self.runtime.start(hart_id, next_stage)
+        self.admission.start(hart_id, next_stage)
     }
 
     /// Returns the current ratified lifecycle state of one admitted hart.
     pub fn status(&self, hart_id: usize) -> Result<HartStatus, HartError> {
-        self.runtime.status(hart_id)
+        self.admission.status(hart_id)
     }
 
     /// Stops the calling hart. A successful stop does not return.
     pub fn stop(&self) -> HartError {
-        match self.runtime.stop_current() {
+        match self.admission.stop_current() {
             Ok(()) => crate::trap::park_current_hart(),
             Err(error) => error,
         }
@@ -71,7 +71,7 @@ impl HartControl {
 
     /// Enters a retentive suspend and returns after resume.
     pub fn suspend_retentive(&self) -> Result<(), HartError> {
-        self.runtime.suspend_current()
+        self.admission.suspend_current()
     }
 
     /// Enters a non-retentive suspend. A successful resume enters `next_stage`.
@@ -82,7 +82,7 @@ impl HartControl {
     /// successful operation abandons the interrupted supervisor frame and
     /// cannot return to the original SBI call.
     pub fn suspend_non_retentive(&self, next_stage: NextStage) -> HartError {
-        match self.runtime.suspend_current() {
+        match self.admission.suspend_current() {
             Ok(()) => crate::trap::enter_resumed_stage(next_stage),
             Err(error) => error,
         }
@@ -95,14 +95,14 @@ impl HartControl {
     /// That predicate and the calling hart's suspend transition share one lower
     /// protocol commit, so concurrent lifecycle calls cannot invalidate it.
     pub fn suspend_system(&self, next_stage: NextStage) -> HartError {
-        match self.runtime.suspend_system() {
+        match self.admission.suspend_system() {
             Ok(()) => crate::trap::enter_resumed_stage(next_stage),
             Err(error) => error,
         }
     }
 }
 
-impl HartRuntime {
+impl HartAdmission {
     /// Returns the locked lifecycle state of one admitted physical hart.
     pub(crate) fn status(&self, hart_id: usize) -> Result<HartStatus, HartError> {
         let state = self.state.lock();
@@ -127,10 +127,7 @@ impl HartRuntime {
         }
         clear_supervisor_ipi();
         let mut state = self.state.lock();
-        if state
-            .finish_stop(target, &PendingHartWork::default())
-            .is_err()
-        {
+        if state.finish_stop(target, &ClaimedWork::default()).is_err() {
             crate::trap::abort();
         }
         Ok(())
@@ -162,7 +159,7 @@ impl HartRuntime {
             }
             match state.begin_system_suspend(target) {
                 Ok(()) => {}
-                Err(HartStateError::Unavailable) => return Err(HartError::AlreadyAvailable),
+                Err(AdmissionError::Unavailable) => return Err(HartError::AlreadyAvailable),
                 Err(error) => return Err(map_hart_error(error)),
             }
             target
