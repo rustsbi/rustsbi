@@ -1,7 +1,7 @@
 [alias]
 xtask = "run --package xtask --release --"
 arceboot = "xtask arceboot"
-prototyper = "xtask prototyper"
+prototyper = "run --package cargo-prototyper --"
 test-kernel = "xtask test"
 bench-kernel = "xtask bench"
 
