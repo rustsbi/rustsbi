@@ -7,6 +7,7 @@ use std::path::PathBuf;
 pub enum Error {
     WorkspaceNotFound(PathBuf),
     UnsupportedTarget(String),
+    UnsupportedPlatform(String),
     UnsupportedRoleTarget {
         role: &'static str,
         target: String,
@@ -14,7 +15,9 @@ pub enum Error {
     UnsupportedPackaging(&'static str),
     UnsupportedLaunchRole(&'static str),
     InvalidRunnerConfiguration(&'static str),
-    ConflictingBootModes,
+    ConflictingStageSources,
+    InvalidManifest(String),
+    InvalidFirmwareContract(&'static str),
     InvalidLinkAddress(String),
     MissingInput(PathBuf),
     Io {
@@ -46,13 +49,16 @@ impl fmt::Display for Error {
             Self::UnsupportedTarget(target) => {
                 write!(formatter, "unsupported Prototyper target `{target}`")
             }
+            Self::UnsupportedPlatform(platform) => {
+                write!(formatter, "unsupported Prototyper platform `{platform}`")
+            }
             Self::UnsupportedRoleTarget { role, target } => {
                 write!(formatter, "image role `{role}` does not support `{target}`")
             }
             Self::UnsupportedPackaging(role) => {
                 write!(
                     formatter,
-                    "image role `{role}` cannot be packaged as a FIT payload"
+                    "image role `{role}` cannot be packaged as a FIT image"
                 )
             }
             Self::UnsupportedLaunchRole(role) => {
@@ -64,8 +70,14 @@ impl fmt::Display for Error {
             Self::InvalidRunnerConfiguration(reason) => {
                 write!(formatter, "invalid QEMU configuration: {reason}")
             }
-            Self::ConflictingBootModes => {
-                formatter.write_str("payload and jump modes are mutually exclusive")
+            Self::ConflictingStageSources => {
+                formatter.write_str("external and embedded next stages are mutually exclusive")
+            }
+            Self::InvalidManifest(reason) => {
+                write!(formatter, "invalid Prototyper.toml: {reason}")
+            }
+            Self::InvalidFirmwareContract(reason) => {
+                write!(formatter, "invalid firmware contract: {reason}")
             }
             Self::InvalidLinkAddress(value) => {
                 write!(

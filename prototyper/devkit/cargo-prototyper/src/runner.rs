@@ -206,7 +206,7 @@ fn read_all(mut stream: impl Read) -> Result<Vec<u8>, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{BuildOptions, ImageRole, Project};
+    use crate::{BuildOptions, FirmwareConfig, FirmwareType, ImageRole, NextStageSource, Project};
 
     #[test]
     fn qemu_arguments_follow_the_resolved_architecture_and_named_binary() {
@@ -223,6 +223,13 @@ mod tests {
             BuildOptions {
                 role: ImageRole::Firmware,
                 target: Some("riscv32imac-unknown-none-elf".into()),
+                firmware: Some(FirmwareConfig {
+                    source: "<test>".into(),
+                    platform: "qemu-virt".into(),
+                    firmware_type: FirmwareType::Dynamic,
+                    device_tree: None,
+                    next_stage: NextStageSource::Dynamic,
+                }),
                 ..BuildOptions::default()
             },
         )
@@ -244,7 +251,7 @@ mod tests {
             ]
         );
 
-        let payload = crate::ImagePlan::resolve(
+        let stage = crate::ImagePlan::resolve(
             &project,
             BuildOptions {
                 role: ImageRole::Test,
@@ -255,7 +262,7 @@ mod tests {
         assert!(matches!(
             LaunchPlan::qemu_virt(
                 "workspace".into(),
-                &payload,
+                &stage,
                 &artifacts,
                 &QemuConfig::default(),
                 Duration::from_secs(2)

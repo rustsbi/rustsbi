@@ -6,12 +6,10 @@ use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use crate::config::HART_CAPACITY;
 
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 mod entry;
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub(crate) use entry::entry_index;
 
 const MAP_EMPTY: u32 = 0;

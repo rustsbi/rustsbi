@@ -5,15 +5,14 @@ use alloc::sync::Arc;
 use dtoolkit::fdt::Fdt;
 
 use super::BootInfo;
-use super::handoff::enter;
-use crate::counter::PerformanceCounters;
+use super::to_next::enter;
 
 /// Publishes the complete machine runtime and enters the validated next stage.
 ///
 /// This is the only successful transition out of safe upper boot policy. Every
 /// fallible check completes before the Release publication that lets secondary
 /// harts acquire their machine-owned stack and trap state.
-pub fn enter_next_stage(boot: BootInfo, handler: Box<dyn crate::TrapHandler>) -> ! {
+pub(crate) fn enter_next_stage(boot: BootInfo, handler: Box<dyn crate::SbiHandler>) -> ! {
     let prepared = prepare_runtime(boot, handler);
     let PreparedRuntime {
         boot, init_hart, ..
@@ -44,7 +43,7 @@ pub(crate) struct PreparedRuntime {
 /// that failure cannot release secondary harts into a partial runtime.
 pub(crate) fn prepare_runtime(
     boot: BootInfo,
-    handler: Box<dyn crate::TrapHandler>,
+    handler: Box<dyn crate::SbiHandler>,
 ) -> PreparedRuntime {
     let fdt = match Fdt::new(boot.dtb.as_bytes()) {
         Ok(fdt) => fdt,
@@ -70,28 +69,27 @@ pub(crate) fn prepare_runtime(
         terminal_failure(TerminalFailure::HartRuntimePublication);
     }
 
-    let handler: &'static dyn crate::TrapHandler = Box::leak(handler);
-    for index in 0..hart_ids.len() {
-        if crate::trap::entry::prepare(
-            index,
-            handler,
-            boot.timer.as_ref().map(Arc::clone),
-            boot.counters.as_ref().map(PerformanceCounters::share),
-        )
-        .is_err()
-        {
-            terminal_failure(TerminalFailure::TrapPreparation);
-        }
+    let handler: &'static dyn crate::SbiHandler = Box::leak(handler);
+    if let Some(timer) = boot.timer.as_ref()
+        && crate::timer::install(Arc::clone(timer)).is_err()
+    {
+        terminal_failure(TerminalFailure::TimerPreparation);
     }
-    if crate::trap::entry::activate(init_index).is_err() {
-        terminal_failure(TerminalFailure::TrapActivation);
+    if let Some(counters) = boot.counters.as_ref()
+        && crate::counter::install(counters.share()).is_err()
+    {
+        terminal_failure(TerminalFailure::CounterPreparation);
     }
-    if crate::trap::entry::prepare_hypervisor_metadata().is_err() {
+    if crate::trap::install(hart_ids.len(), handler).is_err() {
         terminal_failure(TerminalFailure::TrapPreparation);
     }
-    if let Some(timer) = &boot.timer
-        && timer.prepare_current_hart().is_err()
-    {
+    if crate::trap::activate(init_index).is_err() {
+        terminal_failure(TerminalFailure::TrapActivation);
+    }
+    if crate::trap::prepare_hypervisor_metadata().is_err() {
+        terminal_failure(TerminalFailure::TrapPreparation);
+    }
+    if crate::trap::prepare_timer().is_err() {
         terminal_failure(TerminalFailure::TimerPreparation);
     }
     if let Some(runtime) = &boot.runtime
@@ -99,7 +97,7 @@ pub(crate) fn prepare_runtime(
     {
         terminal_failure(TerminalFailure::HartRuntimePreparation);
     }
-    if crate::trap::entry::prepare_counters(init_index, boot.next_stage.mode()).is_err() {
+    if crate::trap::prepare_counters(boot.next_stage.mode()).is_err() {
         terminal_failure(TerminalFailure::CounterPreparation);
     }
     if crate::pmp::publish(&boot.machine_ranges).is_err() {
@@ -108,7 +106,7 @@ pub(crate) fn prepare_runtime(
     if crate::pmp::configure_current_hart().is_err() {
         terminal_failure(TerminalFailure::ProtectionInstallation);
     }
-    if crate::interrupt::prepare(boot.next_stage.mode()).is_err() {
+    if crate::trap::prepare_delegation(boot.next_stage.mode()).is_err() {
         terminal_failure(TerminalFailure::Delegation);
     }
 

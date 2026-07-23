@@ -6,7 +6,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-machine = { package = "rustsbi-prototyper-machine", path = "../machine" }
+machine = { package = "rustsbi-prototyper-machine", path = "../machine", default-features = false }
 log = { version = "0.4", default-features = false }
 rustsbi = { version = "0.4.1", features = [
     "machine",
@@ -14,7 +14,6 @@ rustsbi = { version = "0.4.1", features = [
 sbi-spec = { version = "0.0.9", path = "../../library/sbi-spec" }
 dtoolkit = { version = "0.3.0", default-features = false, features = ["write"] }
 spin = "0.9.8"
-static-toml = "1"
 sbi-testing = { version = "0.0.3", path = "../../library/sbi-testing", optional = true }
 
 [lib]
@@ -35,9 +34,7 @@ test = false
 bench = false
 
 [features]
+default = []
 nemu = []
-payload = ["machine/payload"]
-jump = ["machine/jump"]
-fdt = ["machine/fdt"]
 hypervisor = ["machine/hypervisor"]
 mtest = ["machine/mtest", "dep:sbi-testing"]

@@ -7,10 +7,11 @@ use dtoolkit::fdt::{Fdt, FdtNode};
 use dtoolkit::{Node, Property};
 
 use super::DriverError;
+use crate::boot::BootInfo;
 use crate::boot::device_tree::{BindingError, enabled, exact_node, model, reg_ranges};
-use crate::boot::{BootInfo, MachineRangeError};
 use crate::config::TRUSTED_TARGET;
 use crate::console::{Console, ConsoleDevice, ConsoleError};
+use crate::memory::IoMem;
 
 mod arch;
 
@@ -28,13 +29,15 @@ const UART_PL011: &str = "pl011";
 /// Validates, claims, and binds the selected firmware UART exactly once.
 pub fn build(boot: &mut BootInfo, node_path: &str) -> Result<Console, DriverError> {
     let binding = Binding::from_dtb(boot, node_path)?;
-    boot.claim_machine_range(binding.range.clone())
-        .map_err(|error| match error {
-            MachineRangeError::Invalid => DriverError::InvalidRange,
-            MachineRangeError::AlreadyClaimed => DriverError::AlreadyOwned,
-        })?;
+    let io = IoMem::acquire(boot, binding.range).map_err(|error| match error {
+        crate::memory::IoMemError::InvalidRange => DriverError::InvalidRange,
+        crate::memory::IoMemError::AlreadyClaimed => DriverError::AlreadyOwned,
+        crate::memory::IoMemError::OutOfBounds | crate::memory::IoMemError::Misaligned => {
+            DriverError::InvalidRange
+        }
+    })?;
     let uart = Uart {
-        base: binding.range.start,
+        io,
         kind: binding.kind,
     };
     uart.initialize();
@@ -125,7 +128,7 @@ fn map_binding_error(error: BindingError) -> DriverError {
 }
 
 struct Uart {
-    base: usize,
+    io: IoMem,
     kind: Kind,
 }
 
@@ -156,25 +159,27 @@ impl Uart {
     }
 
     fn read_u8(&self, offset: usize) -> u8 {
-        // SAFETY: construction checked and exclusively claimed the complete
-        // byte-addressed register window for this concrete device.
-        unsafe { ((self.base + offset) as *const u8).read_volatile() }
+        self.io
+            .read_once(offset)
+            .unwrap_or_else(|_| crate::power::abort(|| {}))
     }
 
     fn write_u8(&self, offset: usize, value: u8) {
-        // SAFETY: same validated, exclusively claimed register window.
-        unsafe { ((self.base + offset) as *mut u8).write_volatile(value) }
+        self.io
+            .write_once(offset, value)
+            .unwrap_or_else(|_| crate::power::abort(|| {}))
     }
 
     fn read_u32(&self, offset: usize) -> u32 {
-        // SAFETY: binding validation checked word alignment and the complete
-        // concrete register extent before publishing this driver.
-        unsafe { ((self.base + offset) as *const u32).read_volatile() }
+        self.io
+            .read_once(offset)
+            .unwrap_or_else(|_| crate::power::abort(|| {}))
     }
 
     fn write_u32(&self, offset: usize, value: u32) {
-        // SAFETY: same aligned, validated, exclusively claimed word register.
-        unsafe { ((self.base + offset) as *mut u32).write_volatile(value) }
+        self.io
+            .write_once(offset, value)
+            .unwrap_or_else(|_| crate::power::abort(|| {}))
     }
 
     fn read_16550(&self, index: usize, stride: usize) -> u8 {

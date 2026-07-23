@@ -8,6 +8,8 @@ publish = false
 
 [dependencies]
 clap = { version = "4.5.4", features = ["derive", "env", "suggestions"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
 
 [lib]
 name = "cargo_prototyper"

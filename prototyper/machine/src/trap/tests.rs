@@ -1,16 +1,14 @@
 use super::{
-    Cause, Frame, HypervisorTrap, Trap,
-    entry::HartTrapState,
+    Cause, Frame, HypervisorTrap, SbiCall, Trap,
     illegal::{DecodedTimeRead, TimeCsr},
 };
 
 #[test]
 fn trap_exposes_only_decoded_observations() {
     let mut frame = Frame::test_frame(0x8020_0000, 5, 0x1234);
-    let state = HartTrapState::new();
     let trap = Trap {
         frame: &mut frame,
-        state: &state,
+        stack_top: 0,
     };
 
     assert_eq!(trap.cause(), Cause::Other);
@@ -20,10 +18,9 @@ fn trap_exposes_only_decoded_observations() {
 fn interrupt_bit_is_removed_from_public_cause_number() {
     let encoded = (1usize << (usize::BITS - 1)) | 7;
     let mut frame = Frame::test_frame(0x1000, encoded, 0);
-    let state = HartTrapState::new();
     let trap = Trap {
         frame: &mut frame,
-        state: &state,
+        stack_top: 0,
     };
 
     assert_eq!(trap.cause(), Cause::MachineTimerInterrupt);
@@ -36,19 +33,18 @@ fn sbi_call_contains_only_copied_abi_values() {
     for (register, value) in (10..=17).zip(0x10..=0x17) {
         assert!(frame.set_register(register, value));
     }
-    let state = HartTrapState::new();
     let trap = Trap {
         frame: &mut frame,
-        state: &state,
+        stack_top: 0,
     };
 
     assert_eq!(
         trap.cause(),
-        Cause::SbiCall {
+        Cause::SbiCall(SbiCall {
             extension_id: 0x17,
             function_id: 0x16,
             arguments: [0x10, 0x11, 0x12, 0x13, 0x14, 0x15],
-        }
+        })
     );
 }
 

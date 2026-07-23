@@ -1,6 +1,6 @@
-//! Upper machine-trap policy.
+//! Upper SBI call handling and firmware-event accounting.
 
-use machine::{Cause, Trap};
+use machine::{SbiCall, SbiResponse, TrapEvent};
 use rustsbi::RustSBI;
 use sbi_spec::pmu::firmware_event;
 
@@ -18,36 +18,29 @@ impl Handler {
     }
 }
 
-impl machine::TrapHandler for Handler {
-    fn handle(&self, trap: Trap<'_>) -> ! {
-        match trap.cause() {
-            Cause::SbiCall {
-                extension_id,
-                function_id,
-                arguments,
-            } => {
-                let result = self.sbi.handle_ecall(extension_id, function_id, arguments);
-                self.sbi.record_sbi_call(extension_id, function_id);
-                trap.resume_from_ecall(result.error, result.value)
-            }
-            Cause::IllegalInstruction => {
+impl machine::SbiHandler for Handler {
+    fn handle_ecall(&self, call: SbiCall) -> SbiResponse {
+        let result = self
+            .sbi
+            .handle_ecall(call.extension_id, call.function_id, call.arguments);
+        self.sbi
+            .record_sbi_call(call.extension_id, call.function_id);
+        SbiResponse::new(result.error, result.value)
+    }
+
+    fn observe_trap(&self, event: TrapEvent) {
+        match event {
+            TrapEvent::IllegalInstruction => {
                 self.sbi.record_firmware_event(firmware_event::ILLEGAL_INSN);
-                trap.emulate_illegal()
             }
-            Cause::LoadMisaligned => {
+            TrapEvent::MisalignedLoad => {
                 self.sbi
                     .record_firmware_event(firmware_event::MISALIGNED_LOAD);
-                trap.redirect()
             }
-            Cause::StoreMisaligned => {
+            TrapEvent::MisalignedStore => {
                 self.sbi
                     .record_firmware_event(firmware_event::MISALIGNED_STORE);
-                trap.redirect()
             }
-            Cause::Other => trap.redirect(),
-            Cause::MachineSoftwareInterrupt
-            | Cause::MachineTimerInterrupt
-            | Cause::MachineExternalInterrupt => machine::abort(|| {}),
         }
     }
 }

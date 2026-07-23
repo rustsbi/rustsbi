@@ -8,7 +8,6 @@ use crate::config::HART_CAPACITY;
 use crate::hart::{HartLocal, HartLocalError};
 
 use super::control::*;
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 use super::probe::probe_current;
 use super::state::*;
 
@@ -32,7 +31,6 @@ impl PerformanceCounters {
     }
 
     /// Probes and normalizes the calling hart before it becomes runnable.
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     pub(crate) fn prepare_current(&self) -> Result<(), CounterError> {
         let facts = probe_current()?;
         reset_all(facts)?;
@@ -190,12 +188,10 @@ impl PerformanceCounters {
         self.facts.current().map_err(map_local_error)
     }
 
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     pub(crate) fn accessible_mask(&self) -> Result<u32, CounterError> {
         Ok(self.current_facts()?.accessible)
     }
 
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     pub(crate) fn retain_current(&self, accessible: u32) -> Result<(), CounterError> {
         let mut facts = self.facts.current().map_err(map_local_error)?;
         facts.accessible &= accessible;

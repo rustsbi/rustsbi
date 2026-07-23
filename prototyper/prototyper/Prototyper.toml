@@ -1,0 +1,18 @@
+# Built-in platform profile used for linking and QEMU execution.
+platform = "qemu-virt"
+
+# Standard OpenSBI firmware type:
+# - FW_DYNAMIC: the previous stage passes `fw_dynamic_info` in `a2`.
+# - FW_JUMP: a separately loaded next stage is entered at a fixed address.
+# - FW_PAYLOAD: devkit links a next-stage binary into the firmware image.
+firmware_type = "FW_PAYLOAD"
+
+# Omit `device_tree` to accept the DTB address supplied by the previous stage
+# in `a1`. Set it to a file path to link a fixed DTB into the firmware.
+
+[next_stage]
+# A package is a development convenience for FW_PAYLOAD. Devkit builds the
+# package and links its binary. Use `binary = "path/to/file.bin"` instead when
+# the next stage is produced outside this workspace.
+package = "rustsbi-test-kernel"
+mode = "supervisor"

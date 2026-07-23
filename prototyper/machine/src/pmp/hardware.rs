@@ -2,9 +2,7 @@
 
 use super::state::{AddressMode, Capability, Entry, Image, MAX_PMP_ENTRIES, Permissions, PmpError};
 
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 mod riscv;
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub(super) use riscv::configure_current_hart;
 
 const PMP_L: u8 = 1 << 7;

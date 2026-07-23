@@ -41,16 +41,16 @@ fn mtest_expansion(function: &str, item: &str) -> String {
     let descriptor = format!("__RUSTSBI_MTEST_{function}");
     format!(
         r#"
-#[cfg(all(feature = "mtest", any(target_arch = "riscv32", target_arch = "riscv64")))]
+#[cfg(feature = "mtest")]
 {item}
 
-#[cfg(all(feature = "mtest", any(target_arch = "riscv32", target_arch = "riscv64")))]
+#[cfg(feature = "mtest")]
 extern "C" fn {test_wrapper}() {{
     let test: fn() = {function};
     test()
 }}
 
-#[cfg(all(feature = "mtest", any(target_arch = "riscv32", target_arch = "riscv64")))]
+#[cfg(feature = "mtest")]
 #[used]
 #[unsafe(link_section = ".mtest_array")]
 static {descriptor}: crate::__private_mtest::Descriptor =
@@ -108,12 +108,15 @@ const _: () = {{
     #[unsafe(link_section = ".text.entry")]
     #[unsafe(export_name = "_start")]
     unsafe extern "C" fn __rustsbi_prototyper_start() -> ! {{
-        // SAFETY: this naked function emits only a direct jump. It preserves
+        unsafe extern "C" {{
+            fn __rustsbi_prototyper_from_previous() -> !;
+        }}
+        // SAFETY: this naked function emits only a direct branch. It preserves
         // every entry register and cannot execute a compiler-generated
         // prologue before the machine TCB establishes a Rust stack.
         ::core::arch::naked_asm!(
             "j {{entry}}",
-            entry = sym ::machine::__private_entry,
+            entry = sym __rustsbi_prototyper_from_previous,
         )
     }}
 }};
@@ -142,7 +145,7 @@ mod tests {
             1
         );
         assert!(expanded.contains("let entry: fn(::machine::BootInfo) -> ! = main;"));
-        assert!(expanded.contains("sym ::machine::__private_entry"));
+        assert!(expanded.contains("sym __rustsbi_prototyper_from_previous"));
     }
 
     #[test]

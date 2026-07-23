@@ -1,6 +1,6 @@
 //! Single source of truth for the machine trap-frame layout.
 
-use super::Cause;
+use super::{Cause, SbiCall};
 
 /// Explicit architectural integer-register layout used by entry and restore.
 #[repr(C)]
@@ -68,6 +68,19 @@ pub(super) struct HypervisorTrap {
 }
 
 impl Frame {
+    pub(super) fn set_hypervisor_metadata(&mut self, value2: usize, instruction: usize) {
+        self.tval2 = value2;
+        self.tinst = instruction;
+        #[cfg(target_pointer_width = "64")]
+        {
+            self.gva = (self.mstatus >> 38) & 1;
+        }
+        #[cfg(target_pointer_width = "32")]
+        {
+            self.gva = (self.mstatus_high >> 6) & 1;
+        }
+    }
+
     pub(super) fn cause(&self) -> Cause {
         let interrupt_bit = 1usize << (usize::BITS - 1);
         let number = self.cause & !interrupt_bit;
@@ -84,7 +97,7 @@ impl Frame {
             2 => Cause::IllegalInstruction,
             4 => Cause::LoadMisaligned,
             6 => Cause::StoreMisaligned,
-            9 if self.previous_mode() == 1 => Cause::SbiCall {
+            9 if self.previous_mode() == 1 => Cause::SbiCall(SbiCall {
                 extension_id: self.register(17).expect("a7 is a valid register"),
                 function_id: self.register(16).expect("a6 is a valid register"),
                 arguments: [
@@ -95,7 +108,7 @@ impl Frame {
                     self.register(14).expect("a4 is a valid register"),
                     self.register(15).expect("a5 is a valid register"),
                 ],
-            },
+            }),
             _ => Cause::Other,
         }
     }
@@ -341,7 +354,6 @@ pub(super) const REGISTER_OFFSETS: [usize; 32] = [
     REGISTERS_OFFSET + core::mem::offset_of!(Registers, x30),
     REGISTERS_OFFSET + core::mem::offset_of!(Registers, x31),
 ];
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 mod assembly_register_offsets {
     use super::REGISTER_OFFSETS;
 
@@ -387,7 +399,6 @@ mod assembly_register_offsets {
     );
 }
 
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub(super) use assembly_register_offsets::*;
 pub(super) const MEPC_OFFSET: usize = core::mem::offset_of!(Frame, mepc);
 pub(super) const MSTATUS_OFFSET: usize = core::mem::offset_of!(Frame, mstatus);

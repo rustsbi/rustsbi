@@ -64,7 +64,7 @@ impl HartControl {
     /// Stops the calling hart. A successful stop does not return.
     pub fn stop(&self) -> HartError {
         match self.runtime.stop_current() {
-            Ok(()) => crate::trap::entry::park_current_hart(),
+            Ok(()) => crate::trap::park_current_hart(),
             Err(error) => error,
         }
     }
@@ -83,7 +83,7 @@ impl HartControl {
     /// cannot return to the original SBI call.
     pub fn suspend_non_retentive(&self, next_stage: NextStage) -> HartError {
         match self.runtime.suspend_current() {
-            Ok(()) => crate::trap::entry::enter_resumed_stage(next_stage),
+            Ok(()) => crate::trap::enter_resumed_stage(next_stage),
             Err(error) => error,
         }
     }
@@ -96,7 +96,7 @@ impl HartControl {
     /// protocol commit, so concurrent lifecycle calls cannot invalidate it.
     pub fn suspend_system(&self, next_stage: NextStage) -> HartError {
         match self.runtime.suspend_system() {
-            Ok(()) => crate::trap::entry::enter_resumed_stage(next_stage),
+            Ok(()) => crate::trap::enter_resumed_stage(next_stage),
             Err(error) => error,
         }
     }

@@ -44,9 +44,24 @@ pub(super) fn run(boot: machine::BootInfo) -> ! {
     let console = console.unwrap_or_else(fail);
     let power = power.unwrap_or_else(fail);
     let tests = machine::prepare_tests(boot, console.clone());
-    let filter = option_env!("RUSTSBI_MTEST_FILTER").unwrap_or("");
     let metadata = run_metadata();
     let mut output = Output(console);
+    if option_env!("RUSTSBI_MTEST_LIST").is_some() {
+        let mut failed = false;
+        tests.visit(|name| {
+            failed |= writeln!(output, "@@RUSTSBI_MTEST type=CASE name={name}").is_err();
+        });
+        terminate(
+            power,
+            if failed {
+                machine::PowerReason::SystemFailure
+            } else {
+                machine::PowerReason::Unspecified
+            },
+        )
+    }
+
+    let filter = option_env!("RUSTSBI_MTEST_FILTER").unwrap_or("");
     let Some(test) = tests.select(filter) else {
         let _ = protocol::harness_fail(&mut output, metadata, "TEST_NOT_FOUND");
         terminate(power, machine::PowerReason::SystemFailure)

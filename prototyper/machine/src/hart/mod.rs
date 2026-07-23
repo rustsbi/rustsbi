@@ -16,6 +16,5 @@ pub use ipi::{Ipi, IpiError};
 pub use map::{HartLocal, HartLocalError, HartLocalGuard, HartTargets};
 
 pub(crate) use ipi::{IpiDevice, Notification};
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub(crate) use map::{entry_index, publish, resolve};
 pub(crate) use runtime::{HartRuntime, notify_terminal_peers};

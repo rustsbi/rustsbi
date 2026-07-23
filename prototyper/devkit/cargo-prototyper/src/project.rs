@@ -43,6 +43,16 @@ impl Project {
             .join(target_name)
             .join(if release { "release" } else { "debug" })
     }
+
+    /// Resolves one user-supplied input path inside or outside the workspace.
+    pub fn input(&self, path: &Path) -> Result<PathBuf, Error> {
+        let path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.root.join(path)
+        };
+        path.canonicalize().map_err(|_| Error::MissingInput(path))
+    }
 }
 
 #[cfg(test)]

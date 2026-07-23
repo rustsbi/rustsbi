@@ -10,13 +10,11 @@
 //! IOPMP/IOMPT, a suitably controlled IOMMU, or equivalent bus-level isolation.
 //! Until then malicious device-initiated writes are outside the soundness claim.
 
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 mod entry;
 mod hardware;
 mod policy;
 mod state;
 
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub(crate) use entry::{configure_current_hart, machine_image_range, publish};
 #[cfg(test)]
 use policy::{compile, compile_machine_policy};

@@ -12,15 +12,12 @@ bench = false
 [dependencies]
 machine-macros = { package = "rustsbi-prototyper-machine-macros", path = "macros" }
 machine-test = { package = "rustsbi-prototyper-machine-test", path = "../machine-test", optional = true }
-static-toml = "1"
 dtoolkit = { version = "0.3.0", default-features = false, features = ["write"] }
 spin = "0.9.8"
 buddy_system_allocator = "0.11.0"
 bitflags = "2"
 
 [features]
+default = []
 mtest = ["dep:machine-test"]
-jump = []
-payload = []
-fdt = []
 hypervisor = []

@@ -231,8 +231,7 @@ impl HartRuntime {
             let mut state = self.state.lock();
             let source = state.resolve_physical(current_hart)?;
             let resolved = state.resolve_targets(targets)?;
-            if !targets_support_request(request, resolved, crate::trap::entry::hypervisor_available)
-            {
+            if !targets_support_request(request, resolved, crate::trap::hypervisor_available) {
                 return Err(HartStateError::NotSupported);
             }
             state.commit_rfence(source, resolved, request)?;

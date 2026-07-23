@@ -7,9 +7,10 @@ use dtoolkit::fdt::Fdt;
 use dtoolkit::{Node, Property};
 
 use super::DriverError;
+use crate::boot::BootInfo;
 use crate::boot::device_tree::{BindingError, enabled, exact_node, model, reg_ranges};
-use crate::boot::{BootInfo, MachineRangeError};
 use crate::config::TRUSTED_TARGET;
+use crate::memory::{IoMem, IoMemError};
 use crate::power::{Power, PowerDevice, PowerReason, RebootKind};
 
 mod arch;
@@ -26,12 +27,13 @@ const RESET: u32 = 0x7777;
 /// Validates and binds one whole-machine power-control register.
 pub fn build(boot: &mut BootInfo, node_path: &str) -> Result<Power, DriverError> {
     let range = binding(boot, node_path)?;
-    boot.claim_machine_range(range.clone())
-        .map_err(|error| match error {
-            MachineRangeError::Invalid => DriverError::InvalidRange,
-            MachineRangeError::AlreadyClaimed => DriverError::AlreadyOwned,
-        })?;
-    Power::new(Box::new(SifiveTest { base: range.start })).ok_or(DriverError::AlreadyOwned)
+    let io = IoMem::acquire(boot, range).map_err(|error| match error {
+        IoMemError::InvalidRange | IoMemError::OutOfBounds | IoMemError::Misaligned => {
+            DriverError::InvalidRange
+        }
+        IoMemError::AlreadyClaimed => DriverError::AlreadyOwned,
+    })?;
+    Power::new(Box::new(SifiveTest { io })).ok_or(DriverError::AlreadyOwned)
 }
 
 fn binding(boot: &BootInfo, path: &str) -> Result<Range<usize>, DriverError> {
@@ -67,15 +69,15 @@ fn map_binding_error(error: BindingError) -> DriverError {
 }
 
 struct SifiveTest {
-    base: usize,
+    io: IoMem,
 }
 
 impl SifiveTest {
     fn write(&self, value: u32) -> ! {
         device_fence();
-        // SAFETY: construction validates and exclusively claims the complete
-        // aligned power-control register before this object becomes reachable.
-        unsafe { (self.base as *mut u32).write_volatile(value) };
+        self.io
+            .write_once(0, value)
+            .unwrap_or_else(|_| crate::power::abort(|| {}));
         device_fence();
         // A platform that returns after accepting a power command has violated
         // the device contract. No firmware state is resumed after commit.

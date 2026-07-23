@@ -5,15 +5,20 @@
 
 mod artifact;
 mod error;
+mod manifest;
 mod plan;
 mod project;
 mod runner;
 
 pub use artifact::{ArtifactSet, execute};
 pub use error::Error;
+pub use manifest::{
+    FirmwareConfig, FirmwareManifest, FirmwareType, NextMode, NextStageManifest, NextStageSource,
+};
 pub use plan::{
-    BuildOptions, CargoAction, DEFAULT_FIRMWARE_TARGET, DEFAULT_PAYLOAD_TARGET, ExecutionPlan,
-    ImagePlan, ImageRole,
+    Architecture, BuildOptions, CargoAction, DEFAULT_FIRMWARE_TARGET, DEFAULT_PAYLOAD_TARGET,
+    ExecutionPlan, ImagePlan, ImageRole, LinkInput, LinkInputContents, RV32_FIRMWARE_TARGET,
+    RV32_PAYLOAD_TARGET,
 };
 pub use project::Project;
 pub use runner::{LaunchPlan, Outcome, QemuConfig, QemuMachine, SerialMode, run as run_launch};

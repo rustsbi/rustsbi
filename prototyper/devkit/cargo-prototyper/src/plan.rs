@@ -1,12 +1,35 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use clap::ValueEnum;
 
-use crate::{Error, Project};
+use crate::{Error, FirmwareConfig, FirmwareType, NextMode, NextStageSource, Project};
 
-pub const DEFAULT_FIRMWARE_TARGET: &str = "riscv64gc-unknown-none-elf";
+pub const DEFAULT_FIRMWARE_TARGET: &str = "riscv64imac-unknown-none-elf";
 pub const DEFAULT_PAYLOAD_TARGET: &str = "riscv64imac-unknown-none-elf";
+pub const RV32_FIRMWARE_TARGET: &str = "riscv32imac-unknown-none-elf";
+pub const RV32_PAYLOAD_TARGET: &str = "riscv32imac-unknown-none-elf";
+
+/// RISC-V architecture selected for one devkit invocation.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
+pub enum Architecture {
+    Rv32,
+    #[default]
+    Rv64,
+}
+
+impl Architecture {
+    /// Returns the fixed Rust target for this architecture and image role.
+    pub const fn target(self, role: ImageRole) -> &'static str {
+        match (self, role) {
+            (Self::Rv32, ImageRole::Firmware | ImageRole::Mtest) => RV32_FIRMWARE_TARGET,
+            (Self::Rv32, ImageRole::Test) => RV32_PAYLOAD_TARGET,
+            (Self::Rv32, ImageRole::Bench) => RV32_PAYLOAD_TARGET,
+            (Self::Rv64, ImageRole::Firmware | ImageRole::Mtest) => DEFAULT_FIRMWARE_TARGET,
+            (Self::Rv64, ImageRole::Test | ImageRole::Bench) => DEFAULT_PAYLOAD_TARGET,
+        }
+    }
+}
 
 /// A bootable image role with an independently reviewed linker contract.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -70,10 +93,7 @@ pub struct BuildOptions {
     pub target: Option<String>,
     pub release: bool,
     pub features: Vec<String>,
-    pub fdt: Option<PathBuf>,
-    pub payload: Option<PathBuf>,
-    pub jump: bool,
-    pub config: Option<PathBuf>,
+    pub firmware: Option<FirmwareConfig>,
     pub test_link_address: Option<String>,
     pub pack: bool,
 }
@@ -85,14 +105,26 @@ impl Default for BuildOptions {
             target: None,
             release: true,
             features: Vec::new(),
-            fdt: None,
-            payload: None,
-            jump: false,
-            config: None,
+            firmware: None,
             test_link_address: None,
             pack: false,
         }
     }
+}
+
+/// One binary input converted to a RISC-V relocatable object before linking.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LinkInput {
+    pub section: &'static str,
+    pub object: PathBuf,
+    pub contents: LinkInputContents,
+}
+
+/// Source of bytes for a generated link input.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LinkInputContents {
+    Bytes(Vec<u8>),
+    File(PathBuf),
 }
 
 /// All inputs that determine one Cargo invocation and its final image.
@@ -107,18 +139,15 @@ pub struct ImagePlan {
     pub environment: BTreeMap<String, String>,
     pub linker: PathBuf,
     pub linker_symbols: Vec<(String, String)>,
+    pub link_inputs: Vec<LinkInput>,
     pub target_dir: PathBuf,
-    pub config_source: Option<PathBuf>,
-    pub config_destination: Option<PathBuf>,
     pub mode_suffix: Option<&'static str>,
+    pub firmware_type: Option<FirmwareType>,
     pub pack: bool,
 }
 
 impl ImagePlan {
     pub fn resolve(project: &Project, options: BuildOptions) -> Result<Self, Error> {
-        if options.payload.is_some() && options.jump {
-            return Err(Error::ConflictingBootModes);
-        }
         if options.pack && !matches!(options.role, ImageRole::Test | ImageRole::Bench) {
             return Err(Error::UnsupportedPackaging(options.role.name()));
         }
@@ -136,24 +165,7 @@ impl ImagePlan {
         }
 
         let mut features = options.features;
-        let mut environment = BTreeMap::new();
-        if let Some(path) = &options.fdt {
-            push_feature(&mut features, "fdt");
-            environment.insert(
-                "PROTOTYPER_FDT_PATH".into(),
-                absolute_input(project, path)?.display().to_string(),
-            );
-        }
-        if let Some(path) = &options.payload {
-            push_feature(&mut features, "payload");
-            environment.insert(
-                "PROTOTYPER_PAYLOAD_PATH".into(),
-                absolute_input(project, path)?.display().to_string(),
-            );
-        }
-        if options.jump {
-            push_feature(&mut features, "jump");
-        }
+        let environment = BTreeMap::new();
         if options.role == ImageRole::Mtest {
             push_feature(&mut features, "mtest");
         }
@@ -165,6 +177,12 @@ impl ImagePlan {
             return Err(Error::MissingInput(linker));
         }
         let mut linker_symbols = Vec::new();
+        if matches!(options.role, ImageRole::Firmware | ImageRole::Mtest) {
+            linker_symbols.push((
+                "__prototyper_payload_address".into(),
+                format!("0x{:x}", payload_address(width)),
+            ));
+        }
         if options.role == ImageRole::Mtest {
             linker_symbols.push((
                 "__mtest_descriptor_size".into(),
@@ -182,33 +200,75 @@ impl ImagePlan {
             ));
         }
 
-        let config_source = matches!(options.role, ImageRole::Firmware | ImageRole::Mtest)
-            .then(|| -> Result<PathBuf, Error> {
-                let path = options.config.unwrap_or_else(|| {
-                    project
-                        .root()
-                        .join("prototyper/prototyper/config/default.toml")
-                });
-                absolute_input(project, &path)
-            })
-            .transpose()?;
-        if let Some(path) = &config_source
-            && !path.is_file()
-        {
-            return Err(Error::MissingInput(path.clone()));
-        }
-        let config_destination = config_source
-            .as_ref()
-            .map(|_| project.root().join("target/config.toml"));
-        let mode_suffix = match options.role {
-            ImageRole::Firmware => Some(if options.payload.is_some() {
-                "payload"
-            } else if options.jump {
-                "jump"
-            } else {
-                "dynamic"
+        let firmware = match options.role {
+            ImageRole::Firmware => Some(options.firmware.ok_or(Error::InvalidFirmwareContract(
+                "firmware configuration was not resolved",
+            ))?),
+            ImageRole::Mtest => Some(FirmwareConfig {
+                source: PathBuf::from("<devkit:mtest>"),
+                platform: "qemu-virt".into(),
+                firmware_type: FirmwareType::Jump,
+                device_tree: None,
+                next_stage: NextStageSource::Jump {
+                    address: 0x8020_0000,
+                    mode: NextMode::Supervisor,
+                },
             }),
-            _ => None,
+            ImageRole::Test | ImageRole::Bench => None,
+        };
+        let link_directory = project
+            .root()
+            .join("target/prototyper-link")
+            .join(&target)
+            .join(options.role.name());
+        let mut link_inputs = Vec::new();
+        let (firmware_type, mode_suffix) = if let Some(firmware) = firmware {
+            if firmware.platform != "qemu-virt" {
+                return Err(Error::UnsupportedPlatform(firmware.platform));
+            }
+            let (address, mode) = match &firmware.next_stage {
+                NextStageSource::Dynamic => (0, NextMode::Supervisor),
+                NextStageSource::Jump { address, mode } => (*address, *mode),
+                NextStageSource::PayloadBinary { binary, mode } => {
+                    link_inputs.push(LinkInput {
+                        section: ".prototyper.payload",
+                        object: link_directory.join("payload.o"),
+                        contents: LinkInputContents::File(binary.clone()),
+                    });
+                    (payload_address(width), *mode)
+                }
+                NextStageSource::PayloadPackage { .. } => {
+                    return Err(Error::InvalidFirmwareContract(
+                        "the FW_PAYLOAD package must be built before image planning",
+                    ));
+                }
+            };
+            link_inputs.push(LinkInput {
+                section: ".prototyper.contract",
+                object: link_directory.join("contract.o"),
+                contents: LinkInputContents::Bytes(encode_contract(
+                    firmware.firmware_type,
+                    mode,
+                    address,
+                )),
+            });
+            if let Some(device_tree) = firmware.device_tree {
+                link_inputs.push(LinkInput {
+                    section: ".prototyper.dtb",
+                    object: link_directory.join("device-tree.o"),
+                    contents: LinkInputContents::File(device_tree),
+                });
+            }
+            (
+                Some(firmware.firmware_type),
+                Some(match firmware.firmware_type {
+                    FirmwareType::Dynamic => "fw-dynamic",
+                    FirmwareType::Jump => "fw-jump",
+                    FirmwareType::Payload => "fw-payload",
+                }),
+            )
+        } else {
+            (None, None)
         };
 
         Ok(Self {
@@ -222,9 +282,9 @@ impl ImagePlan {
             environment,
             linker,
             linker_symbols,
-            config_source,
-            config_destination,
+            link_inputs,
             mode_suffix,
+            firmware_type,
             pack: options.pack,
         })
     }
@@ -236,6 +296,9 @@ impl ImagePlan {
         }
         for (name, value) in &self.linker_symbols {
             flags.extend(["-C".into(), format!("link-arg=--defsym={name}={value}")]);
+        }
+        for input in &self.link_inputs {
+            flags.extend(["-C".into(), format!("link-arg={}", input.object.display())]);
         }
         // Symbols used while the script advances `.` must be defined before
         // the script is evaluated. In particular, the test image's optional
@@ -271,6 +334,7 @@ impl ExecutionPlan {
             image.binary.into(),
             "--target".into(),
             image.target.clone(),
+            "--no-default-features".into(),
             "-Z".into(),
             "build-std=core,alloc".into(),
         ];
@@ -299,15 +363,15 @@ impl ExecutionPlan {
 
 fn linker_path(project: &Project, role: ImageRole, width: u8) -> PathBuf {
     let relative = match (role, width) {
-        (ImageRole::Firmware, _) => "firmware/default.ld",
-        (ImageRole::Mtest, _) => "mtest/default.ld",
-        (ImageRole::Test, 32) => "test/riscv32.ld",
-        (ImageRole::Test, _) => "test/riscv64.ld",
-        (ImageRole::Bench, _) => "bench/riscv64.ld",
+        (ImageRole::Firmware, _) => "firmware.ld",
+        (ImageRole::Mtest, _) => "mtest.ld",
+        (ImageRole::Test, 32) => "test-rv32.ld",
+        (ImageRole::Test, _) => "test-rv64.ld",
+        (ImageRole::Bench, _) => "bench-rv64.ld",
     };
     project
         .root()
-        .join("prototyper/devkit/linker")
+        .join("prototyper/devkit/platforms/qemu-virt")
         .join(relative)
 }
 
@@ -321,20 +385,18 @@ fn target_width(target: &str) -> Result<u8, Error> {
     }
 }
 
+const fn payload_address(width: u8) -> u64 {
+    if width == 32 {
+        0x8040_0000
+    } else {
+        0x8020_0000
+    }
+}
+
 fn push_feature(features: &mut Vec<String>, feature: &str) {
     if !features.iter().any(|known| known == feature) {
         features.push(feature.into());
     }
-}
-
-fn absolute_input(project: &Project, input: &Path) -> Result<PathBuf, Error> {
-    let path = if input.is_absolute() {
-        input.to_path_buf()
-    } else {
-        project.root().join(input)
-    };
-    path.canonicalize()
-        .map_err(|error| Error::io("resolve input", error))
 }
 
 fn parse_link_address(value: &str) -> Result<usize, Error> {
@@ -345,6 +407,22 @@ fn parse_link_address(value: &str) -> Result<usize, Error> {
         .ok_or_else(|| Error::InvalidLinkAddress(value.into()))
 }
 
+fn encode_contract(firmware_type: FirmwareType, mode: NextMode, next_address: u64) -> Vec<u8> {
+    const MAGIC: u32 = 0x5054_5950;
+    const VERSION: u16 = 1;
+    let mut bytes = Vec::with_capacity(40);
+    bytes.extend_from_slice(&MAGIC.to_le_bytes());
+    bytes.extend_from_slice(&VERSION.to_le_bytes());
+    bytes.push(firmware_type.contract_kind());
+    bytes.push(mode.encoding());
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    bytes.extend_from_slice(&next_address.to_le_bytes());
+    bytes.extend_from_slice(&0x8000_0000u64.to_le_bytes());
+    bytes.extend_from_slice(&0x9000_0000u64.to_le_bytes());
+    bytes
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -353,30 +431,49 @@ mod tests {
         Project::discover(env!("CARGO_MANIFEST_DIR")).unwrap()
     }
 
+    fn dynamic_config() -> FirmwareConfig {
+        FirmwareConfig {
+            source: PathBuf::from("<test>"),
+            platform: "qemu-virt".into(),
+            firmware_type: FirmwareType::Dynamic,
+            device_tree: None,
+            next_stage: NextStageSource::Dynamic,
+        }
+    }
+
     #[test]
-    fn default_firmware_plan_preserves_the_current_build_contract() {
-        let plan = ExecutionPlan::resolve(&project(), CargoAction::Build, BuildOptions::default())
-            .unwrap();
+    fn firmware_plan_uses_the_normalized_link_contract() {
+        let plan = ExecutionPlan::resolve(
+            &project(),
+            CargoAction::Build,
+            BuildOptions {
+                firmware: Some(dynamic_config()),
+                ..BuildOptions::default()
+            },
+        )
+        .unwrap();
         assert_eq!(plan.image.target, DEFAULT_FIRMWARE_TARGET);
         assert_eq!(plan.image.package, "rustsbi-prototyper");
-        assert_eq!(plan.image.mode_suffix, Some("dynamic"));
+        assert_eq!(plan.image.mode_suffix, Some("fw-dynamic"));
+        assert_eq!(plan.image.link_inputs.len(), 1);
         assert!(plan.environment["RUSTFLAGS"].contains("relocation-model=pie"));
-        assert!(plan.environment["RUSTFLAGS"].contains("firmware/default.ld"));
+        assert!(plan.environment["RUSTFLAGS"].contains("qemu-virt/firmware.ld"));
     }
 
     #[test]
     fn roles_select_linkers_independently_of_package_names() {
         let project = project();
         for (role, suffix) in [
-            (ImageRole::Firmware, "firmware/default.ld"),
-            (ImageRole::Mtest, "mtest/default.ld"),
-            (ImageRole::Test, "test/riscv64.ld"),
-            (ImageRole::Bench, "bench/riscv64.ld"),
+            (ImageRole::Firmware, "firmware.ld"),
+            (ImageRole::Mtest, "mtest.ld"),
+            (ImageRole::Test, "test-rv64.ld"),
+            (ImageRole::Bench, "bench-rv64.ld"),
         ] {
             let plan = ImagePlan::resolve(
                 &project,
                 BuildOptions {
                     role,
+                    firmware: (role == ImageRole::Firmware).then(dynamic_config),
                     ..BuildOptions::default()
                 },
             )
@@ -386,17 +483,10 @@ mod tests {
     }
 
     #[test]
-    fn rejects_conflicting_boot_modes_and_misaligned_test_addresses() {
+    fn rejects_missing_firmware_contract_and_misaligned_test_addresses() {
         assert!(matches!(
-            ImagePlan::resolve(
-                &project(),
-                BuildOptions {
-                    payload: Some(PathBuf::from("Cargo.toml")),
-                    jump: true,
-                    ..BuildOptions::default()
-                }
-            ),
-            Err(Error::ConflictingBootModes)
+            ImagePlan::resolve(&project(), BuildOptions::default()),
+            Err(Error::InvalidFirmwareContract(_))
         ));
         assert!(matches!(
             ImagePlan::resolve(
@@ -413,6 +503,7 @@ mod tests {
             ImagePlan::resolve(
                 &project(),
                 BuildOptions {
+                    firmware: Some(dynamic_config()),
                     pack: true,
                     ..BuildOptions::default()
                 }
@@ -434,7 +525,10 @@ mod tests {
         .unwrap();
         assert_eq!(
             plan.linker_symbols,
-            [("__mtest_descriptor_size".into(), "12".into())]
+            [
+                ("__prototyper_payload_address".into(), "0x80400000".into()),
+                ("__mtest_descriptor_size".into(), "12".into()),
+            ]
         );
     }
 

@@ -1,9 +1,7 @@
 //! Typed machine-CSR probes used during per-hart preparation.
 
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 mod riscv;
 
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub(crate) use riscv::{prepare_counter_access, probe_hypervisor_metadata};
 
 const TIME_COUNTER: usize = 1 << 1;

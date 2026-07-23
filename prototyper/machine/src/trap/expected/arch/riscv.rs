@@ -1,12 +1,10 @@
 //! RISC-V implementation of the one-instruction expected-fault window.
 
-use crate::trap::entry;
-
 use super::super::{
     ARMED_OFFSET, CAUSE_OFFSET, EXPECTED_CAUSE_OFFSET, ExpectedResult, ExpectedTrapRecord,
     FAULTED_OFFSET, FLAG_HYPERVISOR, FLAGS_OFFSET, GVA_OFFSET, RESUME_PC_OFFSET,
     SAVED_MSTATUS_HIGH_OFFSET, SAVED_MSTATUS_OFFSET, SAVED_MTVEC_OFFSET, TINST_OFFSET, TVAL_OFFSET,
-    TVAL2_OFFSET,
+    TVAL2_OFFSET, current_record,
 };
 
 const MSTATUS_MIE: usize = 1 << 3;
@@ -167,13 +165,9 @@ macro_rules! perform_expected {
             0 => ExpectedResult::Value(value),
             1 => ExpectedResult::Fault($record.fault()),
             2 => ExpectedResult::Busy,
-            _ => entry::abort(),
+            _ => crate::trap::abort(),
         }
     }};
-}
-
-fn current_record() -> Option<&'static ExpectedTrapRecord> {
-    entry::current_state().map(|state| state.expected())
 }
 
 /// Reads one fixed CSR selected by a responsibility-specific wrapper.
@@ -230,7 +224,7 @@ unsafe extern "C" {
 }
 
 core::arch::global_asm!(
-    include_str!("../../expected.S"),
+    include_str!("../../arch/riscv/expected.S"),
     word_size = const core::mem::size_of::<usize>(),
     armed = const ARMED_OFFSET,
     resume_pc = const RESUME_PC_OFFSET,

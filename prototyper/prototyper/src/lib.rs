@@ -21,7 +21,7 @@ struct Initialized {
     fence: Option<machine::RemoteFence>,
     power: Option<machine::Power>,
     console: Option<machine::Console>,
-    memory: machine::SModeMemory,
+    memory: machine::memory::SupervisorMemory,
     counters: Option<machine::PerformanceCounters>,
     hart_count: usize,
 }
@@ -53,7 +53,7 @@ fn initialize(mut boot: machine::BootInfo) -> Initialized {
     let power = facts.power.as_ref().map(|power| {
         machine::drivers::sifive_test::build(&mut boot, &power.path).unwrap_or_else(|_| fail())
     });
-    let memory = machine::SModeMemory::from_boot(&boot).unwrap_or_else(|_| fail());
+    let memory = boot.supervisor_memory().unwrap_or_else(|_| fail());
     let counters = boot
         .performance_counters()
         .map(Some)
@@ -93,7 +93,7 @@ pub fn run(boot: machine::BootInfo) -> ! {
     let sbi = sbi::Handler::new(
         timer, ipi, harts, fence, power, console, memory, counters, hart_count,
     );
-    machine::enter_next_stage(boot, Box::new(trap::Handler::new(sbi)))
+    boot.enter_next_stage(Box::new(trap::Handler::new(sbi)))
 }
 
 /// Runs the selected M-mode test in the dedicated test firmware.

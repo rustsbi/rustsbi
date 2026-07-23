@@ -2,6 +2,7 @@
 
 use core::ops::Range;
 
+use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
@@ -27,6 +28,15 @@ pub struct BootInfo {
 }
 
 impl BootInfo {
+    /// Publishes the complete machine runtime and enters the next stage.
+    ///
+    /// This consuming method is the sole public terminal handoff. Every
+    /// fallible preparation step completes before secondary harts can observe
+    /// the runtime.
+    pub fn enter_next_stage(self, handler: Box<dyn crate::SbiHandler>) -> ! {
+        super::prepare::enter_next_stage(self, handler)
+    }
+
     /// Borrows the owned DTB for platform discovery and visibility policy.
     pub fn dtb_mut(&mut self) -> &mut BootDtb {
         &mut self.dtb
@@ -77,6 +87,13 @@ impl BootInfo {
         let counters = PerformanceCounters::unprepared()?;
         self.counters = Some(counters.share());
         Ok(counters)
+    }
+
+    /// Builds bounded access to supervisor-visible physical memory.
+    pub fn supervisor_memory(
+        &self,
+    ) -> Result<crate::memory::SupervisorMemory, crate::memory::MemoryError> {
+        crate::memory::SupervisorMemory::from_boot(self)
     }
 
     pub(crate) fn machine_ranges(&self) -> &[Range<usize>] {

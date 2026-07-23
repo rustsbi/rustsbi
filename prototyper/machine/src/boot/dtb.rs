@@ -5,7 +5,6 @@ use core::mem::MaybeUninit;
 use core::ops::Range;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use dtoolkit::fdt::Fdt;
@@ -89,7 +88,6 @@ impl BootDtb {
         Ok(())
     }
 
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     pub(super) fn into_handoff_address(self) -> Result<usize, HandoffDtbError> {
         if HANDOFF_DTB_CLAIMED.swap(true, Ordering::AcqRel) {
             return Err(HandoffDtbError::AlreadyPublished);

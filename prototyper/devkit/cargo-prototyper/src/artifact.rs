@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-use crate::{CargoAction, Error, ExecutionPlan, ImageRole};
+use crate::{CargoAction, Error, ExecutionPlan, ImageRole, LinkInputContents};
 
 /// Paths produced from one resolved image plan.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -51,11 +51,13 @@ impl ArtifactSet {
 
 /// Executes Cargo and, for build plans, constructs the final image artifacts.
 pub fn execute(plan: &ExecutionPlan) -> Result<ArtifactSet, Error> {
-    prepare_config(plan)?;
+    prepare_link_inputs(plan)?;
     let mut cargo = Command::new(&plan.program);
     cargo
         .current_dir(&plan.project_root)
         .args(&plan.arguments)
+        .env_remove("RUSTSBI_MTEST_LIST")
+        .env_remove("RUSTSBI_MTEST_FILTER")
         .envs(&plan.environment);
     run_checked(&mut cargo, &plan.program)?;
 
@@ -93,16 +95,41 @@ pub fn execute(plan: &ExecutionPlan) -> Result<ArtifactSet, Error> {
     Ok(artifacts)
 }
 
-fn prepare_config(plan: &ExecutionPlan) -> Result<(), Error> {
-    let (Some(source), Some(destination)) =
-        (&plan.image.config_source, &plan.image.config_destination)
-    else {
-        return Ok(());
+fn prepare_link_inputs(plan: &ExecutionPlan) -> Result<(), Error> {
+    let format = if plan.image.target.contains("riscv32") {
+        "elf32-littleriscv"
+    } else {
+        "elf64-littleriscv"
     };
-    if let Some(parent) = destination.parent() {
-        fs::create_dir_all(parent).map_err(|error| Error::io("create config directory", error))?;
+    for input in &plan.image.link_inputs {
+        let parent = input
+            .object
+            .parent()
+            .expect("generated object paths always have a parent");
+        fs::create_dir_all(parent)
+            .map_err(|error| Error::io("create link-input directory", error))?;
+        let source = match &input.contents {
+            LinkInputContents::File(path) => path.clone(),
+            LinkInputContents::Bytes(bytes) => {
+                let path = input.object.with_extension("bin");
+                fs::write(&path, bytes)
+                    .map_err(|error| Error::io("write normalized firmware contract", error))?;
+                path
+            }
+        };
+        let mut objcopy = Command::new("rust-objcopy");
+        objcopy.args([
+            "-I",
+            "binary",
+            "-O",
+            format,
+            "--rename-section",
+            &format!(".data={},alloc,load,readonly,data,contents", input.section),
+            &source.to_string_lossy(),
+            &input.object.to_string_lossy(),
+        ]);
+        run_checked(&mut objcopy, "rust-objcopy")?;
     }
-    fs::copy(source, destination).map_err(|error| Error::io("install build config", error))?;
     Ok(())
 }
 

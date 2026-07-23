@@ -7,6 +7,8 @@
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::config::HART_CAPACITY;
+
 mod arch;
 
 pub(crate) use arch::{load_byte, probe_csr, store_byte, swap_csr};
@@ -44,6 +46,11 @@ pub(super) struct ExpectedTrapRecord {
     saved_mstatus: UnsafeCell<usize>,
     saved_mstatus_high: UnsafeCell<usize>,
 }
+
+// SAFETY: each record is selected only by its admitted dense hart index.
+// Expected-fault assembly disables local interrupts and rejects reentry before
+// mutating the current hart's record.
+unsafe impl Sync for ExpectedTrapRecord {}
 
 impl ExpectedTrapRecord {
     pub(super) const fn new() -> Self {
@@ -87,6 +94,23 @@ impl ExpectedTrapRecord {
             }
         }
     }
+}
+
+static EXPECTED_TRAPS: [ExpectedTrapRecord; HART_CAPACITY] =
+    [const { ExpectedTrapRecord::new() }; HART_CAPACITY];
+
+pub(super) fn current_record() -> Option<&'static ExpectedTrapRecord> {
+    EXPECTED_TRAPS.get(super::current_index()?)
+}
+
+pub(super) fn enable_hypervisor_metadata(index: usize) -> bool {
+    let Some(record) = EXPECTED_TRAPS.get(index) else {
+        return false;
+    };
+    // SAFETY: current-hart preparation runs with machine interrupts disabled
+    // before the first lower-mode entry and writes the immutable capability.
+    unsafe { record.enable_hypervisor_metadata() };
+    true
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

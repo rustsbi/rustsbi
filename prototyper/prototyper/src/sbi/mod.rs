@@ -9,7 +9,7 @@ mod rfence;
 mod timer;
 
 use machine::{
-    Console, HartControl, Ipi as MachineIpi, Power, RemoteFence as MachineRemoteFence, SModeMemory,
+    Console, HartControl, Ipi as MachineIpi, Power, RemoteFence as MachineRemoteFence,
     Timer as MachineTimer,
 };
 use rustsbi::RustSBI;
@@ -59,7 +59,7 @@ impl Handler {
         rfence: Option<MachineRemoteFence>,
         power: Option<Power>,
         console: Option<Console>,
-        memory: SModeMemory,
+        memory: machine::memory::SupervisorMemory,
         counters: Option<machine::PerformanceCounters>,
         hart_count: usize,
     ) -> Self {

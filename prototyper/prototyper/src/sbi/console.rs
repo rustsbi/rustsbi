@@ -1,17 +1,18 @@
 //! Debug-console protocol adapter.
 
-use machine::{Console, ConsoleError, SModeMemory, SModeMemoryError};
+use machine::memory::{MemoryError, SupervisorMemory};
+use machine::{Console, ConsoleError};
 use rustsbi::{Physical, SbiRet};
 
 const TRANSFER_CHUNK: usize = 64;
 
 pub(super) struct DebugConsole {
     console: Console,
-    memory: SModeMemory,
+    memory: SupervisorMemory,
 }
 
 impl DebugConsole {
-    pub(super) fn new(console: Console, memory: SModeMemory) -> Self {
+    pub(super) fn new(console: Console, memory: SupervisorMemory) -> Self {
         Self { console, memory }
     }
 }
@@ -30,7 +31,7 @@ impl rustsbi::Console for DebugConsole {
         let mut buffer = [0u8; TRANSFER_CHUNK];
         while total < bytes.num_bytes() {
             let count = (bytes.num_bytes() - total).min(buffer.len());
-            if let Err(error) = source.read(&mut buffer[..count]) {
+            if let Err(error) = source.read_exact(&mut buffer[..count]) {
                 return memory_error(error);
             }
             match self.console.write(&buffer[..count]) {
@@ -67,7 +68,7 @@ impl rustsbi::Console for DebugConsole {
             if count == 0 {
                 break;
             }
-            if let Err(error) = destination.write(&buffer[..count]) {
+            if let Err(error) = destination.write_all(&buffer[..count]) {
                 return memory_error(error);
             }
             total += count;
@@ -86,11 +87,9 @@ impl rustsbi::Console for DebugConsole {
     }
 }
 
-fn memory_error(error: SModeMemoryError) -> SbiRet {
+fn memory_error(error: MemoryError) -> SbiRet {
     match error {
-        SModeMemoryError::InvalidRange | SModeMemoryError::UnsupportedRange => {
-            SbiRet::invalid_param()
-        }
-        SModeMemoryError::Fault => SbiRet::failed(),
+        MemoryError::InvalidRange | MemoryError::UnsupportedRange => SbiRet::invalid_param(),
+        MemoryError::Fault => SbiRet::failed(),
     }
 }
