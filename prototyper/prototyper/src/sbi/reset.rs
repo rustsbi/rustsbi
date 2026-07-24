@@ -2,6 +2,7 @@
 
 use machine::power::{self, PowerError, PowerReason, RebootKind};
 use rustsbi::SbiRet;
+use sbi_spec::binary::Error;
 use sbi_spec::srst;
 
 pub(super) struct Reset;
@@ -17,16 +18,16 @@ impl rustsbi::Reset for Reset {
         let reason = match reset_reason {
             srst::RESET_REASON_NO_REASON => PowerReason::Unspecified,
             srst::RESET_REASON_SYSTEM_FAILURE => PowerReason::SystemFailure,
-            _ => return SbiRet::invalid_param(),
+            _ => return Error::InvalidParam.into(),
         };
         let error = match reset_type {
             srst::RESET_TYPE_SHUTDOWN => power::shutdown(reason),
             srst::RESET_TYPE_COLD_REBOOT => power::reboot(RebootKind::Cold, reason),
             srst::RESET_TYPE_WARM_REBOOT => power::reboot(RebootKind::Warm, reason),
-            _ => return SbiRet::invalid_param(),
+            _ => return Error::InvalidParam.into(),
         };
         match error {
-            Err(PowerError::Unsupported) => SbiRet::not_supported(),
+            Err(PowerError::Unsupported) => Error::NotSupported.into(),
             Ok(never) => match never {},
         }
     }

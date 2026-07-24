@@ -44,42 +44,10 @@ pub struct SbiCall {
     pub arguments: [usize; 6],
 }
 
-/// The two registers returned by an SBI environment call.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct SbiResponse {
-    /// SBI error code returned in `a0`.
-    pub error: usize,
-    /// SBI result value returned in `a1`.
-    pub value: usize,
-}
-
-impl SbiResponse {
-    /// Creates one copied SBI response.
-    pub const fn new(error: usize, value: usize) -> Self {
-        Self { error, value }
-    }
-}
-
-/// A lower-privilege trap observed before machine-owned routing completes.
-///
-/// This value carries no frame, register, CSR or continuation authority.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TrapEvent {
-    /// An illegal instruction was trapped for compatibility emulation.
-    IllegalInstruction,
-    /// A misaligned load is being redirected to the supervisor.
-    MisalignedLoad,
-    /// A misaligned store or atomic operation is being redirected.
-    MisalignedStore,
-}
-
-/// Safe upper policy for copied SBI calls and optional trap accounting.
+/// Safe upper policy for copied SBI environment calls.
 pub trait SbiHandler: Send + Sync + 'static {
-    /// Handles one copied SBI call and returns the two SBI result registers.
-    fn handle_ecall(&self, call: SbiCall) -> SbiResponse;
-
-    /// Observes a trap event without receiving its frame or continuation.
-    fn observe_trap(&self, _event: TrapEvent) {}
+    /// Handles one copied SBI call and returns the standard SBI result pair.
+    fn handle(&self, call: SbiCall) -> sbi_spec::binary::SbiRet;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

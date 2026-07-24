@@ -1,9 +1,4 @@
-//! Inert facts for the retained machine-level IMSIC and APLIC path.
-
-#![expect(
-    dead_code,
-    reason = "complete validated facts are retained for DT policy and construction cross-checks"
-)]
+//! Discovery of the retained machine-level IMSIC and APLIC path.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -12,8 +7,8 @@ use core::ops::Range;
 use dtoolkit::model::DeviceTreeNode;
 use dtoolkit::{Node, Property};
 
-use super::dt::{PlatformDtb, cell_count, enabled, read_cells};
-use super::facts::DiscoverError;
+use super::discovery::Error as DiscoverError;
+use super::dt::{BootTree, cell_count, enabled, read_cells};
 use super::hart::HartInfo;
 
 const MACHINE_EXTERNAL_INTERRUPT: u32 = 11;
@@ -21,49 +16,24 @@ const FIRMWARE_IPI_IID: u16 = 1;
 const IMSIC_COMPATIBLE: [&str; 2] = ["riscv,imsics", "riscv,imsic"];
 const APLIC_COMPATIBLE: &str = "riscv,aplic";
 
-/// The machine interrupt file assigned to one admitted physical hart.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ImsicHartFile {
-    /// Sparse architectural hart identity.
-    pub hart_id: usize,
-    /// Zero-based interrupt-file index in `interrupts-extended`.
-    pub file_index: u32,
-    /// Physical base of this hart's machine interrupt file.
-    pub address: usize,
+struct HartFile {
+    hart_id: usize,
+    address: usize,
 }
 
-/// Immutable facts for the retained machine-level IMSIC node.
-pub struct Imsic {
-    /// Exact node identity retained for machine binding and DT policy.
-    pub path: String,
-    /// Complete physical ranges described by `reg`.
-    pub ranges: Vec<Range<usize>>,
-    /// Implemented interrupt identity count.
-    pub num_ids: u16,
-    /// Reserved identity used for firmware work notifications.
-    pub firmware_ipi_iid: u16,
-    /// Number of low topology bits selecting a hart within a group.
-    pub hart_index_bits: u32,
-    /// Number of topology bits selecting a group.
-    pub group_index_bits: u32,
-    /// Address bit at which the group index begins.
-    pub group_index_shift: u32,
-    /// Exact admitted-hart to machine-file assignment.
-    pub hart_files: Vec<ImsicHartFile>,
+/// Validated IMSIC node selected for machine installation.
+pub(super) struct Imsic {
+    pub(super) path: String,
 }
 
-/// Immutable facts for the retained machine-level APLIC node.
-pub struct Aplic {
-    /// Exact node identity retained for machine binding and DT policy.
-    pub path: String,
-    /// Physical register range.
-    pub range: Range<usize>,
-    /// Number of interrupt sources exposed by the domain.
-    pub num_sources: u32,
+/// Validated APLIC node selected for machine installation.
+pub(super) struct Aplic {
+    pub(super) path: String,
 }
 
 pub(super) fn discover(
-    tree: &PlatformDtb,
+    tree: &BootTree,
     harts: &[HartInfo],
 ) -> Result<(Option<Imsic>, Option<Aplic>), DiscoverError> {
     let intc_harts = cpu_interrupt_controllers(tree)?;
@@ -171,27 +141,14 @@ fn discover_imsic(
         }
         if hart_files
             .iter()
-            .any(|file: &ImsicHartFile| file.hart_id == hart_id || file.address == address)
+            .any(|file: &HartFile| file.hart_id == hart_id || file.address == address)
         {
             return Err(DiscoverError::UnsupportedDevice);
         }
-        hart_files.push(ImsicHartFile {
-            hart_id,
-            file_index,
-            address,
-        });
+        hart_files.push(HartFile { hart_id, address });
     }
 
-    Ok(Some(Imsic {
-        path,
-        ranges,
-        num_ids,
-        firmware_ipi_iid: FIRMWARE_IPI_IID,
-        hart_index_bits,
-        group_index_bits,
-        group_index_shift,
-        hart_files,
-    }))
+    Ok(Some(Imsic { path }))
 }
 
 fn discover_aplic(
@@ -201,22 +158,17 @@ fn discover_aplic(
 ) -> Result<Aplic, DiscoverError> {
     let ranges = reg_ranges(parent, node)?;
     let mut ranges = ranges.into_iter();
-    let range = ranges.next().ok_or(DiscoverError::DeviceRange)?;
+    ranges.next().ok_or(DiscoverError::DeviceRange)?;
     if ranges.next().is_some() {
         return Err(DiscoverError::DeviceRange);
     }
-    let num_sources = required_u32(node, "riscv,num-sources")?;
-    if num_sources == 0 {
+    if required_u32(node, "riscv,num-sources")? == 0 {
         return Err(DiscoverError::UnsupportedDevice);
     }
-    Ok(Aplic {
-        path,
-        range,
-        num_sources,
-    })
+    Ok(Aplic { path })
 }
 
-fn cpu_interrupt_controllers(tree: &PlatformDtb) -> Result<Vec<(u32, usize)>, DiscoverError> {
+fn cpu_interrupt_controllers(tree: &BootTree) -> Result<Vec<(u32, usize)>, DiscoverError> {
     let cpus = tree
         .tree()
         .root

@@ -2,7 +2,9 @@
 
 use machine::{HartTargets, Ipi as MachineIpi, IpiError};
 use rustsbi::{HartMask, SbiRet};
+use sbi_spec::binary::Error;
 
+use super::response;
 pub(super) struct Ipi {
     ipi: MachineIpi,
 }
@@ -15,11 +17,15 @@ impl Ipi {
 
 impl rustsbi::Ipi for Ipi {
     fn send_ipi(&self, hart_mask: HartMask) -> SbiRet {
-        match self.ipi.send(targets(hart_mask)) {
-            Ok(()) => SbiRet::success(0),
-            Err(IpiError::InvalidHart) => SbiRet::invalid_param(),
-            Err(IpiError::Failed) => SbiRet::failed(),
-        }
+        response(
+            self.ipi
+                .send(targets(hart_mask))
+                .map(|()| 0)
+                .map_err(|error| match error {
+                    IpiError::InvalidHart => Error::InvalidParam,
+                    IpiError::Failed => Error::Failed,
+                }),
+        )
     }
 }
 

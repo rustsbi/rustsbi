@@ -49,4 +49,4 @@ pub mod __private_mtest {
     pub use machine_test::Descriptor;
 }
 pub use timer::{Timer, TimerError};
-pub use trap::{SbiCall, SbiHandler, SbiResponse, TrapEvent};
+pub use trap::{SbiCall, SbiHandler};

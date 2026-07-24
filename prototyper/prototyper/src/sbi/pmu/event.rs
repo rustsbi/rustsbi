@@ -1,6 +1,6 @@
 //! Validation of SBI PMU event encodings.
 
-use rustsbi::SbiRet;
+use sbi_spec::binary::Error;
 use sbi_spec::pmu::{
     cache_event, cache_operation, cache_result, event_type, firmware_event, hardware_event,
 };
@@ -21,9 +21,9 @@ pub(super) enum EventKind {
 }
 
 impl Event {
-    pub(super) fn parse(index: usize, data: u64) -> Result<Self, SbiRet> {
+    pub(super) fn parse(index: usize, data: u64) -> Result<Self, Error> {
         if index & !EVENT_INDEX_MASK != 0 {
-            return Err(SbiRet::invalid_param());
+            return Err(Error::InvalidParam);
         }
         let kind = (index >> 16) & 0xf;
         let code = index & 0xffff;
@@ -57,14 +57,14 @@ impl Event {
                 if code <= firmware_event::HFENCE_VVMA_ASID_RECEIVED
                     || code == firmware_event::PLATFORM =>
             {
-                Err(SbiRet::not_supported())
+                Err(Error::NotSupported)
             }
             event_type::HARDWARE_GENERAL
             | event_type::HARDWARE_CACHE
             | event_type::HARDWARE_RAW
             | event_type::HARDWARE_RAW_V2
-            | event_type::FIRMWARE => Err(SbiRet::invalid_param()),
-            _ => Err(SbiRet::invalid_param()),
+            | event_type::FIRMWARE => Err(Error::InvalidParam),
+            _ => Err(Error::InvalidParam),
         }
     }
 }
@@ -81,10 +81,7 @@ fn valid_cache_event(code: usize) -> bool {
 fn supported_firmware_event(code: usize) -> bool {
     let base = matches!(
         code,
-        firmware_event::MISALIGNED_LOAD
-            | firmware_event::MISALIGNED_STORE
-            | firmware_event::ILLEGAL_INSN
-            | firmware_event::SET_TIMER
+        firmware_event::SET_TIMER
             | firmware_event::IPI_SENT
             | firmware_event::FENCE_I_SENT
             | firmware_event::SFENCE_VMA_SENT

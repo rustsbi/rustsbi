@@ -1,6 +1,10 @@
-//! Coherent selection of the machine timer and notification path.
+//! Coherent discovery and installation of timer and hart-notification services.
 
-use super::facts::Platform;
+use super::aia;
+use super::clint;
+use super::discovery::Error;
+use super::dt::BootTree;
+use super::hart::HartInfo;
 
 pub(super) type Installed = (
     Option<machine::Timer>,
@@ -9,36 +13,35 @@ pub(super) type Installed = (
     Option<machine::HartControl>,
 );
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum InstallError {
-    IncompleteOrConflictingDescription,
-    MachineInstallation,
-}
-
 pub(crate) fn install(
     boot: &mut machine::BootInfo,
-    facts: &Platform,
-) -> Result<Installed, InstallError> {
-    if !description_is_coherent(
-        facts.imsic.is_some(),
-        facts.aplic.is_some(),
-        facts.clint.is_some(),
-    ) {
-        return Err(InstallError::IncompleteOrConflictingDescription);
+    tree: &mut BootTree,
+    harts: &[HartInfo],
+) -> Result<Installed, Error> {
+    let (imsic, aplic) = aia::discover(tree, harts)?;
+    let clint = clint::discover(&tree.tree().root)?;
+    if !description_is_coherent(imsic.is_some(), aplic.is_some(), clint.is_some()) {
+        return Err(Error::UnsupportedDevice);
     }
-    match (&facts.imsic, &facts.aplic, &facts.clint) {
+
+    match (imsic, aplic, clint) {
         (Some(imsic), Some(aplic), None) => {
-            let (timer, ipi, fence, harts) = machine::aia::install(boot, &imsic.path, &aplic.path)
-                .map_err(|_| InstallError::MachineInstallation)?;
+            let installed = machine::aia::install(boot, &imsic.path, &aplic.path)
+                .map_err(|_| Error::Installation)?;
+            tree.remove_node(&aplic.path)?;
+            tree.remove_node(&imsic.path)?;
+            let (timer, ipi, fence, harts) = installed;
             Ok((Some(timer), Some(ipi), Some(fence), Some(harts)))
         }
         (None, None, Some(clint)) => {
-            let (timer, ipi, fence, harts) = machine::clint::install(boot, &clint.path)
-                .map_err(|_| InstallError::MachineInstallation)?;
+            let installed =
+                machine::clint::install(boot, &clint.path).map_err(|_| Error::Installation)?;
+            tree.remove_node(&clint.path)?;
+            let (timer, ipi, fence, harts) = installed;
             Ok((Some(timer), Some(ipi), Some(fence), Some(harts)))
         }
         (None, None, None) => Ok((None, None, None, None)),
-        _ => Err(InstallError::IncompleteOrConflictingDescription),
+        _ => Err(Error::UnsupportedDevice),
     }
 }
 

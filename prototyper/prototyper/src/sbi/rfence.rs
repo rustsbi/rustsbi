@@ -2,8 +2,10 @@
 
 use machine::{RemoteFence as MachineRemoteFence, RemoteFenceError};
 use rustsbi::{HartMask, SbiRet};
+use sbi_spec::binary::Error;
 
 use super::ipi::targets;
+use super::response;
 
 pub(super) struct Rfence {
     fence: MachineRemoteFence,
@@ -74,11 +76,10 @@ impl rustsbi::Fence for Rfence {
 }
 
 fn result(result: Result<(), RemoteFenceError>) -> SbiRet {
-    match result {
-        Ok(()) => SbiRet::success(0),
-        Err(RemoteFenceError::InvalidHart) => SbiRet::invalid_param(),
-        Err(RemoteFenceError::InvalidAddress) => SbiRet::invalid_address(),
-        Err(RemoteFenceError::NotSupported) => SbiRet::not_supported(),
-        Err(RemoteFenceError::Failed) => SbiRet::failed(),
-    }
+    response(result.map(|()| 0).map_err(|error| match error {
+        RemoteFenceError::InvalidHart => Error::InvalidParam,
+        RemoteFenceError::InvalidAddress => Error::InvalidAddress,
+        RemoteFenceError::NotSupported => Error::NotSupported,
+        RemoteFenceError::Failed => Error::Failed,
+    }))
 }

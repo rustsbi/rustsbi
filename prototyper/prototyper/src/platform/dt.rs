@@ -14,14 +14,14 @@ use super::config::{
     BOOT_DTB_MAX_DEPTH, BOOT_DTB_MAX_NODES, BOOT_DTB_MAX_PROPERTIES, BOOT_DTB_MAX_SIZE,
 };
 
-/// Owned, bounded semantic tree kept private to `platform::discover`.
-pub(super) struct PlatformDtb {
+/// Owned, bounded semantic tree shared only by boot-local platform installers.
+pub(crate) struct BootTree {
     tree: DeviceTree,
     boot_cpuid_phys: [u8; 4],
     edits: usize,
 }
 
-impl PlatformDtb {
+impl BootTree {
     /// Parses the machine-owned boot blob without constructing a raw-pointer
     /// view or retaining a dependency-specific node outside this adapter.
     pub(super) fn parse(boot: &machine::BootDtb) -> Result<Self, DtbError> {

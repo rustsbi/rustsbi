@@ -1,6 +1,6 @@
 //! Validation and iteration of SBI counter masks.
 
-use rustsbi::SbiRet;
+use sbi_spec::binary::Error;
 
 #[derive(Clone, Copy)]
 pub(super) struct CounterSelection {
@@ -9,13 +9,13 @@ pub(super) struct CounterSelection {
 }
 
 impl CounterSelection {
-    pub(super) fn new(base: usize, mask: usize, total: usize) -> Result<Self, SbiRet> {
+    pub(super) fn new(base: usize, mask: usize, total: usize) -> Result<Self, Error> {
         if mask == 0 || base >= total {
-            return Err(SbiRet::invalid_param());
+            return Err(Error::InvalidParam);
         }
         let highest = usize::BITS as usize - 1 - mask.leading_zeros() as usize;
         if base.checked_add(highest).is_none_or(|index| index >= total) {
-            return Err(SbiRet::invalid_param());
+            return Err(Error::InvalidParam);
         }
         Ok(Self { base, mask })
     }

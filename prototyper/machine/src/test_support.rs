@@ -7,7 +7,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use machine_test::{RegistryError, Tests};
 use spin::Once;
 
-use crate::{BootInfo, Console, SbiCall, SbiHandler, SbiResponse, TrapEvent};
+use crate::{BootInfo, Console, SbiCall, SbiHandler};
 
 static CONSOLE: Once<Console> = Once::new();
 static WARM_PARKED: AtomicUsize = AtomicUsize::new(0);
@@ -15,19 +15,10 @@ static WARM_PARKED: AtomicUsize = AtomicUsize::new(0);
 struct UnexpectedTrap;
 
 impl SbiHandler for UnexpectedTrap {
-    fn handle_ecall(&self, call: SbiCall) -> SbiResponse {
+    fn handle(&self, call: SbiCall) -> sbi_spec::binary::SbiRet {
         if let Some(console) = CONSOLE.get() {
             let _ = console.try_write_fmt(format_args!(
                 "@@RUSTSBI_MTEST type=UNEXPECTED_SBI_CALL call={call:?}\n"
-            ));
-        }
-        crate::trap::abort()
-    }
-
-    fn observe_trap(&self, event: TrapEvent) {
-        if let Some(console) = CONSOLE.get() {
-            let _ = console.try_write_fmt(format_args!(
-                "@@RUSTSBI_MTEST type=UNEXPECTED_TRAP event={event:?}\n"
             ));
         }
         crate::trap::abort()

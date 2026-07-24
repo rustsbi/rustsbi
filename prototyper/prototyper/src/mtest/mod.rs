@@ -4,7 +4,7 @@ use core::fmt::{self, Write};
 
 use sbi_testing::protocol::{self, Run};
 
-use super::{Initialized, fail, initialize, logger};
+use super::{fail, logger, platform};
 
 const DEFAULT_DIGEST: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -28,23 +28,31 @@ fn run_metadata() -> Run<'static> {
     }
 }
 
-pub(super) fn run(boot: machine::BootInfo) -> ! {
-    let Initialized {
-        boot,
-        power,
-        console,
-        timer: _,
-        ipi: _,
-        harts: _,
-        fence: _,
-        memory: _,
-        counters: _,
-        hart_count: _,
-    } = initialize(boot);
+pub(super) fn run(mut boot: machine::BootInfo) -> ! {
+    let mut tree = platform::parse(&*boot.dtb_mut()).unwrap_or_else(|_| fail());
+    let supervisor_ram = platform::memory(&tree).unwrap_or_else(|_| fail());
+    let discovered_harts = platform::discover_harts(&tree).unwrap_or_else(|_| fail());
+    let hart_count = discovered_harts.len();
+
+    let _ = platform::install_timer_and_ipi(&mut boot, &mut tree, &discovered_harts)
+        .unwrap_or_else(|_| fail());
+    let console = platform::install_console(&mut tree).unwrap_or_else(|_| fail());
     let console = console.unwrap_or_else(fail);
+    logger::install(console.clone(), hart_count).unwrap_or_else(|_| fail());
+    let power = platform::install_power(&mut tree).unwrap_or_else(|_| fail());
     if !power {
         return fail();
     }
+    let protection = machine::pmp::config! {
+        supervisor_ram => [read, write, execute];
+    }
+    .unwrap_or_else(|_| fail());
+    boot.set_memory_protection(protection)
+        .unwrap_or_else(|_| fail());
+    let _ = boot.supervisor_memory().unwrap_or_else(|_| fail());
+    let _ = boot.performance_counters().unwrap_or_else(|_| fail());
+    platform::finish_device_tree(tree, boot.dtb_mut()).unwrap_or_else(|_| fail());
+
     let tests = machine::prepare_tests(boot, console.clone());
     let metadata = run_metadata();
     let mut output = Output(console);

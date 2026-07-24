@@ -4,7 +4,7 @@ use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicU8, Ordering};
 
 use super::frame::Frame;
-use super::{Cause, SbiHandler, Trap, TrapEvent, arch, stack};
+use super::{Cause, SbiHandler, Trap, arch, stack};
 
 const HANDLER_EMPTY: u8 = 0;
 const HANDLER_WRITING: u8 = 1;
@@ -112,21 +112,11 @@ pub(super) unsafe extern "C" fn dispatch(frame: *mut Frame, stack_top: usize) ->
     let trap = Trap { frame, stack_top };
     match cause {
         Cause::SbiCall(call) => {
-            let response = handler.handle_ecall(call);
+            let response = handler.handle(call);
             trap.resume_from_ecall(response.error, response.value)
         }
-        Cause::IllegalInstruction => {
-            handler.observe_trap(TrapEvent::IllegalInstruction);
-            trap.emulate_illegal()
-        }
-        Cause::LoadMisaligned => {
-            handler.observe_trap(TrapEvent::MisalignedLoad);
-            trap.redirect()
-        }
-        Cause::StoreMisaligned => {
-            handler.observe_trap(TrapEvent::MisalignedStore);
-            trap.redirect()
-        }
+        Cause::IllegalInstruction => trap.emulate_illegal(),
+        Cause::LoadMisaligned | Cause::StoreMisaligned => trap.redirect(),
         Cause::Other => trap.redirect(),
         Cause::MachineSoftwareInterrupt
         | Cause::MachineTimerInterrupt

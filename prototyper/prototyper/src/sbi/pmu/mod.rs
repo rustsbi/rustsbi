@@ -4,7 +4,7 @@ use alloc::vec;
 
 use machine::{CounterError, HartLocal, HartLocalError, PerformanceCounters};
 use rustsbi::SbiRet;
-use sbi_spec::pmu::flags;
+use sbi_spec::{binary::Error, pmu::flags};
 
 mod event;
 mod selection;
@@ -20,7 +20,7 @@ const COUNTER_LIMIT: usize = HARDWARE_COUNTER_LIMIT + FIRMWARE_COUNTER_COUNT;
 
 /// Upper SBI service that assigns architectural and firmware events to the
 /// calling hart's counters.
-pub(super) struct PerformanceMonitor {
+pub(crate) struct PerformanceMonitor {
     counters: PerformanceCounters,
     state: HartLocal<HartState>,
 }
@@ -58,8 +58,8 @@ impl PerformanceMonitor {
         self.counters.count() + FIRMWARE_COUNTER_COUNT
     }
 
-    fn current_state(&self) -> Result<machine::HartLocalGuard<'_, HartState>, SbiRet> {
-        let mut state = self.state.current().map_err(|_| SbiRet::failed())?;
+    fn current_state(&self) -> Result<machine::HartLocalGuard<'_, HartState>, Error> {
+        let mut state = self.state.current().map_err(|_| Error::Failed)?;
         state
             .initialize_fixed(&self.counters)
             .map_err(counter_error)?;
@@ -72,13 +72,13 @@ impl PerformanceMonitor {
         event: Event,
         flags: flags::CounterCfgFlags,
         state: &mut HartState,
-    ) -> Result<(), SbiRet> {
+    ) -> Result<(), Error> {
         if index >= self.counters.count() {
-            return Err(SbiRet::invalid_param());
+            return Err(Error::InvalidParam);
         }
         let counter = index;
         if state.assignments[index].is_some() {
-            return Err(SbiRet::not_supported());
+            return Err(Error::NotSupported);
         }
         self.counters
             .configure(counter, event.index, event.selector)
@@ -98,7 +98,7 @@ impl PerformanceMonitor {
         event: Event,
         flags: flags::CounterCfgFlags,
         state: &mut HartState,
-    ) -> Result<(), SbiRet> {
+    ) -> Result<(), Error> {
         match state.assignments[index] {
             Some(Assignment::Hardware {
                 counter,
@@ -127,7 +127,7 @@ impl PerformanceMonitor {
                 });
                 Ok(())
             }
-            _ => Err(SbiRet::invalid_param()),
+            _ => Err(Error::InvalidParam),
         }
     }
 
@@ -234,13 +234,13 @@ impl rustsbi::Pmu for PerformanceMonitor {
                 Ok(info) => SbiRet::success(
                     usize::from(info.csr_number()) | (usize::from(info.width() - 1) << 12),
                 ),
-                Err(error) => counter_error(error),
+                Err(error) => counter_error(error).into(),
             };
         }
         if counter_idx < self.total_counters() {
             SbiRet::success(1usize << (usize::BITS - 1))
         } else {
-            SbiRet::invalid_param()
+            Error::InvalidParam.into()
         }
     }
 
@@ -253,11 +253,11 @@ impl rustsbi::Pmu for PerformanceMonitor {
         event_data: u64,
     ) -> SbiRet {
         let Some(flags) = flags::CounterCfgFlags::from_bits(config_flags) else {
-            return SbiRet::invalid_param();
+            return Error::InvalidParam.into();
         };
         let event = match Event::parse(event_idx, event_data) {
             Ok(event) => event,
-            Err(error) => return error,
+            Err(error) => return error.into(),
         };
         let selection = match CounterSelection::new(
             counter_idx_base,
@@ -265,11 +265,11 @@ impl rustsbi::Pmu for PerformanceMonitor {
             self.total_counters(),
         ) {
             Ok(selection) => selection,
-            Err(error) => return error,
+            Err(error) => return error.into(),
         };
         let mut state = match self.current_state() {
             Ok(state) => state,
-            Err(error) => return error,
+            Err(error) => return error.into(),
         };
 
         if flags.contains(flags::CounterCfgFlags::SKIP_MATCH) {
@@ -278,7 +278,7 @@ impl rustsbi::Pmu for PerformanceMonitor {
             };
             return match self.configure_existing(index, event, flags, &mut state) {
                 Ok(()) => SbiRet::success(index),
-                Err(error) => error,
+                Err(error) => error.into(),
             };
         }
 
@@ -305,13 +305,13 @@ impl rustsbi::Pmu for PerformanceMonitor {
                     }
                     match self.configure_new_hardware(index, event, flags, &mut state) {
                         Ok(()) => return SbiRet::success(index),
-                        Err(error) if error == SbiRet::not_supported() => {}
-                        Err(error) => return error,
+                        Err(Error::NotSupported) => {}
+                        Err(error) => return error.into(),
                     }
                 }
             }
         }
-        SbiRet::not_supported()
+        Error::NotSupported.into()
     }
 
     fn counter_start(
@@ -322,10 +322,10 @@ impl rustsbi::Pmu for PerformanceMonitor {
         initial_value: u64,
     ) -> SbiRet {
         let Some(flags) = flags::CounterStartFlags::from_bits(start_flags) else {
-            return SbiRet::invalid_param();
+            return Error::InvalidParam.into();
         };
         if flags.contains(flags::CounterStartFlags::INIT_SNAPSHOT) {
-            return SbiRet::no_shmem();
+            return Error::NoShmem.into();
         }
         let selection = match CounterSelection::new(
             counter_idx_base,
@@ -333,18 +333,18 @@ impl rustsbi::Pmu for PerformanceMonitor {
             self.total_counters(),
         ) {
             Ok(selection) => selection,
-            Err(error) => return error,
+            Err(error) => return error.into(),
         };
         let mut state = match self.current_state() {
             Ok(state) => state,
-            Err(error) => return error,
+            Err(error) => return error.into(),
         };
         for index in selection {
             match state.assignments[index] {
-                None => return SbiRet::invalid_param(),
+                None => return Error::InvalidParam.into(),
                 Some(Assignment::Hardware { running: true, .. })
                 | Some(Assignment::Firmware { running: true, .. }) => {
-                    return SbiRet::already_started();
+                    return Error::AlreadyStarted.into();
                 }
                 Some(_) => {}
             }
@@ -355,7 +355,7 @@ impl rustsbi::Pmu for PerformanceMonitor {
             values[index] = match state.assignments[index] {
                 Some(Assignment::Hardware { counter, .. }) => match self.counters.read(counter) {
                     Ok(value) => Some(value),
-                    Err(error) => return counter_error(error),
+                    Err(error) => return counter_error(error).into(),
                 },
                 Some(Assignment::Firmware { .. }) => {
                     Some(state.firmware_values[index - self.counters.count()])
@@ -379,7 +379,7 @@ impl rustsbi::Pmu for PerformanceMonitor {
                         .then_some(initial_value);
                     if let Err(error) = self.counters.start(counter, initial) {
                         self.rollback_started(&mut state, selection, completed, &values);
-                        return counter_error(error);
+                        return counter_error(error).into();
                     }
                     state.assignments[index] = Some(Assignment::Hardware {
                         counter,
@@ -413,10 +413,10 @@ impl rustsbi::Pmu for PerformanceMonitor {
         stop_flags: usize,
     ) -> SbiRet {
         let Some(flags) = flags::CounterStopFlags::from_bits(stop_flags) else {
-            return SbiRet::invalid_param();
+            return Error::InvalidParam.into();
         };
         if flags.contains(flags::CounterStopFlags::TAKE_SNAPSHOT) {
-            return SbiRet::no_shmem();
+            return Error::NoShmem.into();
         }
         let selection = match CounterSelection::new(
             counter_idx_base,
@@ -424,18 +424,18 @@ impl rustsbi::Pmu for PerformanceMonitor {
             self.total_counters(),
         ) {
             Ok(selection) => selection,
-            Err(error) => return error,
+            Err(error) => return error.into(),
         };
         let mut state = match self.current_state() {
             Ok(state) => state,
-            Err(error) => return error,
+            Err(error) => return error.into(),
         };
         for index in selection {
             match state.assignments[index] {
-                None => return SbiRet::invalid_param(),
+                None => return Error::InvalidParam.into(),
                 Some(Assignment::Hardware { running: false, .. })
                 | Some(Assignment::Firmware { running: false, .. }) => {
-                    return SbiRet::already_stopped();
+                    return Error::AlreadyStopped.into();
                 }
                 Some(_) => {}
             }
@@ -446,7 +446,7 @@ impl rustsbi::Pmu for PerformanceMonitor {
             if let Some(Assignment::Hardware { counter, .. }) = state.assignments[index] {
                 values[index] = match self.counters.read(counter) {
                     Ok(value) => Some(value),
-                    Err(error) => return counter_error(error),
+                    Err(error) => return counter_error(error).into(),
                 };
             }
         }
@@ -469,7 +469,7 @@ impl rustsbi::Pmu for PerformanceMonitor {
                             &values,
                             flags.contains(flags::CounterStopFlags::RESET),
                         );
-                        return counter_error(error);
+                        return counter_error(error).into();
                     }
                     if flags.contains(flags::CounterStopFlags::RESET)
                         && let Err(error) = self.counters.reset(counter)
@@ -478,7 +478,7 @@ impl rustsbi::Pmu for PerformanceMonitor {
                             machine::abort(|| {});
                         }
                         self.rollback_stopped(&mut state, selection, completed, &values, true);
-                        return counter_error(error);
+                        return counter_error(error).into();
                     }
                     state.assignments[index] = Some(Assignment::Hardware {
                         counter,
@@ -510,17 +510,17 @@ impl rustsbi::Pmu for PerformanceMonitor {
     fn counter_fw_read(&self, counter_idx: usize) -> SbiRet {
         let hardware_count = self.counters.count();
         if !(hardware_count..self.total_counters()).contains(&counter_idx) {
-            return SbiRet::invalid_param();
+            return Error::InvalidParam.into();
         }
         let state = match self.current_state() {
             Ok(state) => state,
-            Err(error) => return error,
+            Err(error) => return error.into(),
         };
         if !matches!(
             state.assignments[counter_idx],
             Some(Assignment::Firmware { .. })
         ) {
-            return SbiRet::invalid_param();
+            return Error::InvalidParam.into();
         }
         SbiRet::success(state.firmware_values[counter_idx - hardware_count] as usize)
     }
@@ -535,17 +535,17 @@ impl rustsbi::Pmu for PerformanceMonitor {
         {
             let hardware_count = self.counters.count();
             if !(hardware_count..self.total_counters()).contains(&counter_idx) {
-                return SbiRet::invalid_param();
+                return Error::InvalidParam.into();
             }
             let state = match self.current_state() {
                 Ok(state) => state,
-                Err(error) => return error,
+                Err(error) => return error.into(),
             };
             if !matches!(
                 state.assignments[counter_idx],
                 Some(Assignment::Firmware { .. })
             ) {
-                return SbiRet::invalid_param();
+                return Error::InvalidParam.into();
             }
             SbiRet::success((state.firmware_values[counter_idx - hardware_count] >> 32) as usize)
         }
@@ -556,7 +556,7 @@ fn apply_hardware_config(
     counters: &PerformanceCounters,
     counter: usize,
     flags: flags::CounterCfgFlags,
-) -> Result<bool, SbiRet> {
+) -> Result<bool, Error> {
     let clear = flags.contains(flags::CounterCfgFlags::CLEAR_VALUE);
     let auto_start = flags.contains(flags::CounterCfgFlags::AUTO_START);
     if clear || auto_start {
@@ -571,12 +571,12 @@ fn apply_hardware_config(
     Ok(auto_start)
 }
 
-fn counter_error(error: CounterError) -> SbiRet {
+fn counter_error(error: CounterError) -> Error {
     match error {
-        CounterError::InvalidCounter => SbiRet::invalid_param(),
-        CounterError::UnsupportedEvent => SbiRet::not_supported(),
-        CounterError::AlreadyStarted => SbiRet::already_started(),
-        CounterError::AlreadyStopped => SbiRet::already_stopped(),
-        CounterError::MechanismFailure => SbiRet::failed(),
+        CounterError::InvalidCounter => Error::InvalidParam,
+        CounterError::UnsupportedEvent => Error::NotSupported,
+        CounterError::AlreadyStarted => Error::AlreadyStarted,
+        CounterError::AlreadyStopped => Error::AlreadyStopped,
+        CounterError::MechanismFailure => Error::Failed,
     }
 }

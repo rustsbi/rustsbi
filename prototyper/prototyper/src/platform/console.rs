@@ -6,8 +6,8 @@ use core::ops::Range;
 use dtoolkit::model::DeviceTreeNode;
 use dtoolkit::{Node, Property};
 
+use super::discovery::Error as DiscoverError;
 use super::dt::{enabled, node_at_path, reg_at_path};
-use super::facts::DiscoverError;
 
 const UART16550_U8: [&str; 1] = ["ns16550a"];
 const UART16550_U32: [&str; 1] = ["snps,dw-apb-uart"];
@@ -68,7 +68,18 @@ pub(super) fn discover(root: &DeviceTreeNode) -> Result<Option<Console>, Discove
     }))
 }
 
-pub(crate) fn install(console: &Console) -> Result<machine::Console, machine::memory::IoMemError> {
+pub(crate) fn install(
+    tree: &mut super::dt::BootTree,
+) -> Result<Option<machine::Console>, DiscoverError> {
+    let Some(console) = discover(&tree.tree().root)? else {
+        return Ok(None);
+    };
+    let installed = bind(&console).map_err(|_| DiscoverError::Installation)?;
+    tree.disable_node(&console.path)?;
+    Ok(Some(installed))
+}
+
+fn bind(console: &Console) -> Result<machine::Console, machine::memory::IoMemError> {
     match console.kind {
         ConsoleKind::Uart16550U8 => {
             uart_16550::install(console.range.clone(), uart_16550::Access::Byte)

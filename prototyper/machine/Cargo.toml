@@ -16,6 +16,7 @@ dtoolkit = { version = "0.3.0", default-features = false, features = ["write"] }
 spin = "0.9.8"
 buddy_system_allocator = "0.11.0"
 bitflags = "2"
+sbi-spec = { path = "../../library/sbi-spec" }
 
 [features]
 default = []
