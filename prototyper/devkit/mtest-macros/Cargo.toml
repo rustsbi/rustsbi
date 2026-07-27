@@ -1,5 +1,5 @@
 [package]
-name = "rustsbi-prototyper-machine-test"
+name = "rustsbi-prototyper-mtest-macros"
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
@@ -7,4 +7,5 @@ repository.workspace = true
 publish = false
 
 [lib]
+proc-macro = true
 bench = false

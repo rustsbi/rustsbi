@@ -14,7 +14,6 @@ members = [
     "library/smm",
     "prototyper/machine",
     "prototyper/machine/entry-macros",
-    "prototyper/machine-test",
     "prototyper/drivers/uart-16550",
     "prototyper/drivers/uart-pl011",
     "prototyper/drivers/uart-sifive",
@@ -25,6 +24,8 @@ members = [
     "prototyper/bench-kernel",
     "prototyper/test-kernel",
     "prototyper/devkit/cargo-prototyper",
+    "prototyper/devkit/mtest",
+    "prototyper/devkit/mtest-macros",
     "arceboot",
     "xtask",
 ]

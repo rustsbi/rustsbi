@@ -52,7 +52,8 @@ impl ImageRole {
 
     const fn package(self) -> &'static str {
         match self {
-            Self::Firmware | Self::Mtest => "rustsbi-prototyper",
+            Self::Firmware => "rustsbi-firmware",
+            Self::Mtest => "rustsbi-prototyper-mtest",
             Self::Test => "rustsbi-test-kernel",
             Self::Bench => "rustsbi-bench-kernel",
         }
@@ -60,7 +61,7 @@ impl ImageRole {
 
     const fn binary(self) -> &'static str {
         match self {
-            Self::Firmware => "rustsbi-prototyper",
+            Self::Firmware => "rustsbi-firmware",
             Self::Mtest => "rustsbi-prototyper-mtest",
             Self::Test => "rustsbi-test-kernel",
             Self::Bench => "rustsbi-bench-kernel",
@@ -166,9 +167,6 @@ impl ImagePlan {
 
         let mut features = options.features;
         let environment = BTreeMap::new();
-        if options.role == ImageRole::Mtest {
-            push_feature(&mut features, "mtest");
-        }
         features.sort();
         features.dedup();
 
@@ -371,7 +369,7 @@ fn linker_path(project: &Project, role: ImageRole, width: u8) -> PathBuf {
     };
     project
         .root()
-        .join("prototyper/devkit/platforms/qemu-virt")
+        .join("prototyper/devkit/qemu-virt")
         .join(relative)
 }
 
@@ -390,12 +388,6 @@ const fn payload_address(width: u8) -> u64 {
         0x8040_0000
     } else {
         0x8020_0000
-    }
-}
-
-fn push_feature(features: &mut Vec<String>, feature: &str) {
-    if !features.iter().any(|known| known == feature) {
-        features.push(feature.into());
     }
 }
 
@@ -453,7 +445,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(plan.image.target, DEFAULT_FIRMWARE_TARGET);
-        assert_eq!(plan.image.package, "rustsbi-prototyper");
+        assert_eq!(plan.image.package, "rustsbi-firmware");
         assert_eq!(plan.image.mode_suffix, Some("fw-dynamic"));
         assert_eq!(plan.image.link_inputs.len(), 1);
         assert!(plan.environment["RUSTFLAGS"].contains("relocation-model=pie"));
