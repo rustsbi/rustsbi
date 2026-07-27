@@ -2,7 +2,7 @@
 
 use alloc::sync::Arc;
 
-use super::arch::current_hart_id;
+use super::instructions::current_hart_id;
 use super::protocol::{HartAdmission, HartNotifications, map_ipi_error};
 use crate::hart::HartTargets;
 

@@ -3,7 +3,7 @@
 use alloc::sync::Arc;
 
 use super::admission::{AdmissionError, HartSet};
-use super::arch::current_hart_id;
+use super::instructions::current_hart_id;
 use super::protocol::{HartAdmission, HartNotifications};
 use crate::hart::HartTargets;
 

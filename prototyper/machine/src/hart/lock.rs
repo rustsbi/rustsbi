@@ -84,11 +84,11 @@ struct ProtocolInterruptMask {
 impl ProtocolInterruptMask {
     fn acquire() -> Self {
         Self {
-            previous: super::arch::mask_protocol_interrupts(),
+            previous: super::instructions::mask_protocol_interrupts(),
         }
     }
 
     fn restore(&self) {
-        super::arch::restore_protocol_interrupts(self.previous)
+        super::instructions::restore_protocol_interrupts(self.previous)
     }
 }

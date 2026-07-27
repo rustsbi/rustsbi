@@ -1,11 +1,8 @@
 //! Transactional construction and publication of the machine runtime.
 
+use super::BootInfo;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use dtoolkit::fdt::Fdt;
-
-use super::BootInfo;
-use super::to_next::enter;
 
 /// Publishes the complete machine runtime and enters the validated next stage.
 ///
@@ -13,47 +10,31 @@ use super::to_next::enter;
 /// fallible check completes before the Release publication that lets secondary
 /// harts acquire their machine-owned stack and trap state.
 pub(crate) fn enter_next_stage(boot: BootInfo, handler: Box<dyn crate::SbiHandler>) -> ! {
-    let prepared = prepare_runtime(boot, handler);
-    let PreparedRuntime {
-        boot, init_hart, ..
-    } = prepared;
+    initialize_runtime(&boot, handler);
     let BootInfo {
-        dtb, next_stage, ..
+        dtb,
+        next_stage,
+        init_hart,
+        ..
     } = boot;
-    let dtb_address = match dtb.into_handoff_address() {
-        Ok(address) => address,
-        Err(_) => terminal_failure(TerminalFailure::HandoffDeviceTree),
+    let dtb_address = match super::handoff::device_tree(dtb) {
+        Some(address) => address,
+        None => terminal_failure(TerminalFailure::HandoffDeviceTree),
     };
-    crate::startup::publish_runtime();
-    enter(next_stage, init_hart, Some(dtb_address))
+    crate::entry::publish();
+    next_stage.transfer(init_hart, Some(dtb_address))
 }
 
-pub(crate) struct PreparedRuntime {
-    pub(crate) boot: BootInfo,
-    pub(crate) init_hart: usize,
-    #[cfg(feature = "mtest")]
-    pub(crate) hart_count: usize,
-}
-
-/// Establishes the complete machine runtime without committing a terminal
-/// next-stage action.
+/// Installs every machine runtime mechanism before terminal publication.
 ///
-/// This private typestate is shared by the production handoff and the
-/// dedicated test build. Keeping publication outside this function ensures
-/// that failure cannot release secondary harts into a partial runtime.
-pub(crate) fn prepare_runtime(
-    boot: BootInfo,
-    handler: Box<dyn crate::SbiHandler>,
-) -> PreparedRuntime {
-    let fdt = match Fdt::new(boot.dtb.as_bytes()) {
-        Ok(fdt) => fdt,
-        Err(_) => terminal_failure(TerminalFailure::DeviceTree),
+/// All fallible work completes while the owned boot transaction remains local;
+/// only the caller may then publish and consume it for architectural handoff.
+fn initialize_runtime(boot: &BootInfo, handler: Box<dyn crate::SbiHandler>) {
+    let hart_ids = match boot.harts.as_deref() {
+        Some(harts) => harts,
+        None => terminal_failure(TerminalFailure::HartDescription),
     };
-    let hart_ids = match super::device_tree::hart_ids(&fdt) {
-        Ok(ids) => ids,
-        Err(_) => terminal_failure(TerminalFailure::HartDescription),
-    };
-    if crate::hart::publish(&hart_ids, boot.init_hart).is_err() {
+    if crate::hart::publish(hart_ids, boot.init_hart).is_err() {
         terminal_failure(TerminalFailure::HartPublication);
     }
     let init_index = match crate::hart::resolve(boot.init_hart) {
@@ -66,7 +47,7 @@ pub(crate) fn prepare_runtime(
     if boot
         .hart_admission
         .as_ref()
-        .is_some_and(|admission| !admission.matches_harts(&hart_ids))
+        .is_some_and(|admission| !admission.matches_harts(hart_ids))
     {
         terminal_failure(TerminalFailure::HartDescription);
     }
@@ -107,13 +88,10 @@ pub(crate) fn prepare_runtime(
     if crate::trap::prepare_counters(boot.next_stage.mode()).is_err() {
         terminal_failure(TerminalFailure::CounterPreparation);
     }
-    crate::memory::seal();
     let Some(protection) = boot.protection.as_ref() else {
         terminal_failure(TerminalFailure::ProtectionPublication);
     };
-    let mut machine_ranges = boot.machine_ranges.clone();
-    machine_ranges.extend(crate::memory::claimed_ranges());
-    if crate::pmp::publish(&machine_ranges, protection).is_err() {
+    if crate::pmp::publish(&boot.machine_ranges, protection).is_err() {
         terminal_failure(TerminalFailure::ProtectionPublication);
     }
     if crate::pmp::configure_current_hart().is_err() {
@@ -122,19 +100,11 @@ pub(crate) fn prepare_runtime(
     if crate::trap::prepare_delegation(boot.next_stage.mode()).is_err() {
         terminal_failure(TerminalFailure::Delegation);
     }
-
-    PreparedRuntime {
-        init_hart: boot.init_hart,
-        #[cfg(feature = "mtest")]
-        hart_count: hart_ids.len(),
-        boot,
-    }
 }
 
 #[repr(usize)]
 enum TerminalFailure {
-    DeviceTree = 1,
-    HartDescription,
+    HartDescription = 1,
     HartPublication,
     InitHart,
     MissingHartAdmission,
@@ -160,6 +130,6 @@ fn terminal_failure(failure: TerminalFailure) -> ! {
             options(nomem, nostack),
         )
     };
-    crate::startup::fail_runtime();
+    crate::entry::fail();
     crate::power::abort(|| {})
 }

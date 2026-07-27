@@ -6,10 +6,7 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
-use core::ops::Range;
-
-use machine::memory::{IoMem, IoMemError, io_fence};
-use machine::{Console, ConsoleDevice, ConsoleError};
+use machine::{Console, ConsoleDevice, ConsoleError, IoMem, IoMemError, io_fence};
 
 struct Register;
 
@@ -23,9 +20,8 @@ impl Register {
     const EMPTY: u32 = 1 << 31;
 }
 
-/// Claims, initializes, and binds one SiFive UART window.
-pub fn install(range: Range<usize>) -> Result<Console, IoMemError> {
-    let io = IoMem::acquire(range)?;
+/// Initializes and binds one already-owned SiFive UART window.
+pub fn bind(io: IoMem) -> Result<Console, IoMemError> {
     io.validate::<u32>(Register::DIVISOR)?;
     let uart = Uart { io };
     uart.initialize()?;

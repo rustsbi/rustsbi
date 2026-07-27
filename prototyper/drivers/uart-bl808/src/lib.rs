@@ -6,10 +6,7 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
-use core::ops::Range;
-
-use machine::memory::{IoMem, IoMemError, io_fence};
-use machine::{Console, ConsoleDevice, ConsoleError};
+use machine::{Console, ConsoleDevice, ConsoleError, IoMem, IoMemError, io_fence};
 
 struct Register;
 
@@ -21,9 +18,8 @@ impl Register {
     const RX_AVAILABLE_MASK: u32 = 0x3f << 8;
 }
 
-/// Claims and binds one BL808 UART register window.
-pub fn install(range: Range<usize>) -> Result<Console, IoMemError> {
-    let io = IoMem::acquire(range)?;
+/// Binds one already-owned BL808 UART register window.
+pub fn bind(io: IoMem) -> Result<Console, IoMemError> {
     io.validate::<u32>(Register::RX_FIFO)?;
     Ok(Console::new(Box::new(Uart { io })))
 }

@@ -6,26 +6,13 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
-use core::ops::Range;
+use machine::power::{self, PowerControl, PowerReason, RebootKind};
+use machine::{IoMem, io_fence};
 
-use machine::memory::{IoMem, IoMemError, io_fence};
-use machine::power::{self, PowerControl, PowerInstallError, PowerReason, RebootKind};
-
-/// Failure while binding the process-lifetime SiFive Test provider.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum InstallError {
-    /// The ordinary MMIO range is unavailable or invalid.
-    Memory(IoMemError),
-    /// Another power provider was already injected.
-    Power(PowerInstallError),
-}
-
-/// Claims one SiFive Test register and injects it as the power provider.
-pub fn install(range: Range<usize>) -> Result<(), InstallError> {
-    let io = IoMem::acquire(range).map_err(InstallError::Memory)?;
-    io.validate::<u32>(Register::CONTROL)
-        .map_err(InstallError::Memory)?;
-    power::inject(Box::new(SifiveTest { io })).map_err(InstallError::Power)
+/// Binds one already-owned SiFive Test register as the power provider.
+pub fn bind(io: IoMem) -> bool {
+    io.validate::<u32>(Register::CONTROL).is_ok()
+        && power::inject(Box::new(SifiveTest { io })).is_some()
 }
 
 struct Register;

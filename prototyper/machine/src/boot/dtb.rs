@@ -2,14 +2,10 @@
 
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
-use core::ops::Range;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use alloc::boxed::Box;
 use alloc::vec::Vec;
 use dtoolkit::fdt::Fdt;
-use dtoolkit::memreserve::MemoryReservation;
-use dtoolkit::model::DeviceTree;
 
 use crate::config::BOOT_DTB_MAX_SIZE;
 
@@ -19,27 +15,13 @@ pub(crate) const DTB_HEADER_SIZE: usize = 40;
 #[repr(C, align(8))]
 struct BootDtbBuffer(UnsafeCell<[MaybeUninit<u8>; BOOT_DTB_MAX_SIZE]>);
 
-#[repr(C, align(8))]
-struct HandoffDtbBuffer(UnsafeCell<[MaybeUninit<u8>; BOOT_DTB_MAX_SIZE]>);
-
 // SAFETY: the buffer is reachable only through `copy_from_entry`. Its atomic
 // one-time claim establishes unique initialization, and `BootDtb` then owns the
 // sole mutable slice for the rest of the boot phase.
 unsafe impl Sync for BootDtbBuffer {}
 
-// SAFETY: the terminal handoff claims this buffer exactly once, initializes
-// the complete copied prefix, and publishes its address only after machine
-// code has relinquished every Rust access path to the bytes.
-unsafe impl Sync for HandoffDtbBuffer {}
-
 static BOOT_DTB_CLAIMED: AtomicBool = AtomicBool::new(false);
-static HANDOFF_DTB_CLAIMED: AtomicBool = AtomicBool::new(false);
-static BOOT_DTB_BUFFER: BootDtbBuffer = BootDtbBuffer(UnsafeCell::new(
-    [const { MaybeUninit::uninit() }; BOOT_DTB_MAX_SIZE],
-));
-#[used]
-#[unsafe(link_section = ".handoff")]
-static HANDOFF_DTB_BUFFER: HandoffDtbBuffer = HandoffDtbBuffer(UnsafeCell::new(
+static BOOT_DTB_BUFFER: BootDtbBuffer = BootDtbBuffer(core::cell::UnsafeCell::new(
     [const { MaybeUninit::uninit() }; BOOT_DTB_MAX_SIZE],
 ));
 
@@ -65,7 +47,7 @@ impl BootDtb {
         }
     }
 
-    /// Mutably borrows the owned blob for the narrow platform DT adapter.
+    /// Mutably borrows the owned blob for firmware's narrow DT adapter.
     pub fn as_bytes_mut(&mut self) -> &mut [u8] {
         match &mut self.storage {
             BootDtbStorage::Entry(bytes) => bytes,
@@ -87,69 +69,6 @@ impl BootDtb {
         self.storage = BootDtbStorage::Encoded(bytes);
         Ok(())
     }
-
-    pub(super) fn into_handoff_address(self) -> Result<usize, HandoffDtbError> {
-        if HANDOFF_DTB_CLAIMED.swap(true, Ordering::AcqRel) {
-            return Err(HandoffDtbError::AlreadyPublished);
-        }
-        let source = match self.storage {
-            BootDtbStorage::Entry(bytes) => &*bytes,
-            BootDtbStorage::Encoded(bytes) => Box::leak(bytes.into_boxed_slice()),
-        };
-        let machine_image =
-            crate::pmp::machine_image_range().ok_or(HandoffDtbError::MachineImageUnavailable)?;
-        let encoded = encode_handoff_dtb(source, machine_image)?;
-        let bytes = encoded.as_slice();
-        if bytes.is_empty() || bytes.len() > BOOT_DTB_MAX_SIZE {
-            return Err(HandoffDtbError::InvalidSize);
-        }
-        let destination = HANDOFF_DTB_BUFFER.0.get().cast::<MaybeUninit<u8>>();
-        // SAFETY: the one-time claim grants unique initialization of the
-        // complete destination prefix. Source and handoff sections are
-        // disjoint, and no Rust access occurs after the address is published.
-        unsafe {
-            core::ptr::copy_nonoverlapping(bytes.as_ptr(), destination.cast::<u8>(), bytes.len())
-        };
-        Ok(destination as usize)
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum HandoffDtbError {
-    AlreadyPublished,
-    InvalidSize,
-    InvalidTree,
-    MachineImageUnavailable,
-    ReservationOutOfRange,
-}
-
-pub(super) fn encode_handoff_dtb(
-    bytes: &[u8],
-    machine_image: Range<usize>,
-) -> Result<Vec<u8>, HandoffDtbError> {
-    let size = machine_image
-        .end
-        .checked_sub(machine_image.start)
-        .filter(|size| *size != 0)
-        .ok_or(HandoffDtbError::ReservationOutOfRange)?;
-    let address =
-        u64::try_from(machine_image.start).map_err(|_| HandoffDtbError::ReservationOutOfRange)?;
-    let size = u64::try_from(size).map_err(|_| HandoffDtbError::ReservationOutOfRange)?;
-    let fdt = Fdt::new(bytes).map_err(|_| HandoffDtbError::InvalidTree)?;
-    let mut tree = DeviceTree::from_fdt(&fdt);
-    let reservation = MemoryReservation::new(address, size);
-    if !tree.memory_reservations.contains(&reservation) {
-        tree.memory_reservations.push(reservation);
-        tree.memory_reservations.sort_unstable();
-    }
-
-    // The owned input and configured output cap are far below every `u32`
-    // length used by the encoder. The only added record has fixed size.
-    let encoded = tree.to_dtb();
-    if encoded.len() > BOOT_DTB_MAX_SIZE || Fdt::new(&encoded).is_err() {
-        return Err(HandoffDtbError::InvalidTree);
-    }
-    Ok(encoded)
 }
 
 /// Rejection reasons at the boot-DTB import boundary.

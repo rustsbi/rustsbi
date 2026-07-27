@@ -3,7 +3,7 @@
 use alloc::sync::Arc;
 
 use super::admission::{AdmissionError, ClaimedWork};
-use super::arch::{clear_supervisor_ipi, current_hart_id, wait_for_wake_event};
+use super::instructions::{clear_supervisor_ipi, current_hart_id, wait_for_wake_event};
 use super::protocol::{HartAdmission, map_hart_error};
 use crate::boot::NextStage;
 

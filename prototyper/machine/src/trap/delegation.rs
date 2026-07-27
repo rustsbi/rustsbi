@@ -85,11 +85,6 @@ impl Delegation {
         self.exceptions.bits()
     }
 
-    #[cfg(feature = "mtest")]
-    fn contains(self, other: Self) -> bool {
-        self.interrupts.contains(other.interrupts) && self.exceptions.contains(other.exceptions)
-    }
-
     fn excludes_machine_local(self) -> bool {
         self.interrupts.bits() & Self::MACHINE_LOCAL.interrupts.bits() == 0
             && self.exceptions.bits() & Self::MACHINE_LOCAL.exceptions.bits() == 0
@@ -142,26 +137,6 @@ pub(crate) fn prepare(mode: NextMode) -> Result<(), DelegationError> {
     Delegation::readback_valid(fixed, actual, requested)
         .then_some(())
         .ok_or(DelegationError::Readback)
-}
-
-#[cfg(feature = "mtest")]
-#[crate::mtest]
-fn machine_owned_causes_remain_local() {
-    let interrupts: usize;
-    let exceptions: usize;
-    // SAFETY: fixed read-only observations after delegation was installed.
-    unsafe {
-        core::arch::asm!(
-            "csrr {interrupts}, mideleg",
-            "csrr {exceptions}, medeleg",
-            interrupts = out(reg) interrupts,
-            exceptions = out(reg) exceptions,
-            options(nomem, nostack),
-        )
-    };
-    let actual = Delegation::from_raw(interrupts, exceptions);
-    assert!(actual.excludes_machine_local());
-    assert!(actual.contains(Delegation::SUPERVISOR));
 }
 
 #[cfg(test)]

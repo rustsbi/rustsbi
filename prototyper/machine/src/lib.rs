@@ -11,20 +11,17 @@
 
 extern crate alloc;
 
-pub mod aia;
 mod boot;
-pub mod clint;
-#[path = "startup/config.rs"]
 mod config;
 mod console;
+mod entry;
 mod hart;
+pub mod interrupt;
 pub mod memory;
+mod mmio;
 pub mod pmp;
 mod pmu;
 pub mod power;
-mod startup;
-#[cfg(feature = "mtest")]
-mod test_support;
 mod timer;
 mod trap;
 
@@ -33,20 +30,25 @@ extern crate std;
 
 pub use boot::{BootDtb, BootInfo, NextStage};
 pub use console::{Console, ConsoleDevice, ConsoleError};
+pub use entry_macros::entry;
 pub use hart::{
     HartControl, HartError, HartLocal, HartLocalError, HartLocalGuard, HartStatus, HartTargets,
     Ipi, IpiError, RemoteFence, RemoteFenceError,
 };
-pub use machine_macros::{entry, mtest};
+pub use mmio::{IoMem, IoMemError, IoMemRegion, IoValue, io_fence};
 pub use pmu::{CounterError, CounterInfo, PerformanceCounters};
 pub use power::abort;
-#[cfg(feature = "mtest")]
-pub use test_support::{MachineTests as Tests, prepare as prepare_tests};
-
-#[cfg(feature = "mtest")]
-#[doc(hidden)]
-pub mod __private_mtest {
-    pub use machine_test::Descriptor;
-}
 pub use timer::{Timer, TimerError};
 pub use trap::{SbiCall, SbiHandler};
+
+/// The four machine services installed by one coherent interrupt path.
+pub struct Interrupts {
+    /// Supervisor timer service.
+    pub timer: Timer,
+    /// Interprocessor notification service.
+    pub ipi: Ipi,
+    /// Remote instruction and address-translation fence service.
+    pub remote_fence: RemoteFence,
+    /// Hart lifecycle service.
+    pub harts: HartControl,
+}

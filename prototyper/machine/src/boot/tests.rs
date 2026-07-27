@@ -103,8 +103,8 @@ fn encoded_replacement_is_transactional_and_revalidated() {
 #[test]
 fn terminal_encoding_adds_the_machine_image_reservation_once() {
     let initial = DeviceTree::new().to_dtb();
-    let encoded = encode_handoff_dtb(&initial, 0x8000_0000..0x8012_3000).unwrap();
-    let encoded = encode_handoff_dtb(&encoded, 0x8000_0000..0x8012_3000).unwrap();
+    let encoded = encode_for_test(&initial, 0x8000_0000..0x8012_3000).unwrap();
+    let encoded = encode_for_test(&encoded, 0x8000_0000..0x8012_3000).unwrap();
     let reservations = Fdt::new(&encoded)
         .unwrap()
         .memory_reservations()
@@ -125,13 +125,10 @@ fn machine_resource_claims_are_disjoint_and_transactional() {
         opaque: 0,
         mode: NextMode::Supervisor,
     };
-    let mut boot = BootInfo::new(dtb, next_stage, 0).unwrap();
+    let mut boot = BootInfo::new(dtb, next_stage, 0);
 
-    assert_eq!(boot.claim_machine_range(0x2000..0x3000), Ok(()));
-    assert_eq!(
-        boot.claim_machine_range(0x2800..0x3800),
-        Err(MachineRangeError::AlreadyClaimed)
-    );
+    assert!(boot.claim_machine_range(0x2000..0x3000));
+    assert!(!boot.claim_machine_range(0x2800..0x3800));
     assert_eq!(boot.machine_ranges.len(), 1);
     assert_eq!(boot.machine_ranges[0], 0x2000..0x3000);
 }

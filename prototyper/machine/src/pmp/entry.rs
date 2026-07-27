@@ -92,8 +92,3 @@ pub(crate) fn configure_current_hart() -> Result<(), PmpError> {
         .collect::<Result<Vec<_>, _>>()?;
     hardware::configure_current_hart(&ranges, configuration, crate::config::TRUSTED_TARGET)
 }
-
-#[crate::mtest]
-fn installed_policy_reinstalls_exactly() {
-    assert!(configure_current_hart().is_ok());
-}

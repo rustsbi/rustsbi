@@ -1,7 +1,7 @@
 //! Two-hart handoff protocol for starting a stopped hart.
 
 use super::admission::AdmissionError;
-use super::arch::protocol_fence;
+use super::instructions::protocol_fence;
 use super::protocol::{HartAdmission, map_hart_error};
 use crate::boot::{NextMode, NextStage};
 use crate::hart::{HartError, HartStatus};

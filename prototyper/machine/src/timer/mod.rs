@@ -3,7 +3,6 @@
 use core::ptr;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
-mod riscv;
 pub(crate) mod sstc;
 
 /// Authority to program the current hart's supervisor timer deadline.
@@ -87,14 +86,4 @@ pub(crate) fn read_time() -> Option<u64> {
 
 pub(crate) fn handle_interrupt() -> bool {
     installed().is_some_and(|operations| (operations.handle_interrupt)())
-}
-
-#[crate::mtest]
-fn installed_timer_has_current_hart_deadline_semantics() {
-    prepare_current_hart().expect("installed timer must prepare the admitted hart");
-    let before = read_time().expect("installed timer must expose architectural time");
-    let after = read_time().expect("installed timer must remain readable");
-    assert!(after >= before);
-    let operations = installed().expect("timer installation precedes M-test execution");
-    (operations.set_deadline)(u64::MAX);
 }

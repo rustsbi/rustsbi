@@ -6,10 +6,7 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
-use core::ops::Range;
-
-use machine::memory::{IoMem, IoMemError, io_fence};
-use machine::{Console, ConsoleDevice, ConsoleError};
+use machine::{Console, ConsoleDevice, ConsoleError, IoMem, IoMemError, io_fence};
 
 struct Register;
 
@@ -26,9 +23,8 @@ impl Register {
     const TRANSMIT_FULL: u32 = 1 << 5;
 }
 
-/// Claims, initializes, and binds one PL011 register window.
-pub fn install(range: Range<usize>) -> Result<Console, IoMemError> {
-    let io = IoMem::acquire(range)?;
+/// Initializes and binds one already-owned PL011 register window.
+pub fn bind(io: IoMem) -> Result<Console, IoMemError> {
     io.validate::<u32>(Register::INTERRUPT_CLEAR)?;
     let uart = Uart { io };
     uart.initialize()?;

@@ -1,8 +1,8 @@
 //! Per-hart discovery of implemented and controllable counters.
 
 use super::control::read_inhibit;
+use super::csr::*;
 use super::hart::*;
-use super::riscv::csr::*;
 
 pub(super) fn probe_current() -> Result<HartCounters, CounterError> {
     let mut accessible = 0u32;

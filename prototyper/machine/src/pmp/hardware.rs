@@ -1,258 +1,141 @@
-//! Per-hart PMP discovery, fail-closed installation, and exact readback.
+//! RISC-V PMP CSR transport for the semantic policy compiler.
 
-use super::state::{AddressMode, Capability, Entry, Image, MAX_PMP_ENTRIES, PmpError};
+use super::hardware_core::{PmpRegisters, install, probe_and_disable};
+use crate::pmp::entry::machine_image;
+use crate::pmp::policy::compile_machine_policy;
+use crate::pmp::state::{PmpError, Region};
+use crate::trap::probe::{ExpectedResult, probe_csr, swap_csr};
 
-mod riscv;
-pub(super) use riscv::configure_current_hart;
-
-const PMP_L: u8 = 1 << 7;
-const MSECCFG_STANDARD_INCOMPATIBLE: usize = 0b111;
-const CONFIG_BYTES_PER_CSR: usize = core::mem::size_of::<usize>();
-const MAX_CONFIG_CSRS: usize = MAX_PMP_ENTRIES / CONFIG_BYTES_PER_CSR;
-
-trait PmpRegisters {
-    fn read_security_config(&mut self) -> Result<Option<usize>, PmpError>;
-    fn read_config(&mut self, word: usize) -> Result<Option<usize>, PmpError>;
-    fn swap_config(&mut self, word: usize, value: usize) -> Result<Option<usize>, PmpError>;
-    fn read_address(&mut self, index: usize) -> Result<Option<usize>, PmpError>;
-    fn swap_address(&mut self, index: usize, value: usize) -> Result<Option<usize>, PmpError>;
-}
-
-struct DisabledPmp<R> {
-    registers: R,
-    capability: Capability,
-}
-
-struct VerifiedPmp<R> {
-    _registers: R,
-}
+struct MachineRegisters;
 
 /// Configures this hart before any lower-privilege context can become live.
-///
-/// Discovery first proves that every existing entry is unlocked, then leaves
-/// every configuration byte OFF. Installation makes the complete machine deny
-/// floor effective before enabling any lower-privilege grant.
-fn probe_and_disable<R: PmpRegisters>(mut registers: R) -> Result<DisabledPmp<R>, PmpError> {
-    if registers
-        .read_security_config()?
-        .is_some_and(|value| value & MSECCFG_STANDARD_INCOMPATIBLE != 0)
-    {
-        return Err(PmpError::ExtendedState);
-    }
-
-    let mut config_words = 0;
-    for word in 0..MAX_CONFIG_CSRS {
-        let Some(config) = registers.read_config(word)? else {
-            break;
-        };
-        if config
-            .to_le_bytes()
-            .into_iter()
-            .any(|byte| byte & PMP_L != 0)
-        {
-            return Err(PmpError::LockedState);
-        }
-        config_words += 1;
-    }
-
-    // No lower-privilege context is reachable during preparation. Turning all
-    // entries OFF before touching addresses therefore cannot create an
-    // observable permissive window, and any later failure keeps this hart in M.
-    for word in 0..config_words {
-        write_and_verify_config(&mut registers, word, 0)?;
-    }
-
-    let mut entries = 0;
-    let mut off_address_mask = None;
-    let mut reached_unimplemented_entry = false;
-    for index in 0..MAX_PMP_ENTRIES {
-        let supported = registers.swap_address(index, usize::MAX)?.is_some();
-        let observed = registers.read_address(index)?.unwrap_or(0);
-        if !supported || observed == 0 {
-            reached_unimplemented_entry = true;
-            continue;
-        }
-        if reached_unimplemented_entry {
-            return Err(PmpError::InconsistentCapability);
-        }
-        if off_address_mask
-            .replace(observed)
-            .is_some_and(|mask| mask != observed)
-        {
-            return Err(PmpError::InconsistentCapability);
-        }
-        write_and_verify_address(&mut registers, index, 0)?;
-        entries += 1;
-    }
-
-    if entries == 0 {
-        return Ok(DisabledPmp {
-            registers,
-            capability: Capability::new(0, 4, 0)?,
-        });
-    }
-    if entries > config_words * CONFIG_BYTES_PER_CSR {
-        return Err(PmpError::InconsistentCapability);
-    }
-
-    let off_address_mask = off_address_mask.ok_or(PmpError::InconsistentCapability)?;
-    let grain_bits = off_address_mask.trailing_zeros();
-    let granularity_shift = grain_bits
-        .checked_add(2)
-        .filter(|shift| *shift < usize::BITS)
-        .ok_or(PmpError::InvalidCapability)?;
-    let granularity = 1usize << granularity_shift;
-
-    if registers.swap_address(0, usize::MAX)?.is_none() {
-        return Err(PmpError::InconsistentCapability);
-    }
-    write_and_verify_config(
-        &mut registers,
-        0,
-        usize::from(AddressMode::NaturallyAlignedPowerOfTwo.bits()),
+pub(crate) fn configure_current_hart(
+    machine_ranges: &[Region],
+    configuration: &crate::pmp::Configuration,
+    trusted_without_pmp: bool,
+) -> Result<(), PmpError> {
+    let disabled = probe_and_disable(MachineRegisters)?;
+    let image = compile_machine_policy(
+        machine_image()?,
+        machine_ranges,
+        configuration,
+        disabled.capability,
+        trusted_without_pmp,
     )?;
-    let napot_address_mask = registers
-        .read_address(0)?
-        .ok_or(PmpError::InconsistentCapability)?;
-    write_and_verify_config(&mut registers, 0, 0)?;
-    write_and_verify_address(&mut registers, 0, 0)?;
-
-    let forced_low_mask = napot_address_mask ^ off_address_mask;
-    let expected_low_mask = granularity
-        .checked_div(4)
-        .and_then(|words| words.checked_sub(1))
-        .ok_or(PmpError::InvalidCapability)?;
-    if forced_low_mask != expected_low_mask
-        || off_address_mask | expected_low_mask != napot_address_mask
-    {
-        return Err(PmpError::InconsistentCapability);
-    }
-
-    Ok(DisabledPmp {
-        registers,
-        capability: Capability::new(entries, granularity, napot_address_mask)?,
-    })
+    let _verified = install(disabled, image)?;
+    Ok(())
 }
 
-fn install<R: PmpRegisters>(
-    mut disabled: DisabledPmp<R>,
-    image: Image,
-) -> Result<VerifiedPmp<R>, PmpError> {
-    let (entries, deny_count) = match image {
-        Image::TrustedWithoutPmp if disabled.capability.entries == 0 => {
-            return Ok(VerifiedPmp {
-                _registers: disabled.registers,
-            });
+fn expected_value(result: ExpectedResult) -> Result<Option<usize>, PmpError> {
+    match result {
+        ExpectedResult::Value(value) => Ok(Some(value)),
+        ExpectedResult::Fault(fault) if fault.cause == 2 => Ok(None),
+        ExpectedResult::Fault(_) => Err(PmpError::UnexpectedFault),
+        ExpectedResult::Busy | ExpectedResult::Unavailable => Err(PmpError::HardwareUnavailable),
+    }
+}
+
+fn read_fixed<const CSR: u16>() -> Result<Option<usize>, PmpError> {
+    // SAFETY: every instantiation is selected from the fixed PMP/mseccfg lists
+    // below. The numeric CSR never crosses this private driver boundary.
+    expected_value(unsafe { probe_csr::<CSR>() })
+}
+
+fn swap_fixed<const CSR: u16>(value: usize) -> Result<Option<usize>, PmpError> {
+    // SAFETY: every instantiation is selected from the fixed lists below;
+    // callers validate and read back the complete WARL value.
+    expected_value(unsafe { swap_csr::<CSR>(value) })
+}
+
+macro_rules! dispatch_read {
+    ($index:expr; $($slot:literal => $csr:literal),+ $(,)?) => {
+        match $index {
+            $($slot => read_fixed::<$csr>(),)+
+            _ => Ok(None),
         }
-        Image::TrustedWithoutPmp => return Err(PmpError::VerificationFailed),
-        Image::Protected {
-            entries,
-            deny_count,
-        } => (entries, deny_count),
     };
-    validate_image(&entries, deny_count, disabled.capability)?;
-
-    let grain_address_mask = disabled.capability.granularity / 4 - 1;
-    for (index, entry) in entries.iter().enumerate() {
-        write_and_verify_address_as(
-            &mut disabled.registers,
-            index,
-            entry.address,
-            entry.address & !grain_address_mask,
-        )?;
-    }
-
-    let mut deny_configs = [0usize; MAX_CONFIG_CSRS];
-    let mut final_configs = [0usize; MAX_CONFIG_CSRS];
-    for (index, entry) in entries.iter().enumerate() {
-        let word = index / CONFIG_BYTES_PER_CSR;
-        let shift = (index % CONFIG_BYTES_PER_CSR) * 8;
-        let config = usize::from(entry.config_byte()) << shift;
-        final_configs[word] |= config;
-        if index < deny_count {
-            deny_configs[word] |= config;
-        }
-    }
-    let used_words = entries.len().div_ceil(CONFIG_BYTES_PER_CSR);
-
-    // Every machine exclusion becomes effective and is read back before any
-    // S/U grant is enabled. A failure therefore leaves the hart in M-mode with
-    // an equal or more restrictive policy.
-    for (word, config) in deny_configs[..used_words].iter().copied().enumerate() {
-        write_and_verify_config(&mut disabled.registers, word, config)?;
-    }
-    for (word, config) in final_configs[..used_words].iter().copied().enumerate() {
-        write_and_verify_config(&mut disabled.registers, word, config)?;
-    }
-
-    for (index, entry) in entries.iter().enumerate() {
-        if disabled.registers.read_address(index)? != Some(entry.address) {
-            return Err(PmpError::VerificationFailed);
-        }
-    }
-    for (word, config) in final_configs[..used_words].iter().copied().enumerate() {
-        if disabled.registers.read_config(word)? != Some(config) {
-            return Err(PmpError::VerificationFailed);
-        }
-    }
-
-    Ok(VerifiedPmp {
-        _registers: disabled.registers,
-    })
 }
 
-fn validate_image(
-    entries: &[Entry],
-    deny_count: usize,
-    capability: Capability,
-) -> Result<(), PmpError> {
-    if entries.is_empty() || entries.len() > capability.entries || deny_count > entries.len() {
-        return Err(PmpError::VerificationFailed);
+macro_rules! dispatch_swap {
+    ($index:expr, $value:expr; $($slot:literal => $csr:literal),+ $(,)?) => {
+        match $index {
+            $($slot => swap_fixed::<$csr>($value),)+
+            _ => Ok(None),
+        }
+    };
+}
+
+macro_rules! pmpaddr_dispatch {
+    ($operation:ident, $index:expr $(, $value:expr)?) => {
+        $operation!($index $(, $value)?;
+            0 => 0x3b0, 1 => 0x3b1, 2 => 0x3b2, 3 => 0x3b3,
+            4 => 0x3b4, 5 => 0x3b5, 6 => 0x3b6, 7 => 0x3b7,
+            8 => 0x3b8, 9 => 0x3b9, 10 => 0x3ba, 11 => 0x3bb,
+            12 => 0x3bc, 13 => 0x3bd, 14 => 0x3be, 15 => 0x3bf,
+            16 => 0x3c0, 17 => 0x3c1, 18 => 0x3c2, 19 => 0x3c3,
+            20 => 0x3c4, 21 => 0x3c5, 22 => 0x3c6, 23 => 0x3c7,
+            24 => 0x3c8, 25 => 0x3c9, 26 => 0x3ca, 27 => 0x3cb,
+            28 => 0x3cc, 29 => 0x3cd, 30 => 0x3ce, 31 => 0x3cf,
+            32 => 0x3d0, 33 => 0x3d1, 34 => 0x3d2, 35 => 0x3d3,
+            36 => 0x3d4, 37 => 0x3d5, 38 => 0x3d6, 39 => 0x3d7,
+            40 => 0x3d8, 41 => 0x3d9, 42 => 0x3da, 43 => 0x3db,
+            44 => 0x3dc, 45 => 0x3dd, 46 => 0x3de, 47 => 0x3df,
+            48 => 0x3e0, 49 => 0x3e1, 50 => 0x3e2, 51 => 0x3e3,
+            52 => 0x3e4, 53 => 0x3e5, 54 => 0x3e6, 55 => 0x3e7,
+            56 => 0x3e8, 57 => 0x3e9, 58 => 0x3ea, 59 => 0x3eb,
+            60 => 0x3ec, 61 => 0x3ed, 62 => 0x3ee, 63 => 0x3ef,
+        )
+    };
+}
+
+impl PmpRegisters for MachineRegisters {
+    fn read_security_config(&mut self) -> Result<Option<usize>, PmpError> {
+        read_fixed::<0x747>()
     }
-    for (index, entry) in entries.iter().enumerate() {
-        if entry.address & !capability.napot_address_mask != 0
-            || !matches!(
-                entry.mode,
-                AddressMode::NaturallyAlignedFourBytes | AddressMode::NaturallyAlignedPowerOfTwo
-            )
-            || (index < deny_count) != entry.permissions.is_empty()
+
+    fn read_config(&mut self, word: usize) -> Result<Option<usize>, PmpError> {
+        #[cfg(target_pointer_width = "32")]
         {
-            return Err(PmpError::VerificationFailed);
+            dispatch_read!(word;
+                0 => 0x3a0, 1 => 0x3a1, 2 => 0x3a2, 3 => 0x3a3,
+                4 => 0x3a4, 5 => 0x3a5, 6 => 0x3a6, 7 => 0x3a7,
+                8 => 0x3a8, 9 => 0x3a9, 10 => 0x3aa, 11 => 0x3ab,
+                12 => 0x3ac, 13 => 0x3ad, 14 => 0x3ae, 15 => 0x3af,
+            )
+        }
+        #[cfg(target_pointer_width = "64")]
+        {
+            dispatch_read!(word;
+                0 => 0x3a0, 1 => 0x3a2, 2 => 0x3a4, 3 => 0x3a6,
+                4 => 0x3a8, 5 => 0x3aa, 6 => 0x3ac, 7 => 0x3ae,
+            )
         }
     }
-    Ok(())
-}
 
-fn write_and_verify_config<R: PmpRegisters>(
-    registers: &mut R,
-    word: usize,
-    value: usize,
-) -> Result<(), PmpError> {
-    if registers.swap_config(word, value)?.is_none() || registers.read_config(word)? != Some(value)
-    {
-        return Err(PmpError::VerificationFailed);
+    fn swap_config(&mut self, word: usize, value: usize) -> Result<Option<usize>, PmpError> {
+        #[cfg(target_pointer_width = "32")]
+        {
+            dispatch_swap!(word, value;
+                0 => 0x3a0, 1 => 0x3a1, 2 => 0x3a2, 3 => 0x3a3,
+                4 => 0x3a4, 5 => 0x3a5, 6 => 0x3a6, 7 => 0x3a7,
+                8 => 0x3a8, 9 => 0x3a9, 10 => 0x3aa, 11 => 0x3ab,
+                12 => 0x3ac, 13 => 0x3ad, 14 => 0x3ae, 15 => 0x3af,
+            )
+        }
+        #[cfg(target_pointer_width = "64")]
+        {
+            dispatch_swap!(word, value;
+                0 => 0x3a0, 1 => 0x3a2, 2 => 0x3a4, 3 => 0x3a6,
+                4 => 0x3a8, 5 => 0x3aa, 6 => 0x3ac, 7 => 0x3ae,
+            )
+        }
     }
-    Ok(())
-}
 
-fn write_and_verify_address<R: PmpRegisters>(
-    registers: &mut R,
-    index: usize,
-    value: usize,
-) -> Result<(), PmpError> {
-    write_and_verify_address_as(registers, index, value, value)
-}
-
-fn write_and_verify_address_as<R: PmpRegisters>(
-    registers: &mut R,
-    index: usize,
-    value: usize,
-    expected: usize,
-) -> Result<(), PmpError> {
-    if registers.swap_address(index, value)?.is_none()
-        || registers.read_address(index)? != Some(expected)
-    {
-        return Err(PmpError::VerificationFailed);
+    fn read_address(&mut self, index: usize) -> Result<Option<usize>, PmpError> {
+        pmpaddr_dispatch!(dispatch_read, index)
     }
-    Ok(())
+
+    fn swap_address(&mut self, index: usize, value: usize) -> Result<Option<usize>, PmpError> {
+        pmpaddr_dispatch!(dispatch_swap, index, value)
+    }
 }

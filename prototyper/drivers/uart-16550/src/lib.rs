@@ -6,10 +6,7 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
-use core::ops::Range;
-
-use machine::memory::{IoMem, IoMemError, io_fence};
-use machine::{Console, ConsoleDevice, ConsoleError};
+use machine::{Console, ConsoleDevice, ConsoleError, IoMem, IoMemError, io_fence};
 
 /// Register access convention selected by the compatible binding.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -20,9 +17,8 @@ pub enum Access {
     Word,
 }
 
-/// Claims and binds one 16550-family register window.
-pub fn install(range: Range<usize>, access: Access) -> Result<Console, IoMemError> {
-    let io = IoMem::acquire(range)?;
+/// Binds an already-owned 16550-family register window.
+pub fn bind(io: IoMem, access: Access) -> Result<Console, IoMemError> {
     match access {
         Access::Byte => io.validate::<u8>(LineStatus::OFFSET)?,
         Access::Word => io.validate::<u32>(LineStatus::OFFSET * 4)?,

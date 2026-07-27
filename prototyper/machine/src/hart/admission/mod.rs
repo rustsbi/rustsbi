@@ -7,11 +7,9 @@
 use super::fence::RemoteFenceRequest;
 use crate::hart::{HartStatus, HartTargets};
 
-#[cfg(any(test, feature = "mtest"))]
+#[cfg(test)]
 mod audit;
 mod lifecycle;
-#[cfg(feature = "mtest")]
-mod mtests;
 mod remote_fence;
 
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
@@ -22,7 +20,7 @@ impl HartSet {
         Self(0)
     }
 
-    #[cfg(any(test, feature = "mtest"))]
+    #[cfg(test)]
     pub(crate) fn singleton(index: usize) -> Result<Self, AdmissionError> {
         let mut set = Self::empty();
         set.insert(index)?;

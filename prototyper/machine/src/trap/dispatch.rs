@@ -4,7 +4,7 @@ use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicU8, Ordering};
 
 use super::frame::Frame;
-use super::{Cause, SbiHandler, Trap, arch, stack};
+use super::{Cause, SbiHandler, Trap, stack};
 
 const HANDLER_EMPTY: u8 = 0;
 const HANDLER_WRITING: u8 = 1;
@@ -76,8 +76,8 @@ pub(super) unsafe extern "C" fn dispatch(frame: *mut Frame, stack_top: usize) ->
     let Some(index) = stack::index_for_top(stack_top) else {
         crate::power::abort(|| {});
     };
-    if super::features::hypervisor_metadata_available(index) {
-        arch::capture_hypervisor_metadata(frame);
+    if super::probe::hypervisor_metadata_available(index) {
+        super::entry::capture_hypervisor_metadata(frame);
     }
     let cause = frame.cause();
     let machine_origin = frame.previous_mode() == 3;
@@ -94,7 +94,7 @@ pub(super) unsafe extern "C" fn dispatch(frame: *mut Frame, stack_top: usize) ->
         {
             crate::power::abort(|| {});
         }
-        arch::restore(Trap { frame, stack_top })
+        super::entry::restore(Trap { frame, stack_top })
     }
     // The only admitted first-level M-origin trap is a machine notification
     // used to wake the private warm loop. Exceptions or unrelated interrupts
@@ -104,7 +104,7 @@ pub(super) unsafe extern "C" fn dispatch(frame: *mut Frame, stack_top: usize) ->
         crate::power::abort(|| {})
     }
     if matches!(cause, Cause::MachineTimerInterrupt) && crate::timer::handle_interrupt() {
-        arch::restore(Trap { frame, stack_top })
+        super::entry::restore(Trap { frame, stack_top })
     }
     let Some(handler) = handler() else {
         crate::power::abort(|| {});

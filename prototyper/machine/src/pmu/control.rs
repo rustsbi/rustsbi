@@ -1,7 +1,7 @@
 //! Transactional counter, inhibit, and event-selector operations.
 
+use super::csr::*;
 use super::hart::*;
-use super::riscv::csr::*;
 
 pub(super) fn reset_all(facts: HartCounters) -> Result<(), CounterError> {
     let programmable = facts.controllable & !0b111;

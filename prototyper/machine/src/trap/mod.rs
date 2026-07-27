@@ -4,21 +4,19 @@
 //! remain private. Upper firmware receives copied SBI arguments and returns
 //! only the two architectural result registers.
 
-mod arch;
 mod delegation;
 mod dispatch;
-pub(crate) mod expected;
-mod features;
+mod entry;
 mod frame;
-mod illegal;
+pub(crate) mod probe;
 mod redirect;
 mod stack;
 
-pub(crate) use arch::{
+pub(crate) use delegation::prepare as prepare_delegation;
+pub(crate) use entry::{
     activate, current_index, enter_resumed_stage, hypervisor_available, install, park_current_hart,
     prepare_counters, prepare_hypervisor_metadata, prepare_timer,
 };
-pub(crate) use delegation::prepare as prepare_delegation;
 
 pub(crate) fn abort() -> ! {
     crate::power::abort(|| {})
@@ -27,11 +25,46 @@ pub(crate) fn abort() -> ! {
 use frame::Frame;
 #[cfg(test)]
 use frame::HypervisorTrap;
-use illegal::decode_time_read;
-use illegal::{DecodedTimeRead, TimeCsr};
 #[cfg(test)]
 use redirect::hypervisor_status;
 use redirect::{read_supervisor_vector, write_supervisor_trap};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TimeCsr {
+    Time,
+    TimeHigh,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct DecodedTimeRead {
+    destination_register: usize,
+    csr: TimeCsr,
+}
+
+fn decode_time_read(instruction: usize) -> Option<DecodedTimeRead> {
+    const OPCODE_SYSTEM: usize = 0x73;
+    const FUNCT3_CSRRS: usize = 0b010;
+    const CSR_TIME: usize = 0xc01;
+    const CSR_TIMEH: usize = 0xc81;
+
+    let instruction = u32::try_from(instruction).ok()? as usize;
+    if instruction & 0x7f != OPCODE_SYSTEM
+        || (instruction >> 12) & 0b111 != FUNCT3_CSRRS
+        || (instruction >> 15) & 0b1_1111 != 0
+    {
+        return None;
+    }
+    let destination_register = (instruction >> 7) & 0b1_1111;
+    let csr = match (instruction >> 20) & 0xfff {
+        CSR_TIME => TimeCsr::Time,
+        CSR_TIMEH => TimeCsr::TimeHigh,
+        _ => return None,
+    };
+    Some(DecodedTimeRead {
+        destination_register,
+        csr,
+    })
+}
 
 /// One SBI environment call copied out of the private machine trap frame.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -95,7 +128,7 @@ impl Trap<'_> {
         {
             abort();
         }
-        arch::restore(self)
+        entry::restore(self)
     }
 
     /// Redirects the unchanged active lower-mode trap to the supervisor vector.
@@ -114,7 +147,7 @@ impl Trap<'_> {
         let supervisor_pc = self.frame.pc();
         let supervisor_cause = self.frame.encoded_cause();
         let supervisor_value = self.frame.trap_value();
-        let hypervisor = if features::hypervisor_metadata_available(
+        let hypervisor = if probe::hypervisor_metadata_available(
             stack::index_for_top(self.stack_top).unwrap_or_else(|| abort()),
         ) {
             match self.frame.hypervisor_trap() {
@@ -140,7 +173,7 @@ impl Trap<'_> {
         ) {
             abort();
         }
-        arch::restore(self)
+        entry::restore(self)
     }
 
     /// Emulates the retained read-only time CSR compatibility case.
@@ -180,7 +213,7 @@ impl Trap<'_> {
         if !self.frame.commit_instruction(destination_register, value) {
             abort();
         }
-        arch::restore(self)
+        entry::restore(self)
     }
 }
 

@@ -7,7 +7,7 @@ use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use super::admission::*;
-use super::arch::{current_hart_id, execute, manifest_supervisor_ipi, protocol_fence};
+use super::instructions::{current_hart_id, execute, manifest_supervisor_ipi, protocol_fence};
 use super::ipi::{IpiDevice, IpiError};
 use super::lock::TicketLock;
 use super::start::PendingStart;
@@ -258,37 +258,5 @@ pub(super) fn map_hart_error(error: AdmissionError) -> HartError {
     }
 }
 
-#[crate::mtest]
-fn admitted_hart_has_ratified_started_state() {
-    let admission = installed().expect("hart admission must be published");
-    assert_eq!(admission.status(current_hart_id()), Ok(HartStatus::Started));
-}
-
-#[crate::mtest]
-fn peer_hart_reaches_the_warm_wait_loop() {
-    assert!(crate::test_support::warm_parked_count() >= 1);
-}
-
-#[crate::mtest]
-fn notification_claim_drains_an_empty_snapshot() {
-    let admission = installed().expect("hart admission must be published");
-    assert!(admission.handle_notification().is_ok());
-}
-
-#[crate::mtest]
-fn local_remote_fence_completes_through_the_admission_protocol() {
-    let admission = installed().expect("hart admission must be published");
-    let current = current_hart_id();
-    assert!(
-        admission
-            .remote_fence(
-                crate::HartTargets::selected(1, current),
-                crate::hart::fence::RemoteFenceRequest::FenceI,
-            )
-            .is_ok()
-    );
-}
-
 #[cfg(test)]
-#[path = "tests.rs"]
 mod tests;

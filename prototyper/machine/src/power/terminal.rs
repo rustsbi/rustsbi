@@ -5,7 +5,7 @@ use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use spin::Once;
 
-use super::{PowerControl, PowerInstallError, PowerReason};
+use super::{PowerControl, PowerReason};
 
 #[derive(Clone, Copy)]
 #[repr(u8)]
@@ -66,17 +66,16 @@ impl AbortState {
     }
 }
 
-pub(crate) fn install_control(control: Box<dyn PowerControl>) -> Result<(), PowerInstallError> {
-    claim_control(&CONTROL_CLAIMED)?;
+pub(crate) fn install_control(control: Box<dyn PowerControl>) -> Option<()> {
+    claim_control(&CONTROL_CLAIMED).then_some(())?;
     CONTROL.call_once(|| control);
-    Ok(())
+    Some(())
 }
 
-fn claim_control(claimed: &AtomicBool) -> Result<(), PowerInstallError> {
+fn claim_control(claimed: &AtomicBool) -> bool {
     claimed
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-        .map(|_| ())
-        .map_err(|_| PowerInstallError::AlreadyInstalled)
+        .is_ok()
 }
 
 pub(crate) fn control() -> Option<&'static dyn PowerControl> {
@@ -103,7 +102,7 @@ pub(crate) fn is_terminal() -> bool {
 /// retain `PanicInfo`, `fmt::Arguments`, or any other borrowed report value.
 pub fn abort(report: impl FnOnce()) -> ! {
     if STATE.begin() {
-        super::arch::mask_local_interrupts();
+        super::mask_local_interrupts();
         crate::hart::notify_terminal_peers();
         report();
         // Security/compatibility policy: a fatal firmware failure requests
@@ -115,7 +114,7 @@ pub fn abort(report: impl FnOnce()) -> ! {
             control.shutdown(PowerReason::SystemFailure);
         }
     }
-    super::arch::halt()
+    super::halt()
 }
 
 #[cfg(test)]
@@ -145,10 +144,7 @@ mod tests {
     #[test]
     fn power_provider_can_be_claimed_exactly_once() {
         let claimed = AtomicBool::new(false);
-        assert_eq!(claim_control(&claimed), Ok(()));
-        assert_eq!(
-            claim_control(&claimed),
-            Err(PowerInstallError::AlreadyInstalled)
-        );
+        assert!(claim_control(&claimed));
+        assert!(!claim_control(&claimed));
     }
 }

@@ -1,20 +1,22 @@
 //! Hart identity, lifecycle, notification, and remote-fence capabilities.
 
 mod admission;
-mod arch;
 mod control;
 mod fence;
+mod instructions;
 mod ipi;
+mod local;
 mod lock;
-mod map;
 pub(crate) mod protocol;
 mod start;
+mod warm;
 
 pub use control::{HartControl, HartError, HartStatus};
 pub use fence::{RemoteFence, RemoteFenceError};
 pub use ipi::{Ipi, IpiError};
-pub use map::{HartLocal, HartLocalError, HartLocalGuard, HartTargets};
+pub use local::{HartLocal, HartLocalError, HartLocalGuard, HartTargets};
 
 pub(crate) use ipi::{IpiDevice, Notification};
-pub(crate) use map::{entry_index, publish, resolve};
+pub(crate) use local::{entry_index, publish, resolve};
 pub(crate) use protocol::{HartAdmission, notify_terminal_peers};
+pub(crate) use warm::run as run_warm_hart;
