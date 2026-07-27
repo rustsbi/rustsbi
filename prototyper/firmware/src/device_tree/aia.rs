@@ -7,9 +7,8 @@ use core::ops::Range;
 use dtoolkit::model::DeviceTreeNode;
 use dtoolkit::{Node, Property};
 
-use super::discovery::Error as DiscoverError;
+use super::Error as DiscoverError;
 use super::dt::{BootTree, cell_count, enabled, read_cells};
-use super::hart::HartInfo;
 
 const MACHINE_EXTERNAL_INTERRUPT: u32 = 11;
 const FIRMWARE_IPI_IID: u16 = 1;
@@ -25,16 +24,23 @@ struct HartFile {
 /// Validated IMSIC node selected for machine installation.
 pub(super) struct Imsic {
     pub(super) path: String,
+    pub(super) ranges: Vec<Range<usize>>,
+    pub(super) files: Vec<machine::interrupt::aia::ImsicFile>,
+    pub(super) interrupt_identity_count: u16,
+    pub(super) hart_index_width: u32,
+    pub(super) supervisor_imsic_base: u64,
 }
 
 /// Validated APLIC node selected for machine installation.
 pub(super) struct Aplic {
     pub(super) path: String,
+    pub(super) range: Range<usize>,
+    pub(super) source_count: u32,
 }
 
 pub(super) fn discover(
     tree: &BootTree,
-    harts: &[HartInfo],
+    harts: &[usize],
 ) -> Result<(Option<Imsic>, Option<Aplic>), DiscoverError> {
     let intc_harts = cpu_interrupt_controllers(tree)?;
     let mut imsic = None;
@@ -77,7 +83,7 @@ fn discover_imsic(
     parent: &DeviceTreeNode,
     path: String,
     intc_harts: &[(u32, usize)],
-    admitted_harts: &[HartInfo],
+    admitted_harts: &[usize],
 ) -> Result<Option<Imsic>, DiscoverError> {
     let interrupt_cells = u32_cells(
         node.property("interrupts-extended")
@@ -103,7 +109,7 @@ fn discover_imsic(
         return Ok(None);
     }
     for hart in admitted_harts {
-        if !raw_files.iter().any(|(hart_id, _)| *hart_id == hart.id) {
+        if !raw_files.iter().any(|(hart_id, _)| hart_id == hart) {
             return Err(DiscoverError::UnsupportedDevice);
         }
     }
@@ -121,6 +127,11 @@ fn discover_imsic(
     validate_topology(hart_index_bits, group_index_bits, group_index_shift)?;
 
     let base = ranges.first().ok_or(DiscoverError::DeviceRange)?.start;
+    let supervisor_imsic_base = ranges
+        .get(1)
+        .map(|range| u64::try_from(range.start).map_err(|_| DiscoverError::DeviceRange))
+        .transpose()?
+        .ok_or(DiscoverError::UnsupportedDevice)?;
     let mut hart_files = Vec::new();
     for (hart_id, file_index) in raw_files {
         let address = file_address(
@@ -148,7 +159,20 @@ fn discover_imsic(
         hart_files.push(HartFile { hart_id, address });
     }
 
-    Ok(Some(Imsic { path }))
+    Ok(Some(Imsic {
+        path,
+        ranges,
+        files: hart_files
+            .into_iter()
+            .map(|file| machine::interrupt::aia::ImsicFile {
+                hart_id: file.hart_id,
+                address: file.address,
+            })
+            .collect(),
+        interrupt_identity_count: num_ids,
+        hart_index_width: hart_index_bits,
+        supervisor_imsic_base,
+    }))
 }
 
 fn discover_aplic(
@@ -158,14 +182,19 @@ fn discover_aplic(
 ) -> Result<Aplic, DiscoverError> {
     let ranges = reg_ranges(parent, node)?;
     let mut ranges = ranges.into_iter();
-    ranges.next().ok_or(DiscoverError::DeviceRange)?;
+    let range = ranges.next().ok_or(DiscoverError::DeviceRange)?;
     if ranges.next().is_some() {
         return Err(DiscoverError::DeviceRange);
     }
-    if required_u32(node, "riscv,num-sources")? == 0 {
+    let source_count = required_u32(node, "riscv,num-sources")?;
+    if source_count == 0 {
         return Err(DiscoverError::UnsupportedDevice);
     }
-    Ok(Aplic { path })
+    Ok(Aplic {
+        path,
+        range,
+        source_count,
+    })
 }
 
 fn cpu_interrupt_controllers(tree: &BootTree) -> Result<Vec<(u32, usize)>, DiscoverError> {

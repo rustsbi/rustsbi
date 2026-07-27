@@ -8,10 +8,7 @@ mod reset;
 mod rfence;
 mod timer;
 
-use machine::{
-    Console, HartControl, Ipi as MachineIpi, RemoteFence as MachineRemoteFence, SbiCall,
-    Timer as MachineTimer,
-};
+use machine::{Console, SbiCall};
 use rustsbi::RustSBI;
 use sbi_spec::{
     binary::{Error, SbiRet},
@@ -51,63 +48,37 @@ pub struct Dispatcher {
 }
 
 impl Dispatcher {
-    /// Creates an SBI dispatcher with no optional extensions installed.
-    pub const fn new() -> Self {
-        Self {
-            timer: None,
-            ipi: None,
-            hsm: None,
-            rfence: None,
-            reset: None,
-            console: None,
-            pmu: None,
-        }
-    }
-
-    /// Attaches the optional TIME extension capability.
-    pub fn timer(mut self, timer: Option<MachineTimer>) -> Self {
-        self.timer = timer.map(Timer::new);
-        self
-    }
-
-    /// Attaches the optional IPI extension capability.
-    pub fn ipi(mut self, ipi: Option<MachineIpi>) -> Self {
-        self.ipi = ipi.map(Ipi::new);
-        self
-    }
-
-    /// Attaches the optional HSM and system-suspend capability.
-    pub fn hart_control(mut self, harts: Option<HartControl>) -> Self {
-        self.hsm = harts.map(Hsm::new);
-        self
-    }
-
-    /// Attaches the optional remote-fence capability.
-    pub fn remote_fence(mut self, fence: Option<MachineRemoteFence>) -> Self {
-        self.rfence = fence.map(Rfence::new);
-        self
-    }
-
-    /// Advertises SRST only when a whole-machine power provider is installed.
-    pub fn system_reset(mut self, available: bool) -> Self {
-        self.reset = available.then(Reset::new);
-        self
-    }
-
-    /// Attaches DBCN only when the console and supervisor-memory view exist.
-    pub fn debug_console(
-        mut self,
+    /// Builds every SBI extension from the completed firmware capability set.
+    pub(crate) fn from_capabilities(
+        interrupts: Option<machine::Interrupts>,
+        power: bool,
         console: Option<Console>,
         memory: machine::memory::SupervisorMemory,
-    ) -> Self {
-        self.console = console.map(|console| DebugConsole::new(console, memory));
-        self
-    }
-
-    /// Attaches an already prepared SBI performance-monitoring service.
-    pub(crate) fn performance_monitor(mut self, monitor: Option<PerformanceMonitor>) -> Self {
-        self.pmu = monitor;
-        self
+        counters: Option<machine::PerformanceCounters>,
+        hart_count: usize,
+    ) -> Result<Self, machine::HartLocalError> {
+        let (timer, ipi, fence, harts) = match interrupts {
+            Some(interrupts) => (
+                Some(interrupts.timer),
+                Some(interrupts.ipi),
+                Some(interrupts.remote_fence),
+                Some(interrupts.harts),
+            ),
+            None => (None, None, None, None),
+        };
+        let pmu = match counters {
+            Some(counters) => Some(PerformanceMonitor::new(counters, hart_count)?),
+            None => None,
+        };
+        Ok(Self {
+            timer: timer.map(Timer::new),
+            ipi: ipi.map(Ipi::new),
+            hsm: harts.map(Hsm::new),
+            rfence: fence.map(Rfence::new),
+            reset: power.then(Reset::new),
+            console: console.map(|console| DebugConsole::new(console, memory)),
+            pmu,
+        })
     }
 
     fn record_sbi_call(&self, extension_id: usize, function_id: usize) {
@@ -137,15 +108,6 @@ impl Dispatcher {
             pmu.record(event);
         }
     }
-}
-
-pub(crate) fn prepare_performance_monitor(
-    counters: Option<machine::PerformanceCounters>,
-    hart_count: usize,
-) -> Result<Option<PerformanceMonitor>, machine::HartLocalError> {
-    counters
-        .map(|counters| PerformanceMonitor::new(counters, hart_count))
-        .transpose()
 }
 
 impl machine::SbiHandler for Dispatcher {

@@ -6,7 +6,7 @@ use core::ops::Range;
 use dtoolkit::model::DeviceTreeNode;
 use dtoolkit::{Node, Property};
 
-use super::discovery::Error as DiscoverError;
+use super::Error as DiscoverError;
 use super::dt::{enabled, node_at_path, reg_at_path};
 
 const UART16550_U8: [&str; 1] = ["ns16550a"];
@@ -26,7 +26,7 @@ pub struct Console {
     pub kind: ConsoleKind,
 }
 
-/// Console register conventions retained by platform discovery.
+/// Console register conventions selected by firmware.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConsoleKind {
     /// Byte-stride 16550-compatible UART.
@@ -69,28 +69,27 @@ pub(super) fn discover(root: &DeviceTreeNode) -> Result<Option<Console>, Discove
 }
 
 pub(crate) fn install(
+    boot: &mut machine::BootInfo,
     tree: &mut super::dt::BootTree,
 ) -> Result<Option<machine::Console>, DiscoverError> {
     let Some(console) = discover(&tree.tree().root)? else {
         return Ok(None);
     };
-    let installed = bind(&console).map_err(|_| DiscoverError::Installation)?;
+    let io =
+        machine::IoMem::acquire(boot, console.range.clone()).ok_or(DiscoverError::Installation)?;
+    let installed = bind(&console, io).map_err(|_| DiscoverError::Installation)?;
     tree.disable_node(&console.path)?;
     Ok(Some(installed))
 }
 
-fn bind(console: &Console) -> Result<machine::Console, machine::memory::IoMemError> {
+fn bind(console: &Console, io: machine::IoMem) -> Result<machine::Console, machine::IoMemError> {
     match console.kind {
-        ConsoleKind::Uart16550U8 => {
-            uart_16550::install(console.range.clone(), uart_16550::Access::Byte)
-        }
-        ConsoleKind::Uart16550U32 => {
-            uart_16550::install(console.range.clone(), uart_16550::Access::Word)
-        }
-        ConsoleKind::UartAxiLite => uartlite::install(console.range.clone()),
-        ConsoleKind::UartBflb => uart_bl808::install(console.range.clone()),
-        ConsoleKind::UartSifive => uart_sifive::install(console.range.clone()),
-        ConsoleKind::UartPl011 => uart_pl011::install(console.range.clone()),
+        ConsoleKind::Uart16550U8 => uart_16550::bind(io, uart_16550::Access::Byte),
+        ConsoleKind::Uart16550U32 => uart_16550::bind(io, uart_16550::Access::Word),
+        ConsoleKind::UartAxiLite => uartlite::bind(io),
+        ConsoleKind::UartBflb => uart_bl808::bind(io),
+        ConsoleKind::UartSifive => uart_sifive::bind(io),
+        ConsoleKind::UartPl011 => uart_pl011::bind(io),
     }
 }
 

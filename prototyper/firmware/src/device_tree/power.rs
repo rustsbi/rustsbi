@@ -7,7 +7,7 @@ use core::ops::Range;
 use dtoolkit::model::DeviceTreeNode;
 use dtoolkit::{Node, Property};
 
-use super::discovery::Error as DiscoverError;
+use super::Error as DiscoverError;
 use super::dt::{enabled, nodes_with_paths, reg_at_path};
 
 const SIFIVE_TEST_COMPATIBLE: &str = "sifive,test0";
@@ -72,11 +72,18 @@ pub(super) fn discover(root: &DeviceTreeNode) -> Result<Option<Power>, DiscoverE
     Ok(Some(power))
 }
 
-pub(crate) fn install(tree: &mut super::dt::BootTree) -> Result<bool, DiscoverError> {
+pub(crate) fn install(
+    boot: &mut machine::BootInfo,
+    tree: &mut super::dt::BootTree,
+) -> Result<bool, DiscoverError> {
     let Some(power) = discover(&tree.tree().root)? else {
         return Ok(false);
     };
-    sifive_test::install(power.range.clone()).map_err(|_| DiscoverError::Installation)?;
+    let io =
+        machine::IoMem::acquire(boot, power.range.clone()).ok_or(DiscoverError::Installation)?;
+    if !sifive_test::bind(io) {
+        return Err(DiscoverError::Installation);
+    }
     for consumer in &power.consumers {
         tree.disable_node(consumer)?;
     }

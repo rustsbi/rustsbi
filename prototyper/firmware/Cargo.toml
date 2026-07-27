@@ -1,5 +1,5 @@
 [package]
-name = "rustsbi-prototyper"
+name = "rustsbi-firmware"
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
@@ -20,22 +20,9 @@ uart-sifive = { package = "rustsbi-prototyper-uart-sifive", path = "../drivers/u
 uartlite = { package = "rustsbi-prototyper-uartlite", path = "../drivers/uartlite" }
 uart-bl808 = { package = "rustsbi-prototyper-uart-bl808", path = "../drivers/uart-bl808" }
 sifive-test = { package = "rustsbi-prototyper-sifive-test", path = "../drivers/sifive-test" }
-sbi-testing = { version = "0.0.3", path = "../../library/sbi-testing", optional = true }
-
-[lib]
-test = false
-bench = false
-doctest = false
 
 [[bin]]
-name = "rustsbi-prototyper"
-test = false
-bench = false
-
-[[bin]]
-name = "rustsbi-prototyper-mtest"
-path = "src/mtest/main.rs"
-required-features = ["mtest"]
+name = "rustsbi-firmware"
 test = false
 bench = false
 
@@ -43,4 +30,3 @@ bench = false
 default = []
 nemu = []
 hypervisor = ["machine/hypervisor"]
-mtest = ["machine/mtest", "dep:sbi-testing"]

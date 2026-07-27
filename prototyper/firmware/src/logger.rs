@@ -16,24 +16,22 @@ struct Logger {
 #[derive(Clone, Copy)]
 struct LoggerState;
 
-pub(super) enum InstallError {
-    InvalidHartCount,
-    FacadeUnavailable,
-}
-
-pub(super) fn install(console: machine::Console, hart_count: usize) -> Result<(), InstallError> {
-    let hart_state = machine::HartLocal::new(vec![LoggerState; hart_count])
-        .map_err(|_| InstallError::InvalidHartCount)?;
+pub(super) fn install(console: machine::Console, hart_count: usize) -> bool {
+    let Ok(hart_state) = machine::HartLocal::new(vec![LoggerState; hart_count]) else {
+        return false;
+    };
     let logger = LOGGER.call_once(|| Logger {
         console,
         hart_state,
     });
-    log::set_logger(logger).map_err(|_| InstallError::FacadeUnavailable)?;
+    if log::set_logger(logger).is_err() {
+        return false;
+    }
     log::set_max_level(LevelFilter::Info);
-    Ok(())
+    true
 }
 
-pub(super) fn try_report_panic(location: Option<&Location<'_>>) {
+pub(super) fn report_panic(location: Option<&Location<'_>>) {
     let Some(logger) = LOGGER.get() else {
         return;
     };
@@ -52,17 +50,6 @@ pub(super) fn try_report_panic(location: Option<&Location<'_>>) {
                 .try_write_fmt(format_args!("[RustSBI] panic\n"));
         }
     }
-}
-
-#[cfg(feature = "mtest")]
-pub(super) fn try_report_test_failure(shard: &str, run: &str, diagnostic: &str) {
-    let Some(logger) = LOGGER.get() else {
-        return;
-    };
-    let _ = logger.console.try_write_fmt(format_args!(
-        "@@RUSTSBI_TEST v={} type=HARNESS_FAIL shard={shard} run={run} diag={diagnostic}\n",
-        sbi_testing::protocol::VERSION,
-    ));
 }
 
 impl Log for Logger {

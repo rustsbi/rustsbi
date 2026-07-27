@@ -18,7 +18,7 @@ impl Project {
             fs::canonicalize(start).map_err(|error| Error::io("read workspace", error))?;
         for candidate in absolute.ancestors() {
             if candidate.join("Cargo.toml").is_file()
-                && candidate.join("prototyper/prototyper/Cargo.toml").is_file()
+                && candidate.join("prototyper/firmware/Cargo.toml").is_file()
                 && candidate.join("xtask/Cargo.toml").is_file()
             {
                 return Ok(Self {

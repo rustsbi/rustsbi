@@ -104,7 +104,7 @@ impl FirmwareConfig {
     pub fn load(project: &Project, explicit: Option<&Path>) -> Result<Self, Error> {
         let source = explicit
             .map(Path::to_path_buf)
-            .unwrap_or_else(|| project.root().join("prototyper/prototyper/Prototyper.toml"));
+            .unwrap_or_else(|| project.root().join("prototyper/firmware/Prototyper.toml"));
         let source = absolute_existing(project, &source)?;
         let contents = fs::read_to_string(&source)
             .map_err(|error| Error::io("read Prototyper.toml", error))?;

@@ -20,7 +20,7 @@
 
 				rustsbi {
 					description = "RustSBI Firmware";
-					data = /incbin/("./rustsbi-prototyper.bin");
+					data = /incbin/("./rustsbi-firmware.bin");
 					type = "firmware";
 					os = "opensbi";
 					arch = "riscv";

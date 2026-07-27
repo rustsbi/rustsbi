@@ -10,11 +10,13 @@ use dtoolkit::fdt::Fdt;
 use dtoolkit::model::{DeviceTree, DeviceTreeNode, DeviceTreeProperty};
 use dtoolkit::{Node, Property};
 
-use super::config::{
-    BOOT_DTB_MAX_DEPTH, BOOT_DTB_MAX_NODES, BOOT_DTB_MAX_PROPERTIES, BOOT_DTB_MAX_SIZE,
-};
+const MAX_DTB_SIZE: usize = 0x40000;
+const MAX_DTB_DEPTH: usize = 64;
+const MAX_DTB_NODES: usize = 4096;
+const MAX_DTB_PROPERTIES: usize = 16384;
+const MAX_DTB_EDITS: usize = 256;
 
-/// Owned, bounded semantic tree shared only by boot-local platform installers.
+/// Owned, bounded tree used only while firmware selects boot devices.
 pub(crate) struct BootTree {
     tree: DeviceTree,
     boot_cpuid_phys: [u8; 4],
@@ -25,7 +27,7 @@ impl BootTree {
     /// Parses the machine-owned boot blob without constructing a raw-pointer
     /// view or retaining a dependency-specific node outside this adapter.
     pub(super) fn parse(boot: &machine::BootDtb) -> Result<Self, DtbError> {
-        if boot.as_bytes().len() > BOOT_DTB_MAX_SIZE {
+        if boot.as_bytes().len() > MAX_DTB_SIZE {
             return Err(DtbError::SizeLimit);
         }
         let fdt = Fdt::new(boot.as_bytes()).map_err(|_| DtbError::Malformed)?;
@@ -63,7 +65,7 @@ impl BootTree {
 
     fn reserve_edit(&mut self) -> Result<(), DtbError> {
         self.edits = self.edits.checked_add(1).ok_or(DtbError::EditLimit)?;
-        if self.edits > super::config::BOOT_DTB_MAX_EDITS {
+        if self.edits > MAX_DTB_EDITS {
             return Err(DtbError::EditLimit);
         }
         Ok(())
@@ -309,7 +311,7 @@ fn validate_owned_tree(tree: &DeviceTree) -> Result<usize, DtbError> {
             name.len().checked_add(1).ok_or(DtbError::SizeOverflow)?,
         )?;
     }
-    if encoded_size > BOOT_DTB_MAX_SIZE || u32::try_from(encoded_size).is_err() {
+    if encoded_size > MAX_DTB_SIZE || u32::try_from(encoded_size).is_err() {
         return Err(DtbError::SizeLimit);
     }
     Ok(encoded_size)
@@ -321,18 +323,18 @@ fn update_counts(
     properties: &mut usize,
     node_properties: usize,
 ) -> Result<(), DtbError> {
-    if depth > BOOT_DTB_MAX_DEPTH {
+    if depth > MAX_DTB_DEPTH {
         return Err(DtbError::DepthLimit);
     }
     *nodes = nodes.checked_add(1).ok_or(DtbError::NodeLimit)?;
-    if *nodes > BOOT_DTB_MAX_NODES {
+    if *nodes > MAX_DTB_NODES {
         return Err(DtbError::NodeLimit);
     }
 
     *properties = properties
         .checked_add(node_properties)
         .ok_or(DtbError::PropertyLimit)?;
-    if *properties > BOOT_DTB_MAX_PROPERTIES {
+    if *properties > MAX_DTB_PROPERTIES {
         return Err(DtbError::PropertyLimit);
     }
     Ok(())

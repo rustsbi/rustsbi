@@ -143,7 +143,7 @@ fn pack_fit(plan: &ExecutionPlan, artifacts: &ArtifactSet) -> Result<(), Error> 
     if !source.is_file() {
         return Err(Error::MissingInput(source));
     }
-    let firmware = plan.image.target_dir.join("rustsbi-prototyper.bin");
+    let firmware = plan.image.target_dir.join("rustsbi-firmware.bin");
     if !firmware.is_file() {
         return Err(Error::MissingInput(firmware));
     }
