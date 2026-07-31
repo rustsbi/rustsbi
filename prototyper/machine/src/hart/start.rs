@@ -4,7 +4,7 @@ use super::admission::AdmissionError;
 use super::instructions::protocol_fence;
 use super::protocol::{HartAdmission, map_hart_error};
 use crate::boot::{NextMode, NextStage};
-use crate::hart::{HartError, HartStatus};
+use crate::hart::{HartError, HartState};
 
 /// Source/target agreement for transferring one validated next-stage entry.
 ///
@@ -90,7 +90,7 @@ impl HartAdmission {
     pub(crate) fn pending_start_mode(&self, hart_id: usize) -> Option<NextMode> {
         let state = self.state.lock();
         let target = state.resolve_physical(hart_id).ok()?;
-        if state.state(target).ok()? != HartStatus::StartPending {
+        if state.state(target).ok()? != HartState::StartPending {
             return None;
         }
         state.starts[target]
@@ -106,14 +106,14 @@ impl HartAdmission {
             let mut state = self.state.lock();
             let target = state.resolve_physical(hart_id).map_err(map_hart_error)?;
             match state.state(target).map_err(map_hart_error)? {
-                HartStatus::Stopped => {}
-                HartStatus::Started | HartStatus::StartPending => {
+                HartState::Stopped => {}
+                HartState::Started | HartState::StartPending => {
                     return Err(HartError::AlreadyAvailable);
                 }
-                HartStatus::StopPending
-                | HartStatus::Suspended
-                | HartStatus::SuspendPending
-                | HartStatus::ResumePending => return Err(HartError::Failed),
+                HartState::StopPending
+                | HartState::Suspended
+                | HartState::SuspendPending
+                | HartState::ResumePending => return Err(HartError::Failed),
             }
             if state.starts[target].is_some() {
                 return Err(HartError::Failed);
@@ -182,7 +182,7 @@ impl HartAdmission {
     ) -> Result<(), HartError> {
         let mut state = self.state.lock();
         let target = state.resolve_physical(hart_id).map_err(map_hart_error)?;
-        if state.state(target).map_err(map_hart_error)? != HartStatus::StartPending {
+        if state.state(target).map_err(map_hart_error)? != HartState::StartPending {
             return Err(HartError::Failed);
         }
         let slot = state.starts[target].as_mut().ok_or(HartError::Failed)?;

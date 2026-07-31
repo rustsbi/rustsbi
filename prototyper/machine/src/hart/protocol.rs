@@ -12,7 +12,7 @@ use super::ipi::{IpiDevice, IpiError};
 use super::lock::TicketLock;
 use super::start::PendingStart;
 use crate::config::HART_CAPACITY;
-use crate::hart::{HartError, HartStatus};
+use crate::hart::{HartError, HartState};
 /// Narrow atomic boundary shared by HSM, IPI, and RFENCE.
 ///
 /// The object owns no combined per-hart record. It serializes only operations
@@ -107,7 +107,7 @@ impl HartAdmission {
             return Err(IpiError::InvalidHart);
         }
         let mut ids = [0usize; HART_CAPACITY];
-        let mut states = [HartStatus::Stopped; HART_CAPACITY];
+        let mut states = [HartState::Stopped; HART_CAPACITY];
         let mut wake = [false; HART_CAPACITY];
         ids[..physical_ids.len()].copy_from_slice(physical_ids);
         wake[..wake_by_ipi.len()].copy_from_slice(wake_by_ipi);
@@ -115,7 +115,7 @@ impl HartAdmission {
             .iter()
             .position(|hart| *hart == boot_hart)
             .ok_or(IpiError::InvalidHart)?;
-        states[boot_index] = HartStatus::Started;
+        states[boot_index] = HartState::Started;
         let state = HartAdmissionState::new_with_count(ids, states, wake, physical_ids.len())
             .map_err(map_ipi_error)?;
         Ok(Arc::new(Self {

@@ -44,7 +44,7 @@ pub(crate) fn run(hart_id: usize, index: usize) -> ! {
             crate::trap::abort();
         }
         if prepared.is_err() {
-            while runtime.status(hart_id) != Ok(crate::HartStatus::Stopped) {
+            while runtime.status(hart_id) != Ok(crate::HartState::Stopped) {
                 core::hint::spin_loop();
             }
             enable_notification(runtime.notification());

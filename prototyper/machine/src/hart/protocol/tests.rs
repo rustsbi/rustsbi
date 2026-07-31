@@ -10,17 +10,17 @@ use crate::{HartTargets, NextStage};
 fn started<const N: usize>() -> HartAdmissionState<N> {
     HartAdmissionState::new(
         core::array::from_fn(|index| index),
-        [HartStatus::Started; N],
+        [HartState::Started; N],
         [true; N],
     )
     .unwrap()
 }
 
 #[test]
-fn hart_status_allows_only_the_defined_success_edges() {
-    let mut start = HartAdmissionState::new([0], [HartStatus::Stopped], [true]).unwrap();
+fn hart_state_allows_only_the_defined_success_edges() {
+    let mut start = HartAdmissionState::new([0], [HartState::Stopped], [true]).unwrap();
     start.begin_start(0).unwrap();
-    assert_eq!(start.state(0), Ok(HartStatus::StartPending));
+    assert_eq!(start.state(0), Ok(HartState::StartPending));
     assert_eq!(start.begin_start(0), Err(AdmissionError::InvalidTransition));
     start.complete_start(0).unwrap();
 
@@ -37,36 +37,32 @@ fn hart_status_allows_only_the_defined_success_edges() {
 
 #[test]
 fn only_the_target_can_publish_started_after_prepared_and_proceed() {
-    let mut work = HartAdmissionState::new([0], [HartStatus::Stopped], [true]).unwrap();
+    let mut work = HartAdmissionState::new([0], [HartState::Stopped], [true]).unwrap();
     let mut handshake = StartHandshake::default();
     work.begin_start(0).unwrap();
-    assert_eq!(work.state(0), Ok(HartStatus::StartPending));
+    assert_eq!(work.state(0), Ok(HartState::StartPending));
     handshake.publish_prepared().unwrap();
-    assert_eq!(work.state(0), Ok(HartStatus::StartPending));
+    assert_eq!(work.state(0), Ok(HartState::StartPending));
     handshake.source_proceed().unwrap();
-    assert_eq!(work.state(0), Ok(HartStatus::StartPending));
+    assert_eq!(work.state(0), Ok(HartState::StartPending));
     handshake.target_consume().unwrap();
     work.complete_start(0).unwrap();
-    assert_eq!(work.state(0), Ok(HartStatus::Started));
+    assert_eq!(work.state(0), Ok(HartState::Started));
 
     let mut failed = StartHandshake::default();
-    let mut stopped = HartAdmissionState::new([0], [HartStatus::Stopped], [true]).unwrap();
+    let mut stopped = HartAdmissionState::new([0], [HartState::Stopped], [true]).unwrap();
     stopped.begin_start(0).unwrap();
     failed.publish_failed().unwrap();
     failed.source_observed_failure().unwrap();
     stopped.cancel_start(0).unwrap();
-    assert_eq!(stopped.state(0), Ok(HartStatus::Stopped));
+    assert_eq!(stopped.state(0), Ok(HartState::Stopped));
 }
 
 #[test]
 fn failed_multi_target_commit_changes_nothing() {
     let mut work = HartAdmissionState::new(
         [0, 1, 2],
-        [
-            HartStatus::Started,
-            HartStatus::Stopped,
-            HartStatus::Started,
-        ],
+        [HartState::Started, HartState::Stopped, HartState::Started],
         [true; 3],
     )
     .unwrap();
@@ -85,11 +81,7 @@ fn failed_multi_target_commit_changes_nothing() {
 fn sparse_physical_targets_resolve_inside_one_lifecycle_snapshot() {
     let work = HartAdmissionState::new(
         [0, 8, 0x1000],
-        [
-            HartStatus::Started,
-            HartStatus::Stopped,
-            HartStatus::Suspended,
-        ],
+        [HartState::Started, HartState::Stopped, HartState::Suspended],
         [true, true, false],
     )
     .unwrap();
@@ -126,7 +118,7 @@ fn stop_gate_drains_the_pre_gate_finite_batch_before_stopped() {
     work.complete(1, 0, &mut batches[1]).unwrap();
     work.retire(0).unwrap();
     work.finish_stop(1, &batches[1]).unwrap();
-    assert_eq!(work.state(1), Ok(HartStatus::Stopped));
+    assert_eq!(work.state(1), Ok(HartState::Stopped));
     assert!(work.invariants_hold(&batches));
 }
 
@@ -137,14 +129,14 @@ fn suspend_cannot_publish_sleep_while_accepted_work_is_pending() {
     work.commit_ipi(target).unwrap();
     work.begin_suspend(0).unwrap();
     assert_eq!(work.finish_suspend(0), Err(AdmissionError::MissingRelation));
-    assert_eq!(work.state(0), Ok(HartStatus::SuspendPending));
+    assert_eq!(work.state(0), Ok(HartState::SuspendPending));
 
     let mut batch = ClaimedWork::default();
     work.claim(0, &mut batch).unwrap();
     batch.supervisor_ipi = false;
     assert!(batch.is_empty());
     work.finish_suspend(0).unwrap();
-    assert_eq!(work.state(0), Ok(HartStatus::Suspended));
+    assert_eq!(work.state(0), Ok(HartState::Suspended));
 }
 
 #[test]
@@ -162,9 +154,9 @@ fn system_suspend_checks_all_peers_at_the_transition_commit() {
     work.begin_stop(2).unwrap();
     work.finish_stop(2, &ClaimedWork::default()).unwrap();
     work.begin_system_suspend(0).unwrap();
-    assert_eq!(work.state(0), Ok(HartStatus::SuspendPending));
-    assert_eq!(work.state(1), Ok(HartStatus::Stopped));
-    assert_eq!(work.state(2), Ok(HartStatus::Stopped));
+    assert_eq!(work.state(0), Ok(HartState::SuspendPending));
+    assert_eq!(work.state(1), Ok(HartState::Stopped));
+    assert_eq!(work.state(2), Ok(HartState::Stopped));
 }
 
 #[test]
@@ -174,10 +166,10 @@ fn resume_edges_are_closed_around_the_suspended_state() {
     work.begin_suspend(0).unwrap();
     work.finish_suspend(0).unwrap();
     work.begin_resume(0).unwrap();
-    assert_eq!(work.state(0), Ok(HartStatus::ResumePending));
+    assert_eq!(work.state(0), Ok(HartState::ResumePending));
     assert_eq!(work.begin_resume(0), Err(AdmissionError::InvalidTransition));
     work.finish_resume(0).unwrap();
-    assert_eq!(work.state(0), Ok(HartStatus::Started));
+    assert_eq!(work.state(0), Ok(HartState::Started));
 }
 
 #[test]
@@ -225,7 +217,7 @@ fn resume_finishes_at_the_capture_cut_despite_later_arrival() {
     work.complete(1, 0, &mut batches[1]).unwrap();
     work.retire(0).unwrap();
     work.finish_resume(1).unwrap();
-    assert_eq!(work.state(1), Ok(HartStatus::Started));
+    assert_eq!(work.state(1), Ok(HartState::Started));
     assert!(work.invariants_hold(&batches));
 }
 
@@ -597,7 +589,7 @@ fn device_notification_does_not_hold_the_protocol_lock() {
     release_tx.send(()).unwrap();
     status.join().unwrap();
     assert_eq!(send.join().unwrap(), Ok(()));
-    assert_eq!(observed.unwrap(), Ok(HartStatus::Started));
+    assert_eq!(observed.unwrap(), Ok(HartState::Started));
 }
 
 #[test]
@@ -618,7 +610,7 @@ fn admission_rejects_suspend_without_a_constructed_ipi_wake_path() {
     let admission = HartAdmission::new(device, &[0], 0, &[false]).unwrap();
 
     assert_eq!(admission.suspend_current(), Err(HartError::NotSupported));
-    assert_eq!(admission.status(0), Ok(HartStatus::Started));
+    assert_eq!(admission.status(0), Ok(HartState::Started));
 }
 
 #[test]
@@ -631,7 +623,7 @@ fn pre_gate_ipi_makes_retentive_suspend_resume_immediately() {
     }
 
     assert_eq!(admission.suspend_current(), Ok(()));
-    assert_eq!(admission.status(0), Ok(HartStatus::Started));
+    assert_eq!(admission.status(0), Ok(HartState::Started));
     assert_eq!(*device.claimed.lock().unwrap(), [0]);
 }
 
@@ -692,13 +684,13 @@ fn admission_start_waits_for_preparation_and_target_publishes_started() {
     while device.notification_count.load(Ordering::Acquire) == 0 {
         std::thread::yield_now();
     }
-    assert_eq!(admission.status(8), Ok(HartStatus::StartPending));
+    assert_eq!(admission.status(8), Ok(HartState::StartPending));
     admission.publish_start_result(8, Ok(())).unwrap();
     assert_eq!(start.join().unwrap(), Ok(()));
-    assert_eq!(admission.status(8), Ok(HartStatus::StartPending));
+    assert_eq!(admission.status(8), Ok(HartState::StartPending));
 
     let _next_stage = admission.take_start(8).unwrap();
-    assert_eq!(admission.status(8), Ok(HartStatus::Started));
+    assert_eq!(admission.status(8), Ok(HartState::Started));
 }
 
 #[test]
@@ -715,7 +707,7 @@ fn admission_start_failure_restores_stopped_and_preserves_error() {
         .publish_start_result(8, Err(HartError::NotSupported))
         .unwrap();
     assert_eq!(start.join().unwrap(), Err(HartError::NotSupported));
-    assert_eq!(admission.status(8), Ok(HartStatus::Stopped));
+    assert_eq!(admission.status(8), Ok(HartState::Stopped));
     assert!(admission.state.lock().starts[1].is_none());
 }
 

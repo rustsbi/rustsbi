@@ -1,30 +1,12 @@
 //! Safe hart lifecycle capability.
 
 use alloc::sync::Arc;
+use sbi_spec::hsm::HartState;
 
 use super::admission::{AdmissionError, ClaimedWork};
 use super::instructions::{clear_supervisor_ipi, current_hart_id, wait_for_wake_event};
 use super::protocol::{HartAdmission, map_hart_error};
 use crate::boot::NextStage;
-
-/// Ratified hart lifecycle state.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum HartStatus {
-    /// The hart is executing its next stage.
-    Started,
-    /// The hart is parked in machine mode.
-    Stopped,
-    /// A start operation has been accepted but is not yet complete.
-    StartPending,
-    /// The hart is draining accepted work before stopping.
-    StopPending,
-    /// The hart is suspended.
-    Suspended,
-    /// A suspend operation has been accepted but is not yet complete.
-    SuspendPending,
-    /// A suspended hart is resuming.
-    ResumePending,
-}
 
 /// Failure from a hart lifecycle operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -57,7 +39,7 @@ impl HartControl {
     }
 
     /// Returns the current ratified lifecycle state of one admitted hart.
-    pub fn status(&self, hart_id: usize) -> Result<HartStatus, HartError> {
+    pub fn status(&self, hart_id: usize) -> Result<HartState, HartError> {
         self.admission.status(hart_id)
     }
 
@@ -104,7 +86,7 @@ impl HartControl {
 
 impl HartAdmission {
     /// Returns the locked lifecycle state of one admitted physical hart.
-    pub(crate) fn status(&self, hart_id: usize) -> Result<HartStatus, HartError> {
+    pub(crate) fn status(&self, hart_id: usize) -> Result<HartState, HartError> {
         let state = self.state.lock();
         let index = state.resolve_physical(hart_id).map_err(map_hart_error)?;
         state.state(index).map_err(map_hart_error)

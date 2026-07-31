@@ -4,19 +4,19 @@ use super::*;
 
 impl<const HARTS: usize> HartAdmissionState<HARTS> {
     pub(crate) fn begin_start(&mut self, target: usize) -> Result<(), AdmissionError> {
-        self.transition(target, HartStatus::Stopped, HartStatus::StartPending)
+        self.transition(target, HartState::Stopped, HartState::StartPending)
     }
 
     pub(crate) fn complete_start(&mut self, target: usize) -> Result<(), AdmissionError> {
-        self.transition(target, HartStatus::StartPending, HartStatus::Started)
+        self.transition(target, HartState::StartPending, HartState::Started)
     }
 
     pub(crate) fn cancel_start(&mut self, target: usize) -> Result<(), AdmissionError> {
-        self.transition(target, HartStatus::StartPending, HartStatus::Stopped)
+        self.transition(target, HartState::StartPending, HartState::Stopped)
     }
 
     pub(crate) fn begin_stop(&mut self, target: usize) -> Result<(), AdmissionError> {
-        self.transition(target, HartStatus::Started, HartStatus::StopPending)
+        self.transition(target, HartState::Started, HartState::StopPending)
     }
 
     pub(crate) fn finish_stop(
@@ -28,11 +28,11 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
             return Err(AdmissionError::BatchBusy);
         }
         self.require_no_work(target)?;
-        self.transition(target, HartStatus::StopPending, HartStatus::Stopped)
+        self.transition(target, HartState::StopPending, HartState::Stopped)
     }
 
     pub(crate) fn begin_suspend(&mut self, target: usize) -> Result<(), AdmissionError> {
-        self.transition(target, HartStatus::Started, HartStatus::SuspendPending)
+        self.transition(target, HartState::Started, HartState::SuspendPending)
     }
 
     /// Commits system suspend only while every peer is stopped under this same
@@ -44,7 +44,7 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
         if self.lifecycle[..self.hart_count]
             .iter()
             .enumerate()
-            .any(|(index, state)| index != target && state.status != HartStatus::Stopped)
+            .any(|(index, state)| index != target && state.status != HartState::Stopped)
         {
             return Err(AdmissionError::Unavailable);
         }
@@ -53,7 +53,7 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
 
     pub(crate) fn finish_suspend(&mut self, target: usize) -> Result<(), AdmissionError> {
         self.require_no_work(target)?;
-        self.transition(target, HartStatus::SuspendPending, HartStatus::Suspended)
+        self.transition(target, HartState::SuspendPending, HartState::Suspended)
     }
 
     pub(crate) fn wakeable_by_ipi(&self, target: usize) -> Result<bool, AdmissionError> {
@@ -64,11 +64,11 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
     }
 
     pub(crate) fn begin_resume(&mut self, target: usize) -> Result<(), AdmissionError> {
-        self.transition(target, HartStatus::Suspended, HartStatus::ResumePending)
+        self.transition(target, HartState::Suspended, HartState::ResumePending)
     }
 
     pub(crate) fn finish_resume(&mut self, target: usize) -> Result<(), AdmissionError> {
-        self.transition(target, HartStatus::ResumePending, HartStatus::Started)
+        self.transition(target, HartState::ResumePending, HartState::Started)
     }
 
     fn require_no_work(&self, target: usize) -> Result<(), AdmissionError> {
@@ -87,8 +87,8 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
     fn transition(
         &mut self,
         hart: usize,
-        from: HartStatus,
-        to: HartStatus,
+        from: HartState,
+        to: HartState,
     ) -> Result<(), AdmissionError> {
         let state = self.lifecycle[..self.hart_count]
             .get_mut(hart)

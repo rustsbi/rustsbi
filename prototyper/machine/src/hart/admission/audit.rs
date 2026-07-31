@@ -15,7 +15,7 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
             if self.fence_targets[target].pending_sources.0 & batches[target].sources.0 != 0 {
                 return false;
             }
-            if self.lifecycle[target].status == HartStatus::Stopped
+            if self.lifecycle[target].status == HartState::Stopped
                 && (self.ipi[target].pending
                     || !self.fence_targets[target].pending_sources.is_empty()
                     || !batches[target].is_empty()

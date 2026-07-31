@@ -11,10 +11,11 @@ pub(crate) mod protocol;
 mod start;
 mod warm;
 
-pub use control::{HartControl, HartError, HartStatus};
+pub use control::{HartControl, HartError};
 pub use fence::{RemoteFence, RemoteFenceError};
 pub use ipi::{Ipi, IpiError};
 pub use local::{HartLocal, HartLocalError, HartLocalGuard, HartTargets};
+pub use sbi_spec::hsm::HartState;
 
 pub(crate) use ipi::{IpiDevice, Notification};
 pub(crate) use local::{entry_index, publish, resolve};

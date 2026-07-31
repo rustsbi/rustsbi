@@ -5,7 +5,7 @@
 //! linearization point; it is not a general hart context.
 
 use super::fence::RemoteFenceRequest;
-use crate::hart::{HartStatus, HartTargets};
+use crate::hart::{HartState, HartTargets};
 
 #[cfg(test)]
 mod audit;
@@ -96,7 +96,7 @@ pub(super) struct ActiveRemoteFence {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct LifecycleState {
-    status: HartStatus,
+    status: HartState,
     wake_by_ipi: bool,
 }
 
@@ -144,7 +144,7 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
     #[cfg(test)]
     pub(crate) fn new(
         physical_ids: [usize; HARTS],
-        states: [HartStatus; HARTS],
+        states: [HartState; HARTS],
         wake_by_ipi: [bool; HARTS],
     ) -> Result<Self, AdmissionError> {
         Self::new_with_count(physical_ids, states, wake_by_ipi, HARTS)
@@ -152,7 +152,7 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
 
     pub(crate) fn new_with_count(
         physical_ids: [usize; HARTS],
-        states: [HartStatus; HARTS],
+        states: [HartState; HARTS],
         wake_by_ipi: [bool; HARTS],
         hart_count: usize,
     ) -> Result<Self, AdmissionError> {
@@ -179,7 +179,7 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
         })
     }
 
-    pub(crate) fn state(&self, hart: usize) -> Result<HartStatus, AdmissionError> {
+    pub(crate) fn state(&self, hart: usize) -> Result<HartState, AdmissionError> {
         self.lifecycle[..self.hart_count]
             .get(hart)
             .map(|state| state.status)
@@ -282,9 +282,7 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
 
     fn serviceable(&self, target: usize) -> bool {
         let state = &self.lifecycle[target];
-        matches!(
-            state.status,
-            HartStatus::Started | HartStatus::ResumePending
-        ) || (state.status == HartStatus::Suspended && state.wake_by_ipi)
+        matches!(state.status, HartState::Started | HartState::ResumePending)
+            || (state.status == HartState::Suspended && state.wake_by_ipi)
     }
 }

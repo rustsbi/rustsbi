@@ -1,9 +1,9 @@
 //! Hart-state protocol adapter.
 
-use machine::{HartControl, HartError, HartStatus, NextStage};
+use machine::{HartControl, HartError, NextStage};
 use rustsbi::SbiRet;
 use sbi_spec::binary::Error;
-use sbi_spec::hsm::{hart_state, suspend_type};
+use sbi_spec::hsm::suspend_type;
 
 pub(super) struct Hsm {
     harts: HartControl,
@@ -33,7 +33,7 @@ impl rustsbi::Hsm for Hsm {
 
     fn hart_get_status(&self, hart_id: usize) -> SbiRet {
         match self.harts.status(hart_id) {
-            Ok(status) => SbiRet::success(status_value(status)),
+            Ok(status) => SbiRet::success(status as usize),
             Err(error) => hart_error(error).into(),
         }
     }
@@ -74,18 +74,6 @@ impl rustsbi::Susp for Hsm {
             HartError::AlreadyAvailable => Error::Denied.into(),
             error => hart_error(error).into(),
         }
-    }
-}
-
-fn status_value(status: HartStatus) -> usize {
-    match status {
-        HartStatus::Started => hart_state::STARTED,
-        HartStatus::Stopped => hart_state::STOPPED,
-        HartStatus::StartPending => hart_state::START_PENDING,
-        HartStatus::StopPending => hart_state::STOP_PENDING,
-        HartStatus::Suspended => hart_state::SUSPENDED,
-        HartStatus::SuspendPending => hart_state::SUSPEND_PENDING,
-        HartStatus::ResumePending => hart_state::RESUME_PENDING,
     }
 }
 
