@@ -116,3 +116,23 @@ pub fn get_compatible<'de>(node: &Node) -> Option<StrSeq<'de>> {
         None
     }
 }
+
+/// Depth-first traversal of the device tree that also yields each node's
+/// parent, so callers can resolve parent-child relationships (e.g. a child
+/// device's parent bus) that `Node` does not expose directly.
+pub fn search_with_parent<F>(root: &Node, func: &mut F)
+where
+    F: FnMut(&Node, Option<&Node>),
+{
+    fn dfs<'de, F>(node: &Node<'de>, parent: Option<&Node<'de>>, func: &mut F)
+    where
+        F: FnMut(&Node<'de>, Option<&Node<'de>>),
+    {
+        func(node, parent);
+        for child in node.nodes() {
+            let child = child.deserialize::<Node<'de>>();
+            dfs(&child, Some(node), func);
+        }
+    }
+    dfs(root, None, func);
+}

@@ -6,6 +6,7 @@ use core::cell::UnsafeCell;
 use core::ptr::NonNull;
 use uart_sifive::MmioUartSifive;
 use uart_xilinx::MmioUartAxiLite;
+use uart_xscale::UartXscale;
 use uart16550::{Register, Uart16550};
 
 use crate::sbi::console::ConsoleDevice;
@@ -16,6 +17,14 @@ pub(crate) const UARTAXILITE_COMPATIBLE: [&str; 1] = ["xlnx,xps-uartlite-1.00.a"
 pub(crate) const UARTBFLB_COMPATIBLE: [&str; 1] = ["bflb,bl808-uart"];
 pub(crate) const UARTSIFIVE_COMPATIBLE: [&str; 1] = ["sifive,uart0"];
 pub(crate) const UARTPL011_COMPATIBLE: [&str; 1] = ["pl011"];
+pub(crate) const UARTXSCALE_COMPATIBLE: [&str; 3] = [
+    "intel,xscale-uart",
+    "spacemit,k1-uart",
+    // Official OrangePi RV2 U-Boot (orangepi-xunlong/u-boot-orangepi,
+    // v2022.10-ky) describes uart0 as plain "ns16550" with reg-io-width=4 and
+    // drives it as the XScale variant (CONFIG_SYS_NS16550_IER=0x40 = UUE).
+    "ns16550",
+];
 
 #[doc(hidden)]
 #[allow(unused)]
@@ -27,6 +36,7 @@ pub enum MachineConsoleType {
     UartBflb,
     UartSifive,
     UartPl011,
+    UartXscale,
 }
 
 /// For Uart 16550
@@ -191,6 +201,60 @@ impl ConsoleDevice for UartPl011Wrap {
             uart.write_word(byte);
         }
 
+        buf.len()
+    }
+}
+
+/// Intel XScale/PXA UART wrapper for SpacemiT K1 / Ky X1 SoC.
+///
+/// Uses the `uart-xscale` crate which handles the UUE (UART Unit Enable)
+/// bit required by Intel XScale/PXA UARTs, with 32-bit MMIO access and
+/// stride=4 (reg-shift=2).
+pub struct UartXscaleWrap {
+    inner: UnsafeCell<UartXscale>,
+}
+
+impl UartXscaleWrap {
+    /// Create a new XScale UART wrapper at the given MMIO base address.
+    ///
+    /// The UART is initialized with the K1's clock frequency (14857000 Hz)
+    /// and the standard 115200 baud rate.
+    pub fn new(base: usize) -> Self {
+        let mut inner = UartXscale::new(base);
+        // SpacemiT K1 UART0 clock = 14857000 Hz, baud = 115200
+        inner.init(14_857_000, 115_200);
+        Self {
+            inner: UnsafeCell::new(inner),
+        }
+    }
+}
+
+unsafe impl Send for UartXscaleWrap {}
+unsafe impl Sync for UartXscaleWrap {}
+
+impl ConsoleDevice for UartXscaleWrap {
+    fn read(&self, buf: &mut [u8]) -> usize {
+        // Safety: UartXscale uses volatile MMIO access; the outer Mutex in
+        // SbiConsole serializes access in a single-threaded SBI context.
+        let uart = unsafe { &mut *self.inner.get() };
+        let mut count = 0;
+        for slot in buf.iter_mut() {
+            if let Some(c) = uart.try_getchar() {
+                *slot = c;
+                count += 1;
+            } else {
+                break;
+            }
+        }
+        count
+    }
+
+    fn write(&self, buf: &[u8]) -> usize {
+        // Safety: same as above.
+        let uart = unsafe { &mut *self.inner.get() };
+        for &c in buf {
+            uart.putchar(c);
+        }
         buf.len()
     }
 }
