@@ -27,6 +27,10 @@ const RISCV_IMAGE_MAGIC: u64 = 0x5643534952; /* Magic number, little endian, "RI
 const RISCV_IMAGE_MAGIC2: u32 = 0x05435352; /* Magic number 2, little endian, "RSC\x05" */
 const SYSTEM_SUSPEND_OPAQUE: usize = 0x5355_5350;
 const SYSTEM_RESUME_STACK_SIZE: usize = 16 * 1024;
+
+#[repr(C, align(16))]
+struct AlignedStack<const SIZE: usize>([u8; SIZE]);
+
 const TEST_SHARD: &str = match option_env!("RUSTSBI_TEST_SHARD") {
     Some(value) => value,
     None => "s-mode-local",
@@ -70,7 +74,8 @@ impl sbi::SleepType for InvalidSleepType {
 }
 
 #[unsafe(link_section = ".bss.uninit")]
-static mut SYSTEM_RESUME_STACK: [u8; SYSTEM_RESUME_STACK_SIZE] = [0; SYSTEM_RESUME_STACK_SIZE];
+static mut SYSTEM_RESUME_STACK: AlignedStack<SYSTEM_RESUME_STACK_SIZE> =
+    AlignedStack([0; SYSTEM_RESUME_STACK_SIZE]);
 
 /// boot header
 #[unsafe(naked)]
@@ -107,7 +112,7 @@ macro_rules! define_start {
             const STACK_SIZE: usize = 16384; // 16 KiB
 
             #[unsafe(link_section = ".bss.uninit")]
-            static mut STACK: [u8; STACK_SIZE] = [0u8; STACK_SIZE];
+            static mut STACK: AlignedStack<STACK_SIZE> = AlignedStack([0u8; STACK_SIZE]);
 
             naked_asm!(
                 // Clear BSS with one native-width store per iteration.

@@ -32,7 +32,7 @@ SECTIONS {
     }
     sidata = LOADADDR(.data);
 
-    .bss (NOLOAD) : ALIGN(8) {
+    .bss (NOLOAD) : ALIGN(16) {
         *(.bss.uninit)
         sbss = .;
         *(.bss .bss.*)
