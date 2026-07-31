@@ -20,18 +20,15 @@ impl DebugConsole {
 
 impl rustsbi::Console for DebugConsole {
     fn write(&self, bytes: Physical<&[u8]>) -> SbiRet {
-        let mut source = match self.memory.reader(
-            bytes.phys_addr_lo(),
-            bytes.phys_addr_hi(),
-            bytes.num_bytes(),
-        ) {
+        let byte_count = bytes.num_bytes();
+        let mut source = match self.memory.reader(bytes) {
             Ok(source) => source,
             Err(error) => return memory_error(error).into(),
         };
         let mut total = 0usize;
         let mut buffer = [0u8; TRANSFER_CHUNK];
-        while total < bytes.num_bytes() {
-            let count = (bytes.num_bytes() - total).min(buffer.len());
+        while total < byte_count {
+            let count = (byte_count - total).min(buffer.len());
             if let Err(error) = source.read_exact(&mut buffer[..count]) {
                 return memory_error(error).into();
             }
@@ -50,18 +47,15 @@ impl rustsbi::Console for DebugConsole {
     }
 
     fn read(&self, bytes: Physical<&mut [u8]>) -> SbiRet {
-        let mut destination = match self.memory.writer(
-            bytes.phys_addr_lo(),
-            bytes.phys_addr_hi(),
-            bytes.num_bytes(),
-        ) {
+        let byte_count = bytes.num_bytes();
+        let mut destination = match self.memory.writer(bytes) {
             Ok(destination) => destination,
             Err(error) => return memory_error(error).into(),
         };
         let mut total = 0usize;
         let mut buffer = [0u8; TRANSFER_CHUNK];
-        while total < bytes.num_bytes() {
-            let capacity = (bytes.num_bytes() - total).min(buffer.len());
+        while total < byte_count {
+            let capacity = (byte_count - total).min(buffer.len());
             let count = match self.console.read(&mut buffer[..capacity]) {
                 Ok(count) if count <= capacity => count,
                 Ok(_) | Err(ConsoleError::Failed) => return Error::Failed.into(),

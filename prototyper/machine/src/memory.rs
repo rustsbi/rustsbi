@@ -7,6 +7,8 @@
 use alloc::vec::Vec;
 use core::ops::Range;
 
+use sbi_spec::binary::Physical;
+
 use crate::boot::BootInfo;
 use crate::trap::probe::{ExpectedResult, load_byte, store_byte};
 
@@ -41,32 +43,30 @@ impl SupervisorMemory {
     }
 
     /// Validates a complete physical range for machine reads.
-    pub fn reader(
-        &self,
-        base_addr_lo: usize,
-        base_addr_hi: usize,
-        requested_len: usize,
-    ) -> Result<Reader<'_>, MemoryError> {
-        let range = self.validate(base_addr_lo, base_addr_hi, requested_len)?;
+    pub fn reader(&self, bytes: Physical<&[u8]>) -> Result<Reader<'_>, MemoryError> {
+        let range = self.validate(
+            bytes.phys_addr_lo(),
+            bytes.phys_addr_hi(),
+            bytes.num_bytes(),
+        )?;
         Ok(Reader {
             memory: self,
             cursor: range.start,
-            remaining: requested_len,
+            remaining: bytes.num_bytes(),
         })
     }
 
     /// Validates a complete physical range for machine writes.
-    pub fn writer(
-        &self,
-        base_addr_lo: usize,
-        base_addr_hi: usize,
-        requested_len: usize,
-    ) -> Result<Writer<'_>, MemoryError> {
-        let range = self.validate(base_addr_lo, base_addr_hi, requested_len)?;
+    pub fn writer(&self, bytes: Physical<&mut [u8]>) -> Result<Writer<'_>, MemoryError> {
+        let range = self.validate(
+            bytes.phys_addr_lo(),
+            bytes.phys_addr_hi(),
+            bytes.num_bytes(),
+        )?;
         Ok(Writer {
             memory: self,
             cursor: range.start,
-            remaining: requested_len,
+            remaining: bytes.num_bytes(),
         })
     }
 
@@ -273,25 +273,29 @@ mod tests {
     #[test]
     fn constructors_validate_the_complete_range_and_upper_half() {
         let memory = policy(&[0x1000..0x2000, 0x3000..0x4000]);
-        assert!(memory.reader(0x1000, 0, 0x1000).is_ok());
+        assert!(memory.reader(Physical::new(0x1000, 0x1000, 0)).is_ok());
         assert_eq!(
-            memory.reader(0x1800, 0, 0x1000).err(),
+            memory.reader(Physical::new(0x1000, 0x1800, 0)).err(),
             Some(MemoryError::InvalidRange)
         );
         assert_eq!(
-            memory.writer(0x1000, 1, 1).err(),
+            memory.writer(Physical::new(1, 0x1000, 1)).err(),
             Some(MemoryError::UnsupportedRange)
         );
-        assert!(memory.writer(usize::MAX, usize::MAX, 0).is_ok());
+        assert!(
+            memory
+                .writer(Physical::new(0, usize::MAX, usize::MAX))
+                .is_ok()
+        );
     }
 
     #[test]
     fn cursor_rejects_a_slice_larger_than_the_validated_remainder() {
         let range = 0x1000..0x2000;
         let memory = policy(core::slice::from_ref(&range));
-        let reader = memory.reader(0x1000, 0, 2).unwrap();
+        let reader = memory.reader(Physical::new(2, 0x1000, 0)).unwrap();
         assert_eq!(reader.transfer_end(3), Err(MemoryError::InvalidRange));
-        let writer = memory.writer(0x1000, 0, 2).unwrap();
+        let writer = memory.writer(Physical::new(2, 0x1000, 0)).unwrap();
         assert_eq!(writer.transfer_end(3), Err(MemoryError::InvalidRange));
     }
 }
