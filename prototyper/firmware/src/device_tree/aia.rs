@@ -6,6 +6,7 @@ use core::ops::Range;
 
 use dtoolkit::model::DeviceTreeNode;
 use dtoolkit::{Node, Property};
+use riscv_aia::imsic::IdentityCount;
 
 use super::Error as DiscoverError;
 use super::dt::{BootTree, cell_count, enabled, read_cells};
@@ -26,7 +27,7 @@ pub(super) struct Imsic {
     pub(super) path: String,
     pub(super) ranges: Vec<Range<usize>>,
     pub(super) files: Vec<machine::interrupt::aia::ImsicFile>,
-    pub(super) interrupt_identity_count: u16,
+    pub(super) interrupt_identity_count: IdentityCount,
     pub(super) hart_index_width: u32,
     pub(super) supervisor_imsic_base: u64,
 }
@@ -115,9 +116,8 @@ fn discover_imsic(
     }
 
     let ranges = reg_ranges(parent, node)?;
-    let num_ids = required_u32(node, "riscv,num-ids")?;
-    let num_ids = u16::try_from(num_ids).map_err(|_| DiscoverError::DeviceRange)?;
-    if num_ids <= FIRMWARE_IPI_IID {
+    let num_ids = imsic_identity_count(required_u32(node, "riscv,num-ids")?)?;
+    if num_ids.max_identity() <= FIRMWARE_IPI_IID {
         return Err(DiscoverError::UnsupportedDevice);
     }
     let default_hart_bits = topology_bits(raw_files.len())?;
@@ -197,6 +197,11 @@ fn discover_aplic(
     })
 }
 
+fn imsic_identity_count(value: u32) -> Result<IdentityCount, DiscoverError> {
+    let value = u16::try_from(value).map_err(|_| DiscoverError::DeviceRange)?;
+    IdentityCount::new(value).ok_or(DiscoverError::UnsupportedDevice)
+}
+
 fn cpu_interrupt_controllers(tree: &BootTree) -> Result<Vec<(u32, usize)>, DiscoverError> {
     let cpus = tree
         .tree()
@@ -254,6 +259,30 @@ fn compatible(node: &DeviceTreeNode, accepted: &[&str]) -> bool {
             .as_str_list()
             .any(|value| accepted.contains(&value))
     })
+}
+
+#[cfg(test)]
+#[test]
+fn imsic_identity_count_accepts_only_ratified_device_tree_values() {
+    assert!(imsic_identity_count(63).is_ok());
+    assert!(imsic_identity_count(127).is_ok());
+    assert!(imsic_identity_count(2047).is_ok());
+    assert!(matches!(
+        imsic_identity_count(64),
+        Err(DiscoverError::UnsupportedDevice)
+    ));
+    assert!(matches!(
+        imsic_identity_count(128),
+        Err(DiscoverError::UnsupportedDevice)
+    ));
+    assert!(matches!(
+        imsic_identity_count(2048),
+        Err(DiscoverError::UnsupportedDevice)
+    ));
+    assert!(matches!(
+        imsic_identity_count(u32::MAX),
+        Err(DiscoverError::DeviceRange)
+    ));
 }
 
 fn reg_ranges(

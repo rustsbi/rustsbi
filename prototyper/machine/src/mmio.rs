@@ -166,6 +166,26 @@ impl IoMem {
     }
 }
 
+impl riscv_aia::aplic::VolatileAccess for IoMem {
+    type Error = IoMemError;
+
+    fn len(&self) -> usize {
+        Self::len(self)
+    }
+
+    fn read_u32(&self, offset: usize) -> Result<u32, Self::Error> {
+        self.read_once(offset)
+    }
+
+    fn write_u32(&self, offset: usize, value: u32) -> Result<(), Self::Error> {
+        self.write_once(offset, value)
+    }
+
+    fn fence_iorw(&self) {
+        io_fence();
+    }
+}
+
 /// A borrowed, bounded view into an [`IoMem`] window.
 pub struct IoMemRegion<'io> {
     range: Range<usize>,

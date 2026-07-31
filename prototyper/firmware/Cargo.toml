@@ -12,6 +12,7 @@ rustsbi = { version = "0.4.1", features = [
     "machine",
 ], path = "../../library/rustsbi" }
 sbi-spec = { version = "0.0.9", path = "../../library/sbi-spec" }
+riscv-aia = { path = "../../library/riscv-aia" }
 dtoolkit = { version = "0.3.0", default-features = false, features = ["write"] }
 spin = "0.9.8"
 uart-16550 = { package = "rustsbi-prototyper-uart-16550", path = "../drivers/uart-16550" }

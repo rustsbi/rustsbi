@@ -4,6 +4,7 @@ use super::Error;
 use super::aia;
 use super::clint;
 use super::dt::BootTree;
+use riscv_aia::Iid;
 
 pub(crate) fn install(
     boot: &mut machine::BootInfo,
@@ -22,7 +23,7 @@ pub(crate) fn install(
                 imsic.ranges,
                 imsic.files,
                 imsic.interrupt_identity_count,
-                1,
+                Iid::SSOFT,
                 imsic.hart_index_width,
                 machine::interrupt::aia::AplicLayout::new(
                     aplic.range,

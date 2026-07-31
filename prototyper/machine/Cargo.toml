@@ -16,6 +16,7 @@ spin = "0.9.8"
 buddy_system_allocator = "0.11.0"
 bitflags = "2"
 sbi-spec = { path = "../../library/sbi-spec" }
+riscv-aia = { path = "../../library/riscv-aia" }
 
 [features]
 default = []
