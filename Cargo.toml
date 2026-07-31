@@ -13,7 +13,7 @@ members = [
     "library/pmpm",
     "library/smm",
     "prototyper/machine",
-    "prototyper/machine/entry-macros",
+    "prototyper/machine/macros",
     "prototyper/drivers/uart-16550",
     "prototyper/drivers/uart-pl011",
     "prototyper/drivers/uart-sifive",
