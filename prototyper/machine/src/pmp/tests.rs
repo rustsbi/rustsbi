@@ -1,5 +1,6 @@
 use alloc::vec::Vec;
 
+use super::policy::compile_machine_policy;
 use super::*;
 
 fn capability(entries: usize) -> Capability {
@@ -152,6 +153,22 @@ fn insufficient_capacity_never_coarsens_policy() {
         compile(&[], &configuration.grants, capability(2), false),
         Err(PmpError::InsufficientEntries)
     );
+}
+
+#[test]
+fn exact_hardware_capacity_is_accepted() {
+    let mut configuration = Configuration::empty();
+    for index in 0..64 {
+        let start = 0x1000 + index * 8;
+        configuration
+            .grant(start..start + 4, Permissions::READ)
+            .unwrap();
+    }
+
+    let (entries, deny_count) =
+        protected(compile(&[], &configuration.grants, capability(64), false).unwrap());
+    assert_eq!(deny_count, 0);
+    assert_eq!(entries.len(), 64);
 }
 
 #[test]

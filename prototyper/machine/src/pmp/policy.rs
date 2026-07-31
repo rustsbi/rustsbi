@@ -109,7 +109,7 @@ fn decompose(
             return Err(PmpError::AddressOutOfRange);
         }
         entries.push(entry);
-        if entries.len() >= MAX_PMP_ENTRIES {
+        if entries.len() > capability.entries {
             return Err(PmpError::InsufficientEntries);
         }
         start = start.checked_add(size).ok_or(PmpError::AddressOutOfRange)?;
