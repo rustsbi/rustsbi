@@ -1,10 +1,10 @@
 //! Machine-interrupt capability and its private physical-device role.
 
 use alloc::sync::Arc;
+use sbi_spec::binary::HartMask;
 
 use super::instructions::current_hart_id;
 use super::protocol::{HartAdmission, HartNotifications, map_ipi_error};
-use crate::hart::HartTargets;
 
 /// Physical mechanism used to wake a hart for machine-owned work.
 ///
@@ -69,14 +69,14 @@ impl Ipi {
     }
 
     /// Sends one coalescible supervisor IPI to every validated target.
-    pub fn send(&self, targets: HartTargets) -> Result<(), IpiError> {
+    pub fn send(&self, targets: HartMask) -> Result<(), IpiError> {
         self.admission.send(targets)
     }
 }
 
 impl HartAdmission {
     /// Commits a coalescible supervisor IPI before ringing physical targets.
-    pub(crate) fn send(&self, targets: HartTargets) -> Result<(), IpiError> {
+    pub(crate) fn send(&self, targets: HartMask) -> Result<(), IpiError> {
         let current_hart = current_hart_id();
         let (current, resolved, notifications) = {
             let mut state = self.state.lock();

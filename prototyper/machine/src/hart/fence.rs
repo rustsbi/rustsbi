@@ -1,11 +1,11 @@
 //! Remote architectural-fence capability.
 
 use alloc::sync::Arc;
+use sbi_spec::binary::HartMask;
 
 use super::admission::{AdmissionError, HartSet};
 use super::instructions::current_hart_id;
 use super::protocol::{HartAdmission, HartNotifications};
-use crate::hart::HartTargets;
 
 /// One immutable architectural fence copied to every selected hart.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -92,14 +92,14 @@ impl RemoteFence {
     }
 
     /// Synchronizes instruction fetch with prior stores on every target.
-    pub fn fence_i(&self, targets: HartTargets) -> Result<(), RemoteFenceError> {
+    pub fn fence_i(&self, targets: HartMask) -> Result<(), RemoteFenceError> {
         self.execute(targets, RemoteFenceRequest::FenceI)
     }
 
     /// Invalidates supervisor translations in the requested address range.
     pub fn sfence_vma(
         &self,
-        targets: HartTargets,
+        targets: HartMask,
         start_addr: usize,
         size: usize,
     ) -> Result<(), RemoteFenceError> {
@@ -116,7 +116,7 @@ impl RemoteFence {
     /// Invalidates supervisor translations for one ASID and address range.
     pub fn sfence_vma_asid(
         &self,
-        targets: HartTargets,
+        targets: HartMask,
         start_addr: usize,
         size: usize,
         asid: usize,
@@ -136,7 +136,7 @@ impl RemoteFence {
     #[cfg(feature = "hypervisor")]
     pub fn hfence_gvma(
         &self,
-        targets: HartTargets,
+        targets: HartMask,
         start_addr: usize,
         size: usize,
     ) -> Result<(), RemoteFenceError> {
@@ -154,7 +154,7 @@ impl RemoteFence {
     #[cfg(feature = "hypervisor")]
     pub fn hfence_gvma_vmid(
         &self,
-        targets: HartTargets,
+        targets: HartMask,
         start_addr: usize,
         size: usize,
         vmid: usize,
@@ -174,7 +174,7 @@ impl RemoteFence {
     #[cfg(feature = "hypervisor")]
     pub fn hfence_vvma(
         &self,
-        targets: HartTargets,
+        targets: HartMask,
         start_addr: usize,
         size: usize,
     ) -> Result<(), RemoteFenceError> {
@@ -192,7 +192,7 @@ impl RemoteFence {
     #[cfg(feature = "hypervisor")]
     pub fn hfence_vvma_asid(
         &self,
-        targets: HartTargets,
+        targets: HartMask,
         start_addr: usize,
         size: usize,
         asid: usize,
@@ -210,7 +210,7 @@ impl RemoteFence {
 
     fn execute(
         &self,
-        targets: HartTargets,
+        targets: HartMask,
         request: RemoteFenceRequest,
     ) -> Result<(), RemoteFenceError> {
         self.admission
@@ -223,7 +223,7 @@ impl HartAdmission {
     /// Commits one remote fence and waits until every target has executed it.
     pub(crate) fn remote_fence(
         &self,
-        targets: HartTargets,
+        targets: HartMask,
         request: RemoteFenceRequest,
     ) -> Result<(), AdmissionError> {
         let current_hart = current_hart_id();

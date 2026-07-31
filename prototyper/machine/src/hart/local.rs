@@ -13,54 +13,6 @@ const MAP_EMPTY: u32 = 0;
 const MAP_WRITING: u32 = 1;
 const MAP_READY: u32 = 2;
 
-/// An unvalidated architectural hart selection request.
-///
-/// The value carries no dense index or access authority. Machine protocol code
-/// resolves it against one immutable admitted-hart map and one locked HSM
-/// snapshot before changing state.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct HartTargets {
-    kind: HartTargetsKind,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum HartTargetsKind {
-    AllAvailable,
-    Selected {
-        hart_bits: usize,
-        base_hart_id: usize,
-    },
-}
-
-impl HartTargets {
-    /// Selects every hart available to the current supervisor context.
-    pub const fn all_available() -> Self {
-        Self {
-            kind: HartTargetsKind::AllAvailable,
-        }
-    }
-
-    /// Selects the architectural IDs named by an SBI-style bit mask and base.
-    pub const fn selected(hart_bits: usize, base_hart_id: usize) -> Self {
-        Self {
-            kind: HartTargetsKind::Selected {
-                hart_bits,
-                base_hart_id,
-            },
-        }
-    }
-
-    pub(crate) const fn selected_parts(self) -> Option<(usize, usize)> {
-        match self.kind {
-            HartTargetsKind::AllAvailable => None,
-            HartTargetsKind::Selected {
-                hart_bits,
-                base_hart_id,
-            } => Some((hart_bits, base_hart_id)),
-        }
-    }
-}
-
 /// An architectural hart identity.
 ///
 /// IDs may be sparse and must never directly index per-hart storage.

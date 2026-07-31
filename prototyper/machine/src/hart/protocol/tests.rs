@@ -1,11 +1,13 @@
 //! Hart protocol model and orchestration tests.
 
 use super::*;
+use sbi_spec::binary::HartMask;
+
+use crate::NextStage;
 use crate::hart::fence::RemoteFenceRequest;
 #[cfg(feature = "hypervisor")]
 use crate::hart::fence::targets_support_request;
 use crate::hart::start::StartHandshake;
-use crate::{HartTargets, NextStage};
 
 fn started<const N: usize>() -> HartAdmissionState<N> {
     HartAdmissionState::new(
@@ -78,7 +80,22 @@ fn failed_multi_target_commit_changes_nothing() {
 }
 
 #[test]
-fn sparse_physical_targets_resolve_inside_one_lifecycle_snapshot() {
+fn finite_hart_masks_resolve_sparse_physical_ids() {
+    let work = HartAdmissionState::new([0, 8, 0x1000], [HartState::Started; 3], [true; 3]).unwrap();
+    let mut first_two = HartSet::singleton(0).unwrap();
+    first_two.insert(1).unwrap();
+    assert_eq!(
+        work.resolve_targets(HartMask::from_mask_base((1usize << 8) | 1, 0)),
+        Ok(first_two)
+    );
+    assert_eq!(
+        work.resolve_targets(HartMask::from_mask_base(1usize << 8, 0xff8)),
+        HartSet::singleton(2)
+    );
+}
+
+#[test]
+fn finite_hart_masks_reject_unavailable_unknown_and_overflow_targets() {
     let work = HartAdmissionState::new(
         [0, 8, 0x1000],
         [HartState::Started, HartState::Stopped, HartState::Suspended],
@@ -86,20 +103,46 @@ fn sparse_physical_targets_resolve_inside_one_lifecycle_snapshot() {
     )
     .unwrap();
     assert_eq!(
-        work.resolve_targets(HartTargets::selected(1, 8)),
+        work.resolve_targets(HartMask::from_mask_base(1, 8)),
         Err(AdmissionError::Unavailable)
     );
     assert_eq!(
-        work.resolve_targets(HartTargets::selected(1, 9)),
+        work.resolve_targets(HartMask::from_mask_base(1, 9)),
         Err(AdmissionError::InvalidHart)
     );
     assert_eq!(
-        work.resolve_targets(HartTargets::all_available()),
-        HartSet::singleton(0)
+        work.resolve_targets(HartMask::from_mask_base(0b100, usize::MAX - 1)),
+        Err(AdmissionError::InvalidHart)
+    );
+}
+
+#[test]
+fn empty_finite_hart_masks_stay_empty() {
+    let work = started::<1>();
+    assert_eq!(
+        work.resolve_targets(HartMask::from_mask_base(0, usize::MAX - 1)),
+        Ok(HartSet::empty())
     );
     assert_eq!(
-        work.resolve_targets(HartTargets::selected(0, usize::MAX)),
+        work.resolve_targets(HartMask::from_mask_base(0, 9)),
         Ok(HartSet::empty())
+    );
+}
+
+#[test]
+fn all_hart_masks_resolve_the_finite_serviceable_set() {
+    let work = HartAdmissionState::new(
+        [0, 8, 0x1000],
+        [HartState::Started, HartState::Stopped, HartState::Suspended],
+        [true; 3],
+    )
+    .unwrap();
+    let mut expected = HartSet::singleton(0).unwrap();
+    expected.insert(2).unwrap();
+    assert_eq!(work.resolve_targets(HartMask::all()), Ok(expected));
+    assert_eq!(
+        work.resolve_targets(HartMask::from_mask_base(usize::MAX, usize::MAX)),
+        Ok(expected)
     );
 }
 
@@ -546,7 +589,7 @@ fn admission_commits_before_ring_and_claims_by_physical_id() {
     let device = Arc::new(RecordedIpi::default());
     let admission = two_hart_admission(device.clone());
 
-    admission.send(HartTargets::selected(1, 8)).unwrap();
+    admission.send(HartMask::from_mask_base(1, 8)).unwrap();
     assert_eq!(*device.notified.lock().unwrap(), [8]);
     {
         let state = admission.state.lock();
@@ -578,7 +621,7 @@ fn device_notification_does_not_hold_the_protocol_lock() {
     }
 
     let sender = admission.clone();
-    let send = std::thread::spawn(move || sender.send(HartTargets::selected(1, 8)));
+    let send = std::thread::spawn(move || sender.send(HartMask::from_mask_base(1, 8)));
     entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
     let observer = admission.clone();
@@ -634,7 +677,7 @@ fn remote_fence_returns_only_after_target_completion() {
     let source = admission.clone();
     let request = std::thread::spawn(move || {
         source.remote_fence(
-            HartTargets::selected(1, 8),
+            HartMask::from_mask_base(1, 8),
             RemoteFenceRequest::SfenceVma {
                 start: 0x1000,
                 size: 0x2000,

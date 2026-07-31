@@ -4,7 +4,6 @@ use machine::{RemoteFence as MachineRemoteFence, RemoteFenceError};
 use rustsbi::{HartMask, SbiRet};
 use sbi_spec::binary::Error;
 
-use super::ipi::targets;
 use super::response;
 
 pub(super) struct Rfence {
@@ -19,11 +18,11 @@ impl Rfence {
 
 impl rustsbi::Fence for Rfence {
     fn remote_fence_i(&self, mask: HartMask) -> SbiRet {
-        result(self.fence.fence_i(targets(mask)))
+        result(self.fence.fence_i(mask))
     }
 
     fn remote_sfence_vma(&self, mask: HartMask, start: usize, size: usize) -> SbiRet {
-        result(self.fence.sfence_vma(targets(mask), start, size))
+        result(self.fence.sfence_vma(mask, start, size))
     }
 
     fn remote_sfence_vma_asid(
@@ -33,7 +32,7 @@ impl rustsbi::Fence for Rfence {
         size: usize,
         asid: usize,
     ) -> SbiRet {
-        result(self.fence.sfence_vma_asid(targets(mask), start, size, asid))
+        result(self.fence.sfence_vma_asid(mask, start, size, asid))
     }
 
     #[cfg(feature = "hypervisor")]
@@ -44,15 +43,12 @@ impl rustsbi::Fence for Rfence {
         size: usize,
         vmid: usize,
     ) -> SbiRet {
-        result(
-            self.fence
-                .hfence_gvma_vmid(targets(mask), start, size, vmid),
-        )
+        result(self.fence.hfence_gvma_vmid(mask, start, size, vmid))
     }
 
     #[cfg(feature = "hypervisor")]
     fn remote_hfence_gvma(&self, mask: HartMask, start: usize, size: usize) -> SbiRet {
-        result(self.fence.hfence_gvma(targets(mask), start, size))
+        result(self.fence.hfence_gvma(mask, start, size))
     }
 
     #[cfg(feature = "hypervisor")]
@@ -63,15 +59,12 @@ impl rustsbi::Fence for Rfence {
         size: usize,
         asid: usize,
     ) -> SbiRet {
-        result(
-            self.fence
-                .hfence_vvma_asid(targets(mask), start, size, asid),
-        )
+        result(self.fence.hfence_vvma_asid(mask, start, size, asid))
     }
 
     #[cfg(feature = "hypervisor")]
     fn remote_hfence_vvma(&self, mask: HartMask, start: usize, size: usize) -> SbiRet {
-        result(self.fence.hfence_vvma(targets(mask), start, size))
+        result(self.fence.hfence_vvma(mask, start, size))
     }
 }
 

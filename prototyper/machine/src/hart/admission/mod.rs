@@ -5,7 +5,8 @@
 //! linearization point; it is not a general hart context.
 
 use super::fence::RemoteFenceRequest;
-use crate::hart::{HartState, HartTargets};
+use crate::hart::HartState;
+use sbi_spec::binary::HartMask;
 
 #[cfg(test)]
 mod audit;
@@ -186,8 +187,9 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
             .ok_or(AdmissionError::InvalidHart)
     }
 
-    pub(crate) fn resolve_targets(&self, request: HartTargets) -> Result<HartSet, AdmissionError> {
-        let Some((mut bits, base)) = request.selected_parts() else {
+    pub(crate) fn resolve_targets(&self, request: HartMask) -> Result<HartSet, AdmissionError> {
+        let (mut bits, base) = request.into_inner();
+        if base == HartMask::<usize>::IGNORE_MASK {
             let mut targets = HartSet::empty();
             for index in 0..self.hart_count {
                 if self.serviceable(index) {
@@ -195,7 +197,7 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
                 }
             }
             return Ok(targets);
-        };
+        }
 
         let mut targets = HartSet::empty();
         while bits != 0 {

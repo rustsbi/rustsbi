@@ -14,7 +14,7 @@ mod warm;
 pub use control::{HartControl, HartError};
 pub use fence::{RemoteFence, RemoteFenceError};
 pub use ipi::{Ipi, IpiError};
-pub use local::{HartLocal, HartLocalError, HartLocalGuard, HartTargets};
+pub use local::{HartLocal, HartLocalError, HartLocalGuard};
 pub use sbi_spec::hsm::HartState;
 
 pub(crate) use ipi::{IpiDevice, Notification};

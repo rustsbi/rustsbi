@@ -32,8 +32,8 @@ pub use boot::{BootDtb, BootInfo, NextStage};
 pub use console::{Console, ConsoleDevice, ConsoleError};
 pub use entry_macros::entry;
 pub use hart::{
-    HartControl, HartError, HartLocal, HartLocalError, HartLocalGuard, HartState, HartTargets, Ipi,
-    IpiError, RemoteFence, RemoteFenceError,
+    HartControl, HartError, HartLocal, HartLocalError, HartLocalGuard, HartState, Ipi, IpiError,
+    RemoteFence, RemoteFenceError,
 };
 pub use mmio::{IoMem, IoMemError, IoMemRegion, IoValue, io_fence};
 pub use pmu::{CounterError, CounterInfo, PerformanceCounters};
