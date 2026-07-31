@@ -13,11 +13,14 @@ use rcore_console::Console as _;
 use riscv::register::{cycle, satp, sie, sstatus, time};
 use sbi_spec::{
     binary::{CounterMask, HartMask, Physical, SbiRet},
-    pmu::firmware_event,
+    pmu::{
+        firmware_event,
+        flags::{CounterCfgFlags, CounterStartFlags, CounterStopFlags},
+    },
 };
 use sbi_testing::{
     protocol::{self, Run},
-    sbi::{self, ConfigFlags, StartFlags, StopFlags},
+    sbi,
 };
 // use sbi_spec::pmu::*;
 
@@ -255,19 +258,21 @@ fn pmu_test(smp: usize) {
 
     /* PMU test for hardware event */
     let counter_mask = CounterMask::from_mask_base(0x7ffff, 0);
-    let result = sbi::pmu_counter_config_matching(counter_mask, Flag::new(0b110), 0x2, 0);
+    let config_flags = CounterCfgFlags::CLEAR_VALUE | CounterCfgFlags::AUTO_START;
+    let result = sbi::pmu_counter_config_matching(counter_mask, config_flags, 0x2, 0);
     assert!(result.is_ok());
-    let result = sbi::pmu_counter_config_matching(counter_mask, Flag::new(0b110), 0x10019, 0);
+    let result = sbi::pmu_counter_config_matching(counter_mask, config_flags, 0x10019, 0);
     assert!(result.is_ok());
-    let result = sbi::pmu_counter_config_matching(counter_mask, Flag::new(0b110), 0x1001b, 0);
+    let result = sbi::pmu_counter_config_matching(counter_mask, config_flags, 0x1001b, 0);
     assert!(result.is_ok());
-    let result = sbi::pmu_counter_config_matching(counter_mask, Flag::new(0b110), 0x10021, 0);
+    let result = sbi::pmu_counter_config_matching(counter_mask, config_flags, 0x10021, 0);
     assert!(result.is_ok());
-    let result = sbi::pmu_counter_config_matching(counter_mask, Flag::new(0b110), 0x3, 0);
+    let result = sbi::pmu_counter_config_matching(counter_mask, config_flags, 0x3, 0);
     assert!(result.is_ok());
 
     // `SBI_PMU_HW_CPU_CYCLES` event test
-    let result = sbi::pmu_counter_config_matching(counter_mask, Flag::new(0b010), 0x1, 0);
+    let result =
+        sbi::pmu_counter_config_matching(counter_mask, CounterCfgFlags::CLEAR_VALUE, 0x1, 0);
     assert!(result.is_ok());
     let cycle_counter_idx = result.value;
     let counter_info = sbi::pmu_counter_get_info(cycle_counter_idx);
@@ -278,7 +283,7 @@ fn pmu_test(smp: usize) {
     // Start counting `SBI_PMU_HW_CPU_CYCLES` events
     let start_result = sbi::pmu_counter_start(
         CounterMask::from_mask_base(0x1, cycle_counter_idx),
-        Flag::new(0x1),
+        CounterStartFlags::INIT_VALUE,
         0xffff,
     );
     assert!(start_result.is_ok());
@@ -287,7 +292,7 @@ fn pmu_test(smp: usize) {
     // Stop counting `SBI_PMU_HW_CPU_CYCLES` events
     let stop_result = sbi::pmu_counter_stop(
         CounterMask::from_mask_base(0x1, cycle_counter_idx),
-        Flag::new(0x0),
+        CounterStopFlags::empty(),
     );
     assert!(stop_result.is_ok());
     let mut _j = 0;
@@ -298,7 +303,7 @@ fn pmu_test(smp: usize) {
     // Restart counting `SBI_PMU_HW_CPU_CYCLES` events
     let start_result = sbi::pmu_counter_start(
         CounterMask::from_mask_base(0x1, cycle_counter_idx),
-        Flag::new(0x0),
+        CounterStartFlags::empty(),
         0,
     );
     assert!(start_result.is_ok());
@@ -318,7 +323,7 @@ fn pmu_test(smp: usize) {
     // Mapping a counter to the `SBI_PMU_FW_ACCESS_LOAD` event should result in unsupported
     let result = sbi::pmu_counter_config_matching(
         counter_mask,
-        Flag::new(0b010),
+        CounterCfgFlags::CLEAR_VALUE,
         EventIdx::new_firmware_event(firmware_event::ACCESS_LOAD).raw(),
         0,
     );
@@ -328,7 +333,7 @@ fn pmu_test(smp: usize) {
     // This counter should be a firmware counter and its value should be initialized to 0.
     let result = sbi::pmu_counter_config_matching(
         counter_mask,
-        Flag::new(0b010),
+        CounterCfgFlags::CLEAR_VALUE,
         EventIdx::new_firmware_event(firmware_event::IPI_SENT).raw(),
         0,
     );
@@ -344,7 +349,7 @@ fn pmu_test(smp: usize) {
     // Start counting `SBI_PMU_FW_IPI_SENT` events and assign an initial value of 25 to the event counter
     let start_result = sbi::pmu_counter_start(
         CounterMask::from_mask_base(0x1, ipi_counter_idx),
-        Flag::new(0x1),
+        CounterStartFlags::INIT_VALUE,
         25,
     );
     assert!(start_result.is_ok());
@@ -365,14 +370,14 @@ fn pmu_test(smp: usize) {
     // Stop counting `SBI_PMU_FW_IPI_SENT` events
     let stop_result = sbi::pmu_counter_stop(
         CounterMask::from_mask_base(0x1, ipi_counter_idx),
-        Flag::new(0x0),
+        CounterStopFlags::empty(),
     );
     assert!(stop_result.is_ok());
 
     // Restop counting `SBI_PMU_FW_IPI_SENT` events, the result should be already stop
     let stop_result = sbi::pmu_counter_stop(
         CounterMask::from_mask_base(0x1, ipi_counter_idx),
-        Flag::new(0x0),
+        CounterStopFlags::empty(),
     );
     assert_eq!(stop_result, SbiRet::already_stopped());
 
@@ -388,7 +393,7 @@ fn pmu_test(smp: usize) {
     // Restart counting `SBI_PMU_FW_IPI_SENT` events
     let start_result = sbi::pmu_counter_start(
         CounterMask::from_mask_base(0x1, ipi_counter_idx),
-        Flag::new(0x0),
+        CounterStartFlags::empty(),
         0,
     );
     assert!(start_result.is_ok());
@@ -573,34 +578,6 @@ impl rcore_console::Console for Console {
             };
             value = remaining;
         }
-    }
-}
-
-struct Flag {
-    inner: usize,
-}
-
-impl ConfigFlags for Flag {
-    fn raw(&self) -> usize {
-        self.inner
-    }
-}
-
-impl StartFlags for Flag {
-    fn raw(&self) -> usize {
-        self.inner
-    }
-}
-
-impl StopFlags for Flag {
-    fn raw(&self) -> usize {
-        self.inner
-    }
-}
-
-impl Flag {
-    pub fn new(flag: usize) -> Self {
-        Self { inner: flag }
     }
 }
 
