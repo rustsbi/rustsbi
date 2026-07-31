@@ -21,7 +21,7 @@ pub(crate) use dtb::copy_from_entry;
 #[cfg(test)]
 use dtb::{BootDtbImportError, BootDtbStorage, DTB_HEADER_SIZE, DTB_MAGIC, validate_envelope};
 #[cfg(test)]
-pub(crate) use handoff::encode_for_test;
+use handoff::encode_for_test;
 /// A validated privilege transition prepared from the selected boot protocol.
 pub struct NextStage {
     pub(super) entry: usize,

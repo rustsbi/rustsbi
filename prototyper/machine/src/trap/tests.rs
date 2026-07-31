@@ -1,7 +1,4 @@
-use super::{
-    Cause, Frame, HypervisorTrap, SbiCall, Trap,
-    illegal::{DecodedTimeRead, TimeCsr},
-};
+use super::{Cause, DecodedTimeRead, Frame, HypervisorTrap, SbiCall, TimeCsr, Trap};
 
 #[test]
 fn trap_exposes_only_decoded_observations() {
