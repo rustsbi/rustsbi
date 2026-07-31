@@ -3,7 +3,7 @@
 riscv::read_write_csr! {
     /// Machine indirect register alias.
     Mireg: 0x351,
-    mask: 0xFFFF_FFFF_FFFF_FFFF,
+        mask: usize::MAX,
 }
 
 impl Mireg {
@@ -31,7 +31,7 @@ mod tests {
         let s = Miselect::from_bits(sel);
         assert_eq!(s.value(), sel);
 
-        let rbits: usize = 0x1234_5678usize & 0xFFFF_FFFF_FFFF_FFFF;
+        let rbits: usize = 0x1234_5678usize;
         let r = Mireg::from_bits(rbits);
         assert_eq!(r.raw(), rbits);
         assert_eq!(r.as_usize(), rbits);

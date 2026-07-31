@@ -4,7 +4,12 @@
 
 #![no_std]
 
+#[cfg(test)]
+extern crate std;
+
+pub mod aplic;
 pub mod geilen;
+pub mod imsic;
 pub mod peripheral;
 pub mod register;
 
@@ -167,32 +172,13 @@ mod tests {
     #[test]
     fn iid_usage_match_if() {
         let iid = Iid::MEXT;
-        if iid == Iid::MTIMER {
-            unreachable!()
-        } else if iid == Iid::MSOFT {
-            unreachable!()
-        } else if iid == Iid::MEXT {
-            assert!(true)
-        } else {
-            unreachable!()
-        }
+        assert!(iid != Iid::MTIMER && iid != Iid::MSOFT && iid == Iid::MEXT);
 
-        match iid {
-            Iid::MTIMER => unreachable!(),
-            Iid::MSOFT => unreachable!(),
-            Iid::MEXT => assert!(true),
-            _ => unreachable!(),
-        }
+        assert!(matches!(iid, Iid::MEXT));
 
         // Mock `mtopi::read` result where `iid: Option<Iid>`.
         let iid = Some(Iid::MSOFT);
-        match iid {
-            Some(Iid::MTIMER) => unreachable!(),
-            Some(Iid::MSOFT) => assert!(true),
-            Some(Iid::MEXT) => unreachable!(),
-            // Redundant, can be `_ => unreachable!()` in real use.
-            Some(_) | None => unreachable!(),
-        }
+        assert!(matches!(iid, Some(Iid::MSOFT)));
     }
 
     #[test]

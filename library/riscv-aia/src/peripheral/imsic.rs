@@ -286,27 +286,30 @@ pub mod msi {
 
 /// Interrupt file operation utilities.
 pub mod file_ops {
-    use super::{Eie, Eip, MAX_INTERRUPT_IDENTITY, select};
+    use super::{Eie, Eip, MAX_INTERRUPT_IDENTITY, MIN_INTERRUPT_IDENTITY, select};
 
-    /// Returns `(register_index, bit_position)` for the given interrupt identity.
+    /// Returns the RV32 `(register_index, bit_position)` for an interrupt identity.
+    ///
+    /// Identity zero is reserved, so identity `i` occupies bit `i % 32` of
+    /// register `i / 32`. Use [`crate::imsic`] for XLEN-aware selectors.
     #[inline]
     pub const fn identity_to_register(identity: u16) -> Option<(u32, u32)> {
         if identity == 0 || identity > MAX_INTERRUPT_IDENTITY {
             return None;
         }
-        let reg_index = ((identity - 1) / 32) as u32;
-        let bit_pos = ((identity - 1) % 32) as u32;
+        let reg_index = (identity / 32) as u32;
+        let bit_pos = (identity % 32) as u32;
         Some((reg_index, bit_pos))
     }
 
-    /// Calculates the interrupt identity from register index and bit position.
+    /// Calculates the RV32 interrupt identity from register index and bit position.
     #[inline]
     pub const fn register_to_identity(reg_index: u32, bit_pos: u32) -> Option<u16> {
         if reg_index > 63 || bit_pos > 31 {
             return None;
         }
-        let identity = (reg_index * 32 + bit_pos + 1) as u16;
-        if identity <= MAX_INTERRUPT_IDENTITY {
+        let identity = (reg_index * 32 + bit_pos) as u16;
+        if identity >= MIN_INTERRUPT_IDENTITY && identity <= MAX_INTERRUPT_IDENTITY {
             Some(identity)
         } else {
             None
@@ -343,6 +346,12 @@ pub mod file_ops {
         }
     }
 
+    impl Default for IdentityIterator {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl Iterator for IdentityIterator {
         type Item = u16;
 
@@ -372,12 +381,12 @@ pub mod file_ops {
             let mut updates = [(0, Eip::from_raw(0)); 64];
 
             for &identity in identities {
-                if let Some((reg_idx, bit_pos)) = identity_to_register(identity) {
-                    if reg_idx < 64 {
-                        let eip = &mut updates[reg_idx as usize].1;
-                        updates[reg_idx as usize].0 = reg_idx;
-                        *eip = eip.set_pending(bit_pos, true);
-                    }
+                if let Some((reg_idx, bit_pos)) = identity_to_register(identity)
+                    && reg_idx < 64
+                {
+                    let eip = &mut updates[reg_idx as usize].1;
+                    updates[reg_idx as usize].0 = reg_idx;
+                    *eip = eip.set_pending(bit_pos, true);
                 }
             }
 
@@ -389,17 +398,32 @@ pub mod file_ops {
             let mut updates = [(0, Eie::from_raw(0)); 64];
 
             for &identity in identities {
-                if let Some((reg_idx, bit_pos)) = identity_to_register(identity) {
-                    if reg_idx < 64 {
-                        let eie = &mut updates[reg_idx as usize].1;
-                        updates[reg_idx as usize].0 = reg_idx;
-                        *eie = eie.set_enabled(bit_pos, true);
-                    }
+                if let Some((reg_idx, bit_pos)) = identity_to_register(identity)
+                    && reg_idx < 64
+                {
+                    let eie = &mut updates[reg_idx as usize].1;
+                    updates[reg_idx as usize].0 = reg_idx;
+                    *eie = eie.set_enabled(bit_pos, true);
                 }
             }
 
             updates
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::file_ops::{identity_to_register, register_to_identity};
+
+    #[test]
+    fn rv32_identity_mapping_reserves_bit_zero() {
+        assert_eq!(identity_to_register(1), Some((0, 1)));
+        assert_eq!(identity_to_register(31), Some((0, 31)));
+        assert_eq!(identity_to_register(32), Some((1, 0)));
+        assert_eq!(identity_to_register(2047), Some((63, 31)));
+        assert_eq!(register_to_identity(0, 0), None);
+        assert_eq!(register_to_identity(63, 31), Some(2047));
     }
 }
 
