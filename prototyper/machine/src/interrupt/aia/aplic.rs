@@ -31,6 +31,8 @@ bitflags::bitflags! {
 const SOURCE_DELEGATE: u32 = 1 << 10;
 const HART_INDEX_SHIFT: u32 = 12;
 
+pub(super) const MAX_SOURCE_COUNT: u32 = 1023;
+
 pub(super) fn configure(
     registers: &IoMem,
     source_count: u32,

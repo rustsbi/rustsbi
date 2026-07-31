@@ -35,6 +35,7 @@ impl AplicLayout {
             && range.start.is_multiple_of(4)
             && range.end.is_multiple_of(4)
             && source_count != 0
+            && source_count <= aplic::MAX_SOURCE_COUNT
             && supervisor_imsic_base.is_multiple_of(0x1000))
         .then_some(Self {
             range,
@@ -143,4 +144,15 @@ pub fn install(boot: &mut BootInfo, layout: AiaLayout) -> Option<Interrupts> {
         remote_fence: RemoteFence::new(runtime.clone()),
         harts: HartControl::new(runtime),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn aplic_source_count_matches_register_capacity() {
+        assert!(AplicLayout::new(0x0..0x4000, 1023, 0x2800_0000).is_some());
+        assert!(AplicLayout::new(0x0..0x4000, 1024, 0x2800_0000).is_none());
+    }
 }
