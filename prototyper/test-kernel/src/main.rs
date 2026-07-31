@@ -473,6 +473,11 @@ fn fence_test(hartid: usize, smp: usize) {
         sbi::remote_hfence_vvma(self_mask, 0, 0),
         sbi::remote_hfence_vvma_asid(self_mask, 0, 0, 0),
     ];
+    assert!(
+        hfence
+            .iter()
+            .all(|result| result.is_ok() || *result == SbiRet::not_supported())
+    );
     let supported = hfence.iter().all(SbiRet::is_ok);
     let unavailable = hfence
         .iter()
