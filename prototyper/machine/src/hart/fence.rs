@@ -3,7 +3,7 @@
 use alloc::sync::Arc;
 use sbi_spec::binary::HartMask;
 
-use super::admission::{AdmissionError, HartSet};
+use super::admission::{AdmissionError, DenseHartSet};
 use super::instructions::current_hart_id;
 use super::protocol::{HartAdmission, HartNotifications};
 
@@ -62,7 +62,7 @@ impl RemoteFenceRequest {
 
 pub(super) fn targets_support_request(
     request: RemoteFenceRequest,
-    targets: HartSet,
+    targets: DenseHartSet,
     mut hypervisor_available: impl FnMut(usize) -> bool,
 ) -> bool {
     !request.requires_hypervisor() || targets.iter().all(&mut hypervisor_available)

@@ -8,7 +8,7 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
     pub(crate) fn commit_rfence(
         &mut self,
         source: usize,
-        targets: HartSet,
+        targets: DenseHartSet,
         request: RemoteFenceRequest,
     ) -> Result<(), AdmissionError> {
         let source_state = self.fence_sources[..self.hart_count]

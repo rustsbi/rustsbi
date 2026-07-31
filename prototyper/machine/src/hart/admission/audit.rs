@@ -12,7 +12,10 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
             {
                 return false;
             }
-            if self.fence_targets[target].pending_sources.0 & batches[target].sources.0 != 0 {
+            if !self.fence_targets[target]
+                .pending_sources
+                .is_disjoint(batches[target].sources)
+            {
                 return false;
             }
             if self.lifecycle[target].status == HartState::Stopped

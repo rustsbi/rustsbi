@@ -19,6 +19,45 @@ fn started<const N: usize>() -> HartAdmissionState<N> {
 }
 
 #[test]
+fn dense_hart_sets_bound_membership_and_iterate_in_index_order() {
+    let mut set = DenseHartSet::empty();
+    assert!(set.is_empty());
+    assert_eq!(set, DenseHartSet::default());
+    assert_eq!(set.insert(2), Ok(()));
+    assert_eq!(set.insert(0), Ok(()));
+    assert!(set.contains(0));
+    assert!(set.contains(2));
+    assert!(!set.contains(1));
+    assert_eq!(set.iter().collect::<alloc::vec::Vec<_>>(), [0, 2]);
+    assert_eq!(
+        started::<2>().commit_ipi(set),
+        Err(AdmissionError::InvalidHart)
+    );
+    assert!(set.remove(0));
+    assert!(!set.remove(0));
+    assert_eq!(set.iter().collect::<alloc::vec::Vec<_>>(), [2]);
+    assert_eq!(
+        DenseHartSet::singleton(HART_CAPACITY),
+        Err(AdmissionError::InvalidHart)
+    );
+    assert!(!set.contains(HART_CAPACITY));
+    assert!(!set.remove(HART_CAPACITY));
+}
+
+#[test]
+fn admission_rejects_counts_beyond_configured_hart_capacity() {
+    const TOO_MANY: usize = HART_CAPACITY + 1;
+    assert_eq!(
+        HartAdmissionState::<TOO_MANY>::new(
+            core::array::from_fn(|index| index),
+            [HartState::Started; TOO_MANY],
+            [true; TOO_MANY],
+        ),
+        Err(AdmissionError::InvalidHart)
+    );
+}
+
+#[test]
 fn hart_state_allows_only_the_defined_success_edges() {
     let mut start = HartAdmissionState::new([0], [HartState::Stopped], [true]).unwrap();
     start.begin_start(0).unwrap();
@@ -69,7 +108,7 @@ fn failed_multi_target_commit_changes_nothing() {
     )
     .unwrap();
     let before = work.clone();
-    let mut targets = HartSet::singleton(0).unwrap();
+    let mut targets = DenseHartSet::singleton(0).unwrap();
     targets.insert(1).unwrap();
     assert_eq!(
         work.commit_rfence(2, targets, RemoteFenceRequest::FenceI),
@@ -82,7 +121,7 @@ fn failed_multi_target_commit_changes_nothing() {
 #[test]
 fn finite_hart_masks_resolve_sparse_physical_ids() {
     let work = HartAdmissionState::new([0, 8, 0x1000], [HartState::Started; 3], [true; 3]).unwrap();
-    let mut first_two = HartSet::singleton(0).unwrap();
+    let mut first_two = DenseHartSet::singleton(0).unwrap();
     first_two.insert(1).unwrap();
     assert_eq!(
         work.resolve_targets(HartMask::from_mask_base((1usize << 8) | 1, 0)),
@@ -90,7 +129,7 @@ fn finite_hart_masks_resolve_sparse_physical_ids() {
     );
     assert_eq!(
         work.resolve_targets(HartMask::from_mask_base(1usize << 8, 0xff8)),
-        HartSet::singleton(2)
+        DenseHartSet::singleton(2)
     );
 }
 
@@ -121,11 +160,11 @@ fn empty_finite_hart_masks_stay_empty() {
     let work = started::<1>();
     assert_eq!(
         work.resolve_targets(HartMask::from_mask_base(0, usize::MAX - 1)),
-        Ok(HartSet::empty())
+        Ok(DenseHartSet::empty())
     );
     assert_eq!(
         work.resolve_targets(HartMask::from_mask_base(0, 9)),
-        Ok(HartSet::empty())
+        Ok(DenseHartSet::empty())
     );
 }
 
@@ -137,7 +176,7 @@ fn all_hart_masks_resolve_the_finite_serviceable_set() {
         [true; 3],
     )
     .unwrap();
-    let mut expected = HartSet::singleton(0).unwrap();
+    let mut expected = DenseHartSet::singleton(0).unwrap();
     expected.insert(2).unwrap();
     assert_eq!(work.resolve_targets(HartMask::all()), Ok(expected));
     assert_eq!(
@@ -149,7 +188,7 @@ fn all_hart_masks_resolve_the_finite_serviceable_set() {
 #[test]
 fn stop_gate_drains_the_pre_gate_finite_batch_before_stopped() {
     let mut work = started::<2>();
-    let target = HartSet::singleton(1).unwrap();
+    let target = DenseHartSet::singleton(1).unwrap();
     work.commit_ipi(target).unwrap();
     work.commit_rfence(0, target, RemoteFenceRequest::FenceI)
         .unwrap();
@@ -168,7 +207,7 @@ fn stop_gate_drains_the_pre_gate_finite_batch_before_stopped() {
 #[test]
 fn suspend_cannot_publish_sleep_while_accepted_work_is_pending() {
     let mut work = started::<1>();
-    let target = HartSet::singleton(0).unwrap();
+    let target = DenseHartSet::singleton(0).unwrap();
     work.commit_ipi(target).unwrap();
     work.begin_suspend(0).unwrap();
     assert_eq!(work.finish_suspend(0), Err(AdmissionError::MissingRelation));
@@ -218,7 +257,7 @@ fn resume_edges_are_closed_around_the_suspended_state() {
 #[test]
 fn complete_claim_owns_a_finite_snapshot_and_retires_once() {
     let mut work = started::<3>();
-    let mut targets = HartSet::singleton(1).unwrap();
+    let mut targets = DenseHartSet::singleton(1).unwrap();
     targets.insert(2).unwrap();
     work.commit_rfence(0, targets, RemoteFenceRequest::FenceI)
         .unwrap();
@@ -244,7 +283,7 @@ fn resume_finishes_at_the_capture_cut_despite_later_arrival() {
     work.finish_suspend(1).unwrap();
     work.commit_rfence(
         0,
-        HartSet::singleton(1).unwrap(),
+        DenseHartSet::singleton(1).unwrap(),
         RemoteFenceRequest::FenceI,
     )
     .unwrap();
@@ -253,7 +292,7 @@ fn resume_finishes_at_the_capture_cut_despite_later_arrival() {
     work.claim(1, &mut batches[1]).unwrap();
     work.commit_rfence(
         2,
-        HartSet::singleton(1).unwrap(),
+        DenseHartSet::singleton(1).unwrap(),
         RemoteFenceRequest::SfenceVma { start: 0, size: 0 },
     )
     .unwrap();
@@ -267,7 +306,7 @@ fn resume_finishes_at_the_capture_cut_despite_later_arrival() {
 #[test]
 fn simultaneous_sources_remain_distinct_and_active_storage_is_immutable() {
     let mut work = started::<3>();
-    let target = HartSet::singleton(2).unwrap();
+    let target = DenseHartSet::singleton(2).unwrap();
     let first = RemoteFenceRequest::SfenceVma {
         start: 0x1000,
         size: 0x2000,
@@ -302,7 +341,7 @@ fn simultaneous_sources_remain_distinct_and_active_storage_is_immutable() {
 #[test]
 fn a_claimed_high_source_cannot_be_overtaken_by_low_source_reissue() {
     let mut work = started::<3>();
-    let target = HartSet::singleton(2).unwrap();
+    let target = DenseHartSet::singleton(2).unwrap();
     work.commit_rfence(0, target, RemoteFenceRequest::FenceI)
         .unwrap();
     work.commit_rfence(1, target, RemoteFenceRequest::FenceI)
@@ -323,8 +362,8 @@ fn a_claimed_high_source_cannot_be_overtaken_by_low_source_reissue() {
 
 #[derive(Default)]
 struct DelayedIpi {
-    accepted: HartSet,
-    delivered: HartSet,
+    accepted: DenseHartSet,
+    delivered: DenseHartSet,
     prepared: bool,
 }
 
@@ -338,14 +377,18 @@ impl DelayedIpi {
         }
     }
 
-    fn notify(&mut self, targets: HartSet) {
+    fn notify(&mut self, targets: DenseHartSet) {
         assert!(self.prepared);
-        self.accepted.0 |= targets.0;
+        for target in targets.iter() {
+            self.accepted.insert(target).unwrap();
+        }
     }
 
     fn deliver(&mut self) {
-        self.delivered.0 |= self.accepted.0;
-        self.accepted = HartSet::empty();
+        for target in self.accepted.iter() {
+            self.delivered.insert(target).unwrap();
+        }
+        self.accepted = DenseHartSet::empty();
     }
 
     fn claim(&mut self, target: usize) {
@@ -355,7 +398,7 @@ impl DelayedIpi {
 
 #[test]
 fn delayed_ring_and_spurious_handler_cannot_lose_committed_work() {
-    let targets = HartSet::singleton(1).unwrap();
+    let targets = DenseHartSet::singleton(1).unwrap();
     let mut failed_device = DelayedIpi::default();
     let mut untouched = started::<2>();
     let before = untouched.clone();
@@ -382,7 +425,7 @@ fn delayed_ring_and_spurious_handler_cannot_lose_committed_work() {
 #[test]
 fn ordinary_ipi_coalesces_before_claim_and_reappears_during_drain() {
     let mut work = started::<2>();
-    let target = HartSet::singleton(1).unwrap();
+    let target = DenseHartSet::singleton(1).unwrap();
     work.commit_ipi(target).unwrap();
     work.commit_ipi(target).unwrap();
     let mut batches = [ClaimedWork::default(); 2];
@@ -428,19 +471,19 @@ fn explores_three_hart_cycle_claim_and_completion_schedules() {
     let mut work = started::<3>();
     work.commit_rfence(
         0,
-        HartSet::singleton(1).unwrap(),
+        DenseHartSet::singleton(1).unwrap(),
         RemoteFenceRequest::FenceI,
     )
     .unwrap();
     work.commit_rfence(
         1,
-        HartSet::singleton(2).unwrap(),
+        DenseHartSet::singleton(2).unwrap(),
         RemoteFenceRequest::FenceI,
     )
     .unwrap();
     work.commit_rfence(
         2,
-        HartSet::singleton(0).unwrap(),
+        DenseHartSet::singleton(0).unwrap(),
         RemoteFenceRequest::FenceI,
     )
     .unwrap();
@@ -511,12 +554,12 @@ fn explore(
         let result = match action {
             MutualAction::Commit0 => next_work.commit_rfence(
                 0,
-                HartSet::singleton(1).unwrap(),
+                DenseHartSet::singleton(1).unwrap(),
                 RemoteFenceRequest::FenceI,
             ),
             MutualAction::Commit1 => next_work.commit_rfence(
                 1,
-                HartSet::singleton(0).unwrap(),
+                DenseHartSet::singleton(0).unwrap(),
                 RemoteFenceRequest::FenceI,
             ),
             MutualAction::Claim0 => next_work.claim(0, &mut next_batches[0]),
@@ -662,7 +705,9 @@ fn pre_gate_ipi_makes_retentive_suspend_resume_immediately() {
     let admission = HartAdmission::new(device.clone(), &[0], 0, &[true]).unwrap();
     {
         let mut state = admission.state.lock();
-        state.commit_ipi(HartSet::singleton(0).unwrap()).unwrap();
+        state
+            .commit_ipi(DenseHartSet::singleton(0).unwrap())
+            .unwrap();
     }
 
     assert_eq!(admission.suspend_current(), Ok(()));
@@ -757,7 +802,7 @@ fn admission_start_failure_restores_stopped_and_preserves_error() {
 #[cfg(feature = "hypervisor")]
 #[test]
 fn hypervisor_fence_requires_every_resolved_target_to_support_h() {
-    let mut targets = HartSet::empty();
+    let mut targets = DenseHartSet::empty();
     targets.insert(0).unwrap();
     targets.insert(1).unwrap();
     let request = RemoteFenceRequest::HfenceGvma {

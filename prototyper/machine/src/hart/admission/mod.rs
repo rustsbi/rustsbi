@@ -5,6 +5,7 @@
 //! linearization point; it is not a general hart context.
 
 use super::fence::RemoteFenceRequest;
+use crate::config::HART_CAPACITY;
 use crate::hart::HartState;
 use sbi_spec::binary::HartMask;
 
@@ -13,12 +14,17 @@ mod audit;
 mod lifecycle;
 mod remote_fence;
 
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub(crate) struct HartSet(pub(super) u128);
+const _: () = assert!(HART_CAPACITY <= usize::BITS as usize);
 
-impl HartSet {
+/// A finite set of already-resolved admission-table indices.
+///
+/// The wrapped mask always has base zero and never uses the all-hart sentinel.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct DenseHartSet(HartMask);
+
+impl DenseHartSet {
     pub(crate) const fn empty() -> Self {
-        Self(0)
+        Self(HartMask::from_mask_base(0, 0))
     }
 
     #[cfg(test)]
@@ -29,58 +35,53 @@ impl HartSet {
     }
 
     pub(crate) fn is_empty(self) -> bool {
-        self.0 == 0
+        self.iter().next().is_none()
     }
 
     pub(crate) fn contains(self, index: usize) -> bool {
-        index < u128::BITS as usize && self.0 & (1u128 << index) != 0
+        index < HART_CAPACITY && self.0.has_bit(index)
     }
 
     pub(crate) fn insert(&mut self, index: usize) -> Result<(), AdmissionError> {
-        let bit = 1u128
-            .checked_shl(u32::try_from(index).map_err(|_| AdmissionError::InvalidHart)?)
-            .ok_or(AdmissionError::InvalidHart)?;
-        self.0 |= bit;
-        Ok(())
+        if index >= HART_CAPACITY {
+            return Err(AdmissionError::InvalidHart);
+        }
+        self.0
+            .insert(index)
+            .map_err(|_| AdmissionError::InvalidHart)
     }
 
     pub(crate) fn remove(&mut self, index: usize) -> bool {
         if !self.contains(index) {
             return false;
         }
-        self.0 &= !(1u128 << index);
-        true
+        self.0.remove(index).is_ok()
     }
 
-    pub(crate) fn iter(self) -> HartSetIter {
-        HartSetIter(self.0)
+    pub(crate) fn iter(self) -> impl Iterator<Item = usize> {
+        self.0.iter()
     }
 
     fn within(self, hart_count: usize) -> bool {
-        hart_count <= u128::BITS as usize
-            && (hart_count == u128::BITS as usize || self.0 >> hart_count == 0)
+        hart_count <= HART_CAPACITY && self.iter().all(|index| index < hart_count)
+    }
+
+    #[cfg(test)]
+    fn is_disjoint(self, other: Self) -> bool {
+        self.iter().all(|index| !other.contains(index))
     }
 }
 
-pub(crate) struct HartSetIter(u128);
-
-impl Iterator for HartSetIter {
-    type Item = usize;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.0 == 0 {
-            return None;
-        }
-        let index = self.0.trailing_zeros() as usize;
-        self.0 &= self.0 - 1;
-        Some(index)
+impl Default for DenseHartSet {
+    fn default() -> Self {
+        Self::empty()
     }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct ClaimedWork {
     pub(crate) supervisor_ipi: bool,
-    pub(crate) sources: HartSet,
+    pub(crate) sources: DenseHartSet,
 }
 
 impl ClaimedWork {
@@ -92,7 +93,7 @@ impl ClaimedWork {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(super) struct ActiveRemoteFence {
     request: RemoteFenceRequest,
-    remaining: HartSet,
+    remaining: DenseHartSet,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -108,7 +109,7 @@ struct IpiState {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct FenceTargetState {
-    pending_sources: HartSet,
+    pending_sources: DenseHartSet,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -157,7 +158,7 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
         wake_by_ipi: [bool; HARTS],
         hart_count: usize,
     ) -> Result<Self, AdmissionError> {
-        if hart_count == 0 || hart_count > HARTS || hart_count > u128::BITS as usize {
+        if hart_count == 0 || hart_count > HARTS || hart_count > HART_CAPACITY {
             return Err(AdmissionError::InvalidHart);
         }
         for (index, id) in physical_ids[..hart_count].iter().enumerate() {
@@ -174,7 +175,7 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
             }),
             ipi: [IpiState { pending: false }; HARTS],
             fence_targets: [FenceTargetState {
-                pending_sources: HartSet::empty(),
+                pending_sources: DenseHartSet::empty(),
             }; HARTS],
             fence_sources: [FenceSourceState { active: None }; HARTS],
         })
@@ -187,10 +188,13 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
             .ok_or(AdmissionError::InvalidHart)
     }
 
-    pub(crate) fn resolve_targets(&self, request: HartMask) -> Result<HartSet, AdmissionError> {
+    pub(crate) fn resolve_targets(
+        &self,
+        request: HartMask,
+    ) -> Result<DenseHartSet, AdmissionError> {
         let (mut bits, base) = request.into_inner();
         if base == HartMask::<usize>::IGNORE_MASK {
-            let mut targets = HartSet::empty();
+            let mut targets = DenseHartSet::empty();
             for index in 0..self.hart_count {
                 if self.serviceable(index) {
                     targets.insert(index)?;
@@ -199,7 +203,7 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
             return Ok(targets);
         }
 
-        let mut targets = HartSet::empty();
+        let mut targets = DenseHartSet::empty();
         while bits != 0 {
             let offset = bits.trailing_zeros() as usize;
             bits &= bits - 1;
@@ -226,7 +230,7 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
     }
 
     pub(super) fn committed_physical_id(&self, index: usize) -> usize {
-        // Protocol invariant: this is called only for a `HartSet` accepted by
+        // Protocol invariant: this is called only for a `DenseHartSet` accepted by
         // `validate_targets` while the immutable physical-ID map remains under
         // the same admission lock. The index is therefore below
         // `hart_count`, and `hart_count` never exceeds the backing array.
@@ -238,7 +242,7 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
 
     /// Protocol transition: publish one coalescible supervisor IPI level for
     /// the complete already-resolved target set.
-    pub(crate) fn commit_ipi(&mut self, targets: HartSet) -> Result<(), AdmissionError> {
+    pub(crate) fn commit_ipi(&mut self, targets: DenseHartSet) -> Result<(), AdmissionError> {
         self.validate_targets(targets)?;
         for target in targets.iter() {
             self.ipi[target].pending = true;
@@ -267,7 +271,7 @@ impl<const HARTS: usize> HartAdmissionState<HARTS> {
         Ok(())
     }
 
-    fn validate_targets(&self, targets: HartSet) -> Result<(), AdmissionError> {
+    fn validate_targets(&self, targets: DenseHartSet) -> Result<(), AdmissionError> {
         if !targets.within(self.hart_count) {
             return Err(AdmissionError::InvalidHart);
         }

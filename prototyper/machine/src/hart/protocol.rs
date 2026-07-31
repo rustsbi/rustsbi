@@ -217,7 +217,7 @@ impl HartNotifications {
     pub(super) fn from_state(
         state: &HartAdmissionState<HART_CAPACITY>,
         source: usize,
-        targets: HartSet,
+        targets: DenseHartSet,
     ) -> Self {
         let mut physical_harts = [0; HART_CAPACITY];
         let mut len = 0;
