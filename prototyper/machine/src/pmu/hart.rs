@@ -4,8 +4,6 @@ pub(super) const CYCLE_OFFSET: u8 = 0;
 pub(super) const INSTRET_OFFSET: u8 = 2;
 pub(super) const FIRST_PROGRAMMABLE_OFFSET: u8 = 3;
 pub(super) const LAST_COUNTER_OFFSET: u8 = 31;
-pub(super) const CYCLE_EVENT: usize = 1;
-pub(super) const INSTRUCTION_EVENT: usize = 2;
 pub(super) const EVENT_INDEX_MASK: usize = 0x000f_ffff;
 
 /// Read-only architectural facts about one counter.

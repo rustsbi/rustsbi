@@ -3,6 +3,7 @@
 use alloc::sync::Arc;
 use alloc::vec;
 use core::ops::Deref;
+use sbi_spec::pmu::hardware_event::{CPU_CYCLES, INSTRUCTIONS};
 
 use crate::config::HART_CAPACITY;
 use crate::hart::{HartLocal, HartLocalError};
@@ -69,8 +70,8 @@ impl PerformanceCounters {
         let facts = self.current_facts()?;
         let offset = facts.validate(index)?;
         match offset {
-            CYCLE_OFFSET if event_id == CYCLE_EVENT => Ok(()),
-            INSTRET_OFFSET if event_id == INSTRUCTION_EVENT => Ok(()),
+            CYCLE_OFFSET if event_id == CPU_CYCLES => Ok(()),
+            INSTRET_OFFSET if event_id == INSTRUCTIONS => Ok(()),
             CYCLE_OFFSET | INSTRET_OFFSET => Err(CounterError::UnsupportedEvent),
             FIRST_PROGRAMMABLE_OFFSET..=LAST_COUNTER_OFFSET => {
                 require_stopped(offset)?;
