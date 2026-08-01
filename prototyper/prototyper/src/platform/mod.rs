@@ -154,6 +154,7 @@ fn imsic_machine_hart_files(
 pub struct BoardInfo {
     pub memory_range: Option<Range<usize>>,
     pub console: Option<(BaseAddress, MachineConsoleType)>,
+    pub console_clock: Option<u32>,
     pub reset: Option<BaseAddress>,
     pub ipi: Option<(BaseAddress, MachineClintType)>,
     pub aia: Option<aia::AiaInfo>,
@@ -169,6 +170,7 @@ impl BoardInfo {
         BoardInfo {
             memory_range: None,
             console: None,
+            console_clock: None,
             reset: None,
             ipi: None,
             aia: None,
@@ -275,6 +277,9 @@ impl Platform {
             }
             if UARTXSCALE_COMPATIBLE.contains(&device_id) {
                 self.info.console = Some((regs.start, MachineConsoleType::UartXscale));
+                self.info.console_clock = node
+                    .get_prop("clock-frequency")
+                    .map(|prop_item| prop_item.deserialize::<u32>());
             }
         }
 
@@ -472,7 +477,7 @@ impl Platform {
                     UartPl011Wrap::new(base),
                 )))),
                 MachineConsoleType::UartXscale => Some(SbiConsole::new(Mutex::new(Box::new(
-                    UartXscaleWrap::new(base),
+                    UartXscaleWrap::new(base, self.info.console_clock),
                 )))),
             };
         } else {

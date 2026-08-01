@@ -217,12 +217,9 @@ pub struct UartXscaleWrap {
 impl UartXscaleWrap {
     /// Create a new XScale UART wrapper at the given MMIO base address.
     ///
-    /// The UART is initialized with the K1's clock frequency (14857000 Hz)
-    /// and the standard 115200 baud rate.
-    pub fn new(base: usize) -> Self {
+    pub fn new(base: usize, clock_freq: Option<u32>) -> Self {
         let mut inner = UartXscale::new(base);
-        // SpacemiT K1 UART0 clock = 14857000 Hz, baud = 115200
-        inner.init(14_857_000, 115_200);
+        inner.init(clock_freq.unwrap_or(14_857_000), 115_200);
         Self {
             inner: UnsafeCell::new(inner),
         }
