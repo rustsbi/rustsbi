@@ -169,6 +169,27 @@ mod tests {
     fn test_hsm() {
         use crate::hsm::*;
         const_assert_eq!(0x48534D, EID_HSM);
+        assert_impl_all!(
+            HartState: Copy,
+            Clone,
+            PartialEq,
+            Eq,
+            core::hash::Hash,
+            core::fmt::Debug
+        );
+        const_assert_eq!(HartState::Started as usize, hart_state::STARTED);
+        const_assert_eq!(HartState::Stopped as usize, hart_state::STOPPED);
+        const_assert_eq!(HartState::StartPending as usize, hart_state::START_PENDING);
+        const_assert_eq!(HartState::StopPending as usize, hart_state::STOP_PENDING);
+        const_assert_eq!(HartState::Suspended as usize, hart_state::SUSPENDED);
+        const_assert_eq!(
+            HartState::SuspendPending as usize,
+            hart_state::SUSPEND_PENDING
+        );
+        const_assert_eq!(
+            HartState::ResumePending as usize,
+            hart_state::RESUME_PENDING
+        );
         const_assert_eq!(0, hart_state::STARTED);
         const_assert_eq!(1, hart_state::STOPPED);
         const_assert_eq!(2, hart_state::START_PENDING);

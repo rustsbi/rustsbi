@@ -21,7 +21,7 @@ pub struct ArcebootArg {
     #[clap(long)]
     pub debug: bool,
 
-    /// Also build rustsbi-prototyper with arceboot as payload
+    /// Also build rustsbi-firmware with arceboot as payload
     #[clap(long)]
     pub payload: bool,
 
@@ -100,7 +100,7 @@ pub fn run(arg: &ArcebootArg) -> Option<ExitStatus> {
             error!("Failed to build RustSBI Prototyper");
             return Some(exit_status);
         }
-        Some(target_dir.join("rustsbi-prototyper-payload.elf"))
+        Some(target_dir.join("rustsbi-firmware-payload.elf"))
     } else {
         None
     };

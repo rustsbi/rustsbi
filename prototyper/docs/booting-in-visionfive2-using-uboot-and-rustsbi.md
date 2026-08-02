@@ -33,8 +33,12 @@ VisionFive2 支持从 1-bit QSPI Nor Flash、SDIO3.0、eMMC 中启动，对于�
 
 **本命令仅为参考，请根据自己的磁盘路径修改**
 ```shell
-$ cd workshop
-$ dd if=./visionfive2_fw_payload.img of=/dev/sda2 status=progress
+$ export TARGET_PARTITION=/dev/sda2
+$ printf '即将覆盖 %s，输入 YES 继续: ' "$TARGET_PARTITION"
+$ read -r confirm
+$ [ "$confirm" = YES ] || exit 1
+$ sudo dd if=./visionfive2_fw_payload.img of="$TARGET_PARTITION" status=progress conv=fsync
+$ unset confirm TARGET_PARTITION
 ```
 
 
@@ -43,7 +47,9 @@ $ dd if=./visionfive2_fw_payload.img of=/dev/sda2 status=progress
 创建工作目录
 
 ``` shell
-$ mkdir workshop 
+$ mkdir workshop
+$ export WORKSHOP_DIR=$(realpath workshop)
+$ cd "$WORKSHOP_DIR"
 ```
 
 ### 下载 VisionFive2 Debian 镜像
@@ -63,9 +69,9 @@ $ bzip2 -dk debian_image.img.bz2
 ### Clone VisionFive2 SDK
 
 ```shell
-$ cd workshop
+$ cd "$WORKSHOP_DIR"
 $ git clone git@github.com:starfive-tech/VisionFive2.git
-$ cd VisionFive2
+$ cd "$WORKSHOP_DIR/VisionFive2"
 $ git checkout JH7110_VisionFive2_devel
 $ git submodule update --init --recursive
 ```
@@ -73,7 +79,7 @@ $ git submodule update --init --recursive
 ### Clone RustSBI
 
 ```shell
-$ cd workshop/VisionFive2
+$ cd "$WORKSHOP_DIR/VisionFive2"
 $ git clone https://github.com/rustsbi/rustsbi
 ```
 
@@ -82,7 +88,7 @@ $ git clone https://github.com/rustsbi/rustsbi
 编译 SDK，编译产物应在 `work` 目录下。
 
 ``` shell
-$ cd workshop/VisionFive2
+$ cd "$WORKSHOP_DIR/VisionFive2"
 $ make -j$(nproc)
 ```
 
@@ -90,8 +96,8 @@ $ make -j$(nproc)
 编译 RustSBI Prototyper，以 U-Boot 作为 Payload。
 
 ``` shell
-$ cd workshop/VisionFive2/rustsbi 
-$ cargo prototyper --payload ../work/u-boot/u-boot.bin --fdt ../work/u-boot/arch/riscv/dts/starfive_visionfive2.dtb 
+$ cd "$WORKSHOP_DIR/VisionFive2/rustsbi"
+$ cargo prototyper --target riscv64imac-unknown-none-elf --payload ../work/u-boot/u-boot.bin --fdt ../work/u-boot/arch/riscv/dts/starfive_visionfive2.dtb
 ```
 
 ## 生成 Payload 镜像
@@ -131,7 +137,7 @@ $ cargo prototyper --payload ../work/u-boot/u-boot.bin --fdt ../work/u-boot/arch
 
 生成 `visionfive2_fw_payload.img`：
 ```shell
-$ cd workshop/VisionFive2
+$ cd "$WORKSHOP_DIR/VisionFive2"
 $ mkimage -f payload_image.its -A riscv -O u-boot -T firmware visionfive2_fw_payload.img
 ```
 
@@ -140,8 +146,13 @@ $ mkimage -f payload_image.its -A riscv -O u-boot -T firmware visionfive2_fw_pay
 假设你的对应磁盘路径为 `/dev/sda`，按如下命令使用 `dd` 工具进行烧写即可：
 
 ```shell
-$ cd workshop
-$ dd if=./debian_image.img of=/dev/sda
+$ cd "$WORKSHOP_DIR"
+$ export TARGET_DEVICE=/dev/sda
+$ printf '即将覆盖 %s，输入 YES 继续: ' "$TARGET_DEVICE"
+$ read -r confirm
+$ [ "$confirm" = YES ] || exit 1
+$ sudo dd if=./debian_image.img of="$TARGET_DEVICE" status=progress conv=fsync
+$ unset confirm TARGET_DEVICE
 ```
 
 ## SEE ALSO

@@ -5,6 +5,9 @@
 
 mod thread;
 
+/// Allocation-free structured result records shared by firmware tests.
+pub mod protocol;
+
 pub extern crate sbi_rt as sbi;
 
 #[cfg(feature = "log")]

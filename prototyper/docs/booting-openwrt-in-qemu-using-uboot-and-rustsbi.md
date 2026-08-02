@@ -17,6 +17,7 @@
 
 ```shell
 $ mkdir workshop && cd workshop
+$ export WORKSHOP_DIR=$(pwd)
 ```
 
 ### Clone RustSBI Prototyper
@@ -51,7 +52,7 @@ $ git apply openwrt-patch.patch
 进入rustsbi目录
 
 ```shell
-$ cd rustsbi
+$ cd "$WORKSHOP_DIR/rustsbi"
 ```
 
 编译RustSBI Prototyper
@@ -65,7 +66,7 @@ $ cargo prototyper
 进入U-Boot目录
 
 ```shell
-$ cd u-boot
+$ cd "$WORKSHOP_DIR/u-boot"
 ```
 
 导出环境变量
@@ -73,7 +74,7 @@ $ cd u-boot
 ```shell
 $ export ARCH=riscv
 $ export CROSS_COMPILE=riscv64-linux-gnu-
-$ export OPENSBI=../rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin
+$ export OPENSBI="$WORKSHOP_DIR/rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin"
 ```
 
 生成`.config`文件,编译U-Boot
@@ -81,7 +82,8 @@ $ export OPENSBI=../rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-pr
 ```shell
 # To generate .config file out of board configuration file
 $ make qemu-riscv64_spl_defconfig
-$ sed -i.bak 's/CONFIG_BOOTCOMMAND=*/CONFIG_BOOTCOMMAND="scsi scan; fatload scsi 0:3 84000000 Image; setenv bootargs root=\/dev\/sda4 rw earlycon console=\/dev\/ttyS0 rootwait; booti 0x84000000 - ${fdtcontroladdr};"/' .config
+$ ./scripts/config --set-str BOOTCOMMAND 'scsi scan; fatload scsi 0:3 84000000 Image; setenv bootargs root=/dev/sda4 rw earlycon console=ttyS0 rootwait; booti 0x84000000 - ${fdtcontroladdr};'
+$ grep '^CONFIG_BOOTCOMMAND=' .config
 $ make -j$(nproc)
 ```
 
@@ -94,7 +96,7 @@ $ make -j$(nproc)
 更新 Feeds：
 
 ```shell
-$ cd openwrt
+$ cd "$WORKSHOP_DIR/openwrt"
 # Update the feeds
 $ ./scripts/feeds update -a
 $ ./scripts/feeds install -a
@@ -123,7 +125,10 @@ $ make -j$(nproc) kernel_menuconfig
 
 ```shell
 # Build the firmware image
-$ make -j$(nproc) defconfig download clean world
+$ make defconfig
+$ make download
+$ make clean
+$ make -j"$(nproc)" world
 ```
 
 拷贝并解压镜像：
@@ -139,7 +144,7 @@ $ gzip -dk openwrt-sifiveu-generic-sifive_unleashed-ext4-sdcard.img.gz
 进入`workshop`目录
 
 ```shell
-$ cd workshop
+$ cd "$WORKSHOP_DIR"
 ```
 
 运行下面命令

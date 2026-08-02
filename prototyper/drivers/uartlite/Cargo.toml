@@ -1,0 +1,9 @@
+[package]
+name = "rustsbi-prototyper-uartlite"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+machine = { package = "rustsbi-prototyper-machine", path = "../../machine" }

@@ -3,7 +3,7 @@
 riscv::read_write_csr! {
     /// Supervisor indirect register select.
     Siselect: 0x150,
-    mask: 0xFFFF_FFFF_FFFF_FFFF,
+        mask: usize::MAX,
 }
 
 impl Siselect {

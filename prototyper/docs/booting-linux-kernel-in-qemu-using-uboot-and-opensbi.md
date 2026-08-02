@@ -83,6 +83,7 @@ Copyright (c) 2003-2024 Fabrice Bellard and the QEMU Project developers
 
 ``` shell
 $ mkdir workshop && cd workshop
+$ export WORKSHOP_DIR=$(pwd)
 ```
 
 Clone OpenSBI
@@ -257,19 +258,20 @@ $ sudo cp ../linux/arch/riscv/boot/Image .
 $ sudo cp -r ../busybox/_install/* .
 $ sudo mkdir proc sys dev etc etc/init.d
 $ cd etc/init.d/
-$ sudo cat > rcS << EOF
-  #!/bin/sh
-  mount -t proc none /proc
-  mount -t sysfs none /sys
-  /sbin/mdev -s
-  EOF
+$ sudo tee rcS >/dev/null <<'EOF'
+#!/bin/sh
+mount -t proc none /proc
+mount -t sysfs none /sys
+/sbin/mdev -s
+EOF
 $ sudo chmod +x rcS
+$ sudo sh -n rcS
 ```
 
 卸载`rootfs`
 
 ``` shell
-$ cd workshop
+$ cd "$WORKSHOP_DIR"
 $ sudo umount rootfs
 ```
 
@@ -288,7 +290,7 @@ $ sudo losetup -d /dev/loop0
 进入U-Boot目录
 
 ``` shell
-$ cd u-boot
+$ cd "$WORKSHOP_DIR/u-boot"
 ```
 
 导出环境变量
@@ -349,7 +351,7 @@ $ make PLATFORM=generic FW_PAYLOAD_PATH=../u-boot/u-boot.bin -j$(nproc)
 进入`workshop`目录
 
 ``` shell
-$ cd workshop
+$ cd "$WORKSHOP_DIR"
 ```
 
 运行下面命令
@@ -399,7 +401,7 @@ $ make all PLATFORM=generic PLATFORM_RISCV_XLEN=64 -j$(nproc)
 进入`workshop`目录
 
 ``` shell
-$ cd workshop
+$ cd "$WORKSHOP_DIR"
 ```
 
 运行下面命令
@@ -444,7 +446,7 @@ $ make all PLATFORM=generic PLATFORM_RISCV_XLEN=64 -j$(nproc)
 进入U-Boot目录
 
 ``` shell
-$ cd u-boot
+$ cd "$WORKSHOP_DIR/u-boot"
 ```
 
 导出环境变量
@@ -484,7 +486,7 @@ $ make -j$(nproc)
 进入`workshop`目录
 
 ``` shell
-$ cd workshop
+$ cd "$WORKSHOP_DIR"
 ```
 
 运行下面命令
@@ -496,4 +498,3 @@ $ qemu-system-riscv64 -M virt -smp 4 -m 256M -nographic \
           -blockdev driver=file,filename=./linux-rootfs.img,node-name=hd0 \
           -device virtio-blk-device,drive=hd0
 ```
-

@@ -3,7 +3,7 @@
 riscv::read_write_csr! {
     /// Virtual supervisor indirect register alias.
     Vsireg: 0x251,
-    mask: 0xFFFF_FFFF_FFFF_FFFF,
+        mask: usize::MAX,
 }
 
 impl Vsireg {
@@ -26,7 +26,7 @@ mod tests {
 
     #[test]
     fn vsireg_raw_roundtrip() {
-        let bits: usize = 0xABCD_EF01usize & 0xFFFF_FFFF_FFFF_FFFF;
+        let bits: usize = 0xABCD_EF01usize;
         let reg = Vsireg::from_bits(bits);
         assert_eq!(reg.raw(), bits);
         assert_eq!(reg.as_usize(), bits);

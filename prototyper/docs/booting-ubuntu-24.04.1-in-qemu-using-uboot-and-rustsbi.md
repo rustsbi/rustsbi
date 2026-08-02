@@ -17,6 +17,7 @@
 
 ```shell
 $ mkdir workshop && cd workshop
+$ export WORKSHOP_DIR=$(pwd)
 ```
 
 ### Clone RustSBI Prototyper
@@ -49,7 +50,7 @@ $ git clone -b v2024.04 https://github.com/u-boot/u-boot.git
 进入rustsbi目录
 
 ```shell
-$ cd rustsbi
+$ cd "$WORKSHOP_DIR/rustsbi"
 ```
 
 编译RustSBI Prototyper
@@ -63,7 +64,7 @@ $ cargo prototyper
 进入U-Boot目录
 
 ```shell
-$ cd u-boot
+$ cd "$WORKSHOP_DIR/u-boot"
 ```
 
 导出环境变量
@@ -71,7 +72,7 @@ $ cd u-boot
 ```shell
 $ export ARCH=riscv
 $ export CROSS_COMPILE=riscv64-linux-gnu-
-$ export OPENSBI=../rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin
+$ export OPENSBI="$WORKSHOP_DIR/rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin"
 ```
 
 生成`.config`文件,编译U-Boot
@@ -87,7 +88,7 @@ $ make -j$(nproc)
 进入`workshop`目录
 
 ```shell
-$ cd workshop
+$ cd "$WORKSHOP_DIR"
 ```
 
 运行下面命令

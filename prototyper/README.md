@@ -1,190 +1,130 @@
 # RustSBI Prototyper
 
-RustSBI Prototyper is a developing RISC-V Secure Bootloader solution. It can be integrated with the Rust or C language ecosystem to form a complete RISC-V bootloader ecosystem.
+RustSBI Prototyper is an experimental RISC-V firmware implementation. It builds
+dynamic, payload, and fixed-address firmware images for supported platforms.
 
-## Usage
+## Prerequisites
 
-### Basic Usage
-
-#### Required Dependencies:  
-
-Before compiling, ensure the following packages are installed:  
+On Debian or Ubuntu, install the host tools with:
 
 ```bash
+sudo apt install qemu-system-misc u-boot-tools
 cargo install cargo-binutils
-sudo apt install u-boot-tools
-```  
+```
 
-These are necessary for building the firmware and handling RISC-V binary outputs.
+The build also requires the Rust toolchain selected by this repository.
 
-#### Compilation Command:
+## Building firmware
 
-The following command compiles the RustSBI Prototyper bootloader with optional settings:
+Run the build command from the repository root:
 
 ```bash
-cargo prototyper [OPTIONS]
+cargo prototyper build [OPTIONS]
 ```
 
-This builds the firmware based on the provided options (or defaults if none are specified). The resulting files—such as `.elf` executables and `.bin` binaries—are generated in the `target/riscv64imac-unknown-none-elf/release/` directory under your project root. See the "Firmware Compilation" section for specific outputs and modes.
+The most commonly used options are:
 
-These are necessary for building the firmware and handling RISC-V binary outputs.
+- `-f, --features <FEATURES>` enables a comma-separated Cargo feature set.
+- `--fdt <PATH>` embeds the supplied flattened device tree.
+- `--payload <PATH>` builds a payload image containing the supplied flat
+  executable image.
+- `--jump` builds a fixed-address jump image.
+- `-c, --config-file <PATH>` selects a custom configuration file.
+- `--target <TARGET>` selects RV32 or RV64.
+- `--image <ROLE>` selects `firmware`, `mtest`, `test`, or `bench`.
 
-#### Options
+Use `cargo prototyper --help` for the complete command-line reference.
+The old `cargo prototyper [OPTIONS]` form remains a temporary alias for
+`cargo prototyper build [OPTIONS]`.
 
-- `-f, --features <FEATURES>`  
-  Enable specific features during the build (supports multiple values, e.g., `--features "hypervisor,feat2"`).
-- `--fdt <PATH>`  
-  Specify the path to a Flattened Device Tree (FDT) file.  
-  [Environment Variable: `PROTOTYPER_FDT_PATH`]
-- `--payload <PATH>`  
-  Specify the path to the payload ELF file.  
-  [Environment Variable: `PROTOTYPER_PAYLOAD_PATH`]
-- `--jump`  
-  Enable jump mode.
-- `-c, --config-file <PATH>`  
-  Specify the path to a custom configuration file.
-- `-v, --verbose`  
-  Increase logging verbosity (more detailed output).
-- `-q, --quiet`  
-  Decrease logging verbosity (less output).
-- `-h, --help`  
-  Display help information.
-
-> #### Note on FDT Files
-> 
-> Regardless of the mode (Dynamic Firmware, Payload Firmware, or Jump Firmware), specifying an FDT file with `--fdt` ensures it is used to initialize the hardware platform configuration. The FDT file provides essential hardware setup details and overrides the bootloader's default settings.
-
-### Firmware Compilation
-
-#### 1. Dynamic Firmware
-
-**Compilation Command:**  
-Use this command to compile firmware that dynamically loads payloads:
+### Dynamic image
 
 ```bash
-cargo prototyper
+cargo prototyper build
 ```
 
-**Output:**  
-Once compiled, the firmware files will be located in the `target/riscv64imac-unknown-none-elf/release/` directory under your project root:  
-- `rustsbi-prototyper-dynamic.elf` (ELF executable)  
-- `rustsbi-prototyper-dynamic.bin` (Binary file)
+This produces `rustsbi-prototyper-dynamic.elf` and
+`rustsbi-prototyper-dynamic.bin` in the target release directory.
 
-#### 2. Payload Firmware
-
-**Compilation Command:**  
-Build firmware with an embedded payload:
+### Payload image
 
 ```bash
-cargo prototyper --payload <PAYLOAD_PATH>
+cargo prototyper build --payload <PAYLOAD_BIN>
 ```
 
-**Output:**  
-After compilation, the resulting firmware files are generated in the `target/riscv64imac-unknown-none-elf/release/` directory:  
-- `rustsbi-prototyper-payload.elf`  
-- `rustsbi-prototyper-payload.bin`
+This produces `rustsbi-prototyper-payload.elf` and
+`rustsbi-prototyper-payload.bin`.
 
-#### 3. Jump Firmware
-
-**Compilation Command:**  
-Build firmware for jump mode:
+### Jump image
 
 ```bash
-cargo prototyper --jump
+cargo prototyper build --jump
 ```
 
-**Output:**  
-After compilation, the resulting firmware files are generated in the `target/riscv64imac-unknown-none-elf/release/` directory:  
-- `rustsbi-prototyper-jump.elf`  
-- `rustsbi-prototyper-jump.bin`
+This produces `rustsbi-prototyper-jump.elf` and
+`rustsbi-prototyper-jump.bin`.
 
-### Configuration File
+Supplying `--fdt <PATH>` in any mode uses that device tree as the firmware's
+hardware description.
 
-Customize bootloader parameters by editing `default.toml` located at `prototyper/config/default.toml`. Example:
+## Configuration
 
-```toml
-num_hart_max = 8
-stack_size_per_hart = 16384  # 16 KiB (16 * 1024)
-heap_size = 32768            # 32 KiB (32 * 1024)
-page_size = 4096             # 4 KiB
-log_level = "INFO"
-jump_address = 0x80200000
-tlb_flush_limit = 16384      # 16 KiB (page_size * 4)
-```
-
-#### Configuration Options
-
-- `num_hart_max`: Maximum number of supported harts (hardware threads).
-- `stack_size_per_hart`: Stack size per hart, in bytes.
-- `heap_size`: Heap size, in bytes.
-- `page_size`: Page size, in bytes.
-- `log_level`: Logging level (`TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`).
-- `jump_address`: Target address for jump mode.
-- `tlb_flush_limit`: TLB flush limit, in bytes.
-
-To use a custom configuration file, specify it with:
+The default configuration is
+[`prototyper/config/default.toml`](prototyper/config/default.toml). A custom
+configuration can be selected with:
 
 ```bash
-cargo prototyper -c /path/to/custom_config.toml
+cargo prototyper --config-file /path/to/custom.toml
 ```
 
-### Running an Example
+The configuration controls hart and memory limits, DTB validation bounds,
+logging, the fixed jump address, and the TLB-flush threshold. Keep sizes and
+address ranges consistent with the target platform.
 
-Run the generated firmware in QEMU:
+## Running in QEMU
+
+Build the default S-mode test payload, embed it in the firmware and launch the
+complete image through the supervised QEMU runner:
 
 ```bash
-qemu-system-riscv64 \
-  -machine virt \
-  -bios target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper-dynamic.elf \
-  -display none \
-  -serial stdio
+cargo prototyper run
 ```
 
-For additional examples, see the [docs](/prototyper/docs/) directory.
+The tool resolves the firmware ELF, QEMU architecture, `virt` defaults, serial
+capture, timeout and process outcome from one checked plan. More complete
+examples are available in the [boot guides](docs/). Use
+`cargo prototyper run --payload <PAYLOAD_BIN>` only for a custom payload.
 
-## Setting Up the Development Environment
+## Development checks
 
-### Required Packages
+Run the ordinary Rust checks before submitting a change:
 
-See the **[Required Dependencies](#required-dependencies)** under **Usage** above for the packages needed to compile the RustSBI Prototyper.
+```bash
+cargo fmt --all -- --check
+cargo test -p cargo-prototyper
+cargo test -p rustsbi-prototyper-machine
+cargo test -p rustsbi-prototyper
+cargo test -p xtask
+cargo prototyper check
+cargo prototyper clippy
+```
 
-### Optional Development Tools
+Ordinary direct Cargo checks remain supported for source validation. Only
+`cargo prototyper build` promises a bootable image with the reviewed linker
+contract, ELF-to-binary conversion and stable artifact names.
 
-These tools are optional but recommended to enhance your development workflow:
-
-#### pre-commit
-
-A tool to run code checks before committing:
+Install the optional repository checks as needed:
 
 ```bash
 pipx install pre-commit
-pre-commit install  # Set up pre-commit for the project
-```
-
-#### Cargo Deny
-
-A Cargo plugin to audit dependency security:
-
-```bash
+pre-commit install
 cargo install --locked cargo-deny
-```
-
-#### typos
-
-A spell-checking tool for code and documentation:
-
-```bash
 cargo install typos-cli
-```
-
-#### git-cliff
-
-A changelog generation tool:
-
-```bash
 cargo install git-cliff
 ```
 
 ## License
 
-This project is dual-licensed under MIT or Mulan-PSL v2. See [LICENSE-MIT](./LICENSE-MIT) and [LICENSE-MULAN](./LICENSE-MULAN) for details.
+This project is dual-licensed under the
+[MIT license](../LICENSE-MIT) or the
+[Mulan PSL v2](../LICENSE-MULAN).

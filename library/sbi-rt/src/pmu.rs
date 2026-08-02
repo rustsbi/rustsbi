@@ -6,7 +6,9 @@ use sbi_spec::{
     binary::{CounterMask, SbiRet, SharedPtr},
     pmu::{
         COUNTER_CONFIG_MATCHING, COUNTER_FW_READ, COUNTER_FW_READ_HI, COUNTER_GET_INFO,
-        COUNTER_START, COUNTER_STOP, EID_PMU, NUM_COUNTERS, SNAPSHOT_SET_SHMEM, shmem_size::SIZE,
+        COUNTER_START, COUNTER_STOP, EID_PMU, NUM_COUNTERS, SNAPSHOT_SET_SHMEM,
+        flags::{CounterCfgFlags, CounterStartFlags, CounterStopFlags},
+        shmem_size::SIZE,
     },
 };
 
@@ -330,6 +332,13 @@ pub trait ConfigFlags {
     fn raw(&self) -> usize;
 }
 
+impl ConfigFlags for CounterCfgFlags {
+    #[inline]
+    fn raw(&self) -> usize {
+        self.bits()
+    }
+}
+
 #[cfg(feature = "integer-impls")]
 impl ConfigFlags for usize {
     #[inline]
@@ -342,6 +351,13 @@ impl ConfigFlags for usize {
 pub trait StartFlags {
     /// Get a raw value to pass to SBI environment.
     fn raw(&self) -> usize;
+}
+
+impl StartFlags for CounterStartFlags {
+    #[inline]
+    fn raw(&self) -> usize {
+        self.bits()
+    }
 }
 
 #[cfg(feature = "integer-impls")]
@@ -358,10 +374,34 @@ pub trait StopFlags {
     fn raw(&self) -> usize;
 }
 
+impl StopFlags for CounterStopFlags {
+    #[inline]
+    fn raw(&self) -> usize {
+        self.bits()
+    }
+}
+
 #[cfg(feature = "integer-impls")]
 impl StopFlags for usize {
     #[inline]
     fn raw(&self) -> usize {
         *self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ConfigFlags, StartFlags, StopFlags};
+    use sbi_spec::pmu::flags::{CounterCfgFlags, CounterStartFlags, CounterStopFlags};
+
+    #[test]
+    fn sbi_spec_pmu_flags_preserve_raw_bits() {
+        let config = CounterCfgFlags::CLEAR_VALUE | CounterCfgFlags::SET_SINH;
+        let start = CounterStartFlags::INIT_VALUE | CounterStartFlags::INIT_SNAPSHOT;
+        let stop = CounterStopFlags::RESET | CounterStopFlags::TAKE_SNAPSHOT;
+
+        assert_eq!(config.raw(), config.bits());
+        assert_eq!(start.raw(), start.bits());
+        assert_eq!(stop.raw(), stop.bits());
     }
 }

@@ -6,6 +6,7 @@ use std::process::ExitCode;
 mod utils;
 mod arceboot;
 mod bench;
+mod devkit;
 mod logger;
 mod prototyper;
 mod test;

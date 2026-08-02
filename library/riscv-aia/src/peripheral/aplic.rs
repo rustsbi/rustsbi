@@ -67,6 +67,18 @@ impl DomainConfig {
     const DM: u32 = 0x1 << 2;
     const BE: u32 = 0x1;
 
+    /// Creates a domain configuration from its raw register value.
+    #[inline]
+    pub const fn from_raw(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// Returns the raw register value.
+    #[inline]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+
     /// Get read-only bit (should be true in right endian).
     #[inline]
     pub const fn read_only(self) -> bool {
@@ -124,6 +136,18 @@ impl SourceConfig {
     const CHILD_INDEX: u32 = 0x3FF;
     const SM: u32 = 0x7;
 
+    /// Creates a source configuration from its raw register value.
+    #[inline]
+    pub const fn from_raw(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// Returns the raw register value.
+    #[inline]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+
     /// Set delegate bit.
     #[inline]
     pub const fn set_delegate(self, delegate: bool) -> Self {
@@ -180,6 +204,18 @@ impl MachineMsiAddrCfgH {
     const HHXW: u32 = 0x7 << 16;
     const LHXW: u32 = 0xF << 12;
     const HIGH_BASE_PPN: u32 = 0xFFF;
+
+    /// Creates a machine MSI address configuration from its raw register value.
+    #[inline]
+    pub const fn from_raw(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// Returns the raw register value.
+    #[inline]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
 
     /// Set lock bit.
     #[inline]
@@ -272,6 +308,18 @@ pub struct SupervisorMsiAddrCfgH(u32);
 impl SupervisorMsiAddrCfgH {
     const LHXS: u32 = 0x7 << 20;
     const HIGH_BASE_PPN: u32 = 0xFFF;
+
+    /// Creates a supervisor MSI address configuration from its raw register value.
+    #[inline]
+    pub const fn from_raw(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// Returns the raw register value.
+    #[inline]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
 
     /// Set low hart index shift.
     #[inline]
