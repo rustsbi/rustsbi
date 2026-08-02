@@ -38,6 +38,6 @@ repository = "https://github.com/rustsbi/rustsbi"
 debug = true
 
 [workspace.dependencies]
-riscv = { version = "0.16.0", default-features = false }
+riscv = { version = "0.16.1", default-features = false }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
