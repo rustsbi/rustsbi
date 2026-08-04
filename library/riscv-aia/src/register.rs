@@ -21,7 +21,7 @@ pub mod mvip;
 pub mod midelegh;
 pub mod mieh;
 pub mod miph;
-pub mod mvieh;
+pub mod mvienh;
 pub mod mviph;
 
 // -- `Ssaia` CSRs --
