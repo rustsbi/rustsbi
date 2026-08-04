@@ -1,6 +1,6 @@
 //! Hypervisor virtual interrupt control (hvictl)
 
-use crate::Iid;
+use core::num::NonZeroU16;
 
 riscv::read_write_csr! {
     /// Hypervisor virtual interrupt control.
@@ -11,9 +11,9 @@ riscv::read_write_csr! {
 impl Hvictl {
     /// IID field (bits 27:16) — interrupt identity for a virtual interrupt.
     #[inline]
-    pub const fn iid(self) -> Option<Iid> {
+    pub const fn iid(self) -> Option<MajorIid> {
         let bits = ((self.bits >> 16) & 0x0FFF) as u16;
-        Iid::new(bits)
+        MajorIid::new(bits)
     }
 
     /// IPRIO field (bits 7:0).
@@ -45,6 +45,34 @@ riscv::read_write_csr_field! {
     Hvictl,
     /// IPRIO mode bit.
     ipriom: 8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct MajorIid {
+    number: NonZeroU16,
+}
+
+impl MajorIid {
+    /// Attempts to construct an [`MajorIid`] from `number`.
+    #[inline]
+    pub const fn new(number: u16) -> Option<MajorIid> {
+        const IID_MAX: u16 = 4095;
+        // TODO: use Option filter-map once stablized in Rust's std.
+        match number {
+            1..=IID_MAX => match NonZeroU16::new(number) {
+                Some(nz) => Some(MajorIid { number: nz }),
+                None => None, // only hits when number == 0; kept to avoid unwraps in const
+            },
+            _ => None,
+        }
+    }
+
+    /// Returns the underlying interrupt identity number as `u16`.
+    #[inline]
+    pub const fn number(self) -> u16 {
+        self.number.get()
+    }
 }
 
 #[cfg(test)]
