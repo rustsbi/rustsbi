@@ -6,24 +6,14 @@ riscv::read_write_csr! {
     mask: 0xFFFF_FFFF,
 }
 
-impl Hviph {
-    #[inline]
-    pub const fn raw(self) -> usize {
-        self.bits
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::register::hvienh::Hvienh;
 
     #[test]
-    fn hvienh_hviph_raw_roundtrip() {
+    fn hviph_raw_roundtrip() {
         let bits: usize = 0xDEAD_BEEFusize & 0xFFFF_FFFF;
-        let en = Hvienh::from_bits(bits);
         let p = Hviph::from_bits(bits);
-        assert_eq!(en.raw(), bits);
-        assert_eq!(p.raw(), bits);
+        assert_eq!(p.bits(), bits);
     }
 }

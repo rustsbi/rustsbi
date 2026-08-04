@@ -1,53 +1,30 @@
 //! Hypervisor virtual interrupt enables (hvien)
 
+// Defined in the specification, Section 6.3, page 71:
+//
+// > Each bit of registers hvien and hvip corresponds with an interrupt number in the range 0-63. Bits
+// > 12:0 of hvien are reserved and must be read-only zeros, while bits 12:0 of hvip are defined by the H
+// > extension.
+
 riscv::read_write_csr! {
     /// Hypervisor virtual interrupt enables.
     Hvien: 0x608,
-    mask: 0x444,
-}
-
-riscv::read_write_csr_field! {
-    Hvien,
-    /// Virtual Supervisor Software Interrupt enable.
-    vssoft: 2,
-}
-
-riscv::read_write_csr_field! {
-    Hvien,
-    /// Virtual Supervisor Timer Interrupt enable.
-    vstimer: 6,
-}
-
-riscv::read_write_csr_field! {
-    Hvien,
-    /// Virtual Supervisor External Interrupt enable.
-    vsext: 10,
+    // 0xFFFF_E000 in RV32, or 0xFFFF_FFFF_FFFF_E000 in RV64
+    // bits 12:0 are reserved
+    mask: usize::MAX & !0x1FFF,
 }
 
 riscv::set!(0x608);
 riscv::clear!(0x608);
-
-riscv::set_clear_csr!(
-    /// Virtual Supervisor Software Interrupt enable.
-    , set_vssoft, clear_vssoft, 1 << 2);
-riscv::set_clear_csr!(
-    /// Virtual Supervisor Timer Interrupt enable.
-    , set_vstime, clear_vstime, 1 << 6);
-riscv::set_clear_csr!(
-    /// Virtual Supervisor External Interrupt enable.
-    , set_vsext, clear_vsext, 1 << 10);
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn hvien_bits() {
-        // set vssip (bit 2), vstip (bit 6), vseip (bit 10)
-        let bits: usize = (1usize << 2) | (1usize << 6) | (1usize << 10);
-        let en = Hvien::from_bits(bits);
-        assert!(en.vssoft());
-        assert!(en.vstimer());
-        assert!(en.vsext());
+    fn hvien_mask() {
+        let expected = usize::MAX & !0x1FFF;
+        assert_eq!(Hvien::BITMASK, expected);
+        assert_eq!(Hvien::from_bits(usize::MAX).bits(), expected);
     }
 }

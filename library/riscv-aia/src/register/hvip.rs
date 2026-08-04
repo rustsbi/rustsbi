@@ -3,7 +3,8 @@
 riscv::read_write_csr! {
     /// Hypervisor virtual interrupt pending bits.
     Hvip: 0x645,
-    mask: 0x444,
+    // 0xFFFF_E444 in RV32, or 0xFFFF_FFFF_FFFF_E444 in RV64
+    mask: usize::MAX & !0x1BBB,
 }
 
 riscv::read_only_csr_field! {
@@ -24,8 +25,8 @@ riscv::read_only_csr_field! {
     vsext: 10,
 }
 
-riscv::set!(0x608);
-riscv::clear!(0x608);
+riscv::set!(0x645);
+riscv::clear!(0x645);
 
 riscv::set_clear_csr!(
     /// Virtual Supervisor Software Interrupt pending.
@@ -49,5 +50,12 @@ mod tests {
         assert!(pend.vssoft());
         assert!(pend.vstimer());
         assert!(pend.vsext());
+    }
+
+    #[test]
+    fn hvip_mask() {
+        let expected = usize::MAX & !0x1BBB;
+        assert_eq!(Hvip::BITMASK, expected);
+        assert_eq!(Hvip::from_bits(usize::MAX).bits(), expected);
     }
 }
