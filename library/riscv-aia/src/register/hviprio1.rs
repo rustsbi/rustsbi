@@ -1,17 +1,5 @@
 //! Hypervisor VS-level interrupt priority 1 (hviprio1)
 
-// Defined in the specification, Section 6.3, page 70:
-//
-// > hviprio1:
-// > bits 7:0 Reserved for priority number for interrupt 0; reads as zero
-// > bits 15:8 Priority number for interrupt 1, supervisor software interrupt
-// > bits 23:16 Reserved for priority number for interrupt 4; reads as zero
-// > bits 31:24 Priority number for interrupt 5, supervisor timer interrupt
-// > bits 39:32 Reserved for priority number for interrupt 8; reads as zero
-// > bits 47:40 Priority number for interrupt 13, counter overflow interrupt
-// > bits 55:48 Priority number for interrupt 14
-// > bits 63:56 Priority number for interrupt 15
-
 #[cfg(target_pointer_width = "32")]
 riscv::read_write_csr! {
     /// Hypervisor VS-level interrupt priority 1.

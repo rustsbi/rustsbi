@@ -1,11 +1,5 @@
 //! Hypervisor virtual interrupt enables (hvien)
 
-// Defined in the specification, Section 6.3, page 71:
-//
-// > Each bit of registers hvien and hvip corresponds with an interrupt number in the range 0-63. Bits
-// > 12:0 of hvien are reserved and must be read-only zeros, while bits 12:0 of hvip are defined by the H
-// > extension.
-
 riscv::read_write_csr! {
     /// Hypervisor virtual interrupt enables.
     Hvien: 0x608,

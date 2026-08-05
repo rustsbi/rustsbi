@@ -1,17 +1,5 @@
 //! Hypervisor VS-level interrupt priority 2 (hviprio2)
 
-// Defined in the specification, Section 6.3, page 70:
-//
-// > hviprio2:
-// > bits 7:0 Priority number for interrupt 16
-// > bits 15:8 Priority number for interrupt 17
-// > bits 23:16 Priority number for interrupt 18
-// > bits 31:24 Priority number for interrupt 19
-// > bits 39:32 Priority number for interrupt 20
-// > bits 47:40 Priority number for interrupt 21
-// > bits 55:48 Priority number for interrupt 22
-// > bits 63:56 Priority number for interrupt 23
-
 riscv::read_write_csr! {
     /// Hypervisor VS-level interrupt priority 2.
     Hviprio2: 0x647,
