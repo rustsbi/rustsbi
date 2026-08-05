@@ -6,24 +6,35 @@ riscv::read_write_csr! {
     mask: 0xFFFF_FFFF,
 }
 
-impl Vsieh {
-    #[inline]
-    pub const fn raw(self) -> usize {
-        self.bits
-    }
+riscv::read_write_csr_field! {
+    Vsieh,
+    /// Low-priority RAS event interrupt enable (interrupt 35).
+    low_priority_ras_event: 3,
+}
+
+riscv::read_write_csr_field! {
+    Vsieh,
+    /// High-priority RAS event interrupt enable (interrupt 43).
+    high_priority_ras_event: 11,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::register::vsiph::Vsiph;
+    #[test]
+    fn vsieh_ras_fields_are_one_hot() {
+        let low = Vsieh::from_bits(1 << 3);
+        assert!(low.low_priority_ras_event());
+        assert!(!low.high_priority_ras_event());
+
+        let high = Vsieh::from_bits(1 << 11);
+        assert!(!high.low_priority_ras_event());
+        assert!(high.high_priority_ras_event());
+    }
 
     #[test]
-    fn vsieh_vsiph_raw_roundtrip() {
-        let bits: usize = 0x8765_4321usize & 0xFFFF_FFFF;
-        let e = Vsieh::from_bits(bits);
-        let p = Vsiph::from_bits(bits);
-        assert_eq!(e.raw(), bits);
-        assert_eq!(p.raw(), bits);
+    fn vsieh_mask() {
+        assert_eq!(Vsieh::BITMASK, 0xFFFF_FFFF);
+        assert_eq!(Vsieh::from_bits(usize::MAX).bits(), 0xFFFF_FFFF);
     }
 }

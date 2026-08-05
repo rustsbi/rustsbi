@@ -25,10 +25,22 @@ impl Hviprio2 {
         self.prio_byte(0)
     }
 
+    /// Set interrupt 16 priority number (bits 7:0).
+    #[inline]
+    pub const fn set_interrupt_16(&mut self, value: u8) {
+        self.set_prio_byte(0, value)
+    }
+
     /// Interrupt 17 priority number (bits 15:8).
     #[inline]
     pub const fn interrupt_17(self) -> u8 {
         self.prio_byte(1)
+    }
+
+    /// Set interrupt 17 priority number (bits 15:8).
+    #[inline]
+    pub const fn set_interrupt_17(&mut self, value: u8) {
+        self.set_prio_byte(1, value)
     }
 
     /// Interrupt 18 priority number (bits 23:16).
@@ -37,10 +49,22 @@ impl Hviprio2 {
         self.prio_byte(2)
     }
 
+    /// Set interrupt 18 priority number (bits 23:16).
+    #[inline]
+    pub const fn set_interrupt_18(&mut self, value: u8) {
+        self.set_prio_byte(2, value)
+    }
+
     /// Interrupt 19 priority number (bits 31:24).
     #[inline]
     pub const fn interrupt_19(self) -> u8 {
         self.prio_byte(3)
+    }
+
+    /// Set interrupt 19 priority number (bits 31:24).
+    #[inline]
+    pub const fn set_interrupt_19(&mut self, value: u8) {
+        self.set_prio_byte(3, value)
     }
 
     #[cfg(not(target_pointer_width = "32"))]
@@ -51,10 +75,24 @@ impl Hviprio2 {
     }
 
     #[cfg(not(target_pointer_width = "32"))]
+    /// Set interrupt 20 priority number (bits 39:32).
+    #[inline]
+    pub const fn set_interrupt_20(&mut self, value: u8) {
+        self.set_prio_byte(4, value)
+    }
+
+    #[cfg(not(target_pointer_width = "32"))]
     /// Interrupt 21 priority number (bits 47:40).
     #[inline]
     pub const fn interrupt_21(self) -> u8 {
         self.prio_byte(5)
+    }
+
+    #[cfg(not(target_pointer_width = "32"))]
+    /// Set interrupt 21 priority number (bits 47:40).
+    #[inline]
+    pub const fn set_interrupt_21(&mut self, value: u8) {
+        self.set_prio_byte(5, value)
     }
 
     #[cfg(not(target_pointer_width = "32"))]
@@ -65,10 +103,24 @@ impl Hviprio2 {
     }
 
     #[cfg(not(target_pointer_width = "32"))]
+    /// Set interrupt 22 priority number (bits 55:48).
+    #[inline]
+    pub const fn set_interrupt_22(&mut self, value: u8) {
+        self.set_prio_byte(6, value)
+    }
+
+    #[cfg(not(target_pointer_width = "32"))]
     /// Interrupt 23 priority number (bits 63:56).
     #[inline]
     pub const fn interrupt_23(self) -> u8 {
         self.prio_byte(7)
+    }
+
+    #[cfg(not(target_pointer_width = "32"))]
+    /// Set interrupt 23 priority number (bits 63:56).
+    #[inline]
+    pub const fn set_interrupt_23(&mut self, value: u8) {
+        self.set_prio_byte(7, value)
     }
 
     /// Returns the priority byte at byte index `i`.
@@ -78,6 +130,13 @@ impl Hviprio2 {
     const fn prio_byte(self, i: usize) -> u8 {
         let shift = i * 8;
         ((self.bits >> shift) & 0xFF) as u8
+    }
+
+    /// Sets the priority byte at byte index `i`.
+    #[inline]
+    const fn set_prio_byte(&mut self, i: usize, value: u8) {
+        let shift = i * 8;
+        self.bits = (self.bits & !(0xFFusize << shift)) | ((value as usize) << shift);
     }
 }
 
@@ -92,6 +151,17 @@ mod tests {
         assert_eq!(reg.interrupt_17(), 0x56);
         assert_eq!(reg.interrupt_18(), 0x34);
         assert_eq!(reg.interrupt_19(), 0x12);
+
+        let mut updated = Hviprio2::from_bits(0);
+        updated.set_interrupt_16(0xA1);
+        updated.set_interrupt_17(0xB2);
+        updated.set_interrupt_18(0xC3);
+        updated.set_interrupt_19(0xD4);
+        assert_eq!(updated.interrupt_16(), 0xA1);
+        assert_eq!(updated.interrupt_17(), 0xB2);
+        assert_eq!(updated.interrupt_18(), 0xC3);
+        assert_eq!(updated.interrupt_19(), 0xD4);
+        assert_eq!(updated.bits() & 0xFFFF_FFFF, 0xD4C3_B2A1);
     }
 
     #[cfg(not(target_pointer_width = "32"))]
@@ -104,6 +174,17 @@ mod tests {
         assert_eq!(reg.interrupt_21(), 0x56);
         assert_eq!(reg.interrupt_22(), 0x34);
         assert_eq!(reg.interrupt_23(), 0x12);
+
+        let mut updated = Hviprio2::from_bits(0);
+        updated.set_interrupt_20(0xA1);
+        updated.set_interrupt_21(0xB2);
+        updated.set_interrupt_22(0xC3);
+        updated.set_interrupt_23(0xD4);
+        assert_eq!(updated.interrupt_20(), 0xA1);
+        assert_eq!(updated.interrupt_21(), 0xB2);
+        assert_eq!(updated.interrupt_22(), 0xC3);
+        assert_eq!(updated.interrupt_23(), 0xD4);
+        assert_eq!(updated.bits(), 0xD4C3_B2A1_0000_0000);
     }
 
     #[cfg(target_pointer_width = "32")]

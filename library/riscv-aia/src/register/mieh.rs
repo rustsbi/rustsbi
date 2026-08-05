@@ -18,14 +18,6 @@ riscv::read_write_csr_field! {
     high_priority_ras_event: 11, // 43 - 32
 }
 
-impl Mieh {
-    /// Returns the raw upper 32 bits of `mie`.
-    #[inline]
-    pub const fn raw(self) -> usize {
-        self.bits
-    }
-}
-
 riscv::set!(0x314);
 riscv::clear!(0x314);
 
@@ -55,6 +47,6 @@ mod tests {
     fn mieh_mask() {
         let reg = Mieh::from_bits(0x1234_5678);
         assert_eq!(Mieh::BITMASK, 0xFFFF_FFFF);
-        assert_eq!(reg.raw(), 0x1234_5678);
+        assert_eq!(reg.bits(), 0x1234_5678);
     }
 }

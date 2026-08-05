@@ -81,14 +81,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hvip_bits() {
-        // Set VSSIP (2), VSTIP (6), VSEIP (10), and LCOFIP (13).
-        let bits: usize = (1usize << 2) | (1usize << 6) | (1usize << 10) | (1usize << 13);
-        let pend = Hvip::from_bits(bits);
-        assert!(pend.vssoft());
-        assert!(pend.vstimer());
-        assert!(pend.vsext());
-        assert!(pend.counter_overflow());
+    fn hvip_fields_are_one_hot() {
+        let vssoft = Hvip::from_bits(1 << 2);
+        assert!(vssoft.vssoft());
+        assert!(!vssoft.vstimer());
+        assert!(!vssoft.vsext());
+        assert!(!vssoft.counter_overflow());
+
+        let vstimer = Hvip::from_bits(1 << 6);
+        assert!(!vstimer.vssoft());
+        assert!(vstimer.vstimer());
+        assert!(!vstimer.vsext());
+        assert!(!vstimer.counter_overflow());
+
+        let vsext = Hvip::from_bits(1 << 10);
+        assert!(!vsext.vssoft());
+        assert!(!vsext.vstimer());
+        assert!(vsext.vsext());
+        assert!(!vsext.counter_overflow());
+
+        let counter_overflow = Hvip::from_bits(1 << 13);
+        assert!(!counter_overflow.vssoft());
+        assert!(!counter_overflow.vstimer());
+        assert!(!counter_overflow.vsext());
+        assert!(counter_overflow.counter_overflow());
     }
 
     #[cfg(not(target_pointer_width = "32"))]

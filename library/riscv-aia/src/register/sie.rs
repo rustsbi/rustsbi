@@ -3,7 +3,8 @@
 riscv::read_write_csr! {
     /// Supervisor interrupt-enable bits.
     Sie: 0x104,
-    mask: 0xFFFF_FFFF_FFFF_FFFF,
+    // 0xFFFF_E222 in RV32, or 0xFFFF_FFFF_FFFF_E222 in RV64
+    mask: usize::MAX & !0x1DDD,
 }
 
 impl Sie {
@@ -12,24 +13,44 @@ impl Sie {
     pub const fn bit(self, n: usize) -> bool {
         ((self.bits >> n) & 1) != 0
     }
+}
 
-    /// Supervisor software interrupt enable (bit 1).
-    #[inline]
-    pub const fn ssip(self) -> bool {
-        self.bit(1)
-    }
+riscv::read_write_csr_field! {
+    Sie,
+    /// Supervisor software interrupt enable.
+    ssip: 1,
+}
 
-    /// Supervisor timer interrupt enable (bit 5).
-    #[inline]
-    pub const fn stip(self) -> bool {
-        self.bit(5)
-    }
+riscv::read_write_csr_field! {
+    Sie,
+    /// Supervisor timer interrupt enable.
+    stip: 5,
+}
 
-    /// Supervisor external interrupt enable (bit 9).
-    #[inline]
-    pub const fn seip(self) -> bool {
-        self.bit(9)
-    }
+riscv::read_write_csr_field! {
+    Sie,
+    /// Supervisor external interrupt enable.
+    seip: 9,
+}
+
+riscv::read_write_csr_field! {
+    Sie,
+    /// Counter overflow interrupt enable.
+    counter_overflow: 13,
+}
+
+#[cfg(not(target_pointer_width = "32"))]
+riscv::read_write_csr_field! {
+    Sie,
+    /// Low-priority RAS event interrupt enable.
+    low_priority_ras_event: 35,
+}
+
+#[cfg(not(target_pointer_width = "32"))]
+riscv::read_write_csr_field! {
+    Sie,
+    /// High-priority RAS event interrupt enable.
+    high_priority_ras_event: 43,
 }
 
 #[cfg(test)]
@@ -37,19 +58,48 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sie_bits() {
-        let bits: usize = (1usize << 1) | (1usize << 5) | (1usize << 9);
-        let reg = Sie::from_bits(bits);
-        assert!(reg.ssip());
-        assert!(reg.stip());
-        assert!(reg.seip());
+    fn sie_fields_are_one_hot() {
+        let ssip = Sie::from_bits(1 << 1);
+        assert!(ssip.ssip());
+        assert!(!ssip.stip());
+        assert!(!ssip.seip());
+        assert!(!ssip.counter_overflow());
+
+        let stip = Sie::from_bits(1 << 5);
+        assert!(!stip.ssip());
+        assert!(stip.stip());
+        assert!(!stip.seip());
+        assert!(!stip.counter_overflow());
+
+        let seip = Sie::from_bits(1 << 9);
+        assert!(!seip.ssip());
+        assert!(!seip.stip());
+        assert!(seip.seip());
+        assert!(!seip.counter_overflow());
+
+        let counter_overflow = Sie::from_bits(1 << 13);
+        assert!(!counter_overflow.ssip());
+        assert!(!counter_overflow.stip());
+        assert!(!counter_overflow.seip());
+        assert!(counter_overflow.counter_overflow());
+    }
+
+    #[cfg(not(target_pointer_width = "32"))]
+    #[test]
+    fn sie_ras_fields_are_one_hot() {
+        let low = Sie::from_bits(1usize << 35);
+        assert!(low.low_priority_ras_event());
+        assert!(!low.high_priority_ras_event());
+
+        let high = Sie::from_bits(1usize << 43);
+        assert!(!high.low_priority_ras_event());
+        assert!(high.high_priority_ras_event());
     }
 
     #[test]
-    fn sie_zero() {
-        let reg = Sie::from_bits(0);
-        assert!(!reg.ssip());
-        assert!(!reg.stip());
-        assert!(!reg.seip());
+    fn sie_mask() {
+        let expected = usize::MAX & !0x1DDD;
+        assert_eq!(Sie::BITMASK, expected);
+        assert_eq!(Sie::from_bits(usize::MAX).bits(), expected);
     }
 }
