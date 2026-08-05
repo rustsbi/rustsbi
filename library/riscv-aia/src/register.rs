@@ -2,10 +2,6 @@
 
 // -- `Smaia` CSRs --
 
-// Machine-level window to indirectly accessed registers.
-pub mod mireg;
-pub mod miselect;
-
 // Machine-level interrupts.
 pub mod mie;
 pub mod mip;
@@ -25,10 +21,6 @@ pub mod mvienh;
 pub mod mviph;
 
 // -- `Ssaia` CSRs --
-
-// Supervisor-level window to indirectly accessed registers
-pub mod sireg;
-pub mod siselect;
 
 // Supervisor-level interrupts
 pub mod sie;
@@ -50,10 +42,6 @@ pub mod hvip;
 pub mod hviprio1;
 pub mod hviprio2;
 
-// VS-level window to indirectly accessed registers
-pub mod vsireg;
-pub mod vsiselect;
-
 // VS-level interrupts
 pub mod vsie;
 pub mod vsip;
@@ -68,3 +56,21 @@ pub mod hviprio1h;
 pub mod hviprio2h;
 pub mod vsieh;
 pub mod vsiph;
+
+// -- Smcsrind, Sscsrind CSRs --
+
+mod sxcsrind {
+    // Machine-level window to indirectly accessed registers.
+    pub mod mireg;
+    pub mod miselect;
+
+    // Supervisor-level window to indirectly accessed registers
+    pub mod sireg;
+    pub mod siselect;
+
+    // VS-level window to indirectly accessed registers
+    pub mod vsireg;
+    pub mod vsiselect;
+}
+
+pub use sxcsrind::{mireg, miselect, sireg, siselect, vsireg, vsiselect};
