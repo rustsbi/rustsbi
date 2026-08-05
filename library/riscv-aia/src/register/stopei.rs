@@ -1,6 +1,6 @@
 //! Supervisor top external interrupt (only with an IMSIC) (stopei)
 
-use crate::Iid;
+use crate::iid::Iid;
 
 riscv::read_write_csr! {
     /// Supervisor top external interrupt register.

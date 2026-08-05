@@ -1,5 +1,7 @@
 //! Hypervisor virtual interrupt control (hvictl)
 
+use crate::iid::MajorIid;
+
 riscv::read_write_csr! {
     /// Hypervisor virtual interrupt control.
     Hvictl: 0x609,
@@ -51,31 +53,6 @@ riscv::read_write_csr_field! {
     ipriom: 8,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[repr(transparent)]
-pub struct MajorIid {
-    number: u16,
-}
-
-impl MajorIid {
-    /// Constructs a [`MajorIid`] from its 12-bit interrupt identity number.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `number` is greater than 4095.
-    #[inline]
-    pub const fn new(number: u16) -> Self {
-        assert!(number <= 0x0FFF);
-        Self { number }
-    }
-
-    /// Returns the underlying interrupt identity number as `u16`.
-    #[inline]
-    pub const fn number(self) -> u16 {
-        self.number
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,17 +100,5 @@ mod tests {
     fn hvictl_mask() {
         assert_eq!(Hvictl::BITMASK, 0x4FFF_03FF);
         assert_eq!(Hvictl::from_bits(usize::MAX).bits(), 0x4FFF_03FF);
-    }
-
-    #[test]
-    fn major_iid_bounds() {
-        assert_eq!(MajorIid::new(0).number(), 0);
-        assert_eq!(MajorIid::new(0x0FFF).number(), 0x0FFF);
-    }
-
-    #[test]
-    #[should_panic]
-    fn major_iid_rejects_out_of_range() {
-        let _ = MajorIid::new(0x1000);
     }
 }

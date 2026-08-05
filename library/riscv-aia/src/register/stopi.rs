@@ -1,5 +1,7 @@
 //! Supervisor top interrupt (stopi)
 
+use crate::iid::MajorIid;
+
 riscv::read_only_csr! {
     /// Supervisor top interrupt register.
     Stopi: 0xDB0,
@@ -9,9 +11,12 @@ riscv::read_only_csr! {
 impl Stopi {
     /// Get the major identity number of the highest-priority interrupt.
     #[inline]
-    pub const fn iid(self) -> Option<crate::Iid> {
-        let bits = (self.bits & 0x0FFF_0000) >> 16;
-        crate::Iid::new(bits as u16)
+    pub const fn iid(self) -> Option<MajorIid> {
+        let number = ((self.bits & 0x0FFF_0000) >> 16) as u16;
+        match number {
+            0 => None,
+            _ => Some(MajorIid::new(number)),
+        }
     }
 
     /// Indicates the priority number of the highest-priority interrupt.
@@ -27,7 +32,7 @@ mod tests {
 
     #[test]
     fn stopi_parsing() {
-        let iid_num: u16 = 0x123;
+        let iid_num: u16 = 0xABC;
         let iprio: u8 = 0x7;
         let bits: usize = ((iid_num as usize) << 16) | (iprio as usize);
         let reg = Stopi::from_bits(bits);

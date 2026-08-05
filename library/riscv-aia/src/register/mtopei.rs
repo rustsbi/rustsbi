@@ -4,7 +4,7 @@
 //! pending and enabled for machine-level when an IMSIC is present. Provide a
 //! small typed wrapper similar to `Mtopi` for convenient field extraction.
 
-use crate::Iid;
+use crate::iid::Iid;
 
 riscv::read_write_csr! {
     /// Machine top external interrupt (mtopei).

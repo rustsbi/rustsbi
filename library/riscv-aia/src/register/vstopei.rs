@@ -1,6 +1,6 @@
 //! Virtual supervisor top external interrupt (only with an IMSIC) (vstopei)
 
-use crate::Iid;
+use crate::iid::Iid;
 
 riscv::read_write_csr! {
     /// Virtual supervisor top external interrupt register.

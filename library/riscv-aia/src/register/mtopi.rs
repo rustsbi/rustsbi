@@ -1,7 +1,7 @@
 //! Machine-level top interrupt register.
 //!
 //! CSR `mtopi` reports the highest-priority interrupt that is pending and enabled for machine level.
-use crate::Iid;
+use crate::iid::MajorIid;
 
 riscv::read_only_csr! {
     /// Machine top interrupt register.
@@ -12,9 +12,12 @@ riscv::read_only_csr! {
 impl Mtopi {
     /// Get the major identity number of the highest-priority interrupt.
     #[inline]
-    pub const fn iid(self) -> Option<Iid> {
-        let bits = (self.bits & 0x0FFF_0000) >> 16;
-        Iid::new(bits as u16)
+    pub const fn iid(self) -> Option<MajorIid> {
+        let number = ((self.bits & 0x0FFF_0000) >> 16) as u16;
+        match number {
+            0 => None,
+            _ => Some(MajorIid::new(number)),
+        }
     }
 
     /// Indicates the priority number of the highest-priority interrupt.
@@ -51,5 +54,8 @@ mod tests {
         let reg2 = Mtopi::from_bits(bits);
         assert_eq!(reg2.iid().map(|i| i.number()), Some(1));
         assert_eq!(reg2.iprio(), 0xFF);
+
+        let max = Mtopi::from_bits(0x0FFF_0000);
+        assert_eq!(max.iid().map(|i| i.number()), Some(0x0FFF));
     }
 }
