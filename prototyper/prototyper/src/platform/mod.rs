@@ -872,6 +872,11 @@ impl Platform {
                 "{:<30}: Available (Base Address: 0x{:x})",
                 "Platform Reset Extension", base
             );
+        } else if let Some((i2c_base, pmic_addr)) = self.info.pmic_reset {
+            info!(
+                "{:<30}: Available (P1 PMIC @ 0x{:02x}, I2C Base: 0x{:x})",
+                "Platform Reset Extension", pmic_addr, i2c_base
+            );
         } else {
             warn!("{:<30}: Not Available", "Platform Reset Device");
         }
