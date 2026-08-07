@@ -6,7 +6,7 @@
 
 use crate::iid::Iid;
 
-riscv::read_write_csr! {
+riscv::read_only_csr! {
     /// Machine top external interrupt (mtopei).
     Mtopei: 0x35C,
     mask: 0x07FF_07FF,

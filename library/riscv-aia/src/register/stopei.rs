@@ -2,7 +2,7 @@
 
 use crate::iid::Iid;
 
-riscv::read_write_csr! {
+riscv::read_only_csr! {
     /// Supervisor top external interrupt register.
     Stopei: 0x15C,
     mask: 0x07FF_07FF,
