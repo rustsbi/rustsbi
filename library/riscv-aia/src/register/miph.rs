@@ -1,10 +1,12 @@
 //! Machine interrupt-pending high-half (miph) (RV32 only)
 
-riscv::read_write_csr! {
+riscv::csr! {
     /// Upper 32 bits of `mip` (RV32 only).
-    Miph: 0x354,
-    mask: 0xFFFF_FFFF,
+    Miph,
+    0xFFFF_FFFF
 }
+riscv::read_csr_as_rv32!(Miph, 0x354);
+riscv::write_csr_as_rv32!(Miph, 0x354);
 
 riscv::read_only_csr_field! {
     Miph,
@@ -18,8 +20,8 @@ riscv::read_only_csr_field! {
     high_priority_ras_event: 11, // 43 - 32
 }
 
-riscv::set!(0x354);
-riscv::clear!(0x354);
+riscv::set_rv32!(0x354);
+riscv::clear_rv32!(0x354);
 
 riscv::set_clear_csr!(
     /// Low-priority RAS event interrupt pending.

@@ -1,10 +1,12 @@
 //! Supervisor interrupt-enable high-half (sieh) (RV32 only)
 
-riscv::read_write_csr! {
+riscv::csr! {
     /// Upper 32 bits of sie (RV32 only).
-    Sieh: 0x114,
-    mask: 0xFFFF_FFFF,
+    Sieh,
+    0xFFFF_FFFF
 }
+riscv::read_csr_as_rv32!(Sieh, 0x114);
+riscv::write_csr_as_rv32!(Sieh, 0x114);
 
 riscv::read_write_csr_field! {
     Sieh,

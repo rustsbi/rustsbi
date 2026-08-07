@@ -1,10 +1,12 @@
 //! Machine virtual interrupt-pending high half (`mviph`) (RV32 only).
 
-riscv::read_write_csr! {
+riscv::csr! {
     /// Upper 32 bits of `mvip` (RV32 only).
-    Mviph: 0x319,
-    mask: 0xFFFF_FFFF,
+    Mviph,
+    0xFFFF_FFFF
 }
+riscv::read_csr_as_rv32!(Mviph, 0x319);
+riscv::write_csr_as_rv32!(Mviph, 0x319);
 
 riscv::read_only_csr_field! {
     Mviph,
@@ -18,8 +20,8 @@ riscv::read_only_csr_field! {
     high_priority_ras_event: 11, // 43 - 32
 }
 
-riscv::set!(0x319);
-riscv::clear!(0x319);
+riscv::set_rv32!(0x319);
+riscv::clear_rv32!(0x319);
 
 riscv::set_clear_csr!(
     /// Low-priority RAS event interrupt pending.

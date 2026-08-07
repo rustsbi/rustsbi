@@ -1,10 +1,12 @@
 //! Virtual supervisor interrupt-enable high-half (vsieh) (RV32 only)
 
-riscv::read_write_csr! {
+riscv::csr! {
     /// Upper 32 bits of vsie.
-    Vsieh: 0x214,
-    mask: 0xFFFF_FFFF,
+    Vsieh,
+    0xFFFF_FFFF
 }
+riscv::read_csr_as_rv32!(Vsieh, 0x214);
+riscv::write_csr_as_rv32!(Vsieh, 0x214);
 
 riscv::read_write_csr_field! {
     Vsieh,

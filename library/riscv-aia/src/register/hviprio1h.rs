@@ -1,10 +1,12 @@
 //! Hypervisor VIPRIO1 high-half (hviprio1h) (RV32 only)
 
-riscv::read_write_csr! {
+riscv::csr! {
     /// Upper 32 bits of hviprio1.
-    Hviprio1h: 0x656,
-    mask: 0xFFFF_FF00,
+    Hviprio1h,
+    0xFFFF_FF00
 }
+riscv::read_csr_as_rv32!(Hviprio1h, 0x656);
+riscv::write_csr_as_rv32!(Hviprio1h, 0x656);
 
 impl Hviprio1h {
     /// Counter overflow interrupt priority number (bits 47:40).

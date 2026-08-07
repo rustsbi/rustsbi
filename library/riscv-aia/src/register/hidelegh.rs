@@ -1,10 +1,12 @@
 //! Upper 32 bits of Hypervisor interrupt delegation (hidelegh) (RV32 only)
 
-riscv::read_write_csr! {
+riscv::csr! {
     /// Upper 32 bits of Hypervisor interrupt delegation.
-    Hidelegh: 0x613,
-    mask: 0xFFFF_FFFF,
+    Hidelegh,
+    0xFFFF_FFFF
 }
+riscv::read_csr_as_rv32!(Hidelegh, 0x613);
+riscv::write_csr_as_rv32!(Hidelegh, 0x613);
 
 riscv::read_write_csr_field! {
     Hidelegh,
@@ -18,8 +20,8 @@ riscv::read_write_csr_field! {
     high_priority_ras_event: 11,
 }
 
-riscv::set!(0x613);
-riscv::clear!(0x613);
+riscv::set_rv32!(0x613);
+riscv::clear_rv32!(0x613);
 
 riscv::set_clear_csr!(
     /// Low-priority RAS event interrupt delegation.

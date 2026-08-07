@@ -1,10 +1,12 @@
 //! Hypervisor virtual interrupt pending high-half (hviph) (RV32 only)
 
-riscv::read_write_csr! {
+riscv::csr! {
     /// Upper 32 bits of hvip.
-    Hviph: 0x655,
-    mask: 0xFFFF_FFFF,
+    Hviph,
+    0xFFFF_FFFF
 }
+riscv::read_csr_as_rv32!(Hviph, 0x655);
+riscv::write_csr_as_rv32!(Hviph, 0x655);
 
 riscv::read_only_csr_field! {
     Hviph,
@@ -18,8 +20,8 @@ riscv::read_only_csr_field! {
     high_priority_ras_event: 11, // 43 - 32
 }
 
-riscv::set!(0x655);
-riscv::clear!(0x655);
+riscv::set_rv32!(0x655);
+riscv::clear_rv32!(0x655);
 
 riscv::set_clear_csr!(
     /// Low-priority RAS event interrupt pending.

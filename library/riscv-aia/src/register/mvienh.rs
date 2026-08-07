@@ -1,10 +1,12 @@
 //! Machine virtual interrupt enables high half (`mvienh`) (RV32 only).
 
-riscv::read_write_csr! {
+riscv::csr! {
     /// Upper 32 bits of `mvien` (RV32 only).
-    Mvienh: 0x318,
-    mask: 0xFFFF_FFFF,
+    Mvienh,
+    0xFFFF_FFFF
 }
+riscv::read_csr_as_rv32!(Mvienh, 0x318);
+riscv::write_csr_as_rv32!(Mvienh, 0x318);
 
 riscv::read_write_csr_field! {
     Mvienh,
@@ -18,8 +20,8 @@ riscv::read_write_csr_field! {
     high_priority_ras_event: 11, // 43 - 32
 }
 
-riscv::set!(0x318);
-riscv::clear!(0x318);
+riscv::set_rv32!(0x318);
+riscv::clear_rv32!(0x318);
 
 riscv::set_clear_csr!(
     /// Low-priority RAS event interrupt virtual enable.

@@ -1,10 +1,12 @@
 //! Virtual supervisor interrupt-pending high-half (vsiph) (RV32 only)
 
-riscv::read_write_csr! {
+riscv::csr! {
     /// Upper 32 bits of vsip.
-    Vsiph: 0x254,
-    mask: 0xFFFF_FFFF,
+    Vsiph,
+    0xFFFF_FFFF
 }
+riscv::read_csr_as_rv32!(Vsiph, 0x254);
+riscv::write_csr_as_rv32!(Vsiph, 0x254);
 
 riscv::read_only_csr_field! {
     Vsiph,

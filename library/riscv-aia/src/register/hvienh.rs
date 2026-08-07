@@ -1,10 +1,12 @@
 //! Hypervisor virtual interrupt enables high-half (hvienh) (RV32 only)
 
-riscv::read_write_csr! {
+riscv::csr! {
     /// Upper 32 bits of hvien.
-    Hvienh: 0x618,
-    mask: 0xFFFF_FFFF,
+    Hvienh,
+    0xFFFF_FFFF
 }
+riscv::read_csr_as_rv32!(Hvienh, 0x618);
+riscv::write_csr_as_rv32!(Hvienh, 0x618);
 
 riscv::read_write_csr_field! {
     Hvienh,
@@ -18,8 +20,8 @@ riscv::read_write_csr_field! {
     high_priority_ras_event: 11,
 }
 
-riscv::set!(0x618);
-riscv::clear!(0x618);
+riscv::set_rv32!(0x618);
+riscv::clear_rv32!(0x618);
 
 riscv::set_clear_csr!(
     /// Low-priority RAS event interrupt virtual enable.
