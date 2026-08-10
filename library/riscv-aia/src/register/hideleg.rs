@@ -32,14 +32,14 @@ riscv::read_write_csr_field! {
     counter_overflow: 13,
 }
 
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::read_write_csr_field! {
     Hideleg,
     /// Low-priority RAS event interrupt delegation.
     low_priority_ras_event: 35,
 }
 
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::read_write_csr_field! {
     Hideleg,
     /// High-priority RAS event interrupt delegation.
@@ -62,11 +62,11 @@ riscv::set_clear_csr!(
     /// Counter overflow interrupt delegation.
     , set_counter_overflow, clear_counter_overflow, 1 << 13);
 
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::set_clear_csr!(
     /// Low-priority RAS event interrupt delegation.
     , set_low_priority_ras_event, clear_low_priority_ras_event, 1usize << 35);
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::set_clear_csr!(
     /// High-priority RAS event interrupt delegation.
     , set_high_priority_ras_event, clear_high_priority_ras_event, 1usize << 43);
@@ -108,7 +108,7 @@ mod tests {
         assert!(counter_overflow.counter_overflow());
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     #[test]
     fn hideleg_ras_fields_are_one_hot() {
         let low = Hideleg::from_bits(1usize << 35);

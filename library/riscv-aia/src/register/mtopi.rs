@@ -13,10 +13,12 @@ impl Mtopi {
     /// Get the major identity number of the highest-priority interrupt.
     #[inline]
     pub const fn iid(self) -> Option<MajorIid> {
-        let number = ((self.bits & 0x0FFF_0000) >> 16) as u16;
-        match number {
+        match self.bits {
             0 => None,
-            _ => Some(MajorIid::new(number)),
+            _ => {
+                let major_iid = ((self.bits & 0x0FFF_0000) >> 16) as u16;
+                Some(MajorIid::new(major_iid))
+            }
         }
     }
 
@@ -57,5 +59,12 @@ mod tests {
 
         let max = Mtopi::from_bits(0x0FFF_0000);
         assert_eq!(max.iid().map(|i| i.number()), Some(0x0FFF));
+    }
+
+    #[test]
+    fn mtopi_zero_iid_with_nonzero_priority() {
+        let reg = Mtopi::from_bits(0x01);
+        assert_eq!(reg.iid().map(|iid| iid.number()), Some(0));
+        assert_eq!(reg.iprio(), 1);
     }
 }

@@ -11,10 +11,12 @@ riscv::read_only_csr! {
 impl Vstopi {
     #[inline]
     pub const fn iid(self) -> Option<MajorIid> {
-        let number = ((self.bits & 0x0FFF_0000) >> 16) as u16;
-        match number {
+        match self.bits {
             0 => None,
-            _ => Some(MajorIid::new(number)),
+            _ => {
+                let major_iid = ((self.bits & 0x0FFF_0000) >> 16) as u16;
+                Some(MajorIid::new(major_iid))
+            }
         }
     }
 
@@ -39,9 +41,16 @@ mod tests {
     }
 
     #[test]
-    fn vstopi_zero_iid() {
+    fn vstopi_zero_csr() {
         let reg = Vstopi::from_bits(0);
         assert!(reg.iid().is_none());
         assert_eq!(reg.iprio(), 0);
+    }
+
+    #[test]
+    fn vstopi_zero_iid_with_nonzero_priority() {
+        let reg = Vstopi::from_bits(0x01);
+        assert_eq!(reg.iid().map(|iid| iid.number()), Some(0));
+        assert_eq!(reg.iprio(), 1);
     }
 }
