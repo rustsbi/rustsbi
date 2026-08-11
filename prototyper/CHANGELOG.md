@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Added
 - Add AIA IMSIC IPI backend support for RustSBI Prototyper.
+- Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
 - Refine CSR group comments.
