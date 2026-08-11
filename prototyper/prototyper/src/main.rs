@@ -19,10 +19,12 @@ mod riscv;
 mod sbi;
 
 use core::arch::{asm, naked_asm};
+use core::sync::atomic::Ordering;
 
-use crate::platform::PLATFORM;
+use crate::platform::{IS_K1_PLATFORM, PLATFORM};
 use crate::riscv::csr::{CSR_MSTATEEN0, menvcfg, mstateen};
 use crate::riscv::current_hartid;
+use crate::riscv::spacemit_k1;
 use crate::sbi::features::hart_mhpm_mask;
 use crate::sbi::features::{
     Extension, PrivilegedVersion, hart_extension_probe, hart_features_detection,
@@ -62,6 +64,22 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             PLATFORM.print_board_info();
         }
 
+        // SpacemiT K1 / Ky X1 early initialization.
+        // IS_K1_PLATFORM was already recorded by Platform::init before the
+        // ready flag was released, so it is visible here (and to secondary
+        // harts once they observe ready()).
+        if IS_K1_PLATFORM.load(Ordering::Acquire) {
+            // Configure ML2SETUP for the boot hart
+            spacemit_k1::cold_boot_allowed(current_hartid());
+
+            unsafe {
+                // Use the SBI link address as the warmboot entry
+                let warmboot_addr = cfg::SBI_LINK_START_ADDRESS as u64;
+                spacemit_k1::early_init(true, warmboot_addr);
+            }
+            info!("SpacemiT K1: early init done (MSETUP + CCI-550)");
+        }
+
         firmware::set_pmp(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });
         firmware::log_pmp_cfg(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });
 
@@ -89,6 +107,11 @@ extern "C" fn rust_main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
         // Wait for boot hart to complete SBI initialization.
         while !unsafe { PLATFORM.ready() } {
             core::hint::spin_loop()
+        }
+
+        // SpacemiT K1: Configure ML2SETUP for this hart
+        if IS_K1_PLATFORM.load(Ordering::Acquire) {
+            spacemit_k1::cold_boot_allowed(current_hartid());
         }
 
         firmware::set_pmp(unsafe { PLATFORM.info.memory_range.as_ref().unwrap() });

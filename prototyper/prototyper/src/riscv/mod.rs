@@ -1,4 +1,5 @@
 pub mod csr;
+pub mod spacemit_k1;
 
 /// Returns the current hart (hardware thread) ID.
 #[inline]

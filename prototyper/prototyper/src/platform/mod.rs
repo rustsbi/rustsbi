@@ -17,11 +17,15 @@ use crate::platform::console::Uart16550Wrap;
 use crate::platform::console::UartBflbWrap;
 use crate::platform::console::UartPl011Wrap;
 use crate::platform::console::UartSifiveWrap;
+use crate::platform::console::UartXscaleWrap;
 use crate::platform::console::{
     MachineConsoleType, UART16650U8_COMPATIBLE, UART16650U32_COMPATIBLE, UARTAXILITE_COMPATIBLE,
-    UARTBFLB_COMPATIBLE, UARTPL011_COMPATIBLE, UARTSIFIVE_COMPATIBLE,
+    UARTBFLB_COMPATIBLE, UARTPL011_COMPATIBLE, UARTSIFIVE_COMPATIBLE, UARTXSCALE_COMPATIBLE,
 };
+use crate::platform::reset::P1_PMIC_COMPATIBLE;
+use crate::platform::reset::P1PmicResetWrap;
 use crate::platform::reset::SIFIVETEST_COMPATIBLE;
+use crate::riscv::spacemit_k1;
 use crate::sbi::SBI;
 use crate::sbi::console::SbiConsole;
 use crate::sbi::features::extension_detection;
@@ -40,6 +44,13 @@ mod reset;
 
 pub(crate) static CPU_PRIVILEGED_ENABLED: [AtomicBool; NUM_HART_MAX] =
     [const { AtomicBool::new(false) }; NUM_HART_MAX];
+
+/// Set to true once init detects the platform is a SpacemiT K1 / Ky X1.
+///
+/// Written in `Platform::init` *before* the ready flag is released, so that a
+/// secondary hart observing `ready() == true` is guaranteed to also observe
+/// this flag (main.rs secondary-hart path).
+pub(crate) static IS_K1_PLATFORM: AtomicBool = AtomicBool::new(false);
 
 const RISCV_MACHINE_EXTERNAL_IRQ: u32 = 11;
 
@@ -143,12 +154,15 @@ fn imsic_machine_hart_files(
 pub struct BoardInfo {
     pub memory_range: Option<Range<usize>>,
     pub console: Option<(BaseAddress, MachineConsoleType)>,
+    pub console_clock: Option<u32>,
     pub reset: Option<BaseAddress>,
     pub ipi: Option<(BaseAddress, MachineClintType)>,
     pub aia: Option<aia::AiaInfo>,
     pub cpu_num: Option<usize>,
     pub cpu_enabled: Option<CpuEnableList>,
     pub model: String,
+    /// P1 PMIC reset info: (I2C controller base, PMIC address)
+    pub pmic_reset: Option<(usize, u8)>,
 }
 
 impl BoardInfo {
@@ -156,12 +170,14 @@ impl BoardInfo {
         BoardInfo {
             memory_range: None,
             console: None,
+            console_clock: None,
             reset: None,
             ipi: None,
             aia: None,
             cpu_enabled: None,
             cpu_num: None,
             model: String::new(),
+            pmic_reset: None,
         }
     }
 
@@ -201,6 +217,19 @@ impl Platform {
         self.sbi_init_ipi_reset_hsm_rfence(&root);
         // Initialize pmu extension
         self.sbi_init_pmu(&root);
+
+        // Record K1 platform detection *before* releasing the ready flag, so
+        // that secondary harts observing `ready()` also observe the flag.
+        // Match the root node's `compatible` strings first (OpenSBI's
+        // spacemit_k1_match[] table), falling back to the model string.
+        let k1_platform = match root.get_prop("compatible") {
+            Some(prop) => {
+                let seq = prop.deserialize::<serde_device_tree::buildin::StrSeq>();
+                spacemit_k1::is_k1_platform(&self.info.model, seq.iter())
+            }
+            None => spacemit_k1::is_k1_platform(&self.info.model, core::iter::empty::<&str>()),
+        };
+        IS_K1_PLATFORM.store(k1_platform, Ordering::Release);
 
         self.ready.swap(true, Ordering::Release);
     }
@@ -246,6 +275,12 @@ impl Platform {
             if UARTPL011_COMPATIBLE.contains(&device_id) {
                 self.info.console = Some((regs.start, MachineConsoleType::UartPl011));
             }
+            if UARTXSCALE_COMPATIBLE.contains(&device_id) {
+                self.info.console = Some((regs.start, MachineConsoleType::UartXscale));
+                self.info.console_clock = node
+                    .get_prop("clock-frequency")
+                    .map(|prop_item| prop_item.deserialize::<u32>());
+            }
         }
 
         self.init_sbi_console_and_logger();
@@ -254,34 +289,49 @@ impl Platform {
     fn sbi_init_ipi_reset_hsm_rfence(&mut self, root: &serde_device_tree::buildin::Node) {
         // Get ipi and reset device info
         let cpu_intc_harts = collect_cpu_intc_harts(root);
-        let mut find_device = |node: &serde_device_tree::buildin::Node| {
-            let info = get_compatible_and_ranges(node);
-            if let Some(info) = info {
-                let (compatible, regs) = info;
-                let base_address = regs[0].start;
-                for device_id in compatible.iter() {
-                    // Initialize clint device.
-                    if SIFIVE_CLINT_COMPATIBLE.contains(&device_id) {
-                        if node.get_prop("clint,has-no-64bit-mmio").is_some() {
+        let mut find_device =
+            |node: &serde_device_tree::buildin::Node,
+             parent: Option<&serde_device_tree::buildin::Node>| {
+                let info = get_compatible_and_ranges(node);
+                if let Some(info) = info {
+                    let (compatible, regs) = info;
+                    let base_address = regs[0].start;
+                    for device_id in compatible.iter() {
+                        // Initialize clint device.
+                        if SIFIVE_CLINT_COMPATIBLE.contains(&device_id) {
+                            if node.get_prop("clint,has-no-64bit-mmio").is_some() {
+                                self.info.ipi = Some((base_address, MachineClintType::TheadClint));
+                            } else {
+                                self.info.ipi = Some((base_address, MachineClintType::SiFiveClint));
+                            }
+                        } else if THEAD_CLINT_COMPATIBLE.contains(&device_id) {
                             self.info.ipi = Some((base_address, MachineClintType::TheadClint));
-                        } else {
-                            self.info.ipi = Some((base_address, MachineClintType::SiFiveClint));
                         }
-                    } else if THEAD_CLINT_COMPATIBLE.contains(&device_id) {
-                        self.info.ipi = Some((base_address, MachineClintType::TheadClint));
-                    }
-                    // Initialize reset device.
-                    if SIFIVETEST_COMPATIBLE.contains(&device_id) {
-                        self.info.reset = Some(base_address);
-                    }
-                    // Discover the M-level IMSIC from its CPU interrupt wiring.
-                    if aia::IMSIC_COMPATIBLE.contains(&device_id) && self.info.aia.is_none() {
-                        self.sbi_discover_imsic(node, &regs, &cpu_intc_harts);
+                        // Initialize reset device.
+                        if SIFIVETEST_COMPATIBLE.contains(&device_id) {
+                            self.info.reset = Some(base_address);
+                        }
+                        // Initialize P1 PMIC reset device
+                        if P1_PMIC_COMPATIBLE.contains(&device_id) {
+                            // The PMIC's own "reg" property is its 7-bit I2C slave address.
+                            let pmic_addr = regs[0].start as u8;
+                            // The I2C controller is the PMIC's parent node; use the first
+                            // register range of the parent as the controller MMIO base,
+                            // falling back to the PMIC's own reg if no parent is found.
+                            let i2c_base = parent
+                                .and_then(|p| get_compatible_and_ranges(p))
+                                .and_then(|(_, parent_regs)| parent_regs.first().map(|r| r.start))
+                                .unwrap_or(base_address);
+                            self.info.pmic_reset = Some((i2c_base, pmic_addr));
+                        }
+                        // Discover the M-level IMSIC from its CPU interrupt wiring.
+                        if aia::IMSIC_COMPATIBLE.contains(&device_id) && self.info.aia.is_none() {
+                            self.sbi_discover_imsic(node, &regs, &cpu_intc_harts);
+                        }
                     }
                 }
-            }
-        };
-        root.search(&mut find_device);
+            };
+        search_with_parent(root, &mut find_device);
         self.sbi_ipi_init();
         self.sbi_hsm_init();
         self.sbi_reset_init();
@@ -426,6 +476,9 @@ impl Platform {
                 MachineConsoleType::UartPl011 => Some(SbiConsole::new(Mutex::new(Box::new(
                     UartPl011Wrap::new(base),
                 )))),
+                MachineConsoleType::UartXscale => Some(SbiConsole::new(Mutex::new(Box::new(
+                    UartXscaleWrap::new(base, self.info.console_clock),
+                )))),
             };
         } else {
             self.sbi.console = None;
@@ -437,6 +490,10 @@ impl Platform {
             self.sbi.reset = Some(SbiReset::new(Mutex::new(Box::new(
                 SifiveTestDeviceWrap::new(base),
             ))));
+        } else if let Some((i2c_base, pmic_addr)) = self.info.pmic_reset {
+            self.sbi.reset = Some(SbiReset::new(Mutex::new(Box::new(P1PmicResetWrap::new(
+                i2c_base, pmic_addr,
+            )))));
         } else {
             self.sbi.reset = None;
         }
@@ -814,6 +871,11 @@ impl Platform {
             info!(
                 "{:<30}: Available (Base Address: 0x{:x})",
                 "Platform Reset Extension", base
+            );
+        } else if let Some((i2c_base, pmic_addr)) = self.info.pmic_reset {
+            info!(
+                "{:<30}: Available (P1 PMIC @ 0x{:02x}, I2C Base: 0x{:x})",
+                "Platform Reset Extension", pmic_addr, i2c_base
             );
         } else {
             warn!("{:<30}: Not Available", "Platform Reset Device");
