@@ -9,7 +9,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- RV32 (`riscv32imac-unknown-none-elf`) support for the thread context switch (`thread/rv32.rs`, 4-byte register slots with `sw`/`lw`).
+
 ### Modified
+
+- Refactor `thread` into a shared module plus per-architecture switchers; pin the context layout against the assembly with compile-time assertions, take the stack pointer in `Thread::new`, and keep the call site ABI-aligned.
 
 ### Fixed
 

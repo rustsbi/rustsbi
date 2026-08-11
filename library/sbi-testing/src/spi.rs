@@ -40,8 +40,7 @@ pub fn test(hart_id: usize, mut f: impl FnMut(Case)) {
 
     f(Case::Begin);
     let mut stack = [0usize; 32];
-    let mut thread = Thread::new(ipi as *const () as _);
-    *thread.sp_mut() = stack.as_mut_ptr_range().end as _;
+    let mut thread = Thread::new(ipi as *const () as _, stack.as_mut_ptr_range().end as _);
     *thread.a_mut(0) = hart_id;
     unsafe {
         sie::set_ssoft();
