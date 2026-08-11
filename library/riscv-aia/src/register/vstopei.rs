@@ -28,7 +28,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn vstopei_parsing_none() {
+    fn vstopei_zero() {
         // zero iid should yield None
         let bits: usize = 0; // iid==0, iprio==0
         let reg = Vstopei::from_bits(bits);
@@ -37,7 +37,7 @@ mod tests {
     }
 
     #[test]
-    fn vstopei_parsing_high_priority_bits() {
+    fn vstopei_high_priority_bits_parse() {
         let iid_num: u16 = 0x523;
         let iprio: u16 = 0x6A5;
         let bits = ((iid_num as usize) << 16) | iprio as usize;

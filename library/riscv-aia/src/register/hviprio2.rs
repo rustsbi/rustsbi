@@ -10,120 +10,120 @@ impl Hviprio2 {
     /// Interrupt 16 priority number (bits 7:0).
     #[inline]
     pub const fn interrupt_16(self) -> u8 {
-        self.prio_byte(0)
+        self.priority_at_byte_index(0)
     }
 
     /// Set interrupt 16 priority number (bits 7:0).
     #[inline]
     pub const fn set_interrupt_16(&mut self, value: u8) {
-        self.set_prio_byte(0, value)
+        self.set_priority_at_byte_index(0, value)
     }
 
     /// Interrupt 17 priority number (bits 15:8).
     #[inline]
     pub const fn interrupt_17(self) -> u8 {
-        self.prio_byte(1)
+        self.priority_at_byte_index(1)
     }
 
     /// Set interrupt 17 priority number (bits 15:8).
     #[inline]
     pub const fn set_interrupt_17(&mut self, value: u8) {
-        self.set_prio_byte(1, value)
+        self.set_priority_at_byte_index(1, value)
     }
 
     /// Interrupt 18 priority number (bits 23:16).
     #[inline]
     pub const fn interrupt_18(self) -> u8 {
-        self.prio_byte(2)
+        self.priority_at_byte_index(2)
     }
 
     /// Set interrupt 18 priority number (bits 23:16).
     #[inline]
     pub const fn set_interrupt_18(&mut self, value: u8) {
-        self.set_prio_byte(2, value)
+        self.set_priority_at_byte_index(2, value)
     }
 
     /// Interrupt 19 priority number (bits 31:24).
     #[inline]
     pub const fn interrupt_19(self) -> u8 {
-        self.prio_byte(3)
+        self.priority_at_byte_index(3)
     }
 
     /// Set interrupt 19 priority number (bits 31:24).
     #[inline]
     pub const fn set_interrupt_19(&mut self, value: u8) {
-        self.set_prio_byte(3, value)
+        self.set_priority_at_byte_index(3, value)
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     /// Interrupt 20 priority number (bits 39:32).
     #[inline]
     pub const fn interrupt_20(self) -> u8 {
-        self.prio_byte(4)
+        self.priority_at_byte_index(4)
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     /// Set interrupt 20 priority number (bits 39:32).
     #[inline]
     pub const fn set_interrupt_20(&mut self, value: u8) {
-        self.set_prio_byte(4, value)
+        self.set_priority_at_byte_index(4, value)
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     /// Interrupt 21 priority number (bits 47:40).
     #[inline]
     pub const fn interrupt_21(self) -> u8 {
-        self.prio_byte(5)
+        self.priority_at_byte_index(5)
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     /// Set interrupt 21 priority number (bits 47:40).
     #[inline]
     pub const fn set_interrupt_21(&mut self, value: u8) {
-        self.set_prio_byte(5, value)
+        self.set_priority_at_byte_index(5, value)
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     /// Interrupt 22 priority number (bits 55:48).
     #[inline]
     pub const fn interrupt_22(self) -> u8 {
-        self.prio_byte(6)
+        self.priority_at_byte_index(6)
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     /// Set interrupt 22 priority number (bits 55:48).
     #[inline]
     pub const fn set_interrupt_22(&mut self, value: u8) {
-        self.set_prio_byte(6, value)
+        self.set_priority_at_byte_index(6, value)
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     /// Interrupt 23 priority number (bits 63:56).
     #[inline]
     pub const fn interrupt_23(self) -> u8 {
-        self.prio_byte(7)
+        self.priority_at_byte_index(7)
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     /// Set interrupt 23 priority number (bits 63:56).
     #[inline]
     pub const fn set_interrupt_23(&mut self, value: u8) {
-        self.set_prio_byte(7, value)
+        self.set_priority_at_byte_index(7, value)
     }
 
-    /// Returns the priority byte at byte index `i`.
+    /// Returns the priority stored at packed-register byte index `byte_index`.
     /// Byte 0 corresponds to bits 7:0, byte 1 to bits 15:8, etc.
     /// Valid indices are 0..4 on RV32 and 0..8 on RV64.
     #[inline]
-    const fn prio_byte(self, i: usize) -> u8 {
-        let shift = i * 8;
+    const fn priority_at_byte_index(self, byte_index: usize) -> u8 {
+        let shift = byte_index * 8;
         ((self.bits >> shift) & 0xFF) as u8
     }
 
-    /// Sets the priority byte at byte index `i`.
+    /// Sets the priority stored at packed-register byte index `byte_index`.
     #[inline]
-    const fn set_prio_byte(&mut self, i: usize, value: u8) {
-        let shift = i * 8;
+    const fn set_priority_at_byte_index(&mut self, byte_index: usize, value: u8) {
+        let shift = byte_index * 8;
         self.bits = (self.bits & !(0xFFusize << shift)) | ((value as usize) << shift);
     }
 }
@@ -133,7 +133,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hviprio2_low_fields() {
+    fn hviprio2_low_set_get() {
         let reg = Hviprio2::from_bits(0x1234_5678);
         assert_eq!(reg.interrupt_16(), 0x78);
         assert_eq!(reg.interrupt_17(), 0x56);
@@ -152,10 +152,15 @@ mod tests {
         assert_eq!(updated.bits() & 0xFFFF_FFFF, 0xD4C3_B2A1);
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     #[test]
-    fn hviprio2_rv64_high_fields() {
+    fn hviprio2_rv64_mask() {
         assert_eq!(Hviprio2::BITMASK, usize::MAX);
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn hviprio2_rv64_high_set_get() {
         let reg = Hviprio2::from_bits(0x1234_5678_9ABC_DEF0);
         assert_eq!(reg.bits(), 0x1234_5678_9ABC_DEF0);
         assert_eq!(reg.interrupt_20(), 0x78);

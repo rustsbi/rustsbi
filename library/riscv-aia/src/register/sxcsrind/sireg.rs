@@ -11,7 +11,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sireg_raw_roundtrip() {
+    fn sireg_set_get() {
         let bits: usize = 0x1234_5678usize;
         let reg = Sireg::from_bits(bits);
         assert_eq!(reg.bits(), bits);

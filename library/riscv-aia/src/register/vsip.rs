@@ -8,10 +8,15 @@ riscv::read_write_csr! {
 }
 
 impl Vsip {
-    /// Test bit `n` of `vsip`.
+    /// Tests bit `number` of `vsip` for the current XLEN.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `number` is outside the current XLEN.
     #[inline]
-    pub const fn bit(self, n: usize) -> bool {
-        ((self.bits >> n) & 1) != 0
+    pub const fn bit(self, number: usize) -> bool {
+        assert!(number < usize::BITS as usize);
+        ((self.bits >> number) & 1) != 0
     }
 }
 
@@ -39,14 +44,14 @@ riscv::read_only_csr_field! {
     counter_overflow: 13,
 }
 
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::read_only_csr_field! {
     Vsip,
     /// Low-priority RAS event interrupt pending.
     low_priority_ras_event: 35,
 }
 
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::read_only_csr_field! {
     Vsip,
     /// High-priority RAS event interrupt pending.
@@ -57,7 +62,7 @@ riscv::read_only_csr_field! {
 mod tests {
     use super::*;
     #[test]
-    fn vsip_fields_are_one_hot() {
+    fn vsip_fields_one_hot() {
         let vssip = Vsip::from_bits(1 << 1);
         assert!(vssip.vssip());
         assert!(!vssip.vstip());
@@ -83,9 +88,9 @@ mod tests {
         assert!(counter_overflow.counter_overflow());
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     #[test]
-    fn vsip_ras_fields_are_one_hot() {
+    fn vsip_ras_fields_one_hot() {
         let low = Vsip::from_bits(1usize << 35);
         assert!(low.low_priority_ras_event());
         assert!(!low.high_priority_ras_event());
@@ -101,5 +106,11 @@ mod tests {
         assert_eq!(Vsip::BITMASK, expected);
         assert_eq!(Vsip::from_bits(usize::MAX).bits(), expected);
         assert_eq!(Vsip::from_bits((1 << 2) | (1 << 6) | (1 << 10)).bits(), 0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn vsip_bit_bounds() {
+        Vsip::from_bits(0).bit(usize::BITS as usize);
     }
 }

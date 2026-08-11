@@ -7,14 +7,6 @@ riscv::read_write_csr! {
     mask: usize::MAX & !0x1DDD,
 }
 
-impl Sie {
-    /// Test bit `n` of `sie`.
-    #[inline]
-    pub const fn bit(self, n: usize) -> bool {
-        ((self.bits >> n) & 1) != 0
-    }
-}
-
 riscv::read_write_csr_field! {
     Sie,
     /// Supervisor software interrupt enable.
@@ -39,14 +31,14 @@ riscv::read_write_csr_field! {
     counter_overflow: 13,
 }
 
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::read_write_csr_field! {
     Sie,
     /// Low-priority RAS event interrupt enable.
     low_priority_ras_event: 35,
 }
 
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::read_write_csr_field! {
     Sie,
     /// High-priority RAS event interrupt enable.
@@ -58,7 +50,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sie_fields_are_one_hot() {
+    fn sie_fields_one_hot() {
         let ssip = Sie::from_bits(1 << 1);
         assert!(ssip.ssip());
         assert!(!ssip.stip());
@@ -84,9 +76,9 @@ mod tests {
         assert!(counter_overflow.counter_overflow());
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     #[test]
-    fn sie_ras_fields_are_one_hot() {
+    fn sie_ras_fields_one_hot() {
         let low = Sie::from_bits(1usize << 35);
         assert!(low.low_priority_ras_event());
         assert!(!low.high_priority_ras_event());

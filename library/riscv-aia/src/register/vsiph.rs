@@ -24,7 +24,7 @@ riscv::read_only_csr_field! {
 mod tests {
     use super::*;
     #[test]
-    fn vsiph_ras_fields_are_one_hot() {
+    fn vsiph_ras_fields_one_hot() {
         let low = Vsiph::from_bits(1 << 3);
         assert!(low.low_priority_ras_event());
         assert!(!low.high_priority_ras_event());

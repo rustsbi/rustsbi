@@ -18,7 +18,7 @@ impl Hviprio2h {
     /// Set interrupt 20 priority number (bits 39:32).
     #[inline]
     pub const fn set_interrupt_20(&mut self, value: u8) {
-        self.set_prio_byte(0, value)
+        self.set_priority_at_byte_index(0, value)
     }
 
     /// Interrupt 21 priority number (bits 47:40).
@@ -30,7 +30,7 @@ impl Hviprio2h {
     /// Set interrupt 21 priority number (bits 47:40).
     #[inline]
     pub const fn set_interrupt_21(&mut self, value: u8) {
-        self.set_prio_byte(1, value)
+        self.set_priority_at_byte_index(1, value)
     }
 
     /// Interrupt 22 priority number (bits 55:48).
@@ -42,7 +42,7 @@ impl Hviprio2h {
     /// Set interrupt 22 priority number (bits 55:48).
     #[inline]
     pub const fn set_interrupt_22(&mut self, value: u8) {
-        self.set_prio_byte(2, value)
+        self.set_priority_at_byte_index(2, value)
     }
 
     /// Interrupt 23 priority number (bits 63:56).
@@ -54,12 +54,12 @@ impl Hviprio2h {
     /// Set interrupt 23 priority number (bits 63:56).
     #[inline]
     pub const fn set_interrupt_23(&mut self, value: u8) {
-        self.set_prio_byte(3, value)
+        self.set_priority_at_byte_index(3, value)
     }
 
     #[inline]
-    const fn set_prio_byte(&mut self, i: usize, value: u8) {
-        let shift = i * 8;
+    const fn set_priority_at_byte_index(&mut self, byte_index: usize, value: u8) {
+        let shift = byte_index * 8;
         self.bits = (self.bits & !(0xFFusize << shift)) | ((value as usize) << shift);
     }
 }
@@ -69,10 +69,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hviprio2h_fields() {
+    fn hviprio2h_mask() {
         let reg = Hviprio2h::from_bits(0x1234_5678);
         assert_eq!(Hviprio2h::BITMASK, 0xFFFF_FFFF);
         assert_eq!(reg.bits(), 0x1234_5678);
+    }
+
+    #[test]
+    fn hviprio2h_set_get() {
+        let reg = Hviprio2h::from_bits(0x1234_5678);
         assert_eq!(reg.interrupt_20(), 0x78);
         assert_eq!(reg.interrupt_21(), 0x56);
         assert_eq!(reg.interrupt_22(), 0x34);

@@ -18,7 +18,7 @@ impl Hviprio1h {
     /// Set counter overflow interrupt priority number (bits 47:40).
     #[inline]
     pub const fn set_counter_overflow(&mut self, value: u8) {
-        self.set_prio_byte(1, value)
+        self.set_priority_at_byte_index(1, value)
     }
 
     /// Interrupt 14 priority number (bits 55:48).
@@ -30,7 +30,7 @@ impl Hviprio1h {
     /// Set interrupt 14 priority number (bits 55:48).
     #[inline]
     pub const fn set_interrupt_14(&mut self, value: u8) {
-        self.set_prio_byte(2, value)
+        self.set_priority_at_byte_index(2, value)
     }
 
     /// Interrupt 15 priority number (bits 63:56).
@@ -42,12 +42,12 @@ impl Hviprio1h {
     /// Set interrupt 15 priority number (bits 63:56).
     #[inline]
     pub const fn set_interrupt_15(&mut self, value: u8) {
-        self.set_prio_byte(3, value)
+        self.set_priority_at_byte_index(3, value)
     }
 
     #[inline]
-    const fn set_prio_byte(&mut self, i: usize, value: u8) {
-        let shift = i * 8;
+    const fn set_priority_at_byte_index(&mut self, byte_index: usize, value: u8) {
+        let shift = byte_index * 8;
         self.bits = (self.bits & !(0xFFusize << shift)) | ((value as usize) << shift);
     }
 }
@@ -57,10 +57,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hviprio1h_mask_and_fields() {
+    fn hviprio1h_mask() {
         let reg = Hviprio1h::from_bits(0x1234_5678);
         assert_eq!(Hviprio1h::BITMASK, 0xFFFF_FF00);
         assert_eq!(reg.bits(), 0x1234_5600);
+    }
+
+    #[test]
+    fn hviprio1h_set_get() {
+        let reg = Hviprio1h::from_bits(0x1234_5678);
         assert_eq!(reg.counter_overflow(), 0x56);
         assert_eq!(reg.interrupt_14(), 0x34);
         assert_eq!(reg.interrupt_15(), 0x12);

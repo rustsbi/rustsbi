@@ -28,7 +28,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stopei_parsing() {
+    fn stopei_parse() {
         let iid_num: u16 = 2047; // max allowed
         let iprio: u16 = 0x7FF;
         let bits: usize = ((iid_num as usize) << 16) | (iprio as usize);

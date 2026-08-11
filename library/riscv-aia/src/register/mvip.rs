@@ -41,14 +41,14 @@ riscv::read_only_csr_field! {
     counter_overflow: 13,
 }
 
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::read_only_csr_field! {
     Mvip,
     /// Low-priority RAS event interrupt pending.
     low_priority_ras_event: 35,
 }
 
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::read_only_csr_field! {
     Mvip,
     /// High-priority RAS event interrupt pending.
@@ -83,11 +83,11 @@ riscv::set_clear_csr!(
     /// Counter overflow interrupt pending.
     , set_counter_overflow, clear_counter_overflow, 1 << 13);
 
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::set_clear_csr!(
     /// Low-priority RAS event interrupt pending.
     , set_low_priority_ras_event, clear_low_priority_ras_event, 1usize << 35);
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::set_clear_csr!(
     /// High-priority RAS event interrupt pending.
     , set_high_priority_ras_event, clear_high_priority_ras_event, 1usize << 43);
@@ -103,7 +103,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mvip_standard_fields_are_one_hot() {
+    fn mvip_standard_fields_one_hot() {
         let ssoft = Mvip::from_bits(1 << 1);
         assert!(ssoft.ssoft());
         assert!(!ssoft.stimer());
@@ -129,9 +129,9 @@ mod tests {
         assert!(counter_overflow.counter_overflow());
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     #[test]
-    fn mvip_ras_fields_are_one_hot() {
+    fn mvip_ras_fields_one_hot() {
         let low = Mvip::from_bits(1usize << 35);
         assert!(low.low_priority_ras_event());
         assert!(!low.high_priority_ras_event());

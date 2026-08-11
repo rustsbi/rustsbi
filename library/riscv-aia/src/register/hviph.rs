@@ -35,14 +35,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hviph_raw_roundtrip() {
+    fn hviph_set_get() {
         let bits: usize = 0xDEAD_BEEFusize & 0xFFFF_FFFF;
         let p = Hviph::from_bits(bits);
         assert_eq!(p.bits(), bits);
     }
 
     #[test]
-    fn hviph_ras_fields() {
+    fn hviph_ras_fields_one_hot() {
         let low = Hviph::from_bits(1 << 3);
         assert!(low.low_priority_ras_event());
         assert!(!low.high_priority_ras_event());

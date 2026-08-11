@@ -11,7 +11,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn vsiselect_value() {
+    fn vsiselect_set_get() {
         let sel: usize = 0x99;
         let reg = Vsiselect::from_bits(sel);
         assert_eq!(reg.bits(), sel);

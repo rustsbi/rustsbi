@@ -7,14 +7,6 @@ riscv::read_write_csr! {
     mask: usize::MAX & !0x1DDD,
 }
 
-impl Sip {
-    /// Test bit `n` of `sip`.
-    #[inline]
-    pub const fn bit(self, n: usize) -> bool {
-        ((self.bits >> n) & 1) != 0
-    }
-}
-
 riscv::read_only_csr_field! {
     Sip,
     /// Supervisor software interrupt pending.
@@ -39,14 +31,14 @@ riscv::read_only_csr_field! {
     counter_overflow: 13,
 }
 
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::read_only_csr_field! {
     Sip,
     /// Low-priority RAS event interrupt pending.
     low_priority_ras_event: 35,
 }
 
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::read_only_csr_field! {
     Sip,
     /// High-priority RAS event interrupt pending.
@@ -58,7 +50,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sip_fields_are_one_hot() {
+    fn sip_fields_one_hot() {
         let ssip = Sip::from_bits(1 << 1);
         assert!(ssip.ssip());
         assert!(!ssip.stip());
@@ -84,9 +76,9 @@ mod tests {
         assert!(counter_overflow.counter_overflow());
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     #[test]
-    fn sip_ras_fields_are_one_hot() {
+    fn sip_ras_fields_one_hot() {
         let low = Sip::from_bits(1usize << 35);
         assert!(low.low_priority_ras_event());
         assert!(!low.high_priority_ras_event());

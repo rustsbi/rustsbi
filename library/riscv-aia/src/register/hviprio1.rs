@@ -7,7 +7,7 @@ riscv::read_write_csr! {
     mask: 0xFF00_FF00,
 }
 
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::read_write_csr! {
     /// Hypervisor VS-level interrupt priority 1.
     Hviprio1: 0x646,
@@ -39,42 +39,42 @@ impl Hviprio1 {
         self.set_priority_at_byte_index(3, value)
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     /// Counter overflow interrupt priority number (bits 47:40).
     #[inline]
     pub const fn counter_overflow(self) -> u8 {
         self.priority_at_byte_index(5)
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     /// Set counter overflow interrupt priority number (bits 47:40).
     #[inline]
     pub const fn set_counter_overflow(&mut self, value: u8) {
         self.set_priority_at_byte_index(5, value)
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     /// Interrupt 14 priority number (bits 55:48).
     #[inline]
     pub const fn interrupt_14(self) -> u8 {
         self.priority_at_byte_index(6)
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     /// Set interrupt 14 priority number (bits 55:48).
     #[inline]
     pub const fn set_interrupt_14(&mut self, value: u8) {
         self.set_priority_at_byte_index(6, value)
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     /// Interrupt 15 priority number (bits 63:56).
     #[inline]
     pub const fn interrupt_15(self) -> u8 {
         self.priority_at_byte_index(7)
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     /// Set interrupt 15 priority number (bits 63:56).
     #[inline]
     pub const fn set_interrupt_15(&mut self, value: u8) {
@@ -103,7 +103,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hviprio1_low_fields() {
+    fn hviprio1_low_set_get() {
         let reg = Hviprio1::from_bits(0x1234_5678);
         assert_eq!(reg.ssoft(), 0x56);
         assert_eq!(reg.stimer(), 0x12);
@@ -118,10 +118,15 @@ mod tests {
         assert_eq!(updated.bits(), 0x5A00_A500);
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     #[test]
-    fn hviprio1_rv64_high_fields() {
+    fn hviprio1_rv64_mask() {
         assert_eq!(Hviprio1::BITMASK, 0xFFFF_FF00_FF00_FF00);
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn hviprio1_rv64_high_set_get() {
         let reg = Hviprio1::from_bits(0x1234_5678_9ABC_DEF0);
         assert_eq!(reg.priority_at_byte_index(4), 0);
         assert_eq!(reg.counter_overflow(), 0x56);

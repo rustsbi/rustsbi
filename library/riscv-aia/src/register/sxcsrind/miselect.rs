@@ -11,7 +11,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn miselect_raw() {
+    fn miselect_set_get() {
         let sel: usize = 0x42;
         let s = Miselect::from_bits(sel);
         assert_eq!(s.bits(), sel);

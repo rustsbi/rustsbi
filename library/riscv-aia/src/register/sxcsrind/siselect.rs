@@ -11,7 +11,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn siselect_value() {
+    fn siselect_set_get() {
         let sel: usize = 0x42;
         let reg = Siselect::from_bits(sel);
         assert_eq!(reg.bits(), sel);

@@ -32,7 +32,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mtopei_parsing() {
+    fn mtopei_parse() {
         let iid_num: u16 = 0x5A3;
         let iprio: u16 = 0x6D2;
         let bits: usize = ((iid_num as usize) << 16) | (iprio as usize);

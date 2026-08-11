@@ -35,7 +35,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mviph_ras_fields_are_one_hot() {
+    fn mviph_ras_fields_one_hot() {
         let low = Mviph::from_bits(1 << 3);
         assert!(low.low_priority_ras_event());
         assert!(!low.high_priority_ras_event());

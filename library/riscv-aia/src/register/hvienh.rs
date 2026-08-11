@@ -35,7 +35,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hvienh_ras_fields_are_one_hot() {
+    fn hvienh_ras_fields_one_hot() {
         let low = Hvienh::from_bits(1 << 3);
         assert!(low.low_priority_ras_event());
         assert!(!low.high_priority_ras_event());

@@ -24,7 +24,7 @@ riscv::read_write_csr_field! {
 mod tests {
     use super::*;
     #[test]
-    fn vsieh_ras_fields_are_one_hot() {
+    fn vsieh_ras_fields_one_hot() {
         let low = Vsieh::from_bits(1 << 3);
         assert!(low.low_priority_ras_event());
         assert!(!low.high_priority_ras_event());

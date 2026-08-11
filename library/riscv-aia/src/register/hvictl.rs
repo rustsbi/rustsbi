@@ -58,7 +58,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hvictl_boolean_fields_are_one_hot() {
+    fn hvictl_boolean_fields_one_hot() {
         let vti = Hvictl::from_bits(1 << 30);
         assert!(vti.vti());
         assert!(!vti.dpr());
@@ -76,7 +76,7 @@ mod tests {
     }
 
     #[test]
-    fn hvictl_value_fields() {
+    fn hvictl_set_get() {
         let mut reg = Hvictl::from_bits(0);
         reg.set_iid(MajorIid::new(0x123));
         reg.set_iprio(0xAB);
@@ -86,7 +86,7 @@ mod tests {
     }
 
     #[test]
-    fn hvictl_zero_iid() {
+    fn hvictl_zero() {
         let bits: usize = 0;
         let reg = Hvictl::from_bits(bits);
         assert!(!reg.vti());

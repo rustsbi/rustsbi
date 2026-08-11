@@ -73,14 +73,14 @@ riscv::read_write_csr_field! {
     counter_overflow: 13,
 }
 
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::read_write_csr_field! {
     Mie,
     /// Low-priority RAS event interrupt enable.
     low_priority_ras_event: 35,
 }
 
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::read_write_csr_field! {
     Mie,
     /// High-priority RAS event interrupt enable.
@@ -136,11 +136,11 @@ riscv::set_clear_csr!(
     /// Counter overflow interrupt enable.
     , set_counter_overflow, clear_counter_overflow, 1 << 13);
 
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::set_clear_csr!(
     /// Low-priority RAS event interrupt enable.
     , set_low_priority_ras_event, clear_low_priority_ras_event, 1usize << 35);
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::set_clear_csr!(
     /// High-priority RAS event interrupt enable.
     , set_high_priority_ras_event, clear_high_priority_ras_event, 1usize << 43);
@@ -156,7 +156,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mie_standard_fields() {
+    fn mie_standard_fields_parse() {
         assert!(Mie::from_bits(1 << 1).ssoft());
         assert!(Mie::from_bits(1 << 2).vssoft());
         assert!(Mie::from_bits(1 << 3).msoft());
@@ -170,9 +170,9 @@ mod tests {
         assert!(Mie::from_bits(1 << 13).counter_overflow());
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     #[test]
-    fn mie_ras_fields() {
+    fn mie_ras_fields_one_hot() {
         let low = Mie::from_bits(1usize << 35);
         assert!(low.low_priority_ras_event());
         assert!(!low.high_priority_ras_event());

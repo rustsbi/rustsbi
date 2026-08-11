@@ -31,7 +31,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn vstopi_parsing() {
+    fn vstopi_parse() {
         let iid_num: u16 = 0xFFF;
         let iprio: u8 = 0xFF;
         let bits: usize = ((iid_num as usize) << 16) | (iprio as usize);
@@ -41,14 +41,14 @@ mod tests {
     }
 
     #[test]
-    fn vstopi_zero_csr() {
+    fn vstopi_zero() {
         let reg = Vstopi::from_bits(0);
         assert!(reg.iid().is_none());
         assert_eq!(reg.iprio(), 0);
     }
 
     #[test]
-    fn vstopi_zero_iid_with_nonzero_priority() {
+    fn vstopi_zero_iid_parse() {
         let reg = Vstopi::from_bits(0x01);
         assert_eq!(reg.iid().map(|iid| iid.number()), Some(0));
         assert_eq!(reg.iprio(), 1);

@@ -33,7 +33,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stopi_parsing() {
+    fn stopi_parse() {
         let iid_num: u16 = 0xABC;
         let iprio: u8 = 0x7;
         let bits: usize = ((iid_num as usize) << 16) | (iprio as usize);
@@ -43,14 +43,14 @@ mod tests {
     }
 
     #[test]
-    fn stopi_zero_csr() {
+    fn stopi_zero() {
         let reg = Stopi::from_bits(0);
         assert!(reg.iid().is_none());
         assert_eq!(reg.iprio(), 0);
     }
 
     #[test]
-    fn stopi_zero_iid_with_nonzero_priority() {
+    fn stopi_zero_iid_parse() {
         let reg = Stopi::from_bits(0x01);
         assert_eq!(reg.iid().map(|iid| iid.number()), Some(0));
         assert_eq!(reg.iprio(), 1);

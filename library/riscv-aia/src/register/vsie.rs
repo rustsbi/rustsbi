@@ -8,10 +8,15 @@ riscv::read_write_csr! {
 }
 
 impl Vsie {
-    /// Test bit `n` of `vsie`.
+    /// Tests bit `number` of `vsie` for the current XLEN.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `number` is outside the current XLEN.
     #[inline]
-    pub const fn bit(self, n: usize) -> bool {
-        ((self.bits >> n) & 1) != 0
+    pub const fn bit(self, number: usize) -> bool {
+        assert!(number < usize::BITS as usize);
+        ((self.bits >> number) & 1) != 0
     }
 }
 
@@ -39,14 +44,14 @@ riscv::read_write_csr_field! {
     counter_overflow: 13,
 }
 
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::read_write_csr_field! {
     Vsie,
     /// Low-priority RAS event interrupt enable.
     low_priority_ras_event: 35,
 }
 
-#[cfg(not(target_pointer_width = "32"))]
+#[cfg(target_pointer_width = "64")]
 riscv::read_write_csr_field! {
     Vsie,
     /// High-priority RAS event interrupt enable.
@@ -57,7 +62,7 @@ riscv::read_write_csr_field! {
 mod tests {
     use super::*;
     #[test]
-    fn vsie_fields_are_one_hot() {
+    fn vsie_fields_one_hot() {
         let vssip = Vsie::from_bits(1 << 1);
         assert!(vssip.vssip());
         assert!(!vssip.vstip());
@@ -83,9 +88,9 @@ mod tests {
         assert!(counter_overflow.counter_overflow());
     }
 
-    #[cfg(not(target_pointer_width = "32"))]
+    #[cfg(target_pointer_width = "64")]
     #[test]
-    fn vsie_ras_fields_are_one_hot() {
+    fn vsie_ras_fields_one_hot() {
         let low = Vsie::from_bits(1usize << 35);
         assert!(low.low_priority_ras_event());
         assert!(!low.high_priority_ras_event());
@@ -101,5 +106,11 @@ mod tests {
         assert_eq!(Vsie::BITMASK, expected);
         assert_eq!(Vsie::from_bits(usize::MAX).bits(), expected);
         assert_eq!(Vsie::from_bits((1 << 2) | (1 << 6) | (1 << 10)).bits(), 0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn vsie_bit_bounds() {
+        Vsie::from_bits(0).bit(usize::BITS as usize);
     }
 }

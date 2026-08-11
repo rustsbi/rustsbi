@@ -82,7 +82,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hideleg_fields_are_one_hot() {
+    fn hideleg_fields_one_hot() {
         let vssoft = Hideleg::from_bits(1 << 2);
         assert!(vssoft.vssoft());
         assert!(!vssoft.vstimer());
@@ -110,7 +110,7 @@ mod tests {
 
     #[cfg(target_pointer_width = "64")]
     #[test]
-    fn hideleg_ras_fields_are_one_hot() {
+    fn hideleg_ras_fields_one_hot() {
         let low = Hideleg::from_bits(1usize << 35);
         assert!(low.low_priority_ras_event());
         assert!(!low.high_priority_ras_event());

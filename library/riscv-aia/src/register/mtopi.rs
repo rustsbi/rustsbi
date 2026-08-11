@@ -34,7 +34,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mtopi_parsing() {
+    fn mtopi_parse() {
         // iid = 0x123, iprio = 0x7
         let iid_num: u16 = 0x123;
         let iprio: u8 = 0x7;
@@ -45,12 +45,15 @@ mod tests {
     }
 
     #[test]
-    fn mtopi_edge_cases() {
+    fn mtopi_zero() {
         // iid = 0 -> none
         let reg = Mtopi::from_bits(0);
         assert!(reg.iid().is_none());
         assert_eq!(reg.iprio(), 0);
+    }
 
+    #[test]
+    fn mtopi_bounds() {
         // iid = 1, iprio = 0xFF
         let bits: usize = (1usize << 16) | 0xFF;
         let reg2 = Mtopi::from_bits(bits);
@@ -62,7 +65,7 @@ mod tests {
     }
 
     #[test]
-    fn mtopi_zero_iid_with_nonzero_priority() {
+    fn mtopi_zero_iid_parse() {
         let reg = Mtopi::from_bits(0x01);
         assert_eq!(reg.iid().map(|iid| iid.number()), Some(0));
         assert_eq!(reg.iprio(), 1);

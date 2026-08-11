@@ -25,7 +25,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sieh_ras_fields_are_one_hot() {
+    fn sieh_ras_fields_one_hot() {
         let low = Sieh::from_bits(1 << 3);
         assert!(low.low_priority_ras_event());
         assert!(!low.high_priority_ras_event());

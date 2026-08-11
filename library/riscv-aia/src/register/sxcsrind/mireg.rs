@@ -11,7 +11,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mireg_raw() {
+    fn mireg_set_get() {
         let rbits: usize = 0x1234_5678usize;
         let r = Mireg::from_bits(rbits);
         assert_eq!(r.bits(), rbits);

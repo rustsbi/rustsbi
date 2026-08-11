@@ -11,7 +11,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn vsireg_raw_roundtrip() {
+    fn vsireg_set_get() {
         let bits: usize = 0xABCD_EF01usize;
         let reg = Vsireg::from_bits(bits);
         assert_eq!(reg.bits(), bits);
