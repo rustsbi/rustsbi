@@ -42,16 +42,14 @@ pub struct Thread {
     sepc: usize,
 }
 
-const REG_SIZE: usize = core::mem::size_of::<usize>();
-
-// The switch assembly addresses x[n] as `n * REG_SIZE(sp)` with `sp` pointing
-// at `sctx`; keep the layout pinned so a field reorder fails at compile time
-// instead of silently restoring the wrong registers.
+// The switch assembly addresses x[n] as `n * size_of::<usize>(sp)` with `sp`
+// pointing at `sctx`; keep the layout pinned so a field reorder fails at
+// compile time instead of silently restoring the wrong registers.
 const _: () = assert!(offset_of!(Thread, sctx) == 0);
-const _: () = assert!(offset_of!(Thread, x) == REG_SIZE);
-const _: () = assert!(offset_of!(Thread, sepc) == 32 * REG_SIZE);
-const _: () = assert!(core::mem::size_of::<Thread>() == 33 * REG_SIZE);
-const _: () = assert!(core::mem::align_of::<Thread>() == REG_SIZE);
+const _: () = assert!(offset_of!(Thread, x) == core::mem::size_of::<usize>());
+const _: () = assert!(offset_of!(Thread, sepc) == 32 * core::mem::size_of::<usize>());
+const _: () = assert!(core::mem::size_of::<Thread>() == 33 * core::mem::size_of::<usize>());
+const _: () = assert!(core::mem::align_of::<Thread>() == core::mem::size_of::<usize>());
 
 #[allow(unused)]
 impl Thread {
