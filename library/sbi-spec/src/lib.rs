@@ -15,8 +15,7 @@
 //! the emulator designed on other platforms can still make use of `sbi-spec` structures,
 //! to provide the necessary features where the emulated RISC-V environment would make use of.
 #![no_std]
-#![deny(missing_docs)]
-#![allow(unstable_features)]
+#![deny(missing_docs, unstable_features)]
 
 // §3
 pub mod binary;
