@@ -9,7 +9,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- thread: add RV32 variant of the context-switch assembly (`sw`/`lw`, 4-byte register slots).
+- ci: restore riscv32 sbi-testing build in Library workflow.
+
 ### Modified
+
+- thread: split into a shared module plus per-architecture switchers; pin the context layout against the assembly with compile-time offset assertions.
+- thread: take the stack pointer in `Thread::new` and keep the call site ABI-aligned.
 
 ### Fixed
 
