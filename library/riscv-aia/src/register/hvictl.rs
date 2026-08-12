@@ -1,19 +1,25 @@
 //! Hypervisor virtual interrupt control (hvictl)
 
-use crate::Iid;
+use crate::iid::MajorIid;
 
 riscv::read_write_csr! {
     /// Hypervisor virtual interrupt control.
     Hvictl: 0x609,
-    mask: 0xFFFF_FFFF,
+    mask: 0x4FFF_03FF,
 }
 
 impl Hvictl {
     /// IID field (bits 27:16) — interrupt identity for a virtual interrupt.
     #[inline]
-    pub const fn iid(self) -> Option<Iid> {
+    pub const fn iid(self) -> MajorIid {
         let bits = ((self.bits >> 16) & 0x0FFF) as u16;
-        Iid::new(bits)
+        MajorIid::new(bits)
+    }
+
+    /// Set IID field (bits 27:16).
+    #[inline]
+    pub const fn set_iid(&mut self, value: MajorIid) {
+        self.bits = (self.bits & !(0x0FFFusize << 16)) | ((value.number() as usize) << 16);
     }
 
     /// IPRIO field (bits 7:0).
@@ -52,26 +58,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hvictl_fields() {
-        // Set vti (bit 30), iid=0x123 (bits 27:16), dpr (bit 9), ipriom (bit 8), iprio=0xAB (bits 7:0)
-        let bits: usize =
-            (1usize << 30) | (0x123usize << 16) | (1usize << 9) | (1usize << 8) | 0xAB;
-        let reg = Hvictl::from_bits(bits);
-        assert!(reg.vti());
-        assert_eq!(reg.iid().map(|i| i.number()), Some(0x123));
-        assert!(reg.dpr());
-        assert!(reg.ipriom());
-        assert_eq!(reg.iprio(), 0xAB);
+    fn hvictl_boolean_fields_one_hot() {
+        let vti = Hvictl::from_bits(1 << 30);
+        assert!(vti.vti());
+        assert!(!vti.dpr());
+        assert!(!vti.ipriom());
+
+        let dpr = Hvictl::from_bits(1 << 9);
+        assert!(!dpr.vti());
+        assert!(dpr.dpr());
+        assert!(!dpr.ipriom());
+
+        let ipriom = Hvictl::from_bits(1 << 8);
+        assert!(!ipriom.vti());
+        assert!(!ipriom.dpr());
+        assert!(ipriom.ipriom());
     }
 
     #[test]
-    fn hvictl_zero_iid() {
+    fn hvictl_set_get() {
+        let mut reg = Hvictl::from_bits(0);
+        reg.set_iid(MajorIid::new(0x123));
+        reg.set_iprio(0xAB);
+        assert_eq!(reg.iid().number(), 0x123);
+        assert_eq!(reg.iprio(), 0xAB);
+        assert_eq!(reg.bits(), (0x123usize << 16) | 0xAB);
+    }
+
+    #[test]
+    fn hvictl_zero() {
         let bits: usize = 0;
         let reg = Hvictl::from_bits(bits);
         assert!(!reg.vti());
-        assert!(reg.iid().is_none());
+        assert_eq!(reg.iid().number(), 0);
         assert!(!reg.dpr());
         assert!(!reg.ipriom());
         assert_eq!(reg.iprio(), 0);
+    }
+
+    #[test]
+    fn hvictl_mask() {
+        assert_eq!(Hvictl::BITMASK, 0x4FFF_03FF);
+        assert_eq!(Hvictl::from_bits(usize::MAX).bits(), 0x4FFF_03FF);
     }
 }

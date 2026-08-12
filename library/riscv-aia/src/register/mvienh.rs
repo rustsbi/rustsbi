@@ -1,27 +1,27 @@
-//! Hypervisor virtual interrupt enables high-half (hvienh) (RV32 only)
+//! Machine virtual interrupt enables high half (`mvienh`) (RV32 only).
 
 riscv::csr! {
-    /// Upper 32 bits of hvien.
-    Hvienh,
+    /// Upper 32 bits of `mvien` (RV32 only).
+    Mvienh,
     0xFFFF_FFFF
 }
-riscv::read_csr_as_rv32!(Hvienh, 0x618);
-riscv::write_csr_as_rv32!(Hvienh, 0x618);
+riscv::read_csr_as_rv32!(Mvienh, 0x318);
+riscv::write_csr_as_rv32!(Mvienh, 0x318);
 
 riscv::read_write_csr_field! {
-    Hvienh,
+    Mvienh,
     /// Low-priority RAS event interrupt virtual enable (interrupt 35).
-    low_priority_ras_event: 3,
+    low_priority_ras_event: 3, // 35 - 32
 }
 
 riscv::read_write_csr_field! {
-    Hvienh,
+    Mvienh,
     /// High-priority RAS event interrupt virtual enable (interrupt 43).
-    high_priority_ras_event: 11,
+    high_priority_ras_event: 11, // 43 - 32
 }
 
-riscv::set_rv32!(0x618);
-riscv::clear_rv32!(0x618);
+riscv::set_rv32!(0x318);
+riscv::clear_rv32!(0x318);
 
 riscv::set_clear_csr!(
     /// Low-priority RAS event interrupt virtual enable.
@@ -35,19 +35,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hvienh_ras_fields_one_hot() {
-        let low = Hvienh::from_bits(1 << 3);
+    fn mvienh_ras_fields_one_hot() {
+        let low = Mvienh::from_bits(1 << 3);
         assert!(low.low_priority_ras_event());
         assert!(!low.high_priority_ras_event());
 
-        let high = Hvienh::from_bits(1 << 11);
+        let high = Mvienh::from_bits(1 << 11);
         assert!(!high.low_priority_ras_event());
         assert!(high.high_priority_ras_event());
     }
 
     #[test]
-    fn hvienh_mask() {
-        assert_eq!(Hvienh::BITMASK, 0xFFFF_FFFF);
-        assert_eq!(Hvienh::from_bits(usize::MAX).bits(), 0xFFFF_FFFF);
+    fn mvienh_mask() {
+        let bits = 0xCAFE_BABE;
+        let reg = Mvienh::from_bits(bits);
+        assert_eq!(Mvienh::BITMASK, 0xFFFF_FFFF);
+        assert_eq!(reg.bits(), bits);
     }
 }

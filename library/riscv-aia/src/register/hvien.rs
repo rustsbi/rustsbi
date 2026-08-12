@@ -3,51 +3,78 @@
 riscv::read_write_csr! {
     /// Hypervisor virtual interrupt enables.
     Hvien: 0x608,
-    mask: 0x444,
+    // 0xFFFF_E000 in RV32, or 0xFFFF_FFFF_FFFF_E000 in RV64
+    // bits 12:0 are reserved
+    mask: usize::MAX & !0x1FFF,
 }
 
 riscv::read_write_csr_field! {
     Hvien,
-    /// Virtual Supervisor Software Interrupt enable.
-    vssoft: 2,
+    /// Counter overflow interrupt virtual enable.
+    counter_overflow: 13,
 }
 
+#[cfg(target_pointer_width = "64")]
 riscv::read_write_csr_field! {
     Hvien,
-    /// Virtual Supervisor Timer Interrupt enable.
-    vstimer: 6,
+    /// Low-priority RAS event interrupt virtual enable.
+    low_priority_ras_event: 35,
 }
 
+#[cfg(target_pointer_width = "64")]
 riscv::read_write_csr_field! {
     Hvien,
-    /// Virtual Supervisor External Interrupt enable.
-    vsext: 10,
+    /// High-priority RAS event interrupt virtual enable.
+    high_priority_ras_event: 43,
 }
 
 riscv::set!(0x608);
 riscv::clear!(0x608);
 
 riscv::set_clear_csr!(
-    /// Virtual Supervisor Software Interrupt enable.
-    , set_vssoft, clear_vssoft, 1 << 2);
+    /// Counter overflow interrupt virtual enable.
+    , set_counter_overflow, clear_counter_overflow, 1 << 13);
+
+#[cfg(target_pointer_width = "64")]
 riscv::set_clear_csr!(
-    /// Virtual Supervisor Timer Interrupt enable.
-    , set_vstime, clear_vstime, 1 << 6);
+    /// Low-priority RAS event interrupt virtual enable.
+    , set_low_priority_ras_event, clear_low_priority_ras_event, 1usize << 35);
+#[cfg(target_pointer_width = "64")]
 riscv::set_clear_csr!(
-    /// Virtual Supervisor External Interrupt enable.
-    , set_vsext, clear_vsext, 1 << 10);
+    /// High-priority RAS event interrupt virtual enable.
+    , set_high_priority_ras_event, clear_high_priority_ras_event, 1usize << 43);
+
+#[cfg(target_pointer_width = "32")]
+pub use super::hvienh::{
+    clear_high_priority_ras_event, clear_low_priority_ras_event, set_high_priority_ras_event,
+    set_low_priority_ras_event,
+};
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn hvien_bits() {
-        // set vssip (bit 2), vstip (bit 6), vseip (bit 10)
-        let bits: usize = (1usize << 2) | (1usize << 6) | (1usize << 10);
-        let en = Hvien::from_bits(bits);
-        assert!(en.vssoft());
-        assert!(en.vstimer());
-        assert!(en.vsext());
+    fn hvien_mask() {
+        let expected = usize::MAX & !0x1FFF;
+        assert_eq!(Hvien::BITMASK, expected);
+        assert_eq!(Hvien::from_bits(usize::MAX).bits(), expected);
+    }
+
+    #[test]
+    fn hvien_counter_overflow_parse() {
+        assert!(Hvien::from_bits(1 << 13).counter_overflow());
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn hvien_ras_fields_one_hot() {
+        let low = Hvien::from_bits(1usize << 35);
+        assert!(low.low_priority_ras_event());
+        assert!(!low.high_priority_ras_event());
+
+        let high = Hvien::from_bits(1usize << 43);
+        assert!(!high.low_priority_ras_event());
+        assert!(high.high_priority_ras_event());
     }
 }
