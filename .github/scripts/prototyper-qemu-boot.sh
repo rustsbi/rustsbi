@@ -65,32 +65,32 @@ run_once() {
   set -e
 
   echo "[$mode/$kernel] attempt $attempt/$attempts qemu exit: $qemu_exit (timeout=${timeout_secs}s)"
-  test "$qemu_exit" = "0"
-  test -s "$log_file"
+  test "$qemu_exit" = "0" || return 1
+  test -s "$log_file" || return 1
 
-  grep -F 'Hello RustSBI!' "$log_file"
-  grep -F "Platform HART Count           : $smp" "$log_file"
+  grep -F 'Hello RustSBI!' "$log_file" || return 1
+  grep -F "Platform HART Count           : $smp" "$log_file" || return 1
 
   case "$kernel" in
     test)
-      grep -F 'Sbi `Base` test pass' "$log_file"
-      grep -F 'Sbi `TIME` test pass' "$log_file"
-      grep -F 'Sbi `sPI` test pass' "$log_file"
-      grep -F 'Sbi `DBCN` test pass' "$log_file"
-      grep -F 'DBCN rejected non-zero upper-half write' "$log_file"
-      grep -F 'DBCN rejected non-zero upper-half read' "$log_file"
-      grep -F '[pmu] counters number:' "$log_file"
+      grep -F 'Sbi `Base` test pass' "$log_file" || return 1
+      grep -F 'Sbi `TIME` test pass' "$log_file" || return 1
+      grep -F 'Sbi `sPI` test pass' "$log_file" || return 1
+      grep -F 'Sbi `DBCN` test pass' "$log_file" || return 1
+      grep -F 'DBCN rejected non-zero upper-half write' "$log_file" || return 1
+      grep -F 'DBCN rejected non-zero upper-half read' "$log_file" || return 1
+      grep -F '[pmu] counters number:' "$log_file" || return 1
       ;;
     bench)
-      grep -F 'Starting test' "$log_file"
-      grep -F 'Test #0:' "$log_file"
-      grep -F 'Test #1:' "$log_file"
-      grep -F 'Test #2:' "$log_file"
-      grep -F 'Test #3:' "$log_file"
+      grep -F 'Starting test' "$log_file" || return 1
+      grep -F 'Test #0:' "$log_file" || return 1
+      grep -F 'Test #1:' "$log_file" || return 1
+      grep -F 'Test #2:' "$log_file" || return 1
+      grep -F 'Test #3:' "$log_file" || return 1
       ;;
   esac
 
-  ! grep -En 'panic|FAILED|SystemFailure' "$log_file"
+  ! grep -En 'panic|FAILED|SystemFailure' "$log_file" || return 1
 }
 
 for attempt in $(seq 1 "$attempts"); do

@@ -20,23 +20,31 @@ impl SifiveTestDeviceWrap {
             inner: base as *const SifiveTestDevice,
         }
     }
+
+    #[inline]
+    fn write(&self, value: u32) -> ! {
+        unsafe { (self.inner as *mut u32).write_volatile(value) };
+        loop {
+            unsafe { asm!("wfi") }
+        }
+    }
 }
 
 /// Reset Device: SifiveTestDevice
 impl ResetDevice for SifiveTestDeviceWrap {
     #[inline]
     fn fail(&self, code: u16) -> ! {
-        unsafe { (*self.inner).fail(code) }
+        self.write(0x3333 | (code as u32) << 16)
     }
 
     #[inline]
     fn pass(&self) -> ! {
-        unsafe { (*self.inner).pass() }
+        self.write(0x5555)
     }
 
     #[inline]
     fn reset(&self) -> ! {
-        unsafe { (*self.inner).reset() }
+        self.write(0x7777)
     }
 }
 
