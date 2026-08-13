@@ -100,9 +100,7 @@ slides and blog articles of these talks are available at [RustSBI/slides](https:
 
 ## Security
 
-If you discover a security vulnerability within RustSBI, please send an email to the security team at
-[security@rustsbi.com](mailto:security@rustsbi.com). All security vulnerabilities will be promptly addressed.
-Please do not disclose security issues publicly until they have been addressed by the maintainers.
+Please see our [Security Policy](SECURITY.md) for information on how to report security vulnerabilities.
 
 ## Sponsors
 
