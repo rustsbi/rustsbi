@@ -31,7 +31,7 @@ jobs:
 
       - name: Run test
         run: |
-            cargo test -p rustsbi-prototyper
+            cargo test -p rustsbi-prototyper -p rustsbi-prototyper-macros
 
       - name: Install required cargo
         run: cargo install clippy-sarif sarif-fmt cargo-binutils

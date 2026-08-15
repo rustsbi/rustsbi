@@ -207,7 +207,7 @@ unsafe fn k1_pre_init(warmboot_addr: u64) {
 
 /// Early initialization for the SpacemiT K1 SoC.
 ///
-/// Should be called from `rust_main()` on the init hart after the
+/// Should be called from `main()` on the init hart after the
 /// device tree has been parsed and the K1 SoC has been detected.
 ///
 /// # Arguments
