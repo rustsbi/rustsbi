@@ -1,0 +1,15 @@
+[package]
+name = "rustsbi-prototyper-macros"
+description = "Entry-point proc-macro for the RustSBI Prototyper firmware"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
