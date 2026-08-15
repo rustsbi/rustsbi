@@ -3,6 +3,7 @@
 
 mod iid;
 
+pub mod csrind;
 pub mod geilen;
 pub mod peripheral;
 pub mod register;
