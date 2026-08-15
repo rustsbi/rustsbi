@@ -1,7 +1,7 @@
 //! External interrupt delivery enable register.
 
 /// Indirect CSR identifier for `eidelivery`.
-pub const EIDELIVERY: u32 = 0x70;
+const EIDELIVERY: usize = 0x70;
 
 /// External interrupt delivery enable register (`eidelivery`).
 ///
@@ -11,7 +11,7 @@ pub const EIDELIVERY: u32 = 0x70;
 /// *NOTE:* Guest interrupt files do not support value 0x40000000 for `eidelivery`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
-pub struct Eidelivery(u32);
+pub struct Eidelivery(usize);
 
 impl Eidelivery {
     /// Interrupt delivery is disabled.
@@ -21,15 +21,15 @@ impl Eidelivery {
     const ENABLED: Self = Self(1);
 
     /// Interrupt delivery from a PLIC or APLIC is enabled (optional).
-    pub const PLIC_APLIC_ENABLED: Self = Self(0x40000000);
+    const PLIC_APLIC_ENABLED: Self = Self(0x40000000);
 
     /// Creates a new `Eidelivery` from a raw value.
-    pub const fn from_raw(value: u32) -> Self {
+    pub const fn from_bits(value: usize) -> Self {
         Self(value)
     }
 
     /// Returns the raw value of this register.
-    pub const fn raw(self) -> u32 {
+    pub const fn bits(self) -> usize {
         self.0
     }
 
@@ -46,5 +46,56 @@ impl Eidelivery {
     /// Returns whether interrupt delivery from a PLIC or APLIC is enabled.
     pub const fn is_plic_aplic_enabled(self) -> bool {
         self.0 == Self::PLIC_APLIC_ENABLED.0
+    }
+}
+
+/// M-mode accessors for `eidelivery` register.
+pub mod machine {
+    use super::super::machine::{read_ind, write_ind};
+    use super::{EIDELIVERY, Eidelivery};
+
+    /// Reads the external interrupt delivery enable register.
+    pub fn read() -> Eidelivery {
+        let bits = unsafe { read_ind(EIDELIVERY) };
+        Eidelivery::from_bits(bits)
+    }
+
+    /// Writes the external interrupt delivery enable register.
+    pub unsafe fn write(value: Eidelivery) {
+        unsafe { write_ind(EIDELIVERY, value.bits()) }
+    }
+}
+
+/// S-mode accessors for `eidelivery` register.
+pub mod supervisor {
+    use super::super::supervisor::{read_ind, write_ind};
+    use super::{EIDELIVERY, Eidelivery};
+
+    /// Reads the external interrupt delivery enable register.
+    pub fn read() -> Eidelivery {
+        let bits = unsafe { read_ind(EIDELIVERY) };
+        Eidelivery::from_bits(bits)
+    }
+
+    /// Writes the external interrupt delivery enable register.
+    pub unsafe fn write(value: Eidelivery) {
+        unsafe { write_ind(EIDELIVERY, value.bits()) }
+    }
+}
+
+/// VS-mode accessors for `eidelivery` register.
+pub mod guest {
+    use super::super::guest::{read_ind, write_ind};
+    use super::{EIDELIVERY, Eidelivery};
+
+    /// Reads the external interrupt delivery enable register.
+    pub fn read() -> Eidelivery {
+        let bits = unsafe { read_ind(EIDELIVERY) };
+        Eidelivery::from_bits(bits)
+    }
+
+    /// Writes the external interrupt delivery enable register.
+    pub unsafe fn write(value: Eidelivery) {
+        unsafe { write_ind(EIDELIVERY, value.bits()) }
     }
 }

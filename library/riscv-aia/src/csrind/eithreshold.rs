@@ -1,34 +1,82 @@
 //! External interrupt threshold register.
 
 /// Indirect CSR identifier for `eithreshold`.
-pub const EITHRESHOLD: u32 = 0x72;
+const EITHRESHOLD: usize = 0x72;
 
 /// External interrupt threshold register (`eithreshold`).
 ///
-/// This register specifies the minimum priority level for an interrupt
-/// to be delivered. Interrupts with priority below this threshold are masked.
+/// This WLRL register controls which interrupt identities can contribute to
+/// signaling an interrupt. When the value is a nonzero value `P`, interrupt
+/// identities `P` and higher are excluded. A value of zero allows all enabled
+/// interrupt identities to contribute.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
-pub struct Eithreshold(u32);
+pub struct Eithreshold(usize);
 
 impl Eithreshold {
     /// Creates a new `Eithreshold` from a raw value.
-    pub const fn from_raw(value: u32) -> Self {
+    pub const fn from_bits(value: usize) -> Self {
         Self(value)
     }
 
     /// Returns the raw value of this register.
-    pub const fn raw(self) -> u32 {
+    pub const fn bits(self) -> usize {
         self.0
     }
 
     /// Returns the threshold value.
-    pub const fn threshold(self) -> u32 {
+    pub const fn threshold(self) -> usize {
         self.0
     }
+}
 
-    /// Returns the priority threshold.
-    pub const fn priority(self) -> u8 {
-        (self.0 >> 24) as u8
+/// M-mode accessors for `eithreshold` register.
+pub mod machine {
+    use super::super::machine::{read_ind, write_ind};
+    use super::{EITHRESHOLD, Eithreshold};
+
+    /// Reads the external interrupt threshold register.
+    pub fn read() -> Eithreshold {
+        let bits = unsafe { read_ind(EITHRESHOLD) };
+        Eithreshold::from_bits(bits)
+    }
+
+    /// Writes the external interrupt threshold register.
+    pub unsafe fn write(value: Eithreshold) {
+        unsafe { write_ind(EITHRESHOLD, value.bits()) }
+    }
+}
+
+/// S-mode accessors for `eithreshold` register.
+pub mod supervisor {
+    use super::super::supervisor::{read_ind, write_ind};
+    use super::{EITHRESHOLD, Eithreshold};
+
+    /// Reads the external interrupt threshold register.
+    pub fn read() -> Eithreshold {
+        let bits = unsafe { read_ind(EITHRESHOLD) };
+        Eithreshold::from_bits(bits)
+    }
+
+    /// Writes the external interrupt threshold register.
+    pub unsafe fn write(value: Eithreshold) {
+        unsafe { write_ind(EITHRESHOLD, value.bits()) }
+    }
+}
+
+/// VS-mode accessors for `eithreshold` register.
+pub mod guest {
+    use super::super::guest::{read_ind, write_ind};
+    use super::{EITHRESHOLD, Eithreshold};
+
+    /// Reads the external interrupt threshold register.
+    pub fn read() -> Eithreshold {
+        let bits = unsafe { read_ind(EITHRESHOLD) };
+        Eithreshold::from_bits(bits)
+    }
+
+    /// Writes the external interrupt threshold register.
+    pub unsafe fn write(value: Eithreshold) {
+        unsafe { write_ind(EITHRESHOLD, value.bits()) }
     }
 }
