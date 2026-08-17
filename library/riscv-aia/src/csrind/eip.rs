@@ -12,12 +12,12 @@ pub struct Eip(u32);
 
 impl Eip {
     /// Creates a new `Eip` from a raw value.
-    pub const fn from_raw(value: u32) -> Self {
+    pub const fn from_bits(value: u32) -> Self {
         Self(value)
     }
 
     /// Returns the raw value of this register.
-    pub const fn raw(self) -> u32 {
+    pub const fn bits(self) -> u32 {
         self.0
     }
 
