@@ -135,6 +135,10 @@ extern "C" fn send_ipi(hartid: usize) -> ! {
                 .assume_init_mut()
                 .swap(true, Ordering::AcqRel);
         };
+        READY_HART_COUNT.fetch_add(1, Ordering::AcqRel);
+        while READY_HART_COUNT.load(Ordering::Acquire) != unsafe { (SMP_COUNT - 1) as u64 } {
+            core::hint::spin_loop();
+        }
         let mut mask = Some(HartMask::from_mask_base(0, 0));
         for i in 0..unsafe { SMP_COUNT } {
             if i == unsafe { BOOT_HART_ID } {
@@ -175,6 +179,7 @@ extern "C" fn init_main(hartid: usize) -> ! {
 }
 
 static mut WAIT_COUNT: AtomicU64 = AtomicU64::new(0);
+static READY_HART_COUNT: AtomicU64 = AtomicU64::new(0);
 
 const SUSPENDED: SbiRet = SbiRet::success(hart_state::SUSPENDED);
 
@@ -261,6 +266,7 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
                 }
             }
             WAIT_COUNT.swap((smp - 1) as u64, Ordering::AcqRel);
+            READY_HART_COUNT.store(0, Ordering::Release);
         }
         debug!("send ipi!");
         let start_time = get_time();
@@ -282,6 +288,9 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
         }
         if let Some(mask) = mask {
             sbi::send_ipi(mask);
+        }
+        while READY_HART_COUNT.load(Ordering::Acquire) != (smp - 1) as u64 {
+            core::hint::spin_loop();
         }
         while unsafe { WAIT_COUNT.load(Ordering::Acquire) } != 0 {}
         let end_time = get_time();
