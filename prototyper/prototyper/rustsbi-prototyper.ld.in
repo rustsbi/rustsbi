@@ -1,0 +1,79 @@
+OUTPUT_ARCH(riscv)
+ENTRY(_start) 
+SECTIONS {
+    . = @LINK_START_ADDRESS@;
+
+    . = ALIGN(0x1000); /* Need this to create proper sections */
+    sbi_start = .;
+
+    .text : ALIGN(0x1000) { 
+        *(.text.entry)
+        *(.text .text.*)
+    }
+
+    . = ALIGN(0x1000);
+    sbi_rodata_start = .;
+
+    .rodata : ALIGN(0x1000) { 
+        *(.rodata .rodata.*)
+        *(.srodata .srodata.*)
+        . = ALIGN(0x1000);  
+    } 
+
+    .dynsym : ALIGN(8) {
+        *(.dynsym)
+    }
+
+    .rela.dyn : ALIGN(8) {
+        __rel_dyn_start = .;
+        *(.rela*)
+        __rel_dyn_end = .;
+    }
+
+    . = ALIGN(0x1000);
+    sbi_rodata_end = .;
+
+	/*
+	 * PMP regions must be to be power-of-2. RX/RW will have separate
+	 * regions, so ensure that the split is power-of-2.
+	 */
+	/* . = ALIGN(1 << LOG2CEIL((SIZEOF(.rodata) + SIZEOF(.text)
+				+ SIZEOF(.dynsym) + SIZEOF(.rela.dyn)))); */
+
+    .data : ALIGN(0x1000) { 
+        sbi_data_start = .;
+        *(.data .data.*)
+        *(.sdata .sdata.*)
+        . = ALIGN(0x1000); 
+        sbi_data_end = .;
+    }
+    sidata = LOADADDR(.data);
+
+    .bss (NOLOAD) : ALIGN(0x1000) {  
+        *(.bss.stack)
+        . = ALIGN(0x1000);
+        sbi_heap_start = .;
+        *(.bss.heap)
+        sbi_heap_end = .;
+        . = ALIGN(0x1000); 
+        sbi_bss_start = .;
+        *(.bss .bss.*)
+        *(.sbss .sbss.*)
+        sbi_bss_end = .;
+    } 
+    /DISCARD/ : {
+        *(.eh_frame)
+    }
+
+    . = ALIGN(0x1000);
+
+    .text : ALIGN(0x1000) {
+        *(.fdt)
+    }
+    . = ALIGN(0x1000);
+    sbi_end = .;
+
+    .text @PAYLOAD_ADDRESS@ : ALIGN(0x1000) {
+        *(.payload)
+    }
+}

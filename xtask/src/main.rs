@@ -5,27 +5,23 @@ use std::process::ExitCode;
 #[macro_use]
 mod utils;
 mod arceboot;
-mod bench;
 mod logger;
 mod prototyper;
-mod test;
 
 #[macro_use]
 extern crate log;
 
 use crate::arceboot::ArcebootArg;
-use crate::bench::BenchArg;
-use crate::prototyper::PrototyperArg;
-use crate::test::TestArg;
+use crate::prototyper::PrototyperCommand;
 
 #[derive(Parser)]
-#[clap(
+#[command(
     name = "xtask",
     about = "A task runner for building, running and testing Prototyper",
     long_about = None,
 )]
 struct Cli {
-    #[clap(subcommand)]
+    #[command(subcommand)]
     cmd: Cmd,
     #[command(flatten)]
     verbose: Verbosity<InfoLevel>,
@@ -34,11 +30,10 @@ struct Cli {
 #[derive(Subcommand)]
 enum Cmd {
     /// Build and configure the RustSBI Prototyper bootloader.
-    Prototyper(PrototyperArg),
-    /// Build test-kernel for the RustSBI Prototyper.
-    Test(TestArg),
-    /// Build bench-kernel for the RustSBI Prototyper.
-    Bench(BenchArg),
+    Prototyper {
+        #[command(subcommand)]
+        command: PrototyperCommand,
+    },
     /// Build ArceBoot bootloader (optionally with Prototyper as payload).
     Arceboot(ArcebootArg),
 }
@@ -52,9 +47,13 @@ fn main() -> ExitCode {
 
     // Execute the selected command
     let result = match &cli_args.cmd {
-        Cmd::Prototyper(arg) => prototyper::run(arg),
-        Cmd::Test(arg) => test::run(arg),
-        Cmd::Bench(arg) => bench::run(arg),
+        Cmd::Prototyper { command } => match prototyper::run(command) {
+            Ok(exit_status) => Some(exit_status),
+            Err(err) => {
+                error!("Task 'prototyper' failed: {:#}", err);
+                return ExitCode::FAILURE;
+            }
+        },
         Cmd::Arceboot(arg) => arceboot::run(arg),
     };
 
@@ -65,9 +64,7 @@ fn main() -> ExitCode {
         }
         Some(exit_status) => {
             let cmd_name = match &cli_args.cmd {
-                Cmd::Prototyper(_) => "prototyper",
-                Cmd::Test(_) => "test",
-                Cmd::Bench(_) => "bench",
+                Cmd::Prototyper { .. } => "prototyper",
                 Cmd::Arceboot(_) => "arceboot",
             };
             error!("Task '{}' failed with exit code: {}", cmd_name, exit_status);

@@ -57,8 +57,7 @@ fn is_work_hart(_dynamic_info_addr: usize) -> bool {
 }
 
 use alloc::{format, vec};
-#[allow(unused)]
-use core::arch::{asm, naked_asm};
+use core::arch::asm;
 use core::ops::Range;
 
 use crate::fail;
@@ -122,18 +121,19 @@ struct BootHart {
     is_boot_hart: bool,
 }
 
-#[unsafe(naked)]
-#[unsafe(link_section = ".fdt")]
-#[rustc_align(16)]
-#[cfg(feature = "fdt")]
-pub extern "C" fn raw_fdt() {
-    naked_asm!(concat!(".incbin \"", env!("PROTOTYPER_FDT_PATH"), "\""),)
-}
-
+#[cfg(all(feature = "fdt", not(feature = "payload")))]
+const FDT_PTR: *const u8 = raw_fdt.0.as_ptr();
+#[cfg(all(feature = "fdt", feature = "payload"))]
+const FDT_PTR: *const u8 = payload::raw_fdt.0.as_ptr();
 #[inline]
 #[cfg(feature = "fdt")]
 fn get_fdt_address() -> usize {
-    raw_fdt as usize
+    let address = FDT_PTR as usize;
+    // Optimization barrier: prevent LLVM from constant-folding the address of
+    // the linker-script-placed `.fdt` section, so that the runtime
+    // (post-relocation) address is used.
+    unsafe { core::arch::asm!("", options(nomem, nostack, preserves_flags)) };
+    address
 }
 
 /// Resolves this hart's boot role and the device tree address.
@@ -687,3 +687,8 @@ pub fn log_pmp_cfg(_memory_range: &Range<usize>) {
         );
     });
 }
+
+#[cfg(all(feature = "fdt", not(feature = "payload")))]
+include!(concat!(env!("OUT_DIR"), "/generated_alignment.rs"));
+#[cfg(all(feature = "fdt", not(feature = "payload")))]
+include!(concat!(env!("OUT_DIR"), "/generated_fdt.rs"));
