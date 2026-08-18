@@ -52,11 +52,13 @@ jobs:
   integration-test:
     name: QEMU integration tests (${{ matrix.bios_name }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         include:
-          - bios_name: qemu-opensbi
+          - bios_name: qemu-default
             bios_path: default
             bios_banner: OpenSBI
           - bios_name: rustsbi-v0.4.1
@@ -76,6 +78,7 @@ jobs:
           repository: rustsbi/rustsbi
           ref: 1e10645e9a3cc6230988b037df506f97310555b7
           path: firmware/rustsbi-v0.4.1
+          persist-credentials: false
 
       - name: Install required cargo
         run: |
