@@ -50,11 +50,32 @@ jobs:
           wait-for-processing: true
 
   integration-test:
-    name: QEMU integration tests
+    name: QEMU integration tests (${{ matrix.bios_name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - bios_name: qemu-opensbi
+            bios_path: default
+            bios_banner: OpenSBI
+          - bios_name: rustsbi-v0.4.1
+            bios_path: firmware/rustsbi-v0.4.1/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.elf
+            bios_banner: "[RustSBI]"
+    env:
+      QEMU_BIOS: ${{ matrix.bios_path }}
+      BIOS_BANNER: ${{ matrix.bios_banner }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Checkout pinned RustSBI v0.4.1
+        if: matrix.bios_name == 'rustsbi-v0.4.1'
+        uses: actions/checkout@v4
+        with:
+          repository: rustsbi/rustsbi
+          ref: 1e10645e9a3cc6230988b037df506f97310555b7
+          path: firmware/rustsbi-v0.4.1
 
       - name: Install required cargo
         run: |
@@ -66,6 +87,14 @@ jobs:
 
       - name: Build ArceBoot
         run: cargo xtask arceboot
+
+      - name: Build pinned RustSBI dynamic firmware
+        if: matrix.bios_name == 'rustsbi-v0.4.1'
+        working-directory: firmware/rustsbi-v0.4.1
+        run: |
+          rustup target add riscv64gc-unknown-none-elf
+          cargo prototyper --target riscv64gc-unknown-none-elf
+          test -s target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.elf
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -105,7 +134,7 @@ jobs:
         run: |
           timeout 60 qemu-system-riscv64 \
             -m 128M -serial mon:stdio -nographic -machine virt \
-            -bios default \
+            -bios "$QEMU_BIOS" \
             -kernel target/riscv64gc-unknown-none-elf/release/arceboot.bin \
             -device virtio-blk-pci,drive=disk0 \
             -drive id=disk0,if=none,format=raw,file=arceboot/disk.img \
@@ -114,8 +143,11 @@ jobs:
       - name: Upload QEMU log (HelloRiscv)
         uses: actions/upload-artifact@v4
         with:
-          name: log-hello-riscv
+          name: log-${{ matrix.bios_name }}-hello-riscv
           path: arceboot/qemu-hello-riscv.log
+
+      - name: Check BIOS identity
+        run: grep -aqF "$BIOS_BANNER" arceboot/qemu-hello-riscv.log
 
       - name: Check QEMU output (HelloRiscv)
         run: bash arceboot/scripts/test/check_hello_test_riscv.sh
@@ -131,7 +163,7 @@ jobs:
         run: |
           timeout 60 qemu-system-riscv64 \
             -m 128M -serial mon:stdio -nographic -machine virt \
-            -bios default \
+            -bios "$QEMU_BIOS" \
             -kernel target/riscv64gc-unknown-none-elf/release/arceboot.bin \
             -device virtio-blk-pci,drive=disk0 \
             -drive id=disk0,if=none,format=raw,file=arceboot/disk.img \
@@ -140,7 +172,7 @@ jobs:
       - name: Upload QEMU log (AllocatePage)
         uses: actions/upload-artifact@v4
         with:
-          name: log-allocate
+          name: log-${{ matrix.bios_name }}-allocate
           path: arceboot/qemu-allocate.log
 
       - name: Check QEMU output (AllocatePage)
@@ -157,7 +189,7 @@ jobs:
         run: |
           timeout 60 qemu-system-riscv64 \
             -m 128M -serial mon:stdio -nographic -machine virt \
-            -bios default \
+            -bios "$QEMU_BIOS" \
             -kernel target/riscv64gc-unknown-none-elf/release/arceboot.bin \
             -device virtio-blk-pci,drive=disk0 \
             -drive id=disk0,if=none,format=raw,file=arceboot/disk.img \
@@ -166,7 +198,7 @@ jobs:
       - name: Upload QEMU log (Hello)
         uses: actions/upload-artifact@v4
         with:
-          name: log-hello
+          name: log-${{ matrix.bios_name }}-hello
           path: arceboot/qemu-hello.log
 
       - name: Check QEMU output (Hello)
