@@ -1,7 +1,7 @@
 //! External interrupt-pending bits registers.
 
-/// Indirect CSR identifier for `eip[n]`. registers (eip0 to eip63).
-pub const EIP_BASE: u32 = 0x80;
+/// Indirect CSR base identifier for `eip[n]` registers (eip0 to eip63).
+pub const EIP_BASE: usize = 0x80;
 
 /// External interrupt-pending bits register (`eip[n]`).
 ///

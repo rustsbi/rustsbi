@@ -20,6 +20,46 @@ pub struct Imsic {
     _reserved: [u32; 0x3fe],
 }
 
+/// MSI (Message-Signaled Interrupt) encoding utilities.
+pub mod msi {
+    /// Encodes an interrupt identity into little-endian MSI data.
+    #[inline]
+    pub const fn encode_le(identity: u16) -> u32 {
+        identity as u32
+    }
+}
+
+/// System-level IMSIC address calculation.
+pub mod system {
+    /// IMSIC address layout parameters.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct AddressLayout {
+        /// Base address for machine-level interrupt files.
+        pub machine_base: usize,
+        /// Base address for supervisor-level interrupt files.
+        pub supervisor_base: usize,
+        /// Base address for guest interrupt files, if supported.
+        pub guest_base: Option<usize>,
+        /// Number of bits for the hart index.
+        pub hart_index_bits: u32,
+        /// Bit position of the group index.
+        pub group_bits: u32,
+        /// Bit position of the hart index.
+        pub hart_offset_bits: u32,
+        /// Bit position of the guest-file index.
+        pub guest_offset_bits: u32,
+    }
+
+    impl AddressLayout {
+        /// Calculates the address of a machine-level interrupt file.
+        pub const fn machine_interrupt_file_address(&self, hart_id: u32, group_id: u32) -> usize {
+            self.machine_base
+                + (group_id << self.group_bits) as usize
+                + (hart_id << self.hart_offset_bits) as usize
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Imsic;

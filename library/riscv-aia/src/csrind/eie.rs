@@ -1,7 +1,7 @@
 //! External interrupt-enable registers.
 
-/// Indirect CSR identifier for `eie[n]`. registers (eie0 to eie63).
-pub const EIE_BASE: u32 = 0xC0;
+/// Indirect CSR base identifier for `eie[n]` registers (eie0 to eie63).
+pub const EIE_BASE: usize = 0xC0;
 
 /// External interrupt-enable bits register (`eie[n]`).
 ///

@@ -31,7 +31,7 @@ impl Eithreshold {
 }
 
 macro_rules! impl_eithreshold_accessors {
-    ($($mode:ident => $doc:literal),+ $(,)?) => {
+    ($($mode:ident => ($doc:literal, $safety:literal)),+ $(,)?) => {
         $(
             #[doc = $doc]
             pub mod $mode {
@@ -45,6 +45,10 @@ macro_rules! impl_eithreshold_accessors {
                 }
 
                 /// Writes the external interrupt threshold register.
+                ///
+                /// # Safety
+                ///
+                #[doc = $safety]
                 pub unsafe fn write(value: Eithreshold) {
                     unsafe { write_ind(EITHRESHOLD, value.bits()) }
                 }
@@ -54,7 +58,16 @@ macro_rules! impl_eithreshold_accessors {
 }
 
 impl_eithreshold_accessors! {
-    machine => "M-mode accessors for `eithreshold` register.",
-    supervisor => "S-mode accessors for `eithreshold` register.",
-    guest => "VS-mode accessors for `eithreshold` register.",
+    machine => (
+        "M-mode accessors for `eithreshold` register.",
+        "The current hart must implement Smaia, and the caller must be permitted to access M-mode CSRs."
+    ),
+    supervisor => (
+        "S-mode accessors for `eithreshold` register.",
+        "The current hart must implement Ssaia, and the caller must be permitted to access S-mode CSRs."
+    ),
+    guest => (
+        "VS-mode accessors for `eithreshold` register.",
+        "The current hart must implement the H extension with a guest interrupt file, the caller must be permitted to access VS-mode CSRs, and `hstatus.VGEIN` must select an implemented guest interrupt file."
+    ),
 }

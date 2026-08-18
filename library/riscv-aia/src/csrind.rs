@@ -13,6 +13,14 @@ mod machine {
     };
     use riscv::interrupt::machine as interrupt;
 
+    /// Reads an indirectly accessed machine-level interrupt-file register.
+    ///
+    /// # Safety
+    ///
+    /// The current hart must implement Smaia, the caller must be permitted to access
+    /// M-mode CSRs, and `reg_id` must select an implemented register for the current
+    /// XLEN. Otherwise, the indirect CSR access may raise an illegal-instruction
+    /// exception.
     #[inline]
     pub(super) unsafe fn read_ind(reg_id: usize) -> usize {
         interrupt::free(|| unsafe {
@@ -24,6 +32,14 @@ mod machine {
         })
     }
 
+    /// Writes an indirectly accessed machine-level interrupt-file register.
+    ///
+    /// # Safety
+    ///
+    /// The current hart must implement Smaia, the caller must be permitted to access
+    /// M-mode CSRs, and `reg_id` must select an implemented register for the current
+    /// XLEN. Otherwise, the indirect CSR access may raise an illegal-instruction
+    /// exception.
     #[inline]
     pub(super) unsafe fn write_ind(reg_id: usize, value: usize) {
         interrupt::free(|| unsafe {
@@ -43,6 +59,14 @@ mod supervisor {
     };
     use riscv::interrupt::supervisor as interrupt;
 
+    /// Reads an indirectly accessed supervisor-level interrupt-file register.
+    ///
+    /// # Safety
+    ///
+    /// The current hart must implement Ssaia, the caller must be permitted to access
+    /// S-mode CSRs, and `reg_id` must select an implemented register for the current
+    /// XLEN. Otherwise, the indirect CSR access may raise an illegal-instruction
+    /// exception.
     #[inline]
     pub(super) unsafe fn read_ind(reg_id: usize) -> usize {
         interrupt::free(|| unsafe {
@@ -54,6 +78,14 @@ mod supervisor {
         })
     }
 
+    /// Writes an indirectly accessed supervisor-level interrupt-file register.
+    ///
+    /// # Safety
+    ///
+    /// The current hart must implement Ssaia, the caller must be permitted to access
+    /// S-mode CSRs, and `reg_id` must select an implemented register for the current
+    /// XLEN. Otherwise, the indirect CSR access may raise an illegal-instruction
+    /// exception.
     #[inline]
     pub(super) unsafe fn write_ind(reg_id: usize, value: usize) {
         interrupt::free(|| unsafe {
@@ -73,6 +105,15 @@ mod guest {
     };
     use riscv::interrupt::supervisor as interrupt;
 
+    /// Reads an indirectly accessed guest interrupt-file register.
+    ///
+    /// # Safety
+    ///
+    /// The current hart must implement the H extension with a guest interrupt file,
+    /// the caller must be permitted to access VS-mode CSRs, `hstatus.VGEIN` must
+    /// select an implemented guest interrupt file, and `reg_id` must select an
+    /// implemented register for the current XLEN. Otherwise, the indirect CSR access
+    /// may raise an illegal- or virtual-instruction exception.
     #[inline]
     pub(super) unsafe fn read_ind(reg_id: usize) -> usize {
         interrupt::free(|| unsafe {
@@ -84,6 +125,15 @@ mod guest {
         })
     }
 
+    /// Writes an indirectly accessed guest interrupt-file register.
+    ///
+    /// # Safety
+    ///
+    /// The current hart must implement the H extension with a guest interrupt file,
+    /// the caller must be permitted to access VS-mode CSRs, `hstatus.VGEIN` must
+    /// select an implemented guest interrupt file, and `reg_id` must select an
+    /// implemented register for the current XLEN. Otherwise, the indirect CSR access
+    /// may raise an illegal- or virtual-instruction exception.
     #[inline]
     pub(super) unsafe fn write_ind(reg_id: usize, value: usize) {
         interrupt::free(|| unsafe {
