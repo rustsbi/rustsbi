@@ -91,7 +91,7 @@ $ make -j$(nproc)
 
 ``` shell
 $ cd workshop/VisionFive2/rustsbi 
-$ cargo prototyper --payload ../work/u-boot/u-boot.bin --fdt ../work/u-boot/arch/riscv/dts/starfive_visionfive2.dtb 
+$ cargo prototyper build --fdt ../work/u-boot/arch/riscv/dts/starfive_visionfive2.dtb payload ../work/u-boot/u-boot.bin
 ```
 
 ## 生成 Payload 镜像
@@ -108,7 +108,7 @@ $ cargo prototyper --payload ../work/u-boot/u-boot.bin --fdt ../work/u-boot/arch
 	images {
 		firmware {
 			description = "u-boot";
-			data = /incbin/("./rustsbi/target/riscv64imac-unknown-none-elf/release/rustsbi-prototyper-payload.bin");
+			data = /incbin/("./rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload.bin");
 			type = "firmware";
 			arch = "riscv";
 			os = "u-boot";

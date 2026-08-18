@@ -32,7 +32,7 @@ xz -d ubuntu-24.04.3-preinstalled-server-riscv64.img.xz
 ```bash
 git clone https://github.com/rustsbi/rustsbi.git --depth 1
 cd rustsbi
-cargo prototyper
+cargo prototyper build
 ```
 
 然后拉取EDK2的源代码并编译EDK2:

@@ -105,8 +105,8 @@ $ cd rustsbi
 编译RustSBI Prototyper和Test Kernel
 
 ```shell
-$ cargo prototyper
-$ cargo test-kernel --pack
+$ cargo prototyper build
+$ cargo prototyper test --pack
 ```
 
 本小节将使用二进制文件 `./target/riscv64gc-unknown-none-elf/release/rustsbi-test-kernel.itb`。
@@ -124,7 +124,7 @@ $ cd u-boot
 ```shell
 $ export ARCH=riscv
 $ export CROSS_COMPILE=riscv64-linux-gnu-
-$ export OPENSBI=../rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin
+$ export OPENSBI=../rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.bin
 ```
 
 生成`.config`文件
@@ -174,11 +174,11 @@ $ cd rustsbi
 编译RustSBI Prototyper和Test Kernel
 
 ```shell
-$ cargo prototyper
-$ cargo test-kernel
+$ cargo prototyper build
+$ cargo prototyper test
 ```
 
-本小节将使用二进制文件 `./target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin`和`./target/riscv64gc-unknown-none-elf/release/rustsbi-test-kernel.bin`。
+本小节将使用二进制文件 `./target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.bin`和`./target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.bin`。
 
 ### 编译U-Boot SPL
 
@@ -193,7 +193,7 @@ $ cd u-boot
 ```shell
 $ export ARCH=riscv
 $ export CROSS_COMPILE=riscv64-linux-gnu-
-$ export OPENSBI=../rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin
+$ export OPENSBI=../rustsbi/target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.bin
 ```
 
 生成`.config`文件

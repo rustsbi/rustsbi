@@ -208,7 +208,7 @@ sudo qemu-nbd -d /dev/nbd0
 ```bash
 git clone https://github.com/rustsbi/rustsbi.git --depth 1
 cd rustsbi
-cargo prototyper
+cargo prototyper build
 ```
 
 然后拉取EDK2的源代码并编译EDK2:
