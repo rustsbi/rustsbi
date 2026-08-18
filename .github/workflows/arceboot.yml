@@ -2,10 +2,19 @@ name: ArceBoot
 
 on:
   pull_request:
-  push:
     paths-ignore:
       - '**.md'
       - 'LICENSE'
+      - 'library/**'
+      - 'prototyper/**'
+  push:
+    branches: ["main"]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - 'library/**'
+      - 'prototyper/**'
+  workflow_dispatch: {}
 
 jobs:
   build-and-clippy:
@@ -55,8 +64,8 @@ jobs:
       - name: Install required target
         run: rustup target add riscv64gc-unknown-none-elf
 
-      - name: Build ArceBoot with Prototyper payload
-        run: cargo xtask arceboot --payload
+      - name: Build ArceBoot
+        run: cargo xtask arceboot
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -68,7 +77,18 @@ jobs:
           sudo apt update
           sudo apt install -y uuid-dev qemu-system-misc
 
+      # Change the version after edk change
+      - name: Cache EDK2 build
+        uses: actions/cache@v4
+        id: cache-edk2
+        with:
+          path: arceboot/edk2/Build
+          key: edk2-${{ hashFiles('arceboot/scripts/test/build_edk2.sh') }}-v1
+          restore-keys: |
+            edk2-
+
       - name: Build EDK2
+        if: steps.cache-edk2.outputs.cache-hit != 'true'
         run: bash arceboot/scripts/test/build_edk2.sh
 
       - name: Generate disk image
@@ -85,7 +105,8 @@ jobs:
         run: |
           timeout 60 qemu-system-riscv64 \
             -m 128M -serial mon:stdio -nographic -machine virt \
-            -bios target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload.elf \
+            -bios default \
+            -kernel target/riscv64gc-unknown-none-elf/release/arceboot.bin \
             -device virtio-blk-pci,drive=disk0 \
             -drive id=disk0,if=none,format=raw,file=arceboot/disk.img \
             > arceboot/qemu-hello-riscv.log 2>&1 || true
@@ -110,7 +131,8 @@ jobs:
         run: |
           timeout 60 qemu-system-riscv64 \
             -m 128M -serial mon:stdio -nographic -machine virt \
-            -bios target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload.elf \
+            -bios default \
+            -kernel target/riscv64gc-unknown-none-elf/release/arceboot.bin \
             -device virtio-blk-pci,drive=disk0 \
             -drive id=disk0,if=none,format=raw,file=arceboot/disk.img \
             > arceboot/qemu-allocate.log 2>&1 || true
@@ -135,7 +157,8 @@ jobs:
         run: |
           timeout 60 qemu-system-riscv64 \
             -m 128M -serial mon:stdio -nographic -machine virt \
-            -bios target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload.elf \
+            -bios default \
+            -kernel target/riscv64gc-unknown-none-elf/release/arceboot.bin \
             -device virtio-blk-pci,drive=disk0 \
             -drive id=disk0,if=none,format=raw,file=arceboot/disk.img \
             > arceboot/qemu-hello.log 2>&1 || true
