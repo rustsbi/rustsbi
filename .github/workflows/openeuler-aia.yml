@@ -69,7 +69,7 @@ jobs:
           key: openeuler-25.09-riscv64-aia-release-v1
 
       - name: Build RustSBI Prototyper
-        run: cargo prototyper
+        run: cargo prototyper build
 
       - name: Boot openEuler with AIA
         run: |
