@@ -223,7 +223,7 @@ pub mod flags {
     bitflags! {
         #[derive(Clone, Copy, PartialEq, Eq)]
         /// Declared in Table 37.
-        pub struct CounterCfgFlags: usize {
+        pub struct ConfigFlags: usize {
             /// Skip the counter matching.
             const SKIP_MATCH = 1 << 0;
             /// Clear (or zero) the counter value in counter configuration.
@@ -243,10 +243,15 @@ pub mod flags {
         }
     }
 
+    /// Deprecated alias for [`ConfigFlags`].
+    #[doc(hidden)]
+    #[deprecated(note = "use `ConfigFlags` instead")]
+    pub type CounterCfgFlags = ConfigFlags;
+
     bitflags! {
         #[derive(Clone, Copy, PartialEq, Eq)]
         /// Declared in Table 39.
-        pub struct CounterStartFlags: usize {
+        pub struct StartFlags: usize {
             /// Set the value of counters based on the initial_value parameter.
             const INIT_VALUE = 1 << 0;
             /// Initialize the given counters from shared memory if available.
@@ -254,14 +259,24 @@ pub mod flags {
         }
     }
 
+    /// Deprecated alias for [`StartFlags`].
+    #[doc(hidden)]
+    #[deprecated(note = "use `StartFlags` instead")]
+    pub type CounterStartFlags = StartFlags;
+
     bitflags! {
         #[derive(Clone, Copy, PartialEq, Eq)]
         /// Declared in Table 41.
-        pub struct CounterStopFlags: usize {
+        pub struct StopFlags: usize {
             /// Reset the counter to event mapping.
             const RESET = 1 << 0;
             /// Save a snapshot of the given counter’s values in the shared memory if available.
             const TAKE_SNAPSHOT = 1 << 1;
         }
     }
+
+    /// Deprecated alias for [`StopFlags`].
+    #[doc(hidden)]
+    #[deprecated(note = "use `StopFlags` instead")]
+    pub type CounterStopFlags = StopFlags;
 }

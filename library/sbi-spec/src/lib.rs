@@ -266,18 +266,18 @@ mod tests {
         const_assert_eq!(65535, firmware_event::PLATFORM);
 
         const_assert_eq!(4096, shmem_size::SIZE);
-        const_assert_eq!(1, flags::CounterCfgFlags::SKIP_MATCH.bits());
-        const_assert_eq!(2, flags::CounterCfgFlags::CLEAR_VALUE.bits());
-        const_assert_eq!(4, flags::CounterCfgFlags::AUTO_START.bits());
-        const_assert_eq!(8, flags::CounterCfgFlags::SET_VUINH.bits());
-        const_assert_eq!(16, flags::CounterCfgFlags::SET_VSINH.bits());
-        const_assert_eq!(32, flags::CounterCfgFlags::SET_UINH.bits());
-        const_assert_eq!(64, flags::CounterCfgFlags::SET_SINH.bits());
-        const_assert_eq!(128, flags::CounterCfgFlags::SET_MINH.bits());
-        const_assert_eq!(1, flags::CounterStartFlags::INIT_VALUE.bits());
-        const_assert_eq!(2, flags::CounterStartFlags::INIT_SNAPSHOT.bits());
-        const_assert_eq!(1, flags::CounterStopFlags::RESET.bits());
-        const_assert_eq!(2, flags::CounterStopFlags::TAKE_SNAPSHOT.bits());
+        const_assert_eq!(1, flags::ConfigFlags::SKIP_MATCH.bits());
+        const_assert_eq!(2, flags::ConfigFlags::CLEAR_VALUE.bits());
+        const_assert_eq!(4, flags::ConfigFlags::AUTO_START.bits());
+        const_assert_eq!(8, flags::ConfigFlags::SET_VUINH.bits());
+        const_assert_eq!(16, flags::ConfigFlags::SET_VSINH.bits());
+        const_assert_eq!(32, flags::ConfigFlags::SET_UINH.bits());
+        const_assert_eq!(64, flags::ConfigFlags::SET_SINH.bits());
+        const_assert_eq!(128, flags::ConfigFlags::SET_MINH.bits());
+        const_assert_eq!(1, flags::StartFlags::INIT_VALUE.bits());
+        const_assert_eq!(2, flags::StartFlags::INIT_SNAPSHOT.bits());
+        const_assert_eq!(1, flags::StopFlags::RESET.bits());
+        const_assert_eq!(2, flags::StopFlags::TAKE_SNAPSHOT.bits());
     }
     // §12
     #[test]

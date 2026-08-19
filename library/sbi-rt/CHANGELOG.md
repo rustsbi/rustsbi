@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- pmu: implement runtime flag traits for the corresponding `sbi-spec` PMU flag types.
+
 ### Modified
 
 ### Fixed

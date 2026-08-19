@@ -330,6 +330,13 @@ pub trait ConfigFlags {
     fn raw(&self) -> usize;
 }
 
+impl ConfigFlags for sbi_spec::pmu::flags::ConfigFlags {
+    #[inline]
+    fn raw(&self) -> usize {
+        self.bits()
+    }
+}
+
 #[cfg(feature = "integer-impls")]
 impl ConfigFlags for usize {
     #[inline]
@@ -342,6 +349,13 @@ impl ConfigFlags for usize {
 pub trait StartFlags {
     /// Get a raw value to pass to SBI environment.
     fn raw(&self) -> usize;
+}
+
+impl StartFlags for sbi_spec::pmu::flags::StartFlags {
+    #[inline]
+    fn raw(&self) -> usize {
+        self.bits()
+    }
 }
 
 #[cfg(feature = "integer-impls")]
@@ -358,10 +372,35 @@ pub trait StopFlags {
     fn raw(&self) -> usize;
 }
 
+impl StopFlags for sbi_spec::pmu::flags::StopFlags {
+    #[inline]
+    fn raw(&self) -> usize {
+        self.bits()
+    }
+}
+
 #[cfg(feature = "integer-impls")]
 impl StopFlags for usize {
     #[inline]
     fn raw(&self) -> usize {
         *self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sbi_spec::pmu::flags::{ConfigFlags, StartFlags, StopFlags};
+
+    use super::{ConfigFlags as _, StartFlags as _, StopFlags as _};
+
+    #[test]
+    fn spec_flags_implement_runtime_flag_traits() {
+        let config = ConfigFlags::SKIP_MATCH | ConfigFlags::AUTO_START;
+        let start = StartFlags::INIT_VALUE | StartFlags::INIT_SNAPSHOT;
+        let stop = StopFlags::RESET | StopFlags::TAKE_SNAPSHOT;
+
+        assert_eq!(config.raw(), config.bits());
+        assert_eq!(start.raw(), start.bits());
+        assert_eq!(stop.raw(), stop.bits());
     }
 }
