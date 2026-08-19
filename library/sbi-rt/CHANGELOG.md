@@ -13,6 +13,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Modified
 
+- deps: update `sbi-spec` to version 0.0.10.
+
 ### Fixed
 
 ## [0.0.4] - 2026-05-13

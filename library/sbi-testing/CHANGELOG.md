@@ -16,6 +16,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - thread: split into a shared module plus per-architecture switchers; pin the context layout against the assembly with compile-time offset assertions.
 - thread: take the stack pointer in `Thread::new` and keep the call site ABI-aligned.
+- deps: update `sbi-spec` to version 0.0.10.
 
 ### Fixed
 
