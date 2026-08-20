@@ -12,6 +12,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Modified
 
+- pmu: rename `CounterCfgFlags`, `CounterStartFlags`, and `CounterStopFlags` to `ConfigFlags`,
+  `StartFlags`, and `StopFlags`; retain deprecated aliases for source compatibility.
+
 ### Fixed
 
 ## [0.0.9] - 2026-05-13

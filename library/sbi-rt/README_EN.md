@@ -4,7 +4,7 @@
 
 Runtime library for supervisors to call RISC-V Supervisor Binary Interface (RISC-V SBI).
 
-Chapters implementation in 2.0 specification:
+Chapters implemented from the 3.0 specification:
 
 - [x] §3
 - [x] §4
@@ -15,7 +15,12 @@ Chapters implementation in 2.0 specification:
 - [x] §9
 - [x] §10
 - [x] §11
+- [x] §12
 - [x] §13
 - [x] §14
 - [x] §15
 - [x] §16
+- [x] §17
+- [x] §18
+- [x] §19
+- [x] §20

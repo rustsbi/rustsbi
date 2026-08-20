@@ -206,7 +206,7 @@ impl Pmu for SbiPmu {
         event_idx: usize,
         event_data: u64,
     ) -> SbiRet {
-        let flags = match flags::CounterCfgFlags::from_bits(config_flags) {
+        let flags = match flags::ConfigFlags::from_bits(config_flags) {
             Some(flags) => flags,
             None => return SbiRet::invalid_param(), // Reserved bits are set
         };
@@ -223,7 +223,7 @@ impl Pmu for SbiPmu {
             return SbiRet::invalid_param();
         }
 
-        let skip_match = flags.contains(flags::CounterCfgFlags::SKIP_MATCH);
+        let skip_match = flags.contains(flags::ConfigFlags::SKIP_MATCH);
 
         let counter_idx;
 
@@ -282,13 +282,13 @@ impl Pmu for SbiPmu {
         start_flags: usize,
         initial_value: u64,
     ) -> SbiRet {
-        let flags = match flags::CounterStartFlags::from_bits(start_flags) {
+        let flags = match flags::StartFlags::from_bits(start_flags) {
             Some(flags) => flags,
             None => return SbiRet::invalid_param(),
         };
 
         let pmu_state = &mut hart_context_mut(current_hartid()).pmu_state;
-        let is_update_value = flags.contains(flags::CounterStartFlags::INIT_VALUE);
+        let is_update_value = flags.contains(flags::StartFlags::INIT_VALUE);
 
         if counter_idx_base >= pmu_state.total_counters_num
             || (counter_idx_mask & ((1 << pmu_state.total_counters_num) - 1)) == 0
@@ -296,7 +296,7 @@ impl Pmu for SbiPmu {
             return SbiRet::invalid_param();
         }
 
-        if flags.contains(flags::CounterStartFlags::INIT_SNAPSHOT) {
+        if flags.contains(flags::StartFlags::INIT_SNAPSHOT) {
             return SbiRet::no_shmem();
         }
 
@@ -332,13 +332,13 @@ impl Pmu for SbiPmu {
         counter_idx_mask: usize,
         stop_flags: usize,
     ) -> SbiRet {
-        let flags = match flags::CounterStopFlags::from_bits(stop_flags) {
+        let flags = match flags::StopFlags::from_bits(stop_flags) {
             Some(flags) => flags,
             None => return SbiRet::invalid_param(),
         };
 
         let pmu_state = &mut hart_context_mut(current_hartid()).pmu_state;
-        let is_reset = flags.contains(flags::CounterStopFlags::RESET);
+        let is_reset = flags.contains(flags::StopFlags::RESET);
 
         if counter_idx_base >= pmu_state.total_counters_num
             || (counter_idx_mask & ((1 << pmu_state.total_counters_num) - 1)) == 0
@@ -346,7 +346,7 @@ impl Pmu for SbiPmu {
             return SbiRet::invalid_param();
         }
 
-        if flags.contains(flags::CounterStopFlags::TAKE_SNAPSHOT) {
+        if flags.contains(flags::StopFlags::TAKE_SNAPSHOT) {
             return SbiRet::no_shmem();
         }
 
@@ -625,10 +625,10 @@ fn configure_counter(
     pmu_state: &mut PmuState,
     counter_idx: usize,
     event: EventIdx,
-    flags: flags::CounterCfgFlags,
+    flags: flags::ConfigFlags,
 ) -> Result<(), SbiRet> {
-    let auto_start = flags.contains(flags::CounterCfgFlags::AUTO_START);
-    let clear_value = flags.contains(flags::CounterCfgFlags::CLEAR_VALUE);
+    let auto_start = flags.contains(flags::ConfigFlags::AUTO_START);
+    let clear_value = flags.contains(flags::ConfigFlags::CLEAR_VALUE);
     if event.is_firmware_event() {
         let firmware_event_idx = counter_idx - pmu_state.hw_counters_num;
         if firmware_event_idx >= PMU_FIRMWARE_COUNTER_MAX {

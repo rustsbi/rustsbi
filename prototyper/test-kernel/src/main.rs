@@ -14,7 +14,7 @@ use sbi_spec::{
     binary::{CounterMask, HartMask, SbiRet},
     pmu::firmware_event,
 };
-use sbi_testing::sbi::{self, ConfigFlags, StartFlags, StopFlags};
+use sbi_testing::sbi::{self, ConfigFlagsParam, StartFlagsParam, StopFlagsParam};
 // use sbi_spec::pmu::*;
 use uart16550::Uart16550;
 
@@ -462,19 +462,19 @@ struct Flag {
     inner: usize,
 }
 
-impl ConfigFlags for Flag {
+impl ConfigFlagsParam for Flag {
     fn raw(&self) -> usize {
         self.inner
     }
 }
 
-impl StartFlags for Flag {
+impl StartFlagsParam for Flag {
     fn raw(&self) -> usize {
         self.inner
     }
 }
 
-impl StopFlags for Flag {
+impl StopFlagsParam for Flag {
     fn raw(&self) -> usize {
         self.inner
     }
