@@ -113,7 +113,7 @@ pub fn pmu_counter_config_matching<T>(
     event_data: u64,
 ) -> SbiRet
 where
-    T: ConfigFlags,
+    T: ConfigFlagsParam,
 {
     let (counter_idx_mask, counter_idx_base) = counter_idx.into_inner();
     match () {
@@ -173,7 +173,7 @@ where
 #[doc(alias = "sbi_pmu_counter_start")]
 pub fn pmu_counter_start<T>(counter_idx: CounterMask, start_flags: T, initial_value: u64) -> SbiRet
 where
-    T: StartFlags,
+    T: StartFlagsParam,
 {
     let (counter_idx_mask, counter_idx_base) = counter_idx.into_inner();
     match () {
@@ -226,7 +226,7 @@ where
 #[doc(alias = "sbi_pmu_counter_stop")]
 pub fn pmu_counter_stop<T>(counter_idx: CounterMask, stop_flags: T) -> SbiRet
 where
-    T: StopFlags,
+    T: StopFlagsParam,
 {
     let (counter_idx_mask, counter_idx_base) = counter_idx.into_inner();
     sbi_call_3(
@@ -324,13 +324,13 @@ pub fn pmu_snapshot_set_shmem(shmem: SharedPtr<[u8; SIZE]>, flags: usize) -> Sbi
     )
 }
 
-/// Flags to configure performance counter.
-pub trait ConfigFlags {
+/// Flag parameter accepted when configuring a performance counter.
+pub trait ConfigFlagsParam {
     /// Get a raw value to pass to SBI environment.
     fn raw(&self) -> usize;
 }
 
-impl ConfigFlags for sbi_spec::pmu::flags::ConfigFlags {
+impl ConfigFlagsParam for sbi_spec::pmu::flags::ConfigFlags {
     #[inline]
     fn raw(&self) -> usize {
         self.bits()
@@ -338,20 +338,20 @@ impl ConfigFlags for sbi_spec::pmu::flags::ConfigFlags {
 }
 
 #[cfg(feature = "integer-impls")]
-impl ConfigFlags for usize {
+impl ConfigFlagsParam for usize {
     #[inline]
     fn raw(&self) -> usize {
         *self
     }
 }
 
-/// Flags to start performance counter.
-pub trait StartFlags {
+/// Flag parameter accepted when starting performance counters.
+pub trait StartFlagsParam {
     /// Get a raw value to pass to SBI environment.
     fn raw(&self) -> usize;
 }
 
-impl StartFlags for sbi_spec::pmu::flags::StartFlags {
+impl StartFlagsParam for sbi_spec::pmu::flags::StartFlags {
     #[inline]
     fn raw(&self) -> usize {
         self.bits()
@@ -359,20 +359,20 @@ impl StartFlags for sbi_spec::pmu::flags::StartFlags {
 }
 
 #[cfg(feature = "integer-impls")]
-impl StartFlags for usize {
+impl StartFlagsParam for usize {
     #[inline]
     fn raw(&self) -> usize {
         *self
     }
 }
 
-/// Flags to stop performance counter.
-pub trait StopFlags {
+/// Flag parameter accepted when stopping performance counters.
+pub trait StopFlagsParam {
     /// Get a raw value to pass to SBI environment.
     fn raw(&self) -> usize;
 }
 
-impl StopFlags for sbi_spec::pmu::flags::StopFlags {
+impl StopFlagsParam for sbi_spec::pmu::flags::StopFlags {
     #[inline]
     fn raw(&self) -> usize {
         self.bits()
@@ -380,7 +380,7 @@ impl StopFlags for sbi_spec::pmu::flags::StopFlags {
 }
 
 #[cfg(feature = "integer-impls")]
-impl StopFlags for usize {
+impl StopFlagsParam for usize {
     #[inline]
     fn raw(&self) -> usize {
         *self
@@ -391,16 +391,28 @@ impl StopFlags for usize {
 mod tests {
     use sbi_spec::pmu::flags::{ConfigFlags, StartFlags, StopFlags};
 
-    use super::{ConfigFlags as _, StartFlags as _, StopFlags as _};
+    use super::{ConfigFlagsParam, StartFlagsParam, StopFlagsParam};
 
     #[test]
-    fn spec_flags_implement_runtime_flag_traits() {
+    fn typed_flags_have_the_expected_abi_values() {
         let config = ConfigFlags::SKIP_MATCH | ConfigFlags::AUTO_START;
         let start = StartFlags::INIT_VALUE | StartFlags::INIT_SNAPSHOT;
         let stop = StopFlags::RESET | StopFlags::TAKE_SNAPSHOT;
 
-        assert_eq!(config.raw(), config.bits());
-        assert_eq!(start.raw(), start.bits());
-        assert_eq!(stop.raw(), stop.bits());
+        assert_eq!(config.raw(), 5);
+        assert_eq!(start.raw(), 3);
+        assert_eq!(stop.raw(), 3);
+    }
+
+    #[cfg(feature = "integer-impls")]
+    #[test]
+    fn typed_and_raw_flags_have_the_same_abi_values() {
+        let config = ConfigFlags::SKIP_MATCH | ConfigFlags::AUTO_START;
+        let start = StartFlags::INIT_VALUE | StartFlags::INIT_SNAPSHOT;
+        let stop = StopFlags::RESET | StopFlags::TAKE_SNAPSHOT;
+
+        assert_eq!(config.raw(), ConfigFlagsParam::raw(&config.bits()));
+        assert_eq!(start.raw(), StartFlagsParam::raw(&start.bits()));
+        assert_eq!(stop.raw(), StopFlagsParam::raw(&stop.bits()));
     }
 }

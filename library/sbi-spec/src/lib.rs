@@ -1,6 +1,6 @@
 //! RISC-V SBI Specification structure and constant definitions.
 //!
-//! This crate adapts to RISC-V SBI Specification version 2.0 ratified.
+//! This crate adapts to RISC-V SBI Specification version 3.0 ratified.
 //! It provides structures in Rust semantics and best practices to simplify
 //! designs of RISC-V SBI ecosystem, both implementation and applications.
 //!

@@ -9,11 +9,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- pmu: implement runtime flag traits for the corresponding `sbi-spec` PMU flag types.
+- pmu: implement the flag parameter traits for the corresponding `sbi-spec` PMU flag types.
 
 ### Modified
 
 - deps: update `sbi-spec` to version 0.0.10.
+- pmu: rename flag parameter traits to `ConfigFlagsParam`, `StartFlagsParam` and `StopFlagsParam`.
 
 ### Fixed
 
