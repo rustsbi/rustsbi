@@ -1,5 +1,6 @@
 use std::{
     fs,
+    io::ErrorKind,
     path::{Path, PathBuf},
     process::{Command, ExitStatus},
 };
@@ -156,6 +157,8 @@ fn copy_mode_artifacts(spec: &BuildSpec, paths: &BuildPaths) -> Result<()> {
     let mode_suffix = spec.artifact_suffix();
     info!("Copy artifacts for {} mode", mode_suffix);
 
+    remove_stale_generic_payload_artifacts(&paths.artifact_dir, mode_suffix)?;
+
     let elf_source = paths.artifact_dir.join(PACKAGE_NAME);
     let elf_destination = paths
         .artifact_dir
@@ -177,6 +180,35 @@ fn copy_mode_artifacts(spec: &BuildSpec, paths: &BuildPaths) -> Result<()> {
         binary_destination.display()
     );
     copy_artifact(&binary_source, &binary_destination)
+}
+
+/// Remove the generic `rustsbi-prototyper-payload.{elf,bin}` artifacts when
+/// building a kernel-suffixed payload variant (e.g. `payload-test`), so a
+/// stale generic artifact cannot be mistaken for the fresh output. Dynamic
+/// and jump artifacts are never touched: CI builds all modes side by side.
+pub(super) fn remove_stale_generic_payload_artifacts(
+    artifact_dir: &Path,
+    mode_suffix: &str,
+) -> Result<()> {
+    if !(mode_suffix.starts_with("payload") && mode_suffix != "payload") {
+        return Ok(());
+    }
+    for extension in ["elf", "bin"] {
+        let stale = artifact_dir.join(format!("{PACKAGE_NAME}-payload.{extension}"));
+        match fs::remove_file(&stale) {
+            Ok(()) => info!("Removed stale payload artifact: {}", stale.display()),
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "failed to remove stale payload artifact '{}'",
+                        stale.display()
+                    )
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 fn copy_artifact(source: &Path, destination: &Path) -> Result<()> {

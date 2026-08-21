@@ -8,8 +8,8 @@ use clap::Parser;
 
 use super::{
     ARCH, BuildArgs, BuildMode, BuildPaths, PlatformAddresses, PrototyperCommand,
-    generate_build_inputs, kernels::QemuOptions, qemu::verify_output, render_linker_script,
-    resolve_in,
+    build::remove_stale_generic_payload_artifacts, generate_build_inputs, kernels::QemuOptions,
+    qemu::verify_output, render_linker_script, resolve_in,
 };
 use crate::utils::cargo_target_dir_in;
 
@@ -404,4 +404,47 @@ fn cargo_target_dir_honors_env_override() {
     let default = cargo_target_dir_in(None, cwd);
     assert!(default.ends_with("target"));
     assert!(default.is_absolute());
+}
+
+#[test]
+fn stale_generic_payload_artifacts_are_removed_for_suffixed_payload_builds() {
+    let root = env::temp_dir().join(format!(
+        "xtask-prototyper-test-{}-{}",
+        std::process::id(),
+        NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir_all(&root).unwrap();
+    for extension in ["elf", "bin"] {
+        fs::write(
+            root.join(format!("rustsbi-prototyper-payload.{extension}")),
+            b"stale",
+        )
+        .unwrap();
+        fs::write(
+            root.join(format!("rustsbi-prototyper-dynamic.{extension}")),
+            b"keep",
+        )
+        .unwrap();
+    }
+
+    remove_stale_generic_payload_artifacts(&root, "payload-test").unwrap();
+    assert!(!root.join("rustsbi-prototyper-payload.elf").exists());
+    assert!(!root.join("rustsbi-prototyper-payload.bin").exists());
+    // Dynamic artifacts are side-by-side outputs and must survive.
+    assert!(root.join("rustsbi-prototyper-dynamic.elf").exists());
+
+    // A plain payload build keeps its own artifacts; missing files are fine.
+    for extension in ["elf", "bin"] {
+        fs::write(
+            root.join(format!("rustsbi-prototyper-payload.{extension}")),
+            b"fresh",
+        )
+        .unwrap();
+    }
+    remove_stale_generic_payload_artifacts(&root, "payload").unwrap();
+    assert!(root.join("rustsbi-prototyper-payload.elf").exists());
+    remove_stale_generic_payload_artifacts(&root, "jump").unwrap();
+    remove_stale_generic_payload_artifacts(&root, "payload-bench").unwrap();
+    assert!(!root.join("rustsbi-prototyper-payload.elf").exists());
+    let _ = fs::remove_dir_all(&root);
 }
