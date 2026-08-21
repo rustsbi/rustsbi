@@ -1,0 +1,13 @@
+# Console lines a successful QEMU boot of the test kernel must print.
+# One fixed string per line; `{smp}` is replaced with the hart count.
+# Single source shared by xtask (`Kernel::expected_patterns`) and
+# `.github/scripts/prototyper-qemu-boot.sh`.
+Hello RustSBI!
+Platform HART Count           : {smp}
+Sbi `Base` test pass
+Sbi `TIME` test pass
+Sbi `sPI` test pass
+Sbi `DBCN` test pass
+DBCN rejected non-zero upper-half write
+DBCN rejected non-zero upper-half read
+[pmu] counters number:

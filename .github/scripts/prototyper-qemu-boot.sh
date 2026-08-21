@@ -5,6 +5,11 @@ mode=${1:?missing mode}
 kernel=${2:?missing kernel}
 log_dir=${3:-qemu-logs}
 
+# Single source for the verification patterns, shared with xtask
+# (`Kernel::expected_patterns` / `kernels::forbidden_patterns`).
+expected_file="prototyper/${kernel}-kernel/scripts/expected.txt"
+forbidden_file="prototyper/scripts/qemu-forbidden.txt"
+
 mkdir -p "$log_dir"
 
 case "$kernel" in
@@ -13,14 +18,12 @@ case "$kernel" in
     attempts=${QEMU_BOOT_TEST_RETRIES:-2}
     timeout_secs=${QEMU_BOOT_TEST_TIMEOUT_SECS:-60}
     payload_bin="target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.bin"
-    payload_elf="target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload-test.elf"
     ;;
   bench)
     smp=4
     attempts=${QEMU_BOOT_BENCH_RETRIES:-4}
     timeout_secs=${QEMU_BOOT_BENCH_TIMEOUT_SECS:-90}
     payload_bin="target/riscv64imac-unknown-none-elf/release/rustsbi-bench-kernel.bin"
-    payload_elf="target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload-bench.elf"
     ;;
   *)
     echo "unknown kernel: $kernel" >&2
@@ -28,11 +31,9 @@ case "$kernel" in
     ;;
 esac
 
+# Payload-mode boots are verified by `cargo prototyper test` / `bench`
+# themselves; this script covers the dynamic and jump firmware modes.
 case "$mode" in
-  payload)
-    bios="$payload_elf"
-    extra_args=()
-    ;;
   dynamic)
     bios="target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.elf"
     extra_args=(-kernel "$payload_bin")
@@ -68,8 +69,10 @@ run_once() {
   test "$qemu_exit" = "0" || return 1
   test -s "$log_file" || return 1
 
-  grep -F 'Hello RustSBI!' "$log_file" || return 1
-  grep -F "Platform HART Count           : $smp" "$log_file" || return 1
+  while IFS= read -r pattern; do
+    case "$pattern" in ''|'#'*) continue ;; esac
+    grep -Fq "$pattern" "$log_file" || return 1
+  done < <(sed "s/{smp}/$smp/g" "$expected_file")
 
   # Boot-policy order guard: the boot-hart presentation sequence must
   # appear in phase order. A reorder or drop means the boot policy
@@ -83,26 +86,12 @@ run_once() {
        }
        END { exit !(count == n && !fail) }' "$log_file" || return 1
 
-  case "$kernel" in
-    test)
-      grep -F 'Sbi `Base` test pass' "$log_file" || return 1
-      grep -F 'Sbi `TIME` test pass' "$log_file" || return 1
-      grep -F 'Sbi `sPI` test pass' "$log_file" || return 1
-      grep -F 'Sbi `DBCN` test pass' "$log_file" || return 1
-      grep -F 'DBCN rejected non-zero upper-half write' "$log_file" || return 1
-      grep -F 'DBCN rejected non-zero upper-half read' "$log_file" || return 1
-      grep -F '[pmu] counters number:' "$log_file" || return 1
-      ;;
-    bench)
-      grep -F 'Starting test' "$log_file" || return 1
-      grep -F 'Test #0:' "$log_file" || return 1
-      grep -F 'Test #1:' "$log_file" || return 1
-      grep -F 'Test #2:' "$log_file" || return 1
-      grep -F 'Test #3:' "$log_file" || return 1
-      ;;
-  esac
-
-  ! grep -En 'panicked|FAILED|SystemFailure' "$log_file" || return 1
+  while IFS= read -r pattern; do
+    case "$pattern" in ''|'#'*) continue ;; esac
+    if grep -Fq "$pattern" "$log_file"; then
+      return 1
+    fi
+  done < "$forbidden_file"
 }
 
 for attempt in $(seq 1 "$attempts"); do

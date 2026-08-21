@@ -1,6 +1,6 @@
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, ExitStatus},
     time::Duration,
 };
@@ -76,38 +76,20 @@ impl Kernel {
 
     /// Console output patterns expected from a successful run of this kernel.
     ///
-    /// Keep in sync with `.github/scripts/prototyper-qemu-boot.sh`, which
-    /// verifies the same kernels in dynamic and jump mode.
-    fn expected_patterns(self, smp: usize) -> Vec<String> {
-        let mut patterns = vec![
-            "Hello RustSBI!".to_string(),
-            format!("Platform HART Count           : {smp}"),
-        ];
-        match self {
-            Kernel::Test => patterns.extend(
-                [
-                    "Sbi `Base` test pass",
-                    "Sbi `TIME` test pass",
-                    "Sbi `sPI` test pass",
-                    "Sbi `DBCN` test pass",
-                    "DBCN rejected non-zero upper-half write",
-                    "DBCN rejected non-zero upper-half read",
-                    "[pmu] counters number:",
-                ]
-                .map(String::from),
-            ),
-            Kernel::Bench => patterns.extend(
-                [
-                    "Starting test",
-                    "Test #0:",
-                    "Test #1:",
-                    "Test #2:",
-                    "Test #3:",
-                ]
-                .map(String::from),
-            ),
-        }
-        patterns
+    /// Read from the kernel's `scripts/expected.txt` — the single source
+    /// shared with `.github/scripts/prototyper-qemu-boot.sh`, which verifies
+    /// the same kernels in dynamic and jump mode. `{smp}` placeholders are
+    /// replaced with the hart count.
+    pub(super) fn expected_patterns(self, smp: usize) -> Result<Vec<String>> {
+        let path = workspace_root()
+            .join("prototyper")
+            .join(self.dir_name())
+            .join("scripts")
+            .join("expected.txt");
+        Ok(read_console_patterns(&path)?
+            .into_iter()
+            .map(|pattern| pattern.replace("{smp}", &smp.to_string()))
+            .collect())
     }
 
     /// Build this kernel for the `imac` target and convert it to raw binary.
@@ -328,7 +310,8 @@ pub(super) fn run(
             smp: qemu_options.smp,
             timeout: Duration::from_secs(qemu_options.timeout_secs),
             attempts: qemu_options.attempts,
-            expected: kernel.expected_patterns(qemu_options.smp),
+            expected: kernel.expected_patterns(qemu_options.smp)?,
+            forbidden: forbidden_patterns()?,
             label: kernel.command_name().to_string(),
         })?;
     }
@@ -343,4 +326,29 @@ fn kernel_paths() -> (PathBuf, PathBuf) {
         workspace_root(),
         cargo_target_dir().join(ARCH).join("release"),
     )
+}
+
+/// Console substrings that mark a failed QEMU boot even when the process
+/// exits successfully, read from `prototyper/scripts/qemu-forbidden.txt` —
+/// the single source shared with `.github/scripts/prototyper-qemu-boot.sh`.
+pub(super) fn forbidden_patterns() -> Result<Vec<String>> {
+    read_console_patterns(
+        &workspace_root()
+            .join("prototyper")
+            .join("scripts")
+            .join("qemu-forbidden.txt"),
+    )
+}
+
+/// Read console patterns from a pattern file: one fixed string per line,
+/// skipping blank lines and `#` comments.
+fn read_console_patterns(path: &Path) -> Result<Vec<String>> {
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("failed to read console pattern file '{}'", path.display()))?;
+    Ok(content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(String::from)
+        .collect())
 }

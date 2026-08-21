@@ -18,11 +18,6 @@ use anyhow::{Context, Result, bail};
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 /// Number of console lines printed when a run fails.
 const LOG_TAIL_LINES: usize = 120;
-/// Substrings that mark a failed run even when QEMU exits successfully.
-///
-/// Matches the `panicked at` prefix of Rust panic messages; the shorter
-/// `panic` would false-positive on legitimate output mentioning panics.
-const FORBIDDEN_PATTERNS: &[&str] = &["panicked", "FAILED", "SystemFailure"];
 
 /// A QEMU boot to execute and verify.
 pub(super) struct QemuRun {
@@ -36,6 +31,11 @@ pub(super) struct QemuRun {
     pub attempts: usize,
     /// Console substrings that must all be present for the run to pass.
     pub expected: Vec<String>,
+    /// Console substrings that mark a failed run even when QEMU exits
+    /// successfully (e.g. the `panicked at` prefix of Rust panic messages;
+    /// the shorter `panic` would false-positive on legitimate output
+    /// mentioning panics).
+    pub forbidden: Vec<String>,
     /// Human readable label used in log messages (e.g. `test`).
     pub label: String,
 }
@@ -73,7 +73,7 @@ pub(super) fn run(run: &QemuRun) -> Result<()> {
             Attempt::Exited {
                 success: true,
                 output,
-            } => match verify_output(&output, &run.expected) {
+            } => match verify_output(&output, &run.expected, &run.forbidden) {
                 Ok(()) => {
                     info!(
                         "{} kernel run passed on attempt {}/{}",
@@ -218,8 +218,8 @@ fn join_stream_reader(
 }
 
 /// Verify captured console output: all `expected` patterns must be present
-/// and no failure pattern may appear.
-pub(super) fn verify_output(output: &str, expected: &[String]) -> Result<()> {
+/// and no `forbidden` pattern may appear.
+pub(super) fn verify_output(output: &str, expected: &[String], forbidden: &[String]) -> Result<()> {
     if output.trim().is_empty() {
         bail!("QEMU produced no console output");
     }
@@ -236,9 +236,9 @@ pub(super) fn verify_output(output: &str, expected: &[String]) -> Result<()> {
         );
     }
 
-    if let Some(pattern) = FORBIDDEN_PATTERNS
+    if let Some(pattern) = forbidden
         .iter()
-        .find(|pattern| output.contains(**pattern))
+        .find(|pattern| output.contains(pattern.as_str()))
     {
         bail!("kernel output contains failure pattern `{pattern}`");
     }

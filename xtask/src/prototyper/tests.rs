@@ -8,8 +8,11 @@ use clap::Parser;
 
 use super::{
     ARCH, BuildArgs, BuildMode, BuildPaths, PlatformAddresses, PrototyperCommand,
-    build::remove_stale_generic_payload_artifacts, generate_build_inputs, kernels::QemuOptions,
-    qemu::verify_output, render_linker_script, resolve_in,
+    build::remove_stale_generic_payload_artifacts,
+    generate_build_inputs,
+    kernels::{Kernel, QemuOptions, forbidden_patterns},
+    qemu::verify_output,
+    render_linker_script, resolve_in,
 };
 use crate::utils::cargo_target_dir_in;
 
@@ -147,23 +150,46 @@ fn qemu_output_verification_checks_expected_and_forbidden_patterns() {
         "Platform HART Count           : 1".to_string(),
         "Sbi `Base` test pass".to_string(),
     ];
+    let forbidden = vec!["panicked".to_string(), "FAILED".to_string()];
     let passing = "RustSBI version\n\
                    Hello RustSBI!\n\
                    Platform HART Count           : 1\n\
                    Sbi `Base` test pass\n";
-    assert!(verify_output(passing, &expected).is_ok());
+    assert!(verify_output(passing, &expected, &forbidden).is_ok());
 
-    let missing = verify_output("Hello RustSBI!", &expected).unwrap_err();
+    let missing = verify_output("Hello RustSBI!", &expected, &forbidden).unwrap_err();
     assert!(format!("{missing:#}").contains("Platform HART Count"));
 
-    let forbidden = verify_output(
+    let failure = verify_output(
         "Hello RustSBI!\nPlatform HART Count           : 1\nSbi `Base` test pass\npanicked at 'oops'",
         &expected,
+        &forbidden,
     )
     .unwrap_err();
-    assert!(format!("{forbidden:#}").contains("panic"));
+    assert!(format!("{failure:#}").contains("panic"));
 
-    assert!(verify_output("", &expected).is_err());
+    assert!(verify_output("", &expected, &forbidden).is_err());
+}
+
+#[test]
+fn console_pattern_files_drive_qemu_verification() {
+    // The shared pattern files under `prototyper/` are the single source for
+    // xtask and `.github/scripts/prototyper-qemu-boot.sh`; they must parse,
+    // substitute `{smp}`, and keep the load-bearing patterns.
+    let test_patterns = Kernel::Test.expected_patterns(4).unwrap();
+    assert!(test_patterns.contains(&"Hello RustSBI!".to_string()));
+    assert!(test_patterns.contains(&"Platform HART Count           : 4".to_string()));
+    assert!(test_patterns.contains(&"Sbi `TIME` test pass".to_string()));
+    assert!(test_patterns.contains(&"[pmu] counters number:".to_string()));
+
+    let bench_patterns = Kernel::Bench.expected_patterns(1).unwrap();
+    assert!(bench_patterns.contains(&"Platform HART Count           : 1".to_string()));
+    assert!(bench_patterns.contains(&"Test #3:".to_string()));
+
+    let forbidden = forbidden_patterns().unwrap();
+    assert!(forbidden.contains(&"panicked".to_string()));
+    assert!(forbidden.contains(&"FAILED".to_string()));
+    assert!(forbidden.contains(&"SystemFailure".to_string()));
 }
 
 #[test]
