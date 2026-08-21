@@ -5,8 +5,9 @@
 //! Mirrors the payload branch of `.github/scripts/prototyper-qemu-boot.sh`.
 
 use std::{
+    io::Read,
     path::PathBuf,
-    process::{Command, Stdio},
+    process::{Child, Command, Stdio},
     thread,
     time::{Duration, Instant},
 };
@@ -118,6 +119,9 @@ pub(super) fn run(run: &QemuRun) -> Result<()> {
 }
 
 /// Spawn one QEMU process, enforce the timeout, and capture console output.
+///
+/// stdout and stderr are drained on dedicated threads while the child runs;
+/// reading only after exit would deadlock once QEMU fills the pipe buffer.
 fn run_once(run: &QemuRun) -> Result<Attempt> {
     let mut child = Command::new("qemu-system-riscv64")
         .args([
@@ -140,6 +144,9 @@ fn run_once(run: &QemuRun) -> Result<Attempt> {
              and make sure qemu-system-riscv64 is on PATH",
         )?;
 
+    let stdout_reader = spawn_stream_reader(&mut child, Stream::Stdout);
+    let stderr_reader = spawn_stream_reader(&mut child, Stream::Stderr);
+
     let deadline = Instant::now() + run.timeout;
     let timed_out = loop {
         match child.try_wait() {
@@ -158,20 +165,53 @@ fn run_once(run: &QemuRun) -> Result<Attempt> {
         }
     };
 
-    let output = child
-        .wait_with_output()
-        .context("failed to read QEMU console output")?;
-    let mut console = String::from_utf8_lossy(&output.stdout).into_owned();
-    console.push_str(&String::from_utf8_lossy(&output.stderr));
+    let status = child.wait().context("failed to wait on the QEMU process")?;
+    let stdout = join_stream_reader(stdout_reader, "stdout")?;
+    let stderr = join_stream_reader(stderr_reader, "stderr")?;
+    let mut console = String::from_utf8_lossy(&stdout).into_owned();
+    console.push_str(&String::from_utf8_lossy(&stderr));
 
     if timed_out {
         Ok(Attempt::TimedOut { output: console })
     } else {
         Ok(Attempt::Exited {
-            success: output.status.success(),
+            success: status.success(),
             output: console,
         })
     }
+}
+
+/// Which child stream a reader thread drains.
+enum Stream {
+    Stdout,
+    Stderr,
+}
+
+/// Spawn a thread that reads the given child stream to EOF.
+fn spawn_stream_reader(
+    child: &mut Child,
+    stream: Stream,
+) -> thread::JoinHandle<std::io::Result<Vec<u8>>> {
+    let mut pipe: Box<dyn Read + Send> = match stream {
+        Stream::Stdout => Box::new(child.stdout.take().expect("child stdout was piped")),
+        Stream::Stderr => Box::new(child.stderr.take().expect("child stderr was piped")),
+    };
+    thread::spawn(move || {
+        let mut buffer = Vec::new();
+        pipe.read_to_end(&mut buffer)?;
+        Ok(buffer)
+    })
+}
+
+/// Join a stream reader thread and return the captured bytes.
+fn join_stream_reader(
+    reader: thread::JoinHandle<std::io::Result<Vec<u8>>>,
+    name: &str,
+) -> Result<Vec<u8>> {
+    reader
+        .join()
+        .map_err(|_| anyhow::anyhow!("QEMU {name} reader thread panicked"))?
+        .with_context(|| format!("failed to read QEMU {name}"))
 }
 
 /// Verify captured console output: all `expected` patterns must be present

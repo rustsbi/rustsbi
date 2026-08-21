@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- fix(xtask): drain QEMU stdout/stderr on reader threads while the child runs, fixing a pipe-buffer deadlock on verbose kernel output
 - feat(xtask): run test/bench kernels in QEMU after `cargo prototyper test`/`bench` builds, with `--no-run`, `--smp`, `--timeout`, and `--retries` options
 - fix(xtask): pack test/bench ITB images with a dynamic-mode firmware instead of double-embedding the kernel
 - refactor(xtask): unify prototyper build pipeline
