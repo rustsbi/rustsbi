@@ -280,14 +280,33 @@ impl QemuOptions {
     }
 }
 
+/// Firmware build options shared by kernel-backed commands, forwarded to
+/// the payload-mode firmware build.
+#[derive(Debug, Clone, Default)]
+pub(super) struct FirmwareOptions {
+    /// Build the firmware in the debug profile instead of release.
+    pub debug: bool,
+    /// Custom firmware config file.
+    pub config_file: Option<PathBuf>,
+}
+
 /// Run a kernel-backed prototyper command (`test` or `bench`):
 /// build the kernel and the payload-mode firmware embedding it, then boot
 /// the firmware in QEMU and verify the kernel's console output.
-pub(super) fn run(kernel: Kernel, pack: bool, qemu_options: QemuOptions) -> Result<ExitStatus> {
+pub(super) fn run(
+    kernel: Kernel,
+    pack: bool,
+    qemu_options: QemuOptions,
+    firmware_options: &FirmwareOptions,
+) -> Result<ExitStatus> {
     qemu_options.validate()?;
 
     let kernel_binary = kernel.build()?;
-    let build_args = BuildArgs::payload(kernel_binary, false);
+    let build_args = BuildArgs::payload(
+        kernel_binary,
+        firmware_options.debug,
+        firmware_options.config_file.clone(),
+    );
     let mut spec = resolve(&build_args).context("failed to resolve prototyper build inputs")?;
     spec.override_artifact_suffix(format!("payload-{}", kernel.command_name()));
 

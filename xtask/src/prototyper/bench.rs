@@ -1,9 +1,10 @@
+use std::path::PathBuf;
 use std::process::ExitStatus;
 
 use anyhow::Result;
 use clap::Args;
 
-use super::kernels::{self, Kernel, QemuOptions};
+use super::kernels::{self, FirmwareOptions, Kernel, QemuOptions};
 
 /// Arguments for `cargo prototyper bench`.
 #[derive(Debug, Args, Clone)]
@@ -30,6 +31,14 @@ pub struct BenchArgs {
     /// Number of QEMU attempts; retries happen only after a timeout
     #[arg(long, default_value_t = Kernel::Bench.default_attempts())]
     pub retries: usize,
+
+    /// Build the firmware in the debug profile instead of release
+    #[arg(long)]
+    pub debug: bool,
+
+    /// Specify the path to a custom configuration file for the firmware
+    #[arg(long, short = 'c')]
+    pub config_file: Option<PathBuf>,
 }
 
 pub(crate) fn run(args: &BenchArgs) -> Result<ExitStatus> {
@@ -41,6 +50,10 @@ pub(crate) fn run(args: &BenchArgs) -> Result<ExitStatus> {
             smp: args.smp,
             timeout_secs: args.timeout,
             attempts: args.retries,
+        },
+        &FirmwareOptions {
+            debug: args.debug,
+            config_file: args.config_file.clone(),
         },
     )
 }

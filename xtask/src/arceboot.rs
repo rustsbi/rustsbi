@@ -87,7 +87,7 @@ pub fn run(arg: &ArcebootArg) -> Option<ExitStatus> {
     let sbi_path = if arg.payload || arg.qemu {
         info!("Building RustSBI Prototyper with ArceBoot as payload");
         let prototyper_command = crate::prototyper::PrototyperCommand::Build(
-            crate::prototyper::BuildArgs::payload(bin_path.clone(), arg.debug),
+            crate::prototyper::BuildArgs::payload(bin_path.clone(), arg.debug, None),
         );
         let exit_status = match crate::prototyper::run(&prototyper_command) {
             Ok(exit_status) => exit_status,

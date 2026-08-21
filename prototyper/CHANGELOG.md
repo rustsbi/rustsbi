@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file. See [conven
 ### Modified
 - fix(xtask): drain QEMU stdout/stderr on reader threads while the child runs, fixing a pipe-buffer deadlock on verbose kernel output
 - fix(xtask): resolve repo-internal paths from the workspace root instead of the working directory, and honor `CARGO_TARGET_DIR` for firmware/kernel artifact directories
+- feat(xtask): add `--debug` and `--config-file` options to `cargo prototyper test`/`bench`, forwarded to the payload firmware build
 - fix(xtask): remove stale generic `rustsbi-prototyper-payload.{elf,bin}` artifacts after kernel-suffixed payload builds (`test`/`bench`)
 - fix(xtask): match `panicked` instead of `panic` in QEMU output verification to avoid false positives, and validate `--smp`/`--retries` before building (also with `--no-run`)
 - feat(xtask): run test/bench kernels in QEMU after `cargo prototyper test`/`bench` builds, with `--no-run`, `--smp`, `--timeout`, and `--retries` options

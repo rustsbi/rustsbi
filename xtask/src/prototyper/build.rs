@@ -53,13 +53,13 @@ pub enum BuildMode {
 }
 
 impl BuildArgs {
-    pub(crate) fn payload(path: PathBuf, debug: bool) -> Self {
+    pub(crate) fn payload(path: PathBuf, debug: bool, config_file: Option<PathBuf>) -> Self {
         Self {
             mode: Some(BuildMode::Payload { path }),
             features: Vec::new(),
             fdt: None,
             debug,
-            config_file: None,
+            config_file,
             target: None,
         }
     }
