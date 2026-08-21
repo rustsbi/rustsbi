@@ -1,11 +1,11 @@
 use std::{
-    env, fs,
+    fs,
     path::PathBuf,
     process::{Command, ExitStatus},
     time::Duration,
 };
 
-use crate::utils::cargo;
+use crate::utils::{cargo, cargo_target_dir, workspace_root};
 use anyhow::{Context, Result, bail};
 
 use super::{
@@ -115,7 +115,7 @@ impl Kernel {
     /// Returns the path of the produced `.bin`, used as the payload input of
     /// the firmware build.
     fn build(self) -> Result<PathBuf> {
-        let (_, target_dir) = kernel_paths()?;
+        let (_, target_dir) = kernel_paths();
 
         info!("Building {} kernel", self.command_name());
         let build_status = cargo::Cargo::new("build")
@@ -176,7 +176,7 @@ impl Kernel {
     /// stage its unsuffixed intermediate `rustsbi-prototyper.bin` beside the
     /// kernel, where the kernel's ITS expects it.
     fn pack(self) -> Result<()> {
-        let (current_dir, target_dir) = kernel_paths()?;
+        let (workspace_root, target_dir) = kernel_paths();
 
         info!("Building dynamic firmware for packing");
         let dynamic_spec = resolve(&BuildArgs::dynamic())
@@ -190,7 +190,7 @@ impl Kernel {
             );
         }
         let firmware_bin = dynamic_spec
-            .artifact_dir(&current_dir)
+            .artifact_dir()
             .join(format!("{PACKAGE_NAME}.bin"));
 
         info!("Packing {} kernel into image", self.command_name());
@@ -206,7 +206,7 @@ impl Kernel {
             )
         })?;
 
-        let its_source = current_dir
+        let its_source = workspace_root
             .join("prototyper")
             .join(self.dir_name())
             .join("scripts")
@@ -291,8 +291,6 @@ pub(super) fn run(kernel: Kernel, pack: bool, qemu_options: QemuOptions) -> Resu
     let mut spec = resolve(&build_args).context("failed to resolve prototyper build inputs")?;
     spec.override_artifact_suffix(format!("payload-{}", kernel.command_name()));
 
-    let current_dir = env::current_dir().context("failed to determine current directory")?;
-
     let exit_status = build_firmware(&spec)?;
     if !exit_status.success() {
         return Ok(exit_status);
@@ -304,7 +302,7 @@ pub(super) fn run(kernel: Kernel, pack: bool, qemu_options: QemuOptions) -> Resu
 
     if !qemu_options.no_run {
         let firmware_elf = spec
-            .artifact_dir(&current_dir)
+            .artifact_dir()
             .join(format!("{PACKAGE_NAME}-{}.elf", spec.artifact_suffix()));
         qemu::run(&QemuRun {
             bios: firmware_elf,
@@ -319,8 +317,11 @@ pub(super) fn run(kernel: Kernel, pack: bool, qemu_options: QemuOptions) -> Resu
     Ok(exit_status)
 }
 
-fn kernel_paths() -> Result<(PathBuf, PathBuf)> {
-    let current_dir = env::current_dir().context("failed to determine current directory")?;
-    let target_dir = current_dir.join("target").join(ARCH).join("release");
-    Ok((current_dir, target_dir))
+/// Paths used by kernel builds: the workspace root (for kernel scripts) and
+/// the kernel's cargo target directory (honors `CARGO_TARGET_DIR`).
+fn kernel_paths() -> (PathBuf, PathBuf) {
+    (
+        workspace_root(),
+        cargo_target_dir().join(ARCH).join("release"),
+    )
 }

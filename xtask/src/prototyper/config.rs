@@ -5,6 +5,8 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 
+use crate::utils::{cargo_target_dir, workspace_root};
+
 use super::{
     ARCH,
     build::{BuildArgs, BuildMode},
@@ -45,10 +47,19 @@ pub(crate) struct PlatformAddresses {
 /// Resolve raw CLI arguments into a validated build specification.
 pub(crate) fn resolve(args: &BuildArgs) -> Result<BuildSpec> {
     let current_dir = env::current_dir().context("failed to determine current directory")?;
-    resolve_in(args, &current_dir)
+    resolve_in(args, &current_dir, &workspace_root())
 }
 
-pub(crate) fn resolve_in(args: &BuildArgs, current_dir: &Path) -> Result<BuildSpec> {
+/// Resolve raw CLI arguments into a validated build specification.
+///
+/// User-supplied paths (payload, FDT, config file) are absolutized against
+/// `current_dir` (the process working directory); repo-internal defaults
+/// come from `workspace_root` so xtask works from any working directory.
+pub(crate) fn resolve_in(
+    args: &BuildArgs,
+    current_dir: &Path,
+    workspace_root: &Path,
+) -> Result<BuildSpec> {
     let mode = args.mode.clone().unwrap_or(BuildMode::Dynamic);
     let features = normalize_features(&args.features);
 
@@ -90,13 +101,14 @@ pub(crate) fn resolve_in(args: &BuildArgs, current_dir: &Path) -> Result<BuildSp
         bail!("FDT file does not exist: '{}'", fdt.display());
     }
 
-    let config_source = args.config_file.clone().unwrap_or_else(|| {
-        current_dir
+    let config_source = match &args.config_file {
+        Some(path) => absolutize(path, current_dir),
+        None => workspace_root
             .join("prototyper")
             .join("prototyper")
             .join("config")
-            .join("default.toml")
-    });
+            .join("default.toml"),
+    };
     if !config_source.exists() {
         bail!("config file '{}' does not exist", config_source.display());
     }
@@ -266,10 +278,15 @@ impl BuildSpec {
         if self.debug { "debug" } else { "release" }
     }
 
-    pub(crate) fn artifact_dir(&self, current_dir: &Path) -> PathBuf {
-        current_dir
-            .join("target")
-            .join(&self.target_triple)
-            .join(self.profile())
+    /// Directory the mode-suffixed artifacts land in. Honors
+    /// `CARGO_TARGET_DIR`, like cargo itself does.
+    pub(crate) fn artifact_dir(&self) -> PathBuf {
+        self.artifact_dir_in(&cargo_target_dir())
+    }
+
+    /// Pure core of [`Self::artifact_dir`], taking the cargo target
+    /// directory as a parameter so tests do not mutate process env.
+    pub(crate) fn artifact_dir_in(&self, target_dir: &Path) -> PathBuf {
+        target_dir.join(&self.target_triple).join(self.profile())
     }
 }

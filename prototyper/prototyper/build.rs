@@ -5,7 +5,10 @@ fn main() {
     let firmware_crate_dir = PathBuf::from(
         env::var_os("CARGO_MANIFEST_DIR").expect("Cargo did not set CARGO_MANIFEST_DIR"),
     );
-    let build_inputs_dir = firmware_crate_dir.join("../../target/prototyper");
+    let workspace_dir = env::var_os("CARGO_WORKSPACE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| firmware_crate_dir.join("../.."));
+    let build_inputs_dir = workspace_dir.join("target/prototyper");
 
     for file_name in [
         "generated_alignment.rs",

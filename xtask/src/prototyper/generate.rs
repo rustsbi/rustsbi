@@ -1,10 +1,12 @@
 use std::{
-    env, fs,
+    fs,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result, bail};
+
+use crate::utils::workspace_root;
 
 use super::{build::BuildMode, config::BuildSpec};
 
@@ -29,8 +31,9 @@ impl BuildPaths {
         self.build_inputs_dir.join(LINKER_SCRIPT_NAME)
     }
 
+    /// Absolute linker script path for the cargo `-T` link argument.
     pub(crate) fn linker_script_argument(&self) -> PathBuf {
-        Path::new(BUILD_INPUTS_DIR_NAME).join(LINKER_SCRIPT_NAME)
+        self.linker_script()
     }
 
     pub(crate) fn alignment_source(&self) -> PathBuf {
@@ -51,10 +54,10 @@ impl BuildPaths {
 }
 
 pub(crate) fn prepare_build_paths(spec: &BuildSpec) -> Result<BuildPaths> {
-    let current_dir = env::current_dir().context("failed to determine current directory")?;
-    let artifact_dir = spec.artifact_dir(&current_dir);
-    let build_inputs_dir = current_dir.join(BUILD_INPUTS_DIR_NAME);
-    let linker_template = current_dir
+    let workspace_root = workspace_root();
+    let artifact_dir = spec.artifact_dir();
+    let build_inputs_dir = workspace_root.join(BUILD_INPUTS_DIR_NAME);
+    let linker_template = workspace_root
         .join("prototyper")
         .join("prototyper")
         .join("rustsbi-prototyper.ld.in");

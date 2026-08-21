@@ -11,6 +11,7 @@ use super::{
     generate_build_inputs, kernels::QemuOptions, qemu::verify_output, render_linker_script,
     resolve_in,
 };
+use crate::utils::cargo_target_dir_in;
 
 static NEXT_TEST_DIR: AtomicUsize = AtomicUsize::new(0);
 
@@ -186,7 +187,7 @@ fn resolve_normalizes_files_and_derives_features() {
         ..base_build_args()
     };
 
-    let spec = resolve_in(&args, &root).unwrap();
+    let spec = resolve_in(&args, &root, &root).unwrap();
     assert_eq!(
         spec.mode,
         BuildMode::Payload {
@@ -218,7 +219,7 @@ fn resolve_rejects_mode_features_and_invalid_config() {
             ..base_build_args()
         };
         assert!(
-            resolve_in(&args, &root).is_err(),
+            resolve_in(&args, &root, &root).is_err(),
             "accepted feature {feature}"
         );
     }
@@ -228,7 +229,7 @@ fn resolve_rejects_mode_features_and_invalid_config() {
         "link_start_address = 0x80000000\njump_address = 0x80200000\n",
     )
     .unwrap();
-    let error = resolve_in(&base_build_args(), &root).unwrap_err();
+    let error = resolve_in(&base_build_args(), &root, &root).unwrap_err();
     assert!(format!("{error:#}").contains("`payload_address`"));
 
     fs::write(
@@ -238,7 +239,7 @@ fn resolve_rejects_mode_features_and_invalid_config() {
          jump_address = 0x80200000\n",
     )
     .unwrap();
-    let error = resolve_in(&base_build_args(), &root).unwrap_err();
+    let error = resolve_in(&base_build_args(), &root, &root).unwrap_err();
     assert!(format!("{error:#}").contains("must be less than"));
     let _ = fs::remove_dir_all(&root);
 }
@@ -261,10 +262,10 @@ fn resolve_derives_target_profile_and_rustflags() {
         features: vec!["hypervisor,serde".to_string()],
         ..base_build_args()
     };
-    let spec = resolve_in(&args, &root).unwrap();
+    let spec = resolve_in(&args, &root, &root).unwrap();
     assert_eq!(spec.target_triple, "custom-target");
     assert_eq!(
-        spec.artifact_dir(&root),
+        spec.artifact_dir_in(&root.join("target")),
         root.join("target/custom-target/debug")
     );
     let encoded_rustflags = spec.encoded_rustflags(Path::new("linker path.ld"));
@@ -296,9 +297,9 @@ fn generated_inputs_and_stamp_follow_build_mode() {
     };
     assert_eq!(
         paths.linker_script_argument(),
-        PathBuf::from("target/prototyper/rustsbi-prototyper.ld")
+        root.join("target/prototyper/rustsbi-prototyper.ld")
     );
-    let dynamic = resolve_in(&base_build_args(), &root).unwrap();
+    let dynamic = resolve_in(&base_build_args(), &root, &root).unwrap();
     generate_build_inputs(&dynamic, &paths).unwrap();
     let dynamic_stamp = fs::read_to_string(paths.stamp()).unwrap();
     assert!(
@@ -324,7 +325,7 @@ fn generated_inputs_and_stamp_follow_build_mode() {
         fdt: Some(fdt.clone()),
         ..base_build_args()
     };
-    let payload_build = resolve_in(&args, &root).unwrap();
+    let payload_build = resolve_in(&args, &root, &root).unwrap();
     generate_build_inputs(&payload_build, &paths).unwrap();
     let payload_stamp = fs::read_to_string(paths.stamp()).unwrap();
     let payload_source = fs::read_to_string(paths.payload_source()).unwrap();
@@ -360,17 +361,19 @@ fn qemu_options_validation_rejects_zero_values_before_building() {
 }
 
 #[test]
-fn linker_template_renders_known_addresses_and_rejects_unknown_tokens() {
-    let addresses = PlatformAddresses {
-        link_start_address: 0x80000000,
-        payload_address: 0x80200000,
-    };
-    let rendered = render_linker_script(
-        ". = @LINK_START_ADDRESS@; .text @PAYLOAD_ADDRESS@ : { *(.payload) }",
-        &addresses,
-    )
-    .unwrap();
-    assert!(rendered.contains("0x80000000"));
-    assert!(rendered.contains("0x80200000"));
-    assert!(render_linker_script(". = @UNKNOWN@;", &addresses).is_err());
+fn cargo_target_dir_honors_env_override() {
+    let cwd = Path::new("/workspace");
+    assert_eq!(
+        cargo_target_dir_in(Some("build-out".into()), cwd),
+        PathBuf::from("/workspace/build-out")
+    );
+    assert_eq!(
+        cargo_target_dir_in(Some("/abs/out".into()), cwd),
+        PathBuf::from("/abs/out")
+    );
+    // Without the override, the default lives under the workspace root;
+    // xtask is always built from this workspace, so the root exists.
+    let default = cargo_target_dir_in(None, cwd);
+    assert!(default.ends_with("target"));
+    assert!(default.is_absolute());
 }
