@@ -69,8 +69,9 @@ impl P1PmicResetWrap {
     /// Create a new P1 PMIC reset device.
     ///
     /// `i2c_base` is the MMIO base address of the I2C controller.
-    /// `pmic_addr` is the 7-bit I2C address of the P1 PMIC (0x41 on the
-    /// OrangePi RV2, per its device tree `pmic@41` node).
+    /// `pmic_addr` is the 7-bit I2C address of the P1 PMIC (0x41 on
+    /// SpacemiT K1/K3 boards — OrangePi RV2, K3 Pico-ITX and K3 CoM260 —
+    /// per their device tree `pmic@41` nodes).
     pub const fn new(i2c_base: usize, pmic_addr: u8) -> Self {
         Self {
             i2c: i2c_base as *const I2cK1Registers,
