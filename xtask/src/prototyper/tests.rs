@@ -339,6 +339,34 @@ fn generated_inputs_and_stamp_follow_build_mode() {
 }
 
 #[test]
+fn linker_template_renders_known_addresses_and_rejects_unknown_tokens() {
+    let addresses = PlatformAddresses {
+        link_start_address: 0x80000000,
+        payload_address: 0x80200000,
+    };
+    let rendered = render_linker_script(
+        ". = @LINK_START_ADDRESS@; .text @PAYLOAD_ADDRESS@ : { *(.payload) }",
+        &addresses,
+    )
+    .unwrap();
+    assert!(rendered.contains("0x80000000"));
+    assert!(rendered.contains("0x80200000"));
+
+    // Placeholder-shaped unknown tokens are rejected.
+    let error = render_linker_script(". = @UNKNOWN@;", &addresses).unwrap_err();
+    assert!(format!("{error:#}").contains("@UNKNOWN@"));
+
+    // Literal `@` characters (e.g. in comments) are not placeholders.
+    let rendered = render_linker_script("/* report bugs to dev@example.com */\n", &addresses)
+        .expect("literal @ must not be rejected");
+    assert!(rendered.contains("dev@example.com"));
+    let rendered = render_linker_script("/* v2.0 @ 2026 */\n", &addresses)
+        .expect("lowercase tokens must not be rejected");
+    assert!(rendered.contains("@ 2026"));
+    assert!(render_linker_script("@@", &addresses).is_ok());
+}
+
+#[test]
 fn qemu_options_validation_rejects_zero_values_before_building() {
     let valid = QemuOptions {
         no_run: true,

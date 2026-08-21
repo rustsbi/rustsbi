@@ -213,10 +213,31 @@ pub(crate) fn render_linker_script(
             "@PAYLOAD_ADDRESS@",
             &format!("{:#x}", addresses.payload_address),
         );
-    if rendered.contains('@') {
-        bail!("linker script template contains an unknown `@TOKEN@` placeholder");
-    }
+    reject_unknown_placeholders(&rendered)?;
     Ok(rendered)
+}
+
+/// Bail when the rendered script still contains a placeholder-shaped
+/// `@TOKEN@` (non-empty, uppercase/digits/underscores only). Literal `@`
+/// characters, e.g. in comments, are allowed through.
+fn reject_unknown_placeholders(rendered: &str) -> Result<()> {
+    let mut rest = rendered;
+    while let Some(open) = rest.find('@') {
+        let after_open = &rest[open + 1..];
+        let Some(close) = after_open.find('@') else {
+            break;
+        };
+        let token = &after_open[..close];
+        if !token.is_empty()
+            && token
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+        {
+            bail!("linker script template contains an unknown `@{token}@` placeholder");
+        }
+        rest = &after_open[close + 1..];
+    }
+    Ok(())
 }
 
 /// Write `content` only when it differs from the existing file.
