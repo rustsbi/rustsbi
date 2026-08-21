@@ -265,10 +265,27 @@ pub(super) struct QemuOptions {
     pub attempts: usize,
 }
 
+impl QemuOptions {
+    /// Reject nonsensical values before anything is built, so `--no-run`
+    /// invocations fail fast too. `qemu::run` repeats these checks as
+    /// defense in depth.
+    pub(super) fn validate(&self) -> Result<()> {
+        if self.attempts == 0 {
+            bail!("QEMU attempts must be at least 1 (got --retries 0)");
+        }
+        if self.smp == 0 {
+            bail!("QEMU hart count must be at least 1 (got --smp 0)");
+        }
+        Ok(())
+    }
+}
+
 /// Run a kernel-backed prototyper command (`test` or `bench`):
 /// build the kernel and the payload-mode firmware embedding it, then boot
 /// the firmware in QEMU and verify the kernel's console output.
 pub(super) fn run(kernel: Kernel, pack: bool, qemu_options: QemuOptions) -> Result<ExitStatus> {
+    qemu_options.validate()?;
+
     let kernel_binary = kernel.build()?;
     let build_args = BuildArgs::payload(kernel_binary, false);
     let mut spec = resolve(&build_args).context("failed to resolve prototyper build inputs")?;

@@ -19,7 +19,10 @@ const POLL_INTERVAL: Duration = Duration::from_millis(50);
 /// Number of console lines printed when a run fails.
 const LOG_TAIL_LINES: usize = 120;
 /// Substrings that mark a failed run even when QEMU exits successfully.
-const FORBIDDEN_PATTERNS: &[&str] = &["panic", "FAILED", "SystemFailure"];
+///
+/// Matches the `panicked at` prefix of Rust panic messages; the shorter
+/// `panic` would false-positive on legitimate output mentioning panics.
+const FORBIDDEN_PATTERNS: &[&str] = &["panicked", "FAILED", "SystemFailure"];
 
 /// A QEMU boot to execute and verify.
 pub(super) struct QemuRun {

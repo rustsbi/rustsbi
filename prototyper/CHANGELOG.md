@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Modified
 - fix(xtask): drain QEMU stdout/stderr on reader threads while the child runs, fixing a pipe-buffer deadlock on verbose kernel output
+- fix(xtask): match `panicked` instead of `panic` in QEMU output verification to avoid false positives, and validate `--smp`/`--retries` before building (also with `--no-run`)
 - feat(xtask): run test/bench kernels in QEMU after `cargo prototyper test`/`bench` builds, with `--no-run`, `--smp`, `--timeout`, and `--retries` options
 - fix(xtask): pack test/bench ITB images with a dynamic-mode firmware instead of double-embedding the kernel
 - refactor(xtask): unify prototyper build pipeline

@@ -8,7 +8,8 @@ use clap::Parser;
 
 use super::{
     ARCH, BuildArgs, BuildMode, BuildPaths, PlatformAddresses, PrototyperCommand,
-    generate_build_inputs, qemu::verify_output, render_linker_script, resolve_in,
+    generate_build_inputs, kernels::QemuOptions, qemu::verify_output, render_linker_script,
+    resolve_in,
 };
 
 static NEXT_TEST_DIR: AtomicUsize = AtomicUsize::new(0);
@@ -334,6 +335,28 @@ fn generated_inputs_and_stamp_follow_build_mode() {
     assert!(fdt_source.contains("pub static raw_fdt"));
     assert!(fdt_source.contains(&fdt.display().to_string()));
     let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn qemu_options_validation_rejects_zero_values_before_building() {
+    let valid = QemuOptions {
+        no_run: true,
+        smp: 1,
+        timeout_secs: 60,
+        attempts: 1,
+    };
+    assert!(valid.validate().is_ok());
+
+    let zero_retries = QemuOptions {
+        attempts: 0,
+        ..valid
+    };
+    let error = zero_retries.validate().unwrap_err();
+    assert!(format!("{error:#}").contains("--retries 0"));
+
+    let zero_smp = QemuOptions { smp: 0, ..valid };
+    let error = zero_smp.validate().unwrap_err();
+    assert!(format!("{error:#}").contains("--smp 0"));
 }
 
 #[test]
