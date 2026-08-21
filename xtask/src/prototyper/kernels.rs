@@ -157,12 +157,16 @@ impl Kernel {
     /// firmware must not embed it: build a fresh dynamic-mode firmware and
     /// stage its unsuffixed intermediate `rustsbi-prototyper.bin` beside the
     /// kernel, where the kernel's ITS expects it.
-    fn pack(self) -> Result<()> {
+    ///
+    fn pack(self, firmware_options: &FirmwareOptions) -> Result<()> {
         let (workspace_root, target_dir) = kernel_paths();
 
         info!("Building dynamic firmware for packing");
-        let dynamic_spec = resolve(&BuildArgs::dynamic())
-            .context("failed to resolve dynamic firmware build inputs for packing")?;
+        let dynamic_spec = resolve(&BuildArgs::dynamic(
+            firmware_options.debug,
+            firmware_options.config_file.clone(),
+        ))
+        .context("failed to resolve dynamic firmware build inputs for packing")?;
         let build_status = build_firmware(&dynamic_spec)?;
         if !build_status.success() {
             bail!(
@@ -298,7 +302,7 @@ pub(super) fn run(
     }
 
     if pack {
-        kernel.pack()?;
+        kernel.pack(firmware_options)?;
     }
 
     if !qemu_options.no_run {

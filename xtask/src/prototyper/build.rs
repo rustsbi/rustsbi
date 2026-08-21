@@ -64,14 +64,14 @@ impl BuildArgs {
         }
     }
 
-    /// Dynamic-mode firmware build with default options.
-    pub(crate) fn dynamic() -> Self {
+    /// Dynamic-mode firmware build with the given user options.
+    pub(crate) fn dynamic(debug: bool, config_file: Option<PathBuf>) -> Self {
         Self {
             mode: None,
             features: Vec::new(),
             fdt: None,
-            debug: false,
-            config_file: None,
+            debug,
+            config_file,
             target: None,
         }
     }
