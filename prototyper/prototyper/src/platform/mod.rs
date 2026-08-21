@@ -26,6 +26,7 @@ use crate::platform::reset::P1_PMIC_COMPATIBLE;
 use crate::platform::reset::P1PmicResetWrap;
 use crate::platform::reset::SIFIVETEST_COMPATIBLE;
 use crate::riscv::spacemit_k1;
+use crate::riscv::spacemit_k3;
 use crate::sbi::SBI;
 use crate::sbi::console::SbiConsole;
 use crate::sbi::features::extension_detection;
@@ -51,6 +52,7 @@ pub(crate) static CPU_PRIVILEGED_ENABLED: [AtomicBool; NUM_HART_MAX] =
 /// secondary hart observing `ready() == true` is guaranteed to also observe
 /// this flag (main.rs secondary-hart path).
 pub(crate) static IS_K1_PLATFORM: AtomicBool = AtomicBool::new(false);
+pub(crate) static IS_K3_PLATFORM: AtomicBool = AtomicBool::new(false);
 
 const RISCV_MACHINE_EXTERNAL_IRQ: u32 = 11;
 
@@ -218,18 +220,33 @@ impl Platform {
         // Initialize pmu extension
         self.sbi_init_pmu(&root);
 
-        // Record K1 platform detection *before* releasing the ready flag, so
-        // that secondary harts observing `ready()` also observe the flag.
-        // Match the root node's `compatible` strings first (OpenSBI's
-        // spacemit_k1_match[] table), falling back to the model string.
-        let k1_platform = match root.get_prop("compatible") {
+        // Record K3/K1 platform detection *before* releasing the ready flag,
+        // so that secondary harts observing `ready()` also observe the flags.
+        // K3 is checked first: its model strings ("SpacemiT K3 ...") also
+        // match the loose SpacemiT fallback used for K1 detection, so the K1
+        // check runs only when the board is not a K3. This mirrors OpenSBI's
+        // platform_override match priority. Both check the root node's
+        // `compatible` strings first (OpenSBI's spacemit_k3_mach[] /
+        // spacemit_k1_match[] tables), falling back to the model string.
+        let k3_platform = match root.get_prop("compatible") {
             Some(prop) => {
                 let seq = prop.deserialize::<serde_device_tree::buildin::StrSeq>();
-                spacemit_k1::is_k1_platform(&self.info.model, seq.iter())
+                spacemit_k3::is_k3_platform(&self.info.model, seq.iter())
             }
-            None => spacemit_k1::is_k1_platform(&self.info.model, core::iter::empty::<&str>()),
+            None => spacemit_k3::is_k3_platform(&self.info.model, core::iter::empty::<&str>()),
         };
-        IS_K1_PLATFORM.store(k1_platform, Ordering::Release);
+        IS_K3_PLATFORM.store(k3_platform, Ordering::Release);
+
+        if !k3_platform {
+            let k1_platform = match root.get_prop("compatible") {
+                Some(prop) => {
+                    let seq = prop.deserialize::<serde_device_tree::buildin::StrSeq>();
+                    spacemit_k1::is_k1_platform(&self.info.model, seq.iter())
+                }
+                None => spacemit_k1::is_k1_platform(&self.info.model, core::iter::empty::<&str>()),
+            };
+            IS_K1_PLATFORM.store(k1_platform, Ordering::Release);
+        }
 
         self.ready.swap(true, Ordering::Release);
     }

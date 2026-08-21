@@ -21,10 +21,11 @@ mod sbi;
 use core::arch::asm;
 use core::sync::atomic::Ordering;
 
-use crate::platform::{IS_K1_PLATFORM, PLATFORM};
+use crate::platform::{IS_K1_PLATFORM, IS_K3_PLATFORM, PLATFORM};
 use crate::riscv::csr::{CSR_MSTATEEN0, menvcfg, mstateen};
 use crate::riscv::current_hartid;
 use crate::riscv::spacemit_k1;
+use crate::riscv::spacemit_k3;
 use crate::sbi::features::hart_mhpm_mask;
 use crate::sbi::features::{
     Extension, PrivilegedVersion, hart_extension_probe, hart_features_detection,
@@ -62,11 +63,22 @@ fn main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             PLATFORM.print_board_info();
         }
 
-        // SpacemiT K1 / Ky X1 early initialization.
-        // IS_K1_PLATFORM was already recorded by Platform::init before the
-        // ready flag was released, so it is visible here (and to secondary
-        // harts once they observe ready()).
-        if IS_K1_PLATFORM.load(Ordering::Acquire) {
+        // SpacemiT K3 / K1 early initialization. The platform flags were
+        // already recorded by Platform::init before the ready flag was
+        // released, so they are visible here (and to secondary harts once
+        // they observe ready()). K3 is checked first: Platform::init only
+        // sets IS_K1_PLATFORM when the board is not a K3.
+        if IS_K3_PLATFORM.load(Ordering::Acquire) {
+            // Configure ML2SETUP for the boot hart
+            spacemit_k3::cold_boot_allowed(current_hartid());
+
+            unsafe {
+                // Use the SBI link address as the warmboot entry
+                let warmboot_addr = cfg::SBI_LINK_START_ADDRESS as u64;
+                spacemit_k3::early_init(true, warmboot_addr);
+            }
+            info!("SpacemiT K3: early init done (RVBADDR + CCI-550)");
+        } else if IS_K1_PLATFORM.load(Ordering::Acquire) {
             // Configure ML2SETUP for the boot hart
             spacemit_k1::cold_boot_allowed(current_hartid());
 
@@ -107,8 +119,11 @@ fn main(_hart_id: usize, opaque: usize, nonstandard_a2: usize) {
             core::hint::spin_loop()
         }
 
-        // SpacemiT K1: Configure ML2SETUP for this hart
-        if IS_K1_PLATFORM.load(Ordering::Acquire) {
+        // SpacemiT K3: Configure ML2SETUP for this hart
+        if IS_K3_PLATFORM.load(Ordering::Acquire) {
+            spacemit_k3::cold_boot_allowed(current_hartid());
+        } else if IS_K1_PLATFORM.load(Ordering::Acquire) {
+            // SpacemiT K1: Configure ML2SETUP for this hart
             spacemit_k1::cold_boot_allowed(current_hartid());
         }
 
