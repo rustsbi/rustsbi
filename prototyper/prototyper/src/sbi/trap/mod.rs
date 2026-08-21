@@ -25,6 +25,10 @@ pub extern "C" fn fast_handler(
     a6: usize,
     a7: usize,
 ) -> FastResult {
+    // Catch a previously trapped frame that grew past the trap stack
+    // before silently corrupting BSS state.
+    crate::sbi::trap_stack::assert_stack_pointer_in_range();
+
     // Save mepc into context
     ctx.regs().pc = mepc::read();
 
