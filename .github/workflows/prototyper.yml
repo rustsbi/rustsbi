@@ -80,14 +80,13 @@ jobs:
         run: |
           cargo prototyper build
           cargo prototyper build jump
-          cargo prototyper test
-          cargo prototyper bench
+          cargo prototyper test --no-run
+          cargo prototyper bench --no-run
 
       - name: Run payload test-kernel boot
         id: payload_test
         continue-on-error: true
-        shell: bash
-        run: .github/scripts/prototyper-qemu-boot.sh payload test
+        run: cargo prototyper test
 
       - name: Run dynamic test-kernel boot
         if: always()
@@ -107,8 +106,7 @@ jobs:
         if: always()
         id: payload_bench
         continue-on-error: true
-        shell: bash
-        run: .github/scripts/prototyper-qemu-boot.sh payload bench
+        run: cargo prototyper bench
 
       - name: Run dynamic bench-kernel boot
         if: always()
