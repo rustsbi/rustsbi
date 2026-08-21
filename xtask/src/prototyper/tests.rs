@@ -8,7 +8,7 @@ use clap::Parser;
 
 use super::{
     ARCH, BuildArgs, BuildMode, BuildPaths, PlatformAddresses, PrototyperCommand,
-    generate_build_inputs, render_linker_script, resolve_in,
+    generate_build_inputs, qemu::verify_output, render_linker_script, resolve_in,
 };
 
 static NEXT_TEST_DIR: AtomicUsize = AtomicUsize::new(0);
@@ -94,6 +94,74 @@ fn cli_parses_commands_and_build_arguments() {
         PrototyperCommand::Bench(args) => assert!(!args.pack),
         _ => panic!("expected `bench` subcommand"),
     }
+}
+
+#[test]
+fn cli_parses_kernel_qemu_arguments_and_defaults() {
+    let args = match parse(&[
+        "prototyper",
+        "test",
+        "--no-run",
+        "--smp",
+        "2",
+        "--timeout",
+        "30",
+        "--retries",
+        "1",
+    ])
+    .unwrap()
+    {
+        PrototyperCommand::Test(args) => args,
+        _ => panic!("expected `test` subcommand"),
+    };
+    assert!(args.no_run);
+    assert_eq!(args.smp, 2);
+    assert_eq!(args.timeout, 30);
+    assert_eq!(args.retries, 1);
+
+    let args = match parse(&["prototyper", "test"]).unwrap() {
+        PrototyperCommand::Test(args) => args,
+        _ => panic!("expected `test` subcommand"),
+    };
+    assert!(!args.no_run);
+    assert_eq!(args.smp, 1);
+    assert_eq!(args.timeout, 60);
+    assert_eq!(args.retries, 2);
+
+    let args = match parse(&["prototyper", "bench"]).unwrap() {
+        PrototyperCommand::Bench(args) => args,
+        _ => panic!("expected `bench` subcommand"),
+    };
+    assert!(!args.no_run);
+    assert_eq!(args.smp, 4);
+    assert_eq!(args.timeout, 90);
+    assert_eq!(args.retries, 4);
+}
+
+#[test]
+fn qemu_output_verification_checks_expected_and_forbidden_patterns() {
+    let expected = vec![
+        "Hello RustSBI!".to_string(),
+        "Platform HART Count           : 1".to_string(),
+        "Sbi `Base` test pass".to_string(),
+    ];
+    let passing = "RustSBI version\n\
+                   Hello RustSBI!\n\
+                   Platform HART Count           : 1\n\
+                   Sbi `Base` test pass\n";
+    assert!(verify_output(passing, &expected).is_ok());
+
+    let missing = verify_output("Hello RustSBI!", &expected).unwrap_err();
+    assert!(format!("{missing:#}").contains("Platform HART Count"));
+
+    let forbidden = verify_output(
+        "Hello RustSBI!\nPlatform HART Count           : 1\nSbi `Base` test pass\npanicked at 'oops'",
+        &expected,
+    )
+    .unwrap_err();
+    assert!(format!("{forbidden:#}").contains("panic"));
+
+    assert!(verify_output("", &expected).is_err());
 }
 
 #[test]

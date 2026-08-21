@@ -3,6 +3,7 @@ mod build;
 mod config;
 mod generate;
 mod kernels;
+mod qemu;
 mod test;
 
 #[cfg(test)]
@@ -17,14 +18,15 @@ pub(crate) const ARCH: &str = "riscv64gc-unknown-none-elf";
 pub(crate) const PACKAGE_NAME: &str = "rustsbi-prototyper";
 
 /// Prototyper commands. `build` produces firmware; `test` and `bench`
-/// compose a kernel build with a payload-mode firmware build.
+/// compose a kernel build with a payload-mode firmware build, then boot
+/// the firmware in QEMU and verify the kernel output (unless `--no-run`).
 #[derive(Debug, Subcommand, Clone)]
 pub enum PrototyperCommand {
     /// Build RustSBI Prototyper firmware.
     Build(build::BuildArgs),
-    /// Build the test kernel and payload-mode firmware embedding it.
+    /// Build the test kernel and payload-mode firmware embedding it, then run it in QEMU.
     Test(test::TestArgs),
-    /// Build the bench kernel and payload-mode firmware embedding it.
+    /// Build the bench kernel and payload-mode firmware embedding it, then run it in QEMU.
     Bench(bench::BenchArgs),
 }
 

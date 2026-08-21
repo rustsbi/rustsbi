@@ -2,6 +2,7 @@ use std::{
     env, fs,
     path::PathBuf,
     process::{Command, ExitStatus},
+    time::Duration,
 };
 
 use crate::utils::cargo;
@@ -11,6 +12,7 @@ use super::{
     PACKAGE_NAME,
     build::{BuildArgs, build_firmware},
     config::resolve,
+    qemu::{self, QemuRun},
 };
 
 /// Kernels the prototyper can embed as payloads.
@@ -46,6 +48,66 @@ impl Kernel {
             Kernel::Test => "test",
             Kernel::Bench => "bench",
         }
+    }
+
+    /// Default number of harts QEMU boots this kernel with.
+    pub(super) fn default_smp(self) -> usize {
+        match self {
+            Kernel::Test => 1,
+            Kernel::Bench => 4,
+        }
+    }
+
+    /// Default timeout of one QEMU attempt, in seconds.
+    pub(super) fn default_timeout_secs(self) -> u64 {
+        match self {
+            Kernel::Test => 60,
+            Kernel::Bench => 90,
+        }
+    }
+
+    /// Default number of QEMU attempts; retries happen only after a timeout.
+    pub(super) fn default_attempts(self) -> usize {
+        match self {
+            Kernel::Test => 2,
+            Kernel::Bench => 4,
+        }
+    }
+
+    /// Console output patterns expected from a successful run of this kernel.
+    ///
+    /// Keep in sync with `.github/scripts/prototyper-qemu-boot.sh`, which
+    /// verifies the same kernels in dynamic and jump mode.
+    fn expected_patterns(self, smp: usize) -> Vec<String> {
+        let mut patterns = vec![
+            "Hello RustSBI!".to_string(),
+            format!("Platform HART Count           : {smp}"),
+        ];
+        match self {
+            Kernel::Test => patterns.extend(
+                [
+                    "Sbi `Base` test pass",
+                    "Sbi `TIME` test pass",
+                    "Sbi `sPI` test pass",
+                    "Sbi `DBCN` test pass",
+                    "DBCN rejected non-zero upper-half write",
+                    "DBCN rejected non-zero upper-half read",
+                    "[pmu] counters number:",
+                ]
+                .map(String::from),
+            ),
+            Kernel::Bench => patterns.extend(
+                [
+                    "Starting test",
+                    "Test #0:",
+                    "Test #1:",
+                    "Test #2:",
+                    "Test #3:",
+                ]
+                .map(String::from),
+            ),
+        }
+        patterns
     }
 
     /// Build this kernel for the `imac` target and convert it to raw binary.
@@ -190,8 +252,23 @@ impl Kernel {
     }
 }
 
-/// Run a kernel-backed prototyper command (`test` or `bench`).
-pub(super) fn run(kernel: Kernel, pack: bool) -> Result<ExitStatus> {
+/// QEMU execution options shared by kernel-backed commands.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct QemuOptions {
+    /// Only build the kernel and firmware without running them in QEMU.
+    pub no_run: bool,
+    /// Number of harts QEMU boots the kernel with.
+    pub smp: usize,
+    /// Timeout of one QEMU attempt, in seconds.
+    pub timeout_secs: u64,
+    /// Number of QEMU attempts; retries happen only after a timeout.
+    pub attempts: usize,
+}
+
+/// Run a kernel-backed prototyper command (`test` or `bench`):
+/// build the kernel and the payload-mode firmware embedding it, then boot
+/// the firmware in QEMU and verify the kernel's console output.
+pub(super) fn run(kernel: Kernel, pack: bool, qemu_options: QemuOptions) -> Result<ExitStatus> {
     let kernel_binary = kernel.build()?;
     let build_args = BuildArgs::payload(kernel_binary, false);
     let mut spec = resolve(&build_args).context("failed to resolve prototyper build inputs")?;
@@ -206,6 +283,20 @@ pub(super) fn run(kernel: Kernel, pack: bool) -> Result<ExitStatus> {
 
     if pack {
         kernel.pack()?;
+    }
+
+    if !qemu_options.no_run {
+        let firmware_elf = spec
+            .artifact_dir(&current_dir)
+            .join(format!("{PACKAGE_NAME}-{}.elf", spec.artifact_suffix()));
+        qemu::run(&QemuRun {
+            bios: firmware_elf,
+            smp: qemu_options.smp,
+            timeout: Duration::from_secs(qemu_options.timeout_secs),
+            attempts: qemu_options.attempts,
+            expected: kernel.expected_patterns(qemu_options.smp),
+            label: kernel.command_name().to_string(),
+        })?;
     }
 
     Ok(exit_status)

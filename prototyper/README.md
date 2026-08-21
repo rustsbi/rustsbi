@@ -35,10 +35,10 @@ The firmware mode is selected by an optional subcommand: `dynamic` (the default 
   Build jump-mode firmware.
 - `cargo prototyper build payload <PATH>`
   Build payload-mode firmware embedding the given payload binary.
-- `cargo prototyper test [--pack]`
-  Build the test kernel and payload-mode firmware embedding it (`rustsbi-prototyper-payload-test.{elf,bin}`).
-- `cargo prototyper bench [--pack]`
-  Build the bench kernel and payload-mode firmware embedding it (`rustsbi-prototyper-payload-bench.{elf,bin}`).
+- `cargo prototyper test [--pack] [--no-run] [--smp <N>] [--timeout <SECS>] [--retries <N>]`
+  Build the test kernel and payload-mode firmware embedding it (`rustsbi-prototyper-payload-test.{elf,bin}`), then boot the firmware in QEMU and verify the kernel output. Requires `qemu-system-riscv64` on `PATH` (e.g., `sudo apt install qemu-system-misc`); pass `--no-run` to only build.
+- `cargo prototyper bench [--pack] [--no-run] [--smp <N>] [--timeout <SECS>] [--retries <N>]`
+  Build the bench kernel and payload-mode firmware embedding it (`rustsbi-prototyper-payload-bench.{elf,bin}`), then boot the firmware in QEMU and verify the kernel output. QEMU options work the same as for `test` (defaults: `--smp 4 --timeout 90 --retries 4`).
 
 #### Options (on `cargo prototyper build`)
 
@@ -93,7 +93,7 @@ After compilation, the resulting firmware files are generated in the `target/ris
 - `rustsbi-prototyper-payload.elf`
 - `rustsbi-prototyper-payload.bin`
 
-`cargo prototyper test` and `cargo prototyper bench` are shorthands that build the test/bench kernel and embed it as the payload, producing `rustsbi-prototyper-payload-test.{elf,bin}` and `rustsbi-prototyper-payload-bench.{elf,bin}` respectively.
+`cargo prototyper test` and `cargo prototyper bench` are shorthands that build the test/bench kernel and embed it as the payload, producing `rustsbi-prototyper-payload-test.{elf,bin}` and `rustsbi-prototyper-payload-bench.{elf,bin}` respectively. By default they also boot the firmware in QEMU (`-machine virt -m 256M -nographic`) and check the console output for the expected test results; use `--no-run` to skip the QEMU run, and `--smp`/`--timeout`/`--retries` to tune it. With `--pack`, an additional dynamic-mode firmware is built and packed with the kernel into a combined ITB image (`rustsbi-{test,bench}-kernel.itb`) for U-Boot SPL boot flows; the QEMU run still verifies the payload-mode firmware.
 
 #### 3. Jump Firmware
 
