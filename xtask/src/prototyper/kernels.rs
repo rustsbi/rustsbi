@@ -158,15 +158,20 @@ impl Kernel {
     /// stage its unsuffixed intermediate `rustsbi-prototyper.bin` beside the
     /// kernel, where the kernel's ITS expects it.
     ///
+    /// The pack build honors the user's forwarded firmware options, and its
+    /// mode artifacts are written under the dedicated `dynamic-pack` suffix
+    /// so a pre-built `-dynamic` (or any other mode) artifact is never
+    /// silently replaced.
     fn pack(self, firmware_options: &FirmwareOptions) -> Result<()> {
         let (workspace_root, target_dir) = kernel_paths();
 
         info!("Building dynamic firmware for packing");
-        let dynamic_spec = resolve(&BuildArgs::dynamic(
+        let mut dynamic_spec = resolve(&BuildArgs::dynamic(
             firmware_options.debug,
             firmware_options.config_file.clone(),
         ))
         .context("failed to resolve dynamic firmware build inputs for packing")?;
+        dynamic_spec.override_artifact_suffix("dynamic-pack");
         let build_status = build_firmware(&dynamic_spec)?;
         if !build_status.success() {
             bail!(
