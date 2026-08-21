@@ -29,6 +29,9 @@ jobs:
       - name: Check format
         run: cargo fmt --check
 
+      - name: Run xtask unit tests
+        run: cargo test -p xtask
+
       - name: Install required cargo
         run: cargo install clippy-sarif sarif-fmt cargo-binutils
 
@@ -67,7 +70,7 @@ jobs:
       - name: Install dev dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-misc
+          sudo apt-get install -y qemu-system-misc u-boot-tools
 
       - name: Install required cargo
         run: cargo install cargo-binutils
@@ -82,6 +85,14 @@ jobs:
           cargo prototyper build jump
           cargo prototyper test --no-run
           cargo prototyper bench --no-run
+
+      - name: Pack kernel images
+        shell: bash
+        run: |
+          cargo prototyper test --pack --no-run
+          cargo prototyper bench --pack --no-run
+          test -s target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.itb
+          test -s target/riscv64imac-unknown-none-elf/release/rustsbi-bench-kernel.itb
 
       - name: Run payload test-kernel boot
         id: payload_test
