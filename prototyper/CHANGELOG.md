@@ -11,20 +11,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
-- refactor(xtask): share QEMU pass criteria between xtask and the CI boot script via per-kernel `scripts/expected.txt` and `qemu-forbidden.txt` pattern files
-- fix(xtask): write `--pack` firmware artifacts under the dedicated `dynamic-pack` suffix and forward `--debug`/`--config-file` to the pack build, so pre-built `-dynamic` outputs are never overwritten
-- ci(prototyper): run xtask unit tests in CI and verify `test`/`bench --pack` ITB images
-- fix(xtask): drain QEMU stdout/stderr on reader threads while the child runs, fixing a pipe-buffer deadlock on verbose kernel output
-- fix(xtask): resolve repo-internal paths from the workspace root instead of the working directory, and honor `CARGO_TARGET_DIR` for firmware/kernel artifact directories
-- feat(xtask): add `--debug` and `--config-file` options to `cargo prototyper test`/`bench`, forwarded to the payload firmware build
-- fix(xtask): remove stale generic `rustsbi-prototyper-payload.{elf,bin}` artifacts after kernel-suffixed payload builds (`test`/`bench`)
-- fix(xtask): match `panicked` instead of `panic` in QEMU output verification to avoid false positives, and validate `--smp`/`--retries` before building (also with `--no-run`)
-- feat(xtask): run test/bench kernels in QEMU after `cargo prototyper test`/`bench` builds, with `--no-run`, `--smp`, `--timeout`, and `--retries` options
-- fix(xtask): pack test/bench ITB images with a dynamic-mode firmware instead of double-embedding the kernel
-- refactor(xtask): unify prototyper build pipeline
-- ci(prototyper): migrate workflow commands
-- docs(prototyper): update build instructions
-- fix(prototyper): handle build argument edge cases
+- refactor(prototyper): unify build commands (#227)
 - deps: update `sbi-spec` to version 0.0.10.
 - test-kernel: update PMU flag parameter trait names.
 - Refine CSR group comments.
