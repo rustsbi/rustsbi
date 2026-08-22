@@ -1,7 +1,6 @@
 use std::{
     ffi::OsStr,
     ops::{Deref, DerefMut},
-    path::Path,
     process::Command,
 };
 
@@ -11,7 +10,6 @@ pub struct Cargo {
     cmd: Command,
 }
 
-#[allow(unused)]
 impl Cargo {
     pub fn new(action: &str) -> Self {
         let mut cmd = Command::new(env!("CARGO"));
@@ -21,11 +19,6 @@ impl Cargo {
 
     pub fn package<S: AsRef<OsStr>>(&mut self, package: S) -> &mut Self {
         self.args(["--package", package.as_ref().to_str().unwrap()]);
-        self
-    }
-
-    pub fn work_dir<S: AsRef<Path>>(&mut self, dir: S) -> &mut Self {
-        self.current_dir(dir);
         self
     }
 
@@ -53,11 +46,6 @@ impl Cargo {
                 .join(",")
                 .as_ref(),
         ]);
-        self
-    }
-
-    pub fn no_default_features(&mut self) -> &mut Self {
-        self.arg("--no-default-features");
         self
     }
 

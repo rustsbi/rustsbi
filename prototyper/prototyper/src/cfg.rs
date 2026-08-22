@@ -1,11 +1,11 @@
 use static_toml::static_toml;
 
-/// The address where the SBI link start.
-pub const SBI_LINK_START_ADDRESS: usize = 0x80000000;
-
 static_toml! {
-    const CONFIG = include_toml!("../../target/config.toml");
+    const CONFIG = include_toml!("../../target/prototyper/config.toml");
 }
+
+/// The address where the SBI link start.
+pub const SBI_LINK_START_ADDRESS: usize = CONFIG.link_start_address as usize;
 
 #[cfg(not(any(feature = "payload", feature = "jump")))]
 pub type NextAddr = crate::cfg::config::next_addr::NextAddr;

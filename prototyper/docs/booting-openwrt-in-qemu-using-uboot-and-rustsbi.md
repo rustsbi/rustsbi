@@ -57,7 +57,7 @@ $ cd rustsbi
 编译RustSBI Prototyper
 
 ```shell
-$ cargo prototyper
+$ cargo prototyper build
 ```
 
 ## 编译U-Boot SPL

@@ -3,6 +3,8 @@ stack_size_per_hart = 16384 # 16 * 1024
 heap_size = 32768 # 32 * 1024
 page_size = 4096
 log_level = "INFO"
+link_start_address = 0x80000000
+payload_address = 0x80200000
 jump_address = 0x50000000
 tlb_flush_limit = 16384 # page_size * 4
 

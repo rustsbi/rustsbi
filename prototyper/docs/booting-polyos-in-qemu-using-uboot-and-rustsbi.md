@@ -20,7 +20,7 @@ $ cd rustsbi
 编译RustSBI Prototyper
 
 ```shell
-$ cargo prototyper
+$ cargo prototyper build
 ```
 
 ### Clone & Compile U-Boot

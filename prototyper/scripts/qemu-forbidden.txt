@@ -1,0 +1,6 @@
+# Console substrings that mark a failed QEMU boot even when QEMU exits
+# successfully. Single source shared by xtask (`qemu::verify_output`) and
+# `.github/scripts/prototyper-qemu-boot.sh`.
+panicked
+FAILED
+SystemFailure
