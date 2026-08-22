@@ -69,6 +69,18 @@ run_once() {
   test "$qemu_exit" = "0" || return 1
   test -s "$log_file" || return 1
 
+  # Fail closed: a missing or empty pattern file must not silently
+  # disable console verification (the process-substitution loops below
+  # would otherwise run zero iterations and still succeed).
+  test -s "$expected_file" || {
+    echo "[$mode/$kernel] missing or empty pattern file: $expected_file" >&2
+    return 1
+  }
+  test -s "$forbidden_file" || {
+    echo "[$mode/$kernel] missing or empty pattern file: $forbidden_file" >&2
+    return 1
+  }
+
   while IFS= read -r pattern; do
     case "$pattern" in ''|'#'*) continue ;; esac
     grep -Fq "$pattern" "$log_file" || return 1
