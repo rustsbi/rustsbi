@@ -605,12 +605,9 @@ impl Platform {
 
         let layout = AddressLayout {
             machine_base: base_address,
-            supervisor_base: 0,
-            guest_base: None,
             hart_index_bits,
             group_bits: group_index_shift,
             hart_offset_bits: 12,
-            guest_offset_bits: 0,
         };
 
         let mut hart_imsic_map = [None; NUM_HART_MAX];

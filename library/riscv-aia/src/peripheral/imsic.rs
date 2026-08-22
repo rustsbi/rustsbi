@@ -36,18 +36,12 @@ pub mod system {
     pub struct AddressLayout {
         /// Base address for machine-level interrupt files.
         pub machine_base: usize,
-        /// Base address for supervisor-level interrupt files.
-        pub supervisor_base: usize,
-        /// Base address for guest interrupt files, if supported.
-        pub guest_base: Option<usize>,
         /// Number of bits for the hart index.
         pub hart_index_bits: u32,
         /// Bit position of the group index.
         pub group_bits: u32,
         /// Bit position of the hart index.
         pub hart_offset_bits: u32,
-        /// Bit position of the guest-file index.
-        pub guest_offset_bits: u32,
     }
 
     impl AddressLayout {
