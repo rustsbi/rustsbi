@@ -11,7 +11,7 @@ use super::{
     build::remove_stale_generic_payload_artifacts,
     generate_build_inputs,
     kernels::{Kernel, QemuOptions, forbidden_patterns},
-    qemu::verify_output,
+    qemu::{Attempt, NextStep, next_step, verify_output},
     render_linker_script, resolve_in,
 };
 use crate::utils::cargo_target_dir_in;
@@ -169,6 +169,34 @@ fn qemu_output_verification_checks_expected_and_forbidden_patterns() {
     assert!(format!("{failure:#}").contains("panic"));
 
     assert!(verify_output("", &expected, &forbidden).is_err());
+}
+
+#[test]
+fn qemu_retries_only_after_timeout() {
+    let clean = |success: bool| Attempt::Exited {
+        success,
+        output: String::new(),
+    };
+    let timed_out = || Attempt::TimedOut {
+        output: String::new(),
+    };
+
+    // A clean exit with verified output passes on the first attempt.
+    assert_eq!(next_step(&clean(true), Some(true), true), NextStep::Pass);
+    assert_eq!(next_step(&clean(true), Some(true), false), NextStep::Pass);
+
+    // A verification failure fails immediately, even with attempts left.
+    assert_eq!(
+        next_step(&clean(true), Some(false), true),
+        NextStep::VerificationFailed
+    );
+
+    // A non-zero exit fails immediately, even with attempts left.
+    assert_eq!(next_step(&clean(false), None, true), NextStep::NonZeroExit);
+
+    // A timeout retries only while attempts remain.
+    assert_eq!(next_step(&timed_out(), None, true), NextStep::Retry);
+    assert_eq!(next_step(&timed_out(), None, false), NextStep::TimedOut);
 }
 
 #[test]

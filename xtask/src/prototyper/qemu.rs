@@ -41,11 +41,63 @@ pub(super) struct QemuRun {
 }
 
 /// Outcome of one QEMU attempt.
-enum Attempt {
+pub(super) enum Attempt {
     /// QEMU exited before the timeout; carries exit success and console output.
     Exited { success: bool, output: String },
     /// QEMU was killed after the timeout elapsed.
     TimedOut { output: String },
+}
+
+impl Attempt {
+    /// Console output captured from the attempt.
+    fn output(&self) -> &str {
+        match self {
+            Attempt::Exited { output, .. } | Attempt::TimedOut { output } => output,
+        }
+    }
+}
+
+/// What `run` should do after one QEMU attempt.
+///
+/// Pure policy: retries happen only after a timeout; a clean exit whose
+/// console output fails verification, or a non-zero exit, fails immediately.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum NextStep {
+    /// Clean exit and console verified: print results and succeed.
+    Pass,
+    /// Clean exit but console verification failed: fail immediately.
+    VerificationFailed,
+    /// QEMU exited with a non-zero status: fail immediately.
+    NonZeroExit,
+    /// Timed out with attempts remaining: retry.
+    Retry,
+    /// Timed out on the last attempt: fail.
+    TimedOut,
+}
+
+/// Decide the next step after one QEMU attempt, independent of any I/O.
+///
+/// `verified` is `Some(bool)` only for a clean exit (the outcome of
+/// `verify_output`); it is `None` when verification does not apply.
+pub(super) fn next_step(
+    attempt: &Attempt,
+    verified: Option<bool>,
+    attempts_left: bool,
+) -> NextStep {
+    match attempt {
+        Attempt::Exited { success: true, .. } => match verified {
+            Some(true) => NextStep::Pass,
+            _ => NextStep::VerificationFailed,
+        },
+        Attempt::Exited { success: false, .. } => NextStep::NonZeroExit,
+        Attempt::TimedOut { .. } => {
+            if attempts_left {
+                NextStep::Retry
+            } else {
+                NextStep::TimedOut
+            }
+        }
+    }
 }
 
 /// Boot `run.bios` in QEMU and verify the kernel console output.
@@ -69,51 +121,60 @@ pub(super) fn run(run: &QemuRun) -> Result<()> {
     );
 
     for attempt in 1..=run.attempts {
-        match run_once(run)? {
+        let outcome = run_once(run)?;
+        let attempts_left = attempt < run.attempts;
+        let verification = match &outcome {
             Attempt::Exited {
                 success: true,
                 output,
-            } => match verify_output(&output, &run.expected, &run.forbidden) {
-                Ok(()) => {
-                    info!(
-                        "{} kernel run passed on attempt {}/{}",
-                        run.label, attempt, run.attempts
-                    );
-                    print_results(&run.label, &output, &run.expected);
-                    return Ok(());
+            } => Some(verify_output(output, &run.expected, &run.forbidden)),
+            _ => None,
+        };
+        match next_step(
+            &outcome,
+            verification.as_ref().map(Result::is_ok),
+            attempts_left,
+        ) {
+            NextStep::Pass => {
+                info!(
+                    "{} kernel run passed on attempt {}/{}",
+                    run.label, attempt, run.attempts
+                );
+                print_results(&run.label, outcome.output(), &run.expected);
+                return Ok(());
+            }
+            NextStep::VerificationFailed => {
+                print_tail(&run.label, outcome.output());
+                match verification {
+                    Some(Err(err)) => return Err(err),
+                    // `next_step` only returns `VerificationFailed` when
+                    // verification ran and failed.
+                    _ => unreachable!("verification failed without an error"),
                 }
-                Err(err) => {
-                    print_tail(&run.label, &output);
-                    return Err(err);
-                }
-            },
-            Attempt::Exited {
-                success: false,
-                output,
-            } => {
-                print_tail(&run.label, &output);
+            }
+            NextStep::NonZeroExit => {
+                print_tail(&run.label, outcome.output());
                 bail!(
                     "QEMU exited with a non-zero status while running the {} kernel",
                     run.label
                 );
             }
-            Attempt::TimedOut { output } => {
-                if attempt < run.attempts {
-                    warn!(
-                        "QEMU timed out after {}s on attempt {}/{}; retrying",
-                        run.timeout.as_secs(),
-                        attempt,
-                        run.attempts
-                    );
-                } else {
-                    print_tail(&run.label, &output);
-                    bail!(
-                        "QEMU timed out after {}s while running the {} kernel ({} attempt(s))",
-                        run.timeout.as_secs(),
-                        run.label,
-                        run.attempts
-                    );
-                }
+            NextStep::Retry => {
+                warn!(
+                    "QEMU timed out after {}s on attempt {}/{}; retrying",
+                    run.timeout.as_secs(),
+                    attempt,
+                    run.attempts
+                );
+            }
+            NextStep::TimedOut => {
+                print_tail(&run.label, outcome.output());
+                bail!(
+                    "QEMU timed out after {}s while running the {} kernel ({} attempt(s))",
+                    run.timeout.as_secs(),
+                    run.label,
+                    run.attempts
+                );
             }
         }
     }
