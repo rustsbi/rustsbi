@@ -184,8 +184,8 @@ pub(crate) fn local_hsm() -> LocalHsmCell<'static, NextStage> {
     unsafe { hart_context(current_hartid()).hsm.local() }
 }
 
-/// Gets a remote view of the current hart's HSM cell.
-pub(crate) fn local_remote_hsm() -> RemoteHsmCell<'static, NextStage> {
+/// Returns a remote-capable view of the current hart's HSM cell.
+pub(crate) fn hsm() -> RemoteHsmCell<'static, NextStage> {
     hart_context(current_hartid()).hsm.remote()
 }
 

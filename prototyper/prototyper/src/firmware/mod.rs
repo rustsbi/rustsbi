@@ -1,13 +1,13 @@
 cfg_if::cfg_if! {
     if #[cfg(feature = "payload")] {
         pub mod payload;
-        pub use payload::{get_boot_info};
+        use payload::get_boot_info;
     } else if #[cfg(feature = "jump")] {
         pub mod jump;
-        pub use jump::{get_boot_info};
+        use jump::get_boot_info;
     } else {
         pub mod dynamic;
-        pub use dynamic::{get_boot_info, read_paddr};
+        use dynamic::{get_boot_info, read_paddr};
     }
 }
 
@@ -17,10 +17,9 @@ use riscv::register::{self, Permission};
 
 use crate::riscv::current_hartid;
 
-/// Get work hart, for both steps.
-///
-/// Init hart can be random choose when DynamicInfo can not be read.
-pub fn is_work_hart(_nonstandard_a2: usize, _boot: bool) -> bool {
+/// Decides whether this hart leads the boot (designated in `DynamicInfo`,
+/// or raced when absent).
+fn is_work_hart(_dynamic_info_addr: usize) -> bool {
     use core::sync::atomic::{AtomicUsize, Ordering};
     static WORK_HART: AtomicUsize = AtomicUsize::new(usize::MAX);
 
@@ -29,7 +28,7 @@ pub fn is_work_hart(_nonstandard_a2: usize, _boot: bool) -> bool {
             let info: _ = None;
         }
         else {
-            let info = read_paddr(_nonstandard_a2).ok().and_then(|x| Some(x.boot_hart));
+            let info = read_paddr(_dynamic_info_addr).ok().and_then(|x| Some(x.boot_hart));
         }
     }
 
@@ -63,18 +62,64 @@ use core::arch::{asm, naked_asm};
 use core::ops::Range;
 
 use crate::fail;
+use crate::sbi::hart_context::NextStage;
 
-use riscv::register::mstatus;
 use serde::Serialize;
 
+/// Boot information decoded from the previous-stage register envelope (a1/a2).
 pub struct BootInfo {
-    pub next_address: usize,
-    pub mpp: mstatus::MPP,
+    fdt_address: usize,
+    is_boot_hart: bool,
+    /// The `a2` `DynamicInfo` address, kept for the deferred `next_stage()`
+    /// decode.
+    dynamic_info_addr: usize,
 }
 
-pub struct BootHart {
-    pub fdt_address: usize,
-    pub is_boot_hart: bool,
+impl BootInfo {
+    /// Decodes the register handoff (`a1` = device tree pointer, `a2` =
+    /// `DynamicInfo` address), electing a boot hart by race when
+    /// `DynamicInfo` is unreadable.
+    pub fn decode(a1: usize, a2: usize) -> Self {
+        let hart = get_work_hart(a1, a2);
+        Self {
+            fdt_address: hart.fdt_address,
+            is_boot_hart: hart.is_boot_hart,
+            dynamic_info_addr: a2,
+        }
+    }
+
+    /// Returns the device tree address for this boot (the previous
+    /// stage's pointer, or the embedded tree under the `fdt` feature).
+    pub fn fdt_address(&self) -> usize {
+        self.fdt_address
+    }
+
+    /// Returns whether this hart leads the boot.
+    ///
+    /// Transitional: the future machine layer absorbs per-hart role dispatch.
+    pub fn is_boot_hart(&self) -> bool {
+        self.is_boot_hart
+    }
+
+    /// Returns the next-stage handoff; `opaque` carries the unpatched
+    /// device tree address. Must be called after the console is up:
+    /// prints and stops on invalid `DynamicInfo`.
+    ///
+    /// Transitional: the future machine layer will own the transfer.
+    pub fn next_stage(&self) -> NextStage {
+        let (next_mode, start_addr) = get_boot_info(self.dynamic_info_addr);
+        NextStage {
+            start_addr,
+            next_mode,
+            opaque: self.fdt_address,
+        }
+    }
+}
+
+/// The local hart's boot role and its resolved device tree address.
+struct BootHart {
+    fdt_address: usize,
+    is_boot_hart: bool,
 }
 
 #[unsafe(naked)]
@@ -91,17 +136,12 @@ fn get_fdt_address() -> usize {
     raw_fdt as usize
 }
 
-/// Gets boot hart information based on opaque and nonstandard_a2 parameters.
-///
-/// Returns a BootHart struct containing FDT address and whether this is the boot hart.
-///
-/// The boot flow is splitted into two steps, first init all devices,
-/// second the really boot stage. When in second step, boot flag should be true.
+/// Resolves this hart's boot role and the device tree address.
 #[allow(unused_mut, unused_assignments)]
-pub fn get_work_hart(opaque: usize, nonstandard_a2: usize, boot: bool) -> BootHart {
-    let is_boot_hart = is_work_hart(nonstandard_a2, boot);
+fn get_work_hart(dtb_addr: usize, dynamic_info_addr: usize) -> BootHart {
+    let is_boot_hart = is_work_hart(dynamic_info_addr);
 
-    let mut fdt_address = opaque;
+    let mut fdt_address = dtb_addr;
 
     #[cfg(feature = "fdt")]
     {

@@ -2,21 +2,16 @@
 
 use core::ops::Range;
 
-use super::BootInfo;
 use crate::fail;
 
 use riscv::register::mstatus;
 
-/// Gets boot information from nonstandard_a2 parameter.
-///
-/// Returns BootInfo containing next stage address and privilege mode.
-pub fn get_boot_info(nonstandard_a2: usize) -> BootInfo {
-    let dynamic_info = read_paddr(nonstandard_a2).unwrap_or_else(fail::no_dynamic_info_available);
-    let (mpp, next_addr) = mpp_next_addr(&dynamic_info).unwrap_or_else(fail::invalid_dynamic_data);
-    BootInfo {
-        next_address: next_addr,
-        mpp,
-    }
+/// Derives the next-stage address and privilege mode from the `a2`
+/// `DynamicInfo`; prints and stops on invalid input.
+pub(crate) fn get_boot_info(dynamic_info_addr: usize) -> (mstatus::MPP, usize) {
+    let dynamic_info =
+        read_paddr(dynamic_info_addr).unwrap_or_else(fail::no_dynamic_info_available);
+    mpp_next_addr(&dynamic_info).unwrap_or_else(fail::invalid_dynamic_data)
 }
 
 /// M-mode firmware dynamic information.

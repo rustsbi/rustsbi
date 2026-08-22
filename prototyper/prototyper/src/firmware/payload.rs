@@ -1,13 +1,9 @@
 use core::arch::naked_asm;
 use riscv::register::mstatus;
 
-use super::BootInfo;
-
-pub fn get_boot_info(_nonstandard_a2: usize) -> BootInfo {
-    BootInfo {
-        next_address: get_image_address(),
-        mpp: mstatus::MPP::Supervisor,
-    }
+/// The next stage is the embedded payload image, entered in S-mode.
+pub(crate) fn get_boot_info(_dynamic_info_addr: usize) -> (mstatus::MPP, usize) {
+    (mstatus::MPP::Supervisor, get_image_address())
 }
 
 #[unsafe(naked)]
