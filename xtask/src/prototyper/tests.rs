@@ -10,7 +10,7 @@ use super::{
     BuildArgs, BuildMode, BuildPaths, PlatformAddresses, PrototyperCommand, Target,
     build::remove_stale_payload_artifacts,
     generate_build_inputs,
-    kernels::{Kernel, QemuOptions, forbidden_patterns},
+    kernels::{Kernel, forbidden_patterns},
     qemu::{Attempt, NextStep, next_step, verify_output},
     render_linker_script, resolve_in,
     scheme::{Action, Scheme},
@@ -103,7 +103,8 @@ fn cli_parses_commands_and_build_arguments() {
 }
 
 #[test]
-fn cli_parses_kernel_qemu_arguments_and_defaults() {
+fn cli_kernel_options_flow_and_resolve_via_scheme() {
+    // Explicit flags flow through verbatim as Some(_).
     let args = match parse(&[
         "prototyper",
         "test",
@@ -121,27 +122,20 @@ fn cli_parses_kernel_qemu_arguments_and_defaults() {
         _ => panic!("expected `test` subcommand"),
     };
     assert!(args.no_run);
-    assert_eq!(args.smp, 2);
-    assert_eq!(args.timeout, 30);
-    assert_eq!(args.retries, 1);
+    assert_eq!(args.smp, Some(2));
+    assert_eq!(args.timeout, Some(30));
+    assert_eq!(args.retries, Some(1));
 
-    let args = match parse(&["prototyper", "test"]).unwrap() {
-        PrototyperCommand::Test(args) => args,
-        _ => panic!("expected `test` subcommand"),
-    };
-    assert!(!args.no_run);
-    assert_eq!(args.smp, 1);
-    assert_eq!(args.timeout, 60);
-    assert_eq!(args.retries, 2);
-
+    // Absent flags are None; resolution happens against the Scheme.
+    let scheme = Scheme::default();
     let args = match parse(&["prototyper", "bench"]).unwrap() {
         PrototyperCommand::Bench(args) => args,
         _ => panic!("expected `bench` subcommand"),
     };
+    assert_eq!(args.smp, None);
+    let resolved_smp = args.smp.unwrap_or(scheme.action(Action::Bench).smp);
+    assert_eq!(resolved_smp, 4);
     assert!(!args.no_run);
-    assert_eq!(args.smp, 4);
-    assert_eq!(args.timeout, 90);
-    assert_eq!(args.retries, 4);
 }
 
 #[test]
@@ -181,12 +175,6 @@ fn scheme_defaults_drive_kernel_runs() {
     assert_eq!(scheme.action(Action::Bench).timeout_secs, 90);
     assert_eq!(scheme.qemu.machine, "virt");
     assert_eq!(scheme.qemu.memory_mb, 256);
-    // The kernel bridge resolves through the same scheme.
-    assert_eq!(Kernel::Test.default_smp(), scheme.action(Action::Test).smp);
-    assert_eq!(
-        Kernel::Bench.default_attempts(),
-        scheme.action(Action::Bench).attempts
-    );
 }
 
 #[test]
@@ -445,8 +433,9 @@ fn linker_template_renders_known_addresses_and_rejects_unknown_tokens() {
 }
 
 #[test]
-fn qemu_options_validation_rejects_zero_values_before_building() {
-    let valid = QemuOptions {
+fn run_options_validation_rejects_zero_values_before_building() {
+    use super::kernels::ResolvedRun;
+    let valid = ResolvedRun {
         no_run: true,
         smp: 1,
         timeout_secs: 60,
@@ -454,14 +443,14 @@ fn qemu_options_validation_rejects_zero_values_before_building() {
     };
     assert!(valid.validate().is_ok());
 
-    let zero_retries = QemuOptions {
+    let zero_retries = ResolvedRun {
         attempts: 0,
         ..valid
     };
     let error = zero_retries.validate().unwrap_err();
     assert!(format!("{error:#}").contains("--retries 0"));
 
-    let zero_smp = QemuOptions { smp: 0, ..valid };
+    let zero_smp = ResolvedRun { smp: 0, ..valid };
     let error = zero_smp.validate().unwrap_err();
     assert!(format!("{error:#}").contains("--smp 0"));
 }

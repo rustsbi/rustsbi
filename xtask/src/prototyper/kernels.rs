@@ -7,6 +7,7 @@ use std::{
 
 use crate::utils::{cargo, cargo_target_dir, workspace_root};
 use anyhow::{Context, Result, bail};
+use clap::Args;
 
 use super::{
     PACKAGE_NAME, Target,
@@ -27,7 +28,7 @@ impl From<Kernel> for Action {
 
 /// Kernels the prototyper can embed as payloads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Kernel {
+pub(crate) enum Kernel {
     Test,
     Bench,
 }
@@ -57,24 +58,6 @@ impl Kernel {
             Kernel::Test => "test",
             Kernel::Bench => "bench",
         }
-    }
-
-    /// Default number of harts QEMU boots this kernel with.
-    /// Bridges to [`Scheme`]; removed when KernelArgs resolves options.
-    pub(super) fn default_smp(self) -> usize {
-        Scheme::default().action(self.into()).smp
-    }
-
-    /// Default timeout of one QEMU attempt, in seconds.
-    /// Bridges to [`Scheme`]; removed when KernelArgs resolves options.
-    pub(super) fn default_timeout_secs(self) -> u64 {
-        Scheme::default().action(self.into()).timeout_secs
-    }
-
-    /// Default number of QEMU attempts; retries happen only after a timeout.
-    /// Bridges to [`Scheme`]; removed when KernelArgs resolves options.
-    pub(super) fn default_attempts(self) -> usize {
-        Scheme::default().action(self.into()).attempts
     }
 
     /// Console output patterns expected from a successful run of this kernel.
@@ -246,21 +229,51 @@ impl Kernel {
     }
 }
 
-/// QEMU execution options shared by kernel-backed commands.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct QemuOptions {
-    /// Only build the kernel and firmware without running them in QEMU.
+/// Shared arguments of `cargo prototyper test` and `bench`.
+/// Absent options resolve against [`Scheme`] in [`run`].
+#[derive(Debug, Args, Clone)]
+pub struct KernelArgs {
+    /// Pack Prototyper and the kernel into a single ITB image
+    #[arg(long)]
+    pub pack: bool,
+
+    /// Only build the kernel and firmware without running them in QEMU
+    #[arg(long)]
     pub no_run: bool,
-    /// Number of harts QEMU boots the kernel with.
-    pub smp: usize,
-    /// Timeout of one QEMU attempt, in seconds.
-    pub timeout_secs: u64,
-    /// Number of QEMU attempts; retries happen only after a timeout.
-    pub attempts: usize,
+
+    /// Number of harts QEMU boots the kernel with (default: test 1, bench 4)
+    #[arg(long)]
+    pub smp: Option<usize>,
+
+    /// Timeout in seconds of one QEMU attempt (default: test 60, bench 90)
+    #[arg(long)]
+    pub timeout: Option<u64>,
+
+    /// Number of QEMU attempts; retries happen only after a timeout
+    /// (default: test 2, bench 4)
+    #[arg(long)]
+    pub retries: Option<usize>,
+
+    /// Build the firmware in the debug profile instead of release
+    #[arg(long)]
+    pub debug: bool,
+
+    /// Specify the path to a custom configuration file for the firmware
+    #[arg(long, short = 'c')]
+    pub config_file: Option<PathBuf>,
 }
 
-impl QemuOptions {
-    /// Reject nonsensical values before anything is built, so `--no-run`
+/// One QEMU run, with CLI overrides resolved against the Scheme.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ResolvedRun {
+    pub(super) no_run: bool,
+    pub(super) smp: usize,
+    pub(super) timeout_secs: u64,
+    pub(super) attempts: usize,
+}
+
+impl ResolvedRun {
+    /// Rejects nonsensical values before anything is built, so `--no-run`
     /// invocations fail fast too. `qemu::run` repeats these checks as
     /// defense in depth.
     pub(super) fn validate(&self) -> Result<()> {
@@ -287,13 +300,20 @@ pub(super) struct FirmwareOptions {
 /// Run a kernel-backed prototyper command (`test` or `bench`):
 /// build the kernel and the payload-mode firmware embedding it, then boot
 /// the firmware in QEMU and verify the kernel's console output.
-pub(super) fn run(
-    kernel: Kernel,
-    pack: bool,
-    qemu_options: QemuOptions,
-    firmware_options: &FirmwareOptions,
-) -> Result<ExitStatus> {
-    qemu_options.validate()?;
+pub(super) fn run(kernel: Kernel, args: &KernelArgs) -> Result<ExitStatus> {
+    let scheme = Scheme::default();
+    let defaults = scheme.action(kernel.into());
+    let run_opts = ResolvedRun {
+        no_run: args.no_run,
+        smp: args.smp.unwrap_or(defaults.smp),
+        timeout_secs: args.timeout.unwrap_or(defaults.timeout_secs),
+        attempts: args.retries.unwrap_or(defaults.attempts),
+    };
+    run_opts.validate()?;
+    let firmware_options = FirmwareOptions {
+        debug: args.debug,
+        config_file: args.config_file.clone(),
+    };
 
     let kernel_binary = kernel.build()?;
     let build_args = BuildArgs::payload(
@@ -309,21 +329,21 @@ pub(super) fn run(
         return Ok(exit_status);
     }
 
-    if pack {
-        kernel.pack(firmware_options)?;
+    if args.pack {
+        kernel.pack(&firmware_options)?;
     }
 
-    if !qemu_options.no_run {
+    if !run_opts.no_run {
         let firmware_elf = spec
             .artifact_dir()
             .join(format!("{PACKAGE_NAME}-{}.elf", spec.artifact_suffix()));
         qemu::run(&QemuRun {
             bios: firmware_elf,
-            qemu: Scheme::default().qemu,
-            smp: qemu_options.smp,
-            timeout: Duration::from_secs(qemu_options.timeout_secs),
-            attempts: qemu_options.attempts,
-            expected: kernel.expected_patterns(qemu_options.smp)?,
+            qemu: scheme.qemu.clone(),
+            smp: run_opts.smp,
+            timeout: Duration::from_secs(run_opts.timeout_secs),
+            attempts: run_opts.attempts,
+            expected: kernel.expected_patterns(run_opts.smp)?,
             forbidden: forbidden_patterns()?,
             label: kernel.command_name().to_string(),
         })?;

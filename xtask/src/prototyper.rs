@@ -1,4 +1,3 @@
-mod bench;
 mod build;
 mod config;
 mod generate;
@@ -6,7 +5,6 @@ mod kernels;
 mod qemu;
 mod scheme;
 mod target;
-mod test;
 
 #[cfg(test)]
 mod tests;
@@ -26,21 +24,22 @@ pub enum PrototyperCommand {
     /// Build RustSBI Prototyper firmware.
     Build(build::BuildArgs),
     /// Build the test kernel and payload-mode firmware embedding it, then run it in QEMU.
-    Test(test::TestArgs),
+    Test(kernels::KernelArgs),
     /// Build the bench kernel and payload-mode firmware embedding it, then run it in QEMU.
-    Bench(bench::BenchArgs),
+    Bench(kernels::KernelArgs),
 }
 
 pub use build::BuildArgs;
 #[cfg(test)]
 pub(crate) use build::BuildMode;
+pub(crate) use kernels::Kernel;
 pub(crate) use target::Target;
 
 pub fn run(command: &PrototyperCommand) -> Result<ExitStatus> {
     match command {
         PrototyperCommand::Build(build_args) => build::run(build_args),
-        PrototyperCommand::Test(test_args) => test::run(test_args),
-        PrototyperCommand::Bench(bench_args) => bench::run(bench_args),
+        PrototyperCommand::Test(args) => kernels::run(Kernel::Test, args),
+        PrototyperCommand::Bench(args) => kernels::run(Kernel::Bench, args),
     }
 }
 
