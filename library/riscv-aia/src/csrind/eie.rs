@@ -77,11 +77,21 @@ mod tests {
     use super::{EIE_BASE, Eie, eie_id};
 
     #[test]
-    fn value_uses_xlen_bits() {
-        let value = Eie::from_bits(usize::MAX);
+    fn enable_bit_bounds() {
+        let highest = usize::BITS - 1;
+        let value = Eie::from_bits(0)
+            .set_enabled(31, true)
+            .set_enabled(highest, true);
 
-        assert_eq!(value.bits(), usize::MAX);
-        assert!(value.is_enabled(usize::BITS - 1));
+        assert!(value.is_enabled(31));
+        assert!(value.is_enabled(highest));
+
+        let cleared = value.set_enabled(highest, false);
+        assert!(!cleared.is_enabled(highest));
+
+        assert_eq!(Eie::from_bits(0).set_enabled(usize::BITS, true).bits(), 0);
+        assert_eq!(value.set_enabled(usize::BITS, true), value);
+        assert!(!value.is_enabled(usize::BITS));
     }
 
     #[test]

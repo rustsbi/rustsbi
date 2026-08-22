@@ -45,3 +45,19 @@ impl_ind_accessors! {
         "The current hart must implement the H extension with a guest interrupt file, the caller must be permitted to access VS-mode CSRs, and `hstatus.VGEIN` must select an implemented guest interrupt file."
     ),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Eithreshold;
+
+    #[test]
+    fn threshold_round_trip() {
+        let zero = Eithreshold::from_bits(0);
+        assert_eq!(zero.bits(), 0);
+        assert_eq!(zero.threshold(), 0);
+
+        let maximum = Eithreshold::from_bits(usize::MAX);
+        assert_eq!(maximum.bits(), usize::MAX);
+        assert_eq!(maximum.threshold(), usize::MAX);
+    }
+}

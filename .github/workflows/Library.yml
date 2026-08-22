@@ -74,6 +74,19 @@ jobs:
           cargo test -p rustsbi --verbose --features "machine"
       # Don't run tests with rustsbi `forward` features on here: it requires RISC-V targets to build.
 
+  test-riscv-aia:
+    name: Test riscv-aia
+    needs: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests
+        run: cargo test -p riscv-aia --verbose
+
   test-sbi-spec:
     name: Test sbi-spec
     needs: fmt

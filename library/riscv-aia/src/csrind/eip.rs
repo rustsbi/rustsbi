@@ -77,11 +77,21 @@ mod tests {
     use super::{EIP_BASE, Eip, eip_id};
 
     #[test]
-    fn value_uses_xlen_bits() {
-        let value = Eip::from_bits(usize::MAX);
+    fn pending_bit_bounds() {
+        let highest = usize::BITS - 1;
+        let value = Eip::from_bits(0)
+            .set_pending(31, true)
+            .set_pending(highest, true);
 
-        assert_eq!(value.bits(), usize::MAX);
-        assert!(value.is_pending(usize::BITS - 1));
+        assert!(value.is_pending(31));
+        assert!(value.is_pending(highest));
+
+        let cleared = value.set_pending(highest, false);
+        assert!(!cleared.is_pending(highest));
+
+        assert_eq!(Eip::from_bits(0).set_pending(usize::BITS, true).bits(), 0);
+        assert_eq!(value.set_pending(usize::BITS, true), value);
+        assert!(!value.is_pending(usize::BITS));
     }
 
     #[test]

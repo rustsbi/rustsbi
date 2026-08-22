@@ -64,3 +64,37 @@ impl_ind_accessors! {
         "The current hart must implement the H extension with a guest interrupt file, the caller must be permitted to access VS-mode CSRs, and `hstatus.VGEIN` must select an implemented guest interrupt file."
     ),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Eidelivery;
+
+    #[test]
+    fn defined_values_and_predicates() {
+        let disabled = Eidelivery::from_bits(0);
+        assert_eq!(disabled, Eidelivery::DISABLED);
+        assert_eq!(disabled.bits(), 0);
+        assert!(disabled.is_disabled());
+        assert!(!disabled.is_enabled());
+        assert!(!disabled.is_plic_aplic_enabled());
+
+        let enabled = Eidelivery::from_bits(1);
+        assert_eq!(enabled, Eidelivery::ENABLED);
+        assert_eq!(enabled.bits(), 1);
+        assert!(!enabled.is_disabled());
+        assert!(enabled.is_enabled());
+        assert!(!enabled.is_plic_aplic_enabled());
+
+        let plic_aplic = Eidelivery::from_bits(0x40000000);
+        assert_eq!(plic_aplic, Eidelivery::PLIC_APLIC_ENABLED);
+        assert_eq!(plic_aplic.bits(), 0x40000000);
+        assert!(!plic_aplic.is_disabled());
+        assert!(!plic_aplic.is_enabled());
+        assert!(plic_aplic.is_plic_aplic_enabled());
+
+        let other = Eidelivery::from_bits(2);
+        assert!(!other.is_disabled());
+        assert!(!other.is_enabled());
+        assert!(!other.is_plic_aplic_enabled());
+    }
+}
