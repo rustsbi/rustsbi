@@ -38,9 +38,14 @@ use crate::sbi::rfence::SbiRFence;
 use crate::sbi::suspend::SbiSuspend;
 
 pub(crate) mod aia;
+mod boot;
 mod clint;
 mod console;
 mod reset;
+
+pub use boot::{
+    init_board, memory_range, refresh_enabled_cpus, secondary_hart_init, wait_until_ready,
+};
 
 pub(crate) static CPU_PRIVILEGED_ENABLED: [AtomicBool; NUM_HART_MAX] =
     [const { AtomicBool::new(false) }; NUM_HART_MAX];
@@ -982,50 +987,3 @@ impl Platform {
 }
 
 pub(crate) static mut PLATFORM: Platform = Platform::new();
-
-/// Initializes the board from the device tree and runs the SoC-specific
-/// early initialization.
-pub fn init_board(fdt_address: usize) {
-    unsafe {
-        PLATFORM.init(fdt_address);
-        PLATFORM.print_board_info();
-    }
-
-    if IS_K1_PLATFORM.load(Ordering::Acquire) {
-        // Configure ML2SETUP for the boot hart
-        spacemit_k1::cold_boot_allowed(crate::riscv::current_hartid());
-
-        unsafe {
-            // Use the SBI link address as the warmboot entry
-            let warmboot_addr = crate::cfg::SBI_LINK_START_ADDRESS as u64;
-            spacemit_k1::early_init(true, warmboot_addr);
-        }
-        info!("SpacemiT K1: early init done (MSETUP + CCI-550)");
-    }
-}
-
-/// Runs the SoC-specific per-hart setup for secondary harts.
-pub fn secondary_hart_init() {
-    if IS_K1_PLATFORM.load(Ordering::Acquire) {
-        spacemit_k1::cold_boot_allowed(crate::riscv::current_hartid());
-    }
-}
-
-/// Spins until the boot hart has finished platform initialization.
-pub fn wait_until_ready() {
-    while !unsafe { PLATFORM.ready() } {
-        core::hint::spin_loop()
-    }
-}
-
-/// Returns the board's memory range (set during `Platform::init`).
-pub fn memory_range() -> Range<usize> {
-    unsafe { PLATFORM.info.memory_range.as_ref().unwrap().clone() }
-}
-
-/// Reconciles the enabled-CPU table with the per-hart privilege checks.
-pub fn refresh_enabled_cpus() {
-    unsafe {
-        PLATFORM.sbi_cpu_init_with_feature();
-    }
-}
