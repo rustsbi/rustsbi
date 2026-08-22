@@ -8,7 +8,8 @@ const BUDDY_MAX_ORDER: usize = 20;
 #[global_allocator]
 static HEAP_ALLOCATOR: LockedHeap<BUDDY_MAX_ORDER> = LockedHeap::<BUDDY_MAX_ORDER>::empty();
 
-pub fn sbi_heap_init() {
+/// Initializes the global SBI heap allocator.
+pub fn init() {
     unsafe {
         HEAP_ALLOCATOR
             .lock()

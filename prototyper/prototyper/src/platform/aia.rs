@@ -5,6 +5,7 @@ use riscv_aia::peripheral::imsic::system::AddressLayout;
 use crate::cfg::NUM_HART_MAX;
 use crate::riscv::csr::stimecmp;
 use crate::riscv::current_hartid;
+use crate::sbi::features::{Extension, hart_extension_probe};
 use crate::sbi::ipi::IpiDevice;
 
 pub(crate) const IMSIC_COMPATIBLE: [&str; 2] = ["riscv,imsics", "riscv,imsic"];
@@ -31,6 +32,21 @@ pub fn is_aia_active() -> bool {
 
 pub fn set_aia_active(active: bool) {
     AIA_ACTIVE.store(active, Ordering::Relaxed);
+}
+
+/// Initializes this hart's IMSIC when AIA is active and Smaia is supported.
+pub fn per_hart_init() {
+    if !is_aia_active() {
+        return;
+    }
+    let hart_id = current_hartid();
+    if hart_extension_probe(hart_id, Extension::Smaia) {
+        if let Some(ref aia_info) = unsafe { super::PLATFORM.info.aia.as_ref() } {
+            imsic_init_hart(aia_info);
+        }
+    } else {
+        warn!("Hart {} lacks Smaia, skipping IMSIC init", hart_id);
+    }
 }
 
 pub fn init_qemu_m_aplic_delegation(machine_imsic_base: usize, hart_index_bits: u32) {

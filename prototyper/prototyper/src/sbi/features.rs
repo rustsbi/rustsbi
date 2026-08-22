@@ -3,16 +3,20 @@ use riscv::register::misa;
 use seq_macro::seq;
 use serde_device_tree::buildin::NodeSeq;
 
+use core::arch::asm;
 use core::sync::atomic::Ordering;
 
 use crate::fail;
 use crate::platform::CPU_PRIVILEGED_ENABLED;
+use crate::platform::aia::is_aia_active;
 use crate::riscv::csr::*;
 use crate::riscv::current_hartid;
 use crate::sbi::early_trap::{TrapInfo, csr_read_allow, csr_write_allow};
 use crate::sbi::trap_stack::{hart_context, hart_context_mut};
 
 use super::early_trap::csr_swap;
+
+use riscv::register::{medeleg, mtvec};
 
 pub struct HartFeatures {
     extensions: [bool; Extension::COUNT],
@@ -179,7 +183,8 @@ fn mhpm_detection() {
     hart_context_mut(current_hartid()).features.mhpm_bits = 64;
 }
 
-pub fn hart_features_detection() {
+/// Detects the current hart's ISA extensions and privileged version.
+pub fn detect_hart_features() {
     privileged_version_detection();
     mhpm_detection();
 }
@@ -196,26 +201,75 @@ pub fn init(cpus: &NodeSeq) {
     }
 }
 
-// Check if current cpu support target privillege.
-//
-// If not, go to loop trap sliently.
-pub fn hart_privileged_check(mpp: MPP) {
+/// Checks that this hart supports the requested privilege mode.
+///
+/// Warns and stops the hart if it does not.
+pub fn check_privilege(mpp: MPP) {
     let hart_id = current_hartid();
     match mpp {
         MPP::Supervisor => {
             if !misa::read().has_extension('S') {
-                warn!("Hart {} not support Supervisor mode", hart_id);
+                warn!("Hart {} does not support Supervisor mode", hart_id);
                 fail::stop();
             }
             CPU_PRIVILEGED_ENABLED[hart_id].store(true, Ordering::Release);
         }
         MPP::User => {
             if !misa::read().has_extension('U') {
-                warn!("Hart {} not support User mode", hart_id);
+                warn!("Hart {} does not support User mode", hart_id);
                 fail::stop();
             }
             CPU_PRIVILEGED_ENABLED[hart_id].store(true, Ordering::Release);
         }
         _ => {}
+    }
+}
+
+/// Returns whether the `mstateen0` CSR is implemented (trap-tolerant probe).
+#[inline(always)]
+fn has_mstateen0() -> bool {
+    has_csr!(CSR_MSTATEEN0)
+}
+
+/// Configures per-hart delegation and trap CSRs for supervisor hand-off.
+pub fn configure_delegation_and_trap() {
+    unsafe {
+        // Delegate all interrupts and exceptions to supervisor mode.
+        asm!("csrw mideleg,    {}", in(reg) !0);
+        asm!("csrw medeleg,    {}", in(reg) !0);
+        asm!("csrw mcounteren, {}", in(reg) !0);
+        asm!("csrw scounteren, {}", in(reg) !0);
+        // Keep supervisor environment calls and illegal instructions in M-mode.
+        medeleg::clear_supervisor_env_call();
+        medeleg::clear_load_misaligned();
+        medeleg::clear_store_misaligned();
+        medeleg::clear_illegal_instruction();
+
+        let hart_priv_version = hart_privileged_version(current_hartid());
+        if hart_priv_version >= PrivilegedVersion::Version1_11 {
+            asm!("csrw mcountinhibit, {}", in(reg) !0b111usize);
+        }
+        if hart_priv_version >= PrivilegedVersion::Version1_12 {
+            // Configure environment features based on available extensions.
+            if hart_extension_probe(current_hartid(), Extension::Sstc) {
+                menvcfg::set_bits(
+                    menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
+                );
+            } else {
+                menvcfg::set_bits(menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
+            }
+            if is_aia_active()
+                && hart_extension_probe(current_hartid(), Extension::Smaia)
+                && has_mstateen0()
+            {
+                mstateen::enable_smode_aia();
+            }
+        }
+        // Set up trap handling.
+        let val = mtvec::Mtvec::new(
+            fast_trap::trap_entry as *const () as _,
+            mtvec::TrapMode::Direct,
+        );
+        mtvec::write(val);
     }
 }

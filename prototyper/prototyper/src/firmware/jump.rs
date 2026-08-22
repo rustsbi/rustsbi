@@ -1,11 +1,8 @@
 use riscv::register::mstatus;
 
-use super::BootInfo;
 use crate::cfg::JUMP_ADDRESS;
 
-pub fn get_boot_info(_nonstandard_a2: usize) -> BootInfo {
-    BootInfo {
-        next_address: JUMP_ADDRESS,
-        mpp: mstatus::MPP::Supervisor,
-    }
+/// The next stage is the configured jump address, entered in S-mode.
+pub(crate) fn get_boot_info(_dynamic_info_addr: usize) -> (mstatus::MPP, usize) {
+    (mstatus::MPP::Supervisor, JUMP_ADDRESS)
 }

@@ -30,13 +30,21 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
             /// Connects the startup ceremony to the policy function.
             #[doc(hidden)]
             #[unsafe(export_name = "__rustsbi_prototyper_main")]
-            extern "C" fn __rustsbi_prototyper_main(
-                hart_id: usize,
-                opaque: usize,
-                nonstandard_a2: usize,
-            ) {
-                let entry: fn(usize, usize, usize) = #name;
-                entry(hart_id, opaque, nonstandard_a2)
+            extern "C" fn __rustsbi_prototyper_main(_a0: usize, a1: usize, a2: usize) {
+                // Boot register handoff from the previous stage:
+                //   a0 = hart ID, a1 = device tree pointer (base RISC-V
+                //   convention); a2 = DynamicInfo address (fw_dynamic
+                //   extension, dynamic variant only).
+                //
+                // `_a0` keeps its slot but its value is unused: register
+                // arguments bind by position, so removing the parameter
+                // would shift `a1`/`a2`. In M-mode the hart ID is always
+                // re-read from the mhartid CSR, and it is re-materialized
+                // into `a0` when this firmware boots the next stage (see
+                // `sbi::trap::boot`) — S-mode cannot read mhartid and
+                // depends on receiving its hart ID this way.
+                let entry: fn(crate::firmware::BootInfo) = #name;
+                entry(crate::firmware::BootInfo::decode(a1, a2))
             }
 
             /// Applies the linker's relative relocations before Rust memory
@@ -64,10 +72,12 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
             /// # Safety
             ///
             /// The previous stage must enter with the register envelope of
-            /// the selected boot protocol: `a0 = hart_id`, `a1 = opaque`,
-            /// `a2 = nonstandard_a2`. Runs before relocation, BSS, and stacks
-            /// exist, so the assembly may not touch Rust memory until those
-            /// steps complete.
+            /// the selected boot protocol: `a0 = hart ID`, `a1 = device
+            /// tree pointer` (base RISC-V convention), `a2 = DynamicInfo
+            /// address` (fw_dynamic extension, dynamic variant only).
+            /// Runs before relocation, BSS, and stacks exist, so the
+            /// assembly may not touch Rust memory until those steps
+            /// complete.
             #[doc(hidden)]
             #[unsafe(naked)]
             #[unsafe(link_section = ".text.entry")]
@@ -89,7 +99,7 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
 mod tests {
     use super::{TokenStream, expand};
 
-    const POLICY_FN: &str = "fn main(a: usize, b: usize, c: usize) { loop {} }";
+    const POLICY_FN: &str = "fn main(boot: crate::firmware::BootInfo) { loop {} }";
 
     fn normalized(tokens: TokenStream) -> String {
         tokens.to_string().split_whitespace().collect()
@@ -98,14 +108,14 @@ mod tests {
     #[test]
     fn expands_policy_and_bridge() {
         let expanded = normalized(expand(TokenStream::new(), POLICY_FN.parse().unwrap()));
-        assert!(expanded.contains("fnmain(a:usize,b:usize,c:usize){loop{}}"));
+        assert!(expanded.contains("fnmain(boot:crate::firmware::BootInfo){loop{}}"));
         assert_eq!(
             expanded
                 .matches("export_name=\"__rustsbi_prototyper_main\"")
                 .count(),
             1
         );
-        assert!(expanded.contains("letentry:fn(usize,usize,usize)=main;"));
+        assert!(expanded.contains("letentry:fn(crate::firmware::BootInfo)=main;"));
     }
 
     #[test]
@@ -119,7 +129,7 @@ mod tests {
     #[test]
     fn bridge_forwards_arguments() {
         let expanded = normalized(expand(TokenStream::new(), POLICY_FN.parse().unwrap()));
-        assert!(expanded.contains("entry(hart_id,opaque,nonstandard_a2)"));
+        assert!(expanded.contains("entry(crate::firmware::BootInfo::decode(a1,a2))"));
     }
 
     #[test]
