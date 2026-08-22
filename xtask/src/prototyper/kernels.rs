@@ -13,7 +13,17 @@ use super::{
     build::{BuildArgs, build_firmware},
     config::resolve,
     qemu::{self, QemuRun},
+    scheme::{Action, Scheme},
 };
+
+impl From<Kernel> for Action {
+    fn from(kernel: Kernel) -> Self {
+        match kernel {
+            Kernel::Test => Action::Test,
+            Kernel::Bench => Action::Bench,
+        }
+    }
+}
 
 /// Kernels the prototyper can embed as payloads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,27 +60,21 @@ impl Kernel {
     }
 
     /// Default number of harts QEMU boots this kernel with.
+    /// Bridges to [`Scheme`]; removed when KernelArgs resolves options.
     pub(super) fn default_smp(self) -> usize {
-        match self {
-            Kernel::Test => 1,
-            Kernel::Bench => 4,
-        }
+        Scheme::default().action(self.into()).smp
     }
 
     /// Default timeout of one QEMU attempt, in seconds.
+    /// Bridges to [`Scheme`]; removed when KernelArgs resolves options.
     pub(super) fn default_timeout_secs(self) -> u64 {
-        match self {
-            Kernel::Test => 60,
-            Kernel::Bench => 90,
-        }
+        Scheme::default().action(self.into()).timeout_secs
     }
 
     /// Default number of QEMU attempts; retries happen only after a timeout.
+    /// Bridges to [`Scheme`]; removed when KernelArgs resolves options.
     pub(super) fn default_attempts(self) -> usize {
-        match self {
-            Kernel::Test => 2,
-            Kernel::Bench => 4,
-        }
+        Scheme::default().action(self.into()).attempts
     }
 
     /// Console output patterns expected from a successful run of this kernel.
@@ -315,6 +319,7 @@ pub(super) fn run(
             .join(format!("{PACKAGE_NAME}-{}.elf", spec.artifact_suffix()));
         qemu::run(&QemuRun {
             bios: firmware_elf,
+            qemu: Scheme::default().qemu,
             smp: qemu_options.smp,
             timeout: Duration::from_secs(qemu_options.timeout_secs),
             attempts: qemu_options.attempts,

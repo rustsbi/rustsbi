@@ -12,6 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use super::scheme::QemuParams;
 use anyhow::{Context, Result, bail};
 
 /// Poll interval while waiting for a QEMU process to exit.
@@ -23,6 +24,8 @@ const LOG_TAIL_LINES: usize = 120;
 pub(super) struct QemuRun {
     /// Firmware ELF passed as `-bios`.
     pub bios: PathBuf,
+    /// QEMU invocation parameters (`-machine`, `-m`).
+    pub qemu: QemuParams,
     /// Number of harts (`-smp`).
     pub smp: usize,
     /// Timeout of one attempt.
@@ -188,16 +191,11 @@ pub(super) fn run(run: &QemuRun) -> Result<()> {
 /// reading only after exit would deadlock once QEMU fills the pipe buffer.
 fn run_once(run: &QemuRun) -> Result<Attempt> {
     let mut child = Command::new("qemu-system-riscv64")
-        .args([
-            "-machine",
-            "virt",
-            "-m",
-            "256M",
-            "-smp",
-            &run.smp.to_string(),
-            "-nographic",
-            "-bios",
-        ])
+        .arg("-machine")
+        .arg(&run.qemu.machine)
+        .arg("-m")
+        .arg(format!("{}M", run.qemu.memory_mb))
+        .args(["-smp", &run.smp.to_string(), "-nographic", "-bios"])
         .arg(&run.bios)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

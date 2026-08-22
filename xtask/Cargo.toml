@@ -11,5 +11,5 @@ anyhow = "1.0.89"
 clap = { version = "4.5.4", features = ["derive", "suggestions"] }
 log = "0.4.21"
 clap-verbosity-flag = "3.0.2"
-serde = "1.0"
+serde = { version = "1.0", features = ["derive"] }
 toml = "0.8.20"

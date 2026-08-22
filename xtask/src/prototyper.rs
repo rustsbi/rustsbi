@@ -4,6 +4,7 @@ mod config;
 mod generate;
 mod kernels;
 mod qemu;
+mod scheme;
 mod target;
 mod test;
 

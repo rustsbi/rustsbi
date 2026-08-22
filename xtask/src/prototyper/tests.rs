@@ -13,6 +13,7 @@ use super::{
     kernels::{Kernel, QemuOptions, forbidden_patterns},
     qemu::{Attempt, NextStep, next_step, verify_output},
     render_linker_script, resolve_in,
+    scheme::{Action, Scheme},
 };
 use crate::utils::cargo_target_dir_in;
 
@@ -169,6 +170,23 @@ fn qemu_output_verification_checks_expected_and_forbidden_patterns() {
     assert!(format!("{failure:#}").contains("panic"));
 
     assert!(verify_output("", &expected, &forbidden).is_err());
+}
+
+#[test]
+fn scheme_defaults_drive_kernel_runs() {
+    let scheme = Scheme::default();
+    // Changing a default is a one-line edit in scheme.rs (AE2).
+    assert_eq!(scheme.action(Action::Test).smp, 1);
+    assert_eq!(scheme.action(Action::Bench).smp, 4);
+    assert_eq!(scheme.action(Action::Bench).timeout_secs, 90);
+    assert_eq!(scheme.qemu.machine, "virt");
+    assert_eq!(scheme.qemu.memory_mb, 256);
+    // The kernel bridge resolves through the same scheme.
+    assert_eq!(Kernel::Test.default_smp(), scheme.action(Action::Test).smp);
+    assert_eq!(
+        Kernel::Bench.default_attempts(),
+        scheme.action(Action::Bench).attempts
+    );
 }
 
 #[test]
