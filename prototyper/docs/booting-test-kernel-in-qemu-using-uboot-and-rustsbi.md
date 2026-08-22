@@ -109,7 +109,7 @@ $ cargo prototyper build
 $ cargo prototyper test --pack
 ```
 
-本小节将使用二进制文件 `./target/riscv64gc-unknown-none-elf/release/rustsbi-test-kernel.itb`。
+本小节将使用二进制文件 `./target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.itb`。
 
 ### 编译U-Boot SPL
 
