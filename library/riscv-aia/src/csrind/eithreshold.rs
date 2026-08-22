@@ -30,34 +30,8 @@ impl Eithreshold {
     }
 }
 
-macro_rules! impl_eithreshold_accessors {
-    ($($mode:ident => ($doc:literal, $safety:literal)),+ $(,)?) => {
-        $(
-            #[doc = $doc]
-            pub mod $mode {
-                use super::super::$mode::{read_ind, write_ind};
-                use super::{EITHRESHOLD, Eithreshold};
-
-                /// Reads the external interrupt threshold register.
-                pub fn read() -> Eithreshold {
-                    let bits = unsafe { read_ind(EITHRESHOLD) };
-                    Eithreshold::from_bits(bits)
-                }
-
-                /// Writes the external interrupt threshold register.
-                ///
-                /// # Safety
-                ///
-                #[doc = $safety]
-                pub unsafe fn write(value: Eithreshold) {
-                    unsafe { write_ind(EITHRESHOLD, value.bits()) }
-                }
-            }
-        )+
-    };
-}
-
-impl_eithreshold_accessors! {
+impl_ind_accessors! {
+    EITHRESHOLD, Eithreshold, "external interrupt threshold",
     machine => (
         "M-mode accessors for `eithreshold` register.",
         "The current hart must implement Smaia, and the caller must be permitted to access M-mode CSRs."

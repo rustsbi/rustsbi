@@ -10,7 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Modified
 
-- Add M-, S-, and VS-mode indirect IMSIC CSR accessors and define the interrupt-file page layout.
+- Add M-, S-, and VS-mode indirect IMSIC CSR accessors, including indexed
+  `eip`/`eie` array access, and define the interrupt-file page layout.
 
 ### Removed
 

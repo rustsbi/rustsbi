@@ -49,34 +49,8 @@ impl Eidelivery {
     }
 }
 
-macro_rules! impl_eidelivery_accessors {
-    ($($mode:ident => ($doc:literal, $safety:literal)),+ $(,)?) => {
-        $(
-            #[doc = $doc]
-            pub mod $mode {
-                use super::super::$mode::{read_ind, write_ind};
-                use super::{EIDELIVERY, Eidelivery};
-
-                /// Reads the external interrupt delivery enable register.
-                pub fn read() -> Eidelivery {
-                    let bits = unsafe { read_ind(EIDELIVERY) };
-                    Eidelivery::from_bits(bits)
-                }
-
-                /// Writes the external interrupt delivery enable register.
-                ///
-                /// # Safety
-                ///
-                #[doc = $safety]
-                pub unsafe fn write(value: Eidelivery) {
-                    unsafe { write_ind(EIDELIVERY, value.bits()) }
-                }
-            }
-        )+
-    };
-}
-
-impl_eidelivery_accessors! {
+impl_ind_accessors! {
+    EIDELIVERY, Eidelivery, "external interrupt delivery enable",
     machine => (
         "M-mode accessors for `eidelivery` register.",
         "The current hart must implement Smaia, and the caller must be permitted to access M-mode CSRs."
