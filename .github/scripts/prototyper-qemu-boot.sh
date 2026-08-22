@@ -71,6 +71,18 @@ run_once() {
   grep -F 'Hello RustSBI!' "$log_file" || return 1
   grep -F "Platform HART Count           : $smp" "$log_file" || return 1
 
+  # Boot-policy order guard: the boot-hart presentation sequence must
+  # appear in phase order. A reorder or drop means the boot policy
+  # changed even when every substring grep stays green.
+  awk 'BEGIN {
+         n = split("Boot HART ID|Boot HART Privileged Version:|Boot HART MHPM Mask:|Redirecting hart", want, "|")
+       }
+       /Boot HART ID|Boot HART Privileged Version:|Boot HART MHPM Mask:|Redirecting hart/ {
+         count++
+         if ($0 !~ want[count]) fail = 1
+       }
+       END { exit !(count == n && !fail) }' "$log_file" || return 1
+
   case "$kernel" in
     test)
       grep -F 'Sbi `Base` test pass' "$log_file" || return 1
