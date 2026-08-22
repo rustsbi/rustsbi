@@ -2,7 +2,8 @@
 //!
 //! Boots a payload-mode firmware ELF under `qemu-system-riscv64` and
 //! verifies the captured console output against per-kernel expectations.
-//! Mirrors the payload branch of `.github/scripts/prototyper-qemu-boot.sh`.
+//! Shares its pattern files (but not its dynamic/jump modes) with
+//! `.github/scripts/prototyper-qemu-boot.sh`.
 
 use std::{
     io::Read,

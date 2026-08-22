@@ -10,7 +10,7 @@ use super::{
     BuildArgs, BuildMode, BuildPaths, PlatformAddresses, PrototyperCommand, Target,
     build::remove_stale_payload_artifacts,
     generate_build_inputs,
-    kernels::{Kernel, forbidden_patterns},
+    kernels::{self, Kernel, KernelArgs, ResolvedRun, forbidden_patterns},
     qemu::{Attempt, NextStep, next_step, verify_output},
     render_linker_script, resolve_in,
     scheme::{Action, Scheme},
@@ -453,6 +453,13 @@ fn run_options_validation_rejects_zero_values_before_building() {
     let zero_smp = ResolvedRun { smp: 0, ..valid };
     let error = zero_smp.validate().unwrap_err();
     assert!(format!("{error:#}").contains("--smp 0"));
+
+    let zero_timeout = ResolvedRun {
+        timeout_secs: 0,
+        ..valid
+    };
+    let error = zero_timeout.validate().unwrap_err();
+    assert!(format!("{error:#}").contains("--timeout 0"));
 }
 
 #[test]
@@ -513,5 +520,57 @@ fn stale_generic_payload_artifacts_are_removed_for_suffixed_payload_builds() {
     remove_stale_payload_artifacts(&root, "jump").unwrap();
     remove_stale_payload_artifacts(&root, "payload-bench").unwrap();
     assert!(!root.join("rustsbi-prototyper-payload.elf").exists());
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn resolved_run_prefers_cli_overrides_and_falls_back_to_scheme() {
+    let scheme = Scheme::default();
+    let args = KernelArgs {
+        pack: false,
+        no_run: true,
+        smp: Some(8),
+        timeout: Some(30),
+        retries: Some(1),
+        debug: false,
+        config_file: None,
+    };
+    let run = ResolvedRun::resolve(&args, Kernel::Test, &scheme);
+    assert_eq!((run.smp, run.timeout_secs, run.attempts), (8, 30, 1));
+
+    // Absent flags fall back to the per-kernel scheme section.
+    let args = KernelArgs {
+        smp: None,
+        timeout: None,
+        retries: None,
+        ..args
+    };
+    let test = ResolvedRun::resolve(&args, Kernel::Test, &scheme);
+    assert_eq!((test.smp, test.timeout_secs, test.attempts), (1, 60, 2));
+    let bench = ResolvedRun::resolve(&args, Kernel::Bench, &scheme);
+    assert_eq!((bench.smp, bench.timeout_secs, bench.attempts), (4, 90, 4));
+}
+
+#[test]
+fn pattern_files_must_yield_at_least_one_pattern() {
+    // Fail closed: an emptied pattern file must not silently verify nothing
+    // (mirrors the CI script's `test -s` guard).
+    let root = env::temp_dir().join(format!(
+        "xtask-pattern-test-{}-{}",
+        std::process::id(),
+        NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed)
+    ));
+    let dir = root.join("prototyper/scripts");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("empty.txt"), "# only comments\n\n").unwrap();
+
+    let err = kernels::read_console_patterns(&dir.join("empty.txt")).unwrap_err();
+    assert!(format!("{err:#}").contains("no patterns"));
+
+    fs::write(dir.join("ok.txt"), "  Hello  \n# note\n").unwrap();
+    assert_eq!(
+        kernels::read_console_patterns(&dir.join("ok.txt")).unwrap(),
+        vec!["Hello".to_string()]
+    );
     let _ = fs::remove_dir_all(&root);
 }

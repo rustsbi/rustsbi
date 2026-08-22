@@ -199,12 +199,10 @@ impl Kernel {
             )
         })?;
 
+        let its_name = format!("{}.its", self.package_name());
+        let itb_name = format!("{}.itb", self.package_name());
         let status = Command::new("mkimage")
-            .args([
-                "-f",
-                &format!("{}.its", self.package_name()),
-                &format!("{}.itb", self.package_name()),
-            ])
+            .args(["-f", &its_name, &itb_name])
             .current_dir(&target_dir)
             .status()
             .context("failed to execute mkimage command")?;
@@ -214,8 +212,10 @@ impl Kernel {
 
         if !status.success() {
             bail!(
-                "mkimage failed to pack the {} kernel image",
-                self.command_name()
+                "mkimage failed to pack the {} kernel image (ITS '{}', output '{}')",
+                self.command_name(),
+                target_dir.join(&its_name).display(),
+                target_dir.join(&itb_name).display()
             );
         }
 
@@ -273,6 +273,20 @@ pub(super) struct ResolvedRun {
 }
 
 impl ResolvedRun {
+    /// Resolves CLI overrides against the scheme defaults for one kernel.
+    /// Pure: the single place `--smp`/`--timeout`/`--retries` turn into
+    /// concrete values, so `None` handling is testable without spawning
+    /// builds.
+    pub(super) fn resolve(args: &KernelArgs, kernel: Kernel, scheme: &Scheme) -> Self {
+        let defaults = scheme.action(kernel.into());
+        ResolvedRun {
+            no_run: args.no_run,
+            smp: args.smp.unwrap_or(defaults.smp),
+            timeout_secs: args.timeout.unwrap_or(defaults.timeout_secs),
+            attempts: args.retries.unwrap_or(defaults.attempts),
+        }
+    }
+
     /// Rejects nonsensical values before anything is built, so `--no-run`
     /// invocations fail fast too. `qemu::run` repeats these checks as
     /// defense in depth.
@@ -282,6 +296,9 @@ impl ResolvedRun {
         }
         if self.smp == 0 {
             bail!("QEMU hart count must be at least 1 (got --smp 0)");
+        }
+        if self.timeout_secs == 0 {
+            bail!("QEMU timeout must be at least 1 second (got --timeout 0)");
         }
         Ok(())
     }
@@ -302,13 +319,7 @@ pub(super) struct FirmwareOptions {
 /// the firmware in QEMU and verify the kernel's console output.
 pub(super) fn run(kernel: Kernel, args: &KernelArgs) -> Result<ExitStatus> {
     let scheme = Scheme::default();
-    let defaults = scheme.action(kernel.into());
-    let run_opts = ResolvedRun {
-        no_run: args.no_run,
-        smp: args.smp.unwrap_or(defaults.smp),
-        timeout_secs: args.timeout.unwrap_or(defaults.timeout_secs),
-        attempts: args.retries.unwrap_or(defaults.attempts),
-    };
+    let run_opts = ResolvedRun::resolve(args, kernel, &scheme);
     run_opts.validate()?;
     let firmware_options = FirmwareOptions {
         debug: args.debug,
@@ -377,13 +388,21 @@ pub(super) fn forbidden_patterns() -> Result<Vec<String>> {
 
 /// Read console patterns from a pattern file: one fixed string per line,
 /// skipping blank lines and `#` comments.
-fn read_console_patterns(path: &Path) -> Result<Vec<String>> {
+pub(super) fn read_console_patterns(path: &Path) -> Result<Vec<String>> {
     let content = fs::read_to_string(path)
         .with_context(|| format!("failed to read console pattern file '{}'", path.display()))?;
-    Ok(content
+    let patterns: Vec<String> = content
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
         .map(String::from)
-        .collect())
+        .collect();
+    // Fail closed: an empty pattern set verifies nothing.
+    if patterns.is_empty() {
+        bail!(
+            "console pattern file '{}' contains no patterns",
+            path.display()
+        );
+    }
+    Ok(patterns)
 }

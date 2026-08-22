@@ -21,7 +21,6 @@ pub(crate) struct BuildSpec {
     pub(crate) fdt: Option<PathBuf>,
     /// User-supplied cargo features (mode-affecting names already rejected).
     pub(crate) features: Vec<String>,
-    /// Raw `--target` value (target triple or custom target JSON path).
     /// Build role; the triple follows from it.
     pub(crate) target: Target,
     /// User-supplied custom target (a target JSON path); when set it
