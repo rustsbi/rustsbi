@@ -108,11 +108,15 @@ pub(super) fn build_firmware(spec: &BuildSpec) -> Result<ExitStatus> {
 fn cargo_build(spec: &BuildSpec, paths: &BuildPaths) -> Result<ExitStatus> {
     info!("Building Prototyper");
 
-    let linker_script = paths.linker_script_argument();
+    let linker_script = paths.linker_script();
     let mut command = cargo::Cargo::new("build");
     command
         .package(PACKAGE_NAME)
-        .target(&spec.target)
+        .target(
+            spec.custom_target
+                .as_deref()
+                .unwrap_or(spec.target.triple()),
+        )
         .unstable("build-std", ["core", "alloc"])
         .env(
             "CARGO_ENCODED_RUSTFLAGS",
@@ -124,7 +128,8 @@ fn cargo_build(spec: &BuildSpec, paths: &BuildPaths) -> Result<ExitStatus> {
     command.status().with_context(|| {
         format!(
             "failed to execute cargo build for package '{}' with target '{}'",
-            PACKAGE_NAME, spec.target
+            PACKAGE_NAME,
+            spec.target.triple()
         )
     })
 }
@@ -157,7 +162,7 @@ fn copy_mode_artifacts(spec: &BuildSpec, paths: &BuildPaths) -> Result<()> {
     let mode_suffix = spec.artifact_suffix();
     info!("Copy artifacts for {} mode", mode_suffix);
 
-    remove_stale_generic_payload_artifacts(&paths.artifact_dir, mode_suffix)?;
+    remove_stale_payload_artifacts(&paths.artifact_dir, mode_suffix)?;
 
     let elf_source = paths.artifact_dir.join(PACKAGE_NAME);
     let elf_destination = paths
@@ -186,10 +191,7 @@ fn copy_mode_artifacts(spec: &BuildSpec, paths: &BuildPaths) -> Result<()> {
 /// building a kernel-suffixed payload variant (e.g. `payload-test`), so a
 /// stale generic artifact cannot be mistaken for the fresh output. Dynamic
 /// and jump artifacts are never touched: CI builds all modes side by side.
-pub(super) fn remove_stale_generic_payload_artifacts(
-    artifact_dir: &Path,
-    mode_suffix: &str,
-) -> Result<()> {
+pub(super) fn remove_stale_payload_artifacts(artifact_dir: &Path, mode_suffix: &str) -> Result<()> {
     if !(mode_suffix.starts_with("payload") && mode_suffix != "payload") {
         return Ok(());
     }

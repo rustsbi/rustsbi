@@ -7,8 +7,8 @@ use std::{
 use clap::Parser;
 
 use super::{
-    ARCH, BuildArgs, BuildMode, BuildPaths, PlatformAddresses, PrototyperCommand,
-    build::remove_stale_generic_payload_artifacts,
+    BuildArgs, BuildMode, BuildPaths, PlatformAddresses, PrototyperCommand, Target,
+    build::remove_stale_payload_artifacts,
     generate_build_inputs,
     kernels::{Kernel, QemuOptions, forbidden_patterns},
     qemu::{Attempt, NextStep, next_step, verify_output},
@@ -317,7 +317,10 @@ fn resolve_derives_target_profile_and_rustflags() {
         ..base_build_args()
     };
     let spec = resolve_in(&args, &root, &root).unwrap();
-    assert_eq!(spec.target_triple, "custom-target");
+    assert_eq!(
+        spec.custom_target.as_deref(),
+        Some(target.to_str().unwrap())
+    );
     assert_eq!(
         spec.artifact_dir_in(&root.join("target")),
         root.join("target/custom-target/debug")
@@ -345,12 +348,15 @@ fn generated_inputs_and_stamp_follow_build_mode() {
     let linker_template = root.join("prototyper/prototyper/rustsbi-prototyper.ld.in");
     fs::write(&linker_template, LINKER_TEMPLATE).unwrap();
     let paths = BuildPaths {
-        artifact_dir: root.join("target").join(ARCH).join("release"),
+        artifact_dir: root
+            .join("target")
+            .join(Target::Firmware.triple())
+            .join("release"),
         build_inputs_dir: root.join("target/prototyper"),
         linker_template,
     };
     assert_eq!(
-        paths.linker_script_argument(),
+        paths.linker_script(),
         root.join("target/prototyper/rustsbi-prototyper.ld")
     );
     let dynamic = resolve_in(&base_build_args(), &root, &root).unwrap();
@@ -481,7 +487,7 @@ fn stale_generic_payload_artifacts_are_removed_for_suffixed_payload_builds() {
         .unwrap();
     }
 
-    remove_stale_generic_payload_artifacts(&root, "payload-test").unwrap();
+    remove_stale_payload_artifacts(&root, "payload-test").unwrap();
     assert!(!root.join("rustsbi-prototyper-payload.elf").exists());
     assert!(!root.join("rustsbi-prototyper-payload.bin").exists());
     // Dynamic artifacts are side-by-side outputs and must survive.
@@ -495,10 +501,10 @@ fn stale_generic_payload_artifacts_are_removed_for_suffixed_payload_builds() {
         )
         .unwrap();
     }
-    remove_stale_generic_payload_artifacts(&root, "payload").unwrap();
+    remove_stale_payload_artifacts(&root, "payload").unwrap();
     assert!(root.join("rustsbi-prototyper-payload.elf").exists());
-    remove_stale_generic_payload_artifacts(&root, "jump").unwrap();
-    remove_stale_generic_payload_artifacts(&root, "payload-bench").unwrap();
+    remove_stale_payload_artifacts(&root, "jump").unwrap();
+    remove_stale_payload_artifacts(&root, "payload-bench").unwrap();
     assert!(!root.join("rustsbi-prototyper-payload.elf").exists());
     let _ = fs::remove_dir_all(&root);
 }

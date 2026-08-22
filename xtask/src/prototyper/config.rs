@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail};
 use crate::utils::{cargo_target_dir, workspace_root};
 
 use super::{
-    ARCH,
+    Target,
     build::{BuildArgs, BuildMode},
 };
 
@@ -22,9 +22,11 @@ pub(crate) struct BuildSpec {
     /// User-supplied cargo features (mode-affecting names already rejected).
     pub(crate) features: Vec<String>,
     /// Raw `--target` value (target triple or custom target JSON path).
-    pub(crate) target: String,
-    /// Target triple cargo reports (file stem for a custom target JSON).
-    pub(crate) target_triple: String,
+    /// Build role; the triple follows from it.
+    pub(crate) target: Target,
+    /// User-supplied custom target (a target JSON path); when set it
+    /// replaces the standard triple for cargo and artifact placement.
+    pub(crate) custom_target: Option<String>,
     /// Build in the debug profile instead of release.
     pub(crate) debug: bool,
     /// Config file source installed into the build-input directory.
@@ -114,16 +116,14 @@ pub(crate) fn resolve_in(
     }
     let platform_addresses = parse_config(&config_source)?;
 
-    let target = args.target.clone().unwrap_or_else(|| ARCH.to_string());
-    let target_triple = get_target_triple(&target);
     let artifact_suffix = default_artifact_suffix(&mode).to_string();
 
     Ok(BuildSpec {
         mode,
         fdt,
         features,
-        target,
-        target_triple,
+        target: Target::Firmware,
+        custom_target: args.target.clone(),
         debug: args.debug,
         config_source,
         platform_addresses,
@@ -216,25 +216,6 @@ fn default_artifact_suffix(mode: &BuildMode) -> &'static str {
     }
 }
 
-fn get_target_triple(target: &str) -> String {
-    fn is_target_file(target: &str) -> bool {
-        target.ends_with(".json") && Path::new(target).exists()
-    }
-    if is_target_file(target) {
-        Path::new(target)
-            .file_stem()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| format!("Invalid file path: {}", target))
-            .unwrap_or_else(|err| {
-                eprintln!("Warning: {}. Falling back to target string.", err);
-                target
-            })
-            .to_string()
-    } else {
-        target.to_string()
-    }
-}
-
 impl BuildSpec {
     pub(crate) fn cargo_features(&self) -> Vec<String> {
         let mut features = self.features.clone();
@@ -287,6 +268,13 @@ impl BuildSpec {
     /// Pure core of [`Self::artifact_dir`], taking the cargo target
     /// directory as a parameter so tests do not mutate process env.
     pub(crate) fn artifact_dir_in(&self, target_dir: &Path) -> PathBuf {
-        target_dir.join(&self.target_triple).join(self.profile())
+        let triple = match &self.custom_target {
+            Some(custom) => Path::new(custom)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(custom),
+            None => self.target.triple(),
+        };
+        target_dir.join(triple).join(self.profile())
     }
 }

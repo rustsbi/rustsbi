@@ -31,11 +31,6 @@ impl BuildPaths {
         self.build_inputs_dir.join(LINKER_SCRIPT_NAME)
     }
 
-    /// Absolute linker script path for the cargo `-T` link argument.
-    pub(crate) fn linker_script_argument(&self) -> PathBuf {
-        self.linker_script()
-    }
-
     pub(crate) fn alignment_source(&self) -> PathBuf {
         self.build_inputs_dir.join(ALIGNMENT_SOURCE_NAME)
     }
@@ -189,7 +184,7 @@ fn render_build_stamp(
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     mode.hash(&mut hasher);
     spec.cargo_features().hash(&mut hasher);
-    spec.target.hash(&mut hasher);
+    spec.target.triple().hash(&mut hasher);
     spec.profile().hash(&mut hasher);
     config_content.hash(&mut hasher);
     linker_template.hash(&mut hasher);

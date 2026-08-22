@@ -9,7 +9,7 @@ use crate::utils::{cargo, cargo_target_dir, workspace_root};
 use anyhow::{Context, Result, bail};
 
 use super::{
-    PACKAGE_NAME,
+    PACKAGE_NAME, Target,
     build::{BuildArgs, build_firmware},
     config::resolve,
     qemu::{self, QemuRun},
@@ -22,7 +22,6 @@ pub(super) enum Kernel {
     Bench,
 }
 
-const ARCH: &str = "riscv64imac-unknown-none-elf";
 const PROTOTYPER_BIN: &str = "rustsbi-prototyper.bin";
 
 impl Kernel {
@@ -102,14 +101,14 @@ impl Kernel {
         info!("Building {} kernel", self.command_name());
         let build_status = cargo::Cargo::new("build")
             .package(self.package_name())
-            .target(ARCH)
+            .target(Target::Kernel.triple())
             .release()
             .status()
             .with_context(|| {
                 format!(
                     "failed to execute cargo build for package '{}' with target '{}'",
                     self.package_name(),
-                    ARCH
+                    Target::Kernel.triple()
                 )
             })?;
         if !build_status.success() {
@@ -333,7 +332,9 @@ pub(super) fn run(
 fn kernel_paths() -> (PathBuf, PathBuf) {
     (
         workspace_root(),
-        cargo_target_dir().join(ARCH).join("release"),
+        cargo_target_dir()
+            .join(Target::Kernel.triple())
+            .join("release"),
     )
 }
 

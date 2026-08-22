@@ -4,6 +4,7 @@ mod config;
 mod generate;
 mod kernels;
 mod qemu;
+mod target;
 mod test;
 
 #[cfg(test)]
@@ -14,7 +15,6 @@ use std::process::ExitStatus;
 
 use anyhow::Result;
 
-pub(crate) const ARCH: &str = "riscv64gc-unknown-none-elf";
 pub(crate) const PACKAGE_NAME: &str = "rustsbi-prototyper";
 
 /// Prototyper commands. `build` produces firmware; `test` and `bench`
@@ -33,6 +33,7 @@ pub enum PrototyperCommand {
 pub use build::BuildArgs;
 #[cfg(test)]
 pub(crate) use build::BuildMode;
+pub(crate) use target::Target;
 
 pub fn run(command: &PrototyperCommand) -> Result<ExitStatus> {
     match command {

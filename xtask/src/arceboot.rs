@@ -46,7 +46,6 @@ pub struct ArcebootArg {
     pub disk: String,
 }
 
-const ARCH: &str = "riscv64gc-unknown-none-elf";
 const PACKAGE_NAME: &str = "arceboot";
 
 #[must_use]
@@ -54,9 +53,15 @@ pub fn run(arg: &ArcebootArg) -> Option<ExitStatus> {
     let current_dir = env::current_dir().ok()?;
     let arceboot_dir = current_dir.join("arceboot");
     let target_dir = if arg.debug {
-        current_dir.join("target").join(ARCH).join("debug")
+        current_dir
+            .join("target")
+            .join(crate::prototyper::Target::Firmware.triple())
+            .join("debug")
     } else {
-        current_dir.join("target").join(ARCH).join("release")
+        current_dir
+            .join("target")
+            .join(crate::prototyper::Target::Firmware.triple())
+            .join("release")
     };
 
     // Step 1: Generate config
@@ -195,7 +200,7 @@ fn build_arceboot(
 
     cargo::Cargo::new("build")
         .package(PACKAGE_NAME)
-        .target(ARCH)
+        .target(crate::prototyper::Target::Firmware.triple())
         .env("RUSTFLAGS", &rustflags)
         .env("AX_CONFIG_PATH", config_path.to_string_lossy().as_ref())
         .env("AX_LOG", &arg.log)

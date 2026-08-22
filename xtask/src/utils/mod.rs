@@ -1,8 +1,5 @@
 pub mod cargo;
 
-#[macro_use]
-pub mod envs;
-
 use std::{
     env,
     ffi::OsString,
