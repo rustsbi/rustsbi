@@ -23,7 +23,8 @@ impl rustsbi::Susp for SbiSuspend {
         }
 
         // Check if all harts except the current hart are stopped
-        let hart_enable_map = if let Some(hart_enable_map) = unsafe { PLATFORM.info.cpu_enabled } {
+        let hart_enable_map = if let Some(hart_enable_map) = crate::platform::board_info().cpu_enabled
+        {
             hart_enable_map
         } else {
             return SbiRet::failed();

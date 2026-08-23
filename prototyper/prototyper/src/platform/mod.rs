@@ -62,6 +62,28 @@ pub(crate) static IS_K1_PLATFORM: AtomicBool = AtomicBool::new(false);
 /// Acquire ordering (`wait_until_ready`).
 pub(crate) static READY: AtomicBool = AtomicBool::new(false);
 
+/// Board information discovered from the FDT, owned by the platform layer.
+///
+/// Invariant: written by the boot hart *before* `READY` is released, read
+/// afterwards; `wait_until_ready` (Acquire) is the secondary-hart edge.
+///
+/// Pre-existing exception (preserved, not hardened): `refresh_cpu_features`
+/// rewrites `cpu_enabled` after `READY` while other harts may read it
+/// concurrently (bool array, copied out per call).
+static mut BOARD_INFO: BoardInfo = BoardInfo::new();
+
+/// Returns a shared view of the discovered board information.
+pub(crate) fn board_info() -> &'static BoardInfo {
+    unsafe { &BOARD_INFO }
+}
+
+/// Returns an exclusive view of the board information; used by the discovery
+/// (`BoardInfo::discover_*`) and refresh (`BoardInfo::refresh_cpu_features`)
+/// paths only.
+pub(crate) fn board_info_mut() -> &'static mut BoardInfo {
+    unsafe { &mut BOARD_INFO }
+}
+
 const RISCV_MACHINE_EXTERNAL_IRQ: u32 = 11;
 
 type BaseAddress = usize;
@@ -194,220 +216,51 @@ impl BoardInfo {
     pub fn is_qemu_virt(&self) -> bool {
         self.model == "riscv-virtio,qemu"
     }
-}
 
-pub struct Platform {
-    pub info: BoardInfo,
-    pub sbi: SBI,
-}
-
-impl Platform {
-    pub const fn new() -> Self {
-        Platform {
-            info: BoardInfo::new(),
-            sbi: SBI::new(),
-        }
-    }
-
-    pub fn init(&mut self, fdt_address: usize) {
-        let dtb = parse_device_tree(fdt_address).unwrap_or_else(fail::device_tree_format);
-        let dtb = dtb.share();
-
-        let root: serde_device_tree::buildin::Node = serde_device_tree::from_raw_mut(&dtb)
-            .unwrap_or_else(fail::device_tree_deserialize_root);
-        let tree: Tree = root.deserialize();
-
-        // Get console device, init sbi console and logger.
-        self.sbi_find_and_init_console(&root);
-        // Get other info that later platform initialization depends on.
-        self.sbi_misc_init(&tree);
-        // Get clint and reset device, init sbi ipi, reset, hsm, rfence and susp extension.
-        self.sbi_init_ipi_reset_hsm_rfence(&root);
-        // Initialize pmu extension
-        self.sbi_init_pmu(&root);
-
-        // Record K1 platform detection *before* releasing the ready flag, so
-        // that secondary harts observing `ready()` also observe the flag.
-        // Match the root node's `compatible` strings first (OpenSBI's
-        // spacemit_k1_match[] table), falling back to the model string.
-        let k1_platform = match root.get_prop("compatible") {
-            Some(prop) => {
-                let seq = prop.deserialize::<serde_device_tree::buildin::StrSeq>();
-                spacemit_k1::is_k1_platform(&self.info.model, seq.iter())
-            }
-            None => spacemit_k1::is_k1_platform(&self.info.model, core::iter::empty::<&str>()),
-        };
-        IS_K1_PLATFORM.store(k1_platform, Ordering::Release);
-
-        READY.store(true, Ordering::Release);
-    }
-
-    fn init_sbi_console_and_logger(&mut self) {
-        // init console and logger
-        self.sbi_console_init();
-        logger::Logger::init().unwrap();
-        info!("Hello RustSBI!");
-    }
-
-    fn sbi_find_and_init_console(&mut self, root: &serde_device_tree::buildin::Node) {
+    /// Discovers the console device from the FDT (chosen stdout path).
+    pub(crate) fn discover_console(&mut self, root: &serde_device_tree::buildin::Node) {
         //  Get console device info
         let Some(stdout_path) = root.chosen_stdout_path() else {
-            self.init_sbi_console_and_logger();
             return;
         };
         let Some(node) = root.find(stdout_path) else {
-            self.init_sbi_console_and_logger();
             return;
         };
         let Some((compatible, regs)) = get_compatible_and_range(&node) else {
-            self.init_sbi_console_and_logger();
             return;
         };
 
         for device_id in compatible.iter() {
             if UART16650U8_COMPATIBLE.contains(&device_id) {
-                self.info.console = Some((regs.start, MachineConsoleType::Uart16550U8));
+                self.console = Some((regs.start, MachineConsoleType::Uart16550U8));
             }
             if UART16650U32_COMPATIBLE.contains(&device_id) {
-                self.info.console = Some((regs.start, MachineConsoleType::Uart16550U32));
+                self.console = Some((regs.start, MachineConsoleType::Uart16550U32));
             }
             if UARTAXILITE_COMPATIBLE.contains(&device_id) {
-                self.info.console = Some((regs.start, MachineConsoleType::UartAxiLite));
+                self.console = Some((regs.start, MachineConsoleType::UartAxiLite));
             }
             if UARTBFLB_COMPATIBLE.contains(&device_id) {
-                self.info.console = Some((regs.start, MachineConsoleType::UartBflb));
+                self.console = Some((regs.start, MachineConsoleType::UartBflb));
             }
             if UARTSIFIVE_COMPATIBLE.contains(&device_id) {
-                self.info.console = Some((regs.start, MachineConsoleType::UartSifive));
+                self.console = Some((regs.start, MachineConsoleType::UartSifive));
             }
             if UARTPL011_COMPATIBLE.contains(&device_id) {
-                self.info.console = Some((regs.start, MachineConsoleType::UartPl011));
+                self.console = Some((regs.start, MachineConsoleType::UartPl011));
             }
             if UARTXSCALE_COMPATIBLE.contains(&device_id) {
-                self.info.console = Some((regs.start, MachineConsoleType::UartXscale));
-                self.info.console_clock = node
+                self.console = Some((regs.start, MachineConsoleType::UartXscale));
+                self.console_clock = node
                     .get_prop("clock-frequency")
                     .map(|prop_item| prop_item.deserialize::<u32>());
             }
         }
-
-        self.init_sbi_console_and_logger();
     }
 
-    fn sbi_init_ipi_reset_hsm_rfence(&mut self, root: &serde_device_tree::buildin::Node) {
-        // Get ipi and reset device info
-        let cpu_intc_harts = collect_cpu_intc_harts(root);
-        let mut find_device =
-            |node: &serde_device_tree::buildin::Node,
-             parent: Option<&serde_device_tree::buildin::Node>| {
-                let info = get_compatible_and_ranges(node);
-                if let Some(info) = info {
-                    let (compatible, regs) = info;
-                    let base_address = regs[0].start;
-                    for device_id in compatible.iter() {
-                        // Initialize clint device.
-                        if SIFIVE_CLINT_COMPATIBLE.contains(&device_id) {
-                            if node.get_prop("clint,has-no-64bit-mmio").is_some() {
-                                self.info.ipi = Some((base_address, MachineClintType::TheadClint));
-                            } else {
-                                self.info.ipi = Some((base_address, MachineClintType::SiFiveClint));
-                            }
-                        } else if THEAD_CLINT_COMPATIBLE.contains(&device_id) {
-                            self.info.ipi = Some((base_address, MachineClintType::TheadClint));
-                        }
-                        // Initialize reset device.
-                        if SIFIVETEST_COMPATIBLE.contains(&device_id) {
-                            self.info.reset = Some(base_address);
-                        }
-                        // Initialize P1 PMIC reset device
-                        if P1_PMIC_COMPATIBLE.contains(&device_id) {
-                            // The PMIC's own "reg" property is its 7-bit I2C slave address.
-                            let pmic_addr = regs[0].start as u8;
-                            // The I2C controller is the PMIC's parent node; use the first
-                            // register range of the parent as the controller MMIO base,
-                            // falling back to the PMIC's own reg if no parent is found.
-                            let i2c_base = parent
-                                .and_then(|p| get_compatible_and_ranges(p))
-                                .and_then(|(_, parent_regs)| parent_regs.first().map(|r| r.start))
-                                .unwrap_or(base_address);
-                            self.info.pmic_reset = Some((i2c_base, pmic_addr));
-                        }
-                        // Discover the M-level IMSIC from its CPU interrupt wiring.
-                        if aia::IMSIC_COMPATIBLE.contains(&device_id) && self.info.aia.is_none() {
-                            self.sbi_discover_imsic(node, &regs, &cpu_intc_harts);
-                        }
-                    }
-                }
-            };
-        search_with_parent(root, &mut find_device);
-        self.sbi_ipi_init();
-        self.sbi_hsm_init();
-        self.sbi_reset_init();
-        self.sbi_rfence_init();
-        self.sbi_susp_init();
-    }
-
-    fn sbi_init_pmu(&mut self, root: &serde_device_tree::buildin::Node) {
-        let mut pmu_node: Option<Pmu> = None;
-        let mut find_pmu = |node: &serde_device_tree::buildin::Node| {
-            let info = get_compatible(node);
-            if let Some(compatible_strseq) = info {
-                let compatible_iter = compatible_strseq.iter();
-                for compatible in compatible_iter {
-                    if compatible == "riscv,pmu" {
-                        pmu_node = Some(node.deserialize::<Pmu>());
-                    }
-                }
-            }
-        };
-        root.search(&mut find_pmu);
-
-        if let Some(ref pmu) = pmu_node {
-            let sbi_pmu = self.sbi.pmu.get_or_insert_default();
-            if let Some(ref event_to_mhpmevent) = pmu.event_to_mhpmevent {
-                let len = event_to_mhpmevent.len();
-                for idx in 0..len {
-                    let event = event_to_mhpmevent.get_event_id(idx);
-                    let mhpmevent = event_to_mhpmevent.get_selector_value(idx);
-                    sbi_pmu.insert_event_to_mhpmevent(event, mhpmevent);
-                    debug!(
-                        "pmu: insert event: 0x{:08x}, mhpmevent: {:#016x}",
-                        event, mhpmevent
-                    );
-                }
-            }
-
-            if let Some(ref event_to_mhpmcounters) = pmu.event_to_mhpmcounters {
-                let len = event_to_mhpmcounters.len();
-                for idx in 0..len {
-                    let events = event_to_mhpmcounters.get_event_idx_range(idx);
-                    let mhpmcounters = event_to_mhpmcounters.get_counter_bitmap(idx);
-                    let event_to_counter =
-                        EventToCounterMap::new(mhpmcounters, *events.start(), *events.end());
-                    debug!("pmu: insert event_to_mhpmcounter: {:x?}", event_to_counter);
-                    sbi_pmu.insert_event_to_mhpmcounter(event_to_counter);
-                }
-            }
-
-            if let Some(ref raw_event_to_mhpmcounters) = pmu.raw_event_to_mhpmcounters {
-                let len = raw_event_to_mhpmcounters.len();
-                for idx in 0..len {
-                    let raw_event_select = raw_event_to_mhpmcounters.get_event_idx_base(idx);
-                    let select_mask = raw_event_to_mhpmcounters.get_event_idx_mask(idx);
-                    let counters_mask = raw_event_to_mhpmcounters.get_counter_bitmap(idx);
-                    let raw_event_to_counter =
-                        RawEventToCounterMap::new(counters_mask, raw_event_select, select_mask);
-                    debug!(
-                        "pmu: insert raw_event_to_mhpmcounter: {:x?}",
-                        raw_event_to_counter
-                    );
-                    sbi_pmu.insert_raw_event_to_mhpmcounter(raw_event_to_counter);
-                }
-            }
-        }
-    }
-
-    fn sbi_misc_init(&mut self, tree: &Tree) {
+    /// Discovers miscellaneous board info (memory, cpu number, model, enabled
+    /// harts) that later platform initialization depends on.
+    pub(crate) fn discover_misc(&mut self, tree: &Tree) {
         // Get memory info
         // TODO: More than one memory node or range?
         let memory_reg = tree
@@ -418,18 +271,18 @@ impl Platform {
             .deserialize::<Memory>()
             .reg;
         let memory_range = memory_reg.iter().next().unwrap().0;
-        self.info.memory_range = Some(memory_range);
+        self.memory_range = Some(memory_range);
 
         // Get cpu number info
-        self.info.cpu_num = Some(tree.cpus.cpu.len());
+        self.cpu_num = Some(tree.cpus.cpu.len());
 
         // Get model info
         if let Some(ref model) = tree.model {
             let model = model.iter().next().unwrap_or("<unspecified>");
-            self.info.model = model.to_string();
+            self.model = model.to_string();
         } else {
             let model = "<unspecified>";
-            self.info.model = model.to_string();
+            self.model = model.to_string();
         }
 
         // TODO: Need a better extension initialization method
@@ -450,64 +303,85 @@ impl Platform {
                 );
             }
         }
-        self.info.cpu_enabled = Some(cpu_list);
+        self.cpu_enabled = Some(cpu_list);
     }
 
-    pub fn sbi_cpu_init_with_feature(&mut self) {
-        if let Some(cpu_enabled) = self.info.cpu_enabled.as_mut() {
-            for (hart_id, enabled) in cpu_enabled.iter_mut().enumerate() {
-                if *enabled {
-                    *enabled = CPU_PRIVILEGED_ENABLED[hart_id].load(Ordering::Acquire);
+    /// Discovers the ipi and reset devices (including the M-level IMSIC) from
+    /// the FDT.
+    pub(crate) fn discover_devices(&mut self, root: &serde_device_tree::buildin::Node) {
+        // Get ipi and reset device info
+        let cpu_intc_harts = collect_cpu_intc_harts(root);
+        let mut find_device =
+            |node: &serde_device_tree::buildin::Node,
+             parent: Option<&serde_device_tree::buildin::Node>| {
+                let Some((compatible, regs)) = get_compatible_and_ranges(node) else {
+                    return;
+                };
+                let base_address = regs[0].start;
+                for device_id in compatible.iter() {
+                    self.discover_clint(node, device_id, base_address);
+                    self.discover_reset(device_id, base_address);
+                    self.discover_pmic_reset(device_id, base_address, parent);
+                    // Discover the M-level IMSIC from its CPU interrupt wiring.
+                    if aia::IMSIC_COMPATIBLE.contains(&device_id) && self.aia.is_none() {
+                        self.discover_imsic(node, &regs, &cpu_intc_harts);
+                    }
                 }
-            }
-        }
-    }
-
-    fn sbi_console_init(&mut self) {
-        if let Some((base, console_type)) = self.info.console {
-            self.sbi.console = match console_type {
-                MachineConsoleType::Uart16550U8 => Some(SbiConsole::new(Mutex::new(Box::new(
-                    Uart16550Wrap::<u8>::new(base),
-                )))),
-                MachineConsoleType::Uart16550U32 => Some(SbiConsole::new(Mutex::new(Box::new(
-                    Uart16550Wrap::<u32>::new(base),
-                )))),
-                MachineConsoleType::UartAxiLite => Some(SbiConsole::new(Mutex::new(Box::new(
-                    MmioUartAxiLite::new(base),
-                )))),
-                MachineConsoleType::UartBflb => Some(SbiConsole::new(Mutex::new(Box::new(
-                    UartBflbWrap::new(base),
-                )))),
-                MachineConsoleType::UartSifive => Some(SbiConsole::new(Mutex::new(Box::new(
-                    UartSifiveWrap::new(base),
-                )))),
-                MachineConsoleType::UartPl011 => Some(SbiConsole::new(Mutex::new(Box::new(
-                    UartPl011Wrap::new(base),
-                )))),
-                MachineConsoleType::UartXscale => Some(SbiConsole::new(Mutex::new(Box::new(
-                    UartXscaleWrap::new(base, self.info.console_clock),
-                )))),
             };
-        } else {
-            self.sbi.console = None;
+        search_with_parent(root, &mut find_device);
+    }
+
+    /// Discovers the CLINT device from a `compatible` match.
+    fn discover_clint(
+        &mut self,
+        node: &serde_device_tree::buildin::Node,
+        device_id: &str,
+        base_address: usize,
+    ) {
+        // Initialize clint device.
+        if SIFIVE_CLINT_COMPATIBLE.contains(&device_id) {
+            if node.get_prop("clint,has-no-64bit-mmio").is_some() {
+                self.ipi = Some((base_address, MachineClintType::TheadClint));
+            } else {
+                self.ipi = Some((base_address, MachineClintType::SiFiveClint));
+            }
+        } else if THEAD_CLINT_COMPATIBLE.contains(&device_id) {
+            self.ipi = Some((base_address, MachineClintType::TheadClint));
         }
     }
 
-    fn sbi_reset_init(&mut self) {
-        if let Some(base) = self.info.reset {
-            self.sbi.reset = Some(SbiReset::new(Mutex::new(Box::new(
-                SifiveTestDeviceWrap::new(base),
-            ))));
-        } else if let Some((i2c_base, pmic_addr)) = self.info.pmic_reset {
-            self.sbi.reset = Some(SbiReset::new(Mutex::new(Box::new(P1PmicResetWrap::new(
-                i2c_base, pmic_addr,
-            )))));
-        } else {
-            self.sbi.reset = None;
+    /// Discovers the sifive-test reset device from a `compatible` match.
+    fn discover_reset(&mut self, device_id: &str, base_address: usize) {
+        // Initialize reset device.
+        if SIFIVETEST_COMPATIBLE.contains(&device_id) {
+            self.reset = Some(base_address);
         }
     }
 
-    fn sbi_discover_imsic(
+    /// Discovers the P1 PMIC reset device from a `compatible` match.
+    fn discover_pmic_reset(
+        &mut self,
+        device_id: &str,
+        base_address: usize,
+        parent: Option<&serde_device_tree::buildin::Node>,
+    ) {
+        // Initialize P1 PMIC reset device
+        if !P1_PMIC_COMPATIBLE.contains(&device_id) {
+            return;
+        }
+        // The PMIC's own "reg" property is its 7-bit I2C slave address.
+        let pmic_addr = base_address as u8;
+        // The I2C controller is the PMIC's parent node; use the first
+        // register range of the parent as the controller MMIO base,
+        // falling back to the PMIC's own reg if no parent is found.
+        let i2c_base = parent
+            .and_then(|p| get_compatible_and_ranges(p))
+            .and_then(|(_, parent_regs)| parent_regs.first().map(|r| r.start))
+            .unwrap_or(base_address);
+        self.pmic_reset = Some((i2c_base, pmic_addr));
+    }
+
+    fn discover_imsic(
         &mut self,
         node: &serde_device_tree::buildin::Node,
         reg_ranges: &[Range<usize>],
@@ -674,15 +548,16 @@ impl Platform {
             hart_imsic_map[hart_id] = Some(addr);
         }
 
-        if let Some(ref cpu_enabled) = self.info.cpu_enabled {
-            for (hart_id, enabled) in cpu_enabled.iter().enumerate() {
-                if *enabled && hart_imsic_map[hart_id].is_none() {
-                    warn!(
-                        "IMSIC: enabled hart {} has no M-level IMSIC file, skipping AIA",
-                        hart_id
-                    );
-                    return;
-                }
+        let Some(ref cpu_enabled) = self.cpu_enabled else {
+            return;
+        };
+        for (hart_id, enabled) in cpu_enabled.iter().enumerate() {
+            if *enabled && hart_imsic_map[hart_id].is_none() {
+                warn!(
+                    "IMSIC: enabled hart {} has no M-level IMSIC file, skipping AIA",
+                    hart_id
+                );
+                return;
             }
         }
 
@@ -696,7 +571,7 @@ impl Platform {
             firmware_ipi_iid.number()
         );
 
-        self.info.aia = Some(aia::AiaInfo {
+        self.aia = Some(aia::AiaInfo {
             layout,
             num_ids,
             firmware_ipi_iid,
@@ -704,18 +579,189 @@ impl Platform {
         });
     }
 
+    /// Reconciles the enabled-CPU table with the per-hart privilege checks.
+    pub(crate) fn refresh_cpu_features(&mut self) {
+        let Some(cpu_enabled) = self.cpu_enabled.as_mut() else {
+            return;
+        };
+        for (hart_id, enabled) in cpu_enabled.iter_mut().enumerate() {
+            if *enabled {
+                *enabled = CPU_PRIVILEGED_ENABLED[hart_id].load(Ordering::Acquire);
+            }
+        }
+    }
+}
+
+pub struct Platform {
+    pub sbi: SBI,
+}
+
+impl Platform {
+    pub const fn new() -> Self {
+        Platform { sbi: SBI::new() }
+    }
+
+    pub fn init(&mut self, fdt_address: usize) {
+        let dtb = parse_device_tree(fdt_address).unwrap_or_else(fail::device_tree_format);
+        let dtb = dtb.share();
+
+        let root: serde_device_tree::buildin::Node = serde_device_tree::from_raw_mut(&dtb)
+            .unwrap_or_else(fail::device_tree_deserialize_root);
+        let tree: Tree = root.deserialize();
+
+        // Get console device, init sbi console and logger.
+        board_info_mut().discover_console(&root);
+        self.init_sbi_console_and_logger();
+        // Get other info that later platform initialization depends on.
+        board_info_mut().discover_misc(&tree);
+        // Get clint and reset device, init sbi ipi, reset, hsm, rfence and susp extension.
+        board_info_mut().discover_devices(&root);
+        self.sbi_ipi_init();
+        self.sbi_hsm_init();
+        self.sbi_reset_init();
+        self.sbi_rfence_init();
+        self.sbi_susp_init();
+        // Initialize pmu extension
+        self.sbi_init_pmu(&root);
+
+        // Record K1 platform detection *before* releasing the ready flag, so
+        // that secondary harts observing `READY` also observe the flag.
+        // Match the root node's `compatible` strings first (OpenSBI's
+        // spacemit_k1_match[] table), falling back to the model string.
+        let k1_platform = match root.get_prop("compatible") {
+            Some(prop) => {
+                let seq = prop.deserialize::<serde_device_tree::buildin::StrSeq>();
+                spacemit_k1::is_k1_platform(&board_info().model, seq.iter())
+            }
+            None => spacemit_k1::is_k1_platform(&board_info().model, core::iter::empty::<&str>()),
+        };
+        IS_K1_PLATFORM.store(k1_platform, Ordering::Release);
+
+        READY.store(true, Ordering::Release);
+    }
+
+    fn init_sbi_console_and_logger(&mut self) {
+        // init console and logger
+        self.sbi_console_init();
+        logger::Logger::init().unwrap();
+        info!("Hello RustSBI!");
+    }
+
+    fn sbi_init_pmu(&mut self, root: &serde_device_tree::buildin::Node) {
+        let mut pmu_node: Option<Pmu> = None;
+        let mut find_pmu = |node: &serde_device_tree::buildin::Node| {
+            let info = get_compatible(node);
+            if let Some(compatible_strseq) = info {
+                let compatible_iter = compatible_strseq.iter();
+                for compatible in compatible_iter {
+                    if compatible == "riscv,pmu" {
+                        pmu_node = Some(node.deserialize::<Pmu>());
+                    }
+                }
+            }
+        };
+        root.search(&mut find_pmu);
+
+        if let Some(ref pmu) = pmu_node {
+            let sbi_pmu = self.sbi.pmu.get_or_insert_default();
+            if let Some(ref event_to_mhpmevent) = pmu.event_to_mhpmevent {
+                let len = event_to_mhpmevent.len();
+                for idx in 0..len {
+                    let event = event_to_mhpmevent.get_event_id(idx);
+                    let mhpmevent = event_to_mhpmevent.get_selector_value(idx);
+                    sbi_pmu.insert_event_to_mhpmevent(event, mhpmevent);
+                    debug!(
+                        "pmu: insert event: 0x{:08x}, mhpmevent: {:#016x}",
+                        event, mhpmevent
+                    );
+                }
+            }
+
+            if let Some(ref event_to_mhpmcounters) = pmu.event_to_mhpmcounters {
+                let len = event_to_mhpmcounters.len();
+                for idx in 0..len {
+                    let events = event_to_mhpmcounters.get_event_idx_range(idx);
+                    let mhpmcounters = event_to_mhpmcounters.get_counter_bitmap(idx);
+                    let event_to_counter =
+                        EventToCounterMap::new(mhpmcounters, *events.start(), *events.end());
+                    debug!("pmu: insert event_to_mhpmcounter: {:x?}", event_to_counter);
+                    sbi_pmu.insert_event_to_mhpmcounter(event_to_counter);
+                }
+            }
+
+            if let Some(ref raw_event_to_mhpmcounters) = pmu.raw_event_to_mhpmcounters {
+                let len = raw_event_to_mhpmcounters.len();
+                for idx in 0..len {
+                    let raw_event_select = raw_event_to_mhpmcounters.get_event_idx_base(idx);
+                    let select_mask = raw_event_to_mhpmcounters.get_event_idx_mask(idx);
+                    let counters_mask = raw_event_to_mhpmcounters.get_counter_bitmap(idx);
+                    let raw_event_to_counter =
+                        RawEventToCounterMap::new(counters_mask, raw_event_select, select_mask);
+                    debug!(
+                        "pmu: insert raw_event_to_mhpmcounter: {:x?}",
+                        raw_event_to_counter
+                    );
+                    sbi_pmu.insert_raw_event_to_mhpmcounter(raw_event_to_counter);
+                }
+            }
+        }
+    }
+
+    fn sbi_console_init(&mut self) {
+        if let Some((base, console_type)) = board_info().console {
+            self.sbi.console = match console_type {
+                MachineConsoleType::Uart16550U8 => Some(SbiConsole::new(Mutex::new(Box::new(
+                    Uart16550Wrap::<u8>::new(base),
+                )))),
+                MachineConsoleType::Uart16550U32 => Some(SbiConsole::new(Mutex::new(Box::new(
+                    Uart16550Wrap::<u32>::new(base),
+                )))),
+                MachineConsoleType::UartAxiLite => Some(SbiConsole::new(Mutex::new(Box::new(
+                    MmioUartAxiLite::new(base),
+                )))),
+                MachineConsoleType::UartBflb => Some(SbiConsole::new(Mutex::new(Box::new(
+                    UartBflbWrap::new(base),
+                )))),
+                MachineConsoleType::UartSifive => Some(SbiConsole::new(Mutex::new(Box::new(
+                    UartSifiveWrap::new(base),
+                )))),
+                MachineConsoleType::UartPl011 => Some(SbiConsole::new(Mutex::new(Box::new(
+                    UartPl011Wrap::new(base),
+                )))),
+                MachineConsoleType::UartXscale => Some(SbiConsole::new(Mutex::new(Box::new(
+                    UartXscaleWrap::new(base, board_info().console_clock),
+                )))),
+            };
+        } else {
+            self.sbi.console = None;
+        }
+    }
+
+    fn sbi_reset_init(&mut self) {
+        if let Some(base) = board_info().reset {
+            self.sbi.reset = Some(SbiReset::new(Mutex::new(Box::new(
+                SifiveTestDeviceWrap::new(base),
+            ))));
+        } else if let Some((i2c_base, pmic_addr)) = board_info().pmic_reset {
+            self.sbi.reset = Some(SbiReset::new(Mutex::new(Box::new(P1PmicResetWrap::new(
+                i2c_base, pmic_addr,
+            )))));
+        } else {
+            self.sbi.reset = None;
+        }
+    }
+
     fn sbi_ipi_init(&mut self) {
-        let max_hart_id = self
-            .info
+        let max_hart_id = board_info()
             .cpu_enabled
             .as_ref()
             .and_then(|hart_list| hart_list.iter().rposition(|enabled| *enabled))
             .unwrap_or(NUM_HART_MAX - 1);
 
-        if let Some(ref aia_info) = self.info.aia {
+        if let Some(ref aia_info) = board_info().aia {
             use crate::sbi::features::{Extension, hart_extension_probe};
             let mut aia_usable = true;
-            if let Some(ref cpu_enabled) = self.info.cpu_enabled {
+            if let Some(ref cpu_enabled) = board_info().cpu_enabled {
                 for (hart_id, enabled) in cpu_enabled.iter().enumerate() {
                     if *enabled {
                         if !hart_extension_probe(hart_id, Extension::Smaia) {
@@ -735,7 +781,7 @@ impl Platform {
                 let ipi_dev =
                     aia::ImsicDevice::new(aia_info.firmware_ipi_iid, aia_info.hart_imsic_map);
                 self.sbi.ipi = Some(SbiIpi::new(Mutex::new(Box::new(ipi_dev)), max_hart_id));
-                if self.info.is_qemu_virt() {
+                if board_info().is_qemu_virt() {
                     aia::init_qemu_m_aplic_delegation(
                         aia_info.layout.machine_base,
                         aia_info.layout.hart_index_bits,
@@ -743,7 +789,7 @@ impl Platform {
                 } else {
                     warn!(
                         "AIA: skipping QEMU virt M-APLIC setup on '{}'",
-                        self.info.model
+                        board_info().model
                     );
                 }
                 aia::set_aia_active(true);
@@ -752,7 +798,7 @@ impl Platform {
             }
             warn!("AIA: requirements not met, falling back to CLINT");
         }
-        if let Some((base, clint_type)) = self.info.ipi {
+        if let Some((base, clint_type)) = board_info().ipi {
             let ipi_dev: Box<dyn crate::sbi::ipi::IpiDevice> = match clint_type {
                 MachineClintType::SiFiveClint => Box::new(SifiveClintWrap::new(base)),
                 MachineClintType::TheadClint => Box::new(THeadClintWrap::new(base)),
@@ -799,17 +845,17 @@ impl Platform {
 
     #[inline]
     fn print_platform_info(&self) {
-        info!("{:<30}: {}", "Platform Name", self.info.model);
+        info!("{:<30}: {}", "Platform Name", board_info().model);
     }
 
     fn print_cpu_info(&self) {
         info!(
             "{:<30}: {:?}",
             "Platform HART Count",
-            self.info.cpu_num.unwrap_or(0)
+            board_info().cpu_num.unwrap_or(0)
         );
 
-        if let Some(cpu_enabled) = &self.info.cpu_enabled {
+        if let Some(cpu_enabled) = &board_info().cpu_enabled {
             let mut enabled_harts = [0; NUM_HART_MAX];
             let mut count = 0;
             for (i, &enabled) in cpu_enabled.iter().enumerate() {
@@ -838,7 +884,7 @@ impl Platform {
     #[inline]
     fn print_clint_info(&self) {
         if aia::is_aia_active()
-            && let Some(ref aia_info) = self.info.aia
+            && let Some(ref aia_info) = board_info().aia
         {
             info!(
                 "{:<30}: IMSIC (M-level Base Address: 0x{:x})",
@@ -846,7 +892,7 @@ impl Platform {
             );
             return;
         }
-        match self.info.ipi {
+        match board_info().ipi {
             Some((base, device)) => {
                 info!(
                     "{:<30}: {:?} (Base Address: 0x{:x})",
@@ -859,7 +905,7 @@ impl Platform {
 
     #[inline]
     fn print_console_info(&self) {
-        match self.info.console {
+        match board_info().console {
             Some((base, device)) => {
                 info!(
                     "{:<30}: {:?} (Base Address: 0x{:x})",
@@ -872,12 +918,12 @@ impl Platform {
 
     #[inline]
     fn print_reset_info(&self) {
-        if let Some(base) = self.info.reset {
+        if let Some(base) = board_info().reset {
             info!(
                 "{:<30}: Available (Base Address: 0x{:x})",
                 "Platform Reset Extension", base
             );
-        } else if let Some((i2c_base, pmic_addr)) = self.info.pmic_reset {
+        } else if let Some((i2c_base, pmic_addr)) = board_info().pmic_reset {
             info!(
                 "{:<30}: Available (P1 PMIC @ 0x{:02x}, I2C Base: 0x{:x})",
                 "Platform Reset Extension", pmic_addr, i2c_base
@@ -925,7 +971,7 @@ impl Platform {
 
     #[inline]
     fn print_memory_info(&self) {
-        if let Some(memory_range) = &self.info.memory_range {
+        if let Some(memory_range) = &board_info().memory_range {
             info!(
                 "{:<30}: 0x{:x} - 0x{:x}",
                 "Memory range", memory_range.start, memory_range.end

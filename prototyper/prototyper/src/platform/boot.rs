@@ -3,7 +3,7 @@
 use core::ops::Range;
 use core::sync::atomic::Ordering;
 
-use super::{IS_K1_PLATFORM, PLATFORM, READY};
+use super::{IS_K1_PLATFORM, PLATFORM, READY, board_info, board_info_mut};
 use crate::riscv::spacemit_k1;
 
 /// Initializes the board from the device tree and runs the SoC-specific
@@ -43,12 +43,10 @@ pub fn wait_until_ready() {
 
 /// Returns the board's memory range (set during `Platform::init`).
 pub fn memory_range() -> Range<usize> {
-    unsafe { PLATFORM.info.memory_range.as_ref().unwrap().clone() }
+    board_info().memory_range.as_ref().unwrap().clone()
 }
 
 /// Reconciles the enabled-CPU table with the per-hart privilege checks.
 pub fn refresh_enabled_cpus() {
-    unsafe {
-        PLATFORM.sbi_cpu_init_with_feature();
-    }
+    board_info_mut().refresh_cpu_features();
 }

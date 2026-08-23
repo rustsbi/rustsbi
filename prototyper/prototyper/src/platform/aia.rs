@@ -41,7 +41,7 @@ pub fn per_hart_init() {
     }
     let hart_id = current_hartid();
     if hart_extension_probe(hart_id, Extension::Smaia) {
-        if let Some(ref aia_info) = unsafe { super::PLATFORM.info.aia.as_ref() } {
+        if let Some(ref aia_info) = super::board_info().aia.as_ref() {
             imsic_init_hart(aia_info);
         }
     } else {
