@@ -6,7 +6,6 @@ use core::{
 use riscv::register::mstatus::MPP;
 use rustsbi::{SbiRet, spec::hsm::hart_state};
 
-use crate::platform::PLATFORM;
 use crate::riscv::current_hartid;
 use crate::sbi::hart_context::NextStage;
 use crate::sbi::trap_stack::ROOT_STACK;
@@ -185,7 +184,7 @@ pub(crate) fn local_hsm() -> LocalHsmCell<'static, NextStage> {
 }
 
 /// Returns a remote-capable view of the current hart's HSM cell.
-pub(crate) fn hsm() -> RemoteHsmCell<'static, NextStage> {
+pub(crate) fn hart_hsm() -> RemoteHsmCell<'static, NextStage> {
     hart_context(current_hartid()).hsm.remote()
 }
 
@@ -218,9 +217,7 @@ impl rustsbi::Hsm for SbiHsm {
                     opaque,
                     next_mode: MPP::Supervisor,
                 }) {
-                    unsafe {
-                        PLATFORM.sbi.ipi.as_ref().unwrap().set_msip(hartid);
-                    }
+                    crate::sbi::ipi().unwrap().set_msip(hartid);
                     SbiRet::success(0)
                 } else {
                     SbiRet::already_available()
@@ -265,14 +262,7 @@ impl rustsbi::Hsm for SbiHsm {
         }
 
         crate::sbi::trap::handler::msoft_ipi_handler();
-        unsafe {
-            PLATFORM
-                .sbi
-                .ipi
-                .as_ref()
-                .unwrap()
-                .clear_msip(current_hartid());
-        }
+        crate::sbi::ipi().unwrap().clear_msip(current_hartid());
         unsafe {
             riscv::register::mie::set_msoft();
         }

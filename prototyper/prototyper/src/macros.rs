@@ -1,12 +1,7 @@
 #[allow(unused)]
 macro_rules! print {
     ($($arg:tt)*) => {
-        use core::fmt::Write;
-        if unsafe {$crate::platform::PLATFORM.have_console()} {
-            let console = unsafe { $crate::platform::PLATFORM.sbi.console.as_mut().unwrap() };
-            console.write_fmt(core::format_args!($($arg)*)).unwrap();
-            drop(console);
-        }
+        $crate::sbi::console::_print(core::format_args!($($arg)*))
     }
 }
 
@@ -14,12 +9,8 @@ macro_rules! print {
 macro_rules! println {
     () => ($crate::print!("\n\r"));
     ($($arg:tt)*) => {{
-        use core::fmt::Write;
-        if unsafe {$crate::platform::PLATFORM.have_console()} {
-            let console = unsafe { $crate::platform::PLATFORM.sbi.console.as_mut().unwrap() };
-            console.write_fmt(core::format_args!($($arg)*)).unwrap();
-            console.write_str("\n\r").unwrap();
-        }
+        $crate::sbi::console::_print(core::format_args!($($arg)*));
+        $crate::sbi::console::_print(core::format_args!("\n\r"));
     }}
 }
 

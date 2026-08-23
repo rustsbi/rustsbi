@@ -24,7 +24,7 @@ use crate::sbi::features::{
     check_privilege, detect_hart_features, hart_mhpm_mask, hart_privileged_version,
 };
 use crate::sbi::heap;
-use crate::sbi::hsm::hsm;
+use crate::sbi::hsm::hart_hsm;
 use crate::sbi::ipi;
 use crate::sbi::trap_stack;
 use rustsbi_prototyper_macros::entry;
@@ -62,7 +62,7 @@ fn boot_hart(boot: &BootInfo) {
         "Redirecting hart {} to {:#016x} in {:?} mode.",
         hart_id, next.start_addr, next.next_mode
     );
-    hsm().start(next);
+    hart_hsm().start(next);
 
     enable_supervisor_services();
 }

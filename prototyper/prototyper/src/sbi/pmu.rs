@@ -7,7 +7,9 @@ use sbi_spec::pmu::shmem_size::SIZE;
 use sbi_spec::pmu::*;
 
 use crate::riscv::csr::*;
-use crate::{riscv::current_hartid, sbi::features::hart_mhpm_mask};
+use crate::{
+    devicetree, devicetree::get_compatible, riscv::current_hartid, sbi::features::hart_mhpm_mask,
+};
 
 use super::features::{PrivilegedVersion, hart_privileged_version};
 use super::trap_stack::{hart_context, hart_context_mut};
@@ -1204,4 +1206,66 @@ pub fn pmu_firmware_counter_increment(firmware_event: usize) {
             pmu_state.fw_counter[fw_idx] += 1;
         }
     }
+}
+
+/// Initializes the SBI PMU extension from the FDT pmu node.
+pub(crate) fn init(root: &serde_device_tree::buildin::Node) -> Option<SbiPmu> {
+    let mut pmu_node: Option<devicetree::Pmu> = None;
+    let mut find_pmu = |node: &serde_device_tree::buildin::Node| {
+        let Some(compatible_strseq) = get_compatible(node) else {
+            return;
+        };
+        for compatible in compatible_strseq.iter() {
+            if compatible == "riscv,pmu" {
+                pmu_node = Some(node.deserialize::<devicetree::Pmu>());
+            }
+        }
+    };
+    root.search(&mut find_pmu);
+
+    let Some(ref pmu) = pmu_node else {
+        return None;
+    };
+    let mut sbi_pmu = SbiPmu::default();
+    if let Some(ref event_to_mhpmevent) = pmu.event_to_mhpmevent {
+        let len = event_to_mhpmevent.len();
+        for idx in 0..len {
+            let event = event_to_mhpmevent.get_event_id(idx);
+            let mhpmevent = event_to_mhpmevent.get_selector_value(idx);
+            sbi_pmu.insert_event_to_mhpmevent(event, mhpmevent);
+            debug!(
+                "pmu: insert event: 0x{:08x}, mhpmevent: {:#016x}",
+                event, mhpmevent
+            );
+        }
+    }
+
+    if let Some(ref event_to_mhpmcounters) = pmu.event_to_mhpmcounters {
+        let len = event_to_mhpmcounters.len();
+        for idx in 0..len {
+            let events = event_to_mhpmcounters.get_event_idx_range(idx);
+            let mhpmcounters = event_to_mhpmcounters.get_counter_bitmap(idx);
+            let event_to_counter =
+                EventToCounterMap::new(mhpmcounters, *events.start(), *events.end());
+            debug!("pmu: insert event_to_mhpmcounter: {:x?}", event_to_counter);
+            sbi_pmu.insert_event_to_mhpmcounter(event_to_counter);
+        }
+    }
+
+    if let Some(ref raw_event_to_mhpmcounters) = pmu.raw_event_to_mhpmcounters {
+        let len = raw_event_to_mhpmcounters.len();
+        for idx in 0..len {
+            let raw_event_select = raw_event_to_mhpmcounters.get_event_idx_base(idx);
+            let select_mask = raw_event_to_mhpmcounters.get_event_idx_mask(idx);
+            let counters_mask = raw_event_to_mhpmcounters.get_counter_bitmap(idx);
+            let raw_event_to_counter =
+                RawEventToCounterMap::new(counters_mask, raw_event_select, select_mask);
+            debug!(
+                "pmu: insert raw_event_to_mhpmcounter: {:x?}",
+                raw_event_to_counter
+            );
+            sbi_pmu.insert_raw_event_to_mhpmcounter(raw_event_to_counter);
+        }
+    }
+    Some(sbi_pmu)
 }

@@ -30,6 +30,11 @@ impl SifiveTestDeviceWrap {
     }
 }
 
+// SAFETY: `SifiveTestDeviceWrap` holds only a volatile MMIO pointer with
+// no Rust-side mutable state; moving the handle across harts is sound.
+// Access is serialized by the mutex around the published reset device.
+unsafe impl Send for SifiveTestDeviceWrap {}
+
 /// Reset Device: SifiveTestDevice
 impl ResetDevice for SifiveTestDeviceWrap {
     #[inline]
@@ -107,7 +112,7 @@ impl I2cK1Registers {
     /// Read the control register (ICR).
     #[inline]
     fn icr(&self) -> u32 {
-        // Safety: `self` points at MMIO registers; reads are volatile so
+        // SAFETY: `self` points at MMIO registers; reads are volatile so
         // the compiler cannot cache or reorder them.
         unsafe { core::ptr::addr_of!(self.icr).read_volatile() }
     }
@@ -115,7 +120,7 @@ impl I2cK1Registers {
     /// Write the control register (ICR).
     #[inline]
     fn set_icr(&self, val: u32) {
-        // Safety: `self` points at MMIO registers; writes are volatile so
+        // SAFETY: `self` points at MMIO registers; writes are volatile so
         // the compiler cannot elide or reorder them.
         unsafe { core::ptr::addr_of!(self.icr).cast_mut().write_volatile(val) }
     }

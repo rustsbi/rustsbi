@@ -2,9 +2,10 @@ use alloc::boxed::Box;
 use rustsbi::SbiRet;
 use spin::Mutex;
 
-use crate::platform::PLATFORM;
+use crate::platform::BoardInfo;
+use crate::platform::reset::{P1PmicResetWrap, SifiveTestDeviceWrap};
 
-pub trait ResetDevice {
+pub trait ResetDevice: Send {
     fn fail(&self, code: u16) -> !;
     fn pass(&self) -> !;
     fn reset(&self) -> !;
@@ -48,7 +49,7 @@ impl rustsbi::Reset for SbiReset {
 
 #[allow(unused)]
 pub fn fail() -> ! {
-    match unsafe { PLATFORM.sbi.reset.as_ref() } {
+    match crate::sbi::reset() {
         Some(reset) => reset.fail(),
         None => {
             trace!("test fail, begin dead loop");
@@ -56,5 +57,20 @@ pub fn fail() -> ! {
                 core::hint::spin_loop()
             }
         }
+    }
+}
+
+/// Initializes the SBI reset extension from the discovered board info.
+pub(crate) fn init(board: &BoardInfo) -> Option<SbiReset> {
+    if let Some(base) = board.reset {
+        Some(SbiReset::new(Mutex::new(Box::new(
+            SifiveTestDeviceWrap::new(base),
+        ))))
+    } else if let Some((i2c_base, pmic_addr)) = board.pmic_reset {
+        Some(SbiReset::new(Mutex::new(Box::new(P1PmicResetWrap::new(
+            i2c_base, pmic_addr,
+        )))))
+    } else {
+        None
     }
 }

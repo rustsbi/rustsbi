@@ -1,9 +1,17 @@
 use alloc::boxed::Box;
 use core::fmt;
 use rustsbi::{Console, Physical, SbiRet};
-use spin::Mutex;
+use spin::{Mutex, Once};
 
-use crate::platform::PLATFORM;
+use crate::platform::BoardInfo;
+use crate::platform::console::MachineConsoleType;
+use crate::platform::console::Uart16550Wrap;
+use crate::platform::console::UartAxiLiteWrap;
+use crate::platform::console::UartBflbWrap;
+use crate::platform::console::UartPl011Wrap;
+use crate::platform::console::UartSifiveWrap;
+use crate::platform::console::UartXscaleWrap;
+use crate::sbi::logger;
 
 // Checks whether `(phys_addr_lo, phys_addr_hi, len)` can be represented
 // as a native address range on this machine.
@@ -27,7 +35,7 @@ fn checked_physical_addr(lo: usize, hi: usize, len: usize) -> Result<usize, SbiR
 }
 
 /// A trait that must be implemented by console devices to provide basic I/O functionality.
-pub trait ConsoleDevice {
+pub trait ConsoleDevice: Send {
     /// Reads bytes from the console into the provided buffer.
     ///
     /// # Returns
@@ -41,21 +49,31 @@ pub trait ConsoleDevice {
     fn write(&self, buf: &[u8]) -> usize;
 }
 
+/// The machine console device, published once by [`init`] when the board
+/// provides a console.
+///
+/// Invariant: published (pre-`READY`) before the logger is brought up, so
+/// that early boot messages are printable; read afterwards by the print
+/// macros and the console ecall paths. Before publication, [`_print`] is a
+/// no-op (matching the previous `have_console` skip).
+static CONSOLE_DEVICE: Once<Mutex<Box<dyn ConsoleDevice>>> = Once::new();
+
 /// An implementation of the SBI console interface that wraps a console device.
 ///
 /// This provides a safe interface for interacting with console hardware through the
-/// SBI specification.
+/// SBI specification. The handle borrows the device published in
+/// [`CONSOLE_DEVICE`]; all I/O goes through the device lock.
 pub struct SbiConsole {
-    inner: Mutex<Box<dyn ConsoleDevice>>,
+    inner: &'static Mutex<Box<dyn ConsoleDevice>>,
 }
 
 impl SbiConsole {
-    /// Creates a new SBI console that wraps the provided locked console device.
+    /// Creates a new SBI console handle over the published console device.
     ///
     /// # Arguments
-    /// * `inner` - A mutex containing the console device implementation
+    /// * `inner` - The published console device, protected by a mutex
     #[inline]
-    pub fn new(inner: Mutex<Box<dyn ConsoleDevice>>) -> Self {
+    pub fn new(inner: &'static Mutex<Box<dyn ConsoleDevice>>) -> Self {
         Self { inner }
     }
 
@@ -67,7 +85,7 @@ impl SbiConsole {
     /// # Returns
     /// Always returns 0 to indicate success
     #[inline]
-    pub fn putchar(&mut self, c: usize) -> usize {
+    pub fn putchar(&self, c: usize) -> usize {
         let byte = [c as u8];
         while self.inner.lock().write(&byte) == 0 {
             core::hint::spin_loop();
@@ -158,30 +176,82 @@ impl Console for SbiConsole {
     }
 }
 
-impl fmt::Write for SbiConsole {
-    /// Implement Write trait for string formatting.
-    #[inline]
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        let mut bytes = s.as_bytes();
-        while !bytes.is_empty() {
-            let count = self.inner.lock().write(bytes);
-            if count == 0 {
-                return Err(fmt::Error);
+/// Prints formatted arguments to the console device, if one is present.
+///
+/// The `print!`/`println!` macros route here; before the console device is
+/// published this is a no-op (matching the previous `have_console` skip).
+/// The chunked-write loop keeps the write semantics of the old
+/// `fmt::Write for SbiConsole` impl: write until the device reports
+/// progress, error on a zero-byte write.
+pub fn _print(args: fmt::Arguments) {
+    use core::fmt::Write as _;
+
+    struct ConsoleWriter<'a> {
+        device: &'a Mutex<Box<dyn ConsoleDevice>>,
+    }
+
+    impl fmt::Write for ConsoleWriter<'_> {
+        #[inline]
+        fn write_str(&mut self, s: &str) -> fmt::Result {
+            let mut bytes = s.as_bytes();
+            while !bytes.is_empty() {
+                let count = self.device.lock().write(bytes);
+                if count == 0 {
+                    return Err(fmt::Error);
+                }
+                bytes = &bytes[count..];
             }
-            bytes = &bytes[count..];
+            Ok(())
         }
-        Ok(())
+    }
+
+    if let Some(device) = CONSOLE_DEVICE.get() {
+        ConsoleWriter { device }.write_fmt(args).unwrap();
     }
 }
 
 /// Global function to write a character to the console.
 #[inline]
 pub fn putchar(c: usize) -> usize {
-    unsafe { PLATFORM.sbi.console.as_mut().unwrap().putchar(c) }
+    SbiConsole::new(
+        CONSOLE_DEVICE
+            .get()
+            .expect("console device not initialized"),
+    )
+    .putchar(c)
 }
 
 /// Global function to read a character from the console.
 #[inline]
 pub fn getchar() -> usize {
-    unsafe { PLATFORM.sbi.console.as_mut().unwrap().getchar() }
+    SbiConsole::new(
+        CONSOLE_DEVICE
+            .get()
+            .expect("console device not initialized"),
+    )
+    .getchar()
+}
+
+/// Initializes the SBI console from the discovered board info, then brings up
+/// the logger (bundled, so that early boot messages are printable).
+pub(crate) fn init(board: &BoardInfo) -> Option<SbiConsole> {
+    // init console and logger
+    let console = board.console.map(|(base, console_type)| {
+        let device: Box<dyn ConsoleDevice> = match console_type {
+            MachineConsoleType::Uart16550U8 => Box::new(Uart16550Wrap::<u8>::new(base)),
+            MachineConsoleType::Uart16550U32 => Box::new(Uart16550Wrap::<u32>::new(base)),
+            MachineConsoleType::UartAxiLite => Box::new(UartAxiLiteWrap::new(base)),
+            MachineConsoleType::UartBflb => Box::new(UartBflbWrap::new(base)),
+            MachineConsoleType::UartSifive => Box::new(UartSifiveWrap::new(base)),
+            MachineConsoleType::UartPl011 => Box::new(UartPl011Wrap::new(base)),
+            MachineConsoleType::UartXscale => {
+                Box::new(UartXscaleWrap::new(base, board.console_clock))
+            }
+        };
+        CONSOLE_DEVICE.call_once(|| Mutex::new(device));
+        SbiConsole::new(CONSOLE_DEVICE.get().expect("console device just published"))
+    });
+    logger::Logger::init().unwrap();
+    info!("Hello RustSBI!");
+    console
 }

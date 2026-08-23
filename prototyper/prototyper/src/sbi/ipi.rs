@@ -1,5 +1,8 @@
 use super::pmu::pmu_firmware_counter_increment;
-use crate::platform::PLATFORM;
+use crate::cfg::NUM_HART_MAX;
+use crate::platform::BoardInfo;
+use crate::platform::aia;
+use crate::platform::clint::{MachineClintType, SifiveClintWrap, THeadClintWrap};
 use crate::riscv::csr::stimecmp;
 use crate::riscv::current_hartid;
 use crate::sbi::features::{Extension, hart_extension_probe};
@@ -235,7 +238,7 @@ pub fn get_and_reset_ipi_type() -> u8 {
 /// Clear machine software interrupt pending for current hart.
 #[inline]
 pub fn claim_ipi() {
-    match unsafe { PLATFORM.sbi.ipi.as_ref() } {
+    match crate::sbi::ipi() {
         Some(ipi) => ipi.clear_msip(current_hartid()),
         None => error!("SBI or IPI device not initialized"),
     }
@@ -244,7 +247,7 @@ pub fn claim_ipi() {
 /// Clear machine timer interrupt for current hart.
 #[inline]
 pub fn clear_mtime() {
-    match unsafe { PLATFORM.sbi.ipi.as_ref() } {
+    match crate::sbi::ipi() {
         Some(ipi) => ipi.write_mtimecmp(current_hartid(), u64::MAX),
         None => error!("SBI or IPI device not initialized"),
     }
@@ -253,10 +256,69 @@ pub fn clear_mtime() {
 /// Clear all pending interrupts for current hart.
 #[inline]
 pub fn clear_all() {
-    match unsafe { PLATFORM.sbi.ipi.as_ref() } {
+    match crate::sbi::ipi() {
         Some(ipi) => ipi.clear(),
         None => error!("SBI or IPI device not initialized"),
     }
+}
+
+/// Initializes the SBI IPI extension from the discovered board info
+/// (AIA probe with CLINT fallback).
+pub(crate) fn init(board: &BoardInfo) -> Option<SbiIpi> {
+    let max_hart_id = board
+        .cpu_enabled
+        .as_ref()
+        .and_then(|hart_list| hart_list.iter().rposition(|enabled| *enabled))
+        .unwrap_or(NUM_HART_MAX - 1);
+
+    if let Some(ref aia_info) = board.aia {
+        let mut aia_usable = true;
+        if let Some(ref cpu_enabled) = board.cpu_enabled {
+            for (hart_id, enabled) in cpu_enabled.iter().enumerate() {
+                if *enabled && !aia_hart_usable(hart_id) {
+                    aia_usable = false;
+                    break;
+                }
+            }
+        }
+        if aia_usable {
+            let ipi_dev = aia::ImsicDevice::new(aia_info.firmware_ipi_iid, aia_info.hart_imsic_map);
+            if board.is_qemu_virt() {
+                aia::init_qemu_m_aplic_delegation(
+                    aia_info.layout.machine_base,
+                    aia_info.layout.hart_index_bits,
+                );
+            } else {
+                warn!("AIA: skipping QEMU virt M-APLIC setup on '{}'", board.model);
+            }
+            aia::set_aia_active(true);
+            info!("AIA: IMSIC IPI + Sstc timer backend initialized");
+            return Some(SbiIpi::new(Mutex::new(Box::new(ipi_dev)), max_hart_id));
+        }
+        warn!("AIA: requirements not met, falling back to CLINT");
+    }
+    if let Some((base, clint_type)) = board.ipi {
+        let ipi_dev: Box<dyn IpiDevice> = match clint_type {
+            MachineClintType::SiFiveClint => Box::new(SifiveClintWrap::new(base)),
+            MachineClintType::TheadClint => Box::new(THeadClintWrap::new(base)),
+        };
+        return Some(SbiIpi::new(Mutex::new(ipi_dev), max_hart_id));
+    }
+    None
+}
+
+/// Reports whether the hart passes the AIA requirements (Smaia + Sstc),
+/// warning once per missing extension.
+fn aia_hart_usable(hart_id: usize) -> bool {
+    if !hart_extension_probe(hart_id, Extension::Smaia) {
+        warn!("AIA: hart {} lacks Smaia, rejecting AIA", hart_id);
+        return false;
+    }
+    if !hart_extension_probe(hart_id, Extension::Sstc) {
+        warn!("AIA: hart {} lacks Sstc, rejecting AIA", hart_id);
+        return false;
+    }
+    true
 }
 
 fn target_harts(hart_mask: HartMask, max_hart_id: usize) -> Vec<usize> {
