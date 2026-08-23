@@ -239,7 +239,7 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
             core::slice::from_raw_parts_mut(patched_dtb_buffer.as_ptr() as *mut u8, patched_length)
         };
         fdt_nop_m_level_imsic(dtb_buf);
-        if let Some((clint_base, _)) = unsafe { crate::platform::PLATFORM.info.ipi.as_ref() } {
+        if let Some((clint_base, _)) = crate::platform::board_info().ipi.as_ref() {
             let clint_name = format!("clint@{:x}", clint_base);
             if fdt_nop_node_by_name(dtb_buf, &clint_name) {
                 info!("AIA: NOP'd M-level CLINT node '{}' in DTB", clint_name);
@@ -552,16 +552,15 @@ pub fn set_pmp(memory_range: &Range<usize>) {
         // controller regions while keeping other low MMIO visible.
         // This matches OpenSBI's domain isolation approach.
         if crate::platform::aia::is_aia_active()
-            && crate::platform::PLATFORM.info.is_qemu_virt()
-            && let Some(aia_info) = crate::platform::PLATFORM.info.aia.as_ref()
+            && crate::platform::board_info().is_qemu_virt()
+            && let Some(aia_info) = crate::platform::board_info().aia.as_ref()
         {
             const QEMU_VIRT_M_APLIC_BASE: usize = 0x0c00_0000;
             const QEMU_VIRT_CLINT_BASE: usize = 0x0200_0000;
             const QEMU_VIRT_APLIC_SIZE: usize = 0x8000;
             const QEMU_VIRT_CLINT_SIZE: usize = 0x1_0000;
 
-            let clint_base = crate::platform::PLATFORM
-                .info
+            let clint_base = crate::platform::board_info()
                 .ipi
                 .as_ref()
                 .map(|(base, _)| *base)

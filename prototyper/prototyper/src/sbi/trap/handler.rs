@@ -102,8 +102,10 @@ pub fn mext_handler(ctx: FastContext) -> FastResult {
         return ctx.restore();
     }
 
-    let Some(firmware_ipi_iid) =
-        (unsafe { PLATFORM.info.aia.as_ref().map(|a| a.firmware_ipi_iid) })
+    let Some(firmware_ipi_iid) = crate::platform::board_info()
+        .aia
+        .as_ref()
+        .map(|a| a.firmware_ipi_iid)
     else {
         warn!("MachineExternal: missing AIA platform info");
         return ctx.restore();

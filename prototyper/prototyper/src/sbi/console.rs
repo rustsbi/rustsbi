@@ -89,7 +89,7 @@ impl SbiConsole {
     // Rejects buffers that this firmware cannot safely turn into raw slices.
     //
     // The SBI address tuple may still be valid,
-    // but this implementation only accepts buffers inside `PLATFORM.info.memory_range`.
+    // but this implementation only accepts buffers inside `board_info().memory_range`.
     #[inline]
     fn checked_physical_buffer<P>(&self, bytes: &Physical<P>) -> Result<(usize, usize), SbiRet> {
         let len = bytes.num_bytes();
@@ -102,7 +102,7 @@ impl SbiConsole {
             Err(err) => return Err(err),
         };
 
-        match unsafe { PLATFORM.info.memory_range.as_ref() } {
+        match crate::platform::board_info().memory_range.as_ref() {
             Some(range)
                 if start >= range.start
                     && start.checked_add(len).is_some_and(|end| end <= range.end) => {}

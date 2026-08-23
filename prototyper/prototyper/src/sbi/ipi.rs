@@ -86,12 +86,10 @@ impl rustsbi::Ipi for SbiIpi {
                 return SbiRet::invalid_param();
             };
 
-            if unsafe {
-                PLATFORM
-                    .info
-                    .cpu_enabled
-                    .is_none_or(|list| list.get(hart_id).is_none_or(|res| !(*res)))
-            } {
+            if crate::platform::board_info()
+                .cpu_enabled
+                .is_none_or(|list| list.get(hart_id).is_none_or(|res| !(*res)))
+            {
                 return SbiRet::invalid_param();
             }
 
@@ -145,12 +143,10 @@ impl SbiIpi {
                 return SbiRet::invalid_param();
             };
 
-            if unsafe {
-                PLATFORM
-                    .info
-                    .cpu_enabled
-                    .is_none_or(|list| list.get(hart_id).is_none_or(|res| !(*res)))
-            } {
+            if crate::platform::board_info()
+                .cpu_enabled
+                .is_none_or(|list| list.get(hart_id).is_none_or(|res| !(*res)))
+            {
                 return SbiRet::invalid_param();
             }
 
