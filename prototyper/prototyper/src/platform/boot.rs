@@ -3,7 +3,7 @@
 use core::ops::Range;
 use core::sync::atomic::Ordering;
 
-use super::{IS_K1_PLATFORM, PLATFORM};
+use super::{IS_K1_PLATFORM, PLATFORM, READY};
 use crate::riscv::spacemit_k1;
 
 /// Initializes the board from the device tree and runs the SoC-specific
@@ -36,7 +36,7 @@ pub fn secondary_hart_init() {
 
 /// Spins until the boot hart has finished platform initialization.
 pub fn wait_until_ready() {
-    while !unsafe { PLATFORM.ready() } {
+    while !READY.load(Ordering::Acquire) {
         core::hint::spin_loop()
     }
 }

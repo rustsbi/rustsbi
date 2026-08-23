@@ -53,9 +53,14 @@ pub(crate) static CPU_PRIVILEGED_ENABLED: [AtomicBool; NUM_HART_MAX] =
 /// Set to true once init detects the platform is a SpacemiT K1 / Ky X1.
 ///
 /// Written in `Platform::init` *before* the ready flag is released, so that a
-/// secondary hart observing `ready() == true` is guaranteed to also observe
+/// secondary hart observing `READY == true` is guaranteed to also observe
 /// this flag (main.rs secondary-hart path).
 pub(crate) static IS_K1_PLATFORM: AtomicBool = AtomicBool::new(false);
+
+/// Boot synchronization flag: set by the boot hart once platform
+/// initialization is complete, spinning secondary harts observe it with
+/// Acquire ordering (`wait_until_ready`).
+pub(crate) static READY: AtomicBool = AtomicBool::new(false);
 
 const RISCV_MACHINE_EXTERNAL_IRQ: u32 = 11;
 
@@ -194,7 +199,6 @@ impl BoardInfo {
 pub struct Platform {
     pub info: BoardInfo,
     pub sbi: SBI,
-    pub ready: AtomicBool,
 }
 
 impl Platform {
@@ -202,7 +206,6 @@ impl Platform {
         Platform {
             info: BoardInfo::new(),
             sbi: SBI::new(),
-            ready: AtomicBool::new(false),
         }
     }
 
@@ -236,7 +239,7 @@ impl Platform {
         };
         IS_K1_PLATFORM.store(k1_platform, Ordering::Release);
 
-        self.ready.swap(true, Ordering::Release);
+        READY.store(true, Ordering::Release);
     }
 
     fn init_sbi_console_and_logger(&mut self) {
@@ -934,7 +937,7 @@ impl Platform {
 
     #[inline]
     fn print_additional_info(&self) {
-        if !self.ready.load(Ordering::Acquire) {
+        if !READY.load(Ordering::Acquire) {
             warn!(
                 "{:<30}: Platform initialization is not complete.",
                 "Platform Status"
@@ -976,10 +979,6 @@ impl Platform {
 
     pub fn have_pmu(&self) -> bool {
         self.sbi.pmu.is_some()
-    }
-
-    pub fn ready(&self) -> bool {
-        self.ready.load(Ordering::Acquire)
     }
 }
 
