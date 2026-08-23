@@ -91,6 +91,14 @@ run_once() {
     grep -Fq "$pattern" "$log_file" || return 1
   done < <(sed "s/{smp}/$smp/g" "$expected_file")
 
+  # Dispatcher-backed extension wiring: these lines render from the
+  # published SBI_DISPATCHER (presence chains + Once publish). A missing
+  # line means an extension was silently dropped during boot assembly.
+  grep -F 'Platform HSM Extension        : Available' "$log_file" || return 1
+  grep -F 'Platform RFence Extension     : Available' "$log_file" || return 1
+  grep -F 'Platform SUSP Extension       : Available' "$log_file" || return 1
+  grep -F 'Platform PMU Extension        : Available' "$log_file" || return 1
+
   # Boot-policy order guard: the boot-hart presentation sequence must
   # appear in phase order. A reorder or drop means the boot policy
   # changed even when every substring grep stays green.
