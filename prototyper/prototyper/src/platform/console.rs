@@ -52,6 +52,11 @@ impl<R: Register> Uart16550Wrap<R> {
     }
 }
 
+// SAFETY: `Uart16550Wrap` holds only a raw pointer to MMIO registers and no
+// Rust-side mutable state; moving the handle across harts is sound. Access
+// is serialized by the mutex around the published console device.
+unsafe impl<R: Register> Send for Uart16550Wrap<R> {}
+
 impl<R: Register> ConsoleDevice for Uart16550Wrap<R> {
     fn read(&self, buf: &mut [u8]) -> usize {
         unsafe { (*self.inner).read(buf) }
@@ -63,13 +68,31 @@ impl<R: Register> ConsoleDevice for Uart16550Wrap<R> {
 }
 
 /// For Uart AxiLite
-impl ConsoleDevice for MmioUartAxiLite {
+pub struct UartAxiLiteWrap {
+    inner: MmioUartAxiLite,
+}
+
+impl UartAxiLiteWrap {
+    pub fn new(base: usize) -> Self {
+        Self {
+            inner: MmioUartAxiLite::new(base),
+        }
+    }
+}
+
+// SAFETY: `MmioUartAxiLite` is a volatile MMIO handle with no Rust-side
+// mutable state; access is serialized by the mutex around the published
+// console device. The newtype exists so this assertion can be made locally
+// (orphan rule: both `Send` and the UART type are foreign).
+unsafe impl Send for UartAxiLiteWrap {}
+
+impl ConsoleDevice for UartAxiLiteWrap {
     fn read(&self, buf: &mut [u8]) -> usize {
-        self.read(buf)
+        self.inner.read(buf)
     }
 
     fn write(&self, buf: &[u8]) -> usize {
-        self.write(buf)
+        self.inner.write(buf)
     }
 }
 
@@ -88,6 +111,11 @@ impl UartSifiveWrap {
         Self { inner }
     }
 }
+
+// SAFETY: `UartSifiveWrap` only forwards to a volatile MMIO handle with no
+// Rust-side mutable state; access is serialized by the mutex around the
+// published console device.
+unsafe impl Send for UartSifiveWrap {}
 
 /// For Uart Sifive
 impl ConsoleDevice for UartSifiveWrap {
@@ -112,6 +140,11 @@ impl UartBflbWrap {
         }
     }
 }
+
+// SAFETY: `UartBflbWrap` only forwards to a volatile MMIO handle with no
+// Rust-side mutable state; access is serialized by the mutex around the
+// published console device.
+unsafe impl Send for UartBflbWrap {}
 
 impl ConsoleDevice for UartBflbWrap {
     fn read(&self, buf: &mut [u8]) -> usize {
@@ -231,7 +264,9 @@ unsafe impl Sync for UartXscaleWrap {}
 
 impl ConsoleDevice for UartXscaleWrap {
     fn read(&self, buf: &mut [u8]) -> usize {
-        // Safety: UartXscale uses volatile MMIO access; the outer Mutex in
+        // SAFETY: `UartXscale` performs volatile MMIO access; the outer mutex in
+        // the published console device serializes callers, so the borrowed
+        // handle cannot race.
         // SbiConsole serializes access in a single-threaded SBI context.
         let uart = unsafe { &mut *self.inner.get() };
         let mut count = 0;
@@ -247,7 +282,8 @@ impl ConsoleDevice for UartXscaleWrap {
     }
 
     fn write(&self, buf: &[u8]) -> usize {
-        // Safety: same as above.
+        // SAFETY: same justification as `read`: volatile MMIO access under the
+        // published console device's mutex.
         let uart = unsafe { &mut *self.inner.get() };
         for &c in buf {
             uart.putchar(c);

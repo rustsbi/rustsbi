@@ -1,10 +1,8 @@
 use fast_trap::{EntireContext, EntireContextSeparated, EntireResult, FastContext, FastResult};
 use riscv::register::{mepc, mie, mstatus, mtval, satp, sstatus};
 use riscv_decode::{Instruction, decode};
-use rustsbi::RustSBI;
 use sbi_spec::pmu::firmware_event;
 
-use crate::platform::PLATFORM;
 use crate::riscv::csr::{CSR_TIME, CSR_TIMEH};
 use crate::riscv::current_hartid;
 use crate::sbi::console;
@@ -166,11 +164,7 @@ pub fn sbi_call_handler(
     a7: usize,
 ) -> FastResult {
     use sbi_spec::{base, hsm, legacy};
-    let mut ret = unsafe {
-        PLATFORM
-            .sbi
-            .handle_ecall(a7, a6, [ctx.a0(), a1, a2, a3, a4, a5])
-    };
+    let mut ret = crate::sbi::handle_ecall(a7, a6, [ctx.a0(), a1, a2, a3, a4, a5]);
     if ret.is_ok() {
         match (a7, a6) {
             (hsm::EID_HSM, hsm::HART_SUSPEND)
@@ -180,7 +174,7 @@ pub fn sbi_call_handler(
             }
             (base::EID_BASE, base::PROBE_EXTENSION) => match ctx.a0() {
                 legacy::LEGACY_SET_TIMER => {
-                    ret.value = unsafe { PLATFORM.sbi.ipi.is_some() } as usize;
+                    ret.value = crate::sbi::ipi().is_some() as usize;
                 }
                 legacy::LEGACY_CONSOLE_PUTCHAR | legacy::LEGACY_CONSOLE_GETCHAR => {
                     ret.value = 1;
@@ -192,7 +186,7 @@ pub fn sbi_call_handler(
     } else {
         match a7 {
             legacy::LEGACY_SET_TIMER => {
-                if let Some(ipi) = unsafe { PLATFORM.sbi.ipi.as_ref() } {
+                if let Some(ipi) = crate::sbi::ipi() {
                     rustsbi::Timer::set_timer(ipi, ctx.a0() as u64);
                     ret.error = 0;
                     ret.value = a1;
@@ -244,14 +238,14 @@ pub extern "C" fn illegal_instruction_handler(raw_ctx: EntireContext) -> EntireR
                 save_reg_x(
                     &mut ctx,
                     csr.rd() as usize,
-                    unsafe { PLATFORM.sbi.ipi.as_ref() }.unwrap().get_time(),
+                    crate::sbi::ipi().unwrap().get_time(),
                 );
             }
             CSR_TIMEH => {
                 save_reg_x(
                     &mut ctx,
                     csr.rd() as usize,
-                    unsafe { PLATFORM.sbi.ipi.as_ref() }.unwrap().get_timeh(),
+                    crate::sbi::ipi().unwrap().get_timeh(),
                 );
             }
             _ => {

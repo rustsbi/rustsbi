@@ -2,7 +2,7 @@ use riscv::register::mstatus;
 use rustsbi::{Hsm, SbiRet};
 use sbi_spec::hsm::{hart_state::STOPPED, suspend_type::NON_RETENTIVE};
 
-use crate::{platform::PLATFORM, riscv::current_hartid};
+use crate::riscv::current_hartid;
 
 use super::hsm::remote_hsm;
 
@@ -23,12 +23,12 @@ impl rustsbi::Susp for SbiSuspend {
         }
 
         // Check if all harts except the current hart are stopped
-        let hart_enable_map = if let Some(hart_enable_map) = crate::platform::board_info().cpu_enabled
-        {
-            hart_enable_map
-        } else {
-            return SbiRet::failed();
-        };
+        let hart_enable_map =
+            if let Some(hart_enable_map) = crate::platform::board_info().cpu_enabled {
+                hart_enable_map
+            } else {
+                return SbiRet::failed();
+            };
         for (hartid, hart_enable) in hart_enable_map.iter().enumerate() {
             if *hart_enable && hartid != current_hartid() {
                 match remote_hsm(hartid) {
@@ -45,7 +45,7 @@ impl rustsbi::Susp for SbiSuspend {
         // TODO: The validity of `resume_addr` should be checked.
         // If it is invalid, `SBI_ERR_INVALID_ADDRESS` should be returned.
 
-        match unsafe { &PLATFORM.sbi.hsm } {
+        match crate::sbi::hsm() {
             Some(hsm) => hsm.hart_suspend(NON_RETENTIVE, resume_addr, opaque),
             None => SbiRet::not_supported(),
         }
