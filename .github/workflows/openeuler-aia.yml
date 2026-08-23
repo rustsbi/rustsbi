@@ -13,12 +13,7 @@ on:
       - "prototyper/prototyper/src/main.rs"
       - "prototyper/prototyper/src/platform/**"
       - "prototyper/prototyper/src/riscv/csr.rs"
-      - "prototyper/prototyper/src/sbi/features.rs"
-      - "prototyper/prototyper/src/sbi/hart_context.rs"
-      - "prototyper/prototyper/src/sbi/heap.rs"
-      - "prototyper/prototyper/src/sbi/hsm.rs"
-      - "prototyper/prototyper/src/sbi/ipi.rs"
-      - "prototyper/prototyper/src/sbi/trap/**"
+      - "prototyper/prototyper/src/sbi/**"
   push:
     branches: ["main"]
     paths:
@@ -31,12 +26,7 @@ on:
       - "prototyper/prototyper/src/main.rs"
       - "prototyper/prototyper/src/platform/**"
       - "prototyper/prototyper/src/riscv/csr.rs"
-      - "prototyper/prototyper/src/sbi/features.rs"
-      - "prototyper/prototyper/src/sbi/hart_context.rs"
-      - "prototyper/prototyper/src/sbi/heap.rs"
-      - "prototyper/prototyper/src/sbi/hsm.rs"
-      - "prototyper/prototyper/src/sbi/ipi.rs"
-      - "prototyper/prototyper/src/sbi/trap/**"
+      - "prototyper/prototyper/src/sbi/**"
   workflow_dispatch:
 
 env:
