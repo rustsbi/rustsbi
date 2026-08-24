@@ -23,12 +23,11 @@ impl rustsbi::Susp for SbiSuspend {
         }
 
         // Check if all harts except the current hart are stopped
-        let hart_enable_map =
-            if let Some(hart_enable_map) = crate::platform::board_info().cpu_enabled {
-                hart_enable_map
-            } else {
-                return SbiRet::failed();
-            };
+        let hart_enable_map = if let Some(hart_enable_map) = crate::platform::cpu_enabled() {
+            hart_enable_map
+        } else {
+            return SbiRet::failed();
+        };
         for (hartid, hart_enable) in hart_enable_map.iter().enumerate() {
             if *hart_enable && hartid != current_hartid() {
                 match remote_hsm(hartid) {

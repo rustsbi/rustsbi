@@ -3,7 +3,9 @@
 use core::ops::Range;
 use core::sync::atomic::Ordering;
 
-use super::{IS_K1_PLATFORM, READY, board_info, board_info_mut, print_board_info};
+use super::{
+    BOARD_INFO, BoardInfo, IS_K1_PLATFORM, READY, board_info, print_board_info, publish_cpu_enabled,
+};
 use crate::devicetree::{Tree, parse_device_tree};
 use crate::fail;
 use crate::riscv::spacemit_k1;
@@ -23,16 +25,18 @@ pub fn init_board(fdt_address: usize) {
         serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize_root);
     let tree: Tree = root.deserialize();
 
+    let mut board = BoardInfo::new();
     // Get console device, init sbi console and logger.
-    board_info_mut().discover_console(&root);
-    let console = sbi::console::init(board_info());
+    board.discover_console(&root);
+    let console = sbi::console::init(&board);
     // Get other info that later platform initialization depends on.
-    board_info_mut().discover_misc(&tree);
+    let cpu_list = board.discover_misc(&tree);
+    publish_cpu_enabled(cpu_list);
     // Get clint and reset device, init sbi ipi, reset, hsm, rfence and susp extension.
-    board_info_mut().discover_devices(&root);
-    let ipi = sbi::ipi::init(board_info());
+    board.discover_devices(&root);
+    let ipi = sbi::ipi::init(&board);
     let hsm = ipi.as_ref().map(|_| SbiHsm);
-    let reset = sbi::reset::init(board_info());
+    let reset = sbi::reset::init(&board);
     let rfence = ipi.as_ref().map(|_| SbiRFence);
     let susp = hsm.as_ref().map(|_| SbiSuspend);
     // Initialize pmu extension
@@ -42,6 +46,10 @@ pub fn init_board(fdt_address: usize) {
     // so that harts observing `READY` also observe the published dispatcher.
     sbi::SBI_DISPATCHER
         .call_once(|| SbiDispatcher::new(console, ipi, hsm, reset, rfence, susp, pmu));
+
+    // Publish the board facts before the K1 detect / READY release, so that
+    // harts observing `READY` (Acquire) also observe the published board.
+    BOARD_INFO.call_once(move || board);
 
     // Record K1 platform detection *before* releasing the ready flag, so
     // that secondary harts observing `READY` also observe the flag.
@@ -90,9 +98,4 @@ pub fn wait_until_ready() {
 /// Returns the board's memory range (set during `init_board`).
 pub fn memory_range() -> Range<usize> {
     board_info().memory_range.as_ref().unwrap().clone()
-}
-
-/// Reconciles the enabled-CPU table with the per-hart privilege checks.
-pub fn refresh_enabled_cpus() {
-    board_info_mut().refresh_cpu_features();
 }

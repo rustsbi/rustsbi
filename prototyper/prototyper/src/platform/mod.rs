@@ -15,6 +15,7 @@ use crate::platform::console::{
 use crate::platform::reset::P1_PMIC_COMPATIBLE;
 use crate::platform::reset::SIFIVETEST_COMPATIBLE;
 use crate::sbi::features::extension_detection;
+use spin::{Once, RwLock};
 
 pub(crate) mod aia;
 mod boot;
@@ -22,9 +23,7 @@ pub(crate) mod clint;
 pub(crate) mod console;
 pub(crate) mod reset;
 
-pub use boot::{
-    init_board, memory_range, refresh_enabled_cpus, secondary_hart_init, wait_until_ready,
-};
+pub use boot::{init_board, memory_range, secondary_hart_init, wait_until_ready};
 
 pub(crate) static CPU_PRIVILEGED_ENABLED: [AtomicBool; NUM_HART_MAX] =
     [const { AtomicBool::new(false) }; NUM_HART_MAX];
@@ -41,26 +40,50 @@ pub(crate) static IS_K1_PLATFORM: AtomicBool = AtomicBool::new(false);
 /// Acquire ordering (`wait_until_ready`).
 pub(crate) static READY: AtomicBool = AtomicBool::new(false);
 
-/// Board information discovered from the FDT, owned by the platform layer.
-///
-/// Invariant: written by the boot hart *before* `READY` is released, read
-/// afterwards; `wait_until_ready` (Acquire) is the secondary-hart edge.
-///
-/// Pre-existing exception (preserved, not hardened): `refresh_cpu_features`
-/// rewrites `cpu_enabled` after `READY` while other harts may read it
-/// concurrently (bool array, copied out per call).
-static mut BOARD_INFO: BoardInfo = BoardInfo::new();
+/// Board facts discovered from the FDT.
+static BOARD_INFO: Once<BoardInfo> = Once::new();
 
-/// Returns a shared view of the discovered board information.
+/// Enabled-hart table; rewritten once post-`READY` by `refresh_cpu_features`.
+static CPU_ENABLED: RwLock<Option<CpuEnableList>> = RwLock::new(None);
+
+/// Returns the published board information.
+///
+/// # Panics
+///
+/// Panics if called before `init_board` publishes the board; publication
+/// precedes the `READY` release, so runtime readers gated on `READY`
+/// cannot race it.
 pub(crate) fn board_info() -> &'static BoardInfo {
-    unsafe { &BOARD_INFO }
+    BOARD_INFO
+        .get()
+        .expect("board published before any runtime reader")
 }
 
-/// Returns an exclusive view of the board information; used by the discovery
-/// (`BoardInfo::discover_*`) and refresh (`BoardInfo::refresh_cpu_features`)
-/// paths only.
-pub(crate) fn board_info_mut() -> &'static mut BoardInfo {
-    unsafe { &mut BOARD_INFO }
+/// Returns a copy of the enabled-CPU table (`None` before `init_board`
+/// publishes it).
+pub(crate) fn cpu_enabled() -> Option<CpuEnableList> {
+    *CPU_ENABLED.read()
+}
+
+/// Publishes the enabled-CPU list (initial, during `init_board`).
+pub(crate) fn publish_cpu_enabled(cpu_list: Option<CpuEnableList>) {
+    *CPU_ENABLED.write() = cpu_list;
+}
+
+/// Reconciles the enabled-CPU table with the per-hart privilege checks.
+///
+/// Runs post-`READY` on the boot hart while other harts may read the table;
+/// the write lock makes their copies atomic snapshots of the whole list.
+pub fn refresh_cpu_features() {
+    let mut cpu_enabled = CPU_ENABLED.write();
+    let Some(cpu_enabled) = cpu_enabled.as_mut() else {
+        return;
+    };
+    for (hart_id, enabled) in cpu_enabled.iter_mut().enumerate() {
+        if *enabled {
+            *enabled = CPU_PRIVILEGED_ENABLED[hart_id].load(Ordering::Acquire);
+        }
+    }
 }
 
 const RISCV_MACHINE_EXTERNAL_IRQ: u32 = 11;
@@ -170,7 +193,6 @@ pub struct BoardInfo {
     pub ipi: Option<(BaseAddress, MachineClintType)>,
     pub aia: Option<aia::AiaInfo>,
     pub cpu_num: Option<usize>,
-    pub cpu_enabled: Option<CpuEnableList>,
     pub model: String,
     /// P1 PMIC reset info: (I2C controller base, PMIC address)
     pub pmic_reset: Option<(usize, u8)>,
@@ -185,7 +207,6 @@ impl BoardInfo {
             reset: None,
             ipi: None,
             aia: None,
-            cpu_enabled: None,
             cpu_num: None,
             model: String::new(),
             pmic_reset: None,
@@ -238,8 +259,9 @@ impl BoardInfo {
     }
 
     /// Discovers miscellaneous board info (memory, cpu number, model, enabled
-    /// harts) that later platform initialization depends on.
-    pub(crate) fn discover_misc(&mut self, tree: &Tree) {
+    /// harts) that later platform initialization depends on; returns the
+    /// enabled-hart list for the caller to publish (`publish_cpu_enabled`).
+    pub(crate) fn discover_misc(&mut self, tree: &Tree) -> Option<CpuEnableList> {
         // Get memory info
         // TODO: More than one memory node or range?
         let memory_reg = tree
@@ -282,7 +304,7 @@ impl BoardInfo {
                 );
             }
         }
-        self.cpu_enabled = Some(cpu_list);
+        Some(cpu_list)
     }
 
     /// Discovers the ipi and reset devices (including the M-level IMSIC) from
@@ -527,7 +549,7 @@ impl BoardInfo {
             hart_imsic_map[hart_id] = Some(addr);
         }
 
-        let Some(ref cpu_enabled) = self.cpu_enabled else {
+        let Some(cpu_enabled) = cpu_enabled() else {
             return;
         };
         for (hart_id, enabled) in cpu_enabled.iter().enumerate() {
@@ -557,18 +579,6 @@ impl BoardInfo {
             hart_imsic_map,
         });
     }
-
-    /// Reconciles the enabled-CPU table with the per-hart privilege checks.
-    pub(crate) fn refresh_cpu_features(&mut self) {
-        let Some(cpu_enabled) = self.cpu_enabled.as_mut() else {
-            return;
-        };
-        for (hart_id, enabled) in cpu_enabled.iter_mut().enumerate() {
-            if *enabled {
-                *enabled = CPU_PRIVILEGED_ENABLED[hart_id].load(Ordering::Acquire);
-            }
-        }
-    }
 }
 
 pub(crate) fn print_board_info() {
@@ -595,7 +605,7 @@ fn print_cpu_info() {
         board_info().cpu_num.unwrap_or(0)
     );
 
-    let Some(cpu_enabled) = &board_info().cpu_enabled else {
+    let Some(cpu_enabled) = cpu_enabled() else {
         warn!("{:<30}: Not Available", "Enabled HARTs");
         return;
     };

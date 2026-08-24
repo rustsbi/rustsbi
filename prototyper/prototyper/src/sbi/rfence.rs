@@ -1,3 +1,7 @@
+//! RFence extension; `local_rfence`/`remote_rfence` index the per-hart
+//! trap stack array (`ROOT_STACK`), which stays a `static mut`.
+#![allow(static_mut_refs)]
+
 use rustsbi::{HartMask, SbiRet};
 use sbi_spec::pmu::firmware_event;
 use spin::Mutex;
