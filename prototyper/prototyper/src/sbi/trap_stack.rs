@@ -1,3 +1,7 @@
+//! Per-hart trap stacks and contexts, indexed by hart id from
+//! hardware-entered paths; `ROOT_STACK` stays a `static mut`.
+#![allow(static_mut_refs)]
+
 use crate::cfg::{NUM_HART_MAX, STACK_SIZE_PER_HART};
 use crate::riscv::current_hartid;
 use crate::sbi::hart_context::HartContext;

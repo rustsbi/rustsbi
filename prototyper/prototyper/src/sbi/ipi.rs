@@ -89,8 +89,7 @@ impl rustsbi::Ipi for SbiIpi {
                 return SbiRet::invalid_param();
             };
 
-            if crate::platform::board_info()
-                .cpu_enabled
+            if crate::platform::cpu_enabled()
                 .is_none_or(|list| list.get(hart_id).is_none_or(|res| !(*res)))
             {
                 return SbiRet::invalid_param();
@@ -146,8 +145,7 @@ impl SbiIpi {
                 return SbiRet::invalid_param();
             };
 
-            if crate::platform::board_info()
-                .cpu_enabled
+            if crate::platform::cpu_enabled()
                 .is_none_or(|list| list.get(hart_id).is_none_or(|res| !(*res)))
             {
                 return SbiRet::invalid_param();
@@ -265,15 +263,14 @@ pub fn clear_all() {
 /// Initializes the SBI IPI extension from the discovered board info
 /// (AIA probe with CLINT fallback).
 pub(crate) fn init(board: &BoardInfo) -> Option<SbiIpi> {
-    let max_hart_id = board
-        .cpu_enabled
+    let max_hart_id = crate::platform::cpu_enabled()
         .as_ref()
         .and_then(|hart_list| hart_list.iter().rposition(|enabled| *enabled))
         .unwrap_or(NUM_HART_MAX - 1);
 
     if let Some(ref aia_info) = board.aia {
         let mut aia_usable = true;
-        if let Some(ref cpu_enabled) = board.cpu_enabled {
+        if let Some(cpu_enabled) = crate::platform::cpu_enabled() {
             for (hart_id, enabled) in cpu_enabled.iter().enumerate() {
                 if *enabled && !aia_hart_usable(hart_id) {
                     aia_usable = false;

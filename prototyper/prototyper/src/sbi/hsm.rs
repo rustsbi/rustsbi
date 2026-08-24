@@ -1,3 +1,7 @@
+//! HSM extension; `remote_hsm` indexes the per-hart trap stack array
+//! (`ROOT_STACK`), which stays a `static mut`.
+#![allow(static_mut_refs)]
+
 use core::{
     cell::UnsafeCell,
     hint::spin_loop,
@@ -204,7 +208,7 @@ pub(crate) struct SbiHsm;
 impl rustsbi::Hsm for SbiHsm {
     /// Starts execution on a stopped hart.
     fn hart_start(&self, hartid: usize, start_addr: usize, opaque: usize) -> SbiRet {
-        let hart_enable = crate::platform::board_info().cpu_enabled.unwrap();
+        let hart_enable = crate::platform::cpu_enabled().unwrap();
         let enabled = hart_enable.get(hartid).copied().unwrap_or(false);
         if !enabled {
             return SbiRet::invalid_param();
@@ -241,7 +245,7 @@ impl rustsbi::Hsm for SbiHsm {
     /// Gets the current state of a hart.
     #[inline]
     fn hart_get_status(&self, hartid: usize) -> SbiRet {
-        let hart_enable = crate::platform::board_info().cpu_enabled.unwrap();
+        let hart_enable = crate::platform::cpu_enabled().unwrap();
         let enabled = hart_enable.get(hartid).copied().unwrap_or(false);
         if !enabled {
             return SbiRet::invalid_param();

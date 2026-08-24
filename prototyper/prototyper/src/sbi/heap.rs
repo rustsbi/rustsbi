@@ -1,3 +1,7 @@
+//! SBI heap backing store; the raw pool stays a `static mut` (its address
+//! is handed to the allocator once at init).
+#![allow(static_mut_refs)]
+
 use crate::cfg::HEAP_SIZE;
 use buddy_system_allocator::LockedHeap;
 

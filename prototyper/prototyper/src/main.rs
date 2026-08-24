@@ -2,7 +2,6 @@
 #![feature(fn_align)]
 #![no_std]
 #![no_main]
-#![allow(static_mut_refs)]
 
 extern crate alloc;
 #[macro_use]
@@ -56,7 +55,7 @@ fn boot_hart(boot: &BootInfo) {
     let mut next = boot.next_stage();
     check_privilege(next.next_mode);
 
-    platform::refresh_enabled_cpus();
+    platform::refresh_cpu_features();
     next.opaque = firmware::patch_device_tree(boot.fdt_address());
     info!(
         "Redirecting hart {} to {:#016x} in {:?} mode.",
