@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use crate::riscv::current_hartid;
 use serde_device_tree::Dtb;
 
