@@ -1,6 +1,5 @@
-//! HSM extension; `remote_hsm` indexes the per-hart trap stack array
-//! (`ROOT_STACK`), which stays a `static mut`.
-#![allow(static_mut_refs)]
+//! HSM extension; the per-hart cell views (`local_hsm`/`remote_hsm`,
+//! re-exported below) come from the safe accessors in [`super::trap_stack`].
 
 use core::{
     cell::UnsafeCell,
@@ -12,10 +11,9 @@ use rustsbi::{SbiRet, spec::hsm::hart_state};
 
 use crate::riscv::current_hartid;
 use crate::sbi::hart_context::NextStage;
-use crate::sbi::trap_stack::ROOT_STACK;
-use crate::sbi::trap_stack::hart_context_mut;
 
-use super::{trap::boot::boot, trap_stack::hart_context};
+use super::trap::boot::boot;
+use super::trap_stack::{hart_local, reset_hart};
 
 /// Special state indicating a hart is in the process of starting.
 const HART_STATE_START_PENDING_EXT: usize = usize::MAX;
@@ -183,23 +181,14 @@ impl<T: core::fmt::Debug> RemoteHsmCell<'_, T> {
 }
 
 /// Gets the local HSM cell for the current hart.
-pub(crate) fn local_hsm() -> LocalHsmCell<'static, NextStage> {
-    unsafe { hart_context(current_hartid()).hsm.local() }
-}
+pub(crate) use super::trap_stack::local_hsm;
+
+/// Gets a remote view of any hart's HSM cell.
+pub(crate) use super::trap_stack::remote_hsm;
 
 /// Returns a remote-capable view of the current hart's HSM cell.
 pub(crate) fn hart_hsm() -> RemoteHsmCell<'static, NextStage> {
-    hart_context(current_hartid()).hsm.remote()
-}
-
-/// Gets a remote view of any hart's HSM cell.
-#[allow(unused)]
-pub(crate) fn remote_hsm(hart_id: usize) -> Option<RemoteHsmCell<'static, NextStage>> {
-    unsafe {
-        ROOT_STACK
-            .get_mut(hart_id)
-            .map(|x| x.hart_context().hsm.remote())
-    }
+    hart_local(current_hartid()).hsm.remote()
 }
 
 /// Implementation of SBI HSM (Hart State Management) extension.
@@ -296,7 +285,7 @@ impl SbiHsm {
                     next_mode: MPP::Supervisor,
                 }) {
                     // reset the hart local context to prevent the hart context from being polluted
-                    hart_context_mut(hartid).reset();
+                    reset_hart(hartid);
                     // boot resume hart from resume addr
                     unsafe {
                         boot();
