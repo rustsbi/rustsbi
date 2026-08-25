@@ -1,7 +1,5 @@
 use crate::sbi::features::HartFeatures;
 use crate::sbi::features::PrivilegedVersion;
-use crate::sbi::hsm::HsmCell;
-use crate::sbi::rfence::RFenceCell;
 use core::ptr::NonNull;
 use core::sync::atomic::AtomicU8;
 use core::sync::atomic::Ordering;
@@ -9,6 +7,7 @@ use fast_trap::FlowContext;
 use riscv::register::mstatus;
 
 use super::pmu::PmuState;
+use super::trap_stack::{HsmCell, RFenceCell};
 
 /// Raw per-hart context sitting at the bottom of each trap stack slot.
 ///

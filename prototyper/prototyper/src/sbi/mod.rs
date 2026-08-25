@@ -11,7 +11,6 @@ pub mod suspend;
 
 pub mod early_trap;
 pub mod features;
-pub mod fifo;
 pub mod hart_context;
 pub mod heap;
 pub mod logger;

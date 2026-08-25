@@ -1,27 +1,14 @@
-//! RFence extension; the per-hart fence cell views (`local_rfence`/
-//! `remote_rfence`, re-exported below) come from the safe accessors in
-//! [`super::trap_stack`].
+//! SBI RFence (Remote Fence) extension.
 
 use rustsbi::{HartMask, SbiRet};
 use sbi_spec::pmu::firmware_event;
-use spin::Mutex;
 
 use crate::cfg::{PAGE_SIZE, TLB_FLUSH_LIMIT};
 use crate::riscv::current_hartid;
-use crate::sbi::fifo::{Fifo, FifoError};
 use core::arch::asm;
 
-use core::sync::atomic::{AtomicU32, Ordering};
-
 use super::pmu::pmu_firmware_counter_increment;
-
-/// Cell for managing remote fence operations between harts.
-pub(crate) struct RFenceCell {
-    // Queue of fence operations with source hart ID
-    queue: Mutex<Fifo<(RFenceContext, usize)>>,
-    // Counter for tracking pending synchronization operations
-    wait_sync_count: AtomicU32,
-}
+use super::trap_stack::{FifoError, LocalRFenceCell, RemoteRFenceCell};
 
 /// Context information for a remote fence operation.
 #[repr(C)]
@@ -63,38 +50,6 @@ pub enum RFenceType {
     HFenceVvma,
 }
 
-impl RFenceCell {
-    /// Creates a new RFenceCell with empty queue and zero sync count.
-    pub fn new() -> Self {
-        Self {
-            queue: Mutex::new(Fifo::new()),
-            wait_sync_count: AtomicU32::new(0),
-        }
-    }
-
-    /// Gets a local view of this fence cell for the current hart.
-    #[inline]
-    pub fn local(&self) -> LocalRFenceCell<'_> {
-        LocalRFenceCell(self)
-    }
-
-    /// Gets a remote view of this fence cell for accessing from other harts.
-    #[inline]
-    pub fn remote(&self) -> RemoteRFenceCell<'_> {
-        RemoteRFenceCell(self)
-    }
-}
-
-// Mark RFenceCell as safe to share between threads
-unsafe impl Sync for RFenceCell {}
-unsafe impl Send for RFenceCell {}
-
-/// View of RFenceCell for operations on the current hart.
-pub struct LocalRFenceCell<'a>(&'a RFenceCell);
-
-/// View of RFenceCell for operations from other harts.
-pub struct RemoteRFenceCell<'a>(&'a RFenceCell);
-
 /// Gets the local fence context for the current hart.
 pub(crate) use super::trap_stack::local_rfence;
 /// Gets the remote fence context for a specific hart.
@@ -102,37 +57,13 @@ pub(crate) use super::trap_stack::remote_rfence;
 
 #[allow(unused)]
 impl LocalRFenceCell<'_> {
-    /// Checks if all synchronization operations are complete.
-    pub fn is_sync(&self) -> bool {
-        self.0.wait_sync_count.load(Ordering::Relaxed) == 0
-    }
-
-    /// Increments the synchronization counter.
-    pub fn add(&self) {
-        self.0.wait_sync_count.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// Checks if the operation queue is empty.
-    pub fn is_empty(&self) -> bool {
-        self.0.queue.lock().is_empty()
-    }
-
-    /// Gets the next fence operation from the queue.
-    pub fn get(&self) -> Option<(RFenceContext, usize)> {
-        self.0.queue.lock().pop().ok()
-    }
-
     /// Adds a fence operation to the queue, retrying if full.
     pub fn set(&self, ctx: RFenceContext) {
         let hart_id = current_hartid();
         loop {
-            let mut queue = self.0.queue.lock();
-            match queue.push((ctx, hart_id)) {
+            match self.try_push((ctx, hart_id)) {
                 Ok(_) => break,
-                Err(FifoError::Full) => {
-                    drop(queue);
-                    rfence_single_handler();
-                }
+                Err(FifoError::Full) => rfence_single_handler(),
                 Err(_) => panic!("Unable to push fence ops to fifo"),
             }
         }
@@ -145,21 +76,12 @@ impl RemoteRFenceCell<'_> {
     pub fn set(&self, ctx: RFenceContext) {
         let hart_id = current_hartid();
         loop {
-            let mut queue = self.0.queue.lock();
-            match queue.push((ctx, hart_id)) {
+            match self.try_push((ctx, hart_id)) {
                 Ok(_) => return,
-                Err(FifoError::Full) => {
-                    drop(queue);
-                    rfence_single_handler();
-                }
+                Err(FifoError::Full) => rfence_single_handler(),
                 Err(_) => panic!("Unable to push fence ops to fifo"),
             }
         }
-    }
-
-    /// Decrements the synchronization counter.
-    pub fn sub(&self) {
-        self.0.wait_sync_count.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
