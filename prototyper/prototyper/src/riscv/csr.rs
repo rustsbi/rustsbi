@@ -54,6 +54,32 @@ seq!(N in 3..32 {
     paste!{ pub const [<CSR_HPMCOUNTER ~N H>]: u16 = 0xc80 + N; }
 });
 
+#[macro_export]
+#[allow(unused)]
+macro_rules! has_csr {
+    ($($x: expr)*) => {{
+            use core::arch::asm;
+            use ::riscv::register::mtvec;
+            use $crate::sbi::early_trap::light_expected_trap;
+            let res: usize;
+            unsafe {
+                // Backup old mtvec
+                let mtvec = mtvec::read().bits();
+                // Write expected_trap
+                mtvec::write(mtvec::Mtvec::new(light_expected_trap as *const () as _, mtvec::TrapMode::Direct));
+                asm!("addi a0, zero, 0",
+                    "addi a1, zero, 0",
+                    "csrr a2, {}",
+                    "mv {}, a0",
+                    const $($x)*,
+                    out(reg) res,
+                    options(nomem));
+                asm!("csrw mtvec, {}", in(reg) mtvec);
+            }
+            res == 0
+    }};
+}
+
 /// Machine environment configuration register (menvcfg) bit fields.
 pub mod menvcfg {
     use core::arch::asm;

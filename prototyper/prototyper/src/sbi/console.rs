@@ -210,6 +210,24 @@ pub fn _print(args: fmt::Arguments) {
     }
 }
 
+#[macro_export]
+#[allow(unused)]
+macro_rules! print {
+    ($($arg:tt)*) => {
+        $crate::sbi::console::_print(core::format_args!($($arg)*))
+    }
+}
+
+#[macro_export]
+#[allow(unused)]
+macro_rules! println {
+    () => ($crate::print!("\n\r"));
+    ($($arg:tt)*) => {{
+        $crate::sbi::console::_print(core::format_args!($($arg)*));
+        $crate::sbi::console::_print(core::format_args!("\n\r"));
+    }}
+}
+
 /// Global function to write a character to the console.
 #[inline]
 pub fn putchar(c: usize) -> usize {
