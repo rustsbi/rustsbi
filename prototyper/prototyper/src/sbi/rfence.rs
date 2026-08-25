@@ -1,6 +1,6 @@
-//! RFence extension; `local_rfence`/`remote_rfence` index the per-hart
-//! trap stack array (`ROOT_STACK`), which stays a `static mut`.
-#![allow(static_mut_refs)]
+//! RFence extension; the per-hart fence cell views (`local_rfence`/
+//! `remote_rfence`, re-exported below) come from the safe accessors in
+//! [`super::trap_stack`].
 
 use rustsbi::{HartMask, SbiRet};
 use sbi_spec::pmu::firmware_event;
@@ -9,7 +9,6 @@ use spin::Mutex;
 use crate::cfg::{PAGE_SIZE, TLB_FLUSH_LIMIT};
 use crate::riscv::current_hartid;
 use crate::sbi::fifo::{Fifo, FifoError};
-use crate::sbi::trap_stack::ROOT_STACK;
 use core::arch::asm;
 
 use core::sync::atomic::{AtomicU32, Ordering};
@@ -97,22 +96,9 @@ pub struct LocalRFenceCell<'a>(&'a RFenceCell);
 pub struct RemoteRFenceCell<'a>(&'a RFenceCell);
 
 /// Gets the local fence context for the current hart.
-pub(crate) fn local_rfence() -> Option<LocalRFenceCell<'static>> {
-    unsafe {
-        ROOT_STACK
-            .get_mut(current_hartid())
-            .map(|x| x.hart_context().rfence.local())
-    }
-}
-
+pub(crate) use super::trap_stack::local_rfence;
 /// Gets the remote fence context for a specific hart.
-pub(crate) fn remote_rfence(hart_id: usize) -> Option<RemoteRFenceCell<'static>> {
-    unsafe {
-        ROOT_STACK
-            .get_mut(hart_id)
-            .map(|x| x.hart_context().rfence.remote())
-    }
-}
+pub(crate) use super::trap_stack::remote_rfence;
 
 #[allow(unused)]
 impl LocalRFenceCell<'_> {

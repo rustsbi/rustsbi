@@ -1,20 +1,60 @@
-//! Per-hart trap stacks and contexts, indexed by hart id from
-//! hardware-entered paths; `ROOT_STACK` stays a `static mut`.
-#![allow(static_mut_refs)]
+//! Mechanism module owning the per-hart raw stack array: `ROOT_STACK` is
+//! externally-addressed raw memory (the naked trap entry reaches it by
+//! `sym ROOT_STACK`), so the slots are `UnsafeCell` storage instead of a
+//! `static mut`. Rust code only ever reaches a hart's [`HartLocal`] state
+//! through the safe accessors below; references are formed per call and
+//! never escape as long-lived `&mut`.
 
 use crate::cfg::{NUM_HART_MAX, STACK_SIZE_PER_HART};
 use crate::riscv::current_hartid;
-use crate::sbi::hart_context::HartContext;
+use crate::sbi::hart_context::{HartContext, HartLocal, NextStage};
+use crate::sbi::hsm::{LocalHsmCell, RemoteHsmCell};
+use crate::sbi::rfence::{LocalRFenceCell, RemoteRFenceCell};
 use crate::sbi::trap::fast_handler;
+use core::cell::UnsafeCell;
 use core::mem::forget;
+use core::ptr::{addr_of, addr_of_mut};
 use fast_trap::FreeTrapStack;
 
-/// Root stack array for all harts, placed in BSS Stack section.
+/// Raw stack slot for each hart.
+///
+/// Memory layout:
+/// - Bottom: HartContext (trap frame + hart-local state).
+/// - Middle: Stack space for the hart.
+/// - Top: Trap handling space.
+#[repr(C, align(128))]
+struct HartStack(UnsafeCell<[u8; STACK_SIZE_PER_HART]>);
+
+// SAFETY: `HartStack` is raw storage addressed by hart id: the naked entry
+// (`locate`) reaches it via `sym ROOT_STACK` and the trap framework via the
+// frame pointer installed by `load_as_stack`. Rust references are only
+// formed for the caller's own slot inside `with_current`/`with_hart`, or as
+// shared references through `hart_local`; cross-hart sharing goes through
+// the atomics and cells stored in `HartLocal`.
+unsafe impl Sync for HartStack {}
+
+/// Root stack array for all harts, placed in BSS stack section.
+#[used]
 #[unsafe(link_section = ".bss.stack")]
-pub(crate) static mut ROOT_STACK: [Stack; NUM_HART_MAX] = [Stack::ZERO; NUM_HART_MAX];
+static ROOT_STACK: [HartStack; NUM_HART_MAX] = [const { HartStack::zero() }; NUM_HART_MAX];
 
 // Make sure stack address can be aligned.
-const _: () = assert!(STACK_SIZE_PER_HART % core::mem::align_of::<Stack>() == 0);
+const _: () = assert!(STACK_SIZE_PER_HART.is_multiple_of(core::mem::align_of::<HartStack>()));
+
+/// Returns the raw slot of `hart_id`, or `None` when out of range.
+#[inline]
+fn slot(hart_id: usize) -> Option<&'static HartStack> {
+    ROOT_STACK.get(hart_id)
+}
+
+/// Forms a shared reference to the hart-local state behind a raw slot.
+#[inline]
+fn local_of(slot: &'static HartStack) -> &'static HartLocal {
+    // SAFETY: the slot memory is bounds-checked and static; the resulting
+    // shared reference is only used for atomics and interior-mutable cells,
+    // matching the pre-split `hart_context()` projection.
+    unsafe { &*addr_of!((*slot.0.get().cast::<HartContext>()).local) }
+}
 
 /// Locates and initializes stack for each hart.
 ///
@@ -40,57 +80,99 @@ pub(crate) unsafe extern "C" fn locate() {
 
 /// Prepares trap stack for current hart
 pub(crate) fn prepare_for_trap() {
-    unsafe {
-        ROOT_STACK
-            .get_unchecked_mut(current_hartid())
-            .load_as_stack()
-    };
+    // SAFETY: the current hart id always indexes `ROOT_STACK`.
+    let slot: &'static HartStack = unsafe { ROOT_STACK.get_unchecked(current_hartid()) };
+    HartStack::load_as_stack(slot);
 }
 
-pub fn hart_context_mut(hart_id: usize) -> &'static mut HartContext {
-    unsafe { ROOT_STACK.get_mut(hart_id).unwrap().hart_context_mut() }
-}
-
-pub fn hart_context(hart_id: usize) -> &'static HartContext {
-    unsafe { ROOT_STACK.get(hart_id).unwrap().hart_context() }
-}
-
-/// Stack type for each hart.
+/// Runs `f` with exclusive access to the current hart's hart-local state.
 ///
-/// Memory layout:
-/// - Bottom: HartContext struct.
-/// - Middle: Stack space for the hart.
-/// - Top: Trap handling space.
+/// SAFETY (mechanism contract): each slot is owned by exactly one hart, so
+/// borrowing that hart's `HartLocal` is exclusive while `f` runs — M-mode
+/// trap entry clears MIE and trap/interrupt handlers never call this, so
+/// no second borrow can go live. The [`TrapFrame`] part of the slot is
+/// unreachable through the given reference.
 ///
-/// Each hart has a single stack that contains both its context and working space.
-#[repr(C, align(128))]
-pub(crate) struct Stack([u8; STACK_SIZE_PER_HART]);
+/// [`TrapFrame`]: crate::sbi::hart_context::TrapFrame
+pub fn with_current<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut HartLocal) -> R,
+{
+    with_hart(current_hartid(), f)
+}
 
-impl Stack {
-    const ZERO: Self = Self([0; STACK_SIZE_PER_HART]);
+/// Runs `f` with exclusive access to an arbitrary hart's hart-local state.
+///
+/// SAFETY (mechanism contract): the caller must guarantee the target hart
+/// does not concurrently touch its own slot while `f` runs (parked in
+/// firmware entry, or not yet released). Used by `with_current` and by the
+/// boot-time feature seeding in `features::extension_detection`.
+pub fn with_hart<F, R>(hart_id: usize, f: F) -> R
+where
+    F: FnOnce(&mut HartLocal) -> R,
+{
+    let slot = slot(hart_id).expect("hart id within ROOT_STACK bounds");
+    // SAFETY: exclusive to this slot per the contract above; the memory is
+    // bounds-checked, static, and disjoint from the trap frame at offset 0.
+    let local = unsafe { &mut *addr_of_mut!((*slot.0.get().cast::<HartContext>()).local) };
+    f(local)
+}
 
-    /// Gets mutable reference to hart context at bottom of stack.
-    #[inline]
-    pub fn hart_context_mut(&mut self) -> &mut HartContext {
-        unsafe { &mut *self.0.as_mut_ptr().cast() }
-    }
+/// Shared projection of any hart's hart-local state.
+pub fn hart_local(hart_id: usize) -> &'static HartLocal {
+    local_of(slot(hart_id).expect("hart id within ROOT_STACK bounds"))
+}
 
-    /// Gets immutable reference to hart context at bottom of stack.
-    #[inline]
-    pub fn hart_context(&self) -> &HartContext {
-        unsafe { &*self.0.as_ptr().cast() }
+/// Gets the local HSM cell for the current hart.
+pub fn local_hsm() -> LocalHsmCell<'static, NextStage> {
+    // SAFETY: the cell belongs to the current hart by construction.
+    unsafe { hart_local(current_hartid()).hsm.local() }
+}
+
+/// Gets a remote view of any hart's HSM cell.
+pub fn remote_hsm(hart_id: usize) -> Option<RemoteHsmCell<'static, NextStage>> {
+    slot(hart_id).map(local_of).map(|local| local.hsm.remote())
+}
+
+/// Gets the local fence context for the current hart.
+pub fn local_rfence() -> Option<LocalRFenceCell<'static>> {
+    slot(current_hartid())
+        .map(local_of)
+        .map(|local| local.rfence.local())
+}
+
+/// Gets the remote fence context for a specific hart.
+pub fn remote_rfence(hart_id: usize) -> Option<RemoteRFenceCell<'static>> {
+    slot(hart_id)
+        .map(local_of)
+        .map(|local| local.rfence.remote())
+}
+
+/// Resets the hart-local bookkeeping (ipi type, fence cell, pmu state) of
+/// `hart_id`; the trap frame is untouched, as in the pre-split reset.
+pub fn reset_hart(hart_id: usize) {
+    with_hart(hart_id, HartLocal::reset);
+}
+
+impl HartStack {
+    /// All-zero slot, usable as an array repeat operand (const fn form;
+    /// a `const` item would carry interior mutability).
+    const fn zero() -> Self {
+        Self(UnsafeCell::new([0; STACK_SIZE_PER_HART]))
     }
 
     /// Initializes stack for trap handling.
     /// - Sets up hart context.
     /// - Creates and loads FreeTrapStack with the stack range.
-    fn load_as_stack(&'static mut self) {
-        let hart = self.hart_context_mut();
-        let context_ptr = hart.context_ptr();
-        hart.init();
+    fn load_as_stack(slot: &'static Self) {
+        let context = slot.0.get().cast::<HartContext>();
+        // SAFETY: this hart owns `slot`, and the trap entry starts using the
+        // installed frame pointer only once `FreeTrapStack::load` runs below.
+        let context_ptr = unsafe { (*addr_of_mut!((*context).frame)).context_ptr() };
+        unsafe { (*addr_of_mut!((*context).local)).init() };
 
         // Get stack memory range.
-        let range = self.0.as_ptr_range();
+        let range = unsafe { (*slot.0.get()).as_ptr_range() };
 
         // Create and load trap stack, forgetting it to avoid drop
         forget(

@@ -13,7 +13,7 @@ use crate::platform::aia::is_aia_active;
 use crate::riscv::csr::*;
 use crate::riscv::current_hartid;
 use crate::sbi::early_trap::{TrapInfo, csr_read_allow, csr_write_allow};
-use crate::sbi::trap_stack::{hart_context, hart_context_mut};
+use crate::sbi::trap_stack::{hart_local, with_current, with_hart};
 
 use super::early_trap::csr_swap;
 
@@ -72,19 +72,19 @@ impl Extension {
 /// Probes if a specific extension is supported for the given hart.
 #[inline]
 pub fn hart_extension_probe(hart_id: usize, ext: Extension) -> bool {
-    hart_context(hart_id).features.extensions[ext.index()]
+    hart_local(hart_id).features.extensions[ext.index()]
 }
 
 /// Gets the privileged version for the given hart.
 #[inline]
 pub fn hart_privileged_version(hart_id: usize) -> PrivilegedVersion {
-    hart_context(hart_id).features.privileged_version
+    hart_local(hart_id).features.privileged_version
 }
 
 /// Gets the MHPM mask for the given hart.
 #[inline]
 pub fn hart_mhpm_mask(hart_id: usize) -> u32 {
-    hart_context(hart_id).features.mhpm_mask
+    hart_local(hart_id).features.mhpm_mask
 }
 
 /// Detects RISC-V extensions from the device tree for all harts.
@@ -110,7 +110,7 @@ pub fn extension_detection(cpus: &NodeSeq) {
             };
         }
 
-        hart_context_mut(hart_id).features.extensions = extensions;
+        with_hart(hart_id, |local| local.features.extensions = extensions);
     }
 }
 
@@ -145,9 +145,7 @@ fn privileged_version_detection() {
             }
         }
     }
-    hart_context_mut(current_hartid())
-        .features
-        .privileged_version = current_priv_ver;
+    with_current(|local| local.features.privileged_version = current_priv_ver);
 }
 
 fn mhpm_detection() {
@@ -179,9 +177,11 @@ fn mhpm_detection() {
         m_check_mhpm_csr!(csr_num, &mut trap_info, &mut current_mhpm_mask);
     });
 
-    hart_context_mut(current_hartid()).features.mhpm_mask = current_mhpm_mask;
-    // TODO: at present, rustsbi prptotyper only supports 64bit.
-    hart_context_mut(current_hartid()).features.mhpm_bits = 64;
+    with_current(|local| {
+        local.features.mhpm_mask = current_mhpm_mask;
+        // TODO: at present, rustsbi prptotyper only supports 64bit.
+        local.features.mhpm_bits = 64;
+    });
 }
 
 /// Detects the current hart's ISA extensions and privileged version.
@@ -195,7 +195,7 @@ pub fn init(cpus: &NodeSeq) {
     for hart_id in 0..cpus.len() {
         let mut hart_exts = [false; Extension::COUNT];
         hart_exts[Extension::Sstc.index()] = true;
-        hart_context(hart_id).features = HartFeatures {
+        hart_local(hart_id).features = HartFeatures {
             extension: hart_exts,
             privileged_version: PrivilegedVersion::Version1_12,
         }

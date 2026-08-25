@@ -8,7 +8,7 @@ use crate::riscv::current_hartid;
 use crate::sbi::features::{Extension, hart_extension_probe};
 use crate::sbi::hsm::remote_hsm;
 use crate::sbi::rfence;
-use crate::sbi::trap_stack::hart_context;
+use crate::sbi::trap_stack::hart_local;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::sync::atomic::Ordering::Relaxed;
@@ -225,12 +225,12 @@ impl SbiIpi {
 
 /// Set IPI type for specified hart.
 pub fn set_ipi_type(hart_id: usize, event_id: u8) -> u8 {
-    hart_context(hart_id).ipi_type.fetch_or(event_id, Relaxed)
+    hart_local(hart_id).ipi_type.fetch_or(event_id, Relaxed)
 }
 
 /// Get and reset IPI type for current hart.
 pub fn get_and_reset_ipi_type() -> u8 {
-    hart_context(current_hartid()).ipi_type.swap(0, Relaxed)
+    hart_local(current_hartid()).ipi_type.swap(0, Relaxed)
 }
 
 /// Clear machine software interrupt pending for current hart.

@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::features::{PrivilegedVersion, hart_privileged_version};
-use super::trap_stack::{hart_context, hart_context_mut};
+use super::trap_stack::{hart_local, with_current};
 
 /// Maximum number of hardware performance counters supported.
 const PMU_HARDWARE_COUNTER_MAX: usize = 32;
@@ -159,7 +159,7 @@ impl Pmu for SbiPmu {
     /// Implements SBI PMU extension function (FID #0)
     #[inline]
     fn num_counters(&self) -> usize {
-        hart_context(current_hartid())
+        hart_local(current_hartid())
             .pmu_state
             .get_total_counters_num()
     }
@@ -172,7 +172,7 @@ impl Pmu for SbiPmu {
             return SbiRet::invalid_param();
         }
 
-        let pmu_state = &hart_context(current_hartid()).pmu_state;
+        let pmu_state = &hart_local(current_hartid()).pmu_state;
         if counter_idx < pmu_state.get_hw_counter_num() {
             let mask = hart_mhpm_mask(current_hartid());
 
@@ -214,64 +214,67 @@ impl Pmu for SbiPmu {
         };
 
         let event = EventIdx::new(event_idx);
-        let pmu_state = &mut hart_context_mut(current_hartid()).pmu_state;
         let is_firmware_event = event.is_firmware_event();
 
-        if counter_idx_base >= pmu_state.total_counters_num
-            || (counter_idx_mask & ((1 << pmu_state.total_counters_num) - 1)) == 0
-            || !event.check_event_type()
-            || (is_firmware_event && !event.firmware_event_valid())
-        {
-            return SbiRet::invalid_param();
-        }
+        with_current(|local| {
+            let pmu_state = &mut local.pmu_state;
 
-        let skip_match = flags.contains(flags::ConfigFlags::SKIP_MATCH);
-
-        let counter_idx;
-
-        if skip_match {
-            // If SKIP_MATCH is set, use the first counter in the mask without searching
-            if let Some(ctr_idx) = CounterMask::new(counter_idx_base, counter_idx_mask).next() {
-                if pmu_state.active_event[ctr_idx] == PMU_EVENT_IDX_INVALID {
-                    return SbiRet::invalid_param();
-                }
-                counter_idx = ctr_idx;
-            } else {
+            if counter_idx_base >= pmu_state.total_counters_num
+                || (counter_idx_mask & ((1 << pmu_state.total_counters_num) - 1)) == 0
+                || !event.check_event_type()
+                || (is_firmware_event && !event.firmware_event_valid())
+            {
                 return SbiRet::invalid_param();
             }
-        } else {
-            let match_result: Result<usize, SbiRet>;
-            if event.is_firmware_event() {
-                match_result = self.find_firmware_counter(
-                    counter_idx_base,
-                    counter_idx_mask,
-                    event_idx,
-                    pmu_state,
-                );
-            } else {
-                match_result = self.find_hardware_counter(
-                    counter_idx_base,
-                    counter_idx_mask,
-                    event_idx,
-                    event_data,
-                    pmu_state,
-                );
-            }
-            match match_result {
-                Ok(ctr_idx) => {
-                    counter_idx = ctr_idx;
-                }
-                Err(err) => {
-                    return err;
-                }
-            }
-            pmu_state.active_event[counter_idx] = event_idx;
-        }
 
-        match configure_counter(pmu_state, counter_idx, event, flags) {
-            Ok(_) => SbiRet::success(counter_idx),
-            Err(e) => e,
-        }
+            let skip_match = flags.contains(flags::ConfigFlags::SKIP_MATCH);
+
+            let counter_idx;
+
+            if skip_match {
+                // If SKIP_MATCH is set, use the first counter in the mask without searching
+                if let Some(ctr_idx) = CounterMask::new(counter_idx_base, counter_idx_mask).next() {
+                    if pmu_state.active_event[ctr_idx] == PMU_EVENT_IDX_INVALID {
+                        return SbiRet::invalid_param();
+                    }
+                    counter_idx = ctr_idx;
+                } else {
+                    return SbiRet::invalid_param();
+                }
+            } else {
+                let match_result: Result<usize, SbiRet>;
+                if event.is_firmware_event() {
+                    match_result = self.find_firmware_counter(
+                        counter_idx_base,
+                        counter_idx_mask,
+                        event_idx,
+                        pmu_state,
+                    );
+                } else {
+                    match_result = self.find_hardware_counter(
+                        counter_idx_base,
+                        counter_idx_mask,
+                        event_idx,
+                        event_data,
+                        pmu_state,
+                    );
+                }
+                match match_result {
+                    Ok(ctr_idx) => {
+                        counter_idx = ctr_idx;
+                    }
+                    Err(err) => {
+                        return err;
+                    }
+                }
+                pmu_state.active_event[counter_idx] = event_idx;
+            }
+
+            match configure_counter(pmu_state, counter_idx, event, flags) {
+                Ok(_) => SbiRet::success(counter_idx),
+                Err(e) => e,
+            }
+        })
     }
 
     /// Start one or more counters (FID #3)
@@ -289,41 +292,43 @@ impl Pmu for SbiPmu {
             None => return SbiRet::invalid_param(),
         };
 
-        let pmu_state = &mut hart_context_mut(current_hartid()).pmu_state;
-        let is_update_value = flags.contains(flags::StartFlags::INIT_VALUE);
+        with_current(|local| {
+            let pmu_state = &mut local.pmu_state;
+            let is_update_value = flags.contains(flags::StartFlags::INIT_VALUE);
 
-        if counter_idx_base >= pmu_state.total_counters_num
-            || (counter_idx_mask & ((1 << pmu_state.total_counters_num) - 1)) == 0
-        {
-            return SbiRet::invalid_param();
-        }
-
-        if flags.contains(flags::StartFlags::INIT_SNAPSHOT) {
-            return SbiRet::no_shmem();
-        }
-
-        for counter_idx in CounterMask::new(counter_idx_base, counter_idx_mask) {
-            if counter_idx >= pmu_state.total_counters_num {
+            if counter_idx_base >= pmu_state.total_counters_num
+                || (counter_idx_mask & ((1 << pmu_state.total_counters_num) - 1)) == 0
+            {
                 return SbiRet::invalid_param();
             }
 
-            let start_result = if counter_idx >= pmu_state.get_hw_counter_num() {
-                pmu_state.start_fw_counter(counter_idx, initial_value, is_update_value)
-            } else {
-                let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
-                start_hardware_counter(mhpm_offset, initial_value, is_update_value)
-            };
-            match start_result {
-                Ok(_) => {}
-                Err(StartCounterErr::AlreadyStart) => {
-                    return SbiRet::already_started();
-                }
-                Err(StartCounterErr::OffsetInvalid) => {
+            if flags.contains(flags::StartFlags::INIT_SNAPSHOT) {
+                return SbiRet::no_shmem();
+            }
+
+            for counter_idx in CounterMask::new(counter_idx_base, counter_idx_mask) {
+                if counter_idx >= pmu_state.total_counters_num {
                     return SbiRet::invalid_param();
                 }
+
+                let start_result = if counter_idx >= pmu_state.get_hw_counter_num() {
+                    pmu_state.start_fw_counter(counter_idx, initial_value, is_update_value)
+                } else {
+                    let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
+                    start_hardware_counter(mhpm_offset, initial_value, is_update_value)
+                };
+                match start_result {
+                    Ok(_) => {}
+                    Err(StartCounterErr::AlreadyStart) => {
+                        return SbiRet::already_started();
+                    }
+                    Err(StartCounterErr::OffsetInvalid) => {
+                        return SbiRet::invalid_param();
+                    }
+                }
             }
-        }
-        SbiRet::success(0)
+            SbiRet::success(0)
+        })
     }
 
     /// Stop one or more counters (FID #4)
@@ -339,48 +344,50 @@ impl Pmu for SbiPmu {
             None => return SbiRet::invalid_param(),
         };
 
-        let pmu_state = &mut hart_context_mut(current_hartid()).pmu_state;
-        let is_reset = flags.contains(flags::StopFlags::RESET);
+        with_current(|local| {
+            let pmu_state = &mut local.pmu_state;
+            let is_reset = flags.contains(flags::StopFlags::RESET);
 
-        if counter_idx_base >= pmu_state.total_counters_num
-            || (counter_idx_mask & ((1 << pmu_state.total_counters_num) - 1)) == 0
-        {
-            return SbiRet::invalid_param();
-        }
-
-        if flags.contains(flags::StopFlags::TAKE_SNAPSHOT) {
-            return SbiRet::no_shmem();
-        }
-
-        for counter_idx in CounterMask::new(counter_idx_base, counter_idx_mask) {
-            if counter_idx >= pmu_state.total_counters_num {
+            if counter_idx_base >= pmu_state.total_counters_num
+                || (counter_idx_mask & ((1 << pmu_state.total_counters_num) - 1)) == 0
+            {
                 return SbiRet::invalid_param();
             }
 
-            let stop_result = if counter_idx >= pmu_state.get_hw_counter_num() {
-                pmu_state.stop_fw_counter(counter_idx, is_reset)
-            } else {
-                // If RESET flag is set, mark the counter as inactive
-                if is_reset {
-                    pmu_state.active_event[counter_idx] = PMU_EVENT_IDX_INVALID;
-                }
-                let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
-                stop_hardware_counter(mhpm_offset, is_reset)
-            };
-            match stop_result {
-                Ok(_) => {}
-                Err(StopCounterErr::OffsetInvalid) => return SbiRet::invalid_param(),
-                Err(StopCounterErr::AlreadyStop) => return SbiRet::already_stopped(),
+            if flags.contains(flags::StopFlags::TAKE_SNAPSHOT) {
+                return SbiRet::no_shmem();
             }
-        }
-        SbiRet::success(0)
+
+            for counter_idx in CounterMask::new(counter_idx_base, counter_idx_mask) {
+                if counter_idx >= pmu_state.total_counters_num {
+                    return SbiRet::invalid_param();
+                }
+
+                let stop_result = if counter_idx >= pmu_state.get_hw_counter_num() {
+                    pmu_state.stop_fw_counter(counter_idx, is_reset)
+                } else {
+                    // If RESET flag is set, mark the counter as inactive
+                    if is_reset {
+                        pmu_state.active_event[counter_idx] = PMU_EVENT_IDX_INVALID;
+                    }
+                    let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
+                    stop_hardware_counter(mhpm_offset, is_reset)
+                };
+                match stop_result {
+                    Ok(_) => {}
+                    Err(StopCounterErr::OffsetInvalid) => return SbiRet::invalid_param(),
+                    Err(StopCounterErr::AlreadyStop) => return SbiRet::already_stopped(),
+                }
+            }
+            SbiRet::success(0)
+        })
     }
 
     /// Reads a firmware counter value
     /// Function: Read a firmware counter (FID #5).
     #[inline]
     fn counter_fw_read(&self, counter_idx: usize) -> SbiRet {
-        let pmu_state = &hart_context(current_hartid()).pmu_state;
+        let pmu_state = &hart_local(current_hartid()).pmu_state;
         match pmu_state.get_event_idx(counter_idx, true) {
             Some(event_id) if event_id.firmware_event_valid() => {
                 if event_id.event_code() == firmware_event::PLATFORM {
@@ -1195,17 +1202,19 @@ cfg_if::cfg_if! {
 }
 
 pub fn pmu_firmware_counter_increment(firmware_event: usize) {
-    let pmu_state = &mut hart_context_mut(current_hartid()).pmu_state;
-    let counter_idx_start = pmu_state.hw_counters_num;
-    for counter_idx in counter_idx_start..counter_idx_start + PMU_FIRMWARE_COUNTER_MAX {
-        let fw_idx = counter_idx - counter_idx_start;
-        if pmu_state.active_event[counter_idx]
-            == EventIdx::from_firmware_event(firmware_event).raw()
-            && pmu_state.is_firmware_event_start(counter_idx)
-        {
-            pmu_state.fw_counter[fw_idx] += 1;
+    with_current(|local| {
+        let pmu_state = &mut local.pmu_state;
+        let counter_idx_start = pmu_state.hw_counters_num;
+        for counter_idx in counter_idx_start..counter_idx_start + PMU_FIRMWARE_COUNTER_MAX {
+            let fw_idx = counter_idx - counter_idx_start;
+            if pmu_state.active_event[counter_idx]
+                == EventIdx::from_firmware_event(firmware_event).raw()
+                && pmu_state.is_firmware_event_start(counter_idx)
+            {
+                pmu_state.fw_counter[fw_idx] += 1;
+            }
         }
-    }
+    });
 }
 
 /// Initializes the SBI PMU extension from the FDT pmu node.
