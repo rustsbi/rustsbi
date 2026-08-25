@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use alloc::vec::Vec;
 use serde::Deserialize;
 use serde_device_tree::{

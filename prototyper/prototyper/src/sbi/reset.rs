@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use alloc::boxed::Box;
 use rustsbi::SbiRet;
 use spin::Mutex;

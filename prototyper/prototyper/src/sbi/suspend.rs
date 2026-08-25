@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use riscv::register::mstatus;
 use rustsbi::{Hsm, SbiRet};
 use sbi_spec::hsm::{hart_state::STOPPED, suspend_type::NON_RETENTIVE};
