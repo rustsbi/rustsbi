@@ -7,6 +7,7 @@ use core::arch::asm;
 use core::sync::atomic::Ordering;
 
 use crate::fail;
+use crate::has_csr;
 use crate::platform::CPU_PRIVILEGED_ENABLED;
 use crate::platform::aia::is_aia_active;
 use crate::riscv::csr::*;

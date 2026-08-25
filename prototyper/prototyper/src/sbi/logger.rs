@@ -1,6 +1,10 @@
+#![forbid(unsafe_code)]
+
 use core::str::FromStr;
 use log::{Level, LevelFilter};
 use spin::Mutex;
+
+use crate::println;
 
 /// Simple logger implementation for RustSBI that supports colored output.
 pub struct Logger;
