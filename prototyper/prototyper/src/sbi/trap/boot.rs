@@ -6,11 +6,22 @@ use crate::sbi::trap_stack;
 use core::arch::naked_asm;
 use riscv::register::{mie, mstatus, satp, sstatus};
 
+/// Boots the next stage on the current hart; never returns.
+///
+/// Safe wrapper over the naked [`boot_entry`]: the entry diverges (its final
+/// `mret` drops to the staged next-mode PC instead of returning), and the
+/// staged start address / mode validity is the HSM cell's contract — the
+/// HSM cell accepted them before this call.
+pub fn boot() -> ! {
+    // SAFETY: divergent entry; target validity is the HSM cell's contract.
+    unsafe { boot_entry() }
+}
+
 /// Boot Function.
 /// After boot, this flow will never back again,
 /// so we can store a0, a1 and mepc only.
 #[unsafe(naked)]
-pub unsafe extern "C" fn boot() -> ! {
+unsafe extern "C" fn boot_entry() -> ! {
     naked_asm!(
         ".align 2",
         // Reset hart local stack

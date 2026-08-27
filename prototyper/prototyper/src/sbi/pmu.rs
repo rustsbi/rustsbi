@@ -1,6 +1,7 @@
+#![forbid(unsafe_code)]
+
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
-use riscv::register::*;
 use rustsbi::{Pmu, SbiRet};
 use sbi_spec::binary::SharedPtr;
 use sbi_spec::pmu::shmem_size::SIZE;
@@ -86,8 +87,9 @@ impl PmuState {
             return None;
         }
         let fw_idx = counter_idx - self.hw_counters_num;
-        // Safety: fw_idx is guaranteed to be within bounds (0..FIRMWARE_COUNTER_MAX)
-        unsafe { Some(*self.fw_counter.get_unchecked(fw_idx)) }
+        // fw_idx is guaranteed to be within bounds (0..FIRMWARE_COUNTER_MAX)
+        // by the range check above.
+        Some(self.fw_counter[fw_idx])
     }
 
     /// start a firmware counter with a optional new value.
@@ -529,8 +531,8 @@ impl SbiPmu {
             }
             // If the counter idx corresponding to the hardware counter index has already started counting, skip the counter
             if hart_privileged_version(current_hartid()) >= PrivilegedVersion::Version1_11 {
-                let inhibit = riscv::register::mcountinhibit::read();
-                if (inhibit.bits() & (1 << mhpm_offset)) == 0 {
+                let inhibit = mcountinhibit::read();
+                if (inhibit & (1 << mhpm_offset)) == 0 {
                     continue;
                 }
             }
@@ -712,21 +714,21 @@ impl HardwareCounter {
     }
 
     #[inline]
-    unsafe fn start(self) {
+    fn start(self) {
         match self {
-            Self::Cycle => unsafe { mcountinhibit::clear_cy() },
-            Self::Instret => unsafe { mcountinhibit::clear_ir() },
-            Self::Hpm(offset) => unsafe { mcountinhibit::clear_hpm(offset as usize) },
+            Self::Cycle => mcountinhibit::clear_cy(),
+            Self::Instret => mcountinhibit::clear_ir(),
+            Self::Hpm(offset) => mcountinhibit::clear_hpm(offset as usize),
         }
         self.sync_shadow();
     }
 
     #[inline]
-    unsafe fn stop(self) {
+    fn stop(self) {
         match self {
-            Self::Cycle => unsafe { mcountinhibit::set_cy() },
-            Self::Instret => unsafe { mcountinhibit::set_ir() },
-            Self::Hpm(offset) => unsafe { mcountinhibit::set_hpm(offset as usize) },
+            Self::Cycle => mcountinhibit::set_cy(),
+            Self::Instret => mcountinhibit::set_ir(),
+            Self::Hpm(offset) => mcountinhibit::set_hpm(offset as usize),
         }
         self.sync_shadow();
     }
@@ -769,7 +771,7 @@ fn start_hardware_counter(
 
     // Check if counter is already running by testing the inhibit bit
     // A zero bit in mcountinhibit means the counter is running
-    if mcountinhibit::read().bits() & counter.inhibit_mask() == 0 {
+    if mcountinhibit::read() & counter.inhibit_mask() == 0 {
         return Err(StartCounterErr::AlreadyStart);
     }
 
@@ -777,9 +779,7 @@ fn start_hardware_counter(
         write_mhpmcounter(mhpm_offset, new_value);
     }
 
-    unsafe {
-        counter.start();
-    }
+    counter.start();
     Ok(())
 }
 
@@ -803,66 +803,12 @@ fn stop_hardware_counter(mhpm_offset: u16, is_reset: bool) -> Result<(), StopCou
         return Ok(());
     }
 
-    if mcountinhibit::read().bits() & counter.inhibit_mask() != 0 {
+    if mcountinhibit::read() & counter.inhibit_mask() != 0 {
         return Err(StopCounterErr::AlreadyStop);
     }
 
-    unsafe {
-        counter.stop();
-    }
+    counter.stop();
     Ok(())
-}
-
-/// Write MHPMEVENT or MHPMCOUNTER
-fn write_mhpmevent(mhpm_offset: u16, mhpmevent_val: u64) {
-    let csr = CSR_MHPMEVENT3 + mhpm_offset - 3;
-
-    // Handle MHPMEVENT3-31
-    if csr >= CSR_MHPMEVENT3 && csr <= CSR_MHPMEVENT31 {
-        // Convert CSR value to register index (3-31)
-        let idx = csr - CSR_MHPMEVENT3 + 3;
-
-        // Use seq_macro to generate all valid indices from 3 to 31
-        seq_macro::seq!(N in 3..=31 {
-            match idx {
-                #(
-                    N => unsafe {
-                        pastey::paste!{ [<mhpmevent ~N>]::write(mhpmevent_val as usize) }
-                    },
-                )*
-                _ =>{}
-            }
-        });
-    }
-}
-
-fn write_mhpmcounter(mhpm_offset: u16, mhpmcounter_val: u64) {
-    let counter_idx = mhpm_offset;
-
-    let csr = CSR_MHPMCOUNTER3 + mhpm_offset - 3;
-    // Special cases for cycle and instret
-    if csr == CSR_MCYCLE {
-        crate::riscv::csr::mcycle::write(mhpmcounter_val);
-        return;
-    } else if csr == CSR_MINSTRET {
-        crate::riscv::csr::minstret::write(mhpmcounter_val);
-        return;
-    }
-
-    // Only handle valid counter indices (3-31)
-    if counter_idx >= 3 && counter_idx <= 31 {
-        // Call the macro with all valid indices
-        seq_macro::seq!(N in 3..=31 {
-            match counter_idx {
-                #(
-                    N => pastey::paste!{ unsafe {
-                        [<mhpmcounter ~N>]::write(mhpmcounter_val as usize) }
-                    },
-                )*
-                _ =>{}
-            }
-        });
-    }
 }
 
 /// Wrap for counter info

@@ -1,7 +1,13 @@
 #![allow(unused)]
 
+use core::arch::asm;
+
 use pastey::paste;
 use seq_macro::seq;
+
+use crate::sbi::early_trap::{
+    TrapInfo, csr_read_allow, csr_swap, csr_write_allow, light_expected_trap,
+};
 
 // Supervisor Timer Register (Sstc extension)
 pub const CSR_STIMECMP: u16 = 0x14D;
@@ -54,30 +60,53 @@ seq!(N in 3..32 {
     paste!{ pub const [<CSR_HPMCOUNTER ~N H>]: u16 = 0xc80 + N; }
 });
 
-#[macro_export]
-#[allow(unused)]
-macro_rules! has_csr {
-    ($($x: expr)*) => {{
-            use core::arch::asm;
-            use ::riscv::register::mtvec;
-            use $crate::sbi::early_trap::light_expected_trap;
-            let res: usize;
-            unsafe {
-                // Backup old mtvec
-                let mtvec = mtvec::read().bits();
-                // Write expected_trap
-                mtvec::write(mtvec::Mtvec::new(light_expected_trap as *const () as _, mtvec::TrapMode::Direct));
-                asm!("addi a0, zero, 0",
-                    "addi a1, zero, 0",
-                    "csrr a2, {}",
-                    "mv {}, a0",
-                    const $($x)*,
-                    out(reg) res,
-                    options(nomem));
-                asm!("csrw mtvec, {}", in(reg) mtvec);
+/// Probes whether the CSR selected by `CSR` is implemented on this hart.
+pub fn has_csr<const CSR: u16>() -> bool {
+    use riscv::register::mtvec;
+
+    let res: usize;
+    // SAFETY: `mtvec` is backed up and restored around the probe, and
+    // `light_expected_trap` skips the faulting `csrr`, so touching an
+    // unimplemented CSR cannot escape into firmware. The a0-a2 clobbers are
+    // part of the probe contract; this runs at init time only.
+    unsafe {
+        // Backup old mtvec
+        let mtvec = mtvec::read().bits();
+        // Write expected_trap
+        mtvec::write(mtvec::Mtvec::new(
+            light_expected_trap as *const () as _,
+            mtvec::TrapMode::Direct,
+        ));
+        asm!("addi a0, zero, 0",
+            "addi a1, zero, 0",
+            "csrr a2, {}",
+            "mv {}, a0",
+            const CSR,
+            out(reg) res,
+            options(nomem));
+        asm!("csrw mtvec, {}", in(reg) mtvec);
+    }
+    res == 0
+}
+
+/// Probes whether the `mhpmcounter` CSR selected by `CSR_NUM` (0xb03..=0xb1f)
+/// exists and is writable, setting its bit in `mhpm_mask` when it does.
+pub fn probe_mhpm_csr<const CSR_NUM: u16>(trap_info: &mut TrapInfo, mhpm_mask: &mut u32) {
+    let trap_info = trap_info as *mut TrapInfo;
+    // SAFETY: `trap_info` points to a live, owned `TrapInfo` for the whole
+    // call; `csr_read_allow`/`csr_write_allow` install the expected-trap
+    // vector in `mtvec` and restore the old vector before returning, so
+    // touching a missing CSR is contained. `CSR_NUM` is a compile-time
+    // mhpmcounter selector from the caller's `seq!` range.
+    unsafe {
+        let old_value = csr_read_allow::<CSR_NUM>(trap_info);
+        if (*trap_info).mcause == usize::MAX {
+            csr_write_allow::<CSR_NUM>(trap_info, 1);
+            if (*trap_info).mcause == usize::MAX && csr_swap::<CSR_NUM>(old_value) == 1 {
+                (*mhpm_mask) |= 1 << (CSR_NUM - CSR_MCYCLE);
             }
-            res == 0
-    }};
+        }
+    }
 }
 
 /// Machine environment configuration register (menvcfg) bit fields.
@@ -181,5 +210,312 @@ pub mod minstret {
         unsafe {
             asm!("csrrw zero, minstret, {}", in(reg) value, options(nomem));
         }
+    }
+}
+
+/// Machine interrupt-enable (`mie`) bit operations.
+pub mod mie {
+    use riscv::register::mie;
+
+    /// Enables the machine software interrupt.
+    pub fn enable_msoft() {
+        // SAFETY: M-mode firmware toggling its own interrupt-enable bits.
+        unsafe { mie::set_msoft() }
+    }
+
+    /// Disables the machine software interrupt.
+    pub fn disable_msoft() {
+        // SAFETY: M-mode firmware toggling its own interrupt-enable bits.
+        unsafe { mie::clear_msoft() }
+    }
+
+    /// Enables the machine timer interrupt.
+    pub fn set_mtimer() {
+        // SAFETY: M-mode firmware toggling its own interrupt-enable bits.
+        unsafe { mie::set_mtimer() }
+    }
+
+    /// Disables the machine timer interrupt.
+    pub fn clear_mtimer() {
+        // SAFETY: M-mode firmware toggling its own interrupt-enable bits.
+        unsafe { mie::clear_mtimer() }
+    }
+}
+
+/// Machine interrupt-pending (`mip`) bit operations.
+pub mod mip {
+    use riscv::register::mip;
+
+    /// Sets the supervisor software interrupt pending bit.
+    pub fn set_ssoft() {
+        // SAFETY: M-mode firmware; pending bits are a control-flow signal.
+        unsafe { mip::set_ssoft() }
+    }
+
+    /// Sets the supervisor timer interrupt pending bit.
+    pub fn set_stimer() {
+        // SAFETY: M-mode firmware; pending bits are a control-flow signal.
+        unsafe { mip::set_stimer() }
+    }
+
+    /// Clears the supervisor timer interrupt pending bit.
+    pub fn clear_stimer() {
+        // SAFETY: M-mode firmware; pending bits are a control-flow signal.
+        unsafe { mip::clear_stimer() }
+    }
+}
+
+/// Machine counter-inhibit (`mcountinhibit`) operations.
+pub mod mcountinhibit {
+    use core::arch::asm;
+    use riscv::register::mcountinhibit;
+
+    /// Reads the raw `mcountinhibit` value.
+    pub fn read() -> usize {
+        mcountinhibit::read().bits()
+    }
+
+    /// Overwrites `mcountinhibit` with `bits`.
+    pub fn write_raw(bits: usize) {
+        // SAFETY: M-mode init; inhibit bits only gate PMU accounting.
+        unsafe { asm!("csrw mcountinhibit, {}", in(reg) bits) };
+    }
+
+    /// Inhibits the cycle counter.
+    pub fn set_cy() {
+        // SAFETY: M-mode; inhibit bits only gate PMU accounting.
+        unsafe { mcountinhibit::set_cy() }
+    }
+
+    /// Re-enables the cycle counter.
+    pub fn clear_cy() {
+        // SAFETY: M-mode; inhibit bits only gate PMU accounting.
+        unsafe { mcountinhibit::clear_cy() }
+    }
+
+    /// Inhibits the instret counter.
+    pub fn set_ir() {
+        // SAFETY: M-mode; inhibit bits only gate PMU accounting.
+        unsafe { mcountinhibit::set_ir() }
+    }
+
+    /// Re-enables the instret counter.
+    pub fn clear_ir() {
+        // SAFETY: M-mode; inhibit bits only gate PMU accounting.
+        unsafe { mcountinhibit::clear_ir() }
+    }
+
+    /// Inhibits `mhpmcounterN`.
+    pub fn set_hpm(index: usize) {
+        // SAFETY: M-mode; the index precondition above is checked by callers.
+        unsafe { mcountinhibit::set_hpm(index) }
+    }
+
+    /// Re-enables `mhpmcounterN`.
+    pub fn clear_hpm(index: usize) {
+        // SAFETY: M-mode; the index precondition above is checked by callers.
+        unsafe { mcountinhibit::clear_hpm(index) }
+    }
+}
+
+/// Writes `mhpmeventN` for the counter at `mhpm_offset` (3..=31).
+pub fn write_mhpmevent(mhpm_offset: u16, mhpmevent_val: u64) {
+    use riscv::register::*;
+
+    let csr = CSR_MHPMEVENT3 + mhpm_offset - 3;
+
+    // Handle MHPMEVENT3-31
+    if csr >= CSR_MHPMEVENT3 && csr <= CSR_MHPMEVENT31 {
+        // Convert CSR value to register index (3-31)
+        let idx = csr - CSR_MHPMEVENT3 + 3;
+
+        // Use seq_macro to generate all valid indices from 3 to 31
+        seq_macro::seq!(N in 3..=31 {
+            match idx {
+                #(
+                    // SAFETY: M-mode; `idx` is in 3..=31 and the probed
+                    // `mhpm_mask` guarantees the selector exists on this hart.
+                    N => unsafe {
+                        pastey::paste!{ [<mhpmevent ~N>]::write(mhpmevent_val as usize) }
+                    },
+                )*
+                _ =>{}
+            }
+        });
+    }
+}
+
+/// Writes `mhpmcounterN` (or `mcycle`/`minstret`) for `mhpm_offset`.
+pub fn write_mhpmcounter(mhpm_offset: u16, mhpmcounter_val: u64) {
+    use riscv::register::*;
+
+    let counter_idx = mhpm_offset;
+
+    let csr = CSR_MHPMCOUNTER3 + mhpm_offset - 3;
+    // Special cases for cycle and instret
+    if csr == CSR_MCYCLE {
+        self::mcycle::write(mhpmcounter_val);
+        return;
+    } else if csr == CSR_MINSTRET {
+        self::minstret::write(mhpmcounter_val);
+        return;
+    }
+
+    // Only handle valid counter indices (3-31)
+    if counter_idx >= 3 && counter_idx <= 31 {
+        // Call the macro with all valid indices
+        seq_macro::seq!(N in 3..=31 {
+            match counter_idx {
+                #(
+                    // SAFETY: M-mode; `counter_idx` is in 3..=31 and the probed
+                    // `mhpm_mask` guarantees the counter exists on this hart.
+                    N => pastey::paste!{ unsafe {
+                        [<mhpmcounter ~N>]::write(mhpmcounter_val as usize) }
+                    },
+                )*
+                _ =>{}
+            }
+        });
+    }
+}
+
+/// Delegates interrupts, exceptions, and counters to supervisor mode, while
+/// keeping supervisor ecalls and misaligned/illegal instructions in M-mode.
+///
+/// The body is the firmware's fixed delegation policy; it runs once per hart
+/// during M-mode init, before any supervisor code executes.
+pub fn configure_delegation() {
+    use riscv::register::medeleg;
+
+    // SAFETY: M-mode init on the current hart; the written values are the
+    // firmware's fixed delegation policy and have no memory-safety impact.
+    unsafe {
+        // Delegate all interrupts and exceptions to supervisor mode.
+        asm!("csrw mideleg,    {}", in(reg) !0);
+        asm!("csrw medeleg,    {}", in(reg) !0);
+        asm!("csrw mcounteren, {}", in(reg) !0);
+        asm!("csrw scounteren, {}", in(reg) !0);
+        // Keep supervisor environment calls and illegal instructions in M-mode.
+        medeleg::clear_supervisor_env_call();
+        medeleg::clear_load_misaligned();
+        medeleg::clear_store_misaligned();
+        medeleg::clear_illegal_instruction();
+    }
+}
+
+/// Installs the fast-trap entry as the machine trap vector (direct mode).
+///
+/// Runs once per hart during M-mode init, after delegation is configured.
+pub fn install_trap_vector() {
+    use riscv::register::mtvec;
+
+    // Set up trap handling.
+    let val = mtvec::Mtvec::new(
+        fast_trap::trap_entry as *const () as _,
+        mtvec::TrapMode::Direct,
+    );
+    // SAFETY: `fast_trap::trap_entry` is a valid, aligned M-mode trap entry
+    // for direct mode.
+    unsafe { mtvec::write(val) }
+}
+
+/// Fence instruction family (`fence.i`, `sfence.vma`, and the
+/// hypervisor-gated `hfence.gvma` / `hfence.vvma`).
+pub mod fence {
+    use core::arch::asm;
+
+    /// Fences instruction fetch for the current hart (`fence.i`).
+    pub fn fence_i() {
+        // SAFETY: instruction-fetch ordering on the local hart only.
+        unsafe { asm!("fence.i") };
+    }
+
+    /// Invalidates all supervisor TLB entries (`sfence.vma`).
+    pub fn sfence_vma_all() {
+        // SAFETY: full TLB invalidate; requested by a validated SBI rfence call.
+        unsafe { asm!("sfence.vma") };
+    }
+
+    /// Invalidates supervisor TLB entries for `addr` (`sfence.vma addr`).
+    pub fn sfence_vma_addr(addr: usize) {
+        // SAFETY: single-page TLB invalidate; the caller validated that the
+        // address range is page-aligned.
+        unsafe { asm!("sfence.vma {}", in(reg) addr) };
+    }
+
+    /// Invalidates all supervisor TLB entries for `asid`
+    /// (`sfence.vma x0, asid`).
+    pub fn sfence_vma_asid(asid: usize) {
+        // SAFETY: per-ASID TLB invalidate; requested by a validated SBI rfence call.
+        unsafe { asm!("sfence.vma x0, {}", in(reg) asid) };
+    }
+
+    /// Invalidates supervisor TLB entries for (`addr`, `asid`)
+    /// (`sfence.vma addr, asid`).
+    pub fn sfence_vma_addr_asid(addr: usize, asid: usize) {
+        // SAFETY: as above, with both operands.
+        unsafe { asm!("sfence.vma {}, {}", in(reg) addr, in(reg) asid) };
+    }
+
+    /// Invalidates all guest TLB entries (`hfence.gvma x0, x0`).
+    #[cfg(feature = "hypervisor")]
+    pub fn hfence_gvma_all() {
+        // SAFETY: guest-TLB invalidate; the hypervisor extension probe gates
+        // every call site.
+        unsafe { asm!("hfence.gvma x0, x0") };
+    }
+
+    /// Invalidates guest TLB entries for `addr` (`hfence.gvma addr, x0`).
+    #[cfg(feature = "hypervisor")]
+    pub fn hfence_gvma_addr(addr: usize) {
+        // SAFETY: as above, for a single guest-physical page.
+        unsafe { asm!("hfence.gvma {}, x0", in(reg) addr) };
+    }
+
+    /// Invalidates all guest TLB entries for `vmid` (`hfence.gvma x0, vmid`).
+    #[cfg(feature = "hypervisor")]
+    pub fn hfence_gvma_vmid(vmid: usize) {
+        // SAFETY: as above, for one VMID.
+        unsafe { asm!("hfence.gvma x0, {}", in(reg) vmid) };
+    }
+
+    /// Invalidates guest TLB entries for (`addr`, `vmid`)
+    /// (`hfence.gvma addr, vmid`).
+    #[cfg(feature = "hypervisor")]
+    pub fn hfence_gvma_addr_vmid(addr: usize, vmid: usize) {
+        // SAFETY: as above, with both operands.
+        unsafe { asm!("hfence.gvma {}, {}", in(reg) addr, in(reg) vmid) };
+    }
+
+    /// Invalidates all guest supervisor TLB entries (`hfence.vvma x0, x0`).
+    #[cfg(feature = "hypervisor")]
+    pub fn hfence_vvma_all() {
+        // SAFETY: guest-TLB invalidate; the hypervisor extension probe gates
+        // every call site.
+        unsafe { asm!("hfence.vvma x0, x0") };
+    }
+
+    /// Invalidates guest supervisor TLB entries for `addr`
+    /// (`hfence.vvma addr, x0`).
+    #[cfg(feature = "hypervisor")]
+    pub fn hfence_vvma_addr(addr: usize) {
+        // SAFETY: as above, for a single guest virtual page.
+        unsafe { asm!("hfence.vvma {}, x0", in(reg) addr) };
+    }
+
+    /// Invalidates all guest supervisor TLB entries for `asid`
+    /// (`hfence.vvma x0, asid`).
+    #[cfg(feature = "hypervisor")]
+    pub fn hfence_vvma_asid(asid: usize) {
+        // SAFETY: as above, for one ASID.
+        unsafe { asm!("hfence.vvma x0, {}", in(reg) asid) };
+    }
+
+    /// Invalidates guest supervisor TLB entries for (`addr`, `asid`)
+    /// (`hfence.vvma addr, asid`).
+    #[cfg(feature = "hypervisor")]
+    pub fn hfence_vvma_addr_asid(addr: usize, asid: usize) {
+        // SAFETY: as above, with both operands.
+        unsafe { asm!("hfence.vvma {}, {}", in(reg) addr, in(reg) asid) };
     }
 }

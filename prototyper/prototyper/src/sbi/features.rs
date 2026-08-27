@@ -1,23 +1,19 @@
+#![forbid(unsafe_code)]
+
 use ::riscv::register::mstatus::MPP;
 use riscv::register::misa;
 use seq_macro::seq;
 use serde_device_tree::buildin::NodeSeq;
 
-use core::arch::asm;
 use core::sync::atomic::Ordering;
 
 use crate::fail;
-use crate::has_csr;
 use crate::platform::CPU_PRIVILEGED_ENABLED;
 use crate::platform::aia::is_aia_active;
 use crate::riscv::csr::*;
 use crate::riscv::current_hartid;
-use crate::sbi::early_trap::{TrapInfo, csr_read_allow, csr_write_allow};
+use crate::sbi::early_trap::TrapInfo;
 use crate::sbi::trap_stack::{hart_local, with_current, with_hart};
-
-use super::early_trap::csr_swap;
-
-use riscv::register::{medeleg, mtvec};
 
 pub struct HartFeatures {
     extensions: [bool; Extension::COUNT],
@@ -135,11 +131,11 @@ fn check_extension_in_device_tree(ext: &str, cpu: &crate::devicetree::Cpu) -> bo
 fn privileged_version_detection() {
     let mut current_priv_ver = PrivilegedVersion::Unknown;
     {
-        if has_csr!(CSR_MCOUNTEREN) {
+        if has_csr::<CSR_MCOUNTEREN>() {
             current_priv_ver = PrivilegedVersion::Version1_10;
-            if has_csr!(CSR_MCOUNTINHIBIT) {
+            if has_csr::<CSR_MCOUNTINHIBIT>() {
                 current_priv_ver = PrivilegedVersion::Version1_11;
-                if has_csr!(CSR_MENVCFG) {
+                if has_csr::<CSR_MENVCFG>() {
                     current_priv_ver = PrivilegedVersion::Version1_12;
                 }
             }
@@ -153,28 +149,16 @@ fn mhpm_detection() {
     let mut current_mhpm_mask: u32 = 0b111;
     let mut trap_info: TrapInfo = TrapInfo::default();
 
-    fn check_mhpm_csr<const CSR_NUM: u16>(trap_info: *mut TrapInfo, mhpm_mask: &mut u32) {
-        unsafe {
-            let old_value = csr_read_allow::<CSR_NUM>(trap_info);
-            if (*trap_info).mcause == usize::MAX {
-                csr_write_allow::<CSR_NUM>(trap_info, 1);
-                if (*trap_info).mcause == usize::MAX && csr_swap::<CSR_NUM>(old_value) == 1 {
-                    (*mhpm_mask) |= 1 << (CSR_NUM - CSR_MCYCLE);
-                }
-            }
-        }
-    }
-
-    macro_rules! m_check_mhpm_csr {
+    macro_rules! m_probe_mhpm_csr {
         ($csr_num:expr, $trap_info:expr, $value:expr) => {
-            check_mhpm_csr::<$csr_num>($trap_info, $value)
+            probe_mhpm_csr::<$csr_num>($trap_info, $value)
         };
     }
 
     // CSR_MHPMCOUNTER3:   0xb03
     // CSR_MHPMCOUNTER31:  0xb1f
     seq!(csr_num in 0xb03..=0xb1f{
-        m_check_mhpm_csr!(csr_num, &mut trap_info, &mut current_mhpm_mask);
+        m_probe_mhpm_csr!(csr_num, &mut trap_info, &mut current_mhpm_mask);
     });
 
     with_current(|local| {
@@ -229,48 +213,33 @@ pub fn check_privilege(mpp: MPP) {
 /// Returns whether the `mstateen0` CSR is implemented (trap-tolerant probe).
 #[inline(always)]
 fn has_mstateen0() -> bool {
-    has_csr!(CSR_MSTATEEN0)
+    has_csr::<CSR_MSTATEEN0>()
 }
 
 /// Configures per-hart delegation and trap CSRs for supervisor hand-off.
 pub fn configure_delegation_and_trap() {
-    unsafe {
-        // Delegate all interrupts and exceptions to supervisor mode.
-        asm!("csrw mideleg,    {}", in(reg) !0);
-        asm!("csrw medeleg,    {}", in(reg) !0);
-        asm!("csrw mcounteren, {}", in(reg) !0);
-        asm!("csrw scounteren, {}", in(reg) !0);
-        // Keep supervisor environment calls and illegal instructions in M-mode.
-        medeleg::clear_supervisor_env_call();
-        medeleg::clear_load_misaligned();
-        medeleg::clear_store_misaligned();
-        medeleg::clear_illegal_instruction();
+    // Delegate all interrupts and exceptions to supervisor mode.
+    configure_delegation();
 
-        let hart_priv_version = hart_privileged_version(current_hartid());
-        if hart_priv_version >= PrivilegedVersion::Version1_11 {
-            asm!("csrw mcountinhibit, {}", in(reg) !0b111usize);
-        }
-        if hart_priv_version >= PrivilegedVersion::Version1_12 {
-            // Configure environment features based on available extensions.
-            if hart_extension_probe(current_hartid(), Extension::Sstc) {
-                menvcfg::set_bits(
-                    menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
-                );
-            } else {
-                menvcfg::set_bits(menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
-            }
-            if is_aia_active()
-                && hart_extension_probe(current_hartid(), Extension::Smaia)
-                && has_mstateen0()
-            {
-                mstateen::enable_smode_aia();
-            }
-        }
-        // Set up trap handling.
-        let val = mtvec::Mtvec::new(
-            fast_trap::trap_entry as *const () as _,
-            mtvec::TrapMode::Direct,
-        );
-        mtvec::write(val);
+    let hart_priv_version = hart_privileged_version(current_hartid());
+    if hart_priv_version >= PrivilegedVersion::Version1_11 {
+        mcountinhibit::write_raw(!0b111usize);
     }
+    if hart_priv_version >= PrivilegedVersion::Version1_12 {
+        // Configure environment features based on available extensions.
+        if hart_extension_probe(current_hartid(), Extension::Sstc) {
+            menvcfg::set_bits(
+                menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
+            );
+        } else {
+            menvcfg::set_bits(menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
+        }
+        if is_aia_active()
+            && hart_extension_probe(current_hartid(), Extension::Smaia)
+            && has_mstateen0()
+        {
+            mstateen::enable_smode_aia();
+        }
+    }
+    install_trap_vector();
 }

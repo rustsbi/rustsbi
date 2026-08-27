@@ -252,6 +252,27 @@ pub fn cold_boot_allowed(hart_id: usize) -> bool {
     hart_id == 0
 }
 
+/// Runs the K1 cold-boot sequence on the boot hart: claims this hart's L2
+/// setup bit (ML2SETUP), then programs MSETUP / I-cache invalidation and the
+/// warmboot (RVBADDR) + CCI-550 interconnect state via [`early_init`].
+///
+/// Safe wrapper: the caller (the platform boot path) has already verified
+/// from the device tree that this is a K1 platform, so the K1-specific
+/// CSR/MMIO addresses used here are valid, and the sequence runs exactly
+/// once on the M-mode boot hart.
+pub fn cold_boot_init() {
+    // Configure ML2SETUP for the boot hart
+    cold_boot_allowed(current_hartid());
+    // SAFETY: K1 platform verified by the caller; single execution on the
+    // M-mode boot hart. The warmboot entry is this firmware's own link
+    // address.
+    unsafe {
+        // Use the SBI link address as the warmboot entry
+        let warmboot_addr = crate::cfg::SBI_LINK_START_ADDRESS as u64;
+        early_init(true, warmboot_addr);
+    }
+}
+
 /// Get the maximum number of CPUs supported by this platform.
 #[inline]
 pub const fn max_cpus() -> usize {
