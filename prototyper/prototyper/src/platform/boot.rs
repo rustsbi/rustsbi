@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Safe boot entry points over the global platform state.
 
 use core::ops::Range;
@@ -69,14 +71,7 @@ pub fn init_board(fdt_address: usize) {
     print_board_info();
 
     if IS_K1_PLATFORM.load(Ordering::Acquire) {
-        // Configure ML2SETUP for the boot hart
-        spacemit_k1::cold_boot_allowed(crate::riscv::current_hartid());
-
-        unsafe {
-            // Use the SBI link address as the warmboot entry
-            let warmboot_addr = crate::cfg::SBI_LINK_START_ADDRESS as u64;
-            spacemit_k1::early_init(true, warmboot_addr);
-        }
+        spacemit_k1::cold_boot_init();
         info!("SpacemiT K1: early init done (MSETUP + CCI-550)");
     }
 }

@@ -1,8 +1,11 @@
+#![forbid(unsafe_code)]
+
 //! SBI HSM (Hart State Management) extension.
 
 use riscv::register::mstatus::MPP;
 use rustsbi::SbiRet;
 
+use crate::riscv::csr::mie;
 use crate::riscv::current_hartid;
 use crate::sbi::hart_context::NextStage;
 
@@ -53,9 +56,7 @@ impl rustsbi::Hsm for SbiHsm {
     #[inline]
     fn hart_stop(&self) -> SbiRet {
         local_hsm().stop();
-        unsafe {
-            riscv::register::mie::clear_msoft();
-        }
+        mie::disable_msoft();
         riscv::asm::wfi();
         SbiRet::success(0)
     }
@@ -85,9 +86,7 @@ impl rustsbi::Hsm for SbiHsm {
 
         crate::sbi::trap::handler::msoft_ipi_handler();
         crate::sbi::ipi().unwrap().clear_msip(current_hartid());
-        unsafe {
-            riscv::register::mie::set_msoft();
-        }
+        mie::enable_msoft();
         local_hsm().suspend();
         riscv::asm::wfi();
         crate::sbi::trap::handler::msoft_ipi_handler();
@@ -116,9 +115,7 @@ impl SbiHsm {
                     // reset the hart local context to prevent the hart context from being polluted
                     reset_hart(hartid);
                     // boot resume hart from resume addr
-                    unsafe {
-                        boot();
-                    }
+                    boot();
                 } else {
                     SbiRet::failed()
                 }

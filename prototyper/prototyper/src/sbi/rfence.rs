@@ -1,11 +1,13 @@
+#![forbid(unsafe_code)]
+
 //! SBI RFence (Remote Fence) extension.
 
 use rustsbi::{HartMask, SbiRet};
 use sbi_spec::pmu::firmware_event;
 
 use crate::cfg::{PAGE_SIZE, TLB_FLUSH_LIMIT};
+use crate::riscv::csr::fence;
 use crate::riscv::current_hartid;
-use core::arch::asm;
 
 use super::pmu::pmu_firmware_counter_increment;
 use super::trap_stack::{FifoError, LocalRFenceCell, RemoteRFenceCell};
@@ -306,17 +308,17 @@ pub fn rfence_single_handler() {
         match ctx.op {
             RFenceType::FenceI => {
                 pmu_firmware_counter_increment(firmware_event::FENCE_I_RECEIVED);
-                unsafe { asm!("fence.i") };
+                fence::fence_i();
                 remote_rfence(source_hart_id).unwrap().sub();
             }
             RFenceType::SFenceVma => {
                 pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_RECEIVED);
                 if full_flush {
-                    unsafe { asm!("sfence.vma") };
+                    fence::sfence_vma_all();
                 } else {
                     for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                         let addr = ctx.start_addr.wrapping_add(offset);
-                        unsafe { asm!("sfence.vma {}", in(reg) addr) };
+                        fence::sfence_vma_addr(addr);
                     }
                 }
                 if let Some(remote_cell) = remote_rfence(source_hart_id) {
@@ -327,11 +329,11 @@ pub fn rfence_single_handler() {
                 pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_ASID_RECEIVED);
                 let asid = ctx.asid;
                 if full_flush {
-                    unsafe { asm!("sfence.vma x0, {}", in(reg) asid) };
+                    fence::sfence_vma_asid(asid);
                 } else {
                     for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                         let addr = ctx.start_addr.wrapping_add(offset);
-                        unsafe { asm!("sfence.vma {}, {}", in(reg) addr, in(reg) asid) };
+                        fence::sfence_vma_addr_asid(addr, asid);
                     }
                 }
                 if let Some(remote_cell) = remote_rfence(source_hart_id) {
@@ -343,11 +345,11 @@ pub fn rfence_single_handler() {
                 pmu_firmware_counter_increment(firmware_event::HFENCE_GVMA_VMID_RECEIVED);
                 let vmid = ctx.vmid;
                 if full_flush {
-                    unsafe { asm!("hfence.gvma x0, {}", in(reg) vmid) };
+                    fence::hfence_gvma_vmid(vmid);
                 } else {
                     for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                         let addr = ctx.start_addr.wrapping_add(offset);
-                        unsafe { asm!("hfence.gvma {}, {}", in(reg) addr, in(reg) vmid) };
+                        fence::hfence_gvma_addr_vmid(addr, vmid);
                     }
                 }
                 if let Some(remote_cell) = remote_rfence(source_hart_id) {
@@ -358,11 +360,11 @@ pub fn rfence_single_handler() {
             RFenceType::HFenceGvma => {
                 pmu_firmware_counter_increment(firmware_event::HFENCE_GVMA_RECEIVED);
                 if full_flush {
-                    unsafe { asm!("hfence.gvma x0, x0") };
+                    fence::hfence_gvma_all();
                 } else {
                     for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                         let addr = ctx.start_addr.wrapping_add(offset);
-                        unsafe { asm!("hfence.gvma {}, x0", in(reg) addr) };
+                        fence::hfence_gvma_addr(addr);
                     }
                 }
                 if let Some(remote_cell) = remote_rfence(source_hart_id) {
@@ -374,11 +376,11 @@ pub fn rfence_single_handler() {
                 pmu_firmware_counter_increment(firmware_event::HFENCE_VVMA_ASID_RECEIVED);
                 let asid = ctx.asid;
                 if full_flush {
-                    unsafe { asm!("hfence.vvma x0, {}", in(reg) asid) };
+                    fence::hfence_vvma_asid(asid);
                 } else {
                     for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                         let addr = ctx.start_addr.wrapping_add(offset);
-                        unsafe { asm!("hfence.vvma {}, {}", in(reg) addr, in(reg) asid) };
+                        fence::hfence_vvma_addr_asid(addr, asid);
                     }
                 }
                 if let Some(remote_cell) = remote_rfence(source_hart_id) {
@@ -389,11 +391,11 @@ pub fn rfence_single_handler() {
             RFenceType::HFenceVvma => {
                 pmu_firmware_counter_increment(firmware_event::HFENCE_VVMA_RECEIVED);
                 if full_flush {
-                    unsafe { asm!("hfence.vvma x0, x0") };
+                    fence::hfence_vvma_all();
                 } else {
                     for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                         let addr = ctx.start_addr.wrapping_add(offset);
-                        unsafe { asm!("hfence.vvma {}, x0", in(reg) addr) };
+                        fence::hfence_vvma_addr(addr);
                     }
                 }
                 if let Some(remote_cell) = remote_rfence(source_hart_id) {

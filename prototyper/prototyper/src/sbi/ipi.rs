@@ -1,9 +1,11 @@
+#![forbid(unsafe_code)]
+
 use super::pmu::pmu_firmware_counter_increment;
 use crate::cfg::NUM_HART_MAX;
 use crate::platform::BoardInfo;
 use crate::platform::aia;
 use crate::platform::clint::{MachineClintType, SifiveClintWrap, THeadClintWrap};
-use crate::riscv::csr::stimecmp;
+use crate::riscv::csr::{mie, mip, stimecmp};
 use crate::riscv::current_hartid;
 use crate::sbi::features::{Extension, hart_extension_probe};
 use crate::sbi::hsm::remote_hsm;
@@ -60,10 +62,8 @@ impl rustsbi::Timer for SbiIpi {
             stimecmp::set(stime_value);
         } else {
             self.write_mtimecmp(hart_id, stime_value);
-            unsafe {
-                riscv::register::mip::clear_stimer();
-                riscv::register::mie::set_mtimer();
-            }
+            mip::clear_stimer();
+            mie::set_mtimer();
         }
     }
 }
