@@ -1,0 +1,23 @@
+[package]
+name = "rpmi"
+description = "RISC-V Platform Management Interface (RPMI) transport and message protocol"
+version = "0.0.0"
+authors = [
+    "Zhouqi Jiang / Luo Jia <luojia@openatom.club>",
+    "Killy Jack <zicai@openatom.club>",
+]
+documentation = "https://docs.rs/rpmi"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["riscv", "rpmi"]
+categories = ["os", "embedded", "hardware-support", "no-std"]
+
+[package.metadata.docs.rs]
+default-target = "riscv64imac-unknown-none-elf"
+targets = [
+    "riscv32imac-unknown-none-elf", "riscv64imac-unknown-none-elf",
+]
+
+[dependencies]

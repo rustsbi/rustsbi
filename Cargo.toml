@@ -9,6 +9,7 @@ members = [
     "library/riscv-aia",
     "library/riscv-cove",
     "library/riscv-cove-rt",
+    "library/rpmi",
     "library/penglai",
     "library/pmpm",
     "library/smm",
