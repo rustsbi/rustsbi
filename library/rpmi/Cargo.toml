@@ -1,9 +1,9 @@
 [package]
 name = "rpmi"
-description = "RISC-V Platform Management Interface (RPMI) transport and message protocol"
+description = "Definitions and constants for the RISC-V Platform Management Interface (RPMI)"
 version = "0.0.0"
 authors = [
-    "Zhouqi Jiang / Luo Jia <luojia@openatom.club>",
+    "Zhouqi Jiang <luojia@rustsbi.com>",
     "Killy Jack <zicai@openatom.club>",
 ]
 documentation = "https://docs.rs/rpmi"
@@ -14,10 +14,5 @@ readme = "README.md"
 keywords = ["riscv", "rpmi"]
 categories = ["os", "embedded", "hardware-support", "no-std"]
 
-[package.metadata.docs.rs]
-default-target = "riscv64imac-unknown-none-elf"
-targets = [
-    "riscv32imac-unknown-none-elf", "riscv64imac-unknown-none-elf",
-]
-
 [dependencies]
+sbi-spec = { version = "0.0.10", path = "../sbi-spec" }
