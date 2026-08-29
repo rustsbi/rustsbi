@@ -58,7 +58,7 @@ impl rustsbi::Mpxy for SbiMpxy {
         if self.shmem_hart().load(Ordering::Acquire) == 0 {
             return SbiRet::no_shmem();
         }
-        SbiRet::not_supported()
+        SbiRet::failed()
     }
 
     fn read_attributes(
@@ -68,7 +68,7 @@ impl rustsbi::Mpxy for SbiMpxy {
         _attribute_count: u32,
         _output: SharedPtr<u8>,
     ) -> SbiRet {
-        SbiRet::not_supported()
+        SbiRet::failed()
     }
 
     fn write_attributes(
@@ -78,7 +78,7 @@ impl rustsbi::Mpxy for SbiMpxy {
         _attribute_count: u32,
         _input: SharedPtr<u8>,
     ) -> SbiRet {
-        SbiRet::not_supported()
+        SbiRet::failed()
     }
 
     fn send_message_with_response(
@@ -87,7 +87,7 @@ impl rustsbi::Mpxy for SbiMpxy {
         _message_id: u32,
         _message_data_len: usize,
     ) -> SbiRet {
-        SbiRet::not_supported()
+        SbiRet::failed()
     }
 
     fn send_message_without_response(
@@ -96,10 +96,10 @@ impl rustsbi::Mpxy for SbiMpxy {
         _message_id: u32,
         _message_data_len: usize,
     ) -> SbiRet {
-        SbiRet::not_supported()
+        SbiRet::failed()
     }
 
     fn get_notification_events(&self, _channel_id: u32) -> SbiRet {
-        SbiRet::not_supported()
+        SbiRet::failed()
     }
 }
