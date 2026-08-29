@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![no_std]
-#![deny(missing_docs, unsafe_code, unstable_features)]
+#![deny(missing_docs, unstable_features)]
+#![forbid(unsafe_code)]
 #![deny(rustdoc::broken_intra_doc_links)]
 
 /// A 16-bit-major, 16-bit-minor version encoding.
