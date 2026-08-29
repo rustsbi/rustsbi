@@ -233,7 +233,7 @@ fn resolve_normalizes_files_and_derives_features() {
         std::process::id(),
         NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed)
     ));
-    let config_dir = root.join("prototyper/prototyper/config");
+    let config_dir = root.join("firmware/prototyper/config");
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(config_dir.join("default.toml"), VALID_CONFIG_TOML).unwrap();
     fs::write(root.join("kernel.bin"), b"kernel").unwrap();
@@ -269,7 +269,7 @@ fn resolve_rejects_mode_features_and_invalid_config() {
         std::process::id(),
         NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed)
     ));
-    let config_dir = root.join("prototyper/prototyper/config");
+    let config_dir = root.join("firmware/prototyper/config");
     fs::create_dir_all(&config_dir).unwrap();
     let config_path = config_dir.join("default.toml");
     fs::write(&config_path, VALID_CONFIG_TOML).unwrap();
@@ -311,7 +311,7 @@ fn resolve_derives_target_profile_and_rustflags() {
         std::process::id(),
         NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed)
     ));
-    let config_dir = root.join("prototyper/prototyper/config");
+    let config_dir = root.join("firmware/prototyper/config");
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(config_dir.join("default.toml"), VALID_CONFIG_TOML).unwrap();
     let target = root.join("custom-target.json");
@@ -348,10 +348,10 @@ fn generated_inputs_and_stamp_follow_build_mode() {
         std::process::id(),
         NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed)
     ));
-    let config_dir = root.join("prototyper/prototyper/config");
+    let config_dir = root.join("firmware/prototyper/config");
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(config_dir.join("default.toml"), VALID_CONFIG_TOML).unwrap();
-    let linker_template = root.join("prototyper/prototyper/rustsbi-prototyper.ld.in");
+    let linker_template = root.join("firmware/prototyper/rustsbi-prototyper.ld.in");
     fs::write(&linker_template, LINKER_TEMPLATE).unwrap();
     let paths = BuildPaths {
         artifact_dir: root
@@ -560,7 +560,7 @@ fn pattern_files_must_yield_at_least_one_pattern() {
         std::process::id(),
         NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed)
     ));
-    let dir = root.join("prototyper/scripts");
+    let dir = root.join("firmware/scripts");
     fs::create_dir_all(&dir).unwrap();
     fs::write(dir.join("empty.txt"), "# only comments\n\n").unwrap();
 
