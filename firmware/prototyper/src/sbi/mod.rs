@@ -2,6 +2,7 @@ use rustsbi::{RustSBI, SbiRet};
 use spin::Once;
 
 pub mod console;
+pub mod cppc;
 pub mod hsm;
 pub mod ipi;
 pub mod mpxy;
@@ -19,6 +20,7 @@ pub mod trap;
 pub mod trap_stack;
 
 use console::SbiConsole;
+use cppc::SbiCppc;
 use hsm::SbiHsm;
 use ipi::SbiIpi;
 use mpxy::SbiMpxy;
@@ -32,6 +34,8 @@ use suspend::SbiSuspend;
 pub struct SbiDispatcher {
     #[rustsbi(console)]
     console: Option<SbiConsole>,
+    #[rustsbi(cppc)]
+    cppc: Option<SbiCppc>,
     #[rustsbi(ipi, timer)]
     ipi: Option<SbiIpi>,
     #[rustsbi(hsm)]
@@ -53,6 +57,7 @@ impl SbiDispatcher {
     /// composition publishes the result via [`SBI_DISPATCHER`].
     pub(crate) fn new(
         console: Option<SbiConsole>,
+        cppc: Option<SbiCppc>,
         ipi: Option<SbiIpi>,
         hsm: Option<SbiHsm>,
         reset: Option<SbiReset>,
@@ -63,6 +68,7 @@ impl SbiDispatcher {
     ) -> Self {
         SbiDispatcher {
             console,
+            cppc,
             ipi,
             hsm,
             reset,
@@ -98,6 +104,11 @@ pub(crate) fn handle_ecall(extension: usize, function: usize, param: [usize; 6])
 /// Returns the ipi extension, if present.
 pub(crate) fn ipi() -> Option<&'static SbiIpi> {
     SBI_DISPATCHER.get().and_then(|sbi| sbi.ipi.as_ref())
+}
+
+/// Returns the cppc extension, if present.
+pub(crate) fn cppc() -> Option<&'static SbiCppc> {
+    SBI_DISPATCHER.get().and_then(|sbi| sbi.cppc.as_ref())
 }
 
 /// Returns the hsm extension, if present.
