@@ -201,7 +201,7 @@ impl MessageHeader {
     ) -> Option<Self> {
         let message_type = (flags & Self::MESSAGE_TYPE_MASK) >> Self::MESSAGE_TYPE_SHIFT;
         let is_notification = message_type == MessageType::Notification.bits();
-        if !(data_len as usize).is_multiple_of(DATA_LEN_ALIGNMENT)
+        if data_len as usize % DATA_LEN_ALIGNMENT != 0
             || flags & Self::RESERVED_FLAGS_MASK != 0
             || message_type > MessageType::Notification.bits()
             || (service_id == NOTIFICATION_SERVICE_ID) != is_notification
@@ -300,7 +300,7 @@ impl EventHeader {
     ///
     /// Returns `None` when the data length is not a multiple of four.
     pub const fn new(event_id: u8, data_len: u16) -> Option<Self> {
-        if !(data_len as usize).is_multiple_of(EVENT_DATA_LEN_ALIGNMENT) {
+        if data_len as usize % EVENT_DATA_LEN_ALIGNMENT != 0 {
             return None;
         }
         Some(Self::from_fields(event_id, data_len))
