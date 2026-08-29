@@ -10,7 +10,7 @@ use crate::riscv::csr::fence;
 use crate::riscv::current_hartid;
 
 use super::pmu::pmu_firmware_counter_increment;
-use super::trap_stack::{FifoError, LocalRFenceCell, RemoteRFenceCell};
+use super::trap_stack::{LocalRFenceCell, RemoteRFenceCell};
 
 /// Context information for a remote fence operation.
 #[repr(C)]
@@ -63,11 +63,10 @@ impl LocalRFenceCell<'_> {
     pub fn set(&self, ctx: RFenceContext) {
         let hart_id = current_hartid();
         loop {
-            match self.try_push((ctx, hart_id)) {
-                Ok(_) => break,
-                Err(FifoError::Full) => rfence_single_handler(),
-                Err(_) => panic!("Unable to push fence ops to fifo"),
+            if self.try_push((ctx, hart_id)) {
+                break;
             }
+            rfence_single_handler();
         }
     }
 }
@@ -78,11 +77,10 @@ impl RemoteRFenceCell<'_> {
     pub fn set(&self, ctx: RFenceContext) {
         let hart_id = current_hartid();
         loop {
-            match self.try_push((ctx, hart_id)) {
-                Ok(_) => return,
-                Err(FifoError::Full) => rfence_single_handler(),
-                Err(_) => panic!("Unable to push fence ops to fifo"),
+            if self.try_push((ctx, hart_id)) {
+                return;
             }
+            rfence_single_handler();
         }
     }
 }
