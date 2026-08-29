@@ -8,9 +8,10 @@ use crate::riscv::current_hartid;
 use crate::sbi::hart_context::{HartContext, HartLocal, NextStage};
 use crate::sbi::rfence::RFenceContext;
 use crate::sbi::trap::fast_handler;
+use alloc::collections::VecDeque;
 use core::cell::UnsafeCell;
 use core::hint::spin_loop;
-use core::mem::{MaybeUninit, forget};
+use core::mem::forget;
 use core::ptr::{addr_of, addr_of_mut};
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use fast_trap::FreeTrapStack;
@@ -125,73 +126,9 @@ pub fn hart_local(hart_id: usize) -> &'static HartLocal {
 }
 
 /// Size of the FIFO buffer.
-const FIFO_SIZE: usize = 16;
 
-#[derive(Debug)]
-pub enum FifoError {
-    Empty,
-    Full,
-}
-
-/// A fixed-size FIFO (First In First Out) queue implementation.
-pub struct Fifo<T: Copy + Clone> {
-    data: [MaybeUninit<T>; FIFO_SIZE],
-    head: usize,
-    tail: usize,
-    count: usize,
-}
-
-impl<T: Copy + Clone> Fifo<T> {
-    #[inline]
-    pub const fn new() -> Self {
-        // Initialize array with uninitialized values
-        let data = [MaybeUninit::uninit(); FIFO_SIZE];
-        Self {
-            data,
-            head: 0,
-            tail: 0,
-            count: 0,
-        }
-    }
-
-    #[inline]
-    pub fn is_full(&self) -> bool {
-        self.count == FIFO_SIZE
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.count == 0
-    }
-
-    pub fn push(&mut self, element: T) -> Result<(), FifoError> {
-        if self.is_full() {
-            return Err(FifoError::Full);
-        }
-
-        // Write element and update tail position
-        self.data[self.tail].write(element);
-        self.tail = (self.tail + 1) % FIFO_SIZE;
-        self.count += 1;
-
-        Ok(())
-    }
-
-    pub fn pop(&mut self) -> Result<T, FifoError> {
-        if self.is_empty() {
-            return Err(FifoError::Empty);
-        }
-
-        // unsafe: Take ownership of element at head
-        let element = unsafe { self.data[self.head].assume_init_read() };
-
-        // Update head position
-        self.head = (self.head + 1) % FIFO_SIZE;
-        self.count -= 1;
-
-        Ok(element)
-    }
-}
+/// Capacity of the per-hart fence operation queue.
+const QUEUE_CAP: usize = 16;
 
 /// Special state indicating a hart is in the process of starting.
 const HART_STATE_START_PENDING_EXT: usize = usize::MAX;
@@ -361,7 +298,7 @@ impl<T: core::fmt::Debug> RemoteHsmCell<'_, T> {
 /// Cell for managing remote fence operations between harts.
 pub(crate) struct RFenceCell {
     // Queue of fence operations with source hart ID
-    queue: Mutex<Fifo<(RFenceContext, usize)>>,
+    queue: Mutex<VecDeque<(RFenceContext, usize)>>,
     // Counter for tracking pending synchronization operations
     wait_sync_count: AtomicU32,
 }
@@ -370,7 +307,7 @@ impl RFenceCell {
     /// Creates a new RFenceCell with empty queue and zero sync count.
     pub fn new() -> Self {
         Self {
-            queue: Mutex::new(Fifo::new()),
+            queue: Mutex::new(VecDeque::new()),
             wait_sync_count: AtomicU32::new(0),
         }
     }
@@ -389,17 +326,20 @@ impl RFenceCell {
 
     /// Pushes a fence operation into the queue, or reports it full.
     ///
-    /// The retry policy on [`FifoError::Full`] (drain via IPI) belongs to
+    /// The retry policy on a full queue (drain via IPI) belongs to
     /// the rfence layer, which is why this returns the error instead of
     /// looping.
-    pub fn try_push(&self, item: (RFenceContext, usize)) -> Result<(), FifoError> {
-        self.queue.lock().push(item)
+    pub fn try_push(&self, item: (RFenceContext, usize)) -> bool {
+        let mut q = self.queue.lock();
+        if q.len() >= QUEUE_CAP {
+            return false;
+        }
+        q.push_back(item);
+        true
     }
 }
 
-// Mark RFenceCell as safe to share between threads
-unsafe impl Sync for RFenceCell {}
-unsafe impl Send for RFenceCell {}
+// RFenceCell is Sync+Send: Mutex<VecDeque<T>> is Sync when T: Send, AtomicU32 is Sync.
 
 /// View of RFenceCell for operations on the current hart.
 pub struct LocalRFenceCell<'a>(&'a RFenceCell);
@@ -411,7 +351,7 @@ pub struct RemoteRFenceCell<'a>(&'a RFenceCell);
 impl LocalRFenceCell<'_> {
     /// Pushes a fence operation into the queue, or reports it full.
     #[inline]
-    pub(crate) fn try_push(&self, item: (RFenceContext, usize)) -> Result<(), FifoError> {
+    pub(crate) fn try_push(&self, item: (RFenceContext, usize)) -> bool {
         self.0.try_push(item)
     }
 
@@ -432,7 +372,7 @@ impl LocalRFenceCell<'_> {
 
     /// Gets the next fence operation from the queue.
     pub fn get(&self) -> Option<(RFenceContext, usize)> {
-        self.0.queue.lock().pop().ok()
+        self.0.queue.lock().pop_front()
     }
 }
 
@@ -440,7 +380,7 @@ impl LocalRFenceCell<'_> {
 impl RemoteRFenceCell<'_> {
     /// Pushes a fence operation into the queue, or reports it full.
     #[inline]
-    pub(crate) fn try_push(&self, item: (RFenceContext, usize)) -> Result<(), FifoError> {
+    pub(crate) fn try_push(&self, item: (RFenceContext, usize)) -> bool {
         self.0.try_push(item)
     }
 
