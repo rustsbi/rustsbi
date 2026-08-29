@@ -9,6 +9,7 @@ pub mod mpxy;
 pub mod pmu;
 pub mod reset;
 pub mod rfence;
+pub mod sta;
 pub mod suspend;
 
 pub mod early_trap;
@@ -27,6 +28,7 @@ use mpxy::SbiMpxy;
 use pmu::SbiPmu;
 use reset::SbiReset;
 use rfence::SbiRFence;
+use sta::SbiSta;
 use suspend::SbiSuspend;
 
 #[derive(RustSBI, Default)]
@@ -46,6 +48,8 @@ pub struct SbiDispatcher {
     rfence: Option<SbiRFence>,
     #[rustsbi(pmu)]
     pmu: Option<SbiPmu>,
+    #[rustsbi(sta)]
+    sta: Option<SbiSta>,
     #[rustsbi(susp)]
     susp: Option<SbiSuspend>,
     #[rustsbi(mpxy)]
@@ -64,6 +68,7 @@ impl SbiDispatcher {
         rfence: Option<SbiRFence>,
         susp: Option<SbiSuspend>,
         pmu: Option<SbiPmu>,
+        sta: Option<SbiSta>,
         mpxy: Option<SbiMpxy>,
     ) -> Self {
         SbiDispatcher {
@@ -74,6 +79,7 @@ impl SbiDispatcher {
             reset,
             rfence,
             pmu,
+            sta,
             susp,
             mpxy,
         }
@@ -129,6 +135,11 @@ pub(crate) fn rfence() -> Option<&'static SbiRFence> {
 /// Returns the pmu extension, if present.
 pub(crate) fn pmu() -> Option<&'static SbiPmu> {
     SBI_DISPATCHER.get().and_then(|sbi| sbi.pmu.as_ref())
+}
+
+/// Returns the sta extension, if present.
+pub(crate) fn sta() -> Option<&'static SbiSta> {
+    SBI_DISPATCHER.get().and_then(|sbi| sbi.sta.as_ref())
 }
 
 /// Returns the susp extension, if present.
