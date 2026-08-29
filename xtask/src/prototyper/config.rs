@@ -105,7 +105,7 @@ pub(crate) fn resolve_in(
     let config_source = match &args.config_file {
         Some(path) => absolutize(path, current_dir),
         None => workspace_root
-            .join("prototyper")
+            .join("firmware")
             .join("prototyper")
             .join("config")
             .join("default.toml"),
@@ -163,7 +163,7 @@ fn parse_config(config_source: &Path) -> Result<PlatformAddresses> {
             None => bail!(
                 "config '{}' is missing required key `{}`; \
                  the config schema requires `link_start_address`, `payload_address` \
-                 and `jump_address` — copy them from `prototyper/prototyper/config/default.toml`",
+                 and `jump_address` — copy them from `firmware/prototyper/config/default.toml`",
                 config_source.display(),
                 key
             ),

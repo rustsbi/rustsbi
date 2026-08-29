@@ -53,7 +53,7 @@ pub(crate) fn prepare_build_paths(spec: &BuildSpec) -> Result<BuildPaths> {
     let artifact_dir = spec.artifact_dir();
     let build_inputs_dir = workspace_root.join(BUILD_INPUTS_DIR_NAME);
     let linker_template = workspace_root
-        .join("prototyper")
+        .join("firmware")
         .join("prototyper")
         .join("rustsbi-prototyper.ld.in");
 

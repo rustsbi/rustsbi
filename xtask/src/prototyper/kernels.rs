@@ -68,7 +68,7 @@ impl Kernel {
     /// replaced with the hart count.
     pub(super) fn expected_patterns(self, smp: usize) -> Result<Vec<String>> {
         let path = workspace_root()
-            .join("prototyper")
+            .join("firmware")
             .join(self.dir_name())
             .join("scripts")
             .join("expected.txt");
@@ -184,7 +184,7 @@ impl Kernel {
         })?;
 
         let its_source = workspace_root
-            .join("prototyper")
+            .join("firmware")
             .join(self.dir_name())
             .join("scripts")
             .join(format!("{}.its", self.package_name()));
@@ -375,12 +375,12 @@ fn kernel_paths() -> (PathBuf, PathBuf) {
 }
 
 /// Console substrings that mark a failed QEMU boot even when the process
-/// exits successfully, read from `prototyper/scripts/qemu-forbidden.txt` —
+/// exits successfully, read from `firmware/scripts/qemu-forbidden.txt` —
 /// the single source shared with `.github/scripts/prototyper-qemu-boot.sh`.
 pub(super) fn forbidden_patterns() -> Result<Vec<String>> {
     read_console_patterns(
         &workspace_root()
-            .join("prototyper")
+            .join("firmware")
             .join("scripts")
             .join("qemu-forbidden.txt"),
     )

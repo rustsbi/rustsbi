@@ -27,7 +27,7 @@ The RustSBI Prototyper and ArceBoot requires nightly Rust version of `rustc 1.97
 
 ### For firmware user
 
-If you need to build RustSBI firmware for M-mode, please refer to the [RustSBI Prototyper](prototyper/README.md) documentation.
+If you need to build RustSBI firmware for M-mode, please refer to the [RustSBI Prototyper](firmware/README.md) documentation.
 
 ### For library user
 

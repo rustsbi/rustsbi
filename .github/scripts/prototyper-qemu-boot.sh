@@ -7,8 +7,8 @@ log_dir=${3:-qemu-logs}
 
 # Single source for the verification patterns, shared with xtask
 # (`Kernel::expected_patterns` / `kernels::forbidden_patterns`).
-expected_file="prototyper/${kernel}-kernel/scripts/expected.txt"
-forbidden_file="prototyper/scripts/qemu-forbidden.txt"
+expected_file="firmware/${kernel}-kernel/scripts/expected.txt"
+forbidden_file="firmware/scripts/qemu-forbidden.txt"
 
 mkdir -p "$log_dir"
 
