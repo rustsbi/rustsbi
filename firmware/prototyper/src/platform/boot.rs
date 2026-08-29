@@ -45,11 +45,12 @@ pub fn init_board(fdt_address: usize) {
     let susp = hsm.as_ref().map(|_| SbiSuspend);
     // Initialize pmu extension
     let pmu = sbi::pmu::init(&root);
+    let mpxy = Some(sbi::mpxy::SbiMpxy::new());
 
     // Publish the SBI extension set before the K1 detect / READY release,
     // so that harts observing `READY` also observe the published dispatcher.
     sbi::SBI_DISPATCHER
-        .call_once(|| SbiDispatcher::new(console, cppc, ipi, hsm, reset, rfence, susp, pmu));
+        .call_once(|| SbiDispatcher::new(console, cppc, ipi, hsm, reset, rfence, susp, pmu, mpxy));
 
     // Publish the board facts before the K1 detect / READY release, so that
     // harts observing `READY` (Acquire) also observe the published board.

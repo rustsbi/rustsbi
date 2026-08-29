@@ -5,6 +5,7 @@ pub mod console;
 pub mod cppc;
 pub mod hsm;
 pub mod ipi;
+pub mod mpxy;
 pub mod pmu;
 pub mod reset;
 pub mod rfence;
@@ -22,6 +23,7 @@ use console::SbiConsole;
 use cppc::SbiCppc;
 use hsm::SbiHsm;
 use ipi::SbiIpi;
+use mpxy::SbiMpxy;
 use pmu::SbiPmu;
 use reset::SbiReset;
 use rfence::SbiRFence;
@@ -46,6 +48,8 @@ pub struct SbiDispatcher {
     pmu: Option<SbiPmu>,
     #[rustsbi(susp)]
     susp: Option<SbiSuspend>,
+    #[rustsbi(mpxy)]
+    mpxy: Option<SbiMpxy>,
 }
 
 impl SbiDispatcher {
@@ -60,6 +64,7 @@ impl SbiDispatcher {
         rfence: Option<SbiRFence>,
         susp: Option<SbiSuspend>,
         pmu: Option<SbiPmu>,
+        mpxy: Option<SbiMpxy>,
     ) -> Self {
         SbiDispatcher {
             console,
@@ -70,6 +75,7 @@ impl SbiDispatcher {
             rfence,
             pmu,
             susp,
+            mpxy,
         }
     }
 }

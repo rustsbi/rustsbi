@@ -118,6 +118,7 @@ pub struct _StandardExtensionProbe {
     pub cppc: usize,
     pub nacl: usize,
     pub sta: usize,
+    pub mpxy: usize,
     // NOTE: remember to add to `fn probe_extension` in `impl _ExtensionProbe` as well
 }
 
@@ -137,6 +138,7 @@ impl _ExtensionProbe for _StandardExtensionProbe {
             spec::cppc::EID_CPPC => self.cppc,
             spec::nacl::EID_NACL => self.nacl,
             spec::sta::EID_STA => self.sta,
+            spec::mpxy::EID_MPXY => self.mpxy,
             _ => spec::base::UNAVAILABLE_EXTENSION,
         }
     }
@@ -463,4 +465,72 @@ pub fn _rustsbi_nacl_probe<T: crate::Nacl>(nacl: &T) -> usize {
 #[inline(always)]
 pub fn _rustsbi_sta_probe<T: crate::Sta>(sta: &T) -> usize {
     sta._rustsbi_probe()
+}
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_mpxy<T: crate::Mpxy>(mpxy: &T, param: [usize; 6], function: usize) -> SbiRet {
+    let [param0, param1, param2, param3, param4] =
+        [param[0], param[1], param[2], param[3], param[4]];
+    match function {
+        spec::mpxy::GET_SHMEM_SIZE => SbiRet::success(mpxy.get_shmem_size()),
+        spec::mpxy::SET_SHMEM => mpxy.set_shmem(SharedPtr::new(param0, param1), param2),
+        spec::mpxy::GET_CHANNEL_IDS => match u32::try_from(param0) {
+            Ok(start_index) => mpxy.get_channel_ids(start_index),
+            _ => SbiRet::invalid_param(),
+        },
+        spec::mpxy::READ_ATTRIBUTE => match (
+            u32::try_from(param0),
+            u32::try_from(param1),
+            u32::try_from(param2),
+        ) {
+            (Ok(channel_id), Ok(base_attribute_id), Ok(attribute_count)) => mpxy.read_attributes(
+                channel_id,
+                base_attribute_id,
+                attribute_count,
+                SharedPtr::new(param3, param4),
+            ),
+            _ => SbiRet::invalid_param(),
+        },
+        spec::mpxy::WRITE_ATTRIBUTE => match (
+            u32::try_from(param0),
+            u32::try_from(param1),
+            u32::try_from(param2),
+        ) {
+            (Ok(channel_id), Ok(base_attribute_id), Ok(attribute_count)) => mpxy.write_attributes(
+                channel_id,
+                base_attribute_id,
+                attribute_count,
+                SharedPtr::new(param3, param4),
+            ),
+            _ => SbiRet::invalid_param(),
+        },
+        spec::mpxy::SEND_MESSAGE_WITH_RESPONSE => {
+            match (u32::try_from(param0), u32::try_from(param1)) {
+                (Ok(channel_id), Ok(message_id)) => {
+                    mpxy.send_message_with_response(channel_id, message_id, param2)
+                }
+                _ => SbiRet::invalid_param(),
+            }
+        }
+        spec::mpxy::SEND_MESSAGE_WITHOUT_RESPONSE => {
+            match (u32::try_from(param0), u32::try_from(param1)) {
+                (Ok(channel_id), Ok(message_id)) => {
+                    mpxy.send_message_without_response(channel_id, message_id, param2)
+                }
+                _ => SbiRet::invalid_param(),
+            }
+        }
+        spec::mpxy::GET_NOTIFICATION_EVENTS => match u32::try_from(param0) {
+            Ok(channel_id) => mpxy.get_notification_events(channel_id),
+            _ => SbiRet::invalid_param(),
+        },
+        _ => SbiRet::not_supported(),
+    }
+}
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_mpxy_probe<T: crate::Mpxy>(mpxy: &T) -> usize {
+    mpxy._rustsbi_probe()
 }
