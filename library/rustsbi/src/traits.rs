@@ -120,6 +120,7 @@ pub struct _StandardExtensionProbe {
     pub sta: usize,
     pub mpxy: usize,
     pub dbtr: usize,
+    pub fwft: usize,
     // NOTE: remember to add to `fn probe_extension` in `impl _ExtensionProbe` as well
 }
 
@@ -141,6 +142,7 @@ impl _ExtensionProbe for _StandardExtensionProbe {
             spec::sta::EID_STA => self.sta,
             spec::mpxy::EID_MPXY => self.mpxy,
             spec::dbtr::EID_DBTR => self.dbtr,
+            spec::fwft::EID_FWFT => self.fwft,
             _ => spec::base::UNAVAILABLE_EXTENSION,
         }
     }
@@ -533,6 +535,22 @@ pub fn _rustsbi_mpxy<T: crate::Mpxy>(mpxy: &T, param: [usize; 6], function: usiz
 
 #[doc(hidden)]
 #[inline(always)]
+pub fn _rustsbi_fwft<T: crate::Fwft>(fwft: &T, param: [usize; 6], function: usize) -> SbiRet {
+    match function {
+        spec::fwft::SET => match u32::try_from(param[0]) {
+            Ok(feature_id) => fwft.set(feature_id, param[1], param[2]),
+            _ => SbiRet::invalid_param(),
+        },
+        spec::fwft::GET => match u32::try_from(param[0]) {
+            Ok(feature_id) => fwft.get(feature_id),
+            _ => SbiRet::invalid_param(),
+        },
+        _ => SbiRet::not_supported(),
+    }
+}
+
+#[doc(hidden)]
+#[inline(always)]
 pub fn _rustsbi_dbtr<T: crate::Dbtr>(dbtr: &T, param: [usize; 6], function: usize) -> SbiRet {
     let [param0, param1] = [param[0], param[1]];
     match function {
@@ -564,4 +582,10 @@ pub fn _rustsbi_mpxy_probe<T: crate::Mpxy>(mpxy: &T) -> usize {
 #[inline(always)]
 pub fn _rustsbi_dbtr_probe<T: crate::Dbtr>(dbtr: &T) -> usize {
     dbtr._rustsbi_probe()
+}
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_fwft_probe<T: crate::Fwft>(fwft: &T) -> usize {
+    fwft._rustsbi_probe()
 }

@@ -4,6 +4,7 @@ use spin::Once;
 pub mod console;
 pub mod cppc;
 pub mod dbtr;
+pub mod fwft;
 pub mod hsm;
 pub mod ipi;
 pub mod mpxy;
@@ -24,6 +25,7 @@ pub mod trap_stack;
 use console::SbiConsole;
 use cppc::SbiCppc;
 use dbtr::SbiDbtr;
+use fwft::SbiFwft;
 use hsm::SbiHsm;
 use ipi::SbiIpi;
 use mpxy::SbiMpxy;
@@ -42,6 +44,8 @@ pub struct SbiDispatcher {
     cppc: Option<SbiCppc>,
     #[rustsbi(dbtr)]
     dbtr: Option<SbiDbtr>,
+    #[rustsbi(fwft)]
+    fwft: Option<SbiFwft>,
     #[rustsbi(ipi, timer)]
     ipi: Option<SbiIpi>,
     #[rustsbi(hsm)]
@@ -67,6 +71,7 @@ impl SbiDispatcher {
         console: Option<SbiConsole>,
         cppc: Option<SbiCppc>,
         dbtr: Option<SbiDbtr>,
+        fwft: Option<SbiFwft>,
         ipi: Option<SbiIpi>,
         hsm: Option<SbiHsm>,
         reset: Option<SbiReset>,
@@ -80,6 +85,7 @@ impl SbiDispatcher {
             console,
             cppc,
             dbtr,
+            fwft,
             ipi,
             hsm,
             reset,
@@ -126,6 +132,11 @@ pub(crate) fn cppc() -> Option<&'static SbiCppc> {
 /// Returns the dbtr extension, if present.
 pub(crate) fn dbtr() -> Option<&'static SbiDbtr> {
     SBI_DISPATCHER.get().and_then(|sbi| sbi.dbtr.as_ref())
+}
+
+/// Returns the fwft extension, if present.
+pub(crate) fn fwft() -> Option<&'static SbiFwft> {
+    SBI_DISPATCHER.get().and_then(|sbi| sbi.fwft.as_ref())
 }
 
 /// Returns the hsm extension, if present.

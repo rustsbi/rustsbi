@@ -11,6 +11,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Add RustSBI derive support for the SBI Message Proxy extension.
 - Add RustSBI derive support for the SBI Debug Triggers extension.
+- Add RustSBI derive support for the SBI Firmware Features extension.
 
 ### Modified
 
