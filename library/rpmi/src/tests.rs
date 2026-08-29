@@ -419,6 +419,16 @@ fn subtle_v1_encodings_are_locked_down() {
     );
     assert_eq!(device_power::StateValue::try_from(1), Err(1));
     assert_eq!(device_power::CONTEXT_LOST, 1 << 16);
+    assert_eq!(device_power::VENDOR_SPECIFIC_START, 0x1000);
+    assert_eq!(device_power::VENDOR_SPECIFIC_END, 0xffff);
+    assert_eq!(
+        device_power::StateValue::try_from(device_power::VENDOR_SPECIFIC_START),
+        Err(device_power::VENDOR_SPECIFIC_START)
+    );
+    assert_eq!(
+        device_power::StateValue::try_from(device_power::VENDOR_SPECIFIC_END),
+        Err(device_power::VENDOR_SPECIFIC_END)
+    );
     let suspend_info = hsm::SuspendInfoFlags::new(true);
     assert_eq!(suspend_info.bits(), 1);
     assert!(suspend_info.local_timer_stops());
@@ -498,8 +508,11 @@ fn independent_record_layouts_match_word_counts() {
     assert_eq!(state.value(), Ok(device_power::StateValue::Off));
     assert!(state.context_lost());
 
-    let unknown_state = device_power::PowerState::from_bits(0x0000_1000);
-    assert_eq!(unknown_state.value(), Err(0x1000));
+    let vendor_state = device_power::PowerState::from_bits(0x0000_1000);
+    assert_eq!(
+        vendor_state.value(),
+        Err(device_power::VENDOR_SPECIFIC_START)
+    );
 }
 
 #[test]

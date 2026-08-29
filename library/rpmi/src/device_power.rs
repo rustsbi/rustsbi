@@ -20,6 +20,10 @@ pub const GET_STATE: u8 = 0x05;
 const STATE_VALUE_MASK: u32 = 0x0000_ffff;
 /// Bit indicating that context is lost in the selected state.
 pub const CONTEXT_LOST: u32 = 1 << 16;
+/// First vendor-specific device-power state value.
+pub const VENDOR_SPECIFIC_START: u16 = 0x1000;
+/// Last vendor-specific device-power state value.
+pub const VENDOR_SPECIFIC_END: u16 = 0xffff;
 
 /// A device-power state value.
 #[repr(u16)]
