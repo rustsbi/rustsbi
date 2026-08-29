@@ -1,0 +1,18 @@
+[package]
+name = "rpmi"
+description = "Definitions and constants for the RISC-V Platform Management Interface (RPMI)"
+version = "0.0.0"
+authors = [
+    "Zhouqi Jiang <luojia@rustsbi.com>",
+    "Killy Jack <zicai@openatom.club>",
+]
+documentation = "https://docs.rs/rpmi"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["riscv", "rpmi"]
+categories = ["os", "embedded", "hardware-support", "no-std"]
+
+[dependencies]
+sbi-spec = { version = "0.0.10", path = "../sbi-spec" }
