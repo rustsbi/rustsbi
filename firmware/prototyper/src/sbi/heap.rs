@@ -1,24 +1,32 @@
-//! SBI heap backing store; the raw pool stays a `static mut` (its address
-//! is handed to the allocator once at init).
-#![allow(static_mut_refs)]
+//! Firmware heap allocator.
 
 use crate::cfg::HEAP_SIZE;
 use buddy_system_allocator::LockedHeap;
+use spin::Once;
 
 #[unsafe(link_section = ".bss.heap")]
-static mut HEAP: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
+static RAW_HEAP: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 
 const BUDDY_MAX_ORDER: usize = 20;
 #[global_allocator]
 static HEAP_ALLOCATOR: LockedHeap<BUDDY_MAX_ORDER> = LockedHeap::<BUDDY_MAX_ORDER>::empty();
 
-/// Initializes the global SBI heap allocator.
+static HEAP_INIT: Once<()> = Once::new();
+
+/// Initializes the global heap allocator.
+///
+/// Must be called exactly once, on the boot hart, before any allocation.
 pub fn init() {
-    unsafe {
-        HEAP_ALLOCATOR
-            .lock()
-            .init(HEAP.as_ptr() as usize, HEAP_SIZE);
-    }
+    HEAP_INIT.call_once(|| {
+        // SAFETY: `RAW_HEAP` is a BSS array whose address is handed to the
+        // allocator exactly once; after this call the allocator owns the
+        // region and no Rust reference to it is created again.
+        unsafe { HEAP_ALLOCATOR.lock().init(raw_heap_addr(), HEAP_SIZE) };
+    });
+}
+
+fn raw_heap_addr() -> usize {
+    core::ptr::addr_of!(RAW_HEAP) as usize
 }
 
 #[alloc_error_handler]
