@@ -525,6 +525,24 @@ static mut SBI_END_ADDRESS: usize = 0;
 static mut RODATA_START_ADDRESS: usize = 0;
 static mut RODATA_END_ADDRESS: usize = 0;
 
+pub(crate) fn supervisor_writable(start: usize, len: usize) -> bool {
+    let Some(end) = start.checked_add(len) else {
+        return false;
+    };
+
+    let memory = crate::platform::memory_range();
+    if start < memory.start || end > memory.end {
+        return false;
+    }
+
+    let (sbi_start, sbi_end) = unsafe { (SBI_START_ADDRESS, SBI_END_ADDRESS) };
+    if sbi_start == 0 || sbi_end == 0 {
+        return false;
+    }
+
+    end <= sbi_start || start >= sbi_end
+}
+
 pub fn set_pmp(memory_range: &Range<usize>) {
     unsafe {
         // [0..memory_range.start] RWX

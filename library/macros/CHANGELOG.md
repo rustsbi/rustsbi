@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Add RustSBI derive support for the SBI Message Proxy extension.
+
 ### Modified
 
 - Migrate rustsbi-macros crate to Rust 2024 edition.

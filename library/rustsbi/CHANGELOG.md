@@ -9,6 +9,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Add the SBI Message Proxy extension trait and dispatch support.
+
 ### Modified
 
 - deps: update `sbi-spec` to version 0.0.10.
