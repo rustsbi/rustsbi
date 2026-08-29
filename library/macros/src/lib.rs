@@ -30,6 +30,7 @@ struct StaticImpl {
     nacl: Option<Member>,
     sta: Option<Member>,
     mpxy: Option<Member>,
+    dbtr: Option<Member>,
     env_info: Option<Member>,
 }
 
@@ -52,6 +53,7 @@ impl StaticImpl {
             "nacl" => (true, self.nacl.replace(member)),
             "sta" => (true, self.sta.replace(member)),
             "mpxy" => (true, self.mpxy.replace(member)),
+            "dbtr" => (true, self.dbtr.replace(member)),
             "info" | "env_info" => (true, self.env_info.replace(member)),
             _ => (false, None),
         }
@@ -72,6 +74,7 @@ struct DynamicImpl {
     nacl: Vec<Member>,
     sta: Vec<Member>,
     mpxy: Vec<Member>,
+    dbtr: Vec<Member>,
     env_info: Option<Member>,
 }
 
@@ -90,6 +93,7 @@ impl DynamicImpl {
             "nacl" => self.nacl.push(member),
             "sta" => self.sta.push(member),
             "mpxy" => self.mpxy.push(member),
+            "dbtr" => self.dbtr.push(member),
             "info" | "env_info" => return self.env_info.replace(member).is_none(),
             _ => return false,
         }
@@ -249,6 +253,7 @@ fn impl_derive_rustsbi_static(name: &Ident, imp: StaticImpl, generics: &Generics
     let nacl_probe: usize = if imp.nacl.is_some() { 1 } else { 0 };
     let sta_probe: usize = if imp.sta.is_some() { 1 } else { 0 };
     let mpxy_probe: usize = if imp.mpxy.is_some() { 1 } else { 0 };
+    let dbtr_probe: usize = if imp.dbtr.is_some() { 1 } else { 0 };
     let probe = quote! {
         ::rustsbi::_StandardExtensionProbe {
             base: #base_probe,
@@ -264,6 +269,7 @@ fn impl_derive_rustsbi_static(name: &Ident, imp: StaticImpl, generics: &Generics
             nacl: #nacl_probe,
             sta: #sta_probe,
             mpxy: #mpxy_probe,
+            dbtr: #dbtr_probe,
         }
     };
     let mut match_arms = quote! {};
@@ -346,6 +352,11 @@ fn impl_derive_rustsbi_static(name: &Ident, imp: StaticImpl, generics: &Generics
     if let Some(mpxy) = &imp.mpxy {
         match_arms.extend(quote! {
             ::rustsbi::spec::mpxy::EID_MPXY => ::rustsbi::_rustsbi_mpxy(&self.#mpxy, param, function),
+        })
+    }
+    if let Some(dbtr) = &imp.dbtr {
+        match_arms.extend(quote! {
+            ::rustsbi::spec::dbtr::EID_DBTR => ::rustsbi::_rustsbi_dbtr(&self.#dbtr, param, function),
         })
     }
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
@@ -544,6 +555,21 @@ fn impl_derive_rustsbi_dynamic(name: &Ident, imp: DynamicImpl, generics: &Generi
             }
         });
     }
+    let mut dbtr_contents = quote! {};
+    let mut prober_dbtr = quote! {};
+    for dbtr in &imp.dbtr {
+        dbtr_contents.extend(quote! {
+            if ::rustsbi::_rustsbi_dbtr_probe(&self.#dbtr) != ::rustsbi::spec::base::UNAVAILABLE_EXTENSION {
+                return ::rustsbi::_rustsbi_dbtr(&self.#dbtr, param, function)
+            }
+        });
+        prober_dbtr.extend(quote! {
+            let value = ::rustsbi::_rustsbi_dbtr_probe(&self.0.#dbtr);
+            if value != ::rustsbi::spec::base::UNAVAILABLE_EXTENSION {
+                return value
+            }
+        });
+    }
 
     let (_, origin_ty_generics, _) = generics.split_for_impl();
     let prober_generics = {
@@ -574,6 +600,7 @@ fn impl_derive_rustsbi_dynamic(name: &Ident, imp: DynamicImpl, generics: &Generi
                     ::rustsbi::spec::nacl::EID_NACL => { #prober_nacl ::rustsbi::spec::base::UNAVAILABLE_EXTENSION },
                     ::rustsbi::spec::sta::EID_STA => { #prober_sta ::rustsbi::spec::base::UNAVAILABLE_EXTENSION},
                     ::rustsbi::spec::mpxy::EID_MPXY => { #prober_mpxy ::rustsbi::spec::base::UNAVAILABLE_EXTENSION},
+                    ::rustsbi::spec::dbtr::EID_DBTR => { #prober_dbtr ::rustsbi::spec::base::UNAVAILABLE_EXTENSION},
                     _ => ::rustsbi::spec::base::UNAVAILABLE_EXTENSION,
                 }
             }
@@ -617,6 +644,7 @@ fn impl_derive_rustsbi_dynamic(name: &Ident, imp: DynamicImpl, generics: &Generi
                     ::rustsbi::spec::nacl::EID_NACL => { #nacl_contents ::rustsbi::SbiRet::not_supported() },
                     ::rustsbi::spec::sta::EID_STA => { #sta_contents ::rustsbi::SbiRet::not_supported() },
                     ::rustsbi::spec::mpxy::EID_MPXY => { #mpxy_contents ::rustsbi::SbiRet::not_supported() },
+                    ::rustsbi::spec::dbtr::EID_DBTR => { #dbtr_contents ::rustsbi::SbiRet::not_supported() },
                     ::rustsbi::spec::base::EID_BASE => {
                         #define_prober
                         let prober = _Prober(&self);

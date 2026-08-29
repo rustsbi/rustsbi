@@ -3,6 +3,7 @@ use spin::Once;
 
 pub mod console;
 pub mod cppc;
+pub mod dbtr;
 pub mod hsm;
 pub mod ipi;
 pub mod mpxy;
@@ -22,6 +23,7 @@ pub mod trap_stack;
 
 use console::SbiConsole;
 use cppc::SbiCppc;
+use dbtr::SbiDbtr;
 use hsm::SbiHsm;
 use ipi::SbiIpi;
 use mpxy::SbiMpxy;
@@ -38,6 +40,8 @@ pub struct SbiDispatcher {
     console: Option<SbiConsole>,
     #[rustsbi(cppc)]
     cppc: Option<SbiCppc>,
+    #[rustsbi(dbtr)]
+    dbtr: Option<SbiDbtr>,
     #[rustsbi(ipi, timer)]
     ipi: Option<SbiIpi>,
     #[rustsbi(hsm)]
@@ -62,6 +66,7 @@ impl SbiDispatcher {
     pub(crate) fn new(
         console: Option<SbiConsole>,
         cppc: Option<SbiCppc>,
+        dbtr: Option<SbiDbtr>,
         ipi: Option<SbiIpi>,
         hsm: Option<SbiHsm>,
         reset: Option<SbiReset>,
@@ -74,6 +79,7 @@ impl SbiDispatcher {
         SbiDispatcher {
             console,
             cppc,
+            dbtr,
             ipi,
             hsm,
             reset,
@@ -115,6 +121,11 @@ pub(crate) fn ipi() -> Option<&'static SbiIpi> {
 /// Returns the cppc extension, if present.
 pub(crate) fn cppc() -> Option<&'static SbiCppc> {
     SBI_DISPATCHER.get().and_then(|sbi| sbi.cppc.as_ref())
+}
+
+/// Returns the dbtr extension, if present.
+pub(crate) fn dbtr() -> Option<&'static SbiDbtr> {
+    SBI_DISPATCHER.get().and_then(|sbi| sbi.dbtr.as_ref())
 }
 
 /// Returns the hsm extension, if present.

@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SBI Collaborative Processor Performance Control extension support to RustSBI Prototyper.
 - Add SBI Message Proxy extension support to RustSBI Prototyper.
 - Add SBI Steal-time Accounting extension support to RustSBI Prototyper.
+- Add SBI Debug Triggers extension support to RustSBI Prototyper.
 - Add AIA IMSIC IPI backend support for RustSBI Prototyper.
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 

@@ -14,6 +14,7 @@ use crate::riscv::spacemit_k1;
 use crate::sbi;
 use crate::sbi::SbiDispatcher;
 use crate::sbi::cppc::SbiCppc;
+use crate::sbi::dbtr::SbiDbtr;
 use crate::sbi::hsm::SbiHsm;
 use crate::sbi::rfence::SbiRFence;
 use crate::sbi::sta::SbiSta;
@@ -34,6 +35,7 @@ pub fn init_board(fdt_address: usize) {
     board.discover_console(&root);
     let console = sbi::console::init(&board);
     let cppc = Some(SbiCppc::new());
+    let dbtr = Some(SbiDbtr);
     // Get other info that later platform initialization depends on.
     let cpu_list = board.discover_misc(&tree);
     publish_cpu_enabled(cpu_list);
@@ -52,7 +54,9 @@ pub fn init_board(fdt_address: usize) {
     // Publish the SBI extension set before the K1 detect / READY release,
     // so that harts observing `READY` also observe the published dispatcher.
     sbi::SBI_DISPATCHER.call_once(|| {
-        SbiDispatcher::new(console, cppc, ipi, hsm, reset, rfence, susp, pmu, sta, mpxy)
+        SbiDispatcher::new(
+            console, cppc, dbtr, ipi, hsm, reset, rfence, susp, pmu, sta, mpxy,
+        )
     });
 
     // Publish the board facts before the K1 detect / READY release, so that
