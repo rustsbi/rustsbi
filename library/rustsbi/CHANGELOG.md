@@ -12,6 +12,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Add the SBI Message Proxy extension trait and dispatch support.
 - Add the SBI Debug Triggers extension trait and dispatch support.
 - Add the SBI Firmware Features extension trait and dispatch support.
+- Add the SBI Supervisor Software Events extension trait and dispatch support.
 
 ### Modified
 

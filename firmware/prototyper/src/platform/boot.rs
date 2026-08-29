@@ -19,6 +19,7 @@ use crate::sbi::fwft::SbiFwft;
 use crate::sbi::hsm::SbiHsm;
 use crate::sbi::nacl::SbiNacl;
 use crate::sbi::rfence::SbiRFence;
+use crate::sbi::sse::SbiSse;
 use crate::sbi::sta::SbiSta;
 use crate::sbi::suspend::SbiSuspend;
 
@@ -54,12 +55,14 @@ pub fn init_board(fdt_address: usize) {
     let mpxy = Some(sbi::mpxy::SbiMpxy::new());
     let sta = Some(SbiSta);
     let nacl = Some(SbiNacl);
+    // Keep SSE unavailable until supervisor handler context switching is implemented.
+    let sse: Option<SbiSse> = None;
 
     // Publish the SBI extension set before the K1 detect / READY release,
     // so that harts observing `READY` also observe the published dispatcher.
     sbi::SBI_DISPATCHER.call_once(|| {
         SbiDispatcher::new(
-            console, cppc, dbtr, fwft, ipi, hsm, reset, rfence, susp, pmu, sta, mpxy, nacl,
+            console, cppc, dbtr, fwft, ipi, hsm, reset, rfence, susp, pmu, sta, mpxy, nacl, sse,
         )
     });
 

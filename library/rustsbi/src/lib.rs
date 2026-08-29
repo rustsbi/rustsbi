@@ -551,6 +551,7 @@ mod nacl;
 mod pmu;
 mod reset;
 mod rfence;
+mod sse;
 mod sta;
 mod susp;
 mod timer;
@@ -848,6 +849,7 @@ pub use sbi_spec::binary::{CounterMask, HartMask, Physical, SbiRet, SharedPtr};
 /// | `mpxy` | [`Mpxy`](trait.Mpxy.html) | Message Proxy extension |
 /// | `dbtr` | [`Dbtr`](trait.Dbtr.html) | Debug Triggers extension |
 /// | `fwft` | [`Fwft`](trait.Fwft.html) | Firmware Features extension |
+/// | `sse` | [`Sse`](trait.Sse.html) | Supervisor Software Events extension |
 ///
 /// The `EnvInfo` parameter is used by RISC-V SBI Base extension which is always supported on all
 /// RISC-V SBI implementations. RustSBI provides the Base extension with additional `EnvInfo` by default.
@@ -1142,6 +1144,7 @@ pub use nacl::Nacl;
 pub use pmu::Pmu;
 pub use reset::Reset;
 pub use rfence::Rfence as Fence;
+pub use sse::Sse;
 pub use sta::Sta;
 pub use susp::Susp;
 pub use timer::Timer;
@@ -1158,13 +1161,13 @@ pub use traits::_rustsbi_base_bare;
 pub use traits::{
     _ExtensionProbe, _StandardExtensionProbe, _rustsbi_base_env_info, _rustsbi_console,
     _rustsbi_cppc, _rustsbi_dbtr, _rustsbi_fence, _rustsbi_fwft, _rustsbi_hsm, _rustsbi_ipi,
-    _rustsbi_mpxy, _rustsbi_nacl, _rustsbi_pmu, _rustsbi_reset, _rustsbi_sta, _rustsbi_susp,
-    _rustsbi_timer,
+    _rustsbi_mpxy, _rustsbi_nacl, _rustsbi_pmu, _rustsbi_reset, _rustsbi_sse, _rustsbi_sta,
+    _rustsbi_susp, _rustsbi_timer,
 };
 #[doc(hidden)]
 pub use traits::{
     _rustsbi_console_probe, _rustsbi_cppc_probe, _rustsbi_dbtr_probe, _rustsbi_fence_probe,
     _rustsbi_fwft_probe, _rustsbi_hsm_probe, _rustsbi_ipi_probe, _rustsbi_mpxy_probe,
-    _rustsbi_nacl_probe, _rustsbi_pmu_probe, _rustsbi_reset_probe, _rustsbi_sta_probe,
-    _rustsbi_susp_probe, _rustsbi_timer_probe,
+    _rustsbi_nacl_probe, _rustsbi_pmu_probe, _rustsbi_reset_probe, _rustsbi_sse_probe,
+    _rustsbi_sta_probe, _rustsbi_susp_probe, _rustsbi_timer_probe,
 };
