@@ -21,8 +21,7 @@ enum EventState {
     Unused = 0,
     Registered = 1,
     Enabled = 2,
-    Disabled = 3,
-    Running = 4,
+    Running = 3,
 }
 
 #[derive(Clone, Copy)]
@@ -58,11 +57,13 @@ fn current_hart() -> usize {
 }
 
 fn checked_supervisor_buffer(ptr: SharedPtr<u8>, len: usize) -> Result<usize, SbiRet> {
-    if ptr.phys_addr_hi() != 0 {
-        return Err(SbiRet::invalid_param());
+    let start = ptr.phys_addr_lo();
+    // The shared memory must be `XLEN / 8` bytes aligned and lie in the
+    // first 4 GiB (mirroring OpenSBI `sbi_sse_attr_check`).
+    if start & (core::mem::size_of::<usize>() - 1) != 0 || ptr.phys_addr_hi() != 0 {
+        return Err(SbiRet::invalid_address());
     }
 
-    let start = ptr.phys_addr_lo();
     if !crate::firmware::supervisor_writable(start, len) {
         return Err(SbiRet::invalid_address());
     }
@@ -84,7 +85,7 @@ impl rustsbi::Sse for SbiSse {
         if attr_count == 0 {
             return SbiRet::invalid_param();
         }
-        let Some(len) = (attr_count as usize).checked_mul(4) else {
+        let Some(len) = (attr_count as usize).checked_mul(core::mem::size_of::<usize>()) else {
             return SbiRet::invalid_param();
         };
         let base = match checked_supervisor_buffer(output, len) {
@@ -99,12 +100,13 @@ impl rustsbi::Sse for SbiSse {
                 return SbiRet::bad_range();
             };
             let value = match attr_id {
-                0 => event.state as u32,
-                1 => event.priority,
+                0 => (event.state as usize) | ((event.pending as usize) << 2) | (1 << 3),
+                1 => event.priority as usize,
                 _ => return SbiRet::bad_range(),
             };
             unsafe {
-                (base.add(i as usize * 4) as *mut u32).write_volatile(value.to_le());
+                (base.add(i as usize * core::mem::size_of::<usize>()) as *mut usize)
+                    .write_volatile(value.to_le());
             }
         }
         SbiRet::success(0)
@@ -123,7 +125,7 @@ impl rustsbi::Sse for SbiSse {
         if attr_count == 0 {
             return SbiRet::invalid_param();
         }
-        let Some(len) = (attr_count as usize).checked_mul(4) else {
+        let Some(len) = (attr_count as usize).checked_mul(core::mem::size_of::<usize>()) else {
             return SbiRet::invalid_param();
         };
         let base = match checked_supervisor_buffer(input, len) {
@@ -136,10 +138,24 @@ impl rustsbi::Sse for SbiSse {
             let Some(attr_id) = base_attr_id.checked_add(i) else {
                 return SbiRet::bad_range();
             };
-            let value = unsafe { (base.add(i as usize * 4) as *const u32).read_volatile() };
+            let value = unsafe {
+                (base.add(i as usize * core::mem::size_of::<usize>()) as *const usize)
+                    .read_volatile()
+            };
             match attr_id {
                 0 => return SbiRet::denied(),
-                1 => events[idx].priority = value,
+                1 => {
+                    if !matches!(
+                        events[idx].state,
+                        EventState::Unused | EventState::Registered
+                    ) {
+                        return SbiRet::invalid_state();
+                    }
+                    match u32::try_from(usize::from_le(value)) {
+                        Ok(priority) => events[idx].priority = priority,
+                        Err(_) => return SbiRet::invalid_param(),
+                    }
+                }
                 _ => return SbiRet::bad_range(),
             }
         }
@@ -150,6 +166,9 @@ impl rustsbi::Sse for SbiSse {
         let Some(idx) = event_index(event_id) else {
             return SbiRet::not_supported();
         };
+        if handler_entry_pc & 1 != 0 {
+            return SbiRet::invalid_param();
+        }
         let mut events = EVENTS[current_hart()].lock();
         let event = &mut events[idx];
         if event.state != EventState::Unused {
@@ -168,16 +187,14 @@ impl rustsbi::Sse for SbiSse {
         };
         let mut events = EVENTS[current_hart()].lock();
         let event = &mut events[idx];
-        match event.state {
-            EventState::Registered | EventState::Disabled => {
-                event.handler_pc = 0;
-                event.handler_arg = 0;
-                event.pending = false;
-                event.state = EventState::Unused;
-                SbiRet::success(0)
-            }
-            _ => SbiRet::invalid_state(),
+        if event.state != EventState::Registered {
+            return SbiRet::invalid_state();
         }
+        event.handler_pc = 0;
+        event.handler_arg = 0;
+        event.pending = false;
+        event.state = EventState::Unused;
+        SbiRet::success(0)
     }
 
     fn enable(&self, event_id: u32) -> SbiRet {
@@ -186,13 +203,11 @@ impl rustsbi::Sse for SbiSse {
         };
         let mut events = EVENTS[current_hart()].lock();
         let event = &mut events[idx];
-        match event.state {
-            EventState::Registered | EventState::Disabled => {
-                event.state = EventState::Enabled;
-                SbiRet::success(0)
-            }
-            _ => SbiRet::invalid_state(),
+        if event.state != EventState::Registered {
+            return SbiRet::invalid_state();
         }
+        event.state = EventState::Enabled;
+        SbiRet::success(0)
     }
 
     fn disable(&self, event_id: u32) -> SbiRet {
@@ -201,26 +216,25 @@ impl rustsbi::Sse for SbiSse {
         };
         let mut events = EVENTS[current_hart()].lock();
         let event = &mut events[idx];
-        match event.state {
-            EventState::Enabled | EventState::Running => {
-                event.state = EventState::Disabled;
-                event.pending = false;
-                SbiRet::success(0)
-            }
-            _ => SbiRet::invalid_state(),
+        if event.state != EventState::Enabled {
+            return SbiRet::invalid_state();
         }
+        event.state = EventState::Registered;
+        event.pending = false;
+        SbiRet::success(0)
     }
 
     fn complete(&self) -> SbiRet {
         let mut events = EVENTS[current_hart()].lock();
-        for event in events.iter_mut() {
-            if event.state == EventState::Running {
-                event.state = EventState::Enabled;
-                event.pending = false;
-                return SbiRet::success(0);
-            }
+        if let Some(event) = events
+            .iter_mut()
+            .filter(|event| event.state == EventState::Running)
+            .min_by_key(|event| event.priority)
+        {
+            event.state = EventState::Enabled;
+            event.pending = false;
         }
-        SbiRet::invalid_state()
+        SbiRet::success(0)
     }
 
     fn inject(&self, event_id: u32, hart_id: usize) -> SbiRet {
@@ -232,19 +246,22 @@ impl rustsbi::Sse for SbiSse {
         };
         let mut events = events.lock();
         let event = &mut events[idx];
-        if event.state != EventState::Enabled {
+        if !matches!(event.state, EventState::Enabled | EventState::Running) {
             return SbiRet::invalid_state();
         }
         event.pending = true;
         if !HART_MASKED[hart_id].load(Ordering::Acquire) {
             event.state = EventState::Running;
+            event.pending = false;
         }
         SbiRet::success(0)
     }
 
     fn hart_unmask(&self) -> SbiRet {
         let hart_id = current_hart();
-        HART_MASKED[hart_id].store(false, Ordering::Release);
+        if !HART_MASKED[hart_id].swap(false, Ordering::AcqRel) {
+            return SbiRet::already_started();
+        }
         let mut events = EVENTS[hart_id].lock();
         if let Some(event) = events
             .iter_mut()
@@ -252,12 +269,16 @@ impl rustsbi::Sse for SbiSse {
             .min_by_key(|event| event.priority)
         {
             event.state = EventState::Running;
+            event.pending = false;
         }
         SbiRet::success(0)
     }
 
     fn hart_mask(&self) -> SbiRet {
-        HART_MASKED[current_hart()].store(true, Ordering::Release);
+        let hart_id = current_hart();
+        if HART_MASKED[hart_id].swap(true, Ordering::AcqRel) {
+            return SbiRet::already_stopped();
+        }
         SbiRet::success(0)
     }
 }
