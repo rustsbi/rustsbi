@@ -8,6 +8,7 @@ pub mod fwft;
 pub mod hsm;
 pub mod ipi;
 pub mod mpxy;
+pub mod nacl;
 pub mod pmu;
 pub mod reset;
 pub mod rfence;
@@ -29,6 +30,7 @@ use fwft::SbiFwft;
 use hsm::SbiHsm;
 use ipi::SbiIpi;
 use mpxy::SbiMpxy;
+use nacl::SbiNacl;
 use pmu::SbiPmu;
 use reset::SbiReset;
 use rfence::SbiRFence;
@@ -58,6 +60,8 @@ pub struct SbiDispatcher {
     pmu: Option<SbiPmu>,
     #[rustsbi(sta)]
     sta: Option<SbiSta>,
+    #[rustsbi(nacl)]
+    nacl: Option<SbiNacl>,
     #[rustsbi(susp)]
     susp: Option<SbiSuspend>,
     #[rustsbi(mpxy)]
@@ -80,6 +84,7 @@ impl SbiDispatcher {
         pmu: Option<SbiPmu>,
         sta: Option<SbiSta>,
         mpxy: Option<SbiMpxy>,
+        nacl: Option<SbiNacl>,
     ) -> Self {
         SbiDispatcher {
             console,
@@ -94,6 +99,7 @@ impl SbiDispatcher {
             sta,
             susp,
             mpxy,
+            nacl,
         }
     }
 }
