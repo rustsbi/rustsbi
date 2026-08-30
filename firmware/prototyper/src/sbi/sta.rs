@@ -1,5 +1,13 @@
+use core::sync::atomic::{AtomicUsize, Ordering};
+
 use rustsbi::SbiRet;
 use sbi_spec::binary::SharedPtr;
+
+use crate::cfg::NUM_HART_MAX;
+use crate::riscv::current_hartid;
+
+// A zero address disables reporting for that hart.
+static STA_SHMEM: [AtomicUsize; NUM_HART_MAX] = [const { AtomicUsize::new(0) }; NUM_HART_MAX];
 
 /// Steal-time Accounting extension using supervisor-provided shared memory.
 pub(crate) struct SbiSta;
@@ -15,12 +23,15 @@ impl rustsbi::Sta for SbiSta {
 
         // All-ones shared pointer disables steal-time reporting.
         if hi == usize::MAX && lo == usize::MAX {
+            STA_SHMEM[current_hartid()].store(0, Ordering::Release);
             return SbiRet::success(0);
         }
 
-        // STA requires a 64-byte aligned native physical address.
-        if lo & 0x3f != 0 || hi != 0 {
+        if lo & 0x3f != 0 {
             return SbiRet::invalid_param();
+        }
+        if hi != 0 {
+            return SbiRet::invalid_address();
         }
 
         if !crate::firmware::supervisor_writable(lo, 64) {
@@ -32,9 +43,10 @@ impl rustsbi::Sta for SbiSta {
         // firmware memory.
         unsafe {
             core::ptr::write_bytes(lo as *mut u8, 0, 64);
-            core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+            core::sync::atomic::fence(Ordering::SeqCst);
         }
 
+        STA_SHMEM[current_hartid()].store(lo, Ordering::Release);
         SbiRet::success(0)
     }
 }
