@@ -1,17 +1,21 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use rustsbi::SbiRet;
-use sbi_spec::binary::SharedPtr;
+use sbi_spec::{
+    binary::SharedPtr,
+    sse::{attr_id, event_id},
+};
 use spin::Mutex;
 
-/// Implementation of SBI Supervisor Software Events (SSE) extension.
+/// Tracks local Supervisor Software Events (SSE) state for the prototyper.
 ///
-/// This is a minimal local-event implementation mirroring the OpenSBI SSE
-/// state machine. Global events are rejected as not supported.
+/// The boot path keeps this extension unavailable because event delivery and
+/// completion do not yet switch supervisor context. Global events are also not
+/// implemented.
 pub(crate) struct SbiSse;
 
-/// Platform-supported local SSE event IDs.
-const SUPPORTED_EVENTS: &[u32] = &[0x1, 0x2, 0x3];
+/// Events whose source is implemented by the current state tracker.
+const SUPPORTED_EVENTS: &[u32] = &[event_id::SOFTWARE_INJECTED_LOCAL];
 
 const EVENT_COUNT: usize = SUPPORTED_EVENTS.len();
 
@@ -26,6 +30,8 @@ enum EventState {
 
 #[derive(Clone, Copy)]
 struct EventRecord {
+    // FIXME: Model CONFIG through INTERRUPTED_A7 (attribute IDs 2 through 9)
+    // before the prototyper advertises SSE support.
     state: EventState,
     pending: bool,
     handler_pc: usize,
@@ -48,21 +54,55 @@ static EVENTS: [Mutex<[EventRecord; EVENT_COUNT]>; crate::cfg::NUM_HART_MAX] =
 static HART_MASKED: [AtomicBool; crate::cfg::NUM_HART_MAX] =
     [const { AtomicBool::new(true) }; crate::cfg::NUM_HART_MAX];
 
-fn event_index(event_id: u32) -> Option<usize> {
-    SUPPORTED_EVENTS.iter().position(|&id| id == event_id)
+fn valid_event_id(event_id: u32) -> bool {
+    event_id & 0x0000_4000 != 0
+        || matches!(
+            event_id,
+            event_id::LOCAL_HIGH_PRIORITY_RAS
+                | event_id::LOCAL_DOUBLE_TRAP
+                | event_id::GLOBAL_HIGH_PRIORITY_RAS
+                | event_id::LOCAL_PMU_OVERFLOW
+                | event_id::LOCAL_LOW_PRIORITY_RAS
+                | event_id::GLOBAL_LOW_PRIORITY_RAS
+                | event_id::SOFTWARE_INJECTED_LOCAL
+                | event_id::SOFTWARE_INJECTED_GLOBAL
+        )
+}
+
+fn event_index(event_id: u32) -> Result<usize, SbiRet> {
+    match SUPPORTED_EVENTS.iter().position(|&id| id == event_id) {
+        Some(index) => Ok(index),
+        None if valid_event_id(event_id) => Err(SbiRet::not_supported()),
+        None => Err(SbiRet::invalid_param()),
+    }
 }
 
 fn current_hart() -> usize {
     crate::riscv::current_hartid()
 }
 
-fn checked_supervisor_buffer(ptr: SharedPtr<u8>, len: usize) -> Result<usize, SbiRet> {
+fn checked_supervisor_buffer(
+    ptr: SharedPtr<u8>,
+    base_attr_id: u32,
+    attr_count: u32,
+) -> Result<usize, SbiRet> {
     let start = ptr.phys_addr_lo();
-    // The shared memory must be `XLEN / 8` bytes aligned and lie in the
-    // first 4 GiB (mirroring OpenSBI `sbi_sse_attr_check`).
+    // Attribute buffers are XLEN-aligned. The prototyper currently accepts
+    // only addresses whose upper physical-address word is zero.
     if start & (core::mem::size_of::<usize>() - 1) != 0 || ptr.phys_addr_hi() != 0 {
         return Err(SbiRet::invalid_address());
     }
+
+    let attr_size = core::mem::size_of::<usize>();
+    let Some(offset) = (base_attr_id as usize).checked_mul(attr_size) else {
+        return Err(SbiRet::bad_range());
+    };
+    let Some(len) = (attr_count as usize).checked_mul(attr_size) else {
+        return Err(SbiRet::invalid_param());
+    };
+    let Some(start) = start.checked_add(offset) else {
+        return Err(SbiRet::invalid_address());
+    };
 
     if !crate::firmware::supervisor_writable(start, len) {
         return Err(SbiRet::invalid_address());
@@ -79,16 +119,14 @@ impl rustsbi::Sse for SbiSse {
         attr_count: u32,
         output: SharedPtr<u8>,
     ) -> SbiRet {
-        let Some(idx) = event_index(event_id) else {
-            return SbiRet::not_supported();
+        let idx = match event_index(event_id) {
+            Ok(idx) => idx,
+            Err(err) => return err,
         };
         if attr_count == 0 {
             return SbiRet::invalid_param();
         }
-        let Some(len) = (attr_count as usize).checked_mul(core::mem::size_of::<usize>()) else {
-            return SbiRet::invalid_param();
-        };
-        let base = match checked_supervisor_buffer(output, len) {
+        let base = match checked_supervisor_buffer(output, base_attr_id, attr_count) {
             Ok(base) => base as *mut u8,
             Err(err) => return err,
         };
@@ -100,8 +138,10 @@ impl rustsbi::Sse for SbiSse {
                 return SbiRet::bad_range();
             };
             let value = match attr_id {
-                0 => (event.state as usize) | ((event.pending as usize) << 2) | (1 << 3),
-                1 => event.priority as usize,
+                attr_id::STATUS => {
+                    (event.state as usize) | ((event.pending as usize) << 2) | (1 << 3)
+                }
+                attr_id::PRIORITY => event.priority as usize,
                 _ => return SbiRet::bad_range(),
             };
             unsafe {
@@ -119,16 +159,14 @@ impl rustsbi::Sse for SbiSse {
         attr_count: u32,
         input: SharedPtr<u8>,
     ) -> SbiRet {
-        let Some(idx) = event_index(event_id) else {
-            return SbiRet::not_supported();
+        let idx = match event_index(event_id) {
+            Ok(idx) => idx,
+            Err(err) => return err,
         };
         if attr_count == 0 {
             return SbiRet::invalid_param();
         }
-        let Some(len) = (attr_count as usize).checked_mul(core::mem::size_of::<usize>()) else {
-            return SbiRet::invalid_param();
-        };
-        let base = match checked_supervisor_buffer(input, len) {
+        let base = match checked_supervisor_buffer(input, base_attr_id, attr_count) {
             Ok(base) => base as *const u8,
             Err(err) => return err,
         };
@@ -143,8 +181,8 @@ impl rustsbi::Sse for SbiSse {
                     .read_volatile()
             };
             match attr_id {
-                0 => return SbiRet::denied(),
-                1 => {
+                attr_id::STATUS => return SbiRet::denied(),
+                attr_id::PRIORITY => {
                     if !matches!(
                         events[idx].state,
                         EventState::Unused | EventState::Registered
@@ -163,8 +201,9 @@ impl rustsbi::Sse for SbiSse {
     }
 
     fn register(&self, event_id: u32, handler_entry_pc: usize, handler_entry_arg: usize) -> SbiRet {
-        let Some(idx) = event_index(event_id) else {
-            return SbiRet::not_supported();
+        let idx = match event_index(event_id) {
+            Ok(idx) => idx,
+            Err(err) => return err,
         };
         if handler_entry_pc & 1 != 0 {
             return SbiRet::invalid_param();
@@ -176,14 +215,14 @@ impl rustsbi::Sse for SbiSse {
         }
         event.handler_pc = handler_entry_pc;
         event.handler_arg = handler_entry_arg;
-        event.pending = false;
         event.state = EventState::Registered;
         SbiRet::success(0)
     }
 
     fn unregister(&self, event_id: u32) -> SbiRet {
-        let Some(idx) = event_index(event_id) else {
-            return SbiRet::not_supported();
+        let idx = match event_index(event_id) {
+            Ok(idx) => idx,
+            Err(err) => return err,
         };
         let mut events = EVENTS[current_hart()].lock();
         let event = &mut events[idx];
@@ -192,14 +231,14 @@ impl rustsbi::Sse for SbiSse {
         }
         event.handler_pc = 0;
         event.handler_arg = 0;
-        event.pending = false;
         event.state = EventState::Unused;
         SbiRet::success(0)
     }
 
     fn enable(&self, event_id: u32) -> SbiRet {
-        let Some(idx) = event_index(event_id) else {
-            return SbiRet::not_supported();
+        let idx = match event_index(event_id) {
+            Ok(idx) => idx,
+            Err(err) => return err,
         };
         let mut events = EVENTS[current_hart()].lock();
         let event = &mut events[idx];
@@ -207,12 +246,20 @@ impl rustsbi::Sse for SbiSse {
             return SbiRet::invalid_state();
         }
         event.state = EventState::Enabled;
+        let hart_id = current_hart();
+        if event.pending && !HART_MASKED[hart_id].load(Ordering::Acquire) {
+            // FIXME: Deliver the event by switching supervisor context before
+            // the prototyper advertises SSE support.
+            event.state = EventState::Running;
+            event.pending = false;
+        }
         SbiRet::success(0)
     }
 
     fn disable(&self, event_id: u32) -> SbiRet {
-        let Some(idx) = event_index(event_id) else {
-            return SbiRet::not_supported();
+        let idx = match event_index(event_id) {
+            Ok(idx) => idx,
+            Err(err) => return err,
         };
         let mut events = EVENTS[current_hart()].lock();
         let event = &mut events[idx];
@@ -220,11 +267,13 @@ impl rustsbi::Sse for SbiSse {
             return SbiRet::invalid_state();
         }
         event.state = EventState::Registered;
-        event.pending = false;
         SbiRet::success(0)
     }
 
     fn complete(&self) -> SbiRet {
+        // FIXME: SBI 3.0 completion must restore the interrupted PC, privilege
+        // mode, supervisor and virtualization flags, and the saved a6/a7
+        // registers. This state-only transition is why SSE remains disabled.
         let mut events = EVENTS[current_hart()].lock();
         if let Some(event) = events
             .iter_mut()
@@ -232,25 +281,31 @@ impl rustsbi::Sse for SbiSse {
             .min_by_key(|event| event.priority)
         {
             event.state = EventState::Enabled;
-            event.pending = false;
         }
         SbiRet::success(0)
     }
 
     fn inject(&self, event_id: u32, hart_id: usize) -> SbiRet {
-        let Some(idx) = event_index(event_id) else {
-            return SbiRet::not_supported();
+        let idx = match event_index(event_id) {
+            Ok(idx) => idx,
+            Err(err) => return err,
         };
+        let hart_enabled = crate::platform::cpu_enabled()
+            .and_then(|enabled| enabled.get(hart_id).copied())
+            .unwrap_or(false);
+        if !hart_enabled {
+            return SbiRet::invalid_param();
+        }
         let Some(events) = EVENTS.get(hart_id) else {
             return SbiRet::invalid_param();
         };
         let mut events = events.lock();
         let event = &mut events[idx];
-        if !matches!(event.state, EventState::Enabled | EventState::Running) {
-            return SbiRet::invalid_state();
-        }
         event.pending = true;
-        if !HART_MASKED[hart_id].load(Ordering::Acquire) {
+        if event.state == EventState::Enabled && !HART_MASKED[hart_id].load(Ordering::Acquire) {
+            // FIXME: Before entering RUNNING, save the interrupted supervisor
+            // context and redirect execution to the registered ENTRY_PC with
+            // the specified ENTRY_ARG.
             event.state = EventState::Running;
             event.pending = false;
         }
@@ -268,6 +323,8 @@ impl rustsbi::Sse for SbiSse {
             .filter(|event| event.state == EventState::Enabled && event.pending)
             .min_by_key(|event| event.priority)
         {
+            // FIXME: Deliver this event through the supervisor context switch
+            // described in `inject` instead of changing only its state.
             event.state = EventState::Running;
             event.pending = false;
         }
