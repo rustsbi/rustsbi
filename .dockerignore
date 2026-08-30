@@ -1,0 +1,14 @@
+/target
+/.git
+/.idea
+/.DS_Store
+/.codex
+/.humanize
+arceboot/mnt/
+arceboot/myramdisk/
+arceboot/mnt_fat32/
+arceboot/edk2/
+arceboot/*.img
+arceboot/*.cpio
+qemu-logs/
+/.openeuler-aia/
