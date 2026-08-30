@@ -9,12 +9,12 @@ use spin::Mutex;
 
 /// Tracks local Supervisor Software Events (SSE) state for the prototyper.
 ///
-/// The boot path keeps this extension unavailable because event delivery and
-/// completion do not yet switch supervisor context. Global events are also not
-/// implemented.
+/// The boot path keeps this extension unavailable because the SBI 3.0 context
+/// switches for event delivery and completion are not implemented. Global
+/// events are also not implemented.
 pub(crate) struct SbiSse;
 
-/// Events whose source is implemented by the current state tracker.
+// Event sources represented by the state tracker.
 const SUPPORTED_EVENTS: &[u32] = &[event_id::SOFTWARE_INJECTED_LOCAL];
 
 const EVENT_COUNT: usize = SUPPORTED_EVENTS.len();
@@ -144,6 +144,8 @@ impl rustsbi::Sse for SbiSse {
                 attr_id::PRIORITY => event.priority as usize,
                 _ => return SbiRet::bad_range(),
             };
+            // SAFETY: `checked_supervisor_buffer` validated the aligned output
+            // span, and `i < attr_count` keeps this write within that span.
             unsafe {
                 (base.add(i as usize * core::mem::size_of::<usize>()) as *mut usize)
                     .write_volatile(value.to_le());
@@ -176,6 +178,8 @@ impl rustsbi::Sse for SbiSse {
             let Some(attr_id) = base_attr_id.checked_add(i) else {
                 return SbiRet::bad_range();
             };
+            // SAFETY: `checked_supervisor_buffer` validated the aligned input
+            // span, and `i < attr_count` keeps this read within that span.
             let value = unsafe {
                 (base.add(i as usize * core::mem::size_of::<usize>()) as *const usize)
                     .read_volatile()
@@ -248,8 +252,7 @@ impl rustsbi::Sse for SbiSse {
         event.state = EventState::Enabled;
         let hart_id = current_hart();
         if event.pending && !HART_MASKED[hart_id].load(Ordering::Acquire) {
-            // FIXME: Deliver the event by switching supervisor context before
-            // the prototyper advertises SSE support.
+            // FIXME: Deliver the event before entering `Running`.
             event.state = EventState::Running;
             event.pending = false;
         }
@@ -271,9 +274,8 @@ impl rustsbi::Sse for SbiSse {
     }
 
     fn complete(&self) -> SbiRet {
-        // FIXME: SBI 3.0 completion must restore the interrupted PC, privilege
-        // mode, supervisor and virtualization flags, and the saved a6/a7
-        // registers. This state-only transition is why SSE remains disabled.
+        // FIXME: Restore the interrupted context before leaving `Running`, and
+        // unregister one-shot events.
         let mut events = EVENTS[current_hart()].lock();
         if let Some(event) = events
             .iter_mut()
@@ -303,9 +305,8 @@ impl rustsbi::Sse for SbiSse {
         let event = &mut events[idx];
         event.pending = true;
         if event.state == EventState::Enabled && !HART_MASKED[hart_id].load(Ordering::Acquire) {
-            // FIXME: Before entering RUNNING, save the interrupted supervisor
-            // context and redirect execution to the registered ENTRY_PC with
-            // the specified ENTRY_ARG.
+            // FIXME: Save the target hart context and redirect it to ENTRY_PC
+            // before entering `Running`.
             event.state = EventState::Running;
             event.pending = false;
         }
@@ -323,8 +324,7 @@ impl rustsbi::Sse for SbiSse {
             .filter(|event| event.state == EventState::Enabled && event.pending)
             .min_by_key(|event| event.priority)
         {
-            // FIXME: Deliver this event through the supervisor context switch
-            // described in `inject` instead of changing only its state.
+            // FIXME: Deliver the event before entering `Running`.
             event.state = EventState::Running;
             event.pending = false;
         }
