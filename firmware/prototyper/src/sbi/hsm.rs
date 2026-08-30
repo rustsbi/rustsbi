@@ -10,7 +10,7 @@ use crate::riscv::current_hartid;
 use crate::sbi::hart_context::NextStage;
 
 use super::trap::boot::boot;
-use super::trap_stack::{RemoteHsmCell, hart_local, reset_hart};
+use super::trap_stack::{HsmCell, RemoteHsmCell, hart_local, reset_hart, with_hart};
 
 /// Gets the local HSM cell for the current hart.
 pub(crate) use super::trap_stack::local_hsm;
@@ -21,6 +21,15 @@ pub(crate) use super::trap_stack::remote_hsm;
 /// Returns a remote-capable view of the current hart's HSM cell.
 pub(crate) fn hart_hsm() -> RemoteHsmCell<'static, NextStage> {
     hart_local(current_hartid()).hsm.remote()
+}
+
+/// Initializes non-boot hart HSM cells for later supervisor starts.
+pub(crate) fn init_secondary_hsm_cells(boot_hart: usize) {
+    for hart_id in 0..crate::cfg::NUM_HART_MAX {
+        if hart_id != boot_hart {
+            with_hart(hart_id, |local| local.hsm = HsmCell::new());
+        }
+    }
 }
 
 /// Implementation of SBI HSM (Hart State Management) extension.
@@ -42,7 +51,10 @@ impl rustsbi::Hsm for SbiHsm {
                     opaque,
                     next_mode: MPP::Supervisor,
                 }) {
-                    crate::sbi::ipi().unwrap().set_msip(hartid);
+                    crate::platform::wakeup_hart(hartid);
+                    if !crate::platform::is_k3() {
+                        crate::sbi::ipi().unwrap().set_msip(hartid);
+                    }
                     SbiRet::success(0)
                 } else {
                     SbiRet::already_available()
@@ -56,6 +68,9 @@ impl rustsbi::Hsm for SbiHsm {
     #[inline]
     fn hart_stop(&self) -> SbiRet {
         local_hsm().stop();
+        if crate::platform::is_k3() {
+            crate::riscv::spacemit_k3::shutdown_process(current_hartid());
+        }
         mie::disable_msoft();
         riscv::asm::wfi();
         SbiRet::success(0)

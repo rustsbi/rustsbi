@@ -17,6 +17,15 @@ All notable changes to this project will be documented in this file. See [conven
   unavailable until supervisor context switching is implemented.
 - Add AIA IMSIC IPI backend support for RustSBI Prototyper.
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
+- Add SpacemiT K3 board configuration, warm entry, cache coherency,
+  power-domain control, and protected RCPU runtime regions.
+- Add K3 access-fault emulation, hart wake-up, system suspend, and IMSIC state
+  preservation hooks.
+- Add the shared-memory RPMI mailbox transport used by K3 platform services.
+- Provide RPMI-backed CPPC and MPXY services when the platform mailbox is
+  present. MPXY exposes only service groups without a dedicated SBI extension.
+- Support FWFT feature locking and the SBI v3.0 `menvcfg` field layout and
+  pointer-masking values.
 
 ### Modified
 - refactor(prototyper): unify build commands (#227)

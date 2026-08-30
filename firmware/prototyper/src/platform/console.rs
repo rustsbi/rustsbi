@@ -17,9 +17,10 @@ pub(crate) const UARTAXILITE_COMPATIBLE: [&str; 1] = ["xlnx,xps-uartlite-1.00.a"
 pub(crate) const UARTBFLB_COMPATIBLE: [&str; 1] = ["bflb,bl808-uart"];
 pub(crate) const UARTSIFIVE_COMPATIBLE: [&str; 1] = ["sifive,uart0"];
 pub(crate) const UARTPL011_COMPATIBLE: [&str; 1] = ["pl011"];
-pub(crate) const UARTXSCALE_COMPATIBLE: [&str; 3] = [
+pub(crate) const UARTXSCALE_COMPATIBLE: [&str; 4] = [
     "intel,xscale-uart",
     "spacemit,k1-uart",
+    "spacemit,k3-uart",
     // Official OrangePi RV2 U-Boot (orangepi-xunlong/u-boot-orangepi,
     // v2022.10-ky) describes uart0 as plain "ns16550" with reg-io-width=4 and
     // drives it as the XScale variant (CONFIG_SYS_NS16550_IER=0x40 = UUE).

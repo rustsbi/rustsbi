@@ -3,6 +3,10 @@ use sifive_test_device::SifiveTestDevice;
 
 use crate::sbi::reset::ResetDevice;
 pub(crate) const SIFIVETEST_COMPATIBLE: [&str; 1] = ["sifive,test0"];
+/// K3 reset is exposed as an RPMI System Reset service group via the
+/// `riscv,rpmi-shmem-mbox` node; the DTB marks it with
+/// `riscv,rpmi-system-reset`.
+pub(crate) const RPMI_SYSRST_COMPATIBLE: [&str; 1] = ["riscv,rpmi-system-reset"];
 pub(crate) const P1_PMIC_COMPATIBLE: [&str; 2] = [
     "spacemit,p1",
     // Official OrangePi RV2 U-Boot (orangepi-xunlong/u-boot-orangepi,
@@ -48,7 +52,7 @@ impl ResetDevice for SifiveTestDeviceWrap {
     }
 
     #[inline]
-    fn reset(&self) -> ! {
+    fn reset(&self, _warm: bool) -> ! {
         self.write(0x7777)
     }
 }
@@ -56,12 +60,12 @@ impl ResetDevice for SifiveTestDeviceWrap {
 /// SpacemiT P1 PMIC reset device.
 ///
 /// The P1 PMIC is an I2C-controlled power management IC used with the
-/// SpacemiT K1 SoC. Reset is triggered by writing to the PMIC's
+/// SpacemiT K1 and K3 SoCs. Reset is triggered by writing to the PMIC's
 /// Power Control Register 2 (0x7e):
 /// - Bit 1: Reset request
 /// - Bit 2: Shutdown request
 ///
-/// This driver directly accesses the K1's I2C controller registers via
+/// This driver directly accesses the SoC's I2C controller registers via
 /// MMIO to avoid needing a full I2C framework.
 pub struct P1PmicResetWrap {
     /// I2C controller MMIO registers.
@@ -74,8 +78,9 @@ impl P1PmicResetWrap {
     /// Create a new P1 PMIC reset device.
     ///
     /// `i2c_base` is the MMIO base address of the I2C controller.
-    /// `pmic_addr` is the 7-bit I2C address of the P1 PMIC (0x41 on the
-    /// OrangePi RV2, per its device tree `pmic@41` node).
+    /// `pmic_addr` is the 7-bit I2C address of the P1 PMIC (0x41 on
+    /// SpacemiT K1/K3 boards, as described by their `pmic@41` device-tree
+    /// nodes).
     pub const fn new(i2c_base: usize, pmic_addr: u8) -> Self {
         Self {
             i2c: i2c_base as *const I2cK1Registers,
@@ -88,7 +93,7 @@ unsafe impl Send for P1PmicResetWrap {}
 unsafe impl Sync for P1PmicResetWrap {}
 
 // SpacemiT I2C controller registers (K1).
-// Layout per Linux `drivers/i2c/busses/i2c-k1.c` — the K1 I2C controller is
+// Layout per Linux `drivers/i2c/busses/i2c-k1.c`; the K1 I2C controller is
 // SpacemiT-proprietary (ICR/ISR/IDBR/IRCR/IBMR), NOT DesignWare I2C.
 /// SpacemiT K1 I2C controller MMIO registers.
 #[repr(C)]
@@ -294,7 +299,7 @@ impl ResetDevice for P1PmicResetWrap {
     }
 
     #[inline]
-    fn reset(&self) -> ! {
+    fn reset(&self, _warm: bool) -> ! {
         // P1 PMIC: set reset bit in PWR_CTRL2
         unsafe {
             i2c_write_reg(

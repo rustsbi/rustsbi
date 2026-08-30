@@ -10,7 +10,7 @@ use riscv::register::{mie, mstatus, satp, sstatus};
 ///
 /// Safe wrapper over the naked [`boot_entry`]: the entry diverges (its final
 /// `mret` drops to the staged next-mode PC instead of returning), and the
-/// staged start address / mode validity is the HSM cell's contract — the
+/// staged start address / mode validity is the HSM cell's contract; the
 /// HSM cell accepted them before this call.
 pub fn boot() -> ! {
     // SAFETY: divergent entry; target validity is the HSM cell's contract.
@@ -34,6 +34,11 @@ unsafe extern "C" fn boot_entry() -> ! {
         "call   {boot_handler}",
         // Restore mepc
         "ld     t0, 0*8(sp)
+        li      t1, 1
+        csrw    0x5db, t1
+        csrr    t1, 0x7c1
+        ori     t1, t1, 1
+        csrw    0x7c1, t1
         csrw    mepc, t0",
         // Restore registers
         "ld      a0, 1*8(sp)",
@@ -74,9 +79,13 @@ pub extern "C" fn boot_handler(ctx: &mut BootContext) {
         Ok(next_stage) => {
             ipi::claim_ipi();
             unsafe {
-                mstatus::set_mpie();
+                // MPIE must be clear so `mret` leaves M-mode interrupts disabled.
+                core::arch::asm!(
+                    "csrc mstatus, {}",
+                    in(reg) 1usize << 7,
+                    options(nomem, preserves_flags),
+                );
                 mstatus::set_mpp(next_stage.next_mode);
-                mie::set_msoft();
                 if !hart_extension_probe(current_hartid(), Extension::Sstc) {
                     mie::set_mtimer();
                 }

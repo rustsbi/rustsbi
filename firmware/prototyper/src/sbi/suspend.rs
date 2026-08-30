@@ -1,10 +1,12 @@
 #![forbid(unsafe_code)]
 
+use core::sync::atomic::Ordering;
 use riscv::register::mstatus;
 use rustsbi::{Hsm, SbiRet};
 use sbi_spec::hsm::{hart_state::STOPPED, suspend_type::NON_RETENTIVE};
 
 use crate::riscv::current_hartid;
+use crate::riscv::spacemit_k3;
 
 use super::hsm::remote_hsm;
 
@@ -45,6 +47,16 @@ impl rustsbi::Susp for SbiSuspend {
 
         // TODO: The validity of `resume_addr` should be checked.
         // If it is invalid, `SBI_ERR_INVALID_ADDRESS` should be returned.
+
+        if crate::platform::IS_K3_PLATFORM.load(Ordering::Acquire) {
+            let hartid = current_hartid();
+            if !spacemit_k3::suspend_pre(hartid) {
+                return SbiRet::failed();
+            }
+            let mut state = spacemit_k3::ImsicConfig::default();
+            spacemit_k3::suspend(hartid, sleep_type, &mut state);
+            return SbiRet::success(0);
+        }
 
         match crate::sbi::hsm() {
             Some(hsm) => hsm.hart_suspend(NON_RETENTIVE, resume_addr, opaque),

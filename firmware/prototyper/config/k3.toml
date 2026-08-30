@@ -1,0 +1,16 @@
+﻿# SpacemiT K3 board configuration (K3 Pico-ITX, CoM260, CoM260 IFX,
+# DeepComputing FML13V05).
+# 16 GB LPDDR5 at 0x100000000; 8 x SpacemiT X100 cores.
+num_hart_max = 16
+stack_size_per_hart = 16384 # 16 * 1024
+heap_size = 0x100000 # 1024 * 1024
+page_size = 4096
+log_level = "INFO"
+link_start_address = 0x100000000 # Firmware load address at the DRAM base
+payload_address = 0x100200000 # RAM base + 2 MiB
+jump_address = 0x100200000 # Next stage, 2 MiB above the DRAM base
+tlb_flush_limit = 16384 # page_size * 4
+
+[[next_addr]]
+start = 0x100000000
+end = 0x500000000

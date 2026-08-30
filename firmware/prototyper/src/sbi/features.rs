@@ -102,6 +102,9 @@ pub fn extension_detection(cpus: &NodeSeq) {
                 Extension::Hypervisor if hart_id == current_hartid() => {
                     misa::read().has_extension('H')
                 }
+                Extension::Smaia if hart_id == current_hartid() => {
+                    dt_supported || has_csr::<0x350>()
+                }
                 _ => dt_supported,
             };
         }
@@ -220,6 +223,9 @@ fn has_mstateen0() -> bool {
 pub fn configure_delegation_and_trap() {
     // Delegate all interrupts and exceptions to supervisor mode.
     configure_delegation();
+    if crate::platform::IS_K3_PLATFORM.load(Ordering::Acquire) {
+        keep_access_faults_in_mmode();
+    }
 
     let hart_priv_version = hart_privileged_version(current_hartid());
     if hart_priv_version >= PrivilegedVersion::Version1_11 {
@@ -229,16 +235,23 @@ pub fn configure_delegation_and_trap() {
         // Configure environment features based on available extensions.
         if hart_extension_probe(current_hartid(), Extension::Sstc) {
             menvcfg::set_bits(
-                menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
+                menvcfg::STCE
+                    | menvcfg::PBMTE
+                    | menvcfg::CBIE_INVALIDATE
+                    | menvcfg::CBCFE
+                    | menvcfg::CBZE,
             );
         } else {
-            menvcfg::set_bits(menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
+            menvcfg::set_bits(
+                menvcfg::PBMTE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
+            );
         }
-        if is_aia_active()
-            && hart_extension_probe(current_hartid(), Extension::Smaia)
-            && has_mstateen0()
-        {
-            mstateen::enable_smode_aia();
+        if has_mstateen0() {
+            let mut stateen0 = mstateen::STATEN | mstateen::CONTEXT | mstateen::HSENVCFG;
+            if is_aia_active() && hart_extension_probe(current_hartid(), Extension::Smaia) {
+                stateen0 |= mstateen::AIA | mstateen::IMSIC | mstateen::SVSLCT;
+            }
+            mstateen::set_stateen0(stateen0);
         }
     }
     install_trap_vector();

@@ -178,6 +178,37 @@ unsafe impl<T: Send> Sync for HsmCell<T> {}
 unsafe impl<T: Send> Send for HsmCell<T> {}
 
 impl<T> LocalHsmCell<'_, T> {
+    /// Takes a pending start payload before per-hart state is reinitialized.
+    #[inline]
+    pub fn take_pending(&self) -> Option<T> {
+        match self.0.status.load(Ordering::Acquire) {
+            hart_state::START_PENDING | HART_STATE_START_PENDING_EXT => {
+                let pending = unsafe { (*self.0.inner.get()).take() };
+                self.0.status.store(hart_state::STOPPED, Ordering::Release);
+                pending
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns whether this hart has a pending start payload.
+    #[inline]
+    pub fn has_pending(&self) -> bool {
+        matches!(
+            self.0.status.load(Ordering::Acquire),
+            hart_state::START_PENDING | HART_STATE_START_PENDING_EXT
+        )
+    }
+
+    /// Restores a start payload captured before per-hart initialization.
+    #[inline]
+    pub fn restore_pending(&self, value: T) {
+        unsafe { *self.0.inner.get() = Some(value) };
+        self.0
+            .status
+            .store(hart_state::START_PENDING, Ordering::Release);
+    }
+
     /// Attempts to transition hart from START_PENDING to STARTED state.
     ///
     /// Returns inner data if successful, otherwise returns current state.

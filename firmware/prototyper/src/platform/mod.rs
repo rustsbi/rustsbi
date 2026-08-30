@@ -13,6 +13,7 @@ use crate::platform::console::{
     UARTBFLB_COMPATIBLE, UARTPL011_COMPATIBLE, UARTSIFIVE_COMPATIBLE, UARTXSCALE_COMPATIBLE,
 };
 use crate::platform::reset::P1_PMIC_COMPATIBLE;
+use crate::platform::reset::RPMI_SYSRST_COMPATIBLE;
 use crate::platform::reset::SIFIVETEST_COMPATIBLE;
 use crate::sbi::features::extension_detection;
 use spin::{Once, RwLock};
@@ -23,7 +24,47 @@ pub(crate) mod clint;
 pub(crate) mod console;
 pub(crate) mod reset;
 
-pub use boot::{init_board, memory_range, secondary_hart_init, wait_until_ready};
+pub use boot::{init_board, memory_range, secondary_hart_init, wait_until_ready, wakeup_hart};
+
+/// Result of a platform access-fault emulation attempt.
+///
+/// Returned by [`emulate_access_fault`].
+pub enum AccessFaultResult {
+    /// The platform did not handle the access; re-inject the fault to S-mode.
+    NotHandled,
+    /// Emulated load: the value read from the emulated MMIO register.
+    EmulatedLoad(u64),
+    /// Emulated store succeeded.
+    EmulatedStore,
+}
+
+/// Platform-level load/store access-fault emulation hook.
+///
+/// Dispatches S-mode load/store access faults to the platform's MMIO
+/// emulation. On the SpacemiT K3 this is the REGISTER_PRESERVATION window
+/// emulation ([`crate::riscv::spacemit_k3::emulate_load`] and
+/// [`crate::riscv::spacemit_k3::emulate_store`]); other platforms return
+/// [`AccessFaultResult::NotHandled`].
+pub(crate) fn emulate_access_fault(
+    is_load: bool,
+    addr: usize,
+    len: usize,
+    value: u64,
+) -> AccessFaultResult {
+    if !IS_K3_PLATFORM.load(Ordering::Acquire) {
+        return AccessFaultResult::NotHandled;
+    }
+    if is_load {
+        match crate::riscv::spacemit_k3::emulate_load(addr, len) {
+            Some(v) => AccessFaultResult::EmulatedLoad(v),
+            None => AccessFaultResult::NotHandled,
+        }
+    } else if crate::riscv::spacemit_k3::emulate_store(addr, len, value) {
+        AccessFaultResult::EmulatedStore
+    } else {
+        AccessFaultResult::NotHandled
+    }
+}
 
 pub(crate) static CPU_PRIVILEGED_ENABLED: [AtomicBool; NUM_HART_MAX] =
     [const { AtomicBool::new(false) }; NUM_HART_MAX];
@@ -34,6 +75,11 @@ pub(crate) static CPU_PRIVILEGED_ENABLED: [AtomicBool; NUM_HART_MAX] =
 /// secondary hart observing `READY == true` is guaranteed to also observe
 /// this flag (main.rs secondary-hart path).
 pub(crate) static IS_K1_PLATFORM: AtomicBool = AtomicBool::new(false);
+pub(crate) static IS_K3_PLATFORM: AtomicBool = AtomicBool::new(false);
+/// Whether the running platform is a SpacemiT K3.
+pub(crate) fn is_k3() -> bool {
+    IS_K3_PLATFORM.load(Ordering::Acquire)
+}
 
 /// Boot synchronization flag: set by the boot hart once platform
 /// initialization is complete, spinning secondary harts observe it with
@@ -74,14 +120,17 @@ pub(crate) fn publish_cpu_enabled(cpu_list: Option<CpuEnableList>) {
 ///
 /// Runs post-`READY` on the boot hart while other harts may read the table;
 /// the write lock makes their copies atomic snapshots of the whole list.
+///
+/// A successful per-hart privilege check may enable a DTB-listed hart. Entries
+/// are never cleared before every secondary hart has completed that check.
 pub fn refresh_cpu_features() {
     let mut cpu_enabled = CPU_ENABLED.write();
     let Some(cpu_enabled) = cpu_enabled.as_mut() else {
         return;
     };
     for (hart_id, enabled) in cpu_enabled.iter_mut().enumerate() {
-        if *enabled {
-            *enabled = CPU_PRIVILEGED_ENABLED[hart_id].load(Ordering::Acquire);
+        if CPU_PRIVILEGED_ENABLED[hart_id].load(Ordering::Acquire) {
+            *enabled = true;
         }
     }
 }
@@ -138,7 +187,10 @@ fn node_phandle(node: &serde_device_tree::buildin::Node) -> Option<u32> {
         .map(|prop| prop.deserialize::<u32>())
 }
 
-fn prop_u32_cells(node: &serde_device_tree::buildin::Node, name: &str) -> Option<Vec<u32>> {
+pub(crate) fn prop_u32_cells(
+    node: &serde_device_tree::buildin::Node,
+    name: &str,
+) -> Option<Vec<u32>> {
     let prop = node.get_prop(name)?;
     let data = prop.deserialize::<&[u8]>();
     let mut cells = Vec::new();
@@ -190,6 +242,9 @@ pub struct BoardInfo {
     pub console: Option<(BaseAddress, MachineConsoleType)>,
     pub console_clock: Option<u32>,
     pub reset: Option<BaseAddress>,
+    /// True when the platform exposes system reset through the RPMI
+    /// System Reset service group (K3) rather than an MMIO test device.
+    pub rpmi_reset: bool,
     pub ipi: Option<(BaseAddress, MachineClintType)>,
     pub aia: Option<aia::AiaInfo>,
     pub cpu_num: Option<usize>,
@@ -205,6 +260,7 @@ impl BoardInfo {
             console: None,
             console_clock: None,
             reset: None,
+            rpmi_reset: false,
             ipi: None,
             aia: None,
             cpu_num: None,
@@ -315,6 +371,16 @@ impl BoardInfo {
         let mut find_device =
             |node: &serde_device_tree::buildin::Node,
              parent: Option<&serde_device_tree::buildin::Node>| {
+                // RPMI system reset may be described by a node without a
+                // `reg` property (K3: rpmi-mpxy-sysreset@0 has only
+                // compatible/mboxes/status), so discover it before the
+                // reg-requiring path below returns early.
+                if let Some(compatible) = node.get_prop("compatible") {
+                    let seq = compatible.deserialize::<serde_device_tree::buildin::StrSeq>();
+                    for device_id in seq.iter() {
+                        self.discover_rpmi_reset(device_id);
+                    }
+                }
                 let Some((compatible, regs)) = get_compatible_and_ranges(node) else {
                     return;
                 };
@@ -356,6 +422,18 @@ impl BoardInfo {
         // Initialize reset device.
         if SIFIVETEST_COMPATIBLE.contains(&device_id) {
             self.reset = Some(base_address);
+        }
+    }
+
+    /// Discovers the K3 RPMI system reset device from a `compatible` match.
+    ///
+    /// The K3 exposes system reset through the RPMI System Reset service
+    /// group (delivered over the shared-memory mailbox), not through a
+    /// sifive,test0-style MMIO device. We record the node so the reset
+    /// extension can be backed by the injected mailbox.
+    fn discover_rpmi_reset(&mut self, device_id: &str) {
+        if RPMI_SYSRST_COMPATIBLE.contains(&device_id) {
+            self.rpmi_reset = true;
         }
     }
 
@@ -677,6 +755,11 @@ fn print_reset_info() {
         info!(
             "{:<30}: Available (P1 PMIC @ 0x{:02x}, I2C Base: 0x{:x})",
             "Platform Reset Extension", pmic_addr, i2c_base
+        );
+    } else if board_info().rpmi_reset && crate::sbi::reset().is_some() {
+        info!(
+            "{:<30}: Available (RPMI System Reset service group)",
+            "Platform Reset Extension"
         );
     } else {
         warn!("{:<30}: Not Available", "Platform Reset Device");

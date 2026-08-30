@@ -151,6 +151,11 @@ pub(crate) fn fwft() -> Option<&'static SbiFwft> {
     SBI_DISPATCHER.get().and_then(|sbi| sbi.fwft.as_ref())
 }
 
+/// Returns the mpxy extension, if present.
+pub(crate) fn mpxy() -> Option<&'static SbiMpxy> {
+    SBI_DISPATCHER.get().and_then(|sbi| sbi.mpxy.as_ref())
+}
+
 /// Returns the hsm extension, if present.
 pub(crate) fn hsm() -> Option<&'static SbiHsm> {
     SBI_DISPATCHER.get().and_then(|sbi| sbi.hsm.as_ref())
