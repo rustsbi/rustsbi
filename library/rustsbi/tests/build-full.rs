@@ -16,6 +16,7 @@ struct FullyImplemented {
     pmu: DummyPmu,
     reset: DummyReset,
     fence: DummyFence,
+    sse: DummySse,
     sta: DummySta,
     susp: DummySusp,
     timer: DummyTimer,
@@ -32,6 +33,7 @@ struct AlternateName {
     pmu: DummyPmu,
     srst: DummyReset,
     rfnc: DummyFence,
+    sse: DummySse,
     sta: DummySta,
     susp: DummySusp,
     time: DummyTimer,
@@ -48,6 +50,7 @@ struct TupleStruct(
     #[rustsbi(pmu)] DummyPmu,
     #[rustsbi(srst)] DummyReset,
     #[rustsbi(rfnc)] DummyFence,
+    #[rustsbi(sse)] DummySse,
     #[rustsbi(sta)] DummySta,
     #[rustsbi(susp)] DummySusp,
     #[rustsbi(time)] DummyTimer,
@@ -69,6 +72,7 @@ fn rustsbi_impl_id() {
         pmu: DummyPmu,
         reset: DummyReset,
         fence: DummyFence,
+        sse: DummySse,
         sta: DummySta,
         susp: DummySusp,
         timer: DummyTimer(RefCell::new(0)),
@@ -84,6 +88,7 @@ fn rustsbi_impl_id() {
         pmu: DummyPmu,
         srst: DummyReset,
         rfnc: DummyFence,
+        sse: DummySse,
         sta: DummySta,
         susp: DummySusp,
         time: DummyTimer(RefCell::new(0)),
@@ -99,6 +104,7 @@ fn rustsbi_impl_id() {
         DummyPmu,
         DummyReset,
         DummyFence,
+        DummySse,
         DummySta,
         DummySusp,
         DummyTimer(RefCell::new(0)),
@@ -125,6 +131,7 @@ fn generated_extensions() {
         pmu: DummyPmu,
         reset: DummyReset,
         fence: DummyFence,
+        sse: DummySse,
         sta: DummySta,
         susp: DummySusp,
         timer: DummyTimer(RefCell::new(0)),
@@ -139,7 +146,7 @@ fn generated_extensions() {
     // All SBI 2.0 extensions, including Base, are supported
     for eid in [
         0x10, 0x54494d45, 0x735049, 0x52464e43, 0x48534d, 0x53525354, 0x504d55, 0x4442434e,
-        0x53555350, 0x4e41434c, 0x535441, 0x43505043,
+        0x53555350, 0x4e41434c, 0x535345, 0x535441, 0x43505043,
     ] {
         assert_eq!(
             sbi.handle_ecall(0x10, 3, [eid, 0, 0, 0, 0, 0]),
@@ -188,6 +195,12 @@ fn generated_extensions() {
     assert_eq!(sbi.handle_ecall(0x52464E43, 5, [0; 6]), SbiRet::success(32));
     assert_eq!(sbi.handle_ecall(0x52464E43, 6, [0; 6]), SbiRet::success(33));
     assert_eq!(sbi.handle_ecall(0x535441, 0, [0; 6]), SbiRet::success(34));
+    for (fid, value) in (0..=9).zip(40..=49) {
+        assert_eq!(
+            sbi.handle_ecall(0x535345, fid, [0; 6]),
+            SbiRet::success(value)
+        );
+    }
     assert_eq!(sbi.handle_ecall(0x53555350, 0, [0; 6]), SbiRet::success(35));
     assert!(sbi.handle_ecall(0x54494D45, 0, [0; 6]).is_ok());
     assert_eq!(sbi.timer.0.take(), 36);
@@ -365,6 +378,50 @@ struct DummySta;
 impl rustsbi::Sta for DummySta {
     fn set_shmem(&self, _: SharedPtr<[u8; 64]>, _: usize) -> SbiRet {
         SbiRet::success(34)
+    }
+}
+
+struct DummySse;
+
+impl rustsbi::Sse for DummySse {
+    fn read_attrs(&self, _: u32, _: u32, _: u32, _: SharedPtr<u8>) -> SbiRet {
+        SbiRet::success(40)
+    }
+
+    fn write_attrs(&self, _: u32, _: u32, _: u32, _: SharedPtr<u8>) -> SbiRet {
+        SbiRet::success(41)
+    }
+
+    fn register(&self, _: u32, _: usize, _: usize) -> SbiRet {
+        SbiRet::success(42)
+    }
+
+    fn unregister(&self, _: u32) -> SbiRet {
+        SbiRet::success(43)
+    }
+
+    fn enable(&self, _: u32) -> SbiRet {
+        SbiRet::success(44)
+    }
+
+    fn disable(&self, _: u32) -> SbiRet {
+        SbiRet::success(45)
+    }
+
+    fn complete(&self) -> SbiRet {
+        SbiRet::success(46)
+    }
+
+    fn inject(&self, _: u32, _: usize) -> SbiRet {
+        SbiRet::success(47)
+    }
+
+    fn hart_unmask(&self) -> SbiRet {
+        SbiRet::success(48)
+    }
+
+    fn hart_mask(&self) -> SbiRet {
+        SbiRet::success(49)
     }
 }
 

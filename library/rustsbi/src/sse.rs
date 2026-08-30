@@ -1,8 +1,8 @@
 use sbi_spec::binary::{SbiRet, SharedPtr};
 
-/// SBI Supervisor Software Events (SSE) support extension.
+/// Implements the SBI Supervisor Software Events (SSE) extension.
 pub trait Sse {
-    /// Read event attributes.
+    /// Reads `attr_count` attributes starting at `base_attr_id` into `output`.
     fn read_attrs(
         &self,
         event_id: u32,
@@ -11,7 +11,7 @@ pub trait Sse {
         output: SharedPtr<u8>,
     ) -> SbiRet;
 
-    /// Write event attributes.
+    /// Writes `attr_count` attributes starting at `base_attr_id` from `input`.
     fn write_attrs(
         &self,
         event_id: u32,
@@ -20,28 +20,28 @@ pub trait Sse {
         input: SharedPtr<u8>,
     ) -> SbiRet;
 
-    /// Register an event handler.
+    /// Registers a supervisor handler and its argument for `event_id`.
     fn register(&self, event_id: u32, handler_entry_pc: usize, handler_entry_arg: usize) -> SbiRet;
 
-    /// Unregister an event handler.
+    /// Unregisters the handler for `event_id`.
     fn unregister(&self, event_id: u32) -> SbiRet;
 
-    /// Enable a software event.
+    /// Enables delivery of `event_id`.
     fn enable(&self, event_id: u32) -> SbiRet;
 
-    /// Disable a software event.
+    /// Disables delivery of `event_id`.
     fn disable(&self, event_id: u32) -> SbiRet;
 
-    /// Complete the current software event.
+    /// Completes the highest-priority running event on the calling hart.
     fn complete(&self) -> SbiRet;
 
-    /// Inject a software event.
+    /// Injects `event_id`, using `hart_id` as the target for a local event.
     fn inject(&self, event_id: u32, hart_id: usize) -> SbiRet;
 
-    /// Unmask software events on the calling hart.
+    /// Allows the calling hart to receive software events.
     fn hart_unmask(&self) -> SbiRet;
 
-    /// Mask software events on the calling hart.
+    /// Prevents the calling hart from receiving software events.
     fn hart_mask(&self) -> SbiRet;
 
     /// Function internal to macros. Do not use.

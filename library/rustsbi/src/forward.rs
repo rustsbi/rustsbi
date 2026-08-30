@@ -1,4 +1,4 @@
-use crate::{Console, Cppc, EnvInfo, Fence, Hsm, Ipi, Nacl, Pmu, Reset, Sta, Susp, Timer};
+use crate::{Console, Cppc, EnvInfo, Fence, Hsm, Ipi, Nacl, Pmu, Reset, Sse, Sta, Susp, Timer};
 use sbi_spec::{
     binary::{CounterMask, HartMask, Physical, SbiRet, SharedPtr},
     nacl, pmu,
@@ -539,6 +539,141 @@ impl Sta for Forward {
                 let _ = (shmem, flags);
                 unimplemented!()
             }
+        }
+    }
+}
+
+impl Sse for Forward {
+    #[inline]
+    fn read_attrs(
+        &self,
+        event_id: u32,
+        base_attr_id: u32,
+        attr_count: u32,
+        output: SharedPtr<u8>,
+    ) -> SbiRet {
+        match () {
+            #[cfg(feature = "forward")]
+            () => sbi_rt::sse_read_attrs(event_id, base_attr_id, attr_count, output),
+            #[cfg(not(feature = "forward"))]
+            () => {
+                let _ = (event_id, base_attr_id, attr_count, output);
+                unimplemented!()
+            }
+        }
+    }
+
+    #[inline]
+    fn write_attrs(
+        &self,
+        event_id: u32,
+        base_attr_id: u32,
+        attr_count: u32,
+        input: SharedPtr<u8>,
+    ) -> SbiRet {
+        match () {
+            #[cfg(feature = "forward")]
+            () => sbi_rt::sse_write_attrs(event_id, base_attr_id, attr_count, input),
+            #[cfg(not(feature = "forward"))]
+            () => {
+                let _ = (event_id, base_attr_id, attr_count, input);
+                unimplemented!()
+            }
+        }
+    }
+
+    #[inline]
+    fn register(&self, event_id: u32, handler_entry_pc: usize, handler_entry_arg: usize) -> SbiRet {
+        match () {
+            #[cfg(feature = "forward")]
+            () => sbi_rt::sse_register(event_id, handler_entry_pc, handler_entry_arg),
+            #[cfg(not(feature = "forward"))]
+            () => {
+                let _ = (event_id, handler_entry_pc, handler_entry_arg);
+                unimplemented!()
+            }
+        }
+    }
+
+    #[inline]
+    fn unregister(&self, event_id: u32) -> SbiRet {
+        match () {
+            #[cfg(feature = "forward")]
+            () => sbi_rt::sse_unregister(event_id),
+            #[cfg(not(feature = "forward"))]
+            () => {
+                let _ = event_id;
+                unimplemented!()
+            }
+        }
+    }
+
+    #[inline]
+    fn enable(&self, event_id: u32) -> SbiRet {
+        match () {
+            #[cfg(feature = "forward")]
+            () => sbi_rt::sse_enable(event_id),
+            #[cfg(not(feature = "forward"))]
+            () => {
+                let _ = event_id;
+                unimplemented!()
+            }
+        }
+    }
+
+    #[inline]
+    fn disable(&self, event_id: u32) -> SbiRet {
+        match () {
+            #[cfg(feature = "forward")]
+            () => sbi_rt::sse_disable(event_id),
+            #[cfg(not(feature = "forward"))]
+            () => {
+                let _ = event_id;
+                unimplemented!()
+            }
+        }
+    }
+
+    #[inline]
+    fn complete(&self) -> SbiRet {
+        match () {
+            #[cfg(feature = "forward")]
+            () => sbi_rt::sse_complete(),
+            #[cfg(not(feature = "forward"))]
+            () => unimplemented!(),
+        }
+    }
+
+    #[inline]
+    fn inject(&self, event_id: u32, hart_id: usize) -> SbiRet {
+        match () {
+            #[cfg(feature = "forward")]
+            () => sbi_rt::sse_inject(event_id, hart_id),
+            #[cfg(not(feature = "forward"))]
+            () => {
+                let _ = (event_id, hart_id);
+                unimplemented!()
+            }
+        }
+    }
+
+    #[inline]
+    fn hart_unmask(&self) -> SbiRet {
+        match () {
+            #[cfg(feature = "forward")]
+            () => sbi_rt::sse_hart_unmask(),
+            #[cfg(not(feature = "forward"))]
+            () => unimplemented!(),
+        }
+    }
+
+    #[inline]
+    fn hart_mask(&self) -> SbiRet {
+        match () {
+            #[cfg(feature = "forward")]
+            () => sbi_rt::sse_hart_mask(),
+            #[cfg(not(feature = "forward"))]
+            () => unimplemented!(),
         }
     }
 }
