@@ -1,9 +1,6 @@
 use rustsbi::SbiRet;
 
-/// Implementation of SBI CPPC extension.
-///
-/// No CPPC register backend is discovered by the prototyper yet, so all
-/// register probes report a zero width and accesses are rejected.
+/// CPPC extension for platforms without a register backend.
 pub(crate) struct SbiCppc;
 
 impl SbiCppc {

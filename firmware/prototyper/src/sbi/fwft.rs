@@ -4,12 +4,11 @@ use sbi_spec::fwft::feature_type;
 use crate::riscv::csr::CSR_MENVCFG;
 use crate::sbi::early_trap::{TrapInfo, csr_read_allow, csr_write_allow};
 
-/// Misaligned load/store exception bits in `medeleg` (CAUSE_MISALIGNED_LOAD
-/// = 4, CAUSE_MISALIGNED_STORE = 6), mirroring OpenSBI
-/// `lib/sbi/sbi_fwft.c` `MIS_DELEG`.
+// Misaligned load/store exception cause codes 4 and 6 from the RISC-V
+// privileged architecture.
 const MIS_DELEG: usize = (1 << 4) | (1 << 6);
 
-/// `menvcfg` bit fields (see `include/sbi/riscv_encoding.h` `ENVCFG_*`).
+// `menvcfg` fields defined by the corresponding RISC-V extensions.
 const ENVCFG_LPE: usize = 1 << 0; // Landing pad (Zicfilp)
 const ENVCFG_DTE: usize = 1 << 1; // Double trap (Smdbltrp)
 const ENVCFG_ADUE: usize = 1 << 5; // PTE A/D hardware updating (SVADU)
@@ -17,34 +16,22 @@ const ENVCFG_SSE: usize = 1 << 8; // Shadow stack (Zicfiss)
 const ENVCFG_PMM_SHIFT: usize = 9; // Pointer masking tag length (Smnpm)
 const ENVCFG_PMM: usize = 0b11 << ENVCFG_PMM_SHIFT;
 
-/// Implementation of SBI Firmware Features (FWFT) extension.
+/// Firmware Features extension backed by `medeleg` and `menvcfg`.
 ///
-/// Mirrors OpenSBI `lib/sbi/sbi_fwft.c`:
-///
-/// - `MISALIGNED_EXC_DELEG` is supported when the hart implements the
-///   supervisor mode (`misa.S`); setting it toggles the misaligned load and
-///   store bits of `medeleg`, so the S-mode trap handler (rather than the
-///   M-mode emulator) receives misaligned accesses.
-/// - `LANDING_PAD`, `SHADOW_STACK`, `DOUBLE_TRAP`, `PTE_AD_HW_UPDATING` and
-///   `POINTER_MASKING_PMLEN` are backed by the corresponding bits of the
-///   `menvcfg` CSR (Zicfilp / Zicfiss / Smdbltrp / SVADU / Smnpm). A feature
-///   is reported as supported only if the bit can actually be written, i.e.
-///   the underlying hardware extension is present (mirroring OpenSBI
-///   `fwft_try_to_set_pmm`).
+/// Misaligned exception delegation requires S-mode. Other features require
+/// their Zicfilp, Zicfiss, Smdbltrp, Svadu, or Smnpm `menvcfg` fields to retain
+/// the requested value when read back.
 pub(crate) struct SbiFwft;
 
 impl SbiFwft {
-    /// Returns whether the hart implements supervisor mode.
     fn has_s_mode() -> bool {
         riscv::register::misa::read().has_extension('S')
     }
 
-    /// Reads the current misaligned delegation state from `medeleg`.
     fn misaligned_delegated() -> bool {
         (riscv::register::medeleg::read().bits() & MIS_DELEG) != 0
     }
 
-    /// Sets or clears the misaligned delegation bits in `medeleg`.
     fn set_misaligned_delegation(value: usize) -> bool {
         let current = riscv::register::medeleg::read().bits();
         let next = match value {
@@ -52,29 +39,28 @@ impl SbiFwft {
             1 => current | MIS_DELEG,
             _ => return false,
         };
-        // Safety: writing `medeleg` from M-mode is a plain CSR store; the
-        // value is derived from the current register contents.
+        // SAFETY: the prototyper runs in M-mode, and `next` preserves every
+        // `medeleg` bit except the two misaligned exception bits.
         unsafe {
             riscv::register::medeleg::write(riscv::register::medeleg::Medeleg::from_bits(next));
         }
         true
     }
 
-    /// Reads the `menvcfg` CSR when it is implemented by the hart.
     fn menvcfg_read() -> Option<usize> {
         let mut trap = TrapInfo::default();
+        // SAFETY: firmware runs in M-mode, and `trap` remains valid for the call.
         let value = unsafe { csr_read_allow::<CSR_MENVCFG>(&mut trap) };
         (trap.mcause == usize::MAX).then_some(value)
     }
 
-    /// Writes the `menvcfg` CSR when it is implemented by the hart.
     fn menvcfg_write(value: usize) -> bool {
         let mut trap = TrapInfo::default();
+        // SAFETY: firmware runs in M-mode, and `trap` remains valid for the call.
         unsafe { csr_write_allow::<CSR_MENVCFG>(&mut trap, value) };
         trap.mcause == usize::MAX
     }
 
-    /// Returns the `menvcfg` bit backing a FWFT feature, if any.
     fn menvcfg_bit(feature_id: usize) -> Option<usize> {
         match feature_id {
             feature_type::LANDING_PAD => Some(ENVCFG_LPE),
@@ -85,12 +71,6 @@ impl SbiFwft {
         }
     }
 
-    /// Sets or clears a `menvcfg` bit for a FWFT feature.
-    ///
-    /// Mirrors OpenSBI `fwft_menvcfg_set_bit` combined with the write-then-
-    /// read-back check of `fwft_try_to_set_pmm`: the new value is written and
-    /// read back; if the bit did not take effect, the underlying hardware
-    /// extension is absent and the feature is not supported.
     fn set_menvcfg_bit(bit: usize, value: usize) -> SbiRet {
         if value > 1 {
             return SbiRet::invalid_param();
@@ -109,17 +89,13 @@ impl SbiFwft {
         let Some(read_back) = Self::menvcfg_read() else {
             return SbiRet::not_supported();
         };
+        // WARL fields may ignore writes when the backing extension is absent.
         if (read_back & bit) != (next & bit) {
             return SbiRet::not_supported();
         }
         SbiRet::success(0)
     }
 
-    /// Sets the pointer masking tag length (`PMM` field of `menvcfg`).
-    ///
-    /// Mirrors OpenSBI `fwft_try_to_set_pmm`: the new `PMM` value is written
-    /// and read back; if it did not take effect, the `Smnpm` extension is
-    /// absent and the feature is not supported.
     fn set_pmm(value: usize) -> SbiRet {
         if value > 3 {
             return SbiRet::invalid_param();
@@ -134,16 +110,15 @@ impl SbiFwft {
         let Some(read_back) = Self::menvcfg_read() else {
             return SbiRet::not_supported();
         };
+        // PMM is WARL and may reject tag lengths unsupported by Smnpm.
         if (read_back & ENVCFG_PMM) != (next & ENVCFG_PMM) {
             return SbiRet::not_supported();
         }
         SbiRet::success(0)
     }
 
-    /// Returns whether the hardware implements the given `menvcfg` bits, by
-    /// writing them and reading them back (mirroring OpenSBI
-    /// `fwft_try_to_set_pmm`). The original value is restored before
-    /// returning.
+    // Probe whether WARL fields retain set bits, then attempt to restore
+    // the original value.
     fn menvcfg_bits_supported(mask: usize) -> bool {
         let Some(current) = Self::menvcfg_read() else {
             return false;

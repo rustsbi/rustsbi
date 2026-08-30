@@ -6,7 +6,7 @@ use rustsbi::{Forward, RustSBI};
 #[derive(RustSBI)]
 struct ForwardAll {
     #[rustsbi(
-        console, cppc, hsm, ipi, nacl, pmu, reset, fence, sta, susp, timer, info
+        console, cppc, hsm, ipi, nacl, pmu, reset, fence, sse, sta, susp, timer, info
     )]
     forward: Forward,
 }

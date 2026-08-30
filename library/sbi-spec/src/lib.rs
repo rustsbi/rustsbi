@@ -363,6 +363,24 @@ mod tests {
         const_assert_eq!(7, INJECT);
         const_assert_eq!(8, HART_UNMASK);
         const_assert_eq!(9, HART_MASK);
+        const_assert_eq!(0x0000_0000, event_id::LOCAL_HIGH_PRIORITY_RAS);
+        const_assert_eq!(0x0000_0001, event_id::LOCAL_DOUBLE_TRAP);
+        const_assert_eq!(0x0000_8000, event_id::GLOBAL_HIGH_PRIORITY_RAS);
+        const_assert_eq!(0x0001_0000, event_id::LOCAL_PMU_OVERFLOW);
+        const_assert_eq!(0x0010_0000, event_id::LOCAL_LOW_PRIORITY_RAS);
+        const_assert_eq!(0x0010_8000, event_id::GLOBAL_LOW_PRIORITY_RAS);
+        const_assert_eq!(0xffff_0000, event_id::SOFTWARE_INJECTED_LOCAL);
+        const_assert_eq!(0xffff_8000, event_id::SOFTWARE_INJECTED_GLOBAL);
+        const_assert_eq!(0, attr_id::STATUS);
+        const_assert_eq!(1, attr_id::PRIORITY);
+        const_assert_eq!(2, attr_id::CONFIG);
+        const_assert_eq!(3, attr_id::PREFERRED_HART);
+        const_assert_eq!(4, attr_id::ENTRY_PC);
+        const_assert_eq!(5, attr_id::ENTRY_ARG);
+        const_assert_eq!(6, attr_id::INTERRUPTED_SEPC);
+        const_assert_eq!(7, attr_id::INTERRUPTED_FLAGS);
+        const_assert_eq!(8, attr_id::INTERRUPTED_A6);
+        const_assert_eq!(9, attr_id::INTERRUPTED_A7);
     }
     // §18
     #[test]

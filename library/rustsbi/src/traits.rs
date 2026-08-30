@@ -121,6 +121,7 @@ pub struct _StandardExtensionProbe {
     pub mpxy: usize,
     pub dbtr: usize,
     pub fwft: usize,
+    pub sse: usize,
     // NOTE: remember to add to `fn probe_extension` in `impl _ExtensionProbe` as well
 }
 
@@ -143,6 +144,7 @@ impl _ExtensionProbe for _StandardExtensionProbe {
             spec::mpxy::EID_MPXY => self.mpxy,
             spec::dbtr::EID_DBTR => self.dbtr,
             spec::fwft::EID_FWFT => self.fwft,
+            spec::sse::EID_SSE => self.sse,
             _ => spec::base::UNAVAILABLE_EXTENSION,
         }
     }
@@ -588,4 +590,69 @@ pub fn _rustsbi_dbtr_probe<T: crate::Dbtr>(dbtr: &T) -> usize {
 #[inline(always)]
 pub fn _rustsbi_mpxy_probe<T: crate::Mpxy>(mpxy: &T) -> usize {
     mpxy._rustsbi_probe()
+}
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_sse<T: crate::Sse>(sse: &T, param: [usize; 6], function: usize) -> SbiRet {
+    let [param0, param1, param2, param3, param4] =
+        [param[0], param[1], param[2], param[3], param[4]];
+    match function {
+        spec::sse::READ_ATTRS => match (
+            u32::try_from(param0),
+            u32::try_from(param1),
+            u32::try_from(param2),
+        ) {
+            (Ok(event_id), Ok(base_attr_id), Ok(attr_count)) => sse.read_attrs(
+                event_id,
+                base_attr_id,
+                attr_count,
+                SharedPtr::new(param3, param4),
+            ),
+            _ => SbiRet::invalid_param(),
+        },
+        spec::sse::WRITE_ATTRS => match (
+            u32::try_from(param0),
+            u32::try_from(param1),
+            u32::try_from(param2),
+        ) {
+            (Ok(event_id), Ok(base_attr_id), Ok(attr_count)) => sse.write_attrs(
+                event_id,
+                base_attr_id,
+                attr_count,
+                SharedPtr::new(param3, param4),
+            ),
+            _ => SbiRet::invalid_param(),
+        },
+        spec::sse::REGISTER => match u32::try_from(param0) {
+            Ok(event_id) => sse.register(event_id, param1, param2),
+            _ => SbiRet::invalid_param(),
+        },
+        spec::sse::UNREGISTER => match u32::try_from(param0) {
+            Ok(event_id) => sse.unregister(event_id),
+            _ => SbiRet::invalid_param(),
+        },
+        spec::sse::ENABLE => match u32::try_from(param0) {
+            Ok(event_id) => sse.enable(event_id),
+            _ => SbiRet::invalid_param(),
+        },
+        spec::sse::DISABLE => match u32::try_from(param0) {
+            Ok(event_id) => sse.disable(event_id),
+            _ => SbiRet::invalid_param(),
+        },
+        spec::sse::COMPLETE => sse.complete(),
+        spec::sse::INJECT => match u32::try_from(param0) {
+            Ok(event_id) => sse.inject(event_id, param1),
+            _ => SbiRet::invalid_param(),
+        },
+        spec::sse::HART_UNMASK => sse.hart_unmask(),
+        spec::sse::HART_MASK => sse.hart_mask(),
+        _ => SbiRet::not_supported(),
+    }
+}
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_sse_probe<T: crate::Sse>(sse: &T) -> usize {
+    sse._rustsbi_probe()
 }

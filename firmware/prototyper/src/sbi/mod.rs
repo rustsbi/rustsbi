@@ -12,6 +12,7 @@ pub mod nacl;
 pub mod pmu;
 pub mod reset;
 pub mod rfence;
+pub mod sse;
 pub mod sta;
 pub mod suspend;
 
@@ -34,6 +35,7 @@ use nacl::SbiNacl;
 use pmu::SbiPmu;
 use reset::SbiReset;
 use rfence::SbiRFence;
+use sse::SbiSse;
 use sta::SbiSta;
 use suspend::SbiSuspend;
 
@@ -62,6 +64,8 @@ pub struct SbiDispatcher {
     sta: Option<SbiSta>,
     #[rustsbi(nacl)]
     nacl: Option<SbiNacl>,
+    #[rustsbi(sse)]
+    sse: Option<SbiSse>,
     #[rustsbi(susp)]
     susp: Option<SbiSuspend>,
     #[rustsbi(mpxy)]
@@ -85,6 +89,7 @@ impl SbiDispatcher {
         sta: Option<SbiSta>,
         mpxy: Option<SbiMpxy>,
         nacl: Option<SbiNacl>,
+        sse: Option<SbiSse>,
     ) -> Self {
         SbiDispatcher {
             console,
@@ -97,6 +102,7 @@ impl SbiDispatcher {
             rfence,
             pmu,
             sta,
+            sse,
             susp,
             mpxy,
             nacl,
@@ -168,6 +174,11 @@ pub(crate) fn pmu() -> Option<&'static SbiPmu> {
 /// Returns the sta extension, if present.
 pub(crate) fn sta() -> Option<&'static SbiSta> {
     SBI_DISPATCHER.get().and_then(|sbi| sbi.sta.as_ref())
+}
+
+/// Returns the sse extension, if present.
+pub(crate) fn sse() -> Option<&'static SbiSse> {
+    SBI_DISPATCHER.get().and_then(|sbi| sbi.sse.as_ref())
 }
 
 /// Returns the susp extension, if present.

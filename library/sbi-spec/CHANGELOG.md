@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - base: add `Version::V3_0`; RISC-V SBI v3.0 is ratified in Jul 17, 2025.
+- sse: add standard event and event attribute identifiers from RISC-V SBI v3.0.
 
 ### Modified
 

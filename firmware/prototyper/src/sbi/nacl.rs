@@ -2,16 +2,14 @@ use rustsbi::SbiRet;
 use sbi_spec::binary::SharedPtr;
 use sbi_spec::nacl::shmem_size::NATIVE;
 
-/// SBI Nested Acceleration extension implementation.
+/// Nested Acceleration extension for harts with the RISC-V H extension.
 ///
-/// The target implements the RISC-V H-extension in hardware, so this
-/// firmware provides no NACL features. The handlers remain available for
-/// platforms that need to emulate H-extension operations.
+/// No emulated features are advertised because virtualization is provided by
+/// hardware.
 pub(crate) struct SbiNacl;
 
 impl rustsbi::Nacl for SbiNacl {
     fn probe_feature(&self, _feature_id: u32) -> SbiRet {
-        // H is implemented in hardware, so no NACL feature is provided.
         SbiRet::success(0)
     }
 
@@ -39,7 +37,8 @@ impl rustsbi::Nacl for SbiNacl {
             return SbiRet::invalid_address();
         }
 
-        // Safety: the range was validated as supervisor-writable above.
+        // SAFETY: the validated `NATIVE`-byte range is supervisor-writable
+        // and lies outside firmware memory.
         unsafe {
             core::ptr::write_bytes(lo as *mut u8, 0, NATIVE);
             core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
