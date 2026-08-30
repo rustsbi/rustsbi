@@ -6,6 +6,7 @@ use core::sync::atomic::Ordering;
 use fast_trap::FlowContext;
 use riscv::register::mstatus;
 
+use super::fwft::FwftState;
 use super::pmu::PmuState;
 use super::trap_stack::{HsmCell, RFenceCell};
 
@@ -54,6 +55,8 @@ pub struct HartLocal {
     pub features: HartFeatures,
     /// PMU State
     pub pmu_state: PmuState,
+    /// Per-hart FWFT lock and feature-probe state.
+    pub(crate) fwft_state: FwftState,
 }
 
 // HartContext sits at the bottom of each HartStack slot, so the slot size
@@ -75,6 +78,7 @@ impl HartLocal {
         self.hsm = HsmCell::new();
         self.rfence = RFenceCell::new();
         self.pmu_state = PmuState::new();
+        self.fwft_state = FwftState::new();
     }
 
     #[inline]
@@ -82,6 +86,7 @@ impl HartLocal {
         self.ipi_reset();
         self.rfence_reset();
         self.pmu_state_reset();
+        self.fwft_state = FwftState::new();
     }
 
     #[inline]
