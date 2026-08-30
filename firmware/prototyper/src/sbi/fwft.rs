@@ -4,12 +4,11 @@ use sbi_spec::fwft::feature_type;
 use crate::riscv::csr::CSR_MENVCFG;
 use crate::sbi::early_trap::{TrapInfo, csr_read_allow, csr_write_allow};
 
-/// Misaligned load/store exception bits in `medeleg` (CAUSE_MISALIGNED_LOAD
-/// = 4, CAUSE_MISALIGNED_STORE = 6), mirroring OpenSBI
-/// `lib/sbi/sbi_fwft.c` `MIS_DELEG`.
+/// Misaligned load/store exception delegation mask from the RISC-V privileged
+/// architecture (exception cause codes 4 and 6).
 const MIS_DELEG: usize = (1 << 4) | (1 << 6);
 
-/// `menvcfg` bit fields (see `include/sbi/riscv_encoding.h` `ENVCFG_*`).
+/// `menvcfg` bit fields defined by the corresponding RISC-V extensions.
 const ENVCFG_LPE: usize = 1 << 0; // Landing pad (Zicfilp)
 const ENVCFG_DTE: usize = 1 << 1; // Double trap (Smdbltrp)
 const ENVCFG_ADUE: usize = 1 << 5; // PTE A/D hardware updating (SVADU)
@@ -19,8 +18,6 @@ const ENVCFG_PMM: usize = 0b11 << ENVCFG_PMM_SHIFT;
 
 /// Implementation of SBI Firmware Features (FWFT) extension.
 ///
-/// Mirrors OpenSBI `lib/sbi/sbi_fwft.c`:
-///
 /// - `MISALIGNED_EXC_DELEG` is supported when the hart implements the
 ///   supervisor mode (`misa.S`); setting it toggles the misaligned load and
 ///   store bits of `medeleg`, so the S-mode trap handler (rather than the
@@ -28,9 +25,8 @@ const ENVCFG_PMM: usize = 0b11 << ENVCFG_PMM_SHIFT;
 /// - `LANDING_PAD`, `SHADOW_STACK`, `DOUBLE_TRAP`, `PTE_AD_HW_UPDATING` and
 ///   `POINTER_MASKING_PMLEN` are backed by the corresponding bits of the
 ///   `menvcfg` CSR (Zicfilp / Zicfiss / Smdbltrp / SVADU / Smnpm). A feature
-///   is reported as supported only if the bit can actually be written, i.e.
-///   the underlying hardware extension is present (mirroring OpenSBI
-///   `fwft_try_to_set_pmm`).
+///   is reported as supported only if the requested field can be written and
+///   read back, which requires the underlying hardware extension.
 pub(crate) struct SbiFwft;
 
 impl SbiFwft {
@@ -87,10 +83,8 @@ impl SbiFwft {
 
     /// Sets or clears a `menvcfg` bit for a FWFT feature.
     ///
-    /// Mirrors OpenSBI `fwft_menvcfg_set_bit` combined with the write-then-
-    /// read-back check of `fwft_try_to_set_pmm`: the new value is written and
-    /// read back; if the bit did not take effect, the underlying hardware
-    /// extension is absent and the feature is not supported.
+    /// The new value is written and read back. A mismatch means the requested
+    /// state is not supported by the underlying hardware extension.
     fn set_menvcfg_bit(bit: usize, value: usize) -> SbiRet {
         if value > 1 {
             return SbiRet::invalid_param();
@@ -117,9 +111,8 @@ impl SbiFwft {
 
     /// Sets the pointer masking tag length (`PMM` field of `menvcfg`).
     ///
-    /// Mirrors OpenSBI `fwft_try_to_set_pmm`: the new `PMM` value is written
-    /// and read back; if it did not take effect, the `Smnpm` extension is
-    /// absent and the feature is not supported.
+    /// The new `PMM` value is written and read back. A mismatch means the
+    /// requested tag length is not supported by the `Smnpm` extension.
     fn set_pmm(value: usize) -> SbiRet {
         if value > 3 {
             return SbiRet::invalid_param();
@@ -140,10 +133,9 @@ impl SbiFwft {
         SbiRet::success(0)
     }
 
-    /// Returns whether the hardware implements the given `menvcfg` bits, by
-    /// writing them and reading them back (mirroring OpenSBI
-    /// `fwft_try_to_set_pmm`). The original value is restored before
-    /// returning.
+    /// Returns whether the hardware implements the given `menvcfg` bits by
+    /// writing them and reading them back. The original value is restored
+    /// before returning.
     fn menvcfg_bits_supported(mask: usize) -> bool {
         let Some(current) = Self::menvcfg_read() else {
             return false;
