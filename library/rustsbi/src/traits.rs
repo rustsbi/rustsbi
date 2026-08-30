@@ -1,6 +1,6 @@
 #[cfg(feature = "machine")]
 use riscv::register::{marchid, mimpid, mvendorid};
-use spec::binary::{HartMask, Physical, SbiRet, SharedPtr};
+use spec::binary::{HartMask, Physical, SbiRet, SharedPtr, TriggerMask};
 
 /// RustSBI environment call handler.
 pub trait RustSBI {
@@ -119,6 +119,7 @@ pub struct _StandardExtensionProbe {
     pub nacl: usize,
     pub sta: usize,
     pub mpxy: usize,
+    pub dbtr: usize,
     // NOTE: remember to add to `fn probe_extension` in `impl _ExtensionProbe` as well
 }
 
@@ -139,6 +140,7 @@ impl _ExtensionProbe for _StandardExtensionProbe {
             spec::nacl::EID_NACL => self.nacl,
             spec::sta::EID_STA => self.sta,
             spec::mpxy::EID_MPXY => self.mpxy,
+            spec::dbtr::EID_DBTR => self.dbtr,
             _ => spec::base::UNAVAILABLE_EXTENSION,
         }
     }
@@ -531,6 +533,35 @@ pub fn _rustsbi_mpxy<T: crate::Mpxy>(mpxy: &T, param: [usize; 6], function: usiz
 
 #[doc(hidden)]
 #[inline(always)]
+pub fn _rustsbi_dbtr<T: crate::Dbtr>(dbtr: &T, param: [usize; 6], function: usize) -> SbiRet {
+    let [param0, param1] = [param[0], param[1]];
+    match function {
+        spec::dbtr::NUM_TRIGGERS => SbiRet::success(dbtr.num_triggers(param0)),
+        spec::dbtr::SET_SHMEM => dbtr.set_shmem(SharedPtr::new(param0, param1), param[2]),
+        spec::dbtr::READ_TRIGGERS => dbtr.read_triggers(param0, param1),
+        spec::dbtr::INSTALL_TRIGGERS => dbtr.install_triggers(param0),
+        spec::dbtr::UPDATE_TRIGGERS => dbtr.update_triggers(param0),
+        spec::dbtr::UNINSTALL_TRIGGERS => {
+            dbtr.uninstall_triggers(TriggerMask::from_mask_base(param0, param1))
+        }
+        spec::dbtr::ENABLE_TRIGGERS => {
+            dbtr.enable_triggers(TriggerMask::from_mask_base(param0, param1))
+        }
+        spec::dbtr::DISABLE_TRIGGERS => {
+            dbtr.disable_triggers(TriggerMask::from_mask_base(param0, param1))
+        }
+        _ => SbiRet::not_supported(),
+    }
+}
+
+#[doc(hidden)]
+#[inline(always)]
 pub fn _rustsbi_mpxy_probe<T: crate::Mpxy>(mpxy: &T) -> usize {
     mpxy._rustsbi_probe()
+}
+
+#[doc(hidden)]
+#[inline(always)]
+pub fn _rustsbi_dbtr_probe<T: crate::Dbtr>(dbtr: &T) -> usize {
+    dbtr._rustsbi_probe()
 }
