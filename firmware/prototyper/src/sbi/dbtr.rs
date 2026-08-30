@@ -8,12 +8,9 @@ use crate::sbi::early_trap::{TrapInfo, csr_read_allow, csr_write_allow};
 /// Implementation of SBI Debug Triggers (DBTR) extension.
 ///
 /// The DBTR extension requires the RISC-V Sdtrig hardware debug trigger
-/// interface: OpenSBI (`lib/sbi/sbi_dbtr.c`) enumerates triggers by probing
-/// `tselect`/`tdata1` and only exposes the extension when the hart implements
-/// `SBI_HART_EXT_SDTRIG`. Prototyper probes the Sdtrig CSRs directly to count
-/// the triggers available on the calling hart (mirroring
-/// `sbi_dbtr_get_trig_max()`), but does not model real trigger configuration:
-/// the configuration requests stay rejected as not supported, while
+/// interface. The prototyper probes `tselect` and `tdata1` directly to count
+/// the triggers available on the calling hart, but does not model real trigger
+/// configuration. Configuration requests remain unsupported, while
 /// `num_triggers` reports the probed count and `set_shmem` records the
 /// shared-memory pointer.
 pub(crate) struct SbiDbtr;
@@ -34,8 +31,8 @@ const CSR_TDATA3: u16 = 0x7a3;
 #[allow(dead_code)]
 const CSR_TINFO: u16 = 0x7a4;
 
-/// Maximum trigger index to probe (OpenSBI `SBI_DBTR_TRIG_MAX`); the walk
-/// covers `tselect` 0..=255, i.e. at most 256 triggers.
+/// Upper bound for the trigger walk; probing `tselect` 0..=255 covers at most
+/// 256 triggers.
 const SBI_DBTR_TRIG_MAX: usize = 255;
 
 /// Cached trigger count; `usize::MAX` means "not probed yet".
@@ -45,8 +42,7 @@ static TRIG_MAX: AtomicUsize = AtomicUsize::new(usize::MAX);
 static SHMEM_PTR: AtomicUsize = AtomicUsize::new(0);
 
 /// Probes the Sdtrig hardware to count the number of debug triggers on the
-/// calling hart, mirroring OpenSBI `sbi_dbtr_get_trig_max()` in
-/// `lib/sbi/sbi_dbtr.c`.
+/// calling hart.
 ///
 /// Walks `tselect` from 0 upwards: writing an index and reading it back must
 /// return the same value, otherwise the walk stops. A trigger counts only if
@@ -94,8 +90,8 @@ impl rustsbi::Dbtr for SbiDbtr {
         if trig_tdata1 == 0 {
             num_triggers_probed()
         } else {
-            // Simplified: no per-`tdata1` filtering, only the total count is
-            // reported (OpenSBI would count triggers matching `tdata1`).
+            // A nonzero `tdata1` request requires trigger-type filtering,
+            // which this scaffolding does not implement.
             0
         }
     }
