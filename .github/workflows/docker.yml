@@ -1,0 +1,75 @@
+name: Docker
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+
+permissions:
+  contents: read
+
+jobs:
+  development-image:
+    name: Build and test development image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Build development image
+        run: docker build -t rustsbi-dev .
+
+      - name: Verify development tools
+        run: |
+          docker run --rm rustsbi-dev bash -lc '
+            set -euxo pipefail
+
+            rustc --version
+            cargo --version
+            qemu-system-riscv64 --version
+            dtc --version
+            mkimage -V
+            rustup target list --installed
+            rustup target list --installed | grep -Fx riscv64gc-unknown-none-elf
+            rustup target list --installed | grep -Fx riscv64imac-unknown-none-elf
+            cargo objcopy --version
+            axconfig-gen --version
+          '
+
+      - name: Build RustSBI firmware
+        run: |
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            rustsbi-dev \
+            bash -lc '
+              set -euxo pipefail
+
+              cargo prototyper build
+              cargo prototyper build jump
+              cargo prototyper test --pack --no-run
+              test -s target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.itb
+            '
+
+      - name: Boot payload test kernel in QEMU
+        run: |
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            rustsbi-dev \
+            bash -lc '
+              set -euxo pipefail
+
+              cargo prototyper test
+            '
+
+      - name: Upload QEMU log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-qemu-logs
+          path: qemu-logs
+          if-no-files-found: ignore
