@@ -5,10 +5,7 @@ use sbi_spec::binary::SharedPtr;
 
 const SHMEM_SIZE: usize = 4096;
 
-/// Minimal SBI Message Proxy extension implementation.
-///
-/// The prototyper has no discovered message-channel backend yet, so it only
-/// accepts per-hart shared-memory setup and reports no usable channels.
+/// Message Proxy extension with per-hart shared memory but no message channels.
 pub(crate) struct SbiMpxy {
     shmem: [AtomicUsize; crate::cfg::NUM_HART_MAX],
 }

@@ -5,62 +5,50 @@ use sbi_spec::binary::{SharedPtr, TriggerMask};
 
 use crate::sbi::early_trap::{TrapInfo, csr_read_allow, csr_write_allow};
 
-/// Implementation of SBI Debug Triggers (DBTR) extension.
+/// Debug Triggers extension for harts with the RISC-V Sdtrig interface.
 ///
-/// The DBTR extension requires the RISC-V Sdtrig hardware debug trigger
-/// interface. The prototyper probes `tselect` and `tdata1` directly to count
-/// the triggers available on the calling hart, but does not model real trigger
-/// configuration. Configuration requests remain unsupported, while
-/// `num_triggers` reports the probed count and `set_shmem` records the
-/// shared-memory pointer.
+/// Trigger configuration is not supported.
 pub(crate) struct SbiDbtr;
 
-// Sdtrig CSR numbers (RISC-V Debug specification). The `riscv` crate does not
-// provide wrappers for these, so they are accessed with raw CSR instructions
-// (see the `csr_read`/`csr_write` helpers below, same pattern as
-// `riscv/spacemit_k1.rs`).
+// The `riscv` crate has no Sdtrig CSR wrappers, so probes use raw CSR helpers
+// that contain illegal-instruction traps for absent CSRs.
 const CSR_TSELECT: u16 = 0x7a0;
 const CSR_TDATA1: u16 = 0x7a1;
-/// Not read by the probe; kept for reference.
+// Defined by Sdtrig but unused until trigger configuration is implemented.
 #[allow(dead_code)]
 const CSR_TDATA2: u16 = 0x7a2;
-/// Not read by the probe; kept for reference.
 #[allow(dead_code)]
 const CSR_TDATA3: u16 = 0x7a3;
-/// Not read by the probe; kept for reference.
 #[allow(dead_code)]
 const CSR_TINFO: u16 = 0x7a4;
 
-/// Upper bound for the trigger walk; probing `tselect` 0..=255 covers at most
-/// 256 triggers.
+// Bound the `tselect` walk to at most 256 triggers.
 const SBI_DBTR_TRIG_MAX: usize = 255;
 
-/// Cached trigger count; `usize::MAX` means "not probed yet".
+// The trigger count is cached once; `usize::MAX` denotes an empty cache.
 static TRIG_MAX: AtomicUsize = AtomicUsize::new(usize::MAX);
 
-/// Shared-memory physical address recorded by `set_shmem`.
 static SHMEM_PTR: AtomicUsize = AtomicUsize::new(0);
 
-/// Probes the Sdtrig hardware to count the number of debug triggers on the
-/// calling hart.
-///
-/// Walks `tselect` from 0 upwards: writing an index and reading it back must
-/// return the same value, otherwise the walk stops. A trigger counts only if
-/// its `tdata1.type` field (bits 31:28) is non-zero.
 fn probe_triggers() -> usize {
     let mut count = 0;
+    // A selector is usable only if it reads back unchanged. A zero
+    // `tdata1.type` field does not identify an implemented trigger.
     for i in 0..=SBI_DBTR_TRIG_MAX {
         let mut trap = TrapInfo::default();
+        // SAFETY: firmware runs in M-mode, and `trap` remains valid for the call.
         unsafe { csr_write_allow::<CSR_TSELECT>(&mut trap, i) };
         if trap.mcause != usize::MAX {
             break;
         }
 
+        // SAFETY: firmware runs in M-mode, and `trap` remains valid for the call.
         let selected = unsafe { csr_read_allow::<CSR_TSELECT>(&mut trap) };
         if trap.mcause != usize::MAX || selected != i {
             break;
         }
 
+        // SAFETY: firmware runs in M-mode, and `trap` remains valid for the call.
         let tdata1 = unsafe { csr_read_allow::<CSR_TDATA1>(&mut trap) };
         if trap.mcause != usize::MAX {
             break;
@@ -73,8 +61,6 @@ fn probe_triggers() -> usize {
     count
 }
 
-/// Returns the number of debug triggers on the calling hart, probing the
-/// Sdtrig hardware once and caching the result.
 fn num_triggers_probed() -> usize {
     let cached = TRIG_MAX.load(Ordering::Relaxed);
     if cached != usize::MAX {
@@ -129,8 +115,6 @@ impl rustsbi::Dbtr for SbiDbtr {
     }
 
     fn read_triggers(&self, _trig_idx_base: usize, _trig_count: usize) -> SbiRet {
-        // Prototyper does not model real trigger configuration, so these stay
-        // not supported even when the hart has Sdtrig triggers.
         SbiRet::not_supported()
     }
 

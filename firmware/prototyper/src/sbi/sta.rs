@@ -1,7 +1,7 @@
 use rustsbi::SbiRet;
 use sbi_spec::binary::SharedPtr;
 
-/// Steal-time Accounting extension implementation.
+/// Steal-time Accounting extension using supervisor-provided shared memory.
 pub(crate) struct SbiSta;
 
 impl rustsbi::Sta for SbiSta {
@@ -27,9 +27,9 @@ impl rustsbi::Sta for SbiSta {
             return SbiRet::invalid_address();
         }
 
-        // The structure is reset before the supervisor observes success.
-        // Safety: `lo` was validated above (writable, aligned, outside
-        // firmware memory); the write is volatile so it cannot be elided.
+        // Clear the structure before returning success.
+        // SAFETY: the validated 64-byte range is writable and lies outside
+        // firmware memory.
         unsafe {
             core::ptr::write_bytes(lo as *mut u8, 0, 64);
             core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
