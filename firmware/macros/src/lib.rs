@@ -92,20 +92,6 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
                 )
             }
 
-            /// SpacemiT K3 warm-boot entry, referenced by the cluster
-            /// RVBADDR registers after platform initialization.
-            #[doc(hidden)]
-            #[unsafe(naked)]
-            #[unsafe(link_section = ".text.warmboot")]
-            #[unsafe(export_name = "_start_warm_k3")]
-            unsafe extern "C" fn __rustsbi_prototyper_start_warm_k3() -> ! {
-                ::core::arch::naked_asm!(
-                    include_str!("entry/spacemit_k3.S"),
-                    locate_stack = sym crate::sbi::trap_stack::locate,
-                    main = sym __rustsbi_prototyper_main,
-                    hart_boot = sym crate::sbi::trap::boot::boot,
-                )
-            }
         };
     }
 }
@@ -137,14 +123,8 @@ mod tests {
     fn includes_startup_assembly() {
         let expanded = normalized(expand(TokenStream::new(), POLICY_FN.parse().unwrap()));
         assert_eq!(expanded.matches("export_name=\"_start\"").count(), 1);
-        assert_eq!(
-            expanded.matches("export_name=\"_start_warm_k3\"").count(),
-            1
-        );
         assert!(expanded.contains("link_section=\".text.entry\""));
-        assert!(expanded.contains("link_section=\".text.warmboot\""));
         assert!(expanded.contains("include_str!(\"entry/start.S\")"));
-        assert!(expanded.contains("include_str!(\"entry/spacemit_k3.S\")"));
         assert!(expanded.contains("include_str!(\"entry/relocation.S\")"));
     }
 

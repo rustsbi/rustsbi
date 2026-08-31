@@ -572,10 +572,29 @@ pub fn cold_boot_allowed(hart_id: usize) -> bool {
     hart_id == 0
 }
 
-// The K3 warm-boot entry defined by entry/spacemit_k3.S (`_start_warm_k3`).
+// The common entry macro exports this bridge for platform-specific startup
+// paths. K3's warm entry invokes it after completing its SoC initialization.
 unsafe extern "C" {
+    #[link_name = "__rustsbi_prototyper_main"]
+    fn prototyper_main(_a0: usize, a1: usize, a2: usize);
+
     #[link_name = "_start_warm_k3"]
     static START_WARM_K3: u8;
+}
+
+/// SpacemiT K3 warm-boot entry, referenced by the cluster RVBADDR registers
+/// after platform initialization.
+#[doc(hidden)]
+#[unsafe(naked)]
+#[unsafe(link_section = ".text.warmboot")]
+#[unsafe(export_name = "_start_warm_k3")]
+unsafe extern "C" fn start_warm_k3() -> ! {
+    core::arch::naked_asm!(
+        include_str!("../entry/spacemit_k3.S"),
+        locate_stack = sym crate::sbi::trap_stack::locate,
+        main = sym prototyper_main,
+        hart_boot = sym crate::sbi::trap::boot::boot,
+    )
 }
 
 /// Address of the K3 warm-boot entry (`_start_warm_k3` in spacemit_k3.S).
