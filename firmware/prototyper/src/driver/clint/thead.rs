@@ -1,7 +1,7 @@
 //! T-Head C900-compatible Core Local Interruptor (CLINT).
 
 use crate::cfg::NUM_HART_MAX;
-use crate::driver::{IpiSender, TimerDevice};
+use crate::driver::{IpiDevice, TimerDevice};
 use crate::platform::mmio::Mmio;
 
 /// Register span through the configured harts' timer comparison registers.
@@ -96,7 +96,7 @@ impl TimerDevice for THeadClint {
     }
 }
 
-impl IpiSender for THeadClint {
+impl IpiDevice for THeadClint {
     #[inline(always)]
     fn send_ipi(&self, hart_idx: usize) {
         self.mmio.write::<u32>(Reg::Msip.offset(hart_idx), 1)

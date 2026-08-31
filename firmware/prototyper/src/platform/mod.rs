@@ -88,7 +88,7 @@ const RISCV_MACHINE_EXTERNAL_IRQ: u32 = 11;
 /// 10-bit addressing.
 const MAX_7BIT_I2C_ADDRESS: usize = 0x7f;
 
-/// AIA candidate discovered from the FDT; backend selection happens in the
+/// AIA candidate discovered from the FDT; device selection happens in the
 /// driver layer.
 pub struct AiaInfo {
     pub layout: AddressLayout,

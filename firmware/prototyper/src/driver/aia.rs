@@ -1,13 +1,14 @@
 //! IMSIC IPI device and per-hart interrupt-file initialization.
 
+use alloc::boxed::Box;
 use core::sync::atomic::Ordering;
 
 use riscv_aia::Iid;
 use riscv_aia::register::mtopei;
 
 use crate::cfg::NUM_HART_MAX;
-use crate::driver::IpiSender;
-use crate::platform::{AiaInfo, BoardInfo, board_info, mmio::Mmio};
+use crate::driver::{InterruptDevices, IpiDevice, SstcTimer};
+use crate::platform::{AiaInfo, BoardInfo, board_info, cpu_enabled, mmio::Mmio, qemu_aplic};
 use crate::riscv::csr::imsic;
 use crate::riscv::current_hartid;
 use crate::sbi::features::{Extension, hart_extension_probe};
@@ -34,7 +35,7 @@ impl ImsicDevice {
     /// board's trusted regions.
     ///
     /// Returns `None` if any mapped page is not contained in a discovered
-    /// region, so the caller can fall back to the CLINT backend.
+    /// region, so the caller can fall back to the CLINT devices.
     pub(super) fn new(
         firmware_ipi_iid: Iid,
         hart_imsic_map: [Option<usize>; NUM_HART_MAX],
@@ -53,7 +54,7 @@ impl ImsicDevice {
     }
 }
 
-impl IpiSender for ImsicDevice {
+impl IpiDevice for ImsicDevice {
     #[inline(always)]
     fn send_ipi(&self, hart_id: usize) {
         let Some(file) = self.hart_imsic_map.get(hart_id).copied().flatten() else {
@@ -68,9 +69,58 @@ impl IpiSender for ImsicDevice {
     fn clear_ipi(&self) {
         let _ = mtopei::claim();
     }
+
+    #[inline(always)]
+    fn is_imsic(&self) -> bool {
+        true
+    }
 }
 
-/// Initializes this hart's IMSIC when that backend was selected.
+/// Selects IMSIC IPI and Sstc timer devices when every enabled hart supports
+/// the required AIA extensions and MMIO resources.
+pub(super) fn from_board(board: &BoardInfo, aia_info: &AiaInfo) -> Option<InterruptDevices> {
+    let Some(enabled_harts) = cpu_enabled() else {
+        warn!("AIA: enabled-hart data unavailable, falling back to CLINT");
+        return None;
+    };
+    if enabled_harts
+        .iter()
+        .enumerate()
+        .any(|(hart_id, enabled)| *enabled && !hart_usable(hart_id))
+    {
+        warn!("AIA: requirements not met, falling back to CLINT");
+        return None;
+    }
+
+    let ipi = ImsicDevice::new(aia_info.firmware_ipi_iid, aia_info.hart_imsic_map, board).or_else(
+        || {
+            warn!("AIA: IMSIC MMIO regions unavailable, falling back to CLINT");
+            None
+        },
+    )?;
+
+    if board.is_qemu_virt()
+        && !qemu_aplic::init_qemu_m_aplic_delegation(
+            board,
+            aia_info.layout.machine_base,
+            aia_info.layout.hart_index_bits,
+        )
+    {
+        warn!("AIA: APLIC setup failed, falling back to CLINT");
+        return None;
+    }
+    if !board.is_qemu_virt() {
+        warn!("AIA: skipping QEMU virt M-APLIC setup on '{}'", board.model);
+    }
+
+    info!("AIA: IMSIC IPI + Sstc timer backend initialized");
+    Some(InterruptDevices {
+        timer: Box::new(SstcTimer),
+        ipi: Box::new(ipi),
+    })
+}
+
+/// Initializes this hart's IMSIC when that device was selected.
 pub(crate) fn per_hart_init() {
     let Some(info) = board_info().aia.as_ref() else {
         return;
@@ -80,7 +130,7 @@ pub(crate) fn per_hart_init() {
         imsic_init_hart(info);
     } else {
         warn!(
-            "Hart {} lacks Smaia despite IMSIC backend selection",
+            "Hart {} lacks Smaia despite IMSIC device selection",
             hart_id
         );
     }
@@ -95,4 +145,16 @@ fn imsic_init_hart(info: &AiaInfo) {
         "IMSIC: hart init done, MEIE enabled, firmware IPI IID={}",
         ipi_iid
     );
+}
+
+fn hart_usable(hart_id: usize) -> bool {
+    if !hart_extension_probe(hart_id, Extension::Smaia) {
+        warn!("AIA: hart {} lacks Smaia, rejecting AIA", hart_id);
+        return false;
+    }
+    if !hart_extension_probe(hart_id, Extension::Sstc) {
+        warn!("AIA: hart {} lacks Sstc, rejecting AIA", hart_id);
+        return false;
+    }
+    true
 }

@@ -34,27 +34,24 @@ pub(crate) trait TimerDevice: Send {
     fn set_timer(&self, hart_idx: usize, value: u64);
 }
 
-/// Inter-processor interrupt operations used by SBI services.
-pub(crate) trait IpiSender: Send {
+/// Inter-processor interrupt operations implemented by a platform device.
+pub(crate) trait IpiDevice: Send {
     /// Signals a firmware IPI to `hart_idx`.
     fn send_ipi(&self, hart_idx: usize);
 
     /// Clears the current hart's pending firmware IPI.
     fn clear_ipi(&self);
-}
 
-/// The interrupt backend selected after discovery and validation.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum InterruptBackend {
-    Clint,
-    Imsic,
+    /// Reports whether firmware IPIs arrive through an IMSIC interrupt file.
+    fn is_imsic(&self) -> bool {
+        false
+    }
 }
 
 /// Timer and IPI capabilities selected for the platform.
 pub(crate) struct InterruptDevices {
-    pub(crate) backend: InterruptBackend,
     pub(crate) timer: Box<dyn TimerDevice>,
-    pub(crate) ipi: Box<dyn IpiSender>,
+    pub(crate) ipi: Box<dyn IpiDevice>,
 }
 
 /// Timer implementation using the Sstc `stimecmp` CSR.
@@ -87,5 +84,10 @@ pub(crate) fn reset_device(board: &BoardInfo) -> Option<Box<dyn ResetDevice>> {
 }
 
 pub(crate) fn interrupt_devices(board: &BoardInfo) -> Option<InterruptDevices> {
+    if let Some(aia_info) = board.aia.as_ref()
+        && let Some(devices) = aia::from_board(board, aia_info)
+    {
+        return Some(devices);
+    }
     clint::from_board(board)
 }

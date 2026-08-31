@@ -65,13 +65,13 @@ fn handle_interrupt(
         Interrupt::MachineTimer => {
             use crate::riscv::current_hartid;
             use crate::sbi::features::{Extension, hart_extension_probe};
-            use crate::sbi::ipi;
+            use crate::sbi::timer;
 
             unsafe {
                 riscv::register::mie::clear_mtimer();
             }
             if !hart_extension_probe(current_hartid(), Extension::Sstc) {
-                ipi::clear_mtime();
+                timer::clear();
                 unsafe {
                     mip::set_stimer();
                 }

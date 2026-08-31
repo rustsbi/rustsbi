@@ -232,7 +232,7 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
     serde_device_tree::ser::to_dtb(&tree, &list, &mut patched_dtb_buffer_u8).unwrap();
 
     // Hide machine-level interrupt controllers only when firmware retained
-    // them by selecting the IMSIC backend.
+    // them by selecting the IMSIC device.
     if crate::sbi::ipi::uses_imsic() {
         // SAFETY: same leaked buffer and length as above; the slice is
         // recreated for the in-place node patching below.
@@ -579,7 +579,7 @@ pub fn set_pmp(memory_range: &Range<usize>) {
         assert_eq!(RODATA_END_ADDRESS & 0x3, 0);
 
         // Keep machine-level interrupt controllers inaccessible to S-mode
-        // only when the IMSIC backend retained them for firmware use.
+        // only when the IMSIC device retained them for firmware use.
         if crate::sbi::ipi::uses_imsic()
             && crate::platform::board_info().is_qemu_virt()
             && let Some(aia_info) = crate::platform::board_info().aia.as_ref()

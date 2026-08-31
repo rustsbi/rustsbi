@@ -23,8 +23,8 @@ use crate::sbi::features::{
 };
 use crate::sbi::heap;
 use crate::sbi::hsm::hart_hsm;
-use crate::sbi::ipi;
 use crate::sbi::trap_stack;
+use crate::sbi::{ipi, timer};
 use rustsbi_prototyper_macros::entry;
 
 #[entry]
@@ -80,8 +80,9 @@ fn secondary_hart(boot: &BootInfo) {
 }
 
 fn enable_supervisor_services() {
-    ipi::clear_all();
-    // Gate per-hart IMSIC setup on the backend selected during platform
+    ipi::claim_ipi();
+    timer::clear();
+    // Gate per-hart IMSIC setup on the device selected during platform
     // initialization, not on AIA discovery alone.
     if ipi::uses_imsic() {
         driver::per_hart_init();
