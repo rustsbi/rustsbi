@@ -10,6 +10,18 @@
 // 1. Mask all interrupts.
 csrw    mie, zero
 
+// Flush local TLB and I-cache: after a warm restart the RAM image and this
+// hart's caches may hold stale state from the previous boot. SFENCE.VMA
+// exists only on harts implementing S, so gate it on misa.S rather than
+// assuming the extension; FENCE.I (Zifencei) is required by all image
+// targets.
+        csrr    t0, misa
+        srli    t0, t0, 18      // 'S' - 'A'
+        andi    t0, t0, 1
+        beqz    t0, 8f
+        sfence.vma
+8:      fence.i
+
 // 2. Elect a single boot hart: the first hart to arrive wins the race
 // (amoadd returns the previous value; nonzero means another hart won).
     lla      t0, 6f

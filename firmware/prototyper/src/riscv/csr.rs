@@ -20,6 +20,10 @@ pub const CSR_MSTATEEN1: u16 = 0x30d;
 pub const CSR_MSTATEEN2: u16 = 0x30e;
 pub const CSR_MSTATEEN3: u16 = 0x30f;
 
+// Hypervisor State-Enable 0 (H extension; absent on K3 despite the DTB
+// declaring 'h' and smstateen).
+pub const CSR_HSTATEEN0: u16 = 0x60c;
+
 // Machine Counter Setup (Inhibit, Privilege Filtering and Event Selection)
 pub const CSR_MCOUNTINHIBIT: u16 = 0x320;
 pub const CSR_MCYCLECFG: u16 = 0x321;
@@ -117,8 +121,9 @@ pub mod menvcfg {
     pub const FIOM: usize = 0x1 << 0;
     /// Cache block invalidate - flush.
     pub const CBIE_FLUSH: usize = 0x01 << 4;
-    /// Cache block invalidate - invalidate.
-    pub const CBIE_INVALIDATE: usize = 0x11 << 4;
+    /// Cache block invalidate - invalidate one block plus fence.i.
+    /// Encoding required for `cbo.flush` and `cbo.inval` on the K3.
+    pub const CBIE_INVALIDATE: usize = 0x3 << 4;
     /// Cache block clean for enclave.
     pub const CBCFE: usize = 0x1 << 6;
     /// Cache block zero for enclave.
@@ -180,6 +185,38 @@ pub mod mstateen {
             asm!("csrw {csr}, {value}", csr = const CSR_MSTATEEN2, value = in(reg) STATEN, options(nomem));
             asm!("csrw {csr}, {value}", csr = const CSR_MSTATEEN3, value = in(reg) STATEN, options(nomem));
         }
+    }
+
+    /// Writes the full `mstateen0` value (S/HS-mode access control for
+    /// state-enable CSRs). `mstateen1-3` get `STATEN` so the corresponding
+    /// state-enable CSR groups stay accessible. Used instead of
+    /// [`enable_smode_aia`]
+    /// when the caller wants to grant only the base bits
+    /// (`STATEN|CONTEXT|HSENVCFG`) plus optional AIA bits.
+    #[inline(always)]
+    pub fn set_stateen0(stateen0: usize) {
+        unsafe {
+            asm!("csrw {csr}, {value}", csr = const CSR_MSTATEEN0, value = in(reg) stateen0, options(nomem));
+            asm!("csrw {csr}, {value}", csr = const CSR_MSTATEEN1, value = in(reg) STATEN, options(nomem));
+            asm!("csrw {csr}, {value}", csr = const CSR_MSTATEEN2, value = in(reg) STATEN, options(nomem));
+            asm!("csrw {csr}, {value}", csr = const CSR_MSTATEEN3, value = in(reg) STATEN, options(nomem));
+        }
+    }
+
+    /// Reads back the current `mstateen0` value (diagnostic; confirms the
+    /// state-enable bits actually took effect).
+    #[inline(always)]
+    pub fn read_stateen0() -> usize {
+        let value: usize;
+        unsafe {
+            asm!(
+                "csrr {value}, {csr}",
+                value = out(reg) value,
+                csr = const CSR_MSTATEEN0,
+                options(nomem)
+            );
+        }
+        value
     }
 }
 
@@ -400,6 +437,17 @@ pub fn configure_delegation() {
         medeleg::clear_load_misaligned();
         medeleg::clear_store_misaligned();
         medeleg::clear_illegal_instruction();
+    }
+}
+
+/// Keeps load and store access faults in M-mode for platform emulation.
+pub fn keep_access_faults_in_mmode() {
+    use riscv::register::medeleg;
+
+    // SAFETY: this updates only the current hart's delegation policy.
+    unsafe {
+        medeleg::clear_load_fault();
+        medeleg::clear_store_fault();
     }
 }
 

@@ -34,6 +34,11 @@ pub(crate) static CPU_PRIVILEGED_ENABLED: [AtomicBool; NUM_HART_MAX] =
 /// secondary hart observing `READY == true` is guaranteed to also observe
 /// this flag (main.rs secondary-hart path).
 pub(crate) static IS_K1_PLATFORM: AtomicBool = AtomicBool::new(false);
+pub(crate) static IS_K3_PLATFORM: AtomicBool = AtomicBool::new(false);
+/// Whether the running platform is a SpacemiT K3.
+pub(crate) fn is_k3() -> bool {
+    IS_K3_PLATFORM.load(Ordering::Acquire)
+}
 
 /// Boot synchronization flag: set by the boot hart once platform
 /// initialization is complete, spinning secondary harts observe it with

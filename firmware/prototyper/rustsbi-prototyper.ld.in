@@ -8,6 +8,7 @@ SECTIONS {
 
     .text : ALIGN(0x1000) { 
         *(.text.entry)
+        KEEP(*(.text.warmboot))
         *(.text .text.*)
     }
 
