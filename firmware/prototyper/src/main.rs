@@ -9,6 +9,7 @@ extern crate log;
 
 mod cfg;
 mod devicetree;
+mod driver;
 mod fail;
 mod firmware;
 mod platform;
@@ -80,7 +81,11 @@ fn secondary_hart(boot: &BootInfo) {
 
 fn enable_supervisor_services() {
     ipi::clear_all();
-    platform::aia::per_hart_init();
+    // Gate per-hart IMSIC setup on the backend selected during platform
+    // initialization, not on AIA discovery alone.
+    if ipi::uses_imsic() {
+        driver::per_hart_init();
+    }
     sbi::features::configure_delegation_and_trap();
 }
 

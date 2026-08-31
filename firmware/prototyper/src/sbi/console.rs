@@ -3,14 +3,8 @@ use core::fmt;
 use rustsbi::{Console, Physical, SbiRet};
 use spin::{Mutex, Once};
 
+use crate::driver::ConsoleDevice;
 use crate::platform::BoardInfo;
-use crate::platform::console::MachineConsoleType;
-use crate::platform::console::Uart16550Wrap;
-use crate::platform::console::UartAxiLiteWrap;
-use crate::platform::console::UartBflbWrap;
-use crate::platform::console::UartPl011Wrap;
-use crate::platform::console::UartSifiveWrap;
-use crate::platform::console::UartXscaleWrap;
 use crate::sbi::logger;
 
 // Checks whether `(phys_addr_lo, phys_addr_hi, len)` can be represented
@@ -22,31 +16,16 @@ use crate::sbi::logger;
 // <https://github.com/riscv-non-isa/riscv-sbi-doc/blob/v3.0/src/ext-debug-console.adoc>.
 #[inline]
 fn checked_physical_addr(lo: usize, hi: usize, len: usize) -> Result<usize, SbiRet> {
-    // If the address exceeds our implementation's native `usize` capacity,
-    // return SBI_ERR_FAILED as we are enforcing a stricter range limit.
+    // If the address exceeds the native `usize` range, the SBI spec allows
+    // returning an error rather than truncating it.
     if hi != 0 {
         return Err(SbiRet::failed());
     }
 
-    // Check for native usize overflow. If it overflows, it's definitively an invalid address.
+    // A `lo + len` overflow cannot be a valid buffer on this XLEN.
     let _end = lo.checked_add(len).ok_or_else(SbiRet::invalid_address)?;
 
     Ok(lo)
-}
-
-/// A trait that must be implemented by console devices to provide basic I/O functionality.
-pub trait ConsoleDevice: Send {
-    /// Reads bytes from the console into the provided buffer.
-    ///
-    /// # Returns
-    /// The number of bytes that were successfully read.
-    fn read(&self, buf: &mut [u8]) -> usize;
-
-    /// Writes bytes from the provided buffer to the console.
-    ///
-    /// # Returns
-    /// The number of bytes that were successfully written.
-    fn write(&self, buf: &[u8]) -> usize;
 }
 
 /// The machine console device, published once by [`init`] when the board
@@ -55,35 +34,24 @@ pub trait ConsoleDevice: Send {
 /// Invariant: published (pre-`READY`) before the logger is brought up, so
 /// that early boot messages are printable; read afterwards by the print
 /// macros and the console ecall paths. Before publication, [`_print`] is a
-/// no-op (matching the previous `have_console` skip).
+/// no-op.
 static CONSOLE_DEVICE: Once<Mutex<Box<dyn ConsoleDevice>>> = Once::new();
 
-/// An implementation of the SBI console interface that wraps a console device.
-///
-/// This provides a safe interface for interacting with console hardware through the
-/// SBI specification. The handle borrows the device published in
-/// [`CONSOLE_DEVICE`]; all I/O goes through the device lock.
+/// SBI console service over the device published in [`CONSOLE_DEVICE`];
+/// all I/O goes through the device lock.
 pub struct SbiConsole {
     inner: &'static Mutex<Box<dyn ConsoleDevice>>,
 }
 
 impl SbiConsole {
     /// Creates a new SBI console handle over the published console device.
-    ///
-    /// # Arguments
-    /// * `inner` - The published console device, protected by a mutex
     #[inline]
     pub fn new(inner: &'static Mutex<Box<dyn ConsoleDevice>>) -> Self {
         Self { inner }
     }
 
-    /// Writes a single character to the console.
-    ///
-    /// # Arguments
-    /// * `c` - The character to write, as a usize
-    ///
-    /// # Returns
-    /// Always returns 0 to indicate success
+    /// Writes a single character; returns 0 for success per the legacy
+    /// SBI console putchar convention.
     #[inline]
     pub fn putchar(&self, c: usize) -> usize {
         let byte = [c as u8];
@@ -93,10 +61,8 @@ impl SbiConsole {
         0
     }
 
-    /// Reads a single character from the console.
-    ///
-    /// # Returns
-    /// Returns the character as a usize on success, or '-1' for failure.
+    /// Reads a single character, returning `usize::MAX` when the console
+    /// has no input (the legacy getchar failure value).
     #[inline]
     pub fn getchar(&self) -> usize {
         let mut c = 0u8;
@@ -104,10 +70,8 @@ impl SbiConsole {
         if nread == 1 { c as usize } else { usize::MAX }
     }
 
-    // Rejects buffers that this firmware cannot safely turn into raw slices.
-    //
-    // The SBI address tuple may still be valid,
-    // but this implementation only accepts buffers inside `board_info().memory_range`.
+    // Only buffers inside the discovered memory range can be safely turned
+    // into raw slices; the SBI address tuple itself may be valid.
     #[inline]
     fn checked_physical_buffer<P>(&self, bytes: &Physical<P>) -> Result<(usize, usize), SbiRet> {
         let len = bytes.num_bytes();
@@ -143,8 +107,8 @@ impl Console for SbiConsole {
             return SbiRet::success(0);
         }
 
-        // SAFETY: `checked_physical_buffer` only returns ranges that
-        // were accepted as representable and within `memory_range`.
+        // SAFETY: `checked_physical_buffer` validated the range as inside
+        // discovered RAM, so byte reads stay in bounds and initialized.
         let buf = unsafe { core::slice::from_raw_parts(start as *const u8, len) };
         let bytes_written = self.inner.lock().write(buf);
         SbiRet::success(bytes_written)
@@ -161,8 +125,8 @@ impl Console for SbiConsole {
             return SbiRet::success(0);
         }
 
-        // SAFETY: `checked_physical_buffer` only returns ranges that
-        // were accepted as representable and within `memory_range`.
+        // SAFETY: `checked_physical_buffer` validated the range as inside
+        // discovered RAM, so byte writes stay in bounds.
         let buf = unsafe { core::slice::from_raw_parts_mut(start as *mut u8, len) };
         let bytes_read = self.inner.lock().read(buf);
         SbiRet::success(bytes_read)
@@ -178,11 +142,8 @@ impl Console for SbiConsole {
 
 /// Prints formatted arguments to the console device, if one is present.
 ///
-/// The `print!`/`println!` macros route here; before the console device is
-/// published this is a no-op (matching the previous `have_console` skip).
-/// The chunked-write loop keeps the write semantics of the old
-/// `fmt::Write for SbiConsole` impl: write until the device reports
-/// progress, error on a zero-byte write.
+/// The `print!`/`println!` macros route here. Writes proceed until the
+/// device reports progress; a zero-byte write is an error.
 pub fn _print(args: fmt::Arguments) {
     use core::fmt::Write as _;
 
@@ -228,7 +189,11 @@ macro_rules! println {
     }}
 }
 
-/// Global function to write a character to the console.
+/// Writes a character through the published console device.
+///
+/// # Panics
+///
+/// Panics if no console device was published.
 #[inline]
 pub fn putchar(c: usize) -> usize {
     SbiConsole::new(
@@ -239,7 +204,11 @@ pub fn putchar(c: usize) -> usize {
     .putchar(c)
 }
 
-/// Global function to read a character from the console.
+/// Reads a character through the published console device.
+///
+/// # Panics
+///
+/// Panics if no console device was published.
 #[inline]
 pub fn getchar() -> usize {
     SbiConsole::new(
@@ -250,22 +219,10 @@ pub fn getchar() -> usize {
     .getchar()
 }
 
-/// Initializes the SBI console from the discovered board info, then brings up
-/// the logger (bundled, so that early boot messages are printable).
+/// Publishes the discovered console device, initializes the logger, and
+/// prints the boot banner.
 pub(crate) fn init(board: &BoardInfo) -> Option<SbiConsole> {
-    // init console and logger
-    let console = board.console.map(|(base, console_type)| {
-        let device: Box<dyn ConsoleDevice> = match console_type {
-            MachineConsoleType::Uart16550U8 => Box::new(Uart16550Wrap::<u8>::new(base)),
-            MachineConsoleType::Uart16550U32 => Box::new(Uart16550Wrap::<u32>::new(base)),
-            MachineConsoleType::UartAxiLite => Box::new(UartAxiLiteWrap::new(base)),
-            MachineConsoleType::UartBflb => Box::new(UartBflbWrap::new(base)),
-            MachineConsoleType::UartSifive => Box::new(UartSifiveWrap::new(base)),
-            MachineConsoleType::UartPl011 => Box::new(UartPl011Wrap::new(base)),
-            MachineConsoleType::UartXscale => {
-                Box::new(UartXscaleWrap::new(base, board.console_clock))
-            }
-        };
+    let console = crate::driver::console_device(board).map(|device| {
         CONSOLE_DEVICE.call_once(|| Mutex::new(device));
         SbiConsole::new(CONSOLE_DEVICE.get().expect("console device just published"))
     });
