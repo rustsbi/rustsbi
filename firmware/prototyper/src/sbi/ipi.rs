@@ -1,10 +1,11 @@
 #![forbid(unsafe_code)]
 
+//! SBI timer and IPI extensions.
+
 use super::pmu::pmu_firmware_counter_increment;
 use crate::cfg::NUM_HART_MAX;
+use crate::driver::{InterruptBackend, IpiSender, TimerDevice};
 use crate::platform::BoardInfo;
-use crate::platform::aia;
-use crate::platform::clint::{MachineClintType, SifiveClintWrap, THeadClintWrap};
 use crate::riscv::csr::{mie, mip, stimecmp};
 use crate::riscv::current_hartid;
 use crate::sbi::features::{Extension, hart_extension_probe};
@@ -23,45 +24,29 @@ pub(crate) const IPI_TYPE_SSOFT: u8 = 1 << 0;
 /// IPI type for memory fence operations.
 pub(crate) const IPI_TYPE_FENCE: u8 = 1 << 1;
 
-/// Trait defining interface for inter-processor interrupt device
-#[allow(unused)]
-pub trait IpiDevice: Send {
-    /// Read machine time value.
-    fn read_mtime(&self) -> u64;
-    /// Write machine time value.
-    fn write_mtime(&self, val: u64);
-    /// Read machine timer compare value for given hart.
-    fn read_mtimecmp(&self, hart_idx: usize) -> u64;
-    /// Write machine timer compare value for given hart.
-    fn write_mtimecmp(&self, hart_idx: usize, val: u64);
-    /// Read machine software interrupt pending bit for given hart.
-    fn read_msip(&self, hart_idx: usize) -> bool;
-    /// Set machine software interrupt pending bit for given hart.
-    fn set_msip(&self, hart_idx: usize);
-    /// Clear machine software interrupt pending bit for given hart.
-    fn clear_msip(&self, hart_idx: usize);
-}
-
-/// SBI IPI implementation.
+/// SBI timer and IPI service.
 pub struct SbiIpi {
-    /// Reference to atomic pointer to IPI device.
-    pub ipi_dev: Mutex<Box<dyn IpiDevice>>,
-    /// Maximum hart ID in the system
+    /// IPI device: CLINT `msip` registers or IMSIC MSI files.
+    ipi: Mutex<Box<dyn IpiSender>>,
+    /// Timer device: CLINT `mtimecmp` registers or the Sstc `stimecmp` CSR.
+    timer: Mutex<Box<dyn TimerDevice>>,
+    /// Backend that passed validation during construction.
+    backend: InterruptBackend,
+    /// Maximum hart ID in the system.
     pub max_hart_id: usize,
 }
 
 impl rustsbi::Timer for SbiIpi {
-    /// Set timer value for current hart.
+    /// Sets the timer for the current hart.
     #[inline]
     fn set_timer(&self, stime_value: u64) {
         pmu_firmware_counter_increment(firmware_event::SET_TIMER);
         let hart_id = current_hartid();
 
-        // Set timer value based on extension support.
         if hart_extension_probe(hart_id, Extension::Sstc) {
             stimecmp::set(stime_value);
         } else {
-            self.write_mtimecmp(hart_id, stime_value);
+            self.set_timer_for_hart(hart_id, stime_value);
             mip::clear_stimer();
             mie::set_mtimer();
         }
@@ -69,18 +54,16 @@ impl rustsbi::Timer for SbiIpi {
 }
 
 impl rustsbi::Ipi for SbiIpi {
-    /// Send IPI to specified harts.
+    /// Sends IPIs to the specified harts.
     #[inline]
     fn send_ipi(&self, hart_mask: rustsbi::HartMask) -> SbiRet {
         pmu_firmware_counter_increment(firmware_event::IPI_SENT);
         let mut deliver_harts = Vec::new();
 
         for hart_id in target_harts(hart_mask, self.max_hart_id) {
-            // There are 2 situation to return invalid_param:
-            // 1. We can not get hsm, which usually means this hart_id is bigger than MAX_HART_ID.
-            // 2. BOARD hasn't init or this hart_id is not enabled by device tree.
-            // In the next loop, we'll assume that all of above situation will not happened and
-            // directly send ipi.
+            // Reject targets that are out of range, absent, disabled, or in a
+            // state that does not accept IPIs; the delivery loop below
+            // assumes every collected hart passed these checks.
             if hart_id > self.max_hart_id {
                 return SbiRet::invalid_param();
             }
@@ -104,7 +87,7 @@ impl rustsbi::Ipi for SbiIpi {
 
         for hart_id in deliver_harts {
             if set_ipi_type(hart_id, IPI_TYPE_SSOFT) == 0 {
-                self.set_msip(hart_id);
+                self.send_ipi(hart_id);
             }
         }
 
@@ -113,16 +96,23 @@ impl rustsbi::Ipi for SbiIpi {
 }
 
 impl SbiIpi {
-    /// Create new SBI IPI instance.
+    /// Creates a new SBI timer and IPI service.
     #[inline]
-    pub fn new(ipi_dev: Mutex<Box<dyn IpiDevice>>, max_hart_id: usize) -> Self {
+    pub(crate) fn new(
+        ipi: Mutex<Box<dyn IpiSender>>,
+        timer: Mutex<Box<dyn TimerDevice>>,
+        backend: InterruptBackend,
+        max_hart_id: usize,
+    ) -> Self {
         Self {
-            ipi_dev,
+            ipi,
+            timer,
+            backend,
             max_hart_id,
         }
     }
 
-    /// Send IPI for remote fence operation.
+    /// Sends an IPI carrying a remote fence operation.
     pub fn send_ipi_by_fence(
         &self,
         hart_mask: rustsbi::HartMask,
@@ -132,11 +122,9 @@ impl SbiIpi {
         let mut deliver_harts = Vec::new();
 
         for hart_id in target_harts(hart_mask, self.max_hart_id) {
-            // There are 2 situation to return invalid_param:
-            // 1. We can not get hsm, which usually means this hart_id is bigger than MAX_HART_ID.
-            // 2. BOARD hasn't init or this hart_id is not enabled by device tree.
-            // In the next loop, we'll assume that all of above situation will not happened and
-            // directly send ipi.
+            // Reject targets that are out of range, absent, disabled, or in a
+            // state that does not accept IPIs; the delivery loop below
+            // assumes every collected hart passed these checks.
             if hart_id > self.max_hart_id {
                 return SbiRet::invalid_param();
             }
@@ -158,7 +146,6 @@ impl SbiIpi {
             deliver_harts.push(hart_id);
         }
 
-        // Send fence operations to target harts
         for hart_id in deliver_harts {
             if let Some(remote) = rfence::remote_rfence(hart_id) {
                 if let Some(local) = rfence::local_rfence() {
@@ -168,13 +155,12 @@ impl SbiIpi {
                 if hart_id != current_hart {
                     let old_ipi_type = set_ipi_type(hart_id, IPI_TYPE_FENCE);
                     if old_ipi_type == 0 {
-                        self.set_msip(hart_id);
+                        self.send_ipi(hart_id);
                     }
                 }
             }
         }
 
-        // Wait for all fence operations to complete
         while !rfence::local_rfence().unwrap().is_sync() {
             rfence::rfence_single_handler();
         }
@@ -182,76 +168,80 @@ impl SbiIpi {
         SbiRet::success(0)
     }
 
-    /// Get lower 32 bits of machine time.
+    /// Gets the lower 32 bits of machine time.
     #[inline]
     pub fn get_time(&self) -> usize {
-        self.ipi_dev.lock().read_mtime() as usize
+        self.timer.lock().read_time() as usize
     }
 
-    /// Get upper 32 bits of machine time.
+    /// Gets the upper 32 bits of machine time.
     #[inline]
     pub fn get_timeh(&self) -> usize {
-        (self.ipi_dev.lock().read_mtime() >> 32) as usize
+        (self.timer.lock().read_time() >> 32) as usize
     }
 
-    /// Set machine software interrupt pending for hart.
+    /// Sends a firmware IPI to a hart.
     #[inline]
-    pub fn set_msip(&self, hart_idx: usize) {
-        self.ipi_dev.lock().set_msip(hart_idx);
+    pub(crate) fn send_ipi(&self, hart_idx: usize) {
+        self.ipi.lock().send_ipi(hart_idx);
     }
 
-    /// Clear machine software interrupt pending for hart.
+    /// Clears the current hart's firmware IPI.
     #[inline]
-    pub fn clear_msip(&self, hart_idx: usize) {
-        self.ipi_dev.lock().clear_msip(hart_idx);
+    pub(crate) fn clear_ipi(&self) {
+        self.ipi.lock().clear_ipi();
     }
 
-    /// Write machine timer compare value for hart.
+    /// Programs a hart's timer comparison value.
     #[inline]
-    pub fn write_mtimecmp(&self, hart_idx: usize, val: u64) {
-        self.ipi_dev.lock().write_mtimecmp(hart_idx, val);
+    fn set_timer_for_hart(&self, hart_idx: usize, value: u64) {
+        self.timer.lock().set_timer(hart_idx, value);
     }
 
-    /// Clear all pending interrupts for current hart.
+    /// Reports whether IMSIC was selected after validation.
+    #[inline]
+    pub(crate) fn uses_imsic(&self) -> bool {
+        self.backend == InterruptBackend::Imsic
+    }
+
+    /// Clears all pending interrupts for the current hart.
     #[inline]
     pub fn clear(&self) {
         let hart_id = current_hartid();
-        // Load ipi_dev once instead of twice
-        let ipi_dev = self.ipi_dev.lock();
-        ipi_dev.clear_msip(hart_id);
-        ipi_dev.write_mtimecmp(hart_id, u64::MAX);
+        self.ipi.lock().clear_ipi();
+        self.timer.lock().set_timer(hart_id, u64::MAX);
     }
 }
 
-/// Set IPI type for specified hart.
+/// Marks `event_id` pending for `hart_id`, returning the previous set.
 pub fn set_ipi_type(hart_id: usize, event_id: u8) -> u8 {
     hart_local(hart_id).ipi_type.fetch_or(event_id, Relaxed)
 }
 
-/// Get and reset IPI type for current hart.
+/// Takes and clears the current hart's pending IPI types.
 pub fn get_and_reset_ipi_type() -> u8 {
     hart_local(current_hartid()).ipi_type.swap(0, Relaxed)
 }
 
-/// Clear machine software interrupt pending for current hart.
+/// Clears the current hart's pending firmware IPI.
 #[inline]
 pub fn claim_ipi() {
     match crate::sbi::ipi() {
-        Some(ipi) => ipi.clear_msip(current_hartid()),
+        Some(ipi) => ipi.clear_ipi(),
         None => error!("SBI or IPI device not initialized"),
     }
 }
 
-/// Clear machine timer interrupt for current hart.
+/// Cancels the current hart's machine timer interrupt.
 #[inline]
 pub fn clear_mtime() {
     match crate::sbi::ipi() {
-        Some(ipi) => ipi.write_mtimecmp(current_hartid(), u64::MAX),
+        Some(ipi) => ipi.set_timer_for_hart(current_hartid(), u64::MAX),
         None => error!("SBI or IPI device not initialized"),
     }
 }
 
-/// Clear all pending interrupts for current hart.
+/// Clears all pending interrupts for the current hart.
 #[inline]
 pub fn clear_all() {
     match crate::sbi::ipi() {
@@ -268,54 +258,18 @@ pub(crate) fn init(board: &BoardInfo) -> Option<SbiIpi> {
         .and_then(|hart_list| hart_list.iter().rposition(|enabled| *enabled))
         .unwrap_or(NUM_HART_MAX - 1);
 
-    if let Some(ref aia_info) = board.aia {
-        let mut aia_usable = true;
-        if let Some(cpu_enabled) = crate::platform::cpu_enabled() {
-            for (hart_id, enabled) in cpu_enabled.iter().enumerate() {
-                if *enabled && !aia_hart_usable(hart_id) {
-                    aia_usable = false;
-                    break;
-                }
-            }
-        }
-        if aia_usable {
-            let ipi_dev = aia::ImsicDevice::new(aia_info.firmware_ipi_iid, aia_info.hart_imsic_map);
-            if board.is_qemu_virt() {
-                aia::init_qemu_m_aplic_delegation(
-                    aia_info.layout.machine_base,
-                    aia_info.layout.hart_index_bits,
-                );
-            } else {
-                warn!("AIA: skipping QEMU virt M-APLIC setup on '{}'", board.model);
-            }
-            aia::set_aia_active(true);
-            info!("AIA: IMSIC IPI + Sstc timer backend initialized");
-            return Some(SbiIpi::new(Mutex::new(Box::new(ipi_dev)), max_hart_id));
-        }
-        warn!("AIA: requirements not met, falling back to CLINT");
-    }
-    if let Some((base, clint_type)) = board.ipi {
-        let ipi_dev: Box<dyn IpiDevice> = match clint_type {
-            MachineClintType::SiFiveClint => Box::new(SifiveClintWrap::new(base)),
-            MachineClintType::TheadClint => Box::new(THeadClintWrap::new(base)),
-        };
-        return Some(SbiIpi::new(Mutex::new(ipi_dev), max_hart_id));
-    }
-    None
+    let devices = crate::driver::interrupt_devices(board)?;
+    Some(SbiIpi::new(
+        Mutex::new(devices.ipi),
+        Mutex::new(devices.timer),
+        devices.backend,
+        max_hart_id,
+    ))
 }
 
-/// Reports whether the hart passes the AIA requirements (Smaia + Sstc),
-/// warning once per missing extension.
-fn aia_hart_usable(hart_id: usize) -> bool {
-    if !hart_extension_probe(hart_id, Extension::Smaia) {
-        warn!("AIA: hart {} lacks Smaia, rejecting AIA", hart_id);
-        return false;
-    }
-    if !hart_extension_probe(hart_id, Extension::Sstc) {
-        warn!("AIA: hart {} lacks Sstc, rejecting AIA", hart_id);
-        return false;
-    }
-    true
+/// Reports whether the selected interrupt backend is IMSIC.
+pub(crate) fn uses_imsic() -> bool {
+    crate::sbi::ipi().is_some_and(SbiIpi::uses_imsic)
 }
 
 fn target_harts(hart_mask: HartMask, max_hart_id: usize) -> Vec<usize> {

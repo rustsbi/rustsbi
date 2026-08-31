@@ -40,18 +40,15 @@ fn is_work_hart(_dynamic_info_addr: usize) -> bool {
         }
     };
 
-    // Determine if this is the boot hart based on hart ID
     match info {
         Some(info) => {
             if info == usize::MAX {
                 select_work_hart()
             } else {
-                // Otherwise check if current hart matches designated boot hart
                 current_hartid() == info
             }
         }
-        // If can not load DynamicInfo, just race a boot hart, this error will
-        // be occurred after board init.
+        // Without a readable DynamicInfo, race to elect a single boot hart.
         None => select_work_hart(),
     }
 }
@@ -94,8 +91,6 @@ impl BootInfo {
     }
 
     /// Returns whether this hart leads the boot.
-    ///
-    /// Transitional: the future machine layer absorbs per-hart role dispatch.
     pub fn is_boot_hart(&self) -> bool {
         self.is_boot_hart
     }
@@ -103,8 +98,6 @@ impl BootInfo {
     /// Returns the next-stage handoff; `opaque` carries the unpatched
     /// device tree address. Must be called after the console is up:
     /// prints and stops on invalid `DynamicInfo`.
-    ///
-    /// Transitional: the future machine layer will own the transfer.
     pub fn next_stage(&self) -> NextStage {
         let (next_mode, start_addr) = get_boot_info(self.dynamic_info_addr);
         NextStage {
@@ -129,9 +122,10 @@ const FDT_PTR: *const u8 = payload::raw_fdt.0.as_ptr();
 #[cfg(feature = "fdt")]
 fn get_fdt_address() -> usize {
     let address = FDT_PTR as usize;
-    // Optimization barrier: prevent LLVM from constant-folding the address of
-    // the linker-script-placed `.fdt` section, so that the runtime
-    // (post-relocation) address is used.
+    // SAFETY: the empty asm is only an optimization barrier; it reads no
+    // memory, uses no stack, and preserves flags, so that the runtime
+    // (post-relocation) address of the linker-script-placed `.fdt` section
+    // is used instead of a constant-folded link-time address.
     unsafe { core::arch::asm!("", options(nomem, nostack, preserves_flags)) };
     address
 }
@@ -154,6 +148,9 @@ fn get_work_hart(dtb_addr: usize, dynamic_info_addr: usize) -> BootHart {
     }
 }
 
+/// Patches the DTB for the next stage: reserves the firmware image and
+/// hides firmware-retained M-level interrupt controllers. Returns the
+/// patched DTB address.
 pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
     use serde_device_tree::buildin::Node;
     use serde_device_tree::ser::serializer::ValueType;
@@ -163,11 +160,13 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
     };
     let dtb = Dtb::from(ptr);
 
-    // Update const
+    // SAFETY: the `la` symbols resolve to this image's own linker symbols,
+    // written before the next stage starts on any hart.
     unsafe {
         asm!("la {}, sbi_start", out(reg) SBI_START_ADDRESS, options(nomem));
         asm!("la {}, sbi_end", out(reg) SBI_END_ADDRESS, options(nomem));
     }
+    // SAFETY: written earlier in this function; read-only afterwards.
     let sbi_start = unsafe { SBI_START_ADDRESS };
     let sbi_end = unsafe { SBI_END_ADDRESS };
 
@@ -190,7 +189,6 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
         #[serde(rename = "no-map")]
         pub no_map: (),
     }
-    // Make patch list and generate reserved-memory node.
     let sbi_length: u32 = (sbi_end - sbi_start) as u32;
     let new_base = ReservedMemory {
         address_cell: 2,
@@ -210,7 +208,7 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
     let patch2 =
         serde_device_tree::ser::patch::Patch::new(&path_name, &new_base_2 as _, ValueType::Node);
     let patches = alloc::vec![patch1, patch2];
-    // Only add `reserved-memory` section when it not exists.
+    // Skip the parent-node patch when `/reserved-memory` already exists.
     let start_idx = if tree.find("/reserved-memory").is_some() {
         1
     } else {
@@ -221,20 +219,23 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
 
     let patched_length = serde_device_tree::ser::probe_dtb_length(&tree, &list).unwrap();
 
-    // We need aligned address here, so we use create u64 vec.
+    // Allocate as u64s so the DTB buffer stays 8-byte aligned.
     let patched_dtb_buffer = vec![0u64; patched_length.div_ceil(8)];
-    // Intentionally leak the buffer so that the patched DTB remains valid for the lifetime of the firmware.
-    // This is required because the returned pointer is used elsewhere and must not be deallocated.
+    // Intentionally leak the buffer: the returned DTB pointer must remain
+    // valid for the firmware's lifetime.
     let patched_dtb_buffer = patched_dtb_buffer.leak();
+    // SAFETY: `patched_dtb_buffer` is a leaked, 8-byte-aligned buffer of at
+    // least `patched_length` bytes.
     let mut patched_dtb_buffer_u8: &'static mut [u8] = unsafe {
         core::slice::from_raw_parts_mut(patched_dtb_buffer.as_ptr() as *mut u8, patched_length)
     };
     serde_device_tree::ser::to_dtb(&tree, &list, &mut patched_dtb_buffer_u8).unwrap();
 
-    // When AIA is active, NOP out M-level IMSIC and APLIC nodes in the
-    // DTB so Linux does not try to probe them. This matches OpenSBI's
-    // fdt_domain_based_fixup approach.
-    if crate::platform::aia::is_aia_active() {
+    // Hide machine-level interrupt controllers only when firmware retained
+    // them by selecting the IMSIC backend.
+    if crate::sbi::ipi::uses_imsic() {
+        // SAFETY: same leaked buffer and length as above; the slice is
+        // recreated for the in-place node patching below.
         let dtb_buf = unsafe {
             core::slice::from_raw_parts_mut(patched_dtb_buffer.as_ptr() as *mut u8, patched_length)
         };
@@ -245,8 +246,6 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
                 info!("AIA: NOP'd M-level CLINT node '{}' in DTB", clint_name);
             }
         }
-        // Also NOP the M-level APLIC, whose DT node may use either the
-        // generic interrupt-controller name or the APLIC-specific name.
         fdt_nop_m_level_aplic(dtb_buf);
     }
 
@@ -348,6 +347,14 @@ fn fdt_interrupts_extended_has_irq(data: &[u8], irq: u32) -> bool {
     found && chunks.remainder().is_empty()
 }
 
+fn fdt_compatible_matches(data: &[u8], compatibles: &[&str]) -> bool {
+    data.split(|byte| *byte == 0).any(|candidate| {
+        compatibles
+            .iter()
+            .any(|compatible| candidate == compatible.as_bytes())
+    })
+}
+
 fn fdt_nop_m_level_imsic(dtb: &mut [u8]) {
     let struct_off = fdt_read_u32(dtb, 8) as usize;
     let struct_size = fdt_read_u32(dtb, 36) as usize;
@@ -394,8 +401,7 @@ fn fdt_nop_m_level_imsic(dtb: &mut [u8]) {
                         if depth == 1
                             && prop_name == "compatible"
                             && prop_len > 0
-                            && (data.windows(12).any(|w| w == b"riscv,imsics")
-                                || data.windows(11).any(|w| w == b"riscv,imsic"))
+                            && fdt_compatible_matches(data, &crate::driver::IMSIC_COMPATIBLES)
                         {
                             is_imsic = true;
                         }
@@ -525,6 +531,7 @@ static mut SBI_END_ADDRESS: usize = 0;
 static mut RODATA_START_ADDRESS: usize = 0;
 static mut RODATA_END_ADDRESS: usize = 0;
 
+/// Returns whether S-mode may write `[start, start + len)`.
 pub(crate) fn supervisor_writable(start: usize, len: usize) -> bool {
     let Some(end) = start.checked_add(len) else {
         return false;
@@ -535,6 +542,8 @@ pub(crate) fn supervisor_writable(start: usize, len: usize) -> bool {
         return false;
     }
 
+    // SAFETY: initialized by this hart's `set_pmp` earlier in boot; the
+    // values never change afterwards.
     let (sbi_start, sbi_end) = unsafe { (SBI_START_ADDRESS, SBI_END_ADDRESS) };
     if sbi_start == 0 || sbi_end == 0 {
         return false;
@@ -543,13 +552,16 @@ pub(crate) fn supervisor_writable(start: usize, len: usize) -> bool {
     end <= sbi_start || start >= sbi_end
 }
 
+/// Installs PMP entries isolating firmware memory from S-mode.
 pub fn set_pmp(memory_range: &Range<usize>) {
+    // SAFETY: M-mode PMP programming on this hart; the linker symbols and
+    // memory bounds are asserted aligned below.
     unsafe {
         // [0..memory_range.start] RWX
         // [memory_range.start..sbi_start] RWX
         // [sbi_start..sbi_rodata_start] R
         // [sbi_rodata_start..sbi_rodata_end] NONE
-        // [sbi_rodata_end..sbi_end] R
+        // [sbi_rodata_end..sbi_end] RW
         // [sbi_end..memory_range.end] RWX
         // [memory_range.end..INF] RWX
         use riscv::register::*;
@@ -566,16 +578,14 @@ pub fn set_pmp(memory_range: &Range<usize>) {
         assert_eq!(RODATA_START_ADDRESS & 0x3, 0);
         assert_eq!(RODATA_END_ADDRESS & 0x3, 0);
 
-        // When AIA is active, block S-mode access to M-level interrupt
-        // controller regions while keeping other low MMIO visible.
-        // This matches OpenSBI's domain isolation approach.
-        if crate::platform::aia::is_aia_active()
+        // Keep machine-level interrupt controllers inaccessible to S-mode
+        // only when the IMSIC backend retained them for firmware use.
+        if crate::sbi::ipi::uses_imsic()
             && crate::platform::board_info().is_qemu_virt()
             && let Some(aia_info) = crate::platform::board_info().aia.as_ref()
         {
-            const QEMU_VIRT_M_APLIC_BASE: usize = 0x0c00_0000;
+            use crate::platform::qemu_aplic::{APLIC_SPAN, QEMU_VIRT_M_APLIC_BASE};
             const QEMU_VIRT_CLINT_BASE: usize = 0x0200_0000;
-            const QEMU_VIRT_APLIC_SIZE: usize = 0x8000;
             const QEMU_VIRT_CLINT_SIZE: usize = 0x1_0000;
 
             let clint_base = crate::platform::board_info()
@@ -585,7 +595,7 @@ pub fn set_pmp(memory_range: &Range<usize>) {
                 .unwrap_or(QEMU_VIRT_CLINT_BASE);
             let clint_end = clint_base + QEMU_VIRT_CLINT_SIZE;
             let aplic_base = QEMU_VIRT_M_APLIC_BASE;
-            let aplic_end = aplic_base + QEMU_VIRT_APLIC_SIZE;
+            let aplic_end = aplic_base + APLIC_SPAN;
             let m_base = aia_info.layout.machine_base;
             let m_end = aia_info
                 .hart_imsic_map
@@ -637,7 +647,7 @@ pub fn set_pmp(memory_range: &Range<usize>) {
         pmpaddr3::write(RODATA_START_ADDRESS >> 2);
         pmpcfg0::set_pmp(4, Range::TOR, Permission::NONE, false);
         pmpaddr4::write(RODATA_END_ADDRESS >> 2);
-        pmpcfg0::set_pmp(5, Range::TOR, Permission::RW, false); // FIXME: Should be Permission::R, temporarily fix for possible S-mode DTB modification
+        pmpcfg0::set_pmp(5, Range::TOR, Permission::RW, false); // FIXME: should be `R`; `RW` temporarily allows S-mode DTB modification
         pmpaddr5::write(SBI_END_ADDRESS >> 2);
         pmpcfg0::set_pmp(6, Range::TOR, Permission::RWX, false);
         pmpaddr6::write(memory_range.end >> 2);
@@ -646,11 +656,11 @@ pub fn set_pmp(memory_range: &Range<usize>) {
     }
 }
 
-/// For print PMP Permission.
+/// Formats a PMP permission for logs.
 #[repr(transparent)]
 struct PermissionWrapper(pub Permission);
 
-/// For print PMP Range.
+/// Formats a PMP range encoding for logs.
 #[repr(transparent)]
 struct RangeWrapper(pub register::Range);
 
@@ -680,6 +690,7 @@ impl fmt::Display for RangeWrapper {
     }
 }
 
+/// Logs the active PMP configuration.
 pub fn log_pmp_cfg(_memory_range: &Range<usize>) {
     use riscv::register::*;
     let pmp = pmpcfg0::read();
