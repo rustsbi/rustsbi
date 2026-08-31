@@ -1,18 +1,15 @@
 #![forbid(unsafe_code)]
 
+//! SBI system-reset extension.
+
 use alloc::boxed::Box;
 use rustsbi::SbiRet;
 use spin::Mutex;
 
+use crate::driver::ResetDevice;
 use crate::platform::BoardInfo;
-use crate::platform::reset::{P1PmicResetWrap, SifiveTestDeviceWrap};
 
-pub trait ResetDevice: Send {
-    fn fail(&self, code: u16) -> !;
-    fn pass(&self) -> !;
-    fn reset(&self) -> !;
-}
-
+/// SBI system-reset extension service.
 pub struct SbiReset {
     pub reset_dev: Mutex<Box<dyn ResetDevice>>,
 }
@@ -64,15 +61,5 @@ pub fn fail() -> ! {
 
 /// Initializes the SBI reset extension from the discovered board info.
 pub(crate) fn init(board: &BoardInfo) -> Option<SbiReset> {
-    if let Some(base) = board.reset {
-        Some(SbiReset::new(Mutex::new(Box::new(
-            SifiveTestDeviceWrap::new(base),
-        ))))
-    } else if let Some((i2c_base, pmic_addr)) = board.pmic_reset {
-        Some(SbiReset::new(Mutex::new(Box::new(P1PmicResetWrap::new(
-            i2c_base, pmic_addr,
-        )))))
-    } else {
-        None
-    }
+    crate::driver::reset_device(board).map(|device| SbiReset::new(Mutex::new(device)))
 }
