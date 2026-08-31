@@ -1,3 +1,5 @@
+//! Board discovery, bounded MMIO regions, and platform-global state.
+
 use alloc::string::String;
 use alloc::{string::ToString, vec::Vec};
 use core::{
@@ -7,21 +9,15 @@ use core::{
 
 use crate::cfg::NUM_HART_MAX;
 use crate::devicetree::*;
-use crate::platform::clint::{MachineClintType, SIFIVE_CLINT_COMPATIBLE, THEAD_CLINT_COMPATIBLE};
-use crate::platform::console::{
-    MachineConsoleType, UART16650U8_COMPATIBLE, UART16650U32_COMPATIBLE, UARTAXILITE_COMPATIBLE,
-    UARTBFLB_COMPATIBLE, UARTPL011_COMPATIBLE, UARTSIFIVE_COMPATIBLE, UARTXSCALE_COMPATIBLE,
-};
-use crate::platform::reset::P1_PMIC_COMPATIBLE;
-use crate::platform::reset::SIFIVETEST_COMPATIBLE;
+use crate::driver;
 use crate::sbi::features::extension_detection;
+use riscv_aia::Iid;
+use riscv_aia::peripheral::imsic::AddressLayout;
 use spin::{Once, RwLock};
 
-pub(crate) mod aia;
 mod boot;
-pub(crate) mod clint;
-pub(crate) mod console;
-pub(crate) mod reset;
+pub(crate) mod mmio;
+pub(crate) mod qemu_aplic;
 
 pub use boot::{init_board, memory_range, secondary_hart_init, wait_until_ready};
 
@@ -36,8 +32,8 @@ pub(crate) static CPU_PRIVILEGED_ENABLED: [AtomicBool; NUM_HART_MAX] =
 pub(crate) static IS_K1_PLATFORM: AtomicBool = AtomicBool::new(false);
 
 /// Boot synchronization flag: set by the boot hart once platform
-/// initialization is complete, spinning secondary harts observe it with
-/// Acquire ordering (`wait_until_ready`).
+/// initialization completes; secondary harts observe it with Acquire
+/// ordering in [`wait_until_ready`].
 pub(crate) static READY: AtomicBool = AtomicBool::new(false);
 
 /// Board facts discovered from the FDT.
@@ -87,6 +83,19 @@ pub fn refresh_cpu_features() {
 }
 
 const RISCV_MACHINE_EXTERNAL_IRQ: u32 = 11;
+
+/// Largest 7-bit I2C slave address; the P1 PMIC driver does not support
+/// 10-bit addressing.
+const MAX_7BIT_I2C_ADDRESS: usize = 0x7f;
+
+/// AIA candidate discovered from the FDT; backend selection happens in the
+/// driver layer.
+pub struct AiaInfo {
+    pub layout: AddressLayout,
+    pub num_ids: u16,
+    pub firmware_ipi_iid: Iid,
+    pub hart_imsic_map: [Option<usize>; NUM_HART_MAX],
+}
 
 type BaseAddress = usize;
 
@@ -185,17 +194,29 @@ fn imsic_machine_hart_files(
     }
 }
 
+/// Console candidate selected from the FDT's `stdout-path` node.
+pub(crate) struct ConsoleInfo {
+    pub(crate) base_address: BaseAddress,
+    /// Driver selected from the node's `compatible` string and register
+    /// layout.
+    pub(crate) kind: driver::ConsoleKind,
+    /// `clock-frequency` property, when present.
+    pub(crate) clock_hz: Option<u32>,
+}
+
 pub struct BoardInfo {
     pub memory_range: Option<Range<usize>>,
-    pub console: Option<(BaseAddress, MachineConsoleType)>,
-    pub console_clock: Option<u32>,
+    pub(crate) console: Option<ConsoleInfo>,
+    /// Reset (test finisher) device base address, when discovered.
     pub reset: Option<BaseAddress>,
-    pub ipi: Option<(BaseAddress, MachineClintType)>,
-    pub aia: Option<aia::AiaInfo>,
+    /// CLINT device (base address and kind), when discovered.
+    pub ipi: Option<(BaseAddress, driver::ClintKind)>,
+    pub aia: Option<AiaInfo>,
     pub cpu_num: Option<usize>,
     pub model: String,
     /// P1 PMIC reset info: (I2C controller base, PMIC address)
     pub pmic_reset: Option<(usize, u8)>,
+    mmio_regions: Vec<(usize, usize)>,
 }
 
 impl BoardInfo {
@@ -203,13 +224,13 @@ impl BoardInfo {
         BoardInfo {
             memory_range: None,
             console: None,
-            console_clock: None,
             reset: None,
             ipi: None,
             aia: None,
             cpu_num: None,
             model: String::new(),
             pmic_reset: None,
+            mmio_regions: Vec::new(),
         }
     }
 
@@ -217,9 +238,18 @@ impl BoardInfo {
         self.model == "riscv-virtio,qemu"
     }
 
+    fn record_mmio_range(&mut self, range: &Range<usize>) {
+        let Some(length) = range.end.checked_sub(range.start) else {
+            return;
+        };
+        let region = (range.start, length);
+        if length != 0 && !self.mmio_regions.contains(&region) {
+            self.mmio_regions.push(region);
+        }
+    }
+
     /// Discovers the console device from the FDT (chosen stdout path).
     pub(crate) fn discover_console(&mut self, root: &serde_device_tree::buildin::Node) {
-        //  Get console device info
         let Some(stdout_path) = root.chosen_stdout_path() else {
             return;
         };
@@ -230,30 +260,27 @@ impl BoardInfo {
             return;
         };
 
-        for device_id in compatible.iter() {
-            if UART16650U8_COMPATIBLE.contains(&device_id) {
-                self.console = Some((regs.start, MachineConsoleType::Uart16550U8));
-            }
-            if UART16650U32_COMPATIBLE.contains(&device_id) {
-                self.console = Some((regs.start, MachineConsoleType::Uart16550U32));
-            }
-            if UARTAXILITE_COMPATIBLE.contains(&device_id) {
-                self.console = Some((regs.start, MachineConsoleType::UartAxiLite));
-            }
-            if UARTBFLB_COMPATIBLE.contains(&device_id) {
-                self.console = Some((regs.start, MachineConsoleType::UartBflb));
-            }
-            if UARTSIFIVE_COMPATIBLE.contains(&device_id) {
-                self.console = Some((regs.start, MachineConsoleType::UartSifive));
-            }
-            if UARTPL011_COMPATIBLE.contains(&device_id) {
-                self.console = Some((regs.start, MachineConsoleType::UartPl011));
-            }
-            if UARTXSCALE_COMPATIBLE.contains(&device_id) {
-                self.console = Some((regs.start, MachineConsoleType::UartXscale));
-                self.console_clock = node
-                    .get_prop("clock-frequency")
-                    .map(|prop_item| prop_item.deserialize::<u32>());
+        let register_shift = node
+            .get_prop("reg-shift")
+            .map(|property| property.deserialize::<u32>());
+        let register_width = node
+            .get_prop("reg-io-width")
+            .map(|property| property.deserialize::<u32>());
+        for compatible in compatible.iter() {
+            // Interpret the node once: the selected kind replaces the raw
+            // `compatible` and layout properties in the stored board info.
+            if let Some(kind) =
+                driver::ConsoleKind::from_fdt(compatible, register_shift, register_width)
+            {
+                self.console = Some(ConsoleInfo {
+                    base_address: regs.start,
+                    kind,
+                    clock_hz: node
+                        .get_prop("clock-frequency")
+                        .map(|property| property.deserialize::<u32>()),
+                });
+                self.record_mmio_range(&regs);
+                return;
             }
         }
     }
@@ -262,7 +289,6 @@ impl BoardInfo {
     /// harts) that later platform initialization depends on; returns the
     /// enabled-hart list for the caller to publish (`publish_cpu_enabled`).
     pub(crate) fn discover_misc(&mut self, tree: &Tree) -> Option<CpuEnableList> {
-        // Get memory info
         // TODO: More than one memory node or range?
         let memory_reg = tree
             .memory
@@ -274,10 +300,8 @@ impl BoardInfo {
         let memory_range = memory_reg.iter().next().unwrap().0;
         self.memory_range = Some(memory_range);
 
-        // Get cpu number info
         self.cpu_num = Some(tree.cpus.cpu.len());
 
-        // Get model info
         if let Some(ref model) = tree.model {
             let model = model.iter().next().unwrap_or("<unspecified>");
             self.model = model.to_string();
@@ -289,7 +313,6 @@ impl BoardInfo {
         // TODO: Need a better extension initialization method
         extension_detection(&tree.cpus.cpu);
 
-        // Find which hart is enabled by fdt
         let mut cpu_list: CpuEnableList = [false; NUM_HART_MAX];
         for cpu_iter in tree.cpus.cpu.iter() {
             let cpu = cpu_iter.deserialize::<Cpu>();
@@ -310,7 +333,6 @@ impl BoardInfo {
     /// Discovers the ipi and reset devices (including the M-level IMSIC) from
     /// the FDT.
     pub(crate) fn discover_devices(&mut self, root: &serde_device_tree::buildin::Node) {
-        // Get ipi and reset device info
         let cpu_intc_harts = collect_cpu_intc_harts(root);
         let mut find_device =
             |node: &serde_device_tree::buildin::Node,
@@ -318,13 +340,13 @@ impl BoardInfo {
                 let Some((compatible, regs)) = get_compatible_and_ranges(node) else {
                     return;
                 };
-                let base_address = regs[0].start;
-                for device_id in compatible.iter() {
-                    self.discover_clint(node, device_id, base_address);
-                    self.discover_reset(device_id, base_address);
-                    self.discover_pmic_reset(device_id, base_address, parent);
+                let device_range = &regs[0];
+                for compatible in compatible.iter() {
+                    self.discover_clint(compatible, device_range);
+                    self.discover_reset(compatible, device_range);
+                    self.discover_p1_pmic_reset(compatible, device_range.start, parent);
                     // Discover the M-level IMSIC from its CPU interrupt wiring.
-                    if aia::IMSIC_COMPATIBLE.contains(&device_id) && self.aia.is_none() {
+                    if driver::IMSIC_COMPATIBLES.contains(&compatible) && self.aia.is_none() {
                         self.discover_imsic(node, &regs, &cpu_intc_harts);
                     }
                 }
@@ -332,54 +354,47 @@ impl BoardInfo {
         search_with_parent(root, &mut find_device);
     }
 
-    /// Discovers the CLINT device from a `compatible` match.
-    fn discover_clint(
-        &mut self,
-        node: &serde_device_tree::buildin::Node,
-        device_id: &str,
-        base_address: usize,
-    ) {
-        // Initialize clint device.
-        if SIFIVE_CLINT_COMPATIBLE.contains(&device_id) {
-            if node.get_prop("clint,has-no-64bit-mmio").is_some() {
-                self.ipi = Some((base_address, MachineClintType::TheadClint));
-            } else {
-                self.ipi = Some((base_address, MachineClintType::SiFiveClint));
-            }
-        } else if THEAD_CLINT_COMPATIBLE.contains(&device_id) {
-            self.ipi = Some((base_address, MachineClintType::TheadClint));
+    fn discover_clint(&mut self, compatible: &str, range: &Range<usize>) {
+        if let Some(kind) = driver::ClintKind::from_compatible(compatible) {
+            self.ipi = Some((range.start, kind));
+            self.record_mmio_range(range);
         }
     }
 
-    /// Discovers the sifive-test reset device from a `compatible` match.
-    fn discover_reset(&mut self, device_id: &str, base_address: usize) {
-        // Initialize reset device.
-        if SIFIVETEST_COMPATIBLE.contains(&device_id) {
-            self.reset = Some(base_address);
+    fn discover_reset(&mut self, compatible: &str, range: &Range<usize>) {
+        if driver::SIFIVE_TEST_COMPATIBLES.contains(&compatible) {
+            self.reset = Some(range.start);
+            self.record_mmio_range(range);
         }
     }
 
-    /// Discovers the P1 PMIC reset device from a `compatible` match.
-    fn discover_pmic_reset(
+    fn discover_p1_pmic_reset(
         &mut self,
-        device_id: &str,
+        compatible: &str,
         base_address: usize,
         parent: Option<&serde_device_tree::buildin::Node>,
     ) {
-        // Initialize P1 PMIC reset device
-        if !P1_PMIC_COMPATIBLE.contains(&device_id) {
+        if !driver::P1_PMIC_COMPATIBLES.contains(&compatible) || base_address > MAX_7BIT_I2C_ADDRESS
+        {
             return;
         }
-        // The PMIC's own "reg" property is its 7-bit I2C slave address.
-        let pmic_addr = base_address as u8;
-        // The I2C controller is the PMIC's parent node; use the first
-        // register range of the parent as the controller MMIO base,
-        // falling back to the PMIC's own reg if no parent is found.
-        let i2c_base = parent
-            .and_then(|p| get_compatible_and_ranges(p))
-            .and_then(|(_, parent_regs)| parent_regs.first().map(|r| r.start))
-            .unwrap_or(base_address);
-        self.pmic_reset = Some((i2c_base, pmic_addr));
+        let Some(parent) = parent else {
+            return;
+        };
+        let Some((parent_compatibles, parent_ranges)) = get_compatible_and_ranges(parent) else {
+            return;
+        };
+        if !parent_compatibles
+            .iter()
+            .any(|parent_compatible| driver::PMIC_I2C_COMPATIBLES.contains(&parent_compatible))
+        {
+            return;
+        }
+        let Some(i2c_range) = parent_ranges.first() else {
+            return;
+        };
+        self.pmic_reset = Some((i2c_range.start, base_address as u8));
+        self.record_mmio_range(i2c_range);
     }
 
     fn discover_imsic(
@@ -388,9 +403,6 @@ impl BoardInfo {
         reg_ranges: &[Range<usize>],
         cpu_intc_harts: &[(u32, usize)],
     ) {
-        use riscv_aia::Iid;
-        use riscv_aia::peripheral::imsic::system::AddressLayout;
-
         let Some(first_reg_range) = reg_ranges.first() else {
             warn!("IMSIC: missing reg ranges, skipping");
             return;
@@ -421,12 +433,19 @@ impl BoardInfo {
             warn!("IMSIC: missing required riscv,num-ids property, skipping");
             return;
         };
-        let num_ids = num_ids_prop.deserialize::<u32>() as u16;
-
-        if num_ids == 0 {
-            warn!("IMSIC: riscv,num-ids is 0, skipping AIA");
+        let num_ids = num_ids_prop.deserialize::<u32>();
+        // AIA requires each interrupt file to support 63..=2047 identities:
+        // the architectural minimum is 63, and IID selectors are 11 bits with
+        // identity 0 reserved, bounding the count at 2047. The Linux
+        // `riscv,imsics` DT binding encodes the same range.
+        if !(63..=2047).contains(&num_ids) {
+            warn!(
+                "IMSIC: riscv,num-ids {} is outside 63..=2047, skipping AIA",
+                num_ids
+            );
             return;
         }
+        let num_ids = num_ids as u16;
 
         let Some(machine_hart_files) = imsic_machine_hart_files(node, cpu_intc_harts) else {
             warn!("IMSIC: malformed interrupts-extended property, skipping AIA");
@@ -529,7 +548,7 @@ impl BoardInfo {
             };
             let group_index = (file_index >> hart_index_bits) & group_index_mask;
             let addr = layout.machine_interrupt_file_address(hart_index, group_index);
-            let Some(page_end) = addr.checked_add(0x1000) else {
+            let Some(page_end) = addr.checked_add(driver::IMSIC_FILE_SPAN) else {
                 warn!(
                     "IMSIC: hart {} file {} page 0x{:x} overflows address space, skipping AIA",
                     hart_id, file_index, addr
@@ -572,7 +591,10 @@ impl BoardInfo {
             firmware_ipi_iid.number()
         );
 
-        self.aia = Some(aia::AiaInfo {
+        for range in reg_ranges {
+            self.record_mmio_range(range);
+        }
+        self.aia = Some(AiaInfo {
             layout,
             num_ids,
             firmware_ipi_iid,
@@ -633,7 +655,7 @@ fn print_device_info() {
 
 #[inline]
 fn print_clint_info() {
-    if aia::is_aia_active()
+    if crate::sbi::ipi::uses_imsic()
         && let Some(ref aia_info) = board_info().aia
     {
         info!(
@@ -642,11 +664,13 @@ fn print_clint_info() {
         );
         return;
     }
-    match board_info().ipi {
-        Some((base, device)) => {
+    match board_info().ipi.as_ref() {
+        Some((base, kind)) => {
             info!(
-                "{:<30}: {:?} (Base Address: 0x{:x})",
-                "Platform IPI Extension", device, base
+                "{:<30}: {} (Base Address: 0x{:x})",
+                "Platform IPI Extension",
+                kind.name(),
+                base
             );
         }
         None => warn!("{:<30}: Not Available", "Platform IPI Device"),
@@ -655,11 +679,13 @@ fn print_clint_info() {
 
 #[inline]
 fn print_console_info() {
-    match board_info().console {
-        Some((base, device)) => {
+    match board_info().console.as_ref() {
+        Some(console) => {
             info!(
-                "{:<30}: {:?} (Base Address: 0x{:x})",
-                "Platform Console Extension", device, base
+                "{:<30}: {} (Base Address: 0x{:x})",
+                "Platform Console Extension",
+                console.kind.name(),
+                console.base_address
             );
         }
         None => warn!("{:<30}: Not Available", "Platform Console Device"),
