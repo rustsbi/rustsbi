@@ -37,6 +37,7 @@ uart_sifive = { git = "https://github.com/duskmoon314/uart-rs/" }
 arm-pl011-uart = "0.3.2"
 riscv-aia = { version = "0.0.0", path = "../../library/riscv-aia" }
 rustsbi-prototyper-macros = { version = "0.0.0", path = "../macros" }
+volatile-register = "0.2.2"
 
 # Intel XScale/PXA UART driver (SpacemiT K1 / Ky X1)
 uart-xscale = { git = "https://github.com/rustsbi/uart-xscale-rs", rev = "ddc41aa10d7b900f1e7f9de047665545e1698060" }

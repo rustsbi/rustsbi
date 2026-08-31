@@ -5,12 +5,13 @@
 //! cold-boot handling for the SpacemiT K3 SoC (8× X100 RVA23 cores + 8×
 //! A100 AI cores).
 //!
-//! MMIO registers are accessed through typed
-//! layouts (`MmioReg`, [`WarmbootAddr`], [`Cci550Registers`]) rather than raw
-//! base-address arithmetic, keeping the register layouts testable via
+//! MMIO registers are accessed through typed layouts using
+//! `volatile_register::{RW, RO, WO}` rather than raw base-address arithmetic,
+//! keeping access permissions explicit and register layouts testable via
 //! `offset_of!`.
 
 use core::arch::asm;
+use volatile_register::{RO, RW, WO};
 
 // ---------------------------------------------------------------------------
 // Custom CSRs (0x7f0, 0x7f7, 0x7d0, 0x7d1)
@@ -41,48 +42,24 @@ const PERF_CTRL_VEC_L1BYPASS: usize = 1 << 32; // Vector loads bypass L1, cached
 const PREFETCH_CTRL_L2_PERF_DIST: usize = 3 << 10; // L2 prefetch distance: 56 entries
 
 // ---------------------------------------------------------------------------
-// Typed MMIO helpers
-// ---------------------------------------------------------------------------
-
-/// A 32-bit volatile MMIO register.
-#[repr(transparent)]
-struct MmioReg(u32);
-
-impl MmioReg {
-    /// Read the register.
-    #[inline]
-    fn read(&self) -> u32 {
-        // Safety: `self` points at MMIO registers; reads are volatile so the
-        // compiler cannot cache or reorder them.
-        unsafe { core::ptr::addr_of!(self.0).read_volatile() }
-    }
-
-    /// Write the register.
-    #[inline]
-    fn write(&self, val: u32) {
-        // Safety: `self` points at MMIO registers; writes are volatile so
-        // the compiler cannot elide or reorder them.
-        unsafe { core::ptr::addr_of!(self.0).cast_mut().write_volatile(val) }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Warmboot (RVBADDR) registers
 // ---------------------------------------------------------------------------
 
 /// A pair of adjacent LO/HI warmboot address registers (8 bytes).
 #[repr(C)]
 struct WarmbootAddr {
-    lo: MmioReg,
-    hi: MmioReg,
+    lo: WO<u32>,
+    hi: WO<u32>,
 }
 
 impl WarmbootAddr {
     /// Write the 64-bit warmboot entry address (LO then HI).
     #[inline]
-    fn set(&self, addr: u64) {
-        self.lo.write(addr as u32);
-        self.hi.write((addr >> 32) as u32);
+    unsafe fn set(&self, addr: u64) {
+        unsafe {
+            self.lo.write(addr as u32);
+            self.hi.write((addr >> 32) as u32);
+        }
     }
 }
 
@@ -104,65 +81,65 @@ const PMU_CAP_BASE: usize = 0xd4282800;
 
 /// `PMU_CAP_CORE*_WAKEUP` register addresses, indexed by hart ID
 /// (k3.h L32-47).
-const PMU_CAP_CORE_WAKEUP: [*const MmioReg; 16] = [
-    (PMU_CAP_BASE + 0x12c) as *const MmioReg, // CORE0
-    (PMU_CAP_BASE + 0x130) as *const MmioReg, // CORE1
-    (PMU_CAP_BASE + 0x134) as *const MmioReg, // CORE2
-    (PMU_CAP_BASE + 0x138) as *const MmioReg, // CORE3
-    (PMU_CAP_BASE + 0x324) as *const MmioReg, // CORE4
-    (PMU_CAP_BASE + 0x328) as *const MmioReg, // CORE5
-    (PMU_CAP_BASE + 0x32c) as *const MmioReg, // CORE6
-    (PMU_CAP_BASE + 0x330) as *const MmioReg, // CORE7
-    (PMU_CAP_BASE + 0x360) as *const MmioReg, // CORE8
-    (PMU_CAP_BASE + 0x364) as *const MmioReg, // CORE9
-    (PMU_CAP_BASE + 0x368) as *const MmioReg, // CORE10
-    (PMU_CAP_BASE + 0x36c) as *const MmioReg, // CORE11
-    (PMU_CAP_BASE + 0x22c) as *const MmioReg, // CORE12
-    (PMU_CAP_BASE + 0x230) as *const MmioReg, // CORE13
-    (PMU_CAP_BASE + 0x234) as *const MmioReg, // CORE14
-    (PMU_CAP_BASE + 0x238) as *const MmioReg, // CORE15
+const PMU_CAP_CORE_WAKEUP: [*const WO<u32>; 16] = [
+    (PMU_CAP_BASE + 0x12c) as *const WO<u32>, // CORE0
+    (PMU_CAP_BASE + 0x130) as *const WO<u32>, // CORE1
+    (PMU_CAP_BASE + 0x134) as *const WO<u32>, // CORE2
+    (PMU_CAP_BASE + 0x138) as *const WO<u32>, // CORE3
+    (PMU_CAP_BASE + 0x324) as *const WO<u32>, // CORE4
+    (PMU_CAP_BASE + 0x328) as *const WO<u32>, // CORE5
+    (PMU_CAP_BASE + 0x32c) as *const WO<u32>, // CORE6
+    (PMU_CAP_BASE + 0x330) as *const WO<u32>, // CORE7
+    (PMU_CAP_BASE + 0x360) as *const WO<u32>, // CORE8
+    (PMU_CAP_BASE + 0x364) as *const WO<u32>, // CORE9
+    (PMU_CAP_BASE + 0x368) as *const WO<u32>, // CORE10
+    (PMU_CAP_BASE + 0x36c) as *const WO<u32>, // CORE11
+    (PMU_CAP_BASE + 0x22c) as *const WO<u32>, // CORE12
+    (PMU_CAP_BASE + 0x230) as *const WO<u32>, // CORE13
+    (PMU_CAP_BASE + 0x234) as *const WO<u32>, // CORE14
+    (PMU_CAP_BASE + 0x238) as *const WO<u32>, // CORE15
 ];
 
 /// `PMU_CAP_CORE*_IDLE_CFG` register addresses, indexed by hart ID
 /// (k3.h L49-64).
-const PMU_CAP_CORE_IDLE_CFG: [*const MmioReg; 16] = [
-    (PMU_CAP_BASE + 0x124) as *const MmioReg, // CORE0
-    (PMU_CAP_BASE + 0x128) as *const MmioReg, // CORE1
-    (PMU_CAP_BASE + 0x160) as *const MmioReg, // CORE2
-    (PMU_CAP_BASE + 0x164) as *const MmioReg, // CORE3
-    (PMU_CAP_BASE + 0x304) as *const MmioReg, // CORE4
-    (PMU_CAP_BASE + 0x308) as *const MmioReg, // CORE5
-    (PMU_CAP_BASE + 0x30c) as *const MmioReg, // CORE6
-    (PMU_CAP_BASE + 0x310) as *const MmioReg, // CORE7
-    (PMU_CAP_BASE + 0x340) as *const MmioReg, // CORE8
-    (PMU_CAP_BASE + 0x344) as *const MmioReg, // CORE9
-    (PMU_CAP_BASE + 0x348) as *const MmioReg, // CORE10
-    (PMU_CAP_BASE + 0x34c) as *const MmioReg, // CORE11
-    (PMU_CAP_BASE + 0x20c) as *const MmioReg, // CORE12
-    (PMU_CAP_BASE + 0x210) as *const MmioReg, // CORE13
-    (PMU_CAP_BASE + 0x214) as *const MmioReg, // CORE14
-    (PMU_CAP_BASE + 0x218) as *const MmioReg, // CORE15
+const PMU_CAP_CORE_IDLE_CFG: [*const RW<u32>; 16] = [
+    (PMU_CAP_BASE + 0x124) as *const RW<u32>, // CORE0
+    (PMU_CAP_BASE + 0x128) as *const RW<u32>, // CORE1
+    (PMU_CAP_BASE + 0x160) as *const RW<u32>, // CORE2
+    (PMU_CAP_BASE + 0x164) as *const RW<u32>, // CORE3
+    (PMU_CAP_BASE + 0x304) as *const RW<u32>, // CORE4
+    (PMU_CAP_BASE + 0x308) as *const RW<u32>, // CORE5
+    (PMU_CAP_BASE + 0x30c) as *const RW<u32>, // CORE6
+    (PMU_CAP_BASE + 0x310) as *const RW<u32>, // CORE7
+    (PMU_CAP_BASE + 0x340) as *const RW<u32>, // CORE8
+    (PMU_CAP_BASE + 0x344) as *const RW<u32>, // CORE9
+    (PMU_CAP_BASE + 0x348) as *const RW<u32>, // CORE10
+    (PMU_CAP_BASE + 0x34c) as *const RW<u32>, // CORE11
+    (PMU_CAP_BASE + 0x20c) as *const RW<u32>, // CORE12
+    (PMU_CAP_BASE + 0x210) as *const RW<u32>, // CORE13
+    (PMU_CAP_BASE + 0x214) as *const RW<u32>, // CORE14
+    (PMU_CAP_BASE + 0x218) as *const RW<u32>, // CORE15
 ];
 
 /// `PMU_CX_CAPMP_IDLE_CFG*` cluster power/idle config registers, indexed by
 /// hart ID (k3.h L66-81).
-const PMU_CX_CAPMP_IDLE_CFG: [*const MmioReg; 16] = [
-    (PMU_CAP_BASE + 0x120) as *const MmioReg, // CFG0  (cluster 0, hart 0)
-    (PMU_CAP_BASE + 0xe4) as *const MmioReg,  // CFG1  (cluster 0, hart 1)
-    (PMU_CAP_BASE + 0x150) as *const MmioReg, // CFG2  (cluster 0, hart 2)
-    (PMU_CAP_BASE + 0x154) as *const MmioReg, // CFG3  (cluster 0, hart 3)
-    (PMU_CAP_BASE + 0x314) as *const MmioReg, // CFG4  (cluster 1, hart 4)
-    (PMU_CAP_BASE + 0x318) as *const MmioReg, // CFG5  (cluster 1, hart 5)
-    (PMU_CAP_BASE + 0x31c) as *const MmioReg, // CFG6  (cluster 1, hart 6)
-    (PMU_CAP_BASE + 0x320) as *const MmioReg, // CFG7  (cluster 1, hart 7)
-    (PMU_CAP_BASE + 0x350) as *const MmioReg, // CFG8  (cluster 2, hart 8)
-    (PMU_CAP_BASE + 0x354) as *const MmioReg, // CFG9  (cluster 2, hart 9)
-    (PMU_CAP_BASE + 0x358) as *const MmioReg, // CFG10 (cluster 2, hart 10)
-    (PMU_CAP_BASE + 0x35c) as *const MmioReg, // CFG11 (cluster 2, hart 11)
-    (PMU_CAP_BASE + 0x21c) as *const MmioReg, // CFG12 (cluster 3, hart 12)
-    (PMU_CAP_BASE + 0x220) as *const MmioReg, // CFG13 (cluster 3, hart 13)
-    (PMU_CAP_BASE + 0x224) as *const MmioReg, // CFG14 (cluster 3, hart 14)
-    (PMU_CAP_BASE + 0x228) as *const MmioReg, // CFG15 (cluster 3, hart 15)
+const PMU_CX_CAPMP_IDLE_CFG: [*const RW<u32>; 16] = [
+    (PMU_CAP_BASE + 0x120) as *const RW<u32>, // CFG0  (cluster 0, hart 0)
+    (PMU_CAP_BASE + 0xe4) as *const RW<u32>,  // CFG1  (cluster 0, hart 1)
+    (PMU_CAP_BASE + 0x150) as *const RW<u32>, // CFG2  (cluster 0, hart 2)
+    (PMU_CAP_BASE + 0x154) as *const RW<u32>, // CFG3  (cluster 0, hart 3)
+    (PMU_CAP_BASE + 0x314) as *const RW<u32>, // CFG4  (cluster 1, hart 4)
+    (PMU_CAP_BASE + 0x318) as *const RW<u32>, // CFG5  (cluster 1, hart 5)
+    (PMU_CAP_BASE + 0x31c) as *const RW<u32>, // CFG6  (cluster 1, hart 6)
+    (PMU_CAP_BASE + 0x320) as *const RW<u32>, // CFG7  (cluster 1, hart 7)
+    (PMU_CAP_BASE + 0x350) as *const RW<u32>, // CFG8  (cluster 2, hart 8)
+    (PMU_CAP_BASE + 0x354) as *const RW<u32>, // CFG9  (cluster 2, hart 9)
+    (PMU_CAP_BASE + 0x358) as *const RW<u32>, // CFG10 (cluster 2, hart 10)
+    (PMU_CAP_BASE + 0x35c) as *const RW<u32>, // CFG11 (cluster 2, hart 11)
+    (PMU_CAP_BASE + 0x21c) as *const RW<u32>, // CFG12 (cluster 3, hart 12)
+    (PMU_CAP_BASE + 0x220) as *const RW<u32>, // CFG13 (cluster 3, hart 13)
+    (PMU_CAP_BASE + 0x224) as *const RW<u32>, // CFG14 (cluster 3, hart 14)
+    (PMU_CAP_BASE + 0x228) as *const RW<u32>, // CFG15 (cluster 3, hart 15)
 ];
 
 // Power/idle config bit fields (k3.h)
@@ -171,23 +148,23 @@ const CPU_PWR_DOWN_VALUE: u32 = 0x1f;
 const CLUSTER_PWR_DOWN_VALUE: u32 = 0x8f;
 
 /// `APCR_CORE*_VETE_REG` register addresses, indexed by hart ID (k3.h L83-98).
-const APCR_CORE_VETE_REG: [*const MmioReg; 16] = [
-    (0xd4050000usize + 0x10c0) as *const MmioReg, // CORE0
-    (0xd4050000usize + 0x10c4) as *const MmioReg, // CORE1
-    (0xd4050000usize + 0x10c8) as *const MmioReg, // CORE2
-    (0xd4050000usize + 0x10cc) as *const MmioReg, // CORE3
-    (0xd4050000usize + 0x10d0) as *const MmioReg, // CORE4
-    (0xd4050000usize + 0x10d4) as *const MmioReg, // CORE5
-    (0xd4050000usize + 0x10d8) as *const MmioReg, // CORE6
-    (0xd4050000usize + 0x10dc) as *const MmioReg, // CORE7
-    (0xd4050000usize + 0x10e0) as *const MmioReg, // CORE8
-    (0xd4050000usize + 0x10e4) as *const MmioReg, // CORE9
-    (0xd4050000usize + 0x10e8) as *const MmioReg, // CORE10
-    (0xd4050000usize + 0x10ec) as *const MmioReg, // CORE11
-    (0xd4050000usize + 0x10f0) as *const MmioReg, // CORE12
-    (0xd4050000usize + 0x10f4) as *const MmioReg, // CORE13
-    (0xd4050000usize + 0x10f8) as *const MmioReg, // CORE14
-    (0xd4050000usize + 0x10fc) as *const MmioReg, // CORE15
+const APCR_CORE_VETE_REG: [*const WO<u32>; 16] = [
+    (0xd4050000usize + 0x10c0) as *const WO<u32>, // CORE0
+    (0xd4050000usize + 0x10c4) as *const WO<u32>, // CORE1
+    (0xd4050000usize + 0x10c8) as *const WO<u32>, // CORE2
+    (0xd4050000usize + 0x10cc) as *const WO<u32>, // CORE3
+    (0xd4050000usize + 0x10d0) as *const WO<u32>, // CORE4
+    (0xd4050000usize + 0x10d4) as *const WO<u32>, // CORE5
+    (0xd4050000usize + 0x10d8) as *const WO<u32>, // CORE6
+    (0xd4050000usize + 0x10dc) as *const WO<u32>, // CORE7
+    (0xd4050000usize + 0x10e0) as *const WO<u32>, // CORE8
+    (0xd4050000usize + 0x10e4) as *const WO<u32>, // CORE9
+    (0xd4050000usize + 0x10e8) as *const WO<u32>, // CORE10
+    (0xd4050000usize + 0x10ec) as *const WO<u32>, // CORE11
+    (0xd4050000usize + 0x10f0) as *const WO<u32>, // CORE12
+    (0xd4050000usize + 0x10f4) as *const WO<u32>, // CORE13
+    (0xd4050000usize + 0x10f8) as *const WO<u32>, // CORE14
+    (0xd4050000usize + 0x10fc) as *const WO<u32>, // CORE15
 ];
 
 /// Default APCR VATE value written by `spacemit_vote_core_apcr` (k3.h L101).
@@ -207,16 +184,16 @@ const APCR_COREX_DEFAULT_VATE_VALUE: u32 = (1 << 3)
 
 /// PMU L2 flush control register base (per-cluster offsets).
 const PMU_L2_FLUSH_BASE: usize = 0xd8440000;
-const PMU_C0_L2_FLUSH_CTRL: *const MmioReg = (PMU_L2_FLUSH_BASE + 0x1b0) as *const MmioReg;
-const PMU_C1_L2_FLUSH_CTRL: *const MmioReg = (PMU_L2_FLUSH_BASE + 0x1b4) as *const MmioReg;
-const PMU_C2_L2_FLUSH_CTRL: *const MmioReg = (PMU_L2_FLUSH_BASE + 0x1c4) as *const MmioReg;
-const PMU_C3_L2_FLUSH_CTRL: *const MmioReg = (PMU_L2_FLUSH_BASE + 0x1ec) as *const MmioReg;
+const PMU_C0_L2_FLUSH_CTRL: *const WO<u32> = (PMU_L2_FLUSH_BASE + 0x1b0) as *const WO<u32>;
+const PMU_C1_L2_FLUSH_CTRL: *const WO<u32> = (PMU_L2_FLUSH_BASE + 0x1b4) as *const WO<u32>;
+const PMU_C2_L2_FLUSH_CTRL: *const WO<u32> = (PMU_L2_FLUSH_BASE + 0x1c4) as *const WO<u32>;
+const PMU_C3_L2_FLUSH_CTRL: *const WO<u32> = (PMU_L2_FLUSH_BASE + 0x1ec) as *const WO<u32>;
 const PMU_L2_FLUSH_HW_TYPE: u32 = 1 << 0; // Hardware flush type
 const PMU_L2_FLUSH_HW_EN: u32 = 1 << 2; // Hardware flush enable
 
 /// DMASYS reset/clock registers (k3.h L121-122).
-const DMASYS_RESET: *const MmioReg = (PMU_L2_FLUSH_BASE + 0x22c) as *const MmioReg;
-const DMASYS_CLK_EN: *const MmioReg = (PMU_L2_FLUSH_BASE + 0x234) as *const MmioReg;
+const DMASYS_RESET: *const WO<u32> = (PMU_L2_FLUSH_BASE + 0x22c) as *const WO<u32>;
+const DMASYS_CLK_EN: *const WO<u32> = (PMU_L2_FLUSH_BASE + 0x234) as *const WO<u32>;
 
 // ---------------------------------------------------------------------------
 // CCI-550 cache coherent interconnect
@@ -225,10 +202,10 @@ const DMASYS_CLK_EN: *const MmioReg = (PMU_L2_FLUSH_BASE + 0x234) as *const Mmio
 /// CCI-550 control/status registers (bus-cci-550.c `CTRL_OVERRIDE`/`STATUS`).
 #[repr(C)]
 struct Cci550Registers {
-    _ctrl_override: MmioReg, // 0x0000
-    _reserved0: MmioReg,     // 0x0004
-    _reserved1: MmioReg,     // 0x0008
-    status: MmioReg,         // 0x000c
+    _ctrl_override: RW<u32>, // 0x0000
+    _reserved: u32,          // 0x0004
+    _secure_access: RW<u32>, // 0x0008
+    status: RO<u32>,         // 0x000c
 }
 
 impl Cci550Registers {
@@ -259,7 +236,7 @@ impl Cci550Registers {
 /// CCI-550 slave interface registers (bus-cci-550.c `SNOOP_CTRL_REG`).
 #[repr(C)]
 struct CciSlaveIfaceRegisters {
-    snoop_ctrl: MmioReg, // 0x0000
+    snoop_ctrl: RW<u32>, // 0x0000
 }
 
 const CCI_550_BASE: *const Cci550Registers = 0xd8500000usize as *const Cci550Registers;
@@ -336,8 +313,7 @@ unsafe fn csr_clear<const CSR: u16>(bits: usize) {
 /// L387-476): set `CPU_PWR_DOWN_VALUE` in the core's `PMU_CAP_CORE*_IDLE_CFG`.
 fn vote_powrdown_core(hartid: usize) {
     let reg = unsafe { &*PMU_CAP_CORE_IDLE_CFG[hartid] };
-    let value = reg.read() | CPU_PWR_DOWN_VALUE;
-    reg.write(value);
+    unsafe { reg.modify(|value| value | CPU_PWR_DOWN_VALUE) };
 }
 
 /// Vote a core and its cluster power-down (`spacemit_vote_powrdown_cluster`,
@@ -345,9 +321,11 @@ fn vote_powrdown_core(hartid: usize) {
 /// cluster's `PMU_CX_CAPMP_IDLE_CFG*`.
 fn vote_powrdown_cluster(hartid: usize) {
     let core_reg = unsafe { &*PMU_CAP_CORE_IDLE_CFG[hartid] };
-    core_reg.write(core_reg.read() | CPU_PWR_DOWN_VALUE);
     let cluster_reg = unsafe { &*PMU_CX_CAPMP_IDLE_CFG[hartid] };
-    cluster_reg.write(cluster_reg.read() | CLUSTER_PWR_DOWN_VALUE);
+    unsafe {
+        core_reg.modify(|value| value | CPU_PWR_DOWN_VALUE);
+        cluster_reg.modify(|value| value | CLUSTER_PWR_DOWN_VALUE);
+    }
 }
 
 /// Cancel a core's and cluster's power-down votes
@@ -355,24 +333,25 @@ fn vote_powrdown_cluster(hartid: usize) {
 /// power-down and interrupt-mask bits, so the cluster stays powered for boot.
 fn devote_pwrdown_cluster(hartid: usize) {
     let core_reg = unsafe { &*PMU_CAP_CORE_IDLE_CFG[hartid] };
-    let value = core_reg.read() & !(CPU_PWR_DOWN_VALUE | CPU_MASK_FI_INTTERUPT);
-    core_reg.write(value);
     let cluster_reg = unsafe { &*PMU_CX_CAPMP_IDLE_CFG[hartid] };
-    cluster_reg.write(cluster_reg.read() & !CLUSTER_PWR_DOWN_VALUE);
+    unsafe {
+        core_reg.modify(|value| value & !(CPU_PWR_DOWN_VALUE | CPU_MASK_FI_INTTERUPT));
+        cluster_reg.modify(|value| value & !CLUSTER_PWR_DOWN_VALUE);
+    }
 }
 
 /// Vote a core's APCR VETE register with the default value
 /// (`spacemit_vote_core_apcr`, k3_corepm.c L114-203).
 fn vote_core_apcr(hartid: usize) {
     let reg = unsafe { &*APCR_CORE_VETE_REG[hartid] };
-    reg.write(APCR_COREX_DEFAULT_VATE_VALUE);
+    unsafe { reg.write(APCR_COREX_DEFAULT_VATE_VALUE) };
 }
 
 /// Cancel a core's APCR VETE vote (`spacemit_devote_core_apcr`, k3_corepm.c
 /// L205-294).
 fn devote_core_apcr(hartid: usize) {
     let reg = unsafe { &*APCR_CORE_VETE_REG[hartid] };
-    reg.write(0);
+    unsafe { reg.write(0) };
 }
 
 /// Wake up a core by asserting its `PMU_CAP_CORE*_WAKEUP` register
@@ -384,7 +363,7 @@ fn devote_core_apcr(hartid: usize) {
 /// `hart_start`.
 pub(crate) fn wakeup_core(hartid: usize) {
     let reg = unsafe { &*PMU_CAP_CORE_WAKEUP[hartid] };
-    reg.write(1 << hartid);
+    unsafe { reg.write(1 << hartid) };
 }
 
 // ---------------------------------------------------------------------------
@@ -460,9 +439,11 @@ unsafe fn cci_enable_snoop_dvm_reqs(slave_if_id: usize) {
     let iface = unsafe { cci.slave_iface(slave_if_id) };
 
     // Enable snoops and DVM messages (no RMW: other bits are write-ignore)
-    iface
-        .snoop_ctrl
-        .write(CCI_550_SNOOP_CTRL_ENABLE_SNOOPS | CCI_550_SNOOP_CTRL_ENABLE_DVMS);
+    unsafe {
+        iface
+            .snoop_ctrl
+            .write(CCI_550_SNOOP_CTRL_ENABLE_SNOOPS | CCI_550_SNOOP_CTRL_ENABLE_DVMS);
+    }
 
     // Memory barrier before checking status
     core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
@@ -591,18 +572,18 @@ pub fn cold_boot_allowed(hart_id: usize) -> bool {
     hart_id == 0
 }
 
-// The K3 warm-boot entry defined in start.S (`_start_warm_k3`).
+// The K3 warm-boot entry defined by entry/spacemit_k3.S (`_start_warm_k3`).
 unsafe extern "C" {
     #[link_name = "_start_warm_k3"]
     static START_WARM_K3: u8;
 }
 
-/// Address of the K3 warm-boot entry (`_start_warm_k3` in start.S).
+/// Address of the K3 warm-boot entry (`_start_warm_k3` in spacemit_k3.S).
 ///
 /// PMU-woken secondary harts fetch their cluster RVBADDR, which the boot
 /// hart points at this entry.
 pub fn warm_entry() -> u64 {
-    unsafe { core::ptr::addr_of!(START_WARM_K3) as u64 }
+    core::ptr::addr_of!(START_WARM_K3) as u64
 }
 /// Get the maximum number of CPUs supported by this platform.
 #[inline]
@@ -1166,14 +1147,14 @@ unsafe fn csr_write_raw<const CSR: u16>(value: usize) {
 /// in the hart's `PMU_CAP_CORE*_IDLE_CFG`.
 fn mask_irq(hartid: usize) {
     let reg = unsafe { &*PMU_CAP_CORE_IDLE_CFG[hartid] };
-    reg.write(reg.read() | CPU_MASK_FI_INTTERUPT);
+    unsafe { reg.modify(|value| value | CPU_MASK_FI_INTTERUPT) };
 }
 
 /// Unmasks the fast-interrupt mask bits for the current hart
 /// (`spacemit_unmask_irq`, k3_corepm.c L296-385).
 fn unmask_irq(hartid: usize) {
     let reg = unsafe { &*PMU_CAP_CORE_IDLE_CFG[hartid] };
-    reg.write(reg.read() & !CPU_MASK_FI_INTTERUPT);
+    unsafe { reg.modify(|value| value & !CPU_MASK_FI_INTTERUPT) };
 }
 
 /// Suspend preparation for the current hart (`__rpmi_hsm_suspend_pre`,
@@ -1452,7 +1433,9 @@ mod tests {
     #[test]
     fn test_register_layout() {
         // MMIO accessor widths (32-bit registers).
-        assert_eq!(core::mem::size_of::<MmioReg>(), 4);
+        assert_eq!(core::mem::size_of::<RO<u32>>(), 4);
+        assert_eq!(core::mem::size_of::<RW<u32>>(), 4);
+        assert_eq!(core::mem::size_of::<WO<u32>>(), 4);
         // Warmboot address: adjacent LO/HI 32-bit registers.
         assert_eq!(offset_of!(WarmbootAddr, lo), 0x0);
         assert_eq!(offset_of!(WarmbootAddr, hi), 0x4);
