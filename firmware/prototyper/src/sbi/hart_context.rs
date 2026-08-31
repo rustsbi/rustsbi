@@ -86,7 +86,7 @@ impl HartLocal {
         self.ipi_reset();
         self.rfence_reset();
         self.pmu_state_reset();
-        self.fwft_state = FwftState::new();
+        self.fwft_state.reset();
     }
 
     #[inline]

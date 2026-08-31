@@ -1,7 +1,7 @@
 use rustsbi::SbiRet;
 use sbi_spec::fwft::feature_type;
 
-use crate::riscv::csr::CSR_MENVCFG;
+use crate::riscv::csr::{self, CSR_MENVCFG};
 use crate::sbi::early_trap::{TrapInfo, csr_read_allow, csr_write_allow};
 use crate::sbi::trap_stack::with_current;
 
@@ -47,6 +47,13 @@ impl FwftState {
     fn lock(&mut self, feature_id: u32) {
         self.locked |= Self::mask(feature_id);
     }
+
+    pub(crate) fn reset(&mut self) {
+        // FWFT locks survive non-retentive suspend/resume. Probe results are
+        // cheap to rebuild and may depend on the resumed hart's CSR state.
+        self.probed = 0;
+        self.supported = 0;
+    }
 }
 
 /// Firmware Features extension backed by `medeleg` and `menvcfg`.
@@ -62,7 +69,7 @@ impl SbiFwft {
             return;
         };
         let controlled = ENVCFG_LPE | ENVCFG_SSE | ENVCFG_PMM | ENVCFG_DTE | ENVCFG_ADUE;
-        let _ = Self::menvcfg_write(current & !controlled);
+        let _ = Self::menvcfg_write(current, current & !controlled);
     }
 
     fn has_s_mode() -> bool {
@@ -95,11 +102,23 @@ impl SbiFwft {
         (trap.mcause == usize::MAX).then_some(value)
     }
 
-    fn menvcfg_write(value: usize) -> bool {
+    fn menvcfg_write(previous: usize, value: usize) -> bool {
         let mut trap = TrapInfo::default();
         // SAFETY: firmware runs in M-mode, and `trap` remains valid for the call.
         unsafe { csr_write_allow::<CSR_MENVCFG>(&mut trap, value) };
-        trap.mcause == usize::MAX
+        if trap.mcause != usize::MAX {
+            return false;
+        }
+        if (previous ^ value) & ENVCFG_ADUE != 0 {
+            // The ADUE transition must be ordered before S-mode can use the
+            // changed interpretation of page-table A/D bits.
+            csr::fence::sfence_vma_all();
+            #[cfg(feature = "hypervisor")]
+            if riscv::register::misa::read().has_extension('H') {
+                csr::fence::hfence_gvma_all();
+            }
+        }
+        true
     }
 
     fn menvcfg_bit(feature_id: usize) -> Option<usize> {
@@ -121,7 +140,7 @@ impl SbiFwft {
         } else {
             current & !bit
         };
-        if !Self::menvcfg_write(next) {
+        if !Self::menvcfg_write(current, next) {
             return SbiRet::not_supported();
         }
         let Some(read_back) = Self::menvcfg_read() else {
@@ -145,7 +164,7 @@ impl SbiFwft {
             return SbiRet::not_supported();
         };
         let next = (current & !ENVCFG_PMM) | (encoding << ENVCFG_PMM_SHIFT);
-        if !Self::menvcfg_write(next) {
+        if !Self::menvcfg_write(current, next) {
             return SbiRet::not_supported();
         }
         let Some(read_back) = Self::menvcfg_read() else {
@@ -164,14 +183,14 @@ impl SbiFwft {
         };
         let test_bits = if current & mask == 0 { mask } else { 0 };
         let test_value = (current & !mask) | test_bits;
-        if !Self::menvcfg_write(test_value) {
+        if !Self::menvcfg_write(current, test_value) {
             return false;
         }
         let Some(probed) = Self::menvcfg_read() else {
-            let _ = Self::menvcfg_write(current);
+            let _ = Self::menvcfg_write(test_value, current);
             return false;
         };
-        if !Self::menvcfg_write(current) {
+        if !Self::menvcfg_write(probed, current) {
             return false;
         }
         let Some(restored) = Self::menvcfg_read() else {
