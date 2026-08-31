@@ -6,8 +6,26 @@ use sbi_spec::binary::SharedPtr;
 use crate::cfg::NUM_HART_MAX;
 use crate::riscv::current_hartid;
 
-// A zero address disables reporting for that hart.
-static STA_SHMEM: [AtomicUsize; NUM_HART_MAX] = [const { AtomicUsize::new(0) }; NUM_HART_MAX];
+struct StaShmem {
+    lo: AtomicUsize,
+    hi: AtomicUsize,
+}
+
+impl StaShmem {
+    const DISABLED: Self = Self {
+        lo: AtomicUsize::new(usize::MAX),
+        hi: AtomicUsize::new(usize::MAX),
+    };
+
+    fn store(&self, lo: usize, hi: usize) {
+        self.lo.store(lo, Ordering::Release);
+        self.hi.store(hi, Ordering::Release);
+    }
+}
+
+// Keep both address parts since either may be used to represent a physical
+// address on RV32. Both parts being all-ones represents a disabled SHMEM.
+static STA_SHMEM: [StaShmem; NUM_HART_MAX] = [const { StaShmem::DISABLED }; NUM_HART_MAX];
 
 /// Steal-time Accounting extension using supervisor-provided shared memory.
 pub(crate) struct SbiSta;
@@ -23,7 +41,7 @@ impl rustsbi::Sta for SbiSta {
 
         // All-ones shared pointer disables steal-time reporting.
         if hi == usize::MAX && lo == usize::MAX {
-            STA_SHMEM[current_hartid()].store(0, Ordering::Release);
+            STA_SHMEM[current_hartid()].store(lo, hi);
             return SbiRet::success(0);
         }
 
@@ -46,7 +64,7 @@ impl rustsbi::Sta for SbiSta {
             core::sync::atomic::fence(Ordering::SeqCst);
         }
 
-        STA_SHMEM[current_hartid()].store(lo, Ordering::Release);
+        STA_SHMEM[current_hartid()].store(lo, hi);
         SbiRet::success(0)
     }
 }
