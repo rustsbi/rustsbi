@@ -1,3 +1,5 @@
+//! Machine trap handling: interrupts, SBI calls, and misaligned access.
+
 use fast_trap::{EntireContext, EntireContextSeparated, EntireResult, FastContext, FastResult};
 use riscv::register::{mepc, mie, mstatus, mtval, satp, sstatus};
 use riscv_decode::{Instruction, decode};
@@ -17,6 +19,7 @@ use super::helper::*;
 #[inline]
 fn enable_mtimer_if_no_sstc() {
     if !hart_extension_probe(current_hartid(), Extension::Sstc) {
+        // SAFETY: M-mode write to this hart's mie.
         unsafe {
             mie::set_mtimer();
         }
@@ -25,8 +28,10 @@ fn enable_mtimer_if_no_sstc() {
 
 #[inline]
 pub fn switch(mut ctx: FastContext, start_addr: usize, opaque: usize) -> FastResult {
+    // SAFETY: M-mode may write the S-mode CSRs being programmed.
     unsafe {
-        // stvec BASE is four-byte aligned; HSM entry points may only be two-byte aligned.
+        // stvec BASE is four-byte aligned; HSM entry points may only be
+        // two-byte aligned.
         if start_addr & 0x3 == 0 {
             core::arch::asm!(
                 "csrw stvec, {start_addr}",
@@ -52,6 +57,8 @@ pub fn msoft_ipi_handler() {
     let ipi_type = get_and_reset_ipi_type();
     if (ipi_type & ipi::IPI_TYPE_SSOFT) != 0 {
         pmu_firmware_counter_increment(firmware_event::IPI_RECEIVED);
+        // SAFETY: M-mode may write mip.SSIP; the bit only signals an S-mode
+        // software interrupt.
         unsafe {
             riscv::register::mip::set_ssoft();
         }
@@ -66,6 +73,8 @@ pub fn msoft_handler(ctx: FastContext) -> FastResult {
     match local_hsm().start() {
         Ok(next_stage) => {
             ipi::claim_ipi();
+            // SAFETY: M-mode writes to this hart's mstatus and mie in
+            // preparation for the mret into the next stage.
             unsafe {
                 mstatus::set_mpie();
                 mstatus::set_mpp(next_stage.next_mode);
@@ -76,6 +85,7 @@ pub fn msoft_handler(ctx: FastContext) -> FastResult {
         }
         Err(rustsbi::spec::hsm::HART_STOP) => {
             ipi::claim_ipi();
+            // SAFETY: M-mode write to this hart's mie.
             unsafe {
                 mie::set_msoft();
             }
@@ -93,9 +103,7 @@ pub fn msoft_handler(ctx: FastContext) -> FastResult {
 pub fn mext_handler(ctx: FastContext) -> FastResult {
     use ipi::get_and_reset_ipi_type;
 
-    if !crate::platform::aia::is_aia_active()
-        || !hart_extension_probe(current_hartid(), Extension::Smaia)
-    {
+    if !crate::sbi::ipi::uses_imsic() || !hart_extension_probe(current_hartid(), Extension::Smaia) {
         warn!("MachineExternal: AIA is not available on this hart");
         return ctx.restore();
     }
@@ -109,11 +117,13 @@ pub fn mext_handler(ctx: FastContext) -> FastResult {
         return ctx.restore();
     };
 
-    let iid = crate::platform::aia::mtopei_claim();
+    let claimed = riscv_aia::register::mtopei::claim();
 
-    match iid {
+    match claimed.iid() {
         Some(id) if firmware_ipi_iid == id => match local_hsm().start() {
             Ok(next_stage) => {
+                // SAFETY: M-mode writes to this hart's mstatus and mie in
+                // preparation for the mret into the next stage.
                 unsafe {
                     mstatus::set_mpie();
                     mstatus::set_mpp(next_stage.next_mode);
@@ -124,6 +134,7 @@ pub fn mext_handler(ctx: FastContext) -> FastResult {
                 return switch(ctx, next_stage.start_addr, next_stage.opaque);
             }
             Err(rustsbi::spec::hsm::HART_STOP) => {
+                // SAFETY: M-mode write to this hart's mie.
                 unsafe {
                     mie::set_mext();
                 }
@@ -134,6 +145,8 @@ pub fn mext_handler(ctx: FastContext) -> FastResult {
                 let ipi_type = get_and_reset_ipi_type();
                 if (ipi_type & ipi::IPI_TYPE_SSOFT) != 0 {
                     pmu_firmware_counter_increment(firmware_event::IPI_RECEIVED);
+                    // SAFETY: M-mode may write mip.SSIP; the bit only
+                    // signals an S-mode software interrupt.
                     unsafe {
                         riscv::register::mip::set_ssoft();
                     }
@@ -144,7 +157,11 @@ pub fn mext_handler(ctx: FastContext) -> FastResult {
             }
         },
         Some(id) => {
-            warn!("MachineExternal: unexpected IID {}", id.number());
+            warn!(
+                "MachineExternal: unexpected IID {} at priority {}",
+                id.number(),
+                claimed.iprio()
+            );
         }
         None => {}
     }
@@ -205,6 +222,8 @@ pub fn sbi_call_handler(
     }
     ctx.regs().a = [ret.error, ret.value, a2, a3, a4, a5, a6, a7];
     let epc = mepc::read();
+    // SAFETY: M-mode mepc write; `get_inst` returns the ecall instruction's
+    // length so the return skips it.
     unsafe { mepc::write(epc + get_inst(epc).1) };
     ctx.restore()
 }
@@ -212,6 +231,7 @@ pub fn sbi_call_handler(
 #[inline]
 pub fn delegate(ctx: &mut EntireContextSeparated) {
     use riscv::register::{mcause, scause, sepc, sstatus, stval, stvec};
+    // SAFETY: M-mode trap handling may write the S-mode trap CSRs and mepc.
     unsafe {
         sepc::write(ctx.regs().pc);
         scause::write(scause::Scause::from_bits(mcause::read().bits()));
@@ -259,6 +279,8 @@ pub extern "C" fn illegal_instruction_handler(raw_ctx: EntireContext) -> EntireR
         }
     }
     let epc = mepc::read();
+    // SAFETY: M-mode mepc write; the increment skips the emulated CSR
+    // instruction.
     unsafe {
         mepc::write(epc + get_inst(epc).1);
     }
@@ -320,6 +342,7 @@ pub extern "C" fn load_misaligned_handler(ctx: EntireContext) -> EntireResult {
         VarType::Signed | VarType::UnSigned => save_reg_x(&mut ctx, target_reg as usize, read_data),
         VarType::Float => set_reg_f(target_reg as usize, len, read_data),
     };
+    // SAFETY: M-mode mepc write; the increment skips the emulated access.
     unsafe {
         mepc::write(current_pc + inst_len);
     }
@@ -380,6 +403,7 @@ pub extern "C" fn store_misaligned_handler(ctx: EntireContext) -> EntireResult {
         save_byte(current_addr + i, read_data[i] as usize);
     }
 
+    // SAFETY: M-mode mepc write; the increment skips the emulated access.
     unsafe {
         mepc::write(current_pc + inst_len);
     }

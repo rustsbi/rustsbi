@@ -310,6 +310,17 @@ impl BoardInfo {
             self.model = model.to_string();
         }
 
+        // QEMU's machine-level APLIC is fixed by the `virt` machine model
+        // rather than described by the supervisor-visible FDT. Record that
+        // trusted window here so it crosses the same bounded-MMIO acquisition
+        // boundary as discovered devices.
+        if self.is_qemu_virt()
+            && let Some(end) =
+                qemu_aplic::QEMU_VIRT_M_APLIC_BASE.checked_add(qemu_aplic::APLIC_SPAN)
+        {
+            self.record_mmio_range(&(qemu_aplic::QEMU_VIRT_M_APLIC_BASE..end));
+        }
+
         // TODO: Need a better extension initialization method
         extension_detection(&tree.cpus.cpu);
 
@@ -342,7 +353,7 @@ impl BoardInfo {
                 };
                 let device_range = &regs[0];
                 for compatible in compatible.iter() {
-                    self.discover_clint(compatible, device_range);
+                    self.discover_clint(node, compatible, device_range);
                     self.discover_reset(compatible, device_range);
                     self.discover_p1_pmic_reset(compatible, device_range.start, parent);
                     // Discover the M-level IMSIC from its CPU interrupt wiring.
@@ -354,8 +365,14 @@ impl BoardInfo {
         search_with_parent(root, &mut find_device);
     }
 
-    fn discover_clint(&mut self, compatible: &str, range: &Range<usize>) {
-        if let Some(kind) = driver::ClintKind::from_compatible(compatible) {
+    fn discover_clint(
+        &mut self,
+        node: &serde_device_tree::buildin::Node,
+        compatible: &str,
+        range: &Range<usize>,
+    ) {
+        let has_no_64bit_mmio = node.get_prop("clint,has-no-64bit-mmio").is_some();
+        if let Some(kind) = driver::ClintKind::from_fdt(compatible, has_no_64bit_mmio) {
             self.ipi = Some((range.start, kind));
             self.record_mmio_range(range);
         }

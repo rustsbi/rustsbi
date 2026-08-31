@@ -9,7 +9,6 @@ use core::sync::atomic::Ordering;
 
 use crate::fail;
 use crate::platform::CPU_PRIVILEGED_ENABLED;
-use crate::platform::aia::is_aia_active;
 use crate::riscv::csr::*;
 use crate::riscv::current_hartid;
 use crate::sbi::early_trap::TrapInfo;
@@ -145,7 +144,8 @@ fn privileged_version_detection() {
 }
 
 fn mhpm_detection() {
-    // The standard specifies that mcycle,minstret,mtime must be implemented
+    // mcycle, minstret, and time are treated as always implemented;
+    // bits 0-2 of the mask record them.
     let mut current_mhpm_mask: u32 = 0b111;
     let mut trap_info: TrapInfo = TrapInfo::default();
 
@@ -163,12 +163,13 @@ fn mhpm_detection() {
 
     with_current(|local| {
         local.features.mhpm_mask = current_mhpm_mask;
-        // TODO: at present, rustsbi prptotyper only supports 64bit.
+        // TODO: at present, the prototyper only supports 64-bit counters.
         local.features.mhpm_bits = 64;
     });
 }
 
-/// Detects the current hart's ISA extensions and privileged version.
+/// Detects the current hart's privileged-architecture version and hardware
+/// counters.
 pub fn detect_hart_features() {
     privileged_version_detection();
     mhpm_detection();
@@ -218,7 +219,6 @@ fn has_mstateen0() -> bool {
 
 /// Configures per-hart delegation and trap CSRs for supervisor hand-off.
 pub fn configure_delegation_and_trap() {
-    // Delegate all interrupts and exceptions to supervisor mode.
     configure_delegation();
 
     let hart_priv_version = hart_privileged_version(current_hartid());
@@ -226,7 +226,6 @@ pub fn configure_delegation_and_trap() {
         mcountinhibit::write_raw(!0b111usize);
     }
     if hart_priv_version >= PrivilegedVersion::Version1_12 {
-        // Configure environment features based on available extensions.
         if hart_extension_probe(current_hartid(), Extension::Sstc) {
             menvcfg::set_bits(
                 menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
@@ -234,7 +233,7 @@ pub fn configure_delegation_and_trap() {
         } else {
             menvcfg::set_bits(menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
         }
-        if is_aia_active()
+        if crate::sbi::ipi::uses_imsic()
             && hart_extension_probe(current_hartid(), Extension::Smaia)
             && has_mstateen0()
         {

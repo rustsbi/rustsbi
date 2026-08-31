@@ -9,10 +9,10 @@ use crate::sbi::early_trap::{
     TrapInfo, csr_read_allow, csr_swap, csr_write_allow, light_expected_trap,
 };
 
-// Supervisor Timer Register (Sstc extension)
+// Sstc: supervisor timer compare register.
 pub const CSR_STIMECMP: u16 = 0x14D;
 
-// Machine Counter-Enable and Environment Configuration
+// Machine counter-enable, environment-configuration, and state-enable CSRs.
 pub const CSR_MCOUNTEREN: u16 = 0x306;
 pub const CSR_MENVCFG: u16 = 0x30a;
 pub const CSR_MSTATEEN0: u16 = 0x30c;
@@ -20,7 +20,7 @@ pub const CSR_MSTATEEN1: u16 = 0x30d;
 pub const CSR_MSTATEEN2: u16 = 0x30e;
 pub const CSR_MSTATEEN3: u16 = 0x30f;
 
-// Machine Counter Setup (Inhibit, Privilege Filtering and Event Selection)
+// Machine counter setup (inhibit and event configuration).
 pub const CSR_MCOUNTINHIBIT: u16 = 0x320;
 pub const CSR_MCYCLECFG: u16 = 0x321;
 pub const CSR_MINSTRETCFG: u16 = 0x322;
@@ -115,13 +115,13 @@ pub mod menvcfg {
 
     /// Fence of I/O implies memory.
     pub const FIOM: usize = 0x1 << 0;
-    /// Cache block invalidate - flush.
+    /// Cache-block-invalidate effect: flush (CBIE=01).
     pub const CBIE_FLUSH: usize = 0x01 << 4;
-    /// Cache block invalidate - invalidate.
+    /// Intended cache-block-invalidate effect: invalidate.
     pub const CBIE_INVALIDATE: usize = 0x11 << 4;
-    /// Cache block clean for enclave.
+    /// Cache-block-clean flush enable.
     pub const CBCFE: usize = 0x1 << 6;
-    /// Cache block zero for enclave.
+    /// Cache-block-zero enable.
     pub const CBZE: usize = 0x1 << 7;
     /// Page-based memory types enable.
     pub const PBMTE: usize = 0x1 << 62;
@@ -137,14 +137,13 @@ pub mod menvcfg {
     /// Sets specified bits in menvcfg register.
     pub fn set_bits(option: usize) {
         let mut bits: usize;
+        // SAFETY: M-mode read of this hart's own menvcfg.
         unsafe {
-            // Read current `menvcfg` value.
             asm!("csrr {}, menvcfg", out(reg) bits, options(nomem));
         }
-        // Set requested bits
         bits |= option;
+        // SAFETY: M-mode write to this hart's own menvcfg.
         unsafe {
-            // Write back updated value
             asm!("csrw menvcfg, {}", in(reg) bits, options(nomem));
         }
     }
@@ -171,9 +170,12 @@ pub mod mstateen {
     /// State-enable CSRs themselves.
     pub const STATEN: usize = 1usize << 63;
 
+    /// Enables S-mode access to the AIA-related state groups in the
+    /// `mstateen` CSRs.
     #[inline(always)]
     pub fn enable_smode_aia() {
         let stateen0 = STATEN | CONTEXT | IMSIC | AIA | SVSLCT | HSENVCFG | CTR;
+        // SAFETY: M-mode writes to this hart's own state-enable registers.
         unsafe {
             asm!("csrw {csr}, {value}", csr = const CSR_MSTATEEN0, value = in(reg) stateen0, options(nomem));
             asm!("csrw {csr}, {value}", csr = const CSR_MSTATEEN1, value = in(reg) STATEN, options(nomem));
@@ -183,30 +185,85 @@ pub mod mstateen {
     }
 }
 
+/// Machine interrupt-file CSR operations.
+pub mod imsic {
+    use riscv_aia::csrind::eidelivery::{self, Eidelivery};
+    use riscv_aia::csrind::eie::{self, Eie};
+    use riscv_aia::csrind::eip::{self, Eip};
+    use riscv_aia::csrind::eithreshold::{self, Eithreshold};
+
+    /// Initializes this hart's machine interrupt file and enables machine
+    /// external interrupts.
+    ///
+    /// Callers probe Smaia before reaching this architecture boundary;
+    /// selectors are derived from the validated IMSIC identity count.
+    pub fn initialize_machine_file(num_ids: usize, firmware_ipi_iid: usize) {
+        // SAFETY: the caller verified the current hart implements Smaia, and
+        // M-mode firmware may access its own machine interrupt-file registers;
+        // the selectors below come from the fixed IMSIC register map.
+        unsafe {
+            // Enable delivery from the interrupt file and clear the priority
+            // threshold so every enabled identity can signal.
+            eidelivery::machine::write(Eidelivery::ENABLED);
+            eithreshold::machine::write(Eithreshold::from_bits(0));
+
+            let num_regs = num_ids.div_ceil(32);
+            for index in 0..num_regs {
+                // On RV64 only even-numbered `eip`/`eie` registers exist.
+                #[cfg(target_pointer_width = "64")]
+                if index % 2 == 1 {
+                    continue;
+                }
+                eip::machine::write(index, Eip::from_bits(0));
+                eie::machine::write(index, Eie::from_bits(0));
+            }
+
+            // Enable the firmware IPI identity.
+            #[cfg(target_pointer_width = "64")]
+            let eie_index = (firmware_ipi_iid / 64) * 2;
+            #[cfg(target_pointer_width = "32")]
+            let eie_index = firmware_ipi_iid / 32;
+            let bit_pos = firmware_ipi_iid % usize::BITS as usize;
+            let enabled = eie::machine::read(eie_index).set_enabled(bit_pos as u32, true);
+            eie::machine::write(eie_index, enabled);
+        }
+
+        super::mie::set_mext();
+    }
+}
+
 /// Supervisor timer compare register operations.
 pub mod stimecmp {
     use core::arch::asm;
 
     /// Sets the supervisor timer compare value.
     pub fn set(value: u64) {
+        // SAFETY: callers have probed Sstc; M-mode may program stimecmp on
+        // this hart when the extension is implemented.
         unsafe {
             asm!("csrrw zero, stimecmp, {}", in(reg) value, options(nomem));
         }
     }
 }
 
+/// Machine cycle counter.
 pub mod mcycle {
     use core::arch::asm;
+    /// Writes the raw 64-bit counter value.
     pub fn write(value: u64) {
+        // SAFETY: M-mode write to this hart's own counter.
         unsafe {
             asm!("csrrw zero, mcycle, {}", in(reg) value, options(nomem));
         }
     }
 }
 
+/// Machine instructions-retired counter.
 pub mod minstret {
     use core::arch::asm;
+    /// Writes the raw 64-bit counter value.
     pub fn write(value: u64) {
+        // SAFETY: M-mode write to this hart's own counter.
         unsafe {
             asm!("csrrw zero, minstret, {}", in(reg) value, options(nomem));
         }
@@ -240,6 +297,12 @@ pub mod mie {
         // SAFETY: M-mode firmware toggling its own interrupt-enable bits.
         unsafe { mie::clear_mtimer() }
     }
+
+    /// Enables the machine external interrupt.
+    pub fn set_mext() {
+        // SAFETY: M-mode firmware toggling its own interrupt-enable bits.
+        unsafe { mie::set_mext() }
+    }
 }
 
 /// Machine interrupt-pending (`mip`) bit operations.
@@ -248,19 +311,22 @@ pub mod mip {
 
     /// Sets the supervisor software interrupt pending bit.
     pub fn set_ssoft() {
-        // SAFETY: M-mode firmware; pending bits are a control-flow signal.
+        // SAFETY: M-mode may write mip.SSIP; the bit only signals an S-mode
+        // software interrupt.
         unsafe { mip::set_ssoft() }
     }
 
     /// Sets the supervisor timer interrupt pending bit.
     pub fn set_stimer() {
-        // SAFETY: M-mode firmware; pending bits are a control-flow signal.
+        // SAFETY: M-mode CSR write; the bit only signals the S-mode timer
+        // interrupt.
         unsafe { mip::set_stimer() }
     }
 
     /// Clears the supervisor timer interrupt pending bit.
     pub fn clear_stimer() {
-        // SAFETY: M-mode firmware; pending bits are a control-flow signal.
+        // SAFETY: M-mode CSR write; the bit only signals the S-mode timer
+        // interrupt. Writes are ignored when Sstc drives STIP.
         unsafe { mip::clear_stimer() }
     }
 }
@@ -305,15 +371,17 @@ pub mod mcountinhibit {
         unsafe { mcountinhibit::clear_ir() }
     }
 
-    /// Inhibits `mhpmcounterN`.
+    /// Inhibits `mhpmcounterN` for `index` (3..=31).
     pub fn set_hpm(index: usize) {
-        // SAFETY: M-mode; the index precondition above is checked by callers.
+        // SAFETY: M-mode; callers pass an `index` in 3..=31 for a counter
+        // this hart reported in `mhpm_mask`.
         unsafe { mcountinhibit::set_hpm(index) }
     }
 
-    /// Re-enables `mhpmcounterN`.
+    /// Re-enables `mhpmcounterN` for `index` (3..=31).
     pub fn clear_hpm(index: usize) {
-        // SAFETY: M-mode; the index precondition above is checked by callers.
+        // SAFETY: M-mode; callers pass an `index` in 3..=31 for a counter
+        // this hart reported in `mhpm_mask`.
         unsafe { mcountinhibit::clear_hpm(index) }
     }
 }
@@ -324,12 +392,9 @@ pub fn write_mhpmevent(mhpm_offset: u16, mhpmevent_val: u64) {
 
     let csr = CSR_MHPMEVENT3 + mhpm_offset - 3;
 
-    // Handle MHPMEVENT3-31
     if csr >= CSR_MHPMEVENT3 && csr <= CSR_MHPMEVENT31 {
-        // Convert CSR value to register index (3-31)
         let idx = csr - CSR_MHPMEVENT3 + 3;
 
-        // Use seq_macro to generate all valid indices from 3 to 31
         seq_macro::seq!(N in 3..=31 {
             match idx {
                 #(
@@ -352,7 +417,6 @@ pub fn write_mhpmcounter(mhpm_offset: u16, mhpmcounter_val: u64) {
     let counter_idx = mhpm_offset;
 
     let csr = CSR_MHPMCOUNTER3 + mhpm_offset - 3;
-    // Special cases for cycle and instret
     if csr == CSR_MCYCLE {
         self::mcycle::write(mhpmcounter_val);
         return;
@@ -361,9 +425,8 @@ pub fn write_mhpmcounter(mhpm_offset: u16, mhpmcounter_val: u64) {
         return;
     }
 
-    // Only handle valid counter indices (3-31)
+    // Only counter indices 3..=31 name an `mhpmcounter` register.
     if counter_idx >= 3 && counter_idx <= 31 {
-        // Call the macro with all valid indices
         seq_macro::seq!(N in 3..=31 {
             match counter_idx {
                 #(
@@ -390,12 +453,10 @@ pub fn configure_delegation() {
     // SAFETY: M-mode init on the current hart; the written values are the
     // firmware's fixed delegation policy and have no memory-safety impact.
     unsafe {
-        // Delegate all interrupts and exceptions to supervisor mode.
         asm!("csrw mideleg,    {}", in(reg) !0);
         asm!("csrw medeleg,    {}", in(reg) !0);
         asm!("csrw mcounteren, {}", in(reg) !0);
         asm!("csrw scounteren, {}", in(reg) !0);
-        // Keep supervisor environment calls and illegal instructions in M-mode.
         medeleg::clear_supervisor_env_call();
         medeleg::clear_load_misaligned();
         medeleg::clear_store_misaligned();
@@ -409,7 +470,6 @@ pub fn configure_delegation() {
 pub fn install_trap_vector() {
     use riscv::register::mtvec;
 
-    // Set up trap handling.
     let val = mtvec::Mtvec::new(
         fast_trap::trap_entry as *const () as _,
         mtvec::TrapMode::Direct,
@@ -438,8 +498,8 @@ pub mod fence {
 
     /// Invalidates supervisor TLB entries for `addr` (`sfence.vma addr`).
     pub fn sfence_vma_addr(addr: usize) {
-        // SAFETY: single-page TLB invalidate; the caller validated that the
-        // address range is page-aligned.
+        // SAFETY: partial TLB invalidate; operands come from a validated
+        // SBI rfence call.
         unsafe { asm!("sfence.vma {}", in(reg) addr) };
     }
 
@@ -453,7 +513,8 @@ pub mod fence {
     /// Invalidates supervisor TLB entries for (`addr`, `asid`)
     /// (`sfence.vma addr, asid`).
     pub fn sfence_vma_addr_asid(addr: usize, asid: usize) {
-        // SAFETY: as above, with both operands.
+        // SAFETY: partial, per-ASID TLB invalidate; operands come from a
+        // validated SBI rfence call.
         unsafe { asm!("sfence.vma {}, {}", in(reg) addr, in(reg) asid) };
     }
 
@@ -468,14 +529,16 @@ pub mod fence {
     /// Invalidates guest TLB entries for `addr` (`hfence.gvma addr, x0`).
     #[cfg(feature = "hypervisor")]
     pub fn hfence_gvma_addr(addr: usize) {
-        // SAFETY: as above, for a single guest-physical page.
+        // SAFETY: single-page guest-physical TLB invalidate; the hypervisor
+        // extension probe gates every call site.
         unsafe { asm!("hfence.gvma {}, x0", in(reg) addr) };
     }
 
     /// Invalidates all guest TLB entries for `vmid` (`hfence.gvma x0, vmid`).
     #[cfg(feature = "hypervisor")]
     pub fn hfence_gvma_vmid(vmid: usize) {
-        // SAFETY: as above, for one VMID.
+        // SAFETY: per-VMID guest-physical TLB invalidate; the hypervisor
+        // extension probe gates every call site.
         unsafe { asm!("hfence.gvma x0, {}", in(reg) vmid) };
     }
 
@@ -483,7 +546,8 @@ pub mod fence {
     /// (`hfence.gvma addr, vmid`).
     #[cfg(feature = "hypervisor")]
     pub fn hfence_gvma_addr_vmid(addr: usize, vmid: usize) {
-        // SAFETY: as above, with both operands.
+        // SAFETY: partial, per-VMID guest-physical TLB invalidate; the
+        // hypervisor extension probe gates every call site.
         unsafe { asm!("hfence.gvma {}, {}", in(reg) addr, in(reg) vmid) };
     }
 
@@ -499,7 +563,8 @@ pub mod fence {
     /// (`hfence.vvma addr, x0`).
     #[cfg(feature = "hypervisor")]
     pub fn hfence_vvma_addr(addr: usize) {
-        // SAFETY: as above, for a single guest virtual page.
+        // SAFETY: single-page guest-virtual TLB invalidate; the hypervisor
+        // extension probe gates every call site.
         unsafe { asm!("hfence.vvma {}, x0", in(reg) addr) };
     }
 
@@ -507,7 +572,8 @@ pub mod fence {
     /// (`hfence.vvma x0, asid`).
     #[cfg(feature = "hypervisor")]
     pub fn hfence_vvma_asid(asid: usize) {
-        // SAFETY: as above, for one ASID.
+        // SAFETY: per-ASID guest-virtual TLB invalidate; the hypervisor
+        // extension probe gates every call site.
         unsafe { asm!("hfence.vvma x0, {}", in(reg) asid) };
     }
 
@@ -515,7 +581,8 @@ pub mod fence {
     /// (`hfence.vvma addr, asid`).
     #[cfg(feature = "hypervisor")]
     pub fn hfence_vvma_addr_asid(addr: usize, asid: usize) {
-        // SAFETY: as above, with both operands.
+        // SAFETY: partial, per-ASID guest-virtual TLB invalidate; the
+        // hypervisor extension probe gates every call site.
         unsafe { asm!("hfence.vvma {}, {}", in(reg) addr, in(reg) asid) };
     }
 }

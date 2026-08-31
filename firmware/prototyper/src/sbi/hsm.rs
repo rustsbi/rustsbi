@@ -23,7 +23,7 @@ pub(crate) fn hart_hsm() -> RemoteHsmCell<'static, NextStage> {
     hart_local(current_hartid()).hsm.remote()
 }
 
-/// Implementation of SBI HSM (Hart State Management) extension.
+/// SBI HSM extension service.
 pub(crate) struct SbiHsm;
 
 impl rustsbi::Hsm for SbiHsm {
@@ -42,7 +42,7 @@ impl rustsbi::Hsm for SbiHsm {
                     opaque,
                     next_mode: MPP::Supervisor,
                 }) {
-                    crate::sbi::ipi().unwrap().set_msip(hartid);
+                    crate::sbi::ipi().unwrap().send_ipi(hartid);
                     SbiRet::success(0)
                 } else {
                     SbiRet::already_available()
@@ -85,7 +85,7 @@ impl rustsbi::Hsm for SbiHsm {
         }
 
         crate::sbi::trap::handler::msoft_ipi_handler();
-        crate::sbi::ipi().unwrap().clear_msip(current_hartid());
+        crate::sbi::ipi().unwrap().clear_ipi();
         mie::enable_msoft();
         local_hsm().suspend();
         riscv::asm::wfi();
@@ -103,7 +103,8 @@ impl rustsbi::Hsm for SbiHsm {
 }
 
 impl SbiHsm {
-    // non retentive resume
+    /// Non-retentive resume: restarts this hart at `resume_addr` from a
+    /// clean context.
     fn hart_resume(&self, hartid: usize, resume_addr: usize, opaque: usize) -> SbiRet {
         match remote_hsm(hartid) {
             Some(remote) => {
@@ -112,9 +113,9 @@ impl SbiHsm {
                     opaque,
                     next_mode: MPP::Supervisor,
                 }) {
-                    // reset the hart local context to prevent the hart context from being polluted
+                    // Reset hart-local context so the resumed hart starts
+                    // from a clean state.
                     reset_hart(hartid);
-                    // boot resume hart from resume addr
                     boot();
                 } else {
                     SbiRet::failed()
