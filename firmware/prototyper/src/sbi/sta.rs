@@ -1,7 +1,8 @@
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::fence;
 
 use rustsbi::SbiRet;
 use sbi_spec::binary::SharedPtr;
+use spin::Mutex;
 
 use crate::cfg::NUM_HART_MAX;
 use crate::riscv::current_hartid;
@@ -18,34 +19,36 @@ struct StaShmemData {
 const _: () = assert!(core::mem::size_of::<StaShmemData>() == 64);
 
 struct StaShmem {
-    lo: AtomicUsize,
-    hi: AtomicUsize,
+    lo: usize,
+    hi: usize,
 }
 
 impl StaShmem {
     const DISABLED: Self = Self {
-        lo: AtomicUsize::new(usize::MAX),
-        hi: AtomicUsize::new(usize::MAX),
+        lo: usize::MAX,
+        hi: usize::MAX,
     };
 
-    fn store(&self, lo: usize, hi: usize) {
-        self.lo.store(lo, Ordering::Release);
-        self.hi.store(hi, Ordering::Release);
+    fn store(slot: &Mutex<Self>, lo: usize, hi: usize) {
+        let mut shmem = slot.lock();
+        shmem.lo = lo;
+        shmem.hi = hi;
     }
 }
 
 // The Prototyper uses XLEN-sized identity-mapped physical addresses. Both
 // parts are retained for the SBI-defined disabled value and future wider
 // address support, but only a zero high part can be dereferenced here.
-static STA_SHMEM: [StaShmem; NUM_HART_MAX] = [const { StaShmem::DISABLED }; NUM_HART_MAX];
+static STA_SHMEM: [Mutex<StaShmem>; NUM_HART_MAX] =
+    [const { Mutex::new(StaShmem::DISABLED) }; NUM_HART_MAX];
 
 unsafe fn zero_shmem(addr: usize) {
-    let ptr = addr as *mut u8;
-    for offset in 0..core::mem::size_of::<StaShmemData>() {
-        // SAFETY: the caller validated the complete shared-memory range.
-        unsafe { ptr.add(offset).write_volatile(0) };
+    // SAFETY: the caller validated the complete shared-memory range.
+    unsafe {
+        core::slice::from_raw_parts_mut(addr as *mut u8, core::mem::size_of::<StaShmemData>())
+            .fill(0);
     }
-    core::sync::atomic::fence(Ordering::SeqCst);
+    fence(core::sync::atomic::Ordering::SeqCst);
 }
 
 /// Steal-time Accounting extension using supervisor-provided shared memory.
@@ -62,7 +65,7 @@ impl rustsbi::Sta for SbiSta {
 
         // All-ones shared pointer disables steal-time reporting.
         if hi == usize::MAX && lo == usize::MAX {
-            STA_SHMEM[current_hartid()].store(lo, hi);
+            StaShmem::store(&STA_SHMEM[current_hartid()], lo, hi);
             return SbiRet::success(0);
         }
 
@@ -87,7 +90,7 @@ impl rustsbi::Sta for SbiSta {
             zero_shmem(lo);
         }
 
-        STA_SHMEM[current_hartid()].store(lo, hi);
+        StaShmem::store(&STA_SHMEM[current_hartid()], lo, hi);
         SbiRet::success(0)
     }
 }
