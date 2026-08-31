@@ -718,9 +718,10 @@ pub fn s_addr_to_pa(addr: usize) -> Option<usize> {
     }
 }
 
-/// M-mode-only registers within REGISTER_PRESERVATION that must NOT be
-/// emulated for S-mode -?return `None` so the fault is redirected back to
-/// S-mode as a real access error (spacemit_k3.c `m_only_ranges[]`, L304-326).
+/// Local representation of one range in the K3-specific M-mode-only register
+/// table. S-mode accesses to these ranges return `None` so the fault is
+/// redirected back to S-mode as a real access error (spacemit_k3.c
+/// `m_only_ranges[]`, L304-326).
 struct AddrRange {
     base: usize,
     size: usize,
@@ -745,9 +746,15 @@ const M_ONLY_RANGES: [AddrRange; 11] = [
 ];
 
 fn pa_is_m_only(pa: usize, len: usize) -> bool {
-    M_ONLY_RANGES
-        .iter()
-        .any(|r| pa >= r.base && pa + len <= r.base + r.size)
+    let Some(end) = pa.checked_add(len) else {
+        return false;
+    };
+
+    M_ONLY_RANGES.iter().any(|r| {
+        r.base
+            .checked_add(r.size)
+            .is_some_and(|range_end| pa >= r.base && end <= range_end)
+    })
 }
 
 /// Emulate an S-mode load from the REGISTER_PRESERVATION window.
@@ -758,9 +765,14 @@ fn pa_is_m_only(pa: usize, len: usize) -> bool {
 pub fn emulate_load(addr: usize, len: usize) -> Option<u64> {
     let pa = s_addr_to_pa(addr)?;
 
-    if pa < REGISTER_PRESERVATION_BASE
-        || pa + len > REGISTER_PRESERVATION_BASE + REGISTER_PRESERVATION_SIZE
-    {
+    let Some(end) = pa.checked_add(len) else {
+        return None;
+    };
+    let Some(register_end) = REGISTER_PRESERVATION_BASE.checked_add(REGISTER_PRESERVATION_SIZE)
+    else {
+        return None;
+    };
+    if pa < REGISTER_PRESERVATION_BASE || end > register_end {
         return None;
     }
 
@@ -789,9 +801,14 @@ pub fn emulate_store(addr: usize, len: usize, val: u64) -> bool {
         None => return false,
     };
 
-    if pa < REGISTER_PRESERVATION_BASE
-        || pa + len > REGISTER_PRESERVATION_BASE + REGISTER_PRESERVATION_SIZE
-    {
+    let Some(end) = pa.checked_add(len) else {
+        return false;
+    };
+    let Some(register_end) = REGISTER_PRESERVATION_BASE.checked_add(REGISTER_PRESERVATION_SIZE)
+    else {
+        return false;
+    };
+    if pa < REGISTER_PRESERVATION_BASE || end > register_end {
         return false;
     }
 
