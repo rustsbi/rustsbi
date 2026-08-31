@@ -12,7 +12,6 @@ use crate::devicetree::*;
 use crate::driver;
 use crate::sbi::features::extension_detection;
 use riscv_aia::Iid;
-use riscv_aia::peripheral::imsic::AddressLayout;
 use spin::{Once, RwLock};
 
 mod boot;
@@ -88,10 +87,31 @@ const RISCV_MACHINE_EXTERNAL_IRQ: u32 = 11;
 /// 10-bit addressing.
 const MAX_7BIT_I2C_ADDRESS: usize = 0x7f;
 
+/// Software description of the IMSIC address layout discovered from the FDT.
+pub struct ImsicAddressLayout {
+    /// Base address for machine-level interrupt files.
+    pub machine_base: usize,
+    /// Number of bits for the hart index.
+    pub hart_index_bits: u32,
+    /// Bit position of the group index.
+    group_bits: u32,
+    /// Bit position of the hart index.
+    hart_offset_bits: u32,
+}
+
+impl ImsicAddressLayout {
+    /// Calculates the address of a machine-level interrupt file.
+    const fn machine_interrupt_file_address(&self, hart_id: u32, group_id: u32) -> usize {
+        self.machine_base
+            + (group_id << self.group_bits) as usize
+            + (hart_id << self.hart_offset_bits) as usize
+    }
+}
+
 /// AIA candidate discovered from the FDT; device selection happens in the
 /// driver layer.
 pub struct AiaInfo {
-    pub layout: AddressLayout,
+    pub layout: ImsicAddressLayout,
     pub num_ids: u16,
     pub firmware_ipi_iid: Iid,
     pub hart_imsic_map: [Option<usize>; NUM_HART_MAX],
@@ -522,7 +542,7 @@ impl BoardInfo {
             return;
         }
 
-        let layout = AddressLayout {
+        let layout = ImsicAddressLayout {
             machine_base: base_address,
             hart_index_bits,
             group_bits: group_index_shift,

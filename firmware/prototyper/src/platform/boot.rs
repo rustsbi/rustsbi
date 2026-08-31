@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-//! Safe boot entry points over the global platform state.
+//! Boot entry points and board initialization.
 
 use core::ops::Range;
 use core::sync::atomic::Ordering;
@@ -34,16 +34,13 @@ pub fn init_board(fdt_address: usize) {
     let tree: Tree = root.deserialize();
 
     let mut board = BoardInfo::new();
-    // Get console device, init sbi console and logger.
     board.discover_console(&root);
     let console = sbi::console::init(&board);
     let cppc = Some(SbiCppc::new());
     let dbtr = Some(SbiDbtr);
     let fwft = Some(SbiFwft);
-    // Get other info that later platform initialization depends on.
     let cpu_list = board.discover_misc(&tree);
     publish_cpu_enabled(cpu_list);
-    // Get clint and reset device, init sbi ipi, reset, hsm, rfence and susp extension.
     board.discover_devices(&root);
     let (ipi, timer) = match crate::driver::interrupt_devices(&board) {
         Some(devices) => (
@@ -56,7 +53,6 @@ pub fn init_board(fdt_address: usize) {
     let reset = sbi::reset::init(&board);
     let rfence = ipi.as_ref().map(|_| SbiRFence);
     let susp = hsm.as_ref().map(|_| SbiSuspend);
-    // Initialize pmu extension
     let pmu = sbi::pmu::init(&root);
     let mpxy = Some(sbi::mpxy::SbiMpxy::new());
     let sta = Some(SbiSta);
