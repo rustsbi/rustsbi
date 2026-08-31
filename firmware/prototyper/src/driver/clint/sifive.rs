@@ -1,6 +1,6 @@
 //! SiFive Core Local Interruptor (CLINT).
 
-use crate::driver::{IpiSender, TimerDevice};
+use crate::driver::{IpiDevice, TimerDevice};
 use crate::platform::mmio::Mmio;
 
 /// Register-block span covering `mtime` at offset 0xbff8.
@@ -51,7 +51,7 @@ impl TimerDevice for SifiveClint {
     }
 }
 
-impl IpiSender for SifiveClint {
+impl IpiDevice for SifiveClint {
     #[inline(always)]
     fn send_ipi(&self, hart_idx: usize) {
         self.mmio.write::<u32>(Reg::Msip.offset(hart_idx), 1)

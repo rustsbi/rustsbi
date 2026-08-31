@@ -191,7 +191,7 @@ pub fn sbi_call_handler(
             }
             (base::EID_BASE, base::PROBE_EXTENSION) => match ctx.a0() {
                 legacy::LEGACY_SET_TIMER => {
-                    ret.value = crate::sbi::ipi().is_some() as usize;
+                    ret.value = crate::sbi::timer().is_some() as usize;
                 }
                 legacy::LEGACY_CONSOLE_PUTCHAR | legacy::LEGACY_CONSOLE_GETCHAR => {
                     ret.value = 1;
@@ -203,8 +203,8 @@ pub fn sbi_call_handler(
     } else {
         match a7 {
             legacy::LEGACY_SET_TIMER => {
-                if let Some(ipi) = crate::sbi::ipi() {
-                    rustsbi::Timer::set_timer(ipi, ctx.a0() as u64);
+                if let Some(timer) = crate::sbi::timer() {
+                    rustsbi::Timer::set_timer(timer, ctx.a0() as u64);
                     ret.error = 0;
                     ret.value = a1;
                 }
@@ -258,14 +258,14 @@ pub extern "C" fn illegal_instruction_handler(raw_ctx: EntireContext) -> EntireR
                 save_reg_x(
                     &mut ctx,
                     csr.rd() as usize,
-                    crate::sbi::ipi().unwrap().get_time(),
+                    crate::sbi::timer().unwrap().get_time(),
                 );
             }
             CSR_TIMEH => {
                 save_reg_x(
                     &mut ctx,
                     csr.rd() as usize,
-                    crate::sbi::ipi().unwrap().get_timeh(),
+                    crate::sbi::timer().unwrap().get_timeh(),
                 );
             }
             _ => {

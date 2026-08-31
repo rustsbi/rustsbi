@@ -45,7 +45,13 @@ pub fn init_board(fdt_address: usize) {
     publish_cpu_enabled(cpu_list);
     // Get clint and reset device, init sbi ipi, reset, hsm, rfence and susp extension.
     board.discover_devices(&root);
-    let ipi = sbi::ipi::init(&board);
+    let (ipi, timer) = match crate::driver::interrupt_devices(&board) {
+        Some(devices) => (
+            Some(sbi::ipi::init(devices.ipi)),
+            Some(sbi::timer::SbiTimer::new(devices.timer)),
+        ),
+        None => (None, None),
+    };
     let hsm = ipi.as_ref().map(|_| SbiHsm);
     let reset = sbi::reset::init(&board);
     let rfence = ipi.as_ref().map(|_| SbiRFence);
@@ -62,7 +68,8 @@ pub fn init_board(fdt_address: usize) {
     // so that harts observing `READY` also observe the published dispatcher.
     sbi::SBI_DISPATCHER.call_once(|| {
         SbiDispatcher::new(
-            console, cppc, dbtr, fwft, ipi, hsm, reset, rfence, susp, pmu, sta, mpxy, nacl, sse,
+            console, cppc, dbtr, fwft, ipi, timer, hsm, reset, rfence, susp, pmu, sta, mpxy, nacl,
+            sse,
         )
     });
 

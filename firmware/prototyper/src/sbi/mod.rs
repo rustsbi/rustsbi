@@ -15,6 +15,7 @@ pub mod rfence;
 pub mod sse;
 pub mod sta;
 pub mod suspend;
+pub mod timer;
 
 pub mod early_trap;
 pub mod features;
@@ -38,6 +39,7 @@ use rfence::SbiRFence;
 use sse::SbiSse;
 use sta::SbiSta;
 use suspend::SbiSuspend;
+use timer::SbiTimer;
 
 #[derive(RustSBI, Default)]
 #[rustsbi(dynamic)]
@@ -50,8 +52,10 @@ pub struct SbiDispatcher {
     dbtr: Option<SbiDbtr>,
     #[rustsbi(fwft)]
     fwft: Option<SbiFwft>,
-    #[rustsbi(ipi, timer)]
+    #[rustsbi(ipi)]
     ipi: Option<SbiIpi>,
+    #[rustsbi(timer)]
+    timer: Option<SbiTimer>,
     #[rustsbi(hsm)]
     hsm: Option<SbiHsm>,
     #[rustsbi(reset)]
@@ -81,6 +85,7 @@ impl SbiDispatcher {
         dbtr: Option<SbiDbtr>,
         fwft: Option<SbiFwft>,
         ipi: Option<SbiIpi>,
+        timer: Option<SbiTimer>,
         hsm: Option<SbiHsm>,
         reset: Option<SbiReset>,
         rfence: Option<SbiRFence>,
@@ -97,6 +102,7 @@ impl SbiDispatcher {
             dbtr,
             fwft,
             ipi,
+            timer,
             hsm,
             reset,
             rfence,
@@ -134,6 +140,11 @@ pub(crate) fn handle_ecall(extension: usize, function: usize, param: [usize; 6])
 /// Returns the ipi extension, if present.
 pub(crate) fn ipi() -> Option<&'static SbiIpi> {
     SBI_DISPATCHER.get().and_then(|sbi| sbi.ipi.as_ref())
+}
+
+/// Returns the timer extension, if present.
+pub(crate) fn timer() -> Option<&'static SbiTimer> {
+    SBI_DISPATCHER.get().and_then(|sbi| sbi.timer.as_ref())
 }
 
 /// Returns the cppc extension, if present.
