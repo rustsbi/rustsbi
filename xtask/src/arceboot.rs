@@ -181,7 +181,7 @@ fn ensure_axconfig_gen() {
     {
         info!("Installing axconfig-gen...");
         let _ = Command::new(env!("CARGO"))
-            .args(["install", "axconfig-gen"])
+            .args(["install", "--locked", "axconfig-gen@0.2.1"])
             .status();
     }
 }
@@ -231,7 +231,7 @@ fn convert_to_binary(target_dir: &Path) -> Option<ExitStatus> {
     if result.is_none() {
         error!(
             "Failed to execute rust-objcopy. Command not found or failed to start.\n\
-            Please install cargo-binutils: cargo install cargo-binutils"
+            Please install cargo-binutils: cargo install --locked cargo-binutils@0.4.0"
         );
     }
 
