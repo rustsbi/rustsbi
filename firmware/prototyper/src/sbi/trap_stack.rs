@@ -43,10 +43,48 @@ static ROOT_STACK: [HartStack; NUM_HART_MAX] = [const { HartStack::zero() }; NUM
 // Make sure stack address can be aligned.
 const _: () = assert!(STACK_SIZE_PER_HART.is_multiple_of(core::mem::align_of::<HartStack>()));
 
+/// Bytes reserved at the bottom of a slot: the HartContext followed by the
+/// overflow canary. The trap stack starts above them.
+const RESERVED: usize = size_of::<HartContext>() + size_of::<u64>();
+
+/// Magic word above the HartContext, checked on trap entry.
+const STACK_CANARY: u64 = 0x5BA1_BEEF_DEAD_CA5Fu64;
+
+// The canary must not collide with common uninitialised patterns.
+const _: () = assert!(STACK_CANARY != 0 && STACK_CANARY != u64::MAX);
+const _: () = assert!(STACK_SIZE_PER_HART > RESERVED);
+
 /// Returns the raw slot of `hart_id`, or `None` when out of range.
 #[inline]
 fn slot(hart_id: usize) -> Option<&'static HartStack> {
     ROOT_STACK.get(hart_id)
+}
+
+/// Panics if the current hart's trap stack has overflowed into the context
+/// reserved at the bottom of its slot, which used to corrupt that state
+/// silently and only surface as an unrelated panic later.
+#[inline(always)]
+pub fn assert_stack_pointer_in_range() {
+    let sp: usize;
+    // SAFETY: reads the stack pointer without touching memory.
+    unsafe {
+        core::arch::asm!("mv {}, sp", out(reg) sp, options(nomem, nostack));
+    }
+    let hart_id = current_hartid();
+    let Some(slot) = slot(hart_id) else { return };
+    let bound = slot.0.get() as usize + RESERVED;
+    if sp < bound {
+        panic!(
+            "hart {} stack overflow: sp = {:#x} below trap-stack bound {:#x}",
+            hart_id, sp, bound
+        );
+    }
+    if !slot.canary_intact() {
+        panic!(
+            "hart {} stack overflow: canary above the hart context was overwritten",
+            hart_id
+        );
+    }
 }
 
 /// Forms a shared reference to the hart-local state behind a raw slot.
@@ -432,6 +470,33 @@ impl HartStack {
         Self(UnsafeCell::new([0; STACK_SIZE_PER_HART]))
     }
 
+    /// Address of the canary word.
+    #[inline]
+    fn canary_ptr(&self) -> *mut u64 {
+        // SAFETY: `RESERVED` bounds the context and the canary inside the
+        // slot, so the offset stays within the allocation.
+        unsafe {
+            self.0
+                .get()
+                .cast::<u8>()
+                .add(size_of::<HartContext>())
+                .cast()
+        }
+    }
+
+    /// Writes the canary. Volatile so the store is not elided as dead.
+    fn install_canary(&self) {
+        // SAFETY: the canary word lies inside this hart's own slot.
+        unsafe { self.canary_ptr().write_volatile(STACK_CANARY) };
+    }
+
+    /// True while the canary still holds the expected pattern.
+    #[inline(always)]
+    fn canary_intact(&self) -> bool {
+        // SAFETY: as above; the read only observes the canary word.
+        unsafe { self.canary_ptr().read_volatile() == STACK_CANARY }
+    }
+
     /// Initializes stack for trap handling.
     /// - Sets up hart context.
     /// - Creates and loads FreeTrapStack with the stack range.
@@ -441,14 +506,14 @@ impl HartStack {
         // installed frame pointer only once `FreeTrapStack::load` runs below.
         let context_ptr = unsafe { (*addr_of_mut!((*context).frame)).context_ptr() };
         unsafe { (*addr_of_mut!((*context).local)).init() };
+        slot.install_canary();
 
-        // Get stack memory range.
-        let range = unsafe { (*slot.0.get()).as_ptr_range() };
+        let base = slot.0.get() as usize;
 
         // Create and load trap stack, forgetting it to avoid drop
         forget(
             FreeTrapStack::new(
-                range.start as usize..range.end as usize,
+                base + RESERVED..base + STACK_SIZE_PER_HART,
                 |_| {}, // Empty callback
                 context_ptr,
                 fast_handler,
