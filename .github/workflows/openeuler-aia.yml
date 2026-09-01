@@ -4,35 +4,36 @@ on:
   pull_request:
     branches: ["main"]
     paths:
+      - ".cargo/**"
       - ".github/scripts/prototyper-openeuler-aia.sh"
       - ".github/workflows/openeuler-aia.yml"
-      - "library/riscv-aia/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
       - "firmware/macros/**"
-      - "firmware/prototyper/config/default.toml"
-      - "firmware/prototyper/src/driver/**"
-      - "firmware/prototyper/src/firmware/**"
-      - "firmware/prototyper/src/main.rs"
-      - "firmware/prototyper/src/platform/**"
-      - "firmware/prototyper/src/riscv/csr.rs"
-      - "firmware/prototyper/src/sbi/**"
+      - "firmware/prototyper/**"
   push:
     branches: ["main"]
     paths:
+      - ".cargo/**"
       - ".github/scripts/prototyper-openeuler-aia.sh"
       - ".github/workflows/openeuler-aia.yml"
-      - "library/riscv-aia/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
       - "firmware/macros/**"
-      - "firmware/prototyper/config/default.toml"
-      - "firmware/prototyper/src/driver/**"
-      - "firmware/prototyper/src/firmware/**"
-      - "firmware/prototyper/src/main.rs"
-      - "firmware/prototyper/src/platform/**"
-      - "firmware/prototyper/src/riscv/csr.rs"
-      - "firmware/prototyper/src/sbi/**"
+      - "firmware/prototyper/**"
   workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
 
 jobs:
   openeuler-aia-boot:
@@ -41,7 +42,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install dev dependencies
         run: |
@@ -49,13 +50,10 @@ jobs:
           sudo apt-get install -y curl xz-utils zstd
 
       - name: Install required cargo
-        run: cargo install cargo-binutils
-
-      - name: Install required target
-        run: rustup target add riscv64gc-unknown-none-elf
+        run: cargo install --locked cargo-binutils@0.4.0
 
       - name: Cache openEuler downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .openeuler-aia/cache
           key: openeuler-25.09-riscv64-aia-release-v1
@@ -83,7 +81,7 @@ jobs:
 
       - name: Upload openEuler AIA log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openeuler-aia-log
           path: qemu-logs/openeuler-aia.log
