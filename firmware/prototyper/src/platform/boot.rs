@@ -55,6 +55,8 @@ pub fn init_board(fdt_address: usize) {
     let susp = hsm.as_ref().map(|_| SbiSuspend);
     let pmu = sbi::pmu::init(&root);
     let mpxy = Some(sbi::mpxy::SbiMpxy::new());
+    // STA reports a stable zero-valued structure; this firmware has no
+    // scheduler or virtual-hart preemption source for non-zero accounting.
     let sta = Some(SbiSta);
     let nacl = Some(SbiNacl);
     // Keep SSE unavailable until supervisor handler context switching is implemented.
