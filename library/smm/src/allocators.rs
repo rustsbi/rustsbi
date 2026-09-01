@@ -154,7 +154,7 @@ mod stress_tests {
         let mut allocator = RTAlloc::<TEST_EXPONENT>::new();
         let base_addr: usize = unsafe { FAKE_HARDWARE_MEM.0.as_ptr() as usize };
 
-        for exp in 12..TEST_EXPONENT {
+        for _ in 12..TEST_EXPONENT {
             let layout = Layout::from_size_align(TEST_MEM_SIZE, TEST_MEM_SIZE).unwrap();
 
             allocator.init(base_addr, TEST_MEM_SIZE);
