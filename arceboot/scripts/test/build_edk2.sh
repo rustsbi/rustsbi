@@ -9,6 +9,7 @@ cd "$ARCEBOOT_DIR"
 WORKSPACE_DIR="${ARCEBOOT_DIR}/edk2"
 EDK_DIR="$WORKSPACE_DIR/edk2"
 CONF_DIR="$EDK_DIR/Conf"
+EDK2_REVISION="0aa9e4eaed5819a53330f4879ea09eeb569708f5"
 
 mkdir -p "$WORKSPACE_DIR"
 
@@ -26,10 +27,13 @@ fi
 
 echo "[2/4] 克隆 EDK2 仓库..."
 if [ ! -d "$EDK_DIR" ]; then
-    git clone --recurse-submodule https://github.com/tianocore/edk2.git "$EDK_DIR"
-else
-    echo "EDK2 仓库已存在，跳过克隆。"
+    git init "$EDK_DIR"
+    git -C "$EDK_DIR" remote add origin https://github.com/tianocore/edk2.git
 fi
+git -C "$EDK_DIR" fetch --depth 1 origin "$EDK2_REVISION"
+git -C "$EDK_DIR" checkout --detach "$EDK2_REVISION"
+git -C "$EDK_DIR" submodule sync --recursive
+git -C "$EDK_DIR" submodule update --init --recursive --depth 1
 
 export PATH="$WORKSPACE_DIR/ToolChain/RISCV/riscv/bin:$PATH"
 
@@ -47,6 +51,7 @@ export EDK2_TOOLCHAIN_TAG="${EDK2_TOOLCHAIN_TAG:-GCC}"
 
 source_edksetup() {
     set +u
+    # shellcheck source=/dev/null
     . "$EDK_DIR/edksetup.sh" "$@"
     set -u
 }
