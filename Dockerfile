@@ -18,10 +18,10 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
     | sh -s -- -y --no-modify-path --default-toolchain none
 
 COPY rust-toolchain.toml .
-RUN rustup component add rustfmt clippy llvm-tools-preview rust-src \
-    && rustup target add riscv64gc-unknown-none-elf riscv64imac-unknown-none-elf
+# Install the toolchain, components, and targets declared in rust-toolchain.toml.
+RUN rustc --version
 
-RUN cargo install cargo-binutils axconfig-gen
+RUN cargo install --locked cargo-binutils@0.4.0 axconfig-gen@0.2.1
 
 WORKDIR /workspace
 

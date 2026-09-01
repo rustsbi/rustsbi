@@ -120,7 +120,7 @@ impl Kernel {
             .with_context(|| {
                 format!(
                     "failed to execute rust-objcopy: '{}' -> '{}'; \
-                     please install cargo-binutils with cmd: cargo install cargo-binutils",
+                     please install cargo-binutils with cmd: cargo install --locked cargo-binutils@0.4.0",
                     kernel_path.display(),
                     bin_path.display()
                 )

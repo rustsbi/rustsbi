@@ -13,7 +13,7 @@ pub struct Cargo {
 impl Cargo {
     pub fn new(action: &str) -> Self {
         let mut cmd = Command::new(env!("CARGO"));
-        cmd.arg(action);
+        cmd.args([action, "--locked"]);
         Self { cmd }
     }
 

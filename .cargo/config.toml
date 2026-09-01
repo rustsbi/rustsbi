@@ -1,5 +1,5 @@
 [alias]
-xtask = "run --package xtask --release --"
+xtask = "run --locked --package xtask --release --"
 arceboot = "xtask arceboot"
 prototyper = "xtask prototyper"
 
