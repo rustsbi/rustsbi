@@ -16,6 +16,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Modified
 
+- Declare Rust 1.88 as the minimum supported Rust version through workspace metadata.
 - deps: update `sbi-spec` to version 0.0.10.
 
 ### Fixed

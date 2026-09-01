@@ -20,20 +20,26 @@ members = [
     "arceboot",
     "xtask",
 ]
+# Default Cargo commands operate on host-testable libraries.
+# `sbi-testing` is checked on RISC-V targets in CI. Firmware and ArceBoot
+# are built through xtask.
 default-members = [
     "library/macros",
     "library/sbi-rt",
     "library/sbi-spec",
     "library/rustsbi",
     "library/riscv-aia",
-    "library/rpmi",
     "library/riscv-cove",
+    "library/riscv-cove-rt",
+    "library/rpmi",
     "library/penglai",
-    "library/pmpm"
+    "library/pmpm",
+    "library/smm",
 ]
 
 [workspace.package]
 edition = "2024"
+rust-version = "1.88"
 license = "MulanPSL-2.0 OR MIT"
 repository = "https://github.com/rustsbi/rustsbi"
 

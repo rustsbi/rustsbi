@@ -2,3 +2,8 @@
 profile = "minimal"
 channel = "nightly-2026-05-11"
 components = ["rustfmt", "clippy", "llvm-tools-preview", "rust-src"]
+targets = [
+    "riscv32imac-unknown-none-elf",
+    "riscv64gc-unknown-none-elf",
+    "riscv64imac-unknown-none-elf",
+]

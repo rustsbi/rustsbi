@@ -13,6 +13,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Modified
 
+- Declare Rust 1.88 as the minimum supported Rust version through workspace metadata.
 - deps: update `sbi-spec` to version 0.0.10.
 - pmu: rename flag parameter traits to `ConfigFlagsParam`, `StartFlagsParam` and `StopFlagsParam`.
 
@@ -93,4 +94,3 @@ If user chooses to use `integer-impls` feature, it would fall back to older styl
 [0.0.3]: https://github.com/rustsbi/sbi-rt/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/rustsbi/sbi-rt/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/rustsbi/sbi-rt/releases/tag/v0.0.1
-
