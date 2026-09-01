@@ -16,35 +16,41 @@ on:
       - 'firmware/**'
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
 jobs:
   build-and-clippy:
     name: Build and clippy analysis
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       security-events: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Check format
         run: cargo fmt --check -p arceboot
 
       - name: Install required cargo
-        run: cargo install clippy-sarif sarif-fmt cargo-binutils axconfig-gen
-
-      - name: Install required target
-        run: rustup target add riscv64gc-unknown-none-elf
+        run: cargo install --locked clippy-sarif@0.8.0 sarif-fmt@0.8.0 cargo-binutils@0.4.0 axconfig-gen@0.2.1
 
       - name: Build ArceBoot
         run: cargo xtask arceboot
 
       - name: Run rust-clippy
+        shell: bash
         run: |
-          cargo clippy -p arceboot --target riscv64gc-unknown-none-elf --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
-        continue-on-error: true
+          set -o pipefail
+          cargo clippy --locked -p arceboot --target riscv64gc-unknown-none-elf --message-format=json \
+            | clippy-sarif \
+            | tee rust-clippy-results.sarif \
+            | sarif-fmt
 
       - name: Upload analysis results to GitHub
-        uses: github/codeql-action/upload-sarif@v3
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: rust-clippy-results.sarif
           wait-for-processing: true
@@ -69,11 +75,11 @@ jobs:
       BIOS_BANNER: ${{ matrix.bios_banner }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Checkout pinned RustSBI v0.4.1
         if: matrix.bios_name == 'rustsbi-v0.4.1'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: rustsbi/rustsbi
           ref: 1e10645e9a3cc6230988b037df506f97310555b7
@@ -83,10 +89,7 @@ jobs:
       - name: Install required cargo
         run: |
           rustup component add llvm-tools-preview
-          cargo install cargo-binutils axconfig-gen
-
-      - name: Install required target
-        run: rustup target add riscv64gc-unknown-none-elf
+          cargo install --locked cargo-binutils@0.4.0 axconfig-gen@0.2.1
 
       - name: Build ArceBoot
         run: cargo xtask arceboot
@@ -100,7 +103,7 @@ jobs:
           test -s target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.elf
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -109,15 +112,12 @@ jobs:
           sudo apt update
           sudo apt install -y uuid-dev qemu-system-misc
 
-      # Change the version after edk change
       - name: Cache EDK2 build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         id: cache-edk2
         with:
           path: arceboot/edk2/Build
-          key: edk2-${{ hashFiles('arceboot/scripts/test/build_edk2.sh') }}-v1
-          restore-keys: |
-            edk2-
+          key: edk2-${{ runner.os }}-${{ hashFiles('arceboot/scripts/test/build_edk2.sh', 'arceboot/tests/edk2-*/**') }}-v2
 
       - name: Build EDK2
         if: steps.cache-edk2.outputs.cache-hit != 'true'
@@ -144,7 +144,7 @@ jobs:
             > arceboot/qemu-hello-riscv.log 2>&1 || true
 
       - name: Upload QEMU log (HelloRiscv)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: log-${{ matrix.bios_name }}-hello-riscv
           path: arceboot/qemu-hello-riscv.log
@@ -173,7 +173,7 @@ jobs:
             > arceboot/qemu-allocate.log 2>&1 || true
 
       - name: Upload QEMU log (AllocatePage)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: log-${{ matrix.bios_name }}-allocate
           path: arceboot/qemu-allocate.log
@@ -199,7 +199,7 @@ jobs:
             > arceboot/qemu-hello.log 2>&1 || true
 
       - name: Upload QEMU log (Hello)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: log-${{ matrix.bios_name }}-hello
           path: arceboot/qemu-hello.log
