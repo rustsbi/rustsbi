@@ -22,8 +22,11 @@ pub mod mhcr; // 0x7c1
 pub mod mraop; // 0x7c2
 pub mod msetup; // 0x7c0
 
+#[cfg(target_pointer_width = "64")]
 pub mod perf_ctrl; // 0x7d0
+#[cfg(target_pointer_width = "64")]
 pub mod pmacfg0; // 0x7de
+#[cfg(target_pointer_width = "64")]
 pub mod pmacfg2; // 0x7df
 pub mod prefetch_ctrl; // 0x7d1
 
