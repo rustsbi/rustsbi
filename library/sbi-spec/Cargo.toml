@@ -5,6 +5,7 @@ version = "0.0.10"
 authors = ["YdrMaster <ydrml@hotmail.com>", "Luo Jia <me@luojia.cc>"]
 documentation = "https://docs.rs/sbi-spec"
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 readme = "README.md"

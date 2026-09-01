@@ -9,6 +9,7 @@ authors = [
 ]
 documentation = "https://docs.rs/riscv-aia"
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 readme = "README.md"

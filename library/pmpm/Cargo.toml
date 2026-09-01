@@ -5,6 +5,7 @@ version = "0.0.0"
 authors = ["Char <jinzhe.oerv@isrc.iscas.ac.cn>", "Luo Jia <luojia@openatom.club>"]
 documentation = "https://docs.rs/pmpm"
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 keywords = ["riscv", "sbi", "rustsbi", "pmp", "tee"]

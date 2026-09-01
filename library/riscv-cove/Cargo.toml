@@ -5,6 +5,7 @@ version = "0.0.0"
 authors = ["Longbing Zheng <1211998648@qq.com>", "Luo Jia <me@luojia.cc>"]
 documentation = "https://docs.rs/riscv-cove"
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 keywords = ["riscv", "sbi", "rustsbi", "riscv-cove"]

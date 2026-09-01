@@ -1,6 +1,5 @@
-# Cargo build path and library exclusions
+# Cargo build output
 /target
-Cargo.lock
 
 # IntelliJ IDEA directory
 /.idea
