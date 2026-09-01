@@ -152,6 +152,8 @@ grep -F "automatically in 0s" "$log_file"
 grep -F "Loading Linux" "$log_file"
 grep -F "Loading initial ramdisk" "$log_file"
 grep -F "localhost login:" "$log_file"
-! grep -Eq "Kernel panic|panic|FAILED|SystemFailure|Invalid data" "$log_file"
+if grep -Eq "Kernel panic|panic|FAILED|SystemFailure|Invalid data" "$log_file"; then
+    exit 1
+fi
 
 echo "openEuler AIA boot log: $log_file"
