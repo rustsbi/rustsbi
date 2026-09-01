@@ -7,74 +7,77 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
-env:
-  CARGO_UNSTABLE_SPARSE_REGISTRY: true
-  CARGO_TERM_COLOR: always
+permissions:
+  contents: read
 
 jobs:
   check-commit-signatures:
-    name: Check all commit signatures
+    name: Check DCO sign-offs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
-          fetch-depth: 0  # 获取完整提交历史以访问所有PR提交
+          fetch-depth: 0
 
-      - name: Verify all commits are signed
+      - name: Verify DCO sign-offs
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          if [ -n "$GITHUB_BASE_REF" ]; then
-            echo "Pull Request detected. Using base ref: $GITHUB_BASE_REF"
-            # 拉取目标分支的最新状态
-            git fetch origin $GITHUB_BASE_REF
-            RANGE="origin/$GITHUB_BASE_REF..HEAD"
-          else
-            echo "Not Pull Request, checking one latest commit"
-            # 如果不是 PR，则只检查最近一次提交（可根据实际情况调整）
-            RANGE="HEAD~1..HEAD"
+          set -euo pipefail
+
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            BASE_SHA="$(git rev-parse "$GITHUB_SHA^")"
           fi
 
-          commits=$(git rev-list $RANGE)
-          
-          if [ -z "$commits" ]; then
-            echo "Error: No commits found in the pull request range."
+          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            git fetch --no-tags origin "$BASE_SHA"
+          fi
+
+          mapfile -t commits < <(git rev-list "$BASE_SHA..$GITHUB_SHA")
+          ((${#commits[@]} > 0)) || {
+            echo "::error::No commits found in $BASE_SHA..$GITHUB_SHA"
             exit 1
-          fi
+          }
 
-          PASS=1
-          for COMMIT in $commits; do
-            echo "Checking commit $COMMIT"
-
-            PARENTS=$(git log -1 --format='%P' "$COMMIT")
-            NUM_PARENTS=$(echo "$PARENTS" | wc -w)
-            if [ "$NUM_PARENTS" -gt 1 ]; then
-              echo "Commit $COMMIT is a merge commit, skipping signature check."
+          failed=0
+          for commit in "${commits[@]}"; do
+            read -r -a parents <<<"$(git show -s --format='%P' "$commit")"
+            if ((${#parents[@]} > 1)); then
+              echo "Skipping merge commit $commit."
               continue
             fi
 
-            COMMIT_MSG=$(git log -1 --format=%B $COMMIT)
-            if echo "$COMMIT_MSG" | grep -q "Signed-off-by:"; then
-              echo ":) Commit $COMMIT is signed."
+            author_name="$(git show -s --format='%an' "$commit")"
+            author_email="$(git show -s --format='%ae' "$commit")"
+            committer_name="$(git show -s --format='%cn' "$commit")"
+            committer_email="$(git show -s --format='%ce' "$commit")"
+            matched=0
+
+            while IFS= read -r trailer; do
+              key="${trailer%%:*}"
+              value="${trailer#*:}"
+              value="${value#"${value%%[![:space:]]*}"}"
+
+              [[ "${key,,}" == "signed-off-by" ]] || continue
+              if [[ "$value" =~ ^(.+)[[:space:]]\<([^\<\>]+)\>$ ]]; then
+                signoff_name="${BASH_REMATCH[1]}"
+                signoff_email="${BASH_REMATCH[2]}"
+                if [[ "${signoff_name,,}" == "${author_name,,}" && "${signoff_email,,}" == "${author_email,,}" ]] ||
+                   [[ "${signoff_name,,}" == "${committer_name,,}" && "${signoff_email,,}" == "${committer_email,,}" ]]; then
+                  matched=1
+                  break
+                fi
+              fi
+            done < <(git show -s --format=%B "$commit" | git interpret-trailers --parse)
+
+            if ((matched)); then
+              echo "DCO sign-off verified for $commit."
             else
-              echo ":( Commit $COMMIT is NOT signed."
-              echo "Commit information: "
-              git log -1 $COMMIT
-              PASS=0
+              echo "::error::Commit $commit lacks a Signed-off-by trailer matching its author or committer"
+              git show -s --format='format:%h - %an <%ae> / %cn <%ce>%n%B' "$commit"
+              failed=1
             fi
           done
 
-          if [ "$PASS" -eq 1 ]; then
-            echo "✔ All commits are properly signed!"
-          else
-            echo "❌ At least one commit is not properly signed (using Signed-off-by)."
-            exit 1
-          fi
-
-      - name: Print authors' information
-        run: |
-          if [ -n "$GITHUB_BASE_REF" ]; then
-            git fetch origin $GITHUB_BASE_REF
-            RANGE="origin/$GITHUB_BASE_REF..HEAD"
-          else
-            RANGE="HEAD~1..HEAD"
-          fi
-          git log --pretty="format:%h - %an <%ae> [%G?]" $RANGE
+          exit "$failed"
