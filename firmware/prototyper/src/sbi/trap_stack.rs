@@ -85,12 +85,13 @@ pub(crate) fn prepare_for_trap() {
     // SAFETY: the current hart id always indexes `ROOT_STACK`.
     let slot: &'static HartStack = unsafe { ROOT_STACK.get_unchecked(current_hartid()) };
     HartStack::load_as_stack(slot);
+    super::fwft::SbiFwft::reset_current();
 }
 
 /// Runs `f` with exclusive access to the current hart's hart-local state.
 ///
 /// SAFETY (mechanism contract): each slot is owned by exactly one hart, so
-/// borrowing that hart's `HartLocal` is exclusive while `f` runs — M-mode
+/// borrowing that hart's `HartLocal` is exclusive while `f` runs; M-mode
 /// trap entry clears MIE and trap/interrupt handlers never call this, so
 /// no second borrow can go live. The [`TrapFrame`] part of the slot is
 /// unreachable through the given reference.
@@ -419,7 +420,7 @@ pub fn remote_rfence(hart_id: usize) -> Option<RemoteRFenceCell<'static>> {
 /// `hart_id`; the trap frame is untouched, as in the pre-split reset.
 ///
 /// SAFETY: the target hart is being resumed via the HSM path, and this
-/// reset runs before that hart next touches its `HartLocal` — its wake
+/// reset runs before that hart next touches its `HartLocal`; its wake
 /// path is `boot()`, which does not.
 pub fn reset_hart(hart_id: usize) {
     with_hart(hart_id, HartLocal::reset);
