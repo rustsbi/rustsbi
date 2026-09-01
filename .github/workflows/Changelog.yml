@@ -11,46 +11,50 @@ env:
   CARGO_UNSTABLE_SPARSE_REGISTRY: true
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: read
+
 jobs:
   check-changelogs:
     name: Check changelogs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
         with:
-          fetch-depth: 0  # 需要完整提交历史来比较差异
+          fetch-depth: 0
 
       - name: Get changed files
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          # 获取基准和当前提交的差异文件列表
-          git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} > changed_files.txt
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            BASE_SHA="$(git rev-parse HEAD^)"
+          fi
+          git diff --name-only "$BASE_SHA" "$GITHUB_SHA" > changed_files.txt
 
       - name: Validate changes
+        shell: bash
         run: |
-          # 需要检查的目录数组
           directories=(
             "library/sbi-rt"
-            "library/sbi-spec" 
-            "library/sbi-testing" 
+            "library/sbi-spec"
+            "library/sbi-testing"
             "library/rustsbi"
             "library/macros"
           )
 
           exit_code=0
-          while IFS= read -r file; do
-            for dir in "${directories[@]}"; do
-              # 检查文件是否属于当前目录
-              if [[ "$file" == "$dir/"* ]]; then
-                # 检查对应的CHANGELOG是否被修改
-                if ! grep -q "^$dir/CHANGELOG.md" changed_files.txt; then
-                  echo "::error file=$dir/CHANGELOG.md::Detected changes in $dir but the corresponding CHANGELOG.md was not updated"
-                  exit_code=1
-                else
-                  echo "CHANGELOG.md updated for $dir file changes."
-                fi
-                break  # 已匹配目录，跳出内层循环
+          for directory in "${directories[@]}"; do
+            changelog="$directory/CHANGELOG.md"
+            if grep -q "^$directory/" changed_files.txt; then
+              if ! grep -Fxq "$changelog" changed_files.txt; then
+                echo "::error file=$changelog::Detected changes in $directory but $changelog was not updated"
+                exit_code=1
+              else
+                echo "$changelog updated for changes in $directory."
               fi
-            done
-          done < changed_files.txt
+            fi
+          done
 
           exit $exit_code
