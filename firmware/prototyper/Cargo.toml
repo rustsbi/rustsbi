@@ -26,6 +26,7 @@ static-toml = "1"
 seq-macro = "0.3.5"
 pastey = "0.1.0"
 riscv-aia = { version = "0.0.0", path = "../../library/riscv-aia" }
+spacemit-riscv = { version = "0.0.0", path = "../../library/spacemit-riscv" }
 rustsbi-prototyper-macros = { version = "0.0.0", path = "../macros" }
 
 [[bin]]

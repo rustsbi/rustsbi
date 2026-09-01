@@ -1682,6 +1682,7 @@ dependencies = [
  "seq-macro",
  "serde",
  "serde-device-tree 0.0.1 (git+https://github.com/rustsbi/serde-device-tree?rev=ffb4855)",
+ "spacemit-riscv",
  "spin 0.9.9",
  "static-toml",
 ]

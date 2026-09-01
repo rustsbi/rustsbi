@@ -7,35 +7,13 @@
 //! Reference: OpenSBI `platform/generic/spacemit/spacemit_k1.c` and
 //! `platform/generic/include/spacemit/k1x/k1x_evb.h`.
 
-use core::arch::asm;
+use spacemit_riscv::register::{
+    ml2setup,
+    mraop::{self, Mraop, Operation},
+    msetup,
+};
 
 use crate::riscv::current_hartid;
-
-// ---------------------------------------------------------------------------
-// Custom CSRs (0x7c0–0x7c5, 0x7f0)
-// ---------------------------------------------------------------------------
-
-/// Machine setup register: cache, branch prediction, prefetch, ECC.
-const CSR_MSETUP: u16 = 0x7c0;
-/// Machine hardware control register.
-const CSR_MHCR: u16 = 0x7c1;
-/// Machine RAM array operation: I-cache invalidation.
-const CSR_MRAOP: u16 = 0x7c2;
-/// Machine hardware hint register.
-const CSR_MHINT: u16 = 0x7c5;
-/// Machine L2 cache setup register.
-const CSR_ML2SETUP: u16 = 0x7f0;
-
-// MSETUP bit fields
-const MSETUP_DE: usize = 1 << 0; // D-cache enable
-const MSETUP_IE: usize = 1 << 1; // I-cache enable
-const MSETUP_BPE: usize = 1 << 4; // Branch prediction enable
-const MSETUP_PFE: usize = 1 << 5; // Prefetch enable
-const MSETUP_MME: usize = 1 << 6; // Misaligned memory access enable
-const MSETUP_ECCE: usize = 1 << 16; // ECC enable
-
-// MRAOP bit fields
-const MRAOP_ICACHE_INVALID: usize = 0x3; // I-cache invalidation mask
 
 // ---------------------------------------------------------------------------
 // Warmboot (RVBADDR) registers
@@ -94,39 +72,6 @@ unsafe fn write32(addr: usize, val: u32) {
     unsafe { (addr as *mut u32).write_volatile(val) };
 }
 
-/// Read a CSR.
-///
-/// `CSR` must be a compile-time constant: the RISC-V `csrr` encoding requires
-/// the CSR field to be an immediate, not a register.
-#[inline]
-unsafe fn csr_read<const CSR: u16>() -> usize {
-    let r: usize;
-    unsafe {
-        asm!("csrr {r}, {csr}", r = out(reg) r, csr = const CSR, options(nomem));
-    }
-    r
-}
-
-/// Write a CSR.
-///
-/// `CSR` must be a compile-time constant: the RISC-V `csrw` encoding requires
-/// the CSR field to be an immediate, not a register.
-#[inline]
-unsafe fn csr_write<const CSR: u16>(val: usize) {
-    unsafe {
-        asm!("csrw {csr}, {val}", csr = const CSR, val = in(reg) val, options(nomem));
-    }
-}
-
-/// Set bits in a CSR (read-modify-write).
-///
-/// `CSR` must be a compile-time constant; see [`csr_write`].
-#[inline]
-unsafe fn csr_set<const CSR: u16>(bits: usize) {
-    let old = unsafe { csr_read::<CSR>() };
-    unsafe { csr_write::<CSR>(old | bits) };
-}
-
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -148,9 +93,9 @@ pub fn is_k1_compatible(model: &str) -> bool {
 
 /// Check whether the device tree identifies a SpacemiT K1 / Ky X1 SoC.
 ///
-/// Mirrors OpenSBI's `spacemit_k1_match[]` table: the root node's
-/// `compatible` strings (e.g. `"spacemit,k1"`, `"spacemit,k1-x"`) take
-/// priority, with the `model` string as a fallback.
+/// The root node's `compatible` strings
+/// (e.g. `"spacemit,k1"`, `"spacemit,k1-x"`) take priority,
+/// with the `model` string as a fallback.
 #[inline]
 pub fn is_k1_platform<'a>(model: &str, compatibles: impl IntoIterator<Item = &'a str>) -> bool {
     let by_compatible = compatibles
@@ -221,17 +166,24 @@ unsafe fn k1_pre_init(warmboot_addr: u64) {
 /// or on any hart (for cold_boot = false).
 pub unsafe fn early_init(cold_boot: bool, warmboot_addr: u64) {
     // Enable D-cache, I-cache, branch prediction, prefetch, misaligned access, ECC
-    unsafe {
-        csr_set::<CSR_MSETUP>(
-            MSETUP_DE | MSETUP_IE | MSETUP_BPE | MSETUP_PFE | MSETUP_MME | MSETUP_ECCE,
-        );
+    let mut setup = msetup::read();
+    setup.set_de(true);
+    setup.set_ie(true);
+    setup.set_bpe(true);
+    setup.set_pfe(true);
+    setup.set_mme(true);
+    setup.set_ecce(true);
+    // SAFETY: this function requires a K1 hart running in M-mode.
+    unsafe { msetup::write(setup) };
 
-        // Invalidate I-cache
-        csr_write::<CSR_MRAOP>(MRAOP_ICACHE_INVALID);
+    // Issue the cache-maintenance command used by K1 firmware.
+    let mut operation = Mraop::from_bits(0);
+    operation.set_operation(Operation::CleanInvalidate);
+    // SAFETY: this function requires a K1 hart running in M-mode.
+    unsafe { mraop::write(operation) };
 
-        if cold_boot {
-            k1_pre_init(warmboot_addr);
-        }
+    if cold_boot {
+        unsafe { k1_pre_init(warmboot_addr) };
     }
 }
 
@@ -243,10 +195,11 @@ pub unsafe fn early_init(cold_boot: bool, warmboot_addr: u64) {
 ///
 /// Returns `true` if the hart is allowed to cold boot.
 pub fn cold_boot_allowed(hart_id: usize) -> bool {
-    // Set the ML2SETUP bit for this hart's position in its cluster
-    let cluster_bit = 1 << (hart_id % PLATFORM_MAX_CPUS_PER_CLUSTER);
+    let core_slot = hart_id % PLATFORM_MAX_CPUS_PER_CLUSTER;
+    // SAFETY: callers only invoke this K1-specific routine after identifying
+    // the platform, and each hart updates its own ML2SETUP CSR.
     unsafe {
-        csr_set::<CSR_ML2SETUP>(cluster_bit);
+        ml2setup::set_snoop_enable(core_slot);
     }
     // Only hart 0 performs cold boot
     hart_id == 0
