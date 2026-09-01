@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   pull_request:
   push:
+    branches: ["main"]
     paths-ignore:
       - '**.md'
       - 'LICENSE'
@@ -33,6 +34,7 @@ jobs:
             dtc --version
             mkimage -V
             rustup target list --installed
+            rustup target list --installed | grep -Fx riscv32imac-unknown-none-elf
             rustup target list --installed | grep -Fx riscv64gc-unknown-none-elf
             rustup target list --installed | grep -Fx riscv64imac-unknown-none-elf
             cargo objcopy --version
