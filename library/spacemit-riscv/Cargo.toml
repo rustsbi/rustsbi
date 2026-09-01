@@ -1,0 +1,19 @@
+[package]
+name = "spacemit-riscv"
+description = "Low-level access to custom RISC-V CSRs used by SpacemiT processors"
+version = "0.0.0"
+documentation = "https://docs.rs/spacemit-riscv"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["riscv", "spacemit", "k1", "k3"]
+categories = ["os", "embedded", "hardware-support", "no-std"]
+
+[package.metadata.docs.rs]
+default-target = "riscv64imac-unknown-none-elf"
+targets = ["riscv64imac-unknown-none-elf"]
+
+[dependencies]
+riscv = { workspace = true }

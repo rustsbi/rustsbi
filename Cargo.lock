@@ -1859,6 +1859,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "spacemit-riscv"
+version = "0.0.0"
+dependencies = [
+ "riscv",
+]
+
+[[package]]
 name = "spin"
 version = "0.9.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
