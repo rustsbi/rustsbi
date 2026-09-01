@@ -433,7 +433,7 @@ mod smm_stress_tests {
                 let exponent = rng.gen_range(12..MAX_ALLOC.ilog2());
                 let size = 1usize << exponent;
 
-                if let Some((addr, actual_len, id)) = manager.alloc_em(size, em_type) {
+                if let Some((addr, actual_len, _)) = manager.alloc_em(size, em_type) {
                     unsafe {
                         let ptr = addr as *mut u8;
                         core::ptr::write_bytes(ptr, 0x1F, actual_len);
