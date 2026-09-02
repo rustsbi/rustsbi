@@ -155,6 +155,13 @@ fn pmu_test(smp: usize) {
     let result = sbi::pmu_counter_config_matching(counter_mask, Flag::new(0b010), 0x1, 0);
     assert!(result.is_ok());
     let cycle_counter_idx = result.value;
+
+    // SKIP_MATCH still requires every counter in the set to be valid.
+    let invalid_counter_mask =
+        CounterMask::from_mask_base((1 << cycle_counter_idx) | (1 << counters_num), 0);
+    let result = sbi::pmu_counter_config_matching(invalid_counter_mask, Flag::new(0b001), 0x1, 0);
+    assert_eq!(result, SbiRet::invalid_param());
+
     let counter_info = sbi::pmu_counter_get_info(cycle_counter_idx);
     assert!(counter_info.is_ok());
     let counter_info = CounterInfo::new(counter_info.value);

@@ -26,4 +26,7 @@ All notable changes to this project will be documented in this file. See [conven
 - fix(prototyper): temporary PMU fix for possible S-mode DTB modification
 - fix(prototyper): validate DBCN console shared memory range
 
+### Fixed
+- Reject PMU counter masks containing out-of-range counter indices.
+
 ### Removed
