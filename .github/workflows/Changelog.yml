@@ -48,7 +48,10 @@ jobs:
           for directory in "${directories[@]}"; do
             changelog="$directory/CHANGELOG.md"
             if grep -q "^$directory/" changed_files.txt; then
-              if ! grep -Fxq "$changelog" changed_files.txt; then
+              if [[ ! -f "$changelog" ]]; then
+                echo "::error file=$changelog::Required changelog was deleted"
+                exit_code=1
+              elif ! grep -Fxq "$changelog" changed_files.txt; then
                 echo "::error file=$changelog::Detected changes in $directory but $changelog was not updated"
                 exit_code=1
               else
