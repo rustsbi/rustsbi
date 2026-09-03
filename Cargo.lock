@@ -1655,6 +1655,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustsbi-firmware-runtime"
+version = "0.0.0"
+
+[[package]]
 name = "rustsbi-macros"
 version = "0.0.2"
 dependencies = [
