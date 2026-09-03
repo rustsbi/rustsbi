@@ -220,9 +220,11 @@ impl Pmu for SbiPmu {
 
         with_current(|local| {
             let pmu_state = &mut local.pmu_state;
+            let last_counter_idx = counter_idx_mask
+                .checked_ilog2()
+                .and_then(|offset| counter_idx_base.checked_add(offset as usize));
 
-            if counter_idx_base >= pmu_state.total_counters_num
-                || (counter_idx_mask & ((1 << pmu_state.total_counters_num) - 1)) == 0
+            if last_counter_idx.is_none_or(|idx| idx >= pmu_state.total_counters_num)
                 || !event.check_event_type()
                 || (is_firmware_event && !event.firmware_event_valid())
             {
