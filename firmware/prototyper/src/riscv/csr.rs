@@ -197,7 +197,7 @@ pub mod imsic {
     ///
     /// Callers probe Smaia before reaching this architecture boundary;
     /// selectors are derived from the validated IMSIC identity count.
-    pub fn initialize_machine_file(num_ids: usize, firmware_ipi_iid: usize) {
+    pub fn initialize_machine_file(num_ids: usize, ipi_iid: usize) {
         // SAFETY: the caller verified the current hart implements Smaia, and
         // M-mode firmware may access its own machine interrupt-file registers;
         // the selectors below come from the fixed IMSIC register map.
@@ -220,10 +220,10 @@ pub mod imsic {
 
             // Enable the firmware IPI identity.
             #[cfg(target_pointer_width = "64")]
-            let eie_index = (firmware_ipi_iid / 64) * 2;
+            let eie_index = (ipi_iid / 64) * 2;
             #[cfg(target_pointer_width = "32")]
-            let eie_index = firmware_ipi_iid / 32;
-            let bit_pos = firmware_ipi_iid % usize::BITS as usize;
+            let eie_index = ipi_iid / 32;
+            let bit_pos = ipi_iid % usize::BITS as usize;
             let enabled = eie::machine::read(eie_index).set_enabled(bit_pos as u32, true);
             eie::machine::write(eie_index, enabled);
         }
