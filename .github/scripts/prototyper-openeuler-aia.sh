@@ -145,8 +145,6 @@ done
 cleanup
 trap - EXIT
 
-grep -F "IMSIC: base=0x" "$log_file"
-grep -F "AIA: IMSIC IPI + Sstc timer backend initialized" "$log_file"
 grep -F "Platform IPI Extension        : IMSIC" "$log_file"
 grep -F "automatically in 0s" "$log_file"
 grep -F "Loading Linux" "$log_file"

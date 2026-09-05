@@ -1,9 +1,6 @@
 #![forbid(unsafe_code)]
 
 use crate::riscv::current_hartid;
-use serde_device_tree::Dtb;
-
-use crate::devicetree;
 
 use riscv::interrupt::machine::{Exception, Interrupt};
 use riscv::register::{mcause::Trap, mepc, mtval};
@@ -33,23 +30,6 @@ pub fn unsupported_trap(trap: Option<Trap<Interrupt, Exception>>) -> ! {
     panic!("Stopped with unsupported trap")
 }
 
-/// Handles device tree format parsing errors by logging and resetting.
-#[cold]
-pub fn device_tree_format(_err: devicetree::ParseDeviceTreeError) -> Dtb {
-    loop {
-        core::hint::spin_loop()
-    }
-}
-
-#[cold]
-pub fn device_tree_deserialize_root<'a>(
-    _err: serde_device_tree::error::Error,
-) -> serde_device_tree::buildin::Node<'a> {
-    loop {
-        core::hint::spin_loop()
-    }
-}
-
 #[cold]
 pub fn stop() -> ! {
     loop {
@@ -64,15 +44,15 @@ cfg_if::cfg_if! {
         use riscv::register::mstatus;
         /// Handles invalid dynamic information data by logging details and resetting.
         #[cold]
-        pub fn invalid_dynamic_data(err: dynamic::DynamicError) -> (mstatus::MPP, usize) {
+        pub fn invalid_dynamic_data(err: dynamic::ValidationError) -> (mstatus::MPP, usize) {
             error!("Invalid data in dynamic information:");
-            if err.invalid_mpp {
+            if err.invalid_next_mode {
                 error!("* dynamic information contains invalid privilege mode");
             }
-            if err.invalid_next_addr {
+            if err.invalid_next_address {
                 error!("* dynamic information contains invalid next jump address");
             }
-            let explain_next_mode = match err.bad_info.next_mode {
+            let next_mode_name = match err.dynamic_info.next_mode {
                 3 => "Machine",
                 1 => "Supervisor",
                 0 => "User",
@@ -80,34 +60,34 @@ cfg_if::cfg_if! {
             };
             error!(
                 "@ help: dynamic information contains magic value 0x{:x}, version {}, next jump address 0x{:x}, next privilege mode {} ({}), options {:x}, boot hart ID {}",
-                err.bad_info.magic, err.bad_info.version, err.bad_info.next_addr, err.bad_info.next_mode, explain_next_mode, err.bad_info.options, err.bad_info.boot_hart
+                err.dynamic_info.magic, err.dynamic_info.version, err.dynamic_info.next_addr, err.dynamic_info.next_mode, next_mode_name, err.dynamic_info.options, err.dynamic_info.boot_hart
             );
             reset::fail()
         }
 
         /// Handles case where dynamic information is not available by logging details and resetting.
         #[cold]
-        pub fn no_dynamic_info_available(err: dynamic::DynamicReadError) -> dynamic::DynamicInfo {
-            if let Some(bad_paddr) = err.bad_paddr {
+        pub fn no_dynamic_info_available(err: dynamic::ReadError) -> dynamic::DynamicInfo {
+            if let Some(invalid_address) = err.invalid_address {
                 error!(
                     "No dynamic information available at address 0x{:x}",
-                    bad_paddr
+                    invalid_address
                 );
             } else {
                 error!("No valid dynamic information available:");
-                if let Some(bad_magic) = err.bad_magic {
+                if let Some(invalid_magic) = err.invalid_magic {
                     error!(
                         "* tried to identify dynamic information, but found invalid magic number 0x{:x}",
-                        bad_magic
+                        invalid_magic
                     );
                 }
-                if let Some(bad_version) = err.bad_version {
-                    error!("* tries to identify version of dynamic information, but the version number {} is not supported", bad_version);
+                if let Some(unsupported_version) = err.unsupported_version {
+                    error!("* tries to identify version of dynamic information, but the version number {} is not supported", unsupported_version);
                 }
-                if err.bad_magic.is_none() {
+                if err.invalid_magic.is_none() {
                     error!("@ help: magic number is valid")
                 }
-                if err.bad_version.is_none() {
+                if err.unsupported_version.is_none() {
                     error!("@ help: dynamic information version is valid")
                 }
             }
@@ -119,7 +99,9 @@ cfg_if::cfg_if! {
         /// Used when dynamic info read fails but execution should continue.
         #[cold]
         #[allow(unused)]
-        pub fn use_lottery(_err: dynamic::DynamicReadError) -> dynamic::DynamicInfo {
+        pub fn fallback_to_boot_hart_election(
+            _error: dynamic::ReadError,
+        ) -> dynamic::DynamicInfo {
             dynamic::DynamicInfo {
                 magic: 0,
                 version: 0,
