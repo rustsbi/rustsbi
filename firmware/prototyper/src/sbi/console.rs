@@ -142,8 +142,9 @@ impl Console for SbiConsole {
 
 /// Prints formatted arguments to the console device, if one is present.
 ///
-/// The `print!`/`println!` macros route here. Writes proceed until the
-/// device reports progress; a zero-byte write is an error.
+/// Used by the `print!` and `println!` macros. Retries until all bytes
+/// have been written, spinning whenever a write returns zero.
+/// Does nothing if no console device has been initialized.
 pub fn _print(args: fmt::Arguments) {
     use core::fmt::Write as _;
 
@@ -154,13 +155,15 @@ pub fn _print(args: fmt::Arguments) {
     impl fmt::Write for ConsoleWriter<'_> {
         #[inline]
         fn write_str(&mut self, s: &str) -> fmt::Result {
-            let mut bytes = s.as_bytes();
-            while !bytes.is_empty() {
-                let count = self.device.lock().write(bytes);
-                if count == 0 {
-                    return Err(fmt::Error);
+            let bytes = s.as_bytes();
+            let mut written = 0;
+            while written < bytes.len() {
+                let n = self.device.lock().write(&bytes[written..]);
+                if n == 0 {
+                    core::hint::spin_loop();
+                } else {
+                    written += n;
                 }
-                bytes = &bytes[count..];
             }
             Ok(())
         }
