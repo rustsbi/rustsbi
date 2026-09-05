@@ -1,6 +1,5 @@
-//! Typed access to memory-mapped device registers.
+//! Access to memory-mapped device registers.
 
-use core::marker::PhantomData;
 use core::mem::{align_of, size_of};
 
 use super::PhysAddrRange;
@@ -12,7 +11,8 @@ mod sealed {
 
 /// A fixed-width integer supported by [`MmioRegion`].
 ///
-/// This trait is sealed and implemented for `u8`, `u16`, `u32`, and `u64`.
+/// This trait is sealed and implemented for `u8`, `u16`, and `u32`, as well as
+/// `u64` on 64-bit targets.
 pub trait MmioValue: sealed::Sealed + Copy {}
 
 macro_rules! impl_mmio_value {
@@ -24,67 +24,46 @@ macro_rules! impl_mmio_value {
     };
 }
 
-impl_mmio_value!(u8, u16, u32, u64);
+impl_mmio_value!(u8, u16, u32);
 
-/// A bounded MMIO window accessed in units of `T`.
+// A volatile `u64` may compile into multiple device accesses on a 32-bit
+// target, so it is not offered as one fixed-width MMIO operation there.
+#[cfg(target_pointer_width = "64")]
+impl_mmio_value!(u64);
+
+/// A bounded MMIO register window.
 ///
-/// `T` is fixed when the window is acquired, and values use native byte order.
-/// Mixed-width register blocks use separate, non-overlapping windows.
-pub struct MmioRegion<T: MmioValue> {
+/// Accesses are volatile and use native byte order. Hardware access faults are
+/// not recovered.
+pub struct MmioRegion {
     range: PhysAddrRange,
-    value: PhantomData<T>,
 }
 
-impl<T: MmioValue> MmioRegion<T> {
+impl MmioRegion {
     pub(crate) const fn new(range: PhysAddrRange) -> Self {
-        Self {
-            range,
-            value: PhantomData,
-        }
+        Self { range }
     }
 
-    /// Creates another handle to the same MMIO window.
-    #[inline]
-    pub fn share(&self) -> Self {
-        Self::new(self.range)
-    }
-
-    /// Returns a handle to the selected non-empty subrange.
-    ///
-    /// The range must lie entirely within this MMIO window.
-    pub fn subregion(&self, offset: usize, len: usize) -> Result<Self> {
-        self.range.subrange(offset, len).map(Self::new)
-    }
-
-    /// Reads one `T` at byte offset `offset`.
-    ///
-    /// Returns [`Error::InvalidArgs`] if the access is out of bounds or
-    /// misaligned. Hardware access faults are not recovered.
-    pub fn read(&self, offset: usize) -> Result<T> {
-        let address = self.access_address(offset)?;
-        // SAFETY:
-        // 1. `MmioValue` is sealed to integer types with no invalid values.
-        // 2. `access_address` checked the complete access and its alignment.
-        // 3. Registration keeps the MMIO window accessible.
+    /// Reads a value at byte offset `offset`.
+    pub fn read<T: MmioValue>(&self, offset: usize) -> Result<T> {
+        let address = self.checked_address::<T>(offset)?;
+        // SAFETY: `MmioValue` is sealed to integers, and `checked_address`
+        // checked the
+        // complete access and its alignment within this registered window.
         Ok(unsafe { (address as *const T).read_volatile() })
     }
 
-    /// Writes one `T` at byte offset `offset`.
-    ///
-    /// Returns [`Error::InvalidArgs`] if the access is out of bounds or
-    /// misaligned. Hardware access faults are not recovered.
-    pub fn write(&self, offset: usize, value: T) -> Result<()> {
-        let address = self.access_address(offset)?;
-        // SAFETY:
-        // 1. `MmioValue` is sealed to integer types supported by this method.
-        // 2. `access_address` checked the complete access and its alignment.
-        // 3. Registration keeps the MMIO window accessible.
+    /// Writes a value at byte offset `offset`.
+    pub fn write<T: MmioValue>(&self, offset: usize, value: T) -> Result<()> {
+        let address = self.checked_address::<T>(offset)?;
+        // SAFETY: `MmioValue` is sealed to integers, and `checked_address`
+        // checked the
+        // complete access and its alignment within this registered window.
         unsafe { (address as *mut T).write_volatile(value) };
         Ok(())
     }
 
-    /// Resolves one aligned, in-bounds `T` at `offset`.
-    fn access_address(&self, offset: usize) -> Result<usize> {
+    fn checked_address<T: MmioValue>(&self, offset: usize) -> Result<usize> {
         let access = self.range.subrange(offset, size_of::<T>())?;
         let address = access.start().as_usize();
         if !address.is_multiple_of(align_of::<T>()) {
@@ -103,24 +82,21 @@ mod tests {
     struct Aligned([u8; 16]);
 
     #[test]
-    fn access_width_is_fixed_by_the_handle_type() {
+    fn accesses_check_width_alignment_and_bounds() {
         let mut backing = Aligned([0; 16]);
         let range = PhysAddrRange::from_start_len(
             PhysAddr::new(backing.0.as_mut_ptr() as usize),
             backing.0.len(),
         )
         .unwrap();
-        let words = MmioRegion::<u32>::new(range);
+        let registers = MmioRegion::new(range);
 
-        assert_eq!(words.write(4, 0x1234_5678), Ok(()));
-        assert_eq!(words.read(4), Ok(0x1234_5678));
-        assert_eq!(words.read(1), Err(Error::InvalidArgs));
-        assert_eq!(words.read(14), Err(Error::InvalidArgs));
-        assert_eq!(words.write(1, 0), Err(Error::InvalidArgs));
-        assert_eq!(words.subregion(usize::MAX, 1).err(), Some(Error::Overflow));
-
-        let bytes = MmioRegion::<u8>::new(range);
-        assert_eq!(bytes.write(1, 0x5a), Ok(()));
-        assert_eq!(bytes.read(1), Ok(0x5a));
+        assert_eq!(registers.write(4, 0x1234_5678u32), Ok(()));
+        assert_eq!(registers.read::<u32>(4), Ok(0x1234_5678));
+        assert_eq!(registers.read::<u32>(1), Err(Error::InvalidArgs));
+        assert_eq!(registers.read::<u32>(14), Err(Error::InvalidArgs));
+        assert_eq!(registers.write(1, 0u32), Err(Error::InvalidArgs));
+        assert_eq!(registers.write(1, 0x5au8), Ok(()));
+        assert_eq!(registers.read::<u8>(1), Ok(0x5a));
     }
 }

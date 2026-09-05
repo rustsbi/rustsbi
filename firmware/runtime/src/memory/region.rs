@@ -1,5 +1,7 @@
 //! Non-empty physical-address ranges.
 
+use alloc::vec::Vec;
+
 use super::PhysAddr;
 use crate::{Error, Result};
 
@@ -8,6 +10,52 @@ use crate::{Error, Result};
 pub struct PhysAddrRange {
     start: PhysAddr,
     end: PhysAddr,
+}
+
+/// A device-register range authorized by the Platform Description.
+///
+/// Unlike [`PhysAddrRange`], this value carries permission to request an
+/// [`super::MmioRegion`] from the [`super::MemoryRegistry`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DeviceRegisterRange(PhysAddrRange);
+
+impl DeviceRegisterRange {
+    pub(crate) const fn from_description(range: PhysAddrRange) -> Self {
+        Self(range)
+    }
+
+    /// Returns the first address in the register range.
+    #[inline]
+    pub const fn start(self) -> PhysAddr {
+        self.0.start()
+    }
+
+    /// Returns the exclusive end address of the register range.
+    #[inline]
+    pub const fn end(self) -> PhysAddr {
+        self.0.end()
+    }
+
+    /// Returns whether both bounds are aligned to `alignment`.
+    #[inline]
+    pub const fn has_aligned_bounds(self, alignment: usize) -> bool {
+        self.0.has_aligned_bounds(alignment)
+    }
+
+    /// Returns whether `range` lies entirely in this register range.
+    #[inline]
+    pub fn contains(self, range: PhysAddrRange) -> bool {
+        self.0.contains(range)
+    }
+
+    /// Selects a non-empty subrange of these registers.
+    pub fn subrange(self, offset: usize, len: usize) -> Result<Self> {
+        self.0.subrange(offset, len).map(Self)
+    }
+
+    pub(super) const fn physical_range(self) -> PhysAddrRange {
+        self.0
+    }
 }
 
 impl PhysAddrRange {
@@ -53,19 +101,60 @@ impl PhysAddrRange {
         self.end.as_usize() - self.start.as_usize()
     }
 
+    /// Returns whether both bounds are aligned to `alignment`.
+    ///
+    /// This is stronger than checking only [`PhysAddr::is_aligned_to`]: it
+    /// guarantees that the range consists of a whole number of aligned units.
+    #[inline]
+    pub(super) const fn has_aligned_bounds(self, alignment: usize) -> bool {
+        self.start.is_aligned_to(alignment) && self.end.is_aligned_to(alignment)
+    }
+
     pub(crate) fn contains(self, other: Self) -> bool {
         self.start <= other.start && other.end <= self.end
     }
 
-    pub(crate) fn overlaps(self, other: Self) -> bool {
+    pub(super) fn overlaps(self, other: Self) -> bool {
         self.start < other.end && other.start < self.end
     }
 
-    pub(crate) fn adjacent(self, other: Self) -> bool {
+    /// Returns the parts of this range outside all `excluded` ranges.
+    pub(super) fn excluding(self, excluded: &[Self]) -> Vec<Self> {
+        let mut subtracted: Vec<_> = excluded
+            .iter()
+            .filter_map(|range| {
+                let start = self.start.max(range.start);
+                let end = self.end.min(range.end);
+                (start < end).then_some(Self { start, end })
+            })
+            .collect();
+        subtracted.sort_unstable_by_key(|range| range.start());
+
+        let mut result = Vec::new();
+        let mut cursor = self.start;
+        for range in subtracted {
+            if cursor < range.start {
+                result.push(Self {
+                    start: cursor,
+                    end: range.start,
+                });
+            }
+            cursor = cursor.max(range.end);
+        }
+        if cursor < self.end {
+            result.push(Self {
+                start: cursor,
+                end: self.end,
+            });
+        }
+        result
+    }
+
+    pub(super) fn adjacent(self, other: Self) -> bool {
         self.end == other.start || other.end == self.start
     }
 
-    pub(crate) fn join(self, other: Self) -> Self {
+    pub(super) fn join(self, other: Self) -> Self {
         let start = if self.start < other.start {
             self.start
         } else {
@@ -79,7 +168,12 @@ impl PhysAddrRange {
         Self { start, end }
     }
 
-    pub(crate) fn subrange(self, offset: usize, len: usize) -> Result<Self> {
+    /// Returns the non-empty subrange beginning `offset` bytes from `start`.
+    ///
+    /// Returns [`Error::InvalidArgs`] when the requested bytes extend beyond
+    /// this range or `len` is zero, and [`Error::Overflow`] when either address
+    /// calculation cannot be represented.
+    pub(super) fn subrange(self, offset: usize, len: usize) -> Result<Self> {
         if len == 0 {
             return Err(Error::InvalidArgs);
         }

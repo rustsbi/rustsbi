@@ -10,3 +10,7 @@ publish = false
 [lib]
 test = true
 bench = false
+
+[dependencies]
+fdt = "0.1.5"
+serde-device-tree = { git = "https://github.com/rustsbi/serde-device-tree", rev = "ffb4855", default-features = false }
