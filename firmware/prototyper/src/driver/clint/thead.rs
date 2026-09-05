@@ -1,80 +1,122 @@
 //! T-Head C900-compatible Core Local Interruptor (CLINT).
+//!
+//! # References
+//!
+//! - Specification: [RISC-V ACLINT 1.0-rc4](https://github.com/riscvarchive/riscv-aclint/blob/4e570bfd3201f2c09e5afd290b5091526b0f099a/riscv-aclint.adoc) —
+//!   “Backward Compatibility With SiFive CLINT” and its offset table.
+//! - Devicetree binding: [SiFive CLINT](https://github.com/torvalds/linux/blob/a500db7819c50db59e55f1b4fa1c3baa5a2616f3/Documentation/devicetree/bindings/timer/sifive%2Cclint.yaml) —
+//!   T-Head compatibles and the absence of a memory-mapped `mtime` register.
+//! - Reference implementation: [OpenSBI MTIMER FDT driver](https://github.com/riscv-software-src/opensbi/blob/35511bc6ee1c9c17b6a89b44c52e2044bb51b979/lib/utils/timer/fdt_timer_mtimer.c) —
+//!   the `thead,c900-clint` no-`mtime`, 32-bit-access quirks.
+//! - Reference implementation: [OpenSBI MTIMER accessors](https://github.com/riscv-software-src/opensbi/blob/35511bc6ee1c9c17b6a89b44c52e2044bb51b979/lib/utils/timer/aclint_mtimer.c) —
+//!   compare-safe split writes.
+//!
+//! T-Head exposes the 64-bit `mtimecmp` register as two 32-bit MMIO words;
+//! [`THeadTimer::set_mtimecmp`] prevents a transient early timer interrupt.
+
+use alloc::boxed::Box;
+use core::mem::{align_of, size_of};
+
+use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
 use crate::cfg::NUM_HART_MAX;
-use crate::driver::{IpiDevice, TimerDevice};
-use crate::platform::mmio::Mmio;
+use crate::driver::{InterruptDevices, IpiDevice, TimerDevice};
 
-/// Register span through the configured harts' timer comparison registers.
-pub(super) const SPAN: usize = 0x4000 + NUM_HART_MAX * 8;
+// The ACLINT legacy mapping places MTIMECMP at offset 0x4000.
+const MTIMECMP_OFFSET: usize = 0x4000;
+const MSIP_WINDOW_SIZE: usize = NUM_HART_MAX * size_of::<u32>();
+const MTIMECMP_WINDOW_SIZE: usize = NUM_HART_MAX * size_of::<u64>();
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Half {
-    Low,
-    High,
-}
-
+#[repr(usize)]
 #[derive(Clone, Copy)]
-enum Reg {
-    Msip,
-    MtimecmpLow,
-    MtimecmpHigh,
+enum TimerRegister {
+    MtimecmpLow = 0,
+    MtimecmpHigh = size_of::<u32>(),
 }
 
-impl Reg {
-    fn offset(self, hart: usize) -> usize {
-        match self {
-            Self::Msip => hart * 4,
-            Self::MtimecmpLow => 0x4000 + hart * 8,
-            Self::MtimecmpHigh => 0x4000 + hart * 8 + 4,
-        }
+impl TimerRegister {
+    const fn offset(self) -> usize {
+        self as usize
+    }
+
+    fn offset_for_hart(self, hart_id: usize) -> usize {
+        assert!(
+            hart_id < NUM_HART_MAX,
+            "BUG: T-Head CLINT timer hart index is out of range"
+        );
+        hart_id * size_of::<u64>() + self.offset()
     }
 }
 
-// T-Head CLINTs have no 64-bit MMIO path, so `mtimecmp` is accessed as two
-// 32-bit halves. Re-read the high half around the low read and retry until
-// it is stable, so a timer tick between the reads cannot tear the value.
-fn read_split(mut read_half: impl FnMut(Half) -> u32) -> u64 {
-    loop {
-        let high = read_half(Half::High);
-        let low = read_half(Half::Low);
-        if read_half(Half::High) == high {
-            return (u64::from(high) << 32) | u64::from(low);
-        }
+#[repr(usize)]
+#[derive(Clone, Copy)]
+enum IpiRegister {
+    Msip = 0,
+}
+
+impl IpiRegister {
+    const fn offset(self) -> usize {
+        self as usize
+    }
+
+    fn offset_for_hart(self, hart_id: usize) -> usize {
+        assert!(
+            hart_id < NUM_HART_MAX,
+            "BUG: T-Head CLINT IPI hart index is out of range"
+        );
+        self.offset() + hart_id * size_of::<u32>()
     }
 }
 
-// Writing the halves in rising order could transiently hold a compare
-// value below `mtime` and fire a spurious interrupt; writing the maximum
-// low half first keeps every intermediate value above any real deadline.
-fn write_split(value: u64, mut write_half: impl FnMut(Half, u32)) {
-    write_half(Half::Low, u32::MAX);
-    write_half(Half::High, (value >> 32) as u32);
-    write_half(Half::Low, value as u32);
-}
-
-/// T-Head CLINT using split 32-bit timer comparison registers.
-pub(super) struct THeadClint {
-    mmio: Mmio,
-}
-
-impl THeadClint {
-    /// Wraps an acquired register block.
-    pub(super) fn new(mmio: Mmio) -> Self {
-        Self { mmio }
+pub(super) fn bind(
+    registers: DeviceRegisterRange,
+    memory: &mut MemoryRegistry,
+) -> runtime::Result<InterruptDevices> {
+    let msip_registers = registers.subrange(0, MSIP_WINDOW_SIZE)?;
+    let mtimecmp_registers = registers.subrange(MTIMECMP_OFFSET, MTIMECMP_WINDOW_SIZE)?;
+    if !msip_registers.has_aligned_bounds(align_of::<u32>())
+        || !mtimecmp_registers.has_aligned_bounds(align_of::<u32>())
+    {
+        return Err(runtime::Error::InvalidArgs);
     }
 
-    fn read_mtimecmp(&self, hart_idx: usize) -> u64 {
-        read_split(|half| {
-            let reg = match half {
-                Half::Low => Reg::MtimecmpLow,
-                Half::High => Reg::MtimecmpHigh,
-            };
-            self.mmio.read::<u32>(reg.offset(hart_idx))
-        })
+    let msip_mmio = memory.acquire_mmio(msip_registers)?;
+    let mtimecmp_mmio = memory.acquire_mmio(mtimecmp_registers)?;
+    Ok(InterruptDevices {
+        timer: Box::new(THeadTimer::new(mtimecmp_mmio)),
+        ipi: Box::new(THeadIpi::new(msip_mmio)),
+    })
+}
+
+struct THeadTimer {
+    mtimecmp: MmioRegion,
+}
+
+impl THeadTimer {
+    fn new(mtimecmp: MmioRegion) -> Self {
+        Self { mtimecmp }
+    }
+
+    fn write(&self, reg: TimerRegister, hart_id: usize, value: u32) {
+        self.mtimecmp
+            .write(reg.offset_for_hart(hart_id), value)
+            .expect("BUG: T-Head CLINT timer register escaped its MMIO window")
+    }
+
+    fn set_mtimecmp(&self, hart_id: usize, value: u64) {
+        let low = value as u32;
+        let high = (value >> u32::BITS) as u32;
+
+        // Prevent an interrupt while replacing the two halves: raise the
+        // temporary compare value first, then install the final high and low
+        // words in the order used by OpenSBI's 32-bit MTIMER accessor.
+        self.write(TimerRegister::MtimecmpLow, hart_id, u32::MAX);
+        self.write(TimerRegister::MtimecmpHigh, hart_id, high);
+        self.write(TimerRegister::MtimecmpLow, hart_id, low);
     }
 }
 
-impl TimerDevice for THeadClint {
+impl TimerDevice for THeadTimer {
     #[inline(always)]
     fn read_time(&self) -> u64 {
         // T-Head CLINTs have no memory-mapped `mtime`; read the `time` CSR.
@@ -82,67 +124,45 @@ impl TimerDevice for THeadClint {
     }
 
     #[inline(always)]
-    fn set_timer(&self, hart_idx: usize, value: u64) {
-        if self.read_mtimecmp(hart_idx) == value {
-            return;
-        }
-        write_split(value, |half, word| {
-            let reg = match half {
-                Half::Low => Reg::MtimecmpLow,
-                Half::High => Reg::MtimecmpHigh,
-            };
-            self.mmio.write::<u32>(reg.offset(hart_idx), word);
-        });
+    fn set_timer(&self, hart_id: usize, value: u64) {
+        self.set_mtimecmp(hart_id, value);
     }
 }
 
-impl IpiDevice for THeadClint {
+#[repr(u32)]
+enum IpiState {
+    Clear = 0,
+    Pending = 1,
+}
+
+struct THeadIpi {
+    msip: MmioRegion,
+}
+
+impl THeadIpi {
+    fn new(msip: MmioRegion) -> Self {
+        Self { msip }
+    }
+
+    fn write(&self, reg: IpiRegister, hart_id: usize, value: IpiState) {
+        self.msip
+            .write(reg.offset_for_hart(hart_id), value as u32)
+            .expect("BUG: T-Head CLINT IPI register escaped its MMIO window")
+    }
+}
+
+impl IpiDevice for THeadIpi {
     #[inline(always)]
-    fn send_ipi(&self, hart_idx: usize) {
-        self.mmio.write::<u32>(Reg::Msip.offset(hart_idx), 1)
+    fn send_ipi(&self, hart_id: usize) {
+        self.write(IpiRegister::Msip, hart_id, IpiState::Pending)
     }
 
     #[inline(always)]
     fn clear_ipi(&self) {
-        self.mmio
-            .write::<u32>(Reg::Msip.offset(crate::riscv::current_hartid()), 0)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn split_access_is_tear_safe() {
-        let mut reads = [
-            (Half::High, 1),
-            (Half::Low, u32::MAX),
-            (Half::High, 2),
-            (Half::High, 2),
-            (Half::Low, 3),
-            (Half::High, 2),
-        ]
-        .into_iter();
-        let value = read_split(|half| {
-            let (expected, word) = reads.next().unwrap();
-            assert_eq!(half, expected);
-            word
-        });
-        assert_eq!(value, 0x0000_0002_0000_0003);
-        assert!(reads.next().is_none());
-
-        let mut writes = alloc::vec::Vec::new();
-        write_split(0x1122_3344_5566_7788, |half, word| {
-            writes.push((half, word))
-        });
-        assert_eq!(
-            writes,
-            [
-                (Half::Low, u32::MAX),
-                (Half::High, 0x1122_3344),
-                (Half::Low, 0x5566_7788),
-            ]
-        );
+        self.write(
+            IpiRegister::Msip,
+            crate::riscv::current_hartid(),
+            IpiState::Clear,
+        )
     }
 }

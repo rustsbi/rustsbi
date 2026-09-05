@@ -1,68 +1,68 @@
 //! IMSIC IPI device and per-hart interrupt-file initialization.
+//!
+//! # References
+//!
+//! - Specification: [RISC-V AIA 1.0](https://docs.riscv.org/reference/aia/v1.0/IMSIC.html),
+//!   sections 2.1.5 and 2.1.8 — IMSIC MMIO pages and interrupt-file setup.
 
 use alloc::boxed::Box;
-use core::sync::atomic::Ordering;
 
 use riscv_aia::Iid;
 use riscv_aia::register::mtopei;
+use runtime::memory::{MemoryRegistry, MmioRegion};
 
 use crate::cfg::NUM_HART_MAX;
 use crate::driver::{InterruptDevices, IpiDevice, SstcTimer};
-use crate::platform::{AiaInfo, BoardInfo, board_info, cpu_enabled, mmio::Mmio, qemu_aplic};
+use crate::platform::qemu_aplic::QemuAplicConfig;
+use crate::platform::{BoardInfo, ImsicInfo, board_info};
 use crate::riscv::csr::imsic;
 use crate::riscv::current_hartid;
-use crate::sbi::features::{Extension, hart_extension_probe};
+use crate::sbi::features::{Extension, hart_has_extension};
 
 /// FDT `compatible` strings identifying an IMSIC interrupt controller.
-pub(crate) const IMSIC_COMPATIBLES: [&str; 2] = ["riscv,imsics", "riscv,imsic"];
+pub(crate) const IMSIC_COMPATIBLES: [&str; 1] = ["riscv,imsics"];
 
-/// Register-block span of one interrupt file (one 4 KiB IMSIC page).
-pub(crate) const IMSIC_FILE_SPAN: usize = 0x1000;
+/// Page shift of one IMSIC interrupt file.
+const IMSIC_FILE_PAGE_SHIFT: u32 = 12;
+pub(crate) const IMSIC_FILE_SPAN: usize = 1usize << IMSIC_FILE_PAGE_SHIFT;
 
-/// `seteipnum_le` register offset within an interrupt file; a little-endian
-/// 32-bit write to this register sets the pending bit of the given identity.
-const SET_EIPNUM_LE: usize = 0x0;
-
-/// IMSIC-backed IPI device delivering software interrupts as MSIs to each
-/// hart's machine-level interrupt file.
-pub(super) struct ImsicDevice {
-    firmware_ipi_iid: Iid,
-    hart_imsic_map: [Option<Mmio>; NUM_HART_MAX],
+#[repr(usize)]
+#[derive(Clone, Copy)]
+enum Register {
+    SetEipnumLe = 0x0000,
 }
 
-impl ImsicDevice {
-    /// Acquires the interrupt-file MMIO pages for every mapped hart from the
-    /// board's trusted regions.
-    ///
-    /// Returns `None` if any mapped page is not contained in a discovered
-    /// region, so the caller can fall back to the CLINT devices.
-    pub(super) fn new(
-        firmware_ipi_iid: Iid,
-        hart_imsic_map: [Option<usize>; NUM_HART_MAX],
-        board: &BoardInfo,
-    ) -> Option<Self> {
-        let mut files = [None; NUM_HART_MAX];
-        for (file, addr) in files.iter_mut().zip(hart_imsic_map) {
-            if let Some(addr) = addr {
-                *file = Some(Mmio::within(board, addr, IMSIC_FILE_SPAN)?);
-            }
-        }
-        Some(Self {
-            firmware_ipi_iid,
-            hart_imsic_map: files,
-        })
+impl Register {
+    const fn offset(self) -> usize {
+        self as usize
     }
 }
 
-impl IpiDevice for ImsicDevice {
+/// IMSIC-backed IPI device delivering software interrupts as MSIs to each
+/// hart's machine-level interrupt file.
+pub(super) struct ImsicIpi {
+    ipi_iid: Iid,
+    hart_files: [Option<MmioRegion>; NUM_HART_MAX],
+}
+
+impl ImsicIpi {
+    pub(super) fn new(ipi_iid: Iid, hart_files: [Option<MmioRegion>; NUM_HART_MAX]) -> Self {
+        Self {
+            ipi_iid,
+            hart_files,
+        }
+    }
+}
+
+impl IpiDevice for ImsicIpi {
     #[inline(always)]
     fn send_ipi(&self, hart_id: usize) {
-        let Some(file) = self.hart_imsic_map.get(hart_id).copied().flatten() else {
+        let Some(file) = self.hart_files.get(hart_id).and_then(Option::as_ref) else {
             warn!("IMSIC IPI: hart {} has no mapped interrupt file", hart_id);
             return;
         };
-        core::sync::atomic::fence(Ordering::Release);
-        file.write::<u32>(SET_EIPNUM_LE, self.firmware_ipi_iid.number() as u32);
+        file.write(Register::SetEipnumLe.offset(), self.ipi_iid.number() as u32)
+            .expect("BUG: IMSIC SETEIPNUM register escaped its interrupt-file window");
     }
 
     #[inline(always)]
@@ -76,58 +76,54 @@ impl IpiDevice for ImsicDevice {
     }
 }
 
-/// Selects IMSIC IPI and Sstc timer devices when every enabled hart supports
-/// the required AIA extensions and MMIO resources.
-pub(super) fn from_board(board: &BoardInfo, aia_info: &AiaInfo) -> Option<InterruptDevices> {
-    let Some(enabled_harts) = cpu_enabled() else {
-        warn!("AIA: enabled-hart data unavailable, falling back to CLINT");
-        return None;
-    };
-    if enabled_harts
+/// Checks AIA eligibility before any MMIO window is acquired.
+pub(super) fn is_eligible(board: &BoardInfo) -> bool {
+    if board
+        .enabled_harts
         .iter()
         .enumerate()
-        .any(|(hart_id, enabled)| *enabled && !hart_usable(hart_id))
+        .any(|(hart_id, enabled)| *enabled && !hart_supports_aia(hart_id))
     {
         warn!("AIA: requirements not met, falling back to CLINT");
-        return None;
+        return false;
+    }
+    true
+}
+
+/// Binds the selected AIA interrupt devices to their MMIO windows.
+pub(super) fn bind(
+    imsic: &ImsicInfo,
+    aplic_config: Option<QemuAplicConfig>,
+    memory: &mut MemoryRegistry,
+) -> runtime::Result<InterruptDevices> {
+    // No fallback is permitted after the first MMIO window is issued. All
+    // hardware capability checks above therefore precede initialization.
+    let mut hart_files = core::array::from_fn(|_| None);
+    for (hart_file, register_range) in hart_files.iter_mut().zip(imsic.hart_files) {
+        if let Some(register_range) = register_range {
+            *hart_file = Some(memory.acquire_mmio(register_range)?);
+        }
+    }
+    let ipi = ImsicIpi::new(imsic.ipi_iid, hart_files);
+
+    if let Some(aplic_config) = aplic_config {
+        aplic_config.bind(memory)?;
     }
 
-    let ipi = ImsicDevice::new(aia_info.firmware_ipi_iid, aia_info.hart_imsic_map, board).or_else(
-        || {
-            warn!("AIA: IMSIC MMIO regions unavailable, falling back to CLINT");
-            None
-        },
-    )?;
-
-    if board.is_qemu_virt()
-        && !qemu_aplic::init_qemu_m_aplic_delegation(
-            board,
-            aia_info.layout.machine_base,
-            aia_info.layout.hart_index_bits,
-        )
-    {
-        warn!("AIA: APLIC setup failed, falling back to CLINT");
-        return None;
-    }
-    if !board.is_qemu_virt() {
-        warn!("AIA: skipping QEMU virt M-APLIC setup on '{}'", board.model);
-    }
-
-    info!("AIA: IMSIC IPI + Sstc timer backend initialized");
-    Some(InterruptDevices {
+    Ok(InterruptDevices {
         timer: Box::new(SstcTimer),
         ipi: Box::new(ipi),
     })
 }
 
 /// Initializes this hart's IMSIC when that device was selected.
-pub(crate) fn per_hart_init() {
-    let Some(info) = board_info().aia.as_ref() else {
+pub(crate) fn initialize_hart_imsic() {
+    let Some(imsic) = board_info().imsic.as_ref() else {
         return;
     };
     let hart_id = current_hartid();
-    if hart_extension_probe(hart_id, Extension::Smaia) {
-        imsic_init_hart(info);
+    if hart_has_extension(hart_id, Extension::Smaia) {
+        initialize_machine_interrupt_file(imsic);
     } else {
         warn!(
             "Hart {} lacks Smaia despite IMSIC device selection",
@@ -138,21 +134,21 @@ pub(crate) fn per_hart_init() {
 
 /// Sets up this hart's machine interrupt file: delivery, thresholds, and
 /// the firmware IPI interrupt enable, then enables machine externals.
-fn imsic_init_hart(info: &AiaInfo) {
-    let ipi_iid = usize::from(info.firmware_ipi_iid.number());
-    imsic::initialize_machine_file(usize::from(info.num_ids), ipi_iid);
+fn initialize_machine_interrupt_file(imsic_info: &ImsicInfo) {
+    let ipi_iid = usize::from(imsic_info.ipi_iid.number());
+    imsic::initialize_machine_file(usize::from(imsic_info.num_ids), ipi_iid);
     debug!(
         "IMSIC: hart init done, MEIE enabled, firmware IPI IID={}",
         ipi_iid
     );
 }
 
-fn hart_usable(hart_id: usize) -> bool {
-    if !hart_extension_probe(hart_id, Extension::Smaia) {
+fn hart_supports_aia(hart_id: usize) -> bool {
+    if !hart_has_extension(hart_id, Extension::Smaia) {
         warn!("AIA: hart {} lacks Smaia, rejecting AIA", hart_id);
         return false;
     }
-    if !hart_extension_probe(hart_id, Extension::Sstc) {
+    if !hart_has_extension(hart_id, Extension::Sstc) {
         warn!("AIA: hart {} lacks Sstc, rejecting AIA", hart_id);
         return false;
     }
