@@ -19,7 +19,7 @@ mod sbi;
 use crate::firmware::BootInfo;
 use crate::riscv::current_hartid;
 use crate::sbi::features::{
-    check_privilege, detect_hart_features, hart_mhpm_mask, hart_privileged_version,
+    check_next_stage_privilege, detect_hart_features, hart_mhpm_mask, hart_privileged_version,
 };
 use crate::sbi::heap;
 use crate::sbi::hsm::hart_hsm;
@@ -30,19 +30,22 @@ use rustsbi_prototyper_macros::entry;
 #[entry]
 fn main(boot: BootInfo) {
     if boot.is_boot_hart() {
-        boot_hart(&boot);
+        boot_hart(boot);
     } else {
         secondary_hart(&boot);
     }
 }
 
-fn boot_hart(boot: &BootInfo) {
+fn boot_hart(mut boot: BootInfo) {
     heap::init();
-    platform::init_board(boot.fdt_address());
+    let platform_description = boot
+        .take_platform_description()
+        .expect("BUG: boot hart entered without a validated Platform Description");
+    let next_stage_fdt_address = platform::init_board(platform_description);
 
-    let mem = platform::memory_range();
-    firmware::set_pmp(&mem);
-    firmware::log_pmp_cfg(&mem);
+    let firmware_ram = platform::firmware_ram_range();
+    firmware::set_pmp(&firmware_ram);
+    firmware::log_pmp_cfg(&firmware_ram);
 
     let hart_id = current_hartid();
     info!("{:<30}: {}", "Boot HART ID", hart_id);
@@ -51,16 +54,16 @@ fn boot_hart(boot: &BootInfo) {
     trap_stack::prepare_for_trap();
     log_hart_capabilities(hart_id);
 
-    let mut next = boot.next_stage();
-    check_privilege(next.next_mode);
+    let mut next_stage = boot.next_stage();
+    check_next_stage_privilege(next_stage.next_mode);
 
-    platform::refresh_cpu_features();
-    next.opaque = firmware::patch_device_tree(boot.fdt_address());
+    platform::retain_privilege_checked_harts();
+    next_stage.opaque = next_stage_fdt_address;
     info!(
         "Redirecting hart {} to {:#016x} in {:?} mode.",
-        hart_id, next.start_addr, next.next_mode
+        hart_id, next_stage.start_addr, next_stage.next_mode
     );
-    hart_hsm().start(next);
+    hart_hsm().start(next_stage);
 
     enable_supervisor_services();
 }
@@ -70,11 +73,11 @@ fn secondary_hart(boot: &BootInfo) {
     trap_stack::prepare_for_trap();
 
     platform::wait_until_ready();
-    platform::secondary_hart_init();
-    firmware::set_pmp(&platform::memory_range());
+    platform::initialize_secondary_hart();
+    firmware::set_pmp(&platform::firmware_ram_range());
 
-    let next = boot.next_stage();
-    check_privilege(next.next_mode);
+    let next_stage = boot.next_stage();
+    check_next_stage_privilege(next_stage.next_mode);
 
     enable_supervisor_services();
 }
@@ -85,7 +88,7 @@ fn enable_supervisor_services() {
     // Gate per-hart IMSIC setup on the device selected during platform
     // initialization, not on AIA discovery alone.
     if ipi::uses_imsic() {
-        driver::per_hart_init();
+        driver::initialize_hart_imsic();
     }
     sbi::features::configure_delegation_and_trap();
 }

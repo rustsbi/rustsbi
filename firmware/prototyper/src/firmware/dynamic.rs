@@ -1,4 +1,9 @@
-//! Frequently used first boot stage dynamic information on RISC-V.
+//! Dynamic firmware handoff information on RISC-V.
+//!
+//! # References
+//!
+//! - Compatibility reference: [OpenSBI `fw_dynamic` interface](https://github.com/riscv-software-src/opensbi/blob/019a8e69a1dc0c0f011fabd0372e1ba80e40dd7c/include/sbi/fw_dynamic.h) —
+//!   `DynamicInfo` layout, magic value, versions, and boot-hart encoding.
 
 use core::ops::Range;
 
@@ -8,10 +13,10 @@ use riscv::register::mstatus;
 
 /// Derives the next-stage address and privilege mode from the `a2`
 /// `DynamicInfo`; prints and stops on invalid input.
-pub(crate) fn get_boot_info(dynamic_info_addr: usize) -> (mstatus::MPP, usize) {
+pub(crate) fn decode_next_stage(dynamic_info_address: usize) -> (mstatus::MPP, usize) {
     let dynamic_info =
-        read_paddr(dynamic_info_addr).unwrap_or_else(fail::no_dynamic_info_available);
-    mpp_next_addr(&dynamic_info).unwrap_or_else(fail::invalid_dynamic_data)
+        read_dynamic_info(dynamic_info_address).unwrap_or_else(fail::no_dynamic_info_available);
+    validate_next_stage(&dynamic_info).unwrap_or_else(fail::invalid_dynamic_data)
 }
 
 /// M-mode firmware dynamic information.
@@ -32,85 +37,85 @@ pub struct DynamicInfo {
     pub boot_hart: usize,
 }
 
-// Definition of `boot_hart` can be found at:
-// https://github.com/riscv-software-src/opensbi/blob/019a8e69a1dc0c0f011fabd0372e1ba80e40dd7c/include/sbi/fw_dynamic.h#L75
-
-const DYNAMIC_INFO_INVALID_ADDRESSES: usize = 0x00000000;
+const NULL_DYNAMIC_INFO_ADDRESS: usize = 0;
 pub(crate) const MAGIC: usize = 0x4942534f;
 const SUPPORTED_VERSION: Range<usize> = 0..3;
 
 /// Error type for dynamic info read failures.
-pub struct DynamicReadError {
-    pub bad_paddr: Option<usize>,
-    pub bad_magic: Option<usize>,
-    pub bad_version: Option<usize>,
+pub struct ReadError {
+    pub invalid_address: Option<usize>,
+    pub invalid_magic: Option<usize>,
+    pub unsupported_version: Option<usize>,
 }
 
 // TODO: unconstrained lifetime
 /// Reads dynamic info from physical address.
 ///
 /// Returns Result containing DynamicInfo or error details.
-pub fn read_paddr(paddr: usize) -> Result<DynamicInfo, DynamicReadError> {
-    let mut error = DynamicReadError {
-        bad_paddr: None,
-        bad_magic: None,
-        bad_version: None,
+pub fn read_dynamic_info(address: usize) -> Result<DynamicInfo, ReadError> {
+    let mut error = ReadError {
+        invalid_address: None,
+        invalid_magic: None,
+        unsupported_version: None,
     };
     // check pointer before dereference.
-    if DYNAMIC_INFO_INVALID_ADDRESSES == paddr {
-        error.bad_paddr = Some(paddr);
+    if address == NULL_DYNAMIC_INFO_ADDRESS {
+        error.invalid_address = Some(address);
         return Err(error);
     }
-    let ans = unsafe { *(paddr as *const DynamicInfo) };
+    let dynamic_info = unsafe { *(address as *const DynamicInfo) };
 
     // Validate magic number and version.
-    if ans.magic != MAGIC {
-        error.bad_magic = Some(ans.magic);
+    if dynamic_info.magic != MAGIC {
+        error.invalid_magic = Some(dynamic_info.magic);
     }
-    if !SUPPORTED_VERSION.contains(&ans.version) {
-        error.bad_version = Some(ans.version);
+    if !SUPPORTED_VERSION.contains(&dynamic_info.version) {
+        error.unsupported_version = Some(dynamic_info.version);
     }
-    if error.bad_magic.is_some() || error.bad_version.is_some() {
+    if error.invalid_magic.is_some() || error.unsupported_version.is_some() {
         return Err(error);
     }
-    Ok(ans)
+    Ok(dynamic_info)
 }
 
 /// Error type for dynamic info validation failures.
-pub struct DynamicError<'a> {
-    pub invalid_mpp: bool,
-    pub invalid_next_addr: bool,
-    pub bad_info: &'a DynamicInfo,
+pub struct ValidationError<'a> {
+    pub invalid_next_mode: bool,
+    pub invalid_next_address: bool,
+    pub dynamic_info: &'a DynamicInfo,
 }
 
 /// Validates and extracts privilege mode and next address from dynamic info.
 ///
 /// Returns Result containing tuple of (MPP, next_addr) or error details.
-pub fn mpp_next_addr(info: &DynamicInfo) -> Result<(mstatus::MPP, usize), DynamicError<'_>> {
-    let mut error = DynamicError {
-        invalid_mpp: false,
-        invalid_next_addr: false,
-        bad_info: info,
+pub fn validate_next_stage(
+    dynamic_info: &DynamicInfo,
+) -> Result<(mstatus::MPP, usize), ValidationError<'_>> {
+    let mut error = ValidationError {
+        invalid_next_mode: false,
+        invalid_next_address: false,
+        dynamic_info,
     };
 
     // fail safe, errors will be aggregated after whole checking process.
-    let next_addr_valid = crate::cfg::DYNAMIC_NEXT_ADDR_RANGE
-        .iter()
-        .any(|r| info.next_addr >= r.start as usize && info.next_addr < r.end as usize);
-    let mpp_valid = matches!(info.next_mode, 0 | 1 | 3);
+    let is_next_address_valid = crate::cfg::DYNAMIC_NEXT_ADDR_RANGE.iter().any(|range| {
+        dynamic_info.next_addr >= range.start as usize
+            && dynamic_info.next_addr < range.end as usize
+    });
+    let is_next_mode_valid = matches!(dynamic_info.next_mode, 0 | 1 | 3);
 
-    if !next_addr_valid {
-        error.invalid_next_addr = true;
+    if !is_next_address_valid {
+        error.invalid_next_address = true;
     }
-    if !mpp_valid {
-        error.invalid_mpp = true;
+    if !is_next_mode_valid {
+        error.invalid_next_mode = true;
     }
 
-    if !next_addr_valid || !mpp_valid {
+    if !is_next_address_valid || !is_next_mode_valid {
         return Err(error);
     }
 
-    let mpp = match info.next_mode {
+    let next_mode = match dynamic_info.next_mode {
         3 => mstatus::MPP::Machine,
         1 => mstatus::MPP::Supervisor,
         // pattern `_` avoids `unreachable!`` which introduces panic handler.
@@ -118,5 +123,5 @@ pub fn mpp_next_addr(info: &DynamicInfo) -> Result<(mstatus::MPP, usize), Dynami
         _ => mstatus::MPP::User,
     };
 
-    Ok((mpp, info.next_addr))
+    Ok((next_mode, dynamic_info.next_addr))
 }
