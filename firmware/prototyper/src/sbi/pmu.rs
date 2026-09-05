@@ -1,3 +1,10 @@
+//! Performance monitoring.
+//!
+//! # References
+//!
+//! - Specification: [RISC-V SBI PMU extension](https://docs.riscv.org/reference/sbi/v3.0/ext-pmu.html) —
+//!   counter discovery, event configuration, and shared-memory operations.
+
 #![forbid(unsafe_code)]
 
 use alloc::collections::BTreeMap;
@@ -9,7 +16,10 @@ use sbi_spec::pmu::*;
 
 use crate::riscv::csr::*;
 use crate::{
-    devicetree, devicetree::get_compatible, riscv::current_hartid, sbi::features::hart_mhpm_mask,
+    devicetree,
+    devicetree::{compatible_strings, visit_enabled_nodes},
+    riscv::current_hartid,
+    sbi::features::hart_mhpm_mask,
 };
 
 use super::features::{PrivilegedVersion, hart_privileged_version};
@@ -1165,20 +1175,20 @@ pub fn pmu_firmware_counter_increment(firmware_event: usize) {
 
 /// Initializes the SBI PMU extension from the FDT pmu node.
 pub(crate) fn init(root: &serde_device_tree::buildin::Node) -> Option<SbiPmu> {
-    let mut pmu_node: Option<devicetree::Pmu> = None;
+    let mut pmu_description: Option<devicetree::Pmu> = None;
     let mut find_pmu = |node: &serde_device_tree::buildin::Node| {
-        let Some(compatible_strseq) = get_compatible(node) else {
+        let Some(compatibles) = compatible_strings(node) else {
             return;
         };
-        for compatible in compatible_strseq.iter() {
+        for compatible in compatibles.iter() {
             if compatible == "riscv,pmu" {
-                pmu_node = Some(node.deserialize::<devicetree::Pmu>());
+                pmu_description = Some(node.deserialize::<devicetree::Pmu>());
             }
         }
     };
-    root.search(&mut find_pmu);
+    visit_enabled_nodes(root, &mut find_pmu);
 
-    let Some(ref pmu) = pmu_node else {
+    let Some(ref pmu) = pmu_description else {
         return None;
     };
     let mut sbi_pmu = SbiPmu::default();

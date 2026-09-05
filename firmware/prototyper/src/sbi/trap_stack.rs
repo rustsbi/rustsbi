@@ -108,7 +108,7 @@ where
 /// SAFETY (mechanism contract): the caller must guarantee the target hart
 /// does not concurrently touch its own slot while `f` runs (parked in
 /// firmware entry, or not yet released). Used by `with_current` and by the
-/// boot-time feature seeding in `features::extension_detection`.
+/// boot-time feature seeding in `features::detect_extensions`.
 pub fn with_hart<F, R>(hart_id: usize, f: F) -> R
 where
     F: FnOnce(&mut HartLocal) -> R,

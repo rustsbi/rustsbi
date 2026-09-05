@@ -7,8 +7,7 @@ use sbi_spec::pmu::firmware_event;
 
 use crate::riscv::csr::{CSR_TIME, CSR_TIMEH};
 use crate::riscv::current_hartid;
-use crate::sbi::console;
-use crate::sbi::features::{Extension, hart_extension_probe};
+use crate::sbi::features::{Extension, hart_has_extension};
 use crate::sbi::hsm::local_hsm;
 use crate::sbi::ipi;
 use crate::sbi::pmu::pmu_firmware_counter_increment;
@@ -18,7 +17,7 @@ use super::helper::*;
 
 #[inline]
 fn enable_mtimer_if_no_sstc() {
-    if !hart_extension_probe(current_hartid(), Extension::Sstc) {
+    if !hart_has_extension(current_hartid(), Extension::Sstc) {
         // SAFETY: M-mode write to this hart's mie.
         unsafe {
             mie::set_mtimer();
@@ -103,24 +102,23 @@ pub fn msoft_handler(ctx: FastContext) -> FastResult {
 pub fn mext_handler(ctx: FastContext) -> FastResult {
     use ipi::get_and_reset_ipi_type;
 
-    if !crate::sbi::ipi::uses_imsic() || !hart_extension_probe(current_hartid(), Extension::Smaia) {
+    if !crate::sbi::ipi::uses_imsic() || !hart_has_extension(current_hartid(), Extension::Smaia) {
         warn!("MachineExternal: AIA is not available on this hart");
         return ctx.restore();
     }
 
-    let Some(firmware_ipi_iid) = crate::platform::board_info()
-        .aia
+    let Some(ipi_iid) = crate::platform::board_info()
+        .imsic
         .as_ref()
-        .map(|a| a.firmware_ipi_iid)
+        .map(|imsic| imsic.ipi_iid)
     else {
         warn!("MachineExternal: missing AIA platform info");
         return ctx.restore();
     };
 
     let claimed = riscv_aia::register::mtopei::claim();
-
     match claimed.iid() {
-        Some(id) if firmware_ipi_iid == id => match local_hsm().start() {
+        Some(id) if ipi_iid == id => match local_hsm().start() {
             Ok(next_stage) => {
                 // SAFETY: M-mode writes to this hart's mstatus and mie in
                 // preparation for the mret into the next stage.
@@ -194,7 +192,7 @@ pub fn sbi_call_handler(
                     ret.value = crate::sbi::timer().is_some() as usize;
                 }
                 legacy::LEGACY_CONSOLE_PUTCHAR | legacy::LEGACY_CONSOLE_GETCHAR => {
-                    ret.value = 1;
+                    ret.value = crate::sbi::console().is_some() as usize;
                 }
                 _ => {}
             },
@@ -210,12 +208,17 @@ pub fn sbi_call_handler(
                 }
             }
             legacy::LEGACY_CONSOLE_PUTCHAR => {
-                ret.error = console::putchar(ctx.a0());
-                ret.value = a1;
+                if let Some(console) = crate::sbi::console() {
+                    console.write_byte_blocking(ctx.a0() as u8);
+                    ret.error = 0;
+                    ret.value = a1;
+                }
             }
             legacy::LEGACY_CONSOLE_GETCHAR => {
-                ret.error = console::getchar();
-                ret.value = a1;
+                if let Some(console) = crate::sbi::console() {
+                    ret.error = console.try_read_byte().map_or(usize::MAX, usize::from);
+                    ret.value = a1;
+                }
             }
             _ => {}
         }

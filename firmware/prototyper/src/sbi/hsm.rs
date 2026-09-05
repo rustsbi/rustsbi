@@ -1,6 +1,11 @@
-#![forbid(unsafe_code)]
+//! Hart state management.
+//!
+//! # References
+//!
+//! - Specification: [RISC-V SBI HSM extension](https://docs.riscv.org/reference/sbi/v3.0/ext-hsm.html) —
+//!   hart states and state transitions.
 
-//! SBI HSM (Hart State Management) extension.
+#![forbid(unsafe_code)]
 
 use riscv::register::mstatus::MPP;
 use rustsbi::SbiRet;
@@ -29,7 +34,7 @@ pub(crate) struct SbiHsm;
 impl rustsbi::Hsm for SbiHsm {
     /// Starts execution on a stopped hart.
     fn hart_start(&self, hartid: usize, start_addr: usize, opaque: usize) -> SbiRet {
-        let hart_enable = crate::platform::cpu_enabled().unwrap();
+        let hart_enable = crate::platform::enabled_harts().unwrap();
         let enabled = hart_enable.get(hartid).copied().unwrap_or(false);
         if !enabled {
             return SbiRet::invalid_param();
@@ -64,7 +69,7 @@ impl rustsbi::Hsm for SbiHsm {
     /// Gets the current state of a hart.
     #[inline]
     fn hart_get_status(&self, hartid: usize) -> SbiRet {
-        let hart_enable = crate::platform::cpu_enabled().unwrap();
+        let hart_enable = crate::platform::enabled_harts().unwrap();
         let enabled = hart_enable.get(hartid).copied().unwrap_or(false);
         if !enabled {
             return SbiRet::invalid_param();

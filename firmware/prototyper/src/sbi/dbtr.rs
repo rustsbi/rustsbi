@@ -1,5 +1,14 @@
+//! Debug-trigger support.
+//!
+//! # References
+//!
+//! - Specification: [RISC-V SBI DBTR extension](https://docs.riscv.org/reference/sbi/v3.0/ext-debug-triggers.html) —
+//!   shared-memory layout and debug-trigger operations.
+
+use core::mem::{align_of, size_of};
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+use runtime::memory::{PhysAddr, PhysAddrRange, SupervisorMemory};
 use rustsbi::SbiRet;
 use sbi_spec::binary::{SharedPtr, TriggerMask};
 
@@ -8,43 +17,43 @@ use crate::sbi::early_trap::{TrapInfo, csr_read_allow, csr_write_allow};
 /// Debug Triggers extension for harts with the RISC-V Sdtrig interface.
 ///
 /// Trigger configuration is not supported.
-pub(crate) struct SbiDbtr;
+pub(crate) struct SbiDbtr {
+    supervisor_memory: &'static SupervisorMemory,
+}
+
+impl SbiDbtr {
+    pub(crate) const fn new(supervisor_memory: &'static SupervisorMemory) -> Self {
+        Self { supervisor_memory }
+    }
+}
 
 // The `riscv` crate has no Sdtrig CSR wrappers, so probes use raw CSR helpers
 // that contain illegal-instruction traps for absent CSRs.
 const CSR_TSELECT: u16 = 0x7a0;
 const CSR_TDATA1: u16 = 0x7a1;
-// Defined by Sdtrig but unused until trigger configuration is implemented.
-#[allow(dead_code)]
-const CSR_TDATA2: u16 = 0x7a2;
-#[allow(dead_code)]
-const CSR_TDATA3: u16 = 0x7a3;
-#[allow(dead_code)]
-const CSR_TINFO: u16 = 0x7a4;
-
-// Bound the `tselect` walk to at most 256 triggers.
-const SBI_DBTR_TRIG_MAX: usize = 255;
+// Bound the `tselect` walk independently of the hardware.
+const MAX_PROBED_TRIGGERS: usize = 256;
 
 // The trigger count is cached once; `usize::MAX` denotes an empty cache.
-static TRIG_MAX: AtomicUsize = AtomicUsize::new(usize::MAX);
+static CACHED_TRIGGER_COUNT: AtomicUsize = AtomicUsize::new(usize::MAX);
 
-static SHMEM_PTR: AtomicUsize = AtomicUsize::new(0);
+static SHMEM_ADDRESS: AtomicUsize = AtomicUsize::new(0);
 
 fn probe_triggers() -> usize {
     let mut count = 0;
     // A selector is usable only if it reads back unchanged. A zero
     // `tdata1.type` field does not identify an implemented trigger.
-    for i in 0..=SBI_DBTR_TRIG_MAX {
+    for index in 0..MAX_PROBED_TRIGGERS {
         let mut trap = TrapInfo::default();
         // SAFETY: firmware runs in M-mode, and `trap` remains valid for the call.
-        unsafe { csr_write_allow::<CSR_TSELECT>(&mut trap, i) };
+        unsafe { csr_write_allow::<CSR_TSELECT>(&mut trap, index) };
         if trap.mcause != usize::MAX {
             break;
         }
 
         // SAFETY: firmware runs in M-mode, and `trap` remains valid for the call.
         let selected = unsafe { csr_read_allow::<CSR_TSELECT>(&mut trap) };
-        if trap.mcause != usize::MAX || selected != i {
+        if trap.mcause != usize::MAX || selected != index {
             break;
         }
 
@@ -61,20 +70,20 @@ fn probe_triggers() -> usize {
     count
 }
 
-fn num_triggers_probed() -> usize {
-    let cached = TRIG_MAX.load(Ordering::Relaxed);
+fn cached_trigger_count() -> usize {
+    let cached = CACHED_TRIGGER_COUNT.load(Ordering::Relaxed);
     if cached != usize::MAX {
         return cached;
     }
     let probed = probe_triggers();
-    TRIG_MAX.store(probed, Ordering::Relaxed);
+    CACHED_TRIGGER_COUNT.store(probed, Ordering::Relaxed);
     probed
 }
 
 impl rustsbi::Dbtr for SbiDbtr {
-    fn num_triggers(&self, trig_tdata1: usize) -> usize {
-        if trig_tdata1 == 0 {
-            num_triggers_probed()
+    fn num_triggers(&self, trigger_data1: usize) -> usize {
+        if trigger_data1 == 0 {
+            cached_trigger_count()
         } else {
             // A nonzero `tdata1` request requires trigger-type filtering,
             // which this scaffolding does not implement.
@@ -82,35 +91,38 @@ impl rustsbi::Dbtr for SbiDbtr {
         }
     }
 
-    fn set_shmem(&self, shmem: SharedPtr<u8>, flags: usize) -> SbiRet {
+    fn set_shmem(&self, shared_memory: SharedPtr<u8>, flags: usize) -> SbiRet {
         if flags != 0 {
             return SbiRet::invalid_param();
         }
 
-        let lo = shmem.phys_addr_lo();
-        let hi = shmem.phys_addr_hi();
-        if hi == usize::MAX && lo == usize::MAX {
-            SHMEM_PTR.store(0, Ordering::Relaxed);
+        let start = PhysAddr::new(shared_memory.phys_addr_lo());
+        let address_high = shared_memory.phys_addr_hi();
+        if address_high == usize::MAX && start.as_usize() == usize::MAX {
+            SHMEM_ADDRESS.store(0, Ordering::Relaxed);
             return SbiRet::success(0);
         }
 
-        let trigger_count = num_triggers_probed();
+        let trigger_count = cached_trigger_count();
         if trigger_count == 0 {
             return SbiRet::not_supported();
         }
 
-        if lo & (core::mem::size_of::<usize>() - 1) != 0 || hi != 0 {
+        if !start.is_aligned_to(align_of::<usize>()) || address_high != 0 {
             return SbiRet::invalid_param();
         }
 
-        let Some(shmem_size) = trigger_count.checked_mul(4 * core::mem::size_of::<usize>()) else {
+        let Some(shared_memory_size) = trigger_count.checked_mul(4 * size_of::<usize>()) else {
             return SbiRet::invalid_address();
         };
-        if !crate::firmware::supervisor_writable(lo, shmem_size) {
+        let Ok(range) = PhysAddrRange::from_start_len(start, shared_memory_size) else {
+            return SbiRet::invalid_address();
+        };
+        if self.supervisor_memory.check_range(range).is_err() {
             return SbiRet::invalid_address();
         }
 
-        SHMEM_PTR.store(lo, Ordering::Relaxed);
+        SHMEM_ADDRESS.store(start.as_usize(), Ordering::Relaxed);
         SbiRet::success(0)
     }
 
