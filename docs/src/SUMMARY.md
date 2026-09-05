@@ -45,7 +45,6 @@
     - [为 Prototyper 适配新的裸机平台](./07_development/new-platform-prototyper.md)
 - [孵化中的 RustSBI 项目](./chapter_08_incubating.md)
     - [RustSBI Agent 大模型问答智能体](./08_incubating/rustsbi_agent.md)
-    - [ArceBoot 特权态引导程序](./08_incubating/arceboot.md)
 - [引导生态简介](./chapter_09_ecosystem.md)
     - [Oreboot LinuxBoot 引导解决方案](./09_ecosystem/oreboot.md)
     - [Buildroot RustSBI 解决方案](./09_ecosystem/buildroot.md)

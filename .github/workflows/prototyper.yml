@@ -40,12 +40,8 @@ jobs:
       - name: Run test
         run: cargo test --locked -p rustsbi-prototyper -p rustsbi-prototyper-macros
 
-      # The workspace target flags enable core_io for ArceBoot. Prototyper does
-      # not use that unstable feature, so keep those flags out of this lint.
       - name: Run rust-clippy (Prototyper)
         shell: bash
-        env:
-          RUSTFLAGS: ""
         run: |
           set -o pipefail
           mkdir -p clippy-results

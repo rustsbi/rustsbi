@@ -25,7 +25,7 @@ minimum supported Rust version (MSRV) from the root [`Cargo.toml`](Cargo.toml). 
 stable Rust, CI tests the host-compatible libraries, checks every library on RV64IMAC with all features, and checks the
 RV32IMAC-compatible libraries on RV32IMAC.
 
-Repository-wide development, including RustSBI Prototyper and ArceBoot, uses the date-pinned nightly toolchain in
+Repository-wide development, including RustSBI Prototyper, uses the date-pinned nightly toolchain in
 [`rust-toolchain.toml`](rust-toolchain.toml). `rustup` selects it automatically for commands run in this repository.
 
 ## Build this project

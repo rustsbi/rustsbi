@@ -29,9 +29,8 @@ pub enum PrototyperCommand {
     Bench(kernels::KernelArgs),
 }
 
-pub use build::BuildArgs;
 #[cfg(test)]
-pub(crate) use build::BuildMode;
+pub(crate) use build::{BuildArgs, BuildMode};
 pub(crate) use kernels::Kernel;
 pub(crate) use target::Target;
 

@@ -18,12 +18,11 @@ members = [
     "firmware/prototyper",
     "firmware/bench-kernel",
     "firmware/test-kernel",
-    "arceboot",
     "xtask",
 ]
 # Default Cargo commands operate on host-testable libraries.
-# `sbi-testing` is checked on RISC-V targets in CI. Firmware and ArceBoot
-# are built through xtask.
+# `sbi-testing` is checked on RISC-V targets in CI. Firmware is built through
+# xtask.
 default-members = [
     "library/macros",
     "library/sbi-rt",

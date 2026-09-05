@@ -4,14 +4,12 @@ use std::process::ExitCode;
 
 #[macro_use]
 mod utils;
-mod arceboot;
 mod logger;
 mod prototyper;
 
 #[macro_use]
 extern crate log;
 
-use crate::arceboot::ArcebootArg;
 use crate::prototyper::PrototyperCommand;
 
 #[derive(Parser)]
@@ -34,8 +32,6 @@ enum Cmd {
         #[command(subcommand)]
         command: PrototyperCommand,
     },
-    /// Build ArceBoot bootloader (optionally with Prototyper as payload).
-    Arceboot(ArcebootArg),
 }
 
 fn main() -> ExitCode {
@@ -54,7 +50,6 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         },
-        Cmd::Arceboot(arg) => arceboot::run(arg),
     };
 
     match result {
@@ -65,7 +60,6 @@ fn main() -> ExitCode {
         Some(exit_status) => {
             let cmd_name = match &cli_args.cmd {
                 Cmd::Prototyper { .. } => "prototyper",
-                Cmd::Arceboot(_) => "arceboot",
             };
             error!("Task '{}' failed with exit code: {}", cmd_name, exit_status);
             ExitCode::FAILURE
