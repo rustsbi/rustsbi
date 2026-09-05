@@ -5,35 +5,93 @@
 
 use crate::iid::Iid;
 
-riscv::read_only_csr! {
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+const CSR_MTOPEI: u16 = 0x35c;
+
+const FIELD_MASK: usize = 0x07ff;
+const IDENTITY_SHIFT: u32 = 16;
+const REGISTER_MASK: usize = (FIELD_MASK << IDENTITY_SHIFT) | FIELD_MASK;
+
+riscv::csr! {
     /// Machine top external interrupt (mtopei).
-    Mtopei: 0x35C,
-    mask: 0x07FF_07FF,
+    Mtopei,
+    REGISTER_MASK
 }
 
 impl Mtopei {
     /// Gets the external interrupt identity of the highest-priority interrupt.
     #[inline]
     pub const fn iid(self) -> Option<Iid> {
-        let bits = (self.bits & 0x07FF_0000) >> 16;
+        let bits = (self.bits & (FIELD_MASK << IDENTITY_SHIFT)) >> IDENTITY_SHIFT;
         Iid::new(bits as u16)
     }
 
     /// Gets the 11-bit priority number of the highest-priority external interrupt.
     #[inline]
     pub const fn iprio(self) -> u16 {
-        (self.bits & 0x0000_07FF) as u16
+        (self.bits & FIELD_MASK) as u16
+    }
+}
+
+/// Reads `mtopei` without claiming the reported interrupt.
+#[inline]
+pub fn read() -> Mtopei {
+    try_read().expect("mtopei is unavailable on this target")
+}
+
+/// Attempts to read `mtopei` without claiming the reported interrupt.
+#[inline]
+pub fn try_read() -> riscv::result::Result<Mtopei> {
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+    {
+        let bits: usize;
+        // SAFETY: reading this CSR has no memory-safety preconditions. A caller
+        // must still ensure that the current hart implements an IMSIC.
+        unsafe {
+            core::arch::asm!(
+                "csrrs {bits}, {csr}, zero",
+                bits = out(reg) bits,
+                csr = const CSR_MTOPEI,
+                options(nomem, nostack),
+            );
+        }
+        Ok(Mtopei::from_bits(bits))
+    }
+
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+    {
+        Err(riscv::result::Error::Unimplemented)
     }
 }
 
 /// Claims and returns the top machine external interrupt.
 ///
-/// Reading `mtopei` performs the architecturally defined claim operation and
-/// clears the returned interrupt from the top-pending state. The complete
-/// register value is returned so callers retain both its identity and priority.
+/// The read and write are performed atomically, as required by RISC-V AIA 1.0
+/// §2.1.9, so the interrupt reported by the read is the one whose pending bit
+/// is cleared.
 #[inline]
 pub fn claim() -> Mtopei {
-    read()
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+    {
+        let bits: usize;
+        // SAFETY: `mtopei` is accessed with the architecturally prescribed
+        // atomic claim sequence. Callers use this only when an IMSIC is
+        // present for the current hart.
+        unsafe {
+            core::arch::asm!(
+                "csrrw {bits}, {csr}, zero",
+                bits = out(reg) bits,
+                csr = const CSR_MTOPEI,
+                options(nomem, nostack),
+            );
+        }
+        Mtopei::from_bits(bits)
+    }
+
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+    {
+        panic!("mtopei is unavailable on this target")
+    }
 }
 
 #[cfg(test)]
