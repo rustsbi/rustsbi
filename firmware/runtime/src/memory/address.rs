@@ -31,4 +31,12 @@ impl PhysAddr {
             None => None,
         }
     }
+
+    /// Returns whether the address is a multiple of `alignment`.
+    ///
+    /// A zero alignment is invalid and returns `false`.
+    #[inline]
+    pub const fn is_aligned_to(self, alignment: usize) -> bool {
+        alignment != 0 && self.0.is_multiple_of(alignment)
+    }
 }
