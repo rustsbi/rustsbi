@@ -1,77 +1,115 @@
 //! NS16550-compatible UART with byte- or word-spaced registers.
+//!
+//! # References
+//!
+//! - Hardware manual: [Texas Instruments TL16C550D data sheet](https://www.ti.com/lit/ds/symlink/tl16c550d.pdf),
+//!   Register Functional Description — register indices and line-status fields.
 
-use crate::driver::console::ConsoleDevice;
-use crate::platform::mmio::Mmio;
+use alloc::boxed::Box;
+use bitflags::bitflags;
+use core::mem::size_of;
+use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
-/// Span through the byte-wide line status register.
-pub(crate) const BYTE_SPAN: usize = 6;
-/// Span through the word-wide line status register.
-pub(crate) const WORD_SPAN: usize = 24;
+use crate::driver::console::{ConsoleDevice, acquire_registers};
 
-const LSR_DATA_READY: u8 = 1 << 0;
-const LSR_THR_EMPTY: u8 = 1 << 5;
-
+#[repr(usize)]
 #[derive(Clone, Copy)]
-enum Reg {
-    RbrThr = 0,
-    Lsr = 5,
+enum Register {
+    Data = 0,
+    LineStatus = 5,
 }
 
-impl Reg {
-    fn offset(self, stride: usize) -> usize {
-        stride * self as usize
-    }
-}
-
-pub(super) struct Uart16550 {
-    mmio: Mmio,
-    stride: usize,
-}
-
-impl Uart16550 {
-    /// Wraps an acquired register block; `word_wide` selects the 4-byte
-    /// register stride of word-spaced devices.
-    pub(super) fn new(mmio: Mmio, word_wide: bool) -> Self {
-        Self {
-            mmio,
-            stride: if word_wide { 4 } else { 1 },
-        }
-    }
-
-    fn line_status(&self) -> u8 {
-        if self.stride == 4 {
-            self.mmio.read::<u32>(Reg::Lsr.offset(self.stride)) as u8
-        } else {
-            self.mmio.read::<u8>(Reg::Lsr.offset(self.stride))
-        }
-    }
-
-    fn read_byte(&self) -> u8 {
-        if self.stride == 4 {
-            self.mmio.read::<u32>(Reg::RbrThr.offset(self.stride)) as u8
-        } else {
-            self.mmio.read::<u8>(Reg::RbrThr.offset(self.stride))
-        }
-    }
-
-    fn write_byte(&self, value: u8) {
-        let offset = Reg::RbrThr.offset(self.stride);
-        if self.stride == 4 {
-            self.mmio.write::<u32>(offset, value as u32);
-        } else {
-            self.mmio.write::<u8>(offset, value);
-        }
+impl Register {
+    const fn index(self) -> usize {
+        self as usize
     }
 }
 
-impl ConsoleDevice for Uart16550 {
+const U8_SPAN: usize = Register::LineStatus.index() + size_of::<u8>();
+const U32_SPAN: usize = (Register::LineStatus.index() + 1) * size_of::<u32>();
+
+bitflags! {
+    struct LineStatus: u8 {
+        const DATA_READY = 1 << 0;
+        const TX_HOLDING_REGISTER_EMPTY = 1 << 5;
+    }
+}
+
+pub(super) fn bind_u8(
+    registers: DeviceRegisterRange,
+    memory: &mut MemoryRegistry,
+) -> runtime::Result<Box<dyn ConsoleDevice>> {
+    let registers = acquire_registers::<u8>(registers, U8_SPAN, memory)?;
+    Ok(Box::new(Uart16550::new(U8RegisterAccess(registers))))
+}
+
+pub(super) fn bind_u32(
+    registers: DeviceRegisterRange,
+    memory: &mut MemoryRegistry,
+) -> runtime::Result<Box<dyn ConsoleDevice>> {
+    let registers = acquire_registers::<u32>(registers, U32_SPAN, memory)?;
+    Ok(Box::new(Uart16550::new(U32RegisterAccess(registers))))
+}
+
+trait RegisterAccess {
+    fn read(&self, register: Register) -> u8;
+    fn write(&self, register: Register, value: u8);
+}
+
+struct U8RegisterAccess(MmioRegion);
+
+impl RegisterAccess for U8RegisterAccess {
+    fn read(&self, register: Register) -> u8 {
+        self.0
+            .read(register.index())
+            .expect("BUG: 16550 u8 register escaped its MMIO window")
+    }
+
+    fn write(&self, register: Register, value: u8) {
+        self.0
+            .write(register.index(), value)
+            .expect("BUG: 16550 u8 register escaped its MMIO window")
+    }
+}
+
+struct U32RegisterAccess(MmioRegion);
+
+impl RegisterAccess for U32RegisterAccess {
+    fn read(&self, register: Register) -> u8 {
+        self.0
+            .read::<u32>(register.index() * size_of::<u32>())
+            .expect("BUG: 16550 u32 register escaped its MMIO window") as u8
+    }
+
+    fn write(&self, register: Register, value: u8) {
+        self.0
+            .write(register.index() * size_of::<u32>(), u32::from(value))
+            .expect("BUG: 16550 u32 register escaped its MMIO window")
+    }
+}
+
+struct Uart16550<Access> {
+    registers: Access,
+}
+
+impl<Access: RegisterAccess> Uart16550<Access> {
+    fn new(registers: Access) -> Self {
+        Self { registers }
+    }
+
+    fn line_status(&self) -> LineStatus {
+        LineStatus::from_bits_retain(self.registers.read(Register::LineStatus))
+    }
+}
+
+impl<Access: RegisterAccess + Send> ConsoleDevice for Uart16550<Access> {
     fn read(&self, buf: &mut [u8]) -> usize {
         let mut count = 0;
-        for slot in buf.iter_mut() {
-            if self.line_status() & LSR_DATA_READY == 0 {
+        for byte in buf.iter_mut() {
+            if !self.line_status().contains(LineStatus::DATA_READY) {
                 break;
             }
-            *slot = self.read_byte();
+            *byte = self.registers.read(Register::Data);
             count += 1;
         }
         count
@@ -80,10 +118,13 @@ impl ConsoleDevice for Uart16550 {
     fn write(&self, buf: &[u8]) -> usize {
         let mut count = 0;
         for &byte in buf {
-            if self.line_status() & LSR_THR_EMPTY == 0 {
+            if !self
+                .line_status()
+                .contains(LineStatus::TX_HOLDING_REGISTER_EMPTY)
+            {
                 break;
             }
-            self.write_byte(byte);
+            self.registers.write(Register::Data, byte);
             count += 1;
         }
         count
