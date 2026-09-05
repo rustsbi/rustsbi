@@ -1,3 +1,10 @@
+//! System suspend.
+//!
+//! # References
+//!
+//! - Specification: [RISC-V SBI SUSP extension](https://docs.riscv.org/reference/sbi/v3.0/ext-sys-suspend.html) —
+//!   sleep types, entry requirements, and resume state.
+
 #![forbid(unsafe_code)]
 
 use riscv::register::mstatus;
@@ -25,7 +32,7 @@ impl rustsbi::Susp for SbiSuspend {
         }
 
         // Check if all harts except the current hart are stopped
-        let hart_enable_map = if let Some(hart_enable_map) = crate::platform::cpu_enabled() {
+        let hart_enable_map = if let Some(hart_enable_map) = crate::platform::enabled_harts() {
             hart_enable_map
         } else {
             return SbiRet::failed();

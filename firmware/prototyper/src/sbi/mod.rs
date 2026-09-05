@@ -118,11 +118,8 @@ impl SbiDispatcher {
 
 /// The SBI extension set, owned by the sbi layer.
 ///
-/// Invariant: published once by the boot composition (`init_board`) after
-/// all extension constructors have run and before `IS_K1_PLATFORM` is
-/// stored and `platform::READY` is released; read afterwards through the
-/// shared accessors below. Publishing and reading go through `spin::Once`,
-/// so this half of the split is fully safe.
+/// Published once after all extension constructors run and before platform
+/// initialization releases the secondary harts.
 pub(crate) static SBI_DISPATCHER: Once<SbiDispatcher> = Once::new();
 
 /// Dispatches an SBI ecall to the matching extension; the sole
@@ -133,8 +130,13 @@ pub(crate) static SBI_DISPATCHER: Once<SbiDispatcher> = Once::new();
 pub(crate) fn handle_ecall(extension: usize, function: usize, param: [usize; 6]) -> SbiRet {
     SBI_DISPATCHER
         .get()
-        .expect("dispatcher published before ecall handling; mtvec installs in main phase 4, after publish")
+        .expect("BUG: SBI ecall handled before dispatcher publication")
         .handle_ecall(extension, function, param)
+}
+
+/// Returns the console extension, if present.
+pub(crate) fn console() -> Option<&'static SbiConsole> {
+    SBI_DISPATCHER.get().and_then(|sbi| sbi.console.as_ref())
 }
 
 /// Returns the ipi extension, if present.
@@ -145,21 +147,6 @@ pub(crate) fn ipi() -> Option<&'static SbiIpi> {
 /// Returns the timer extension, if present.
 pub(crate) fn timer() -> Option<&'static SbiTimer> {
     SBI_DISPATCHER.get().and_then(|sbi| sbi.timer.as_ref())
-}
-
-/// Returns the cppc extension, if present.
-pub(crate) fn cppc() -> Option<&'static SbiCppc> {
-    SBI_DISPATCHER.get().and_then(|sbi| sbi.cppc.as_ref())
-}
-
-/// Returns the dbtr extension, if present.
-pub(crate) fn dbtr() -> Option<&'static SbiDbtr> {
-    SBI_DISPATCHER.get().and_then(|sbi| sbi.dbtr.as_ref())
-}
-
-/// Returns the fwft extension, if present.
-pub(crate) fn fwft() -> Option<&'static SbiFwft> {
-    SBI_DISPATCHER.get().and_then(|sbi| sbi.fwft.as_ref())
 }
 
 /// Returns the hsm extension, if present.
@@ -180,16 +167,6 @@ pub(crate) fn rfence() -> Option<&'static SbiRFence> {
 /// Returns the pmu extension, if present.
 pub(crate) fn pmu() -> Option<&'static SbiPmu> {
     SBI_DISPATCHER.get().and_then(|sbi| sbi.pmu.as_ref())
-}
-
-/// Returns the sta extension, if present.
-pub(crate) fn sta() -> Option<&'static SbiSta> {
-    SBI_DISPATCHER.get().and_then(|sbi| sbi.sta.as_ref())
-}
-
-/// Returns the sse extension, if present.
-pub(crate) fn sse() -> Option<&'static SbiSse> {
-    SBI_DISPATCHER.get().and_then(|sbi| sbi.sse.as_ref())
 }
 
 /// Returns the susp extension, if present.

@@ -1,6 +1,11 @@
-#![forbid(unsafe_code)]
+//! Remote fence operations.
+//!
+//! # References
+//!
+//! - Specification: [RISC-V SBI RFENCE extension](https://docs.riscv.org/reference/sbi/v3.0/ext-rfence.html) —
+//!   hart-mask and address-range semantics for remote fences.
 
-//! SBI RFence (Remote Fence) extension.
+#![forbid(unsafe_code)]
 
 use rustsbi::{HartMask, SbiRet};
 use sbi_spec::pmu::firmware_event;
@@ -115,7 +120,7 @@ fn remote_fence_process(rfence_ctx: RFenceContext, hart_mask: HartMask) -> SbiRe
 
 #[cfg(feature = "hypervisor")]
 fn supports_hypervisor_extension() -> bool {
-    super::features::hart_extension_probe(current_hartid(), super::features::Extension::Hypervisor)
+    super::features::hart_has_extension(current_hartid(), super::features::Extension::Hypervisor)
 }
 
 impl rustsbi::Fence for SbiRFence {

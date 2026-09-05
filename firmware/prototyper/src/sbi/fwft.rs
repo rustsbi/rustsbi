@@ -1,3 +1,10 @@
+//! Firmware feature control.
+//!
+//! # References
+//!
+//! - Specification: [RISC-V SBI FWFT extension](https://docs.riscv.org/reference/sbi/v3.0/ext-firmware-features.html) —
+//!   feature identifiers and get/set semantics.
+
 use rustsbi::SbiRet;
 use sbi_spec::fwft::feature_type;
 

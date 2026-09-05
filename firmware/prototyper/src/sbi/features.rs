@@ -3,16 +3,15 @@
 use ::riscv::register::mstatus::MPP;
 use riscv::register::misa;
 use seq_macro::seq;
-use serde_device_tree::buildin::NodeSeq;
-
-use core::sync::atomic::Ordering;
+use serde_device_tree::buildin::{Node, NodeSeq};
 
 use crate::fail;
-use crate::platform::CPU_PRIVILEGED_ENABLED;
+use crate::platform::mark_hart_privilege_checked;
 use crate::riscv::csr::*;
 use crate::riscv::current_hartid;
 use crate::sbi::early_trap::TrapInfo;
 use crate::sbi::trap_stack::{hart_local, with_current, with_hart};
+use runtime::node_is_enabled;
 
 pub struct HartFeatures {
     extensions: [bool; Extension::COUNT],
@@ -64,10 +63,10 @@ impl Extension {
     }
 }
 
-/// Probes if a specific extension is supported for the given hart.
+/// Returns whether a specific extension is supported for the given hart.
 #[inline]
-pub fn hart_extension_probe(hart_id: usize, ext: Extension) -> bool {
-    hart_local(hart_id).features.extensions[ext.index()]
+pub fn hart_has_extension(hart_id: usize, extension: Extension) -> bool {
+    hart_local(hart_id).features.extensions[extension.index()]
 }
 
 /// Gets the privileged version for the given hart.
@@ -84,24 +83,33 @@ pub fn hart_mhpm_mask(hart_id: usize) -> u32 {
 
 /// Detects RISC-V extensions from the device tree for all harts.
 #[cfg(not(feature = "nemu"))]
-pub fn extension_detection(cpus: &NodeSeq) {
+pub fn detect_extensions(cpus: &NodeSeq, enabled_harts: &[bool]) {
     use crate::devicetree::Cpu;
 
-    for cpu_iter in cpus.iter() {
-        let cpu_data = cpu_iter.deserialize::<Cpu>();
-        let hart_id = cpu_data.reg.iter().next().unwrap().0.start;
+    for cpu_node in cpus.iter() {
+        let node = cpu_node.deserialize::<Node>();
+        if !node_is_enabled(&node) {
+            continue;
+        }
+        let cpu = cpu_node.deserialize::<Cpu>();
+        let Some(hart_id) = cpu.reg.iter().next().map(|register| register.0.start) else {
+            continue;
+        };
+        if enabled_harts.get(hart_id) != Some(&true) {
+            continue;
+        }
         let mut extensions = [false; Extension::COUNT];
 
-        for ext in Extension::iter() {
-            let ext_index = ext.index();
-            let ext_name = ext.as_str();
+        for extension in Extension::iter() {
+            let extension_index = extension.index();
+            let extension_name = extension.as_str();
 
-            let dt_supported = check_extension_in_device_tree(ext_name, &cpu_data);
-            extensions[ext_index] = match ext {
+            let described_by_device_tree = device_tree_has_extension(extension_name, &cpu);
+            extensions[extension_index] = match extension {
                 Extension::Hypervisor if hart_id == current_hartid() => {
                     misa::read().has_extension('H')
                 }
-                _ => dt_supported,
+                _ => described_by_device_tree,
             };
         }
 
@@ -109,10 +117,10 @@ pub fn extension_detection(cpus: &NodeSeq) {
     }
 }
 
-fn check_extension_in_device_tree(ext: &str, cpu: &crate::devicetree::Cpu) -> bool {
+fn device_tree_has_extension(extension: &str, cpu: &crate::devicetree::Cpu) -> bool {
     // Check isa-extensions first (preferred, list of strings)
-    if let Some(isa_exts) = &cpu.isa_extensions {
-        return isa_exts.iter().any(|e| e == ext);
+    if let Some(isa_extensions) = &cpu.isa_extensions {
+        return isa_extensions.iter().any(|name| name == extension);
     }
 
     // Fallback to isa (take first string, default to empty)
@@ -122,32 +130,32 @@ fn check_extension_in_device_tree(ext: &str, cpu: &crate::devicetree::Cpu) -> bo
         .and_then(|isa| isa.iter().next())
         .map(|isa| {
             isa.split('_')
-                .any(|part| part == ext || (ext.len() == 1 && part.contains(ext)))
+                .any(|part| part == extension || (extension.len() == 1 && part.contains(extension)))
         })
         .unwrap_or(false)
 }
 
-fn privileged_version_detection() {
-    let mut current_priv_ver = PrivilegedVersion::Unknown;
+fn detect_privileged_version() {
+    let mut privileged_version = PrivilegedVersion::Unknown;
     {
         if has_csr::<CSR_MCOUNTEREN>() {
-            current_priv_ver = PrivilegedVersion::Version1_10;
+            privileged_version = PrivilegedVersion::Version1_10;
             if has_csr::<CSR_MCOUNTINHIBIT>() {
-                current_priv_ver = PrivilegedVersion::Version1_11;
+                privileged_version = PrivilegedVersion::Version1_11;
                 if has_csr::<CSR_MENVCFG>() {
-                    current_priv_ver = PrivilegedVersion::Version1_12;
+                    privileged_version = PrivilegedVersion::Version1_12;
                 }
             }
         }
     }
-    with_current(|local| local.features.privileged_version = current_priv_ver);
+    with_current(|local| local.features.privileged_version = privileged_version);
 }
 
-fn mhpm_detection() {
+fn detect_mhpm_counters() {
     // mcycle, minstret, and time are treated as always implemented;
     // bits 0-2 of the mask record them.
-    let mut current_mhpm_mask: u32 = 0b111;
-    let mut trap_info: TrapInfo = TrapInfo::default();
+    let mut mhpm_mask: u32 = 0b111;
+    let mut trap: TrapInfo = TrapInfo::default();
 
     macro_rules! m_probe_mhpm_csr {
         ($csr_num:expr, $trap_info:expr, $value:expr) => {
@@ -158,11 +166,11 @@ fn mhpm_detection() {
     // CSR_MHPMCOUNTER3:   0xb03
     // CSR_MHPMCOUNTER31:  0xb1f
     seq!(csr_num in 0xb03..=0xb1f{
-        m_probe_mhpm_csr!(csr_num, &mut trap_info, &mut current_mhpm_mask);
+        m_probe_mhpm_csr!(csr_num, &mut trap, &mut mhpm_mask);
     });
 
     with_current(|local| {
-        local.features.mhpm_mask = current_mhpm_mask;
+        local.features.mhpm_mask = mhpm_mask;
         // TODO: at present, the prototyper only supports 64-bit counters.
         local.features.mhpm_bits = 64;
     });
@@ -171,8 +179,8 @@ fn mhpm_detection() {
 /// Detects the current hart's privileged-architecture version and hardware
 /// counters.
 pub fn detect_hart_features() {
-    privileged_version_detection();
-    mhpm_detection();
+    detect_privileged_version();
+    detect_mhpm_counters();
 }
 
 #[cfg(feature = "nemu")]
@@ -190,22 +198,22 @@ pub fn init(cpus: &NodeSeq) {
 /// Checks that this hart supports the requested privilege mode.
 ///
 /// Warns and stops the hart if it does not.
-pub fn check_privilege(mpp: MPP) {
+pub fn check_next_stage_privilege(next_mode: MPP) {
     let hart_id = current_hartid();
-    match mpp {
+    match next_mode {
         MPP::Supervisor => {
             if !misa::read().has_extension('S') {
                 warn!("Hart {} does not support Supervisor mode", hart_id);
                 fail::stop();
             }
-            CPU_PRIVILEGED_ENABLED[hart_id].store(true, Ordering::Release);
+            mark_hart_privilege_checked(hart_id);
         }
         MPP::User => {
             if !misa::read().has_extension('U') {
                 warn!("Hart {} does not support User mode", hart_id);
                 fail::stop();
             }
-            CPU_PRIVILEGED_ENABLED[hart_id].store(true, Ordering::Release);
+            mark_hart_privilege_checked(hart_id);
         }
         _ => {}
     }
@@ -226,7 +234,7 @@ pub fn configure_delegation_and_trap() {
         mcountinhibit::write_raw(!0b111usize);
     }
     if hart_priv_version >= PrivilegedVersion::Version1_12 {
-        if hart_extension_probe(current_hartid(), Extension::Sstc) {
+        if hart_has_extension(current_hartid(), Extension::Sstc) {
             menvcfg::set_bits(
                 menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
             );
@@ -234,7 +242,7 @@ pub fn configure_delegation_and_trap() {
             menvcfg::set_bits(menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
         }
         if crate::sbi::ipi::uses_imsic()
-            && hart_extension_probe(current_hartid(), Extension::Smaia)
+            && hart_has_extension(current_hartid(), Extension::Smaia)
             && has_mstateen0()
         {
             mstateen::enable_smode_aia();

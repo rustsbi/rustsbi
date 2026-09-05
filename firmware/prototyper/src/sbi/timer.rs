@@ -1,12 +1,17 @@
-#![forbid(unsafe_code)]
+//! Timer programming.
+//!
+//! # References
+//!
+//! - Specification: [RISC-V SBI TIME extension](https://docs.riscv.org/reference/sbi/v3.0/ext-time.html) —
+//!   absolute deadlines and timer-interrupt behavior.
 
-//! SBI timer extension.
+#![forbid(unsafe_code)]
 
 use super::pmu::pmu_firmware_counter_increment;
 use crate::driver::TimerDevice;
 use crate::riscv::csr::{mie, mip, stimecmp};
 use crate::riscv::current_hartid;
-use crate::sbi::features::{Extension, hart_extension_probe};
+use crate::sbi::features::{Extension, hart_has_extension};
 use alloc::boxed::Box;
 use sbi_spec::pmu::firmware_event;
 use spin::Mutex;
@@ -24,7 +29,7 @@ impl rustsbi::Timer for SbiTimer {
         pmu_firmware_counter_increment(firmware_event::SET_TIMER);
         let hart_id = current_hartid();
 
-        if hart_extension_probe(hart_id, Extension::Sstc) {
+        if hart_has_extension(hart_id, Extension::Sstc) {
             stimecmp::set(stime_value);
         } else {
             self.set_timer_for_hart(hart_id, stime_value);
@@ -57,8 +62,8 @@ impl SbiTimer {
 
     /// Programs a hart's timer comparison value.
     #[inline]
-    fn set_timer_for_hart(&self, hart_idx: usize, value: u64) {
-        self.device.lock().set_timer(hart_idx, value);
+    fn set_timer_for_hart(&self, hart_id: usize, value: u64) {
+        self.device.lock().set_timer(hart_id, value);
     }
 
     /// Cancels the current hart's pending timer interrupt.

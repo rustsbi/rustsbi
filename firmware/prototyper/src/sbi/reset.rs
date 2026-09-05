@@ -1,13 +1,17 @@
-#![forbid(unsafe_code)]
+//! System reset.
+//!
+//! # References
+//!
+//! - Specification: [RISC-V SBI SRST extension](https://docs.riscv.org/reference/sbi/v3.0/ext-sys-reset.html) —
+//!   reset types, reasons, and error semantics.
 
-//! SBI system-reset extension.
+#![forbid(unsafe_code)]
 
 use alloc::boxed::Box;
 use rustsbi::SbiRet;
 use spin::Mutex;
 
 use crate::driver::ResetDevice;
-use crate::platform::BoardInfo;
 
 /// SBI system-reset extension service.
 pub struct SbiReset {
@@ -57,9 +61,4 @@ pub fn fail() -> ! {
             }
         }
     }
-}
-
-/// Initializes the SBI reset extension from the discovered board info.
-pub(crate) fn init(board: &BoardInfo) -> Option<SbiReset> {
-    crate::driver::reset_device(board).map(|device| SbiReset::new(Mutex::new(device)))
 }

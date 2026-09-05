@@ -1,6 +1,11 @@
-#![forbid(unsafe_code)]
+//! Inter-processor interrupts and firmware IPI delivery.
+//!
+//! # References
+//!
+//! - Specification: [RISC-V SBI IPI extension](https://docs.riscv.org/reference/sbi/v3.0/ext-ipi.html) —
+//!   hart-mask handling and IPI delivery semantics.
 
-//! SBI IPI extension and firmware IPI delivery.
+#![forbid(unsafe_code)]
 
 use super::pmu::pmu_firmware_counter_increment;
 use crate::cfg::NUM_HART_MAX;
@@ -10,7 +15,10 @@ use crate::sbi::hsm::remote_hsm;
 use crate::sbi::rfence;
 use crate::sbi::trap_stack::hart_local;
 use alloc::{boxed::Box, vec::Vec};
-use core::sync::atomic::Ordering::Relaxed;
+use core::sync::atomic::{
+    Ordering::{Acquire, Relaxed, Release},
+    fence,
+};
 use rustsbi::{HartMask, SbiRet};
 use sbi_spec::pmu::firmware_event;
 use spin::Mutex;
@@ -47,7 +55,7 @@ impl rustsbi::Ipi for SbiIpi {
                 return SbiRet::invalid_param();
             };
 
-            if crate::platform::cpu_enabled()
+            if crate::platform::enabled_harts()
                 .is_none_or(|list| list.get(hart_id).is_none_or(|res| !(*res)))
             {
                 return SbiRet::invalid_param();
@@ -101,7 +109,7 @@ impl SbiIpi {
                 return SbiRet::invalid_param();
             };
 
-            if crate::platform::cpu_enabled()
+            if crate::platform::enabled_harts()
                 .is_none_or(|list| list.get(hart_id).is_none_or(|res| !(*res)))
             {
                 return SbiRet::invalid_param();
@@ -138,8 +146,10 @@ impl SbiIpi {
 
     /// Sends a firmware IPI to a hart.
     #[inline]
-    pub(crate) fn send_ipi(&self, hart_idx: usize) {
-        self.device.lock().send_ipi(hart_idx);
+    pub(crate) fn send_ipi(&self, hart_id: usize) {
+        // Publish the pending IPI type before signaling the target device.
+        fence(Release);
+        self.device.lock().send_ipi(hart_id);
     }
 
     /// Clears the current hart's firmware IPI.
@@ -162,7 +172,7 @@ pub fn set_ipi_type(hart_id: usize, event_id: u8) -> u8 {
 
 /// Takes and clears the current hart's pending IPI types.
 pub fn get_and_reset_ipi_type() -> u8 {
-    hart_local(current_hartid()).ipi_type.swap(0, Relaxed)
+    hart_local(current_hartid()).ipi_type.swap(0, Acquire)
 }
 
 /// Clears the current hart's pending firmware IPI.
@@ -176,7 +186,7 @@ pub fn claim_ipi() {
 
 /// Initializes the SBI IPI extension from the selected device.
 pub(crate) fn init(ipi: Box<dyn IpiDevice>) -> SbiIpi {
-    let max_hart_id = crate::platform::cpu_enabled()
+    let max_hart_id = crate::platform::enabled_harts()
         .as_ref()
         .and_then(|hart_list| hart_list.iter().rposition(|enabled| *enabled))
         .unwrap_or(NUM_HART_MAX - 1);

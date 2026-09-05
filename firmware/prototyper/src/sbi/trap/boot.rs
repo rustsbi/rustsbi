@@ -1,5 +1,5 @@
 use crate::riscv::current_hartid;
-use crate::sbi::features::{Extension, hart_extension_probe};
+use crate::sbi::features::{Extension, hart_has_extension};
 use crate::sbi::hsm::local_hsm;
 use crate::sbi::ipi;
 use crate::sbi::trap_stack;
@@ -77,7 +77,7 @@ pub extern "C" fn boot_handler(ctx: &mut BootContext) {
                 mstatus::set_mpie();
                 mstatus::set_mpp(next_stage.next_mode);
                 mie::set_msoft();
-                if !hart_extension_probe(current_hartid(), Extension::Sstc) {
+                if !hart_has_extension(current_hartid(), Extension::Sstc) {
                     mie::set_mtimer();
                 }
             }
