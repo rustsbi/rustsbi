@@ -1,22 +1,17 @@
 #![forbid(unsafe_code)]
 
-use alloc::vec::Vec;
+use alloc::string::ToString;
 use serde::Deserialize;
 use serde_device_tree::{
-    Dtb, DtbPtr,
     buildin::{Node, NodeSeq, Reg, StrSeq},
     value::riscv_pmu::{EventToMhpmcounters, EventToMhpmevent, RawEventToMhpcounters},
 };
-
-use core::ops::Range;
 
 /// Root device tree structure containing system information.
 #[derive(Deserialize)]
 pub struct Tree<'a> {
     /// Optional model name string.
     pub model: Option<StrSeq<'a>>,
-    /// Memory information.
-    pub memory: NodeSeq<'a>,
     /// CPU information.
     pub cpus: Cpus<'a>,
 }
@@ -25,6 +20,9 @@ pub struct Tree<'a> {
 #[derive(Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct Cpus<'a> {
+    /// Frequency of the architectural `time` counter, in hertz.
+    #[serde(rename = "timebase-frequency")]
+    pub timebase_frequency_hz: Option<u32>,
     /// Sequence of CPU nodes.
     pub cpu: NodeSeq<'a>,
 }
@@ -41,21 +39,6 @@ pub struct Cpu<'a> {
     pub reg: Reg<'a>,
 }
 
-/// Generic device node information.
-#[allow(unused)]
-#[derive(Deserialize, Debug)]
-pub struct Device<'a> {
-    /// Device register information.
-    pub reg: Reg<'a>,
-}
-
-/// Memory range.
-#[derive(Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct Memory<'a> {
-    pub reg: Reg<'a>,
-}
-
 #[derive(Deserialize)]
 pub struct Pmu<'a> {
     #[serde(rename = "riscv,event-to-mhpmevent")]
@@ -66,75 +49,72 @@ pub struct Pmu<'a> {
     pub raw_event_to_mhpmcounters: Option<RawEventToMhpcounters<'a>>,
 }
 
-/// Errors that can occur during device tree parsing.
-pub enum ParseDeviceTreeError {
-    /// Invalid device tree format.
-    Format,
+pub fn compatible_strings<'de>(node: &Node) -> Option<StrSeq<'de>> {
+    node.get_prop("compatible")
+        .map(|property| property.deserialize::<StrSeq<'de>>())
 }
 
-pub fn parse_device_tree(opaque: usize) -> Result<Dtb, ParseDeviceTreeError> {
-    let Ok(ptr) = DtbPtr::from_raw(opaque as *mut _) else {
-        return Err(ParseDeviceTreeError::Format);
-    };
-    let dtb = Dtb::from(ptr);
-    Ok(dtb)
-}
+/// Resolves an absolute path or alias, rejecting a disabled node or ancestor.
+pub fn find_enabled_node<'de>(root: &Node<'de>, path: &str) -> Option<Node<'de>> {
+    if !runtime::node_is_enabled(root) {
+        return None;
+    }
 
-pub fn get_compatible_and_ranges<'de>(node: &Node) -> Option<(StrSeq<'de>, Vec<Range<usize>>)> {
-    let compatible = node
-        .get_prop("compatible")
-        .map(|prop_item| prop_item.deserialize::<StrSeq<'de>>());
-    let regs = node.get_prop("reg").map(|prop_item| {
-        let reg = prop_item.deserialize::<serde_device_tree::buildin::Reg>();
-        reg.iter().map(|range| range.0).collect::<Vec<_>>()
-    });
-    if let Some(compatible) = compatible {
-        if let Some(regs) = regs {
-            if regs.is_empty() {
-                None
-            } else {
-                Some((compatible, regs))
-            }
-        } else {
-            None
+    let resolved_path = if path.starts_with('/') {
+        path.to_string()
+    } else {
+        let aliases = root.find("/aliases")?;
+        if !runtime::node_is_enabled(&aliases) {
+            return None;
         }
-    } else {
-        None
+        aliases
+            .get_prop(path)?
+            .deserialize::<StrSeq>()
+            .iter()
+            .next()?
+            .to_string()
+    };
+
+    if resolved_path == "/" {
+        return Some(root.clone());
     }
-}
-
-pub fn get_compatible_and_range<'de>(node: &Node) -> Option<(StrSeq<'de>, Range<usize>)> {
-    let (compatible, regs) = get_compatible_and_ranges(node)?;
-    regs.into_iter().next().map(|range| (compatible, range))
-}
-
-pub fn get_compatible<'de>(node: &Node) -> Option<StrSeq<'de>> {
-    let compatible = node
-        .get_prop("compatible")
-        .map(|prop_item| prop_item.deserialize::<StrSeq<'de>>());
-    if let Some(compatible) = compatible {
-        Some(compatible)
-    } else {
-        None
+    let path = resolved_path.strip_prefix('/')?;
+    let mut current_node = root.clone();
+    for name in path.split('/') {
+        if name.is_empty() {
+            return None;
+        }
+        let child_node = {
+            let child = current_node
+                .nodes()
+                .find(|child| child.get_full_name() == name)?;
+            child.deserialize::<Node<'de>>()
+        };
+        if !runtime::node_is_enabled(&child_node) {
+            return None;
+        }
+        current_node = child_node;
     }
+    Some(current_node)
 }
 
-/// Depth-first traversal of the device tree that also yields each node's
-/// parent, so callers can resolve parent-child relationships (e.g. a child
-/// device's parent bus) that `Node` does not expose directly.
-pub fn search_with_parent<F>(root: &Node, func: &mut F)
+/// Visits enabled nodes depth first.
+pub fn visit_enabled_nodes<F>(root: &Node, visitor: &mut F)
 where
-    F: FnMut(&Node, Option<&Node>),
+    F: FnMut(&Node),
 {
-    fn dfs<'de, F>(node: &Node<'de>, parent: Option<&Node<'de>>, func: &mut F)
+    fn visit_subtree<'de, F>(node: &Node<'de>, visitor: &mut F)
     where
-        F: FnMut(&Node<'de>, Option<&Node<'de>>),
+        F: FnMut(&Node<'de>),
     {
-        func(node, parent);
+        if !runtime::node_is_enabled(node) {
+            return;
+        }
+        visitor(node);
         for child in node.nodes() {
             let child = child.deserialize::<Node<'de>>();
-            dfs(&child, Some(node), func);
+            visit_subtree(&child, visitor);
         }
     }
-    dfs(root, None, func);
+    visit_subtree(root, visitor);
 }
