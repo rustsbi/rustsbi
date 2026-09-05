@@ -6,6 +6,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+bitflags = "2.9.1"
 log = "0.4"
 panic-halt = "1.0.0"
 riscv = { workspace = true }
@@ -27,6 +28,7 @@ seq-macro = "0.3.5"
 pastey = "0.1.0"
 riscv-aia = { version = "0.0.0", path = "../../library/riscv-aia" }
 rustsbi-prototyper-macros = { version = "0.0.0", path = "../macros" }
+runtime = { package = "rustsbi-firmware-runtime", version = "0.0.0", path = "../runtime" }
 
 [[bin]]
 name = "rustsbi-prototyper"

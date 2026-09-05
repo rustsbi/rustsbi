@@ -1,13 +1,13 @@
 cfg_if::cfg_if! {
     if #[cfg(feature = "payload")] {
         pub mod payload;
-        use payload::get_boot_info;
+        use payload::decode_next_stage;
     } else if #[cfg(feature = "jump")] {
         pub mod jump;
-        use jump::get_boot_info;
+        use jump::decode_next_stage;
     } else {
         pub mod dynamic;
-        use dynamic::{get_boot_info, read_paddr};
+        use dynamic::{decode_next_stage, read_dynamic_info};
     }
 }
 
@@ -19,37 +19,45 @@ use crate::riscv::current_hartid;
 
 /// Decides whether this hart leads the boot (designated in `DynamicInfo`,
 /// or raced when absent).
-fn is_work_hart(_dynamic_info_addr: usize) -> bool {
+fn is_selected_boot_hart(dynamic_info_address: usize) -> bool {
     use core::sync::atomic::{AtomicUsize, Ordering};
-    static WORK_HART: AtomicUsize = AtomicUsize::new(usize::MAX);
+    static BOOT_HART_ID: AtomicUsize = AtomicUsize::new(usize::MAX);
 
     cfg_if::cfg_if! {
         if #[cfg(any(feature = "payload", feature = "jump"))] {
-            let info: _ = None;
+            let _ = dynamic_info_address;
+            let selected_hart: Option<usize> = None;
         }
         else {
-            let info = read_paddr(_dynamic_info_addr).ok().and_then(|x| Some(x.boot_hart));
+            let selected_hart = read_dynamic_info(dynamic_info_address)
+                .ok()
+                .map(|dynamic_info| dynamic_info.boot_hart);
         }
     }
 
-    let select_work_hart = || {
+    let claim_boot_hart = || {
         let hart_id = current_hartid();
-        match WORK_HART.compare_exchange(usize::MAX, hart_id, Ordering::AcqRel, Ordering::Acquire) {
+        match BOOT_HART_ID.compare_exchange(
+            usize::MAX,
+            hart_id,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
             Ok(_) => true,
             Err(selected_hart) => selected_hart == hart_id,
         }
     };
 
-    match info {
-        Some(info) => {
-            if info == usize::MAX {
-                select_work_hart()
+    match selected_hart {
+        Some(hart_id) => {
+            if hart_id == usize::MAX {
+                claim_boot_hart()
             } else {
-                current_hartid() == info
+                current_hartid() == hart_id
             }
         }
         // Without a readable DynamicInfo, race to elect a single boot hart.
-        None => select_work_hart(),
+        None => claim_boot_hart(),
     }
 }
 
@@ -57,37 +65,42 @@ use alloc::{format, vec};
 use core::arch::asm;
 use core::ops::Range;
 
-use crate::fail;
 use crate::sbi::hart_context::NextStage;
 
 use serde::Serialize;
 
 /// Boot information decoded from the previous-stage register envelope (a1/a2).
 pub struct BootInfo {
-    fdt_address: usize,
+    device_tree_address: usize,
     is_boot_hart: bool,
+    platform_description: Option<runtime::PlatformDescription>,
     /// The `a2` `DynamicInfo` address, kept for the deferred `next_stage()`
     /// decode.
-    dynamic_info_addr: usize,
+    dynamic_info_address: usize,
 }
 
 impl BootInfo {
-    /// Decodes the register handoff (`a1` = device tree pointer, `a2` =
-    /// `DynamicInfo` address), electing a boot hart by race when
+    /// Decodes the entry handoff, electing a boot hart by race when
     /// `DynamicInfo` is unreadable.
-    pub fn decode(a1: usize, a2: usize) -> Self {
-        let hart = get_work_hart(a1, a2);
-        Self {
-            fdt_address: hart.fdt_address,
-            is_boot_hart: hart.is_boot_hart,
-            dynamic_info_addr: a2,
-        }
-    }
-
-    /// Returns the device tree address for this boot (the previous
-    /// stage's pointer, or the embedded tree under the `fdt` feature).
-    pub fn fdt_address(&self) -> usize {
-        self.fdt_address
+    pub fn decode(
+        device_tree: runtime::DeviceTreeHandoff,
+        dynamic_info_address: usize,
+    ) -> runtime::Result<Self> {
+        let selection =
+            resolve_boot_selection(device_tree.address().as_usize(), dynamic_info_address);
+        let platform_description = if selection.is_boot_hart {
+            Some(device_tree.claim(runtime::memory::PhysAddr::new(
+                selection.device_tree_address,
+            ))?)
+        } else {
+            None
+        };
+        Ok(Self {
+            device_tree_address: selection.device_tree_address,
+            is_boot_hart: selection.is_boot_hart,
+            platform_description,
+            dynamic_info_address,
+        })
     }
 
     /// Returns whether this hart leads the boot.
@@ -95,33 +108,38 @@ impl BootInfo {
         self.is_boot_hart
     }
 
+    /// Returns the boot hart's validated Platform Description.
+    pub fn take_platform_description(&mut self) -> Option<runtime::PlatformDescription> {
+        self.platform_description.take()
+    }
+
     /// Returns the next-stage handoff; `opaque` carries the unpatched
     /// device tree address. Must be called after the console is up:
     /// prints and stops on invalid `DynamicInfo`.
     pub fn next_stage(&self) -> NextStage {
-        let (next_mode, start_addr) = get_boot_info(self.dynamic_info_addr);
+        let (next_mode, start_address) = decode_next_stage(self.dynamic_info_address);
         NextStage {
-            start_addr,
+            start_addr: start_address,
             next_mode,
-            opaque: self.fdt_address,
+            opaque: self.device_tree_address,
         }
     }
 }
 
 /// The local hart's boot role and its resolved device tree address.
-struct BootHart {
-    fdt_address: usize,
+struct BootSelection {
+    device_tree_address: usize,
     is_boot_hart: bool,
 }
 
 #[cfg(all(feature = "fdt", not(feature = "payload")))]
-const FDT_PTR: *const u8 = raw_fdt.0.as_ptr();
+const LINKED_FDT_PTR: *const u8 = raw_fdt.0.as_ptr();
 #[cfg(all(feature = "fdt", feature = "payload"))]
-const FDT_PTR: *const u8 = payload::raw_fdt.0.as_ptr();
+const LINKED_FDT_PTR: *const u8 = payload::raw_fdt.0.as_ptr();
 #[inline]
 #[cfg(feature = "fdt")]
-fn get_fdt_address() -> usize {
-    let address = FDT_PTR as usize;
+fn linked_fdt_address() -> usize {
+    let address = LINKED_FDT_PTR as usize;
     // SAFETY: the empty asm is only an optimization barrier; it reads no
     // memory, uses no stack, and preserves flags, so that the runtime
     // (post-relocation) address of the linker-script-placed `.fdt` section
@@ -132,18 +150,21 @@ fn get_fdt_address() -> usize {
 
 /// Resolves this hart's boot role and the device tree address.
 #[allow(unused_mut, unused_assignments)]
-fn get_work_hart(dtb_addr: usize, dynamic_info_addr: usize) -> BootHart {
-    let is_boot_hart = is_work_hart(dynamic_info_addr);
+fn resolve_boot_selection(
+    entry_device_tree_address: usize,
+    dynamic_info_address: usize,
+) -> BootSelection {
+    let is_boot_hart = is_selected_boot_hart(dynamic_info_address);
 
-    let mut fdt_address = dtb_addr;
+    let mut device_tree_address = entry_device_tree_address;
 
     #[cfg(feature = "fdt")]
     {
-        fdt_address = get_fdt_address();
+        device_tree_address = linked_fdt_address();
     }
 
-    BootHart {
-        fdt_address,
+    BootSelection {
+        device_tree_address,
         is_boot_hart,
     }
 }
@@ -151,73 +172,74 @@ fn get_work_hart(dtb_addr: usize, dynamic_info_addr: usize) -> BootHart {
 /// Patches the DTB for the next stage: reserves the firmware image and
 /// hides firmware-retained M-level interrupt controllers. Returns the
 /// patched DTB address.
-pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
+pub(crate) fn patch_device_tree(
+    device_tree_address: usize,
+    board: &crate::platform::BoardInfo,
+    firmware_image: runtime::memory::PhysAddrRange,
+    uses_imsic: bool,
+) -> runtime::Result<usize> {
     use serde_device_tree::buildin::Node;
     use serde_device_tree::ser::serializer::ValueType;
     use serde_device_tree::{Dtb, DtbPtr};
-    let Ok(ptr) = DtbPtr::from_raw(device_tree_ptr as *mut _) else {
-        panic!("Can not parse device tree!");
-    };
-    let dtb = Dtb::from(ptr);
+    let dtb_pointer =
+        DtbPtr::from_raw(device_tree_address as *mut _).map_err(|_| runtime::Error::InvalidArgs)?;
+    let dtb = Dtb::from(dtb_pointer);
 
-    // SAFETY: the `la` symbols resolve to this image's own linker symbols,
-    // written before the next stage starts on any hart.
-    unsafe {
-        asm!("la {}, sbi_start", out(reg) SBI_START_ADDRESS, options(nomem));
-        asm!("la {}, sbi_end", out(reg) SBI_END_ADDRESS, options(nomem));
-    }
-    // SAFETY: written earlier in this function; read-only afterwards.
-    let sbi_start = unsafe { SBI_START_ADDRESS };
-    let sbi_end = unsafe { SBI_END_ADDRESS };
+    let firmware_start = firmware_image.start().as_usize();
+    let firmware_size = firmware_image.size();
 
     let dtb = dtb.share();
     let root: Node =
-        serde_device_tree::from_raw_mut(&dtb).unwrap_or_else(fail::device_tree_deserialize_root);
+        serde_device_tree::from_raw_mut(&dtb).map_err(|_| runtime::Error::InvalidArgs)?;
     let tree: Node = root.deserialize();
 
     #[derive(Serialize)]
     struct ReservedMemory {
         #[serde(rename = "#address-cells")]
-        pub address_cell: u32,
+        address_cells: u32,
         #[serde(rename = "#size-cells")]
-        pub size_cell: u32,
-        pub ranges: (),
+        size_cells: u32,
+        ranges: (),
     }
     #[derive(Serialize)]
-    struct ReservedMemoryItem {
-        pub reg: [u32; 4],
+    struct ReservedRegion {
+        reg: [u32; 4],
         #[serde(rename = "no-map")]
-        pub no_map: (),
+        no_map: (),
     }
-    let sbi_length: u32 = (sbi_end - sbi_start) as u32;
-    let new_base = ReservedMemory {
-        address_cell: 2,
-        size_cell: 2,
+    let reserved_memory = ReservedMemory {
+        address_cells: 2,
+        size_cells: 2,
         ranges: (),
     };
-    let new_base_2 = ReservedMemoryItem {
-        reg: [(sbi_start >> 32) as u32, sbi_start as u32, 0, sbi_length],
+    let [address_high, address_low] = fdt_u64_cells(firmware_start);
+    let [size_high, size_low] = fdt_u64_cells(firmware_size);
+    let firmware_reservation = ReservedRegion {
+        reg: [address_high, address_low, size_high, size_low],
         no_map: (),
     };
-    let patch1 = serde_device_tree::ser::patch::Patch::new(
+    let reserved_memory_patch = serde_device_tree::ser::patch::Patch::new(
         "/reserved-memory",
-        &new_base as _,
+        &reserved_memory as _,
         ValueType::Node,
     );
-    let path_name = format!("/reserved-memory/mmode_resv1@{:x}", sbi_start);
-    let patch2 =
-        serde_device_tree::ser::patch::Patch::new(&path_name, &new_base_2 as _, ValueType::Node);
-    let patches = alloc::vec![patch1, patch2];
+    let firmware_node_path = format!("/reserved-memory/mmode_resv1@{firmware_start:x}");
+    let firmware_patch = serde_device_tree::ser::patch::Patch::new(
+        &firmware_node_path,
+        &firmware_reservation as _,
+        ValueType::Node,
+    );
+    let patches = alloc::vec![reserved_memory_patch, firmware_patch];
     // Skip the parent-node patch when `/reserved-memory` already exists.
-    let start_idx = if tree.find("/reserved-memory").is_some() {
+    let first_patch = if tree.find("/reserved-memory").is_some() {
         1
     } else {
         0
     };
+    let patches = &patches[first_patch..];
 
-    let list = &patches[start_idx..];
-
-    let patched_length = serde_device_tree::ser::probe_dtb_length(&tree, &list).unwrap();
+    let patched_length = serde_device_tree::ser::probe_dtb_length(&tree, patches)
+        .map_err(|_| runtime::Error::InvalidArgs)?;
 
     // Allocate as u64s so the DTB buffer stays 8-byte aligned.
     let patched_dtb_buffer = vec![0u64; patched_length.div_ceil(8)];
@@ -229,19 +251,20 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
     let mut patched_dtb_buffer_u8: &'static mut [u8] = unsafe {
         core::slice::from_raw_parts_mut(patched_dtb_buffer.as_ptr() as *mut u8, patched_length)
     };
-    serde_device_tree::ser::to_dtb(&tree, &list, &mut patched_dtb_buffer_u8).unwrap();
+    serde_device_tree::ser::to_dtb(&tree, patches, &mut patched_dtb_buffer_u8)
+        .map_err(|_| runtime::Error::InvalidArgs)?;
 
     // Hide machine-level interrupt controllers only when firmware retained
     // them by selecting the IMSIC device.
-    if crate::sbi::ipi::uses_imsic() {
+    if uses_imsic {
         // SAFETY: same leaked buffer and length as above; the slice is
         // recreated for the in-place node patching below.
         let dtb_buf = unsafe {
             core::slice::from_raw_parts_mut(patched_dtb_buffer.as_ptr() as *mut u8, patched_length)
         };
         fdt_nop_m_level_imsic(dtb_buf);
-        if let Some((clint_base, _)) = crate::platform::board_info().ipi.as_ref() {
-            let clint_name = format!("clint@{:x}", clint_base);
+        if let Some((clint, _)) = board.clint.as_ref() {
+            let clint_name = format!("clint@{:x}", clint.start().as_usize());
             if fdt_nop_node_by_name(dtb_buf, &clint_name) {
                 info!("AIA: NOP'd M-level CLINT node '{}' in DTB", clint_name);
             }
@@ -254,7 +277,12 @@ pub fn patch_device_tree(device_tree_ptr: usize) -> usize {
         patched_dtb_buffer.as_ptr() as usize,
         patched_length
     );
-    patched_dtb_buffer.as_ptr() as usize
+    Ok(patched_dtb_buffer.as_ptr() as usize)
+}
+
+fn fdt_u64_cells(value: usize) -> [u32; 2] {
+    let value = value as u64;
+    [(value >> u32::BITS) as u32, value as u32]
 }
 
 // TODO: Move these raw FDT structure block patch helpers to serde-device-tree.
@@ -262,71 +290,77 @@ const FDT_BEGIN_NODE: u32 = 0x01;
 const FDT_END_NODE: u32 = 0x02;
 const FDT_PROP: u32 = 0x03;
 const FDT_NOP: u32 = 0x04;
-const RISCV_MACHINE_EXTERNAL_IRQ: u32 = 11;
+const MACHINE_EXTERNAL_INTERRUPT_ID: u32 = 11;
 
-fn fdt_read_u32(buf: &[u8], off: usize) -> u32 {
-    u32::from_be_bytes([buf[off], buf[off + 1], buf[off + 2], buf[off + 3]])
+fn fdt_read_u32(buffer: &[u8], offset: usize) -> u32 {
+    u32::from_be_bytes([
+        buffer[offset],
+        buffer[offset + 1],
+        buffer[offset + 2],
+        buffer[offset + 3],
+    ])
 }
 
-fn fdt_write_u32(buf: &mut [u8], off: usize, val: u32) {
-    let bytes = val.to_be_bytes();
-    buf[off..off + 4].copy_from_slice(&bytes);
+fn fdt_write_u32(buffer: &mut [u8], offset: usize, value: u32) {
+    let bytes = value.to_be_bytes();
+    buffer[offset..offset + 4].copy_from_slice(&bytes);
 }
 
 fn fdt_nop_node_by_name(dtb: &mut [u8], target_name: &str) -> bool {
-    let struct_off = fdt_read_u32(dtb, 8) as usize;
-    let struct_size = fdt_read_u32(dtb, 36) as usize;
-    let end = struct_off + struct_size;
-    let mut off = struct_off;
+    let structure_offset = fdt_read_u32(dtb, 8) as usize;
+    let structure_size = fdt_read_u32(dtb, 36) as usize;
+    let structure_end = structure_offset + structure_size;
+    let mut offset = structure_offset;
 
-    while off + 4 <= end {
-        let token = fdt_read_u32(dtb, off);
+    while offset + 4 <= structure_end {
+        let token = fdt_read_u32(dtb, offset);
         match token {
-            t if t == FDT_BEGIN_NODE => {
-                let name_start = off + 4;
+            FDT_BEGIN_NODE => {
+                let name_start = offset + 4;
                 let name = core::ffi::CStr::from_bytes_until_nul(&dtb[name_start..])
-                    .map(|s| s.to_str().unwrap_or(""))
+                    .map(|name| name.to_str().unwrap_or(""))
                     .unwrap_or("");
                 if name == target_name {
-                    let node_start = off;
+                    let node_start = offset;
                     let mut depth = 1u32;
-                    off += 4 + ((name.len() + 4) & !3);
-                    while depth > 0 && off + 4 <= end {
-                        let t = fdt_read_u32(dtb, off);
-                        if t == FDT_BEGIN_NODE {
+                    offset += 4 + ((name.len() + 4) & !3);
+                    while depth > 0 && offset + 4 <= structure_end {
+                        let token = fdt_read_u32(dtb, offset);
+                        if token == FDT_BEGIN_NODE {
                             depth += 1;
-                            let n = core::ffi::CStr::from_bytes_until_nul(&dtb[off + 4..])
-                                .map(|s| s.to_str().unwrap_or(""))
-                                .unwrap_or("");
-                            off += 4 + ((n.len() + 4) & !3);
-                        } else if t == FDT_END_NODE {
+                            let nested_name =
+                                core::ffi::CStr::from_bytes_until_nul(&dtb[offset + 4..])
+                                    .map(|name| name.to_str().unwrap_or(""))
+                                    .unwrap_or("");
+                            offset += 4 + ((nested_name.len() + 4) & !3);
+                        } else if token == FDT_END_NODE {
                             depth -= 1;
-                            off += 4;
-                        } else if t == FDT_PROP {
-                            let prop_len = fdt_read_u32(dtb, off + 4) as usize;
-                            off += 12 + ((prop_len + 3) & !3);
-                        } else if t == FDT_NOP {
-                            off += 4;
+                            offset += 4;
+                        } else if token == FDT_PROP {
+                            let property_size = fdt_read_u32(dtb, offset + 4) as usize;
+                            offset += 12 + ((property_size + 3) & !3);
+                        } else if token == FDT_NOP {
+                            offset += 4;
                         } else {
                             break;
                         }
                     }
-                    for i in (node_start..off).step_by(4) {
-                        fdt_write_u32(dtb, i, FDT_NOP);
+                    for word_offset in (node_start..offset).step_by(4) {
+                        fdt_write_u32(dtb, word_offset, FDT_NOP);
                     }
                     return true;
                 }
-                off += 4 + ((name.len() + 4) & !3);
+                offset += 4 + ((name.len() + 4) & !3);
             }
-            t if t == FDT_END_NODE => {
-                off += 4;
+            FDT_END_NODE => {
+                offset += 4;
             }
-            t if t == FDT_PROP => {
-                let prop_len = fdt_read_u32(dtb, off + 4) as usize;
-                off += 12 + ((prop_len + 3) & !3);
+            FDT_PROP => {
+                let property_size = fdt_read_u32(dtb, offset + 4) as usize;
+                offset += 12 + ((property_size + 3) & !3);
             }
-            t if t == FDT_NOP => {
-                off += 4;
+            FDT_NOP => {
+                offset += 4;
             }
             _ => break,
         }
@@ -334,8 +368,8 @@ fn fdt_nop_node_by_name(dtb: &mut [u8], target_name: &str) -> bool {
     false
 }
 
-fn fdt_interrupts_extended_has_irq(data: &[u8], irq: u32) -> bool {
-    let mut chunks = data.chunks_exact(8);
+fn fdt_interrupts_extended_has_irq(property_value: &[u8], irq: u32) -> bool {
+    let mut chunks = property_value.chunks_exact(8);
     let mut found = false;
     for interrupt in chunks.by_ref() {
         let interrupt_id =
@@ -347,8 +381,8 @@ fn fdt_interrupts_extended_has_irq(data: &[u8], irq: u32) -> bool {
     found && chunks.remainder().is_empty()
 }
 
-fn fdt_compatible_matches(data: &[u8], compatibles: &[&str]) -> bool {
-    data.split(|byte| *byte == 0).any(|candidate| {
+fn fdt_compatible_matches(property_value: &[u8], compatibles: &[&str]) -> bool {
+    property_value.split(|byte| *byte == 0).any(|candidate| {
         compatibles
             .iter()
             .any(|compatible| candidate == compatible.as_bytes())
@@ -356,86 +390,95 @@ fn fdt_compatible_matches(data: &[u8], compatibles: &[&str]) -> bool {
 }
 
 fn fdt_nop_m_level_imsic(dtb: &mut [u8]) {
-    let struct_off = fdt_read_u32(dtb, 8) as usize;
-    let struct_size = fdt_read_u32(dtb, 36) as usize;
-    let strings_off = fdt_read_u32(dtb, 12) as usize;
-    let end = struct_off + struct_size;
-    let mut off = struct_off;
+    let structure_offset = fdt_read_u32(dtb, 8) as usize;
+    let structure_size = fdt_read_u32(dtb, 36) as usize;
+    let strings_offset = fdt_read_u32(dtb, 12) as usize;
+    let structure_end = structure_offset + structure_size;
+    let mut offset = structure_offset;
 
-    while off + 4 <= end {
-        let token = fdt_read_u32(dtb, off);
+    while offset + 4 <= structure_end {
+        let token = fdt_read_u32(dtb, offset);
         match token {
-            t if t == FDT_BEGIN_NODE => {
-                let name_start = off + 4;
+            FDT_BEGIN_NODE => {
+                let name_start = offset + 4;
                 let name = core::ffi::CStr::from_bytes_until_nul(&dtb[name_start..])
-                    .map(|s| s.to_str().unwrap_or(""))
+                    .map(|name| name.to_str().unwrap_or(""))
                     .unwrap_or("");
-                let node_start = off;
+                let node_start = offset;
                 let name_len = name.len();
-                off += 4 + ((name_len + 4) & !3);
+                offset += 4 + ((name_len + 4) & !3);
 
                 let mut is_imsic = false;
-                let mut has_m_level_irq = false;
-                let mut scan = off;
+                let mut has_machine_external_interrupt = false;
+                let mut scan_offset = offset;
                 let mut depth = 1u32;
 
-                while depth > 0 && scan + 4 <= end {
-                    let t = fdt_read_u32(dtb, scan);
-                    if t == FDT_BEGIN_NODE {
+                while depth > 0 && scan_offset + 4 <= structure_end {
+                    let token = fdt_read_u32(dtb, scan_offset);
+                    if token == FDT_BEGIN_NODE {
                         depth += 1;
-                        let n = core::ffi::CStr::from_bytes_until_nul(&dtb[scan + 4..])
-                            .map(|s| s.to_str().unwrap_or(""))
-                            .unwrap_or("");
-                        scan += 4 + ((n.len() + 4) & !3);
-                    } else if t == FDT_END_NODE {
-                        depth -= 1;
-                        scan += 4;
-                    } else if t == FDT_PROP {
-                        let prop_len = fdt_read_u32(dtb, scan + 4) as usize;
-                        let name_off = fdt_read_u32(dtb, scan + 8) as usize;
-                        let prop_name =
-                            core::ffi::CStr::from_bytes_until_nul(&dtb[strings_off + name_off..])
-                                .map(|s| s.to_str().unwrap_or(""))
+                        let nested_name =
+                            core::ffi::CStr::from_bytes_until_nul(&dtb[scan_offset + 4..])
+                                .map(|name| name.to_str().unwrap_or(""))
                                 .unwrap_or("");
-                        let data = &dtb[scan + 12..scan + 12 + prop_len];
+                        scan_offset += 4 + ((nested_name.len() + 4) & !3);
+                    } else if token == FDT_END_NODE {
+                        depth -= 1;
+                        scan_offset += 4;
+                    } else if token == FDT_PROP {
+                        let property_size = fdt_read_u32(dtb, scan_offset + 4) as usize;
+                        let name_offset = fdt_read_u32(dtb, scan_offset + 8) as usize;
+                        let property_name = core::ffi::CStr::from_bytes_until_nul(
+                            &dtb[strings_offset + name_offset..],
+                        )
+                        .map(|name| name.to_str().unwrap_or(""))
+                        .unwrap_or("");
+                        let property_value =
+                            &dtb[scan_offset + 12..scan_offset + 12 + property_size];
                         if depth == 1
-                            && prop_name == "compatible"
-                            && prop_len > 0
-                            && fdt_compatible_matches(data, &crate::driver::IMSIC_COMPATIBLES)
+                            && property_name == "compatible"
+                            && property_size > 0
+                            && fdt_compatible_matches(
+                                property_value,
+                                &crate::driver::IMSIC_COMPATIBLES,
+                            )
                         {
                             is_imsic = true;
                         }
                         if depth == 1
-                            && prop_name == "interrupts-extended"
-                            && fdt_interrupts_extended_has_irq(data, RISCV_MACHINE_EXTERNAL_IRQ)
+                            && property_name == "interrupts-extended"
+                            && fdt_interrupts_extended_has_irq(
+                                property_value,
+                                MACHINE_EXTERNAL_INTERRUPT_ID,
+                            )
                         {
-                            has_m_level_irq = true;
+                            has_machine_external_interrupt = true;
                         }
-                        scan += 12 + ((prop_len + 3) & !3);
-                    } else if t == FDT_NOP {
-                        scan += 4;
+                        scan_offset += 12 + ((property_size + 3) & !3);
+                    } else if token == FDT_NOP {
+                        scan_offset += 4;
                     } else {
                         break;
                     }
                 }
 
-                if is_imsic && has_m_level_irq {
+                if is_imsic && has_machine_external_interrupt {
                     let node_name = alloc::string::String::from(name);
-                    for i in (node_start..scan).step_by(4) {
-                        fdt_write_u32(dtb, i, FDT_NOP);
+                    for word_offset in (node_start..scan_offset).step_by(4) {
+                        fdt_write_u32(dtb, word_offset, FDT_NOP);
                     }
                     info!("AIA: NOP'd M-level IMSIC node '{}' in DTB", node_name);
                 }
             }
-            t if t == FDT_END_NODE => {
-                off += 4;
+            FDT_END_NODE => {
+                offset += 4;
             }
-            t if t == FDT_PROP => {
-                let prop_len = fdt_read_u32(dtb, off + 4) as usize;
-                off += 12 + ((prop_len + 3) & !3);
+            FDT_PROP => {
+                let property_size = fdt_read_u32(dtb, offset + 4) as usize;
+                offset += 12 + ((property_size + 3) & !3);
             }
-            t if t == FDT_NOP => {
-                off += 4;
+            FDT_NOP => {
+                offset += 4;
             }
             _ => break,
         }
@@ -443,61 +486,68 @@ fn fdt_nop_m_level_imsic(dtb: &mut [u8]) {
 }
 
 fn fdt_nop_m_level_aplic(dtb: &mut [u8]) {
-    let struct_off = fdt_read_u32(dtb, 8) as usize;
-    let struct_size = fdt_read_u32(dtb, 36) as usize;
-    let strings_off = fdt_read_u32(dtb, 12) as usize;
-    let end = struct_off + struct_size;
-    let mut off = struct_off;
+    let structure_offset = fdt_read_u32(dtb, 8) as usize;
+    let structure_size = fdt_read_u32(dtb, 36) as usize;
+    let strings_offset = fdt_read_u32(dtb, 12) as usize;
+    let structure_end = structure_offset + structure_size;
+    let mut offset = structure_offset;
 
-    while off + 4 <= end {
-        let token = fdt_read_u32(dtb, off);
+    while offset + 4 <= structure_end {
+        let token = fdt_read_u32(dtb, offset);
         match token {
-            t if t == FDT_BEGIN_NODE => {
-                let name_start = off + 4;
+            FDT_BEGIN_NODE => {
+                let name_start = offset + 4;
                 let name = core::ffi::CStr::from_bytes_until_nul(&dtb[name_start..])
-                    .map(|s| s.to_str().unwrap_or(""))
+                    .map(|name| name.to_str().unwrap_or(""))
                     .unwrap_or("");
-                let node_start = off;
+                let node_start = offset;
                 let name_len = name.len();
-                off += 4 + ((name_len + 4) & !3);
+                offset += 4 + ((name_len + 4) & !3);
 
                 let mut is_aplic = false;
                 let mut has_delegation = false;
-                let mut scan = off;
+                let mut scan_offset = offset;
                 let mut depth = 1u32;
 
-                while depth > 0 && scan + 4 <= end {
-                    let t = fdt_read_u32(dtb, scan);
-                    if t == FDT_BEGIN_NODE {
+                while depth > 0 && scan_offset + 4 <= structure_end {
+                    let token = fdt_read_u32(dtb, scan_offset);
+                    if token == FDT_BEGIN_NODE {
                         depth += 1;
-                        let n = core::ffi::CStr::from_bytes_until_nul(&dtb[scan + 4..])
-                            .map(|s| s.to_str().unwrap_or(""))
-                            .unwrap_or("");
-                        scan += 4 + ((n.len() + 4) & !3);
-                    } else if t == FDT_END_NODE {
-                        depth -= 1;
-                        scan += 4;
-                    } else if t == FDT_PROP {
-                        let prop_len = fdt_read_u32(dtb, scan + 4) as usize;
-                        let name_off = fdt_read_u32(dtb, scan + 8) as usize;
-                        let prop_name =
-                            core::ffi::CStr::from_bytes_until_nul(&dtb[strings_off + name_off..])
-                                .map(|s| s.to_str().unwrap_or(""))
+                        let nested_name =
+                            core::ffi::CStr::from_bytes_until_nul(&dtb[scan_offset + 4..])
+                                .map(|name| name.to_str().unwrap_or(""))
                                 .unwrap_or("");
-                        if depth == 1 && prop_name == "compatible" && prop_len > 0 {
-                            let data = &dtb[scan + 12..scan + 12 + prop_len];
-                            if data.windows(11).any(|w| w == b"riscv,aplic") {
+                        scan_offset += 4 + ((nested_name.len() + 4) & !3);
+                    } else if token == FDT_END_NODE {
+                        depth -= 1;
+                        scan_offset += 4;
+                    } else if token == FDT_PROP {
+                        let property_size = fdt_read_u32(dtb, scan_offset + 4) as usize;
+                        let name_offset = fdt_read_u32(dtb, scan_offset + 8) as usize;
+                        let property_name = core::ffi::CStr::from_bytes_until_nul(
+                            &dtb[strings_offset + name_offset..],
+                        )
+                        .map(|name| name.to_str().unwrap_or(""))
+                        .unwrap_or("");
+                        if depth == 1 && property_name == "compatible" && property_size > 0 {
+                            let property_value =
+                                &dtb[scan_offset + 12..scan_offset + 12 + property_size];
+                            if property_value
+                                .windows(11)
+                                .any(|window| window == b"riscv,aplic")
+                            {
                                 is_aplic = true;
                             }
                         }
                         if depth == 1
-                            && (prop_name == "riscv,delegate" || prop_name == "riscv,delegation")
+                            && (property_name == "riscv,delegate"
+                                || property_name == "riscv,delegation")
                         {
                             has_delegation = true;
                         }
-                        scan += 12 + ((prop_len + 3) & !3);
-                    } else if t == FDT_NOP {
-                        scan += 4;
+                        scan_offset += 12 + ((property_size + 3) & !3);
+                    } else if token == FDT_NOP {
+                        scan_offset += 4;
                     } else {
                         break;
                     }
@@ -505,133 +555,121 @@ fn fdt_nop_m_level_aplic(dtb: &mut [u8]) {
 
                 if is_aplic && has_delegation {
                     let node_name = alloc::string::String::from(name);
-                    for i in (node_start..scan).step_by(4) {
-                        fdt_write_u32(dtb, i, FDT_NOP);
+                    for word_offset in (node_start..scan_offset).step_by(4) {
+                        fdt_write_u32(dtb, word_offset, FDT_NOP);
                     }
                     info!("AIA: NOP'd M-level APLIC node '{}' in DTB", node_name);
                 }
             }
-            t if t == FDT_END_NODE => {
-                off += 4;
+            FDT_END_NODE => {
+                offset += 4;
             }
-            t if t == FDT_PROP => {
-                let prop_len = fdt_read_u32(dtb, off + 4) as usize;
-                off += 12 + ((prop_len + 3) & !3);
+            FDT_PROP => {
+                let property_size = fdt_read_u32(dtb, offset + 4) as usize;
+                offset += 12 + ((property_size + 3) & !3);
             }
-            t if t == FDT_NOP => {
-                off += 4;
+            FDT_NOP => {
+                offset += 4;
             }
             _ => break,
         }
     }
 }
 
-static mut SBI_START_ADDRESS: usize = 0;
-static mut SBI_END_ADDRESS: usize = 0;
-static mut RODATA_START_ADDRESS: usize = 0;
-static mut RODATA_END_ADDRESS: usize = 0;
-
-/// Returns whether S-mode may write `[start, start + len)`.
-pub(crate) fn supervisor_writable(start: usize, len: usize) -> bool {
-    let Some(end) = start.checked_add(len) else {
-        return false;
-    };
-
-    let memory = crate::platform::memory_range();
-    if start < memory.start || end > memory.end {
-        return false;
-    }
-
-    // SAFETY: initialized by this hart's `set_pmp` earlier in boot; the
-    // values never change afterwards.
-    let (sbi_start, sbi_end) = unsafe { (SBI_START_ADDRESS, SBI_END_ADDRESS) };
-    if sbi_start == 0 || sbi_end == 0 {
-        return false;
-    }
-
-    end <= sbi_start || start >= sbi_end
-}
+static mut FIRMWARE_START_ADDRESS: usize = 0;
+static mut FIRMWARE_END_ADDRESS: usize = 0;
+static mut FIRMWARE_RODATA_START_ADDRESS: usize = 0;
+static mut FIRMWARE_RODATA_END_ADDRESS: usize = 0;
 
 /// Installs PMP entries isolating firmware memory from S-mode.
-pub fn set_pmp(memory_range: &Range<usize>) {
+pub fn set_pmp(firmware_ram: &Range<usize>) {
     // SAFETY: M-mode PMP programming on this hart; the linker symbols and
     // memory bounds are asserted aligned below.
     unsafe {
-        // [0..memory_range.start] RWX
-        // [memory_range.start..sbi_start] RWX
-        // [sbi_start..sbi_rodata_start] R
-        // [sbi_rodata_start..sbi_rodata_end] NONE
-        // [sbi_rodata_end..sbi_end] RW
-        // [sbi_end..memory_range.end] RWX
-        // [memory_range.end..INF] RWX
+        // [0..firmware_ram.start] RWX
+        // [firmware_ram.start..firmware_start] RWX
+        // [firmware_start..firmware_rodata_start] R
+        // [firmware_rodata_start..firmware_rodata_end] NONE
+        // [firmware_rodata_end..firmware_end] RW
+        // [firmware_end..firmware_ram.end] RWX
+        // [firmware_ram.end..INF] RWX
         use riscv::register::*;
 
-        asm!("la {}, sbi_start", out(reg) SBI_START_ADDRESS, options(nomem));
-        asm!("la {}, sbi_end", out(reg) SBI_END_ADDRESS, options(nomem));
-        asm!("la {}, sbi_rodata_start", out(reg) RODATA_START_ADDRESS, options(nomem));
-        asm!("la {}, sbi_rodata_end", out(reg) RODATA_END_ADDRESS, options(nomem));
+        asm!("la {}, sbi_start", out(reg) FIRMWARE_START_ADDRESS, options(nomem));
+        asm!("la {}, sbi_end", out(reg) FIRMWARE_END_ADDRESS, options(nomem));
+        asm!(
+            "la {}, sbi_rodata_start",
+            out(reg) FIRMWARE_RODATA_START_ADDRESS,
+            options(nomem)
+        );
+        asm!(
+            "la {}, sbi_rodata_end",
+            out(reg) FIRMWARE_RODATA_END_ADDRESS,
+            options(nomem)
+        );
 
-        assert_eq!(memory_range.start & 0x3, 0);
-        assert_eq!(memory_range.end & 0x3, 0);
-        assert_eq!(SBI_START_ADDRESS & 0x3, 0);
-        assert_eq!(SBI_END_ADDRESS & 0x3, 0);
-        assert_eq!(RODATA_START_ADDRESS & 0x3, 0);
-        assert_eq!(RODATA_END_ADDRESS & 0x3, 0);
+        assert_eq!(firmware_ram.start & 0x3, 0);
+        assert_eq!(firmware_ram.end & 0x3, 0);
+        assert_eq!(FIRMWARE_START_ADDRESS & 0x3, 0);
+        assert_eq!(FIRMWARE_END_ADDRESS & 0x3, 0);
+        assert_eq!(FIRMWARE_RODATA_START_ADDRESS & 0x3, 0);
+        assert_eq!(FIRMWARE_RODATA_END_ADDRESS & 0x3, 0);
 
         // Keep machine-level interrupt controllers inaccessible to S-mode
         // only when the IMSIC device retained them for firmware use.
         if crate::sbi::ipi::uses_imsic()
             && crate::platform::board_info().is_qemu_virt()
-            && let Some(aia_info) = crate::platform::board_info().aia.as_ref()
+            && let Some(imsic) = crate::platform::board_info().imsic.as_ref()
         {
-            use crate::platform::qemu_aplic::{APLIC_SPAN, QEMU_VIRT_M_APLIC_BASE};
             const QEMU_VIRT_CLINT_BASE: usize = 0x0200_0000;
             const QEMU_VIRT_CLINT_SIZE: usize = 0x1_0000;
 
-            let clint_base = crate::platform::board_info()
-                .ipi
+            let clint_start = crate::platform::board_info()
+                .clint
                 .as_ref()
-                .map(|(base, _)| *base)
+                .map(|(registers, _)| registers.start().as_usize())
                 .unwrap_or(QEMU_VIRT_CLINT_BASE);
-            let clint_end = clint_base + QEMU_VIRT_CLINT_SIZE;
-            let aplic_base = QEMU_VIRT_M_APLIC_BASE;
-            let aplic_end = aplic_base + APLIC_SPAN;
-            let m_base = aia_info.layout.machine_base;
-            let m_end = aia_info
-                .hart_imsic_map
+            let clint_end = clint_start + QEMU_VIRT_CLINT_SIZE;
+            let aplic_registers = crate::platform::board_info()
+                .machine_aplic
+                .expect("BUG: QEMU AIA setup requires a machine APLIC");
+            let aplic_start = aplic_registers.start().as_usize();
+            let aplic_end = aplic_registers.end().as_usize();
+            let machine_imsic_start = imsic.layout.machine_base.as_usize();
+            let machine_imsic_end = imsic
+                .hart_files
                 .iter()
                 .flatten()
-                .copied()
+                .map(|range| range.end().as_usize())
                 .max()
-                .and_then(|addr| addr.checked_add(0x1000))
-                .unwrap_or(m_base + 0x1000);
+                .unwrap_or(machine_imsic_start + 0x1000);
 
             pmpcfg0::set_pmp(0, Range::OFF, Permission::NONE, false);
             pmpaddr0::write(0);
             pmpcfg0::set_pmp(1, Range::TOR, Permission::RWX, false);
-            pmpaddr1::write(clint_base >> 2);
+            pmpaddr1::write(clint_start >> 2);
             pmpcfg0::set_pmp(2, Range::TOR, Permission::NONE, false);
             pmpaddr2::write(clint_end >> 2);
             pmpcfg0::set_pmp(3, Range::TOR, Permission::RWX, false);
-            pmpaddr3::write(aplic_base >> 2);
+            pmpaddr3::write(aplic_start >> 2);
             pmpcfg0::set_pmp(4, Range::TOR, Permission::NONE, false);
             pmpaddr4::write(aplic_end >> 2);
             pmpcfg0::set_pmp(5, Range::TOR, Permission::RWX, false);
-            pmpaddr5::write(m_base >> 2);
+            pmpaddr5::write(machine_imsic_start >> 2);
             pmpcfg0::set_pmp(6, Range::TOR, Permission::NONE, false);
-            pmpaddr6::write(m_end >> 2);
+            pmpaddr6::write(machine_imsic_end >> 2);
             pmpcfg0::set_pmp(7, Range::TOR, Permission::RWX, false);
-            pmpaddr7::write(memory_range.start >> 2);
+            pmpaddr7::write(firmware_ram.start >> 2);
             pmpcfg2::set_pmp(0, Range::TOR, Permission::RWX, false);
-            pmpaddr8::write(SBI_START_ADDRESS >> 2);
+            pmpaddr8::write(FIRMWARE_START_ADDRESS >> 2);
             pmpcfg2::set_pmp(1, Range::TOR, Permission::R, false);
-            pmpaddr9::write(RODATA_START_ADDRESS >> 2);
+            pmpaddr9::write(FIRMWARE_RODATA_START_ADDRESS >> 2);
             pmpcfg2::set_pmp(2, Range::TOR, Permission::NONE, false);
-            pmpaddr10::write(RODATA_END_ADDRESS >> 2);
+            pmpaddr10::write(FIRMWARE_RODATA_END_ADDRESS >> 2);
             pmpcfg2::set_pmp(3, Range::TOR, Permission::RW, false);
-            pmpaddr11::write(SBI_END_ADDRESS >> 2);
+            pmpaddr11::write(FIRMWARE_END_ADDRESS >> 2);
             pmpcfg2::set_pmp(4, Range::TOR, Permission::RWX, false);
-            pmpaddr12::write(memory_range.end >> 2);
+            pmpaddr12::write(firmware_ram.end >> 2);
             pmpcfg2::set_pmp(5, Range::TOR, Permission::RWX, false);
             pmpaddr13::write(usize::MAX >> 2);
             return;
@@ -640,17 +678,17 @@ pub fn set_pmp(memory_range: &Range<usize>) {
         pmpcfg0::set_pmp(0, Range::OFF, Permission::NONE, false);
         pmpaddr0::write(0);
         pmpcfg0::set_pmp(1, Range::TOR, Permission::RWX, false);
-        pmpaddr1::write(memory_range.start >> 2);
+        pmpaddr1::write(firmware_ram.start >> 2);
         pmpcfg0::set_pmp(2, Range::TOR, Permission::RWX, false);
-        pmpaddr2::write(SBI_START_ADDRESS >> 2);
+        pmpaddr2::write(FIRMWARE_START_ADDRESS >> 2);
         pmpcfg0::set_pmp(3, Range::TOR, Permission::R, false);
-        pmpaddr3::write(RODATA_START_ADDRESS >> 2);
+        pmpaddr3::write(FIRMWARE_RODATA_START_ADDRESS >> 2);
         pmpcfg0::set_pmp(4, Range::TOR, Permission::NONE, false);
-        pmpaddr4::write(RODATA_END_ADDRESS >> 2);
+        pmpaddr4::write(FIRMWARE_RODATA_END_ADDRESS >> 2);
         pmpcfg0::set_pmp(5, Range::TOR, Permission::RW, false); // FIXME: should be `R`; `RW` temporarily allows S-mode DTB modification
-        pmpaddr5::write(SBI_END_ADDRESS >> 2);
+        pmpaddr5::write(FIRMWARE_END_ADDRESS >> 2);
         pmpcfg0::set_pmp(6, Range::TOR, Permission::RWX, false);
-        pmpaddr6::write(memory_range.end >> 2);
+        pmpaddr6::write(firmware_ram.end >> 2);
         pmpcfg0::set_pmp(7, Range::TOR, Permission::RWX, false);
         pmpaddr7::write(usize::MAX >> 2);
     }
@@ -665,8 +703,8 @@ struct PermissionWrapper(pub Permission);
 struct RangeWrapper(pub register::Range);
 
 impl fmt::Display for PermissionWrapper {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.pad(match self.0 {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.pad(match self.0 {
             Permission::R => "R",
             Permission::W => "W",
             Permission::X => "X",
@@ -680,8 +718,8 @@ impl fmt::Display for PermissionWrapper {
 }
 
 impl fmt::Display for RangeWrapper {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.pad(match self.0 {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.pad(match self.0 {
             register::Range::OFF => "OFF",
             register::Range::TOR => "TOR",
             register::Range::NA4 => "NA4",
@@ -691,13 +729,15 @@ impl fmt::Display for RangeWrapper {
 }
 
 /// Logs the active PMP configuration.
-pub fn log_pmp_cfg(_memory_range: &Range<usize>) {
+pub fn log_pmp_cfg(_firmware_ram: &Range<usize>) {
     use riscv::register::*;
-    let pmp = pmpcfg0::read();
+    let pmp_config = pmpcfg0::read();
 
-    let get_pmp_range = |i: usize| -> RangeWrapper { RangeWrapper(pmp.into_config(i).range) };
-    let get_pmp_permission =
-        |i: usize| -> PermissionWrapper { PermissionWrapper(pmp.into_config(i).permission) };
+    let get_pmp_range =
+        |index: usize| -> RangeWrapper { RangeWrapper(pmp_config.into_config(index).range) };
+    let get_pmp_permission = |index: usize| -> PermissionWrapper {
+        PermissionWrapper(pmp_config.into_config(index).permission)
+    };
     info!("PMP Configuration");
 
     info!(

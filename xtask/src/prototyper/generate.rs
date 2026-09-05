@@ -119,9 +119,6 @@ pub(crate) fn generate_build_inputs(spec: &BuildSpec, paths: &BuildPaths) -> Res
 fn render_alignment_source() -> String {
     String::from(
         "#[allow(dead_code)]\n\
-         #[repr(align(4))]\n\
-         pub struct Aligned4<const N: usize>(pub [u8; N]);\n\
-         #[allow(dead_code)]\n\
          #[repr(align(16))]\n\
          pub struct Aligned16<const N: usize>(pub [u8; N]);\n",
     )
@@ -130,7 +127,13 @@ fn render_alignment_source() -> String {
 fn render_payload_source(spec: &BuildSpec) -> Result<String> {
     match &spec.mode {
         BuildMode::Payload { path } => {
-            render_embedded_static("payload_image", ".payload", "Aligned4", path)
+            let (size, path_string) = embedded_file(path)?;
+            Ok(format!(
+                "\n#[allow(non_upper_case_globals)]\n\
+                 #[unsafe(link_section = \".payload\")]\n\
+                 pub static payload_image: ::runtime::memory::HandoffBuffer<{size}> = \
+                     ::runtime::memory::HandoffBuffer::new(*include_bytes!({path_string:?}));\n"
+            ))
         }
         BuildMode::Dynamic | BuildMode::Jump => Ok(String::new()),
     }
@@ -150,6 +153,15 @@ fn render_embedded_static(
     alignment_type: &str,
     path: &Path,
 ) -> Result<String> {
+    let (size, path_string) = embedded_file(path)?;
+    Ok(format!(
+        "\n#[allow(dead_code, non_upper_case_globals)]\n\
+         #[unsafe(link_section = \"{section_name}\")]\n\
+         pub static {symbol_name}: {alignment_type}<{size}> = {alignment_type}(*include_bytes!({path_string:?}));\n"
+    ))
+}
+
+fn embedded_file(path: &Path) -> Result<(u64, &str)> {
     let size = fs::metadata(path)
         .with_context(|| {
             format!(
@@ -161,11 +173,7 @@ fn render_embedded_static(
     let path_string = path
         .to_str()
         .with_context(|| format!("path '{}' is not valid UTF-8", path.display()))?;
-    Ok(format!(
-        "\n#[allow(dead_code, non_upper_case_globals)]\n\
-         #[unsafe(link_section = \"{section_name}\")]\n\
-         pub static {symbol_name}: {alignment_type}<{size}> = {alignment_type}(*include_bytes!({path_string:?}));\n"
-    ))
+    Ok((size, path_string))
 }
 
 fn render_build_stamp(
