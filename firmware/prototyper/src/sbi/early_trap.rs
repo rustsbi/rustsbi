@@ -75,6 +75,8 @@ pub(crate) unsafe fn csr_read_allow<const CSR_NUM: u16>(trap_info: *mut TrapInfo
             tinfo = in(reg) tinfo,
             ret = out(reg) ret,
             csr = const CSR_NUM,
+            out("a3") _,
+            out("a4") _,
             options(nostack, preserves_flags)
         );
         asm!("csrw mtvec, {}", in(reg) mtvec);
@@ -99,6 +101,8 @@ pub(crate) unsafe fn csr_write_allow<const CSR_NUM: u16>(trap_info: *mut TrapInf
             tinfo = in(reg) tinfo,
             csr = const CSR_NUM,
             value = in(reg) value,
+            out("a3") _,
+            out("a4") _,
             options(nostack, preserves_flags)
         );
         asm!("csrw mtvec, {}", in(reg) mtvec);

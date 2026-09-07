@@ -83,6 +83,9 @@ pub fn has_csr<const CSR: u16>() -> bool {
             "mv {}, a0",
             const CSR,
             out(reg) res,
+            out("a0") _,
+            out("a1") _,
+            out("a2") _,
             options(nomem));
         asm!("csrw mtvec, {}", in(reg) mtvec);
     }
