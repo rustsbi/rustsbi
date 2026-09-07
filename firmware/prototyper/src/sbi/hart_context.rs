@@ -69,12 +69,21 @@ const _: () = assert!(STACK_SIZE_PER_HART.is_multiple_of(core::mem::align_of::<H
 const _: () = assert!(core::mem::offset_of!(HartContext, frame) == 0);
 
 impl HartLocal {
-    /// Initialize the hart-local state by creating new HSM and RFence cells
+    /// Creates hart-local state before feature discovery.
+    pub(crate) fn new() -> Self {
+        Self {
+            hsm: HsmCell::new(),
+            rfence: RFenceCell::new(),
+            ipi_type: AtomicU8::new(0),
+            features: HartFeatures::default(),
+            pmu_state: PmuState::new(0),
+        }
+    }
+
+    /// Configures PMU state from this hart's detected counters.
     #[inline]
-    pub fn init(&mut self) {
-        self.hsm = HsmCell::new();
-        self.rfence = RFenceCell::new();
-        self.pmu_state = PmuState::new();
+    pub fn init_pmu(&mut self) {
+        self.pmu_state = PmuState::new(self.features.mhpm_mask());
     }
 
     #[inline]
@@ -104,7 +113,7 @@ impl HartLocal {
             }
         }
         // reset hart pmu state
-        self.pmu_state = PmuState::new();
+        self.init_pmu();
     }
 }
 

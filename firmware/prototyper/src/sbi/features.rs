@@ -13,6 +13,7 @@ use crate::sbi::early_trap::TrapInfo;
 use crate::sbi::trap_stack::{hart_local, with_current, with_hart};
 use runtime::node_is_enabled;
 
+#[derive(Default)]
 pub struct HartFeatures {
     extensions: [bool; Extension::COUNT],
     privileged_version: PrivilegedVersion,
@@ -24,10 +25,15 @@ impl HartFeatures {
     pub const fn privileged_version(&self) -> PrivilegedVersion {
         self.privileged_version
     }
+
+    pub const fn mhpm_mask(&self) -> u32 {
+        self.mhpm_mask
+    }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PrivilegedVersion {
+    #[default]
     Unknown = 0,
     Version1_10 = 1,
     Version1_11 = 2,

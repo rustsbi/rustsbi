@@ -11,10 +11,10 @@ use crate::sbi::trap::fast_handler;
 use alloc::collections::VecDeque;
 use core::cell::UnsafeCell;
 use core::hint::spin_loop;
-use core::mem::forget;
+use core::mem::{MaybeUninit, forget};
 use core::ptr::{addr_of, addr_of_mut};
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
-use fast_trap::FreeTrapStack;
+use fast_trap::{FlowContext, FreeTrapStack};
 use rustsbi::spec::hsm::hart_state;
 use spin::Mutex;
 
@@ -25,7 +25,7 @@ use spin::Mutex;
 /// - Middle: Stack space for the hart.
 /// - Top: Trap handling space.
 #[repr(C, align(128))]
-struct HartStack(UnsafeCell<[u8; STACK_SIZE_PER_HART]>);
+struct HartStack(UnsafeCell<MaybeUninit<[u8; STACK_SIZE_PER_HART]>>);
 
 // SAFETY: `HartStack` is raw storage addressed by hart id: the naked entry
 // (`locate`) reaches it via `sym ROOT_STACK` and the trap framework via the
@@ -38,10 +38,24 @@ unsafe impl Sync for HartStack {}
 /// Root stack array for all harts, placed in BSS stack section.
 #[used]
 #[unsafe(link_section = ".bss.stack")]
-static ROOT_STACK: [HartStack; NUM_HART_MAX] = [const { HartStack::zero() }; NUM_HART_MAX];
+static ROOT_STACK: [HartStack; NUM_HART_MAX] = [const { HartStack::uninit() }; NUM_HART_MAX];
 
 // Make sure stack address can be aligned.
 const _: () = assert!(STACK_SIZE_PER_HART.is_multiple_of(core::mem::align_of::<HartStack>()));
+const _: () = assert!(size_of::<HartContext>() < STACK_SIZE_PER_HART);
+
+/// Initializes the state at the bottom of every stack slot.
+///
+/// # Safety
+/// Call once on the boot hart before accessing hart state.
+/// Other harts must wait until platform publication.
+pub(crate) unsafe fn init() {
+    for slot in &ROOT_STACK {
+        let context = slot.0.get().cast::<HartContext>();
+        // SAFETY: Each aligned prefix is reserved; write does not drop DDR contents.
+        unsafe { addr_of_mut!((*context).local).write(HartLocal::new()) };
+    }
+}
 
 /// Returns the raw slot of `hart_id`, or `None` when out of range.
 #[inline]
@@ -426,10 +440,9 @@ pub fn reset_hart(hart_id: usize) {
 }
 
 impl HartStack {
-    /// All-zero slot, usable as an array repeat operand (const fn form;
-    /// a `const` item would carry interior mutability).
-    const fn zero() -> Self {
-        Self(UnsafeCell::new([0; STACK_SIZE_PER_HART]))
+    /// Reserves stack storage without initializing its bytes.
+    const fn uninit() -> Self {
+        Self(UnsafeCell::new(MaybeUninit::uninit()))
     }
 
     /// Initializes stack for trap handling.
@@ -437,18 +450,21 @@ impl HartStack {
     /// - Creates and loads FreeTrapStack with the stack range.
     fn load_as_stack(slot: &'static Self) {
         let context = slot.0.get().cast::<HartContext>();
-        // SAFETY: this hart owns `slot`, and the trap entry starts using the
-        // installed frame pointer only once `FreeTrapStack::load` runs below.
-        let context_ptr = unsafe { (*addr_of_mut!((*context).frame)).context_ptr() };
-        unsafe { (*addr_of_mut!((*context).local)).init() };
+        // SAFETY: This hart owns its frame; initialize it before forming references.
+        let context_ptr = unsafe {
+            addr_of_mut!((*context).frame.trap).write(FlowContext::ZERO);
+            (*addr_of_mut!((*context).frame)).context_ptr()
+        };
+        // SAFETY: init constructed local state before this hart was released.
+        unsafe { (*addr_of_mut!((*context).local)).init_pmu() };
 
         // Get stack memory range.
-        let range = unsafe { (*slot.0.get()).as_ptr_range() };
+        let start = slot.0.get().cast::<u8>() as usize;
 
         // Create and load trap stack, forgetting it to avoid drop
         forget(
             FreeTrapStack::new(
-                range.start as usize..range.end as usize,
+                start..start + STACK_SIZE_PER_HART,
                 |_| {}, // Empty callback
                 context_ptr,
                 fast_handler,

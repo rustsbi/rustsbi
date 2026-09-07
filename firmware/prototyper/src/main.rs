@@ -37,6 +37,8 @@ fn main(boot: BootInfo) {
 }
 
 fn boot_hart(mut boot: BootInfo) {
+    // SAFETY: Only the boot hart initializes state; secondaries wait for publication.
+    unsafe { trap_stack::init() };
     heap::init();
     let platform_description = boot
         .take_platform_description()
@@ -69,10 +71,10 @@ fn boot_hart(mut boot: BootInfo) {
 }
 
 fn secondary_hart(boot: &BootInfo) {
+    platform::wait_until_ready();
     detect_hart_features();
     trap_stack::prepare_for_trap();
 
-    platform::wait_until_ready();
     platform::initialize_secondary_hart();
     firmware::set_pmp(&platform::firmware_ram_range());
 

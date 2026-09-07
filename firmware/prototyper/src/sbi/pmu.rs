@@ -46,8 +46,7 @@ pub struct PmuState {
 
 impl PmuState {
     /// Creates a new PMU state with default configuration.
-    pub fn new() -> Self {
-        let mhpm_mask = hart_mhpm_mask(current_hartid());
+    pub fn new(mhpm_mask: u32) -> Self {
         let hw_counters_num = mhpm_mask.count_ones() as usize;
         let total_counters_num = hw_counters_num + PMU_FIRMWARE_COUNTER_MAX;
 
