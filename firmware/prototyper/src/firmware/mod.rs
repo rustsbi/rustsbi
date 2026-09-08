@@ -581,6 +581,35 @@ static mut FIRMWARE_END_ADDRESS: usize = 0;
 static mut FIRMWARE_RODATA_START_ADDRESS: usize = 0;
 static mut FIRMWARE_RODATA_END_ADDRESS: usize = 0;
 
+/// Programs one of the first sixteen PMP entries, accounting for XLEN.
+///
+/// # Safety
+/// Called during M-mode initialization on a hart with these PMP entries.
+unsafe fn set_pmp_config(
+    index: usize,
+    range: register::Range,
+    permission: Permission,
+    locked: bool,
+) {
+    use riscv::register::*;
+    let slot = index % size_of::<usize>();
+    // SAFETY: each match arm addresses a valid slot in its native-width CSR.
+    unsafe {
+        match index / size_of::<usize>() {
+            0 => pmpcfg0::set_pmp(slot, range, permission, locked),
+            #[cfg(target_pointer_width = "32")]
+            1 => pmpcfg1::set_pmp(slot, range, permission, locked),
+            #[cfg(target_pointer_width = "32")]
+            2 => pmpcfg2::set_pmp(slot, range, permission, locked),
+            #[cfg(target_pointer_width = "32")]
+            3 => pmpcfg3::set_pmp(slot, range, permission, locked),
+            #[cfg(target_pointer_width = "64")]
+            1 => pmpcfg2::set_pmp(slot, range, permission, locked),
+            _ => unreachable!("firmware uses only the first sixteen PMP entries"),
+        }
+    }
+}
+
 /// Installs PMP entries isolating firmware memory from S-mode.
 pub fn set_pmp(firmware_ram: &Range<usize>) {
     // SAFETY: M-mode PMP programming on this hart; the linker symbols and
@@ -644,52 +673,52 @@ pub fn set_pmp(firmware_ram: &Range<usize>) {
                 .max()
                 .unwrap_or(machine_imsic_start + 0x1000);
 
-            pmpcfg0::set_pmp(0, Range::OFF, Permission::NONE, false);
+            set_pmp_config(0, Range::OFF, Permission::NONE, false);
             pmpaddr0::write(0);
-            pmpcfg0::set_pmp(1, Range::TOR, Permission::RWX, false);
+            set_pmp_config(1, Range::TOR, Permission::RWX, false);
             pmpaddr1::write(clint_start >> 2);
-            pmpcfg0::set_pmp(2, Range::TOR, Permission::NONE, false);
+            set_pmp_config(2, Range::TOR, Permission::NONE, false);
             pmpaddr2::write(clint_end >> 2);
-            pmpcfg0::set_pmp(3, Range::TOR, Permission::RWX, false);
+            set_pmp_config(3, Range::TOR, Permission::RWX, false);
             pmpaddr3::write(aplic_start >> 2);
-            pmpcfg0::set_pmp(4, Range::TOR, Permission::NONE, false);
+            set_pmp_config(4, Range::TOR, Permission::NONE, false);
             pmpaddr4::write(aplic_end >> 2);
-            pmpcfg0::set_pmp(5, Range::TOR, Permission::RWX, false);
+            set_pmp_config(5, Range::TOR, Permission::RWX, false);
             pmpaddr5::write(machine_imsic_start >> 2);
-            pmpcfg0::set_pmp(6, Range::TOR, Permission::NONE, false);
+            set_pmp_config(6, Range::TOR, Permission::NONE, false);
             pmpaddr6::write(machine_imsic_end >> 2);
-            pmpcfg0::set_pmp(7, Range::TOR, Permission::RWX, false);
+            set_pmp_config(7, Range::TOR, Permission::RWX, false);
             pmpaddr7::write(firmware_ram.start >> 2);
-            pmpcfg2::set_pmp(0, Range::TOR, Permission::RWX, false);
+            set_pmp_config(8, Range::TOR, Permission::RWX, false);
             pmpaddr8::write(FIRMWARE_START_ADDRESS >> 2);
-            pmpcfg2::set_pmp(1, Range::TOR, Permission::R, false);
+            set_pmp_config(9, Range::TOR, Permission::R, false);
             pmpaddr9::write(FIRMWARE_RODATA_START_ADDRESS >> 2);
-            pmpcfg2::set_pmp(2, Range::TOR, Permission::NONE, false);
+            set_pmp_config(10, Range::TOR, Permission::NONE, false);
             pmpaddr10::write(FIRMWARE_RODATA_END_ADDRESS >> 2);
-            pmpcfg2::set_pmp(3, Range::TOR, Permission::RW, false);
+            set_pmp_config(11, Range::TOR, Permission::RW, false);
             pmpaddr11::write(FIRMWARE_END_ADDRESS >> 2);
-            pmpcfg2::set_pmp(4, Range::TOR, Permission::RWX, false);
+            set_pmp_config(12, Range::TOR, Permission::RWX, false);
             pmpaddr12::write(firmware_ram.end >> 2);
-            pmpcfg2::set_pmp(5, Range::TOR, Permission::RWX, false);
+            set_pmp_config(13, Range::TOR, Permission::RWX, false);
             pmpaddr13::write(usize::MAX >> 2);
             return;
         }
 
-        pmpcfg0::set_pmp(0, Range::OFF, Permission::NONE, false);
+        set_pmp_config(0, Range::OFF, Permission::NONE, false);
         pmpaddr0::write(0);
-        pmpcfg0::set_pmp(1, Range::TOR, Permission::RWX, false);
+        set_pmp_config(1, Range::TOR, Permission::RWX, false);
         pmpaddr1::write(firmware_ram.start >> 2);
-        pmpcfg0::set_pmp(2, Range::TOR, Permission::RWX, false);
+        set_pmp_config(2, Range::TOR, Permission::RWX, false);
         pmpaddr2::write(FIRMWARE_START_ADDRESS >> 2);
-        pmpcfg0::set_pmp(3, Range::TOR, Permission::R, false);
+        set_pmp_config(3, Range::TOR, Permission::R, false);
         pmpaddr3::write(FIRMWARE_RODATA_START_ADDRESS >> 2);
-        pmpcfg0::set_pmp(4, Range::TOR, Permission::NONE, false);
+        set_pmp_config(4, Range::TOR, Permission::NONE, false);
         pmpaddr4::write(FIRMWARE_RODATA_END_ADDRESS >> 2);
-        pmpcfg0::set_pmp(5, Range::TOR, Permission::RW, false); // FIXME: should be `R`; `RW` temporarily allows S-mode DTB modification
+        set_pmp_config(5, Range::TOR, Permission::RW, false); // FIXME: should be `R`; `RW` temporarily allows S-mode DTB modification
         pmpaddr5::write(FIRMWARE_END_ADDRESS >> 2);
-        pmpcfg0::set_pmp(6, Range::TOR, Permission::RWX, false);
+        set_pmp_config(6, Range::TOR, Permission::RWX, false);
         pmpaddr6::write(firmware_ram.end >> 2);
-        pmpcfg0::set_pmp(7, Range::TOR, Permission::RWX, false);
+        set_pmp_config(7, Range::TOR, Permission::RWX, false);
         pmpaddr7::write(usize::MAX >> 2);
     }
 }
@@ -731,13 +760,17 @@ impl fmt::Display for RangeWrapper {
 /// Logs the active PMP configuration.
 pub fn log_pmp_cfg(_firmware_ram: &Range<usize>) {
     use riscv::register::*;
-    let pmp_config = pmpcfg0::read();
-
-    let get_pmp_range =
-        |index: usize| -> RangeWrapper { RangeWrapper(pmp_config.into_config(index).range) };
-    let get_pmp_permission = |index: usize| -> PermissionWrapper {
-        PermissionWrapper(pmp_config.into_config(index).permission)
+    let pmp_config = |index: usize| {
+        #[cfg(target_pointer_width = "32")]
+        if index >= 4 {
+            return pmpcfg1::read().into_config(index - 4);
+        }
+        pmpcfg0::read().into_config(index)
     };
+
+    let get_pmp_range = |index: usize| -> RangeWrapper { RangeWrapper(pmp_config(index).range) };
+    let get_pmp_permission =
+        |index: usize| -> PermissionWrapper { PermissionWrapper(pmp_config(index).permission) };
     info!("PMP Configuration");
 
     info!(

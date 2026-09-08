@@ -49,9 +49,9 @@ impl EncodedMsiAddress {
             return Err(Error::InvalidArgs);
         }
 
-        let base_ppn = base.as_usize() >> PAGE_SHIFT;
-        if base_ppn & low_bits_mask(hart_index_bits) != 0
-            || base_ppn >> u32::BITS > low_bits_mask(HIGH_PPN_WIDTH)
+        let base_ppn = (base.as_usize() as u64) >> PAGE_SHIFT;
+        if base_ppn & low_bits_mask(hart_index_bits) as u64 != 0
+            || base_ppn >> u32::BITS > low_bits_mask(HIGH_PPN_WIDTH) as u64
         {
             return Err(Error::InvalidArgs);
         }

@@ -7,6 +7,8 @@ All notable changes to this project will be documented in this file. See [conven
 ## Unreleased
 
 ### Added
+- Add RV32 support to RustSBI Prototyper and test-kernel while preserving RV64 support.
+- Add Yuzuki Neko board configuration with an RV32 firmware jump target of `0x40000000`.
 - Add SBI Collaborative Processor Performance Control extension support to RustSBI Prototyper.
 - Add SBI Message Proxy extension support to RustSBI Prototyper.
 - Add SBI Steal-time Accounting extension support to RustSBI Prototyper.

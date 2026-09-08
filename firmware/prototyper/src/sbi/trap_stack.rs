@@ -40,6 +40,12 @@ unsafe impl Sync for HartStack {}
 #[unsafe(link_section = ".bss.stack")]
 static ROOT_STACK: [HartStack; NUM_HART_MAX] = [const { HartStack::uninit() }; NUM_HART_MAX];
 
+// The pinned fast-trap revision stores six native words at the stack top.
+// Pad RV32's 24-byte descriptor so both its trap entry and our Rust entry
+// receive a 16-byte-aligned stack. RV64's 48-byte descriptor is already aligned.
+const TRAP_STACK_TOP_PADDING: usize =
+    (6 * size_of::<usize>()).next_multiple_of(16) - 6 * size_of::<usize>();
+
 // Make sure stack address can be aligned.
 const _: () = assert!(STACK_SIZE_PER_HART.is_multiple_of(core::mem::align_of::<HartStack>()));
 const _: () = assert!(size_of::<HartContext>() < STACK_SIZE_PER_HART);
@@ -85,12 +91,14 @@ pub(crate) unsafe extern "C" fn locate() {
          1: add  sp, sp, t0             // Calculate stack pointer
             addi t1, t1, -1             // Decrement counter
             bnez t1, 1b                 // Loop if not zero
+            addi sp, sp, {top_padding}
             call t1, {move_stack}       // Call stack reuse function
             ret                         // Return
         ",
         per_hart_stack_size = const STACK_SIZE_PER_HART,
         stack               =   sym ROOT_STACK,
         move_stack          =   sym fast_trap::reuse_stack_for_trap,
+        top_padding         = const -(TRAP_STACK_TOP_PADDING as isize),
     )
 }
 
@@ -464,7 +472,7 @@ impl HartStack {
         // Create and load trap stack, forgetting it to avoid drop
         forget(
             FreeTrapStack::new(
-                start..start + STACK_SIZE_PER_HART,
+                start..start + STACK_SIZE_PER_HART - TRAP_STACK_TOP_PADDING,
                 |_| {}, // Empty callback
                 context_ptr,
                 fast_handler,

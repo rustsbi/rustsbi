@@ -43,15 +43,28 @@ impl Default for TrapInfo {
 pub(crate) unsafe extern "C" fn expected_trap() {
     naked_asm!(
         "csrr a4, mepc",
+        ".if {XLEN} == 64",
         "sd a4, 0*8(a3)",
+        ".else",
+        "sw a4, 0*4(a3)",
+        ".endif",
         "csrr a4, mcause",
+        ".if {XLEN} == 64",
         "sd a4, 1*8(a3)",
+        ".else",
+        "sw a4, 1*4(a3)",
+        ".endif",
         "csrr a4, mtval",
+        ".if {XLEN} == 64",
         "sd a4, 2*8(a3)",
+        ".else",
+        "sw a4, 2*4(a3)",
+        ".endif",
         "csrr a4, mepc",
         "addi a4, a4, 4",
         "csrw mepc, a4",
         "mret",
+        XLEN = const usize::BITS,
     )
 }
 

@@ -10,6 +10,8 @@
    lla t1, __rel_dyn_end
    li  t3, {R_RISCV_RELATIVE}
 1:
+   bgeu t0, t1, 3f
+.if {XLEN} == 64
    ld  t4, 8(t0)
    bne t4, t3, 2f
    ld t4, 0(t0)  // Get target address
@@ -19,7 +21,19 @@
    sd t5, 0(t4)  // Write the relocated address
 2:
    addi t0, t0, 24 // Get next rela item
-   blt t0, t1, 1b
+.else
+   lw t4, 4(t0)  // Elf32_Rela.r_info
+   bne t4, t3, 2f
+   lw t4, 0(t0)  // Elf32_Rela.r_offset
+   lw t5, 8(t0)  // Elf32_Rela.r_addend
+   add t4, t4, t2
+   add t5, t5, t2
+   sw t5, 0(t4)
+2:
+   addi t0, t0, 12
+.endif
+   j 1b
+3:
    fence.i
 
 // Return

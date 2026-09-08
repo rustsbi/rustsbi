@@ -1,0 +1,27 @@
+# Yuzuki Neko (Allwinner F101S3 / XuanTie C907, 16 MiB PSRAM).
+# Matches the SyterKit Yuzuki Neko spinor-boot / usb-boot memory layout:
+#   0x40000000: next-stage image
+#   0x40f40000: device tree (up to 256 KiB, passed in a1)
+#   0x40f80000: SBI firmware (512 KiB, including stack and heap)
+#
+# Build with an RV32 M-mode loader and an RV32 S-mode next stage:
+# cargo prototyper build --target riscv32imac-unknown-none-elf \
+#     --config-file firmware/prototyper/config/yuzuki_neko.toml jump
+# The loader must initialize PSRAM, clocks, UART1 and the C907 before entry.
+# Console and interrupt controllers are discovered from the supplied DTB.
+
+num_hart_max = 1
+stack_size_per_hart = 16384 # 16 KiB
+heap_size = 0x15000 # 84 KiB
+page_size = 4096
+log_level = "INFO"
+link_start_address = 0x40f80000
+# Unused in jump mode. This address is the end of PSRAM, so this config
+# must not be used to embed a payload; load the next stage separately.
+payload_address = 0x41000000
+jump_address = 0x40000000
+tlb_flush_limit = 16384 # page_size * 4
+
+[[next_addr]]
+start = 0x40000000
+end = 0x40f40000

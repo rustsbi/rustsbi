@@ -202,7 +202,11 @@ pub fn sbi_call_handler(
         match a7 {
             legacy::LEGACY_SET_TIMER => {
                 if let Some(timer) = crate::sbi::timer() {
-                    rustsbi::Timer::set_timer(timer, ctx.a0() as u64);
+                    #[cfg(target_pointer_width = "64")]
+                    let value = ctx.a0() as u64;
+                    #[cfg(target_pointer_width = "32")]
+                    let value = ((a1 as u64) << 32) | ctx.a0() as u64;
+                    rustsbi::Timer::set_timer(timer, value);
                     ret.error = 0;
                     ret.value = a1;
                 }
@@ -343,7 +347,7 @@ pub extern "C" fn load_misaligned_handler(ctx: EntireContext) -> EntireResult {
     );
     match var_type {
         VarType::Signed | VarType::UnSigned => save_reg_x(&mut ctx, target_reg as usize, read_data),
-        VarType::Float => set_reg_f(target_reg as usize, len, read_data),
+        VarType::Float => set_reg_f(target_reg as usize, len, raw_data),
     };
     // SAFETY: M-mode mepc write; the increment skips the emulated access.
     unsafe {
@@ -376,7 +380,7 @@ pub extern "C" fn store_misaligned_handler(ctx: EntireContext) -> EntireResult {
     };
     let (target_reg, var_type, len) = inst_type;
     let raw_data = match var_type {
-        VarType::Signed | VarType::UnSigned => get_reg_x(&mut ctx, target_reg as usize),
+        VarType::Signed | VarType::UnSigned => get_reg_x(&mut ctx, target_reg as usize) as u64,
         VarType::Float => get_reg_f(target_reg as usize, len),
     };
 

@@ -28,24 +28,31 @@ unsafe extern "C" fn boot_entry() -> ! {
         "call    {locate_stack}",
         "csrw    mscratch, sp",
         // Allocate stack space
-        "addi   sp, sp, -3*8",
+        "addi   sp, sp, -{frame_size}",
         // Call handler with context pointer
         "mv     a0, sp",
         "call   {boot_handler}",
         // Restore mepc
-        "ld     t0, 0*8(sp)
-        csrw    mepc, t0",
-        // Restore registers
+        ".if {XLEN} == 64",
+        "ld      t0, 0*8(sp)",
         "ld      a0, 1*8(sp)",
         "ld      a1, 2*8(sp)",
+        ".else",
+        "lw      t0, 0*4(sp)",
+        "lw      a0, 1*4(sp)",
+        "lw      a1, 2*4(sp)",
+        ".endif",
+        "csrw    mepc, t0",
         // Restore stack pointer
-        "add     sp, sp, 3*8",
+        "addi    sp, sp, {frame_size}",
         // Switch stacks back
         "csrrw  sp, mscratch, sp",
         // Return from machine mode
         "mret",
         locate_stack = sym trap_stack::locate,
         boot_handler = sym boot_handler,
+        XLEN = const usize::BITS,
+        frame_size = const size_of::<BootContext>().next_multiple_of(16),
     )
 }
 

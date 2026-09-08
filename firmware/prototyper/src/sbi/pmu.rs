@@ -416,10 +416,24 @@ impl Pmu for SbiPmu {
 
     /// Function: Read a firmware counter high bits (FID #6).
     #[inline]
-    fn counter_fw_read_hi(&self, _counter_idx: usize) -> SbiRet {
-        // The Specification states the this function always return zero in sbiret.value for RV64 (or higher) systems.
-        // Currently RustSBI Prototyper only supports RV64 systems
-        SbiRet::success(0)
+    fn counter_fw_read_hi(&self, counter_idx: usize) -> SbiRet {
+        #[cfg(target_pointer_width = "64")]
+        {
+            let _ = counter_idx;
+            SbiRet::success(0)
+        }
+        #[cfg(target_pointer_width = "32")]
+        {
+            let ret = self.counter_fw_read(counter_idx);
+            if ret.is_err() {
+                return ret;
+            }
+            let state = &hart_local(current_hartid()).pmu_state;
+            match state.get_fw_counter(counter_idx) {
+                Some(value) => SbiRet::success((value >> 32) as usize),
+                None => SbiRet::invalid_param(),
+            }
+        }
     }
 
     /// Function: Set PMU snapshot shared memory (FID #7).

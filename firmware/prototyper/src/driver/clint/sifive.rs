@@ -95,14 +95,49 @@ impl SiFiveTimer {
     }
 
     fn read(&self, reg: TimerRegister) -> u64 {
-        self.registers
+        #[cfg(target_pointer_width = "64")]
+        return self
+            .registers
             .read(reg.offset())
-            .expect("BUG: SiFive CLINT timer register escaped its MMIO window")
+            .expect("BUG: SiFive CLINT timer register escaped its MMIO window");
+
+        #[cfg(target_pointer_width = "32")]
+        loop {
+            let high = self.read_word(reg.offset() + 4);
+            let low = self.read_word(reg.offset());
+            if high == self.read_word(reg.offset() + 4) {
+                return (u64::from(high) << 32) | u64::from(low);
+            }
+        }
     }
 
     fn write_mtimecmp(&self, hart_id: usize, value: u64) {
+        let offset = TimerRegister::mtimecmp_offset_for_hart(hart_id);
+        #[cfg(target_pointer_width = "64")]
         self.registers
-            .write(TimerRegister::mtimecmp_offset_for_hart(hart_id), value)
+            .write(offset, value)
+            .expect("BUG: SiFive CLINT timer register escaped its MMIO window");
+
+        #[cfg(target_pointer_width = "32")]
+        {
+            // Compare-safe split writes, as in the T-Head CLINT backend.
+            self.write_word(offset, u32::MAX);
+            self.write_word(offset + 4, (value >> 32) as u32);
+            self.write_word(offset, value as u32);
+        }
+    }
+
+    #[cfg(target_pointer_width = "32")]
+    fn read_word(&self, offset: usize) -> u32 {
+        self.registers
+            .read(offset)
+            .expect("BUG: SiFive CLINT timer register escaped its MMIO window")
+    }
+
+    #[cfg(target_pointer_width = "32")]
+    fn write_word(&self, offset: usize, value: u32) {
+        self.registers
+            .write(offset, value)
             .expect("BUG: SiFive CLINT timer register escaped its MMIO window")
     }
 }

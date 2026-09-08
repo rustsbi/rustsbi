@@ -24,8 +24,13 @@ csrw    mie, zero
     lla     t1, sbi_bss_end
 2:
     bgeu    t0, t1, 3f
+.if {XLEN} == 64
     sd      zero, 0(t0)
     addi    t0, t0, 8
+.else
+    sw      zero, 0(t0)
+    addi    t0, t0, 4
+.endif
     j       2b
 3:
     lla     t0, 7f

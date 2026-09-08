@@ -76,6 +76,7 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
                     include_str!("entry/relocation.S"),
                     R_RISCV_RELATIVE = const R_RISCV_RELATIVE,
                     START_ADDRESS = const crate::cfg::SBI_LINK_START_ADDRESS,
+                    XLEN = const usize::BITS,
                 )
             }
 
@@ -107,6 +108,7 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
                     locate_stack = sym crate::sbi::trap_stack::locate,
                     main = sym __rustsbi_prototyper_main,
                     hart_boot = sym crate::sbi::trap::boot::boot,
+                    XLEN = const usize::BITS,
                 )
             }
         };

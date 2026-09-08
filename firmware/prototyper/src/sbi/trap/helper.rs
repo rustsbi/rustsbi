@@ -96,23 +96,23 @@ pub fn save_byte(addr: usize, data: usize) {
 }
 
 #[inline(always)]
-pub fn get_data(addr: usize, len: usize) -> usize {
-    let mut data: usize = 0;
+pub fn get_data(addr: usize, len: usize) -> u64 {
+    let mut data: u64 = 0;
     for i in (addr..addr + len).rev() {
         data <<= 8;
-        data |= get_unsigned_byte(i) as usize;
+        data |= u64::from(get_unsigned_byte(i));
     }
     data
 }
 
 #[inline(always)]
 pub fn get_inst(addr: usize) -> (usize, usize) {
-    let low_data = get_data(addr, 2);
+    let low_data = get_data(addr, 2) as usize;
     // We assume we only have 16bit and 32bit inst.
     if riscv_decode::instruction_length(low_data as u16) == 2 {
         return (low_data, 2);
     } else {
-        return (low_data | (get_data(addr + 2, 2) << 16), 4);
+        return (low_data | ((get_data(addr + 2, 2) as usize) << 16), 4);
     }
 }
 
@@ -162,14 +162,21 @@ pub fn get_reg_x(ctx: &mut EntireContextSeparated, reg_id: usize) -> usize {
     }
 }
 
-pub fn get_reg_f(reg_id: usize, len: usize) -> usize {
-    let mut data: usize;
+pub fn get_reg_f(reg_id: usize, len: usize) -> u64 {
+    let mut data = 0u64;
     match len {
         4 => {
             seq_macro::seq!(N in 0..32 {
                 match reg_id {
                     #(
-                        N => unsafe { asm!("fmv.x.w {data}, f{x}", data = out(reg) data, x = const N, options(nomem)) },
+                        // SAFETY: an emulated floating-point store identifies
+                        // a live F register; the aligned buffer is owned here.
+                        N => unsafe { asm!(
+                            ".option push", ".option arch, +f",
+                            "fsw f{x}, 0({ptr})", ".option pop",
+                            ptr = in(reg) &mut data, x = const N,
+                            options(nostack),
+                        ) },
                     )*
                     _ => unreachable!()
                 }
@@ -179,7 +186,14 @@ pub fn get_reg_f(reg_id: usize, len: usize) -> usize {
             seq_macro::seq!(N in 0..32 {
                 match reg_id {
                     #(
-                        N => unsafe { asm!("fmv.x.d {data}, f{x}", data = out(reg) data, x = const N, options(nomem)) },
+                        // SAFETY: same as above, with a full 64-bit buffer.
+                        // fsd works on RV32D as well as RV64D; fmv.x.d does not.
+                        N => unsafe { asm!(
+                            ".option push", ".option arch, +d",
+                            "fsd f{x}, 0({ptr})", ".option pop",
+                            ptr = in(reg) &mut data, x = const N,
+                            options(nostack),
+                        ) },
                     )*
                     _ => unreachable!()
                 }
@@ -190,13 +204,20 @@ pub fn get_reg_f(reg_id: usize, len: usize) -> usize {
     data
 }
 
-pub fn set_reg_f(reg_id: usize, len: usize, value: usize) {
+pub fn set_reg_f(reg_id: usize, len: usize, value: u64) {
     match len {
         4 => {
             seq_macro::seq!(N in 0..32 {
                 match reg_id {
                     #(
-                        N => unsafe { asm!("fmv.w.x f{x}, {data}", data = in(reg) value, x = const N, options(nomem)) },
+                        // SAFETY: restoring the emulated load's destination
+                        // F register from an aligned, initialized buffer.
+                        N => unsafe { asm!(
+                            ".option push", ".option arch, +f",
+                            "flw f{x}, 0({ptr})", ".option pop",
+                            ptr = in(reg) &value, x = const N,
+                            options(nostack, readonly),
+                        ) },
                     )*
                     _ => unreachable!()
                 }
@@ -206,7 +227,13 @@ pub fn set_reg_f(reg_id: usize, len: usize, value: usize) {
             seq_macro::seq!(N in 0..32 {
                 match reg_id {
                     #(
-                        N => unsafe { asm!("fmv.d.x f{x}, {data}", data = in(reg) value, x = const N, options(nomem)) },
+                        // SAFETY: same as above, preserving all 64 bits on RV32.
+                        N => unsafe { asm!(
+                            ".option push", ".option arch, +d",
+                            "fld f{x}, 0({ptr})", ".option pop",
+                            ptr = in(reg) &value, x = const N,
+                            options(nostack, readonly),
+                        ) },
                     )*
                     _ => unreachable!()
                 }

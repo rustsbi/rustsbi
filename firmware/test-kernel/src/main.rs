@@ -63,8 +63,13 @@ unsafe extern "C" fn _start(hartid: usize, device_tree_paddr: usize) -> ! {
         "   la      t0, sbss
             la      t1, ebss
         1:  bgeu    t0, t1, 2f
+            .if {XLEN} == 64
             sd      zero, 0(t0)
             addi    t0, t0, 8
+            .else
+            sw      zero, 0(t0)
+            addi    t0, t0, 4
+            .endif
             j       1b",
         "2:",
         "   la sp, {stack} + {stack_size}",
@@ -72,6 +77,7 @@ unsafe extern "C" fn _start(hartid: usize, device_tree_paddr: usize) -> ! {
         stack_size = const STACK_SIZE,
         stack      =   sym STACK,
         main       =   sym rust_main,
+        XLEN       = const usize::BITS,
     )
 }
 
@@ -195,7 +201,9 @@ fn pmu_test(smp: usize) {
     assert!(restart_cycle_num > stopped_cycle_num);
 
     /* PMU test for firmware  event */
-    let counter_mask = CounterMask::from_mask_base(0x7ffffffff, 0);
+    // RV32's mask covers counters 0..31, including the firmware counters
+    // used below; RV64 can also select counters 32..34.
+    let counter_mask = CounterMask::from_mask_base(0x7_ffff_ffffu64 as usize, 0);
 
     // Mapping a counter to the `SBI_PMU_FW_ACCESS_LOAD` event should result in unsupported
     let result = sbi::pmu_counter_config_matching(

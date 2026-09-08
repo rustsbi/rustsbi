@@ -117,19 +117,19 @@ pub mod menvcfg {
     use core::arch::asm;
 
     /// Fence of I/O implies memory.
-    pub const FIOM: usize = 0x1 << 0;
+    pub const FIOM: u64 = 0x1 << 0;
     /// Cache-block-invalidate effect: flush (CBIE=01).
-    pub const CBIE_FLUSH: usize = 0x01 << 4;
+    pub const CBIE_FLUSH: u64 = 0x01 << 4;
     /// Intended cache-block-invalidate effect: invalidate.
-    pub const CBIE_INVALIDATE: usize = 0x11 << 4;
+    pub const CBIE_INVALIDATE: u64 = 0x11 << 4;
     /// Cache-block-clean flush enable.
-    pub const CBCFE: usize = 0x1 << 6;
+    pub const CBCFE: u64 = 0x1 << 6;
     /// Cache-block-zero enable.
-    pub const CBZE: usize = 0x1 << 7;
+    pub const CBZE: u64 = 0x1 << 7;
     /// Page-based memory types enable.
-    pub const PBMTE: usize = 0x1 << 62;
+    pub const PBMTE: u64 = 0x1 << 62;
     /// Supervisor timer counter enable.
-    pub const STCE: usize = 0x1 << 63;
+    pub const STCE: u64 = 0x1 << 63;
 
     /// Sets the STCE bit to enable supervisor timer counter.
     #[inline(always)]
@@ -138,16 +138,16 @@ pub mod menvcfg {
     }
 
     /// Sets specified bits in menvcfg register.
-    pub fn set_bits(option: usize) {
-        let mut bits: usize;
-        // SAFETY: M-mode read of this hart's own menvcfg.
+    pub fn set_bits(option: u64) {
+        // SAFETY: M-mode update of this hart's own menvcfg. On RV32 the
+        // upper half is menvcfgh (0x31a); callers probe the extension before
+        // requesting its high bits.
         unsafe {
-            asm!("csrr {}, menvcfg", out(reg) bits, options(nomem));
-        }
-        bits |= option;
-        // SAFETY: M-mode write to this hart's own menvcfg.
-        unsafe {
-            asm!("csrw menvcfg, {}", in(reg) bits, options(nomem));
+            asm!("csrs menvcfg, {}", in(reg) option as usize, options(nomem));
+            #[cfg(target_pointer_width = "32")]
+            if option >> 32 != 0 {
+                asm!("csrs 0x31a, {}", in(reg) (option >> 32) as usize, options(nomem));
+            }
         }
     }
 }
@@ -159,32 +159,39 @@ pub mod mstateen {
     use super::{CSR_MSTATEEN0, CSR_MSTATEEN1, CSR_MSTATEEN2, CSR_MSTATEEN3};
 
     /// Counter delegation state.
-    pub const CTR: usize = 1usize << 54;
+    pub const CTR: u64 = 1u64 << 54;
     /// Context CSRs.
-    pub const CONTEXT: usize = 1usize << 57;
+    pub const CONTEXT: u64 = 1u64 << 57;
     /// IMSIC state.
-    pub const IMSIC: usize = 1usize << 58;
+    pub const IMSIC: u64 = 1u64 << 58;
     /// AIA state.
-    pub const AIA: usize = 1usize << 59;
+    pub const AIA: u64 = 1u64 << 59;
     /// Supervisor indirect CSR select state.
-    pub const SVSLCT: usize = 1usize << 60;
+    pub const SVSLCT: u64 = 1u64 << 60;
     /// Hypervisor environment configuration state.
-    pub const HSENVCFG: usize = 1usize << 62;
+    pub const HSENVCFG: u64 = 1u64 << 62;
     /// State-enable CSRs themselves.
-    pub const STATEN: usize = 1usize << 63;
+    pub const STATEN: u64 = 1u64 << 63;
+
+    fn write<const CSR: u16, const CSR_HIGH: u16>(value: u64) {
+        // SAFETY: callers probe mstateen before use. RV32 exposes bits
+        // 63:32 through mstateenNh, at the low CSR number plus 0x10.
+        unsafe {
+            asm!("csrw {csr}, {value}", csr = const CSR, value = in(reg) value as usize, options(nomem));
+            #[cfg(target_pointer_width = "32")]
+            asm!("csrw {csr}, {value}", csr = const CSR_HIGH, value = in(reg) (value >> 32) as usize, options(nomem));
+        }
+    }
 
     /// Enables S-mode access to the AIA-related state groups in the
     /// `mstateen` CSRs.
     #[inline(always)]
     pub fn enable_smode_aia() {
         let stateen0 = STATEN | CONTEXT | IMSIC | AIA | SVSLCT | HSENVCFG | CTR;
-        // SAFETY: M-mode writes to this hart's own state-enable registers.
-        unsafe {
-            asm!("csrw {csr}, {value}", csr = const CSR_MSTATEEN0, value = in(reg) stateen0, options(nomem));
-            asm!("csrw {csr}, {value}", csr = const CSR_MSTATEEN1, value = in(reg) STATEN, options(nomem));
-            asm!("csrw {csr}, {value}", csr = const CSR_MSTATEEN2, value = in(reg) STATEN, options(nomem));
-            asm!("csrw {csr}, {value}", csr = const CSR_MSTATEEN3, value = in(reg) STATEN, options(nomem));
-        }
+        write::<CSR_MSTATEEN0, { CSR_MSTATEEN0 + 0x10 }>(stateen0);
+        write::<CSR_MSTATEEN1, { CSR_MSTATEEN1 + 0x10 }>(STATEN);
+        write::<CSR_MSTATEEN2, { CSR_MSTATEEN2 + 0x10 }>(STATEN);
+        write::<CSR_MSTATEEN3, { CSR_MSTATEEN3 + 0x10 }>(STATEN);
     }
 }
 
@@ -244,31 +251,41 @@ pub mod stimecmp {
         // SAFETY: callers have probed Sstc; M-mode may program stimecmp on
         // this hart when the extension is implemented.
         unsafe {
+            #[cfg(target_pointer_width = "64")]
             asm!("csrrw zero, stimecmp, {}", in(reg) value, options(nomem));
+            // Avoid an early interrupt while replacing the two halves.
+            #[cfg(target_pointer_width = "32")]
+            asm!(
+                "csrw stimecmp, {max}",
+                "csrw 0x15d, {high}",
+                "csrw stimecmp, {low}",
+                max = in(reg) usize::MAX,
+                high = in(reg) (value >> 32) as usize,
+                low = in(reg) value as usize,
+                options(nomem),
+            );
         }
     }
 }
 
 /// Machine cycle counter.
 pub mod mcycle {
-    use core::arch::asm;
     /// Writes the raw 64-bit counter value.
     pub fn write(value: u64) {
         // SAFETY: M-mode write to this hart's own counter.
         unsafe {
-            asm!("csrrw zero, mcycle, {}", in(reg) value, options(nomem));
+            riscv::register::mcycle::write64(value);
         }
     }
 }
 
 /// Machine instructions-retired counter.
 pub mod minstret {
-    use core::arch::asm;
     /// Writes the raw 64-bit counter value.
     pub fn write(value: u64) {
         // SAFETY: M-mode write to this hart's own counter.
         unsafe {
-            asm!("csrrw zero, minstret, {}", in(reg) value, options(nomem));
+            riscv::register::minstret::write64(value);
         }
     }
 }
@@ -436,6 +453,11 @@ pub fn write_mhpmcounter(mhpm_offset: u16, mhpmcounter_val: u64) {
                     // SAFETY: M-mode; `counter_idx` is in 3..=31 and the probed
                     // `mhpm_mask` guarantees the counter exists on this hart.
                     N => pastey::paste!{ unsafe {
+                        #[cfg(target_pointer_width = "32")]
+                        asm!("csrw {csr}, {value}",
+                            csr = const 0xb80 + N,
+                            value = in(reg) (mhpmcounter_val >> 32) as usize,
+                            options(nomem));
                         [<mhpmcounter ~N>]::write(mhpmcounter_val as usize) }
                     },
                 )*
