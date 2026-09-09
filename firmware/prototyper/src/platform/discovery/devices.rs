@@ -90,6 +90,9 @@ fn discover_node(
         if qemu_aplic::is_machine_domain(node, compatible) {
             board.machine_aplic = Some(primary_register_range);
         }
+        if compatible == driver::THEAD_PLIC_COMPATIBLE {
+            board.thead_plic = Some(primary_register_range);
+        }
     }
     Ok(())
 }
@@ -98,6 +101,7 @@ fn is_supported_mmio_device(node: &Node<'_>, compatible: &str) -> bool {
     driver::ClintKind::from_fdt(compatible).is_some()
         || driver::SIFIVE_TEST_COMPATIBLES.contains(&compatible)
         || driver::IMSIC_COMPATIBLES.contains(&compatible)
+        || compatible == driver::THEAD_PLIC_COMPATIBLE
         || qemu_aplic::is_machine_domain(node, compatible)
 }
 

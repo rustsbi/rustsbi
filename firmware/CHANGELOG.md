@@ -22,6 +22,8 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Enable T-Head PLIC supervisor access and configure Svpbmt from the device tree.
+- Clear T-Head MAEE for standard RV32 or Svpbmt page tables.
 - Replace Prototyper IPI devices with fallible `IpiBackend` windows and SBI-layer target validation.
 - Replace Prototyper console devices with fallible, non-blocking `DbcnBackend` slice operations.
 - Replace Prototyper reset devices with typed requests and a fallible `ResetBackend` interface.

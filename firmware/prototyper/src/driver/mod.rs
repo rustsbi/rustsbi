@@ -32,6 +32,8 @@ pub(crate) use reset::{
     ResetRequest, ResetType, SIFIVE_TEST_COMPATIBLES,
 };
 
+pub(crate) const THEAD_PLIC_COMPATIBLE: &str = "thead,c900-plic";
+
 /// Platform devices constructed from the discovered hardware description.
 pub(crate) struct Devices {
     pub(crate) interrupts: Option<InterruptDevices>,
@@ -112,6 +114,12 @@ pub(crate) fn bind_devices(
     board: &BoardInfo,
     memory: &mut MemoryRegistry,
 ) -> runtime::Result<Devices> {
+    if let Some(registers) = board.thead_plic {
+        // T-Head PLIC_CTRL bit 0 delegates access to S-mode,
+        // only the boot hart binds this register.
+        let control = memory.acquire_mmio(registers.subrange(0x1ffffc, size_of::<u32>())?)?;
+        control.write(0, 1u32)?;
+    }
     Ok(Devices {
         interrupts: bind_interrupts(board, memory)?,
         console: console::bind(board, memory)?,

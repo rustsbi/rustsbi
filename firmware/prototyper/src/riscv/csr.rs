@@ -112,6 +112,21 @@ pub fn probe_mhpm_csr<const CSR_NUM: u16>(trap_info: &mut TrapInfo, mhpm_mask: &
     }
 }
 
+/// Disables T-Head's non-standard page memory attributes on this hart.
+pub fn disable_thead_maee() {
+    const THEAD_VENDOR_ID: usize = 0x5b7;
+    const CSR_MXSTATUS: u16 = 0x7c0;
+    const MAEE: usize = 1 << 21;
+
+    if riscv::register::mvendorid::read().bits() == THEAD_VENDOR_ID && has_csr::<CSR_MXSTATUS>() {
+        // SAFETY: M-mode initialization of this hart's probed T-Head CSR.
+        // Clear only MAEE, preserving the loader's other mxstatus settings.
+        unsafe {
+            asm!("csrc {csr}, {mask}", csr = const CSR_MXSTATUS, mask = in(reg) MAEE, options(nomem));
+        }
+    }
+}
+
 /// Machine environment configuration register (menvcfg) bit fields.
 pub mod menvcfg {
     use core::arch::asm;

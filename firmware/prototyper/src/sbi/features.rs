@@ -45,17 +45,19 @@ pub enum Extension {
     Sstc = 0,
     Hypervisor = 1,
     Smaia = 2,
+    Svpbmt = 3,
     // Remember to increment `Extension::COUNT` while implementing new extensions.
 }
 
 impl Extension {
-    pub const COUNT: usize = 3;
+    pub const COUNT: usize = 4;
 
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Sstc => "sstc",
             Self::Hypervisor => "h",
             Self::Smaia => "smaia", // TODO verify with DTB standard
+            Self::Svpbmt => "svpbmt",
         }
     }
 
@@ -65,7 +67,7 @@ impl Extension {
     }
 
     pub fn iter() -> impl Iterator<Item = Self> {
-        [Self::Sstc, Self::Hypervisor, Self::Smaia].into_iter()
+        [Self::Sstc, Self::Hypervisor, Self::Smaia, Self::Svpbmt].into_iter()
     }
 }
 
@@ -235,6 +237,12 @@ fn has_mstateen0() -> bool {
 pub fn configure_delegation_and_trap() {
     configure_delegation();
 
+    // Standard Sv32 and Svpbmt page tables must not use T-Head MAEE.
+    if cfg!(target_pointer_width = "32") || hart_has_extension(current_hartid(), Extension::Svpbmt)
+    {
+        disable_thead_maee();
+    }
+
     let hart_priv_version = hart_privileged_version(current_hartid());
     if hart_priv_version >= PrivilegedVersion::Version1_11 {
         mcountinhibit::write_raw(!0b111usize);
@@ -246,6 +254,11 @@ pub fn configure_delegation_and_trap() {
             );
         } else {
             menvcfg::set_bits(menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
+        }
+        // Svpbmt is only defined for RV64.
+        #[cfg(target_pointer_width = "64")]
+        if hart_has_extension(current_hartid(), Extension::Svpbmt) {
+            menvcfg::set_bits(menvcfg::PBMTE);
         }
         if crate::sbi::ipi::uses_imsic()
             && hart_has_extension(current_hartid(), Extension::Smaia)
