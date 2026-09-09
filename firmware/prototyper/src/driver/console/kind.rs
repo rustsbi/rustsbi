@@ -20,31 +20,27 @@ pub(crate) enum ConsoleKind {
     SiFive,
     Pl011,
     XScale,
-    SpacemitK1,
 }
 
-const UART_16550A_COMPATIBLES: [&str; 1] = ["ns16550a"];
+const UART_16550_COMPATIBLES: [&str; 2] = ["ns16550", "ns16550a"];
 const UART_16550_U32_COMPATIBLES: [&str; 1] = ["snps,dw-apb-uart"];
 const UART_AXI_LITE_COMPATIBLES: [&str; 1] = ["xlnx,xps-uartlite-1.00.a"];
 const UART_BFLB_COMPATIBLES: [&str; 1] = ["bflb,bl808-uart"];
 const UART_SIFIVE_COMPATIBLES: [&str; 1] = ["sifive,uart0"];
 const UART_PL011_COMPATIBLES: [&str; 2] = ["pl011", "arm,pl011"];
-const UART_XSCALE_COMPATIBLES: [&str; 1] = ["intel,xscale-uart"];
-const UART_SPACEMIT_K1_COMPATIBLES: [&str; 1] = ["spacemit,k1-uart"];
+const UART_XSCALE_COMPATIBLES: [&str; 2] = ["intel,xscale-uart", "spacemit,k1-uart"];
 
 impl ConsoleKind {
     /// Returns whether `compatible` names a console family supported by this
     /// firmware, independently of its register layout.
     pub(crate) fn supports(compatible: &str) -> bool {
-        compatible == "ns16550"
-            || UART_16550A_COMPATIBLES.contains(&compatible)
+        UART_16550_COMPATIBLES.contains(&compatible)
             || UART_16550_U32_COMPATIBLES.contains(&compatible)
             || UART_AXI_LITE_COMPATIBLES.contains(&compatible)
             || UART_BFLB_COMPATIBLES.contains(&compatible)
             || UART_SIFIVE_COMPATIBLES.contains(&compatible)
             || UART_PL011_COMPATIBLES.contains(&compatible)
             || UART_XSCALE_COMPATIBLES.contains(&compatible)
-            || UART_SPACEMIT_K1_COMPATIBLES.contains(&compatible)
     }
 
     /// Maps one `compatible` string plus the node's `reg-shift` and
@@ -57,21 +53,11 @@ impl ConsoleKind {
         let u8_layout = register_shift.unwrap_or(0) == 0 && register_width.unwrap_or(1) == 1;
         let u32_layout = register_shift == Some(2) && register_width == Some(4);
 
-        if UART_16550A_COMPATIBLES.contains(&compatible) {
+        if UART_16550_COMPATIBLES.contains(&compatible) {
             if u8_layout {
                 Some(Self::Uart16550U8)
             } else if u32_layout {
                 Some(Self::Uart16550U32)
-            } else {
-                None
-            }
-        } else if compatible == "ns16550" {
-            if u32_layout {
-                // SpacemiT K1 firmware describes its XScale-compatible UART
-                // as a word-wide `ns16550` and requires the UUE enable bit.
-                Some(Self::SpacemitK1)
-            } else if u8_layout {
-                Some(Self::Uart16550U8)
             } else {
                 None
             }
@@ -89,8 +75,6 @@ impl ConsoleKind {
             Some(Self::Pl011)
         } else if UART_XSCALE_COMPATIBLES.contains(&compatible) {
             Some(Self::XScale)
-        } else if UART_SPACEMIT_K1_COMPATIBLES.contains(&compatible) {
-            Some(Self::SpacemitK1)
         } else {
             None
         }
@@ -106,7 +90,6 @@ impl ConsoleKind {
             ConsoleKind::SiFive => "UartSiFive",
             ConsoleKind::Pl011 => "UartPl011",
             ConsoleKind::XScale => "UartXScale",
-            ConsoleKind::SpacemitK1 => "UartSpacemitK1",
         }
     }
 }

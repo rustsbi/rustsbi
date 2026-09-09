@@ -58,30 +58,12 @@ pub(super) fn bind(
     clock_hz: Option<u32>,
     memory: &mut MemoryRegistry,
 ) -> runtime::Result<Box<dyn DbcnBackend + Send>> {
-    let clock_hz = clock_hz.ok_or(runtime::Error::InvalidArgs)?;
-    let baud = BaudSetup::from_clock_hz(clock_hz).ok_or(runtime::Error::InvalidArgs)?;
-    bind_with_baud(registers, baud, memory)
-}
-
-pub(super) fn bind_spacemit_k1(
-    registers: DeviceRegisterRange,
-    clock_hz: Option<u32>,
-    memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn DbcnBackend + Send>> {
-    // Some K1 device trees name a clock provider without supplying its rate.
+    // A device tree may name a clock provider without supplying its rate.
     // In that case, preserve the divisor installed by the previous boot stage.
     let baud = match clock_hz {
         Some(clock_hz) => BaudSetup::from_clock_hz(clock_hz).ok_or(runtime::Error::InvalidArgs)?,
         None => BaudSetup::Preserve,
     };
-    bind_with_baud(registers, baud, memory)
-}
-
-fn bind_with_baud(
-    registers: DeviceRegisterRange,
-    baud: BaudSetup,
-    memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn DbcnBackend + Send>> {
     let registers = acquire_registers::<u32>(registers, SPAN, memory)?;
     Ok(Box::new(UartXScale::new(registers, baud)))
 }

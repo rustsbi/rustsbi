@@ -128,9 +128,6 @@ pub(super) fn bind(
         ConsoleKind::SiFive => sifive::bind(console.registers, memory)?,
         ConsoleKind::Pl011 => pl011::bind(console.registers, console.clock_hz, memory)?,
         ConsoleKind::XScale => xscale::bind(console.registers, console.clock_hz, memory)?,
-        ConsoleKind::SpacemitK1 => {
-            xscale::bind_spacemit_k1(console.registers, console.clock_hz, memory)?
-        }
     };
     Ok(Some(device))
 }
