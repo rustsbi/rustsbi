@@ -57,7 +57,6 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
         .map(|registers| K1BootResources::acquire(&mut memory, registers))
         .transpose()
         .during("acquiring SpacemiT K1 resources")?;
-    let is_k1 = k1_resources.is_some();
 
     let uses_imsic = devices.uses_imsic();
     let next_stage_fdt_address = crate::firmware::patch_device_tree(
@@ -72,7 +71,7 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
         spacemit_k1::initialize_boot_hart(k1_resources);
     }
 
-    publish_platform_services(board, supervisor_memory, devices, pmu, is_k1);
+    publish_platform_services(board, supervisor_memory, devices, pmu);
     Ok(next_stage_fdt_address)
 }
 
@@ -89,7 +88,6 @@ fn publish_platform_services(
     supervisor_memory: SupervisorMemory,
     devices: driver::Devices,
     pmu: Option<SbiPmu>,
-    is_k1: bool,
 ) {
     let driver::Devices {
         interrupts,
@@ -106,9 +104,6 @@ fn publish_platform_services(
     state::mark_ready();
 
     report::log_platform_summary();
-    if is_k1 {
-        info!("SpacemiT K1: early init done (MSETUP + CCI-550)");
-    }
 }
 
 fn publish_sbi_dispatcher(
