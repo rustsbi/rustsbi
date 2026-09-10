@@ -43,6 +43,10 @@ pub enum IpiError {
 /// This operation follows SBI decoding and validation: `InvalidParam` and the
 /// special "all available harts" encoding are not backend-visible outcomes or
 /// request forms; higher layers split all-hart targets into ordinary windows.
+///
+/// Calls may run concurrently on different harts. Implementations must
+/// synchronize any mutable software state internally; independent MMIO
+/// writes and hart-local interrupt claims do not require a global lock.
 pub trait IpiBackend {
     /// Sends supervisor IPIs to the targets of one ordinary request window.
     ///
@@ -52,7 +56,7 @@ pub trait IpiBackend {
     ///
     /// Requests have already been decoded, validated, and normalized by the
     /// SBI adaptation layer, including expansion of "all available harts".
-    fn send_ipi(&mut self, req: IpiRequest) -> Result<(), IpiError>;
+    fn send_ipi(&self, req: IpiRequest) -> Result<(), IpiError>;
 
     /// *Internal function* that clears the firmware IPI pending register for
     /// the specified hart.
@@ -61,7 +65,7 @@ pub trait IpiBackend {
     /// not clear the supervisor's SSIP bit or software event bookkeeping.
     /// Returns `Failed` if the register cannot be cleared, including when a
     /// backend can only clear the calling hart and a remote hart was requested.
-    fn clear_ipi(&mut self, hart_id: usize) -> Result<(), IpiError>;
+    fn clear_ipi(&self, hart_id: usize) -> Result<(), IpiError>;
 
     /// *Internal function* that reports whether firmware IPIs arrive through
     /// an IMSIC interrupt file.

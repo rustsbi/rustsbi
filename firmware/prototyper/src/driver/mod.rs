@@ -61,7 +61,7 @@ impl Devices {
 /// Timer and IPI devices selected for the platform.
 pub(crate) struct InterruptDevices {
     pub(crate) timer: Box<dyn TimerDevice>,
-    pub(crate) ipi: Box<dyn IpiBackend + Send>,
+    pub(crate) ipi: Box<dyn IpiBackend + Send + Sync>,
 }
 
 /// Timer operations used by the SBI timer extension.

@@ -23,6 +23,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Avoid redundant RFence queue locks and share IPI backends without a global lock, preserving I/O ordering.
 - Execute self RFence locally and validate selected IPI harts without ordinary-mask heap allocation.
 - Skip inactive firmware PMU scans, iterate selected IPI harts and benchmark local RFence calls.
 - Avoid RFence stalls by servicing local requests when a remote queue lock is busy.

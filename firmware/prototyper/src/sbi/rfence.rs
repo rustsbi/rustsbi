@@ -71,7 +71,7 @@ impl LocalRFenceCell<'_> {
             if self.try_push((ctx, hart_id)) {
                 break;
             }
-            rfence_single_handler();
+            rfence_poll();
         }
     }
 }
@@ -85,7 +85,7 @@ impl RemoteRFenceCell<'_> {
             if self.try_push((ctx, hart_id)) {
                 return;
             }
-            rfence_single_handler();
+            rfence_poll();
         }
     }
 }
@@ -294,9 +294,29 @@ impl rustsbi::Fence for SbiRFence {
     }
 }
 
-/// Handles a single remote fence operation.
+/// Services requests while waiting outside the IPI handler.
+///
+/// Senders mark FENCE pending after enqueueing. Checking the existing bit
+/// avoids locking an empty queue on each synchronization retry. A stale set
+/// bit only causes an unnecessary dequeue attempt. The IPI handler clears
+/// this bit before draining, so it must use the unconditional handler below.
 #[inline]
-pub fn rfence_single_handler() {
+pub(crate) fn rfence_poll() {
+    use super::ipi::IPI_TYPE_FENCE;
+    use super::trap_stack::hart_local;
+    use core::sync::atomic::Ordering;
+
+    let pending = hart_local(current_hartid())
+        .ipi_type
+        .load(Ordering::Relaxed);
+    if pending & IPI_TYPE_FENCE != 0 {
+        rfence_single_handler();
+    }
+}
+
+/// Handles one remote fence operation, returning whether one was dequeued.
+#[inline]
+fn rfence_single_handler() -> bool {
     let local_rf = match local_rfence() {
         Some(lr) => lr,
         // TODO: Or return an error, depending on expected invariants
@@ -306,6 +326,9 @@ pub fn rfence_single_handler() {
     if let Some((ctx, source_hart_id)) = local_rf.get() {
         rfence_local_handler(ctx);
         remote_rfence(source_hart_id).unwrap().sub();
+        true
+    } else {
+        false
     }
 }
 
@@ -402,7 +425,5 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
 /// Process all pending remote fence operations on the current hart.
 #[inline]
 pub fn rfence_handler() {
-    while !local_rfence().unwrap().is_empty() {
-        rfence_single_handler();
-    }
+    while rfence_single_handler() {}
 }

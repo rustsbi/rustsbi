@@ -395,17 +395,18 @@ impl LocalRFenceCell<'_> {
 
     /// Checks if all synchronization operations are complete.
     pub fn is_sync(&self) -> bool {
-        self.0.wait_sync_count.load(Ordering::Relaxed) == 0
+        if self.0.wait_sync_count.load(Ordering::Relaxed) != 0 {
+            return false;
+        }
+        // Pair with the remote acknowledgements before returning to S-mode;
+        // unsuccessful polls need no acquire fence or queue lock.
+        core::sync::atomic::fence(Ordering::Acquire);
+        true
     }
 
     /// Increments the synchronization counter.
     pub fn add(&self) {
         self.0.wait_sync_count.fetch_add(1, Ordering::Relaxed);
-    }
-
-    /// Checks if the operation queue is empty.
-    pub fn is_empty(&self) -> bool {
-        self.0.queue.lock().is_empty()
     }
 
     /// Gets the next fence operation from the queue.
@@ -436,7 +437,7 @@ impl RemoteRFenceCell<'_> {
 
     /// Decrements the synchronization counter.
     pub fn sub(&self) {
-        self.0.wait_sync_count.fetch_sub(1, Ordering::Relaxed);
+        self.0.wait_sync_count.fetch_sub(1, Ordering::Release);
     }
 }
 

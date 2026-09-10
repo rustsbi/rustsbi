@@ -152,7 +152,7 @@ impl THeadIpi {
 
 impl IpiBackend for THeadIpi {
     #[inline(always)]
-    fn send_ipi(&mut self, req: IpiRequest) -> Result<(), IpiError> {
+    fn send_ipi(&self, req: IpiRequest) -> Result<(), IpiError> {
         for hart_id in req.harts() {
             self.write(IpiRegister::Msip, hart_id, IpiState::Pending)?;
         }
@@ -160,7 +160,7 @@ impl IpiBackend for THeadIpi {
     }
 
     #[inline(always)]
-    fn clear_ipi(&mut self, hart_id: usize) -> Result<(), IpiError> {
+    fn clear_ipi(&self, hart_id: usize) -> Result<(), IpiError> {
         self.write(IpiRegister::Msip, hart_id, IpiState::Clear)
     }
 }

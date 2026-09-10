@@ -6,6 +6,7 @@
 extern crate rcore_console;
 
 mod latency;
+mod linux;
 
 use core::arch::{asm, naked_asm};
 use core::mem::MaybeUninit;
@@ -18,7 +19,7 @@ use sbi_testing::sbi;
 use serde::Deserialize;
 use serde_device_tree::{
     Dtb, DtbPtr,
-    buildin::{Node, NodeSeq},
+    buildin::{Node, NodeSeq, Reg, StrSeq},
 };
 
 const RISCV_HEAD_FLAGS: u64 = 0;
@@ -203,6 +204,11 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
         timebase_frequency: u32,
         cpu: NodeSeq<'a>,
     }
+    #[derive(Deserialize)]
+    struct Cpu<'a> {
+        reg: Reg<'a>,
+        status: Option<StrSeq<'a>>,
+    }
     rcore_console::init_console(&Console);
     rcore_console::set_log_level(option_env!("LOG"));
     let dtb_ptr = DtbPtr::from_raw(dtb_pa as _).unwrap();
@@ -211,6 +217,18 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     let tree: Tree = root.deserialize();
     let smp = tree.cpus.cpu.len();
     let frequency = tree.cpus.timebase_frequency;
+    // Both benchmark stages use directly indexed stacks and contiguous masks.
+    // Reject unsupported topology instead of starting a guessed hart ID.
+    assert!(smp > 0 && smp < MAX_HART_NUM && hartid < smp);
+    let mut present = [false; MAX_HART_NUM];
+    for node in tree.cpus.cpu.iter() {
+        let cpu = node.deserialize::<Cpu>();
+        let status = cpu.status.as_ref().and_then(|value| value.iter().next());
+        assert!(matches!(status, None | Some("ok" | "okay")));
+        let id = cpu.reg.iter().next().expect("CPU reg").0.start;
+        assert!(id < smp && !present[id], "bench requires harts 0..smp");
+        present[id] = true;
+    }
     info!(
         r"
  ____                  _       _  __                    _
@@ -226,6 +244,13 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
 ----------------------------------------------------------"
     );
     latency::run(hartid, frequency);
+    if !linux::run(hartid, smp, frequency) {
+        println!("SBI benchmark completed: SKIP (suspend prerequisite unavailable)");
+        sbi::system_reset(sbi::Shutdown, sbi::NoReason);
+        loop {
+            core::hint::spin_loop();
+        }
+    }
     unsafe {
         SMP_COUNT = smp;
         BOOT_HART_ID = hartid;

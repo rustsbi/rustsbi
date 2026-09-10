@@ -524,6 +524,20 @@ pub fn install_trap_vector() {
 pub mod fence {
     use core::arch::asm;
 
+    /// Publishes shared-memory writes before notifying an I/O device.
+    #[inline]
+    pub fn memory_to_io() {
+        // SAFETY: orders memory writes before device output on this hart.
+        unsafe { asm!("fence w, o", options(nostack)) };
+    }
+
+    /// Orders device acknowledgement before accessing shared event state.
+    #[inline]
+    pub fn io_to_memory() {
+        // SAFETY: orders MMIO/CSR acknowledgement before memory accesses.
+        unsafe { asm!("fence io, rw", options(nostack)) };
+    }
+
     /// Fences instruction fetch for the current hart (`fence.i`).
     pub fn fence_i() {
         // SAFETY: instruction-fetch ordering on the local hart only.

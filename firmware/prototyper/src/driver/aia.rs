@@ -56,7 +56,7 @@ impl ImsicIpi {
 
 impl IpiBackend for ImsicIpi {
     #[inline(always)]
-    fn send_ipi(&mut self, req: IpiRequest) -> Result<(), IpiError> {
+    fn send_ipi(&self, req: IpiRequest) -> Result<(), IpiError> {
         for hart_id in req.harts() {
             let file = self
                 .hart_files
@@ -70,7 +70,7 @@ impl IpiBackend for ImsicIpi {
     }
 
     #[inline(always)]
-    fn clear_ipi(&mut self, hart_id: usize) -> Result<(), IpiError> {
+    fn clear_ipi(&self, hart_id: usize) -> Result<(), IpiError> {
         // IMSIC clearing uses CSRs on the attached hart; only the firmware
         // IPI identity is enabled in the machine interrupt file.
         if hart_id != current_hartid() {
