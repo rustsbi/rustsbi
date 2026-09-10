@@ -9,7 +9,7 @@ mod latency;
 
 use core::arch::{asm, naked_asm};
 use core::mem::MaybeUninit;
-use core::sync::{atomic::AtomicBool, atomic::AtomicU64, atomic::Ordering};
+use core::sync::{atomic::AtomicBool, atomic::AtomicUsize, atomic::Ordering};
 use log::*;
 use sbi::SbiRet;
 use sbi_spec::binary::{HartMask, MaskError};
@@ -57,6 +57,7 @@ const MAX_HART_NUM: usize = 128;
 
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
+#[repr(align(16))]
 struct HartStack([u8; STACK_SIZE]);
 
 impl HartStack {
@@ -92,8 +93,13 @@ unsafe extern "C" fn _start(hartid: usize, device_tree_paddr: usize) -> ! {
         "   la      t0, sbss
             la      t1, ebss
         1:  bgeu    t0, t1, 2f
+            .if {XLEN} == 64
             sd      zero, 0(t0)
             addi    t0, t0, 8
+            .else
+            sw      zero, 0(t0)
+            addi    t0, t0, 4
+            .endif
             j       1b",
         "2:",
         "   la sp, {stack} + {stack_size}",
@@ -101,6 +107,7 @@ unsafe extern "C" fn _start(hartid: usize, device_tree_paddr: usize) -> ! {
         stack_size = const STACK_SIZE,
         stack      =   sym STACK,
         main       =   sym rust_main,
+        XLEN       = const usize::BITS,
     )
 }
 
@@ -134,7 +141,7 @@ extern "C" fn send_ipi(hartid: usize) -> ! {
                 .swap(true, Ordering::AcqRel);
         };
         READY_HART_COUNT.fetch_add(1, Ordering::AcqRel);
-        while READY_HART_COUNT.load(Ordering::Acquire) != unsafe { (SMP_COUNT - 1) as u64 } {
+        while READY_HART_COUNT.load(Ordering::Acquire) != unsafe { SMP_COUNT - 1 } {
             core::hint::spin_loop();
         }
         let mut mask = Some(HartMask::from_mask_base(0, 0));
@@ -176,19 +183,13 @@ extern "C" fn init_main(hartid: usize) -> ! {
     unreachable!()
 }
 
-static mut WAIT_COUNT: AtomicU64 = AtomicU64::new(0);
-static READY_HART_COUNT: AtomicU64 = AtomicU64::new(0);
+static mut WAIT_COUNT: AtomicUsize = AtomicUsize::new(0);
+static READY_HART_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 const SUSPENDED: SbiRet = SbiRet::success(hart_state::SUSPENDED);
 
 fn get_time() -> u64 {
-    const CSR_TIME: u32 = 0xc01;
-    let mut low_time: u64;
-    unsafe {
-        asm!("csrr {}, {CSR_TIME}", out(reg) low_time, CSR_TIME = const CSR_TIME);
-    }
-
-    low_time
+    riscv::register::time::read64()
 }
 
 extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
@@ -252,7 +253,7 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
                     while sbi::hart_get_status(i) != SUSPENDED {}
                 }
             }
-            WAIT_COUNT.swap((smp - 1) as u64, Ordering::AcqRel);
+            WAIT_COUNT.swap(smp - 1, Ordering::AcqRel);
             READY_HART_COUNT.store(0, Ordering::Release);
         }
         debug!("send ipi!");
@@ -276,7 +277,7 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
         if let Some(mask) = mask {
             sbi::send_ipi(mask);
         }
-        while READY_HART_COUNT.load(Ordering::Acquire) != (smp - 1) as u64 {
+        while READY_HART_COUNT.load(Ordering::Acquire) != smp - 1 {
             core::hint::spin_loop();
         }
         while unsafe { WAIT_COUNT.load(Ordering::Acquire) } != 0 {}

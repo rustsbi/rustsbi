@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file. See [conven
 ## Unreleased
 
 ### Added
+- Add RV32 support to bench-kernel while preserving RV64 support.
 - Add DBCN contract tests with deferred error reporting to the test kernel.
 - Add RV32 support to RustSBI Prototyper and test-kernel while preserving RV64 support.
 - Add Yuzuki Neko board configuration with an RV32 firmware jump target of `0x40000000`.
@@ -22,6 +23,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Avoid RFence stalls by servicing local requests when a remote queue lock is busy.
 - Skip instruction fetch on SBI return and add batched per-call latency benchmarks with SBI console output.
 - Generalize CCI-550, derive per-hart availability and fix K1 setup, I/O ordering and HSM restart with PMU wakeup.
 - Remove K1-only initialization logging from platform publication.
