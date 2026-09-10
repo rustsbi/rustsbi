@@ -134,9 +134,9 @@ pub mod menvcfg {
     /// Fence of I/O implies memory.
     pub const FIOM: u64 = 0x1 << 0;
     /// Cache-block-invalidate effect: flush (CBIE=01).
-    pub const CBIE_FLUSH: u64 = 0x01 << 4;
-    /// Intended cache-block-invalidate effect: invalidate.
-    pub const CBIE_INVALIDATE: u64 = 0x11 << 4;
+    pub const CBIE_FLUSH: u64 = 0b01 << 4;
+    /// Cache-block-invalidate effect: invalidate (CBIE=11).
+    pub const CBIE_INVALIDATE: u64 = 0b11 << 4;
     /// Cache-block-clean flush enable.
     pub const CBCFE: u64 = 0x1 << 6;
     /// Cache-block-zero enable.
