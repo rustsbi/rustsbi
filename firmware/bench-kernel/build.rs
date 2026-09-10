@@ -4,7 +4,14 @@ fn main() {
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let ld = &out.join("rustsbi-test-kernel.ld");
 
-    std::fs::write(ld, LINKER_SCRIPT).unwrap();
+    println!("cargo:rerun-if-env-changed=RUSTSBI_BENCH_LINK_ADDRESS");
+    let address = env::var("RUSTSBI_BENCH_LINK_ADDRESS").unwrap_or_else(|_| "0x80200000".into());
+    let address = usize::from_str_radix(address.trim_start_matches("0x"), 16)
+        .expect("RUSTSBI_BENCH_LINK_ADDRESS must be a hexadecimal address");
+    let script = std::str::from_utf8(LINKER_SCRIPT)
+        .unwrap()
+        .replace("0x80200000", &format!("0x{address:x}"));
+    std::fs::write(ld, script).unwrap();
 
     println!("cargo:rustc-link-arg=-T{}", ld.display());
     println!("cargo:rustc-link-search={}", out.display());

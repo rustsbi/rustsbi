@@ -230,9 +230,9 @@ pub fn sbi_call_handler(
     }
     ctx.regs().a = [ret.error, ret.value, a2, a3, a4, a5, a6, a7];
     let epc = mepc::read();
-    // SAFETY: M-mode mepc write; `get_inst` returns the ecall instruction's
-    // length so the return skips it.
-    unsafe { mepc::write(epc + get_inst(epc).1) };
+    // SAFETY: M-mode mepc write; ECALL is always 32 bits, even with the C
+    // extension, so advancing by four skips it without reading S-mode memory.
+    unsafe { mepc::write(epc + 4) };
     ctx.restore()
 }
 

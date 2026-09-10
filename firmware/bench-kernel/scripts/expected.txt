@@ -4,8 +4,11 @@
 # `.github/scripts/prototyper-qemu-boot.sh`.
 Hello RustSBI!
 Platform HART Count           : {smp}
+BENCH
+SBI latency completed: PASS
 Starting test
 Test #0:
 Test #1:
 Test #2:
 Test #3:
+SBI benchmark completed: PASS

@@ -5,12 +5,11 @@
 #[macro_use]
 extern crate rcore_console;
 
+mod latency;
+
+use core::arch::{asm, naked_asm};
 use core::mem::MaybeUninit;
 use core::sync::{atomic::AtomicBool, atomic::AtomicU64, atomic::Ordering};
-use core::{
-    arch::{asm, naked_asm},
-    ptr::null,
-};
 use log::*;
 use sbi::SbiRet;
 use sbi_spec::binary::{HartMask, MaskError};
@@ -19,9 +18,8 @@ use sbi_testing::sbi;
 use serde::Deserialize;
 use serde_device_tree::{
     Dtb, DtbPtr,
-    buildin::{Node, NodeSeq, Reg, StrSeq},
+    buildin::{Node, NodeSeq},
 };
-use uart16550::Uart16550;
 
 const RISCV_HEAD_FLAGS: u64 = 0;
 const RISCV_HEADER_VERSION: u32 = 0x2;
@@ -197,7 +195,6 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     #[derive(Deserialize)]
     struct Tree<'a> {
         cpus: Cpus<'a>,
-        chosen: Chosen<'a>,
     }
     #[derive(Deserialize)]
     #[serde(rename_all = "kebab-case")]
@@ -205,23 +202,12 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
         timebase_frequency: u32,
         cpu: NodeSeq<'a>,
     }
-    #[derive(Deserialize)]
-    #[serde(rename_all = "kebab-case")]
-    struct Chosen<'a> {
-        stdout_path: StrSeq<'a>,
-    }
     rcore_console::init_console(&Console);
     rcore_console::set_log_level(option_env!("LOG"));
     let dtb_ptr = DtbPtr::from_raw(dtb_pa as _).unwrap();
     let dtb = Dtb::from(dtb_ptr).share();
     let root: Node = serde_device_tree::from_raw_mut(&dtb).unwrap();
     let tree: Tree = root.deserialize();
-    let stdout_path = tree.chosen.stdout_path.iter().next().unwrap();
-    if let Some(node) = root.find(stdout_path) {
-        let reg = node.get_prop("reg").unwrap().deserialize::<Reg>();
-        let address = reg.iter().next().unwrap().0.start;
-        unsafe { UART = Uart16550Map(address as _) };
-    }
     let smp = tree.cpus.cpu.len();
     let frequency = tree.cpus.timebase_frequency;
     info!(
@@ -238,6 +224,7 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
 | dtb physical address  | {dtb_pa:#20x} |
 ----------------------------------------------------------"
     );
+    latency::run(hartid, frequency);
     unsafe {
         SMP_COUNT = smp;
         BOOT_HART_ID = hartid;
@@ -296,8 +283,11 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
         let end_time = get_time();
         println!("Test #{}: {}", i, end_time - start_time);
     }
+    println!("SBI benchmark completed: PASS");
     sbi::system_reset(sbi::Shutdown, sbi::NoReason);
-    unreachable!()
+    loop {
+        core::hint::spin_loop();
+    }
 }
 
 #[cfg_attr(not(test), panic_handler)]
@@ -313,27 +303,17 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 }
 
 struct Console;
-static mut UART: Uart16550Map = Uart16550Map(null());
-
-pub struct Uart16550Map(*const Uart16550<u8>);
-
-unsafe impl Sync for Uart16550Map {}
-
-impl Uart16550Map {
-    #[inline]
-    pub fn get(&self) -> &Uart16550<u8> {
-        unsafe { &*self.0 }
-    }
-}
 
 impl rcore_console::Console for Console {
     #[inline]
     fn put_char(&self, c: u8) {
-        unsafe { UART.get().write(core::slice::from_ref(&c)) };
+        let _ = sbi::console_write_byte(c);
     }
 
     #[inline]
     fn put_str(&self, s: &str) {
-        unsafe { UART.get().write(s.as_bytes()) };
+        for c in s.bytes() {
+            self.put_char(c);
+        }
     }
 }

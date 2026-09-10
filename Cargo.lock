@@ -602,7 +602,6 @@ dependencies = [
  "serde",
  "serde-device-tree 0.0.1 (git+https://github.com/rustsbi/serde-device-tree?rev=e7f9404f)",
  "spin",
- "uart16550",
 ]
 
 [[package]]
