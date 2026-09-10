@@ -159,6 +159,13 @@ fn detect_privileged_version() {
     with_current(|local| local.features.privileged_version = privileged_version);
 }
 
+/// Detects Sstc even when it is omitted from the device tree.
+fn detect_sstc() {
+    let sstc = hart_privileged_version(current_hartid()) >= PrivilegedVersion::Version1_12
+        && has_csr::<CSR_STIMECMP>();
+    with_current(|local| local.features.extensions[Extension::Sstc.index()] = sstc);
+}
+
 fn detect_mhpm_counters() {
     // mcycle, minstret, and time are treated as always implemented;
     // bits 0-2 of the mask record them.
@@ -184,10 +191,11 @@ fn detect_mhpm_counters() {
     });
 }
 
-/// Detects the current hart's privileged-architecture version and hardware
-/// counters.
+/// Detects the current hart's privileged-architecture version, Sstc support
+/// and hardware counters after device-tree discovery.
 pub fn detect_hart_features() {
     detect_privileged_version();
+    detect_sstc();
     detect_mhpm_counters();
 }
 

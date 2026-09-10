@@ -23,6 +23,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Probe Sstc per hart so old device trees do not prevent supervisor timer access.
 - fix(prototyper): correct CBIE invalidate encoding (#275)
 - Isolate RFence queues, completion counters and IPI flags to reduce cache-line contention.
 - Avoid redundant RFence queue locks and share IPI backends without a global lock, preserving I/O ordering.
