@@ -304,105 +304,95 @@ pub fn rfence_single_handler() {
     };
 
     if let Some((ctx, source_hart_id)) = local_rf.get() {
-        let full_flush = (ctx.start_addr == 0 && ctx.size == 0)
-            || (ctx.size == usize::MAX)
-            || (ctx.size > TLB_FLUSH_LIMIT && ctx.size != usize::MAX);
+        rfence_local_handler(ctx);
+        remote_rfence(source_hart_id).unwrap().sub();
+    }
+}
 
-        match ctx.op {
-            RFenceType::FenceI => {
-                pmu_firmware_counter_increment(firmware_event::FENCE_I_RECEIVED);
-                fence::fence_i();
-                remote_rfence(source_hart_id).unwrap().sub();
-            }
-            RFenceType::SFenceVma => {
-                pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_RECEIVED);
-                if full_flush {
-                    fence::sfence_vma_all();
-                } else {
-                    for offset in (0..ctx.size).step_by(PAGE_SIZE) {
-                        let addr = ctx.start_addr.wrapping_add(offset);
-                        fence::sfence_vma_addr(addr);
-                    }
-                }
-                if let Some(remote_cell) = remote_rfence(source_hart_id) {
-                    remote_cell.sub();
-                }
-            }
-            RFenceType::SFenceVmaAsid => {
-                pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_ASID_RECEIVED);
-                let asid = ctx.asid;
-                if full_flush {
-                    fence::sfence_vma_asid(asid);
-                } else {
-                    for offset in (0..ctx.size).step_by(PAGE_SIZE) {
-                        let addr = ctx.start_addr.wrapping_add(offset);
-                        fence::sfence_vma_addr_asid(addr, asid);
-                    }
-                }
-                if let Some(remote_cell) = remote_rfence(source_hart_id) {
-                    remote_cell.sub();
+/// Executes a fence on this hart and records its received PMU event.
+///
+/// This function improves performance if RFence is runned on the local hart.
+#[inline]
+pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
+    let full_flush = (ctx.start_addr == 0 && ctx.size == 0)
+        || (ctx.size == usize::MAX)
+        || (ctx.size > TLB_FLUSH_LIMIT && ctx.size != usize::MAX);
+
+    match ctx.op {
+        RFenceType::FenceI => {
+            pmu_firmware_counter_increment(firmware_event::FENCE_I_RECEIVED);
+            fence::fence_i();
+        }
+        RFenceType::SFenceVma => {
+            pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_RECEIVED);
+            if full_flush {
+                fence::sfence_vma_all();
+            } else {
+                for offset in (0..ctx.size).step_by(PAGE_SIZE) {
+                    let addr = ctx.start_addr.wrapping_add(offset);
+                    fence::sfence_vma_addr(addr);
                 }
             }
-            #[cfg(feature = "hypervisor")]
-            RFenceType::HFenceGvmaVmid => {
-                pmu_firmware_counter_increment(firmware_event::HFENCE_GVMA_VMID_RECEIVED);
-                let vmid = ctx.vmid;
-                if full_flush {
-                    fence::hfence_gvma_vmid(vmid);
-                } else {
-                    for offset in (0..ctx.size).step_by(PAGE_SIZE) {
-                        let addr = ctx.start_addr.wrapping_add(offset);
-                        fence::hfence_gvma_addr_vmid(addr, vmid);
-                    }
-                }
-                if let Some(remote_cell) = remote_rfence(source_hart_id) {
-                    remote_cell.sub();
+        }
+        RFenceType::SFenceVmaAsid => {
+            pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_ASID_RECEIVED);
+            let asid = ctx.asid;
+            if full_flush {
+                fence::sfence_vma_asid(asid);
+            } else {
+                for offset in (0..ctx.size).step_by(PAGE_SIZE) {
+                    let addr = ctx.start_addr.wrapping_add(offset);
+                    fence::sfence_vma_addr_asid(addr, asid);
                 }
             }
-            #[cfg(feature = "hypervisor")]
-            RFenceType::HFenceGvma => {
-                pmu_firmware_counter_increment(firmware_event::HFENCE_GVMA_RECEIVED);
-                if full_flush {
-                    fence::hfence_gvma_all();
-                } else {
-                    for offset in (0..ctx.size).step_by(PAGE_SIZE) {
-                        let addr = ctx.start_addr.wrapping_add(offset);
-                        fence::hfence_gvma_addr(addr);
-                    }
-                }
-                if let Some(remote_cell) = remote_rfence(source_hart_id) {
-                    remote_cell.sub();
+        }
+        #[cfg(feature = "hypervisor")]
+        RFenceType::HFenceGvmaVmid => {
+            pmu_firmware_counter_increment(firmware_event::HFENCE_GVMA_VMID_RECEIVED);
+            let vmid = ctx.vmid;
+            if full_flush {
+                fence::hfence_gvma_vmid(vmid);
+            } else {
+                for offset in (0..ctx.size).step_by(PAGE_SIZE) {
+                    let addr = ctx.start_addr.wrapping_add(offset);
+                    fence::hfence_gvma_addr_vmid(addr, vmid);
                 }
             }
-            #[cfg(feature = "hypervisor")]
-            RFenceType::HFenceVvmaAsid => {
-                pmu_firmware_counter_increment(firmware_event::HFENCE_VVMA_ASID_RECEIVED);
-                let asid = ctx.asid;
-                if full_flush {
-                    fence::hfence_vvma_asid(asid);
-                } else {
-                    for offset in (0..ctx.size).step_by(PAGE_SIZE) {
-                        let addr = ctx.start_addr.wrapping_add(offset);
-                        fence::hfence_vvma_addr_asid(addr, asid);
-                    }
-                }
-                if let Some(remote_cell) = remote_rfence(source_hart_id) {
-                    remote_cell.sub();
+        }
+        #[cfg(feature = "hypervisor")]
+        RFenceType::HFenceGvma => {
+            pmu_firmware_counter_increment(firmware_event::HFENCE_GVMA_RECEIVED);
+            if full_flush {
+                fence::hfence_gvma_all();
+            } else {
+                for offset in (0..ctx.size).step_by(PAGE_SIZE) {
+                    let addr = ctx.start_addr.wrapping_add(offset);
+                    fence::hfence_gvma_addr(addr);
                 }
             }
-            #[cfg(feature = "hypervisor")]
-            RFenceType::HFenceVvma => {
-                pmu_firmware_counter_increment(firmware_event::HFENCE_VVMA_RECEIVED);
-                if full_flush {
-                    fence::hfence_vvma_all();
-                } else {
-                    for offset in (0..ctx.size).step_by(PAGE_SIZE) {
-                        let addr = ctx.start_addr.wrapping_add(offset);
-                        fence::hfence_vvma_addr(addr);
-                    }
+        }
+        #[cfg(feature = "hypervisor")]
+        RFenceType::HFenceVvmaAsid => {
+            pmu_firmware_counter_increment(firmware_event::HFENCE_VVMA_ASID_RECEIVED);
+            let asid = ctx.asid;
+            if full_flush {
+                fence::hfence_vvma_asid(asid);
+            } else {
+                for offset in (0..ctx.size).step_by(PAGE_SIZE) {
+                    let addr = ctx.start_addr.wrapping_add(offset);
+                    fence::hfence_vvma_addr_asid(addr, asid);
                 }
-                if let Some(remote_cell) = remote_rfence(source_hart_id) {
-                    remote_cell.sub();
+            }
+        }
+        #[cfg(feature = "hypervisor")]
+        RFenceType::HFenceVvma => {
+            pmu_firmware_counter_increment(firmware_event::HFENCE_VVMA_RECEIVED);
+            if full_flush {
+                fence::hfence_vvma_all();
+            } else {
+                for offset in (0..ctx.size).step_by(PAGE_SIZE) {
+                    let addr = ctx.start_addr.wrapping_add(offset);
+                    fence::hfence_vvma_addr(addr);
                 }
             }
         }

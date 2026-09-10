@@ -85,13 +85,16 @@ impl SbiIpi {
         let local = rfence::local_rfence().unwrap();
         let mut result = SbiRet::success(0);
 
-        for hart_id in requests.into_iter().flat_map(IpiRequest::harts) {
+        for hart_id in requests.flat_map(IpiRequest::harts) {
+            // Improve performance if the RFence request runs on the local host.
+            if hart_id == current_hart {
+                rfence::rfence_local_handler(ctx);
+                continue;
+            }
+
             let remote = rfence::remote_rfence(hart_id).unwrap();
             local.add();
             remote.set(ctx);
-            if hart_id == current_hart {
-                continue;
-            }
 
             set_ipi_type(hart_id, IPI_TYPE_FENCE);
             if self.send_ipi(hart_id).is_ok() {
@@ -176,14 +179,19 @@ pub(crate) fn uses_imsic() -> bool {
     crate::sbi::ipi().is_some_and(SbiIpi::uses_imsic)
 }
 
-fn target_requests(hart_mask: HartMask, max_hart_id: usize) -> Result<Vec<IpiRequest>, SbiRet> {
-    let enabled = crate::platform::enabled_harts().unwrap_or([false; NUM_HART_MAX]);
+fn target_requests(
+    hart_mask: HartMask,
+    max_hart_id: usize,
+) -> Result<impl Iterator<Item = IpiRequest>, SbiRet> {
+    let enabled = &crate::platform::board_info().enabled_harts;
     let available = |hart_id: usize| {
         hart_id <= max_hart_id
             && enabled.get(hart_id).copied().unwrap_or(false)
+            && crate::platform::hart_privilege_checked(hart_id)
             && remote_hsm(hart_id).is_some_and(|hsm| hsm.allow_ipi())
     };
     let (mask, base) = hart_mask.into_inner();
+    let mut single = None;
     let mut requests = Vec::new();
     if base == usize::MAX {
         // Ignore mask and expand all available harts into ordinary windows.
@@ -201,21 +209,19 @@ fn target_requests(hart_mask: HartMask, max_hart_id: usize) -> Result<Vec<IpiReq
         }
     } else if mask != 0 {
         // Validate every selected hart before any event or backend is touched.
-        for bit in 0..usize::BITS {
-            if mask & (1 << bit) == 0 {
-                continue;
-            }
-            let hart_id = base
-                .checked_add(bit as usize)
-                .ok_or_else(SbiRet::invalid_param)?;
+        for bit in HartMask::from_mask_base(mask, 0) {
+            let hart_id = base.checked_add(bit).ok_or_else(SbiRet::invalid_param)?;
             if !available(hart_id) {
                 return Err(SbiRet::invalid_param());
             }
         }
-        requests.push(IpiRequest {
+        // An ordinary mask needs one window, without a heap allocation
+        single = Some(IpiRequest {
             hart_mask: mask,
             hart_mask_base: base,
         });
     }
-    Ok(requests)
+    // Chains single request with batch requests, which improves performance
+    // for single hart request.
+    Ok(single.into_iter().chain(requests))
 }

@@ -19,9 +19,10 @@ aggregation overhead. The minimum and median help identify noise; compare the
 same kernel binary, clock configuration and firmware build options. QEMU counters
 are useful for functional checks, not hardware performance claims.
 
-The IPI, RFENCE and DBCN latency cases use empty requests to isolate their entry
-and validation costs. They do not measure interrupt delivery, remote completion
-or UART throughput. The existing multicore IPI/RFence tests run afterwards;
+The `ipi_empty`, `rfence_empty` and `dbcn_empty` cases use empty requests to isolate
+entry and validation costs. `rfence_self` selects the calling hart and completes
+a local TLB flush through SBI. These cases do not measure cross-hart interrupt
+delivery, remote completion or UART throughput. The multicore IPI/RFence tests run afterwards;
 `SBI latency completed: PASS` and `SBI benchmark completed: PASS` distinguish
 completion of the two stages.
 

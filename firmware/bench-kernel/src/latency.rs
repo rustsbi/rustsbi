@@ -83,6 +83,7 @@ pub(super) fn run(hart_id: usize, timebase: u32) {
         ("time_set", 0x54494d45, 0, [usize::MAX, usize::MAX, 0]),
         ("ipi_empty", 0x735049, 0, [0; 3]),
         ("rfence_empty", 0x52464e43, 1, [0; 3]),
+        ("rfence_self", 0x52464e43, 1, [1, hart_id, 0]),
         (
             "dbcn_empty",
             0x4442434e,

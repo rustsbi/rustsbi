@@ -1173,6 +1173,10 @@ cfg_if::cfg_if! {
 pub fn pmu_firmware_counter_increment(firmware_event: usize) {
     with_current(|local| {
         let pmu_state = &mut local.pmu_state;
+        // Most SBI calls run without firmware event counters enabled.
+        if pmu_state.fw_counter_state == 0 {
+            return;
+        }
         let counter_idx_start = pmu_state.hw_counters_num;
         for counter_idx in counter_idx_start..counter_idx_start + PMU_FIRMWARE_COUNTER_MAX {
             let fw_idx = counter_idx - counter_idx_start;

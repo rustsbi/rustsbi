@@ -20,9 +20,7 @@ pub struct IpiRequest {
 impl IpiRequest {
     /// Iterates the targets of an already validated ordinary window.
     pub(crate) fn harts(self) -> impl Iterator<Item = usize> {
-        (0..usize::BITS)
-            .filter(move |bit| self.hart_mask & (1 << bit) != 0)
-            .map(move |bit| self.hart_mask_base + bit as usize)
+        sbi_spec::binary::HartMask::from_mask_base(self.hart_mask, self.hart_mask_base).into_iter()
     }
 }
 
