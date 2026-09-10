@@ -15,13 +15,15 @@ use serde_device_tree::buildin::{Node, StrSeq};
 use crate::Result;
 use crate::memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange};
 
-const SPACEMIT_K1_COMPATIBLE: &str = "spacemit,k1";
+const SPACEMIT_K1_COMPATIBLE: &str = "spacemit,k1x";
 const K1_RESET_VECTOR_BASES: [PhysAddr; 2] =
     [PhysAddr::new(0xd428_2db0), PhysAddr::new(0xd428_2eb0)];
 const K1_CCI_BASE: PhysAddr = PhysAddr::new(0xd850_0000);
 const K1_CCI_FIRST_INTERFACE_OFFSET: usize = 0x1000;
 const K1_CCI_INTERFACE_STRIDE: usize = 0x1000;
 const K1_HARTS_PER_CLUSTER: usize = 4;
+const K1_CORE_STATUS: PhysAddr = PhysAddr::new(0xd428_2890);
+const K1_WAKEUP_BASES: [PhysAddr; 2] = [PhysAddr::new(0xd428_292c), PhysAddr::new(0xd428_2b24)];
 
 #[repr(u16)]
 enum K1Csr {
@@ -68,9 +70,34 @@ pub struct SpacemitK1Registers {
     reset_vectors: [DeviceRegisterRange; 2],
     cci_status: DeviceRegisterRange,
     cci_snoop_controls: [DeviceRegisterRange; 2],
+    core_status: DeviceRegisterRange,
+    wakeup_controls: [DeviceRegisterRange; 2],
 }
 
 impl SpacemitK1Registers {
+    /// Enables K1 hart-local cache access before a warm entry touches memory.
+    ///
+    /// # Safety
+    /// Called only on K1 in M-mode, with cluster coherency already enabled.
+    /// This stackless entry clobbers t0/t1 and must be called from assembly.
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+    #[unsafe(naked)]
+    pub unsafe extern "C" fn prepare_warm_hart() {
+        core::arch::naked_asm!(
+            "csrr t0, mhartid",
+            "andi t0, t0, 3",
+            "li t1, 1",
+            "sll t1, t1, t0",
+            "csrs {l2}, t1",
+            "li t0, {features}",
+            "csrs {setup}, t0",
+            "ret",
+            l2 = const K1Csr::MachineL2Setup as u16,
+            setup = const K1Csr::MachineSetup as u16,
+            features = const MachineSetup::enabled().0,
+        )
+    }
+
     /// Returns K1 system registers when the root compatible list identifies K1.
     pub(crate) fn from_root(root: &Node<'_>) -> Result<Option<Self>> {
         let Some(compatible) = root.get_prop("compatible") else {
@@ -101,6 +128,11 @@ impl SpacemitK1Registers {
             reset_vectors,
             cci_status,
             cci_snoop_controls,
+            core_status: fixed_register_range(K1_CORE_STATUS, size_of::<u32>())?,
+            wakeup_controls: [
+                fixed_register_range(K1_WAKEUP_BASES[0], 4 * size_of::<u32>())?,
+                fixed_register_range(K1_WAKEUP_BASES[1], 4 * size_of::<u32>())?,
+            ],
         }))
     }
 
@@ -117,6 +149,16 @@ impl SpacemitK1Registers {
     /// Returns the two cluster CCI snoop-control ranges.
     pub const fn cci_snoop_controls(self) -> [DeviceRegisterRange; 2] {
         self.cci_snoop_controls
+    }
+
+    /// Returns PMU_CORE_STATUS (K1 User Manual, section 9.9.4.9.3).
+    pub const fn core_status(self) -> DeviceRegisterRange {
+        self.core_status
+    }
+
+    /// Returns the per-caller wakeup registers (K1 User Manual, section 9.9.4.9.12).
+    pub const fn wakeup_controls(self) -> [DeviceRegisterRange; 2] {
+        self.wakeup_controls
     }
 
     /// Enables this hart's bit in the K1 cluster L2 setup register.

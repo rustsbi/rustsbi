@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 mod aia;
+mod cci;
 mod clint;
 mod console;
 mod ipi;
@@ -23,9 +24,16 @@ use crate::riscv::csr::{mie, mip, stimecmp};
 use crate::riscv::current_hartid;
 
 pub(crate) use aia::{IMSIC_COMPATIBLES, IMSIC_FILE_SPAN, initialize_hart_imsic};
+pub(crate) use cci::Cci550;
 pub(crate) use clint::ClintKind;
 pub(crate) use console::{ConsoleKind, DbcnBackend, DbcnError};
 pub(crate) use ipi::{IpiBackend, IpiError, IpiRequest};
+
+/// Hardware wakeup for DT-enabled harts that need not have entered firmware yet.
+pub(crate) trait HartWake: Send {
+    /// Returns true after requesting hardware wakeup, or false to use an IPI.
+    fn wake(&mut self, hart_id: usize) -> runtime::Result<bool>;
+}
 
 pub(crate) use reset::{
     I2cAddress, P1_PMIC_COMPATIBLES, PMIC_I2C_COMPATIBLES, ResetDevice, ResetError, ResetReason,

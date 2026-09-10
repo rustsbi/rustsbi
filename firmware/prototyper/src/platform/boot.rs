@@ -11,7 +11,7 @@ use spin::Mutex;
 use super::error::{self, ResultContext};
 use super::info::BoardInfo;
 use super::{discovery, report, state};
-use crate::driver::{self, InterruptDevices, ResetDevice};
+use crate::driver::{self, HartWake, InterruptDevices, ResetDevice};
 use crate::riscv::spacemit_k1::{self, K1BootResources};
 use crate::sbi;
 use crate::sbi::SbiDispatcher;
@@ -67,11 +67,11 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
     )
     .during("preparing the next-stage platform description")?;
 
-    if let Some(k1_resources) = k1_resources {
-        spacemit_k1::initialize_boot_hart(k1_resources);
-    }
+    let hart_wake = k1_resources.map(|resources| {
+        Box::new(spacemit_k1::initialize_boot_hart(resources)) as Box<dyn HartWake>
+    });
 
-    publish_platform_services(board, supervisor_memory, devices, pmu);
+    publish_platform_services(board, supervisor_memory, devices, pmu, hart_wake);
     Ok(next_stage_fdt_address)
 }
 
@@ -88,6 +88,7 @@ fn publish_platform_services(
     supervisor_memory: SupervisorMemory,
     devices: driver::Devices,
     pmu: Option<SbiPmu>,
+    hart_wake: Option<Box<dyn HartWake>>,
 ) {
     let driver::Devices {
         interrupts,
@@ -99,7 +100,7 @@ fn publish_platform_services(
     sbi::logger::Logger::init().expect("BUG: firmware logger initialized more than once");
     info!("Hello RustSBI!");
 
-    publish_sbi_dispatcher(interrupts, reset, pmu);
+    publish_sbi_dispatcher(interrupts, reset, pmu, hart_wake);
 
     state::mark_ready();
 
@@ -110,6 +111,7 @@ fn publish_sbi_dispatcher(
     interrupts: Option<InterruptDevices>,
     reset: Option<Box<dyn ResetDevice + Send>>,
     pmu: Option<SbiPmu>,
+    hart_wake: Option<Box<dyn HartWake>>,
 ) {
     let supervisor_memory = state::supervisor_memory();
     let console = state::console_device()
@@ -124,7 +126,7 @@ fn publish_sbi_dispatcher(
         ),
         None => (None, None),
     };
-    let hsm = ipi.as_ref().map(|_| SbiHsm);
+    let hsm = ipi.as_ref().map(|_| SbiHsm::new(hart_wake));
     let reset = reset.map(|device| SbiReset::new(Mutex::new(device)));
     let rfence = ipi.as_ref().map(|_| SbiRFence);
     let susp = hsm.as_ref().map(|_| SbiSuspend);

@@ -7,8 +7,13 @@
 
 #![forbid(unsafe_code)]
 
+use alloc::boxed::Box;
 use riscv::register::mstatus::MPP;
 use rustsbi::SbiRet;
+use spin::Mutex;
+
+use crate::driver::{HartWake, IpiError};
+use crate::platform;
 
 use crate::riscv::csr::mie;
 use crate::riscv::current_hartid;
@@ -29,14 +34,14 @@ pub(crate) fn hart_hsm() -> RemoteHsmCell<'static, NextStage> {
 }
 
 /// SBI HSM extension service.
-pub(crate) struct SbiHsm;
+pub(crate) struct SbiHsm {
+    wakeup: Option<Mutex<Box<dyn HartWake>>>,
+}
 
 impl rustsbi::Hsm for SbiHsm {
     /// Starts execution on a stopped hart.
     fn hart_start(&self, hartid: usize, start_addr: usize, opaque: usize) -> SbiRet {
-        let hart_enable = crate::platform::enabled_harts().unwrap();
-        let enabled = hart_enable.get(hartid).copied().unwrap_or(false);
-        if !enabled {
+        if !self.hart_available(hartid) {
             return SbiRet::invalid_param();
         }
 
@@ -48,7 +53,7 @@ impl rustsbi::Hsm for SbiHsm {
                         opaque,
                         next_mode: MPP::Supervisor,
                     },
-                    || crate::sbi::ipi().unwrap().send_ipi(hartid),
+                    || self.wake_hart(hartid),
                 ) {
                     Ok(true) => SbiRet::success(0),
                     Ok(false) => SbiRet::already_available(),
@@ -62,18 +67,27 @@ impl rustsbi::Hsm for SbiHsm {
     /// Stops execution on the current hart.
     #[inline]
     fn hart_stop(&self) -> SbiRet {
+        if crate::sbi::ipi()
+            .unwrap()
+            .clear_ipi(current_hartid())
+            .is_err()
+        {
+            return SbiRet::failed();
+        }
+        mie::enable_msoft();
         local_hsm().stop();
-        mie::disable_msoft();
-        riscv::asm::wfi();
-        SbiRet::success(0)
+        // A stopped hart must remain in M-mode, including after spurious
+        // WFI wakeups. Keep MSIE enabled so a later hart_start can wake it.
+        while hart_hsm().get_status() == rustsbi::spec::hsm::hart_state::STOPPED {
+            riscv::asm::wfi();
+        }
+        boot()
     }
 
     /// Gets the current state of a hart.
     #[inline]
     fn hart_get_status(&self, hartid: usize) -> SbiRet {
-        let hart_enable = crate::platform::enabled_harts().unwrap();
-        let enabled = hart_enable.get(hartid).copied().unwrap_or(false);
-        if !enabled {
+        if !self.hart_available(hartid) {
             return SbiRet::invalid_param();
         }
 
@@ -116,6 +130,27 @@ impl rustsbi::Hsm for SbiHsm {
 }
 
 impl SbiHsm {
+    pub(crate) fn new(wakeup: Option<Box<dyn HartWake>>) -> Self {
+        Self {
+            wakeup: wakeup.map(Mutex::new),
+        }
+    }
+
+    fn hart_available(&self, hart_id: usize) -> bool {
+        // A hardware-startable hart can be STOPPED before its first entry.
+        platform::board_info().enabled_harts.get(hart_id) == Some(&true)
+            && (self.wakeup.is_some() || platform::hart_privilege_checked(hart_id))
+    }
+
+    fn wake_hart(&self, hart_id: usize) -> Result<(), IpiError> {
+        if let Some(wakeup) = &self.wakeup
+            && wakeup.lock().wake(hart_id).map_err(|_| IpiError::Failed)?
+        {
+            return Ok(());
+        }
+        crate::sbi::ipi().unwrap().send_ipi(hart_id)
+    }
+
     /// Non-retentive resume: restarts this hart at `resume_addr` from a
     /// clean context.
     fn hart_resume(&self, hartid: usize, resume_addr: usize, opaque: usize) -> SbiRet {

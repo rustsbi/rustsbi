@@ -161,9 +161,11 @@ pub fn claim_ipi() {
 
 /// Initializes the SBI IPI extension from the selected device.
 pub(crate) fn init(ipi: Box<dyn IpiBackend + Send>) -> SbiIpi {
-    let max_hart_id = crate::platform::enabled_harts()
-        .as_ref()
-        .and_then(|hart_list| hart_list.iter().rposition(|enabled| *enabled))
+    // Include DT-enabled harts even if they have not entered firmware yet.
+    let max_hart_id = crate::platform::board_info()
+        .enabled_harts
+        .iter()
+        .rposition(|enabled| *enabled)
         .unwrap_or(NUM_HART_MAX - 1);
 
     SbiIpi::new(ipi, max_hart_id)

@@ -4,7 +4,7 @@ use alloc::boxed::Box;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use runtime::memory::SupervisorMemory;
-use spin::{Mutex, Once, RwLock};
+use spin::{Mutex, Once};
 
 use crate::cfg::NUM_HART_MAX;
 use crate::driver::DbcnBackend;
@@ -12,7 +12,6 @@ use crate::driver::DbcnBackend;
 use super::info::{BoardInfo, HartEnableList};
 
 static PLATFORM: Once<Platform> = Once::new();
-static ENABLED_HARTS: RwLock<Option<HartEnableList>> = RwLock::new(None);
 static HART_PRIVILEGE_CHECKED: [AtomicBool; NUM_HART_MAX] =
     [const { AtomicBool::new(false) }; NUM_HART_MAX];
 static READY: AtomicBool = AtomicBool::new(false);
@@ -29,13 +28,11 @@ pub(super) fn publish_resources(
     supervisor_memory: SupervisorMemory,
     console: Option<Box<dyn DbcnBackend + Send>>,
 ) {
-    let enabled_harts = board.enabled_harts;
     PLATFORM.call_once(|| Platform {
         board,
         supervisor_memory,
         console: console.map(Mutex::new),
     });
-    *ENABLED_HARTS.write() = Some(enabled_harts);
 }
 
 /// Releases secondary harts after all published services are ready.
@@ -69,8 +66,20 @@ pub(crate) fn console_device() -> Option<&'static Mutex<Box<dyn DbcnBackend + Se
         .and_then(|platform| platform.console.as_ref())
 }
 
+/// Returns DT-enabled harts that have passed their privilege-mode check.
 pub(crate) fn enabled_harts() -> Option<HartEnableList> {
-    *ENABLED_HARTS.read()
+    let mut enabled = PLATFORM.get()?.board.enabled_harts;
+    for (enabled, checked) in enabled.iter_mut().zip(&HART_PRIVILEGE_CHECKED) {
+        *enabled &= checked.load(Ordering::Acquire);
+    }
+    Some(enabled)
+}
+
+/// Returns whether the target hart has passed its privilege-mode check.
+pub(crate) fn hart_privilege_checked(hart_id: usize) -> bool {
+    HART_PRIVILEGE_CHECKED
+        .get(hart_id)
+        .is_some_and(|checked| checked.load(Ordering::Acquire))
 }
 
 pub(crate) fn mark_hart_privilege_checked(hart_id: usize) {
@@ -78,17 +87,4 @@ pub(crate) fn mark_hart_privilege_checked(hart_id: usize) {
         .get(hart_id)
         .expect("BUG: hart ID exceeds the configured limit")
         .store(true, Ordering::Release);
-}
-
-/// Removes harts that failed the per-hart privilege-mode check.
-pub(crate) fn retain_privilege_checked_harts() {
-    let mut enabled_harts = ENABLED_HARTS.write();
-    let Some(enabled_harts) = enabled_harts.as_mut() else {
-        return;
-    };
-    for (hart_id, enabled) in enabled_harts.iter_mut().enumerate() {
-        if *enabled {
-            *enabled = HART_PRIVILEGE_CHECKED[hart_id].load(Ordering::Acquire);
-        }
-    }
 }

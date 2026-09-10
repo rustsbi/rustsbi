@@ -25,6 +25,7 @@ use crate::sbi::heap;
 use crate::sbi::hsm::hart_hsm;
 use crate::sbi::trap_stack;
 use crate::sbi::{ipi, timer};
+use ::riscv::register::mstatus::MPP;
 use rustsbi_prototyper_macros::entry;
 
 #[entry]
@@ -32,7 +33,7 @@ fn main(boot: BootInfo) {
     if boot.is_boot_hart() {
         boot_hart(boot);
     } else {
-        secondary_hart(&boot);
+        secondary_hart(Some(&boot));
     }
 }
 
@@ -59,7 +60,6 @@ fn boot_hart(mut boot: BootInfo) {
     let mut next_stage = boot.next_stage();
     check_next_stage_privilege(next_stage.next_mode);
 
-    platform::retain_privilege_checked_harts();
     next_stage.opaque = next_stage_fdt_address;
     info!(
         "Redirecting hart {} to {:#016x} in {:?} mode.",
@@ -70,7 +70,7 @@ fn boot_hart(mut boot: BootInfo) {
     enable_supervisor_services();
 }
 
-fn secondary_hart(boot: &BootInfo) {
+fn secondary_hart(boot: Option<&BootInfo>) {
     platform::wait_until_ready();
     detect_hart_features();
     trap_stack::prepare_for_trap();
@@ -78,8 +78,9 @@ fn secondary_hart(boot: &BootInfo) {
     platform::initialize_secondary_hart();
     firmware::set_pmp(&platform::firmware_ram_range());
 
-    let next_stage = boot.next_stage();
-    check_next_stage_privilege(next_stage.next_mode);
+    // Hardware-reset harts have no SPL handoff; HSM starts them in S-mode.
+    let next_mode = boot.map_or(MPP::Supervisor, |boot| boot.next_stage().next_mode);
+    check_next_stage_privilege(next_mode);
 
     enable_supervisor_services();
 }

@@ -11,21 +11,22 @@
 
 #![forbid(unsafe_code)]
 
-mod cci;
 mod reset_vector;
+mod wakeup;
 
 use runtime::{SpacemitK1Registers, memory::MemoryRegistry};
 
+use crate::driver::{Cci550, HartWake};
 use crate::riscv::current_hartid;
 
-use cci::Cci;
 use reset_vector::ResetVectorRegisters;
 
 /// MMIO resources used by the K1 cold-boot sequence.
 pub(crate) struct K1BootResources {
     system_registers: SpacemitK1Registers,
     reset_vectors: ResetVectorRegisters,
-    cci: Cci,
+    cci: Cci550<2>,
+    wakeup: wakeup::K1Wakeup,
 }
 
 impl K1BootResources {
@@ -36,26 +37,28 @@ impl K1BootResources {
         Ok(Self {
             system_registers: registers,
             reset_vectors: ResetVectorRegisters::acquire(memory, registers.reset_vectors())?,
-            cci: Cci::acquire(
+            cci: Cci550::acquire(
                 memory,
                 registers.cci_status(),
                 registers.cci_snoop_controls(),
             )?,
+            wakeup: wakeup::K1Wakeup::acquire(memory, registers)?,
         })
     }
 }
 
-/// Performs the K1 per-hart L2 setup.
+/// Performs the K1 per-hart L2 and machine-feature setup.
 pub(crate) fn initialize_hart(registers: SpacemitK1Registers) {
     registers.enable_hart_l2(current_hartid());
+    registers.enable_machine_features();
 }
 
 /// Runs the K1-only setup performed once by the boot hart.
-pub(crate) fn initialize_boot_hart(resources: K1BootResources) {
-    resources.system_registers.enable_hart_l2(current_hartid());
-    resources.system_registers.enable_machine_features();
+pub(crate) fn initialize_boot_hart(resources: K1BootResources) -> impl HartWake {
+    initialize_hart(resources.system_registers);
     resources
         .reset_vectors
-        .set_reset_vector(crate::cfg::SBI_LINK_START_ADDRESS as u64);
+        .set_reset_vector(crate::firmware::warm_entry as *const () as usize as u64);
     resources.cci.enable_coherency();
+    resources.wakeup
 }

@@ -3,7 +3,7 @@
 use crate::cfg::NUM_HART_MAX;
 
 use super::info::BoardInfo;
-use super::state::{board_info, enabled_harts};
+use super::state::board_info;
 
 pub(super) fn log_platform_summary() {
     let board = board_info();
@@ -24,13 +24,9 @@ pub(super) fn log_platform_summary() {
 fn log_harts(board: &BoardInfo) {
     info!("{:<30}: {}", "Platform HART Count", board.hart_count);
 
-    let Some(enabled) = enabled_harts() else {
-        warn!("{:<30}: Not Available", "Enabled HARTs");
-        return;
-    };
     let mut enabled_harts = [0; NUM_HART_MAX];
     let mut count = 0;
-    for (hart_id, enabled) in enabled.iter().copied().enumerate() {
+    for (hart_id, enabled) in board.enabled_harts.iter().copied().enumerate() {
         if enabled {
             enabled_harts[count] = hart_id;
             count += 1;

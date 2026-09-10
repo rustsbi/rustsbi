@@ -1,3 +1,6 @@
+mod warm;
+pub(crate) use warm::warm_entry;
+
 cfg_if::cfg_if! {
     if #[cfg(feature = "payload")] {
         pub mod payload;
