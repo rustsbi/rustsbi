@@ -361,13 +361,14 @@ impl RFenceCell {
         RemoteRFenceCell(self)
     }
 
-    /// Pushes a fence operation into the queue, or reports it full.
+    /// Pushes a fence operation, or reports a busy or full queue.
     ///
-    /// The retry policy on a full queue (drain via IPI) belongs to
-    /// the rfence layer, which is why this returns the error instead of
-    /// looping.
+    /// Let the rfence layer service local requests before retrying so
+    /// waiting on a remote queue cannot prevent local progress.
     pub fn try_push(&self, item: (RFenceContext, usize)) -> bool {
-        let mut q = self.queue.lock();
+        let Some(mut q) = self.queue.try_lock() else {
+            return false;
+        };
         if q.len() >= QUEUE_CAP {
             return false;
         }
@@ -386,7 +387,7 @@ pub struct RemoteRFenceCell<'a>(&'a RFenceCell);
 
 #[allow(unused)]
 impl LocalRFenceCell<'_> {
-    /// Pushes a fence operation into the queue, or reports it full.
+    /// Pushes a fence operation, or reports a busy or full queue.
     #[inline]
     pub(crate) fn try_push(&self, item: (RFenceContext, usize)) -> bool {
         self.0.try_push(item)
@@ -415,7 +416,7 @@ impl LocalRFenceCell<'_> {
 
 #[allow(unused)]
 impl RemoteRFenceCell<'_> {
-    /// Pushes a fence operation into the queue, or reports it full.
+    /// Pushes a fence operation, or reports a busy or full queue.
     #[inline]
     pub(crate) fn try_push(&self, item: (RFenceContext, usize)) -> bool {
         self.0.try_push(item)
