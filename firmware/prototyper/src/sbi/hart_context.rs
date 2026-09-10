@@ -7,14 +7,13 @@ use fast_trap::FlowContext;
 use riscv::register::mstatus;
 
 use super::pmu::PmuState;
-use super::trap_stack::{HsmCell, RFenceCell};
+use super::trap_stack::{CacheAligned, HsmCell, RFenceCell};
 
 /// Raw per-hart context sitting at the bottom of each trap stack slot.
 ///
-/// This composition keeps the pre-split `HartContext` layout byte-identical:
 /// `repr(C)` with `frame` first leaves the trap [`FlowContext`] at offset 0,
 /// where the naked entry and the trap framework address it, with the
-/// sbi-visible [`HartLocal`] state directly behind it.
+/// sbi-visible [`HartLocal`] state aligned after it.
 #[repr(C)]
 pub(crate) struct HartContext {
     /// Trap frame; the only part the trap path touches.
@@ -49,7 +48,7 @@ pub struct HartLocal {
     /// Remote fence synchronization cell.
     pub rfence: RFenceCell,
     /// Type of inter-processor interrupt pending.
-    pub ipi_type: AtomicU8,
+    pub ipi_type: CacheAligned<AtomicU8>,
     /// Supported hart features.
     pub features: HartFeatures,
     /// PMU State
@@ -74,7 +73,7 @@ impl HartLocal {
         Self {
             hsm: HsmCell::new(),
             rfence: RFenceCell::new(),
-            ipi_type: AtomicU8::new(0),
+            ipi_type: CacheAligned(AtomicU8::new(0)),
             features: HartFeatures::default(),
             pmu_state: PmuState::new(0),
         }

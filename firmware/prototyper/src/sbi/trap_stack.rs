@@ -27,6 +27,21 @@ use spin::Mutex;
 #[repr(C, align(128))]
 struct HartStack(UnsafeCell<MaybeUninit<[u8; STACK_SIZE_PER_HART]>>);
 
+/// Separates independently written hart state into 128-byte blocks.
+///
+/// This conservative performance alignment also separates 64-byte cache
+/// lines; it is not a hardware cache-line-size or a correctness requirement.
+#[repr(align(128))]
+pub(crate) struct CacheAligned<T>(pub T);
+
+impl<T> core::ops::Deref for CacheAligned<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
 // SAFETY: `HartStack` is raw storage addressed by hart id: the naked entry
 // (`locate`) reaches it via `sym ROOT_STACK` and the trap framework via the
 // frame pointer installed by `load_as_stack`. Rust references are only
@@ -49,6 +64,7 @@ const TRAP_STACK_TOP_PADDING: usize =
 // Make sure stack address can be aligned.
 const _: () = assert!(STACK_SIZE_PER_HART.is_multiple_of(core::mem::align_of::<HartStack>()));
 const _: () = assert!(size_of::<HartContext>() < STACK_SIZE_PER_HART);
+const _: () = assert!(core::mem::align_of::<HartStack>() >= core::mem::align_of::<HartContext>());
 
 /// Initializes the state at the bottom of every stack slot.
 ///
@@ -335,17 +351,17 @@ impl<T: core::fmt::Debug> RemoteHsmCell<'_, T> {
 /// Cell for managing remote fence operations between harts.
 pub(crate) struct RFenceCell {
     // Queue of fence operations with source hart ID
-    queue: Mutex<VecDeque<(RFenceContext, usize)>>,
+    queue: CacheAligned<Mutex<VecDeque<(RFenceContext, usize)>>>,
     // Counter for tracking pending synchronization operations
-    wait_sync_count: AtomicU32,
+    wait_sync_count: CacheAligned<AtomicU32>,
 }
 
 impl RFenceCell {
     /// Creates a new RFenceCell with empty queue and zero sync count.
     pub fn new() -> Self {
         Self {
-            queue: Mutex::new(VecDeque::new()),
-            wait_sync_count: AtomicU32::new(0),
+            queue: CacheAligned(Mutex::new(VecDeque::new())),
+            wait_sync_count: CacheAligned(AtomicU32::new(0)),
         }
     }
 
