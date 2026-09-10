@@ -53,7 +53,7 @@ pub extern "C" fn fast_handler(
 }
 
 fn handle_interrupt(
-    mut ctx: FastContext,
+    ctx: FastContext,
     interrupt: Interrupt,
 ) -> FastResult {
     match interrupt {
@@ -87,7 +87,7 @@ fn handle_interrupt(
 }
 
 fn handle_exception(
-    mut ctx: FastContext,
+    ctx: FastContext,
     exception: Exception,
 ) -> FastResult {
     match exception {
