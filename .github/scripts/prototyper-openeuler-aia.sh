@@ -145,6 +145,9 @@ done
 cleanup
 trap - EXIT
 
+# Show QEMU startup errors before the boot-marker checks can fail.
+tail -n 160 "$log_file"
+
 grep -F "Platform IPI Extension        : IMSIC" "$log_file"
 grep -F "automatically in 0s" "$log_file"
 grep -F "Loading Linux" "$log_file"

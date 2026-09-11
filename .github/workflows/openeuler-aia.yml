@@ -79,8 +79,9 @@ jobs:
                 /etc/apt/sources.list.d/ubuntu.sources
               apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30)
               timeout 5m apt-get "${apt_options[@]}" update --error-on=any
+              # virtio-vga needs the VGA ROM from seabios even with -nographic.
               timeout 5m apt-get "${apt_options[@]}" install -y --no-install-recommends \
-                ca-certificates curl qemu-system-riscv qemu-utils xz-utils zstd
+                ca-certificates curl qemu-system-riscv qemu-utils seabios xz-utils zstd
               qemu-system-riscv64 --version
               .github/scripts/prototyper-openeuler-aia.sh
             '
