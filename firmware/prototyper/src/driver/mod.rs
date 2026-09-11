@@ -36,8 +36,9 @@ pub(crate) trait HartWake: Send {
 }
 
 pub(crate) use reset::{
-    I2cAddress, P1_PMIC_COMPATIBLES, PMIC_I2C_COMPATIBLES, ResetDevice, ResetError, ResetReason,
-    ResetRequest, ResetType, SIFIVE_TEST_COMPATIBLES,
+    I2cAddress, P1_PMIC_COMPATIBLES, P1Pmic, PMIC_I2C_COMPATIBLES, ResetBackend, ResetError,
+    ResetReason, ResetRequest, ResetType, SIFIVE_TEST_COMPATIBLES, SifiveTestDevice, SysconConfig,
+    SysconPoweroff, SysconReboot,
 };
 
 pub(crate) const THEAD_PLIC_COMPATIBLE: &str = "thead,c900-plic";
@@ -46,7 +47,10 @@ pub(crate) const THEAD_PLIC_COMPATIBLE: &str = "thead,c900-plic";
 pub(crate) struct Devices {
     pub(crate) interrupts: Option<InterruptDevices>,
     pub(crate) console: Option<Box<dyn DbcnBackend + Send>>,
-    pub(crate) reset: Option<Box<dyn ResetDevice + Send>>,
+    pub(crate) sifive_test: Option<SifiveTestDevice>,
+    pub(crate) spacemit_p1_pmic: Option<P1Pmic>,
+    pub(crate) syscon_poweroff: Option<SysconPoweroff>,
+    pub(crate) syscon_reboot: Option<SysconReboot>,
 }
 
 impl Devices {
@@ -128,9 +132,30 @@ pub(crate) fn bind_devices(
         let control = memory.acquire_mmio(registers.subrange(0x1ffffc, size_of::<u32>())?)?;
         control.write(0, 1u32)?;
     }
+    let interrupts = bind_interrupts(board, memory)?;
+    let console = console::bind(board, memory)?;
+    let sifive_test = board
+        .reset
+        .map(|registers| reset::sifive_test::bind(registers, memory))
+        .transpose()?;
+    let spacemit_p1_pmic = board
+        .pmic_reset
+        .map(|(registers, address)| {
+            reset::pmic_spacemit_p1::bind(registers, address, board.timebase_frequency_hz, memory)
+        })
+        .transpose()?;
+    // QEMU's SiFive finisher also exposes syscon aliases for the same word.
+    let (syscon_poweroff, syscon_reboot) = reset::syscon::bind(
+        board.syscon_poweroff.filter(|_| sifive_test.is_none()),
+        board.syscon_reboot.filter(|_| sifive_test.is_none()),
+        memory,
+    )?;
     Ok(Devices {
-        interrupts: bind_interrupts(board, memory)?,
-        console: console::bind(board, memory)?,
-        reset: reset::bind(board, memory)?,
+        interrupts,
+        console,
+        sifive_test,
+        spacemit_p1_pmic,
+        syscon_poweroff,
+        syscon_reboot,
     })
 }

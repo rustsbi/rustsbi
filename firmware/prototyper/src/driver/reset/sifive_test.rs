@@ -5,11 +5,10 @@
 //! - Platform source: [QEMU SiFive test-finisher implementation](https://github.com/qemu/qemu/blob/99e54ab5e7a6efc945af6d5661842155d1f3fc7a/hw/misc/sifive_test.c) —
 //!   finisher register values and exit-code encoding.
 
-use alloc::boxed::Box;
 use core::mem::{align_of, size_of};
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
-use super::{ResetBackend, ResetDevice, ResetError, ResetReason, ResetRequest, ResetType};
+use super::{ResetBackend, ResetError, ResetReason, ResetRequest, ResetType};
 
 #[repr(usize)]
 #[derive(Clone, Copy)]
@@ -32,7 +31,7 @@ enum FinishAction {
     Reset = 0x7777,
 }
 
-struct FinishCommand(u32);
+pub(crate) struct FinishCommand(u32);
 
 impl FinishCommand {
     fn new(action: FinishAction, code: u16) -> Self {
@@ -55,21 +54,19 @@ impl FinishCommand {
 }
 
 /// SiFive test device used by QEMU to exit or reset.
-struct SifiveTestDevice {
+pub(crate) struct SifiveTestDevice {
     registers: MmioRegion,
 }
 
-pub(super) fn bind(
+pub(in crate::driver) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn ResetDevice + Send>> {
+) -> runtime::Result<SifiveTestDevice> {
     let registers = registers.subrange(0, SPAN)?;
     if !registers.start().is_aligned_to(align_of::<u32>()) {
         return Err(runtime::Error::InvalidArgs);
     }
-    Ok(Box::new(SifiveTestDevice::new(
-        memory.acquire_mmio(registers)?,
-    )))
+    Ok(SifiveTestDevice::new(memory.acquire_mmio(registers)?))
 }
 
 impl SifiveTestDevice {

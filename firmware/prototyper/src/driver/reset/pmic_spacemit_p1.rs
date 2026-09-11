@@ -7,11 +7,10 @@
 
 mod controller;
 
-use alloc::boxed::Box;
 use bitflags::bitflags;
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry};
 
-use super::{ResetBackend, ResetDevice, ResetError, ResetReason, ResetRequest, ResetType};
+use super::{ResetBackend, ResetError, ResetReason, ResetRequest, ResetType};
 
 use controller::K1I2cController;
 
@@ -38,7 +37,7 @@ enum Register {
 }
 
 bitflags! {
-    struct PowerControl: u8 {
+    pub(crate) struct PowerControl: u8 {
         const RESET = 1 << 1;
         const SHUTDOWN = 1 << 2;
     }
@@ -59,21 +58,21 @@ impl PowerControl {
     }
 }
 
-struct P1Pmic {
+pub(crate) struct P1Pmic {
     i2c: K1I2cController,
     address: I2cAddress,
 }
 
-pub(super) fn bind(
+pub(in crate::driver) fn bind(
     registers: DeviceRegisterRange,
     address: I2cAddress,
     timebase_frequency_hz: Option<u32>,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn ResetDevice + Send>> {
-    Ok(Box::new(P1Pmic {
+) -> runtime::Result<P1Pmic> {
+    Ok(P1Pmic {
         i2c: K1I2cController::bind(registers, timebase_frequency_hz, memory)?,
         address,
-    }))
+    })
 }
 
 impl P1Pmic {

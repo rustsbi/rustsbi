@@ -4,6 +4,7 @@ mod console;
 mod devices;
 mod harts;
 mod imsic;
+mod syscon;
 
 use crate::devicetree::Tree;
 

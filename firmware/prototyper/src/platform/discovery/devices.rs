@@ -9,7 +9,7 @@ use crate::driver;
 use crate::platform::info::BoardInfo;
 use crate::platform::qemu_aplic;
 
-use super::imsic;
+use super::{imsic, syscon};
 
 pub(super) fn discover(
     board: &mut BoardInfo,
@@ -54,6 +54,18 @@ fn discover_node(
     let Some(compatibles) = compatible_strings(node) else {
         return Ok(());
     };
+    if compatibles
+        .iter()
+        .any(|compatible| compatible == driver::SysconPoweroff::COMPATIBLE)
+    {
+        syscon::discover_poweroff(board, platform, node, parent)?;
+    }
+    if compatibles
+        .iter()
+        .any(|compatible| compatible == driver::SysconReboot::COMPATIBLE)
+    {
+        syscon::discover_reboot(board, platform, node, parent)?;
+    }
     let has_supported_pmic = compatibles
         .iter()
         .any(|compatible| driver::P1_PMIC_COMPATIBLES.contains(&compatible));

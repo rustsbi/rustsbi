@@ -6,12 +6,11 @@ use alloc::boxed::Box;
 use core::ops::Range;
 
 use runtime::memory::SupervisorMemory;
-use spin::Mutex;
 
 use super::error::{self, ResultContext};
 use super::info::BoardInfo;
 use super::{discovery, report, state};
-use crate::driver::{self, HartWake, InterruptDevices, ResetDevice};
+use crate::driver::{self, HartWake, InterruptDevices};
 use crate::riscv::spacemit_k1::{self, K1BootResources};
 use crate::sbi;
 use crate::sbi::SbiDispatcher;
@@ -93,13 +92,22 @@ fn publish_platform_services(
     let driver::Devices {
         interrupts,
         console,
-        reset,
+        sifive_test,
+        spacemit_p1_pmic,
+        syscon_poweroff,
+        syscon_reboot,
     } = devices;
     state::publish_resources(board, supervisor_memory, console);
 
     sbi::logger::Logger::init().expect("BUG: firmware logger initialized more than once");
     info!("Hello RustSBI!");
 
+    let reset = SbiReset::new(
+        sifive_test,
+        spacemit_p1_pmic,
+        syscon_poweroff,
+        syscon_reboot,
+    );
     publish_sbi_dispatcher(interrupts, reset, pmu, hart_wake);
 
     state::mark_ready();
@@ -109,7 +117,7 @@ fn publish_platform_services(
 
 fn publish_sbi_dispatcher(
     interrupts: Option<InterruptDevices>,
-    reset: Option<Box<dyn ResetDevice + Send>>,
+    reset: SbiReset,
     pmu: Option<SbiPmu>,
     hart_wake: Option<Box<dyn HartWake>>,
 ) {
@@ -127,7 +135,6 @@ fn publish_sbi_dispatcher(
         None => (None, None),
     };
     let hsm = ipi.as_ref().map(|_| SbiHsm::new(hart_wake));
-    let reset = reset.map(|device| SbiReset::new(Mutex::new(device)));
     let rfence = ipi.as_ref().map(|_| SbiRFence);
     let susp = hsm.as_ref().map(|_| SbiSuspend);
     let mpxy = Some(sbi::mpxy::SbiMpxy::new(supervisor_memory));

@@ -1,15 +1,17 @@
 //! Reset drivers.
 
-mod pmic_spacemit_p1;
-mod sifive_test;
+pub(super) mod pmic_spacemit_p1;
+pub(super) mod sifive_test;
+pub(super) mod syscon;
+mod syscon_poweroff;
+mod syscon_reboot;
 
-pub(crate) use pmic_spacemit_p1::I2cAddress;
+pub(crate) use syscon::SysconConfig;
+pub(crate) use syscon_poweroff::SysconPoweroff;
+pub(crate) use syscon_reboot::SysconReboot;
 
-use alloc::boxed::Box;
-
-use runtime::memory::MemoryRegistry;
-
-use crate::platform::BoardInfo;
+pub(crate) use pmic_spacemit_p1::{I2cAddress, P1Pmic};
+pub(crate) use sifive_test::SifiveTestDevice;
 
 /// Parsed reset type accepted by the SRST driver layer.
 ///
@@ -95,41 +97,6 @@ pub trait ResetBackend {
     fn system_reset(&mut self, req: Self::Request) -> ResetError;
 }
 
-/// Object-safe adapter for reset backends with different command types.
-pub(crate) trait ResetDevice {
-    /// Validate and execute a request without exposing the command type.
-    ///
-    /// `None` means the request is invalid for this backend. `Some(error)`
-    /// means execution failed. A successful reset does not return.
-    fn reset(&mut self, req: ResetRequest) -> Option<ResetError>;
-}
-
-impl<B: ResetBackend> ResetDevice for B {
-    fn reset(&mut self, req: ResetRequest) -> Option<ResetError> {
-        let command = self.prepare_reset(req)?;
-        Some(self.system_reset(command))
-    }
-}
-
 pub(crate) const SIFIVE_TEST_COMPATIBLES: [&str; 1] = ["sifive,test0"];
 pub(crate) const P1_PMIC_COMPATIBLES: [&str; 2] = ["spacemit,p1", "ky,spm8821"];
 pub(crate) const PMIC_I2C_COMPATIBLES: [&str; 2] = ["spacemit,k1-i2c", "ky,i2c"];
-
-/// Binds the reset device selected during platform discovery.
-pub(super) fn bind(
-    board: &BoardInfo,
-    memory: &mut MemoryRegistry,
-) -> runtime::Result<Option<Box<dyn ResetDevice + Send>>> {
-    if let Some(registers) = board.reset {
-        return Ok(Some(sifive_test::bind(registers, memory)?));
-    }
-    if let Some((registers, pmic_address)) = board.pmic_reset {
-        return Ok(Some(pmic_spacemit_p1::bind(
-            registers,
-            pmic_address,
-            board.timebase_frequency_hz,
-            memory,
-        )?));
-    }
-    Ok(None)
-}

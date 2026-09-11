@@ -59,7 +59,7 @@ pub struct SbiDispatcher {
     #[rustsbi(hsm)]
     hsm: Option<SbiHsm>,
     #[rustsbi(reset)]
-    reset: Option<SbiReset>,
+    reset: SbiReset,
     #[rustsbi(fence)]
     rfence: Option<SbiRFence>,
     #[rustsbi(pmu)]
@@ -87,7 +87,7 @@ impl SbiDispatcher {
         ipi: Option<SbiIpi>,
         timer: Option<SbiTimer>,
         hsm: Option<SbiHsm>,
-        reset: Option<SbiReset>,
+        reset: SbiReset,
         rfence: Option<SbiRFence>,
         susp: Option<SbiSuspend>,
         pmu: Option<SbiPmu>,
@@ -152,11 +152,6 @@ pub(crate) fn timer() -> Option<&'static SbiTimer> {
 /// Returns the hsm extension, if present.
 pub(crate) fn hsm() -> Option<&'static SbiHsm> {
     SBI_DISPATCHER.get().and_then(|sbi| sbi.hsm.as_ref())
-}
-
-/// Returns the reset extension, if present.
-pub(crate) fn reset() -> Option<&'static SbiReset> {
-    SBI_DISPATCHER.get().and_then(|sbi| sbi.reset.as_ref())
 }
 
 /// Returns the rfence extension, if present.

@@ -84,6 +84,13 @@ fn log_reset(board: &BoardInfo) {
             address.get(),
             controller.start().as_usize()
         );
+    } else if board.syscon_poweroff.is_some() || board.syscon_reboot.is_some() {
+        info!(
+            "{:<30}: Available (syscon: poweroff={}, reboot={})",
+            "Platform Reset Extension",
+            board.syscon_poweroff.is_some(),
+            board.syscon_reboot.is_some(),
+        );
     } else {
         warn!("{:<30}: Not Available", "Platform Reset Device");
     }
