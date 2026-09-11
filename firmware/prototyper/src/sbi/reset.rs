@@ -10,6 +10,7 @@
 use rustsbi::SbiRet;
 use spin::Mutex;
 
+use crate::driver::F101Watchdog;
 use crate::driver::{
     P1Pmic, ResetBackend, ResetError, ResetReason, ResetRequest, ResetType, SifiveTestDevice,
     SysconPoweroff, SysconReboot,
@@ -35,6 +36,7 @@ enum Backend {
         poweroff: SysconPoweroff,
         reboot: SysconReboot,
     },
+    AllwinnerF101(ResetAdapter<F101Watchdog>),
 }
 
 impl SbiReset {
@@ -43,12 +45,15 @@ impl SbiReset {
         spacemit_p1_pmic: Option<P1Pmic>,
         syscon_poweroff: Option<SysconPoweroff>,
         syscon_reboot: Option<SysconReboot>,
+        allwinner_f101_watchdog: Option<F101Watchdog>,
     ) -> Self {
         // Prefer a platform reset backend before the generic syscon devices.
         let backend = if let Some(device) = sifive_test {
             Backend::SifiveTest(ResetAdapter(Mutex::new(device)))
         } else if let Some(device) = spacemit_p1_pmic {
             Backend::SpacemitP1(ResetAdapter(Mutex::new(device)))
+        } else if let Some(device) = allwinner_f101_watchdog {
+            Backend::AllwinnerF101(ResetAdapter(Mutex::new(device)))
         } else {
             match (syscon_poweroff, syscon_reboot) {
                 (None, None) => Backend::None,
@@ -88,6 +93,7 @@ impl rustsbi::Reset for SbiReset {
                 }
                 _ => SbiRet::invalid_param(),
             },
+            Backend::AllwinnerF101(device) => device.system_reset(reset_type, reset_reason),
         }
     }
 }

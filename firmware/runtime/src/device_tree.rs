@@ -114,6 +114,11 @@ impl<'tree> PlatformView<'tree> {
     pub fn spacemit_k1_registers(&self) -> Result<Option<SpacemitK1Registers>> {
         SpacemitK1Registers::from_root(&self.root)
     }
+
+    /// Returns the fixed watchdog window when the root compatible identifies F101.
+    pub fn allwinner_f101_watchdog(&self) -> Result<Option<DeviceRegisterRange>> {
+        crate::allwinner_f101::watchdog_registers(&self.root)
+    }
 }
 
 impl PlatformDescription {

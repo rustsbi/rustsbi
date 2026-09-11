@@ -35,6 +35,7 @@ pub(crate) trait HartWake: Send {
     fn wake(&mut self, hart_id: usize) -> runtime::Result<bool>;
 }
 
+pub(crate) use reset::F101Watchdog;
 pub(crate) use reset::{
     I2cAddress, P1_PMIC_COMPATIBLES, P1Pmic, PMIC_I2C_COMPATIBLES, ResetBackend, ResetError,
     ResetReason, ResetRequest, ResetType, SIFIVE_TEST_COMPATIBLES, SifiveTestDevice, SysconConfig,
@@ -51,6 +52,7 @@ pub(crate) struct Devices {
     pub(crate) spacemit_p1_pmic: Option<P1Pmic>,
     pub(crate) syscon_poweroff: Option<SysconPoweroff>,
     pub(crate) syscon_reboot: Option<SysconReboot>,
+    pub(crate) allwinner_f101_watchdog: Option<F101Watchdog>,
 }
 
 impl Devices {
@@ -144,6 +146,12 @@ pub(crate) fn bind_devices(
             reset::pmic_spacemit_p1::bind(registers, address, board.timebase_frequency_hz, memory)
         })
         .transpose()?;
+    let allwinner_f101_watchdog = board
+        .allwinner_f101_watchdog
+        .map(|registers| {
+            reset::allwinner_f101::bind(registers, board.timebase_frequency_hz, memory)
+        })
+        .transpose()?;
     // QEMU's SiFive finisher also exposes syscon aliases for the same word.
     let (syscon_poweroff, syscon_reboot) = reset::syscon::bind(
         board.syscon_poweroff.filter(|_| sifive_test.is_none()),
@@ -157,5 +165,6 @@ pub(crate) fn bind_devices(
         spacemit_p1_pmic,
         syscon_poweroff,
         syscon_reboot,
+        allwinner_f101_watchdog,
     })
 }

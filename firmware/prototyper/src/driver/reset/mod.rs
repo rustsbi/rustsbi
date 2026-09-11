@@ -1,5 +1,6 @@
 //! Reset drivers.
 
+pub(super) mod allwinner_f101;
 pub(super) mod pmic_spacemit_p1;
 pub(super) mod sifive_test;
 pub(super) mod syscon;
@@ -10,6 +11,7 @@ pub(crate) use syscon::SysconConfig;
 pub(crate) use syscon_poweroff::SysconPoweroff;
 pub(crate) use syscon_reboot::SysconReboot;
 
+pub(crate) use allwinner_f101::F101Watchdog;
 pub(crate) use pmic_spacemit_p1::{I2cAddress, P1Pmic};
 pub(crate) use sifive_test::SifiveTestDevice;
 

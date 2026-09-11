@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Added
 - Add independent syscon poweroff and reboot peripherals with device-tree discovery to RustSBI Prototyper.
+- Add Allwinner F101 watchdog reboot support, selected by the SoC device-tree compatible.
 - Add RV32 support to bench-kernel while preserving RV64 support.
 - Add DBCN contract tests with deferred error reporting to the test kernel.
 - Add RV32 support to RustSBI Prototyper and test-kernel while preserving RV64 support.

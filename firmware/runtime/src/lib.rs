@@ -11,6 +11,7 @@ extern crate alloc;
 
 use core::fmt;
 
+mod allwinner_f101;
 mod device_tree;
 pub mod memory;
 mod spacemit_k1;
