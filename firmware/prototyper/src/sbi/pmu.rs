@@ -196,6 +196,10 @@ impl Pmu for SbiPmu {
                 if count == counter_idx {
                     // Found the counter - get its CSR offset
                     let offset = remaining_mask.trailing_zeros() as u16;
+                    // time cannot be started or stopped through the PMU extension.
+                    if offset == 1 {
+                        return SbiRet::invalid_param();
+                    }
                     return SbiRet::success(
                         CounterInfo::with_hardware_info(CSR_CYCLE + offset, 63).inner(),
                     );
@@ -231,7 +235,11 @@ impl Pmu for SbiPmu {
             let pmu_state = &mut local.pmu_state;
 
             if counter_idx_base >= pmu_state.total_counters_num
-                || (counter_idx_mask & ((1 << pmu_state.total_counters_num) - 1)) == 0
+                || counter_idx_mask == 0
+                || counter_idx_mask
+                    .checked_shr((pmu_state.total_counters_num - counter_idx_base) as u32)
+                    .unwrap_or(0)
+                    != 0
                 || !event.check_event_type()
                 || (is_firmware_event && !event.firmware_event_valid())
             {
@@ -308,7 +316,11 @@ impl Pmu for SbiPmu {
             let is_update_value = flags.contains(flags::StartFlags::INIT_VALUE);
 
             if counter_idx_base >= pmu_state.total_counters_num
-                || (counter_idx_mask & ((1 << pmu_state.total_counters_num) - 1)) == 0
+                || counter_idx_mask == 0
+                || counter_idx_mask
+                    .checked_shr((pmu_state.total_counters_num - counter_idx_base) as u32)
+                    .unwrap_or(0)
+                    != 0
             {
                 return SbiRet::invalid_param();
             }
@@ -360,7 +372,11 @@ impl Pmu for SbiPmu {
             let is_reset = flags.contains(flags::StopFlags::RESET);
 
             if counter_idx_base >= pmu_state.total_counters_num
-                || (counter_idx_mask & ((1 << pmu_state.total_counters_num) - 1)) == 0
+                || counter_idx_mask == 0
+                || counter_idx_mask
+                    .checked_shr((pmu_state.total_counters_num - counter_idx_base) as u32)
+                    .unwrap_or(0)
+                    != 0
             {
                 return SbiRet::invalid_param();
             }
@@ -369,6 +385,7 @@ impl Pmu for SbiPmu {
                 return SbiRet::no_shmem();
             }
 
+            let mut result = SbiRet::invalid_param();
             for counter_idx in CounterMask::new(counter_idx_base, counter_idx_mask) {
                 if counter_idx >= pmu_state.total_counters_num {
                     return SbiRet::invalid_param();
@@ -377,20 +394,24 @@ impl Pmu for SbiPmu {
                 let stop_result = if counter_idx >= pmu_state.get_hw_counter_num() {
                     pmu_state.stop_fw_counter(counter_idx, is_reset)
                 } else {
+                    let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
+                    // Keep stopping the other selected counters across the time hole.
+                    if mhpm_offset == 1 {
+                        continue;
+                    }
                     // If RESET flag is set, mark the counter as inactive
                     if is_reset {
                         pmu_state.active_event[counter_idx] = PMU_EVENT_IDX_INVALID;
                     }
-                    let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
                     stop_hardware_counter(mhpm_offset, is_reset)
                 };
                 match stop_result {
-                    Ok(_) => {}
+                    Ok(_) => result = SbiRet::success(0),
                     Err(StopCounterErr::OffsetInvalid) => return SbiRet::invalid_param(),
                     Err(StopCounterErr::AlreadyStop) => return SbiRet::already_stopped(),
                 }
             }
-            SbiRet::success(0)
+            result
         })
     }
 
