@@ -139,7 +139,7 @@ pub(crate) fn bind_devices(
         .map(|registers| reset::sifive_test::bind(registers, memory))
         .transpose()?;
     let spacemit_p1_pmic = board
-        .pmic_reset
+        .spacemit_p1_pmic_reset
         .map(|(registers, address)| {
             reset::pmic_spacemit_p1::bind(registers, address, board.timebase_frequency_hz, memory)
         })

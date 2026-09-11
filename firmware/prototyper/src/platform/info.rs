@@ -88,7 +88,7 @@ pub(crate) struct BoardInfo {
     pub(crate) timebase_frequency_hz: Option<u32>,
     pub(crate) enabled_harts: HartEnableList,
     pub(crate) model: String,
-    pub(crate) pmic_reset: Option<(DeviceRegisterRange, driver::I2cAddress)>,
+    pub(crate) spacemit_p1_pmic_reset: Option<(DeviceRegisterRange, driver::I2cAddress)>,
 }
 
 impl BoardInfo {
@@ -109,7 +109,7 @@ impl BoardInfo {
             timebase_frequency_hz: None,
             enabled_harts: [false; NUM_HART_MAX],
             model: String::new(),
-            pmic_reset: None,
+            spacemit_p1_pmic_reset: None,
         }
     }
 

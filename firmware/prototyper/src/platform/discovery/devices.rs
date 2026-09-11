@@ -161,6 +161,6 @@ fn discover_pmic_reset<'tree>(
         .device_registers(parent)?
         .and_then(|ranges| ranges.first().copied())
         .ok_or(runtime::Error::InvalidArgs)?;
-    board.pmic_reset = Some((controller, address));
+    board.spacemit_p1_pmic_reset = Some((controller, address));
     Ok(())
 }

@@ -77,9 +77,9 @@ fn log_reset(board: &BoardInfo) {
             "Platform Reset Extension",
             registers.start().as_usize()
         );
-    } else if let Some((controller, address)) = board.pmic_reset {
+    } else if let Some((controller, address)) = board.spacemit_p1_pmic_reset {
         info!(
-            "{:<30}: Available (P1 PMIC @ 0x{:02x}, I2C Base: 0x{:x})",
+            "{:<30}: Available (SpacemiT P1 PMIC @ 0x{:02x}, I2C Base: 0x{:x})",
             "Platform Reset Extension",
             address.get(),
             controller.start().as_usize()

@@ -24,6 +24,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Clarify the SpacemiT P1 PMIC reset field and platform log naming.
 - Probe Sstc per hart so old device trees do not prevent supervisor timer access.
 - fix(prototyper): correct CBIE invalidate encoding (#275)
 - Isolate RFence queues, completion counters and IPI flags to reduce cache-line contention.
