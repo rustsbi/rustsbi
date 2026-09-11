@@ -69,12 +69,18 @@ jobs:
             -e OPENEULER_AIA_CACHE_DIR=/work/.openeuler-aia/cache \
             -e OPENEULER_AIA_WORK_DIR=/work/.openeuler-aia/work \
             -e OPENEULER_AIA_LOG_DIR=/work/qemu-logs \
-            ubuntu:25.10 \
+            ubuntu:26.04 \
             bash -lc '
               set -euo pipefail
               export DEBIAN_FRONTEND=noninteractive
-              apt-get update
-              apt-get install -y curl qemu-system-misc qemu-utils xz-utils zstd
+              # Use the same Ubuntu mirror as the Azure-hosted runner.
+              sed -i -E \
+                "s@http://(archive|security).ubuntu.com/ubuntu/?@http://azure.archive.ubuntu.com/ubuntu/@g" \
+                /etc/apt/sources.list.d/ubuntu.sources
+              apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30)
+              timeout 5m apt-get "${apt_options[@]}" update --error-on=any
+              timeout 5m apt-get "${apt_options[@]}" install -y --no-install-recommends \
+                ca-certificates curl qemu-system-riscv qemu-utils xz-utils zstd
               qemu-system-riscv64 --version
               .github/scripts/prototyper-openeuler-aia.sh
             '
