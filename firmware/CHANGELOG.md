@@ -26,6 +26,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Clear stale registers on HSM entry, including hart restart and non-retentive resume.
 - Enable PBMTE for the C907 RV32 page-memory-type extension when the device tree advertises `svpbmt`.
 - Reuse a firmware reservation that already covers the image to avoid a redundant DTB copy.
 - Rename the F101 watchdog backend to `SunxiWdg`, retaining its legacy board-address fallback.
