@@ -119,6 +119,11 @@ impl<'tree> PlatformView<'tree> {
     pub fn legacy_sunxi_wdg(&self) -> Result<Option<DeviceRegisterRange>> {
         crate::allwinner_f101::watchdog_registers(&self.root)
     }
+
+    /// Returns V861 fixed-register descriptions when this platform identifies V861.
+    pub fn allwinner_v861_registers(&self) -> Option<crate::AllwinnerV861Registers> {
+        crate::AllwinnerV861Registers::from_root(&self.root)
+    }
 }
 
 impl PlatformDescription {

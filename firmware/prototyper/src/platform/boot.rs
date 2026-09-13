@@ -56,6 +56,11 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
         .map(|registers| K1BootResources::acquire(&mut memory, registers))
         .transpose()
         .during("acquiring SpacemiT K1 resources")?;
+    let v861_wake = board
+        .allwinner_v861
+        .map(|registers| crate::riscv::allwinner_v861::initialize_boot_hart(registers, &mut memory))
+        .transpose()
+        .during("initializing V861 C907 resources")?;
 
     let uses_imsic = devices.uses_imsic();
     let next_stage_fdt_address = crate::firmware::patch_device_tree(
@@ -67,9 +72,11 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
     )
     .during("preparing the next-stage platform description")?;
 
-    let hart_wake = k1_resources.map(|resources| {
-        Box::new(spacemit_k1::initialize_boot_hart(resources)) as Box<dyn HartWake>
-    });
+    let hart_wake = k1_resources
+        .map(|resources| {
+            Box::new(spacemit_k1::initialize_boot_hart(resources)) as Box<dyn HartWake>
+        })
+        .or_else(|| v861_wake.map(|wake| Box::new(wake) as Box<dyn HartWake>));
 
     publish_platform_services(board, supervisor_memory, devices, pmu, hart_wake);
     Ok(next_stage_fdt_address)
@@ -79,7 +86,8 @@ fn discover_board_and_pmu(
     platform: runtime::PlatformView<'_>,
 ) -> runtime::Result<(BoardInfo, Option<SbiPmu>)> {
     let board = discovery::discover_platform(&platform)?;
-    let pmu = sbi::pmu::init(platform.root());
+    let pmu =
+        sbi::pmu::init(platform.root()).or_else(|| board.allwinner_v861.map(|_| SbiPmu::default()));
     Ok((board, pmu))
 }
 

@@ -24,5 +24,6 @@ pub(super) fn discover_platform(
     if board.sunxi_wdg.is_none() {
         board.sunxi_wdg = platform.legacy_sunxi_wdg()?;
     }
+    board.allwinner_v861 = platform.allwinner_v861_registers();
     Ok(board)
 }

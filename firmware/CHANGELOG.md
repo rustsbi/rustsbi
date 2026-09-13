@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file. See [conven
 ## Unreleased
 
 ### Added
+- Add an Avaota F2 RV32 configuration and V861 reset-vector hart wake backend.
 - Discover the shared Sunxi watchdog through `allwinner,wdt-v104` device-tree nodes.
 - Add independent syscon poweroff and reboot peripherals with device-tree discovery to RustSBI Prototyper.
 - Add Allwinner F101 watchdog reboot support, selected by the SoC device-tree compatible.
@@ -35,6 +36,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Reuse a firmware reservation that already covers the image to avoid a redundant DTB copy.
 - Rename the F101 watchdog backend to `SunxiWdg`, retaining its legacy board-address fallback.
 - Recognize the Allwinner T-Head PLIC compatible string.
+- Recognize the V861 UART compatible string.
 - Fix RV32 PMU counter-mask validation and skip the time counter when stopping selected counters.
 - Clarify the SpacemiT P1 PMIC reset field and platform log naming.
 - Probe Sstc per hart so old device trees do not prevent supervisor timer access.

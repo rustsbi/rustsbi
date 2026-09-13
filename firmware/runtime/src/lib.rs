@@ -12,10 +12,12 @@ extern crate alloc;
 use core::fmt;
 
 mod allwinner_f101;
+mod allwinner_v861;
 mod device_tree;
 pub mod memory;
 mod spacemit_k1;
 
+pub use allwinner_v861::AllwinnerV861Registers;
 pub use device_tree::{DeviceTreeHandoff, PlatformDescription, PlatformView, node_is_enabled};
 pub use spacemit_k1::SpacemitK1Registers;
 

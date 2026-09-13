@@ -23,7 +23,7 @@ pub(crate) enum ConsoleKind {
 }
 
 const UART_16550_COMPATIBLES: [&str; 2] = ["ns16550", "ns16550a"];
-const UART_16550_U32_COMPATIBLES: [&str; 1] = ["snps,dw-apb-uart"];
+const UART_16550_U32_COMPATIBLES: [&str; 2] = ["snps,dw-apb-uart", "allwinner,sunxi-uart"];
 const UART_AXI_LITE_COMPATIBLES: [&str; 1] = ["xlnx,xps-uartlite-1.00.a"];
 const UART_BFLB_COMPATIBLES: [&str; 1] = ["bflb,bl808-uart"];
 const UART_SIFIVE_COMPATIBLES: [&str; 1] = ["sifive,uart0"];

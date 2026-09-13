@@ -1,0 +1,21 @@
+# Avaota F2, V861 dual C907 in RV32 mode, vendor boot0 and U-Boot.
+# Entry handoff: a0 = hart ID, a1 = DTB address.
+# Build from the repository root (PowerShell):
+# $env:CARGO_PROFILE_RELEASE_LTO = 'true'
+# $env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS = '1'
+# $env:CARGO_PROFILE_RELEASE_OPT_LEVEL = 'z'
+# cargo prototyper build --target riscv32imac-unknown-none-elf --config-file firmware/prototyper/config/avaota_f2.toml jump
+# The image, including BSS, stacks and heap, must fit in 0x40f80000..0x40fc0000.
+num_hart_max = 2
+stack_size_per_hart = 8192
+heap_size = 0x8000
+page_size = 4096
+log_level = "INFO"
+link_start_address = 0x40f80000
+payload_address = 0x42000000
+jump_address = 0x42000000
+tlb_flush_limit = 16384
+
+[[next_addr]]
+start = 0x42000000
+end = 0x48000000
