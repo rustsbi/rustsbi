@@ -63,6 +63,7 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
         &board,
         firmware_image_range,
         uses_imsic,
+        memory.firmware_is_reserved(),
     )
     .during("preparing the next-stage platform description")?;
 

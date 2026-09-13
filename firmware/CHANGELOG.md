@@ -26,6 +26,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Reuse a firmware reservation that already covers the image to avoid a redundant DTB copy.
 - Rename the F101 watchdog backend to `SunxiWdg`, retaining its legacy board-address fallback.
 - Recognize the Allwinner T-Head PLIC compatible string.
 - Fix RV32 PMU counter-mask validation and skip the time counter when stopping selected counters.

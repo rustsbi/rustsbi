@@ -51,6 +51,15 @@ impl MemoryRegistry {
         self.firmware_image_range
     }
 
+    /// Whether an existing platform reservation covers the entire firmware.
+    ///
+    /// The next stage can keep this reservation instead of adding a duplicate.
+    pub fn firmware_is_reserved(&self) -> bool {
+        self.reserved_ranges
+            .iter()
+            .any(|range| range.contains(self.firmware_image_range))
+    }
+
     /// Returns the RAM ranges described by the platform.
     pub fn ram_ranges(&self) -> impl Iterator<Item = PhysAddrRange> + '_ {
         self.ram_ranges.iter().copied()
@@ -175,6 +184,25 @@ mod tests {
 
     fn registers(start: usize, len: usize) -> DeviceRegisterRange {
         DeviceRegisterRange::from_description(range(start, len))
+    }
+
+    #[test]
+    fn existing_reservation_must_cover_the_whole_firmware() {
+        for (reserved, expected) in [
+            (range(0x1200, 0x200), true),
+            (range(0x1100, 0x400), true),
+            (range(0x1200, 0x100), false),
+            (range(0x1300, 0x200), false),
+            (range(0x1400, 0x100), false),
+        ] {
+            let (_, registry) = MemoryRegistry::from_ranges_with_firmware(
+                range(0x1200, 0x200),
+                [range(0x1000, 0x1000)],
+                [reserved],
+            )
+            .unwrap();
+            assert_eq!(registry.firmware_is_reserved(), expected);
+        }
     }
 
     #[test]

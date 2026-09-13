@@ -180,7 +180,14 @@ pub(crate) fn patch_device_tree(
     board: &crate::platform::BoardInfo,
     firmware_image: runtime::memory::PhysAddrRange,
     uses_imsic: bool,
+    firmware_is_reserved: bool,
 ) -> runtime::Result<usize> {
+    // Retain an existing reservation that already covers the image. Avoid
+    // copying a large DTB when neither its firmware reservation nor its
+    // interrupt-controller description needs to change.
+    if firmware_is_reserved && !uses_imsic {
+        return Ok(device_tree_address);
+    }
     use serde_device_tree::buildin::Node;
     use serde_device_tree::ser::serializer::ValueType;
     use serde_device_tree::{Dtb, DtbPtr};
