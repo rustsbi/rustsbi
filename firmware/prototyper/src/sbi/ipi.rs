@@ -184,9 +184,10 @@ fn target_requests(
     max_hart_id: usize,
 ) -> Result<impl Iterator<Item = IpiRequest>, SbiRet> {
     let enabled = &crate::platform::board_info().enabled_harts;
+    let assigned =
+        |hart_id: usize| hart_id <= max_hart_id && enabled.get(hart_id).copied().unwrap_or(false);
     let available = |hart_id: usize| {
-        hart_id <= max_hart_id
-            && enabled.get(hart_id).copied().unwrap_or(false)
+        assigned(hart_id)
             && crate::platform::hart_privilege_checked(hart_id)
             && remote_hsm(hart_id).is_some_and(|hsm| hsm.allow_ipi())
     };
@@ -208,16 +209,21 @@ fn target_requests(
             }
         }
     } else if mask != 0 {
-        // Validate every selected hart before any event or backend is touched.
+        // Validate platform assignment separately from transient HSM state.
+        // Stopped harts remain valid targets but need no supervisor IPI.
+        let mut active_mask = 0;
         for bit in HartMask::from_mask_base(mask, 0) {
             let hart_id = base.checked_add(bit).ok_or_else(SbiRet::invalid_param)?;
-            if !available(hart_id) {
+            if !assigned(hart_id) {
                 return Err(SbiRet::invalid_param());
+            }
+            if available(hart_id) {
+                active_mask |= 1 << bit;
             }
         }
         // An ordinary mask needs one window, without a heap allocation
-        single = Some(IpiRequest {
-            hart_mask: mask,
+        single = (active_mask != 0).then_some(IpiRequest {
+            hart_mask: active_mask,
             hart_mask_base: base,
         });
     }

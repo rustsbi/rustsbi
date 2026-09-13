@@ -109,7 +109,8 @@ pub extern "C" fn boot_handler(ctx: &mut BootContext) {
 
     match local_hsm().start() {
         Ok(next_stage) => {
-            ipi::claim_ipi();
+            // Requests may arrive as soon as STARTED becomes visible.
+            super::handler::msoft_ipi_handler();
             unsafe {
                 mstatus::set_mpie();
                 mstatus::set_mpp(next_stage.next_mode);

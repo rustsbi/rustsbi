@@ -71,7 +71,8 @@ pub fn msoft_ipi_handler() {
 pub fn msoft_handler(ctx: FastContext) -> FastResult {
     match local_hsm().start() {
         Ok(next_stage) => {
-            ipi::claim_ipi();
+            // Requests may arrive as soon as STARTED becomes visible.
+            msoft_ipi_handler();
             // SAFETY: M-mode writes to this hart's mstatus and mie in
             // preparation for the mret into the next stage.
             unsafe {

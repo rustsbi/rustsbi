@@ -378,6 +378,28 @@ fn read_pmu_hardware_counter(csr_num: usize) -> u64 {
 fn fence_test(hartid: usize, smp: usize) {
     let self_mask = HartMask::from_mask_base(0x1, hartid);
 
+    // A stopped hart remains assigned to the supervisor. It can be skipped
+    // without rejecting an otherwise valid IPI or remote-fence mask.
+    for target in 0..smp {
+        if target == hartid
+            || sbi::hart_get_status(target) != SbiRet::success(sbi_spec::hsm::hart_state::STOPPED)
+        {
+            continue;
+        }
+        let stopped = HartMask::from_mask_base(1, target);
+        assert_eq!(sbi::send_ipi(stopped), SbiRet::success(0));
+        let mixed = HartMask::from_mask_base((1 << hartid) | (1 << target), 0);
+        for mask in [stopped, mixed] {
+            assert_eq!(sbi::remote_fence_i(mask), SbiRet::success(0));
+            assert_eq!(sbi::remote_sfence_vma(mask, 0, 0), SbiRet::success(0));
+            assert_eq!(
+                sbi::remote_sfence_vma_asid(mask, 0, 0, 0),
+                SbiRet::success(0)
+            );
+        }
+        println!("Sbi stopped-hart IPI/RFENCE test pass: hart {target}");
+    }
+
     // Fence.i test (should succeed, no-op for PMU, but should not panic)
     let ret = sbi::remote_fence_i(self_mask);
     assert!(ret.is_ok() || ret == SbiRet::not_supported());

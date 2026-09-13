@@ -78,7 +78,13 @@ impl rustsbi::Hsm for SbiHsm {
         local_hsm().stop();
         // A stopped hart must remain in M-mode, including after spurious
         // WFI wakeups. Keep MSIE enabled so a later hart_start can wake it.
-        while hart_hsm().get_status() == rustsbi::spec::hsm::hart_state::STOPPED {
+        loop {
+            // Complete IPIs selected before this hart became STOPPED, including
+            // remote fences whose callers are waiting for an acknowledgement.
+            crate::sbi::trap::handler::msoft_ipi_handler();
+            if hart_hsm().get_status() != rustsbi::spec::hsm::hart_state::STOPPED {
+                break;
+            }
             riscv::asm::wfi();
         }
         boot()
