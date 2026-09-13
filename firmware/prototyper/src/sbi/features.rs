@@ -263,8 +263,8 @@ pub fn configure_delegation_and_trap() {
         } else {
             menvcfg::set_bits(menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
         }
-        // Svpbmt is only defined for RV64.
-        #[cfg(target_pointer_width = "64")]
+        // Follow the device tree: C907 firmware also describes its RV32
+        // page-memory-type extension as Svpbmt and requires PBMTE.
         if hart_has_extension(current_hartid(), Extension::Svpbmt) {
             menvcfg::set_bits(menvcfg::PBMTE);
         }
