@@ -96,7 +96,7 @@ fn publish_platform_services(
         spacemit_p1_pmic,
         syscon_poweroff,
         syscon_reboot,
-        allwinner_f101_watchdog,
+        sunxi_wdg,
     } = devices;
     state::publish_resources(board, supervisor_memory, console);
 
@@ -108,7 +108,7 @@ fn publish_platform_services(
         spacemit_p1_pmic,
         syscon_poweroff,
         syscon_reboot,
-        allwinner_f101_watchdog,
+        sunxi_wdg,
     );
     publish_sbi_dispatcher(interrupts, reset, pmu, hart_wake);
 

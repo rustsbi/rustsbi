@@ -102,7 +102,7 @@ fn discover_node(
         if qemu_aplic::is_machine_domain(node, compatible) {
             board.machine_aplic = Some(primary_register_range);
         }
-        if compatible == driver::THEAD_PLIC_COMPATIBLE {
+        if driver::THEAD_PLIC_COMPATIBLES.contains(&compatible) {
             board.thead_plic = Some(primary_register_range);
         }
     }
@@ -112,8 +112,9 @@ fn discover_node(
 fn is_supported_mmio_device(node: &Node<'_>, compatible: &str) -> bool {
     driver::ClintKind::from_fdt(compatible).is_some()
         || driver::SIFIVE_TEST_COMPATIBLES.contains(&compatible)
+        || compatible == driver::SUNXI_WDG_COMPATIBLE
         || driver::IMSIC_COMPATIBLES.contains(&compatible)
-        || compatible == driver::THEAD_PLIC_COMPATIBLE
+        || driver::THEAD_PLIC_COMPATIBLES.contains(&compatible)
         || qemu_aplic::is_machine_domain(node, compatible)
 }
 
@@ -126,6 +127,9 @@ fn discover_clint(board: &mut BoardInfo, compatible: &str, registers: DeviceRegi
 fn discover_reset(board: &mut BoardInfo, compatible: &str, registers: DeviceRegisterRange) {
     if driver::SIFIVE_TEST_COMPATIBLES.contains(&compatible) {
         board.reset = Some(registers);
+    }
+    if compatible == driver::SUNXI_WDG_COMPATIBLE {
+        board.sunxi_wdg = Some(registers);
     }
 }
 

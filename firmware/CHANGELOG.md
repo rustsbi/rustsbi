@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file. See [conven
 ## Unreleased
 
 ### Added
+- Discover the shared Sunxi watchdog through `allwinner,wdt-v104` device-tree nodes.
 - Add independent syscon poweroff and reboot peripherals with device-tree discovery to RustSBI Prototyper.
 - Add Allwinner F101 watchdog reboot support, selected by the SoC device-tree compatible.
 - Add RV32 support to bench-kernel while preserving RV64 support.
@@ -25,6 +26,8 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Rename the F101 watchdog backend to `SunxiWdg`, retaining its legacy board-address fallback.
+- Recognize the Allwinner T-Head PLIC compatible string.
 - Fix RV32 PMU counter-mask validation and skip the time counter when stopping selected counters.
 - Clarify the SpacemiT P1 PMIC reset field and platform log naming.
 - Probe Sstc per hart so old device trees do not prevent supervisor timer access.

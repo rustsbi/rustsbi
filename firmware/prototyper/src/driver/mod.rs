@@ -35,14 +35,15 @@ pub(crate) trait HartWake: Send {
     fn wake(&mut self, hart_id: usize) -> runtime::Result<bool>;
 }
 
-pub(crate) use reset::F101Watchdog;
+pub(crate) use reset::SunxiWdg;
 pub(crate) use reset::{
     I2cAddress, P1_PMIC_COMPATIBLES, P1Pmic, PMIC_I2C_COMPATIBLES, ResetBackend, ResetError,
-    ResetReason, ResetRequest, ResetType, SIFIVE_TEST_COMPATIBLES, SifiveTestDevice, SysconConfig,
-    SysconPoweroff, SysconReboot,
+    ResetReason, ResetRequest, ResetType, SIFIVE_TEST_COMPATIBLES, SUNXI_WDG_COMPATIBLE,
+    SifiveTestDevice, SysconConfig, SysconPoweroff, SysconReboot,
 };
 
-pub(crate) const THEAD_PLIC_COMPATIBLE: &str = "thead,c900-plic";
+pub(crate) const THEAD_PLIC_COMPATIBLES: [&str; 2] =
+    ["thead,c900-plic", "allwinner,thead,c900-plic"];
 
 /// Platform devices constructed from the discovered hardware description.
 pub(crate) struct Devices {
@@ -52,7 +53,7 @@ pub(crate) struct Devices {
     pub(crate) spacemit_p1_pmic: Option<P1Pmic>,
     pub(crate) syscon_poweroff: Option<SysconPoweroff>,
     pub(crate) syscon_reboot: Option<SysconReboot>,
-    pub(crate) allwinner_f101_watchdog: Option<F101Watchdog>,
+    pub(crate) sunxi_wdg: Option<SunxiWdg>,
 }
 
 impl Devices {
@@ -146,11 +147,9 @@ pub(crate) fn bind_devices(
             reset::pmic_spacemit_p1::bind(registers, address, board.timebase_frequency_hz, memory)
         })
         .transpose()?;
-    let allwinner_f101_watchdog = board
-        .allwinner_f101_watchdog
-        .map(|registers| {
-            reset::allwinner_f101::bind(registers, board.timebase_frequency_hz, memory)
-        })
+    let sunxi_wdg = board
+        .sunxi_wdg
+        .map(|registers| reset::sunxi_wdg::bind(registers, board.timebase_frequency_hz, memory))
         .transpose()?;
     // QEMU's SiFive finisher also exposes syscon aliases for the same word.
     let (syscon_poweroff, syscon_reboot) = reset::syscon::bind(
@@ -165,6 +164,6 @@ pub(crate) fn bind_devices(
         spacemit_p1_pmic,
         syscon_poweroff,
         syscon_reboot,
-        allwinner_f101_watchdog,
+        sunxi_wdg,
     })
 }

@@ -84,9 +84,9 @@ fn log_reset(board: &BoardInfo) {
             address.get(),
             controller.start().as_usize()
         );
-    } else if let Some(registers) = board.allwinner_f101_watchdog {
+    } else if let Some(registers) = board.sunxi_wdg {
         info!(
-            "{:<30}: Available (F101 watchdog @ 0x{:x})",
+            "{:<30}: Available (Sunxi watchdog @ 0x{:x})",
             "Platform Reset Extension",
             registers.start().as_usize(),
         );

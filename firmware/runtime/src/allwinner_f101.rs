@@ -26,7 +26,19 @@ pub(crate) fn watchdog_registers(root: &Node<'_>) -> Result<Option<DeviceRegiste
     {
         return Ok(None);
     }
+    // An explicit watchdog node, including a disabled one, takes priority
+    // over the address fallback for old F101 trees.
+    if describes_watchdog(root) {
+        return Ok(None);
+    }
     PhysAddrRange::from_start_len(WATCHDOG_BASE, WATCHDOG_SPAN)
         .map(DeviceRegisterRange::from_description)
         .map(Some)
+}
+
+fn describes_watchdog(node: &Node<'_>) -> bool {
+    node.nodes().any(|child| {
+        child.get_full_name().split('@').next() == Some("watchdog")
+            || describes_watchdog(&child.deserialize::<Node<'_>>())
+    })
 }

@@ -116,7 +116,7 @@ impl<'tree> PlatformView<'tree> {
     }
 
     /// Returns the fixed watchdog window when the root compatible identifies F101.
-    pub fn allwinner_f101_watchdog(&self) -> Result<Option<DeviceRegisterRange>> {
+    pub fn legacy_sunxi_wdg(&self) -> Result<Option<DeviceRegisterRange>> {
         crate::allwinner_f101::watchdog_registers(&self.root)
     }
 }
