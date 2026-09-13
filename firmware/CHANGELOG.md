@@ -26,6 +26,8 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Count and forward access faults to supervisor mode, preserving the interrupted interrupt state.
+- Accept standard firmware PMU events, including events that cannot occur on the current ISA.
 - Support fixed PMU cycle and instruction counters without device-tree event mappings.
 - Clear stale registers on HSM entry, including hart restart and non-retentive resume.
 - Enable PBMTE for the C907 RV32 page-memory-type extension when the device tree advertises `svpbmt`.

@@ -244,15 +244,26 @@ pub fn delegate(ctx: &mut EntireContextSeparated) {
         sepc::write(ctx.regs().pc);
         scause::write(scause::Scause::from_bits(mcause::read().bits()));
         stval::write(mtval::read());
-        sstatus::clear_sie();
+        // Reproduce supervisor trap entry so SRET restores the interrupted SIE.
+        let mut status = sstatus::read();
+        status.set_spie(status.sie());
+        status.set_sie(false);
         if mstatus::read().mpp() == mstatus::MPP::Supervisor {
-            sstatus::set_spp(sstatus::SPP::Supervisor);
+            status.set_spp(sstatus::SPP::Supervisor);
         } else {
-            sstatus::set_spp(sstatus::SPP::User);
+            status.set_spp(sstatus::SPP::User);
         }
+        sstatus::write(status);
         mstatus::set_mpp(mstatus::MPP::Supervisor);
         mepc::write(stvec::read().address());
     }
+}
+
+#[inline]
+pub extern "C" fn access_fault_handler(raw_ctx: EntireContext) -> EntireResult {
+    let mut ctx = raw_ctx.split().0;
+    delegate(&mut ctx);
+    ctx.restore()
 }
 
 #[inline]

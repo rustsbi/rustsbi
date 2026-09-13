@@ -491,14 +491,6 @@ impl SbiPmu {
             return Err(SbiRet::not_supported());
         }
 
-        //  TODO: If all firmware events are implemented,
-        // this condition should be removed.
-        if event.event_code() <= 21 {
-            if !PMU_FIRMWARE_EVENT_SUPPORTED[event.event_code()] {
-                return Err(SbiRet::not_supported());
-            }
-        }
-
         for counter_idx in CounterMask::new(counter_idx_base, counter_idx_mask) {
             // If counter idx is not a firmware counter index, skip this index
             if counter_idx < pmu_state.get_hw_counter_num()
@@ -1141,62 +1133,6 @@ impl Iterator for CounterMask {
             self.counter_idx_mask &= !(1usize << low_bit);
             Some(hart_id)
         }
-    }
-}
-
-// TODO: If all firmware events are implemented,
-// `PMU_FIRMWARE_EVENT_SUPPORTED` should be removed.
-cfg_if::cfg_if! {
-    if #[cfg(feature = "hypervisor")] {
-        const PMU_FIRMWARE_EVENT_SUPPORTED: [bool; 22] = [
-            true,  // SBI_PMU_FW_MISALIGNED_LOAD
-            true,  // SBI_PMU_FW_MISALIGNED_STORE
-            false, // SBI_PMU_FW_ACCESS_LOAD
-            false, // SBI_PMU_FW_ACCESS_STORE
-            true,  // SBI_PMU_FW_ILLEGAL_INSN
-            true,  // SBI_PMU_FW_SET_TIMER
-            true,  // SBI_PMU_FW_IPI_SENT
-            true,  // SBI_PMU_FW_IPI_RECEIVED
-            true,  // SBI_PMU_FW_FENCE_I_SENT
-            true,  // SBI_PMU_FW_FENCE_I_RECEIVED
-            true,  // SBI_PMU_FW_SFENCE_VMA_SENT
-            true,  // SBI_PMU_FW_SFENCE_VMA_RECEIVED
-            true,  // SBI_PMU_FW_SFENCE_VMA_ASID_SENT
-            true,  // SBI_PMU_FW_SFENCE_VMA_ASID_RECEIVED
-            true,  // SBI_PMU_FW_HFENCE_GVMA_SENT
-            true,  // SBI_PMU_FW_HFENCE_GVMA_RECEIVED
-            true,  // SBI_PMU_FW_HFENCE_GVMA_VMID_SENT
-            true,  // SBI_PMU_FW_HFENCE_GVMA_VMID_RECEIVED
-            true,  // SBI_PMU_FW_HFENCE_VVMA_SENT
-            true,  // SBI_PMU_FW_HFENCE_VVMA_RECEIVED
-            true,  // SBI_PMU_FW_HFENCE_VVMA_ASID_SENT
-            true,  // SBI_PMU_FW_HFENCE_VVMA_ASID_RECEIVED
-        ];
-    } else {
-        const PMU_FIRMWARE_EVENT_SUPPORTED: [bool; 22] = [
-            true,  // SBI_PMU_FW_MISALIGNED_LOAD
-            true,  // SBI_PMU_FW_MISALIGNED_STORE
-            false, // SBI_PMU_FW_ACCESS_LOAD
-            false, // SBI_PMU_FW_ACCESS_STORE
-            true,  // SBI_PMU_FW_ILLEGAL_INSN
-            true,  // SBI_PMU_FW_SET_TIMER
-            true,  // SBI_PMU_FW_IPI_SENT
-            true,  // SBI_PMU_FW_IPI_RECEIVED
-            true,  // SBI_PMU_FW_FENCE_I_SENT
-            true,  // SBI_PMU_FW_FENCE_I_RECEIVED
-            true,  // SBI_PMU_FW_SFENCE_VMA_SENT
-            true,  // SBI_PMU_FW_SFENCE_VMA_RECEIVED
-            true,  // SBI_PMU_FW_SFENCE_VMA_ASID_SENT
-            true,  // SBI_PMU_FW_SFENCE_VMA_ASID_RECEIVED
-            false, // SBI_PMU_FW_HFENCE_GVMA_SENT
-            false, // SBI_PMU_FW_HFENCE_GVMA_RECEIVED
-            false, // SBI_PMU_FW_HFENCE_GVMA_VMID_SENT
-            false, // SBI_PMU_FW_HFENCE_GVMA_VMID_RECEIVED
-            false, // SBI_PMU_FW_HFENCE_VVMA_SENT
-            false, // SBI_PMU_FW_HFENCE_VVMA_RECEIVED
-            false, // SBI_PMU_FW_HFENCE_VVMA_ASID_SENT
-            false, // SBI_PMU_FW_HFENCE_VVMA_ASID_RECEIVED
-        ];
     }
 }
 

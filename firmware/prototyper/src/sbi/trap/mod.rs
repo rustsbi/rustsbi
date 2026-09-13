@@ -124,6 +124,19 @@ fn handle_exception(
             save_regs(&mut ctx);
             ctx.continue_with(handler::store_misaligned_handler, ())
         }
+        Exception::LoadFault | Exception::StoreFault => {
+            let event = if exception == Exception::LoadFault {
+                firmware_event::ACCESS_LOAD
+            } else {
+                firmware_event::ACCESS_STORE
+            };
+            pmu_firmware_counter_increment(event);
+            if mstatus::read().mpp() == mstatus::MPP::Machine {
+                unsupported_trap(Some(Trap::Exception(exception)))
+            }
+            save_regs(&mut ctx);
+            ctx.continue_with(handler::access_fault_handler, ())
+        }
         _ => {
             error!("Unhandled exception: {:?}", exception);
             unsupported_trap(Some(Trap::Exception(exception)))

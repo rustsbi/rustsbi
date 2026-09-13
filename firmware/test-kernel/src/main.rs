@@ -239,14 +239,23 @@ fn pmu_test(smp: usize) {
     // used below; RV64 can also select counters 32..34.
     let counter_mask = CounterMask::from_mask_base(0x7_ffff_ffffu64 as usize, 0);
 
-    // Mapping a counter to the `SBI_PMU_FW_ACCESS_LOAD` event should result in unsupported
-    let result = sbi::pmu_counter_config_matching(
-        counter_mask,
-        Flag::new(0b010),
-        EventIdx::new_firmware_event(firmware_event::ACCESS_LOAD).raw(),
-        0,
-    );
-    assert_eq!(result, SbiRet::not_supported());
+    // Access-fault counters start at zero and can be released for reuse.
+    for event in [firmware_event::ACCESS_LOAD, firmware_event::ACCESS_STORE] {
+        let result = sbi::pmu_counter_config_matching(
+            counter_mask,
+            Flag::new(0b110),
+            EventIdx::new_firmware_event(event).raw(),
+            0,
+        );
+        assert!(result.is_ok());
+        let info = sbi::pmu_counter_get_info(result.value);
+        assert!(info.is_ok() && CounterInfo::new(info.value).is_firmware_counter());
+        assert_eq!(sbi::pmu_counter_fw_read(result.value), SbiRet::success(0));
+        assert!(
+            sbi::pmu_counter_stop(CounterMask::from_mask_base(1, result.value), Flag::new(1))
+                .is_ok()
+        );
+    }
 
     // Map a counter to the `SBI_PMU_FW_IPI_SENT` event.
     // This counter should be a firmware counter and its value should be initialized to 0.

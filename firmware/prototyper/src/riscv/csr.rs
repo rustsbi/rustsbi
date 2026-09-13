@@ -483,7 +483,7 @@ pub fn write_mhpmcounter(mhpm_offset: u16, mhpmcounter_val: u64) {
 }
 
 /// Delegates interrupts, exceptions, and counters to supervisor mode, while
-/// keeping supervisor ecalls and misaligned/illegal instructions in M-mode.
+/// keeping supervisor ecalls, access faults and misaligned/illegal instructions in M-mode.
 ///
 /// The body is the firmware's fixed delegation policy; it runs once per hart
 /// during M-mode init, before any supervisor code executes.
@@ -501,6 +501,9 @@ pub fn configure_delegation() {
         medeleg::clear_load_misaligned();
         medeleg::clear_store_misaligned();
         medeleg::clear_illegal_instruction();
+        // Count access faults before forwarding them to the supervisor.
+        medeleg::clear_load_fault();
+        medeleg::clear_store_fault();
     }
 }
 
