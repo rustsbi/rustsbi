@@ -53,7 +53,8 @@ impl PmuState {
         let mut active_event =
             [PMU_EVENT_IDX_INVALID; PMU_HARDWARE_COUNTER_MAX + PMU_FIRMWARE_COUNTER_MAX];
         // Standard mappings for fixed counters
-        active_event[1] = 0x0; // time (memory-mapped)
+        active_event[0] = hardware_event::CPU_CYCLES;
+        active_event[2] = hardware_event::INSTRUCTIONS;
 
         Self {
             active_event,
@@ -523,6 +524,14 @@ impl SbiPmu {
         pmu_state: &PmuState,
     ) -> Result<usize, SbiRet> {
         let event = EventIdx::new(event_idx);
+        // Fixed counters have architectural event assignments even when
+        // the device tree provides no programmable-counter mapping.
+        let fixed_counter = CounterMask::new(counter_idx_base, counter_idx_mask).find(|&idx| {
+            matches!(
+                (event_idx, get_mhpm_csr_offset(idx)),
+                (hardware_event::CPU_CYCLES, Some(0)) | (hardware_event::INSTRUCTIONS, Some(2))
+            )
+        });
         let mut hw_counters_mask = 0;
         // Find the counters available for the event.
         if event.is_raw_event() {
@@ -546,7 +555,7 @@ impl SbiPmu {
                     }
                 }
             } else {
-                return Err(SbiRet::not_supported());
+                return fixed_counter.ok_or_else(SbiRet::not_supported);
             }
         }
         // mcycle, time, minstret cannot be used for other events.
@@ -585,7 +594,7 @@ impl SbiPmu {
             self.pmu_update_hardware_mhpmevent(mhpm_offset, event_idx, event_data)?;
             return Ok(counter_idx);
         }
-        Err(SbiRet::not_supported())
+        fixed_counter.ok_or_else(SbiRet::not_supported)
     }
 
     fn pmu_update_hardware_mhpmevent(
