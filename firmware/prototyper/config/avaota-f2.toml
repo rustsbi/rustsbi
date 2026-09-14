@@ -4,7 +4,7 @@
 # $env:CARGO_PROFILE_RELEASE_LTO = 'true'
 # $env:CARGO_PROFILE_RELEASE_CODEGEN_UNITS = '1'
 # $env:CARGO_PROFILE_RELEASE_OPT_LEVEL = 'z'
-# cargo prototyper build --target riscv32imac-unknown-none-elf --config-file firmware/prototyper/config/avaota_f2.toml jump
+# cargo prototyper build --target riscv32imac-unknown-none-elf --config-file firmware/prototyper/config/avaota-f2.toml jump
 # The image, including BSS, stacks and heap, must fit in 0x40f80000..0x40fc0000.
 num_hart_max = 2
 stack_size_per_hart = 8192

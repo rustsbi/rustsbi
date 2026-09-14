@@ -6,7 +6,7 @@
 #
 # Build with an RV32 M-mode loader and an RV32 S-mode next stage:
 # cargo prototyper build --target riscv32imac-unknown-none-elf \
-#     --config-file firmware/prototyper/config/yuzuki_neko.toml jump
+#     --config-file firmware/prototyper/config/yuzuki-neko.toml jump
 # The loader must initialize PSRAM, clocks, UART1 and the C907 before entry.
 # Console and interrupt controllers are discovered from the supplied DTB.
 
