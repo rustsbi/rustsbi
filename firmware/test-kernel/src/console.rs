@@ -24,7 +24,7 @@ const TEST_CASES: usize = 10;
 /// Local test failure codes; these are distinct from SBI return error codes.
 #[derive(Clone, Copy, Debug)]
 #[repr(u8)]
-pub(super) enum ErrorCode {
+pub(crate) enum ErrorCode {
     UnexpectedReturn = 1,
     ByteCountOutOfRange = 2,
     ReadBeforeBuffer = 3,
@@ -34,7 +34,7 @@ pub(super) enum ErrorCode {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct TestError {
+pub(crate) struct TestError {
     pub code: ErrorCode,
     pub operation: &'static str,
     pub capacity: usize,
@@ -54,12 +54,12 @@ impl TestError {
     }
 }
 
-pub(super) enum TestOutcome {
+pub(crate) enum TestOutcome {
     Unavailable,
     Complete { inconclusive: usize },
 }
 
-pub(super) type TestResult = Result<TestOutcome, [Option<TestError>; TEST_CASES]>;
+pub(crate) type TestResult = Result<TestOutcome, [Option<TestError>; TEST_CASES]>;
 
 /// Runs every case and returns failures for the caller to report after other suites.
 #[expect(
