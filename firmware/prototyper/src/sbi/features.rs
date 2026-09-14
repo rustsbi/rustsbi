@@ -3,14 +3,16 @@
 use ::riscv::register::mstatus::MPP;
 use riscv::register::misa;
 use seq_macro::seq;
-use serde_device_tree::buildin::{Node, NodeSeq};
+#[cfg(not(feature = "nemu"))]
+use serde_device_tree::buildin::Node;
+use serde_device_tree::buildin::NodeSeq;
 
 use crate::fail;
 use crate::platform::mark_hart_privilege_checked;
 use crate::riscv::csr::*;
-use crate::riscv::current_hartid;
-use crate::sbi::early_trap::TrapInfo;
-use crate::sbi::trap_stack::{hart_local, with_current, with_hart};
+use crate::sbi::hart_local::{with_current, with_hart};
+use runtime::hart::HartId;
+#[cfg(not(feature = "nemu"))]
 use runtime::node_is_enabled;
 
 #[derive(Default)]
@@ -74,19 +76,25 @@ impl Extension {
 /// Returns whether a specific extension is supported for the given hart.
 #[inline]
 pub fn hart_has_extension(hart_id: usize, extension: Extension) -> bool {
-    hart_local(hart_id).features.extensions[extension.index()]
+    with_hart(hart_id, |local| {
+        local.with_features(|features| features.extensions[extension.index()])
+    })
 }
 
 /// Gets the privileged version for the given hart.
 #[inline]
 pub fn hart_privileged_version(hart_id: usize) -> PrivilegedVersion {
-    hart_local(hart_id).features.privileged_version
+    with_hart(hart_id, |local| {
+        local.with_features(HartFeatures::privileged_version)
+    })
 }
 
 /// Gets the MHPM mask for the given hart.
 #[inline]
 pub fn hart_mhpm_mask(hart_id: usize) -> u32 {
-    hart_local(hart_id).features.mhpm_mask
+    with_hart(hart_id, |local| {
+        local.with_features(HartFeatures::mhpm_mask)
+    })
 }
 
 /// Detects RISC-V extensions from the device tree for all harts.
@@ -114,17 +122,29 @@ pub fn detect_extensions(cpus: &NodeSeq, enabled_harts: &[bool]) {
 
             let described_by_device_tree = device_tree_has_extension(extension_name, &cpu);
             extensions[extension_index] = match extension {
-                Extension::Hypervisor if hart_id == current_hartid() => {
+                Extension::Hypervisor
+                    if hart_id
+                        == HartId::current()
+                            .expect("BUG: current hart exceeds Runtime capacity")
+                            .as_usize() =>
+                {
                     misa::read().has_extension('H')
                 }
                 _ => described_by_device_tree,
             };
         }
 
-        with_hart(hart_id, |local| local.features.extensions = extensions);
+        with_hart(hart_id, |local| {
+            local.with_features_mut(|features| features.extensions = extensions)
+        });
     }
 }
 
+/// NEMU supplies a fixed feature profile through [`init`].
+#[cfg(feature = "nemu")]
+pub fn detect_extensions(_cpus: &NodeSeq, _enabled_harts: &[bool]) {}
+
+#[cfg(not(feature = "nemu"))]
 fn device_tree_has_extension(extension: &str, cpu: &crate::devicetree::Cpu) -> bool {
     // Check isa-extensions first (preferred, list of strings)
     if let Some(isa_extensions) = &cpu.isa_extensions {
@@ -156,38 +176,47 @@ fn detect_privileged_version() {
             }
         }
     }
-    with_current(|local| local.features.privileged_version = privileged_version);
+    with_current(|local| {
+        local.with_features_mut(|features| features.privileged_version = privileged_version)
+    });
 }
 
 /// Detects Sstc even when it is omitted from the device tree.
 fn detect_sstc() {
-    let sstc = hart_privileged_version(current_hartid()) >= PrivilegedVersion::Version1_12
+    let sstc = hart_privileged_version(HartId::current().expect("BUG: invalid hart ID").as_usize())
+        >= PrivilegedVersion::Version1_12
         && has_csr::<CSR_STIMECMP>();
-    with_current(|local| local.features.extensions[Extension::Sstc.index()] = sstc);
+    with_current(|local| {
+        local.with_features_mut(|features| features.extensions[Extension::Sstc.index()] = sstc)
+    });
 }
 
 fn detect_mhpm_counters() {
     // mcycle, minstret, and time are treated as always implemented;
     // bits 0-2 of the mask record them.
     let mut mhpm_mask: u32 = 0b111;
-    let mut trap: TrapInfo = TrapInfo::default();
 
     macro_rules! m_probe_mhpm_csr {
-        ($csr_num:expr, $trap_info:expr, $value:expr) => {
-            probe_mhpm_csr::<$csr_num>($trap_info, $value)
+        ($csr_num:expr, $value:expr) => {
+            probe_mhpm_csr::<$csr_num>($value)
         };
     }
 
     // CSR_MHPMCOUNTER3:   0xb03
     // CSR_MHPMCOUNTER31:  0xb1f
     seq!(csr_num in 0xb03..=0xb1f{
-        m_probe_mhpm_csr!(csr_num, &mut trap, &mut mhpm_mask);
+        m_probe_mhpm_csr!(csr_num, &mut mhpm_mask);
     });
 
     with_current(|local| {
-        local.features.mhpm_mask = mhpm_mask;
-        // TODO: at present, the prototyper only supports 64-bit counters.
-        local.features.mhpm_bits = 64;
+        local.with_features_mut(|features| {
+            features.mhpm_mask = mhpm_mask;
+            // TODO: at present, the prototyper only supports 64-bit counters.
+            features.mhpm_bits = 64;
+        });
+        // The PMU state snapshots the counter topology; rebuild it now that
+        // the mask is known.
+        local.init_pmu();
     });
 }
 
@@ -204,10 +233,16 @@ pub fn init(cpus: &NodeSeq) {
     for hart_id in 0..cpus.len() {
         let mut hart_exts = [false; Extension::COUNT];
         hart_exts[Extension::Sstc.index()] = true;
-        hart_local(hart_id).features = HartFeatures {
-            extension: hart_exts,
-            privileged_version: PrivilegedVersion::Version1_12,
-        }
+        with_hart(hart_id, |local| {
+            local.with_features_mut(|features| {
+                *features = HartFeatures {
+                    extensions: hart_exts,
+                    privileged_version: PrivilegedVersion::Version1_12,
+                    mhpm_mask: 0,
+                    mhpm_bits: 0,
+                }
+            })
+        });
     }
 }
 
@@ -215,7 +250,9 @@ pub fn init(cpus: &NodeSeq) {
 ///
 /// Warns and stops the hart if it does not.
 pub fn check_next_stage_privilege(next_mode: MPP) {
-    let hart_id = current_hartid();
+    let hart_id = HartId::current()
+        .expect("BUG: current hart exceeds Runtime capacity")
+        .as_usize();
     match next_mode {
         MPP::Supervisor => {
             if !misa::read().has_extension('S') {
@@ -241,22 +278,25 @@ fn has_mstateen0() -> bool {
     has_csr::<CSR_MSTATEEN0>()
 }
 
-/// Configures per-hart delegation and trap CSRs for supervisor hand-off.
-pub fn configure_delegation_and_trap() {
-    configure_delegation();
-
+/// Configures the per-hart S-mode environment CSRs for supervisor
+/// hand-off (counter inhibits and environment features).
+///
+/// Delegation, counter access, and the trap vector itself are Runtime
+/// mechanism and are configured by `runtime::trap::init`.
+pub fn configure_hart_environment() {
+    let hart_id = HartId::current()
+        .expect("BUG: current hart exceeds Runtime capacity")
+        .as_usize();
     // Standard Sv32 and Svpbmt page tables must not use T-Head MAEE.
-    if cfg!(target_pointer_width = "32") || hart_has_extension(current_hartid(), Extension::Svpbmt)
-    {
+    if cfg!(target_pointer_width = "32") || hart_has_extension(hart_id, Extension::Svpbmt) {
         disable_thead_maee();
     }
-
-    let hart_priv_version = hart_privileged_version(current_hartid());
+    let hart_priv_version = hart_privileged_version(hart_id);
     if hart_priv_version >= PrivilegedVersion::Version1_11 {
         mcountinhibit::write_raw(!0b111usize);
     }
     if hart_priv_version >= PrivilegedVersion::Version1_12 {
-        if hart_has_extension(current_hartid(), Extension::Sstc) {
+        if hart_has_extension(hart_id, Extension::Sstc) {
             menvcfg::set_bits(
                 menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
             );
@@ -265,15 +305,14 @@ pub fn configure_delegation_and_trap() {
         }
         // Follow the device tree: C907 firmware also describes its RV32
         // page-memory-type extension as Svpbmt and requires PBMTE.
-        if hart_has_extension(current_hartid(), Extension::Svpbmt) {
+        if hart_has_extension(hart_id, Extension::Svpbmt) {
             menvcfg::set_bits(menvcfg::PBMTE);
         }
-        if crate::sbi::ipi::uses_imsic()
-            && hart_has_extension(current_hartid(), Extension::Smaia)
+        if crate::driver::ipi::uses_imsic()
+            && hart_has_extension(hart_id, Extension::Smaia)
             && has_mstateen0()
         {
             mstateen::enable_smode_aia();
         }
     }
-    install_trap_vector();
 }

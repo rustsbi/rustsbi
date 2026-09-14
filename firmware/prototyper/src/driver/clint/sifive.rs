@@ -11,7 +11,7 @@ use core::mem::{align_of, size_of};
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
 use crate::cfg::NUM_HART_MAX;
-use crate::driver::{InterruptDevices, IpiBackend, IpiError, IpiRequest, TimerDevice};
+use crate::driver::{IpiBackend, IpiError, IpiRequest, TimerBackend};
 
 // The ACLINT legacy mapping places MTIMECMP at 0x4000 and MTIME at 0xbff8.
 const MTIMECMP_OFFSET: usize = 0x4000;
@@ -60,7 +60,7 @@ impl IpiRegister {
 pub(super) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<InterruptDevices> {
+) -> runtime::Result<(Box<dyn TimerBackend>, Box<dyn IpiBackend + Send + Sync>)> {
     let ipi_window_size = NUM_HART_MAX
         .checked_mul(size_of::<u32>())
         .ok_or(runtime::Error::Overflow)?;
@@ -78,10 +78,10 @@ pub(super) fn bind(
 
     let ipi_mmio = memory.acquire_mmio(ipi_registers)?;
     let timer_mmio = memory.acquire_mmio(timer_registers)?;
-    Ok(InterruptDevices {
-        timer: Box::new(SiFiveTimer::new(timer_mmio)),
-        ipi: Box::new(SiFiveIpi::new(ipi_mmio)),
-    })
+    Ok((
+        Box::new(SiFiveTimer::new(timer_mmio)),
+        Box::new(SiFiveIpi::new(ipi_mmio)),
+    ))
 }
 
 struct SiFiveTimer {
@@ -141,15 +141,15 @@ impl SiFiveTimer {
     }
 }
 
-impl TimerDevice for SiFiveTimer {
-    #[inline(always)]
-    fn read_time(&self) -> u64 {
-        self.read(TimerRegister::Mtime)
-    }
-
+impl TimerBackend for SiFiveTimer {
     #[inline(always)]
     fn set_timer(&self, hart_id: usize, value: u64) {
         self.write_mtimecmp(hart_id, value)
+    }
+
+    #[inline(always)]
+    fn read_time(&self) -> Option<u64> {
+        Some(self.read(TimerRegister::Mtime))
     }
 }
 

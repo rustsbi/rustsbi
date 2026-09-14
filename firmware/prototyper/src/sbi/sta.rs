@@ -8,7 +8,7 @@
 #![forbid(unsafe_code)]
 
 use runtime::memory::{PhysAddr, SupervisorMemory};
-use rustsbi::SbiRet;
+use runtime::rustsbi::SbiRet;
 use sbi_spec::binary::SharedPtr;
 
 const SHMEM_SIZE: usize = 64;
@@ -24,7 +24,7 @@ impl SbiSta {
     }
 }
 
-impl rustsbi::Sta for SbiSta {
+impl runtime::rustsbi::Sta for SbiSta {
     fn set_shmem(&self, shared_memory: SharedPtr<[u8; SHMEM_SIZE]>, flags: usize) -> SbiRet {
         if flags != 0 {
             return SbiRet::invalid_param();

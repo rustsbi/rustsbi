@@ -9,7 +9,7 @@
 use runtime::memory::{MemoryRegistry, MmioRegion};
 
 use crate::driver::HartWake;
-use crate::riscv::current_hartid;
+use runtime::hart::HartId;
 
 pub(super) struct K1Wakeup {
     status: MmioRegion,
@@ -33,8 +33,11 @@ impl K1Wakeup {
 }
 
 impl HartWake for K1Wakeup {
-    fn wake(&mut self, hart_id: usize) -> runtime::Result<bool> {
-        let caller = current_hartid();
+    fn wake(&self, hart: HartId) -> runtime::Result<bool> {
+        let hart_id = hart.as_usize();
+        let caller = HartId::current()
+            .map_err(|_| runtime::Error::InvalidArgs)?
+            .as_usize();
         if hart_id >= 8 || caller >= 8 {
             return Err(runtime::Error::InvalidArgs);
         }

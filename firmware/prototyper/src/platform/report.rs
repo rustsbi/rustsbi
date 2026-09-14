@@ -8,8 +8,10 @@ use super::state::board_info;
 pub(super) fn log_platform_summary() {
     let board = board_info();
 
-    info!("RustSBI version {}", rustsbi::VERSION);
-    rustsbi::LOGO.lines().for_each(|line| info!("{}", line));
+    info!("RustSBI version {}", runtime::rustsbi::VERSION);
+    runtime::rustsbi::LOGO
+        .lines()
+        .for_each(|line| info!("{}", line));
     info!("Initializing RustSBI machine-mode environment.");
     info!("{:<30}: {}", "Platform Name", board.model);
 
@@ -36,7 +38,7 @@ fn log_harts(board: &BoardInfo) {
 }
 
 fn log_interrupt_controller(board: &BoardInfo) {
-    if crate::sbi::ipi::uses_imsic()
+    if crate::driver::ipi::uses_imsic()
         && let Some(imsic) = board.imsic.as_ref()
     {
         info!(

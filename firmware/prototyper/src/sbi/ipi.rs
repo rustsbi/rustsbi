@@ -8,16 +8,14 @@
 #![forbid(unsafe_code)]
 
 use super::pmu::pmu_firmware_counter_increment;
-use crate::cfg::NUM_HART_MAX;
-use crate::driver::{IpiBackend, IpiError, IpiRequest};
-use crate::riscv::csr::fence;
-use crate::riscv::current_hartid;
-use crate::sbi::hsm::remote_hsm;
+use crate::driver::ipi::IpiDevice;
+use crate::driver::{IpiError, IpiRequest};
+use crate::sbi::hart_local::hart_local;
 use crate::sbi::rfence;
-use crate::sbi::trap_stack::hart_local;
-use alloc::{boxed::Box, vec::Vec};
+use alloc::vec::Vec;
 use core::sync::atomic::Ordering::{Acquire, Release};
-use rustsbi::{HartMask, SbiRet};
+use runtime::hart::{self, HartId};
+use runtime::rustsbi::{HartMask, SbiRet};
 use sbi_spec::pmu::firmware_event;
 
 /// IPI type for supervisor software interrupt.
@@ -27,18 +25,19 @@ pub(crate) const IPI_TYPE_FENCE: u8 = 1 << 1;
 
 /// SBI IPI extension.
 pub struct SbiIpi {
-    /// IPI device: CLINT `msip` registers or IMSIC MSI files.
-    device: Box<dyn IpiBackend + Send + Sync>,
-    /// Maximum hart ID in the system.
-    pub max_hart_id: usize,
+    device: &'static IpiDevice,
 }
 
-impl rustsbi::Ipi for SbiIpi {
+/// Delivers SBI work after Runtime acknowledges the device interrupt.
+struct RuntimeIpiHandler;
+static RUNTIME_IPI_HANDLER: RuntimeIpiHandler = RuntimeIpiHandler;
+
+impl runtime::rustsbi::Ipi for SbiIpi {
     /// Sends IPIs to the specified harts.
     #[inline]
-    fn send_ipi(&self, hart_mask: rustsbi::HartMask) -> SbiRet {
+    fn send_ipi(&self, hart_mask: runtime::rustsbi::HartMask) -> SbiRet {
         pmu_firmware_counter_increment(firmware_event::IPI_SENT);
-        let requests = match target_requests(hart_mask, self.max_hart_id) {
+        let requests = match target_requests(hart_mask) {
             Ok(requests) => requests,
             Err(error) => return error,
         };
@@ -48,7 +47,6 @@ impl rustsbi::Ipi for SbiIpi {
                 set_ipi_type(hart_id, IPI_TYPE_SSOFT);
             }
             // Always signal: pending bits can remain after a failed send.
-            fence::memory_to_io();
             if self.device.send_ipi(req).is_err() {
                 return SbiRet::failed();
             }
@@ -59,23 +57,21 @@ impl rustsbi::Ipi for SbiIpi {
 }
 
 impl SbiIpi {
-    /// Creates a new SBI IPI extension.
-    #[inline]
-    pub(crate) fn new(device: Box<dyn IpiBackend + Send + Sync>, max_hart_id: usize) -> Self {
-        Self {
-            device,
-            max_hart_id,
-        }
+    /// Adapts a published machine IPI device to the SBI IPI extension.
+    pub(crate) fn new(device: &'static IpiDevice) -> Self {
+        Self { device }
     }
 
     /// Sends an IPI carrying a remote fence operation.
     pub fn send_ipi_by_fence(
         &self,
-        hart_mask: rustsbi::HartMask,
+        hart_mask: runtime::rustsbi::HartMask,
         ctx: rfence::RFenceContext,
     ) -> SbiRet {
-        let current_hart = current_hartid();
-        let requests = match target_requests(hart_mask, self.max_hart_id) {
+        let current_hart = HartId::current()
+            .expect("BUG: current hart exceeds Runtime capacity")
+            .as_usize();
+        let requests = match target_requests(hart_mask) {
             Ok(requests) => requests,
             Err(error) => return error,
         };
@@ -117,25 +113,29 @@ impl SbiIpi {
     /// Sends a firmware IPI to a hart.
     #[inline]
     pub(crate) fn send_ipi(&self, hart_id: usize) -> Result<(), IpiError> {
-        // Publish the pending IPI type before signaling the target device.
-        fence::memory_to_io();
         self.device.send_ipi(IpiRequest {
             hart_mask: 1,
             hart_mask_base: hart_id,
         })
     }
+}
 
-    /// Clears the specified hart's firmware IPI register.
-    #[inline]
-    pub(crate) fn clear_ipi(&self, hart_id: usize) -> Result<(), IpiError> {
-        self.device.clear_ipi(hart_id)
+impl runtime::ipi::IpiHandler for RuntimeIpiHandler {
+    fn deliver_current(&self) {
+        let ipi_type = get_and_reset_ipi_type();
+        if (ipi_type & IPI_TYPE_SSOFT) != 0 {
+            pmu_firmware_counter_increment(firmware_event::IPI_RECEIVED);
+            runtime::csr::mip::set_supervisor_software();
+        }
+        if (ipi_type & IPI_TYPE_FENCE) != 0 {
+            rfence::rfence_handler();
+        }
     }
+}
 
-    /// Reports whether IMSIC was selected after validation.
-    #[inline]
-    pub(crate) fn uses_imsic(&self) -> bool {
-        self.device.is_imsic()
-    }
+/// Returns the Runtime firmware-work adapter.
+pub(crate) fn runtime_handler() -> &'static dyn runtime::ipi::IpiHandler {
+    &RUNTIME_IPI_HANDLER
 }
 
 /// Marks `event_id` pending for `hart_id`, returning the previous set.
@@ -145,51 +145,26 @@ pub fn set_ipi_type(hart_id: usize, event_id: u8) -> u8 {
 
 /// Takes and clears the current hart's pending IPI types.
 pub fn get_and_reset_ipi_type() -> u8 {
-    // Order the preceding CLINT clear or IMSIC claim before taking events,
-    // so this acknowledgement cannot overwrite a later sender's interrupt.
-    fence::io_to_memory();
-    hart_local(current_hartid()).ipi_type.swap(0, Acquire)
+    // The device clear/claim must precede the pending-event read.
+    crate::riscv::csr::fence::io_to_memory();
+    let hart_id = HartId::current()
+        .expect("BUG: current hart exceeds Runtime capacity")
+        .as_usize();
+    hart_local(hart_id).ipi_type.swap(0, Acquire)
 }
 
-/// Clears the current hart's pending firmware IPI.
-#[inline]
-pub fn claim_ipi() {
-    match crate::sbi::ipi() {
-        Some(ipi) => ipi
-            .clear_ipi(current_hartid())
-            .expect("BUG: validated IPI backend could not clear the current hart"),
-        None => error!("SBI or IPI device not initialized"),
-    }
-}
-
-/// Initializes the SBI IPI extension from the selected device.
-pub(crate) fn init(ipi: Box<dyn IpiBackend + Send + Sync>) -> SbiIpi {
-    // Include DT-enabled harts even if they have not entered firmware yet.
-    let max_hart_id = crate::platform::board_info()
-        .enabled_harts
-        .iter()
-        .rposition(|enabled| *enabled)
-        .unwrap_or(NUM_HART_MAX - 1);
-
-    SbiIpi::new(ipi, max_hart_id)
-}
-
-/// Reports whether the selected IPI device is IMSIC.
-pub(crate) fn uses_imsic() -> bool {
-    crate::sbi::ipi().is_some_and(SbiIpi::uses_imsic)
-}
-
-fn target_requests(
-    hart_mask: HartMask,
-    max_hart_id: usize,
-) -> Result<impl Iterator<Item = IpiRequest>, SbiRet> {
+fn target_requests(hart_mask: HartMask) -> Result<impl Iterator<Item = IpiRequest>, SbiRet> {
     let enabled = &crate::platform::board_info().enabled_harts;
-    let assigned =
-        |hart_id: usize| hart_id <= max_hart_id && enabled.get(hart_id).copied().unwrap_or(false);
+    let assigned = |hart_id: usize| {
+        HartId::from_raw(hart_id).is_ok() && enabled.get(hart_id).copied().unwrap_or(false)
+    };
     let available = |hart_id: usize| {
+        let Ok(hart) = HartId::from_raw(hart_id) else {
+            return false;
+        };
         assigned(hart_id)
             && crate::platform::hart_privilege_checked(hart_id)
-            && remote_hsm(hart_id).is_some_and(|hsm| hsm.allow_ipi())
+            && hart::can_receive_ipi(hart)
     };
     let (mask, base) = hart_mask.into_inner();
     let mut single = None;

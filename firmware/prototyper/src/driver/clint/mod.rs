@@ -6,7 +6,9 @@ mod thead;
 
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry};
 
-use crate::driver::InterruptDevices;
+use alloc::boxed::Box;
+
+use crate::driver::{IpiBackend, TimerBackend};
 
 pub(crate) use kind::ClintKind;
 
@@ -15,7 +17,7 @@ pub(super) fn bind(
     registers: DeviceRegisterRange,
     kind: ClintKind,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<InterruptDevices> {
+) -> runtime::Result<(Box<dyn TimerBackend>, Box<dyn IpiBackend + Send + Sync>)> {
     match kind {
         ClintKind::SiFive => sifive::bind(registers, memory),
         ClintKind::THead => thead::bind(registers, memory),
