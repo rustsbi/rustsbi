@@ -299,10 +299,11 @@ pub extern "C" fn illegal_instruction_handler(raw_ctx: EntireContext) -> EntireR
         }
     }
     let epc = mepc::read();
-    // SAFETY: M-mode mepc write; the increment skips the emulated CSR
-    // instruction.
+    // SAFETY: Only CSRRS reads of time/timeh reach here; all other instructions
+    // return above. CSRRS is always 32 bits, even with the C extension, so no
+    // instruction fetch is needed to determine its length.
     unsafe {
-        mepc::write(epc + get_inst(epc).1);
+        mepc::write(epc + 4);
     }
     ctx.restore()
 }

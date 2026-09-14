@@ -28,6 +28,7 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Modified
 - Use hyphen-separated board configuration filenames.
+- Avoid redundant supervisor instruction reads when emulating the 32-bit time CSR instruction.
 - Enable V861 C907 MHCR bits 12 and 24 on both harts while preserving the remaining bootloader cache policy.
 - Rename the existing Sunxi watchdog backend to `SunxiWdtV104`, preserving its F101 and V861 reset sequence.
 - Complete pending remote fences across hart transitions and skip stopped harts in valid IPI masks.
