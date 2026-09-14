@@ -29,6 +29,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Inline Runtime MMIO reads and address validation into device access paths.
 - Build Avaota F2 with compile-time INFO logging and size optimization level `s` to reduce firmware size and startup time.
 - Match escaped paths in generated firmware source tests on Windows.
 - Use hyphen-separated board configuration filenames.

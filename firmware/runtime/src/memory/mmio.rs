@@ -45,6 +45,7 @@ impl MmioRegion {
     }
 
     /// Reads a value at byte offset `offset`.
+    #[inline(always)]
     pub fn read<T: MmioValue>(&self, offset: usize) -> Result<T> {
         let address = self.checked_address::<T>(offset)?;
         // SAFETY: `MmioValue` is sealed to integers, and `checked_address`
@@ -63,6 +64,7 @@ impl MmioRegion {
         Ok(())
     }
 
+    #[inline(always)]
     fn checked_address<T: MmioValue>(&self, offset: usize) -> Result<usize> {
         let access = self.range.subrange(offset, size_of::<T>())?;
         let address = access.start().as_usize();
