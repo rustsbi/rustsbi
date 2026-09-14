@@ -594,6 +594,10 @@ pub use sbi_spec::binary::{CounterMask, HartMask, Physical, SbiRet, SharedPtr};
 /// # Usage
 ///
 /// The `#[derive(RustSBI)]` macro provides a convenient way of building `RustSBI` trait implementations.
+///
+/// Generated code uses `::rustsbi` by default. When RustSBI is renamed or
+/// re-exported, set `#[rustsbi(crate = path::to::rustsbi)]` on the derived
+/// struct. This option also works with `#[rustsbi(dynamic)]`.
 /// To use this macro, say that we have a struct `MyFence` with RISC-V SBI Remote Fence extension
 /// implemented using `rustsbi::Fence` trait. Then, we build a struct around it, representing a
 /// whole SBI implementation including one `Fence` extension only; we can name it `MySBI`:
