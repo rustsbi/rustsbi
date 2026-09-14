@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Added
 - Add a separate Sunxi WDT V105 reboot backend, discovering watchdog and RTC V203 GPRCM addresses from the device tree.
+- Add test-kernel checks for misaligned accesses, trap register preservation and redirection.
 - Add Runtime-owned trap handling, guarded CSR access, hart lifecycle and local storage.
 - Support `--no-default-features` in firmware builds and track it in the build stamp.
 - Add an Avaota F2 RV32 configuration and V861 reset-vector hart wake backend.
@@ -31,6 +32,7 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Modified
 - Inline Runtime MMIO reads and address validation into device access paths.
+- Split the test kernel into boot, platform, PMU, RFENCE, misaligned-access and trap modules.
 - Compose SBI extensions in Prototyper over Runtime trap and hart mechanisms and independent devices.
 - Size per-hart storage through Runtime configuration instead of Prototyper board settings.
 - Build Avaota F2 with compile-time INFO logging and size optimization level `s` to reduce firmware size and startup time.

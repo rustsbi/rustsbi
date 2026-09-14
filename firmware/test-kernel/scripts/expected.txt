@@ -13,4 +13,9 @@ DBCN rejected non-zero upper-half write
 DBCN rejected non-zero upper-half read
 [pmu] counters number:
 Sbi `SRST` validation test pass
+[misaligned] load widths pass
+[misaligned] store widths pass
+[misaligned] sp write-back pass
+[trap] ecall register preservation pass
+[trap] redirected traps survived
 SBI tests completed: PASS
