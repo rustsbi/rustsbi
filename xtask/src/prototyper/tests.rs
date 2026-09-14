@@ -398,9 +398,9 @@ fn generated_inputs_and_stamp_follow_build_mode() {
     let fdt_source = fs::read_to_string(paths.fdt_source()).unwrap();
     assert_ne!(dynamic_stamp, payload_stamp);
     assert!(payload_source.contains("pub static payload_image"));
-    assert!(payload_source.contains(&payload.display().to_string()));
+    assert!(payload_source.contains(&format!("{payload:?}")));
     assert!(fdt_source.contains("pub static raw_fdt"));
-    assert!(fdt_source.contains(&fdt.display().to_string()));
+    assert!(fdt_source.contains(&format!("{fdt:?}")));
     let _ = fs::remove_dir_all(&root);
 }
 
