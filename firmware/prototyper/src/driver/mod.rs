@@ -35,12 +35,12 @@ pub(crate) trait HartWake: Send {
     fn wake(&mut self, hart_id: usize) -> runtime::Result<bool>;
 }
 
-pub(crate) use reset::SunxiWdtV104;
 pub(crate) use reset::{
     I2cAddress, P1_PMIC_COMPATIBLES, P1Pmic, PMIC_I2C_COMPATIBLES, ResetBackend, ResetError,
     ResetReason, ResetRequest, ResetType, SIFIVE_TEST_COMPATIBLES, SUNXI_WDT_V104_COMPATIBLE,
-    SifiveTestDevice, SysconConfig, SysconPoweroff, SysconReboot,
+    SUNXI_WDT_V105_COMPATIBLE, SifiveTestDevice, SysconConfig, SysconPoweroff, SysconReboot,
 };
+pub(crate) use reset::{SunxiWdtV104, SunxiWdtV105};
 
 pub(crate) const THEAD_PLIC_COMPATIBLES: [&str; 2] =
     ["thead,c900-plic", "allwinner,thead,c900-plic"];
@@ -54,6 +54,7 @@ pub(crate) struct Devices {
     pub(crate) syscon_poweroff: Option<SysconPoweroff>,
     pub(crate) syscon_reboot: Option<SysconReboot>,
     pub(crate) sunxi_wdt_v104: Option<SunxiWdtV104>,
+    pub(crate) sunxi_wdt_v105: Option<SunxiWdtV105>,
 }
 
 impl Devices {
@@ -153,6 +154,10 @@ pub(crate) fn bind_devices(
             reset::sunxi_wdt_v104::bind(registers, board.timebase_frequency_hz, memory)
         })
         .transpose()?;
+    let sunxi_wdt_v105 = board
+        .sunxi_wdt_v105
+        .map(|registers| reset::sunxi_wdt_v105::bind(registers, board.sunxi_rtc_v203_gprcm, memory))
+        .transpose()?;
     // QEMU's SiFive finisher also exposes syscon aliases for the same word.
     let (syscon_poweroff, syscon_reboot) = reset::syscon::bind(
         board.syscon_poweroff.filter(|_| sifive_test.is_none()),
@@ -167,5 +172,6 @@ pub(crate) fn bind_devices(
         syscon_poweroff,
         syscon_reboot,
         sunxi_wdt_v104,
+        sunxi_wdt_v105,
     })
 }

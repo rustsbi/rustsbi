@@ -90,6 +90,12 @@ fn log_reset(board: &BoardInfo) {
             "Platform Reset Extension",
             registers.start().as_usize(),
         );
+    } else if let Some(registers) = board.sunxi_wdt_v105 {
+        info!(
+            "{:<30}: Available (Sunxi WDT V105 @ 0x{:x})",
+            "Platform Reset Extension",
+            registers.start().as_usize()
+        );
     } else if board.syscon_poweroff.is_some() || board.syscon_reboot.is_some() {
         info!(
             "{:<30}: Available (syscon: poweroff={}, reboot={})",

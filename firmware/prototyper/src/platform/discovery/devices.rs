@@ -66,6 +66,11 @@ fn discover_node(
     {
         syscon::discover_reboot(board, platform, node, parent)?;
     }
+    if let Some(registers) = platform.sunxi_rtc_v203_gprcm(node)? {
+        if board.sunxi_rtc_v203_gprcm.replace(registers).is_some() {
+            return Err(runtime::Error::InvalidArgs);
+        }
+    }
     let has_supported_pmic = compatibles
         .iter()
         .any(|compatible| driver::P1_PMIC_COMPATIBLES.contains(&compatible));
@@ -113,6 +118,7 @@ fn is_supported_mmio_device(node: &Node<'_>, compatible: &str) -> bool {
     driver::ClintKind::from_fdt(compatible).is_some()
         || driver::SIFIVE_TEST_COMPATIBLES.contains(&compatible)
         || compatible == driver::SUNXI_WDT_V104_COMPATIBLE
+        || compatible == driver::SUNXI_WDT_V105_COMPATIBLE
         || driver::IMSIC_COMPATIBLES.contains(&compatible)
         || driver::THEAD_PLIC_COMPATIBLES.contains(&compatible)
         || qemu_aplic::is_machine_domain(node, compatible)
@@ -130,6 +136,9 @@ fn discover_reset(board: &mut BoardInfo, compatible: &str, registers: DeviceRegi
     }
     if compatible == driver::SUNXI_WDT_V104_COMPATIBLE {
         board.sunxi_wdt_v104 = Some(registers);
+    }
+    if compatible == driver::SUNXI_WDT_V105_COMPATIBLE {
+        board.sunxi_wdt_v105 = Some(registers);
     }
 }
 

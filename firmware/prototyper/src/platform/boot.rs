@@ -106,6 +106,7 @@ fn publish_platform_services(
         syscon_poweroff,
         syscon_reboot,
         sunxi_wdt_v104,
+        sunxi_wdt_v105,
     } = devices;
     state::publish_resources(board, supervisor_memory, console);
 
@@ -118,6 +119,7 @@ fn publish_platform_services(
         syscon_poweroff,
         syscon_reboot,
         sunxi_wdt_v104,
+        sunxi_wdt_v105,
     );
     publish_sbi_dispatcher(interrupts, reset, pmu, hart_wake);
 

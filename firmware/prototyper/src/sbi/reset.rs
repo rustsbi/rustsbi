@@ -10,11 +10,11 @@
 use rustsbi::SbiRet;
 use spin::Mutex;
 
-use crate::driver::SunxiWdtV104;
 use crate::driver::{
     P1Pmic, ResetBackend, ResetError, ResetReason, ResetRequest, ResetType, SifiveTestDevice,
     SysconPoweroff, SysconReboot,
 };
+use crate::driver::{SunxiWdtV104, SunxiWdtV105};
 
 /// SBI system-reset extension service.
 #[derive(Default)]
@@ -37,6 +37,7 @@ enum Backend {
         reboot: SysconReboot,
     },
     SunxiWdtV104(ResetAdapter<SunxiWdtV104>),
+    SunxiWdtV105(ResetAdapter<SunxiWdtV105>),
 }
 
 impl SbiReset {
@@ -46,12 +47,15 @@ impl SbiReset {
         syscon_poweroff: Option<SysconPoweroff>,
         syscon_reboot: Option<SysconReboot>,
         sunxi_wdt_v104: Option<SunxiWdtV104>,
+        sunxi_wdt_v105: Option<SunxiWdtV105>,
     ) -> Self {
         // Prefer a platform reset backend before the generic syscon devices.
         let backend = if let Some(device) = sifive_test {
             Backend::SifiveTest(ResetAdapter(Mutex::new(device)))
         } else if let Some(device) = spacemit_p1_pmic {
             Backend::SpacemitP1(ResetAdapter(Mutex::new(device)))
+        } else if let Some(device) = sunxi_wdt_v105 {
+            Backend::SunxiWdtV105(ResetAdapter(Mutex::new(device)))
         } else if let Some(device) = sunxi_wdt_v104 {
             Backend::SunxiWdtV104(ResetAdapter(Mutex::new(device)))
         } else {
@@ -94,6 +98,7 @@ impl rustsbi::Reset for SbiReset {
                 _ => SbiRet::invalid_param(),
             },
             Backend::SunxiWdtV104(device) => device.system_reset(reset_type, reset_reason),
+            Backend::SunxiWdtV105(device) => device.system_reset(reset_type, reset_reason),
         }
     }
 }

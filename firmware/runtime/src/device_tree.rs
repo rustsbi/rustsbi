@@ -124,6 +124,12 @@ impl<'tree> PlatformView<'tree> {
     pub fn allwinner_v861_registers(&self) -> Option<crate::AllwinnerV861Registers> {
         crate::AllwinnerV861Registers::from_root(&self.root)
     }
+
+    /// Returns the RTC V203 GPRCM window from the BSP's fixed four-cell property.
+    /// Unlike `reg`, `gprcm_reg` contains an absolute 64-bit address and size.
+    pub fn sunxi_rtc_v203_gprcm(&self, node: &Node<'tree>) -> Result<Option<DeviceRegisterRange>> {
+        crate::sunxi_rtc_v203::gprcm_registers(node, self.fdt_storage)
+    }
 }
 
 impl PlatformDescription {
