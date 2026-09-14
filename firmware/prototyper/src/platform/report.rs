@@ -84,9 +84,9 @@ fn log_reset(board: &BoardInfo) {
             address.get(),
             controller.start().as_usize()
         );
-    } else if let Some(registers) = board.sunxi_wdg {
+    } else if let Some(registers) = board.sunxi_wdt_v104 {
         info!(
-            "{:<30}: Available (Sunxi watchdog @ 0x{:x})",
+            "{:<30}: Available (Sunxi WDT V104 @ 0x{:x})",
             "Platform Reset Extension",
             registers.start().as_usize(),
         );

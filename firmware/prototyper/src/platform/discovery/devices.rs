@@ -112,7 +112,7 @@ fn discover_node(
 fn is_supported_mmio_device(node: &Node<'_>, compatible: &str) -> bool {
     driver::ClintKind::from_fdt(compatible).is_some()
         || driver::SIFIVE_TEST_COMPATIBLES.contains(&compatible)
-        || compatible == driver::SUNXI_WDG_COMPATIBLE
+        || compatible == driver::SUNXI_WDT_V104_COMPATIBLE
         || driver::IMSIC_COMPATIBLES.contains(&compatible)
         || driver::THEAD_PLIC_COMPATIBLES.contains(&compatible)
         || qemu_aplic::is_machine_domain(node, compatible)
@@ -128,8 +128,8 @@ fn discover_reset(board: &mut BoardInfo, compatible: &str, registers: DeviceRegi
     if driver::SIFIVE_TEST_COMPATIBLES.contains(&compatible) {
         board.reset = Some(registers);
     }
-    if compatible == driver::SUNXI_WDG_COMPATIBLE {
-        board.sunxi_wdg = Some(registers);
+    if compatible == driver::SUNXI_WDT_V104_COMPATIBLE {
+        board.sunxi_wdt_v104 = Some(registers);
     }
 }
 

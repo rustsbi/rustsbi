@@ -28,7 +28,7 @@ const UPDATE_KEY: u32 = 0x16aa << 16;
 const CONFIG_ENABLE: u32 = 1 << 0;
 const MODE_ENABLE: u32 = 1 << 0;
 
-pub(crate) struct SunxiWdg {
+pub(crate) struct SunxiWdtV104 {
     registers: MmioRegion,
     delay_ticks: u64,
 }
@@ -37,7 +37,7 @@ pub(in crate::driver) fn bind(
     registers: DeviceRegisterRange,
     timebase_frequency_hz: Option<u32>,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<SunxiWdg> {
+) -> runtime::Result<SunxiWdtV104> {
     let frequency = timebase_frequency_hz
         .filter(|frequency| *frequency != 0)
         .ok_or(runtime::Error::InvalidArgs)?;
@@ -45,14 +45,14 @@ pub(in crate::driver) fn bind(
     if !registers.start().is_aligned_to(align_of::<u32>()) {
         return Err(runtime::Error::InvalidArgs);
     }
-    Ok(SunxiWdg {
+    Ok(SunxiWdtV104 {
         registers: memory.acquire_mmio(registers)?,
         // Round up so the delay is at least one millisecond.
         delay_ticks: u64::from(frequency).div_ceil(1_000),
     })
 }
 
-impl SunxiWdg {
+impl SunxiWdtV104 {
     fn read(&self, register: Register) -> runtime::Result<u32> {
         self.registers
             .read::<u32>(register as usize)
@@ -85,7 +85,7 @@ impl SunxiWdg {
     }
 }
 
-impl ResetBackend for SunxiWdg {
+impl ResetBackend for SunxiWdtV104 {
     type Request = ();
 
     fn prepare_reset(&self, req: ResetRequest) -> Option<Self::Request> {

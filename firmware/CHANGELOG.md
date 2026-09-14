@@ -28,6 +28,7 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Modified
 - Enable V861 C907 MHCR bits 12 and 24 on both harts while preserving the remaining bootloader cache policy.
+- Rename the existing Sunxi watchdog backend to `SunxiWdtV104`, preserving its F101 and V861 reset sequence.
 - Complete pending remote fences across hart transitions and skip stopped harts in valid IPI masks.
 - Count and forward access faults to supervisor mode, preserving the interrupted interrupt state.
 - Accept standard firmware PMU events, including events that cannot occur on the current ISA.
@@ -35,7 +36,6 @@ All notable changes to this project will be documented in this file. See [conven
 - Clear stale registers on HSM entry, including hart restart and non-retentive resume.
 - Enable PBMTE for the C907 RV32 page-memory-type extension when the device tree advertises `svpbmt`.
 - Reuse a firmware reservation that already covers the image to avoid a redundant DTB copy.
-- Rename the F101 watchdog backend to `SunxiWdg`, retaining its legacy board-address fallback.
 - Recognize the Allwinner T-Head PLIC compatible string.
 - Recognize the V861 UART compatible string.
 - Fix RV32 PMU counter-mask validation and skip the time counter when stopping selected counters.

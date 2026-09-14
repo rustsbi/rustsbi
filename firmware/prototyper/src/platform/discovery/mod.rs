@@ -21,8 +21,8 @@ pub(super) fn discover_platform(
     board.console = console::discover(platform)?;
     devices::discover(&mut board, platform)?;
     board.spacemit_k1 = platform.spacemit_k1_registers()?;
-    if board.sunxi_wdg.is_none() {
-        board.sunxi_wdg = platform.legacy_sunxi_wdg()?;
+    if board.sunxi_wdt_v104.is_none() {
+        board.sunxi_wdt_v104 = platform.legacy_sunxi_wdt_v104()?;
     }
     board.allwinner_v861 = platform.allwinner_v861_registers();
     Ok(board)

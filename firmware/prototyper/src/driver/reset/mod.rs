@@ -2,7 +2,7 @@
 
 pub(super) mod pmic_spacemit_p1;
 pub(super) mod sifive_test;
-pub(super) mod sunxi_wdg;
+pub(super) mod sunxi_wdt_v104;
 pub(super) mod syscon;
 mod syscon_poweroff;
 mod syscon_reboot;
@@ -13,7 +13,7 @@ pub(crate) use syscon_reboot::SysconReboot;
 
 pub(crate) use pmic_spacemit_p1::{I2cAddress, P1Pmic};
 pub(crate) use sifive_test::SifiveTestDevice;
-pub(crate) use sunxi_wdg::SunxiWdg;
+pub(crate) use sunxi_wdt_v104::SunxiWdtV104;
 
 /// Parsed reset type accepted by the SRST driver layer.
 ///
@@ -102,4 +102,4 @@ pub trait ResetBackend {
 pub(crate) const SIFIVE_TEST_COMPATIBLES: [&str; 1] = ["sifive,test0"];
 pub(crate) const P1_PMIC_COMPATIBLES: [&str; 2] = ["spacemit,p1", "ky,spm8821"];
 pub(crate) const PMIC_I2C_COMPATIBLES: [&str; 2] = ["spacemit,k1-i2c", "ky,i2c"];
-pub(crate) const SUNXI_WDG_COMPATIBLE: &str = "allwinner,wdt-v104";
+pub(crate) const SUNXI_WDT_V104_COMPATIBLE: &str = "allwinner,wdt-v104";
