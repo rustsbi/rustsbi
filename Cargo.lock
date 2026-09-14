@@ -609,7 +609,11 @@ name = "rustsbi-firmware-runtime"
 version = "0.0.0"
 dependencies = [
  "fdt",
+ "riscv",
+ "riscv-decode",
+ "rustsbi",
  "serde-device-tree 0.0.1 (git+https://github.com/rustsbi/serde-device-tree?rev=ffb4855)",
+ "spin",
 ]
 
 [[package]]

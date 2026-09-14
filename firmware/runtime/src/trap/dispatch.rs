@@ -1,0 +1,296 @@
+//! Private trap classification and dispatch.
+//!
+//! The entry hands this function the one real [`TrapFrame`]. Machine
+//! timer/software/external interrupts are Runtime-private transports; an
+//! exception is either an SBI ecall, one of the emulated classes, or is
+//! software-redirected to S/HS. Nothing here is public policy surface.
+
+use core::arch::asm;
+
+use riscv::register::{mepc, mstatus, satp, sstatus};
+use rustsbi::SbiRet;
+
+use super::Error;
+use super::frame::TrapFrame;
+use super::redirect::redirect_trap;
+use super::{emulate, init};
+use crate::boot::NextStage;
+use crate::hart::{self, HartEvent};
+
+/// Machine interrupt cause codes.
+const MSOFT: usize = 3;
+const MTIMER: usize = 7;
+const MEXT: usize = 11;
+
+/// Exception cause codes.
+const ECALL_FROM_S: usize = 9;
+const ILLEGAL_INSTRUCTION: usize = 2;
+const LOAD_MISALIGNED: usize = 4;
+const STORE_MISALIGNED: usize = 6;
+const LOAD_FAULT: usize = 5;
+const STORE_FAULT: usize = 7;
+
+/// The Rust trap dispatch, called by the normal entry with the saved frame.
+///
+/// The live trap CSRs still hold this trap's facts on entry; committed
+/// effects (instruction advance, redirection, next-stage entry) write the
+/// live CSRs, and the entry's `mret` consumes them.
+pub(crate) extern "C" fn trap_dispatch(frame: &mut TrapFrame) {
+    let code = frame.mcause;
+    if code & (1 << (usize::BITS - 1)) != 0 {
+        let interrupt = code & !(1 << (usize::BITS - 1));
+        match interrupt {
+            MSOFT => machine_soft(frame),
+            MTIMER => machine_timer(),
+            MEXT => machine_external(frame),
+            // Interrupts reach M-mode only when delegation could not move
+            // them; there is no lower owner that would receive a redirect.
+            _ => fatal(),
+        }
+        return;
+    }
+
+    // A synchronous exception from M-mode is fatal:
+    // only the exact guarded-fault recovery may re-enter, and it never
+    // comes through this dispatch.
+    if frame.trapped_from_machine() {
+        fatal();
+    }
+
+    match code {
+        ECALL_FROM_S => sbi_ecall(frame),
+        ILLEGAL_INSTRUCTION => illegal_instruction(frame),
+        LOAD_MISALIGNED => misaligned(frame, Access::Load),
+        STORE_MISALIGNED => misaligned(frame, Access::Store),
+        LOAD_FAULT | STORE_FAULT => {
+            if let Some(counters) = crate::events::get() {
+                if code == LOAD_FAULT {
+                    counters.record_access_load();
+                } else {
+                    counters.record_access_store();
+                }
+            }
+            redirect_or_fatal(None);
+        }
+        // Exceptions requested for delegation but retained by hardware
+        // (WARL) still have a correct software-redirection path.
+        _ => redirect_or_fatal(None),
+    }
+}
+
+/// Redirect with the emulation failure's secondary facts, or fail-stop when
+/// even the redirect is impossible.
+fn redirect_or_fatal(error: Option<Error>) {
+    let secondary = match error {
+        Some(Error::MemoryFault { cause, tval }) => Some((cause, tval)),
+        _ => None,
+    };
+    if redirect_trap(secondary).is_err() {
+        fatal();
+    }
+}
+
+/// The fatal path: diverge into the stack-independent fail-stop vector. Never returns.
+fn fatal() -> ! {
+    // SAFETY: a diverging tail jump into the naked fail-stop vector; the
+    // vector never returns and touches no stack.
+    unsafe {
+        core::arch::asm!(
+            "tail {fail}",
+            fail = sym crate::boot::fail_stop,
+            options(noreturn)
+        )
+    }
+}
+
+/// The SBI ecall path: extract the standard registers, call the original
+/// `RustSBI` policy, commit `SbiRet`, and advance `mepc` by exactly 4.
+fn sbi_ecall(frame: &mut TrapFrame) {
+    let extension = frame.read_x(17); // a7
+    let function = frame.read_x(16); // a6
+    let param = [
+        frame.read_x(10),
+        frame.read_x(11),
+        frame.read_x(12),
+        frame.read_x(13),
+        frame.read_x(14),
+        frame.read_x(15),
+    ];
+
+    let ret: SbiRet = init::policy().handle_ecall(extension, function, param);
+    frame.write_x(10, ret.error);
+    frame.write_x(11, ret.value);
+
+    // SAFETY: M-mode advance of this hart's mepc past the ecall; the ECALL
+    // instruction is exactly 4 bytes.
+    unsafe { mepc::write(mepc::read() + 4) };
+
+    // A successful non-retentive resume stages the lower-privilege handoff
+    // through Runtime's protocol-free marker. The SBI adapter has already
+    // validated the operation; dispatch only performs the machine ceremony.
+    if let Some(hart::ControlTransfer::NonRetentiveResume(next_stage)) =
+        hart::take_control_transfer()
+    {
+        // SAFETY: M-mode writes to this hart's S-mode and trap CSRs for the
+        // staged resume.
+        unsafe {
+            stage_smode_trap_state(next_stage.start_addr);
+            mstatus::set_mpp(mstatus::MPP::Supervisor);
+            mepc::write(next_stage.start_addr);
+        }
+        frame.x.fill(0);
+        riscv::asm::fence_i();
+        frame.write_x(10, hart::current_hart().as_usize());
+        frame.write_x(11, next_stage.opaque);
+    }
+}
+
+/// Illegal-instruction handling for pure `time`/`timeh` reads (design
+/// section 11): decode the instruction, obtain the counter through the
+/// guarded architecture read, and commit or redirect.
+fn illegal_instruction(frame: &mut TrapFrame) {
+    if let Some(counters) = crate::events::get() {
+        counters.record_illegal_instruction();
+    }
+    if let Err(error) = emulate::emulate_csr_read(frame) {
+        redirect_or_fatal(Some(error));
+    }
+}
+
+/// Misaligned integer load/store emulation.
+fn misaligned(frame: &mut TrapFrame, access: Access) {
+    let result = match access {
+        Access::Load => {
+            if let Some(counters) = crate::events::get() {
+                counters.record_misaligned_load();
+            }
+            emulate::emulate_load(frame)
+        }
+        Access::Store => {
+            if let Some(counters) = crate::events::get() {
+                counters.record_misaligned_store();
+            }
+            emulate::emulate_store(frame)
+        }
+    };
+    if let Err(error) = result {
+        redirect_or_fatal(Some(error));
+    }
+}
+
+enum Access {
+    Load,
+    Store,
+}
+
+/// The machine software interrupt transport: a staged hart start performs
+/// the next-stage entry; otherwise the pending SBI software interrupt (and
+/// any queued remote-fence work) is delivered.
+fn machine_soft(frame: &mut TrapFrame) {
+    let ipi = crate::ipi::get().expect("BUG: software interrupt without an IPI device");
+    ipi.clear_current()
+        .expect("BUG: IPI backend could not clear the current hart");
+    let event = hart::take_local_event();
+    crate::ipi::handler()
+        .expect("BUG: IPI handler not published")
+        .deliver_current();
+    match event {
+        HartEvent::Start(next_stage) => enter_next_stage(frame, next_stage),
+        HartEvent::Park => {
+            crate::csr::mie::set_software();
+            riscv::asm::wfi();
+        }
+        HartEvent::None => {}
+    }
+}
+
+/// The machine timer transport: stop re-trapping and inject the supervisor
+/// timer interrupt when the platform lacks Sstc.
+fn machine_timer() {
+    crate::csr::mie::clear_timer();
+    if !init::has_sstc() {
+        if let Some(timer) = crate::timer::get() {
+            timer.clear_current();
+        }
+        crate::csr::mip::set_supervisor_timer();
+    }
+}
+
+/// The machine external interrupt transport: the platform's IPI identity
+/// carries the same delivery work as the machine software interrupt.
+fn machine_external(frame: &mut TrapFrame) {
+    let Some(controller) = crate::irq::get() else {
+        return;
+    };
+    if controller.claim_ipi() {
+        let event = hart::take_local_event();
+        crate::ipi::handler()
+            .expect("BUG: IPI handler not published")
+            .deliver_current();
+        match event {
+            HartEvent::Start(next_stage) => {
+                enter_next_stage(frame, next_stage);
+            }
+            HartEvent::Park => {
+                crate::csr::mie::set_software();
+                crate::csr::mie::set_external();
+                riscv::asm::wfi();
+            }
+            HartEvent::None => {}
+        }
+    }
+}
+
+/// Perform a staged transition into S/HS mode: program the S-mode entry
+/// ceremony on the frame and live CSRs so the entry's restore path lands in
+/// the next stage.
+fn enter_next_stage(frame: &mut TrapFrame, next: NextStage) {
+    // SAFETY: M-mode writes to this hart's S-mode and trap CSRs for the
+    // staged entry.
+    unsafe { stage_next_mode(next.start_addr, next.next_mode) };
+    frame.x.fill(0);
+    riscv::asm::fence_i();
+    frame.write_x(10, hart::current_hart().as_usize());
+    frame.write_x(11, next.opaque);
+}
+
+/// Stage the S-mode trap state reset shared by every next-stage entry.
+///
+/// # Safety
+///
+/// M-mode writes to this hart's S-mode CSRs.
+unsafe fn stage_smode_trap_state(start_addr: usize) {
+    unsafe {
+        // stvec BASE is four-byte aligned; hart entry points may only be
+        // two-byte aligned.
+        if start_addr & 0x3 == 0 {
+            asm!("csrw stvec, {start_addr}", start_addr = in(reg) start_addr, options(nomem));
+        }
+        asm!("csrw sscratch, zero", "csrw sie, zero", options(nomem));
+        sstatus::clear_sie();
+        satp::write(satp::Satp::from_bits(0));
+    }
+}
+
+/// Stage the CSR ceremony for a staged hart start entering S/HS mode: the
+/// entry mirrors a fresh boot (`MPIE=1` so the entering software runs with
+/// its own interrupt state, and the wake sources enabled).
+///
+/// # Safety
+///
+/// M-mode writes to this hart's S-mode and trap CSRs.
+pub(crate) unsafe fn stage_next_mode(start_addr: usize, next_mode: mstatus::MPP) {
+    unsafe {
+        stage_smode_trap_state(start_addr);
+        mstatus::set_mpie();
+        mstatus::set_mpp(next_mode);
+        crate::csr::mie::set_software();
+        if crate::irq::get().is_some() {
+            crate::csr::mie::set_external();
+        }
+        if !init::has_sstc() {
+            crate::csr::mie::set_timer();
+        }
+        mepc::write(start_addr);
+    }
+}
