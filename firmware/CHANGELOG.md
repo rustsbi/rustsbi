@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file. See [conven
 ## Unreleased
 
 ### Added
+- Add Runtime-owned trap handling, guarded CSR access, hart lifecycle and local storage.
 - Add a separate Sunxi WDT V105 reboot backend, discovering watchdog and RTC V203 GPRCM addresses from the device tree.
 - Support `--no-default-features` in firmware builds and track it in the build stamp.
 - Add an Avaota F2 RV32 configuration and V861 reset-vector hart wake backend.

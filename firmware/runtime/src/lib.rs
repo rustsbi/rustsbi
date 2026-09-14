@@ -13,13 +13,34 @@ use core::fmt;
 
 mod allwinner_f101;
 mod allwinner_v861;
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+pub mod boot;
+pub mod cfg;
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+pub mod csr;
 mod device_tree;
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+pub mod events;
+pub mod hart;
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+pub mod ipi;
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+pub mod irq;
 pub mod memory;
 mod spacemit_k1;
 mod sunxi_rtc_v203;
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+pub mod timer;
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+pub mod trap;
 
 pub use allwinner_v861::AllwinnerV861Registers;
 pub use device_tree::{DeviceTreeHandoff, PlatformDescription, PlatformView, node_is_enabled};
+/// The original RustSBI library, re-exported under its own name.
+///
+/// Firmware policy crates receive RustSBI transitively through this crate
+/// and refer to it as `runtime::rustsbi`.
+pub use rustsbi;
 pub use spacemit_k1::SpacemitK1Registers;
 
 /// An error returned by a Runtime operation.
