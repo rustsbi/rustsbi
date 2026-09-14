@@ -5,15 +5,10 @@
 //! - Specification: [RISC-V SBI FWFT extension](https://docs.riscv.org/reference/sbi/v3.0/ext-firmware-features.html) —
 //!   feature identifiers and get/set semantics.
 
-use rustsbi::SbiRet;
-use sbi_spec::fwft::feature_type;
+use runtime::rustsbi::SbiRet;
+use runtime::rustsbi::spec::fwft::feature_type;
 
 use crate::riscv::csr::CSR_MENVCFG;
-use crate::sbi::early_trap::{TrapInfo, csr_read_allow, csr_write_allow};
-
-// Misaligned load/store exception cause codes 4 and 6 from the RISC-V
-// privileged architecture.
-const MIS_DELEG: usize = (1 << 4) | (1 << 6);
 
 // `menvcfg` fields defined by the corresponding RISC-V extensions.
 const ENVCFG_LPE: usize = 1 << 0; // Landing pad (Zicfilp)
@@ -23,11 +18,12 @@ const ENVCFG_SSE: usize = 1 << 8; // Shadow stack (Zicfiss)
 const ENVCFG_PMM_SHIFT: usize = 9; // Pointer masking tag length (Smnpm)
 const ENVCFG_PMM: usize = 0b11 << ENVCFG_PMM_SHIFT;
 
-/// Firmware Features extension backed by `medeleg` and `menvcfg`.
+/// Firmware Features extension backed by narrow Runtime operations.
 ///
-/// Misaligned exception delegation requires S-mode. Other features require
-/// their Zicfilp, Zicfiss, Smdbltrp, Svadu, or Smnpm `menvcfg` fields to retain
-/// the requested value when read back.
+/// Misaligned exception delegation and `menvcfg` are trap-sensitive CSR
+/// mechanism, so every register access goes through the Runtime: the
+/// misaligned-delegation bits through a dedicated narrow operation, and
+/// `menvcfg` through the Runtime's guarded CSR leaves.
 pub(crate) struct SbiFwft;
 
 impl SbiFwft {
@@ -35,37 +31,12 @@ impl SbiFwft {
         riscv::register::misa::read().has_extension('S')
     }
 
-    fn misaligned_delegated() -> bool {
-        (riscv::register::medeleg::read().bits() & MIS_DELEG) != 0
-    }
-
-    fn set_misaligned_delegation(value: usize) -> bool {
-        let current = riscv::register::medeleg::read().bits();
-        let next = match value {
-            0 => current & !MIS_DELEG,
-            1 => current | MIS_DELEG,
-            _ => return false,
-        };
-        // SAFETY: the prototyper runs in M-mode, and `next` preserves every
-        // `medeleg` bit except the two misaligned exception bits.
-        unsafe {
-            riscv::register::medeleg::write(riscv::register::medeleg::Medeleg::from_bits(next));
-        }
-        true
-    }
-
     fn menvcfg_read() -> Option<usize> {
-        let mut trap = TrapInfo::default();
-        // SAFETY: firmware runs in M-mode, and `trap` remains valid for the call.
-        let value = unsafe { csr_read_allow::<CSR_MENVCFG>(&mut trap) };
-        (trap.mcause == usize::MAX).then_some(value)
+        runtime::trap::read_csr_guarded::<CSR_MENVCFG>().ok()
     }
 
     fn menvcfg_write(value: usize) -> bool {
-        let mut trap = TrapInfo::default();
-        // SAFETY: firmware runs in M-mode, and `trap` remains valid for the call.
-        unsafe { csr_write_allow::<CSR_MENVCFG>(&mut trap, value) };
-        trap.mcause == usize::MAX
+        runtime::trap::write_csr_guarded::<CSR_MENVCFG>(value).is_ok()
     }
 
     fn menvcfg_bit(feature_id: usize) -> Option<usize> {
@@ -142,7 +113,7 @@ impl SbiFwft {
     }
 }
 
-impl rustsbi::Fwft for SbiFwft {
+impl runtime::rustsbi::Fwft for SbiFwft {
     fn set(&self, feature_id: u32, value: usize, flags: usize) -> SbiRet {
         // The LOCK flag is not supported: locked features can never be
         // modified again, which would prevent firmware reconfiguration.
@@ -154,11 +125,11 @@ impl rustsbi::Fwft for SbiFwft {
                 if !Self::has_s_mode() {
                     return SbiRet::not_supported();
                 }
-                if Self::set_misaligned_delegation(value) {
-                    SbiRet::success(0)
-                } else {
-                    SbiRet::invalid_param()
+                if value > 1 {
+                    return SbiRet::invalid_param();
                 }
+                runtime::trap::set_misaligned_delegation(value == 1);
+                SbiRet::success(0)
             }
             feature_type::POINTER_MASKING_PMLEN => Self::set_pmm(value),
             _ => match Self::menvcfg_bit(feature_id as usize) {
@@ -174,7 +145,7 @@ impl rustsbi::Fwft for SbiFwft {
                 if !Self::has_s_mode() {
                     return SbiRet::not_supported();
                 }
-                SbiRet::success(Self::misaligned_delegated() as usize)
+                SbiRet::success(runtime::trap::misaligned_delegated() as usize)
             }
             feature_type::POINTER_MASKING_PMLEN => {
                 if !Self::menvcfg_bits_supported(ENVCFG_PMM) {

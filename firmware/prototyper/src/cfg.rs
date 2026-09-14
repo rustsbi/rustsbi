@@ -10,16 +10,15 @@ pub const SBI_LINK_START_ADDRESS: usize = CONFIG.link_start_address as usize;
 #[cfg(not(any(feature = "payload", feature = "jump")))]
 pub type NextAddr = crate::cfg::config::next_addr::NextAddr;
 
-/// Maximum number of supported harts.
-pub const NUM_HART_MAX: usize = CONFIG.num_hart_max as usize;
-/// Stack size per hart (hardware thread) in bytes.
-pub const STACK_SIZE_PER_HART: usize = CONFIG.stack_size_per_hart as usize;
+/// Maximum number of supported harts; sourced from the Runtime
+/// configuration so all per-hart arrays agree with the Runtime's.
+pub const NUM_HART_MAX: usize = runtime::cfg::NUM_HART_MAX;
 /// Heap Size of SBI firmware.
 pub const HEAP_SIZE: usize = CONFIG.heap_size as usize;
 /// Platform page size.
 pub const PAGE_SIZE: usize = CONFIG.page_size as usize;
 /// Log Level.
-pub const LOG_LEVEL: &'static str = CONFIG.log_level;
+pub const LOG_LEVEL: &str = CONFIG.log_level;
 /// Address for jump mode.
 #[cfg(feature = "jump")]
 pub const JUMP_ADDRESS: usize = CONFIG.jump_address as usize;

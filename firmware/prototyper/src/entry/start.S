@@ -7,8 +7,11 @@
 
 .option arch, +a
 
-// 1. Mask all interrupts.
+// 1. Mask all interrupts and install the Runtime's stack-independent
+//    fail-stop vector: any trap before per-hart initialization parks.
 csrw    mie, zero
+la      t0, {early_vector}
+csrw    mtvec, t0
 
 // 2. Elect a single boot hart: the first hart to arrive wins the race
 // (amoadd returns the previous value; nonzero means another hart won).
@@ -44,13 +47,15 @@ csrw    mie, zero
     lw      t0, 0(t0)
     beqz    t0, 4b
 
-// 5. Every hart locates its stack and enters the policy entry.
-// 6. On return, publish the stack in mscratch and join the boot flow.
+// 5. Every hart locates its Runtime-owned stack and enters the policy
+//    entry. When main returns, boot is over: the Runtime's finish_boot
+//    discards the boot call chain, arms the reused stack as the trap
+//    stack, and enters the staged S/HS next stage (or parks until one is
+//    staged); mscratch keeps the zero sentinel until then.
 5:
     call    {locate_stack}
     call    {main}
-    csrw    mscratch, sp
-    j       {hart_boot}
+    j       {finish_boot}
     .balign  4
 
 6: // boot hart race signal word.

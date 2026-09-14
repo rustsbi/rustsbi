@@ -9,8 +9,9 @@
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+use runtime::hart::HartId;
 use runtime::memory::{PhysAddr, PhysAddrRange, SupervisorMemory};
-use rustsbi::SbiRet;
+use runtime::rustsbi::SbiRet;
 use sbi_spec::binary::SharedPtr;
 
 // The MPXY ABI requires at least one 4096-byte page and requires the reported
@@ -35,11 +36,14 @@ impl SbiMpxy {
 
     #[inline]
     fn current_shmem(&self) -> &AtomicUsize {
-        &self.shmem[crate::riscv::current_hartid()]
+        let hart_id = HartId::current()
+            .expect("BUG: current hart exceeds Runtime capacity")
+            .as_usize();
+        &self.shmem[hart_id]
     }
 }
 
-impl rustsbi::Mpxy for SbiMpxy {
+impl runtime::rustsbi::Mpxy for SbiMpxy {
     fn get_shmem_size(&self) -> usize {
         SHARED_MEMORY_SIZE
     }

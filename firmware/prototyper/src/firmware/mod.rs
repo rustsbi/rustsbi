@@ -18,7 +18,7 @@ use core::fmt;
 
 use riscv::register::{self, Permission};
 
-use crate::riscv::current_hartid;
+use runtime::hart::HartId;
 
 /// Decides whether this hart leads the boot (designated in `DynamicInfo`,
 /// or raced when absent).
@@ -39,7 +39,9 @@ fn is_selected_boot_hart(dynamic_info_address: usize) -> bool {
     }
 
     let claim_boot_hart = || {
-        let hart_id = current_hartid();
+        let hart_id = HartId::current()
+            .expect("BUG: current hart exceeds Runtime capacity")
+            .as_usize();
         match BOOT_HART_ID.compare_exchange(
             usize::MAX,
             hart_id,
@@ -56,7 +58,10 @@ fn is_selected_boot_hart(dynamic_info_address: usize) -> bool {
             if hart_id == usize::MAX {
                 claim_boot_hart()
             } else {
-                current_hartid() == hart_id
+                HartId::current()
+                    .expect("BUG: current hart exceeds Runtime capacity")
+                    .as_usize()
+                    == hart_id
             }
         }
         // Without a readable DynamicInfo, race to elect a single boot hart.
@@ -68,7 +73,7 @@ use alloc::{format, vec};
 use core::arch::asm;
 use core::ops::Range;
 
-use crate::sbi::hart_context::NextStage;
+use runtime::boot::NextStage;
 
 use serde::Serialize;
 
@@ -656,7 +661,7 @@ pub fn set_pmp(firmware_ram: &Range<usize>) {
 
         // Keep machine-level interrupt controllers inaccessible to S-mode
         // only when the IMSIC device retained them for firmware use.
-        if crate::sbi::ipi::uses_imsic()
+        if crate::driver::ipi::uses_imsic()
             && crate::platform::board_info().is_qemu_virt()
             && let Some(imsic) = crate::platform::board_info().imsic.as_ref()
         {

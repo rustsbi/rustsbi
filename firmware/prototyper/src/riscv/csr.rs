@@ -5,10 +5,6 @@ use core::arch::asm;
 use pastey::paste;
 use seq_macro::seq;
 
-use crate::sbi::early_trap::{
-    TrapInfo, csr_read_allow, csr_swap, csr_write_allow, light_expected_trap,
-};
-
 // Sstc: supervisor timer compare register.
 pub const CSR_STIMECMP: u16 = 0x14D;
 
@@ -62,52 +58,17 @@ seq!(N in 3..32 {
 
 /// Probes whether the CSR selected by `CSR` is implemented on this hart.
 pub fn has_csr<const CSR: u16>() -> bool {
-    use riscv::register::mtvec;
-
-    let res: usize;
-    // SAFETY: `mtvec` is backed up and restored around the probe, and
-    // `light_expected_trap` skips the faulting `csrr`, so touching an
-    // unimplemented CSR cannot escape into firmware. The a0-a2 clobbers are
-    // part of the probe contract; this runs at init time only.
-    unsafe {
-        // Backup old mtvec
-        let mtvec = mtvec::read().bits();
-        // Write expected_trap
-        mtvec::write(mtvec::Mtvec::new(
-            light_expected_trap as *const () as _,
-            mtvec::TrapMode::Direct,
-        ));
-        asm!("addi a0, zero, 0",
-            "addi a1, zero, 0",
-            "csrr a2, {}",
-            "mv {}, a0",
-            const CSR,
-            out(reg) res,
-            out("a0") _,
-            out("a1") _,
-            out("a2") _,
-            options(nomem));
-        asm!("csrw mtvec, {}", in(reg) mtvec);
-    }
-    res == 0
+    runtime::trap::read_csr_guarded::<CSR>().is_ok()
 }
 
 /// Probes whether the `mhpmcounter` CSR selected by `CSR_NUM` (0xb03..=0xb1f)
 /// exists and is writable, setting its bit in `mhpm_mask` when it does.
-pub fn probe_mhpm_csr<const CSR_NUM: u16>(trap_info: &mut TrapInfo, mhpm_mask: &mut u32) {
-    let trap_info = trap_info as *mut TrapInfo;
-    // SAFETY: `trap_info` points to a live, owned `TrapInfo` for the whole
-    // call; `csr_read_allow`/`csr_write_allow` install the expected-trap
-    // vector in `mtvec` and restore the old vector before returning, so
-    // touching a missing CSR is contained. `CSR_NUM` is a compile-time
-    // mhpmcounter selector from the caller's `seq!` range.
-    unsafe {
-        let old_value = csr_read_allow::<CSR_NUM>(trap_info);
-        if (*trap_info).mcause == usize::MAX {
-            csr_write_allow::<CSR_NUM>(trap_info, 1);
-            if (*trap_info).mcause == usize::MAX && csr_swap::<CSR_NUM>(old_value) == 1 {
-                (*mhpm_mask) |= 1 << (CSR_NUM - CSR_MCYCLE);
-            }
+pub fn probe_mhpm_csr<const CSR_NUM: u16>(mhpm_mask: &mut u32) {
+    if let Ok(old_value) = runtime::trap::read_csr_guarded::<CSR_NUM>() {
+        if runtime::trap::write_csr_guarded::<CSR_NUM>(1).is_ok()
+            && runtime::trap::swap_csr_guarded::<CSR_NUM>(old_value) == Ok(1)
+        {
+            *mhpm_mask |= 1 << (CSR_NUM - CSR_MCYCLE);
         }
     }
 }
@@ -480,46 +441,6 @@ pub fn write_mhpmcounter(mhpm_offset: u16, mhpmcounter_val: u64) {
             }
         });
     }
-}
-
-/// Delegates interrupts, exceptions, and counters to supervisor mode, while
-/// keeping supervisor ecalls, access faults and misaligned/illegal instructions in M-mode.
-///
-/// The body is the firmware's fixed delegation policy; it runs once per hart
-/// during M-mode init, before any supervisor code executes.
-pub fn configure_delegation() {
-    use riscv::register::medeleg;
-
-    // SAFETY: M-mode init on the current hart; the written values are the
-    // firmware's fixed delegation policy and have no memory-safety impact.
-    unsafe {
-        asm!("csrw mideleg,    {}", in(reg) !0);
-        asm!("csrw medeleg,    {}", in(reg) !0);
-        asm!("csrw mcounteren, {}", in(reg) !0);
-        asm!("csrw scounteren, {}", in(reg) !0);
-        medeleg::clear_supervisor_env_call();
-        medeleg::clear_load_misaligned();
-        medeleg::clear_store_misaligned();
-        medeleg::clear_illegal_instruction();
-        // Count access faults before forwarding them to the supervisor.
-        medeleg::clear_load_fault();
-        medeleg::clear_store_fault();
-    }
-}
-
-/// Installs the fast-trap entry as the machine trap vector (direct mode).
-///
-/// Runs once per hart during M-mode init, after delegation is configured.
-pub fn install_trap_vector() {
-    use riscv::register::mtvec;
-
-    let val = mtvec::Mtvec::new(
-        fast_trap::trap_entry as *const () as _,
-        mtvec::TrapMode::Direct,
-    );
-    // SAFETY: `fast_trap::trap_entry` is a valid, aligned M-mode trap entry
-    // for direct mode.
-    unsafe { mtvec::write(val) }
 }
 
 /// Fence instruction family (`fence.i`, `sfence.vma`, and the

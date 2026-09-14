@@ -10,7 +10,7 @@
 use alloc::boxed::Box;
 use core::fmt;
 use runtime::memory::{PhysAddr, PhysAddrRange, SupervisorMemory};
-use rustsbi::{Console, Physical, SbiRet};
+use runtime::rustsbi::{Console, Physical, SbiRet};
 use spin::Mutex;
 
 use crate::driver::{DbcnBackend, DbcnError};
@@ -72,18 +72,6 @@ impl SbiConsole {
                 1 => return Ok(()),
                 _ => return Err(DbcnError::Failed),
             }
-        }
-    }
-
-    pub(super) fn try_read_byte(&self) -> Option<u8> {
-        let mut byte = 0;
-        match self
-            .device
-            .lock()
-            .read_slice(core::slice::from_mut(&mut byte))
-        {
-            Ok(1) => Some(byte),
-            _ => None,
         }
     }
 }

@@ -6,11 +6,14 @@ use alloc::boxed::Box;
 use core::ops::Range;
 
 use runtime::memory::SupervisorMemory;
+use spin::Once;
 
 use super::error::{self, ResultContext};
-use super::info::BoardInfo;
+use super::info::{BoardInfo, ImsicInfo};
 use super::{discovery, report, state};
-use crate::driver::{self, HartWake, InterruptDevices};
+use crate::driver::ipi::IpiDevice;
+use crate::driver::timer::TimerDevice;
+use crate::driver::{self, HartWake};
 use crate::riscv::spacemit_k1::{self, K1BootResources};
 use crate::sbi;
 use crate::sbi::SbiDispatcher;
@@ -18,12 +21,9 @@ use crate::sbi::cppc::SbiCppc;
 use crate::sbi::dbtr::SbiDbtr;
 use crate::sbi::fwft::SbiFwft;
 use crate::sbi::hsm::SbiHsm;
-use crate::sbi::nacl::SbiNacl;
 use crate::sbi::pmu::SbiPmu;
 use crate::sbi::reset::SbiReset;
 use crate::sbi::rfence::SbiRFence;
-use crate::sbi::sse::SbiSse;
-use crate::sbi::sta::SbiSta;
 use crate::sbi::suspend::SbiSuspend;
 
 /// Discovers the platform, initializes its devices, and publishes its
@@ -50,7 +50,8 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
             .during("locating the firmware RAM bank")?,
     );
 
-    let devices = driver::bind_devices(&board, &mut memory).during("binding platform devices")?;
+    let devices = driver::bind_devices(&board, select_imsic(&board), &mut memory)
+        .during("binding platform devices")?;
     let k1_resources = board
         .spacemit_k1
         .map(|registers| K1BootResources::acquire(&mut memory, registers))
@@ -82,6 +83,27 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
     Ok(next_stage_fdt_address)
 }
 
+/// Selects IMSIC only when every enabled hart can use its CSR interface and
+/// Sstc timer. Device construction performs no SBI feature-policy queries.
+fn select_imsic(board: &BoardInfo) -> Option<&ImsicInfo> {
+    use sbi::features::{self, Extension};
+
+    let imsic = board.imsic.as_ref()?;
+    for (hart, enabled) in board.enabled_harts.iter().copied().enumerate() {
+        if enabled
+            && (!features::hart_has_extension(hart, Extension::Smaia)
+                || !features::hart_has_extension(hart, Extension::Sstc))
+        {
+            warn!(
+                "AIA: hart {} requires Smaia and Sstc; falling back to CLINT",
+                hart
+            );
+            return None;
+        }
+    }
+    Some(imsic)
+}
+
 fn discover_board_and_pmu(
     platform: runtime::PlatformView<'_>,
 ) -> runtime::Result<(BoardInfo, Option<SbiPmu>)> {
@@ -99,7 +121,8 @@ fn publish_platform_services(
     hart_wake: Option<Box<dyn HartWake>>,
 ) {
     let driver::Devices {
-        interrupts,
+        timer,
+        ipi,
         console,
         sifive_test,
         spacemit_p1_pmic,
@@ -108,6 +131,30 @@ fn publish_platform_services(
         sunxi_wdt_v104,
         sunxi_wdt_v105,
     } = devices;
+    // Hardware ownership is established independently of the SBI dispatcher.
+    let external = if ipi.as_ref().is_some_and(|device| device.is_imsic()) {
+        static IMSIC: Once<driver::ImsicInterrupt> = Once::new();
+        let iid = board
+            .imsic
+            .as_ref()
+            .expect("selected IMSIC has a description")
+            .ipi_iid;
+        Some(IMSIC.call_once(|| driver::ImsicInterrupt::new(iid))
+            as &dyn runtime::irq::ExternalInterrupt)
+    } else {
+        None
+    };
+    static HART_WAKE: Once<Box<dyn HartWake>> = Once::new();
+    let hart_wake = hart_wake.map(|device| HART_WAKE.call_once(|| device).as_ref());
+    runtime::hart::install_wakeup(hart_wake);
+    let ipi = ipi.map(driver::ipi::init);
+    let timer = timer.map(driver::timer::init);
+    runtime::ipi::install(ipi.map(|device| device as &dyn runtime::ipi::IpiDevice));
+    runtime::ipi::install_handler(ipi.map(|_| sbi::ipi::runtime_handler()));
+    runtime::irq::install(external);
+    runtime::timer::install(timer.map(|device| device as &dyn runtime::timer::TimerDevice));
+    runtime::events::install(pmu.as_ref().map(|_| sbi::pmu::runtime_counters()));
+
     state::publish_resources(board, supervisor_memory, console);
 
     sbi::logger::Logger::init().expect("BUG: firmware logger initialized more than once");
@@ -121,7 +168,7 @@ fn publish_platform_services(
         sunxi_wdt_v104,
         sunxi_wdt_v105,
     );
-    publish_sbi_dispatcher(interrupts, reset, pmu, hart_wake);
+    publish_sbi_dispatcher(ipi, timer, reset, pmu, hart_wake);
 
     state::mark_ready();
 
@@ -129,10 +176,11 @@ fn publish_platform_services(
 }
 
 fn publish_sbi_dispatcher(
-    interrupts: Option<InterruptDevices>,
+    ipi: Option<&'static IpiDevice>,
+    timer: Option<&'static TimerDevice>,
     reset: SbiReset,
     pmu: Option<SbiPmu>,
-    hart_wake: Option<Box<dyn HartWake>>,
+    hart_wake: Option<&'static dyn HartWake>,
 ) {
     let supervisor_memory = state::supervisor_memory();
     let console = state::console_device()
@@ -140,27 +188,28 @@ fn publish_sbi_dispatcher(
     let cppc = Some(SbiCppc::new());
     let dbtr = Some(SbiDbtr::new(supervisor_memory));
     let fwft = Some(SbiFwft);
-    let (ipi, timer) = match interrupts {
-        Some(devices) => (
-            Some(sbi::ipi::init(devices.ipi)),
-            Some(sbi::timer::SbiTimer::new(devices.timer)),
-        ),
-        None => (None, None),
-    };
-    let hsm = ipi.as_ref().map(|_| SbiHsm::new(hart_wake));
+    let ipi = ipi.map(sbi::ipi::SbiIpi::new);
+    let timer = timer.map(sbi::timer::SbiTimer::new);
+    let hsm = ipi.as_ref().map(|_| SbiHsm::new(hart_wake.is_some()));
     let rfence = ipi.as_ref().map(|_| SbiRFence);
     let susp = hsm.as_ref().map(|_| SbiSuspend);
     let mpxy = Some(sbi::mpxy::SbiMpxy::new(supervisor_memory));
-    let sta = Some(SbiSta::new(supervisor_memory));
-    let nacl = Some(SbiNacl::new(supervisor_memory));
-    // Keep SSE unavailable until supervisor handler context switching is implemented.
-    let sse: Option<SbiSse> = None;
+    let sta = Some(sbi::sta::SbiSta::new(supervisor_memory));
 
-    sbi::SBI_DISPATCHER.call_once(|| {
-        SbiDispatcher::new(
-            console, cppc, dbtr, fwft, ipi, timer, hsm, reset, rfence, susp, pmu, sta, mpxy, nacl,
-            sse,
-        )
+    sbi::SBI_DISPATCHER.call_once(|| SbiDispatcher {
+        console,
+        cppc,
+        dbtr,
+        fwft,
+        ipi,
+        timer,
+        hsm,
+        reset,
+        rfence,
+        susp,
+        pmu,
+        sta,
+        mpxy,
     });
 }
 

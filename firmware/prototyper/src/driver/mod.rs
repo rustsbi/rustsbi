@@ -12,28 +12,26 @@ mod aia;
 mod cci;
 mod clint;
 mod console;
-mod ipi;
+pub(crate) mod ipi;
 mod reset;
+pub(crate) mod timer;
 
 use alloc::boxed::Box;
 
 use runtime::memory::MemoryRegistry;
 
-use crate::platform::BoardInfo;
-use crate::riscv::csr::{mie, mip, stimecmp};
-use crate::riscv::current_hartid;
+use crate::platform::{BoardInfo, ImsicInfo};
 
+pub(crate) use aia::ImsicInterrupt;
 pub(crate) use aia::{IMSIC_COMPATIBLES, IMSIC_FILE_SPAN, initialize_hart_imsic};
 pub(crate) use cci::Cci550;
 pub(crate) use clint::ClintKind;
 pub(crate) use console::{ConsoleKind, DbcnBackend, DbcnError};
 pub(crate) use ipi::{IpiBackend, IpiError, IpiRequest};
+use timer::SstcTimer;
+pub(crate) use timer::TimerBackend;
 
-/// Hardware wakeup for DT-enabled harts that need not have entered firmware yet.
-pub(crate) trait HartWake: Send {
-    /// Returns true after requesting hardware wakeup, or false to use an IPI.
-    fn wake(&mut self, hart_id: usize) -> runtime::Result<bool>;
-}
+pub(crate) use runtime::hart::HartWake;
 
 pub(crate) use reset::{
     I2cAddress, P1_PMIC_COMPATIBLES, P1Pmic, PMIC_I2C_COMPATIBLES, ResetBackend, ResetError,
@@ -47,7 +45,8 @@ pub(crate) const THEAD_PLIC_COMPATIBLES: [&str; 2] =
 
 /// Platform devices constructed from the discovered hardware description.
 pub(crate) struct Devices {
-    pub(crate) interrupts: Option<InterruptDevices>,
+    pub(crate) timer: Option<Box<dyn TimerBackend>>,
+    pub(crate) ipi: Option<Box<dyn IpiBackend + Send + Sync>>,
     pub(crate) console: Option<Box<dyn DbcnBackend + Send>>,
     pub(crate) sifive_test: Option<SifiveTestDevice>,
     pub(crate) spacemit_p1_pmic: Option<P1Pmic>,
@@ -60,53 +59,19 @@ pub(crate) struct Devices {
 impl Devices {
     /// Returns whether firmware IPIs use IMSIC interrupt files.
     pub(crate) fn uses_imsic(&self) -> bool {
-        self.interrupts
-            .as_ref()
-            .is_some_and(|devices| devices.ipi.is_imsic())
-    }
-}
-
-/// Timer and IPI devices selected for the platform.
-pub(crate) struct InterruptDevices {
-    pub(crate) timer: Box<dyn TimerDevice>,
-    pub(crate) ipi: Box<dyn IpiBackend + Send + Sync>,
-}
-
-/// Timer operations used by the SBI timer extension.
-pub(crate) trait TimerDevice: Send {
-    /// Reads the platform time counter.
-    fn read_time(&self) -> u64;
-
-    /// Programs the timer comparison value for `hart_id`.
-    fn set_timer(&self, hart_id: usize, value: u64);
-}
-
-/// Timer implementation using the Sstc `stimecmp` CSR.
-struct SstcTimer;
-
-impl TimerDevice for SstcTimer {
-    #[inline(always)]
-    fn read_time(&self) -> u64 {
-        riscv::register::time::read64()
-    }
-
-    #[inline(always)]
-    fn set_timer(&self, hart_id: usize, value: u64) {
-        if hart_id == current_hartid() {
-            stimecmp::set(value);
-            if value == u64::MAX {
-                mip::clear_stimer();
-                mie::clear_mtimer();
-            }
-        }
+        self.ipi.as_ref().is_some_and(|ipi| ipi.is_imsic())
     }
 }
 
 fn bind_interrupts(
     board: &BoardInfo,
+    selected_imsic: Option<&ImsicInfo>,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Option<InterruptDevices>> {
-    if let Some(imsic) = board.imsic.as_ref().filter(|_| aia::is_eligible(board)) {
+) -> runtime::Result<(
+    Option<Box<dyn TimerBackend>>,
+    Option<Box<dyn IpiBackend + Send + Sync>>,
+)> {
+    if let Some(imsic) = selected_imsic {
         let aplic_config = if board.is_qemu_virt() {
             Some(crate::platform::qemu_aplic::QemuAplicConfig::new(
                 board.machine_aplic.ok_or(runtime::Error::InvalidArgs)?,
@@ -117,26 +82,28 @@ fn bind_interrupts(
             warn!("AIA: skipping QEMU virt M-APLIC setup on '{}'", board.model);
             None
         };
-        return aia::bind(imsic, aplic_config, memory).map(Some);
+        let (timer, ipi) = aia::bind(imsic, aplic_config, memory)?;
+        return Ok((Some(timer), Some(ipi)));
     }
     let Some(&(registers, kind)) = board.clint.as_ref() else {
-        return Ok(None);
+        return Ok((None, None));
     };
-    clint::bind(registers, kind, memory).map(Some)
+    let (timer, ipi) = clint::bind(registers, kind, memory)?;
+    Ok((Some(timer), Some(ipi)))
 }
 
 /// Binds all devices selected during platform discovery.
 pub(crate) fn bind_devices(
     board: &BoardInfo,
+    selected_imsic: Option<&ImsicInfo>,
     memory: &mut MemoryRegistry,
 ) -> runtime::Result<Devices> {
     if let Some(registers) = board.thead_plic {
-        // T-Head PLIC_CTRL bit 0 delegates access to S-mode,
-        // only the boot hart binds this register.
+        // T-Head PLIC_CTRL bit 0 delegates access to S-mode.
         let control = memory.acquire_mmio(registers.subrange(0x1ffffc, size_of::<u32>())?)?;
         control.write(0, 1u32)?;
     }
-    let interrupts = bind_interrupts(board, memory)?;
+    let (timer, ipi) = bind_interrupts(board, selected_imsic, memory)?;
     let console = console::bind(board, memory)?;
     let sifive_test = board
         .reset
@@ -165,7 +132,8 @@ pub(crate) fn bind_devices(
         memory,
     )?;
     Ok(Devices {
-        interrupts,
+        timer,
+        ipi,
         console,
         sifive_test,
         spacemit_p1_pmic,

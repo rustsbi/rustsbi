@@ -7,8 +7,8 @@ All notable changes to this project will be documented in this file. See [conven
 ## Unreleased
 
 ### Added
-- Add Runtime-owned trap handling, guarded CSR access, hart lifecycle and local storage.
 - Add a separate Sunxi WDT V105 reboot backend, discovering watchdog and RTC V203 GPRCM addresses from the device tree.
+- Add Runtime-owned trap handling, guarded CSR access, hart lifecycle and local storage.
 - Support `--no-default-features` in firmware builds and track it in the build stamp.
 - Add an Avaota F2 RV32 configuration and V861 reset-vector hart wake backend.
 - Discover the shared Sunxi watchdog through `allwinner,wdt-v104` device-tree nodes.
@@ -31,6 +31,8 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Modified
 - Inline Runtime MMIO reads and address validation into device access paths.
+- Compose SBI extensions in Prototyper over Runtime trap and hart mechanisms and independent devices.
+- Size per-hart storage through Runtime configuration instead of Prototyper board settings.
 - Build Avaota F2 with compile-time INFO logging and size optimization level `s` to reduce firmware size and startup time.
 - Match escaped paths in generated firmware source tests on Windows.
 - Use hyphen-separated board configuration filenames.
@@ -73,3 +75,4 @@ All notable changes to this project will be documented in this file. See [conven
 - fix(prototyper): validate DBCN console shared memory range
 
 ### Removed
+- Remove Prototyper's fast-trap integration and unavailable NACL/SSE adapters.

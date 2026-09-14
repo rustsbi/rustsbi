@@ -7,15 +7,16 @@
 
 #![forbid(unsafe_code)]
 
-use rustsbi::{HartMask, SbiRet};
+use runtime::hart::HartId;
+use runtime::rustsbi::{HartMask, SbiRet};
 use sbi_spec::pmu::firmware_event;
 
 use crate::cfg::{PAGE_SIZE, TLB_FLUSH_LIMIT};
 use crate::riscv::csr::fence;
-use crate::riscv::current_hartid;
 
+pub(super) mod queue;
 use super::pmu::pmu_firmware_counter_increment;
-use super::trap_stack::{LocalRFenceCell, RemoteRFenceCell};
+use queue::{LocalRFenceCell, RemoteRFenceCell};
 
 /// Context information for a remote fence operation.
 #[repr(C)]
@@ -58,15 +59,17 @@ pub enum RFenceType {
 }
 
 /// Gets the local fence context for the current hart.
-pub(crate) use super::trap_stack::local_rfence;
+pub(crate) use super::hart_local::local_rfence;
 /// Gets the remote fence context for a specific hart.
-pub(crate) use super::trap_stack::remote_rfence;
+pub(crate) use super::hart_local::remote_rfence;
 
 #[allow(unused)]
 impl LocalRFenceCell<'_> {
     /// Adds a fence operation to the queue, retrying if full.
     pub fn set(&self, ctx: RFenceContext) {
-        let hart_id = current_hartid();
+        let hart_id = HartId::current()
+            .expect("BUG: current hart exceeds Runtime capacity")
+            .as_usize();
         loop {
             if self.try_push((ctx, hart_id)) {
                 break;
@@ -80,7 +83,9 @@ impl LocalRFenceCell<'_> {
 impl RemoteRFenceCell<'_> {
     /// Adds a fence operation to the queue from a remote hart.
     pub fn set(&self, ctx: RFenceContext) {
-        let hart_id = current_hartid();
+        let hart_id = HartId::current()
+            .expect("BUG: current hart exceeds Runtime capacity")
+            .as_usize();
         loop {
             if self.try_push((ctx, hart_id)) {
                 return;
@@ -111,19 +116,20 @@ fn validate_address_range(start_addr: usize, size: usize) -> Result<usize, SbiRe
 
 /// Processes a remote fence operation by sending IPI to target harts.
 fn remote_fence_process(rfence_ctx: RFenceContext, hart_mask: HartMask) -> SbiRet {
-    let sbi_ret = crate::sbi::ipi()
+    crate::sbi::ipi()
         .unwrap()
-        .send_ipi_by_fence(hart_mask, rfence_ctx);
-
-    sbi_ret
+        .send_ipi_by_fence(hart_mask, rfence_ctx)
 }
 
 #[cfg(feature = "hypervisor")]
 fn supports_hypervisor_extension() -> bool {
-    super::features::hart_has_extension(current_hartid(), super::features::Extension::Hypervisor)
+    let hart_id = HartId::current()
+        .expect("BUG: current hart exceeds Runtime capacity")
+        .as_usize();
+    super::features::hart_has_extension(hart_id, super::features::Extension::Hypervisor)
 }
 
-impl rustsbi::Fence for SbiRFence {
+impl runtime::rustsbi::Fence for SbiRFence {
     /// Remote instruction fence for specified harts.
     fn remote_fence_i(&self, hart_mask: HartMask) -> SbiRet {
         pmu_firmware_counter_increment(firmware_event::FENCE_I_SENT);
@@ -302,11 +308,11 @@ impl rustsbi::Fence for SbiRFence {
 /// this bit before draining, so it must use the unconditional handler below.
 #[inline]
 pub(crate) fn rfence_poll() {
+    use super::hart_local::hart_local;
     use super::ipi::IPI_TYPE_FENCE;
-    use super::trap_stack::hart_local;
     use core::sync::atomic::Ordering;
 
-    let pending = hart_local(current_hartid())
+    let pending = hart_local(HartId::current().expect("BUG: invalid hart ID").as_usize())
         .ipi_type
         .load(Ordering::Relaxed);
     if pending & IPI_TYPE_FENCE != 0 {

@@ -8,19 +8,17 @@
 #![forbid(unsafe_code)]
 
 use riscv::register::mstatus;
-use rustsbi::{Hsm, SbiRet};
-use sbi_spec::hsm::{hart_state::STOPPED, suspend_type::NON_RETENTIVE};
+use runtime::rustsbi::{Hsm, SbiRet};
+use sbi_spec::hsm::suspend_type::NON_RETENTIVE;
 
-use crate::riscv::current_hartid;
-
-use super::hsm::remote_hsm;
+use runtime::hart::{self, HartId, HartState};
 
 const SUSPEND_TO_RAM: u32 = 0x0;
 
 /// Implementation of SBI System Suspend Extension extension.
 pub(crate) struct SbiSuspend;
 
-impl rustsbi::Susp for SbiSuspend {
+impl runtime::rustsbi::Susp for SbiSuspend {
     fn system_suspend(&self, sleep_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
         if sleep_type != SUSPEND_TO_RAM {
             return SbiRet::invalid_param();
@@ -37,15 +35,15 @@ impl rustsbi::Susp for SbiSuspend {
         } else {
             return SbiRet::failed();
         };
+        let current_hart = HartId::current()
+            .expect("BUG: current hart exceeds Runtime capacity")
+            .as_usize();
         for (hartid, hart_enable) in hart_enable_map.iter().enumerate() {
-            if *hart_enable && hartid != current_hartid() {
-                match remote_hsm(hartid) {
-                    Some(remote) => {
-                        if remote.get_status() != STOPPED {
-                            return SbiRet::denied();
-                        }
-                    }
-                    None => return SbiRet::failed(),
+            if *hart_enable && hartid != current_hart {
+                let hart = HartId::from_raw(hartid)
+                    .expect("BUG: enabled-hart policy exceeds Runtime capacity");
+                if hart::status(hart) != HartState::Stopped {
+                    return SbiRet::denied();
                 }
             }
         }

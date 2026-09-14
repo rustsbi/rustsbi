@@ -1,5 +1,4 @@
 #![feature(alloc_error_handler)]
-#![feature(fn_align)]
 #![no_std]
 #![no_main]
 
@@ -16,16 +15,15 @@ mod platform;
 mod riscv;
 mod sbi;
 
+use crate::driver::{ipi, timer};
 use crate::firmware::BootInfo;
-use crate::riscv::current_hartid;
 use crate::sbi::features::{
     check_next_stage_privilege, detect_hart_features, hart_mhpm_mask, hart_privileged_version,
 };
+use crate::sbi::hart_local;
 use crate::sbi::heap;
-use crate::sbi::hsm::hart_hsm;
-use crate::sbi::trap_stack;
-use crate::sbi::{ipi, timer};
 use ::riscv::register::mstatus::MPP;
+use runtime::hart::HartId;
 use rustsbi_prototyper_macros::entry;
 
 #[entry]
@@ -38,9 +36,11 @@ fn main(boot: BootInfo) {
 }
 
 fn boot_hart(mut boot: BootInfo) {
-    // SAFETY: Only the boot hart initializes state; secondaries wait for publication.
-    unsafe { trap_stack::init() };
     heap::init();
+    // Initialize this hart's policy storage before any user: platform
+    // discovery seeds secondary harts' features, and feature detection
+    // writes this hart's.
+    hart_local::init();
     let platform_description = boot
         .take_platform_description()
         .expect("BUG: boot hart entered without a validated Platform Description");
@@ -50,11 +50,12 @@ fn boot_hart(mut boot: BootInfo) {
     firmware::set_pmp(&firmware_ram);
     firmware::log_pmp_cfg(&firmware_ram);
 
-    let hart_id = current_hartid();
+    let hart_id = HartId::current()
+        .expect("BUG: current hart exceeds Runtime capacity")
+        .as_usize();
     info!("{:<30}: {}", "Boot HART ID", hart_id);
 
     detect_hart_features();
-    trap_stack::prepare_for_trap();
     log_hart_capabilities(hart_id);
 
     let mut next_stage = boot.next_stage();
@@ -65,7 +66,8 @@ fn boot_hart(mut boot: BootInfo) {
         "Redirecting hart {} to {:#016x} in {:?} mode.",
         hart_id, next_stage.start_addr, next_stage.next_mode
     );
-    hart_hsm().start(next_stage);
+    runtime::hart::stage_current(next_stage)
+        .expect("BUG: boot hart could not stage its initial handoff");
 
     enable_supervisor_services();
 }
@@ -73,7 +75,6 @@ fn boot_hart(mut boot: BootInfo) {
 fn secondary_hart(boot: Option<&BootInfo>) {
     platform::wait_until_ready();
     detect_hart_features();
-    trap_stack::prepare_for_trap();
 
     platform::initialize_secondary_hart();
     firmware::set_pmp(&platform::firmware_ram_range());
@@ -86,14 +87,28 @@ fn secondary_hart(boot: Option<&BootInfo>) {
 }
 
 fn enable_supervisor_services() {
-    ipi::claim_ipi();
-    timer::clear();
+    ipi::clear_current();
+    timer::clear_current();
     // Gate per-hart IMSIC setup on the device selected during platform
     // initialization, not on AIA discovery alone.
     if ipi::uses_imsic() {
-        driver::initialize_hart_imsic();
+        driver::initialize_hart_imsic(
+            platform::board_info()
+                .imsic
+                .as_ref()
+                .expect("selected IMSIC has a description"),
+        );
     }
-    sbi::features::configure_delegation_and_trap();
+    sbi::features::configure_hart_environment();
+    // Transactional per-hart trap activation: publishes the policy, applies
+    // the fixed delegation/counter policy, and installs the final trap
+    // vector as the Ready commit point.
+    runtime::trap::init(
+        sbi::SBI_DISPATCHER
+            .get()
+            .expect("BUG: trap activation before dispatcher publication"),
+    )
+    .expect("BUG: failed to activate Runtime trap handling");
 }
 
 fn log_hart_capabilities(hart_id: usize) {

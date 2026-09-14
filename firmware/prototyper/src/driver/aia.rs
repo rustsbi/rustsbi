@@ -9,15 +9,14 @@ use alloc::boxed::Box;
 
 use riscv_aia::Iid;
 use riscv_aia::register::mtopei;
+use runtime::hart::HartId;
 use runtime::memory::{MemoryRegistry, MmioRegion};
 
 use crate::cfg::NUM_HART_MAX;
-use crate::driver::{InterruptDevices, IpiBackend, IpiError, IpiRequest, SstcTimer};
+use crate::driver::{IpiBackend, IpiError, IpiRequest, SstcTimer, TimerBackend};
+use crate::platform::ImsicInfo;
 use crate::platform::qemu_aplic::QemuAplicConfig;
-use crate::platform::{BoardInfo, ImsicInfo, board_info};
 use crate::riscv::csr::imsic;
-use crate::riscv::current_hartid;
-use crate::sbi::features::{Extension, hart_has_extension};
 
 /// FDT `compatible` strings identifying an IMSIC interrupt controller.
 pub(crate) const IMSIC_COMPATIBLES: [&str; 1] = ["riscv,imsics"];
@@ -43,6 +42,24 @@ impl Register {
 pub(super) struct ImsicIpi {
     ipi_iid: Iid,
     hart_files: [Option<MmioRegion>; NUM_HART_MAX],
+}
+
+/// Claims the firmware IPI identity from the current machine interrupt file.
+/// Constructed only after every enabled hart has passed AIA eligibility checks.
+pub(crate) struct ImsicInterrupt {
+    ipi_iid: Iid,
+}
+
+impl ImsicInterrupt {
+    pub(crate) fn new(ipi_iid: Iid) -> Self {
+        Self { ipi_iid }
+    }
+}
+
+impl runtime::irq::ExternalInterrupt for ImsicInterrupt {
+    fn claim_ipi(&self) -> bool {
+        mtopei::claim().iid() == Some(self.ipi_iid)
+    }
 }
 
 impl ImsicIpi {
@@ -73,7 +90,11 @@ impl IpiBackend for ImsicIpi {
     fn clear_ipi(&self, hart_id: usize) -> Result<(), IpiError> {
         // IMSIC clearing uses CSRs on the attached hart; only the firmware
         // IPI identity is enabled in the machine interrupt file.
-        if hart_id != current_hartid() {
+        if hart_id
+            != HartId::current()
+                .expect("BUG: current hart exceeds Runtime capacity")
+                .as_usize()
+        {
             return Err(IpiError::Failed);
         }
         let _ = mtopei::claim();
@@ -86,26 +107,12 @@ impl IpiBackend for ImsicIpi {
     }
 }
 
-/// Checks AIA eligibility before any MMIO window is acquired.
-pub(super) fn is_eligible(board: &BoardInfo) -> bool {
-    if board
-        .enabled_harts
-        .iter()
-        .enumerate()
-        .any(|(hart_id, enabled)| *enabled && !hart_supports_aia(hart_id))
-    {
-        warn!("AIA: requirements not met, falling back to CLINT");
-        return false;
-    }
-    true
-}
-
 /// Binds the selected AIA interrupt devices to their MMIO windows.
 pub(super) fn bind(
     imsic: &ImsicInfo,
     aplic_config: Option<QemuAplicConfig>,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<InterruptDevices> {
+) -> runtime::Result<(Box<dyn TimerBackend>, Box<dyn IpiBackend + Send + Sync>)> {
     // No fallback is permitted after the first MMIO window is issued. All
     // hardware capability checks above therefore precede initialization.
     let mut hart_files = core::array::from_fn(|_| None);
@@ -120,47 +127,16 @@ pub(super) fn bind(
         aplic_config.bind(memory)?;
     }
 
-    Ok(InterruptDevices {
-        timer: Box::new(SstcTimer),
-        ipi: Box::new(ipi),
-    })
-}
-
-/// Initializes this hart's IMSIC when that device was selected.
-pub(crate) fn initialize_hart_imsic() {
-    let Some(imsic) = board_info().imsic.as_ref() else {
-        return;
-    };
-    let hart_id = current_hartid();
-    if hart_has_extension(hart_id, Extension::Smaia) {
-        initialize_machine_interrupt_file(imsic);
-    } else {
-        warn!(
-            "Hart {} lacks Smaia despite IMSIC device selection",
-            hart_id
-        );
-    }
+    Ok((Box::new(SstcTimer), Box::new(ipi)))
 }
 
 /// Sets up this hart's machine interrupt file: delivery, thresholds, and
 /// the firmware IPI interrupt enable, then enables machine externals.
-fn initialize_machine_interrupt_file(imsic_info: &ImsicInfo) {
+pub(crate) fn initialize_hart_imsic(imsic_info: &ImsicInfo) {
     let ipi_iid = usize::from(imsic_info.ipi_iid.number());
     imsic::initialize_machine_file(usize::from(imsic_info.num_ids), ipi_iid);
     debug!(
         "IMSIC: hart init done, MEIE enabled, firmware IPI IID={}",
         ipi_iid
     );
-}
-
-fn hart_supports_aia(hart_id: usize) -> bool {
-    if !hart_has_extension(hart_id, Extension::Smaia) {
-        warn!("AIA: hart {} lacks Smaia, rejecting AIA", hart_id);
-        return false;
-    }
-    if !hart_has_extension(hart_id, Extension::Sstc) {
-        warn!("AIA: hart {} lacks Sstc, rejecting AIA", hart_id);
-        return false;
-    }
-    true
 }

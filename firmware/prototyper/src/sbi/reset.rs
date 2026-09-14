@@ -7,7 +7,7 @@
 
 #![forbid(unsafe_code)]
 
-use rustsbi::SbiRet;
+use runtime::rustsbi::{self, SbiRet};
 use spin::Mutex;
 
 use crate::driver::{
@@ -154,7 +154,7 @@ impl rustsbi::Reset for SysconReboot {
 
 /// Validates both raw parameters before querying or invoking a reset backend.
 fn parse_request(reset_type: u32, reset_reason: u32) -> Option<ResetRequest> {
-    use rustsbi::spec::srst::{
+    use runtime::rustsbi::spec::srst::{
         RESET_REASON_NO_REASON, RESET_REASON_SYSTEM_FAILURE, RESET_TYPE_COLD_REBOOT,
         RESET_TYPE_SHUTDOWN, RESET_TYPE_WARM_REBOOT,
     };

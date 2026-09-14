@@ -228,11 +228,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fast-trap"
-version = "0.1.0"
-source = "git+https://github.com/rustsbi/fast-trap?rev=8d855afa#8d855afa3bc207bb102118e41ef768214d9f6f5b"
-
-[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -632,14 +627,11 @@ dependencies = [
  "bitflags",
  "buddy_system_allocator",
  "cfg-if",
- "fast-trap",
  "log",
  "panic-halt",
  "pastey 0.1.1",
  "riscv",
  "riscv-aia",
- "riscv-decode",
- "rustsbi",
  "rustsbi-firmware-runtime",
  "rustsbi-prototyper-macros",
  "sbi-spec",

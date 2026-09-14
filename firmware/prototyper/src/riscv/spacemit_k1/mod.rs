@@ -17,7 +17,7 @@ mod wakeup;
 use runtime::{SpacemitK1Registers, memory::MemoryRegistry};
 
 use crate::driver::{Cci550, HartWake};
-use crate::riscv::current_hartid;
+use runtime::hart::HartId;
 
 use reset_vector::ResetVectorRegisters;
 
@@ -49,7 +49,11 @@ impl K1BootResources {
 
 /// Performs the K1 per-hart L2 and machine-feature setup.
 pub(crate) fn initialize_hart(registers: SpacemitK1Registers) {
-    registers.enable_hart_l2(current_hartid());
+    registers.enable_hart_l2(
+        HartId::current()
+            .expect("BUG: current hart exceeds Runtime capacity")
+            .as_usize(),
+    );
     registers.enable_machine_features();
 }
 

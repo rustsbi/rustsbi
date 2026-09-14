@@ -20,7 +20,7 @@ use core::mem::{align_of, size_of};
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
 use crate::cfg::NUM_HART_MAX;
-use crate::driver::{InterruptDevices, IpiBackend, IpiError, IpiRequest, TimerDevice};
+use crate::driver::{IpiBackend, IpiError, IpiRequest, TimerBackend};
 
 // The ACLINT legacy mapping places MTIMECMP at offset 0x4000.
 const MTIMECMP_OFFSET: usize = 0x4000;
@@ -70,7 +70,7 @@ impl IpiRegister {
 pub(super) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<InterruptDevices> {
+) -> runtime::Result<(Box<dyn TimerBackend>, Box<dyn IpiBackend + Send + Sync>)> {
     let msip_registers = registers.subrange(0, MSIP_WINDOW_SIZE)?;
     let mtimecmp_registers = registers.subrange(MTIMECMP_OFFSET, MTIMECMP_WINDOW_SIZE)?;
     if !msip_registers.has_aligned_bounds(align_of::<u32>())
@@ -81,10 +81,10 @@ pub(super) fn bind(
 
     let msip_mmio = memory.acquire_mmio(msip_registers)?;
     let mtimecmp_mmio = memory.acquire_mmio(mtimecmp_registers)?;
-    Ok(InterruptDevices {
-        timer: Box::new(THeadTimer::new(mtimecmp_mmio)),
-        ipi: Box::new(THeadIpi::new(msip_mmio)),
-    })
+    Ok((
+        Box::new(THeadTimer::new(mtimecmp_mmio)),
+        Box::new(THeadIpi::new(msip_mmio)),
+    ))
 }
 
 struct THeadTimer {
@@ -115,13 +115,7 @@ impl THeadTimer {
     }
 }
 
-impl TimerDevice for THeadTimer {
-    #[inline(always)]
-    fn read_time(&self) -> u64 {
-        // T-Head CLINTs have no memory-mapped `mtime`; read the `time` CSR.
-        riscv::register::time::read64()
-    }
-
+impl TimerBackend for THeadTimer {
     #[inline(always)]
     fn set_timer(&self, hart_id: usize, value: u64) {
         self.set_mtimecmp(hart_id, value);

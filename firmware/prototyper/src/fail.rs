@@ -1,9 +1,6 @@
 #![forbid(unsafe_code)]
 
-use crate::riscv::current_hartid;
-
-use riscv::interrupt::machine::{Exception, Interrupt};
-use riscv::register::{mcause::Trap, mepc, mtval};
+use runtime::hart::HartId;
 
 #[cfg(all(feature = "payload", feature = "jump"))]
 compile_error!("feature \"payload\" and feature \"jump\" cannot be enabled at the same time");
@@ -11,7 +8,10 @@ compile_error!("feature \"payload\" and feature \"jump\" cannot be enabled at th
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     use ::riscv::register::*;
-    error!("Hart {} {info}", current_hartid());
+    let hart_id = HartId::current()
+        .map(|hart| hart.as_usize())
+        .unwrap_or(usize::MAX);
+    error!("Hart {} {info}", hart_id);
     error!("-----------------------------");
     error!("mcause:  {:?}", mcause::read().cause());
     error!("mepc:    {:#018x}", mepc::read());
@@ -19,15 +19,6 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     error!("-----------------------------");
     error!("System shutdown scheduled due to RustSBI panic");
     loop {}
-}
-
-pub fn unsupported_trap(trap: Option<Trap<Interrupt, Exception>>) -> ! {
-    error!("-----------------------------");
-    error!("trap:    {trap:?}");
-    error!("mepc:    {:#018x}", mepc::read());
-    error!("mtval:   {:#018x}", mtval::read());
-    error!("-----------------------------");
-    panic!("Stopped with unsupported trap")
 }
 
 #[cold]

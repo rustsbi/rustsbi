@@ -11,17 +11,10 @@ log = "0.4"
 panic-halt = "1.0.0"
 riscv = { workspace = true }
 spin = "0.9.8"
-riscv-decode = "0.2.1"
 cfg-if = "1.0.0"
 buddy_system_allocator = "0.11.0"
-rustsbi = { version = "0.4.1", features = [
-    "machine",
-], path = "../../library/rustsbi" }
-sbi-spec = { version = "0.0.10", features = [
-    "legacy",
-], path = "../../library/sbi-spec" }
+sbi-spec = { version = "0.0.10", path = "../../library/sbi-spec" }
 serde = { version = "1.0.202", default-features = false, features = ["derive"] }
-fast-trap = { git = "https://github.com/rustsbi/fast-trap", rev = "8d855afa", features = ["riscv-m"] }
 serde-device-tree = { git = "https://github.com/rustsbi/serde-device-tree", rev = "ffb4855", default-features = false, features = ["ser", "alloc"] }
 static-toml = "1"
 seq-macro = "0.3.5"

@@ -9,10 +9,8 @@ use core::mem::{align_of, size_of};
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use runtime::memory::{PhysAddr, PhysAddrRange, SupervisorMemory};
-use rustsbi::SbiRet;
+use runtime::rustsbi::SbiRet;
 use sbi_spec::binary::{SharedPtr, TriggerMask};
-
-use crate::sbi::early_trap::{TrapInfo, csr_read_allow, csr_write_allow};
 
 /// Debug Triggers extension for harts with the RISC-V Sdtrig interface.
 ///
@@ -41,27 +39,24 @@ static SHMEM_ADDRESS: AtomicUsize = AtomicUsize::new(0);
 
 fn probe_triggers() -> usize {
     let mut count = 0;
+    // The Runtime guard turns an illegal instruction from an optional CSR
+    // into `Err`, so probing an absent trigger block does not trap out of
+    // firmware.
     // A selector is usable only if it reads back unchanged. A zero
     // `tdata1.type` field does not identify an implemented trigger.
     for index in 0..MAX_PROBED_TRIGGERS {
-        let mut trap = TrapInfo::default();
-        // SAFETY: firmware runs in M-mode, and `trap` remains valid for the call.
-        unsafe { csr_write_allow::<CSR_TSELECT>(&mut trap, index) };
-        if trap.mcause != usize::MAX {
+        if runtime::trap::write_csr_guarded::<CSR_TSELECT>(index).is_err() {
             break;
         }
-
-        // SAFETY: firmware runs in M-mode, and `trap` remains valid for the call.
-        let selected = unsafe { csr_read_allow::<CSR_TSELECT>(&mut trap) };
-        if trap.mcause != usize::MAX || selected != index {
+        let Ok(selected) = runtime::trap::read_csr_guarded::<CSR_TSELECT>() else {
+            break;
+        };
+        if selected != index {
             break;
         }
-
-        // SAFETY: firmware runs in M-mode, and `trap` remains valid for the call.
-        let tdata1 = unsafe { csr_read_allow::<CSR_TDATA1>(&mut trap) };
-        if trap.mcause != usize::MAX {
+        let Ok(tdata1) = runtime::trap::read_csr_guarded::<CSR_TDATA1>() else {
             break;
-        }
+        };
 
         if ((tdata1 >> (usize::BITS - 4)) & 0xf) != 0 {
             count += 1;
@@ -80,7 +75,7 @@ fn cached_trigger_count() -> usize {
     probed
 }
 
-impl rustsbi::Dbtr for SbiDbtr {
+impl runtime::rustsbi::Dbtr for SbiDbtr {
     fn num_triggers(&self, trigger_data1: usize) -> usize {
         if trigger_data1 == 0 {
             cached_trigger_count()

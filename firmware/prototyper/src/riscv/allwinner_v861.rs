@@ -1,6 +1,6 @@
 //! C907 startup and V861 power-on through the generic HSM wake backend.
 //!
-//! HSM serializes power requests. Once a hart has entered firmware, its
+//! Runtime reserves each hart before requesting power. Once a hart has entered firmware, its
 //! stop/start cycle uses the generic WFI/IPI path and preserves coherency.
 //! Enable the V861 MHCR controls while preserving the loader's remaining
 //! cache policy, then restore that state on reset harts. Register references:
@@ -9,7 +9,8 @@
 //! [V861 platform]: https://github.com/YuzukiHD/opensbi/blob/c1ea219a901ff309e88e99c4b4e66ef9a55548de/platform/generic/allwinner/sun252i-v861.c
 //! [D1 cache save/restore]: https://github.com/riscv-software-src/opensbi/blob/3593a5facc4c6938b90429a6973ba9ee21fc5899/platform/generic/allwinner/sun20i-d1.c
 
-use crate::{driver::HartWake, sbi::trap_stack};
+use crate::driver::HartWake;
+use runtime::hart::HartId;
 use runtime::{
     AllwinnerV861Registers,
     memory::{MemoryRegistry, MmioRegion},
@@ -104,7 +105,8 @@ impl CacheState {
 }
 
 impl HartWake for V861Wake {
-    fn wake(&mut self, hart: usize) -> runtime::Result<bool> {
+    fn wake(&self, hart: HartId) -> runtime::Result<bool> {
+        let hart = hart.as_usize();
         if hart >= 2 {
             return Err(runtime::Error::InvalidArgs);
         }
@@ -139,19 +141,10 @@ impl HartWake for V861Wake {
 unsafe extern "C" fn warm_entry() -> ! {
     core::arch::naked_asm!(
         ".balign 4",
-        "csrw mie, zero",
-        "li t0, 0x70013",
-        "csrw 0x7c2, t0",
-        "li t0, 1",
-        "csrw 0x7f3, t0",
-        "fence rw, rw",
-        "call {locate}",
-        "call {initialize}",
-        "csrw mscratch, sp",
-        "j {boot}",
-        locate = sym trap_stack::locate,
+        "la a0, {initialize}",
+        "tail {entry}",
         initialize = sym initialize_secondary,
-        boot = sym crate::sbi::trap::boot::boot,
+        entry = sym runtime::boot::v861_warm_entry,
     )
 }
 

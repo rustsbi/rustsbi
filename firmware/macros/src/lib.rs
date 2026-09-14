@@ -104,10 +104,11 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
             unsafe extern "C" fn __rustsbi_prototyper_start() -> ! {
                 ::core::arch::naked_asm!(
                     include_str!("entry/start.S"),
+                    early_vector = sym runtime::boot::fail_stop,
                     relocation_update = sym relocation_update,
-                    locate_stack = sym crate::sbi::trap_stack::locate,
+                    locate_stack = sym runtime::boot::locate_stack,
                     main = sym __rustsbi_prototyper_main,
-                    hart_boot = sym crate::sbi::trap::boot::boot,
+                    finish_boot = sym runtime::boot::finish_boot,
                     XLEN = const usize::BITS,
                 )
             }

@@ -1,4 +1,8 @@
-//! Backend operations on ordinary SBI hart-mask windows.
+//! Machine IPI devices and validated target windows.
+
+use alloc::boxed::Box;
+use runtime::hart::HartId;
+use spin::Once;
 
 /// One ordinary sPI hart-mask window request forwarded to the backend.
 ///
@@ -73,5 +77,70 @@ pub trait IpiBackend {
     /// This internal property selects the firmware interrupt handling path.
     fn is_imsic(&self) -> bool {
         false
+    }
+}
+
+/// Shared ownership of the selected machine IPI device.
+pub(crate) struct IpiDevice {
+    backend: Box<dyn IpiBackend + Send + Sync>,
+}
+
+static DEVICE: Once<IpiDevice> = Once::new();
+
+impl IpiDevice {
+    fn new(backend: Box<dyn IpiBackend + Send + Sync>) -> Self {
+        Self { backend }
+    }
+
+    #[inline]
+    pub(crate) fn send_ipi(&self, request: IpiRequest) -> Result<(), IpiError> {
+        // Publish pending hart-local work before raising the machine IPI.
+        crate::riscv::csr::fence::memory_to_io();
+        self.backend.send_ipi(request)
+    }
+
+    #[inline]
+    pub(crate) fn clear_ipi(&self, hart_id: usize) -> Result<(), IpiError> {
+        self.backend.clear_ipi(hart_id)
+    }
+
+    #[inline]
+    pub(crate) fn uses_imsic(&self) -> bool {
+        self.backend.is_imsic()
+    }
+}
+
+impl runtime::ipi::IpiDevice for IpiDevice {
+    fn send(&self, hart: HartId) -> Result<(), ()> {
+        self.send_ipi(IpiRequest {
+            hart_mask: 1,
+            hart_mask_base: hart.as_usize(),
+        })
+        .map_err(|_| ())
+    }
+
+    fn clear_current(&self) -> Result<(), ()> {
+        let hart = HartId::current().map_err(|_| ())?.as_usize();
+        self.clear_ipi(hart).map_err(|_| ())
+    }
+}
+
+/// Publishes the selected device for boot, SBI calls, and Runtime traps.
+pub(crate) fn init(backend: Box<dyn IpiBackend + Send + Sync>) -> &'static IpiDevice {
+    DEVICE.call_once(|| IpiDevice::new(backend))
+}
+
+/// Returns whether the selected device delivers IPIs through IMSIC.
+pub(crate) fn uses_imsic() -> bool {
+    DEVICE.get().is_some_and(IpiDevice::uses_imsic)
+}
+
+/// Clears a pending machine IPI during hart boot.
+pub(crate) fn clear_current() {
+    if let Some(device) = DEVICE.get() {
+        let hart = HartId::current().expect("BUG: invalid current hart");
+        device
+            .clear_ipi(hart.as_usize())
+            .expect("BUG: cannot clear machine IPI");
     }
 }
