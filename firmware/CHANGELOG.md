@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file. See [conven
 ## Unreleased
 
 ### Added
+- Support `--no-default-features` in firmware builds and track it in the build stamp.
 - Add an Avaota F2 RV32 configuration and V861 reset-vector hart wake backend.
 - Discover the shared Sunxi watchdog through `allwinner,wdt-v104` device-tree nodes.
 - Add independent syscon poweroff and reboot peripherals with device-tree discovery to RustSBI Prototyper.

@@ -46,6 +46,7 @@ fn base_build_args() -> BuildArgs {
     BuildArgs {
         mode: None,
         features: Vec::new(),
+        no_default_features: false,
         fdt: None,
         debug: false,
         config_file: None,
@@ -62,6 +63,7 @@ fn cli_parses_commands_and_build_arguments() {
         "build",
         "--features",
         "hypervisor",
+        "--no-default-features",
         "--fdt",
         "board.dtb",
         "--debug",
@@ -74,6 +76,12 @@ fn cli_parses_commands_and_build_arguments() {
     .unwrap();
     assert_eq!(args.mode, Some(BuildMode::Jump));
     assert_eq!(args.features, ["hypervisor"]);
+    assert!(args.no_default_features);
+    assert!(
+        !parse_build(&["prototyper", "build"])
+            .unwrap()
+            .no_default_features
+    );
     assert_eq!(args.fdt, Some(PathBuf::from("board.dtb")));
     assert!(args.debug);
     assert_eq!(args.config_file, Some(PathBuf::from("custom.toml")));
@@ -368,6 +376,18 @@ fn generated_inputs_and_stamp_follow_build_mode() {
     let dynamic = resolve_in(&base_build_args(), &root, &root).unwrap();
     generate_build_inputs(&dynamic, &paths).unwrap();
     let dynamic_stamp = fs::read_to_string(paths.stamp()).unwrap();
+    let minimal = resolve_in(
+        &BuildArgs {
+            no_default_features: true,
+            ..base_build_args()
+        },
+        &root,
+        &root,
+    )
+    .unwrap();
+    assert!(minimal.no_default_features);
+    generate_build_inputs(&minimal, &paths).unwrap();
+    assert_ne!(dynamic_stamp, fs::read_to_string(paths.stamp()).unwrap());
     assert!(
         fs::read_to_string(paths.alignment_source())
             .unwrap()

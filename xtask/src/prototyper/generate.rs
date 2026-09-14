@@ -192,6 +192,7 @@ fn render_build_stamp(
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     mode.hash(&mut hasher);
     spec.cargo_features().hash(&mut hasher);
+    spec.no_default_features.hash(&mut hasher);
     spec.target.triple().hash(&mut hasher);
     spec.profile().hash(&mut hasher);
     config_content.hash(&mut hasher);

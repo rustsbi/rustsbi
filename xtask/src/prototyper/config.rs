@@ -21,6 +21,8 @@ pub(crate) struct BuildSpec {
     pub(crate) fdt: Option<PathBuf>,
     /// User-supplied cargo features (mode-affecting names already rejected).
     pub(crate) features: Vec<String>,
+    /// Whether default firmware features are disabled.
+    pub(crate) no_default_features: bool,
     /// Build role; the triple follows from it.
     pub(crate) target: Target,
     /// User-supplied custom target (a target JSON path); when set it
@@ -121,6 +123,7 @@ pub(crate) fn resolve_in(
         mode,
         fdt,
         features,
+        no_default_features: args.no_default_features,
         target: Target::Firmware,
         custom_target: args.target.clone(),
         debug: args.debug,

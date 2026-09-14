@@ -25,6 +25,10 @@ pub struct BuildArgs {
     #[arg(long, short = 'f')]
     pub features: Vec<String>,
 
+    /// Disable default firmware features.
+    #[arg(long)]
+    pub no_default_features: bool,
+
     #[arg(long)]
     pub fdt: Option<PathBuf>,
 
@@ -57,6 +61,7 @@ impl BuildArgs {
         Self {
             mode: Some(BuildMode::Payload { path }),
             features: Vec::new(),
+            no_default_features: false,
             fdt: None,
             debug,
             config_file,
@@ -69,6 +74,7 @@ impl BuildArgs {
         Self {
             mode: None,
             features: Vec::new(),
+            no_default_features: false,
             fdt: None,
             debug,
             config_file,
@@ -124,6 +130,10 @@ fn cargo_build(spec: &BuildSpec, paths: &BuildPaths) -> Result<ExitStatus> {
         )
         .features(spec.cargo_features())
         .optional(!spec.debug, |cargo| cargo.release());
+
+    if spec.no_default_features {
+        command.arg("--no-default-features");
+    }
 
     command.status().with_context(|| {
         format!(
