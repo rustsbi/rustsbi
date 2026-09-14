@@ -2,8 +2,9 @@
 //!
 //! HSM serializes power requests. Once a hart has entered firmware, its
 //! stop/start cycle uses the generic WFI/IPI path and preserves coherency.
-//! Preserve the loader's cache policy and restore it on reset harts. Register
-//! references: the [V861 platform] and [D1 cache save/restore].
+//! Enable the V861 MHCR controls while preserving the loader's remaining
+//! cache policy, then restore that state on reset harts. Register references:
+//! the [V861 platform] and [D1 cache save/restore].
 //!
 //! [V861 platform]: https://github.com/YuzukiHD/opensbi/blob/c1ea219a901ff309e88e99c4b4e66ef9a55548de/platform/generic/allwinner/sun252i-v861.c
 //! [D1 cache save/restore]: https://github.com/riscv-software-src/opensbi/blob/3593a5facc4c6938b90429a6973ba9ee21fc5899/platform/generic/allwinner/sun20i-d1.c
@@ -37,7 +38,21 @@ pub(crate) fn initialize_boot_hart(
             memory.acquire_mmio(description.power_control(1)?)?,
         ],
     };
-    CACHE_STATE.call_once(CacheState::read);
+    CACHE_STATE.call_once(|| {
+        // boot0 leaves these C907 controls disabled. Set only the additional
+        // MHCR bits; retain its cache, prefetch and L2 configuration.
+        const V861_MHCR_ENABLE_MASK: usize = (1 << 24) | (1 << 12);
+        // SAFETY: platform discovery selected a V861 C907 in M-mode. Capture
+        // the updated policy so hardware-reset harts inherit the same bits.
+        unsafe {
+            core::arch::asm!(
+                "csrs 0x7c1, {mask}",
+                mask = in(reg) V861_MHCR_ENABLE_MASK,
+                options(nomem, nostack),
+            );
+        }
+        CacheState::read()
+    });
     Ok(wake)
 }
 

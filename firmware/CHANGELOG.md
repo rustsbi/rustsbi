@@ -27,6 +27,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Enable V861 C907 MHCR bits 12 and 24 on both harts while preserving the remaining bootloader cache policy.
 - Complete pending remote fences across hart transitions and skip stopped harts in valid IPI masks.
 - Count and forward access faults to supervisor mode, preserving the interrupted interrupt state.
 - Accept standard firmware PMU events, including events that cannot occur on the current ISA.
