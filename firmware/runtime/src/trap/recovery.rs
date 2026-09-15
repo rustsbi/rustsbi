@@ -93,8 +93,9 @@ pub(crate) mod cause {
 /// the access uses the trapped context's privilege), retire the record,
 /// restore `mtvec`/`mstatus`, and report whether the operation faulted.
 ///
-/// Register contract: `t0` carries the data, `t1` the address, `t3`/`t4`
-/// the `mstatus`/`mtvec` scratch, `a3` the record pointer. The guarded
+/// Register contract: `t0` carries data, `t1` the address, and `t4` the
+/// saved `mtvec`. After publishing the record, `a3` saves `mstatus`;
+/// recovery may clobber `t0`–`t3`, but leaves `a3` and `t4` intact. The guarded
 /// instruction is forced to 4 bytes by `.option norvc`, matching the
 /// recovery entry's skip.
 ///
@@ -124,19 +125,20 @@ macro_rules! guarded_access {
                     "csrw mscratch, a3",
                     "lla t2, 2f",
                     store_word!(t2 => [a3]),
-                    "csrrs t3, mstatus, t3",
+                    // The record is in mscratch; a3 survives the recovery vector.
+                    "csrrs a3, mstatus, t3",
                     ".option push",
                     ".option norvc",
                     "2:",
                     $insn,
                     ".option pop",
-                    "csrw mstatus, t3",
+                    "csrw mstatus, a3",
                     "csrw mscratch, zero",
                     "csrw mtvec, t4",
-                    in("t1") addr,
-                    in("t3") MPRV_BIT | MXR_BIT,
+                    inout("t1") addr => _,
+                    inout("t3") MPRV_BIT | MXR_BIT => _,
                     in("t4") prev_mtvec,
-                    in("a3") &mut record as *mut RecoveryRecord,
+                    inout("a3") &mut record as *mut RecoveryRecord => _,
                     inout("t0") data,
                     out("t2") _,
                 );
@@ -199,20 +201,22 @@ pub fn read_csr_guarded<const CSR: u16>() -> Result<usize, Error> {
             "csrw mscratch, a3",
             "lla t2, 2f",
             store_word!(t2 => [a3]),
-            "csrrs t3, mstatus, t3",
+            // The record is in mscratch; a3 survives the recovery vector.
+            "csrrs a3, mstatus, t3",
             ".option push",
             ".option norvc",
             "2:",
             "csrr t0, {csr}",
             ".option pop",
-            "csrw mstatus, t3",
+            "csrw mstatus, a3",
             "csrw mscratch, zero",
             "csrw mtvec, t4",
             csr = const CSR,
-            in("t3") MPRV_BIT | MXR_BIT,
+            inout("t3") MPRV_BIT | MXR_BIT => _,
             in("t4") prev_mtvec,
-            in("a3") &mut record as *mut RecoveryRecord,
+            inout("a3") &mut record as *mut RecoveryRecord => _,
             inout("t0") data,
+            out("t1") _,
             out("t2") _,
         );
     }
@@ -245,20 +249,22 @@ pub fn write_csr_guarded<const CSR: u16>(value: usize) -> Result<(), Error> {
             "csrw mscratch, a3",
             "lla t2, 2f",
             store_word!(t2 => [a3]),
-            "csrrs t3, mstatus, t3",
+            // The record is in mscratch; a3 survives the recovery vector.
+            "csrrs a3, mstatus, t3",
             ".option push",
             ".option norvc",
             "2:",
             "csrw {csr}, t0",
             ".option pop",
-            "csrw mstatus, t3",
+            "csrw mstatus, a3",
             "csrw mscratch, zero",
             "csrw mtvec, t4",
             csr = const CSR,
-            in("t3") MPRV_BIT | MXR_BIT,
+            inout("t3") MPRV_BIT | MXR_BIT => _,
             in("t4") prev_mtvec,
-            in("a3") &mut record as *mut RecoveryRecord,
-            in("t0") value,
+            inout("a3") &mut record as *mut RecoveryRecord => _,
+            inout("t0") value => _,
+            out("t1") _,
             out("t2") _,
         );
     }
@@ -288,20 +294,22 @@ pub fn swap_csr_guarded<const CSR: u16>(value: usize) -> Result<usize, Error> {
             "csrw mscratch, a3",
             "lla t2, 2f",
             store_word!(t2 => [a3]),
-            "csrrs t3, mstatus, t3",
+            // The record is in mscratch; a3 survives the recovery vector.
+            "csrrs a3, mstatus, t3",
             ".option push",
             ".option norvc",
             "2:",
             "csrrw t0, {csr}, t0",
             ".option pop",
-            "csrw mstatus, t3",
+            "csrw mstatus, a3",
             "csrw mscratch, zero",
             "csrw mtvec, t4",
             csr = const CSR,
-            in("t3") MPRV_BIT | MXR_BIT,
+            inout("t3") MPRV_BIT | MXR_BIT => _,
             in("t4") prev_mtvec,
-            in("a3") &mut record as *mut RecoveryRecord,
+            inout("a3") &mut record as *mut RecoveryRecord => _,
             inout("t0") data,
+            out("t1") _,
             out("t2") _,
         );
     }
