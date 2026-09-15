@@ -13,6 +13,7 @@ mod cci;
 mod clint;
 mod console;
 pub(crate) mod ipi;
+mod plmt;
 mod reset;
 pub(crate) mod timer;
 
@@ -39,6 +40,9 @@ pub(crate) use reset::{
     SUNXI_WDT_V105_COMPATIBLE, SifiveTestDevice, SysconConfig, SysconPoweroff, SysconReboot,
 };
 pub(crate) use reset::{SunxiWdtV104, SunxiWdtV105};
+
+pub(crate) const PLMT_COMPATIBLE: &str = "andestech,plmt0";
+pub(crate) const SUNXI_PLICSW_COMPATIBLE: &str = "allwinner,sun300i-plicsw";
 
 pub(crate) const THEAD_PLIC_COMPATIBLES: [&str; 2] =
     ["thead,c900-plic", "allwinner,thead,c900-plic"];
@@ -84,6 +88,24 @@ fn bind_interrupts(
         };
         let (timer, ipi) = aia::bind(imsic, aplic_config, memory)?;
         return Ok((Some(timer), Some(ipi)));
+    }
+    if let (Some(plmt), Some(plicsw)) = (board.plmt, board.plicsw) {
+        let hart_count = board
+            .enabled_harts
+            .iter()
+            .rposition(|enabled| *enabled)
+            .map(|last| last + 1)
+            .ok_or(runtime::Error::InvalidArgs)?;
+        if let Some(soc) = board.allwinner_v821 {
+            let clock = memory.acquire_mmio(soc.plmt_clock()?)?;
+            let value = u32::from_le(clock.read::<u32>(0)?);
+            clock.write(0, (value | 0x80000000).to_le())?;
+            riscv::asm::fence();
+        }
+        return Ok((
+            Some(Box::new(plmt::bind(plmt, memory, hart_count)?)),
+            Some(Box::new(ipi::plicsw::bind(plicsw, memory, hart_count)?)),
+        ));
     }
     let Some(&(registers, kind)) = board.clint.as_ref() else {
         return Ok((None, None));

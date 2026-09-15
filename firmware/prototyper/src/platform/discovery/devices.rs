@@ -94,6 +94,16 @@ fn discover_node(
     let primary_register_range = registers[0];
 
     for compatible in compatibles.iter() {
+        let slot = match compatible {
+            driver::PLMT_COMPATIBLE => Some(&mut board.plmt),
+            driver::SUNXI_PLICSW_COMPATIBLE => Some(&mut board.plicsw),
+            _ => None,
+        };
+        if let Some(slot) = slot {
+            if slot.replace(primary_register_range).is_some() {
+                return Err(runtime::Error::InvalidArgs);
+            }
+        }
         discover_clint(board, compatible, primary_register_range);
         discover_reset(board, compatible, primary_register_range);
         if driver::IMSIC_COMPATIBLES.contains(&compatible) && board.imsic.is_none() {
@@ -115,7 +125,9 @@ fn discover_node(
 }
 
 fn is_supported_mmio_device(node: &Node<'_>, compatible: &str) -> bool {
-    driver::ClintKind::from_fdt(compatible).is_some()
+    compatible == driver::PLMT_COMPATIBLE
+        || compatible == driver::SUNXI_PLICSW_COMPATIBLE
+        || driver::ClintKind::from_fdt(compatible).is_some()
         || driver::SIFIVE_TEST_COMPATIBLES.contains(&compatible)
         || compatible == driver::SUNXI_WDT_V104_COMPATIBLE
         || compatible == driver::SUNXI_WDT_V105_COMPATIBLE

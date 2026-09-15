@@ -1,5 +1,7 @@
 //! Machine IPI devices and validated target windows.
 
+pub(super) mod plicsw;
+
 use alloc::boxed::Box;
 use runtime::hart::HartId;
 use spin::Once;

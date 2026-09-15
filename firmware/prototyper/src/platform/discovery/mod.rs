@@ -19,6 +19,7 @@ pub(super) fn discover_platform(
     let mut board = BoardInfo::empty();
     harts::discover(&mut board, &tree)?;
     board.console = console::discover(platform)?;
+    board.allwinner_v821 = platform.allwinner_v821_registers();
     devices::discover(&mut board, platform)?;
     board.spacemit_k1 = platform.spacemit_k1_registers()?;
     if board.sunxi_wdt_v104.is_none() && board.sunxi_wdt_v105.is_none() {

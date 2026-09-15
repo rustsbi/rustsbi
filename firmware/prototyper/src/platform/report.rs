@@ -49,6 +49,19 @@ fn log_interrupt_controller(board: &BoardInfo) {
         return;
     }
 
+    if let (Some(plmt), Some(plicsw)) = (board.plmt, board.plicsw) {
+        info!(
+            "{:<30}: Sunxi PLICSW (Base Address: 0x{:x})",
+            "Platform IPI Extension",
+            plicsw.start().as_usize()
+        );
+        info!(
+            "{:<30}: Andes PLMT (Base Address: 0x{:x})",
+            "Platform Timer Extension",
+            plmt.start().as_usize()
+        );
+        return;
+    }
     match board.clint.as_ref() {
         Some((registers, kind)) => info!(
             "{:<30}: {} (Base Address: 0x{:x})",

@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file. See [conven
 ## Unreleased
 
 ### Added
+- Discover and bind Andes PLMT timers and Sunxi PLICSW IPIs through the device tree.
 - Describe V821 PLMT clock control and its noncacheable alias from the device-tree root compatible.
 - Add configurable timer expiry acknowledgement while retaining explicit cancellation.
 - Make Runtime's event, IPI, interrupt-controller and timer service interfaces available on host targets.
@@ -34,6 +35,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Move the IPI backend interface into a directory module.
 - Keep complex trap branches out of the common entry prologue.
 - Avoid full-context time reads for caller-saved destinations.
 - Skip trap CSR recovery bookkeeping when emulating an instruction supplied in mtval with a direct device counter.
