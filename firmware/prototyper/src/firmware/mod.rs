@@ -823,17 +823,26 @@ pub fn log_pmp_cfg(_firmware_ram: &Range<usize>) {
         "PMP", "Range", "Permission", "Address"
     );
 
-    seq_macro::seq!(N in 0..10 {
-        if N < 8 || crate::platform::board_info().allwinner_v821.map_or(0, |soc| soc.noncacheable_offset()) != 0 {
+    let log_entry = |index, address: usize| {
         info!(
             "{:<5} {:<10} {:<15} 0x{:016x}",
-            N,
-            get_pmp_range(N),
-            get_pmp_permission(N),
-            (pastey::paste! { [<pmpaddr ~N>]::read() } as u64) << 2,
+            index,
+            get_pmp_range(index),
+            get_pmp_permission(index),
+            (address as u64) << 2,
         );
-        }
+    };
+    seq_macro::seq!(N in 0..8 {
+        log_entry(N, pastey::paste! { [<pmpaddr ~N>]::read() });
     });
+    if crate::platform::board_info()
+        .allwinner_v821
+        .is_some_and(|soc| soc.noncacheable_offset() != 0)
+    {
+        seq_macro::seq!(N in 8..10 {
+            log_entry(N, pastey::paste! { [<pmpaddr ~N>]::read() });
+        });
+    }
 }
 
 #[cfg(all(feature = "fdt", not(feature = "payload")))]

@@ -63,6 +63,11 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
         .transpose()
         .during("initializing V861 C907 resources")?;
 
+    if let Some(soc) = board.allwinner_v821 {
+        crate::riscv::allwinner_v821::initialize(soc, board.hart_count)
+            .during("initializing V821 noncacheable alias")?;
+    }
+
     let uses_imsic = devices.uses_imsic();
     let next_stage_fdt_address = crate::firmware::patch_device_tree(
         device_tree_address,

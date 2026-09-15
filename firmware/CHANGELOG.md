@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file. See [conven
 ## Unreleased
 
 ### Added
+- Configure the V821 noncacheable physical alias through PMA15.
 - Support the Avaota F1 noncacheable RAM alias in PMP while denying aliases of firmware memory.
 - Discover and bind Andes PLMT timers and Sunxi PLICSW IPIs through the device tree.
 - Describe V821 PLMT clock control and its noncacheable alias from the device-tree root compatible.
@@ -36,6 +37,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Split PMP logging ranges to avoid equal-operand comparisons in macro expansion.
 - Move the IPI backend interface into a directory module.
 - Keep complex trap branches out of the common entry prologue.
 - Avoid full-context time reads for caller-saved destinations.
