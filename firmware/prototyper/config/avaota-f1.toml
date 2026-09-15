@@ -1,0 +1,77 @@
+# Avaota F1 uses the DTB supplied by its loader.
+heap_size = 0x8000
+page_size = 4096
+log_level = "INFO"
+link_start_address = 0x80fc1000
+payload_address = 0x82000000
+jump_address = 0x82000000
+tlb_flush_limit = 16384
+
+[[next_addr]]
+start = 0x82000000
+end = 0x84000000
+
+# Save the following JSON as avaota-f1.json and pass its path to --target.
+# ```json
+# {
+#   "arch": "riscv32",
+#   "cpu": "generic-rv32",
+#   "crt-objects-fallback": "false",
+#   "data-layout": "e-m:e-p:32:32-i64:64-n32-S128",
+#   "eh-frame-header": false,
+#   "emit-debug-gdb-scripts": false,
+#   "features": "+m,+a,+f,+d,+c,+xandesperf,-v",
+#   "linker": "rust-lld",
+#   "linker-flavor": "gnu-lld",
+#   "llvm-abiname": "ilp32",
+#   "llvm-target": "riscv32",
+#   "max-atomic-width": 32,
+#   "metadata": {
+#     "description": "Avaota F1 V821 RV32IMAFDC with XAndesPerf, without V",
+#     "host_tools": false,
+#     "std": false
+#   },
+#   "panic-strategy": "abort",
+#   "relocation-model": "static",
+#   "target-pointer-width": 32
+# }
+# ```
+
+# Key loader DTB nodes; cpu0_intc refers to the existing hart 0 interrupt controller.
+# Retain RAM, console and CPU nodes, reserving 0x80fc0000..0x81000000 for firmware.
+# ```dts
+# / {
+#     compatible = "allwinner,v821", "riscv,sun300iw1p1";
+#     #address-cells = <1>;
+#     #size-cells = <1>;
+#     cpus { timebase-frequency = <40000000>; };
+#     plmt@48400000 {
+#         compatible = "andestech,plmt0";
+#         reg = <0x48400000 0x10>;
+#         interrupts-extended = <&cpu0_intc 7>;
+#     };
+#     plicsw@48800000 {
+#         compatible = "allwinner,sun300i-plicsw";
+#         reg = <0x48800000 0x201000>;
+#         interrupts-extended = <&cpu0_intc 3>;
+#     };
+#     l2-cache@49000000 {
+#         compatible = "cache";
+#         reg = <0x49000000 0x300>;
+#         cache-level = <2>;
+#     };
+#     watchdog@4a001000 {
+#         compatible = "allwinner,wdt-v105";
+#         reg = <0x4a001000 0x20>;
+#     };
+#     rtc@4a000c00 {
+#         compatible = "allwinner,rtc-v203";
+#         reg = <0x4a000c00 0x400>;
+#         gprcm_reg = <0 0x4a000000 0 0x20>;
+#     };
+#     udc-controller@44100000 {
+#         compatible = "allwinner,sunxi-udc";
+#         reg = <0x44100000 0x1000>;
+#     };
+# };
+# ```
