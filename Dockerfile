@@ -22,7 +22,7 @@ COPY rust-toolchain.toml .
 # Install the toolchain, components, and targets declared in rust-toolchain.toml.
 RUN rustc --version
 
-RUN cargo install --locked cargo-binutils@0.4.0 axconfig-gen@0.2.1
+RUN cargo install --locked cargo-binutils@0.4.0
 
 WORKDIR /workspace
 

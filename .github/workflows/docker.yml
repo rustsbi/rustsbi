@@ -38,7 +38,6 @@ jobs:
             rustup target list --installed | grep -Fx riscv64gc-unknown-none-elf
             rustup target list --installed | grep -Fx riscv64imac-unknown-none-elf
             cargo objcopy --version
-            axconfig-gen --version
           '
 
       - name: Build RustSBI firmware
