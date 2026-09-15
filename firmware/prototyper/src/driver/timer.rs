@@ -6,7 +6,7 @@ use runtime::hart::HartId;
 use spin::{Mutex, Once};
 
 /// Low-level timer backend used by the SBI timer device.
-pub(crate) trait TimerBackend: Send {
+pub(crate) trait TimerBackend: Send + Sync {
     /// Programs the timer comparison value for `hart_id`.
     fn set_timer(&self, hart_id: usize, value: u64);
 
@@ -42,7 +42,8 @@ impl TimerBackend for SstcTimer {
 
 /// Synchronized access to the selected platform timer.
 pub(crate) struct TimerDevice {
-    backend: Mutex<Box<dyn TimerBackend>>,
+    backend: Box<dyn TimerBackend>,
+    programming: Mutex<()>,
 }
 
 static DEVICE: Once<TimerDevice> = Once::new();
@@ -50,18 +51,20 @@ static DEVICE: Once<TimerDevice> = Once::new();
 impl TimerDevice {
     fn new(backend: Box<dyn TimerBackend>) -> Self {
         Self {
-            backend: Mutex::new(backend),
+            backend,
+            programming: Mutex::new(()),
         }
     }
 
     #[inline]
     pub(crate) fn set_timer(&self, hart_id: usize, value: u64) {
-        self.backend.lock().set_timer(hart_id, value);
+        let _guard = self.programming.lock();
+        self.backend.set_timer(hart_id, value);
     }
 
     #[inline]
     fn read_time(&self) -> Option<u64> {
-        self.backend.lock().read_time()
+        self.backend.read_time()
     }
 }
 
