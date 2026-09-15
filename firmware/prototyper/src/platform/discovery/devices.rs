@@ -77,6 +77,12 @@ fn discover_node(
     let has_supported_mmio_device = compatibles
         .iter()
         .any(|compatible| is_supported_mmio_device(node, compatible));
+    let is_v821_l2 = board.allwinner_v821.is_some()
+        && compatibles.iter().any(|s| s == "cache")
+        && node
+            .get_prop("cache-level")
+            .is_some_and(|p| p.deserialize::<u32>() == 2);
+    let has_supported_mmio_device = has_supported_mmio_device || is_v821_l2;
     if !has_supported_pmic && !has_supported_mmio_device {
         return Ok(());
     }
@@ -93,6 +99,9 @@ fn discover_node(
         .ok_or(runtime::Error::InvalidArgs)?;
     let primary_register_range = registers[0];
 
+    if is_v821_l2 && board.andes_l2.replace(primary_register_range).is_some() {
+        return Err(runtime::Error::InvalidArgs);
+    }
     for compatible in compatibles.iter() {
         let slot = match compatible {
             driver::PLMT_COMPATIBLE => Some(&mut board.plmt),

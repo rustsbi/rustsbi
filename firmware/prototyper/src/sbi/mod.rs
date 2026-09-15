@@ -99,3 +99,30 @@ pub(crate) fn pmu() -> Option<&'static SbiPmu> {
 pub(crate) fn susp() -> Option<&'static SbiSuspend> {
     SBI_DISPATCHER.get().and_then(|sbi| sbi.susp.as_ref())
 }
+
+/// Adds DT-discovered V821 vendor calls to the standard SBI dispatcher.
+pub(crate) struct PlatformPolicy;
+
+pub(crate) static PLATFORM_POLICY: PlatformPolicy = PlatformPolicy;
+
+impl runtime::rustsbi::RustSBI for PlatformPolicy {
+    fn handle_ecall(
+        &self,
+        extension: usize,
+        function: usize,
+        param: [usize; 6],
+    ) -> runtime::rustsbi::SbiRet {
+        use crate::riscv::allwinner_v821 as andes;
+        use runtime::rustsbi::SbiRet;
+        if extension == andes::EXTENSION {
+            return andes::handle(function, param, crate::platform::supervisor_memory());
+        }
+        if extension == 0x10 && function == 3 && param[0] == andes::EXTENSION {
+            return SbiRet::success(usize::from(andes::available()));
+        }
+        SBI_DISPATCHER
+            .get()
+            .expect("SBI dispatcher not initialized")
+            .handle_ecall(extension, function, param)
+    }
+}

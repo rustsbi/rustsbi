@@ -64,8 +64,16 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
         .during("initializing V861 C907 resources")?;
 
     if let Some(soc) = board.allwinner_v821 {
-        crate::riscv::allwinner_v821::initialize(soc, board.hart_count)
-            .during("initializing V821 noncacheable alias")?;
+        crate::riscv::allwinner_v821::initialize(
+            soc,
+            board
+                .andes_l2
+                .ok_or(runtime::Error::InvalidArgs)
+                .during("locating V821 L2 cache")?,
+            &mut memory,
+            board.hart_count,
+        )
+        .during("initializing V821 cache maintenance")?;
     }
 
     let uses_imsic = devices.uses_imsic();

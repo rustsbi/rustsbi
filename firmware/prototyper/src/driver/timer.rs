@@ -88,6 +88,11 @@ impl TimerDevice {
     fn read_time(&self) -> Option<u64> {
         self.backend.read_time()
     }
+
+    #[inline]
+    pub(crate) fn read_time_low(&self) -> Option<usize> {
+        self.backend.read_time_low()
+    }
 }
 
 impl runtime::timer::TimerDevice for TimerDevice {
@@ -130,4 +135,8 @@ pub(crate) fn clear_current() {
     if let Some(device) = DEVICE.get() {
         runtime::timer::TimerDevice::clear_current(device);
     }
+}
+
+pub(crate) fn get() -> Option<&'static TimerDevice> {
+    DEVICE.get()
 }

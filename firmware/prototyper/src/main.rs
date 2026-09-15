@@ -103,12 +103,8 @@ fn enable_supervisor_services() {
     // Transactional per-hart trap activation: publishes the policy, applies
     // the fixed delegation/counter policy, and installs the final trap
     // vector as the Ready commit point.
-    runtime::trap::init(
-        sbi::SBI_DISPATCHER
-            .get()
-            .expect("BUG: trap activation before dispatcher publication"),
-    )
-    .expect("BUG: failed to activate Runtime trap handling");
+    runtime::trap::init(&sbi::PLATFORM_POLICY)
+        .expect("BUG: failed to activate Runtime trap handling");
 }
 
 fn log_hart_capabilities(hart_id: usize) {
