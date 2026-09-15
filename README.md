@@ -61,7 +61,7 @@ Under normal circumstances these targets in Rust would start with `riscv??-` and
 ### Or use the Docker development environment
 
 The repository provides a Docker image for development on hosts that do not match the CI environment.
-It includes the pinned nightly toolchain, RISC-V targets, QEMU, U-Boot tools, `cargo-binutils` and `axconfig-gen`.
+It includes the pinned nightly toolchain, RISC-V targets, QEMU, U-Boot tools and `cargo-binutils`.
 
 For a one-off check, run:
 
