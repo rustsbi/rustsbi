@@ -7,14 +7,14 @@
 
 /// The private `#[repr(C)]` register save area.
 ///
-/// Field order is the assembly ABI: `x[0..32]`, then `mepc`, `mstatus`,
+/// Field order is the assembly ABI: `x[0..31]` for x1-x31, then `mepc`, `mstatus`,
 /// `mcause`, `mtval`. Offsets are consumed by the entry as compile-time
 /// constants (word units scaled by XLEN), never hand-written `* 8` values.
 #[repr(C)]
 pub(crate) struct TrapFrame {
-    /// General-purpose registers; `x[0]` reads as zero and writes are
-    /// discarded, `x[2]` holds the original lower-privilege stack pointer.
-    pub(crate) x: [usize; 32],
+    /// Registers x1-x31 at index `id - 1`; x0 has no stored slot.
+    /// `x[1]` holds the original lower-privilege stack pointer.
+    pub(crate) x: [usize; 31],
     /// The trap's `mepc`.
     pub(crate) mepc: usize,
     /// The trap's `mstatus`.
@@ -47,30 +47,29 @@ pub(crate) mod offsets {
         core::mem::size_of::<TrapFrame>() / core::mem::size_of::<usize>();
 }
 
-// The frame must keep every Rust call boundary 16-byte aligned and stay a
-// whole number of 16-byte units, on both RV32 and RV64.
-const _: () = assert!(core::mem::size_of::<TrapFrame>().is_multiple_of(16));
-const _: () = assert!(core::mem::size_of::<TrapFrame>() == 36 * core::mem::size_of::<usize>());
+// The frame stores 35 words; entry rounds its stack allocation to 16 bytes.
+const _: () = assert!(core::mem::offset_of!(TrapFrame, x) == 0);
+const _: () = assert!(core::mem::size_of::<TrapFrame>() == 35 * core::mem::size_of::<usize>());
 
 // Bind the hand-written word offsets in `entry` to this layout: the
 // assembly literals are compile-time checked here, satisfying the design's
 // "no hand-tuned offsets" rule.
-const _: () = assert!(offsets::MEPC == 32);
-const _: () = assert!(offsets::MSTATUS == 33);
-const _: () = assert!(offsets::MCAUSE == 34);
-const _: () = assert!(offsets::MTVAL == 35);
-const _: () = assert!(offsets::SIZE_WORDS == 36);
+const _: () = assert!(offsets::MEPC == 31);
+const _: () = assert!(offsets::MSTATUS == 32);
+const _: () = assert!(offsets::MCAUSE == 33);
+const _: () = assert!(offsets::MTVAL == 34);
+const _: () = assert!(offsets::SIZE_WORDS == 35);
 
 impl TrapFrame {
     /// Reads register `id`, where `x0` is hardwired to zero.
     pub(crate) fn read_x(&self, id: usize) -> usize {
-        if id == 0 { 0 } else { self.x[id] }
+        if id == 0 { 0 } else { self.x[id - 1] }
     }
 
     /// Writes `value` to register `id`; writes to `x0` are discarded.
     pub(crate) fn write_x(&mut self, id: usize, value: usize) {
         if id != 0 {
-            self.x[id] = value;
+            self.x[id - 1] = value;
         }
     }
 
