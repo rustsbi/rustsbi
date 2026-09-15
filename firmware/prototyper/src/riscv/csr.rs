@@ -1,9 +1,4 @@
-#![allow(unused)]
-
 use core::arch::asm;
-
-use pastey::paste;
-use seq_macro::seq;
 
 // Sstc: supervisor timer compare register.
 pub const CSR_STIMECMP: u16 = 0x14D;
@@ -16,45 +11,16 @@ pub const CSR_MSTATEEN1: u16 = 0x30d;
 pub const CSR_MSTATEEN2: u16 = 0x30e;
 pub const CSR_MSTATEEN3: u16 = 0x30f;
 
-// Machine counter setup (inhibit and event configuration).
+// Machine counter inhibit and the event-selector CSR range.
 pub const CSR_MCOUNTINHIBIT: u16 = 0x320;
-pub const CSR_MCYCLECFG: u16 = 0x321;
-pub const CSR_MINSTRETCFG: u16 = 0x322;
-seq!(N in 3..32 {
-    pub const CSR_MHPMEVENT~N: u16 = 0x320 + N;
-});
+pub const CSR_MHPMEVENT3: u16 = 0x323;
+pub const CSR_MHPMEVENT31: u16 = 0x33f;
 
-// Machine Counter/Timers
+// Machine counters and the base of their read-only user shadows.
 pub const CSR_MCYCLE: u16 = 0xb00;
 pub const CSR_MINSTRET: u16 = 0xb02;
-seq!(N in 3..32 {
-    pub const CSR_MHPMCOUNTER~N: u16 = 0xb00 + N;
-});
-
-// Upper 32 bits of Machine Counter/Timers (RV32)
-pub const CSR_MCYCLEH: u16 = 0xb80;
-pub const CSR_MINSTRETH: u16 = 0xb82;
-seq!(N in 3..32 {
-    paste! {
-        pub const [<CSR_MHPMCOUNTER ~N H>]: u16 = 0xb80 + N;
-    }
-});
-
-// User Counter/Timers (Read-only shadows of Machine counters)
+pub const CSR_MHPMCOUNTER3: u16 = 0xb03;
 pub const CSR_CYCLE: u16 = 0xc00;
-pub const CSR_TIME: u16 = 0xc01;
-pub const CSR_INSTRET: u16 = 0xc02;
-seq!(N in 3..32 {
-    pub const CSR_HPMCOUNTER~N: u16 = 0xc00 + N;
-});
-
-// Upper 32 bits of User Counter/Timers (RV32)
-pub const CSR_CYCLEH: u16 = 0xc80;
-pub const CSR_TIMEH: u16 = 0xc81;
-pub const CSR_INSTRETH: u16 = 0xc82;
-seq!(N in 3..32 {
-    paste!{ pub const [<CSR_HPMCOUNTER ~N H>]: u16 = 0xc80 + N; }
-});
 
 /// Probes whether the CSR selected by `CSR` is implemented on this hart.
 pub fn has_csr<const CSR: u16>() -> bool {
@@ -92,10 +58,6 @@ pub fn disable_thead_maee() {
 pub mod menvcfg {
     use core::arch::asm;
 
-    /// Fence of I/O implies memory.
-    pub const FIOM: u64 = 0x1 << 0;
-    /// Cache-block-invalidate effect: flush (CBIE=01).
-    pub const CBIE_FLUSH: u64 = 0b01 << 4;
     /// Cache-block-invalidate effect: invalidate (CBIE=11).
     pub const CBIE_INVALIDATE: u64 = 0b11 << 4;
     /// Cache-block-clean flush enable.
@@ -106,12 +68,6 @@ pub mod menvcfg {
     pub const PBMTE: u64 = 0x1 << 62;
     /// Supervisor timer counter enable.
     pub const STCE: u64 = 0x1 << 63;
-
-    /// Sets the STCE bit to enable supervisor timer counter.
-    #[inline(always)]
-    pub fn set_stce() {
-        set_bits(STCE);
-    }
 
     /// Sets specified bits in menvcfg register.
     pub fn set_bits(option: u64) {
@@ -214,7 +170,7 @@ pub mod imsic {
             eie::machine::write(eie_index, enabled);
         }
 
-        super::mie::set_mext();
+        runtime::csr::mie::set_machine_external();
     }
 }
 
@@ -263,67 +219,6 @@ pub mod minstret {
         unsafe {
             riscv::register::minstret::write64(value);
         }
-    }
-}
-
-/// Machine interrupt-enable (`mie`) bit operations.
-pub mod mie {
-    use riscv::register::mie;
-
-    /// Enables the machine software interrupt.
-    pub fn enable_msoft() {
-        // SAFETY: M-mode firmware toggling its own interrupt-enable bits.
-        unsafe { mie::set_msoft() }
-    }
-
-    /// Disables the machine software interrupt.
-    pub fn disable_msoft() {
-        // SAFETY: M-mode firmware toggling its own interrupt-enable bits.
-        unsafe { mie::clear_msoft() }
-    }
-
-    /// Enables the machine timer interrupt.
-    pub fn set_mtimer() {
-        // SAFETY: M-mode firmware toggling its own interrupt-enable bits.
-        unsafe { mie::set_mtimer() }
-    }
-
-    /// Disables the machine timer interrupt.
-    pub fn clear_mtimer() {
-        // SAFETY: M-mode firmware toggling its own interrupt-enable bits.
-        unsafe { mie::clear_mtimer() }
-    }
-
-    /// Enables the machine external interrupt.
-    pub fn set_mext() {
-        // SAFETY: M-mode firmware toggling its own interrupt-enable bits.
-        unsafe { mie::set_mext() }
-    }
-}
-
-/// Machine interrupt-pending (`mip`) bit operations.
-pub mod mip {
-    use riscv::register::mip;
-
-    /// Sets the supervisor software interrupt pending bit.
-    pub fn set_ssoft() {
-        // SAFETY: M-mode may write mip.SSIP; the bit only signals an S-mode
-        // software interrupt.
-        unsafe { mip::set_ssoft() }
-    }
-
-    /// Sets the supervisor timer interrupt pending bit.
-    pub fn set_stimer() {
-        // SAFETY: M-mode CSR write; the bit only signals the S-mode timer
-        // interrupt.
-        unsafe { mip::set_stimer() }
-    }
-
-    /// Clears the supervisor timer interrupt pending bit.
-    pub fn clear_stimer() {
-        // SAFETY: M-mode CSR write; the bit only signals the S-mode timer
-        // interrupt. Writes are ignored when Sstc drives STIP.
-        unsafe { mip::clear_stimer() }
     }
 }
 
@@ -443,8 +338,7 @@ pub fn write_mhpmcounter(mhpm_offset: u16, mhpmcounter_val: u64) {
     }
 }
 
-/// Fence instruction family (`fence.i`, `sfence.vma`, and the
-/// hypervisor-gated `hfence.gvma` / `hfence.vvma`).
+/// Memory ordering and address-translation fence instructions.
 pub mod fence {
     use core::arch::asm;
 
@@ -460,12 +354,6 @@ pub mod fence {
     pub fn io_to_memory() {
         // SAFETY: orders MMIO/CSR acknowledgement before memory accesses.
         unsafe { asm!("fence io, rw", options(nostack)) };
-    }
-
-    /// Fences instruction fetch for the current hart (`fence.i`).
-    pub fn fence_i() {
-        // SAFETY: instruction-fetch ordering on the local hart only.
-        unsafe { asm!("fence.i") };
     }
 
     /// Invalidates all supervisor TLB entries (`sfence.vma`).

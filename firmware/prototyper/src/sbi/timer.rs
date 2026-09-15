@@ -9,7 +9,8 @@
 
 use super::pmu::pmu_firmware_counter_increment;
 use crate::driver::timer::TimerDevice;
-use crate::riscv::csr::{mie, mip, stimecmp};
+use crate::riscv::csr::stimecmp;
+use runtime::csr::{mie, mip};
 use runtime::hart::HartId;
 use sbi_spec::pmu::firmware_event;
 
@@ -31,8 +32,8 @@ impl runtime::rustsbi::Timer for SbiTimer {
             stimecmp::set(stime_value);
         } else {
             self.device.set_timer(hart_id, stime_value);
-            mip::clear_stimer();
-            mie::set_mtimer();
+            mip::clear_supervisor_timer();
+            mie::set_machine_timer();
         }
     }
 }
