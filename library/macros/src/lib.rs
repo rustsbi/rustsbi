@@ -10,6 +10,8 @@ use syn::{
     parse_macro_input,
 };
 
+mod extension;
+
 #[derive(Clone)]
 enum ParseMode {
     Static,
@@ -158,6 +160,7 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
 
     let mut static_impl = StaticImpl::default();
     let mut dynamic_impl = DynamicImpl::default();
+    let mut extensions = Vec::new();
 
     for (i, field) in strukt.fields.iter().enumerate() {
         let member = match &field.ident {
@@ -173,6 +176,9 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
                 let mut current_meta_accepted = false;
                 if meta.path.is_ident("skip") {
                     // accept meta but do nothing, effectively skip this field in RustSBI
+                    current_meta_accepted = true;
+                } else if meta.path.is_ident("extension") {
+                    extensions.push(extension::Extension::parse(&meta, member.clone())?);
                     current_meta_accepted = true;
                 } else if let Some(meta_path_ident) = meta.path.get_ident() {
                     let extension_name = &meta_path_ident.to_string();
@@ -225,21 +231,30 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
             }
         }
     }
+    ans.extend(TokenStream::from(extension::validate(&extensions, &krate)));
     match parse_mode {
         ParseMode::Static => ans.extend(impl_derive_rustsbi_static(
             &input.ident,
             &krate,
             static_impl,
             &input.generics,
+            &extensions,
         )),
         ParseMode::Dynamic => ans.extend(impl_derive_rustsbi_dynamic(
             &input.ident,
             &krate,
             dynamic_impl,
             &input.generics,
+            &extensions,
         )),
     };
-    ans
+    if extensions.is_empty() {
+        ans
+    } else {
+        // Bind user EID paths outside generated method scopes to avoid shadowing.
+        let body = proc_macro2::TokenStream::from(ans);
+        quote! { const _: () = { #body }; }.into()
+    }
 }
 
 fn check_already_exists(
@@ -271,7 +286,11 @@ fn impl_derive_rustsbi_static(
     krate: &proc_macro2::TokenStream,
     imp: StaticImpl,
     generics: &Generics,
+    extensions: &[extension::Extension],
 ) -> TokenStream {
+    let extension = Ident::new("__rustsbi_extension", Span::mixed_site());
+    let function = Ident::new("__rustsbi_function", Span::mixed_site());
+    let param = Ident::new("__rustsbi_param", Span::mixed_site());
     let base_probe: usize = 1;
     let fence_probe: usize = if imp.fence.is_some() { 1 } else { 0 };
     let hsm_probe: usize = if imp.hsm.is_some() { 1 } else { 0 };
@@ -308,10 +327,27 @@ fn impl_derive_rustsbi_static(
             sse: #sse_probe,
         }
     };
+    let probe = if extensions.is_empty() {
+        probe
+    } else {
+        let custom_probe = extension::probe(extensions, krate, quote! { self });
+        quote! {
+            |#extension| {
+                let value = #krate::_ExtensionProbe::probe_extension(&#probe, #extension);
+                if value != 0 {
+                    return value;
+                }
+                match #extension {
+                    #custom_probe
+                    _ => 0,
+                }
+            }
+        }
+    };
     let mut match_arms = quote! {};
     let base_procedure = if let Some(env_info) = imp.env_info {
         quote! {
-            #krate::spec::base::EID_BASE => #krate::_rustsbi_base_env_info(param, function, &self.#env_info, #probe),
+            #krate::spec::base::EID_BASE => #krate::_rustsbi_base_env_info(#param, #function, &self.#env_info, #probe),
         }
     } else {
         match () {
@@ -325,93 +361,95 @@ fn impl_derive_rustsbi_static(
             },
             #[cfg(feature = "machine")]
             () => quote! {
-                #krate::spec::base::EID_BASE => #krate::_rustsbi_base_bare(param, function, #probe),
+                #krate::spec::base::EID_BASE => #krate::_rustsbi_base_bare(#param, #function, #probe),
             },
         }
     };
     match_arms.extend(base_procedure);
     if let Some(fence) = &imp.fence {
         match_arms.extend(quote! {
-            #krate::spec::rfnc::EID_RFNC => #krate::_rustsbi_fence(&self.#fence, param, function),
+            #krate::spec::rfnc::EID_RFNC => #krate::_rustsbi_fence(&self.#fence, #param, #function),
         })
     };
     if let Some(timer) = &imp.timer {
         match_arms.extend(quote! {
-            #krate::spec::time::EID_TIME => #krate::_rustsbi_timer(&self.#timer, param, function),
+            #krate::spec::time::EID_TIME => #krate::_rustsbi_timer(&self.#timer, #param, #function),
         })
     };
     if let Some(ipi) = &imp.ipi {
         match_arms.extend(quote! {
-            #krate::spec::spi::EID_SPI => #krate::_rustsbi_ipi(&self.#ipi, param, function),
+            #krate::spec::spi::EID_SPI => #krate::_rustsbi_ipi(&self.#ipi, #param, #function),
         })
     }
     if let Some(hsm) = &imp.hsm {
         match_arms.extend(quote! {
-            #krate::spec::hsm::EID_HSM => #krate::_rustsbi_hsm(&self.#hsm, param, function),
+            #krate::spec::hsm::EID_HSM => #krate::_rustsbi_hsm(&self.#hsm, #param, #function),
         })
     }
     if let Some(reset) = &imp.reset {
         match_arms.extend(quote! {
-            #krate::spec::srst::EID_SRST => #krate::_rustsbi_reset(&self.#reset, param, function),
+            #krate::spec::srst::EID_SRST => #krate::_rustsbi_reset(&self.#reset, #param, #function),
         })
     }
     if let Some(pmu) = &imp.pmu {
         match_arms.extend(quote! {
-            #krate::spec::pmu::EID_PMU => #krate::_rustsbi_pmu(&self.#pmu, param, function),
+            #krate::spec::pmu::EID_PMU => #krate::_rustsbi_pmu(&self.#pmu, #param, #function),
         })
     }
     if let Some(console) = &imp.console {
         match_arms.extend(quote! {
-            #krate::spec::dbcn::EID_DBCN => #krate::_rustsbi_console(&self.#console, param, function),
+            #krate::spec::dbcn::EID_DBCN => #krate::_rustsbi_console(&self.#console, #param, #function),
         })
     }
     if let Some(susp) = &imp.susp {
         match_arms.extend(quote! {
-            #krate::spec::susp::EID_SUSP => #krate::_rustsbi_susp(&self.#susp, param, function),
+            #krate::spec::susp::EID_SUSP => #krate::_rustsbi_susp(&self.#susp, #param, #function),
         })
     }
     if let Some(cppc) = &imp.cppc {
         match_arms.extend(quote! {
-            #krate::spec::cppc::EID_CPPC => #krate::_rustsbi_cppc(&self.#cppc, param, function),
+            #krate::spec::cppc::EID_CPPC => #krate::_rustsbi_cppc(&self.#cppc, #param, #function),
         })
     }
     if let Some(nacl) = &imp.nacl {
         match_arms.extend(quote! {
-            #krate::spec::nacl::EID_NACL => #krate::_rustsbi_nacl(&self.#nacl, param, function),
+            #krate::spec::nacl::EID_NACL => #krate::_rustsbi_nacl(&self.#nacl, #param, #function),
         })
     }
     if let Some(sta) = &imp.sta {
         match_arms.extend(quote! {
-            #krate::spec::sta::EID_STA => #krate::_rustsbi_sta(&self.#sta, param, function),
+            #krate::spec::sta::EID_STA => #krate::_rustsbi_sta(&self.#sta, #param, #function),
         })
     }
     if let Some(mpxy) = &imp.mpxy {
         match_arms.extend(quote! {
-            #krate::spec::mpxy::EID_MPXY => #krate::_rustsbi_mpxy(&self.#mpxy, param, function),
+            #krate::spec::mpxy::EID_MPXY => #krate::_rustsbi_mpxy(&self.#mpxy, #param, #function),
         })
     }
     if let Some(dbtr) = &imp.dbtr {
         match_arms.extend(quote! {
-            #krate::spec::dbtr::EID_DBTR => #krate::_rustsbi_dbtr(&self.#dbtr, param, function),
+            #krate::spec::dbtr::EID_DBTR => #krate::_rustsbi_dbtr(&self.#dbtr, #param, #function),
         })
     }
     if let Some(fwft) = &imp.fwft {
         match_arms.extend(quote! {
-            #krate::spec::fwft::EID_FWFT => #krate::_rustsbi_fwft(&self.#fwft, param, function),
+            #krate::spec::fwft::EID_FWFT => #krate::_rustsbi_fwft(&self.#fwft, #param, #function),
         })
     }
     if let Some(sse) = &imp.sse {
         match_arms.extend(quote! {
-            #krate::spec::sse::EID_SSE => #krate::_rustsbi_sse(&self.#sse, param, function),
+            #krate::spec::sse::EID_SSE => #krate::_rustsbi_sse(&self.#sse, #param, #function),
         })
     }
+    let custom_dispatch = extension::dispatch(extensions, krate);
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let generated = quote! {
     impl #impl_generics #krate::RustSBI for #name #ty_generics #where_clause {
         #[inline]
-        fn handle_ecall(&self, extension: usize, function: usize, param: [usize; 6]) -> #krate::SbiRet {
-            match extension {
+        fn handle_ecall(&self, #extension: usize, #function: usize, #param: [usize; 6]) -> #krate::SbiRet {
+            match #extension {
                 #match_arms
+                #custom_dispatch
                 _ => #krate::SbiRet::not_supported(),
             }
         }
@@ -425,13 +463,17 @@ fn impl_derive_rustsbi_dynamic(
     krate: &proc_macro2::TokenStream,
     imp: DynamicImpl,
     generics: &Generics,
+    extensions: &[extension::Extension],
 ) -> TokenStream {
+    let extension = Ident::new("__rustsbi_extension", Span::mixed_site());
+    let function = Ident::new("__rustsbi_function", Span::mixed_site());
+    let param = Ident::new("__rustsbi_param", Span::mixed_site());
     let mut fence_contents = quote! {};
     let mut prober_fence = quote! {};
     for fence in &imp.fence {
         fence_contents.extend(quote! {
             if #krate::_rustsbi_fence_probe(&self.#fence) != #krate::spec::base::UNAVAILABLE_EXTENSION {
-                return #krate::_rustsbi_fence(&self.#fence, param, function)
+                return #krate::_rustsbi_fence(&self.#fence, #param, #function)
             }
         });
         prober_fence.extend(quote! {
@@ -446,7 +488,7 @@ fn impl_derive_rustsbi_dynamic(
     for timer in &imp.timer {
         timer_contents.extend(quote! {
             if #krate::_rustsbi_timer_probe(&self.#timer) != #krate::spec::base::UNAVAILABLE_EXTENSION {
-                return #krate::_rustsbi_timer(&self.#timer, param, function)
+                return #krate::_rustsbi_timer(&self.#timer, #param, #function)
             }
         });
         prober_timer.extend(quote! {
@@ -461,7 +503,7 @@ fn impl_derive_rustsbi_dynamic(
     for ipi in &imp.ipi {
         ipi_contents.extend(quote! {
             if #krate::_rustsbi_ipi_probe(&self.#ipi) != #krate::spec::base::UNAVAILABLE_EXTENSION {
-                return #krate::_rustsbi_ipi(&self.#ipi, param, function)
+                return #krate::_rustsbi_ipi(&self.#ipi, #param, #function)
             }
         });
         prober_ipi.extend(quote! {
@@ -476,7 +518,7 @@ fn impl_derive_rustsbi_dynamic(
     for hsm in &imp.hsm {
         hsm_contents.extend(quote! {
             if #krate::_rustsbi_hsm_probe(&self.#hsm) != #krate::spec::base::UNAVAILABLE_EXTENSION {
-                return #krate::_rustsbi_hsm(&self.#hsm, param, function)
+                return #krate::_rustsbi_hsm(&self.#hsm, #param, #function)
             }
         });
         prober_hsm.extend(quote! {
@@ -491,7 +533,7 @@ fn impl_derive_rustsbi_dynamic(
     for reset in &imp.reset {
         reset_contents.extend(quote! {
             if #krate::_rustsbi_reset_probe(&self.#reset) != #krate::spec::base::UNAVAILABLE_EXTENSION {
-                return #krate::_rustsbi_reset(&self.#reset, param, function)
+                return #krate::_rustsbi_reset(&self.#reset, #param, #function)
             }
         });
         prober_reset.extend(quote! {
@@ -506,7 +548,7 @@ fn impl_derive_rustsbi_dynamic(
     for pmu in &imp.pmu {
         pmu_contents.extend(quote! {
             if #krate::_rustsbi_pmu_probe(&self.#pmu) != #krate::spec::base::UNAVAILABLE_EXTENSION {
-                return #krate::_rustsbi_pmu(&self.#pmu, param, function)
+                return #krate::_rustsbi_pmu(&self.#pmu, #param, #function)
             }
         });
         prober_pmu.extend(quote! {
@@ -521,7 +563,7 @@ fn impl_derive_rustsbi_dynamic(
     for console in &imp.console {
         console_contents.extend(quote! {
             if #krate::_rustsbi_console_probe(&self.#console) != #krate::spec::base::UNAVAILABLE_EXTENSION {
-                return #krate::_rustsbi_console(&self.#console, param, function)
+                return #krate::_rustsbi_console(&self.#console, #param, #function)
             }
         });
         prober_console.extend(quote! {
@@ -536,7 +578,7 @@ fn impl_derive_rustsbi_dynamic(
     for susp in &imp.susp {
         susp_contents.extend(quote! {
             if #krate::_rustsbi_susp_probe(&self.#susp) != #krate::spec::base::UNAVAILABLE_EXTENSION {
-                return #krate::_rustsbi_susp(&self.#susp, param, function)
+                return #krate::_rustsbi_susp(&self.#susp, #param, #function)
             }
         });
         prober_susp.extend(quote! {
@@ -551,7 +593,7 @@ fn impl_derive_rustsbi_dynamic(
     for cppc in &imp.cppc {
         cppc_contents.extend(quote! {
             if #krate::_rustsbi_cppc_probe(&self.#cppc) != #krate::spec::base::UNAVAILABLE_EXTENSION {
-                return #krate::_rustsbi_cppc(&self.#cppc, param, function)
+                return #krate::_rustsbi_cppc(&self.#cppc, #param, #function)
             }
         });
         prober_cppc.extend(quote! {
@@ -566,7 +608,7 @@ fn impl_derive_rustsbi_dynamic(
     for nacl in &imp.nacl {
         nacl_contents.extend(quote! {
             if #krate::_rustsbi_nacl_probe(&self.#nacl) != #krate::spec::base::UNAVAILABLE_EXTENSION {
-                return #krate::_rustsbi_nacl(&self.#nacl, param, function)
+                return #krate::_rustsbi_nacl(&self.#nacl, #param, #function)
             }
         });
         prober_nacl.extend(quote! {
@@ -581,7 +623,7 @@ fn impl_derive_rustsbi_dynamic(
     for sta in &imp.sta {
         sta_contents.extend(quote! {
             if #krate::_rustsbi_sta_probe(&self.#sta) != #krate::spec::base::UNAVAILABLE_EXTENSION {
-                return #krate::_rustsbi_sta(&self.#sta, param, function)
+                return #krate::_rustsbi_sta(&self.#sta, #param, #function)
             }
         });
         prober_sta.extend(quote! {
@@ -596,7 +638,7 @@ fn impl_derive_rustsbi_dynamic(
     for mpxy in &imp.mpxy {
         mpxy_contents.extend(quote! {
             if #krate::_rustsbi_mpxy_probe(&self.#mpxy) != #krate::spec::base::UNAVAILABLE_EXTENSION {
-                return #krate::_rustsbi_mpxy(&self.#mpxy, param, function)
+                return #krate::_rustsbi_mpxy(&self.#mpxy, #param, #function)
             }
         });
         prober_mpxy.extend(quote! {
@@ -611,7 +653,7 @@ fn impl_derive_rustsbi_dynamic(
     for dbtr in &imp.dbtr {
         dbtr_contents.extend(quote! {
             if #krate::_rustsbi_dbtr_probe(&self.#dbtr) != #krate::spec::base::UNAVAILABLE_EXTENSION {
-                return #krate::_rustsbi_dbtr(&self.#dbtr, param, function)
+                return #krate::_rustsbi_dbtr(&self.#dbtr, #param, #function)
             }
         });
         prober_dbtr.extend(quote! {
@@ -626,7 +668,7 @@ fn impl_derive_rustsbi_dynamic(
     for fwft in &imp.fwft {
         fwft_contents.extend(quote! {
             if #krate::_rustsbi_fwft_probe(&self.#fwft) != #krate::spec::base::UNAVAILABLE_EXTENSION {
-                return #krate::_rustsbi_fwft(&self.#fwft, param, function)
+                return #krate::_rustsbi_fwft(&self.#fwft, #param, #function)
             }
         });
         prober_fwft.extend(quote! {
@@ -641,7 +683,7 @@ fn impl_derive_rustsbi_dynamic(
     for sse in &imp.sse {
         sse_contents.extend(quote! {
             if #krate::_rustsbi_sse_probe(&self.#sse) != #krate::spec::base::UNAVAILABLE_EXTENSION {
-                return #krate::_rustsbi_sse(&self.#sse, param, function)
+                return #krate::_rustsbi_sse(&self.#sse, #param, #function)
             }
         });
         prober_sse.extend(quote! {
@@ -662,12 +704,13 @@ fn impl_derive_rustsbi_dynamic(
     };
     let (impl_generics, ty_generics, where_clause) = prober_generics.split_for_impl();
 
+    let custom_probe = extension::probe(extensions, krate, quote! { self.0 });
     let define_prober = quote! {
         struct _Prober #impl_generics (&'_lt #name #origin_ty_generics) #where_clause;
         impl #impl_generics #krate::_ExtensionProbe for _Prober #ty_generics #where_clause {
             #[inline(always)]
-            fn probe_extension(&self, extension: usize) -> usize {
-                match extension {
+            fn probe_extension(&self, #extension: usize) -> usize {
+                match #extension {
                     #krate::spec::base::EID_BASE => 1,
                     #krate::spec::time::EID_TIME => { #prober_timer #krate::spec::base::UNAVAILABLE_EXTENSION },
                     #krate::spec::spi::EID_SPI => { #prober_ipi #krate::spec::base::UNAVAILABLE_EXTENSION },
@@ -684,6 +727,7 @@ fn impl_derive_rustsbi_dynamic(
                     #krate::spec::dbtr::EID_DBTR => { #prober_dbtr #krate::spec::base::UNAVAILABLE_EXTENSION},
                     #krate::spec::fwft::EID_FWFT => { #prober_fwft #krate::spec::base::UNAVAILABLE_EXTENSION},
                     #krate::spec::sse::EID_SSE => { #prober_sse #krate::spec::base::UNAVAILABLE_EXTENSION},
+                    #custom_probe
                     _ => #krate::spec::base::UNAVAILABLE_EXTENSION,
                 }
             }
@@ -691,7 +735,7 @@ fn impl_derive_rustsbi_dynamic(
     };
     let base_result = if let Some(env_info) = imp.env_info {
         quote! {
-            #krate::_rustsbi_base_env_info(param, function, &self.#env_info, prober)
+            #krate::_rustsbi_base_env_info(#param, #function, &self.#env_info, prober)
         }
     } else {
         match () {
@@ -705,16 +749,17 @@ fn impl_derive_rustsbi_dynamic(
             },
             #[cfg(feature = "machine")]
             () => quote! {
-                #krate::_rustsbi_base_bare(param, function, prober)
+                #krate::_rustsbi_base_bare(#param, #function, prober)
             },
         }
     };
+    let custom_dispatch = extension::dispatch(extensions, krate);
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let generated = quote! {
         impl #impl_generics #krate::RustSBI for #name #ty_generics #where_clause {
             #[inline]
-            fn handle_ecall(&self, extension: usize, function: usize, param: [usize; 6]) -> #krate::SbiRet {
-                match extension {
+            fn handle_ecall(&self, #extension: usize, #function: usize, #param: [usize; 6]) -> #krate::SbiRet {
+                match #extension {
                     #krate::spec::rfnc::EID_RFNC => { #fence_contents #krate::SbiRet::not_supported() },
                     #krate::spec::time::EID_TIME => { #timer_contents #krate::SbiRet::not_supported() },
                     #krate::spec::spi::EID_SPI => { #ipi_contents #krate::SbiRet::not_supported() },
@@ -735,6 +780,7 @@ fn impl_derive_rustsbi_dynamic(
                         let prober = _Prober(&self);
                         #base_result
                     }
+                    #custom_dispatch
                     _ => #krate::SbiRet::not_supported(),
                 }
             }

@@ -224,6 +224,8 @@ fn publish_sbi_dispatcher(
         pmu,
         sta,
         mpxy,
+        andes: sbi::allwinner_v821::Andes::new(supervisor_memory),
+        awbase: sbi::allwinner_v821::Awbase::new(),
     });
 }
 

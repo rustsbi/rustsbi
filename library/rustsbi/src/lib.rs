@@ -426,47 +426,45 @@
 //! function. RustSBI will handle with SBI standard constants, call the corresponding extension field
 //! and provide parameters according to the extension and function IDs (if applicable).
 //!
-//! Crate `rustsbi` adapts to standard RISC-V SBI calls.
-//! If the hypervisor has custom SBI extensions that RustSBI does not recognize, those extension
-//! and function IDs can be checked before calling RustSBI `env.handle_ecall`.
+//! Custom extensions can implement [`Extension`] and bind their EID on a field. The derive
+//! macro generates both call dispatch and BASE probing from the same declaration:
 //!
-//! ```no_run
-//! # use sbi_spec::binary::{SbiRet, HartMask};
-//! # struct MyExtensionSBI {}
-//! # impl MyExtensionSBI { fn handle_ecall(&self, params: ()) -> SbiRet { SbiRet::success(0) } }
-//! # struct MySBI {} // Mock, prevent doc test error when feature singleton is enabled
-//! # impl MySBI { fn handle_ecall(&self, params: ()) -> SbiRet { SbiRet::success(0) } }
-//! # struct VmHart { my_extension_sbi: MyExtensionSBI, sbi: MySBI }
-//! # #[derive(Copy, Clone)] enum Trap { Exception(Exception) }
-//! # impl Trap { fn cause(&self) -> Self { *self } }
-//! # #[derive(Copy, Clone)] enum Exception { SupervisorEcall }
-//! # impl VmHart {
-//! #     fn new() -> VmHart { VmHart { my_extension_sbi: MyExtensionSBI {}, sbi: MySBI {} } }
-//! #     fn run(&mut self) -> Trap { Trap::Exception(Exception::SupervisorEcall) }
-//! #     fn trap_params(&self) -> () { }
-//! #     fn fill_in(&mut self, ans: SbiRet) { let _ = ans; }
-//! # }
-//! let mut hart = VmHart::new();
-//! loop {
-//!     let trap = hart.run();
-//!     if let Trap::Exception(Exception::SupervisorEcall) = trap.cause() {
-//!         // Firstly, handle custom extensions
-//!         let my_extension_sbiret = hart.my_extension_sbi.handle_ecall(hart.trap_params());
-//!         // If the custom extension handles correctly, fill in its result and continue to hart.
-//!         // The custom handler may handle `probe_extension` in `base` extension as well
-//!         // to allow detections to whether a custom extension exists.
-//!         if my_extension_sbiret != SbiRet::not_supported() {
-//!             hart.fill_in(my_extension_sbiret);
-//!             continue;
+//! ```
+//! use rustsbi::{Extension, RustSBI, SbiRet};
+//!
+//! const EID_EXAMPLE: usize = 0x0800_0000;
+//!
+//! #[derive(RustSBI)]
+//! struct MySbi {
+//!     #[rustsbi(extension(eid = EID_EXAMPLE))]
+//!     example: Option<Example>,
+//!     info: Info,
+//! }
+//!
+//! struct Example;
+//! impl Extension for Example {
+//!     fn probe(&self) -> usize { 1 }
+//!     fn handle(&self, fid: usize, args: [usize; 6]) -> SbiRet {
+//!         match fid {
+//!             0 => SbiRet::success(args[0]),
+//!             _ => SbiRet::not_supported(),
 //!         }
-//!         // Then, if it's not a custom extension, handle it using standard SBI handler.
-//!         let standard_sbiret = hart.sbi.handle_ecall(hart.trap_params());
-//!         hart.fill_in(standard_sbiret);
 //!     }
 //! }
+//! # struct Info;
+//! # impl rustsbi::EnvInfo for Info {
+//! #     fn mvendorid(&self) -> usize { 0 }
+//! #     fn marchid(&self) -> usize { 0 }
+//! #     fn mimpid(&self) -> usize { 0 }
+//! # }
+//! let sbi = MySbi { example: Some(Example), info: Info };
+//! assert_eq!(sbi.handle_ecall(EID_EXAMPLE, 0, [42; 6]), SbiRet::success(42));
+//! assert_eq!(sbi.handle_ecall(0x10, 3, [EID_EXAMPLE, 0, 0, 0, 0, 0]), SbiRet::success(1));
 //! ```
 //!
-//! RustSBI would interact well with custom extension environments in this way.
+//! The same attribute works with `#[rustsbi(dynamic)]`. Custom extensions are dispatched
+//! after standard extensions and cannot override standard EIDs. An unavailable extension
+//! returns `SbiRet::not_supported()`.
 //!
 //! ## Emulators using RustSBI
 //!
@@ -543,6 +541,7 @@
 mod console;
 mod cppc;
 mod dbtr;
+mod extension;
 mod fwft;
 mod hsm;
 mod ipi;
@@ -1140,6 +1139,7 @@ pub use rustsbi_macros::RustSBI;
 pub use console::Console;
 pub use cppc::Cppc;
 pub use dbtr::Dbtr;
+pub use extension::Extension;
 pub use fwft::Fwft;
 pub use hsm::Hsm;
 pub use ipi::Ipi;

@@ -104,6 +104,13 @@ pub trait _ExtensionProbe {
     fn probe_extension(&self, extension: usize) -> usize;
 }
 
+impl<F: Fn(usize) -> usize> _ExtensionProbe for F {
+    #[inline]
+    fn probe_extension(&self, extension: usize) -> usize {
+        self(extension)
+    }
+}
+
 #[doc(hidden)]
 pub struct _StandardExtensionProbe {
     pub base: usize,
