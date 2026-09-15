@@ -16,6 +16,18 @@ pub trait TimerDevice: Sync {
 
     /// Reads a device-provided time counter when one exists.
     fn read_time(&self) -> Option<u64>;
+
+    /// Reads a direct device counter word without probing the architecture CSR.
+    #[inline]
+    fn read_time_low(&self) -> Option<usize> {
+        None
+    }
+    /// Reads a direct device counter high word on RV32.
+    #[cfg(target_pointer_width = "32")]
+    #[inline]
+    fn read_time_high(&self) -> Option<usize> {
+        None
+    }
 }
 
 /// Publishes the platform timer service once during boot.

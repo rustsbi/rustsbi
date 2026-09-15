@@ -178,14 +178,29 @@ pub fn emulate_store(frame: &mut TrapFrame) -> Result<(), Error> {
     })
 }
 
+/// Reads a counter word directly when the platform supplies MMIO time.
+pub(super) fn device_counter_word(csr: u16) -> Option<usize> {
+    let timer = crate::timer::get()?;
+    match csr {
+        CSR_TIME => timer.read_time_low(),
+        #[cfg(target_pointer_width = "32")]
+        CSR_TIMEH => timer.read_time_high(),
+        _ => None,
+    }
+}
+
 /// Reads the requested counter word (`time`, or `timeh` on RV32).
 ///
-/// The architecture CSR is always tried first under the recovery guard;
+/// A direct device counter is used when provided; otherwise the architecture
+/// CSR is tried under the recovery guard;
 /// only when the hart lacks the counter does the emulation consult the
 /// injected platform time source (a memory-mapped `mtime`). If neither
 /// exists, the caller redirects the original illegal instruction (design
 /// section 11.3, revised 2026-09-06).
 fn counter_word(csr: u16) -> Result<usize, Error> {
+    if let Some(value) = device_counter_word(csr) {
+        return Ok(value);
+    }
     match csr {
         CSR_TIME => match recovery::read_csr_guarded::<CSR_TIME>() {
             Ok(value) => Ok(value),

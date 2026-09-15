@@ -32,6 +32,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Allow timer backends to provide direct counter words for CSR emulation without probing architecture CSRs.
 - Reject CSRRS writes during read-only CSR emulation instead of silently treating them as reads.
 - Omit x0 storage from trap frames while preserving register mapping and ABI stack alignment.
 - Avoid locking side-effect-free timer reads while keeping comparator writes serialized.

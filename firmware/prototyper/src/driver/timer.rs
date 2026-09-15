@@ -18,6 +18,18 @@ pub(crate) trait TimerBackend: Send + Sync {
     fn read_time(&self) -> Option<u64> {
         None
     }
+
+    /// Reads a direct low counter word when the device requires MMIO time.
+    #[inline]
+    fn read_time_low(&self) -> Option<usize> {
+        None
+    }
+    /// Reads a direct high counter word on RV32.
+    #[cfg(target_pointer_width = "32")]
+    #[inline]
+    fn read_time_high(&self) -> Option<usize> {
+        None
+    }
 }
 
 /// Timer implementation using the Sstc `stimecmp` CSR.
@@ -78,6 +90,16 @@ impl runtime::timer::TimerDevice for TimerDevice {
 
     fn read_time(&self) -> Option<u64> {
         TimerDevice::read_time(self)
+    }
+
+    #[inline]
+    fn read_time_low(&self) -> Option<usize> {
+        self.backend.read_time_low()
+    }
+    #[cfg(target_pointer_width = "32")]
+    #[inline]
+    fn read_time_high(&self) -> Option<usize> {
+        self.backend.read_time_high()
     }
 }
 
