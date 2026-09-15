@@ -32,6 +32,7 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Modified
 - Inline Runtime MMIO reads and address validation into device access paths.
+- Reuse Runtime Sstc detection and skip firmware PMU bookkeeping when no PMU is installed.
 - Preserve `mstatus` and declare all clobbers across guarded CSR and memory fault recovery.
 - Split the test kernel into boot, platform, PMU, RFENCE, misaligned-access and trap modules.
 - Compose SBI extensions in Prototyper over Runtime trap and hart mechanisms and independent devices.

@@ -10,7 +10,6 @@
 use super::pmu::pmu_firmware_counter_increment;
 use crate::driver::timer::TimerDevice;
 use crate::riscv::csr::{mie, mip, stimecmp};
-use crate::sbi::features::{Extension, hart_has_extension};
 use runtime::hart::HartId;
 use sbi_spec::pmu::firmware_event;
 
@@ -28,7 +27,7 @@ impl runtime::rustsbi::Timer for SbiTimer {
             .expect("BUG: current hart exceeds Runtime capacity")
             .as_usize();
 
-        if hart_has_extension(hart_id, Extension::Sstc) {
+        if runtime::trap::has_sstc() {
             stimecmp::set(stime_value);
         } else {
             self.device.set_timer(hart_id, stime_value);

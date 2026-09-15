@@ -1197,6 +1197,9 @@ impl Iterator for CounterMask {
 }
 
 pub fn pmu_firmware_counter_increment(firmware_event: usize) {
+    if super::pmu().is_none() {
+        return;
+    }
     with_current(|local| {
         local.with_pmu(|pmu_state| {
             // Most SBI calls run without firmware event counters enabled.

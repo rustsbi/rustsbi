@@ -88,8 +88,10 @@ pub(crate) fn policy() -> &'static (dyn RustSBI + Sync) {
         .expect("initialized phase implies a policy")
 }
 
-/// Returns whether the current hart implements the Sstc `stimecmp` CSR.
-pub(crate) fn has_sstc() -> bool {
+/// Returns the current hart's Sstc capability cached by [`init`].
+/// Returns false until trap initialization has probed the CSR.
+#[inline]
+pub fn has_sstc() -> bool {
     let hart = current_hart().as_usize();
     let state = HARTS
         .get(hart)
