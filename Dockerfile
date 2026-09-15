@@ -1,4 +1,5 @@
-FROM ubuntu:24.04
+# QEMU >= 9.1 fixes zero-valued CSRRS writes to read-only CSRs.
+FROM ubuntu:26.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH=/root/.cargo/bin:${PATH}
@@ -10,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     device-tree-compiler \
     git \
     pkg-config \
-    qemu-system-misc \
+    qemu-system-riscv \
     u-boot-tools \
     && rm -rf /var/lib/apt/lists/*
 

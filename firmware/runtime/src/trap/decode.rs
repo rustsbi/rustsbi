@@ -146,6 +146,10 @@ pub(crate) fn decode_store(raw: u32) -> Result<StoreOp, Error> {
 
 /// Decode a trapped instruction as a CSR read.
 pub(crate) fn decode_csr_read(raw: u32) -> Result<CsrReadOp, Error> {
+    // Pure CSRRS reads require rs1 = x0.
+    if raw & 0x000f_f07f != 0x2073 {
+        return Err(Error::UnsupportedInstruction);
+    }
     let op = match riscv_decode::decode(raw) {
         Ok(Instruction::Csrrs(i)) => CsrReadOp {
             csr: i.csr() as u16,

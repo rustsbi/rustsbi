@@ -94,7 +94,8 @@ jobs:
 
   qemu-boot-tests:
     name: Run prototyper QEMU boot tests
-    runs-on: ubuntu-latest
+    # QEMU >= 9.1 fixes zero-valued CSRRS writes to read-only CSRs.
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -102,7 +103,8 @@ jobs:
       - name: Install dev dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-misc u-boot-tools
+          sudo apt-get install -y qemu-system-riscv u-boot-tools
+          qemu-system-riscv64 --version
 
       - name: Install required cargo
         run: cargo install --locked cargo-binutils@0.4.0

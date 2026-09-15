@@ -144,12 +144,34 @@ fn test_redirected_traps() {
             out("t2") _,
         );
         let cause = core::ptr::read_volatile(&raw const TRAP_CAUSE);
+        let mut write_causes = [0; 2];
+        for (mask, cause) in [0usize, 1].into_iter().zip(&mut write_causes) {
+            core::ptr::write_volatile(&raw mut TRAP_CAUSE, 0);
+            // A non-x0 source attempts a write even when its value is zero.
+            asm!(
+                ".option push",
+                ".option norvc",
+                "csrrs zero, time, a0",
+                ".option pop",
+                in("a0") mask,
+                out("t0") _,
+                out("t1") _,
+                out("t2") _,
+            );
+            *cause = core::ptr::read_volatile(&raw const TRAP_CAUSE);
+        }
         // Restore the vector before an assertion can panic.
         asm!("csrw stvec, {value}", value = in(reg) old_stvec);
         assert_eq!(
             cause, ILLEGAL_INSTRUCTION,
             "unknown CSR must redirect to S-mode"
         );
+        for cause in write_causes {
+            assert_eq!(
+                cause, ILLEGAL_INSTRUCTION,
+                "a write to time must redirect to S-mode"
+            );
+        }
     }
     println!("[trap] redirected traps survived");
 }
