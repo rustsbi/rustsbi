@@ -80,6 +80,7 @@ pub(crate) extern "C" fn trap_dispatch(frame: &mut TrapFrame) {
 
 /// Redirect with the emulation failure's secondary facts, or fail-stop when
 /// even the redirect is impossible.
+#[inline(never)]
 fn redirect_or_fatal(error: Option<Error>) {
     let secondary = match error {
         Some(Error::MemoryFault { cause, tval }) => Some((cause, tval)),
@@ -148,6 +149,7 @@ fn sbi_ecall(frame: &mut TrapFrame) {
 /// Illegal-instruction handling for pure `time`/`timeh` reads (design
 /// section 11): decode the instruction, obtain the counter through the
 /// guarded architecture read, and commit or redirect.
+#[inline(never)]
 fn illegal_instruction(frame: &mut TrapFrame) {
     if let Some(counters) = crate::events::get() {
         counters.record_illegal_instruction();
@@ -158,6 +160,7 @@ fn illegal_instruction(frame: &mut TrapFrame) {
 }
 
 /// Misaligned integer load/store emulation.
+#[inline(never)]
 fn misaligned(frame: &mut TrapFrame, access: Access) {
     let result = match access {
         Access::Load => {
@@ -186,6 +189,7 @@ enum Access {
 /// The machine software interrupt transport: a staged hart start performs
 /// the next-stage entry; otherwise the pending SBI software interrupt (and
 /// any queued remote-fence work) is delivered.
+#[inline(never)]
 fn machine_soft(frame: &mut TrapFrame) {
     let ipi = crate::ipi::get().expect("BUG: software interrupt without an IPI device");
     ipi.clear_current()
@@ -218,6 +222,7 @@ fn machine_timer() {
 
 /// The machine external interrupt transport: the platform's IPI identity
 /// carries the same delivery work as the machine software interrupt.
+#[inline(never)]
 fn machine_external(frame: &mut TrapFrame) {
     let Some(controller) = crate::irq::get() else {
         return;
