@@ -19,17 +19,13 @@ pub mod cfg;
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub mod csr;
 mod device_tree;
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub mod events;
 pub mod hart;
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub mod ipi;
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub mod irq;
 pub mod memory;
 mod spacemit_k1;
 mod sunxi_rtc_v203;
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub mod timer;
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub mod trap;

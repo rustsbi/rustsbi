@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file. See [conven
 ## Unreleased
 
 ### Added
+- Make Runtime's event, IPI, interrupt-controller and timer service interfaces available on host targets.
 - Add a separate Sunxi WDT V105 reboot backend, discovering watchdog and RTC V203 GPRCM addresses from the device tree.
 - Add test-kernel checks for misaligned accesses, trap register preservation and redirection.
 - Add Runtime-owned trap handling, guarded CSR access, hart lifecycle and local storage.
