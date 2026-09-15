@@ -15,6 +15,8 @@ use spin::{Mutex, Once};
 
 pub(crate) const EXTENSION: usize = 0x0900_031e;
 static CACHE: Once<Mutex<V821Cache>> = Once::new();
+static USB_DMA_BYPASS: Once<Mutex<MmioRegion>> = Once::new();
+pub(crate) const AWBASE_EXTENSION: usize = 0x5445_5335;
 
 struct V821Cache {
     l2: MmioRegion,
@@ -23,6 +25,7 @@ struct V821Cache {
 pub(crate) fn initialize(
     _soc: AllwinnerV821Registers,
     registers: DeviceRegisterRange,
+    usb_dma_bypass: Option<DeviceRegisterRange>,
     memory: &mut MemoryRegistry,
     hart_count: usize,
 ) -> runtime::Result<()> {
@@ -50,7 +53,33 @@ pub(crate) fn initialize(
     l2.write(8, control | (1 << 13) | (1 << 10) | 1)?;
     riscv::asm::fence();
     CACHE.call_once(|| Mutex::new(V821Cache { l2 }));
+    if let Some(registers) = usb_dma_bypass {
+        let region = memory.acquire_mmio(registers)?;
+        USB_DMA_BYPASS.call_once(|| Mutex::new(region));
+    }
     Ok(())
+}
+
+/// V821 AWBASE USB enable sets DMA_WORDADD_BYPASS after Linux enables its clocks.
+pub(crate) fn handle_awbase(function: usize) -> SbiRet {
+    let Some(register) = USB_DMA_BYPASS.get() else {
+        return SbiRet::not_supported();
+    };
+    if function != 11 {
+        return SbiRet::not_supported();
+    }
+    riscv::asm::fence();
+    match register.lock().write(0, 1u32) {
+        Ok(()) => {
+            riscv::asm::fence();
+            SbiRet::success(0)
+        }
+        Err(_) => SbiRet::failed(),
+    }
+}
+
+pub(crate) fn awbase_available() -> bool {
+    USB_DMA_BYPASS.get().is_some()
 }
 
 pub(crate) fn available() -> bool {

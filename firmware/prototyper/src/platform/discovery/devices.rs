@@ -82,7 +82,9 @@ fn discover_node(
         && node
             .get_prop("cache-level")
             .is_some_and(|p| p.deserialize::<u32>() == 2);
-    let has_supported_mmio_device = has_supported_mmio_device || is_v821_l2;
+    let is_v821_usb =
+        board.allwinner_v821.is_some() && compatibles.iter().any(|s| s == "allwinner,sunxi-udc");
+    let has_supported_mmio_device = has_supported_mmio_device || is_v821_l2 || is_v821_usb;
     if !has_supported_pmic && !has_supported_mmio_device {
         return Ok(());
     }
@@ -99,6 +101,14 @@ fn discover_node(
         .ok_or(runtime::Error::InvalidArgs)?;
     let primary_register_range = registers[0];
 
+    if is_v821_usb
+        && board
+            .v821_usb
+            .replace(primary_register_range.subrange(0x5c0, 4)?)
+            .is_some()
+    {
+        return Err(runtime::Error::InvalidArgs);
+    }
     if is_v821_l2 && board.andes_l2.replace(primary_register_range).is_some() {
         return Err(runtime::Error::InvalidArgs);
     }

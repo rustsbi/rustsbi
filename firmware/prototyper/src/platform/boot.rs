@@ -70,6 +70,7 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
                 .andes_l2
                 .ok_or(runtime::Error::InvalidArgs)
                 .during("locating V821 L2 cache")?,
+            board.v821_usb,
             &mut memory,
             board.hart_count,
         )

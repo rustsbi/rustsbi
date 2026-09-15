@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file. See [conven
 ## Unreleased
 
 ### Added
+- Support V821 AWBASE USB enable through the DTB-described DMA word-address bypass register.
 - Support V821 Andes cache-maintenance SBI calls using the device-tree L2 cache window.
 - Configure the V821 noncacheable physical alias through PMA15.
 - Support the Avaota F1 noncacheable RAM alias in PMP while denying aliases of firmware memory.
