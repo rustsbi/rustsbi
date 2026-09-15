@@ -32,6 +32,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Avoid full-context time reads for caller-saved destinations.
 - Skip trap CSR recovery bookkeeping when emulating an instruction supplied in mtval with a direct device counter.
 - Allow timer backends to provide direct counter words for CSR emulation without probing architecture CSRs.
 - Reject CSRRS writes during read-only CSR emulation instead of silently treating them as reads.

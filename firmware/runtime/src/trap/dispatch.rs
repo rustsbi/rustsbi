@@ -289,3 +289,51 @@ pub(crate) unsafe fn stage_next_mode(start_addr: usize, next_mode: mstatus::MPP)
         mepc::write(start_addr);
     }
 }
+
+/// Handles caller-saved time destinations before saving s0-s11.
+/// For example, `rdtime a0` writes a caller-saved register and can return here;
+/// `rdtime s0` needs the full frame and continues to normal emulation.
+///
+/// # Safety
+/// Entry has initialized the caller-saved slots and trap CSRs, but not s0-s11.
+/// Access only initialized fields through raw pointers; never borrow the full frame.
+#[inline(never)]
+pub(super) unsafe extern "C" fn try_fast_emulate_time(frame: *mut TrapFrame) -> bool {
+    // SAFETY: these CSR slots are initialized by entry before this call.
+    let (status, cause, inst, pc) = unsafe {
+        (
+            (*frame).mstatus,
+            (*frame).mcause,
+            (*frame).mtval as u32,
+            (*frame).mepc,
+        )
+    };
+    let rd = ((inst >> 7) & 31) as usize;
+    if cause != ILLEGAL_INSTRUCTION
+        || status & 0x1800 == 0x1800
+        || inst & 0x000f_f07f != 0x2073
+        || !matches!(rd, 0 | 1 | 5..=7 | 10..=17 | 28..=31)
+    {
+        return false;
+    }
+    let Some(value) = emulate::device_counter_word((inst >> 20) as u16) else {
+        return false;
+    };
+    if let Some(counters) = crate::events::get() {
+        counters.record_illegal_instruction();
+    }
+    if rd != 0 {
+        // SAFETY: rd names an initialized caller-saved slot within the allocated frame.
+        unsafe {
+            core::ptr::addr_of_mut!((*frame).x)
+                .cast::<usize>()
+                .add(rd - 1)
+                .write(value);
+        }
+    }
+    // SAFETY: the pure 32-bit CSR read completed; other trap CSRs were not modified.
+    unsafe {
+        mepc::write(pc.wrapping_add(4));
+    }
+    true
+}

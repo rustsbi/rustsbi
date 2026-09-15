@@ -109,8 +109,7 @@ pub unsafe extern "C" fn trap_entry() {
         // Lower-origin trap: sp = the clean stack top; allocate the frame.
         "1:",
         "addi sp, sp, -{frame_size}",
-        // Save every general-purpose register except x2 (in mscratch) and
-        // x0 (hardwired to zero).
+        // Save caller-saved registers first; defer s0-s11 until needed.
         // Slots omit x0: register xN uses sp[N - 1], so ra (x1) uses sp[0].
         save_word!(ra => sp[0]),
         save_word!(gp => sp[2]),
@@ -118,8 +117,6 @@ pub unsafe extern "C" fn trap_entry() {
         save_word!(t0 => sp[4]),
         save_word!(t1 => sp[5]),
         save_word!(t2 => sp[6]),
-        save_word!(s0 => sp[7]),
-        save_word!(s1 => sp[8]),
         save_word!(a0 => sp[9]),
         save_word!(a1 => sp[10]),
         save_word!(a2 => sp[11]),
@@ -128,16 +125,6 @@ pub unsafe extern "C" fn trap_entry() {
         save_word!(a5 => sp[14]),
         save_word!(a6 => sp[15]),
         save_word!(a7 => sp[16]),
-        save_word!(s2 => sp[17]),
-        save_word!(s3 => sp[18]),
-        save_word!(s4 => sp[19]),
-        save_word!(s5 => sp[20]),
-        save_word!(s6 => sp[21]),
-        save_word!(s7 => sp[22]),
-        save_word!(s8 => sp[23]),
-        save_word!(s9 => sp[24]),
-        save_word!(s10 => sp[25]),
-        save_word!(s11 => sp[26]),
         save_word!(t3 => sp[27]),
         save_word!(t4 => sp[28]),
         save_word!(t5 => sp[29]),
@@ -158,31 +145,29 @@ pub unsafe extern "C" fn trap_entry() {
         // Zero the sentinel before entering Runtime Rust; a nested trap now
         // fail-stops through the sentinel branch.
         "csrw mscratch, zero",
+        "csrr t0, mcause",
+        "li t1, 2",
+        "bne t0, t1, 2f",
+        "mv a0, sp",
+        "call {fast_time}",
+        "bnez a0, 3f",
+        "2:",
+        save_word!(s0 => sp[7]),
+        save_word!(s1 => sp[8]),
+        save_word!(s2 => sp[17]),
+        save_word!(s3 => sp[18]),
+        save_word!(s4 => sp[19]),
+        save_word!(s5 => sp[20]),
+        save_word!(s6 => sp[21]),
+        save_word!(s7 => sp[22]),
+        save_word!(s8 => sp[23]),
+        save_word!(s9 => sp[24]),
+        save_word!(s10 => sp[25]),
+        save_word!(s11 => sp[26]),
         "mv a0, sp",
         "call {dispatch}",
-        // Return path: publish the clean top into mscratch first, so no
-        // untrusted lower pointer is ever interpreted as a Runtime stack.
-        "addi t1, sp, {frame_size}",
-        "csrw mscratch, t1",
-        // Restore every register except x2 (sp); t0/t1 restore normally —
-        // the trapped x2 loads last, directly into sp: the base uses the
-        // frame pointer for this final access, so no scratch register is
-        // consumed and none of the restored values is clobbered.
-        // Slots omit x0: register xN uses sp[N - 1], so ra (x1) uses sp[0].
-        load_word!(sp[0] => ra),
-        load_word!(sp[2] => gp),
-        load_word!(sp[3] => tp),
-        load_word!(sp[6] => t2),
         load_word!(sp[7] => s0),
         load_word!(sp[8] => s1),
-        load_word!(sp[9] => a0),
-        load_word!(sp[10] => a1),
-        load_word!(sp[11] => a2),
-        load_word!(sp[12] => a3),
-        load_word!(sp[13] => a4),
-        load_word!(sp[14] => a5),
-        load_word!(sp[15] => a6),
-        load_word!(sp[16] => a7),
         load_word!(sp[17] => s2),
         load_word!(sp[18] => s3),
         load_word!(sp[19] => s4),
@@ -193,6 +178,28 @@ pub unsafe extern "C" fn trap_entry() {
         load_word!(sp[24] => s9),
         load_word!(sp[25] => s10),
         load_word!(sp[26] => s11),
+        "3:",
+        // Return path: publish the clean top into mscratch first, so no
+        // untrusted lower pointer is ever interpreted as a Runtime stack.
+        "addi t1, sp, {frame_size}",
+        "csrw mscratch, t1",
+        // Restore the remaining saved registers except x2 (sp); t0/t1 restore normally —
+        // the trapped x2 loads last, directly into sp: the base uses the
+        // frame pointer for this final access, so no scratch register is
+        // consumed and none of the restored values is clobbered.
+        // Slots omit x0: register xN uses sp[N - 1], so ra (x1) uses sp[0].
+        load_word!(sp[0] => ra),
+        load_word!(sp[2] => gp),
+        load_word!(sp[3] => tp),
+        load_word!(sp[6] => t2),
+        load_word!(sp[9] => a0),
+        load_word!(sp[10] => a1),
+        load_word!(sp[11] => a2),
+        load_word!(sp[12] => a3),
+        load_word!(sp[13] => a4),
+        load_word!(sp[14] => a5),
+        load_word!(sp[15] => a6),
+        load_word!(sp[16] => a7),
         load_word!(sp[27] => t3),
         load_word!(sp[28] => t4),
         load_word!(sp[29] => t5),
@@ -205,6 +212,7 @@ pub unsafe extern "C" fn trap_entry() {
         "mret",
         frame_size = const FRAME_BYTES,
         dispatch = sym trap_dispatch,
+        fast_time = sym super::dispatch::try_fast_emulate_time,
         fail_stop = sym crate::boot::fail_stop,
     );
 }
