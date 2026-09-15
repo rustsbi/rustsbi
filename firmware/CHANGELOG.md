@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file. See [conven
 ## Unreleased
 
 ### Added
+- Support the Avaota F1 noncacheable RAM alias in PMP while denying aliases of firmware memory.
 - Discover and bind Andes PLMT timers and Sunxi PLICSW IPIs through the device tree.
 - Describe V821 PLMT clock control and its noncacheable alias from the device-tree root compatible.
 - Add configurable timer expiry acknowledgement while retaining explicit cancellation.

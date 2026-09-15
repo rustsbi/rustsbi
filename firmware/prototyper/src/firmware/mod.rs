@@ -733,8 +733,30 @@ pub fn set_pmp(firmware_ram: &Range<usize>) {
         pmpaddr5::write(FIRMWARE_END_ADDRESS >> 2);
         set_pmp_config(6, Range::TOR, Permission::RWX, false);
         pmpaddr6::write(firmware_ram.end >> 2);
-        set_pmp_config(7, Range::TOR, Permission::RWX, false);
-        pmpaddr7::write(usize::MAX >> 2);
+        if crate::platform::board_info()
+            .allwinner_v821
+            .map_or(0, |soc| soc.noncacheable_offset())
+            != 0
+        {
+            let alias = crate::platform::board_info()
+                .allwinner_v821
+                .map_or(0, |soc| soc.noncacheable_offset());
+            assert!(alias.is_power_of_two() && alias >= firmware_ram.end as u64);
+            let start = (FIRMWARE_START_ADDRESS as u64).checked_add(alias).unwrap();
+            let end = (FIRMWARE_END_ADDRESS as u64).checked_add(alias).unwrap();
+            assert!(end >> 2 <= usize::MAX as u64);
+            // Deny the firmware alias before permitting the wider physical address space.
+            set_pmp_config(7, Range::OFF, Permission::NONE, false);
+            pmpaddr7::write((start >> 2) as usize);
+            set_pmp_config(8, Range::TOR, Permission::NONE, false);
+            pmpaddr8::write((end >> 2) as usize);
+            assert_eq!(pmpaddr8::read(), (end >> 2) as usize);
+            set_pmp_config(9, Range::NAPOT, Permission::RWX, false);
+            pmpaddr9::write(usize::MAX);
+        } else {
+            set_pmp_config(7, Range::TOR, Permission::RWX, false);
+            pmpaddr7::write(usize::MAX >> 2);
+        }
     }
 }
 
@@ -778,7 +800,15 @@ pub fn log_pmp_cfg(_firmware_ram: &Range<usize>) {
     let pmp_config = |index: usize| {
         #[cfg(target_pointer_width = "32")]
         if index >= 4 {
-            return pmpcfg1::read().into_config(index - 4);
+            return if index < 8 {
+                pmpcfg1::read().into_config(index - 4)
+            } else {
+                pmpcfg2::read().into_config(index - 8)
+            };
+        }
+        #[cfg(target_pointer_width = "64")]
+        if index >= 8 {
+            return pmpcfg2::read().into_config(index - 8);
         }
         pmpcfg0::read().into_config(index)
     };
@@ -793,14 +823,16 @@ pub fn log_pmp_cfg(_firmware_ram: &Range<usize>) {
         "PMP", "Range", "Permission", "Address"
     );
 
-    seq_macro::seq!(N in 0..8 {
+    seq_macro::seq!(N in 0..10 {
+        if N < 8 || crate::platform::board_info().allwinner_v821.map_or(0, |soc| soc.noncacheable_offset()) != 0 {
         info!(
             "{:<5} {:<10} {:<15} 0x{:016x}",
             N,
             get_pmp_range(N),
             get_pmp_permission(N),
-            pastey::paste! { [<pmpaddr ~N>]::read() } << 2,
+            (pastey::paste! { [<pmpaddr ~N>]::read() } as u64) << 2,
         );
+        }
     });
 }
 
