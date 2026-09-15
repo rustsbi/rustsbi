@@ -10,14 +10,18 @@ use spin::Once;
 static DEVICE: Once<Option<&'static dyn IpiDevice>> = Once::new();
 static HANDLER: Once<Option<&'static dyn IpiHandler>> = Once::new();
 
+/// A platform IPI operation failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IpiError;
+
 /// The platform IPI device used for hart wakeups and machine interrupt
 /// acknowledgement.
 pub trait IpiDevice: Sync {
     /// Sends a machine IPI to `hart`.
-    fn send(&self, hart: HartId) -> Result<(), ()>;
+    fn send(&self, hart: HartId) -> Result<(), IpiError>;
 
     /// Clears the current hart's pending software interrupt source.
-    fn clear_current(&self) -> Result<(), ()>;
+    fn clear_current(&self) -> Result<(), IpiError>;
 }
 
 /// Handles firmware work recorded for the current hart after the interrupt

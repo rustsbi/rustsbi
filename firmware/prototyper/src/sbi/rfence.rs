@@ -101,10 +101,9 @@ pub(crate) struct SbiRFence;
 /// Validates address range for fence operations
 #[inline(always)]
 fn validate_address_range(start_addr: usize, size: usize) -> Result<usize, SbiRet> {
-    if !((start_addr == 0 && size == 0) || size == usize::MAX) {
-        if start_addr & (PAGE_SIZE - 1) != 0 {
-            return Err(SbiRet::invalid_address());
-        }
+    if !((start_addr == 0 && size == 0) || size == usize::MAX) && start_addr & (PAGE_SIZE - 1) != 0
+    {
+        return Err(SbiRet::invalid_address());
     }
 
     if start_addr > usize::MAX - size {

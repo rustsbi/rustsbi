@@ -66,10 +66,10 @@ fn discover_node(
     {
         syscon::discover_reboot(board, platform, node, parent)?;
     }
-    if let Some(registers) = platform.sunxi_rtc_v203_gprcm(node)? {
-        if board.sunxi_rtc_v203_gprcm.replace(registers).is_some() {
-            return Err(runtime::Error::InvalidArgs);
-        }
+    if let Some(registers) = platform.sunxi_rtc_v203_gprcm(node)?
+        && board.sunxi_rtc_v203_gprcm.replace(registers).is_some()
+    {
+        return Err(runtime::Error::InvalidArgs);
     }
     let has_supported_pmic = compatibles
         .iter()
@@ -99,10 +99,10 @@ fn discover_node(
             driver::SUNXI_PLICSW_COMPATIBLE => Some(&mut board.plicsw),
             _ => None,
         };
-        if let Some(slot) = slot {
-            if slot.replace(primary_register_range).is_some() {
-                return Err(runtime::Error::InvalidArgs);
-            }
+        if let Some(slot) = slot
+            && slot.replace(primary_register_range).is_some()
+        {
+            return Err(runtime::Error::InvalidArgs);
         }
         discover_clint(board, compatible, primary_register_range);
         discover_reset(board, compatible, primary_register_range);

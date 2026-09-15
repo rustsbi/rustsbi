@@ -159,6 +159,7 @@ impl PmuState {
     }
 }
 
+#[derive(Default)]
 pub struct SbiPmu {
     event_to_mhpmevent: Option<BTreeMap<u32, u64>>,
     event_to_mhpmcounter: Option<Vec<EventToCounterMap>>,
@@ -301,23 +302,22 @@ impl Pmu for SbiPmu {
                         return SbiRet::invalid_param();
                     }
                 } else {
-                    let match_result: Result<usize, SbiRet>;
-                    if event.is_firmware_event() {
-                        match_result = self.find_firmware_counter(
+                    let match_result = if event.is_firmware_event() {
+                        self.find_firmware_counter(
                             counter_idx_base,
                             counter_idx_mask,
                             event_idx,
                             pmu_state,
-                        );
+                        )
                     } else {
-                        match_result = self.find_hardware_counter(
+                        self.find_hardware_counter(
                             counter_idx_base,
                             counter_idx_mask,
                             event_idx,
                             event_data,
                             pmu_state,
-                        );
-                    }
+                        )
+                    };
                     match match_result {
                         Ok(ctr_idx) => {
                             counter_idx = ctr_idx;
@@ -515,16 +515,6 @@ impl Pmu for SbiPmu {
     }
 }
 
-impl Default for SbiPmu {
-    fn default() -> Self {
-        Self {
-            event_to_mhpmevent: None,
-            event_to_mhpmcounter: None,
-            raw_event_to_mhpmcounter: None,
-        }
-    }
-}
-
 impl SbiPmu {
     fn find_firmware_counter(
         &self,
@@ -552,7 +542,7 @@ impl SbiPmu {
             }
             return Ok(counter_idx);
         }
-        return Err(SbiRet::not_supported());
+        Err(SbiRet::not_supported())
     }
 
     fn find_hardware_counter(
@@ -752,10 +742,8 @@ fn configure_counter(
         if clear_value {
             write_mhpmcounter(mhpm_offset, 0);
         }
-        if auto_start {
-            if start_hardware_counter(mhpm_offset, 0, false).is_err() {
-                return Err(SbiRet::not_supported());
-            }
+        if auto_start && start_hardware_counter(mhpm_offset, 0, false).is_err() {
+            return Err(SbiRet::not_supported());
         }
     }
     Ok(())
@@ -897,7 +885,7 @@ fn stop_hardware_counter(mhpm_offset: u16, is_reset: bool) -> Result<(), StopCou
         return Err(StopCounterErr::OffsetInvalid);
     };
 
-    if is_reset && mhpm_offset >= 3 && mhpm_offset <= 31 {
+    if is_reset && (3..=31).contains(&mhpm_offset) {
         write_mhpmevent(mhpm_offset, 0);
     }
 
@@ -929,7 +917,7 @@ struct CounterInfo {
 impl CounterInfo {
     const CSR_MASK: usize = 0xFFF; // Bits [11:0]
     const WIDTH_MASK: usize = 0x3F << 12; // Bits [17:12]
-    const FIRMWARE_FLAG: usize = 1 << (size_of::<usize>() * 8 - 1); // MSB
+    const FIRMWARE_FLAG: usize = 1 << (usize::BITS as usize - 1); // MSB
 
     #[inline]
     pub const fn new() -> Self {
@@ -1186,7 +1174,7 @@ impl Iterator for CounterMask {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.counter_idx_mask == 0 {
-            return None;
+            None
         } else {
             let low_bit = self.counter_idx_mask.trailing_zeros();
             let hart_id = usize::try_from(low_bit).unwrap() + self.counter_idx_base;
@@ -1235,9 +1223,7 @@ pub(crate) fn init(root: &serde_device_tree::buildin::Node) -> Option<SbiPmu> {
     };
     visit_enabled_nodes(root, &mut find_pmu);
 
-    let Some(ref pmu) = pmu_description else {
-        return None;
-    };
+    let pmu = pmu_description.as_ref()?;
     let mut sbi_pmu = SbiPmu::default();
     if let Some(ref event_to_mhpmevent) = pmu.event_to_mhpmevent {
         let len = event_to_mhpmevent.len();

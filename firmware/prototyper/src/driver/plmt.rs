@@ -6,10 +6,10 @@ use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 #[repr(usize)]
 #[derive(Clone, Copy)]
 enum Register {
-    TimeLow = 0x00,
-    TimeHigh = 0x04,
-    TimeCompareLow = 0x08,
-    TimeCompareHigh = 0x0c,
+    CounterLow = 0x00,
+    CounterHigh = 0x04,
+    CompareLow = 0x08,
+    CompareHigh = 0x0c,
 }
 
 const COMPARE_STRIDE: usize = 8;
@@ -29,7 +29,7 @@ pub(super) fn bind(
     }
     let registers = registers.subrange(
         0,
-        Register::TimeCompareLow as usize + COMPARE_STRIDE * hart_count,
+        Register::CompareLow as usize + COMPARE_STRIDE * hart_count,
     )?;
     if !registers.has_aligned_bounds(8) {
         return Err(runtime::Error::InvalidArgs);
@@ -60,9 +60,9 @@ impl Plmt {
 impl TimerBackend for Plmt {
     fn read_time(&self) -> Option<u64> {
         loop {
-            let high = self.read_word(Register::TimeHigh);
-            let low = self.read_word(Register::TimeLow);
-            if high == self.read_word(Register::TimeHigh) {
+            let high = self.read_word(Register::CounterHigh);
+            let low = self.read_word(Register::CounterLow);
+            if high == self.read_word(Register::CounterHigh) {
                 return Some((u64::from(high) << 32) | u64::from(low));
             }
         }
@@ -71,7 +71,7 @@ impl TimerBackend for Plmt {
     fn read_time_low(&self) -> Option<usize> {
         #[cfg(target_pointer_width = "32")]
         {
-            Some(self.read_word(Register::TimeLow) as usize)
+            Some(self.read_word(Register::CounterLow) as usize)
         }
         #[cfg(target_pointer_width = "64")]
         {
@@ -81,15 +81,15 @@ impl TimerBackend for Plmt {
 
     #[cfg(target_pointer_width = "32")]
     fn read_time_high(&self) -> Option<usize> {
-        Some(self.read_word(Register::TimeHigh) as usize)
+        Some(self.read_word(Register::CounterHigh) as usize)
     }
 
     fn set_timer(&self, hart_id: usize, value: u64) {
         assert!(hart_id < self.hart_count);
         // Safe RV32 comparator update even if the old high half matches MTIME.
-        self.write_compare_word(Register::TimeCompareLow, hart_id, u32::MAX);
-        self.write_compare_word(Register::TimeCompareHigh, hart_id, (value >> 32) as u32);
-        self.write_compare_word(Register::TimeCompareLow, hart_id, value as u32);
+        self.write_compare_word(Register::CompareLow, hart_id, u32::MAX);
+        self.write_compare_word(Register::CompareHigh, hart_id, (value >> 32) as u32);
+        self.write_compare_word(Register::CompareLow, hart_id, value as u32);
         riscv::asm::fence();
     }
 

@@ -263,10 +263,10 @@ pub(crate) fn patch_device_tree(
     let patched_dtb_buffer = patched_dtb_buffer.leak();
     // SAFETY: `patched_dtb_buffer` is a leaked, 8-byte-aligned buffer of at
     // least `patched_length` bytes.
-    let mut patched_dtb_buffer_u8: &'static mut [u8] = unsafe {
+    let patched_dtb_buffer_u8: &'static mut [u8] = unsafe {
         core::slice::from_raw_parts_mut(patched_dtb_buffer.as_ptr() as *mut u8, patched_length)
     };
-    serde_device_tree::ser::to_dtb(&tree, patches, &mut patched_dtb_buffer_u8)
+    serde_device_tree::ser::to_dtb(&tree, patches, patched_dtb_buffer_u8)
         .map_err(|_| runtime::Error::InvalidArgs)?;
 
     // Hide machine-level interrupt controllers only when firmware retained

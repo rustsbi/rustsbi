@@ -18,13 +18,12 @@ pub fn install_wakeup(device: Option<&'static dyn HartWake>) {
 }
 
 pub(super) fn wake(hart: HartId) -> Result<(), super::StartError> {
-    if let Some(device) = WAKEUP.get().copied().flatten() {
-        if device
+    if let Some(device) = WAKEUP.get().copied().flatten()
+        && device
             .wake(hart)
             .map_err(|_| super::StartError::WakeFailed)?
-        {
-            return Ok(());
-        }
+    {
+        return Ok(());
     }
     crate::ipi::get()
         .ok_or(super::StartError::WakeFailed)?

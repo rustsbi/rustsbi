@@ -113,17 +113,19 @@ impl IpiDevice {
 }
 
 impl runtime::ipi::IpiDevice for IpiDevice {
-    fn send(&self, hart: HartId) -> Result<(), ()> {
+    fn send(&self, hart: HartId) -> Result<(), runtime::ipi::IpiError> {
         self.send_ipi(IpiRequest {
             hart_mask: 1,
             hart_mask_base: hart.as_usize(),
         })
-        .map_err(|_| ())
+        .map_err(|_| runtime::ipi::IpiError)
     }
 
-    fn clear_current(&self) -> Result<(), ()> {
-        let hart = HartId::current().map_err(|_| ())?.as_usize();
-        self.clear_ipi(hart).map_err(|_| ())
+    fn clear_current(&self) -> Result<(), runtime::ipi::IpiError> {
+        let hart = HartId::current()
+            .map_err(|_| runtime::ipi::IpiError)?
+            .as_usize();
+        self.clear_ipi(hart).map_err(|_| runtime::ipi::IpiError)
     }
 }
 

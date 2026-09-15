@@ -30,12 +30,11 @@ pub fn has_csr<const CSR: u16>() -> bool {
 /// Probes whether the `mhpmcounter` CSR selected by `CSR_NUM` (0xb03..=0xb1f)
 /// exists and is writable, setting its bit in `mhpm_mask` when it does.
 pub fn probe_mhpm_csr<const CSR_NUM: u16>(mhpm_mask: &mut u32) {
-    if let Ok(old_value) = runtime::trap::read_csr_guarded::<CSR_NUM>() {
-        if runtime::trap::write_csr_guarded::<CSR_NUM>(1).is_ok()
-            && runtime::trap::swap_csr_guarded::<CSR_NUM>(old_value) == Ok(1)
-        {
-            *mhpm_mask |= 1 << (CSR_NUM - CSR_MCYCLE);
-        }
+    if let Ok(old_value) = runtime::trap::read_csr_guarded::<CSR_NUM>()
+        && runtime::trap::write_csr_guarded::<CSR_NUM>(1).is_ok()
+        && runtime::trap::swap_csr_guarded::<CSR_NUM>(old_value) == Ok(1)
+    {
+        *mhpm_mask |= 1 << (CSR_NUM - CSR_MCYCLE);
     }
 }
 
@@ -283,7 +282,7 @@ pub fn write_mhpmevent(mhpm_offset: u16, mhpmevent_val: u64) {
 
     let csr = CSR_MHPMEVENT3 + mhpm_offset - 3;
 
-    if csr >= CSR_MHPMEVENT3 && csr <= CSR_MHPMEVENT31 {
+    if (CSR_MHPMEVENT3..=CSR_MHPMEVENT31).contains(&csr) {
         let idx = csr - CSR_MHPMEVENT3 + 3;
 
         seq_macro::seq!(N in 3..=31 {
@@ -317,7 +316,7 @@ pub fn write_mhpmcounter(mhpm_offset: u16, mhpmcounter_val: u64) {
     }
 
     // Only counter indices 3..=31 name an `mhpmcounter` register.
-    if counter_idx >= 3 && counter_idx <= 31 {
+    if (3..=31).contains(&counter_idx) {
         seq_macro::seq!(N in 3..=31 {
             match counter_idx {
                 #(

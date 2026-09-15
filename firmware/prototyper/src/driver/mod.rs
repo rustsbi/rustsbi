@@ -67,14 +67,16 @@ impl Devices {
     }
 }
 
+type InterruptDevices = (
+    Option<Box<dyn TimerBackend>>,
+    Option<Box<dyn IpiBackend + Send + Sync>>,
+);
+
 fn bind_interrupts(
     board: &BoardInfo,
     selected_imsic: Option<&ImsicInfo>,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<(
-    Option<Box<dyn TimerBackend>>,
-    Option<Box<dyn IpiBackend + Send + Sync>>,
-)> {
+) -> runtime::Result<InterruptDevices> {
     if let Some(imsic) = selected_imsic {
         let aplic_config = if board.is_qemu_virt() {
             Some(crate::platform::qemu_aplic::QemuAplicConfig::new(
