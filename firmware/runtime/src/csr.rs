@@ -26,35 +26,35 @@ pub(crate) fn has_stimecmp() -> bool {
 pub mod mie {
     /// Enables machine software interrupts on the current hart.
     #[inline]
-    pub fn set_software() {
+    pub fn set_machine_software() {
         // SAFETY: Runtime owns the machine trap state on the current hart.
         unsafe { riscv::register::mie::set_msoft() }
     }
 
     /// Disables machine software interrupts on the current hart.
     #[inline]
-    pub fn clear_software() {
+    pub fn clear_machine_software() {
         // SAFETY: Runtime owns the machine trap state on the current hart.
         unsafe { riscv::register::mie::clear_msoft() }
     }
 
     /// Enables machine timer interrupts on the current hart.
     #[inline]
-    pub fn set_timer() {
+    pub fn set_machine_timer() {
         // SAFETY: Runtime owns the machine trap state on the current hart.
         unsafe { riscv::register::mie::set_mtimer() }
     }
 
     /// Disables machine timer interrupts on the current hart.
     #[inline]
-    pub fn clear_timer() {
+    pub fn clear_machine_timer() {
         // SAFETY: Runtime owns the machine trap state on the current hart.
         unsafe { riscv::register::mie::clear_mtimer() }
     }
 
     /// Enables machine external interrupts on the current hart.
     #[inline]
-    pub fn set_external() {
+    pub fn set_machine_external() {
         // SAFETY: Runtime owns the machine trap state on the current hart.
         unsafe { riscv::register::mie::set_mext() }
     }
