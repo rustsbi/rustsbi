@@ -125,6 +125,11 @@ impl<'tree> PlatformView<'tree> {
         crate::AllwinnerV861Registers::from_root(&self.root)
     }
 
+    /// Returns V821 capabilities when the root compatible identifies this SoC.
+    pub fn allwinner_v821_registers(&self) -> Option<crate::AllwinnerV821Registers> {
+        crate::AllwinnerV821Registers::from_root(&self.root)
+    }
+
     /// Returns the RTC V203 GPRCM window from the BSP's fixed four-cell property.
     /// Unlike `reg`, `gprcm_reg` contains an absolute 64-bit address and size.
     pub fn sunxi_rtc_v203_gprcm(&self, node: &Node<'tree>) -> Result<Option<DeviceRegisterRange>> {
