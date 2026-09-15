@@ -14,6 +14,7 @@ on:
       - "library/**"
       - "firmware/macros/**"
       - "firmware/prototyper/**"
+      - "firmware/runtime/**"
   push:
     branches: ["main"]
     paths:
@@ -27,6 +28,7 @@ on:
       - "library/**"
       - "firmware/macros/**"
       - "firmware/prototyper/**"
+      - "firmware/runtime/**"
   workflow_dispatch:
 
 env:
