@@ -45,7 +45,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Build Avaota F2 with compile-time INFO logging and size optimization level `s` to reduce firmware size and startup time.
 - Match escaped paths in generated firmware source tests on Windows.
 - Use hyphen-separated board configuration filenames.
-- Avoid redundant supervisor instruction reads when emulating the 32-bit time CSR instruction.
+- Reuse mtval instruction bits for CSR read emulation, falling back to guarded instruction fetch.
 - Enable V861 C907 MHCR bits 12 and 24 on both harts while preserving the remaining bootloader cache policy.
 - Rename the existing Sunxi watchdog backend to `SunxiWdtV104`, preserving its F101 and V861 reset sequence.
 - Complete pending remote fences across hart transitions and skip stopped harts in valid IPI masks.

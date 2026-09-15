@@ -215,8 +215,14 @@ fn machine_time() -> Option<u64> {
 /// `rd`, and advance `mepc`.
 pub fn emulate_csr_read(frame: &mut TrapFrame) -> Result<(), Error> {
     reject_machine_origin(frame)?;
+    let raw = frame.mtval as u32;
     with_trap_facts(|facts| {
-        let (raw, len) = fetch(facts.mepc)?;
+        // Supported CSR reads are 32-bit; mtval may supply their encoding.
+        let (raw, len) = if raw & 3 == 3 {
+            (raw, 4)
+        } else {
+            fetch(facts.mepc)?
+        };
         let op = decode::decode_csr_read(raw)?;
         let value = counter_word(op.csr)?;
         frame.write_x(op.rd as usize, value);
