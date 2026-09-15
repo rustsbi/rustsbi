@@ -84,12 +84,18 @@ run_once() {
   # Patterns are read with the same semantics as the xtask side
   # (`read_console_patterns`): trimmed lines, `#` comments skipped, and
   # a missing trailing newline still yields the last line.
+  local expected_count=0
   while IFS= read -r pattern || [ -n "$pattern" ]; do
     pattern=${pattern%%"${pattern##*[![:space:]]}"}
     pattern=${pattern#"${pattern%%[![:space:]]*}"}
     case "$pattern" in ''|'#'*) continue ;; esac
+    ((expected_count += 1))
     grep -Fq "$pattern" "$log_file" || return 1
   done < <(sed "s/{smp}/$smp/g" "$expected_file")
+  test "$expected_count" -gt 0 || {
+    echo "[$mode/$kernel] no patterns in: $expected_file" >&2
+    return 1
+  }
 
   # Dispatcher-backed extension wiring: these lines render from the
   # published SBI_DISPATCHER (presence chains + Once publish). A missing
@@ -111,14 +117,20 @@ run_once() {
        }
        END { exit !(count == n && !fail) }' "$log_file" || return 1
 
+  local forbidden_count=0
   while IFS= read -r pattern || [ -n "$pattern" ]; do
     pattern=${pattern%%"${pattern##*[![:space:]]}"}
     pattern=${pattern#"${pattern%%[![:space:]]*}"}
     case "$pattern" in ''|'#'*) continue ;; esac
+    ((forbidden_count += 1))
     if grep -Fq "$pattern" "$log_file"; then
       return 1
     fi
   done < "$forbidden_file"
+  test "$forbidden_count" -gt 0 || {
+    echo "[$mode/$kernel] no patterns in: $forbidden_file" >&2
+    return 1
+  }
 }
 
 for attempt in $(seq 1 "$attempts"); do
