@@ -24,11 +24,17 @@ pub(crate) trait TimerBackend: Send + Sync {
     fn read_time_low(&self) -> Option<usize> {
         None
     }
+
     /// Reads a direct high counter word on RV32.
     #[cfg(target_pointer_width = "32")]
     #[inline]
     fn read_time_high(&self) -> Option<usize> {
         None
+    }
+
+    /// Whether expiry needs comparator cancellation after MTIE is masked.
+    fn clear_on_interrupt(&self) -> bool {
+        true
     }
 }
 
@@ -56,15 +62,18 @@ impl TimerBackend for SstcTimer {
 pub(crate) struct TimerDevice {
     backend: Box<dyn TimerBackend>,
     programming: Mutex<()>,
+    clear_on_interrupt: bool,
 }
 
 static DEVICE: Once<TimerDevice> = Once::new();
 
 impl TimerDevice {
     fn new(backend: Box<dyn TimerBackend>) -> Self {
+        let clear_on_interrupt = backend.clear_on_interrupt();
         Self {
             backend,
             programming: Mutex::new(()),
+            clear_on_interrupt,
         }
     }
 
@@ -81,13 +90,6 @@ impl TimerDevice {
 }
 
 impl runtime::timer::TimerDevice for TimerDevice {
-    fn clear_current(&self) {
-        let hart_id = HartId::current()
-            .expect("BUG: current hart exceeds Runtime capacity")
-            .as_usize();
-        self.set_timer(hart_id, u64::MAX);
-    }
-
     fn read_time(&self) -> Option<u64> {
         TimerDevice::read_time(self)
     }
@@ -96,10 +98,24 @@ impl runtime::timer::TimerDevice for TimerDevice {
     fn read_time_low(&self) -> Option<usize> {
         self.backend.read_time_low()
     }
+
     #[cfg(target_pointer_width = "32")]
     #[inline]
     fn read_time_high(&self) -> Option<usize> {
         self.backend.read_time_high()
+    }
+
+    fn clear_current(&self) {
+        let hart_id = HartId::current()
+            .expect("BUG: current hart exceeds Runtime capacity")
+            .as_usize();
+        self.set_timer(hart_id, u64::MAX);
+    }
+
+    fn acknowledge_current(&self) {
+        if self.clear_on_interrupt {
+            self.clear_current();
+        }
     }
 }
 

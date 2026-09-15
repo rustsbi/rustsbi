@@ -210,7 +210,7 @@ fn machine_timer() {
     crate::csr::mie::clear_machine_timer();
     if !init::has_sstc() {
         if let Some(timer) = crate::timer::get() {
-            timer.clear_current();
+            timer.acknowledge_current();
         }
         crate::csr::mip::set_supervisor_timer();
     }
