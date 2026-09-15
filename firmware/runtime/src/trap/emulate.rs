@@ -226,11 +226,19 @@ fn machine_time() -> Option<u64> {
 
 /// Emulate a trapped CSR-read instruction (`csrrs rd, csr, x0`): fetch and
 /// decode the instruction at `mepc`, obtain the value from the architecture
-/// counter (device fallback only when the hart lacks it), write it back to
+/// counter or the explicit device time source, write it back to
 /// `rd`, and advance `mepc`.
 pub fn emulate_csr_read(frame: &mut TrapFrame) -> Result<(), Error> {
     reject_machine_origin(frame)?;
     let raw = frame.mtval as u32;
+    if raw & 0x000f_f07f == 0x2073 {
+        if let Some(value) = device_counter_word((raw >> 20) as u16) {
+            frame.write_x(((raw >> 7) & 31) as usize, value);
+            // SAFETY: one completed 32-bit pure CSR read from lower privilege.
+            unsafe { mepc::write(frame.mepc.wrapping_add(4)) };
+            return Ok(());
+        }
+    }
     with_trap_facts(|facts| {
         // Supported CSR reads are 32-bit; mtval may supply their encoding.
         let (raw, len) = if raw & 3 == 3 {
