@@ -31,13 +31,6 @@ pub mod mie {
         unsafe { riscv::register::mie::set_msoft() }
     }
 
-    /// Disables machine software interrupts on the current hart.
-    #[inline]
-    pub fn clear_machine_software() {
-        // SAFETY: Runtime owns the machine trap state on the current hart.
-        unsafe { riscv::register::mie::clear_msoft() }
-    }
-
     /// Enables machine timer interrupts on the current hart.
     #[inline]
     pub fn set_machine_timer() {
@@ -74,5 +67,13 @@ pub mod mip {
     pub fn set_supervisor_timer() {
         // SAFETY: Runtime owns the machine trap state on the current hart.
         unsafe { riscv::register::mip::set_stimer() }
+    }
+
+    /// Clears the supervisor timer interrupt pending bit on the current hart.
+    #[inline]
+    pub fn clear_supervisor_timer() {
+        // SAFETY: Runtime owns the machine trap state on the current hart.
+        // Writes to STIP are ignored when Sstc drives it.
+        unsafe { riscv::register::mip::clear_stimer() }
     }
 }

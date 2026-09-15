@@ -1,7 +1,8 @@
 //! Platform timer devices shared by boot, Runtime, and SBI TIME.
 
-use crate::riscv::csr::{mie, mip, stimecmp};
+use crate::riscv::csr::stimecmp;
 use alloc::boxed::Box;
+use runtime::csr::{mie, mip};
 use runtime::hart::HartId;
 use spin::{Mutex, Once};
 
@@ -51,8 +52,8 @@ impl TimerBackend for SstcTimer {
         {
             stimecmp::set(value);
             if value == u64::MAX {
-                mip::clear_stimer();
-                mie::clear_mtimer();
+                mip::clear_supervisor_timer();
+                mie::clear_machine_timer();
             }
         }
     }

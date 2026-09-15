@@ -202,8 +202,8 @@ fn detect_mhpm_counters() {
         };
     }
 
-    // CSR_MHPMCOUNTER3:   0xb03
-    // CSR_MHPMCOUNTER31:  0xb1f
+    // mhpmcounter3:  0xb03
+    // mhpmcounter31: 0xb1f
     seq!(csr_num in 0xb03..=0xb1f{
         m_probe_mhpm_csr!(csr_num, &mut mhpm_mask);
     });

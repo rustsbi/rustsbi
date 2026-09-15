@@ -350,7 +350,7 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
     match ctx.op {
         RFenceType::FenceI => {
             pmu_firmware_counter_increment(firmware_event::FENCE_I_RECEIVED);
-            fence::fence_i();
+            riscv::asm::fence_i();
         }
         RFenceType::SFenceVma => {
             pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_RECEIVED);
