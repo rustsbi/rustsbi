@@ -176,7 +176,7 @@ fn finish_boot_rust() -> ! {
                 // SAFETY: M-mode write to this hart's mie around the parked
                 // wait; a staged start wakes this hart into the machine
                 // software transport, which performs the entry.
-                crate::csr::mie::set_software();
+                crate::csr::mie::set_machine_software();
                 riscv::asm::wfi();
                 // A masked wake re-checks the cell instead of returning
                 // into the discarded boot context.

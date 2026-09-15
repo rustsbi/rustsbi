@@ -217,7 +217,7 @@ pub enum StopError {
 pub fn stop_current() -> Result<core::convert::Infallible, StopError> {
     let ipi = crate::ipi::get().ok_or(StopError::Platform)?;
     ipi.clear_current().map_err(|_| StopError::Platform)?;
-    crate::csr::mie::set_software();
+    crate::csr::mie::set_machine_software();
     cell(current_hart())
         .state
         .store(STATE_STOPPED, Ordering::Release);
@@ -242,7 +242,7 @@ pub fn suspend_current() -> Result<(), SuspendError> {
     crate::ipi::handler()
         .expect("BUG: IPI handler not published")
         .deliver_current();
-    crate::csr::mie::set_software();
+    crate::csr::mie::set_machine_software();
     cell(current_hart())
         .state
         .store(STATE_SUSPENDED, Ordering::Release);

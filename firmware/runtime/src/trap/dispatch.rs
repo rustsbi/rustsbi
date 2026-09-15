@@ -134,7 +134,7 @@ fn sbi_ecall(frame: &mut TrapFrame) {
         // SAFETY: M-mode writes to this hart's S-mode and trap CSRs for the
         // staged resume.
         unsafe {
-            stage_smode_trap_state(next_stage.start_addr);
+            stage_smode_trap_state();
             mstatus::set_mpp(mstatus::MPP::Supervisor);
             mepc::write(next_stage.start_addr);
         }
@@ -197,7 +197,7 @@ fn machine_soft(frame: &mut TrapFrame) {
     match event {
         HartEvent::Start(next_stage) => enter_next_stage(frame, next_stage),
         HartEvent::Park => {
-            crate::csr::mie::set_software();
+            crate::csr::mie::set_machine_software();
             riscv::asm::wfi();
         }
         HartEvent::None => {}
@@ -207,7 +207,7 @@ fn machine_soft(frame: &mut TrapFrame) {
 /// The machine timer transport: stop re-trapping and inject the supervisor
 /// timer interrupt when the platform lacks Sstc.
 fn machine_timer() {
-    crate::csr::mie::clear_timer();
+    crate::csr::mie::clear_machine_timer();
     if !init::has_sstc() {
         if let Some(timer) = crate::timer::get() {
             timer.clear_current();
@@ -232,8 +232,8 @@ fn machine_external(frame: &mut TrapFrame) {
                 enter_next_stage(frame, next_stage);
             }
             HartEvent::Park => {
-                crate::csr::mie::set_software();
-                crate::csr::mie::set_external();
+                crate::csr::mie::set_machine_software();
+                crate::csr::mie::set_machine_external();
                 riscv::asm::wfi();
             }
             HartEvent::None => {}
@@ -259,14 +259,9 @@ fn enter_next_stage(frame: &mut TrapFrame, next: NextStage) {
 /// # Safety
 ///
 /// M-mode writes to this hart's S-mode CSRs.
-unsafe fn stage_smode_trap_state(start_addr: usize) {
+unsafe fn stage_smode_trap_state() {
     unsafe {
-        // stvec BASE is four-byte aligned; hart entry points may only be
-        // two-byte aligned.
-        if start_addr & 0x3 == 0 {
-            asm!("csrw stvec, {start_addr}", start_addr = in(reg) start_addr, options(nomem));
-        }
-        asm!("csrw sscratch, zero", "csrw sie, zero", options(nomem));
+        asm!("csrw sie, zero", options(nomem));
         sstatus::clear_sie();
         satp::write(satp::Satp::from_bits(0));
     }
@@ -281,15 +276,15 @@ unsafe fn stage_smode_trap_state(start_addr: usize) {
 /// M-mode writes to this hart's S-mode and trap CSRs.
 pub(crate) unsafe fn stage_next_mode(start_addr: usize, next_mode: mstatus::MPP) {
     unsafe {
-        stage_smode_trap_state(start_addr);
+        stage_smode_trap_state();
         mstatus::set_mpie();
         mstatus::set_mpp(next_mode);
-        crate::csr::mie::set_software();
+        crate::csr::mie::set_machine_software();
         if crate::irq::get().is_some() {
-            crate::csr::mie::set_external();
+            crate::csr::mie::set_machine_external();
         }
         if !init::has_sstc() {
-            crate::csr::mie::set_timer();
+            crate::csr::mie::set_machine_timer();
         }
         mepc::write(start_addr);
     }
