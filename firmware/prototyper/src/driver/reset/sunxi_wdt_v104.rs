@@ -1,4 +1,4 @@
-//! Allwinner watchdog reboot, shared by F101 and the V861 v104 device.
+//! Allwinner D1-compatible Version 'V104' watchdog reboot.
 //!
 //! Follows the CFG/MODE sequence and 1 ms delay in the [F101 OpenSBI platform].
 //! The loader must leave the watchdog clock and architectural time counter
@@ -27,6 +27,7 @@ const REGISTER_SPAN: usize = Register::Mode as usize + size_of::<u32>();
 const UPDATE_KEY: u32 = 0x16aa << 16;
 const CONFIG_ENABLE: u32 = 1 << 0;
 const MODE_ENABLE: u32 = 1 << 0;
+const DELAY_TICKS_1MS_DIVISOR: u64 = 1_000;
 
 pub(crate) struct SunxiWdtV104 {
     registers: MmioRegion,
@@ -48,7 +49,7 @@ pub(in crate::driver) fn bind(
     Ok(SunxiWdtV104 {
         registers: memory.acquire_mmio(registers)?,
         // Round up so the delay is at least one millisecond.
-        delay_ticks: u64::from(frequency).div_ceil(1_000),
+        delay_ticks: u64::from(frequency).div_ceil(DELAY_TICKS_1MS_DIVISOR),
     })
 }
 

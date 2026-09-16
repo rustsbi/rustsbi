@@ -104,5 +104,6 @@ pub trait ResetBackend {
 pub(crate) const SIFIVE_TEST_COMPATIBLES: [&str; 1] = ["sifive,test0"];
 pub(crate) const P1_PMIC_COMPATIBLES: [&str; 2] = ["spacemit,p1", "ky,spm8821"];
 pub(crate) const PMIC_I2C_COMPATIBLES: [&str; 2] = ["spacemit,k1-i2c", "ky,i2c"];
-pub(crate) const SUNXI_WDT_V104_COMPATIBLE: &str = "allwinner,wdt-v104";
+pub(crate) const SUNXI_WDT_V104_COMPATIBLES: [&str; 2] =
+    ["allwinner,sun20i-d1-wdt", "allwinner,wdt-v104"];
 pub(crate) const SUNXI_WDT_V105_COMPATIBLE: &str = "allwinner,wdt-v105";

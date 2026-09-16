@@ -148,7 +148,7 @@ fn is_supported_mmio_device(node: &Node<'_>, compatible: &str) -> bool {
         || compatible == driver::SUNXI_PLICSW_COMPATIBLE
         || driver::ClintKind::from_fdt(compatible).is_some()
         || driver::SIFIVE_TEST_COMPATIBLES.contains(&compatible)
-        || compatible == driver::SUNXI_WDT_V104_COMPATIBLE
+        || driver::SUNXI_WDT_V104_COMPATIBLES.contains(&compatible)
         || compatible == driver::SUNXI_WDT_V105_COMPATIBLE
         || driver::IMSIC_COMPATIBLES.contains(&compatible)
         || driver::THEAD_PLIC_COMPATIBLES.contains(&compatible)
@@ -165,7 +165,7 @@ fn discover_reset(board: &mut BoardInfo, compatible: &str, registers: DeviceRegi
     if driver::SIFIVE_TEST_COMPATIBLES.contains(&compatible) {
         board.reset = Some(registers);
     }
-    if compatible == driver::SUNXI_WDT_V104_COMPATIBLE {
+    if driver::SUNXI_WDT_V104_COMPATIBLES.contains(&compatible) {
         board.sunxi_wdt_v104 = Some(registers);
     }
     if compatible == driver::SUNXI_WDT_V105_COMPATIBLE {
