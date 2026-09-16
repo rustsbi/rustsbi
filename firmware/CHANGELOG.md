@@ -23,9 +23,9 @@ All notable changes to this project will be documented in this file. See [conven
 - Add Runtime-owned trap handling, guarded CSR access, hart lifecycle and local storage.
 - Support `--no-default-features` in firmware builds and track it in the build stamp.
 - Add an Avaota F2 RV32 configuration and V861 reset-vector hart wake backend.
-- Discover the shared Sunxi watchdog through `allwinner,wdt-v104` device-tree nodes.
+- Discover the shared Sunxi watchdog through `allwinner,sun20i-d1-wdt` and `allwinner,wdt-v104` device-tree nodes.
 - Add independent syscon poweroff and reboot peripherals with device-tree discovery to RustSBI Prototyper.
-- Add Allwinner F101 watchdog reboot support, selected by the SoC device-tree compatible.
+- Add Allwinner F101 watchdog reboot support, requiring an enabled D1-compatible watchdog device-tree node.
 - Add RV32 support to bench-kernel while preserving RV64 support.
 - Add DBCN contract tests with deferred error reporting to the test kernel.
 - Add RV32 support to RustSBI Prototyper and test-kernel while preserving RV64 support.
@@ -64,7 +64,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Use hyphen-separated board configuration filenames.
 - Reuse mtval instruction bits for CSR read emulation, falling back to guarded instruction fetch.
 - Enable V861 C907 MHCR bits 12 and 24 on both harts while preserving the remaining bootloader cache policy.
-- Rename the existing Sunxi watchdog backend to `SunxiWdtV104`, preserving its F101 and V861 reset sequence.
+- Share the `SunxiWdtV104` reboot backend between D1-compatible and V104 watchdogs and remove the F101 fixed-address fallback.
 - Complete pending remote fences across hart transitions and skip stopped harts in valid IPI masks.
 - Count and forward access faults to supervisor mode, preserving the interrupted interrupt state.
 - Accept standard firmware PMU events, including events that cannot occur on the current ISA.

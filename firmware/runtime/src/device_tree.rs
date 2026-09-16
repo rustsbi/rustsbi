@@ -115,11 +115,6 @@ impl<'tree> PlatformView<'tree> {
         SpacemitK1Registers::from_root(&self.root)
     }
 
-    /// Returns the fixed watchdog window when the root compatible identifies F101.
-    pub fn legacy_sunxi_wdt_v104(&self) -> Result<Option<DeviceRegisterRange>> {
-        crate::allwinner_f101::watchdog_registers(&self.root)
-    }
-
     /// Returns V861 fixed-register descriptions when this platform identifies V861.
     pub fn allwinner_v861_registers(&self) -> Option<crate::AllwinnerV861Registers> {
         crate::AllwinnerV861Registers::from_root(&self.root)

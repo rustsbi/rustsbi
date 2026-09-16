@@ -36,7 +36,7 @@ pub(crate) use runtime::hart::HartWake;
 
 pub(crate) use reset::{
     I2cAddress, P1_PMIC_COMPATIBLES, P1Pmic, PMIC_I2C_COMPATIBLES, ResetBackend, ResetError,
-    ResetReason, ResetRequest, ResetType, SIFIVE_TEST_COMPATIBLES, SUNXI_WDT_V104_COMPATIBLE,
+    ResetReason, ResetRequest, ResetType, SIFIVE_TEST_COMPATIBLES, SUNXI_WDT_V104_COMPATIBLES,
     SUNXI_WDT_V105_COMPATIBLE, SifiveTestDevice, SysconConfig, SysconPoweroff, SysconReboot,
 };
 pub(crate) use reset::{SunxiWdtV104, SunxiWdtV105};
