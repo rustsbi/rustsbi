@@ -14,6 +14,7 @@ use riscv::register::medeleg;
 use rustsbi::RustSBI;
 use spin::Once;
 
+use super::ValueKind;
 use super::entry::trap_entry;
 use crate::cfg::NUM_HART_MAX;
 use crate::hart::{HartId, current_hart};
@@ -172,25 +173,28 @@ where
     Ok(())
 }
 
-/// A platform service that completes S-mode load/store accesses which the
-/// hardware refused.
-///
-/// Runtime keeps the instruction semantics: it fetches and decodes the
-/// trapped instruction, extends the loaded value, and advances `mepc`. The
-/// service performs only the access itself, so it receives just the faulting
-/// address reported by `mtval`, the access width in bytes, and — for stores —
-/// the value to write.
-///
-/// Declining (`None`/`false`) leaves the original access fault to be
-/// redirected to the supervisor unchanged.
-pub trait AccessDispatcher: Sync {
-    /// Completes a load of `width` bytes at `addr`, returning the raw
-    /// unsigned value read, or `None` to decline.
-    fn load(&self, addr: usize, width: usize) -> Option<usize>;
+/// An error returned when a platform dispatcher declines an access.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AccessError;
 
-    /// Completes a store of the `width` low-order bytes of `value` at `addr`,
-    /// returning `false` to decline.
-    fn store(&self, addr: usize, width: usize, value: usize) -> bool;
+/// A platform service that completes S-mode load/store accesses the hardware
+/// refused.
+///
+/// Runtime keeps the instruction semantics, fetching and decoding the trapped
+/// instruction, extending the loaded value, and advancing `mepc`. The service
+/// only performs the access itself, receiving the `mtval`-reported faulting
+/// address, the [`ValueKind`] (width and signedness), and the value for stores.
+///
+/// Declining (`Err`) leaves the original fault to be redirected to
+/// the supervisor unchanged.
+pub trait AccessDispatcher: Sync {
+    /// Completes a load of `kind` at `addr`, returning the raw unsigned value,
+    /// or `Err` if the access cannot be completed.
+    fn load(&self, addr: usize, kind: ValueKind) -> Result<usize, AccessError>;
+
+    /// Completes a store of the `kind.width()` low-order bytes of `value` at
+    /// `addr`, or returns `Err` if the access cannot be completed.
+    fn store(&self, addr: usize, kind: ValueKind, value: usize) -> Result<(), AccessError>;
 }
 
 /// The erased access-fault service: one global dispatcher shared by every

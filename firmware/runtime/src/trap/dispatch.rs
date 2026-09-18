@@ -173,15 +173,11 @@ fn misaligned(frame: &mut TrapFrame, access: Access) {
     }
 }
 
-/// Load/store access-fault completion through the installed platform
-/// dispatcher.
+/// Complete load/store access faults via the installed platform dispatcher.
 ///
-/// The fault stays handled in M-mode exactly as before; the dispatcher only
-/// gets the chance to complete the access first, and only for a
-/// Supervisor-origin fault. When it declines — or when none is installed, or
-/// the instruction is not a decodable integer load/store — nothing commits
-/// and the original fault is redirected, which is the behavior of this path
-/// without any dispatcher.
+/// The dispatcher first tries to complete the access, but only for Supervisor-
+/// origin faults. If it declines, is absent, or the instruction is not a decodable
+/// integer load/store, nothing commits and the original fault is redirected.
 fn access_fault(frame: &mut TrapFrame, access: Access) {
     if let Some(counters) = crate::events::get() {
         match access {
@@ -189,7 +185,7 @@ fn access_fault(frame: &mut TrapFrame, access: Access) {
             Access::Store => counters.record_access_store(),
         }
     }
-    if !frame.trapped_from_supervisor() {
+    if !frame.is_trapped_from_supervisor() {
         redirect_or_fatal(None);
         return;
     }
