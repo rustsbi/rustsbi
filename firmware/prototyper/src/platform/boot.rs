@@ -11,7 +11,9 @@ use spin::Once;
 use super::error::{self, ResultContext};
 use super::info::{BoardInfo, ImsicInfo};
 use super::{discovery, report, state};
+use crate::driver::access_dispatcher::{self, AccessDispatcher};
 use crate::driver::ipi::IpiDevice;
+use crate::driver::spacemit_k1_syscon_apmu;
 use crate::driver::timer::TimerDevice;
 use crate::driver::{self, HartWake};
 use crate::riscv::spacemit_k1::{self, K1BootResources};
@@ -52,11 +54,17 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
 
     let devices = driver::bind_devices(&board, select_imsic(&board), &mut memory)
         .during("binding platform devices")?;
+
+    // The APMU owns the window the K1 wake registers live in; the device
+    // itself is published with the other runtime services.
+    let apmu_available = devices.spacemit_k1_syscon_apmu.is_some();
+
     let k1_resources = board
         .spacemit_k1
-        .map(|registers| K1BootResources::acquire(&mut memory, registers))
+        .map(|registers| K1BootResources::acquire(&mut memory, registers, apmu_available))
         .transpose()
         .during("acquiring SpacemiT K1 resources")?;
+
     let v861_wake = board
         .allwinner_v861
         .map(|registers| crate::riscv::allwinner_v861::initialize_boot_hart(registers, &mut memory))
@@ -144,6 +152,7 @@ fn publish_platform_services(
         syscon_reboot,
         sunxi_wdt_v104,
         sunxi_wdt_v105,
+        spacemit_k1_syscon_apmu,
     } = devices;
     // Hardware ownership is established independently of the SBI dispatcher.
     let external = if ipi.as_ref().is_some_and(|device| device.is_imsic()) {
@@ -168,6 +177,17 @@ fn publish_platform_services(
     runtime::irq::install(external);
     runtime::timer::install(timer.map(|device| device as &dyn runtime::timer::TimerDevice));
     runtime::events::install(pmu.as_ref().map(|_| sbi::pmu::runtime_counters()));
+    let access_handlers = spacemit_k1_syscon_apmu.map(|apmu| {
+        let static_apmu = spacemit_k1_syscon_apmu::install(apmu);
+        access_dispatcher::install(AccessDispatcher {
+            spacemit_k1_syscon_apmu: Some(static_apmu),
+        });
+        runtime::access::AccessHandlers {
+            load: access_dispatcher::load_handler,
+            store: access_dispatcher::store_handler,
+        }
+    });
+    runtime::access::install(access_handlers);
 
     state::publish_resources(board, supervisor_memory, console);
 

@@ -8,6 +8,7 @@
 
 #![forbid(unsafe_code)]
 
+pub(crate) mod access_dispatcher;
 mod aia;
 mod cci;
 mod clint;
@@ -15,6 +16,7 @@ mod console;
 pub(crate) mod ipi;
 mod plmt;
 mod reset;
+pub(crate) mod spacemit_k1_syscon_apmu;
 pub(crate) mod timer;
 
 use alloc::boxed::Box;
@@ -58,6 +60,7 @@ pub(crate) struct Devices {
     pub(crate) syscon_reboot: Option<SysconReboot>,
     pub(crate) sunxi_wdt_v104: Option<SunxiWdtV104>,
     pub(crate) sunxi_wdt_v105: Option<SunxiWdtV105>,
+    pub(crate) spacemit_k1_syscon_apmu: Option<spacemit_k1_syscon_apmu::SpacemitK1SysconApmu>,
 }
 
 impl Devices {
@@ -155,6 +158,13 @@ pub(crate) fn bind_devices(
         board.syscon_reboot.filter(|_| sifive_test.is_none()),
         memory,
     )?;
+    // Bind the K1 syscon APMU before K1BootResources so it holds the sole
+    // MmioRegion for that window; K1Wakeup then uses it rather than
+    // acquiring overlapping sub-ranges.
+    let spacemit_k1_apmu = board
+        .spacemit_k1_syscon_apmu
+        .map(|registers| spacemit_k1_syscon_apmu::SpacemitK1SysconApmu::bind(registers, memory))
+        .transpose()?;
     Ok(Devices {
         timer,
         ipi,
@@ -165,5 +175,6 @@ pub(crate) fn bind_devices(
         syscon_reboot,
         sunxi_wdt_v104,
         sunxi_wdt_v105,
+        spacemit_k1_syscon_apmu: spacemit_k1_apmu,
     })
 }

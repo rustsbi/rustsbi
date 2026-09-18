@@ -30,9 +30,15 @@ pub(crate) struct K1BootResources {
 }
 
 impl K1BootResources {
+    /// Acquires the K1 boot resources.
+    ///
+    /// `apmu_available` indicates that the DT-described APMU device has
+    /// already been bound; when true, K1Wakeup uses that owner rather than
+    /// acquiring overlapping sub-ranges separately.
     pub(crate) fn acquire(
         memory: &mut MemoryRegistry,
         registers: SpacemitK1Registers,
+        apmu_available: bool,
     ) -> runtime::Result<Self> {
         Ok(Self {
             system_registers: registers,
@@ -42,7 +48,7 @@ impl K1BootResources {
                 registers.cci_status(),
                 registers.cci_snoop_controls(),
             )?,
-            wakeup: wakeup::K1Wakeup::acquire(memory, registers)?,
+            wakeup: wakeup::K1Wakeup::acquire(memory, registers, apmu_available)?,
         })
     }
 }

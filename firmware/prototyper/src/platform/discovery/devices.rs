@@ -139,6 +139,14 @@ fn discover_node(
         if driver::THEAD_PLIC_COMPATIBLES.contains(&compatible) {
             board.thead_plic = Some(primary_register_range);
         }
+        if compatible == driver::spacemit_k1_syscon_apmu::COMPATIBLE
+            && board
+                .spacemit_k1_syscon_apmu
+                .replace(primary_register_range)
+                .is_some()
+        {
+            return Err(runtime::Error::InvalidArgs);
+        }
     }
     Ok(())
 }
@@ -153,6 +161,7 @@ fn is_supported_mmio_device(node: &Node<'_>, compatible: &str) -> bool {
         || driver::IMSIC_COMPATIBLES.contains(&compatible)
         || driver::THEAD_PLIC_COMPATIBLES.contains(&compatible)
         || qemu_aplic::is_machine_domain(node, compatible)
+        || compatible == driver::spacemit_k1_syscon_apmu::COMPATIBLE
 }
 
 fn discover_clint(board: &mut BoardInfo, compatible: &str, registers: DeviceRegisterRange) {

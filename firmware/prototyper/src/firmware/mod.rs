@@ -733,7 +733,20 @@ pub fn set_pmp(firmware_ram: &Range<usize>) {
         pmpaddr5::write(FIRMWARE_END_ADDRESS >> 2);
         set_pmp_config(6, Range::TOR, Permission::RWX, false);
         pmpaddr6::write(firmware_ram.end >> 2);
-        if crate::platform::board_info()
+        if let Some(apmu_registers) = crate::platform::board_info().spacemit_k1_syscon_apmu {
+            let start = apmu_registers.start().as_usize();
+            let end = apmu_registers.end().as_usize();
+            assert_eq!(start & 0x3, 0);
+            assert_eq!(end & 0x3, 0);
+            assert!(firmware_ram.end <= start);
+            // Deny direct S-mode access to the DT-described K1 APMU window.
+            set_pmp_config(7, Range::OFF, Permission::NONE, false);
+            pmpaddr7::write(start >> 2);
+            set_pmp_config(8, Range::TOR, Permission::NONE, false);
+            pmpaddr8::write(end >> 2);
+            set_pmp_config(9, Range::NAPOT, Permission::RWX, false);
+            pmpaddr9::write(usize::MAX);
+        } else if crate::platform::board_info()
             .allwinner_v821
             .map_or(0, |soc| soc.noncacheable_offset())
             != 0
@@ -835,9 +848,11 @@ pub fn log_pmp_cfg(_firmware_ram: &Range<usize>) {
     seq_macro::seq!(N in 0..8 {
         log_entry(N, pastey::paste! { [<pmpaddr ~N>]::read() });
     });
-    if crate::platform::board_info()
-        .allwinner_v821
-        .is_some_and(|soc| soc.noncacheable_offset() != 0)
+    let board = crate::platform::board_info();
+    if board.spacemit_k1_syscon_apmu.is_some()
+        || board
+            .allwinner_v821
+            .is_some_and(|soc| soc.noncacheable_offset() != 0)
     {
         seq_macro::seq!(N in 8..10 {
             log_entry(N, pastey::paste! { [<pmpaddr ~N>]::read() });
