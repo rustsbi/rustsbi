@@ -62,16 +62,8 @@ pub(crate) extern "C" fn trap_dispatch(frame: &mut TrapFrame) {
         ILLEGAL_INSTRUCTION => illegal_instruction(frame),
         LOAD_MISALIGNED => misaligned(frame, Access::Load),
         STORE_MISALIGNED => misaligned(frame, Access::Store),
-        LOAD_FAULT | STORE_FAULT => {
-            if let Some(counters) = crate::events::get() {
-                if code == LOAD_FAULT {
-                    counters.record_access_load();
-                } else {
-                    counters.record_access_store();
-                }
-            }
-            redirect_or_fatal(None);
-        }
+        LOAD_FAULT => access_fault(frame, Access::Load),
+        STORE_FAULT => access_fault(frame, Access::Store),
         // Exceptions requested for delegation but retained by hardware
         // (WARL) still have a correct software-redirection path.
         _ => redirect_or_fatal(None),
@@ -175,6 +167,35 @@ fn misaligned(frame: &mut TrapFrame, access: Access) {
             }
             emulate::emulate_store(frame)
         }
+    };
+    if let Err(error) = result {
+        redirect_or_fatal(Some(error));
+    }
+}
+
+/// Load/store access-fault completion through the installed platform
+/// dispatcher.
+///
+/// The fault stays handled in M-mode exactly as before; the dispatcher only
+/// gets the chance to complete the access first, and only for a
+/// Supervisor-origin fault. When it declines — or when none is installed, or
+/// the instruction is not a decodable integer load/store — nothing commits
+/// and the original fault is redirected, which is the behavior of this path
+/// without any dispatcher.
+fn access_fault(frame: &mut TrapFrame, access: Access) {
+    if let Some(counters) = crate::events::get() {
+        match access {
+            Access::Load => counters.record_access_load(),
+            Access::Store => counters.record_access_store(),
+        }
+    }
+    if !frame.trapped_from_supervisor() {
+        redirect_or_fatal(None);
+        return;
+    }
+    let result = match access {
+        Access::Load => emulate::dispatch_load_fault(frame),
+        Access::Store => emulate::dispatch_store_fault(frame),
     };
     if let Err(error) = result {
         redirect_or_fatal(Some(error));
