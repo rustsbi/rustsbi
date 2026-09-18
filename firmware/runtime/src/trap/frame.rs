@@ -79,4 +79,11 @@ impl TrapFrame {
         const MPP_MACHINE: usize = 0b11 << 11;
         self.mstatus & MPP_MASK == MPP_MACHINE
     }
+
+    /// Whether the trapped context came from S-mode (`MPP = S`).
+    pub(crate) fn trapped_from_supervisor(&self) -> bool {
+        const MPP_MASK: usize = 0b11 << 11;
+        const MPP_SUPERVISOR: usize = 0b01 << 11;
+        self.mstatus & MPP_MASK == MPP_SUPERVISOR
+    }
 }

@@ -62,16 +62,8 @@ pub(crate) extern "C" fn trap_dispatch(frame: &mut TrapFrame) {
         ILLEGAL_INSTRUCTION => illegal_instruction(frame),
         LOAD_MISALIGNED => misaligned(frame, Access::Load),
         STORE_MISALIGNED => misaligned(frame, Access::Store),
-        LOAD_FAULT | STORE_FAULT => {
-            if let Some(counters) = crate::events::get() {
-                if code == LOAD_FAULT {
-                    counters.record_access_load();
-                } else {
-                    counters.record_access_store();
-                }
-            }
-            redirect_or_fatal(None);
-        }
+        LOAD_FAULT => access_fault(frame, Access::Load),
+        STORE_FAULT => access_fault(frame, Access::Store),
         // Exceptions requested for delegation but retained by hardware
         // (WARL) still have a correct software-redirection path.
         _ => redirect_or_fatal(None),
@@ -184,6 +176,31 @@ fn misaligned(frame: &mut TrapFrame, access: Access) {
 enum Access {
     Load,
     Store,
+}
+
+/// Load/store access-fault handling: the platform access dispatcher may own
+/// the faulting address and complete the instruction in M-mode.
+///
+/// Only a Supervisor-origin fault is offered to the dispatcher; a User-origin
+/// fault keeps the plain redirect, and so does every declined access.
+fn access_fault(frame: &mut TrapFrame, access: Access) {
+    if let Some(counters) = crate::events::get() {
+        match access {
+            Access::Load => counters.record_access_load(),
+            Access::Store => counters.record_access_store(),
+        }
+    }
+    if !frame.trapped_from_supervisor() {
+        redirect_or_fatal(None);
+        return;
+    }
+    let result = match access {
+        Access::Load => emulate::dispatch_access_load(frame),
+        Access::Store => emulate::dispatch_access_store(frame),
+    };
+    if let Err(error) = result {
+        redirect_or_fatal(Some(error));
+    }
 }
 
 /// The machine software interrupt transport: a staged hart start performs

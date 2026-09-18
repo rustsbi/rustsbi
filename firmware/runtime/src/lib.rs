@@ -11,6 +11,7 @@ extern crate alloc;
 
 use core::fmt;
 
+pub mod access;
 mod allwinner_v821;
 mod allwinner_v861;
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
