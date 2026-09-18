@@ -10,7 +10,7 @@ use super::Error;
 
 /// How the value transferred by an emulated access is interpreted.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ValueKind {
+pub enum ValueKind {
     /// 1-byte load, sign-extended.
     Signed8,
     /// 1-byte load/store, zero-extended.
@@ -40,7 +40,7 @@ impl ValueKind {
 
     /// Interpret raw little-endian bytes (already composed into a word) as a
     /// register value, sign- or zero-extending per the kind.
-    pub fn extend(self, raw: usize) -> usize {
+    pub(crate) fn extend(self, raw: usize) -> usize {
         match self {
             ValueKind::Signed8 => raw as i8 as usize,
             ValueKind::Unsigned8 => raw as u8 as usize,
