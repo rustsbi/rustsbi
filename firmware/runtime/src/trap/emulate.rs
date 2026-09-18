@@ -14,6 +14,7 @@ use riscv::register::{mcause, mepc, mstatus, mtval};
 use super::Error;
 use super::decode;
 use super::frame::TrapFrame;
+use super::init;
 use super::recovery;
 
 /// Exception cause codes for secondary-fault remapping.
@@ -174,6 +175,58 @@ pub fn emulate_store(frame: &mut TrapFrame) -> Result<(), Error> {
         let op = decode::decode_store(raw)?;
         let value = frame.read_x(op.rs2 as usize);
         recovery::write_value(facts.mtval, value, op.kind)?;
+        Ok(len)
+    })
+}
+
+/// Complete the trapped load that raised an access fault through the
+/// installed [`AccessDispatcher`](super::AccessDispatcher): fetch and decode
+/// the instruction at `mepc`, offer the access to the dispatcher, write the
+/// extended value back to `rd`, and advance `mepc`.
+///
+/// The dispatcher performs the access itself, so unlike [`emulate_load`] this
+/// does not touch memory under the trapped context's privilege. `mtval` is
+/// passed on as the faulting address the hardware reported, without further
+/// interpretation.
+///
+/// Returns [`Error::UnsupportedInstruction`] when no dispatcher is installed,
+/// the instruction is not a decodable integer load, or the dispatcher
+/// declines the address; the caller then redirects the original fault.
+pub fn dispatch_load_fault(frame: &mut TrapFrame) -> Result<(), Error> {
+    reject_machine_origin(frame)?;
+    let dispatcher = init::access_dispatcher().ok_or(Error::UnsupportedInstruction)?;
+    with_trap_facts(|facts| {
+        let (raw, len) = fetch(facts.mepc)?;
+        let op = decode::decode_load(raw)?;
+        let raw_value = dispatcher
+            .load(facts.mtval, op.kind.width())
+            .ok_or(Error::UnsupportedInstruction)?;
+        frame.write_x(op.rd as usize, op.kind.extend(raw_value));
+        Ok(len)
+    })
+}
+
+/// Complete the trapped store that raised an access fault through the
+/// installed [`AccessDispatcher`](super::AccessDispatcher): fetch and decode
+/// the instruction at `mepc`, read `rs2` from the trapped context, offer the
+/// access to the dispatcher, and advance `mepc`.
+///
+/// The dispatcher receives the register value together with the access
+/// width, and performs the width-specific store itself.
+///
+/// Returns [`Error::UnsupportedInstruction`] when no dispatcher is installed,
+/// the instruction is not a decodable integer store, or the dispatcher
+/// declines the address; the caller then redirects the original fault.
+pub fn dispatch_store_fault(frame: &mut TrapFrame) -> Result<(), Error> {
+    reject_machine_origin(frame)?;
+    let dispatcher = init::access_dispatcher().ok_or(Error::UnsupportedInstruction)?;
+    with_trap_facts(|facts| {
+        let (raw, len) = fetch(facts.mepc)?;
+        let op = decode::decode_store(raw)?;
+        let value = frame.read_x(op.rs2 as usize);
+        if !dispatcher.store(facts.mtval, op.kind.width(), value) {
+            return Err(Error::UnsupportedInstruction);
+        }
         Ok(len)
     })
 }

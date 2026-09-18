@@ -172,6 +172,50 @@ where
     Ok(())
 }
 
+/// A platform service that completes S-mode load/store accesses which the
+/// hardware refused.
+///
+/// Runtime keeps the instruction semantics: it fetches and decodes the
+/// trapped instruction, extends the loaded value, and advances `mepc`. The
+/// service performs only the access itself, so it receives just the faulting
+/// address reported by `mtval`, the access width in bytes, and — for stores —
+/// the value to write.
+///
+/// Declining (`None`/`false`) leaves the original access fault to be
+/// redirected to the supervisor unchanged.
+pub trait AccessDispatcher: Sync {
+    /// Completes a load of `width` bytes at `addr`, returning the raw
+    /// unsigned value read, or `None` to decline.
+    fn load(&self, addr: usize, width: usize) -> Option<usize>;
+
+    /// Completes a store of the `width` low-order bytes of `value` at `addr`,
+    /// returning `false` to decline.
+    fn store(&self, addr: usize, width: usize, value: usize) -> bool;
+}
+
+/// The erased access-fault service: one global dispatcher shared by every
+/// hart, published once during boot.
+static ACCESS_DISPATCHER: Once<&'static dyn AccessDispatcher> = Once::new();
+
+/// Publishes the platform's access-fault dispatcher once during boot.
+///
+/// This uses the same `Once`-backed erased-reference pattern as the SBI
+/// policy stored by [`init`] — though that policy is per-hart while this
+/// dispatcher is global — and trap dispatch reads it directly. Later calls
+/// are ignored.
+pub fn install_access_dispatcher<D>(dispatcher: &'static D)
+where
+    D: AccessDispatcher + 'static,
+{
+    ACCESS_DISPATCHER.call_once(|| dispatcher as &dyn AccessDispatcher);
+}
+
+/// Returns the published access-fault dispatcher, or `None` when the
+/// platform installed none.
+pub(crate) fn access_dispatcher() -> Option<&'static dyn AccessDispatcher> {
+    ACCESS_DISPATCHER.get().copied()
+}
+
 /// Misaligned load/store exception `medeleg` bits (causes 4 and 6).
 const MIS_DELEG: usize = (1 << 4) | (1 << 6);
 
