@@ -6,8 +6,13 @@
 //!   finisher register values and exit-code encoding.
 
 use core::mem::{align_of, size_of};
+use runtime::Result;
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
+use serde_device_tree::buildin::Node;
 
+use crate::devicetree;
+
+use super::registry::{self, BindResources, ResetDriver};
 use super::{ResetBackend, ResetError, ResetReason, ResetRequest, ResetType};
 
 #[repr(usize)]
@@ -23,6 +28,59 @@ impl Register {
 }
 
 const SPAN: usize = Register::Finish.offset() + size_of::<u32>();
+const COMPATIBLES: [&str; 1] = ["sifive,test0"];
+
+/// Devicetree description for the SiFive test finisher.
+#[derive(Default)]
+pub(in crate::driver::reset) struct SifiveTestDriver {
+    registers: Option<DeviceRegisterRange>,
+}
+
+impl ResetDriver for SifiveTestDriver {
+    fn probe(
+        &mut self,
+        platform: &runtime::PlatformView<'_>,
+        node: &Node<'_>,
+        _parent: Option<&Node<'_>>,
+    ) -> Result<()> {
+        let Some(compatibles) = devicetree::compatible_strings(node) else {
+            return Ok(());
+        };
+        if !compatibles
+            .iter()
+            .any(|compatible| COMPATIBLES.contains(&compatible))
+        {
+            return Ok(());
+        }
+        let registers = registry::primary_registers(platform, node)?;
+        registry::set_once(&mut self.registers, registers)
+    }
+
+    fn has_device(&self) -> bool {
+        self.registers.is_some()
+    }
+
+    fn bind(
+        &self,
+        resources: &mut BindResources<'_>,
+    ) -> Result<alloc::boxed::Box<dyn ResetBackend>> {
+        let registers = self.registers.ok_or(runtime::Error::InvalidArgs)?;
+        Ok(alloc::boxed::Box::new(SifiveTestDevice::bind(
+            registers,
+            resources.memory(),
+        )?))
+    }
+
+    fn log_summary(&self) {
+        if let Some(registers) = self.registers {
+            info!(
+                "{:<30}: Available (Base Address: 0x{:x})",
+                "Platform Reset Extension",
+                registers.start().as_usize()
+            );
+        }
+    }
+}
 
 #[repr(u16)]
 enum FinishAction {
@@ -31,7 +89,7 @@ enum FinishAction {
     Reset = 0x7777,
 }
 
-pub(crate) struct FinishCommand(u32);
+struct FinishCommand(u32);
 
 impl FinishCommand {
     fn new(action: FinishAction, code: u16) -> Self {
@@ -39,7 +97,7 @@ impl FinishCommand {
     }
 
     fn for_request(req: ResetRequest) -> Option<Self> {
-        match (req.reset_type, req.reset_reason) {
+        match (req.reset_type(), req.reset_reason()) {
             (ResetType::Shutdown, ResetReason::NoReason) => Some(Self::new(FinishAction::Pass, 0)),
             (ResetType::Shutdown, ResetReason::SystemFailure) => {
                 Some(Self::new(FinishAction::Fail, u16::MAX))
@@ -54,25 +112,19 @@ impl FinishCommand {
 }
 
 /// SiFive test device used by QEMU to exit or reset.
-pub(crate) struct SifiveTestDevice {
+struct SifiveTestDevice {
     registers: MmioRegion,
 }
 
-pub(in crate::driver) fn bind(
-    registers: DeviceRegisterRange,
-    memory: &mut MemoryRegistry,
-) -> runtime::Result<SifiveTestDevice> {
-    let registers = registers.subrange(0, SPAN)?;
-    if !registers.start().is_aligned_to(align_of::<u32>()) {
-        return Err(runtime::Error::InvalidArgs);
-    }
-    Ok(SifiveTestDevice::new(memory.acquire_mmio(registers)?))
-}
-
 impl SifiveTestDevice {
-    /// Creates a reset device from its acquired register window.
-    fn new(registers: MmioRegion) -> Self {
-        Self { registers }
+    fn bind(registers: DeviceRegisterRange, memory: &mut MemoryRegistry) -> runtime::Result<Self> {
+        let registers = registers.subrange(0, SPAN)?;
+        if !registers.start().is_aligned_to(align_of::<u32>()) {
+            return Err(runtime::Error::InvalidArgs);
+        }
+        Ok(Self {
+            registers: memory.acquire_mmio(registers)?,
+        })
     }
 
     /// Writes the finish value and parks the hart until the board powers off.
@@ -91,15 +143,10 @@ impl SifiveTestDevice {
 }
 
 impl ResetBackend for SifiveTestDevice {
-    type Request = FinishCommand;
-
-    #[inline]
-    fn prepare_reset(&self, req: ResetRequest) -> Option<Self::Request> {
-        FinishCommand::for_request(req)
-    }
-
-    #[inline]
-    fn system_reset(&mut self, req: Self::Request) -> ResetError {
-        self.finish(req)
+    fn system_reset(&mut self, request: ResetRequest) -> ResetError {
+        let Some(command) = FinishCommand::for_request(request) else {
+            return ResetError::InvalidRequest;
+        };
+        self.finish(command)
     }
 }

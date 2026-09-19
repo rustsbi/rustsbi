@@ -1,4 +1,7 @@
 //! Platform facts retained after inspecting the Platform Description.
+//!
+//! [`BoardInfo`] groups facts by their policy consumer so generic boot code
+//! does not depend on individual reset or interrupt-controller models.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -71,68 +74,20 @@ pub(crate) struct ConsoleInfo {
     pub(crate) clock_hz: Option<u32>,
 }
 
-/// Hardware information used while initializing and serving the platform.
-pub(crate) struct BoardInfo {
+/// Memory layout retained for firmware policy and platform reporting.
+pub(crate) struct MemoryInfo {
     pub(crate) ram_ranges: Vec<PhysAddrRange>,
     pub(crate) firmware_ram_range: Option<PhysAddrRange>,
-    pub(crate) console: Option<ConsoleInfo>,
-    pub(crate) reset: Option<DeviceRegisterRange>,
-    pub(crate) syscon_poweroff: Option<driver::SysconConfig>,
-    pub(crate) syscon_reboot: Option<driver::SysconConfig>,
-    pub(crate) sunxi_wdt_v104: Option<DeviceRegisterRange>,
-    pub(crate) sunxi_wdt_v105: Option<DeviceRegisterRange>,
-    pub(crate) sunxi_rtc_v203_gprcm: Option<DeviceRegisterRange>,
-    pub(crate) clint: Option<(DeviceRegisterRange, driver::ClintKind)>,
-    pub(crate) imsic: Option<ImsicInfo>,
-    pub(crate) machine_aplic: Option<DeviceRegisterRange>,
-    pub(crate) thead_plic: Option<DeviceRegisterRange>,
-    pub(crate) spacemit_k1: Option<SpacemitK1Registers>,
-    pub(crate) v821_usb: Option<DeviceRegisterRange>,
-    pub(crate) andes_l2: Option<DeviceRegisterRange>,
-    pub(crate) plmt: Option<DeviceRegisterRange>,
-    pub(crate) plicsw: Option<DeviceRegisterRange>,
-    pub(crate) allwinner_v821: Option<runtime::AllwinnerV821Registers>,
-    pub(crate) allwinner_v861: Option<runtime::AllwinnerV861Registers>,
-    pub(crate) hart_count: usize,
-    pub(crate) timebase_frequency_hz: Option<u32>,
-    pub(crate) enabled_harts: HartEnableList,
-    pub(crate) model: String,
-    pub(crate) spacemit_p1_pmic_reset: Option<(DeviceRegisterRange, driver::I2cAddress)>,
+    pub(crate) noncacheable_alias_offset: Option<u64>,
 }
 
-impl BoardInfo {
-    pub(super) const fn empty() -> Self {
+impl MemoryInfo {
+    fn empty() -> Self {
         Self {
             ram_ranges: Vec::new(),
             firmware_ram_range: None,
-            console: None,
-            reset: None,
-            syscon_poweroff: None,
-            syscon_reboot: None,
-            sunxi_wdt_v104: None,
-            sunxi_wdt_v105: None,
-            sunxi_rtc_v203_gprcm: None,
-            clint: None,
-            imsic: None,
-            machine_aplic: None,
-            thead_plic: None,
-            spacemit_k1: None,
-            v821_usb: None,
-            andes_l2: None,
-            plmt: None,
-            plicsw: None,
-            allwinner_v821: None,
-            allwinner_v861: None,
-            hart_count: 0,
-            timebase_frequency_hz: None,
-            enabled_harts: [false; NUM_HART_MAX],
-            model: String::new(),
-            spacemit_p1_pmic_reset: None,
+            noncacheable_alias_offset: None,
         }
-    }
-
-    pub(crate) fn is_qemu_virt(&self) -> bool {
-        self.model == "riscv-virtio,qemu"
     }
 
     pub(super) fn ram_range_containing(&self, range: PhysAddrRange) -> Option<PhysAddrRange> {
@@ -140,5 +95,104 @@ impl BoardInfo {
             .iter()
             .copied()
             .find(|ram| ram.start() <= range.start() && range.end() <= ram.end())
+    }
+}
+
+/// Hart topology and architectural timer frequency.
+pub(crate) struct HartInfo {
+    pub(crate) count: usize,
+    pub(crate) timebase_frequency_hz: Option<u32>,
+    pub(crate) enabled: HartEnableList,
+}
+
+impl HartInfo {
+    const fn empty() -> Self {
+        Self {
+            count: 0,
+            timebase_frequency_hz: None,
+            enabled: [false; NUM_HART_MAX],
+        }
+    }
+}
+
+/// Interrupt-controller descriptions collected before device binding.
+pub(crate) struct InterruptDescriptions {
+    pub(crate) clint: Option<(DeviceRegisterRange, driver::ClintKind)>,
+    pub(crate) imsic: Option<ImsicInfo>,
+    pub(crate) machine_aplic: Option<DeviceRegisterRange>,
+    pub(crate) thead_plic: Option<DeviceRegisterRange>,
+    pub(crate) plmt: Option<DeviceRegisterRange>,
+    pub(crate) plicsw: Option<DeviceRegisterRange>,
+}
+
+impl InterruptDescriptions {
+    const fn empty() -> Self {
+        Self {
+            clint: None,
+            imsic: None,
+            machine_aplic: None,
+            thead_plic: None,
+            plmt: None,
+            plicsw: None,
+        }
+    }
+}
+
+/// Unbound descriptions for the platform-wide device classes.
+pub(crate) struct DeviceDescriptions {
+    pub(crate) console: Option<ConsoleInfo>,
+    pub(crate) reset: driver::ResetDescription,
+    pub(crate) interrupts: InterruptDescriptions,
+}
+
+impl DeviceDescriptions {
+    fn empty() -> Self {
+        Self {
+            console: None,
+            reset: driver::ResetDescription::empty(),
+            interrupts: InterruptDescriptions::empty(),
+        }
+    }
+}
+
+/// Vendor SoC descriptions that require boot-time preparation.
+pub(crate) struct SocDescriptions {
+    pub(crate) spacemit_k1: Option<SpacemitK1Registers>,
+    pub(crate) v821: Option<crate::platform::allwinner::v821::Description>,
+    pub(crate) v861: Option<runtime::soc::allwinner::v861::AllwinnerV861Soc>,
+}
+
+impl SocDescriptions {
+    const fn empty() -> Self {
+        Self {
+            spacemit_k1: None,
+            v821: None,
+            v861: None,
+        }
+    }
+}
+
+/// Platform facts grouped by the policy that consumes them.
+pub(crate) struct BoardInfo {
+    pub(crate) model: String,
+    pub(crate) memory: MemoryInfo,
+    pub(crate) harts: HartInfo,
+    pub(crate) devices: DeviceDescriptions,
+    pub(crate) soc: SocDescriptions,
+}
+
+impl BoardInfo {
+    pub(super) fn empty() -> Self {
+        Self {
+            model: String::new(),
+            memory: MemoryInfo::empty(),
+            harts: HartInfo::empty(),
+            devices: DeviceDescriptions::empty(),
+            soc: SocDescriptions::empty(),
+        }
+    }
+
+    pub(crate) fn is_qemu_virt(&self) -> bool {
+        self.model == "riscv-virtio,qemu"
     }
 }

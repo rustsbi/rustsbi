@@ -94,6 +94,8 @@ fn enable_supervisor_services() {
     if ipi::uses_imsic() {
         driver::initialize_hart_imsic(
             platform::board_info()
+                .devices
+                .interrupts
                 .imsic
                 .as_ref()
                 .expect("selected IMSIC has a description"),

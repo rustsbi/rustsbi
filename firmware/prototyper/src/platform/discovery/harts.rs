@@ -10,7 +10,7 @@ use crate::platform::info::BoardInfo;
 use crate::sbi::features::detect_extensions;
 
 pub(super) fn discover(board: &mut BoardInfo, tree: &Tree<'_>) -> runtime::Result<()> {
-    board.timebase_frequency_hz = tree
+    board.harts.timebase_frequency_hz = tree
         .cpus
         .timebase_frequency_hz
         .filter(|frequency| *frequency != 0);
@@ -34,14 +34,15 @@ pub(super) fn discover(board: &mut BoardInfo, tree: &Tree<'_>) -> runtime::Resul
             .map(|register| register.0.start)
             .ok_or(runtime::Error::InvalidArgs)?;
         let enabled = board
-            .enabled_harts
+            .harts
+            .enabled
             .get_mut(hart_id)
             .ok_or(runtime::Error::InvalidArgs)?;
         *enabled = true;
-        board.hart_count += 1;
+        board.harts.count += 1;
     }
 
     // TODO: Move ISA-extension discovery behind the Runtime seam too.
-    detect_extensions(&tree.cpus.cpu, &board.enabled_harts);
+    detect_extensions(&tree.cpus.cpu, &board.harts.enabled);
     Ok(())
 }

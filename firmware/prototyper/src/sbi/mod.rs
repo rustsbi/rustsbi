@@ -5,7 +5,7 @@
 
 use spin::Once;
 
-pub(crate) mod allwinner_v821;
+pub(crate) mod allwinner;
 pub mod console;
 pub mod cppc;
 pub mod dbtr;
@@ -68,10 +68,10 @@ pub struct SbiDispatcher {
     pub(crate) susp: Option<SbiSuspend>,
     #[rustsbi(mpxy)]
     pub(crate) mpxy: Option<SbiMpxy>,
-    #[rustsbi(extension(eid = crate::riscv::allwinner_v821::EXTENSION))]
-    pub(crate) andes: Option<allwinner_v821::Andes>,
-    #[rustsbi(extension(eid = crate::riscv::allwinner_v821::AWBASE_EXTENSION))]
-    pub(crate) awbase: Option<allwinner_v821::Awbase>,
+    #[rustsbi(extension(eid = allwinner::v821::EXTENSION))]
+    pub(crate) andes: Option<allwinner::v821::Andes>,
+    #[rustsbi(extension(eid = allwinner::v821::AWBASE_EXTENSION))]
+    pub(crate) awbase: Option<allwinner::v821::Awbase>,
 }
 
 /// The SBI extension set, owned by the sbi layer.

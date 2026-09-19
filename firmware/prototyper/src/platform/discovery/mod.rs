@@ -1,10 +1,9 @@
 //! Translation from Platform Description nodes into [`BoardInfo`].
 
 mod console;
-mod devices;
 mod harts;
 mod imsic;
-mod syscon;
+mod interrupts;
 
 use crate::devicetree::Tree;
 
@@ -18,10 +17,14 @@ pub(super) fn discover_platform(
     let tree = root.deserialize::<Tree>();
     let mut board = BoardInfo::empty();
     harts::discover(&mut board, &tree)?;
-    board.console = console::discover(platform)?;
-    board.allwinner_v821 = platform.allwinner_v821_registers();
-    devices::discover(&mut board, platform)?;
-    board.spacemit_k1 = platform.spacemit_k1_registers()?;
-    board.allwinner_v861 = platform.allwinner_v861_registers();
+    board.devices.console = console::discover(platform)?;
+    board.devices.reset = crate::driver::ResetDescription::discover(platform)?;
+    board.soc.v821 = platform
+        .soc::<runtime::soc::allwinner::v821::AllwinnerV821Soc>()?
+        .map(|soc| crate::platform::allwinner::v821::Description::discover(soc, platform))
+        .transpose()?;
+    interrupts::discover(&mut board, platform)?;
+    board.soc.spacemit_k1 = platform.spacemit_k1_registers()?;
+    board.soc.v861 = platform.soc::<runtime::soc::allwinner::v861::AllwinnerV861Soc>()?;
     Ok(board)
 }

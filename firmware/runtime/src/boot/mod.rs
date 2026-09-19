@@ -74,14 +74,15 @@ pub unsafe extern "C" fn k1_warm_entry(initialize: extern "C" fn()) -> ! {
     )
 }
 
-/// Enters a V861 C907 hart released from hardware reset.
+/// Enters a C907 hart released from hardware reset.
 ///
 /// # Safety
 ///
-/// Only V861 hardware reset may enter here, after shared Runtime and platform
-/// state is published. `initialize` restores cache policy and activates traps.
+/// Only a compatible C907 reset controller may enter here, after shared
+/// Runtime and platform state are published. `initialize` restores the
+/// platform-owned cache policy and activates traps.
 #[unsafe(naked)]
-pub unsafe extern "C" fn v861_warm_entry(initialize: extern "C" fn()) -> ! {
+pub unsafe extern "C" fn c907_reset_entry(initialize: extern "C" fn()) -> ! {
     core::arch::naked_asm!(
         ".balign 4",
         "csrw mie, zero",

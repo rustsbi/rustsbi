@@ -115,14 +115,9 @@ impl<'tree> PlatformView<'tree> {
         SpacemitK1Registers::from_root(&self.root)
     }
 
-    /// Returns V861 fixed-register descriptions when this platform identifies V861.
-    pub fn allwinner_v861_registers(&self) -> Option<crate::AllwinnerV861Registers> {
-        crate::AllwinnerV861Registers::from_root(&self.root)
-    }
-
-    /// Returns V821 capabilities when the root compatible identifies this SoC.
-    pub fn allwinner_v821_registers(&self) -> Option<crate::AllwinnerV821Registers> {
-        crate::AllwinnerV821Registers::from_root(&self.root)
+    /// Returns a SoC capability when the root node identifies `S`.
+    pub fn soc<S: crate::soc::Soc>(&self) -> Result<Option<S>> {
+        S::from_root(&self.root)
     }
 
     /// Returns the RTC V203 GPRCM window from the BSP's fixed four-cell property.
