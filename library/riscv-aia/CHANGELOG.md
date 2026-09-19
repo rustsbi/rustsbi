@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Interrupt delivery control (IDC) structures for APLIC, described in AIA specification section 4.8.
+
 ### Modified
 
 - Add M-, S-, and VS-mode indirect IMSIC CSR accessors, including indexed
