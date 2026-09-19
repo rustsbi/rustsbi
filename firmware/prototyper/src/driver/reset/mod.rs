@@ -1,34 +1,32 @@
-//! Reset drivers.
+//! System-reset firmware drivers.
+//!
+//! [`Description`] discovers reset hardware and selects a registered
+//! reset driver without acquiring MMIO. Binding produces one [`ResetDevice`],
+//! which owns and serializes the selected backend for the SBI SRST adapter.
 
-pub(super) mod pmic_spacemit_p1;
-pub(super) mod sifive_test;
-pub(super) mod sunxi_wdt_v104;
-pub(super) mod sunxi_wdt_v105;
-pub(super) mod syscon;
-mod syscon_poweroff;
-mod syscon_reboot;
+mod description;
+mod device;
+mod pmic_spacemit_p1;
+mod registry;
+mod sifive_test;
+mod sunxi_watchdog;
+mod syscon;
 
-pub(crate) use syscon::SysconConfig;
-pub(crate) use syscon_poweroff::SysconPoweroff;
-pub(crate) use syscon_reboot::SysconReboot;
-
-pub(crate) use pmic_spacemit_p1::{I2cAddress, P1Pmic};
-pub(crate) use sifive_test::SifiveTestDevice;
-pub(crate) use sunxi_wdt_v104::SunxiWdtV104;
-pub(crate) use sunxi_wdt_v105::SunxiWdtV105;
+pub(crate) use description::Description;
+pub(crate) use device::ResetDevice;
 
 /// Parsed reset type accepted by the SRST driver layer.
 ///
 /// Reserved raw values are intentionally not representable here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ResetType {
-    /// SBI standard reset type 0x00000000.
+pub(crate) enum ResetType {
+    /// SBI-defined reset type `0x00000000`.
     Shutdown,
-    /// SBI standard reset type 0x00000001.
+    /// SBI-defined reset type `0x00000001`.
     ColdReboot,
-    /// SBI standard reset type 0x00000002.
+    /// SBI-defined reset type `0x00000002`.
     WarmReboot,
-    /// Vendor / platform specific reset type: 0xF0000000 ..= 0xFFFFFFFF.
+    /// Vendor- or platform-specific reset type: `0xF0000000..=0xFFFFFFFF`.
     VendorSpecific(u32),
 }
 
@@ -36,14 +34,14 @@ pub enum ResetType {
 ///
 /// Reserved raw values are intentionally not representable here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ResetReason {
-    /// SBI standard reset reason 0x00000000.
+pub(crate) enum ResetReason {
+    /// SBI-defined reset reason `0x00000000`.
     NoReason,
-    /// SBI standard reset reason 0x00000001.
+    /// SBI-defined reset reason `0x00000001`.
     SystemFailure,
-    /// SBI implementation specific reset reason: 0xE0000000 ..= 0xEFFFFFFF.
+    /// SBI implementation-specific reset reason: `0xE0000000..=0xEFFFFFFF`.
     SbiSpecific(u32),
-    /// Vendor / platform specific reset reason: 0xF0000000 ..= 0xFFFFFFFF.
+    /// Vendor- or platform-specific reset reason: `0xF0000000..=0xFFFFFFFF`.
     VendorSpecific(u32),
 }
 
@@ -51,59 +49,50 @@ pub enum ResetReason {
 ///
 /// This is the unit consumed by the driver layer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ResetRequest {
-    pub reset_type: ResetType,
-    pub reset_reason: ResetReason,
+pub(crate) struct ResetRequest {
+    reset_type: ResetType,
+    reset_reason: ResetReason,
+}
+
+impl ResetRequest {
+    pub(crate) const fn new(reset_type: ResetType, reset_reason: ResetReason) -> Self {
+        Self {
+            reset_type,
+            reset_reason,
+        }
+    }
+
+    const fn reset_type(self) -> ResetType {
+        self.reset_type
+    }
+
+    const fn reset_reason(self) -> ResetReason {
+        self.reset_reason
+    }
 }
 
 /// Low-level error category for an SRST backend.
 ///
-/// Important:
+/// # Semantics
+///
 /// - `InvalidParam` is intentionally absent.
 /// - Successful reset is intentionally absent too, because a successful
 ///   SRST request does not return.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ResetError {
-    /// The request is implemented, but the platform lacks a required dependency.
-    ///
-    /// Mapped to SBI RET_ERR_NOT_SUPPORTED.
-    #[allow(
-        dead_code,
-        reason = "current backends acquire their dependencies at bind time"
-    )]
-    NotSupported,
+pub(crate) enum ResetError {
+    /// The selected device cannot represent the requested operation.
+    InvalidRequest,
     /// The reset failed for unspecified or unknown other reasons.
     ///
-    /// Mapped to SBI RET_ERR_FAILED.
+    /// Mapped to `SBI_ERR_FAILED`.
     Failed,
 }
 
-pub trait ResetBackend {
-    /// Backend-specific command produced by validating a reset request.
-    type Request;
-
-    /// Validate the reset request and prepare its backend-specific command.
-    ///
-    /// If this returns `None`, the upper layer returns SBI_ERR_INVALID_PARAM
-    /// without calling `system_reset`.
-    ///
-    /// This checks whether the parameter values have an implementation, not
-    /// whether all runtime dependencies are available. Missing dependencies
-    /// are reported by `system_reset` as `ResetError::NotSupported`.
-    fn prepare_reset(&self, req: ResetRequest) -> Option<Self::Request>;
-
-    /// Attempt to reset the system.
-    ///
-    /// Semantics:
-    /// - `req` is the command returned by this backend's `prepare_reset`;
-    /// - parameter validation and command selection are already complete;
-    /// - if this function returns, it must be an error path.
-    fn system_reset(&mut self, req: Self::Request) -> ResetError;
+/// Behavior required of a selected reset backend.
+///
+/// Validation and execution share one call because a successful reset never
+/// returns; an unimplemented request must fail before any side effect.
+pub(in crate::driver) trait ResetBackend: Send {
+    /// Attempts the requested reset.
+    fn system_reset(&mut self, request: ResetRequest) -> ResetError;
 }
-
-pub(crate) const SIFIVE_TEST_COMPATIBLES: [&str; 1] = ["sifive,test0"];
-pub(crate) const P1_PMIC_COMPATIBLES: [&str; 2] = ["spacemit,p1", "ky,spm8821"];
-pub(crate) const PMIC_I2C_COMPATIBLES: [&str; 2] = ["spacemit,k1-i2c", "ky,i2c"];
-pub(crate) const SUNXI_WDT_V104_COMPATIBLES: [&str; 2] =
-    ["allwinner,sun20i-d1-wdt", "allwinner,wdt-v104"];
-pub(crate) const SUNXI_WDT_V105_COMPATIBLE: &str = "allwinner,wdt-v105";

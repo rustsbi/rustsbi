@@ -117,7 +117,7 @@ pub(super) fn bind(
     board: &BoardInfo,
     memory: &mut MemoryRegistry,
 ) -> runtime::Result<Option<Box<dyn DbcnBackend + Send>>> {
-    let Some(console) = board.console.as_ref() else {
+    let Some(console) = board.devices.console.as_ref() else {
         return Ok(None);
     };
     let device = match console.kind {

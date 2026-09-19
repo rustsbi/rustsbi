@@ -41,41 +41,51 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
     let (supervisor_memory, mut memory) = platform_description
         .into_memory_resources()
         .during("deriving Runtime memory resources")?;
-    board.ram_ranges = memory.ram_ranges().collect();
+    board.memory.ram_ranges = memory.ram_ranges().collect();
     let firmware_image_range = memory.firmware_image_range();
-    board.firmware_ram_range = Some(
+    board.memory.firmware_ram_range = Some(
         board
+            .memory
             .ram_range_containing(firmware_image_range)
             .ok_or(runtime::Error::InvalidArgs)
             .during("locating the firmware RAM bank")?,
     );
 
+    let v821 = board
+        .soc
+        .v821
+        .take()
+        .map(|description| description.prepare(board.harts.count))
+        .transpose()
+        .during("preparing V821 platform resources")?;
+    board.memory.noncacheable_alias_offset = v821
+        .as_ref()
+        .map(crate::platform::allwinner::v821::V821::noncacheable_alias_offset);
+
+    if board.devices.interrupts.plmt.is_some()
+        && board.devices.interrupts.plicsw.is_some()
+        && let Some(v821) = v821.as_ref()
+    {
+        driver::allwinner::v821::enable_plmt_clock(v821.soc(), &mut memory)
+            .during("enabling the V821 PLMT clock")?;
+    }
+
     let devices = driver::bind_devices(&board, select_imsic(&board), &mut memory)
         .during("binding platform devices")?;
+    let custom_extensions = sbi::allwinner::BoundExtensions::bind(v821, &mut memory)
+        .during("binding Allwinner custom-extension devices")?;
     let k1_resources = board
+        .soc
         .spacemit_k1
         .map(|registers| K1BootResources::acquire(&mut memory, registers))
         .transpose()
         .during("acquiring SpacemiT K1 resources")?;
     let v861_wake = board
-        .allwinner_v861
-        .map(|registers| crate::riscv::allwinner_v861::initialize_boot_hart(registers, &mut memory))
+        .soc
+        .v861
+        .map(|soc| driver::allwinner::v861::V861HartRelease::bind(soc, &mut memory))
         .transpose()
         .during("initializing V861 C907 resources")?;
-
-    if let Some(soc) = board.allwinner_v821 {
-        crate::riscv::allwinner_v821::initialize(
-            soc,
-            board
-                .andes_l2
-                .ok_or(runtime::Error::InvalidArgs)
-                .during("locating V821 L2 cache")?,
-            board.v821_usb,
-            &mut memory,
-            board.hart_count,
-        )
-        .during("initializing V821 cache maintenance")?;
-    }
 
     let uses_imsic = devices.uses_imsic();
     let next_stage_fdt_address = crate::firmware::patch_device_tree(
@@ -93,7 +103,14 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
         })
         .or_else(|| v861_wake.map(|wake| Box::new(wake) as Box<dyn HartWake>));
 
-    publish_platform_services(board, supervisor_memory, devices, pmu, hart_wake);
+    publish_platform_services(
+        board,
+        supervisor_memory,
+        devices,
+        custom_extensions,
+        pmu,
+        hart_wake,
+    );
     Ok(next_stage_fdt_address)
 }
 
@@ -102,8 +119,8 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
 fn select_imsic(board: &BoardInfo) -> Option<&ImsicInfo> {
     use sbi::features::{self, Extension};
 
-    let imsic = board.imsic.as_ref()?;
-    for (hart, enabled) in board.enabled_harts.iter().copied().enumerate() {
+    let imsic = board.devices.interrupts.imsic.as_ref()?;
+    for (hart, enabled) in board.harts.enabled.iter().copied().enumerate() {
         if enabled
             && (!features::hart_has_extension(hart, Extension::Smaia)
                 || !features::hart_has_extension(hart, Extension::Sstc))
@@ -122,8 +139,7 @@ fn discover_board_and_pmu(
     platform: runtime::PlatformView<'_>,
 ) -> runtime::Result<(BoardInfo, Option<SbiPmu>)> {
     let board = discovery::discover_platform(&platform)?;
-    let pmu =
-        sbi::pmu::init(platform.root()).or_else(|| board.allwinner_v861.map(|_| SbiPmu::default()));
+    let pmu = sbi::pmu::init(platform.root()).or_else(|| board.soc.v861.map(|_| SbiPmu::default()));
     Ok((board, pmu))
 }
 
@@ -131,6 +147,7 @@ fn publish_platform_services(
     board: BoardInfo,
     supervisor_memory: SupervisorMemory,
     devices: driver::Devices,
+    custom_extensions: sbi::allwinner::BoundExtensions,
     pmu: Option<SbiPmu>,
     hart_wake: Option<Box<dyn HartWake>>,
 ) {
@@ -138,17 +155,14 @@ fn publish_platform_services(
         timer,
         ipi,
         console,
-        sifive_test,
-        spacemit_p1_pmic,
-        syscon_poweroff,
-        syscon_reboot,
-        sunxi_wdt_v104,
-        sunxi_wdt_v105,
+        reset,
     } = devices;
     // Hardware ownership is established independently of the SBI dispatcher.
     let external = if ipi.as_ref().is_some_and(|device| device.is_imsic()) {
         static IMSIC: Once<driver::ImsicInterrupt> = Once::new();
         let iid = board
+            .devices
+            .interrupts
             .imsic
             .as_ref()
             .expect("selected IMSIC has a description")
@@ -174,15 +188,8 @@ fn publish_platform_services(
     sbi::logger::Logger::init().expect("BUG: firmware logger initialized more than once");
     info!("Hello RustSBI!");
 
-    let reset = SbiReset::new(
-        sifive_test,
-        spacemit_p1_pmic,
-        syscon_poweroff,
-        syscon_reboot,
-        sunxi_wdt_v104,
-        sunxi_wdt_v105,
-    );
-    publish_sbi_dispatcher(ipi, timer, reset, pmu, hart_wake);
+    let reset = SbiReset::new(reset);
+    publish_sbi_dispatcher(ipi, timer, reset, custom_extensions, pmu, hart_wake);
 
     state::mark_ready();
 
@@ -193,6 +200,7 @@ fn publish_sbi_dispatcher(
     ipi: Option<&'static IpiDevice>,
     timer: Option<&'static TimerDevice>,
     reset: SbiReset,
+    custom_extensions: sbi::allwinner::BoundExtensions,
     pmu: Option<SbiPmu>,
     hart_wake: Option<&'static dyn HartWake>,
 ) {
@@ -209,6 +217,7 @@ fn publish_sbi_dispatcher(
     let susp = hsm.as_ref().map(|_| SbiSuspend);
     let mpxy = Some(sbi::mpxy::SbiMpxy::new(supervisor_memory));
     let sta = Some(sbi::sta::SbiSta::new(supervisor_memory));
+    let custom_extensions = custom_extensions.into_extensions(supervisor_memory);
 
     sbi::SBI_DISPATCHER.call_once(|| SbiDispatcher {
         console,
@@ -224,14 +233,14 @@ fn publish_sbi_dispatcher(
         pmu,
         sta,
         mpxy,
-        andes: sbi::allwinner_v821::Andes::new(supervisor_memory),
-        awbase: sbi::allwinner_v821::Awbase::new(),
+        andes: custom_extensions.andes,
+        awbase: custom_extensions.awbase,
     });
 }
 
 /// Runs the SoC-specific per-hart setup for secondary harts.
 pub fn initialize_secondary_hart() {
-    if let Some(platform) = state::board_info().spacemit_k1 {
+    if let Some(platform) = state::board_info().soc.spacemit_k1 {
         spacemit_k1::initialize_hart(platform);
     }
 }
@@ -244,6 +253,7 @@ pub fn wait_until_ready() {
 /// Returns the RAM bank containing the linked firmware image.
 pub fn firmware_ram_range() -> Range<usize> {
     let range = state::board_info()
+        .memory
         .firmware_ram_range
         .expect("BUG: firmware RAM bank missing after platform initialization");
     range.start().as_usize()..range.end().as_usize()
