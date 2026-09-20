@@ -278,7 +278,7 @@ pub(crate) fn patch_device_tree(
             core::slice::from_raw_parts_mut(patched_dtb_buffer.as_ptr() as *mut u8, patched_length)
         };
         fdt_nop_m_level_imsic(dtb_buf);
-        if let Some((clint, _)) = board.clint.as_ref() {
+        if let Some((clint, _)) = board.devices.interrupts.clint.as_ref() {
             let clint_name = format!("clint@{:x}", clint.start().as_usize());
             if fdt_nop_node_by_name(dtb_buf, &clint_name) {
                 info!("AIA: NOP'd M-level CLINT node '{}' in DTB", clint_name);
@@ -663,18 +663,26 @@ pub fn set_pmp(firmware_ram: &Range<usize>) {
         // only when the IMSIC device retained them for firmware use.
         if crate::driver::ipi::uses_imsic()
             && crate::platform::board_info().is_qemu_virt()
-            && let Some(imsic) = crate::platform::board_info().imsic.as_ref()
+            && let Some(imsic) = crate::platform::board_info()
+                .devices
+                .interrupts
+                .imsic
+                .as_ref()
         {
             const QEMU_VIRT_CLINT_BASE: usize = 0x0200_0000;
             const QEMU_VIRT_CLINT_SIZE: usize = 0x1_0000;
 
             let clint_start = crate::platform::board_info()
+                .devices
+                .interrupts
                 .clint
                 .as_ref()
                 .map(|(registers, _)| registers.start().as_usize())
                 .unwrap_or(QEMU_VIRT_CLINT_BASE);
             let clint_end = clint_start + QEMU_VIRT_CLINT_SIZE;
             let aplic_registers = crate::platform::board_info()
+                .devices
+                .interrupts
                 .machine_aplic
                 .expect("BUG: QEMU AIA setup requires a machine APLIC");
             let aplic_start = aplic_registers.start().as_usize();
@@ -733,17 +741,17 @@ pub fn set_pmp(firmware_ram: &Range<usize>) {
         pmpaddr5::write(FIRMWARE_END_ADDRESS >> 2);
         set_pmp_config(6, Range::TOR, Permission::RWX, false);
         pmpaddr6::write(firmware_ram.end >> 2);
-        if crate::platform::board_info()
-            .allwinner_v821
-            .map_or(0, |soc| soc.noncacheable_offset())
-            != 0
+        if let Some(alias) = crate::platform::board_info()
+            .memory
+            .noncacheable_alias_offset
         {
-            let alias = crate::platform::board_info()
-                .allwinner_v821
-                .map_or(0, |soc| soc.noncacheable_offset());
             assert!(alias.is_power_of_two() && alias >= firmware_ram.end as u64);
-            let start = (FIRMWARE_START_ADDRESS as u64).checked_add(alias).unwrap();
-            let end = (FIRMWARE_END_ADDRESS as u64).checked_add(alias).unwrap();
+            let start = (FIRMWARE_START_ADDRESS as u64)
+                .checked_add(alias)
+                .expect("BUG: V821 firmware alias start overflowed");
+            let end = (FIRMWARE_END_ADDRESS as u64)
+                .checked_add(alias)
+                .expect("BUG: V821 firmware alias end overflowed");
             assert!(end >> 2 <= usize::MAX as u64);
             // Deny the firmware alias before permitting the wider physical address space.
             set_pmp_config(7, Range::OFF, Permission::NONE, false);
@@ -836,8 +844,9 @@ pub fn log_pmp_cfg(_firmware_ram: &Range<usize>) {
         log_entry(N, pastey::paste! { [<pmpaddr ~N>]::read() });
     });
     if crate::platform::board_info()
-        .allwinner_v821
-        .is_some_and(|soc| soc.noncacheable_offset() != 0)
+        .memory
+        .noncacheable_alias_offset
+        .is_some()
     {
         seq_macro::seq!(N in 8..10 {
             log_entry(N, pastey::paste! { [<pmpaddr ~N>]::read() });

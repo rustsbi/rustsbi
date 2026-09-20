@@ -154,7 +154,7 @@ pub fn get_and_reset_ipi_type() -> u8 {
 }
 
 fn target_requests(hart_mask: HartMask) -> Result<impl Iterator<Item = IpiRequest>, SbiRet> {
-    let enabled = &crate::platform::board_info().enabled_harts;
+    let enabled = &crate::platform::board_info().harts.enabled;
     let assigned = |hart_id: usize| {
         HartId::from_raw(hart_id).is_ok() && enabled.get(hart_id).copied().unwrap_or(false)
     };
