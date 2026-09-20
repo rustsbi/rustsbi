@@ -1,12 +1,11 @@
 //! SpacemiT K1 I2C controller transport.
 //!
-//! Reference implementation: the pinned [Linux K1 I2C driver] defines the
-//! register layout and status-driven PIO sequence. Compatibility reference:
-//! the pinned [OpenSBI SpacemiT I2C driver] defines the firmware reset delays
-//! and transfer timeout used here.
+//! # References
 //!
-//! [Linux K1 I2C driver]: https://github.com/torvalds/linux/blob/a500db7819c50db59e55f1b4fa1c3baa5a2616f3/drivers/i2c/busses/i2c-k1.c
-//! [OpenSBI SpacemiT I2C driver]: https://github.com/riscv-software-src/opensbi/blob/35511bc6ee1c9c17b6a89b44c52e2044bb51b979/lib/utils/i2c/fdt_i2c_spacemit.c
+//! - Reference implementation: [Linux K1 I2C driver](https://github.com/torvalds/linux/blob/a500db7819c50db59e55f1b4fa1c3baa5a2616f3/drivers/i2c/busses/i2c-k1.c)
+//!   — register layout and status-driven PIO sequence.
+//! - Firmware implementation: [OpenSBI SpacemiT I2C driver](https://github.com/riscv-software-src/opensbi/blob/35511bc6ee1c9c17b6a89b44c52e2044bb51b979/lib/utils/i2c/fdt_i2c_spacemit.c)
+//!   — controller reset delays and transfer timeout.
 
 use bitflags::bitflags;
 use core::mem::{align_of, size_of};
