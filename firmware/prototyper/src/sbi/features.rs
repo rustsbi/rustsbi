@@ -272,12 +272,6 @@ pub fn check_next_stage_privilege(next_mode: MPP) {
     }
 }
 
-/// Returns whether the `mstateen0` CSR is implemented (trap-tolerant probe).
-#[inline(always)]
-fn has_mstateen0() -> bool {
-    has_csr::<CSR_MSTATEEN0>()
-}
-
 /// Configures the per-hart S-mode environment CSRs for supervisor
 /// hand-off (counter inhibits and environment features).
 ///
@@ -308,11 +302,8 @@ pub fn configure_hart_environment() {
         if hart_has_extension(hart_id, Extension::Svpbmt) {
             menvcfg::set_bits(menvcfg::PBMTE);
         }
-        if crate::driver::ipi::uses_imsic()
-            && hart_has_extension(hart_id, Extension::Smaia)
-            && has_mstateen0()
-        {
-            mstateen::enable_smode_aia();
-        }
+        let enable_aia =
+            crate::driver::ipi::uses_imsic() && hart_has_extension(hart_id, Extension::Smaia);
+        runtime::csr::stateen::configure_supervisor(enable_aia);
     }
 }
