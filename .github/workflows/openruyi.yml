@@ -1,0 +1,76 @@
+name: openRuyi
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-openruyi-boot.sh"
+      - ".github/workflows/openruyi.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-openruyi-boot.sh"
+      - ".github/workflows/openruyi.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  openruyi-zero-boot:
+    name: Boot openRuyi 2026.08 Zero
+    # The rva23s64 CPU model requires the QEMU version from Ubuntu 26.04.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-riscv u-boot-tools
+          qemu-system-riscv64 --version
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      - name: Cache openRuyi Zero boot assets
+        uses: actions/cache@v5
+        with:
+          path: .cache/openruyi/2026.08
+          key: openruyi-zero-2026.08-rva23
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build
+
+      - name: Boot openRuyi Zero
+        run: .github/scripts/prototyper-openruyi-boot.sh
+
+      - name: Upload openRuyi log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: openruyi-log
+          path: qemu-logs/prototyper-openruyi.log
