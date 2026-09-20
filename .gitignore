@@ -15,7 +15,3 @@
 
 qemu-logs/
 /.openeuler-aia/
-
-# AI tooling
-.codex
-.humanize
