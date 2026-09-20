@@ -52,24 +52,36 @@ impl Timer for Clock {
     }
 }
 
+#[derive(facade::VendorSBI)]
+#[rustsbi(crate = crate::facade)]
+struct VendorExtensions<'a, T: Extension + ?Sized> {
+    #[rustsbi(extension(eid = EID))]
+    custom: Option<&'a T>,
+    #[rustsbi(extension(eid = 0x5445_5335))]
+    other: &'a Handler,
+}
+
+#[derive(facade::VendorSBI)]
+#[rustsbi(crate = crate::facade)]
+enum Vendor<'a, T: Extension + ?Sized> {
+    Acme(VendorExtensions<'a, T>),
+}
+
 #[derive(facade::RustSBI)]
 #[rustsbi(crate = crate::facade)]
 struct Static<'a, T: Extension + ?Sized> {
-    // Declaration order must not put this handler on the standard call path.
-    #[rustsbi(extension(eid = EID))]
-    custom: Option<&'a T>,
+    // Vendor routing remains outside the standard extension fields.
+    #[rustsbi(vendor)]
+    vendor: Option<Vendor<'a, T>>,
     timer: &'a Clock,
-    #[rustsbi(extension(eid = 0x5445_5335))]
-    other: &'a Handler,
     info: Info,
 }
 
 #[derive(facade::RustSBI)]
 #[rustsbi(dynamic, crate = crate::facade)]
 struct Dynamic<'a, T: Extension + ?Sized>(
-    #[rustsbi(extension(eid = EID))] Option<&'a T>,
+    #[rustsbi(vendor)] Option<Vendor<'a, T>>,
     #[rustsbi(timer)] &'a Clock,
-    #[rustsbi(extension(eid = OTHER_EID))] &'a Handler,
     #[rustsbi(info)] Info,
 );
 
@@ -146,9 +158,15 @@ fn check_modes(dynamic: bool) {
         };
         let clock = Clock(Cell::new(0));
         let field: Option<&dyn Extension> = present.then_some(&custom);
+        let vendor = || {
+            Some(Vendor::Acme(VendorExtensions {
+                custom: field,
+                other: &other,
+            }))
+        };
         if dynamic {
             check(
-                &Dynamic(field, &clock, &other, Info),
+                &Dynamic(vendor(), &clock, Info),
                 &custom,
                 &other,
                 &clock,
@@ -157,9 +175,8 @@ fn check_modes(dynamic: bool) {
         } else {
             check(
                 &Static {
-                    custom: field,
+                    vendor: vendor(),
                     timer: &clock,
-                    other: &other,
                     info: Info,
                 },
                 &custom,
@@ -182,29 +199,50 @@ fn dynamic_custom_extensions() {
 }
 
 #[test]
+fn absent_vendor_is_unavailable() {
+    let clock = Clock(Cell::new(0));
+    let sbi = Static::<Handler> {
+        vendor: None,
+        timer: &clock,
+        info: Info,
+    };
+    assert_eq!(probe(&sbi, EID), SbiRet::success(0));
+    assert_eq!(sbi.handle_ecall(EID, 0, [0; 6]), SbiRet::not_supported());
+}
+
+#[test]
 fn eid_paths_are_not_shadowed_by_generated_parameters() {
     #[allow(non_upper_case_globals)]
     const extension: usize = EID;
     #[allow(non_upper_case_globals)]
     const eid: usize = OTHER_EID;
-    #[derive(RustSBI)]
-    struct Platform {
+    #[derive(rustsbi::VendorSBI)]
+    struct Extensions<'a> {
         #[rustsbi(extension(eid = extension))]
-        first: Handler,
+        first: &'a Handler,
         #[rustsbi(extension(eid = eid))]
-        second: Handler,
+        second: &'a Handler,
+    }
+    #[derive(RustSBI)]
+    struct Platform<'a> {
+        #[rustsbi(vendor)]
+        vendor: Extensions<'a>,
         info: Info,
     }
+    let first = Handler {
+        available: 3,
+        calls: Cell::new(0),
+        probes: Cell::new(0),
+    };
+    let second = Handler {
+        available: 5,
+        calls: Cell::new(0),
+        probes: Cell::new(0),
+    };
     let sbi = Platform {
-        first: Handler {
-            available: 3,
-            calls: Cell::new(0),
-            probes: Cell::new(0),
-        },
-        second: Handler {
-            available: 5,
-            calls: Cell::new(0),
-            probes: Cell::new(0),
+        vendor: Extensions {
+            first: &first,
+            second: &second,
         },
         info: Info,
     };
@@ -212,6 +250,6 @@ fn eid_paths_are_not_shadowed_by_generated_parameters() {
     assert_eq!(probe(&sbi, OTHER_EID), SbiRet::success(5));
     assert_eq!(probe(&sbi, 0xdeadbeef), SbiRet::success(0));
     assert_eq!(sbi.handle_ecall(OTHER_EID, 0, [1; 6]), SbiRet::success(6));
-    assert_eq!(sbi.first.calls.get(), 0);
-    assert_eq!(sbi.second.calls.get(), 1);
+    assert_eq!(first.calls.get(), 0);
+    assert_eq!(second.calls.get(), 1);
 }

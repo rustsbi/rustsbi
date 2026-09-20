@@ -8,7 +8,8 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Added
 
-- Register V821 custom SBI extensions through derive and publish the dispatcher directly.
+- Group V821 vendor SBI extensions under `sbi::vendor::allwinner::v821` and
+  publish them through the dispatcher's single optional vendor field.
 - Add Avaota F1 build settings with target JSON and key loader DTB nodes documented inline.
 - Support V821 AWBASE USB enable through the DTB-described DMA word-address bypass register.
 - Support V821 Andes cache-maintenance SBI calls using the device-tree L2 cache window.

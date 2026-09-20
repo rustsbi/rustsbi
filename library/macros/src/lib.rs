@@ -11,6 +11,7 @@ use syn::{
 };
 
 mod extension;
+mod vendor;
 
 #[derive(Clone)]
 enum ParseMode {
@@ -36,6 +37,7 @@ struct StaticImpl {
     fwft: Option<Member>,
     sse: Option<Member>,
     env_info: Option<Member>,
+    vendor: Option<Member>,
 }
 
 impl StaticImpl {
@@ -84,6 +86,7 @@ struct DynamicImpl {
     fwft: Vec<Member>,
     sse: Vec<Member>,
     env_info: Option<Member>,
+    vendor: Option<Member>,
 }
 
 impl DynamicImpl {
@@ -160,8 +163,6 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
 
     let mut static_impl = StaticImpl::default();
     let mut dynamic_impl = DynamicImpl::default();
-    let mut extensions = Vec::new();
-
     for (i, field) in strukt.fields.iter().enumerate() {
         let member = match &field.ident {
             Some(ident) => Member::Named(ident.clone()),
@@ -177,8 +178,12 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
                 if meta.path.is_ident("skip") {
                     // accept meta but do nothing, effectively skip this field in RustSBI
                     current_meta_accepted = true;
-                } else if meta.path.is_ident("extension") {
-                    extensions.push(extension::Extension::parse(&meta, member.clone())?);
+                } else if meta.path.is_ident("vendor") {
+                    let origin = match parse_mode {
+                        ParseMode::Static => static_impl.vendor.replace(member.clone()),
+                        ParseMode::Dynamic => dynamic_impl.vendor.replace(member.clone()),
+                    };
+                    check_already_exists(field, "vendor", origin, &mut ans);
                     current_meta_accepted = true;
                 } else if let Some(meta_path_ident) = meta.path.get_ident() {
                     let extension_name = &meta_path_ident.to_string();
@@ -231,30 +236,27 @@ pub fn derive_rustsbi(input: TokenStream) -> TokenStream {
             }
         }
     }
-    ans.extend(TokenStream::from(extension::validate(&extensions, &krate)));
     match parse_mode {
         ParseMode::Static => ans.extend(impl_derive_rustsbi_static(
             &input.ident,
             &krate,
             static_impl,
             &input.generics,
-            &extensions,
         )),
         ParseMode::Dynamic => ans.extend(impl_derive_rustsbi_dynamic(
             &input.ident,
             &krate,
             dynamic_impl,
             &input.generics,
-            &extensions,
         )),
     };
-    if extensions.is_empty() {
-        ans
-    } else {
-        // Bind user EID paths outside generated method scopes to avoid shadowing.
-        let body = proc_macro2::TokenStream::from(ans);
-        quote! { const _: () = { #body }; }.into()
-    }
+    ans
+}
+
+/// Derives EID dispatch for a vendor-specific SBI extension collection.
+#[proc_macro_derive(VendorSBI, attributes(rustsbi))]
+pub fn derive_vendor_sbi(input: TokenStream) -> TokenStream {
+    vendor::derive(parse_macro_input!(input as DeriveInput))
 }
 
 fn check_already_exists(
@@ -286,7 +288,6 @@ fn impl_derive_rustsbi_static(
     krate: &proc_macro2::TokenStream,
     imp: StaticImpl,
     generics: &Generics,
-    extensions: &[extension::Extension],
 ) -> TokenStream {
     let extension = Ident::new("__rustsbi_extension", Span::mixed_site());
     let function = Ident::new("__rustsbi_function", Span::mixed_site());
@@ -327,22 +328,18 @@ fn impl_derive_rustsbi_static(
             sse: #sse_probe,
         }
     };
-    let probe = if extensions.is_empty() {
-        probe
-    } else {
-        let custom_probe = extension::probe(extensions, krate, quote! { self });
+    let probe = if let Some(vendor) = &imp.vendor {
         quote! {
             |#extension| {
                 let value = #krate::_ExtensionProbe::probe_extension(&#probe, #extension);
                 if value != 0 {
                     return value;
                 }
-                match #extension {
-                    #custom_probe
-                    _ => 0,
-                }
+                #krate::VendorSBI::probe_extension(&self.#vendor, #extension)
             }
         }
+    } else {
+        probe
     };
     let mut match_arms = quote! {};
     let base_procedure = if let Some(env_info) = imp.env_info {
@@ -441,7 +438,11 @@ fn impl_derive_rustsbi_static(
             #krate::spec::sse::EID_SSE => #krate::_rustsbi_sse(&self.#sse, #param, #function),
         })
     }
-    let custom_dispatch = extension::dispatch(extensions, krate);
+    let vendor_dispatch = if let Some(vendor) = &imp.vendor {
+        quote! { #krate::VendorSBI::handle_ecall(&self.#vendor, #extension, #function, #param) }
+    } else {
+        quote! { #krate::SbiRet::not_supported() }
+    };
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let generated = quote! {
     impl #impl_generics #krate::RustSBI for #name #ty_generics #where_clause {
@@ -449,8 +450,7 @@ fn impl_derive_rustsbi_static(
         fn handle_ecall(&self, #extension: usize, #function: usize, #param: [usize; 6]) -> #krate::SbiRet {
             match #extension {
                 #match_arms
-                #custom_dispatch
-                _ => #krate::SbiRet::not_supported(),
+                _ => #vendor_dispatch,
             }
         }
     }
@@ -463,7 +463,6 @@ fn impl_derive_rustsbi_dynamic(
     krate: &proc_macro2::TokenStream,
     imp: DynamicImpl,
     generics: &Generics,
-    extensions: &[extension::Extension],
 ) -> TokenStream {
     let extension = Ident::new("__rustsbi_extension", Span::mixed_site());
     let function = Ident::new("__rustsbi_function", Span::mixed_site());
@@ -704,7 +703,15 @@ fn impl_derive_rustsbi_dynamic(
     };
     let (impl_generics, ty_generics, where_clause) = prober_generics.split_for_impl();
 
-    let custom_probe = extension::probe(extensions, krate, quote! { self.0 });
+    let vendor_probe = if let Some(vendor) = &imp.vendor {
+        quote! {
+            _ => #krate::VendorSBI::probe_extension(&self.0.#vendor, #extension),
+        }
+    } else {
+        quote! {
+            _ => #krate::spec::base::UNAVAILABLE_EXTENSION,
+        }
+    };
     let define_prober = quote! {
         struct _Prober #impl_generics (&'_lt #name #origin_ty_generics) #where_clause;
         impl #impl_generics #krate::_ExtensionProbe for _Prober #ty_generics #where_clause {
@@ -727,8 +734,7 @@ fn impl_derive_rustsbi_dynamic(
                     #krate::spec::dbtr::EID_DBTR => { #prober_dbtr #krate::spec::base::UNAVAILABLE_EXTENSION},
                     #krate::spec::fwft::EID_FWFT => { #prober_fwft #krate::spec::base::UNAVAILABLE_EXTENSION},
                     #krate::spec::sse::EID_SSE => { #prober_sse #krate::spec::base::UNAVAILABLE_EXTENSION},
-                    #custom_probe
-                    _ => #krate::spec::base::UNAVAILABLE_EXTENSION,
+                    #vendor_probe
                 }
             }
         }
@@ -753,7 +759,11 @@ fn impl_derive_rustsbi_dynamic(
             },
         }
     };
-    let custom_dispatch = extension::dispatch(extensions, krate);
+    let vendor_dispatch = if let Some(vendor) = &imp.vendor {
+        quote! { #krate::VendorSBI::handle_ecall(&self.#vendor, #extension, #function, #param) }
+    } else {
+        quote! { #krate::SbiRet::not_supported() }
+    };
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let generated = quote! {
         impl #impl_generics #krate::RustSBI for #name #ty_generics #where_clause {
@@ -780,8 +790,7 @@ fn impl_derive_rustsbi_dynamic(
                         let prober = _Prober(&self);
                         #base_result
                     }
-                    #custom_dispatch
-                    _ => #krate::SbiRet::not_supported(),
+                    _ => #vendor_dispatch,
                 }
             }
         }

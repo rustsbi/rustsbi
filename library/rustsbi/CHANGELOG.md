@@ -9,8 +9,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Add `Extension` with explicit EID registration, optional handlers, and automatic BASE probing.
-- Document and test custom RustSBI derive paths for static and dynamic dispatch.
+- Add `Extension` and `VendorSBI` with explicit EID registration, optional handlers,
+  enum-based vendor selection, and automatic BASE probing.
+- Add `#[rustsbi(vendor)]` to keep vendor-specific routing separate from standard
+  RustSBI extension fields in static and dynamic dispatch.
 - Add the SBI Message Proxy extension trait and dispatch support.
 - Add the SBI Debug Triggers extension trait and dispatch support.
 - Add the SBI Firmware Features extension trait and dispatch support.

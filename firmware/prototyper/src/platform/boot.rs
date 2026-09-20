@@ -72,7 +72,7 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
 
     let devices = driver::bind_devices(&board, select_imsic(&board), &mut memory)
         .during("binding platform devices")?;
-    let custom_extensions = sbi::allwinner::BoundExtensions::bind(v821, &mut memory)
+    let custom_extension = sbi::vendor::Extension::bind(v821, &mut memory)
         .during("binding Allwinner custom-extension devices")?;
     let k1_resources = board
         .soc
@@ -107,7 +107,7 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
         board,
         supervisor_memory,
         devices,
-        custom_extensions,
+        custom_extension,
         pmu,
         hart_wake,
     );
@@ -147,7 +147,7 @@ fn publish_platform_services(
     board: BoardInfo,
     supervisor_memory: SupervisorMemory,
     devices: driver::Devices,
-    custom_extensions: sbi::allwinner::BoundExtensions,
+    custom_extension: sbi::vendor::Extension,
     pmu: Option<SbiPmu>,
     hart_wake: Option<Box<dyn HartWake>>,
 ) {
@@ -189,7 +189,7 @@ fn publish_platform_services(
     info!("Hello RustSBI!");
 
     let reset = SbiReset::new(reset);
-    publish_sbi_dispatcher(ipi, timer, reset, custom_extensions, pmu, hart_wake);
+    publish_sbi_dispatcher(ipi, timer, reset, custom_extension, pmu, hart_wake);
 
     state::mark_ready();
 
@@ -200,7 +200,7 @@ fn publish_sbi_dispatcher(
     ipi: Option<&'static IpiDevice>,
     timer: Option<&'static TimerDevice>,
     reset: SbiReset,
-    custom_extensions: sbi::allwinner::BoundExtensions,
+    custom_extension: sbi::vendor::Extension,
     pmu: Option<SbiPmu>,
     hart_wake: Option<&'static dyn HartWake>,
 ) {
@@ -217,7 +217,7 @@ fn publish_sbi_dispatcher(
     let susp = hsm.as_ref().map(|_| SbiSuspend);
     let mpxy = Some(sbi::mpxy::SbiMpxy::new(supervisor_memory));
     let sta = Some(sbi::sta::SbiSta::new(supervisor_memory));
-    let custom_extensions = custom_extensions.into_extensions(supervisor_memory);
+    let vendor = sbi::vendor::Vendor::new(custom_extension, supervisor_memory);
 
     sbi::SBI_DISPATCHER.call_once(|| SbiDispatcher {
         console,
@@ -233,8 +233,7 @@ fn publish_sbi_dispatcher(
         pmu,
         sta,
         mpxy,
-        andes: custom_extensions.andes,
-        awbase: custom_extensions.awbase,
+        vendor,
     });
 }
 

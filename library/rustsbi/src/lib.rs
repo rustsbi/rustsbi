@@ -426,18 +426,25 @@
 //! function. RustSBI will handle with SBI standard constants, call the corresponding extension field
 //! and provide parameters according to the extension and function IDs (if applicable).
 //!
-//! Custom extensions can implement [`Extension`] and bind their EID on a field. The derive
-//! macro generates both call dispatch and BASE probing from the same declaration:
+//! Vendor extensions implement [`Extension`] and are collected separately from standard
+//! extensions. [`VendorSBI`] derives EID routing, while [`RustSBI`] delegates its
+//! `#[rustsbi(vendor)]` field after checking standard EIDs:
 //!
 //! ```
-//! use rustsbi::{Extension, RustSBI, SbiRet};
+//! use rustsbi::{Extension, RustSBI, SbiRet, VendorSBI};
 //!
 //! const EID_EXAMPLE: usize = 0x0800_0000;
 //!
-//! #[derive(RustSBI)]
-//! struct MySbi {
+//! #[derive(VendorSBI)]
+//! struct VendorExtensions {
 //!     #[rustsbi(extension(eid = EID_EXAMPLE))]
 //!     example: Option<Example>,
+//! }
+//!
+//! #[derive(RustSBI)]
+//! struct MySbi {
+//!     #[rustsbi(vendor)]
+//!     vendor: Option<VendorExtensions>,
 //!     info: Info,
 //! }
 //!
@@ -457,7 +464,10 @@
 //! #     fn marchid(&self) -> usize { 0 }
 //! #     fn mimpid(&self) -> usize { 0 }
 //! # }
-//! let sbi = MySbi { example: Some(Example), info: Info };
+//! let sbi = MySbi {
+//!     vendor: Some(VendorExtensions { example: Some(Example) }),
+//!     info: Info,
+//! };
 //! assert_eq!(sbi.handle_ecall(EID_EXAMPLE, 0, [42; 6]), SbiRet::success(42));
 //! assert_eq!(sbi.handle_ecall(0x10, 3, [EID_EXAMPLE, 0, 0, 0, 0, 0]), SbiRet::success(1));
 //! ```
@@ -1134,12 +1144,12 @@ pub use sbi_spec::binary::{CounterMask, HartMask, Physical, SbiRet, SharedPtr};
 /// # Notes
 // note: the following documents are inherited from `RustSBI` in the `rustsbi_macros` package.
 #[doc(inline)]
-pub use rustsbi_macros::RustSBI;
+pub use rustsbi_macros::{RustSBI, VendorSBI};
 
 pub use console::Console;
 pub use cppc::Cppc;
 pub use dbtr::Dbtr;
-pub use extension::Extension;
+pub use extension::{Extension, VendorSBI};
 pub use fwft::Fwft;
 pub use hsm::Hsm;
 pub use ipi::Ipi;
