@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Added
 
+- Recognize the K3 AP SoC capability on RV64 from an enabled `spacemit,k3` device-tree root.
+  Document the compatible and all K3 cores' RV64 architecture with pinned source and datasheet references.
 - Group V821 vendor SBI extensions under `sbi::vendor::allwinner::v821` and
   publish them through the dispatcher's single optional vendor field.
 - Add Avaota F1 build settings with target JSON and key loader DTB nodes documented inline.

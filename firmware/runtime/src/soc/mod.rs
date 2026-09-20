@@ -5,6 +5,7 @@ use serde_device_tree::buildin::Node;
 use crate::Result;
 
 pub mod allwinner;
+pub mod spacemit;
 
 /// A SoC capability recognized from the Platform Description root node.
 ///
