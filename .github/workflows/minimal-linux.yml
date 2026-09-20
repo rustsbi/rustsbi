@@ -1,0 +1,59 @@
+name: Minimal Linux boot
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-minimal-linux.sh"
+      - ".github/workflows/minimal-linux.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  boot:
+    name: Boot minimal Linux through RustSBI and U-Boot
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install build and emulator dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison cpio curl device-tree-compiler flex gcc-riscv64-linux-gnu \
+            libelf-dev libssl-dev make python3-libfdt qemu-system-riscv \
+            u-boot-tools xz-utils
+
+      - name: Install cargo-binutils
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      - name: Cache pinned source archives
+        uses: actions/cache@v5
+        with:
+          path: .minimal-linux/cache
+          key: minimal-linux-6.6.6-busybox-1.36.1-uboot-2024.04-v1
+
+      - name: Build RustSBI Prototyper from this commit
+        run: cargo prototyper build
+
+      - name: Boot and verify minimal Linux userspace
+        run: bash .github/scripts/prototyper-minimal-linux.sh
+
+      - name: Upload serial log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: minimal-linux-serial-log
+          path: qemu-logs/minimal-linux.log
