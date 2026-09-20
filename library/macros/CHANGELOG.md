@@ -9,7 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Support `#[rustsbi(extension(eid = ...))]` with compile-time EID conflict checks.
+- Add `VendorSBI` derive support for `#[rustsbi(extension(eid = ...))]` fields and
+  single-field vendor enum variants, with compile-time EID conflict checks.
+- Support one `#[rustsbi(vendor)]` field in the `RustSBI` derive.
 - Support `#[rustsbi(crate = path)]` for deriving through a RustSBI re-export.
 - Add RustSBI derive support for the SBI Message Proxy extension.
 - Add RustSBI derive support for the SBI Debug Triggers extension.

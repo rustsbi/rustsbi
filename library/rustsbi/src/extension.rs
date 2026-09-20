@@ -1,87 +1,10 @@
 use crate::SbiRet;
 
-/// A custom SBI extension bound to an EID by [`derive(RustSBI)`](crate::RustSBI).
+/// One vendor-specific SBI extension handler.
 ///
-/// Register a field with `#[rustsbi(extension(eid = EID))]`, where `EID` is an integer
-/// literal or a module-level `usize` constant path. Each EID may be registered only
-/// once and must fit in 32 bits. Standard EIDs, including BASE and legacy calls,
-/// cannot be registered as custom extensions, even when their standard backend is absent.
-///
-/// Both static and dynamic dispatch check availability before calling [`handle`](Self::handle).
-/// `Option<T>` makes a field optional, and references forward to their underlying implementation.
-///
-/// # Invalid registrations
-///
-/// Duplicate EIDs are rejected, including aliases through constant paths:
-///
-/// ```compile_fail,E0080
-/// # use rustsbi::{Extension, EnvInfo, RustSBI, SbiRet};
-/// # struct Handler;
-/// # impl Extension for Handler {
-/// #     fn probe(&self) -> usize { 1 }
-/// #     fn handle(&self, _: usize, _: [usize; 6]) -> SbiRet { SbiRet::success(0) }
-/// # }
-/// # impl EnvInfo for Handler {
-/// #     fn mvendorid(&self) -> usize { 0 }
-/// #     fn marchid(&self) -> usize { 0 }
-/// #     fn mimpid(&self) -> usize { 0 }
-/// # }
-/// const EID: usize = 0x0900_031e;
-/// const ALIAS: usize = EID;
-/// #[derive(RustSBI)]
-/// struct Invalid {
-///     #[rustsbi(extension(eid = EID))]
-///     first: Handler,
-///     #[rustsbi(extension(eid = ALIAS))]
-///     second: Handler,
-///     info: Handler,
-/// }
-/// ```
-///
-/// Standard EIDs remain reserved in dynamic mode even without a standard backend:
-///
-/// ```compile_fail,E0080
-/// # use rustsbi::{Extension, EnvInfo, RustSBI, SbiRet};
-/// # struct Handler;
-/// # impl Extension for Handler {
-/// #     fn probe(&self) -> usize { 1 }
-/// #     fn handle(&self, _: usize, _: [usize; 6]) -> SbiRet { SbiRet::success(0) }
-/// # }
-/// # impl EnvInfo for Handler {
-/// #     fn mvendorid(&self) -> usize { 0 }
-/// #     fn marchid(&self) -> usize { 0 }
-/// #     fn mimpid(&self) -> usize { 0 }
-/// # }
-/// #[derive(RustSBI)]
-/// #[rustsbi(dynamic)]
-/// struct Invalid {
-///     #[rustsbi(extension(eid = rustsbi::spec::time::EID_TIME))]
-///     custom: Handler,
-///     info: Handler,
-/// }
-/// ```
-///
-/// EIDs wider than 32 bits are rejected:
-///
-/// ```compile_fail
-/// # use rustsbi::{Extension, EnvInfo, RustSBI, SbiRet};
-/// # struct Handler;
-/// # impl Extension for Handler {
-/// #     fn probe(&self) -> usize { 1 }
-/// #     fn handle(&self, _: usize, _: [usize; 6]) -> SbiRet { SbiRet::success(0) }
-/// # }
-/// # impl EnvInfo for Handler {
-/// #     fn mvendorid(&self) -> usize { 0 }
-/// #     fn marchid(&self) -> usize { 0 }
-/// #     fn mimpid(&self) -> usize { 0 }
-/// # }
-/// #[derive(RustSBI)]
-/// struct Invalid {
-///     #[rustsbi(extension(eid = 0x1_0000_0000))]
-///     custom: Handler,
-///     info: Handler,
-/// }
-/// ```
+/// Fields implementing this trait are bound to EIDs by
+/// [`derive(VendorSBI)`](crate::VendorSBI). `Option<T>` makes a handler optional,
+/// and references forward to their underlying implementation.
 pub trait Extension {
     /// Returns the BASE probe value; zero means this extension is unavailable.
     ///
@@ -93,6 +16,67 @@ pub trait Extension {
     /// Return [`SbiRet::not_supported`] for unknown functions. The dispatcher returns
     /// this result unchanged and does not try another extension on failure.
     fn handle(&self, fid: usize, args: [usize; 6]) -> SbiRet;
+}
+
+/// Routes vendor-specific SBI extension calls by EID.
+///
+/// Derive this trait on a struct containing `#[rustsbi(extension(eid = EID))]`
+/// fields. A [`RustSBI`](crate::RustSBI) dispatcher can then contain exactly one
+/// `#[rustsbi(vendor)]` field implementing this trait. Deriving it on an enum whose
+/// variants each contain one unnamed field creates a vendor selector.
+///
+/// Duplicate EIDs, standard EIDs, legacy EIDs, and values wider than 32 bits are
+/// rejected at compile time:
+///
+/// ```compile_fail,E0080
+/// # use rustsbi::{Extension, SbiRet, VendorSBI};
+/// # struct Handler;
+/// # impl Extension for Handler {
+/// #     fn probe(&self) -> usize { 1 }
+/// #     fn handle(&self, _: usize, _: [usize; 6]) -> SbiRet { SbiRet::success(0) }
+/// # }
+/// const EID: usize = 0x0900_031e;
+/// #[derive(VendorSBI)]
+/// struct Invalid {
+///     #[rustsbi(extension(eid = EID))]
+///     first: Handler,
+///     #[rustsbi(extension(eid = EID))]
+///     duplicate: Handler,
+/// }
+/// ```
+pub trait VendorSBI {
+    /// Returns the BASE probe value for `extension`; zero means unavailable.
+    fn probe_extension(&self, extension: usize) -> usize;
+
+    /// Dispatches one vendor-specific SBI call.
+    fn handle_ecall(&self, extension: usize, function: usize, args: [usize; 6]) -> SbiRet;
+}
+
+impl<T: VendorSBI + ?Sized> VendorSBI for &T {
+    #[inline]
+    fn probe_extension(&self, extension: usize) -> usize {
+        T::probe_extension(self, extension)
+    }
+
+    #[inline]
+    fn handle_ecall(&self, extension: usize, function: usize, args: [usize; 6]) -> SbiRet {
+        T::handle_ecall(self, extension, function, args)
+    }
+}
+
+impl<T: VendorSBI> VendorSBI for Option<T> {
+    #[inline]
+    fn probe_extension(&self, extension: usize) -> usize {
+        self.as_ref()
+            .map_or(0, |inner| T::probe_extension(inner, extension))
+    }
+
+    #[inline]
+    fn handle_ecall(&self, extension: usize, function: usize, args: [usize; 6]) -> SbiRet {
+        self.as_ref().map_or_else(SbiRet::not_supported, |inner| {
+            T::handle_ecall(inner, extension, function, args)
+        })
+    }
 }
 
 impl<T: Extension + ?Sized> Extension for &T {

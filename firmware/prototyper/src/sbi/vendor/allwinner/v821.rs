@@ -1,8 +1,7 @@
-//! V821 custom SBI extension adapters.
+//! Allwinner V821 vendor SBI extensions.
 //!
-//! [`Extensions`] exposes only extensions backed by devices acquired through
-//! the V821 platform description. Device ownership remains in the firmware
-//! drivers; this module translates SBI function IDs into typed operations.
+//! Device ownership remains in the firmware drivers; this module translates
+//! SBI function IDs into typed operations.
 //!
 //! # References
 //!
@@ -13,24 +12,26 @@
 
 use crate::driver::allwinner::v821::{A27L2Cache, UsbDmaBypass};
 use crate::platform::allwinner::v821::V821;
-use runtime::memory::MemoryRegistry;
-use runtime::memory::SupervisorMemory;
-use runtime::rustsbi::{Extension, SbiRet};
+use runtime::memory::{MemoryRegistry, SupervisorMemory};
+use runtime::rustsbi::{Extension as SbiExtension, SbiRet, VendorSBI};
 use runtime::soc::allwinner::v821::AndesStatusRegister;
 
 /// EID of the V821 BSP's Andes cache-maintenance extension.
-pub(crate) const EXTENSION: usize = 0x0900_031e;
+const EXTENSION: usize = 0x0900_031e;
 /// EID of the V821 BSP's AWBASE extension.
-pub(crate) const AWBASE_EXTENSION: usize = 0x5445_5335;
+const AWBASE_EXTENSION: usize = 0x5445_5335;
 
-/// Bound V821 devices waiting for supervisor-memory publication.
-pub(super) struct BoundExtensions {
+/// V821 custom-extension devices selected for this platform.
+pub(in crate::sbi::vendor) struct Extension {
     cache: A27L2Cache,
     usb_dma_bypass: Option<UsbDmaBypass>,
 }
 
-impl BoundExtensions {
-    pub(super) fn bind(v821: V821, memory: &mut MemoryRegistry) -> runtime::Result<Self> {
+impl Extension {
+    pub(in crate::sbi::vendor) fn bind(
+        v821: V821,
+        memory: &mut MemoryRegistry,
+    ) -> runtime::Result<Self> {
         let (soc, cache, usb_dma_bypass) = v821.into_extension_devices()?.into_parts();
         Ok(Self {
             cache: A27L2Cache::bind(soc, cache, memory)?,
@@ -40,7 +41,10 @@ impl BoundExtensions {
         })
     }
 
-    pub(super) fn into_extensions(self, memory: &'static SupervisorMemory) -> Extensions {
+    pub(in crate::sbi::vendor) fn into_extensions(
+        self,
+        memory: &'static SupervisorMemory,
+    ) -> Extensions {
         Extensions {
             andes: Some(Andes::new(self.cache, memory)),
             awbase: self.usb_dma_bypass.map(Awbase::new),
@@ -48,14 +52,17 @@ impl BoundExtensions {
     }
 }
 
-/// Custom SBI extensions constructed from the V821-owned devices.
-#[derive(Default)]
+/// Vendor-specific extensions implemented by the V821 platform.
+#[derive(VendorSBI)]
+#[rustsbi(crate = runtime::rustsbi)]
 pub(crate) struct Extensions {
-    pub(crate) andes: Option<Andes>,
-    pub(crate) awbase: Option<Awbase>,
+    #[rustsbi(extension(eid = EXTENSION))]
+    andes: Option<Andes>,
+    #[rustsbi(extension(eid = AWBASE_EXTENSION))]
+    awbase: Option<Awbase>,
 }
 
-pub(crate) struct Andes {
+struct Andes {
     cache: A27L2Cache,
     memory: &'static SupervisorMemory,
 }
@@ -66,7 +73,7 @@ impl Andes {
     }
 }
 
-impl Extension for Andes {
+impl SbiExtension for Andes {
     #[inline]
     fn probe(&self) -> usize {
         1
@@ -90,7 +97,7 @@ impl Extension for Andes {
     }
 }
 
-pub(crate) struct Awbase {
+struct Awbase {
     device: UsbDmaBypass,
 }
 
@@ -100,7 +107,7 @@ impl Awbase {
     }
 }
 
-impl Extension for Awbase {
+impl SbiExtension for Awbase {
     #[inline]
     fn probe(&self) -> usize {
         1

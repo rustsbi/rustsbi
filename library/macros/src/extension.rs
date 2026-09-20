@@ -31,13 +31,13 @@ impl Extension {
             }
             Ok(())
         })?;
-        let eid = eid.ok_or_else(|| meta.error("missing `eid` for custom extension"))?;
+        let eid = eid.ok_or_else(|| meta.error("missing `eid` for vendor extension"))?;
         Ok(Self { eid, member })
     }
 }
 
 fn binding(index: usize) -> syn::Ident {
-    format_ident!("__RUSTSBI_CUSTOM_EID_{index}", span = Span::mixed_site())
+    format_ident!("__RUSTSBI_VENDOR_EID_{index}", span = Span::mixed_site())
 }
 
 pub(crate) fn validate(extensions: &[Extension], krate: &TokenStream) -> TokenStream {
@@ -56,7 +56,7 @@ pub(crate) fn validate(extensions: &[Extension], krate: &TokenStream) -> TokenSt
             let ids: &[usize] = &[#(#ids),*];
             let mut i = 0;
             while i < ids.len() {
-                assert!(ids[i] <= u32::MAX as usize, "custom EID must fit in 32 bits");
+                assert!(ids[i] <= u32::MAX as usize, "vendor EID must fit in 32 bits");
                 assert!(!matches!(ids[i],
                     0..=8 |
                     #krate::spec::base::EID_BASE |
@@ -75,10 +75,10 @@ pub(crate) fn validate(extensions: &[Extension], krate: &TokenStream) -> TokenSt
                     #krate::spec::dbtr::EID_DBTR |
                     #krate::spec::fwft::EID_FWFT |
                     #krate::spec::sse::EID_SSE
-                ), "custom EID conflicts with a standard extension");
+                ), "vendor EID conflicts with a standard extension");
                 let mut j = 0;
                 while j < i {
-                    assert!(ids[i] != ids[j], "duplicate custom EID");
+                    assert!(ids[i] != ids[j], "duplicate vendor EID");
                     j += 1;
                 }
                 i += 1;
