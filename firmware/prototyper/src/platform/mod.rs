@@ -6,6 +6,7 @@
 //! drivers to registered resources, and then publishes the resulting services
 //! for all harts. Parsing and synchronization remain private to this module.
 
+pub(crate) mod allwinner;
 mod boot;
 mod discovery;
 mod error;

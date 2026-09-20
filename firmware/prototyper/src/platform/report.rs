@@ -24,11 +24,11 @@ pub(super) fn log_platform_summary() {
 }
 
 fn log_harts(board: &BoardInfo) {
-    info!("{:<30}: {}", "Platform HART Count", board.hart_count);
+    info!("{:<30}: {}", "Platform HART Count", board.harts.count);
 
     let mut enabled_harts = [0; NUM_HART_MAX];
     let mut count = 0;
-    for (hart_id, enabled) in board.enabled_harts.iter().copied().enumerate() {
+    for (hart_id, enabled) in board.harts.enabled.iter().copied().enumerate() {
         if enabled {
             enabled_harts[count] = hart_id;
             count += 1;
@@ -39,7 +39,7 @@ fn log_harts(board: &BoardInfo) {
 
 fn log_interrupt_controller(board: &BoardInfo) {
     if crate::driver::ipi::uses_imsic()
-        && let Some(imsic) = board.imsic.as_ref()
+        && let Some(imsic) = board.devices.interrupts.imsic.as_ref()
     {
         info!(
             "{:<30}: IMSIC (M-level Base Address: 0x{:x})",
@@ -49,7 +49,10 @@ fn log_interrupt_controller(board: &BoardInfo) {
         return;
     }
 
-    if let (Some(plmt), Some(plicsw)) = (board.plmt, board.plicsw) {
+    if let (Some(plmt), Some(plicsw)) = (
+        board.devices.interrupts.plmt,
+        board.devices.interrupts.plicsw,
+    ) {
         info!(
             "{:<30}: Sunxi PLICSW (Base Address: 0x{:x})",
             "Platform IPI Extension",
@@ -62,7 +65,7 @@ fn log_interrupt_controller(board: &BoardInfo) {
         );
         return;
     }
-    match board.clint.as_ref() {
+    match board.devices.interrupts.clint.as_ref() {
         Some((registers, kind)) => info!(
             "{:<30}: {} (Base Address: 0x{:x})",
             "Platform IPI Extension",
@@ -74,7 +77,7 @@ fn log_interrupt_controller(board: &BoardInfo) {
 }
 
 fn log_console(board: &BoardInfo) {
-    match board.console.as_ref() {
+    match board.devices.console.as_ref() {
         Some(console) => info!(
             "{:<30}: {} (Base Address: 0x{:x})",
             "Platform Console Extension",
@@ -86,41 +89,7 @@ fn log_console(board: &BoardInfo) {
 }
 
 fn log_reset(board: &BoardInfo) {
-    if let Some(registers) = board.reset {
-        info!(
-            "{:<30}: Available (Base Address: 0x{:x})",
-            "Platform Reset Extension",
-            registers.start().as_usize()
-        );
-    } else if let Some((controller, address)) = board.spacemit_p1_pmic_reset {
-        info!(
-            "{:<30}: Available (SpacemiT P1 PMIC @ 0x{:02x}, I2C Base: 0x{:x})",
-            "Platform Reset Extension",
-            address.get(),
-            controller.start().as_usize()
-        );
-    } else if let Some(registers) = board.sunxi_wdt_v104 {
-        info!(
-            "{:<30}: Available (Sunxi WDT V104 @ 0x{:x})",
-            "Platform Reset Extension",
-            registers.start().as_usize(),
-        );
-    } else if let Some(registers) = board.sunxi_wdt_v105 {
-        info!(
-            "{:<30}: Available (Sunxi WDT V105 @ 0x{:x})",
-            "Platform Reset Extension",
-            registers.start().as_usize()
-        );
-    } else if board.syscon_poweroff.is_some() || board.syscon_reboot.is_some() {
-        info!(
-            "{:<30}: Available (syscon: poweroff={}, reboot={})",
-            "Platform Reset Extension",
-            board.syscon_poweroff.is_some(),
-            board.syscon_reboot.is_some(),
-        );
-    } else {
-        warn!("{:<30}: Not Available", "Platform Reset Device");
-    }
+    board.devices.reset.log_summary();
 }
 
 fn log_sbi_extensions() {
@@ -139,11 +108,11 @@ fn log_availability(name: &str, available: bool) {
 }
 
 fn log_ram(board: &BoardInfo) {
-    if board.ram_ranges.is_empty() {
+    if board.memory.ram_ranges.is_empty() {
         warn!("{:<30}: Not Available", "Platform RAM");
         return;
     }
-    for (index, range) in board.ram_ranges.iter().enumerate() {
+    for (index, range) in board.memory.ram_ranges.iter().enumerate() {
         info!(
             "{:<30}: 0x{:x} - 0x{:x}",
             if index == 0 { "Platform RAM" } else { "" },
