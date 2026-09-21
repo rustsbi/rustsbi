@@ -1,0 +1,91 @@
+name: Fedora
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-fedora-boot.sh"
+      - ".github/workflows/fedora.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-fedora-boot.sh"
+      - ".github/workflows/fedora.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  fedora-boot:
+    name: Boot Fedora 44 Cloud (${{ matrix.boot-path }})
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        boot-path:
+          - sbi
+          - u-boot
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison device-tree-compiler flex gcc-riscv64-linux-gnu \
+            git libgnutls28-dev libssl-dev make python3-dev python3-setuptools \
+            qemu-system-riscv qemu-utils swig u-boot-tools util-linux zstd
+          qemu-system-riscv64 --version
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      - name: Cache Fedora image
+        uses: actions/cache@v5
+        with:
+          path: .cache/fedora/44
+          key: fedora-cloud-riscv64-44-20260604.0
+
+      - name: Cache U-Boot source
+        if: matrix.boot-path == 'u-boot'
+        uses: actions/cache@v5
+        with:
+          path: .cache/u-boot/v2026.07
+          key: u-boot-ece349ade2973e220f524ce59e59711cc919263f
+
+      - name: Build RustSBI Prototyper and boot Fedora
+        run: |
+          cargo prototyper build
+          .github/scripts/prototyper-fedora-boot.sh "${{ matrix.boot-path }}"
+
+      - name: Upload Fedora serial log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fedora-serial-log-${{ matrix.boot-path }}
+          path: qemu-logs/prototyper-fedora-${{ matrix.boot-path }}.log
+          if-no-files-found: warn
