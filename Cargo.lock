@@ -207,17 +207,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
-name = "erased-serde"
-version = "0.4.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2add8a07dd6a8d93ff627029c51de145e12686fbc36ecb298ac22e74cf02dec"
-dependencies = [
- "serde",
- "serde_core",
- "typeid",
-]
-
-[[package]]
 name = "errno"
 version = "0.3.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -589,13 +578,12 @@ dependencies = [
 name = "rustsbi-bench-kernel"
 version = "0.0.0"
 dependencies = [
+ "fdt",
  "log",
  "rcore-console",
  "riscv",
  "sbi-spec",
  "sbi-testing",
- "serde",
- "serde-device-tree 0.0.1 (git+https://github.com/rustsbi/serde-device-tree?rev=e7f9404f)",
  "spin",
 ]
 
@@ -607,7 +595,6 @@ dependencies = [
  "riscv",
  "riscv-decode",
  "rustsbi",
- "serde-device-tree 0.0.1 (git+https://github.com/rustsbi/serde-device-tree?rev=ffb4855)",
  "spin",
 ]
 
@@ -636,8 +623,6 @@ dependencies = [
  "rustsbi-prototyper-macros",
  "sbi-spec",
  "seq-macro",
- "serde",
- "serde-device-tree 0.0.1 (git+https://github.com/rustsbi/serde-device-tree?rev=ffb4855)",
  "spin",
  "static-toml",
 ]
@@ -710,23 +695,6 @@ checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
  "serde_derive",
-]
-
-[[package]]
-name = "serde-device-tree"
-version = "0.0.1"
-source = "git+https://github.com/rustsbi/serde-device-tree?rev=e7f9404f#e7f9404fc07bc3f8cce4e7a833be6a0fff93b5c4"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "serde-device-tree"
-version = "0.0.1"
-source = "git+https://github.com/rustsbi/serde-device-tree?rev=ffb4855#ffb4855fad24f7e90bfb533c151aa311dc8d9a7b"
-dependencies = [
- "erased-serde",
- "serde",
 ]
 
 [[package]]
@@ -896,12 +864,6 @@ name = "toml_write"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
-
-[[package]]
-name = "typeid"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
 
 [[package]]
 name = "uart16550"
