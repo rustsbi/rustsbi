@@ -1,0 +1,87 @@
+name: Minimal Linux
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-minimal-linux-boot.sh"
+      - ".github/workflows/minimal-linux.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-minimal-linux-boot.sh"
+      - ".github/workflows/minimal-linux.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  minimal-linux-boot:
+    name: Boot minimal Linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc \
+            bison \
+            cpio \
+            flex \
+            gcc-riscv64-linux-gnu \
+            libc6-dev-riscv64-cross \
+            libssl-dev \
+            qemu-system-misc \
+            xz-utils
+          qemu-system-riscv64 --version
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      # Both inputs are immutable releases, so the key only changes when a
+      # pinned version does. Bump the trailing revision after editing the
+      # build recipe in the script.
+      - name: Cache Linux kernel and BusyBox builds
+        uses: actions/cache@v5
+        with:
+          path: .cache/minimal-linux
+          key: minimal-linux-kernel-6.12.110-busybox-1.36.1-v1
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build
+
+      - name: Boot minimal Linux
+        run: .github/scripts/prototyper-minimal-linux-boot.sh
+
+      - name: Upload minimal Linux log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: minimal-linux-log
+          path: qemu-logs/prototyper-minimal-linux.log
