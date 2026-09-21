@@ -1,28 +1,26 @@
 //! Sunxi RTC V203 vendor register descriptions.
 
-use serde_device_tree::buildin::{Node, StrSeq};
+use fdt::node::FdtNode;
 
 use crate::memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange};
 use crate::{Error, Result, node_is_enabled};
 
 /// Decodes the absolute GPRCM address and size independently of parent cells.
 pub(crate) fn gprcm_registers(
-    node: &Node<'_>,
+    node: FdtNode<'_, '_>,
     fdt_storage: PhysAddrRange,
 ) -> Result<Option<DeviceRegisterRange>> {
     if !node_is_enabled(node)
-        || !node.get_prop("compatible").is_some_and(|p| {
-            p.deserialize::<StrSeq>()
-                .iter()
-                .any(|s| s == "allwinner,rtc-v203")
-        })
+        || !node
+            .compatible()
+            .is_some_and(|values| values.all().any(|value| value == "allwinner,rtc-v203"))
     {
         return Ok(None);
     }
-    let Some(property) = node.get_prop("gprcm_reg") else {
+    let Some(property) = node.property("gprcm_reg") else {
         return Ok(None);
     };
-    let bytes = property.deserialize::<&[u8]>();
+    let bytes = property.value;
     let storage =
         PhysAddrRange::from_start_len(PhysAddr::new(bytes.as_ptr() as usize), bytes.len())?;
     if !fdt_storage.contains(storage) {

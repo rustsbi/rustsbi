@@ -30,6 +30,8 @@ pub mod timer;
 pub mod trap;
 
 pub use device_tree::{DeviceTreeHandoff, PlatformDescription, PlatformView, node_is_enabled};
+/// Read-only Flattened Devicetree types used by firmware policy.
+pub use fdt::{Fdt, node::FdtNode, standard_nodes::Compatible};
 /// The original RustSBI library, re-exported under its own name.
 ///
 /// Firmware policy crates receive RustSBI transitively through this crate

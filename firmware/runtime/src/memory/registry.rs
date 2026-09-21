@@ -9,7 +9,7 @@ use crate::{Error, Result};
 
 /// Tracks the physical resources issued by Runtime.
 ///
-/// [`crate::PlatformDescription::into_memory_resources`] supplies normalized RAM and reserved
+/// [`crate::PlatformDescription::memory_resources`] supplies normalized RAM and reserved
 /// ranges. The registry retains them, plus each issued MMIO window, so later
 /// device bindings cannot acquire overlapping physical addresses.
 pub struct MemoryRegistry {
