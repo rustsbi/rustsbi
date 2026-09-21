@@ -118,23 +118,46 @@ fn sbi_ecall(frame: &mut TrapFrame) {
     // instruction is exactly 4 bytes.
     unsafe { mepc::write(mepc::read() + 4) };
 
-    // A successful non-retentive resume stages the lower-privilege handoff
-    // through Runtime's protocol-free marker. The SBI adapter has already
-    // validated the operation; dispatch only performs the machine ceremony.
-    if let Some(hart::ControlTransfer::NonRetentiveResume(next_stage)) =
-        hart::take_control_transfer()
-    {
-        // SAFETY: M-mode writes to this hart's S-mode and trap CSRs for the
-        // staged resume.
-        unsafe {
-            stage_smode_trap_state();
-            mstatus::set_mpp(mstatus::MPP::Supervisor);
-            mepc::write(next_stage.start_addr);
+    // A successful resume stages its control transfer through Runtime's
+    // protocol-free marker. The SBI adapter has already validated the
+    // operation; dispatch only performs the machine ceremony.
+    match hart::take_control_transfer() {
+        Some(hart::ControlTransfer::NonRetentiveResume(next_stage)) => {
+            // SAFETY: M-mode writes to this hart's S-mode and trap CSRs for
+            // the staged resume.
+            unsafe {
+                stage_smode_trap_state();
+                mstatus::set_mpp(mstatus::MPP::Supervisor);
+                mepc::write(next_stage.start_addr);
+            }
+            frame.x.fill(0);
+            riscv::asm::fence_i();
+            frame.write_x(10, hart::current_hart().as_usize());
+            frame.write_x(11, next_stage.opaque);
         }
-        frame.x.fill(0);
-        riscv::asm::fence_i();
-        frame.write_x(10, hart::current_hart().as_usize());
-        frame.write_x(11, next_stage.opaque);
+        Some(hart::ControlTransfer::RetentiveResume(context)) => {
+            // The advance above has already committed the outgoing context's
+            // resume PC.
+            let resume_pc = mepc::read();
+            // The GPR file is exchanged indexed by register number, so the
+            // private frame layout stays inside Runtime.
+            let mut gprs = [0usize; 32];
+            gprs[1..].copy_from_slice(&frame.x);
+            context.save_outgoing(&gprs, resume_pc);
+            // SAFETY: M-mode writes to this hart's S-mode and trap CSRs for
+            // the staged transfer.
+            unsafe {
+                stage_smode_trap_state();
+                mstatus::set_mpp(mstatus::MPP::Supervisor);
+            }
+            let entry_pc = context.restore_incoming(&mut gprs);
+            frame.x.copy_from_slice(&gprs[1..]);
+            riscv::asm::fence_i();
+            // SAFETY: M-mode writes to this hart's mepc for the staged
+            // transfer into the incoming context.
+            unsafe { mepc::write(entry_pc) };
+        }
+        None => {}
     }
 }
 

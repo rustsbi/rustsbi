@@ -84,6 +84,8 @@ pub enum StartError {
 pub enum StageError {
     /// The current hart was not in its initial stopped state.
     Busy,
+    /// The current hart was not in its started state.
+    NotRunning,
 }
 
 /// Failure while entering or leaving suspend.
@@ -102,10 +104,41 @@ pub enum ResumeError {
     WakeFailed,
 }
 
-/// A machine control transfer staged by a successful non-retentive resume.
+/// A machine control transfer staged for the ecall return path.
 pub(crate) enum ControlTransfer {
     /// Enter the supplied lower-privilege stage from the ecall return path.
     NonRetentiveResume(NextStage),
+    /// Switch execution contexts retentively from the ecall return path: the
+    /// outgoing context is saved, the incoming context is loaded into the
+    /// frame, and the normal ecall-return ceremony enters the incoming one.
+    RetentiveResume(&'static dyn DomainContext),
+}
+
+/// A client-owned saved execution context exchanged by a retentive control
+/// transfer.
+///
+/// A domain switch must save the outgoing context and load an incoming one
+/// without duplicating Runtime's register-lifetime protocol: the GPR file is
+/// exchanged through this trait, and Runtime copies it into and out of its
+/// private trap frame. The implementor decides where saved contexts live;
+/// Runtime decides when the exchange happens and keeps the frame private.
+///
+/// The trait is consulted on the ecall return path of the hart that staged
+/// the transfer, with interrupts disabled in M-mode.
+pub trait DomainContext: Sync {
+    /// Receives the outgoing context's GPR file and resume PC. The GPR file
+    /// is indexed by register number, with `gprs[0]` hardwired to zero. The
+    /// PC is the outgoing context's live resume address at the point of the
+    /// transfer (on the ecall return path, the instruction after the ecall).
+    fn save_outgoing(&self, gprs: &[usize; 32], pc: usize);
+    /// Fills the incoming context's GPR file (indexed by register number;
+    /// `gprs[0]` is ignored on restore) and returns the incoming context's
+    /// entry PC, which Runtime programs into `mepc` for the `mret`.
+    ///
+    /// Runs after Runtime has staged its entry trap-state reset, so the
+    /// implementation may restore incoming S-mode CSRs (such as `satp`) that
+    /// the reset cleared.
+    fn restore_incoming(&self, gprs: &mut [usize; 32]) -> usize;
 }
 
 /// Stages the initial boot handoff for the current hart.
@@ -127,6 +160,20 @@ pub fn stage_current(stage: NextStage) -> Result<(), StageError> {
     // SAFETY: STARTING reserves the slot for this hart's boot path.
     unsafe { *cell.stage.get() = Some(stage) };
     cell.state.store(STATE_START_PENDING, Ordering::Release);
+    Ok(())
+}
+
+/// Stages a retentive control transfer for the current hart's ecall return
+/// path. The transfer is consumed once, by the same hart, when its pending
+/// ecall returns through the dispatch.
+pub fn stage_retentive_transfer(context: &'static dyn DomainContext) -> Result<(), StageError> {
+    let cell = cell(current_hart());
+    if cell.state.load(Ordering::Acquire) != STATE_STARTED {
+        return Err(StageError::NotRunning);
+    }
+    // SAFETY: the current hart owns its transfer slot on its own M-mode ecall
+    // path; the marker is consumed once by the same hart's return path.
+    unsafe { *cell.transfer.get() = Some(ControlTransfer::RetentiveResume(context)) };
     Ok(())
 }
 
