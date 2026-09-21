@@ -11,8 +11,8 @@
 
 mod registers;
 
+use runtime::FdtNode;
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, PhysAddr};
-use serde_device_tree::buildin::Node;
 
 use registers::{AplicRegisters, EncodedMsiAddress};
 
@@ -62,6 +62,14 @@ impl QemuAplicConfig {
 }
 
 /// Returns whether an APLIC node describes a machine-level domain.
-pub(crate) fn is_machine_domain(node: &Node<'_>, compatible: &str) -> bool {
-    compatible == APLIC_COMPATIBLE && node.get_prop("riscv,children").is_some()
+pub(crate) fn is_machine_domain(node: FdtNode<'_, '_>, compatible: &str) -> bool {
+    compatible == APLIC_COMPATIBLE && node.property("riscv,children").is_some()
+}
+
+/// Returns whether the machine-level domain is delegated to the next-stage
+/// supervisor and therefore must be hidden when firmware keeps IMSIC IPIs.
+pub(crate) fn is_delegated_machine_domain(node: FdtNode<'_, '_>, compatible: &str) -> bool {
+    is_machine_domain(node, compatible)
+        && (node.property("riscv,delegate").is_some()
+            || node.property("riscv,delegation").is_some())
 }

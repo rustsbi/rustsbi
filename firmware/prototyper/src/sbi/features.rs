@@ -2,10 +2,8 @@
 
 use ::riscv::register::mstatus::MPP;
 use riscv::register::misa;
+use runtime::FdtNode;
 use seq_macro::seq;
-#[cfg(not(feature = "nemu"))]
-use serde_device_tree::buildin::Node;
-use serde_device_tree::buildin::NodeSeq;
 
 use crate::fail;
 use crate::platform::mark_hart_privilege_checked;
@@ -99,16 +97,19 @@ pub fn hart_mhpm_mask(hart_id: usize) -> u32 {
 
 /// Detects RISC-V extensions from the device tree for all harts.
 #[cfg(not(feature = "nemu"))]
-pub fn detect_extensions(cpus: &NodeSeq, enabled_harts: &[bool]) {
-    use crate::devicetree::Cpu;
-
-    for cpu_node in cpus.iter() {
-        let node = cpu_node.deserialize::<Node>();
-        if !node_is_enabled(&node) {
+pub fn detect_extensions(cpus: FdtNode<'_, '_>, enabled_harts: &[bool]) {
+    for node in cpus
+        .children()
+        .filter(|node| crate::devicetree::is_cpu_node(*node))
+    {
+        if !node_is_enabled(node) {
             continue;
         }
-        let cpu = cpu_node.deserialize::<Cpu>();
-        let Some(hart_id) = cpu.reg.iter().next().map(|register| register.0.start) else {
+        let Some(hart_id) = node
+            .reg()
+            .and_then(|mut registers| registers.next())
+            .map(|register| register.starting_address as usize)
+        else {
             continue;
         };
         if enabled_harts.get(hart_id) != Some(&true) {
@@ -120,7 +121,7 @@ pub fn detect_extensions(cpus: &NodeSeq, enabled_harts: &[bool]) {
             let extension_index = extension.index();
             let extension_name = extension.as_str();
 
-            let described_by_device_tree = device_tree_has_extension(extension_name, &cpu);
+            let described_by_device_tree = device_tree_has_extension(extension_name, node);
             extensions[extension_index] = match extension {
                 Extension::Hypervisor
                     if hart_id
@@ -142,20 +143,22 @@ pub fn detect_extensions(cpus: &NodeSeq, enabled_harts: &[bool]) {
 
 /// NEMU supplies a fixed feature profile through [`init`].
 #[cfg(feature = "nemu")]
-pub fn detect_extensions(_cpus: &NodeSeq, _enabled_harts: &[bool]) {}
+pub fn detect_extensions(_cpus: FdtNode<'_, '_>, _enabled_harts: &[bool]) {}
 
 #[cfg(not(feature = "nemu"))]
-fn device_tree_has_extension(extension: &str, cpu: &crate::devicetree::Cpu) -> bool {
+fn device_tree_has_extension(extension: &str, cpu: FdtNode<'_, '_>) -> bool {
     // Check isa-extensions first (preferred, list of strings)
-    if let Some(isa_extensions) = &cpu.isa_extensions {
-        return isa_extensions.iter().any(|name| name == extension);
+    if let Some(isa_extensions) = cpu.property("riscv,isa-extensions") {
+        return isa_extensions
+            .value
+            .split(|byte| *byte == 0)
+            .filter_map(|name| core::str::from_utf8(name).ok())
+            .any(|name| name == extension);
     }
 
     // Fallback to isa (take first string, default to empty)
-    cpu.isa
-        .iter()
-        .next()
-        .and_then(|isa| isa.iter().next())
+    cpu.property("riscv,isa")
+        .and_then(|property| property.as_str())
         .map(|isa| {
             isa.split('_')
                 .any(|part| part == extension || (extension.len() == 1 && part.contains(extension)))
@@ -229,8 +232,12 @@ pub fn detect_hart_features() {
 }
 
 #[cfg(feature = "nemu")]
-pub fn init(cpus: &NodeSeq) {
-    for hart_id in 0..cpus.len() {
+pub fn init(cpus: FdtNode<'_, '_>) {
+    let hart_count = cpus
+        .children()
+        .filter(|node| crate::devicetree::is_cpu_node(*node))
+        .count();
+    for hart_id in 0..hart_count {
         let mut hart_exts = [false; Extension::COUNT];
         hart_exts[Extension::Sstc.index()] = true;
         with_hart(hart_id, |local| {

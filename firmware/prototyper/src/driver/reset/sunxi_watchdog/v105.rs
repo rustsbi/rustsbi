@@ -14,9 +14,8 @@
 use core::mem::{align_of, size_of};
 use runtime::Result;
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
-use serde_device_tree::buildin::Node;
 
-use crate::devicetree;
+use crate::devicetree::EnabledNode;
 
 use super::super::registry::{self, BindResources, ResetDriver};
 use super::super::{ResetBackend, ResetError, ResetRequest, ResetType};
@@ -47,20 +46,17 @@ impl ResetDriver for V105Driver {
     fn probe(
         &mut self,
         platform: &runtime::PlatformView<'_>,
-        node: &Node<'_>,
-        _parent: Option<&Node<'_>>,
+        discovered: EnabledNode<'_, '_>,
     ) -> Result<()> {
+        let node = discovered.node();
         if let Some(registers) = platform.sunxi_rtc_v203_gprcm(node)? {
             registry::set_once(&mut self.reset_gate, registers)?;
         }
 
-        let Some(compatibles) = devicetree::compatible_strings(node) else {
+        let Some(compatibles) = discovered.compatible() else {
             return Ok(());
         };
-        if !compatibles
-            .iter()
-            .any(|compatible| compatible == COMPATIBLE)
-        {
+        if !compatibles.all().any(|compatible| compatible == COMPATIBLE) {
             return Ok(());
         }
         let registers = registry::primary_registers(platform, node)?;

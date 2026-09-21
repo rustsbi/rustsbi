@@ -3,35 +3,36 @@
 use alloc::string::ToString;
 
 use runtime::node_is_enabled;
-use serde_device_tree::buildin::Node;
 
-use crate::devicetree::{Cpu, Tree};
+use crate::devicetree::is_cpu_node;
+use crate::devicetree::u32_property;
 use crate::platform::info::BoardInfo;
 use crate::sbi::features::detect_extensions;
 
-pub(super) fn discover(board: &mut BoardInfo, tree: &Tree<'_>) -> runtime::Result<()> {
-    board.harts.timebase_frequency_hz = tree
-        .cpus
-        .timebase_frequency_hz
-        .filter(|frequency| *frequency != 0);
-    board.model = tree
-        .model
-        .as_ref()
-        .and_then(|model| model.iter().next())
+pub(super) fn discover(
+    board: &mut BoardInfo,
+    platform: &runtime::PlatformView<'_>,
+) -> runtime::Result<()> {
+    let root = platform.root();
+    let cpus = platform
+        .find_enabled_node("/cpus")
+        .ok_or(runtime::Error::InvalidArgs)?;
+    board.harts.timebase_frequency_hz =
+        u32_property(cpus, "timebase-frequency").filter(|frequency| *frequency != 0);
+    board.model = root
+        .property("model")
+        .and_then(|property| property.as_str())
         .unwrap_or("<unspecified>")
         .to_string();
 
-    for cpu_node in tree.cpus.cpu.iter() {
-        let node = cpu_node.deserialize::<Node>();
-        if !node_is_enabled(&node) {
+    for node in cpus.children().filter(|node| is_cpu_node(*node)) {
+        if !node_is_enabled(node) {
             continue;
         }
-        let cpu = cpu_node.deserialize::<Cpu>();
-        let hart_id = cpu
-            .reg
-            .iter()
-            .next()
-            .map(|register| register.0.start)
+        let hart_id = node
+            .reg()
+            .and_then(|mut registers| registers.next())
+            .map(|register| register.starting_address as usize)
             .ok_or(runtime::Error::InvalidArgs)?;
         let enabled = board
             .harts
@@ -43,6 +44,6 @@ pub(super) fn discover(board: &mut BoardInfo, tree: &Tree<'_>) -> runtime::Resul
     }
 
     // TODO: Move ISA-extension discovery behind the Runtime seam too.
-    detect_extensions(&tree.cpus.cpu, &board.harts.enabled);
+    detect_extensions(cpus, &board.harts.enabled);
     Ok(())
 }
