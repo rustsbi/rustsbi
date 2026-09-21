@@ -79,7 +79,7 @@ $ git clone -b v2024.04 https://github.com/u-boot/u-boot.git
 Download FreeBSD
 
 ```shell
-$ wget https://download.freebsd.org/releases/VM-IMAGES/14.1-RELEASE/riscv64/Latest/FreeBSD-14.1-RELEASE-riscv-riscv64.raw.xz && xz -d FreeBSD-14.1-RELEASE-riscv-riscv64.raw.xz
+$ wget https://archive.freebsd.org/old-releases/VM-IMAGES/14.1-RELEASE/riscv64/Latest/FreeBSD-14.1-RELEASE-riscv-riscv64.raw.xz && xz -d FreeBSD-14.1-RELEASE-riscv-riscv64.raw.xz
 ```
 
 ## 编译RustSBI Prototyper
