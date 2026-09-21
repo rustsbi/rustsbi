@@ -11,6 +11,7 @@ use runtime::SpacemitK1Registers;
 use runtime::memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange};
 
 use crate::cfg::NUM_HART_MAX;
+use crate::devicetree::{NodeSelection, select_from_node_once};
 use crate::driver;
 
 pub(super) type HartEnableList = [bool; NUM_HART_MAX];
@@ -67,7 +68,7 @@ pub(crate) struct ImsicInfo {
     pub(crate) hart_files: [Option<DeviceRegisterRange>; NUM_HART_MAX],
 }
 
-/// Console resources selected from the `/chosen/stdout-path` node.
+/// Console resources selected from the device tree.
 pub(crate) struct ConsoleInfo {
     pub(crate) registers: DeviceRegisterRange,
     pub(crate) kind: driver::ConsoleKind,
@@ -115,22 +116,99 @@ impl HartInfo {
     }
 }
 
+/// The CLINT register range and driver-specific interpretation.
+pub(crate) struct ClintResource {
+    pub(crate) registers: DeviceRegisterRange,
+    pub(crate) kind: driver::ClintKind,
+}
+
+/// Whether the machine APLIC node is hidden from the next-stage FDT.
+#[derive(Clone, Copy, Default, Eq, PartialEq)]
+pub(crate) enum MachineAplicHandoff {
+    #[default]
+    KeepVisible,
+    Hide,
+}
+
 /// Interrupt-controller descriptions collected before device binding.
+///
+/// CLINT, IMSIC, and machine APLIC retain their source paths because the
+/// selected IMSIC policy may hide those nodes from the next-stage FDT. The
+/// legacy controller slots below only need their register ranges for binding.
 pub(crate) struct InterruptDescriptions {
-    pub(crate) clint: Option<(DeviceRegisterRange, driver::ClintKind)>,
-    pub(crate) imsic: Option<ImsicInfo>,
-    pub(crate) machine_aplic: Option<DeviceRegisterRange>,
+    clint: Option<NodeSelection<ClintResource>>,
+    imsic: Option<NodeSelection<ImsicInfo>>,
+    machine_aplic: Option<NodeSelection<DeviceRegisterRange>>,
+    machine_aplic_handoff: MachineAplicHandoff,
     pub(crate) thead_plic: Option<DeviceRegisterRange>,
     pub(crate) plmt: Option<DeviceRegisterRange>,
     pub(crate) plicsw: Option<DeviceRegisterRange>,
 }
 
 impl InterruptDescriptions {
+    pub(crate) fn clint(&self) -> Option<&NodeSelection<ClintResource>> {
+        self.clint.as_ref()
+    }
+
+    pub(crate) fn imsic(&self) -> Option<&NodeSelection<ImsicInfo>> {
+        self.imsic.as_ref()
+    }
+
+    pub(crate) fn machine_aplic(&self) -> Option<&NodeSelection<DeviceRegisterRange>> {
+        self.machine_aplic.as_ref()
+    }
+
+    pub(crate) fn set_clint(
+        &mut self,
+        value: ClintResource,
+        source_path: &[&str],
+    ) -> runtime::Result<()> {
+        select_from_node_once(&mut self.clint, value, source_path)
+    }
+
+    pub(crate) fn set_imsic(
+        &mut self,
+        value: ImsicInfo,
+        source_path: &[&str],
+    ) -> runtime::Result<()> {
+        select_from_node_once(&mut self.imsic, value, source_path)
+    }
+
+    pub(crate) fn set_machine_aplic(
+        &mut self,
+        value: DeviceRegisterRange,
+        source_path: &[&str],
+        handoff: MachineAplicHandoff,
+    ) -> runtime::Result<()> {
+        select_from_node_once(&mut self.machine_aplic, value, source_path)?;
+        self.machine_aplic_handoff = handoff;
+        Ok(())
+    }
+
+    /// Returns source paths hidden when firmware selects IMSIC for IPIs.
+    pub(crate) fn aia_handoff_paths(&self) -> impl Iterator<Item = &str> + '_ {
+        let machine_aplic = match self.machine_aplic_handoff {
+            MachineAplicHandoff::KeepVisible => None,
+            MachineAplicHandoff::Hide => self
+                .machine_aplic
+                .as_ref()
+                .map(|selection| selection.source_path()),
+        };
+        [
+            self.clint.as_ref().map(|selection| selection.source_path()),
+            self.imsic.as_ref().map(|selection| selection.source_path()),
+            machine_aplic,
+        ]
+        .into_iter()
+        .flatten()
+    }
+
     const fn empty() -> Self {
         Self {
             clint: None,
             imsic: None,
             machine_aplic: None,
+            machine_aplic_handoff: MachineAplicHandoff::KeepVisible,
             thead_plic: None,
             plmt: None,
             plicsw: None,
@@ -155,21 +233,11 @@ impl DeviceDescriptions {
     }
 }
 
-/// Vendor SoC descriptions that require boot-time preparation.
-pub(crate) struct SocDescriptions {
-    pub(crate) spacemit_k1: Option<SpacemitK1Registers>,
-    pub(crate) v821: Option<crate::platform::allwinner::v821::Description>,
-    pub(crate) v861: Option<runtime::soc::allwinner::v861::AllwinnerV861Soc>,
-}
-
-impl SocDescriptions {
-    const fn empty() -> Self {
-        Self {
-            spacemit_k1: None,
-            v821: None,
-            v861: None,
-        }
-    }
+/// A supported root-level SoC description selected during discovery.
+pub(crate) enum SocDescription {
+    SpacemitK1(SpacemitK1Registers),
+    V821(crate::platform::allwinner::v821::Description),
+    V861(runtime::soc::allwinner::v861::AllwinnerV861Soc),
 }
 
 /// Platform facts grouped by the policy that consumes them.
@@ -178,7 +246,7 @@ pub(crate) struct BoardInfo {
     pub(crate) memory: MemoryInfo,
     pub(crate) harts: HartInfo,
     pub(crate) devices: DeviceDescriptions,
-    pub(crate) soc: SocDescriptions,
+    pub(crate) soc: Option<SocDescription>,
 }
 
 impl BoardInfo {
@@ -188,7 +256,7 @@ impl BoardInfo {
             memory: MemoryInfo::empty(),
             harts: HartInfo::empty(),
             devices: DeviceDescriptions::empty(),
-            soc: SocDescriptions::empty(),
+            soc: None,
         }
     }
 

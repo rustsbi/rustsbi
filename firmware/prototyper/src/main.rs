@@ -96,8 +96,8 @@ fn enable_supervisor_services() {
             platform::board_info()
                 .devices
                 .interrupts
-                .imsic
-                .as_ref()
+                .imsic()
+                .map(|description| description.resource())
                 .expect("selected IMSIC has a description"),
         );
     }

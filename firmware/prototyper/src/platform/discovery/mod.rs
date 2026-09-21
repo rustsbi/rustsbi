@@ -5,26 +5,41 @@ mod harts;
 mod imsic;
 mod interrupts;
 
-use crate::devicetree::Tree;
-
-use super::info::BoardInfo;
+use super::info::{BoardInfo, SocDescription};
+use crate::devicetree::try_for_each_enabled_node;
 
 /// Reads the platform facts consumed by driver and SBI initialization.
 pub(super) fn discover_platform(
     platform: &runtime::PlatformView<'_>,
 ) -> runtime::Result<BoardInfo> {
-    let root = platform.root();
-    let tree = root.deserialize::<Tree>();
     let mut board = BoardInfo::empty();
-    harts::discover(&mut board, &tree)?;
+    harts::discover(&mut board, platform)?;
     board.devices.console = console::discover(platform)?;
-    board.devices.reset = crate::driver::ResetDescription::discover(platform)?;
-    board.soc.v821 = platform
-        .soc::<runtime::soc::allwinner::v821::AllwinnerV821Soc>()?
-        .map(|soc| crate::platform::allwinner::v821::Description::discover(soc, platform))
-        .transpose()?;
-    interrupts::discover(&mut board, platform)?;
-    board.soc.spacemit_k1 = platform.spacemit_k1_registers()?;
-    board.soc.v861 = platform.soc::<runtime::soc::allwinner::v861::AllwinnerV861Soc>()?;
+    let mut reset = crate::driver::ResetDescription::new();
+    let mut soc =
+        if let Some(v821) = platform.soc::<runtime::soc::allwinner::v821::AllwinnerV821Soc>()? {
+            Some(SocDescription::V821(
+                crate::platform::allwinner::v821::Description::new(v821),
+            ))
+        } else if let Some(k1) = platform.spacemit_k1_registers()? {
+            Some(SocDescription::SpacemitK1(k1))
+        } else {
+            platform
+                .soc::<runtime::soc::allwinner::v861::AllwinnerV861Soc>()?
+                .map(SocDescription::V861)
+        };
+    let cpu_interrupt_controllers = imsic::cpu_interrupt_controllers(platform.root())?;
+    // Reset, V821, and interrupt-controller probes share this enabled-node
+    // traversal. Hart topology, IMSIC wiring, and PMU mappings are read by
+    // their targeted probes above and below this pass.
+    try_for_each_enabled_node(platform.root(), &mut |node, path| {
+        reset.probe(platform, node)?;
+        if let Some(SocDescription::V821(v821)) = &mut soc {
+            v821.probe(platform, node)?;
+        }
+        interrupts::discover_node(&mut board, platform, node, path, &cpu_interrupt_controllers)
+    })?;
+    board.devices.reset = reset;
+    board.soc = soc;
     Ok(board)
 }

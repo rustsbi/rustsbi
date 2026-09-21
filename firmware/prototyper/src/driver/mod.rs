@@ -20,7 +20,7 @@ use alloc::boxed::Box;
 
 use runtime::memory::MemoryRegistry;
 
-use crate::platform::{BoardInfo, ImsicInfo};
+use crate::platform::{BoardInfo, ClintResource, ImsicInfo};
 
 pub(crate) use reset::{
     Description as ResetDescription, ResetDevice, ResetError, ResetReason, ResetRequest, ResetType,
@@ -74,7 +74,8 @@ fn bind_interrupts(
                 board
                     .devices
                     .interrupts
-                    .machine_aplic
+                    .machine_aplic()
+                    .map(|description| *description.resource())
                     .ok_or(runtime::Error::InvalidArgs)?,
                 imsic.layout.machine_base,
                 imsic.layout.hart_index_bits,
@@ -102,9 +103,10 @@ fn bind_interrupts(
             Some(Box::new(ipi::plicsw::bind(plicsw, memory, hart_count)?)),
         ));
     }
-    let Some(&(registers, kind)) = board.devices.interrupts.clint.as_ref() else {
+    let Some(description) = board.devices.interrupts.clint() else {
         return Ok((None, None));
     };
+    let ClintResource { registers, kind } = *description.resource();
     let (timer, ipi) = clint::bind(registers, kind, memory)?;
     Ok((Some(timer), Some(ipi)))
 }
