@@ -7,10 +7,11 @@
 
 use core::mem::size_of;
 
+use fdt::node::FdtNode;
+
 use crate::Result;
 use crate::memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange};
 use crate::soc::Soc;
-use serde_device_tree::buildin::{Node, StrSeq};
 
 /// Number of C907 harts controlled by the V861 power controller.
 pub const C907_HART_COUNT: usize = 2;
@@ -42,14 +43,11 @@ pub struct AllwinnerV861Soc {
 }
 
 impl Soc for AllwinnerV861Soc {
-    fn from_root(root: &Node<'_>) -> Result<Option<Self>> {
+    fn from_root(root: FdtNode<'_, '_>) -> Result<Option<Self>> {
         Ok((crate::node_is_enabled(root)
-            && root.get_prop("compatible").is_some_and(|property| {
-                property
-                    .deserialize::<StrSeq>()
-                    .iter()
-                    .any(|compatible| COMPATIBLES.contains(&compatible))
-            }))
+            && root
+                .compatible()
+                .is_some_and(|values| values.all().any(|value| COMPATIBLES.contains(&value))))
         .then_some(Self { _private: () }))
     }
 }

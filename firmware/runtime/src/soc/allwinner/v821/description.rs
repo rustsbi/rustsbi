@@ -7,10 +7,11 @@
 
 use core::mem::size_of;
 
+use fdt::node::FdtNode;
+
 use crate::Result;
 use crate::memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange};
 use crate::soc::Soc;
-use serde_device_tree::buildin::{Node, StrSeq};
 
 const V821_COMPATIBLE: &str = "allwinner,v821";
 const CCU_BASE: usize = 0x4200_1000;
@@ -27,14 +28,11 @@ pub struct AllwinnerV821Soc {
 }
 
 impl Soc for AllwinnerV821Soc {
-    fn from_root(root: &Node<'_>) -> Result<Option<Self>> {
+    fn from_root(root: FdtNode<'_, '_>) -> Result<Option<Self>> {
         Ok((crate::node_is_enabled(root)
-            && root.get_prop("compatible").is_some_and(|property| {
-                property
-                    .deserialize::<StrSeq>()
-                    .iter()
-                    .any(|compatible| compatible == V821_COMPATIBLE)
-            }))
+            && root
+                .compatible()
+                .is_some_and(|values| values.all().any(|value| value == V821_COMPATIBLE)))
         .then_some(Self { _private: () }))
     }
 }

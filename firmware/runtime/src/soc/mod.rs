@@ -1,6 +1,6 @@
 //! SoC-specific mechanisms and fixed resource descriptions.
 
-use serde_device_tree::buildin::Node;
+use fdt::node::FdtNode;
 
 use crate::Result;
 
@@ -19,5 +19,5 @@ pub trait Soc: Sized {
     ///
     /// Returns an error when the implementation cannot validate the root-node
     /// description.
-    fn from_root(root: &Node<'_>) -> Result<Option<Self>>;
+    fn from_root(root: FdtNode<'_, '_>) -> Result<Option<Self>>;
 }

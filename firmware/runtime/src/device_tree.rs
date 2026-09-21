@@ -8,7 +8,6 @@ use alloc::vec::Vec;
 use core::mem::size_of;
 
 use fdt::{Fdt, node::FdtNode};
-use serde_device_tree::{Dtb, DtbPtr, buildin::Node};
 
 use crate::memory::{
     DeviceRegisterRange, MemoryRegistry, PhysAddr, PhysAddrRange, SupervisorMemory,
@@ -16,6 +15,8 @@ use crate::memory::{
 };
 use crate::spacemit_k1::SpacemitK1Registers;
 use crate::{Error, Result};
+
+mod patch;
 
 // Devicetree Specification v0.4, section 5.2: the structure header is ten
 // 32-bit big-endian fields, with `totalsize` as its second field.
@@ -60,7 +61,7 @@ impl DeviceTreeHandoff {
 
 /// The platform description supplied by the previous stage.
 ///
-/// Construction validates the FDT header at the firmware-entry trust seam.
+/// Construction validates the complete FDT at the firmware-entry trust seam.
 /// The value is not clonable, so only its owner can create temporary tree
 /// views or derive physical-memory access from it.
 pub struct PlatformDescription {
@@ -72,79 +73,165 @@ pub struct PlatformDescription {
 /// The view may inspect raw nodes, but it issues device-register capabilities
 /// only for properties stored in the Platform Description that created it.
 pub struct PlatformView<'tree> {
-    root: Node<'tree>,
+    fdt: Fdt<'tree>,
     fdt_storage: PhysAddrRange,
 }
 
 impl<'tree> PlatformView<'tree> {
+    /// Returns the parsed device tree used for platform discovery.
+    pub const fn fdt(&self) -> &Fdt<'tree> {
+        &self.fdt
+    }
+
+    /// Resolves an absolute path or alias and returns it only when every node
+    /// on the path is enabled.
+    pub fn find_enabled_node(&self, path: &str) -> Option<FdtNode<'_, 'tree>> {
+        let resolved_path = if path.starts_with('/') {
+            path
+        } else {
+            let aliases = self.fdt.find_node("/aliases")?;
+            if !node_is_enabled(aliases) {
+                return None;
+            }
+            self.fdt.aliases()?.resolve(path)?
+        };
+
+        let mut current = self.fdt.find_node("/")?;
+        if !node_is_enabled(current) {
+            return None;
+        }
+        if resolved_path == "/" {
+            return Some(current);
+        }
+
+        for name in resolved_path.strip_prefix('/')?.split('/') {
+            if name.is_empty() {
+                return None;
+            }
+            current = current.children().find(|child| {
+                child.name == name
+                    || (!name.contains('@') && child.name.split('@').next() == Some(name))
+            })?;
+            if !node_is_enabled(current) {
+                return None;
+            }
+        }
+        Some(current)
+    }
+
     /// Returns the root node for read-only platform discovery.
-    pub const fn root(&self) -> &Node<'tree> {
-        &self.root
+    pub fn root(&self) -> FdtNode<'_, 'tree> {
+        self.fdt
+            .find_node("/")
+            .expect("a validated FDT always contains its root node")
     }
 
     /// Returns the register ranges of an enabled node from this description.
-    pub fn device_registers(&self, node: &Node<'tree>) -> Result<Option<Vec<DeviceRegisterRange>>> {
+    pub fn device_registers(
+        &self,
+        node: FdtNode<'_, 'tree>,
+    ) -> Result<Option<Vec<DeviceRegisterRange>>> {
         if !node_is_enabled(node) {
             return Ok(None);
         }
-        let Some(property) = node.get_prop("reg") else {
+        let Some(property) = node.property("reg") else {
             return Ok(None);
         };
 
-        let encoded = property.deserialize::<&[u8]>();
-        let encoded =
-            PhysAddrRange::from_start_len(PhysAddr::new(encoded.as_ptr() as usize), encoded.len())?;
+        let encoded = PhysAddrRange::from_start_len(
+            PhysAddr::new(property.value.as_ptr() as usize),
+            property.value.len(),
+        )?;
         if !self.fdt_storage.contains(encoded) {
             return Err(Error::AccessDenied);
         }
 
-        let registers = property.deserialize::<serde_device_tree::buildin::Reg>();
+        let registers = node.reg().ok_or(Error::InvalidArgs)?;
         let mut ranges = Vec::new();
-        for register in registers.iter() {
-            let range = PhysAddrRange::new(
-                PhysAddr::new(register.0.start),
-                PhysAddr::new(register.0.end),
+        for register in registers {
+            let range = PhysAddrRange::from_start_len(
+                PhysAddr::new(register.starting_address as usize),
+                register.size.ok_or(Error::InvalidArgs)?,
             )?;
             ranges.push(DeviceRegisterRange::from_description(range));
         }
         Ok((!ranges.is_empty()).then_some(ranges))
     }
 
+    /// Returns the first register range of an enabled node.
+    ///
+    /// Most device drivers consume only the primary `reg` entry. Callers such
+    /// as IMSIC discovery use [`Self::device_registers`] when they need the
+    /// complete layout.
+    pub fn device_register(&self, node: FdtNode<'_, 'tree>) -> Result<Option<DeviceRegisterRange>> {
+        if !node_is_enabled(node) {
+            return Ok(None);
+        }
+        let Some(property) = node.property("reg") else {
+            return Ok(None);
+        };
+
+        let encoded = PhysAddrRange::from_start_len(
+            PhysAddr::new(property.value.as_ptr() as usize),
+            property.value.len(),
+        )?;
+        if !self.fdt_storage.contains(encoded) {
+            return Err(Error::AccessDenied);
+        }
+
+        let mut registers = node.reg().ok_or(Error::InvalidArgs)?;
+        let register = registers.next().ok_or(Error::InvalidArgs)?;
+        let range = PhysAddrRange::from_start_len(
+            PhysAddr::new(register.starting_address as usize),
+            register.size.ok_or(Error::InvalidArgs)?,
+        )?;
+        Ok(Some(DeviceRegisterRange::from_description(range)))
+    }
+
     /// Returns K1 fixed-register capabilities when this description identifies K1.
     pub fn spacemit_k1_registers(&self) -> Result<Option<SpacemitK1Registers>> {
-        SpacemitK1Registers::from_root(&self.root)
+        SpacemitK1Registers::from_root(self.root())
     }
 
     /// Returns a SoC capability when the root node identifies `S`.
     pub fn soc<S: crate::soc::Soc>(&self) -> Result<Option<S>> {
-        S::from_root(&self.root)
+        S::from_root(self.root())
     }
 
     /// Returns the RTC V203 GPRCM window from the BSP's fixed four-cell property.
     /// Unlike `reg`, `gprcm_reg` contains an absolute 64-bit address and size.
-    pub fn sunxi_rtc_v203_gprcm(&self, node: &Node<'tree>) -> Result<Option<DeviceRegisterRange>> {
+    pub fn sunxi_rtc_v203_gprcm(
+        &self,
+        node: FdtNode<'_, 'tree>,
+    ) -> Result<Option<DeviceRegisterRange>> {
         crate::sunxi_rtc_v203::gprcm_registers(node, self.fdt_storage)
     }
 }
 
 impl PlatformDescription {
+    /// Builds a description from an entry-point FDT address.
+    ///
+    /// # Safety
+    ///
+    /// `address` must be non-null and point to readable memory containing the
+    /// fixed FDT header and the complete FDT declared by its `totalsize`
+    /// field. The bytes must remain readable and unchanged for as long as the
+    /// returned description is used.
     unsafe fn from_raw(address: PhysAddr) -> Result<Self> {
-        if address.as_usize() == 0 {
-            return Err(Error::InvalidArgs);
-        }
-        DtbPtr::from_raw(address.as_usize() as *mut u8).map_err(|_| Error::InvalidArgs)?;
-        // SAFETY: the caller provides the lifetime and access guarantees
-        // required by `Fdt::from_ptr`; the returned parser is dropped before
-        // this function returns.
-        unsafe { Fdt::from_ptr(address.as_usize() as *const u8) }
-            .map_err(|_| Error::InvalidArgs)?;
+        // SAFETY: the caller of this function provides the pointer validity
+        // and lifetime guarantees documented above.
+        let source = unsafe { fdt_source(address)? };
+        patch::validate(source)?;
+        let fdt = Fdt::new(source).map_err(|_| Error::InvalidArgs)?;
+        fdt.find_node("/").ok_or(Error::InvalidArgs)?;
         Ok(Self { address })
     }
 
-    /// Returns the physical address of the FDT.
-    #[inline]
-    pub const fn address(&self) -> PhysAddr {
-        self.address
+    fn source(&self) -> Result<&[u8]> {
+        // SAFETY: construction validated the complete FDT, and the
+        // description's ownership contract keeps its storage readable and
+        // unchanged.
+        unsafe { fdt_source(self.address) }
     }
 
     /// Inspects the device tree through a temporary root-node view.
@@ -153,39 +240,58 @@ impl PlatformDescription {
     /// without acquiring raw access to the FDT storage. Validation failures
     /// from the inspection closure are returned directly.
     pub fn inspect<R>(
-        &mut self,
+        &self,
         inspect: impl for<'tree> FnOnce(PlatformView<'tree>) -> Result<R>,
     ) -> Result<R> {
-        // SAFETY: construction established that this complete FDT remains
-        // readable while the Platform Description exists.
-        let fdt = unsafe { Fdt::from_ptr(self.address.as_usize() as *const u8) }
-            .map_err(|_| Error::InvalidArgs)?;
-        let fdt_storage = PhysAddrRange::from_start_len(self.address, fdt.total_size())?;
-        let dtb_pointer =
-            DtbPtr::from_raw(self.address.as_usize() as *mut u8).map_err(|_| Error::InvalidArgs)?;
-        let dtb = Dtb::from(dtb_pointer).share();
-        let root = serde_device_tree::from_raw_mut(&dtb).map_err(|_| Error::InvalidArgs)?;
-        inspect(PlatformView { root, fdt_storage })
+        let source = self.source()?;
+        let fdt = Fdt::new(source).map_err(|_| Error::InvalidArgs)?;
+        let fdt_storage = PhysAddrRange::from_start_len(self.address, source.len())?;
+        inspect(PlatformView { fdt, fdt_storage })
     }
 
-    /// Derives supervisor RAM and device-register access from this FDT.
+    /// Derives supervisor memory and the MMIO registry from the FDT.
     ///
     /// RAM and reserved ranges are read by Runtime. MMIO windows may then be
     /// acquired only from physical-address holes outside those ranges.
-    pub fn into_memory_resources(self) -> Result<(SupervisorMemory, MemoryRegistry)> {
+    pub fn memory_resources(&self) -> Result<(SupervisorMemory, MemoryRegistry)> {
         let (ram, reserved) = self.memory_ranges()?;
         MemoryRegistry::from_ranges(ram, reserved)
     }
 
+    /// Prepares the device tree passed to the next stage.
+    ///
+    /// Adds the firmware reservation and hides selected nodes from the next
+    /// stage. If no edits are requested, the original address is returned.
+    pub fn prepare_next_stage(
+        self,
+        firmware_reservation: Option<PhysAddrRange>,
+        hidden_node_paths: &[&str],
+    ) -> Result<PhysAddr> {
+        if firmware_reservation.is_none() && hidden_node_paths.is_empty() {
+            return Ok(self.address);
+        }
+
+        let source = self.source()?;
+        let reservation = firmware_reservation
+            .map(|reservation| {
+                let address =
+                    u64::try_from(reservation.start().as_usize()).map_err(|_| Error::Overflow)?;
+                let size = u64::try_from(reservation.size()).map_err(|_| Error::Overflow)?;
+                patch::Reservation::new(address, size).ok_or(Error::InvalidArgs)
+            })
+            .transpose()?;
+        let rewritten = patch::prepare_next_stage(source, reservation, hidden_node_paths)?;
+        Ok(leak_aligned(rewritten))
+    }
+
     fn memory_ranges(&self) -> Result<(Vec<PhysAddrRange>, Vec<PhysAddrRange>)> {
-        // SAFETY: `PlatformDescription::from_raw` established that the FDT remains
-        // readable and valid while this value exists.
-        let fdt = unsafe { Fdt::from_ptr(self.address.as_usize() as *const u8) }
-            .map_err(|_| Error::InvalidArgs)?;
+        let source = self.source()?;
+        let fdt = Fdt::new(source).map_err(|_| Error::InvalidArgs)?;
         let mut ram = Vec::new();
-        for node in fdt.all_nodes().filter(|node| {
-            node.name.split('@').next() == Some("memory") && fdt_node_is_enabled(*node)
-        }) {
+        for node in fdt
+            .all_nodes()
+            .filter(|node| node.name.split('@').next() == Some("memory") && node_is_enabled(*node))
+        {
             let regions = node.reg().ok_or(Error::InvalidArgs)?;
             for region in regions {
                 record_nonempty_range(&mut ram, region.starting_address as usize, region.size)?;
@@ -205,12 +311,13 @@ impl PlatformDescription {
         }
         if let Some(node) = fdt
             .find_node("/reserved-memory")
-            .filter(|node| fdt_node_is_enabled(*node))
+            .filter(|node| node_is_enabled(*node))
         {
-            for child in node.children().filter(|child| fdt_node_is_enabled(*child)) {
-                let Some(regions) = child.reg() else {
+            for child in node.children().filter(|child| node_is_enabled(*child)) {
+                if child.property("reg").is_none() {
                     continue;
-                };
+                }
+                let regions = child.reg().ok_or(Error::InvalidArgs)?;
                 for region in regions {
                     record_nonempty_range(
                         &mut reserved,
@@ -222,6 +329,39 @@ impl PlatformDescription {
         }
         Ok((ram, reserved))
     }
+}
+
+fn leak_aligned(bytes: Vec<u8>) -> PhysAddr {
+    // The next stage keeps this rewritten DTB after `PlatformDescription` is
+    // consumed, so intentionally leak the aligned allocation to preserve its
+    // lifetime. Native-endian words only provide alignment; the bytes remain
+    // in their original order when copied into the allocation.
+    let mut words = Vec::with_capacity(bytes.len().div_ceil(size_of::<u64>()));
+    for chunk in bytes.chunks(size_of::<u64>()) {
+        let mut encoded = [0; size_of::<u64>()];
+        encoded[..chunk.len()].copy_from_slice(chunk);
+        words.push(u64::from_ne_bytes(encoded));
+    }
+    PhysAddr::new(words.leak().as_ptr() as usize)
+}
+
+/// Returns the complete FDT byte range described by an entry-point address.
+///
+/// # Safety
+///
+/// The caller must ensure that `address` is non-null and that the fixed FDT
+/// header plus the memory declared by its `totalsize` field are readable and
+/// unchanged for the returned slice's lifetime.
+unsafe fn fdt_source<'a>(address: PhysAddr) -> Result<&'a [u8]> {
+    if address.as_usize() == 0 {
+        return Err(Error::InvalidArgs);
+    }
+    // SAFETY: the caller guarantees that the address points to a readable FDT
+    // header and complete declared span.
+    let fdt = unsafe { Fdt::from_ptr(address.as_usize() as *const u8) }
+        .map_err(|_| Error::InvalidArgs)?;
+    // SAFETY: the same caller guarantee covers the complete `totalsize` span.
+    Ok(unsafe { core::slice::from_raw_parts(address.as_usize() as *const u8, fdt.total_size()) })
 }
 
 fn validate_linked_fdt(address: PhysAddr) -> Result<()> {
@@ -248,14 +388,7 @@ fn validate_linked_fdt(address: PhysAddr) -> Result<()> {
 }
 
 /// Returns whether a Platform Description node is available for use.
-pub fn node_is_enabled(node: &Node<'_>) -> bool {
-    status_is_enabled(
-        node.get_prop("status")
-            .map(|property| property.deserialize::<&[u8]>()),
-    )
-}
-
-fn fdt_node_is_enabled(node: FdtNode<'_, '_>) -> bool {
+pub fn node_is_enabled(node: FdtNode<'_, '_>) -> bool {
     status_is_enabled(node.property("status").map(|status| status.value))
 }
 
@@ -280,7 +413,33 @@ fn record_nonempty_range(
 
 #[cfg(test)]
 mod tests {
-    use super::status_is_enabled;
+    use super::*;
+
+    // Keep the trust-seam checks together: the fixture is shared because the
+    // production invariant is about the FDT trust boundary, not test-tree data.
+    #[test]
+    fn from_raw_rejects_fdt_without_root_node() {
+        let mut storage = alloc::vec![0u64; 16];
+        let source = minimal_fdt(&mut storage, 0);
+        write_test_u32(source, 56, 9);
+
+        // SAFETY: `minimal_fdt` built a complete, writable fixture whose
+        // declared span remains live in `storage` for this call.
+        let result =
+            unsafe { PlatformDescription::from_raw(PhysAddr::new(source.as_ptr() as usize)) };
+        assert_eq!(result.err(), Some(Error::InvalidArgs));
+    }
+
+    #[test]
+    fn from_raw_accepts_a_four_byte_aligned_fdt() {
+        let mut storage = alloc::vec![0u64; 16];
+        let source = minimal_fdt(&mut storage, 4);
+
+        // SAFETY: `minimal_fdt` built a complete fixture whose declared span
+        // remains live in `storage` for this call.
+        unsafe { PlatformDescription::from_raw(PhysAddr::new(source.as_ptr() as usize)) }
+            .expect("a 4-byte-aligned FDT is valid");
+    }
 
     #[test]
     fn status_accepts_enabled_values_and_defaults_to_enabled() {
@@ -288,5 +447,30 @@ mod tests {
         assert!(status_is_enabled(Some(b"ok\0")));
         assert!(status_is_enabled(Some(b"okay\0")));
         assert!(!status_is_enabled(Some(b"disabled\0")));
+    }
+
+    fn write_test_u32(bytes: &mut [u8], offset: usize, value: u32) {
+        bytes[offset..offset + 4].copy_from_slice(&value.to_be_bytes());
+    }
+
+    fn minimal_fdt(storage: &mut [u64], offset: usize) -> &mut [u8] {
+        // SAFETY: the fixture uses an in-bounds byte range within the live
+        // `u64` allocation; the four-byte offset models an unaligned FDT.
+        let source = unsafe {
+            core::slice::from_raw_parts_mut(storage.as_mut_ptr().cast::<u8>().add(offset), 72)
+        };
+        source.fill(0);
+        write_test_u32(source, 0, 0xd00d_feed);
+        write_test_u32(source, 4, 72);
+        write_test_u32(source, 8, 56);
+        write_test_u32(source, 12, 72);
+        write_test_u32(source, 16, 40);
+        write_test_u32(source, 20, 17);
+        write_test_u32(source, 24, 16);
+        write_test_u32(source, 36, 16);
+        write_test_u32(source, 56, 1);
+        write_test_u32(source, 64, 2);
+        write_test_u32(source, 68, 9);
+        source
     }
 }
