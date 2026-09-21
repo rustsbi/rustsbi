@@ -1,18 +1,20 @@
 //! Hart and model discovery.
 
-use alloc::string::ToString;
+use alloc::{string::ToString, vec::Vec};
 
 use runtime::node_is_enabled;
 
-use crate::devicetree::is_cpu_node;
-use crate::devicetree::u32_property;
+use crate::devicetree::{is_cpu_node, u32_property};
 use crate::platform::info::BoardInfo;
 use crate::sbi::features::detect_extensions;
 
+use super::imsic::{self, CpuInterruptController};
+
+/// Reads hart topology and features, retaining CPU interrupt wiring for IMSIC discovery.
 pub(super) fn discover(
     board: &mut BoardInfo,
     platform: &runtime::PlatformView<'_>,
-) -> runtime::Result<()> {
+) -> runtime::Result<Vec<CpuInterruptController>> {
     let root = platform.root();
     let cpus = platform
         .find_enabled_node("/cpus")
@@ -25,6 +27,7 @@ pub(super) fn discover(
         .unwrap_or("<unspecified>")
         .to_string();
 
+    let mut controllers = Vec::new();
     for node in cpus.children().filter(|node| is_cpu_node(*node)) {
         if !node_is_enabled(node) {
             continue;
@@ -41,9 +44,12 @@ pub(super) fn discover(
             .ok_or(runtime::Error::InvalidArgs)?;
         *enabled = true;
         board.harts.count += 1;
+        detect_extensions(hart_id, node);
+        controllers.extend(
+            node.children()
+                .filter_map(|child| imsic::cpu_interrupt_controller(child, hart_id)),
+        );
     }
 
-    // TODO: Move ISA-extension discovery behind the Runtime seam too.
-    detect_extensions(cpus, &board.harts.enabled);
-    Ok(())
+    Ok(controllers)
 }

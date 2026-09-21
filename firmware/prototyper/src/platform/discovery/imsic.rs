@@ -18,7 +18,7 @@ use runtime::{
 };
 
 use crate::cfg::NUM_HART_MAX;
-use crate::devicetree::{is_cpu_node, u32_property};
+use crate::devicetree::u32_property;
 use crate::driver;
 
 use super::super::info::{HartEnableList, ImsicAddressLayout, ImsicInfo};
@@ -44,42 +44,20 @@ struct MachineInterruptFile {
     file_index: u32,
 }
 
-pub(super) fn cpu_interrupt_controllers(
-    root: FdtNode<'_, '_>,
-) -> runtime::Result<Vec<CpuInterruptController>> {
-    let mut controllers = Vec::new();
-    let Some(cpus) = root
-        .children()
-        .find(|node| node.name.split('@').next() == Some("cpus"))
-    else {
-        return Ok(controllers);
-    };
-
-    for cpu_node in cpus.children() {
-        if !is_cpu_node(cpu_node) {
-            continue;
-        }
-        if !node_is_enabled(cpu_node) {
-            continue;
-        }
-        let hart_id = cpu_node
-            .reg()
-            .and_then(|mut registers| registers.next())
-            .map(|register| register.starting_address as usize)
-            .ok_or(runtime::Error::InvalidArgs)?;
-        for child in cpu_node.children() {
-            if child.name.split('@').next() != Some("interrupt-controller") {
-                continue;
-            }
-            if !is_cpu_interrupt_controller(child) {
-                continue;
-            }
-            if let Some(phandle) = phandle(child) {
-                controllers.push(CpuInterruptController { phandle, hart_id });
-            }
-        }
+/// Associates an enabled CPU interrupt controller with its parent hart.
+pub(super) fn cpu_interrupt_controller(
+    node: FdtNode<'_, '_>,
+    hart_id: usize,
+) -> Option<CpuInterruptController> {
+    if node.name.split('@').next() != Some("interrupt-controller")
+        || !is_cpu_interrupt_controller(node)
+    {
+        return None;
     }
-    Ok(controllers)
+    Some(CpuInterruptController {
+        phandle: phandle(node)?,
+        hart_id,
+    })
 }
 
 pub(super) fn discover(
