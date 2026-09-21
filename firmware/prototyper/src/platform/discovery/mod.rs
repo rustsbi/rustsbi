@@ -13,7 +13,7 @@ pub(super) fn discover_platform(
     platform: &runtime::PlatformView<'_>,
 ) -> runtime::Result<BoardInfo> {
     let mut board = BoardInfo::empty();
-    harts::discover(&mut board, platform)?;
+    let cpu_interrupt_controllers = harts::discover(&mut board, platform)?;
     board.devices.console = console::discover(platform)?;
     let mut reset = crate::driver::ResetDescription::new();
     let mut soc =
@@ -28,7 +28,6 @@ pub(super) fn discover_platform(
                 .soc::<runtime::soc::allwinner::v861::AllwinnerV861Soc>()?
                 .map(SocDescription::V861)
         };
-    let cpu_interrupt_controllers = imsic::cpu_interrupt_controllers(platform.root())?;
     // Reset, V821, and interrupt-controller probes share this enabled-node
     // traversal. Hart topology, IMSIC wiring, and PMU mappings are read by
     // their targeted probes above and below this pass.

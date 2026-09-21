@@ -10,8 +10,6 @@ use crate::platform::mark_hart_privilege_checked;
 use crate::riscv::csr::*;
 use crate::sbi::hart_local::{with_current, with_hart};
 use runtime::hart::HartId;
-#[cfg(not(feature = "nemu"))]
-use runtime::node_is_enabled;
 
 #[derive(Default)]
 pub struct HartFeatures {
@@ -95,76 +93,44 @@ pub fn hart_mhpm_mask(hart_id: usize) -> u32 {
     })
 }
 
-/// Detects RISC-V extensions from the device tree for all harts.
+/// Records the extensions of one enabled hart during CPU discovery.
 #[cfg(not(feature = "nemu"))]
-pub fn detect_extensions(cpus: FdtNode<'_, '_>, enabled_harts: &[bool]) {
-    for node in cpus
-        .children()
-        .filter(|node| crate::devicetree::is_cpu_node(*node))
+pub fn detect_extensions(hart_id: usize, cpu: FdtNode<'_, '_>) {
+    let mut extensions = [false; Extension::COUNT];
+    if let Some(property) = cpu.property("riscv,isa-extensions") {
+        for name in property.value.split(|byte| *byte == 0) {
+            for extension in Extension::iter() {
+                extensions[extension.index()] |= name == extension.as_str().as_bytes();
+            }
+        }
+    } else if let Some(isa) = cpu
+        .property("riscv,isa")
+        .and_then(|property| property.as_str())
     {
-        if !node_is_enabled(node) {
-            continue;
+        for part in isa.split('_') {
+            for extension in Extension::iter() {
+                let name = extension.as_str();
+                extensions[extension.index()] |=
+                    part == name || (name.len() == 1 && part.contains(name));
+            }
         }
-        let Some(hart_id) = node
-            .reg()
-            .and_then(|mut registers| registers.next())
-            .map(|register| register.starting_address as usize)
-        else {
-            continue;
-        };
-        if enabled_harts.get(hart_id) != Some(&true) {
-            continue;
-        }
-        let mut extensions = [false; Extension::COUNT];
-
-        for extension in Extension::iter() {
-            let extension_index = extension.index();
-            let extension_name = extension.as_str();
-
-            let described_by_device_tree = device_tree_has_extension(extension_name, node);
-            extensions[extension_index] = match extension {
-                Extension::Hypervisor
-                    if hart_id
-                        == HartId::current()
-                            .expect("BUG: current hart exceeds Runtime capacity")
-                            .as_usize() =>
-                {
-                    misa::read().has_extension('H')
-                }
-                _ => described_by_device_tree,
-            };
-        }
-
-        with_hart(hart_id, |local| {
-            local.with_features_mut(|features| features.extensions = extensions)
-        });
     }
+
+    if hart_id
+        == HartId::current()
+            .expect("BUG: current hart exceeds Runtime capacity")
+            .as_usize()
+    {
+        extensions[Extension::Hypervisor.index()] = misa::read().has_extension('H');
+    }
+    with_hart(hart_id, |local| {
+        local.with_features_mut(|features| features.extensions = extensions)
+    });
 }
 
 /// NEMU supplies a fixed feature profile through [`init`].
 #[cfg(feature = "nemu")]
-pub fn detect_extensions(_cpus: FdtNode<'_, '_>, _enabled_harts: &[bool]) {}
-
-#[cfg(not(feature = "nemu"))]
-fn device_tree_has_extension(extension: &str, cpu: FdtNode<'_, '_>) -> bool {
-    // Check isa-extensions first (preferred, list of strings)
-    if let Some(isa_extensions) = cpu.property("riscv,isa-extensions") {
-        return isa_extensions
-            .value
-            .split(|byte| *byte == 0)
-            .filter_map(|name| core::str::from_utf8(name).ok())
-            .any(|name| name == extension);
-    }
-
-    // Fallback to isa (take first string, default to empty)
-    cpu.property("riscv,isa")
-        .and_then(|property| property.as_str())
-        .map(|isa| {
-            isa.split('_')
-                .any(|part| part == extension || (extension.len() == 1 && part.contains(extension)))
-        })
-        .unwrap_or(false)
-}
+pub fn detect_extensions(_hart_id: usize, _cpu: FdtNode<'_, '_>) {}
 
 fn detect_privileged_version() {
     let mut privileged_version = PrivilegedVersion::Unknown;
