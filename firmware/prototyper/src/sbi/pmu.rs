@@ -16,7 +16,6 @@ use sbi_spec::binary::SharedPtr;
 use sbi_spec::pmu::shmem_size::SIZE;
 use sbi_spec::pmu::*;
 
-use crate::devicetree::visit_enabled_nodes;
 use crate::riscv::csr::*;
 use crate::sbi::features::hart_mhpm_mask;
 
@@ -1206,24 +1205,8 @@ pub fn pmu_firmware_counter_increment(firmware_event: usize) {
     });
 }
 
-/// Initializes the SBI PMU extension from the FDT pmu node.
-pub(crate) fn init<'view, 'tree>(root: FdtNode<'view, 'tree>) -> Option<SbiPmu> {
-    let mut pmu_node: Option<FdtNode<'view, 'tree>> = None;
-    let mut find_pmu = |node: FdtNode<'view, 'tree>| {
-        let Some(compatibles) = node.compatible() else {
-            return;
-        };
-        if pmu_node.is_none()
-            && compatibles
-                .all()
-                .any(|compatible| compatible == "riscv,pmu")
-        {
-            pmu_node = Some(node);
-        }
-    };
-    visit_enabled_nodes(root, &mut find_pmu);
-
-    let pmu = pmu_node?;
+/// Reads the event mappings of the PMU selected during platform discovery.
+pub(crate) fn from_node(pmu: FdtNode<'_, '_>) -> Option<SbiPmu> {
     let mut sbi_pmu = SbiPmu::default();
     if let Some(property) = pmu.property("riscv,event-to-mhpmevent") {
         let rows = property_rows::<3>(property.value)?;
