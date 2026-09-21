@@ -1,9 +1,11 @@
 //! Private trap classification and dispatch.
 //!
 //! The entry hands this function the one real [`TrapFrame`]. Machine
-//! timer/software/external interrupts are Runtime-private transports; an
-//! exception is either an SBI ecall, one of the emulated classes, or is
-//! software-redirected to S/HS. Nothing here is public policy surface.
+//! timer/software/external interrupts are Runtime-private transports; other
+//! machine interrupt causes are offered to the installed
+//! [`MachineInterruptPolicy`](crate::machine_irq::MachineInterruptPolicy), if
+//! any; an exception is either an SBI ecall, one of the emulated classes, or
+//! is software-redirected to S/HS. Nothing here is public policy surface.
 
 use core::arch::asm;
 
@@ -45,7 +47,15 @@ pub(crate) extern "C" fn trap_dispatch(frame: &mut TrapFrame) {
             MEXT => machine_external(frame),
             // Interrupts reach M-mode only when delegation could not move
             // them; there is no lower owner that would receive a redirect.
-            _ => fatal(),
+            // An installed policy may own such a cause (the Smmtt MSDEI, for
+            // example); unclaimed causes remain fatal.
+            _ => {
+                if !crate::machine_irq::get()
+                    .is_some_and(|policy| policy.handle_interrupt(interrupt))
+                {
+                    fatal();
+                }
+            }
         }
         return;
     }
