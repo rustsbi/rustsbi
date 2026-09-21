@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 #
-# Boot a minimal Linux userspace through RustSBI Prototyper in QEMU.
+# Boot a minimal Linux userspace through RustSBI Prototyper in QEMU, either
+# directly or through EDK II. Select the latter with
+# `MINIMAL_LINUX_BOOT_CHAIN=edk2`; direct boot remains the default.
 #
 # RustSBI's dynamic firmware follows the fw_dynamic handoff convention, so QEMU
 # starts the kernel directly: `-bios` points at the firmware and `-kernel` at
@@ -27,6 +29,10 @@ readonly BUSYBOX_VERSION="1.36.1"
 readonly BUSYBOX_URL="https://busybox.net/downloads/busybox-${BUSYBOX_VERSION}.tar.bz2"
 readonly BUSYBOX_SHA256="b8cc24c9574d809e7279c3be349795c5d5ceb6fdf19ca709f80cde50e47de314"
 
+readonly EDK2_VERSION="edk2-stable202505"
+readonly EDK2_COMMIT="6951dfe7d59d144a3a980bd7eda699db2d8554ac"
+readonly EDK2_URL="https://github.com/tianocore/edk2.git"
+
 readonly CROSS_COMPILE="riscv64-linux-gnu-"
 readonly SMOKE_MARKER="RUSTSBI-SMOKE-OK"
 
@@ -37,13 +43,24 @@ readonly BOOT_FAILURE_PATTERN="Kernel panic|not syncing|Attempted to kill init"
 
 readonly CACHE_DIR="${MINIMAL_LINUX_CACHE_DIR:-.cache/minimal-linux}"
 readonly WORK_DIR="${MINIMAL_LINUX_WORK_DIR:-.minimal-linux/work}"
-readonly RUSTSBI="${MINIMAL_LINUX_RUSTSBI:-target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.elf}"
+readonly BOOT_CHAIN="${MINIMAL_LINUX_BOOT_CHAIN:-bare}"
+readonly RUSTSBI_ELF="${MINIMAL_LINUX_RUSTSBI:-target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.elf}"
+readonly RUSTSBI_BIN="${MINIMAL_LINUX_RUSTSBI_BIN:-target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.bin}"
 readonly LOG_DIR="${QEMU_LOG_DIR:-qemu-logs}"
-readonly LOG_FILE="${LOG_DIR}/prototyper-minimal-linux.log"
+
+if [[ "$BOOT_CHAIN" == edk2 ]]; then
+  readonly LOG_FILE="${LOG_DIR}/prototyper-edk2-minimal-linux.log"
+else
+  readonly LOG_FILE="${LOG_DIR}/prototyper-minimal-linux.log"
+fi
 
 readonly KERNEL_IMAGE="${CACHE_DIR}/linux-${KERNEL_VERSION}-Image"
 readonly BUSYBOX_INSTALL="${CACHE_DIR}/busybox-${BUSYBOX_VERSION}-install"
 readonly INITRAMFS="${WORK_DIR}/initramfs.cpio.gz"
+readonly EDK2_CACHE="${CACHE_DIR}/edk2-${EDK2_COMMIT}"
+readonly EDK2_CODE="${EDK2_CACHE}/RISCV_VIRT_CODE.fd"
+readonly EDK2_VARS_TEMPLATE="${EDK2_CACHE}/RISCV_VIRT_VARS.fd"
+readonly EDK2_VARS="${WORK_DIR}/RISCV_VIRT_VARS.fd"
 
 readonly BOOT_TIMEOUT_SECS="${MINIMAL_LINUX_BOOT_TIMEOUT_SECS:-180}"
 readonly DOWNLOAD_CONNECT_TIMEOUT_SECS="${MINIMAL_LINUX_DOWNLOAD_CONNECT_TIMEOUT_SECS:-30}"
@@ -112,7 +129,11 @@ prepare_kernel() {
   # check it rather than trust it: if a defconfig revision drops one of these,
   # the job should say which option went missing instead of booting into an
   # unexplained silence.
-  for option in BLK_DEV_INITRD SERIAL_8250_CONSOLE DEVTMPFS; do
+  local required_options=(BLK_DEV_INITRD SERIAL_8250_CONSOLE DEVTMPFS)
+  if [[ "$BOOT_CHAIN" == edk2 ]]; then
+    required_options+=(EFI EFI_STUB)
+  fi
+  for option in "${required_options[@]}"; do
     if [[ $("${tree}/scripts/config" --file "${tree}/.config" --state "$option") != y ]]; then
       echo "riscv defconfig no longer enables ${option}" >&2
       return 1
@@ -122,6 +143,69 @@ prepare_kernel() {
   make -C "$tree" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" -j"$(nproc)" Image
 
   cp "${tree}/arch/riscv/boot/Image" "$KERNEL_IMAGE"
+}
+
+# Build EDK II's RISC-V QEMU payload from an exact commit. The firmware volumes
+# are the only EDK II products cached; the writable variables volume is copied
+# for every boot so one run cannot contaminate the next cache restore.
+prepare_edk2() {
+  local workspace
+  workspace="$(realpath -m "${WORK_DIR}/edk2-workspace")"
+  local source="${workspace}/edk2"
+  local output="${workspace}/Build/RiscVVirtQemu/RELEASE_GCC5/FV"
+  local head
+
+  if [[ $(stat -c %s "$EDK2_CODE" 2>/dev/null || true) == 33554432 &&
+        $(stat -c %s "$EDK2_VARS_TEMPLATE" 2>/dev/null || true) == 33554432 ]]; then
+    echo "Using cached EDK II ${EDK2_VERSION} firmware" >&2
+    return
+  fi
+
+  rm -rf "$workspace" "$EDK2_CACHE"
+  mkdir -p "$workspace" "$EDK2_CACHE"
+
+  git init --quiet "$source"
+  git -C "$source" remote add origin "$EDK2_URL"
+  git -C "$source" fetch --quiet --depth=1 origin "$EDK2_COMMIT"
+  git -C "$source" checkout --quiet --detach FETCH_HEAD
+  head=$(git -C "$source" rev-parse HEAD)
+  if [[ "$head" != "$EDK2_COMMIT" ]]; then
+    echo "EDK II checkout mismatch: expected ${EDK2_COMMIT}, got ${head}" >&2
+    return 1
+  fi
+  # EDK II's top-level submodules contain every source used by this platform.
+  # Their own nested development/test submodules are not build inputs, so do
+  # not recursively clone those unrelated repositories into a CI smoke test.
+  git -C "$source" submodule update --init --depth=1
+
+  (
+    cd "$workspace"
+    export WORKSPACE="$PWD"
+    export PACKAGES_PATH="$source"
+    export EDK_TOOLS_PATH="${source}/BaseTools"
+    export GCC5_RISCV64_PREFIX="$CROSS_COMPILE"
+
+    # edksetup and BaseTools deliberately communicate through environment
+    # variables, so keep these commands in one subshell. edksetup also probes
+    # optional unset variables, which is incompatible with this script's
+    # `set -u`; disable nounset only while sourcing that upstream script.
+    # shellcheck disable=SC1091
+    set +u
+    source "${source}/edksetup.sh" --reconfig
+    set -u
+    make -C "${source}/BaseTools" -j"$(nproc)"
+    # shellcheck disable=SC1091
+    set +u
+    source "${source}/edksetup.sh" BaseTools
+    set -u
+    build -a RISCV64 -b RELEASE \
+      -p OvmfPkg/RiscVVirt/RiscVVirtQemu.dsc \
+      -t GCC5
+  )
+
+  cp "${output}/RISCV_VIRT_CODE.fd" "$EDK2_CODE"
+  cp "${output}/RISCV_VIRT_VARS.fd" "$EDK2_VARS_TEMPLATE"
+  truncate -s 32M "$EDK2_CODE" "$EDK2_VARS_TEMPLATE"
 }
 
 # BusyBox is linked statically because the initramfs carries no shared
@@ -200,8 +284,17 @@ EOF
 }
 
 check_prerequisites() {
-  test -s "$RUSTSBI" || {
-    echo "Missing $RUSTSBI; run 'cargo prototyper build' first" >&2
+  if [[ "$BOOT_CHAIN" != bare && "$BOOT_CHAIN" != edk2 ]]; then
+    echo "Unsupported MINIMAL_LINUX_BOOT_CHAIN: ${BOOT_CHAIN}" >&2
+    return 1
+  fi
+
+  local firmware="$RUSTSBI_ELF"
+  if [[ "$BOOT_CHAIN" == edk2 ]]; then
+    firmware="$RUSTSBI_BIN"
+  fi
+  test -s "$firmware" || {
+    echo "Missing $firmware; run 'cargo prototyper build' first" >&2
     return 1
   }
   qemu-system-riscv64 --version
@@ -220,16 +313,33 @@ cleanup() {
 
 start_qemu() {
   mkdir -p "$LOG_DIR"
-  qemu-system-riscv64 \
-    -machine virt \
-    -smp 1 \
-    -m 512M \
-    -nographic \
-    -no-reboot \
-    -bios "$RUSTSBI" \
-    -kernel "$KERNEL_IMAGE" \
-    -initrd "$INITRAMFS" \
-    >"$LOG_FILE" 2>&1 &
+  if [[ "$BOOT_CHAIN" == edk2 ]]; then
+    cp "$EDK2_VARS_TEMPLATE" "$EDK2_VARS"
+    qemu-system-riscv64 \
+      -machine virt,pflash0=pflash0,pflash1=pflash1,acpi=off \
+      -smp 1 \
+      -m 2G \
+      -nographic \
+      -no-reboot \
+      -bios "$RUSTSBI_BIN" \
+      -blockdev "node-name=pflash0,driver=file,read-only=on,filename=${EDK2_CODE}" \
+      -blockdev "node-name=pflash1,driver=file,filename=${EDK2_VARS}" \
+      -kernel "$KERNEL_IMAGE" \
+      -initrd "$INITRAMFS" \
+      -append "console=ttyS0 earlycon=uart8250,mmio,0x10000000 rdinit=/init" \
+      >"$LOG_FILE" 2>&1 &
+  else
+    qemu-system-riscv64 \
+      -machine virt \
+      -smp 1 \
+      -m 512M \
+      -nographic \
+      -no-reboot \
+      -bios "$RUSTSBI_ELF" \
+      -kernel "$KERNEL_IMAGE" \
+      -initrd "$INITRAMFS" \
+      >"$LOG_FILE" 2>&1 &
+  fi
   QEMU_PID=$!
 }
 
@@ -298,10 +408,13 @@ main() {
   prepare_kernel
   prepare_busybox
   build_initramfs
+  if [[ "$BOOT_CHAIN" == edk2 ]]; then
+    prepare_edk2
+  fi
   start_qemu
   wait_for_userspace
 
-  echo "RustSBI booted Linux ${KERNEL_VERSION} to userspace successfully"
+  echo "RustSBI ${BOOT_CHAIN} booted Linux ${KERNEL_VERSION} to userspace successfully"
   echo "QEMU log: ${LOG_FILE}"
 }
 

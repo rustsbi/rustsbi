@@ -85,3 +85,59 @@ jobs:
         with:
           name: minimal-linux-log
           path: qemu-logs/prototyper-minimal-linux.log
+
+  edk2-minimal-linux-boot:
+    name: Boot minimal Linux through EDK II
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      MINIMAL_LINUX_BOOT_CHAIN: edk2
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            acpica-tools \
+            bc \
+            bison \
+            build-essential \
+            cpio \
+            flex \
+            gcc-riscv64-linux-gnu \
+            git \
+            libc6-dev-riscv64-cross \
+            libssl-dev \
+            nasm \
+            python3 \
+            python3-setuptools \
+            qemu-system-misc \
+            uuid-dev \
+            xz-utils
+          qemu-system-riscv64 --version
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      # EDK II is checked out by exact commit in the script. Bump the trailing
+      # revision after changing any kernel, BusyBox, or EDK II build recipe.
+      - name: Cache Linux, BusyBox, and EDK II builds
+        uses: actions/cache@v5
+        with:
+          path: .cache/minimal-linux
+          key: edk2-minimal-linux-kernel-6.12.110-busybox-1.36.1-edk2-6951dfe7-v1
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build
+
+      - name: Boot minimal Linux through EDK II
+        run: .github/scripts/prototyper-minimal-linux-boot.sh
+
+      - name: Upload EDK II minimal Linux log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: edk2-minimal-linux-log
+          path: qemu-logs/prototyper-edk2-minimal-linux.log
