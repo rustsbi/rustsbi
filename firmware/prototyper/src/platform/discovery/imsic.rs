@@ -12,13 +12,13 @@ use core::mem::size_of;
 
 use riscv_aia::Iid;
 use runtime::{
+    FdtNode,
     memory::{DeviceRegisterRange, PhysAddrRange},
     node_is_enabled,
 };
-use serde_device_tree::buildin::Node;
 
 use crate::cfg::NUM_HART_MAX;
-use crate::devicetree::{Cpu, compatible_strings};
+use crate::devicetree::{is_cpu_node, u32_property};
 use crate::driver;
 
 use super::super::info::{HartEnableList, ImsicAddressLayout, ImsicInfo};
@@ -45,39 +45,36 @@ struct MachineInterruptFile {
 }
 
 pub(super) fn cpu_interrupt_controllers(
-    root: &Node<'_>,
+    root: FdtNode<'_, '_>,
 ) -> runtime::Result<Vec<CpuInterruptController>> {
     let mut controllers = Vec::new();
-    let Some(cpus) = root.find("/cpus") else {
+    let Some(cpus) = root
+        .children()
+        .find(|node| node.name.split('@').next() == Some("cpus"))
+    else {
         return Ok(controllers);
     };
 
-    for cpu_item in cpus.nodes() {
-        let (node_name, _) = cpu_item.get_parsed_name();
-        if node_name != "cpu" {
+    for cpu_node in cpus.children() {
+        if !is_cpu_node(cpu_node) {
             continue;
         }
-        let cpu_node = cpu_item.deserialize::<Node>();
-        if !node_is_enabled(&cpu_node) {
+        if !node_is_enabled(cpu_node) {
             continue;
         }
-        let cpu = cpu_item.deserialize::<Cpu>();
-        let hart_id = cpu
-            .reg
-            .iter()
-            .next()
-            .map(|register| register.0.start)
+        let hart_id = cpu_node
+            .reg()
+            .and_then(|mut registers| registers.next())
+            .map(|register| register.starting_address as usize)
             .ok_or(runtime::Error::InvalidArgs)?;
-        for child_item in cpu_node.nodes() {
-            let (child_name, _) = child_item.get_parsed_name();
-            if child_name != "interrupt-controller" {
+        for child in cpu_node.children() {
+            if child.name.split('@').next() != Some("interrupt-controller") {
                 continue;
             }
-            let child = child_item.deserialize::<Node>();
-            if !is_cpu_interrupt_controller(&child) {
+            if !is_cpu_interrupt_controller(child) {
                 continue;
             }
-            if let Some(phandle) = phandle(&child) {
+            if let Some(phandle) = phandle(child) {
                 controllers.push(CpuInterruptController { phandle, hart_id });
             }
         }
@@ -86,7 +83,7 @@ pub(super) fn cpu_interrupt_controllers(
 }
 
 pub(super) fn discover(
-    node: &Node<'_>,
+    node: FdtNode<'_, '_>,
     register_ranges: &[DeviceRegisterRange],
     cpu_interrupt_controllers: &[CpuInterruptController],
     enabled_harts: &HartEnableList,
@@ -158,22 +155,20 @@ pub(super) fn discover(
     }))
 }
 
-fn is_cpu_interrupt_controller(node: &Node<'_>) -> bool {
+fn is_cpu_interrupt_controller(node: FdtNode<'_, '_>) -> bool {
     node_is_enabled(node)
-        && compatible_strings(node).is_some_and(|compatibles| {
+        && node.compatible().is_some_and(|compatibles| {
             compatibles
-                .iter()
+                .all()
                 .any(|device_id| device_id == "riscv,cpu-intc")
         })
 }
 
-fn phandle(node: &Node<'_>) -> Option<u32> {
-    node.get_prop("phandle")
-        .or_else(|| node.get_prop("linux,phandle"))
-        .map(|property| property.deserialize::<u32>())
+fn phandle(node: FdtNode<'_, '_>) -> Option<u32> {
+    u32_property(node, "phandle").or_else(|| u32_property(node, "linux,phandle"))
 }
 
-fn interrupt_identity_count(node: &Node<'_>) -> runtime::Result<u16> {
+fn interrupt_identity_count(node: FdtNode<'_, '_>) -> runtime::Result<u16> {
     let num_ids = u32_property(node, "riscv,num-ids").ok_or(runtime::Error::InvalidArgs)?;
     if !(MIN_INTERRUPT_IDENTITIES..=MAX_INTERRUPT_IDENTITIES).contains(&num_ids) {
         return Err(runtime::Error::InvalidArgs);
@@ -181,13 +176,8 @@ fn interrupt_identity_count(node: &Node<'_>) -> runtime::Result<u16> {
     Ok(num_ids as u16)
 }
 
-fn u32_property(node: &Node<'_>, name: &str) -> Option<u32> {
-    node.get_prop(name)
-        .map(|property| property.deserialize::<u32>())
-}
-
 fn machine_interrupt_files(
-    node: &Node<'_>,
+    node: FdtNode<'_, '_>,
     controllers: &[CpuInterruptController],
 ) -> runtime::Result<Vec<MachineInterruptFile>> {
     let cells = u32_cells(node, "interrupts-extended").ok_or(runtime::Error::InvalidArgs)?;
@@ -215,8 +205,8 @@ fn machine_interrupt_files(
     Ok(machine_files)
 }
 
-fn u32_cells(node: &Node<'_>, name: &str) -> Option<Vec<u32>> {
-    let bytes = node.get_prop(name)?.deserialize::<&[u8]>();
+fn u32_cells(node: FdtNode<'_, '_>, name: &str) -> Option<Vec<u32>> {
+    let bytes = node.property(name)?.value;
     let mut cells = Vec::new();
     let mut chunks = bytes.chunks_exact(size_of::<u32>());
     for chunk in &mut chunks {

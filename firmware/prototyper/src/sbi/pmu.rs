@@ -9,18 +9,16 @@
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
+use runtime::FdtNode;
 use runtime::hart::HartId;
 use runtime::rustsbi::{Pmu, SbiRet};
 use sbi_spec::binary::SharedPtr;
 use sbi_spec::pmu::shmem_size::SIZE;
 use sbi_spec::pmu::*;
 
+use crate::devicetree::visit_enabled_nodes;
 use crate::riscv::csr::*;
-use crate::{
-    devicetree,
-    devicetree::{compatible_strings, visit_enabled_nodes},
-    sbi::features::hart_mhpm_mask,
-};
+use crate::sbi::features::hart_mhpm_mask;
 
 use super::features::{PrivilegedVersion, hart_privileged_version};
 use super::hart_local::{hart_local, with_current};
@@ -1209,27 +1207,29 @@ pub fn pmu_firmware_counter_increment(firmware_event: usize) {
 }
 
 /// Initializes the SBI PMU extension from the FDT pmu node.
-pub(crate) fn init(root: &serde_device_tree::buildin::Node) -> Option<SbiPmu> {
-    let mut pmu_description: Option<devicetree::Pmu> = None;
-    let mut find_pmu = |node: &serde_device_tree::buildin::Node| {
-        let Some(compatibles) = compatible_strings(node) else {
+pub(crate) fn init<'view, 'tree>(root: FdtNode<'view, 'tree>) -> Option<SbiPmu> {
+    let mut pmu_node: Option<FdtNode<'view, 'tree>> = None;
+    let mut find_pmu = |node: FdtNode<'view, 'tree>| {
+        let Some(compatibles) = node.compatible() else {
             return;
         };
-        for compatible in compatibles.iter() {
-            if compatible == "riscv,pmu" {
-                pmu_description = Some(node.deserialize::<devicetree::Pmu>());
-            }
+        if pmu_node.is_none()
+            && compatibles
+                .all()
+                .any(|compatible| compatible == "riscv,pmu")
+        {
+            pmu_node = Some(node);
         }
     };
     visit_enabled_nodes(root, &mut find_pmu);
 
-    let pmu = pmu_description.as_ref()?;
+    let pmu = pmu_node?;
     let mut sbi_pmu = SbiPmu::default();
-    if let Some(ref event_to_mhpmevent) = pmu.event_to_mhpmevent {
-        let len = event_to_mhpmevent.len();
-        for idx in 0..len {
-            let event = event_to_mhpmevent.get_event_id(idx);
-            let mhpmevent = event_to_mhpmevent.get_selector_value(idx);
+    if let Some(property) = pmu.property("riscv,event-to-mhpmevent") {
+        let rows = property_rows::<3>(property.value)?;
+        for row in rows {
+            let event = row[0];
+            let mhpmevent = (u64::from(row[1]) << 32) | u64::from(row[2]);
             sbi_pmu.insert_event_to_mhpmevent(event, mhpmevent);
             debug!(
                 "pmu: insert event: 0x{:08x}, mhpmevent: {:#016x}",
@@ -1238,24 +1238,21 @@ pub(crate) fn init(root: &serde_device_tree::buildin::Node) -> Option<SbiPmu> {
         }
     }
 
-    if let Some(ref event_to_mhpmcounters) = pmu.event_to_mhpmcounters {
-        let len = event_to_mhpmcounters.len();
-        for idx in 0..len {
-            let events = event_to_mhpmcounters.get_event_idx_range(idx);
-            let mhpmcounters = event_to_mhpmcounters.get_counter_bitmap(idx);
-            let event_to_counter =
-                EventToCounterMap::new(mhpmcounters, *events.start(), *events.end());
+    if let Some(property) = pmu.property("riscv,event-to-mhpmcounters") {
+        let rows = property_rows::<3>(property.value)?;
+        for row in rows {
+            let event_to_counter = EventToCounterMap::new(row[2], row[0], row[1]);
             debug!("pmu: insert event_to_mhpmcounter: {:x?}", event_to_counter);
             sbi_pmu.insert_event_to_mhpmcounter(event_to_counter);
         }
     }
 
-    if let Some(ref raw_event_to_mhpmcounters) = pmu.raw_event_to_mhpmcounters {
-        let len = raw_event_to_mhpmcounters.len();
-        for idx in 0..len {
-            let raw_event_select = raw_event_to_mhpmcounters.get_event_idx_base(idx);
-            let select_mask = raw_event_to_mhpmcounters.get_event_idx_mask(idx);
-            let counters_mask = raw_event_to_mhpmcounters.get_counter_bitmap(idx);
+    if let Some(property) = pmu.property("riscv,raw-event-to-mhpmcounters") {
+        let rows = property_rows::<5>(property.value)?;
+        for row in rows {
+            let raw_event_select = (u64::from(row[0]) << 32) | u64::from(row[1]);
+            let select_mask = (u64::from(row[2]) << 32) | u64::from(row[3]);
+            let counters_mask = row[4];
             let raw_event_to_counter =
                 RawEventToCounterMap::new(counters_mask, raw_event_select, select_mask);
             debug!(
@@ -1266,4 +1263,17 @@ pub(crate) fn init(root: &serde_device_tree::buildin::Node) -> Option<SbiPmu> {
         }
     }
     Some(sbi_pmu)
+}
+
+fn property_rows<const COLUMNS: usize>(
+    bytes: &[u8],
+) -> Option<impl Iterator<Item = [u32; COLUMNS]> + '_> {
+    let row_size = COLUMNS.checked_mul(core::mem::size_of::<u32>())?;
+    let rows = bytes.chunks_exact(row_size);
+    rows.remainder().is_empty().then_some(rows.map(|row| {
+        core::array::from_fn(|column| {
+            let offset = column * core::mem::size_of::<u32>();
+            u32::from_be_bytes(row[offset..offset + 4].try_into().unwrap())
+        })
+    }))
 }

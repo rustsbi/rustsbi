@@ -1,120 +1,148 @@
 #![forbid(unsafe_code)]
 
-use alloc::string::ToString;
-use serde::Deserialize;
-use serde_device_tree::{
-    buildin::{Node, NodeSeq, Reg, StrSeq},
-    value::riscv_pmu::{EventToMhpmcounters, EventToMhpmevent, RawEventToMhpcounters},
-};
+use alloc::{string::String, vec::Vec};
+use runtime::{Compatible, FdtNode};
 
-/// Root device tree structure containing system information.
-#[derive(Deserialize)]
-pub struct Tree<'a> {
-    /// Optional model name string.
-    pub model: Option<StrSeq<'a>>,
-    /// CPU information.
-    pub cpus: Cpus<'a>,
+/// One enabled node supplied by the shared discovery traversal.
+///
+/// The compatible property is retained as a view before the node is
+/// dispatched to reset, vendor, and interrupt discovery.
+#[derive(Clone, Copy)]
+pub(crate) struct EnabledNode<'view, 'tree: 'view> {
+    node: FdtNode<'view, 'tree>,
+    parent: Option<FdtNode<'view, 'tree>>,
+    compatible: Option<Compatible<'tree>>,
 }
 
-/// CPU information container.
-#[derive(Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct Cpus<'a> {
-    /// Frequency of the architectural `time` counter, in hertz.
-    #[serde(rename = "timebase-frequency")]
-    pub timebase_frequency_hz: Option<u32>,
-    /// Sequence of CPU nodes.
-    pub cpu: NodeSeq<'a>,
-}
-
-/// Individual CPU node information.
-#[derive(Deserialize, Debug)]
-pub struct Cpu<'a> {
-    /// RISC-V ISA extensions supported by this CPU.
-    #[serde(rename = "riscv,isa-extensions")]
-    pub isa_extensions: Option<StrSeq<'a>>,
-    #[serde(rename = "riscv,isa")]
-    pub isa: Option<StrSeq<'a>>,
-    /// CPU register information.
-    pub reg: Reg<'a>,
-}
-
-#[derive(Deserialize)]
-pub struct Pmu<'a> {
-    #[serde(rename = "riscv,event-to-mhpmevent")]
-    pub event_to_mhpmevent: Option<EventToMhpmevent<'a>>,
-    #[serde(rename = "riscv,event-to-mhpmcounters")]
-    pub event_to_mhpmcounters: Option<EventToMhpmcounters<'a>>,
-    #[serde(rename = "riscv,raw-event-to-mhpmcounters")]
-    pub raw_event_to_mhpmcounters: Option<RawEventToMhpcounters<'a>>,
-}
-
-pub fn compatible_strings<'de>(node: &Node) -> Option<StrSeq<'de>> {
-    node.get_prop("compatible")
-        .map(|property| property.deserialize::<StrSeq<'de>>())
-}
-
-/// Resolves an absolute path or alias, rejecting a disabled node or ancestor.
-pub fn find_enabled_node<'de>(root: &Node<'de>, path: &str) -> Option<Node<'de>> {
-    if !runtime::node_is_enabled(root) {
-        return None;
+impl<'view, 'tree> EnabledNode<'view, 'tree> {
+    pub(crate) const fn node(self) -> FdtNode<'view, 'tree> {
+        self.node
     }
 
-    let resolved_path = if path.starts_with('/') {
-        path.to_string()
+    pub(crate) const fn parent(self) -> Option<FdtNode<'view, 'tree>> {
+        self.parent
+    }
+
+    pub(crate) const fn compatible(self) -> Option<Compatible<'tree>> {
+        self.compatible
+    }
+}
+
+/// The result of selecting one resource from an enabled source-tree node.
+///
+/// Unlike [`EnabledNode`], this is an owned discovery result: the selected
+/// resource and the absolute source path can outlive the temporary FDT view.
+pub(crate) struct NodeSelection<T> {
+    resource: T,
+    source_path: String,
+}
+
+impl<T> NodeSelection<T> {
+    pub(crate) fn resource(&self) -> &T {
+        &self.resource
+    }
+
+    pub(crate) fn source_path(&self) -> &str {
+        &self.source_path
+    }
+}
+
+pub(crate) fn select_from_node_once<T>(
+    slot: &mut Option<NodeSelection<T>>,
+    resource: T,
+    source_path: &[&str],
+) -> runtime::Result<()> {
+    if slot.is_some() {
+        return Err(runtime::Error::InvalidArgs);
+    }
+    slot.replace(NodeSelection {
+        resource,
+        source_path: absolute_path(source_path),
+    });
+    Ok(())
+}
+
+/// Converts a traversal path to an owned absolute device-tree path.
+pub(crate) fn absolute_path(segments: &[&str]) -> String {
+    let mut path = String::new();
+    for segment in segments {
+        if *segment == "/" || segment.is_empty() {
+            continue;
+        }
+        path.push('/');
+        path.push_str(segment);
+    }
+    if path.is_empty() {
+        String::from("/")
     } else {
-        let aliases = root.find("/aliases")?;
-        if !runtime::node_is_enabled(&aliases) {
-            return None;
-        }
-        aliases
-            .get_prop(path)?
-            .deserialize::<StrSeq>()
-            .iter()
-            .next()?
-            .to_string()
-    };
-
-    if resolved_path == "/" {
-        return Some(root.clone());
+        path
     }
-    let path = resolved_path.strip_prefix('/')?;
-    let mut current_node = root.clone();
-    for name in path.split('/') {
-        if name.is_empty() {
-            return None;
-        }
-        let child_node = {
-            let child = current_node
-                .nodes()
-                .find(|child| child.get_full_name() == name)?;
-            child.deserialize::<Node<'de>>()
-        };
-        if !runtime::node_is_enabled(&child_node) {
-            return None;
-        }
-        current_node = child_node;
-    }
-    Some(current_node)
 }
 
-/// Visits enabled nodes depth first.
-pub fn visit_enabled_nodes<F>(root: &Node, visitor: &mut F)
+/// Reads one big-endian 32-bit property.
+pub(crate) fn u32_property(node: FdtNode<'_, '_>, name: &str) -> Option<u32> {
+    let bytes = node.property(name)?.value;
+    Some(u32::from_be_bytes(bytes.try_into().ok()?))
+}
+
+/// Returns whether the node is a CPU node under `/cpus`.
+pub(crate) fn is_cpu_node(node: FdtNode<'_, '_>) -> bool {
+    node.name.split('@').next() == Some("cpu")
+}
+
+/// Visits enabled nodes depth first without allocating a path.
+///
+/// This node-only form is kept for PMU discovery, whose callback does not
+/// need the path or parent context carried by [`try_for_each_enabled_node`].
+pub(crate) fn visit_enabled_nodes<'b, 'a, F>(root: FdtNode<'b, 'a>, visitor: &mut F)
 where
-    F: FnMut(&Node),
+    F: FnMut(FdtNode<'b, 'a>),
 {
-    fn visit_subtree<'de, F>(node: &Node<'de>, visitor: &mut F)
+    if !runtime::node_is_enabled(root) {
+        return;
+    }
+    visitor(root);
+    for child in root.children() {
+        visit_enabled_nodes(child, visitor);
+    }
+}
+
+/// Tries to visit enabled nodes depth first, retaining each node's parent.
+pub(crate) fn try_for_each_enabled_node<'b, 'a, F>(
+    root: FdtNode<'b, 'a>,
+    visitor: &mut F,
+) -> runtime::Result<()>
+where
+    F: FnMut(EnabledNode<'b, 'a>, &[&str]) -> runtime::Result<()>,
+{
+    fn visit<'b, 'a, F>(
+        node: FdtNode<'b, 'a>,
+        parent: Option<FdtNode<'b, 'a>>,
+        path: &mut Vec<&'a str>,
+        visitor: &mut F,
+    ) -> runtime::Result<()>
     where
-        F: FnMut(&Node<'de>),
+        F: FnMut(EnabledNode<'b, 'a>, &[&str]) -> runtime::Result<()>,
     {
         if !runtime::node_is_enabled(node) {
-            return;
+            return Ok(());
         }
-        visitor(node);
-        for child in node.nodes() {
-            let child = child.deserialize::<Node<'de>>();
-            visit_subtree(&child, visitor);
+
+        path.push(node.name);
+        visitor(
+            EnabledNode {
+                node,
+                parent,
+                compatible: node.compatible(),
+            },
+            path.as_slice(),
+        )?;
+        for child in node.children() {
+            visit(child, Some(node), path, visitor)?;
         }
+        path.pop();
+        Ok(())
     }
-    visit_subtree(root, visitor);
+
+    visit(root, None, &mut Vec::new(), visitor)
 }
