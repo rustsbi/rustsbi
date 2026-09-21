@@ -8,11 +8,16 @@
 # firmware through the dynamic info structure. No intermediate bootloader takes
 # part, which keeps the boot path short and the CI job fast.
 #
-# A second, U-Boot-based boot path is selected with `$0 u-boot`: the SPL embeds
+# A U-Boot-based boot path is selected with `$0 u-boot`: the SPL embeds
 # RustSBI Prototyper as its OpenSBI payload, so the chain is QEMU -> u-boot-spl
 # -> RustSBI -> u-boot.itb -> Linux. U-Boot loads the kernel off an ext4
 # partition with `ext4load` and starts it with `booti`, matching the repository
 # guide firmware/docs/booting-linux-kernel-in-qemu-using-uboot-and-rustsbi.md.
+#
+# An EDK II-based boot path is selected with `$0 edk2`: QEMU starts RustSBI's
+# dynamic firmware, which launches the pinned EDK II RISC-V QEMU payload. EDK
+# II then loads Linux through the EFI stub. The initramfs verifies that
+# /sys/firmware/efi exists before it prints the success marker.
 #
 # Linux and BusyBox are built from checksum-pinned release archives. Only the
 # build *products* are kept under CACHE_DIR, so the workflow restores a small
@@ -26,21 +31,21 @@
 # Requires: `cargo prototyper build` to have produced the firmware, plus
 # qemu-system-riscv64, riscv64-linux-gnu-gcc, cpio, xz and a host toolchain.
 # The u-boot path additionally needs swig, python3-dev, parted, e2fsprogs and
-# qemu-utils.
+# qemu-utils. The edk2 path additionally needs acpica-tools, nasm and uuid-dev.
 
 set -euo pipefail
 
 if (( $# > 1 )); then
-  echo "Usage: $0 [sbi|u-boot]" >&2
+  echo "Usage: $0 [sbi|u-boot|edk2]" >&2
   exit 2
 fi
 
 readonly BOOT_MODE="${1:-sbi}"
 case "$BOOT_MODE" in
-  sbi | u-boot) ;;
+  sbi | u-boot | edk2) ;;
   *)
     echo "Unknown boot mode: ${BOOT_MODE}" >&2
-    echo "Usage: $0 [sbi|u-boot]" >&2
+    echo "Usage: $0 [sbi|u-boot|edk2]" >&2
     exit 2
     ;;
 esac
@@ -57,6 +62,10 @@ readonly UB_VERSION="2024.04"
 readonly UB_URL="https://github.com/u-boot/u-boot/archive/refs/tags/v${UB_VERSION}.tar.gz"
 readonly UB_SHA256="d6b57ce574a0a0504a5b6596644ceacb7f77bde9353779bcf2fde07c4b9a2b92"
 
+readonly EDK2_VERSION="edk2-stable202505"
+readonly EDK2_COMMIT="6951dfe7d59d144a3a980bd7eda699db2d8554ac"
+readonly EDK2_URL="https://github.com/tianocore/edk2.git"
+
 readonly CROSS_COMPILE="riscv64-linux-gnu-"
 readonly SMOKE_MARKER="RUSTSBI-SMOKE-OK"
 
@@ -71,9 +80,13 @@ readonly LOG_DIR="${QEMU_LOG_DIR:-qemu-logs}"
 readonly LOG_FILE="${LOG_DIR}/prototyper-minimal-linux-${BOOT_MODE}.log"
 
 # The sbi path boots the dynamic firmware directly; the u-boot path embeds the
-# flattened binary in the SPL. U-Boot also needs a longer boot timeout.
+# flattened binary in the SPL; and the edk2 path boots the dynamic binary so
+# EDK II can receive the next-stage handoff. Bootloader paths get more time.
 if [[ "$BOOT_MODE" = u-boot ]]; then
   readonly RUSTSBI="${MINIMAL_LINUX_RUSTSBI_BIN:-target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin}"
+  readonly BOOT_TIMEOUT_SECS="${MINIMAL_LINUX_BOOT_TIMEOUT_SECS:-240}"
+elif [[ "$BOOT_MODE" = edk2 ]]; then
+  readonly RUSTSBI="${MINIMAL_LINUX_RUSTSBI_DYNAMIC_BIN:-target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.bin}"
   readonly BOOT_TIMEOUT_SECS="${MINIMAL_LINUX_BOOT_TIMEOUT_SECS:-240}"
 else
   readonly RUSTSBI="${MINIMAL_LINUX_RUSTSBI:-target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.elf}"
@@ -84,6 +97,10 @@ readonly KERNEL_IMAGE="${CACHE_DIR}/linux-${KERNEL_VERSION}-Image"
 readonly BUSYBOX_INSTALL="${CACHE_DIR}/busybox-${BUSYBOX_VERSION}-install"
 readonly INITRAMFS="${WORK_DIR}/initramfs.cpio.gz"
 readonly DISK_IMAGE="${WORK_DIR}/linux-rootfs.img"
+readonly EDK2_CACHE="${CACHE_DIR}/edk2-${EDK2_COMMIT}"
+readonly EDK2_CODE="${EDK2_CACHE}/RISCV_VIRT_CODE.fd"
+readonly EDK2_VARS_TEMPLATE="${EDK2_CACHE}/RISCV_VIRT_VARS.fd"
+readonly EDK2_VARS="${WORK_DIR}/RISCV_VIRT_VARS.fd"
 
 # Populated by build_uboot; kept as mutable globals because the tree lives
 # under WORK_DIR and is rebuilt every run.
@@ -168,6 +185,9 @@ prepare_kernel() {
     required_options=(EXT4_FS VIRTIO_BLK VIRTIO_MMIO EFI_PARTITION SERIAL_8250_CONSOLE DEVTMPFS)
   else
     required_options=(BLK_DEV_INITRD SERIAL_8250_CONSOLE DEVTMPFS)
+    if [[ "$BOOT_MODE" = edk2 ]]; then
+      required_options+=(EFI EFI_STUB)
+    fi
   fi
   for option in "${required_options[@]}"; do
     if [[ $("${tree}/scripts/config" --file "${tree}/.config" --state "$option") != y ]]; then
@@ -179,6 +199,69 @@ prepare_kernel() {
   make -C "$tree" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" -j"$(nproc)" Image
 
   cp "${tree}/arch/riscv/boot/Image" "$KERNEL_IMAGE"
+}
+
+# Build EDK II's RISC-V QEMU payload from an exact commit. The firmware volumes
+# are the only EDK II products cached; the writable variables volume is copied
+# for every boot so one run cannot contaminate the next cache restore.
+prepare_edk2() {
+  local workspace
+  workspace="$(realpath -m "${WORK_DIR}/edk2-workspace")"
+  local source="${workspace}/edk2"
+  local output="${workspace}/Build/RiscVVirtQemu/RELEASE_GCC5/FV"
+  local head
+
+  if [[ $(stat -c %s "$EDK2_CODE" 2>/dev/null || true) == 33554432 &&
+        $(stat -c %s "$EDK2_VARS_TEMPLATE" 2>/dev/null || true) == 33554432 ]]; then
+    echo "Using cached EDK II ${EDK2_VERSION} firmware" >&2
+    return
+  fi
+
+  rm -rf "$workspace" "$EDK2_CACHE"
+  mkdir -p "$workspace" "$EDK2_CACHE"
+
+  git init --quiet "$source"
+  git -C "$source" remote add origin "$EDK2_URL"
+  git -C "$source" fetch --quiet --depth=1 origin "$EDK2_COMMIT"
+  git -C "$source" checkout --quiet --detach FETCH_HEAD
+  head=$(git -C "$source" rev-parse HEAD)
+  if [[ "$head" != "$EDK2_COMMIT" ]]; then
+    echo "EDK II checkout mismatch: expected ${EDK2_COMMIT}, got ${head}" >&2
+    return 1
+  fi
+  # EDK II's top-level submodules contain every source used by this platform.
+  # Their own nested development/test submodules are not build inputs, so do
+  # not recursively clone those unrelated repositories into a CI smoke test.
+  git -C "$source" submodule update --init --depth=1
+
+  (
+    cd "$workspace"
+    export WORKSPACE="$PWD"
+    export PACKAGES_PATH="$source"
+    export EDK_TOOLS_PATH="${source}/BaseTools"
+    export GCC5_RISCV64_PREFIX="$CROSS_COMPILE"
+
+    # edksetup and BaseTools deliberately communicate through environment
+    # variables, so keep these commands in one subshell. edksetup also probes
+    # optional unset variables, which is incompatible with this script's
+    # `set -u`; disable nounset only while sourcing that upstream script.
+    set +u
+    # shellcheck disable=SC1091
+    source "${source}/edksetup.sh" --reconfig
+    set -u
+    make -C "${source}/BaseTools" -j"$(nproc)"
+    set +u
+    # shellcheck disable=SC1091
+    source "${source}/edksetup.sh" BaseTools
+    set -u
+    build -a RISCV64 -b RELEASE \
+      -p OvmfPkg/RiscVVirt/RiscVVirtQemu.dsc \
+      -t GCC5
+  )
+
+  cp "${output}/RISCV_VIRT_CODE.fd" "$EDK2_CODE"
+  cp "${output}/RISCV_VIRT_VARS.fd" "$EDK2_VARS_TEMPLATE"
+  truncate -s 32M "$EDK2_CODE" "$EDK2_VARS_TEMPLATE"
 }
 
 # BusyBox is linked statically because the initramfs carries no shared
@@ -226,6 +309,13 @@ prepare_busybox() {
 # initramfs is rebuilt every run so edits to /init cannot go stale in a cache.
 build_initramfs() {
   local rootfs="${WORK_DIR}/rootfs"
+  local efi_assertion=""
+
+  if [[ "$BOOT_MODE" = edk2 ]]; then
+    # Prove that the kernel entered through the EFI stub instead of merely
+    # reaching the same userspace by another boot path.
+    efi_assertion="/usr/bin/test -d /sys/firmware/efi"
+  fi
 
   rm -rf "$rootfs"
   mkdir -p "$rootfs" "$WORK_DIR"
@@ -247,6 +337,7 @@ set -eu
 
 /usr/bin/test "\$(/bin/uname -m)" = riscv64
 /usr/bin/test -r /proc/version
+${efi_assertion}
 
 echo "${SMOKE_MARKER} \$(/bin/uname -r)"
 /sbin/poweroff -f
@@ -428,6 +519,26 @@ start_qemu_uboot() {
   QEMU_PID=$!
 }
 
+start_qemu_edk2() {
+  mkdir -p "$LOG_DIR"
+  : >"$LOG_FILE"
+  cp "$EDK2_VARS_TEMPLATE" "$EDK2_VARS"
+  qemu-system-riscv64 \
+    -machine virt,pflash0=pflash0,pflash1=pflash1,acpi=off \
+    -smp 1 \
+    -m 2G \
+    -nographic \
+    -no-reboot \
+    -bios "$RUSTSBI" \
+    -blockdev "node-name=pflash0,driver=file,read-only=on,filename=${EDK2_CODE}" \
+    -blockdev "node-name=pflash1,driver=file,filename=${EDK2_VARS}" \
+    -kernel "$KERNEL_IMAGE" \
+    -initrd "$INITRAMFS" \
+    -append "console=ttyS0 earlycon=uart8250,mmio,0x10000000 rdinit=/init" \
+    >"$LOG_FILE" 2>&1 &
+  QEMU_PID=$!
+}
+
 userspace_is_ready() {
   grep -Fq "$SMOKE_MARKER" "$LOG_FILE"
 }
@@ -492,14 +603,22 @@ main() {
   check_prerequisites
   prepare_kernel
   prepare_busybox
-  if [[ "$BOOT_MODE" = u-boot ]]; then
-    make_rootfs_image
-    build_uboot
-    start_qemu_uboot
-  else
-    build_initramfs
-    start_qemu_sbi
-  fi
+  case "$BOOT_MODE" in
+    u-boot)
+      make_rootfs_image
+      build_uboot
+      start_qemu_uboot
+      ;;
+    edk2)
+      build_initramfs
+      prepare_edk2
+      start_qemu_edk2
+      ;;
+    sbi)
+      build_initramfs
+      start_qemu_sbi
+      ;;
+  esac
   wait_for_userspace
 
   echo "RustSBI booted Linux ${KERNEL_VERSION} to userspace successfully (${BOOT_MODE})"
