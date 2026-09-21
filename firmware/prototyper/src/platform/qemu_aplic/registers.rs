@@ -31,20 +31,16 @@ pub(super) struct EncodedMsiAddress {
 
 impl EncodedMsiAddress {
     pub(super) fn machine(base: PhysAddr, hart_index_bits: u32) -> runtime::Result<Self> {
-        Self::encode(base, hart_index_bits, true)
+        Self::encode(base, hart_index_bits)
     }
 
     pub(super) fn supervisor(base: PhysAddr, hart_index_bits: u32) -> runtime::Result<Self> {
         // AIA defines LHXW in mmsiaddrcfgh. QEMU 10.1 instead takes it from
         // smsiaddrcfgh for an S-level domain, so repeat it for that emulator.
-        Self::encode(base, hart_index_bits, true)
+        Self::encode(base, hart_index_bits)
     }
 
-    fn encode(
-        base: PhysAddr,
-        hart_index_bits: u32,
-        encode_hart_index_width: bool,
-    ) -> runtime::Result<Self> {
+    fn encode(base: PhysAddr, hart_index_bits: u32) -> runtime::Result<Self> {
         if hart_index_bits > MAX_HART_INDEX_BITS || !base.is_aligned_to(PAGE_SIZE) {
             return Err(Error::InvalidArgs);
         }
@@ -57,9 +53,7 @@ impl EncodedMsiAddress {
         }
 
         let mut high = (base_ppn >> u32::BITS) as u32;
-        if encode_hart_index_width {
-            high |= hart_index_bits << HART_INDEX_WIDTH_SHIFT;
-        }
+        high |= hart_index_bits << HART_INDEX_WIDTH_SHIFT;
         Ok(Self {
             low: base_ppn as u32,
             high,
