@@ -39,12 +39,12 @@ fn log_harts(board: &BoardInfo) {
 
 fn log_interrupt_controller(board: &BoardInfo) {
     if crate::driver::ipi::uses_imsic()
-        && let Some(imsic) = board.devices.interrupts.imsic.as_ref()
+        && let Some(imsic) = board.devices.interrupts.imsic()
     {
         info!(
             "{:<30}: IMSIC (M-level Base Address: 0x{:x})",
             "Platform IPI Extension",
-            imsic.layout.machine_base.as_usize()
+            imsic.resource().layout.machine_base.as_usize()
         );
         return;
     }
@@ -65,12 +65,12 @@ fn log_interrupt_controller(board: &BoardInfo) {
         );
         return;
     }
-    match board.devices.interrupts.clint.as_ref() {
-        Some((registers, kind)) => info!(
+    match board.devices.interrupts.clint() {
+        Some(description) => info!(
             "{:<30}: {} (Base Address: 0x{:x})",
             "Platform IPI Extension",
-            kind.name(),
-            registers.start().as_usize()
+            description.resource().kind.name(),
+            description.resource().registers.start().as_usize()
         ),
         None => warn!("{:<30}: Not Available", "Platform IPI Device"),
     }
