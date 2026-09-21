@@ -8,6 +8,7 @@ use alloc::vec::Vec;
 use super::format::{
     BEGIN_NODE, HEADER_SIZE, Layout, PROPERTY, RESERVATIONS_OFFSET_OFFSET, STRINGS_OFFSET_OFFSET,
     STRINGS_SIZE_OFFSET, STRUCTURE_OFFSET_OFFSET, STRUCTURE_SIZE_OFFSET, TOTAL_SIZE_OFFSET,
+    align_up,
 };
 use crate::{Error, Result};
 
@@ -75,18 +76,31 @@ pub(in crate::device_tree::patch) fn rebuild(
     structure: &[u8],
     strings: &[u8],
 ) -> Result<Vec<u8>> {
-    let mut output = layout.source[..HEADER_SIZE].to_vec();
+    let reservations_offset = align_up(HEADER_SIZE, 8)?;
+    let after_reservations = reservations_offset
+        .checked_add(layout.reservations.len())
+        .ok_or(Error::Overflow)?;
+    let structure_offset = align_up(after_reservations, 4)?;
+    let strings_offset = structure_offset
+        .checked_add(structure.len())
+        .ok_or(Error::Overflow)?;
+    let total_size = align_up(
+        strings_offset
+            .checked_add(strings.len())
+            .ok_or(Error::Overflow)?,
+        4,
+    )?;
+
+    let mut output = Vec::with_capacity(total_size);
+    output.extend_from_slice(&layout.source[..HEADER_SIZE]);
     pad_to(&mut output, 8);
-    let reservations_offset = output.len();
     output.extend_from_slice(layout.reservations);
     pad_to(&mut output, 4);
-    let structure_offset = output.len();
     output.extend_from_slice(structure);
-    let strings_offset = output.len();
     output.extend_from_slice(strings);
     pad_to(&mut output, 4);
 
-    let total_size = output.len();
+    debug_assert_eq!(output.len(), total_size);
     write_header_field(&mut output, TOTAL_SIZE_OFFSET, total_size)?;
     write_header_field(&mut output, STRUCTURE_OFFSET_OFFSET, structure_offset)?;
     write_header_field(&mut output, STRINGS_OFFSET_OFFSET, strings_offset)?;
