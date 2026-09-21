@@ -34,7 +34,7 @@ pub fn init_board(platform_description: runtime::PlatformDescription) -> usize {
 
 fn try_init_board(platform_description: runtime::PlatformDescription) -> error::Result<usize> {
     let (mut board, pmu) = platform_description
-        .inspect(discover_board_and_pmu)
+        .inspect(|platform| discovery::discover_platform(&platform))
         .during("reading the platform description")?;
 
     let (supervisor_memory, mut memory) = platform_description
@@ -144,15 +144,6 @@ fn select_imsic(board: &BoardInfo) -> Option<&ImsicInfo> {
         }
     }
     Some(imsic)
-}
-
-fn discover_board_and_pmu(
-    platform: runtime::PlatformView<'_>,
-) -> runtime::Result<(BoardInfo, Option<SbiPmu>)> {
-    let board = discovery::discover_platform(&platform)?;
-    let has_v861 = matches!(&board.soc, Some(SocDescription::V861(_)));
-    let pmu = sbi::pmu::init(platform.root()).or_else(|| has_v861.then_some(SbiPmu::default()));
-    Ok((board, pmu))
 }
 
 fn publish_platform_services(

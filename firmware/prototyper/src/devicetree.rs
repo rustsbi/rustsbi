@@ -6,7 +6,7 @@ use runtime::{Compatible, FdtNode};
 /// One enabled node supplied by the shared discovery traversal.
 ///
 /// The compatible property is retained as a view before the node is
-/// dispatched to reset, vendor, and interrupt discovery.
+/// dispatched to reset, vendor, interrupt, and PMU discovery.
 #[derive(Clone, Copy)]
 pub(crate) struct EnabledNode<'view, 'tree: 'view> {
     node: FdtNode<'view, 'tree>,
@@ -88,23 +88,6 @@ pub(crate) fn u32_property(node: FdtNode<'_, '_>, name: &str) -> Option<u32> {
 /// Returns whether the node is a CPU node under `/cpus`.
 pub(crate) fn is_cpu_node(node: FdtNode<'_, '_>) -> bool {
     node.name.split('@').next() == Some("cpu")
-}
-
-/// Visits enabled nodes depth first without allocating a path.
-///
-/// This node-only form is kept for PMU discovery, whose callback does not
-/// need the path or parent context carried by [`try_for_each_enabled_node`].
-pub(crate) fn visit_enabled_nodes<'b, 'a, F>(root: FdtNode<'b, 'a>, visitor: &mut F)
-where
-    F: FnMut(FdtNode<'b, 'a>),
-{
-    if !runtime::node_is_enabled(root) {
-        return;
-    }
-    visitor(root);
-    for child in root.children() {
-        visit_enabled_nodes(child, visitor);
-    }
 }
 
 /// Tries to visit enabled nodes depth first, retaining each node's parent.

@@ -1,4 +1,4 @@
-//! Translation from Platform Description nodes into [`BoardInfo`].
+//! Platform facts and SBI PMU discovery from the device tree.
 
 mod console;
 mod harts;
@@ -7,11 +7,12 @@ mod interrupts;
 
 use super::info::{BoardInfo, SocDescription};
 use crate::devicetree::try_for_each_enabled_node;
+use crate::sbi::pmu::{self, SbiPmu};
 
-/// Reads the platform facts consumed by driver and SBI initialization.
+/// Reads the platform facts and PMU mappings consumed by driver and SBI initialization.
 pub(super) fn discover_platform(
     platform: &runtime::PlatformView<'_>,
-) -> runtime::Result<BoardInfo> {
+) -> runtime::Result<(BoardInfo, Option<SbiPmu>)> {
     let mut board = BoardInfo::empty();
     let cpu_interrupt_controllers = harts::discover(&mut board, platform)?;
     board.devices.console = console::discover(platform)?;
@@ -28,10 +29,15 @@ pub(super) fn discover_platform(
                 .soc::<runtime::soc::allwinner::v861::AllwinnerV861Soc>()?
                 .map(SocDescription::V861)
         };
-    // Reset, V821, and interrupt-controller probes share this enabled-node
-    // traversal. Hart topology, IMSIC wiring, and PMU mappings are read by
-    // their targeted probes above and below this pass.
+    let mut pmu_node = None;
     try_for_each_enabled_node(platform.root(), &mut |node, path| {
+        if pmu_node.is_none()
+            && node
+                .compatible()
+                .is_some_and(|values| values.all().any(|value| value == "riscv,pmu"))
+        {
+            pmu_node = Some(node.node());
+        }
         reset.probe(platform, node)?;
         if let Some(SocDescription::V821(v821)) = &mut soc {
             v821.probe(platform, node)?;
@@ -40,5 +46,8 @@ pub(super) fn discover_platform(
     })?;
     board.devices.reset = reset;
     board.soc = soc;
-    Ok(board)
+    let pmu = pmu_node.and_then(pmu::from_node).or_else(|| {
+        matches!(&board.soc, Some(SocDescription::V861(_))).then_some(SbiPmu::default())
+    });
+    Ok((board, pmu))
 }
