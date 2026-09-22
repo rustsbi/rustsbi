@@ -93,7 +93,7 @@ impl<'tree> PlatformView<'tree> {
             if !node_is_enabled(aliases) {
                 return None;
             }
-            self.fdt.aliases()?.resolve(path)?
+            aliases.property(path)?.as_str()?
         };
 
         let mut current = self.fdt.find_node("/")?;
