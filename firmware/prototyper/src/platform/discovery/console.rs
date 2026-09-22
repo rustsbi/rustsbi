@@ -35,6 +35,9 @@ fn discover_node(
     let Some(compatibles) = node.compatible() else {
         return Ok(None);
     };
+    if !compatibles.all().any(driver::ConsoleKind::supports) {
+        return Ok(None);
+    }
 
     let mut register_shift = None;
     let mut register_width = None;
@@ -53,15 +56,12 @@ fn discover_node(
     let register_shift = register_shift.and_then(parse_u32);
     let register_width = register_width.and_then(parse_u32);
     let clock_hz = clock_hz.and_then(parse_u32);
-    let Some(kind) = compatibles.all().find_map(|compatible| {
-        driver::ConsoleKind::from_fdt(compatible, register_shift, register_width)
-    }) else {
-        return if compatibles.all().any(driver::ConsoleKind::supports) {
-            Err(runtime::Error::InvalidArgs)
-        } else {
-            Ok(None)
-        };
-    };
+    let kind = compatibles
+        .all()
+        .find_map(|compatible| {
+            driver::ConsoleKind::from_fdt(compatible, register_shift, register_width)
+        })
+        .ok_or(runtime::Error::InvalidArgs)?;
     let registers = platform
         .device_register(node)?
         .ok_or(runtime::Error::InvalidArgs)?;
