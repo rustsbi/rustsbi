@@ -15,3 +15,7 @@
 
 qemu-logs/
 /.openeuler-aia/
+
+# Project-local development environment (devenv)
+/.devenv/
+/.direnv/
