@@ -90,13 +90,6 @@ impl MemoryInfo {
             noncacheable_alias_offset: None,
         }
     }
-
-    pub(super) fn ram_range_containing(&self, range: PhysAddrRange) -> Option<PhysAddrRange> {
-        self.ram_ranges
-            .iter()
-            .copied()
-            .find(|ram| ram.start() <= range.start() && range.end() <= ram.end())
-    }
 }
 
 /// Hart topology and architectural timer frequency.

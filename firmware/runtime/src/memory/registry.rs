@@ -60,6 +60,18 @@ impl MemoryRegistry {
             .any(|range| range.contains(self.firmware_image_range))
     }
 
+    /// Returns the RAM bank that contains the entire firmware image.
+    ///
+    /// The next-stage tree is handed over inside this bank, so placing it needs
+    /// the bank the running image was linked into.
+    pub fn firmware_ram_bank(&self) -> Result<PhysAddrRange> {
+        self.ram_ranges
+            .iter()
+            .copied()
+            .find(|bank| bank.contains(self.firmware_image_range))
+            .ok_or(Error::InvalidArgs)
+    }
+
     /// Returns the RAM ranges described by the platform.
     pub fn ram_ranges(&self) -> impl Iterator<Item = PhysAddrRange> + '_ {
         self.ram_ranges.iter().copied()
