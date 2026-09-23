@@ -8,16 +8,42 @@
 # firmware through the dynamic info structure. No intermediate bootloader takes
 # part, which keeps the boot path short and the CI job fast.
 #
+# A second, U-Boot-based boot path is selected with `$0 u-boot`: the SPL embeds
+# RustSBI Prototyper as its OpenSBI payload, so the chain is QEMU -> u-boot-spl
+# -> RustSBI -> u-boot.itb -> Linux. U-Boot loads the kernel off an ext4
+# partition with `ext4load` and starts it with `booti`, matching the repository
+# guide firmware/docs/booting-linux-kernel-in-qemu-using-uboot-and-rustsbi.md.
+#
 # Linux and BusyBox are built from checksum-pinned release archives. Only the
 # build *products* are kept under CACHE_DIR, so the workflow restores a small
 # cache and skips compilation entirely on a hit; the archives themselves are
 # verified on every download. RustSBI is rebuilt from the commit under test and
 # is never cached.
 #
+# The U-Boot build is never cached: the SPL embeds the RustSBI firmware, so it
+# must be rebuilt from the commit under test every run.
+#
 # Requires: `cargo prototyper build` to have produced the firmware, plus
 # qemu-system-riscv64, riscv64-linux-gnu-gcc, cpio, xz and a host toolchain.
+# The u-boot path additionally needs swig, python3-dev, parted, e2fsprogs and
+# qemu-utils.
 
 set -euo pipefail
+
+if (( $# > 1 )); then
+  echo "Usage: $0 [sbi|u-boot]" >&2
+  exit 2
+fi
+
+readonly BOOT_MODE="${1:-sbi}"
+case "$BOOT_MODE" in
+  sbi | u-boot) ;;
+  *)
+    echo "Unknown boot mode: ${BOOT_MODE}" >&2
+    echo "Usage: $0 [sbi|u-boot]" >&2
+    exit 2
+    ;;
+esac
 
 readonly KERNEL_VERSION="6.12.110"
 readonly KERNEL_URL="https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${KERNEL_VERSION}.tar.xz"
@@ -26,6 +52,10 @@ readonly KERNEL_SHA256="8cee19e1839bb6ff4d5254d761933ae6ab670492d5ed030e09a80538
 readonly BUSYBOX_VERSION="1.36.1"
 readonly BUSYBOX_URL="https://busybox.net/downloads/busybox-${BUSYBOX_VERSION}.tar.bz2"
 readonly BUSYBOX_SHA256="b8cc24c9574d809e7279c3be349795c5d5ceb6fdf19ca709f80cde50e47de314"
+
+readonly UB_VERSION="2024.04"
+readonly UB_URL="https://github.com/u-boot/u-boot/archive/refs/tags/v${UB_VERSION}.tar.gz"
+readonly UB_SHA256="d6b57ce574a0a0504a5b6596644ceacb7f77bde9353779bcf2fde07c4b9a2b92"
 
 readonly CROSS_COMPILE="riscv64-linux-gnu-"
 readonly SMOKE_MARKER="RUSTSBI-SMOKE-OK"
@@ -37,19 +67,37 @@ readonly BOOT_FAILURE_PATTERN="Kernel panic|not syncing|Attempted to kill init"
 
 readonly CACHE_DIR="${MINIMAL_LINUX_CACHE_DIR:-.cache/minimal-linux}"
 readonly WORK_DIR="${MINIMAL_LINUX_WORK_DIR:-.minimal-linux/work}"
-readonly RUSTSBI="${MINIMAL_LINUX_RUSTSBI:-target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.elf}"
 readonly LOG_DIR="${QEMU_LOG_DIR:-qemu-logs}"
-readonly LOG_FILE="${LOG_DIR}/prototyper-minimal-linux.log"
+readonly LOG_FILE="${LOG_DIR}/prototyper-minimal-linux-${BOOT_MODE}.log"
+
+# The sbi path boots the dynamic firmware directly; the u-boot path embeds the
+# flattened binary in the SPL. U-Boot also needs a longer boot timeout.
+if [[ "$BOOT_MODE" = u-boot ]]; then
+  readonly RUSTSBI="${MINIMAL_LINUX_RUSTSBI_BIN:-target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin}"
+  readonly BOOT_TIMEOUT_SECS="${MINIMAL_LINUX_BOOT_TIMEOUT_SECS:-240}"
+else
+  readonly RUSTSBI="${MINIMAL_LINUX_RUSTSBI:-target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.elf}"
+  readonly BOOT_TIMEOUT_SECS="${MINIMAL_LINUX_BOOT_TIMEOUT_SECS:-180}"
+fi
 
 readonly KERNEL_IMAGE="${CACHE_DIR}/linux-${KERNEL_VERSION}-Image"
 readonly BUSYBOX_INSTALL="${CACHE_DIR}/busybox-${BUSYBOX_VERSION}-install"
 readonly INITRAMFS="${WORK_DIR}/initramfs.cpio.gz"
+readonly DISK_IMAGE="${WORK_DIR}/linux-rootfs.img"
 
-readonly BOOT_TIMEOUT_SECS="${MINIMAL_LINUX_BOOT_TIMEOUT_SECS:-180}"
+# Populated by build_uboot; kept as mutable globals because the tree lives
+# under WORK_DIR and is rebuilt every run.
+UB_SPL=""
+UB_ITB=""
+
 readonly DOWNLOAD_CONNECT_TIMEOUT_SECS="${MINIMAL_LINUX_DOWNLOAD_CONNECT_TIMEOUT_SECS:-30}"
 readonly DOWNLOAD_TIMEOUT_SECS="${MINIMAL_LINUX_DOWNLOAD_TIMEOUT_SECS:-900}"
 
 QEMU_PID=""
+# The loop device and mount point that make_rootfs_image opens, tracked so the
+# EXIT cleanup can release them if a setup step fails under `set -e`.
+LOOP_DEVICE=""
+ROOTFS_MOUNT=""
 
 # Fetch a pinned archive, verifying its digest on every run so a corrupted or
 # substituted download fails the job instead of silently changing the test.
@@ -95,6 +143,7 @@ prepare_kernel() {
   local tarball="${WORK_DIR}/linux-${KERNEL_VERSION}.tar.xz"
   local tree="${WORK_DIR}/linux-${KERNEL_VERSION}"
   local option
+  local -a required_options
 
   if [[ -s "$KERNEL_IMAGE" ]]; then
     echo "Using cached Linux ${KERNEL_VERSION} kernel image" >&2
@@ -112,7 +161,15 @@ prepare_kernel() {
   # check it rather than trust it: if a defconfig revision drops one of these,
   # the job should say which option went missing instead of booting into an
   # unexplained silence.
-  for option in BLK_DEV_INITRD SERIAL_8250_CONSOLE DEVTMPFS; do
+  # The sbi path needs an initramfs; the u-boot path boots off an ext4
+  # partition on a virtio-mmio block device (the `-device virtio-blk-device`
+  # QEMU attaches below) and a GPT table (EFI_PARTITION).
+  if [[ "$BOOT_MODE" = u-boot ]]; then
+    required_options=(EXT4_FS VIRTIO_BLK VIRTIO_MMIO EFI_PARTITION SERIAL_8250_CONSOLE DEVTMPFS)
+  else
+    required_options=(BLK_DEV_INITRD SERIAL_8250_CONSOLE DEVTMPFS)
+  fi
+  for option in "${required_options[@]}"; do
     if [[ $("${tree}/scripts/config" --file "${tree}/.config" --state "$option") != y ]]; then
       echo "riscv defconfig no longer enables ${option}" >&2
       return 1
@@ -199,6 +256,116 @@ EOF
   (cd "$rootfs" && find . -print0 | cpio --null --create --format=newc --quiet | gzip -9) >"$INITRAMFS"
 }
 
+# Build a 1GiB GPT-partitioned disk image whose first (ext4) partition holds
+# the kernel image and the BusyBox root filesystem. The image is rebuilt every
+# run so edits to rcS cannot go stale in a cache.
+make_rootfs_image() {
+  local rootfs="${WORK_DIR}/rootfs"
+  local loop part start end size
+
+  rm -rf "$rootfs" "$DISK_IMAGE"
+  mkdir -p "$WORK_DIR"
+
+  qemu-img create -q "$DISK_IMAGE" 1g
+  parted -s "$DISK_IMAGE" mklabel gpt
+  parted -s "$DISK_IMAGE" mkpart primary ext4 1MiB 100%
+  parted -s "$DISK_IMAGE" set 1 boot on
+
+  # Read the exact byte range of partition 1. The sizelimit must match the
+  # partition exactly: if mkfs runs over a loop device that reaches the end of
+  # the file, it overwrites the backup GPT header and the kernel later rejects
+  # the filesystem as having bad geometry. Using offset+sizelimit also avoids
+  # needing /dev/loopNpM partition nodes, which udev-less containers lack.
+  part=$(parted -s "$DISK_IMAGE" unit B print | awk '/^ 1 /{print $2, $3}')
+  start=$(echo "$part" | awk '{gsub(/B/,"",$1); print $1}')
+  end=$(echo "$part" | awk '{gsub(/B/,"",$2); print $2}')
+  size=$((end - start + 1))
+
+  loop=$(priv losetup --find --show --offset "$start" --sizelimit "$size" "$DISK_IMAGE")
+  LOOP_DEVICE="$loop"
+  priv mkfs.ext4 -q "$loop"
+
+  mkdir -p "$rootfs"
+  priv mount "$loop" "$rootfs"
+  ROOTFS_MOUNT="$rootfs"
+
+  # After `sudo mount` the mount point is owned by root, so a non-root CI
+  # runner cannot write to it. Hand it to the current user for the copies
+  # below (a no-op when already running as root in a local container).
+  priv chown "$(id -u):$(id -g)" "$rootfs"
+
+  cp "$KERNEL_IMAGE" "$rootfs/Image"
+  cp -a "${BUSYBOX_INSTALL}/." "$rootfs/"
+  mkdir -p "$rootfs/proc" "$rootfs/sys" "$rootfs/dev" "$rootfs/etc/init.d"
+
+  # busybox init runs /etc/init.d/rcS. The assertions make the marker mean
+  # something specific: a riscv64 kernel reached userspace and mounted a
+  # working /proc, not merely that some shell ran.
+  cat >"$rootfs/etc/init.d/rcS" <<'EOF'
+#!/bin/sh
+mount -t proc none /proc
+mount -t sysfs none /sys
+/sbin/mdev -s
+set -e
+[ "$(uname -m)" = riscv64 ]
+[ -r /proc/version ]
+echo "RUSTSBI-SMOKE-OK"
+EOF
+  chmod +x "$rootfs/etc/init.d/rcS"
+
+  priv umount "$rootfs"
+  ROOTFS_MOUNT=""
+  priv losetup -d "$loop"
+  LOOP_DEVICE=""
+  rmdir "$rootfs"
+}
+
+# Build U-Boot with the RustSBI firmware embedded as the OpenSBI payload. The
+# build products are deliberately not cached: the SPL embeds the firmware, so
+# they must be rebuilt from the commit under test every run.
+build_uboot() {
+  local tarball="${WORK_DIR}/u-boot-${UB_VERSION}.tar.gz"
+  local tree="${WORK_DIR}/u-boot-${UB_VERSION}"
+  local rustsbi_abs
+
+  # `make -C` runs inside the U-Boot tree, so OPENSBI must be an absolute
+  # path; a relative path would be resolved against the tree, not the repo.
+  rustsbi_abs="$(readlink -f "$RUSTSBI")"
+
+  mkdir -p "$WORK_DIR"
+  download_asset "$UB_URL" "$tarball" "$UB_SHA256"
+
+  rm -rf "$tree"
+  tar -xzf "$tarball" -C "$WORK_DIR"
+
+  make -C "$tree" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
+    OPENSBI="$rustsbi_abs" qemu-riscv64_spl_defconfig
+
+  # Set the default boot command non-interactively, equivalent to the
+  # menuconfig step in the repository guide. The single quotes keep
+  # ${fdtcontroladdr} literal so U-Boot expands it at runtime.
+  "${tree}/scripts/config" --file "${tree}/.config" --enable USE_BOOTCOMMAND
+  # shellcheck disable=SC2016
+  "${tree}/scripts/config" --file "${tree}/.config" --set-str BOOTCOMMAND \
+    'ext4load virtio 0:1 84000000 Image; setenv bootargs root=/dev/vda1 rw console=ttyS0; booti 0x84000000 - ${fdtcontroladdr}'
+
+  make -C "$tree" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
+    OPENSBI="$rustsbi_abs" -j"$(nproc)"
+
+  UB_SPL="${tree}/spl/u-boot-spl"
+  UB_ITB="${tree}/u-boot.itb"
+}
+
+# Run a command with elevated privileges when running as a non-root user (CI
+# runners) while staying a plain call inside a root container (local Docker).
+priv() {
+  if [[ $EUID -eq 0 ]]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
 check_prerequisites() {
   test -s "$RUSTSBI" || {
     echo "Missing $RUSTSBI; run 'cargo prototyper build' first" >&2
@@ -216,10 +383,21 @@ stop_qemu() {
 
 cleanup() {
   stop_qemu
+  # Release any loop device or mount left behind by a failed setup step, so a
+  # local rerun does not leak them and exhaust loop devices.
+  if [[ -n "$ROOTFS_MOUNT" ]]; then
+    priv umount "$ROOTFS_MOUNT" 2>/dev/null || true
+  fi
+  if [[ -n "$LOOP_DEVICE" ]]; then
+    priv losetup -d "$LOOP_DEVICE" 2>/dev/null || true
+  fi
 }
 
-start_qemu() {
+start_qemu_sbi() {
   mkdir -p "$LOG_DIR"
+  # Truncate any stale log from a previous run before QEMU starts, so the
+  # wait loop cannot mistake an old success marker for this boot's.
+  : >"$LOG_FILE"
   qemu-system-riscv64 \
     -machine virt \
     -smp 1 \
@@ -229,6 +407,23 @@ start_qemu() {
     -bios "$RUSTSBI" \
     -kernel "$KERNEL_IMAGE" \
     -initrd "$INITRAMFS" \
+    >"$LOG_FILE" 2>&1 &
+  QEMU_PID=$!
+}
+
+start_qemu_uboot() {
+  mkdir -p "$LOG_DIR"
+  : >"$LOG_FILE"
+  qemu-system-riscv64 \
+    -machine virt \
+    -smp 1 \
+    -m 256M \
+    -nographic \
+    -no-reboot \
+    -bios "$UB_SPL" \
+    -device loader,file="$UB_ITB",addr=0x80200000 \
+    -blockdev driver=file,filename="$DISK_IMAGE",node-name=hd0 \
+    -device virtio-blk-device,drive=hd0 \
     >"$LOG_FILE" 2>&1 &
   QEMU_PID=$!
 }
@@ -297,11 +492,17 @@ main() {
   check_prerequisites
   prepare_kernel
   prepare_busybox
-  build_initramfs
-  start_qemu
+  if [[ "$BOOT_MODE" = u-boot ]]; then
+    make_rootfs_image
+    build_uboot
+    start_qemu_uboot
+  else
+    build_initramfs
+    start_qemu_sbi
+  fi
   wait_for_userspace
 
-  echo "RustSBI booted Linux ${KERNEL_VERSION} to userspace successfully"
+  echo "RustSBI booted Linux ${KERNEL_VERSION} to userspace successfully (${BOOT_MODE})"
   echo "QEMU log: ${LOG_FILE}"
 }
 
