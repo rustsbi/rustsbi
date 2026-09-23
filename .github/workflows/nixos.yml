@@ -1,0 +1,108 @@
+name: NixOS
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/nixos/**"
+      - ".github/scripts/prototyper-nixos-boot.sh"
+      - ".github/workflows/nixos.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/nixos/**"
+      - ".github/scripts/prototyper-nixos-boot.sh"
+      - ".github/workflows/nixos.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  nixos-boot:
+    name: Boot NixOS unstable (smp=${{ matrix.smp }})
+    runs-on: ubuntu-24.04
+    # The first run after a flake.lock bump builds the riscv64 NixOS closure
+    # through Nix; with the binary caches warm it stays well below this limit.
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        smp: [2]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-misc
+          qemu-system-riscv64 --version
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      # The boot assets are a pure function of the pinned NixOS inputs, so the
+      # cache key covers every file that can change them. On a hit the job
+      # skips Nix entirely; on a miss it builds the closure and re-populates
+      # the cache for later runs.
+      - name: Cache NixOS boot assets
+        id: assets
+        uses: actions/cache@v5
+        with:
+          path: target/nixos-boot-assets
+          key: nixos-boot-assets-${{ hashFiles('.github/nixos/flake.nix', '.github/nixos/flake.lock', '.github/nixos/guest.nix') }}
+
+      - name: Install Nix
+        if: steps.assets.outputs.cache-hit != 'true'
+        uses: DeterminateSystems/nix-installer-action@v23
+
+      - name: Build NixOS boot assets
+        if: steps.assets.outputs.cache-hit != 'true'
+        env:
+          NIX_CONFIG: "experimental-features = nix-command flakes"
+        run: |
+          nix build path:./.github/nixos -o nixos-assets-result \
+            --option substituters "https://cache.nixos.org https://cache.ztier.in" \
+            --option trusted-public-keys "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= cache.ztier.link-1:3P5j2ZB9dNgFFFVkCQWT3mh0E+S3rIWtZvoql64UaXM="
+          mkdir -p target/nixos-boot-assets
+          cp -rL nixos-assets-result/. target/nixos-boot-assets/
+          ls -lh target/nixos-boot-assets/
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build
+
+      - name: Boot NixOS
+        env:
+          NIXOS_SMP: ${{ matrix.smp }}
+          NIXOS_BOOT_TIMEOUT_SECS: 600
+        run: .github/scripts/prototyper-nixos-boot.sh
+
+      - name: Upload NixOS serial log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nixos-serial-log-smp${{ matrix.smp }}
+          path: qemu-logs/prototyper-nixos-smp${{ matrix.smp }}.log
+          if-no-files-found: warn
