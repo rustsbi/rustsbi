@@ -41,12 +41,9 @@ fn try_init_board(platform_description: runtime::PlatformDescription) -> error::
         .memory_resources()
         .during("deriving Runtime memory resources")?;
     board.memory.ram_ranges = memory.ram_ranges().collect();
-    let firmware_image_range = memory.firmware_image_range();
     board.memory.firmware_ram_range = Some(
-        board
-            .memory
-            .ram_range_containing(firmware_image_range)
-            .ok_or(runtime::Error::InvalidArgs)
+        memory
+            .firmware_ram_bank()
             .during("locating the firmware RAM bank")?,
     );
 

@@ -19,9 +19,11 @@ use crate::{Error, Result};
 mod patch;
 
 // Devicetree Specification v0.4, section 5.2: the structure header is ten
-// 32-bit big-endian fields, with `totalsize` as its second field.
+// 32-bit big-endian fields, with `totalsize` as its second field, and the
+// blob is aligned to an 8-byte boundary.
 const FDT_HEADER_SIZE: usize = 10 * size_of::<u32>();
 const FDT_TOTAL_SIZE_OFFSET: usize = size_of::<u32>();
+const FDT_ALIGNMENT: usize = 8;
 
 /// The device-tree address received at the firmware entry point.
 ///
@@ -262,8 +264,12 @@ impl PlatformDescription {
     ///
     /// Adds the firmware reservation and hides selected nodes from the next
     /// stage. If no edits are requested, the original address is returned.
+    ///
+    /// `handoff_bank` is the RAM bank holding this firmware image; a rewritten
+    /// tree is handed over inside that bank.
     pub fn prepare_next_stage(
         self,
+        handoff_bank: PhysAddrRange,
         firmware_reservation: Option<PhysAddrRange>,
         hidden_node_paths: &[&str],
     ) -> Result<PhysAddr> {
@@ -281,7 +287,7 @@ impl PlatformDescription {
             })
             .transpose()?;
         let rewritten = patch::prepare_next_stage(source, reservation, hidden_node_paths)?;
-        Ok(leak_aligned(rewritten))
+        hand_over_in_ram_bank(handoff_bank, &rewritten)
     }
 
     fn memory_ranges(&self) -> Result<(Vec<PhysAddrRange>, Vec<PhysAddrRange>)> {
@@ -331,18 +337,47 @@ impl PlatformDescription {
     }
 }
 
-fn leak_aligned(bytes: Vec<u8>) -> PhysAddr {
-    // The next stage keeps this rewritten DTB after `PlatformDescription` is
-    // consumed, so intentionally leak the aligned allocation to preserve its
-    // lifetime. Native-endian words only provide alignment; the bytes remain
-    // in their original order when copied into the allocation.
-    let mut words = Vec::with_capacity(bytes.len().div_ceil(size_of::<u64>()));
-    for chunk in bytes.chunks(size_of::<u64>()) {
-        let mut encoded = [0; size_of::<u64>()];
-        encoded[..chunk.len()].copy_from_slice(chunk);
-        words.push(u64::from_ne_bytes(encoded));
+/// Offset below the top of the RAM bank at which OpenSBI and RustSBI-QEMU hand
+/// the device tree over; the rewritten tree is put in the same slot.
+const HANDOFF_TREE_OFFSET: usize = 2 * 1024 * 1024;
+
+/// Copies the next-stage tree into `bank` and returns its address.
+///
+/// The tree cannot be handed over from the firmware image: this very tree marks
+/// the image `no-map`, so a kernel that enables paging before it reads the tree
+/// leaves the image out of its boot mapping and then faults on the pointer it
+/// was given. Handing the tree over at `HANDOFF_TREE_OFFSET` instead leaves it
+/// in ordinary memory, outside both the image and the range the tree reserves.
+fn hand_over_in_ram_bank(bank: PhysAddrRange, bytes: &[u8]) -> Result<PhysAddr> {
+    let firmware_image = locate_firmware_image()?;
+    let bank_end = bank.end().as_usize();
+    // A tree too large for the conventional slot grows down from the top of the
+    // bank instead of overrunning it.
+    let start = if bytes.len() <= HANDOFF_TREE_OFFSET {
+        bank_end
+            .checked_sub(HANDOFF_TREE_OFFSET)
+            .or_else(|| bank_end.checked_sub(bytes.len()))
+    } else {
+        bank_end.checked_sub(bytes.len())
     }
-    PhysAddr::new(words.leak().as_ptr() as usize)
+    .ok_or(Error::NotEnoughResources)?;
+    // Rounding down rather than up keeps the end of the tree inside the bank;
+    // `bytes` need not be a whole number of alignment units long.
+    let start = start & !(FDT_ALIGNMENT - 1);
+    // The tree must fit in the bank and start after the firmware image.
+    if start < bank.start().as_usize() || start < firmware_image.end().as_usize() {
+        return Err(Error::NotEnoughResources);
+    }
+
+    // SAFETY: the tree spans `[start, start + bytes.len())`. Subtracting from
+    // the bank end keeps that span inside the bank, and the checks above keep
+    // it clear of the firmware image this code runs from. `start` is 8-byte
+    // aligned, and `bytes` is a heap allocation that lives inside that image,
+    // so the two ranges cannot overlap.
+    unsafe {
+        core::ptr::copy_nonoverlapping(bytes.as_ptr(), start as *mut u8, bytes.len());
+    }
+    Ok(PhysAddr::new(start))
 }
 
 /// Returns the complete FDT byte range described by an entry-point address.
