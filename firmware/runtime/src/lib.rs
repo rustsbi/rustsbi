@@ -19,6 +19,7 @@ pub mod csr;
 mod device_tree;
 pub mod events;
 pub mod hart;
+pub mod heap;
 pub mod ipi;
 pub mod irq;
 pub mod memory;
