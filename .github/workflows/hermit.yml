@@ -1,0 +1,74 @@
+name: Hermit
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-hermit-boot.sh"
+      - ".github/workflows/hermit.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-hermit-boot.sh"
+      - ".github/workflows/hermit.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  hermit-boot:
+    name: Boot Hermit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-misc
+          qemu-system-riscv64 --version
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build
+
+      # The chain under test is RustSBI Prototyper -> Hermit loader
+      # (riscv64-sbi) -> Hermit application. The loader and the application
+      # are built from pinned upstream commits, and the boot must reach the
+      # Hermit application for the job to pass.
+      - name: Boot Hermit
+        run: .github/scripts/prototyper-hermit-boot.sh
+
+      - name: Upload Hermit boot log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: hermit-boot-log
+          path: qemu-logs/prototyper-hermit.log
