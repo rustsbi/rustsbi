@@ -294,7 +294,6 @@ mod smm_stress_tests {
 
     use super::*;
     use rand::{Rng, SeedableRng, rngs::StdRng};
-    use std::println;
     use std::vec;
 
     // 常量定义
@@ -302,88 +301,10 @@ mod smm_stress_tests {
     const MAX_ALLOC: usize = 16 * 1024 * 1024; // 16MB
     const REGION_COUNT: usize = 8; // 8个Region，每个64MB
 
-    struct StdOut;
-    impl Write for StdOut {
-        fn write_str(&mut self, s: &str) -> Result {
-            std::print!("{}", s);
-            Ok(())
-        }
-    }
-    use core::fmt::{Result, Write};
-    impl<const ORDER: usize, AR, AA> UniSecMemManager<ORDER, AR, AA>
-    where
-        AR: SecMemAllocator<ORDER>,
-        AA: SecMemAllocator<ORDER>,
-    {
-        /// Print all region's information in current manager.
-        pub fn dump_to<W: Write>(&self, w: &mut W) -> Result {
-            writeln!(w, "\n--- [UniSecMemManager Dump] ---")?;
-            writeln!(
-                w,
-                "Total Configured Regions: {}",
-                self.alloc_regions.len() + self.reserved_regions.len()
-            )?;
-
-            // 1. 打印 SM 预留区域
-            writeln!(w, "\n[Reserved Regions (SM)]")?;
-            for r in &self.reserved_regions {
-                writeln!(
-                    w,
-                    "  ID: {:2} | Range: [0x{:016x} - 0x{:016x}] | PMP_Slot: {:<2} | Type: SM/Reserved",
-                    r.id,
-                    r.addr,
-                    r.addr + r.len,
-                    r.slot
-                )?;
-            }
-
-            // 2. 打印可分配区域
-            writeln!(w, "\n[Allocatable Regions]")?;
-            if self.alloc_regions.is_empty() {
-                writeln!(w, "  (None)")?;
-            }
-
-            for r in &self.alloc_regions {
-                let (type_str, used, total) = match &r.allocator {
-                    SecMemAllocatorWrapper::General => ("General    ", 0, r.len),
-                    SecMemAllocatorWrapper::Runtime(alloc) => (
-                        "Runtime    ",
-                        alloc.total() - alloc.available(),
-                        alloc.total(),
-                    ),
-                    SecMemAllocatorWrapper::Application(alloc) => (
-                        "Application",
-                        alloc.total() - alloc.available(),
-                        alloc.total(),
-                    ),
-                    SecMemAllocatorWrapper::None => ("None", 0, 0),
-                };
-
-                let usage_pcnt = if total > 0 { (used * 100) / total } else { 0 };
-                let status = if r.is_used { "IN_USE" } else { "IDLE  " };
-
-                writeln!(
-                    w,
-                    "  ID: {:2} | Range: [0x{:016x} - 0x{:016x}] | PMP: {:<2} | [{}] | Type: {} | Usage: {:3}% ({:0x}  / {:0x})",
-                    r.id,
-                    r.addr,
-                    r.addr + r.len,
-                    r.slot,
-                    status,
-                    type_str,
-                    usage_pcnt,
-                    used,
-                    total
-                )?;
-            }
-            writeln!(w, "--- [End of Dump] ---\n")
-        }
-    }
     #[test]
     fn test_uni_secmem_manager_stress_aligned() {
         let mut raw_buffer = vec![0u8; POOL_SIZE * 2];
         let raw_addr = raw_buffer.as_mut_ptr() as usize;
-        let mut out = StdOut {};
 
         let align_mask = POOL_SIZE - 1;
         let aligned_base = (raw_addr + align_mask) & !align_mask;
@@ -398,12 +319,7 @@ mod smm_stress_tests {
             "Remaining space insufficient"
         );
 
-        println!("Memory Pool Info:");
-        println!("  Raw Buffer:  0x{:x}", raw_addr);
-        println!("  Aligned Base: 0x{:x}", aligned_base);
-        println!("  Pool End:    0x{:x}", aligned_base + POOL_SIZE);
-
-        let mut manager = UniSecMemManager::<30, RTAlloc<30>, AppAlloc<30>>::new();
+        let mut manager = UniSecMemManager::<30, RTAlloc<30>, AppAlloc<30, 256>>::new();
 
         assert!(manager.init(0x1000, 0x1000));
 
@@ -419,32 +335,23 @@ mod smm_stress_tests {
 
         let mut rng = StdRng::seed_from_u64(42);
         let mut allocations = Vec::new();
-        let iterations = 10000;
-        let mut alloc_count = 0;
-
-        for i in 0..iterations {
+        for _ in 0..10_000 {
             if rng.gen_bool(0.7) || allocations.is_empty() {
-                let em_type = if rng.gen_bool(0.5) {
-                    SecMemType::Application
-                } else {
-                    SecMemType::Application
-                };
-
                 let exponent = rng.gen_range(12..MAX_ALLOC.ilog2());
                 let size = 1usize << exponent;
 
-                if let Some((addr, actual_len, _)) = manager.alloc_em(size, em_type) {
+                if let Some((addr, actual_len, _)) = manager.alloc_em(size, SecMemType::Application)
+                {
                     unsafe {
                         let ptr = addr as *mut u8;
                         core::ptr::write_bytes(ptr, 0x1F, actual_len);
                         assert_eq!(core::ptr::read_volatile(ptr), 0x1F);
                     }
-                    alloc_count += 1;
-                    allocations.push((addr, actual_len, em_type));
+                    allocations.push((addr, actual_len));
                 }
             } else {
                 let idx = rng.gen_range(0..allocations.len());
-                let (addr, len, _) = allocations.remove(idx);
+                let (addr, len) = allocations.remove(idx);
                 assert!(manager.free_em(addr, len).is_some());
 
                 unsafe {
@@ -456,21 +363,14 @@ mod smm_stress_tests {
                     );
                 }
             }
-
-            if i % 500 == 0 {
-                println!("  Iter {}: Allocated blocks = {}", i, allocations.len());
-                let _ = manager.dump_to(&mut out);
-            }
         }
 
-        println!("Finalizing: Cleaning up all blocks...");
-        for (addr, len, _) in allocations {
-            manager.free_em(addr, len);
+        for (addr, len) in allocations {
+            assert!(manager.free_em(addr, len).is_some());
         }
-        let _ = manager.dump_to(&mut out);
 
         let mut reclaimed_count = 0;
-        while let Some(_) = manager.reclaim() {
+        while manager.reclaim().is_some() {
             reclaimed_count += 1;
         }
 
@@ -480,10 +380,6 @@ mod smm_stress_tests {
         );
 
         let mut cur_regions = [(0usize, 0usize); MAX_PMP_ENTRY_COUNT as usize];
-        let deinit_count = manager.deinit(&mut cur_regions);
-        println!(
-            "Test Passed: All {} regions reclaimed, deinit count {}, success alloc {}, total request {}.",
-            reclaimed_count, deinit_count, alloc_count, iterations
-        );
+        assert_eq!(manager.deinit(&mut cur_regions), 0);
     }
 }

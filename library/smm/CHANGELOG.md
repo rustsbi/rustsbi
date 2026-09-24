@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
     * The SecMemManager trait for achieving unified secure memory management.
     * The SecMemRegion struct for managing secure memory.
 * A unified SecMemManager implementation based on the allocator/protector examples is provided, which is designed to implement consistent Penglai/Keystone-style secure memory management (in manager.rs).
-* Example implementations of buddy-based AppAlloc and one-time allocation-based RTAlloc are provided (in allocators.rs).
+* Example implementations of first-fit AppAlloc with caller-selected inline record capacity and one-time allocation-based RTAlloc are provided (in allocators.rs).
 * Example implementation of the PMP-based and mock test protectors are provided (in protectors.rs).
 * Basic functional and stress tests were conducted on the implementations of the sample allocator/manager.
 
