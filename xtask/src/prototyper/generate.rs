@@ -91,7 +91,7 @@ pub(crate) fn generate_build_inputs(spec: &BuildSpec, paths: &BuildPaths) -> Res
             paths.linker_template.display()
         )
     })?;
-    let linker_script = render_linker_script(&linker_template, &spec.platform_addresses)?;
+    let linker_script = render_linker_script(&linker_template, &spec.firmware_layout)?;
     write_if_changed(&paths.linker_script(), linker_script.as_bytes())?;
 
     let alignment_source = render_alignment_source();
@@ -203,19 +203,20 @@ fn render_build_stamp(
     format!("{:016x}\n", hasher.finish())
 }
 
-/// Render the linker script from its address template.
+/// Render the linker script from its firmware layout template.
 pub(crate) fn render_linker_script(
     template: &str,
-    addresses: &super::config::PlatformAddresses,
+    layout: &super::config::FirmwareLayout,
 ) -> Result<String> {
     let rendered = template
         .replace(
             "@LINK_START_ADDRESS@",
-            &format!("{:#x}", addresses.link_start_address),
+            &format!("{:#x}", layout.link_start_address),
         )
+        .replace("@HEAP_SIZE@", &format!("{:#x}", layout.heap_size_bytes))
         .replace(
             "@PAYLOAD_ADDRESS@",
-            &format!("{:#x}", addresses.payload_address),
+            &format!("{:#x}", layout.payload_address),
         );
     reject_unknown_placeholders(&rendered)?;
     Ok(rendered)

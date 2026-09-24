@@ -53,7 +53,7 @@ SECTIONS {
         *(.bss.stack)
         . = ALIGN(0x1000);
         sbi_heap_start = .;
-        *(.bss.heap)
+        . = . + @HEAP_SIZE@;
         sbi_heap_end = .;
         . = ALIGN(0x1000); 
         sbi_bss_start = .;
