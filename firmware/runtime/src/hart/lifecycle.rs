@@ -137,7 +137,9 @@ pub trait DomainContext: Sync {
     ///
     /// Runs after Runtime has staged its entry trap-state reset, so the
     /// implementation may restore incoming S-mode CSRs (such as `satp`) that
-    /// the reset cleared.
+    /// the reset cleared. Runtime flushes the local TLB after this call
+    /// returns, so an implementation may switch `satp` (including ASID)
+    /// without issuing its own `sfence.vma`.
     fn restore_incoming(&self, gprs: &mut [usize; 32]) -> usize;
 }
 

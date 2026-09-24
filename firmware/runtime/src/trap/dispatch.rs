@@ -152,6 +152,11 @@ fn sbi_ecall(frame: &mut TrapFrame) {
             }
             let entry_pc = context.restore_incoming(&mut gprs);
             frame.x.copy_from_slice(&gprs[1..]);
+            // The incoming context may have switched satp (including ASID);
+            // flush the local TLB so stale translations of the outgoing
+            // domain cannot survive the switch. The fence must follow the
+            // satp write, so it stays after `restore_incoming`.
+            riscv::asm::sfence_vma_all();
             riscv::asm::fence_i();
             // SAFETY: M-mode writes to this hart's mepc for the staged
             // transfer into the incoming context.
