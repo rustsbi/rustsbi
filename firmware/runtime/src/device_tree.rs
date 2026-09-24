@@ -262,10 +262,16 @@ impl PlatformDescription {
     ///
     /// Adds the firmware reservation and hides selected nodes from the next
     /// stage. If no edits are requested, the original address is returned.
+    /// The rewritten tree is placed at a next-stage-friendly address (see
+    /// [`Self::place_rewritten`]); `firmware_image_range` supplies the range
+    /// the placement must keep clear, and is passed independently of
+    /// `firmware_reservation` because an existing platform reservation makes
+    /// the reservation argument `None` while the image still occupies RAM.
     pub fn prepare_next_stage(
         self,
         firmware_reservation: Option<PhysAddrRange>,
         hidden_node_paths: &[&str],
+        firmware_image_range: Option<PhysAddrRange>,
     ) -> Result<PhysAddr> {
         if firmware_reservation.is_none() && hidden_node_paths.is_empty() {
             return Ok(self.address);
@@ -281,7 +287,7 @@ impl PlatformDescription {
             })
             .transpose()?;
         let rewritten = patch::prepare_next_stage(source, reservation, hidden_node_paths)?;
-        Ok(leak_aligned(rewritten))
+        Ok(place_rewritten(&self, rewritten, firmware_image_range))
     }
 
     fn memory_ranges(&self) -> Result<(Vec<PhysAddrRange>, Vec<PhysAddrRange>)> {
@@ -343,6 +349,130 @@ fn leak_aligned(bytes: Vec<u8>) -> PhysAddr {
         words.push(u64::from_ne_bytes(encoded));
     }
     PhysAddr::new(words.leak().as_ptr() as usize)
+}
+
+/// Offset of the next-stage FDT copy within the firmware's RAM bank.
+///
+/// Upstream OpenSBI hands its FDT to the next stage 34 MiB above the start of
+/// RAM (0x82200000 on QEMU virt), far from the firmware image. Next-stage
+/// loaders derive their own load addresses from the FDT location — the Hermit
+/// loader, for example, places the kernel just above the two-megabyte-aligned
+/// span containing the tree — so a heap allocation next to this firmware's
+/// image would pin the next stage directly on top of the loader.
+const NEXT_STAGE_FDT_BANK_OFFSET: usize = 0x0220_0000;
+
+const FDT_BANK_ALIGNMENT: usize = 0x20_0000;
+
+/// Copies the rewritten tree to a checked next-stage-friendly address, or
+/// keeps the heap allocation when no such address fits.
+fn place_rewritten(
+    description: &PlatformDescription,
+    rewritten: Vec<u8>,
+    firmware_image_range: Option<PhysAddrRange>,
+) -> PhysAddr {
+    let placement = next_stage_layout(description, &rewritten)
+        .and_then(|layout| checked_placement(&layout, firmware_image_range));
+    match placement {
+        Some(address) => {
+            // SAFETY: `checked_placement` verified that the span lies inside a
+            // RAM bank handed to the next stage and clear of the firmware
+            // image, the incoming FDT, the initrd, and every existing
+            // reservation. The heap is a fixed `.bss` array inside the
+            // firmware image, so no allocation can reach this span, and this
+            // firmware never touches it again afterwards: the address is only
+            // handed to the next stage through the boot ABI.
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    rewritten.as_ptr(),
+                    address as *mut u8,
+                    rewritten.len(),
+                );
+            }
+            PhysAddr::new(address)
+        }
+        None => leak_aligned(rewritten),
+    }
+}
+
+/// Describes every region a next-stage FDT placement must keep clear of.
+struct NextStageLayout {
+    ram: Vec<PhysAddrRange>,
+    reserved: Vec<PhysAddrRange>,
+    fdt_storage: Option<PhysAddrRange>,
+    initrd: Option<PhysAddrRange>,
+    len: usize,
+}
+
+/// Gathers the placement inputs for the current description.
+///
+/// Returns `None` when the incoming tree cannot be inspected; the caller then
+/// falls back to the heap allocation.
+fn next_stage_layout(
+    description: &PlatformDescription,
+    rewritten: &[u8],
+) -> Option<NextStageLayout> {
+    let source = description.source().ok()?;
+    let (ram, reserved) = description.memory_ranges().ok()?;
+    let fdt_storage = PhysAddrRange::from_start_len(description.address, source.len()).ok()?;
+    let initrd = initrd_range(source);
+    Some(NextStageLayout {
+        ram,
+        reserved,
+        fdt_storage: Some(fdt_storage),
+        initrd,
+        len: rewritten.len(),
+    })
+}
+
+fn initrd_range(source: &[u8]) -> Option<PhysAddrRange> {
+    let fdt = Fdt::new(source).ok()?;
+    let chosen = fdt.find_node("/chosen")?;
+    let start = chosen.property("linux,initrd-start")?.as_usize()?;
+    let end = chosen.property("linux,initrd-end")?.as_usize()?;
+    PhysAddrRange::from_start_len(PhysAddr::new(start), end.checked_sub(start)?).ok()
+}
+
+/// Returns a two-megabyte-aligned candidate address for a next-stage FDT of
+/// `layout.len` bytes, or `None` when no checked placement fits.
+///
+/// The candidate sits `NEXT_STAGE_FDT_BANK_OFFSET` above the start of the RAM
+/// bank containing the firmware image, must fit inside that bank, and must
+/// not overlap the firmware image, the incoming FDT, the initrd, or any
+/// existing memory reservation.
+fn checked_placement(
+    layout: &NextStageLayout,
+    firmware_image_range: Option<PhysAddrRange>,
+) -> Option<usize> {
+    let bank = firmware_image_range
+        .as_ref()
+        .and_then(|image| layout.ram.iter().find(|bank| bank.contains(*image)))
+        .or_else(|| layout.ram.first())?;
+
+    let unaligned = bank
+        .start()
+        .as_usize()
+        .checked_add(NEXT_STAGE_FDT_BANK_OFFSET)?;
+    let address = unaligned
+        .div_ceil(FDT_BANK_ALIGNMENT)
+        .checked_mul(FDT_BANK_ALIGNMENT)?;
+    let candidate = PhysAddrRange::from_start_len(PhysAddr::new(address), layout.len).ok()?;
+    if !bank.contains(candidate) {
+        return None;
+    }
+
+    let overlaps = |range: &PhysAddrRange| {
+        range.start().as_usize() < address + layout.len && address < range.end().as_usize()
+    };
+    if firmware_image_range
+        .iter()
+        .chain(layout.fdt_storage.iter())
+        .chain(layout.initrd.iter())
+        .chain(layout.reserved.iter())
+        .any(overlaps)
+    {
+        return None;
+    }
+    Some(address)
 }
 
 /// Returns the complete FDT byte range described by an entry-point address.
@@ -414,6 +544,7 @@ fn record_nonempty_range(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
 
     // Keep the trust-seam checks together: the fixture is shared because the
     // production invariant is about the FDT trust boundary, not test-tree data.
@@ -472,5 +603,90 @@ mod tests {
         write_test_u32(source, 64, 2);
         write_test_u32(source, 68, 9);
         source
+    }
+
+    // The QEMU virt shape: firmware at the bank start, one bank, no
+    // reservations. The candidate must mirror upstream OpenSBI's 0x82200000.
+    #[test]
+    fn placement_matches_opensbi_qemu_virt() {
+        let layout = NextStageLayout {
+            ram: vec![ram(0x8000_0000, 0x0800_0000)],
+            reserved: vec![],
+            fdt_storage: Some(range(0x8006_8000, 0x2000)),
+            initrd: Some(range(0x8420_0000, 0x10_4000)),
+            len: 0x2000,
+        };
+        let firmware = range(0x8000_0000, 0x7_0000);
+
+        assert_eq!(
+            checked_placement(&layout, Some(firmware)),
+            Some(0x8220_0000),
+        );
+    }
+
+    #[test]
+    fn placement_rejects_small_bank() {
+        let layout = NextStageLayout {
+            ram: vec![ram(0x8000_0000, 0x0100_0000)],
+            reserved: vec![],
+            fdt_storage: Some(range(0x8006_8000, 0x2000)),
+            initrd: None,
+            len: 0x2000,
+        };
+        let firmware = range(0x8000_0000, 0x7_0000);
+
+        assert_eq!(checked_placement(&layout, Some(firmware)), None);
+    }
+
+    #[test]
+    fn placement_rejects_overlap_with_initrd() {
+        let layout = NextStageLayout {
+            ram: vec![ram(0x8000_0000, 0x0800_0000)],
+            reserved: vec![],
+            fdt_storage: Some(range(0x8006_8000, 0x2000)),
+            // The initrd covers the default candidate region.
+            initrd: Some(range(0x8220_0000, 0x100_0000)),
+            len: 0x2000,
+        };
+        let firmware = range(0x8000_0000, 0x7_0000);
+
+        assert_eq!(checked_placement(&layout, Some(firmware)), None);
+    }
+
+    #[test]
+    fn placement_rejects_overlap_with_reservation() {
+        let layout = NextStageLayout {
+            ram: vec![ram(0x8000_0000, 0x0800_0000)],
+            reserved: vec![range(0x8220_0000, 0x1_0000)],
+            fdt_storage: Some(range(0x8006_8000, 0x2000)),
+            initrd: None,
+            len: 0x2000,
+        };
+        let firmware = range(0x8000_0000, 0x7_0000);
+
+        assert_eq!(checked_placement(&layout, Some(firmware)), None);
+    }
+
+    // Without a known firmware image the first bank still anchors the
+    // candidate instead of giving up.
+    #[test]
+    fn placement_falls_back_to_first_bank() {
+        let layout = NextStageLayout {
+            ram: vec![ram(0x8000_0000, 0x0800_0000)],
+            reserved: vec![],
+            fdt_storage: Some(range(0x8006_8000, 0x2000)),
+            initrd: None,
+            len: 0x2000,
+        };
+
+        assert_eq!(checked_placement(&layout, None), Some(0x8220_0000));
+    }
+
+    fn range(start: usize, len: usize) -> PhysAddrRange {
+        PhysAddrRange::from_start_len(PhysAddr::new(start), len).unwrap()
+    }
+
+    fn ram(start: usize, len: usize) -> PhysAddrRange {
+        range(start, len)
     }
 }

@@ -15,3 +15,7 @@
 
 qemu-logs/
 /.openeuler-aia/
+
+# Boot-test work directories and build caches, created locally by
+# prototyper-hermit-boot.sh
+/.hermit-boot/
