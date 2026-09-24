@@ -45,6 +45,11 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Place the rewritten next-stage device tree at a checked address 34 MiB above the start of the RAM
+  bank holding the firmware image, mirroring upstream OpenSBI's placement, instead of a heap
+  allocation beside the image. Keep the tree clear of the firmware image, the incoming tree, the
+  initrd, and every existing reservation, falling back to the heap allocation when no checked
+  placement fits.
 - Reduce repeated device-tree scans during hart, ISA, interrupt-controller, console, and PMU discovery.
 - Initialize Smstateen before supervisor handoff, expose supported S-mode state, and clear lower-level state-enable registers.
 - Resolve firmware Clippy warnings and use a named Runtime IPI error type.
