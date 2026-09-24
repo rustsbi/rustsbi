@@ -44,11 +44,12 @@ pub enum Extension {
     Hypervisor = 1,
     Smaia = 2,
     Svpbmt = 3,
+    Zkr = 4,
     // Remember to increment `Extension::COUNT` while implementing new extensions.
 }
 
 impl Extension {
-    pub const COUNT: usize = 4;
+    pub const COUNT: usize = 5;
 
     pub const fn as_str(&self) -> &'static str {
         match self {
@@ -56,6 +57,7 @@ impl Extension {
             Self::Hypervisor => "h",
             Self::Smaia => "smaia", // TODO verify with DTB standard
             Self::Svpbmt => "svpbmt",
+            Self::Zkr => "zkr",
         }
     }
 
@@ -65,7 +67,14 @@ impl Extension {
     }
 
     pub fn iter() -> impl Iterator<Item = Self> {
-        [Self::Sstc, Self::Hypervisor, Self::Smaia, Self::Svpbmt].into_iter()
+        [
+            Self::Sstc,
+            Self::Hypervisor,
+            Self::Smaia,
+            Self::Svpbmt,
+            Self::Zkr,
+        ]
+        .into_iter()
     }
 }
 
@@ -274,6 +283,10 @@ pub fn configure_hart_environment() {
         // page-memory-type extension as Svpbmt and requires PBMTE.
         if hart_has_extension(hart_id, Extension::Svpbmt) {
             menvcfg::set_bits(menvcfg::PBMTE);
+        }
+        // The S-mode access to the Zkr `seed` CSR is gated under `mseccfg.SSEED`.
+        if hart_has_extension(hart_id, Extension::Zkr) && has_csr::<CSR_MSECCFG>() {
+            mseccfg::set_bits(mseccfg::SSEED);
         }
         let enable_aia =
             crate::driver::ipi::uses_imsic() && hart_has_extension(hart_id, Extension::Smaia);

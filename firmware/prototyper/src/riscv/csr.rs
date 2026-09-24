@@ -6,6 +6,7 @@ pub const CSR_STIMECMP: u16 = 0x14D;
 // Machine counter-enable and environment-configuration CSRs.
 pub const CSR_MCOUNTEREN: u16 = 0x306;
 pub const CSR_MENVCFG: u16 = 0x30a;
+pub const CSR_MSECCFG: u16 = 0x747;
 
 // Machine counter inhibit and the event-selector CSR range.
 pub const CSR_MCOUNTINHIBIT: u16 = 0x320;
@@ -75,6 +76,24 @@ pub mod menvcfg {
             if option >> 32 != 0 {
                 asm!("csrs 0x31a, {}", in(reg) (option >> 32) as usize, options(nomem));
             }
+        }
+    }
+}
+
+/// Machine security configuration register (mseccfg) bit fields.
+pub mod mseccfg {
+    use core::arch::asm;
+
+    /// S-mode access to the `seed` CSR (Zkr).
+    pub const SSEED: u64 = 0x1 << 9;
+
+    /// Sets specified bits in mseccfg register.
+    pub fn set_bits(option: u64) {
+        // SAFETY: M-mode update of this hart's own mseccfg. Callers probe the
+        // CSR first; the Zkr bits live in the low 32 bits on every XLEN, so
+        // no high-half write is needed on RV32.
+        unsafe {
+            asm!("csrs mseccfg, {}", in(reg) option as usize, options(nomem));
         }
     }
 }
