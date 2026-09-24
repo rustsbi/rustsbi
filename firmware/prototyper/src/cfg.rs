@@ -13,8 +13,6 @@ pub type NextAddr = crate::cfg::config::next_addr::NextAddr;
 /// Maximum number of supported harts; sourced from the Runtime
 /// configuration so all per-hart arrays agree with the Runtime's.
 pub const NUM_HART_MAX: usize = runtime::cfg::NUM_HART_MAX;
-/// Heap Size of SBI firmware.
-pub const HEAP_SIZE: usize = CONFIG.heap_size as usize;
 /// Platform page size.
 pub const PAGE_SIZE: usize = CONFIG.page_size as usize;
 /// Log Level.
