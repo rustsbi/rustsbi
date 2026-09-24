@@ -1,0 +1,95 @@
+name: DragonOS
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-dragonos-boot.sh"
+      - ".github/workflows/dragonos.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-dragonos-boot.sh"
+      - ".github/workflows/dragonos.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  dragonos-boot:
+    name: Boot DragonOS (${{ matrix.boot-path }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        boot-path: [sbi]
+    steps:
+      - name: Checkout RustSBI
+        uses: actions/checkout@v7
+
+      - name: Install boot dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ca-certificates curl \
+            dosfstools fdisk gcc-riscv64-linux-gnu libc6-dev-riscv64-cross git \
+            bzip2 mtools python3 \
+            qemu-system-misc util-linux xz-utils
+          qemu-system-riscv64 --version
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      # RustSBI is rebuilt every run. The pinned DragonOS source produces both
+      # the bare kernel image and the EFI payload containing that same kernel.
+      # Bump the cache revision whenever the corresponding build recipe changes.
+      - name: Cache DragonOS kernel and EFI payload
+        uses: actions/cache@v5
+        with:
+          path: |
+            .cache/dragonos-bootloaders/bootriscv64.efi
+            .cache/dragonos-bootloaders/dragonos-kernel.bin
+          key: dragonos-40572b45-stub-85156066-v3
+
+      - name: Cache BusyBox userspace
+        uses: actions/cache@v5
+        with:
+          path: .cache/dragonos-bootloaders/busybox
+          key: dragonos-busybox-1.35.0-musl-b3833579-v1
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build
+
+      - name: Boot and exercise DragonOS userspace
+        run: .github/scripts/prototyper-dragonos-boot.sh "${{ matrix.boot-path }}"
+
+      - name: Upload serial logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dragonos-boot-${{ matrix.boot-path }}
+          path: qemu-logs/dragonos/${{ matrix.boot-path }}/*.log
+          if-no-files-found: ignore
