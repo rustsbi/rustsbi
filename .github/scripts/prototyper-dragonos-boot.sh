@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Boot DragonOS through bare RustSBI, then run a BusyBox
+# Boot DragonOS through bare RustSBI or U-Boot, then run a BusyBox
 # shell command through virtconsole. Requires `cargo prototyper build`, Docker and
-# the packages in dragonos.yml. Usage: $0 [sbi].
+# the packages in dragonos.yml. Usage: $0 [sbi|u-boot].
 # The pinned DragonOS fork carries RISC-V userspace fixes pending upstream.
 # Its default RISC-V init only prints Hello; use the existing BusyBox shell
 # instead. Sources and immutable builds are cached; disks are recreated.
@@ -10,15 +10,21 @@ set -euo pipefail
 
 mode=${1:-sbi}
 case "$mode" in
-  sbi) ;;
-  *) echo "Usage: $0 [sbi]" >&2; exit 2 ;;
+  sbi|u-boot) ;;
+  *) echo "Usage: $0 [sbi|u-boot]" >&2; exit 2 ;;
 esac
 (( $# <= 1 )) || { echo "Expected at most one boot mode" >&2; exit 2; }
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
-readonly rustsbi=target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.elf
+if [[ "$mode" == sbi ]]; then
+  readonly rustsbi=target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.elf
+else
+  readonly rustsbi=target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.bin
+fi
 readonly DRAGONOS_REV=40572b4554bee5b0a46fb0eff17fdff3a4d74b5e
 readonly STUB_REV=8515606674058ca81cd1c0b99453e326875c5c0d
 readonly DRAGONOS_IMAGE=dragonos/dragonos-dev@sha256:de57dc949325dc94379defe710d973ba6531c322770d95aa265dd26709b0780a
+readonly UBOOT_VERSION=2024.04
+readonly UBOOT_SHA256=d6b57ce574a0a0504a5b6596644ceacb7f77bde9353779bcf2fde07c4b9a2b92
 readonly BUSYBOX_VERSION=1.35.0
 readonly BUSYBOX_SHA256=faeeb244c35a348a334f4a59e44626ee870fb07b6884d68c10ae8bc19f83a694
 readonly MUSL_URL=https://github.com/DragonOS-Community/musl-cross-make/releases/download/9.4.0-231114/riscv64-linux-musl-cross-gcc-9.4.0.tar.xz
@@ -106,7 +112,29 @@ prepare_busybox() {
   cp "$tree/busybox" "$cache_dir/busybox"
 }
 
-# root=/dev/vda1 uses this per-run partitioned FAT disk.
+prepare_bootloader() {
+  if [[ "$mode" == u-boot ]]; then
+    if [[ ! -s "$cache_dir/u-boot.bin" ]]; then
+      if [[ -n ${DRAGONOS_UBOOT_SOURCE_DIR:-} ]]; then
+        tree=$DRAGONOS_UBOOT_SOURCE_DIR
+        [[ $(git -C "$tree" rev-parse HEAD) == 25049ad560826f7dc1c4740883b0016014a59789 ]]
+      else
+        tarball="$work_dir/u-boot-${UBOOT_VERSION}.tar.gz"
+        download_asset "https://github.com/u-boot/u-boot/archive/refs/tags/v${UBOOT_VERSION}.tar.gz" \
+          "$tarball" "$UBOOT_SHA256"
+        tar -xzf "$tarball" -C "$work_dir"
+        tree="$work_dir/u-boot-${UBOOT_VERSION}"
+      fi
+      make -C "$tree" O="$work_dir/uboot-build" ARCH=riscv \
+        CROSS_COMPILE=riscv64-linux-gnu- qemu-riscv64_smode_defconfig
+      make -C "$tree" O="$work_dir/uboot-build" ARCH=riscv \
+        CROSS_COMPILE=riscv64-linux-gnu- -j"$(nproc)"
+      cp "$work_dir/uboot-build/u-boot.bin" "$cache_dir/u-boot.bin"
+    fi
+  fi
+}
+
+# Both bootloaders and root=/dev/vda1 use this per-run partitioned FAT disk.
 # mtools avoids privileged loop mounts. An empty volume label avoids a known
 # FAT directory bug in the pinned DragonOS commit.
 make_disk() {
@@ -120,15 +148,17 @@ make_disk() {
   # The pinned DragonOS commit does not yet include the FAT volume-label fix.
   # An empty label leaves the root directory without a volume-label entry.
   mkfs.fat -F 32 -S 512 -h 2048 --invariant -n '' "$fat" >/dev/null
-  mmd -i "$fat" ::/bin
+  mmd -i "$fat" ::/efi ::/efi/boot ::/bin
+  mcopy -i "$fat" "$cache_dir/bootriscv64.efi" ::/efi/boot/bootriscv64.efi
   mcopy -i "$fat" "$cache_dir/busybox" ::/bin/busybox
   mcopy -i "$fat" "$cache_dir/busybox" ::/bin/sh
   dd if="$fat" of="$disk" bs=1M seek=1 conv=notrunc,sparse status=none
+  mdir -i "${disk}@@1048576" ::/efi/boot/bootriscv64.efi
   mdir -i "${disk}@@1048576" ::/bin/sh
   rm -f "$fat"
 }
 
-# QEMU's pipe backends connect the guest shell; output
+# QEMU's pipe backends provide stdin for U-Boot and the guest shell; output
 # goes straight to logs. No terminal automation or custom guest protocol.
 start_qemu() {
   local channel
@@ -143,7 +173,10 @@ start_qemu() {
     -device virtio-serial-device -device 'virtconsole,chardev=guest'
     -drive "if=none,id=hd0,format=raw,file=$run_dir/disk.img"
     -device 'virtio-blk-device,drive=hd0')
-  args+=(-kernel "$cache_dir/dragonos-kernel.bin" -append "$bootargs")
+  case "$mode" in
+    sbi) args+=(-kernel "$cache_dir/dragonos-kernel.bin" -append "$bootargs") ;;
+    u-boot) args+=(-kernel "$cache_dir/u-boot.bin") ;;
+  esac
   for channel in uart guest; do
     cat "$run_dir/$channel.out" >"$run_dir/$channel.log" &
     readers+=("$!")
@@ -173,6 +206,21 @@ wait_for() {
 
 boot_userspace() {
   wait_for "$run_dir/uart.log" 'Hello RustSBI!'
+  if [[ "$mode" == u-boot ]]; then
+    wait_for "$run_dir/uart.log" 'Hit any key to stop autoboot:'
+    printf '\r' >&3
+    wait_for "$run_dir/uart.log" '=> '
+    # U-Boot expands fdtcontroladdr after receiving this command.
+    # shellcheck disable=SC2016
+    printf '%s' 'virtio scan; ' \
+      'fatload virtio 0:1 0x84000000 /efi/boot/bootriscv64.efi; ' \
+      'setenv bootargs; fdt move ${fdtcontroladdr} 0x88000000 0x10000; ' \
+      'fdt addr 0x88000000; ' "fdt set /chosen bootargs \"$bootargs\"; " \
+      'bootefi 0x84000000 0x88000000' $'\r' >&3
+  fi
+  if [[ "$mode" != sbi ]]; then
+    wait_for "$run_dir/uart.log" 'Booting DragonOS kernel'
+  fi
   wait_for "$run_dir/guest.log" '# '
   # Split the marker so terminal command echo cannot satisfy the assertion.
   printf '%s\n' "test -r /bin/sh && printf 'RUSTSBI-%s\\n' SMOKE-OK" >&4
@@ -205,6 +253,7 @@ main() {
   qemu-system-riscv64 --version
   prepare_dragonos
   prepare_busybox
+  prepare_bootloader
   make_disk
   bootargs='root=/dev/vda1 console=/dev/hvc0 init=/bin/sh rw -- -i'
   start_qemu
