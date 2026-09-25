@@ -64,6 +64,18 @@ pub mod menvcfg {
     /// Supervisor timer counter enable.
     pub const STCE: u64 = 0x1 << 63;
 
+    /// Clears specified bits in menvcfg.
+    pub fn clear_bits(option: u64) {
+        // SAFETY: M-mode update of this hart's own menvcfg.
+        unsafe {
+            asm!("csrc menvcfg, {}", in(reg) option as usize, options(nomem));
+            #[cfg(target_pointer_width = "32")]
+            if option >> 32 != 0 {
+                asm!("csrc 0x31a, {}", in(reg) (option >> 32) as usize, options(nomem));
+            }
+        }
+    }
+
     /// Sets specified bits in menvcfg register.
     pub fn set_bits(option: u64) {
         // SAFETY: M-mode update of this hart's own menvcfg. On RV32 the

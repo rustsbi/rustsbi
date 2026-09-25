@@ -46,6 +46,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Enable S-mode CBO instructions only when each hart advertises `zicbom` or `zicboz`.
 - Move Prototyper heap storage and the global allocation boundary into Runtime,
   keep first-fit placement in safe policy code, and remove the buddy dependency.
 - Reduce repeated device-tree scans during hart, ISA, interrupt-controller, console, and PMU discovery.
