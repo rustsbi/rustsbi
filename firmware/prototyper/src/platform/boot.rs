@@ -63,6 +63,11 @@ fn try_init_board(platform_description: runtime::PlatformDescription) -> error::
         .as_ref()
         .map(crate::platform::allwinner::v821::V821::noncacheable_alias_offset);
 
+    if let Some(v821) = v821.as_ref() {
+        driver::allwinner::v821::release_boot0_isp_sram(v821.soc(), &mut memory)
+            .during("releasing V821 boot0 ISP SRAM")?;
+    }
+
     if board.devices.interrupts.plmt.is_some()
         && board.devices.interrupts.plicsw.is_some()
         && let Some(v821) = v821.as_ref()

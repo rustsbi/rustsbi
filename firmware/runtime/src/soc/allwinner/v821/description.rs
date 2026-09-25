@@ -16,6 +16,7 @@ use crate::soc::Soc;
 const V821_COMPATIBLE: &str = "allwinner,v821";
 const CCU_BASE: usize = 0x4200_1000;
 const PLMT_CLOCK_CONTROL_OFFSET: usize = 0x10;
+const PRCM_SYSTEM_PRIVATE0: usize = 0x4a00_0200;
 
 /// A V821 root-compatible capability.
 ///
@@ -38,6 +39,12 @@ impl Soc for AllwinnerV821Soc {
 }
 
 impl AllwinnerV821Soc {
+    /// PRCM system private word used to release boot0's ISP SRAM.
+    pub fn boot0_isp_sram_release(self) -> Result<DeviceRegisterRange> {
+        PhysAddrRange::from_start_len(PhysAddr::new(PRCM_SYSTEM_PRIVATE0), size_of::<u32>())
+            .map(DeviceRegisterRange::from_description)
+    }
+
     /// PLMT timer clock gate in the V821 CCU register map.
     pub fn plmt_clock(self) -> Result<DeviceRegisterRange> {
         PhysAddrRange::from_start_len(
