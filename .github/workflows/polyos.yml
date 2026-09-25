@@ -1,0 +1,95 @@
+name: PolyOS
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-polyos-boot.sh"
+      - ".github/workflows/polyos.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-polyos-boot.sh"
+      - ".github/workflows/polyos.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  polyos-boot:
+    name: Boot PolyOS (u-boot)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bison \
+            build-essential \
+            curl \
+            e2fsprogs \
+            flex \
+            gcc-riscv64-linux-gnu \
+            libssl-dev \
+            parted \
+            python3-dev \
+            python3-setuptools \
+            qemu-system-misc \
+            qemu-utils \
+            swig \
+            xz-utils
+          qemu-system-riscv64 --version
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      # The PolyOS archive is an immutable versioned download; the extracted
+      # images are what the boot actually needs. Bump the trailing revision
+      # after editing the extraction recipe in the script.
+      - name: Cache PolyOS images
+        uses: actions/cache@v5
+        with:
+          path: |
+            .cache/polyos/polyos-mobile-3.2-release.img.tar.xz
+            .polyos/work/images
+          key: polyos-mobile-3.2-release-v1
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build
+
+      - name: Boot PolyOS
+        run: .github/scripts/prototyper-polyos-boot.sh
+
+      - name: Upload PolyOS log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: polyos-log-u-boot
+          path: qemu-logs/prototyper-polyos-uboot.log
+          if-no-files-found: ignore
