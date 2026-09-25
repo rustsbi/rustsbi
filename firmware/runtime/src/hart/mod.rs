@@ -18,9 +18,9 @@ pub(crate) use lifecycle::{
 };
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub use lifecycle::{
-    HartState, ResumeError, ResumeTicket, StageError, StartError, StartOutcome, StopError,
-    SuspendError, begin_nonretentive_resume, can_receive_ipi, resume_current_retentive,
-    stage_current, start, status, stop_current, suspend_current,
+    DomainContext, HartState, ResumeError, ResumeTicket, StageError, StartError, StartOutcome,
+    StopError, SuspendError, begin_nonretentive_resume, can_receive_ipi, resume_current_retentive,
+    stage_current, stage_retentive_transfer, start, status, stop_current, suspend_current,
 };
 pub use local::{HartLocal, HartLocalError};
 pub use set::{HartSet, HartSetIter};
