@@ -59,9 +59,12 @@ pub fn register_global_heap_allocator(
     }
 }
 
+// Host builds compile this bridge without installing it as the global allocator.
+#[allow(dead_code)]
 struct AllocDispatch;
 
-#[global_allocator]
+#[allow(dead_code)]
+#[cfg_attr(target_os = "none", global_allocator)]
 static ALLOC_DISPATCH: AllocDispatch = AllocDispatch;
 
 // SAFETY: Dispatch checks that policy slots belong to the linker arena and
