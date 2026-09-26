@@ -1,0 +1,96 @@
+name: Arch Linux
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-archlinux-boot.sh"
+      - ".github/workflows/archlinux.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-archlinux-boot.sh"
+      - ".github/workflows/archlinux.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  archlinux-boot:
+    name: Boot Arch Linux (${{ matrix.boot-path }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        boot-path:
+          - u-boot
+          - edk2
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install boot dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            acpica-tools bc bison build-essential curl dosfstools e2fsprogs \
+            flex gcc-riscv64-linux-gnu git kmod libgnutls28-dev libssl-dev \
+            make nasm parted python3 python3-dev python3-setuptools \
+            qemu-system-misc qemu-utils swig udev util-linux uuid-dev \
+            xz-utils zstd
+          qemu-system-riscv64 --version
+
+      - name: Install required cargo tool
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      - name: Cache Arch rootfs and Linux Image
+        uses: actions/cache@v5
+        with:
+          path: |
+            .cache/archlinux/archriscv-2026-08-27.tar.zst
+            .cache/archlinux/linux-6.15.9-Image
+          key: archlinux-rootfs-2026-08-27-linux-6.15.9-v1
+
+      - name: Cache EDK II firmware
+        if: matrix.boot-path == 'edk2'
+        uses: actions/cache@v5
+        with:
+          path: .cache/archlinux/edk2-6951dfe7d59d144a3a980bd7eda699db2d8554ac
+          key: archlinux-edk2-6951dfe7-v1
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build
+
+      - name: Boot Arch Linux
+        run: .github/scripts/prototyper-archlinux-boot.sh "${{ matrix.boot-path }}"
+
+      - name: Upload Arch Linux serial log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: archlinux-serial-${{ matrix.boot-path }}
+          path: qemu-logs/prototyper-archlinux-${{ matrix.boot-path }}.log
+          if-no-files-found: warn
