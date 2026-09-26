@@ -1,0 +1,81 @@
+name: Miralis
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-miralis-boot.sh"
+      - ".github/workflows/miralis.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+      - "firmware/test-kernel/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-miralis-boot.sh"
+      - ".github/workflows/miralis.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+      - "firmware/test-kernel/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  boot:
+    name: Boot Prototyper under Miralis
+    # QEMU >= 9.1 is required by the test kernel's CSR checks.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout RustSBI
+        uses: actions/checkout@v7
+
+      - name: Install QEMU and binary tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-riscv
+          cargo install --locked cargo-binutils@0.4.0
+
+      - name: Build Prototyper and test kernel
+        run: cargo prototyper test --no-run
+
+      - name: Checkout pinned Miralis
+        uses: actions/checkout@v7
+        with:
+          repository: CharlyCst/miralis
+          ref: 548e1c15cde4aff64e317d1af94958680e0c70f3
+          path: miralis
+
+      - name: Install Miralis toolchain
+        run: rustup toolchain install nightly-2026-09-08 --component rust-src,llvm-tools-preview
+
+      - name: Build Miralis
+        working-directory: miralis
+        run: cargo run --locked -- build --config config/test/qemu-virt.toml
+
+      - name: Boot and verify the test kernel
+        run: bash .github/scripts/prototyper-miralis-boot.sh
+
+      - name: Upload QEMU log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: prototyper-miralis-log
+          path: qemu-logs/prototyper-miralis-*.log
+          if-no-files-found: ignore
