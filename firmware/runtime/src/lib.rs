@@ -22,6 +22,7 @@ pub mod hart;
 pub mod heap;
 pub mod ipi;
 pub mod irq;
+pub mod machine_irq;
 pub mod memory;
 pub mod soc;
 mod spacemit_k1;
