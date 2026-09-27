@@ -46,7 +46,7 @@ jobs:
       fail-fast: false
       matrix:
         boot-path:
-          - bare
+          - sbi
           - u-boot
     steps:
       - name: Checkout code

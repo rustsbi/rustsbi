@@ -2,11 +2,11 @@
 #
 # Boot NuttX (rv-virt:flats64) through RustSBI Prototyper in QEMU.
 #
-# Usage: $0 [bare|u-boot]
+# Usage: $0 [sbi|u-boot]
 #
 # Boot paths, both ending in NuttX's NSH shell running the hello example:
 #
-#   bare    QEMU -> RustSBI (dynamic) -> the NuttX ELF directly.
+#   sbi     QEMU -> RustSBI (dynamic) -> the NuttX ELF directly.
 #   u-boot  QEMU -> RustSBI (dynamic) -> U-Boot (S-mode) -> NuttX (bootm).
 #           NuttX is wrapped as a U-Boot legacy image (uImage, load and entry
 #           0x80200000) on a small FAT disk that U-Boot loads it from.
@@ -34,15 +34,15 @@
 set -euo pipefail
 
 if (( $# > 1 )); then
-  echo "Usage: $0 [bare|u-boot]" >&2
+  echo "Usage: $0 [sbi|u-boot]" >&2
   exit 2
 fi
 
-readonly BOOT_MODE="${1:-bare}"
+readonly BOOT_MODE="${1:-sbi}"
 case "$BOOT_MODE" in
-  bare | u-boot) ;;
+  sbi | u-boot) ;;
   *)
-    echo "Usage: $0 [bare|u-boot]" >&2
+    echo "Usage: $0 [sbi|u-boot]" >&2
     exit 2
     ;;
 esac
@@ -86,7 +86,7 @@ readonly LOG_DIR="${QEMU_LOG_DIR:-qemu-logs}"
 readonly LOG_FILE="${LOG_DIR}/prototyper-nuttx-${BOOT_MODE}.log"
 
 readonly RUSTSBI="${NUTTX_RUSTSBI:-target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.bin}"
-if [[ "$BOOT_MODE" = bare ]]; then
+if [[ "$BOOT_MODE" = sbi ]]; then
   readonly BOOT_TIMEOUT_SECS="${NUTTX_BOOT_TIMEOUT_SECS:-180}"
 else
   readonly BOOT_TIMEOUT_SECS="${NUTTX_BOOT_TIMEOUT_SECS:-240}"
@@ -291,7 +291,7 @@ start_qemu() {
   local -a disks=()
 
   case "$BOOT_MODE" in
-    bare)
+    sbi)
       boot=(-kernel "$NUTTX_ELF")
       ;;
     u-boot)
