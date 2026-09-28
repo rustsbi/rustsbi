@@ -1,4 +1,4 @@
-//! V821 A27L2 cache and USB firmware drivers.
+//! V821 boot handshake, A27L2 cache, and USB firmware drivers.
 //!
 //! Both devices are selected by the same V821 root capability. They stay
 //! outside the platform-wide device set because only the V821 custom SBI
@@ -66,6 +66,21 @@ const LARGE_FLUSH_THRESHOLD: usize = 128 * 1024;
 const COMMAND_TIMEOUT_TICKS: u32 = 4_000_000;
 const STATUS_STATE_MASK: u32 = 0xf;
 const STATUS_BUSY: u32 = 1;
+
+/// Lets the RTOS ISP driver reclaim boot0's SRAM after firmware moves to DRAM.
+pub(crate) fn release_boot0_isp_sram(
+    soc: AllwinnerV821Soc,
+    memory: &mut MemoryRegistry,
+) -> runtime::Result<()> {
+    const BOOT0_ISP_SRAM_RELEASED: u32 = 1 << 0;
+
+    let registers = memory.acquire_mmio(soc.boot0_isp_sram_release()?)?;
+    riscv::asm::fence();
+    let flags = registers.read::<u32>(0)?;
+    registers.write(0, flags | BOOT0_ISP_SRAM_RELEASED)?;
+    riscv::asm::fence();
+    Ok(())
+}
 
 /// Enables the V821 CCU gate required by the PLMT timer.
 pub(crate) fn enable_plmt_clock(

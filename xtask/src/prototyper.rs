@@ -43,6 +43,6 @@ pub fn run(command: &PrototyperCommand) -> Result<ExitStatus> {
 }
 
 #[cfg(test)]
-pub(crate) use config::{PlatformAddresses, resolve_in};
+pub(crate) use config::{FirmwareLayout, resolve_in};
 #[cfg(test)]
 pub(crate) use generate::{BuildPaths, generate_build_inputs, render_linker_script};

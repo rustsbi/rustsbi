@@ -1,53 +1,74 @@
-//! Console discovery from `/chosen/stdout-path`.
+//! Console discovery from `/chosen/stdout-path` with an FDT-wide fallback.
 
-use crate::devicetree::{compatible_strings, find_enabled_node};
 use crate::driver;
 use crate::platform::info::ConsoleInfo;
 
 pub(super) fn discover(
     platform: &runtime::PlatformView<'_>,
 ) -> runtime::Result<Option<ConsoleInfo>> {
-    let root = platform.root();
-    if find_enabled_node(root, "/chosen").is_none() {
-        return Ok(None);
+    if let Some(chosen) = platform.find_enabled_node("/chosen")
+        && let Some(stdout_path) = chosen
+            .property("stdout-path")
+            .and_then(|property| property.as_str())
+            .and_then(|path| path.split(':').next())
+        && let Some(node) = platform.find_enabled_node(stdout_path)
+        && let Some(console) = discover_node(platform, node)?
+    {
+        return Ok(Some(console));
     }
-    let Some(stdout_path) = root.chosen_stdout_path() else {
-        return Ok(None);
-    };
-    if root.find(stdout_path).is_none() {
-        return Err(runtime::Error::InvalidArgs);
-    }
-    let Some(node) = find_enabled_node(root, stdout_path) else {
-        return Ok(None);
-    };
-    let compatibles = compatible_strings(&node).ok_or(runtime::Error::InvalidArgs)?;
 
-    let register_shift = node
-        .get_prop("reg-shift")
-        .map(|property| property.deserialize::<u32>());
-    let register_width = node
-        .get_prop("reg-io-width")
-        .map(|property| property.deserialize::<u32>());
-    let kind = compatibles.iter().find_map(|compatible| {
-        driver::ConsoleKind::from_fdt(compatible, register_shift, register_width)
-    });
-    let Some(kind) = kind else {
-        return if compatibles.iter().any(driver::ConsoleKind::supports) {
-            Err(runtime::Error::InvalidArgs)
-        } else {
-            Ok(None)
-        };
+    for node in platform.fdt().all_nodes() {
+        if !runtime::node_is_enabled(node) {
+            continue;
+        }
+        if let Some(console) = discover_node(platform, node)? {
+            return Ok(Some(console));
+        }
+    }
+    Ok(None)
+}
+
+fn discover_node(
+    platform: &runtime::PlatformView<'_>,
+    node: runtime::FdtNode<'_, '_>,
+) -> runtime::Result<Option<ConsoleInfo>> {
+    let Some(compatibles) = node.compatible() else {
+        return Ok(None);
     };
+    if !compatibles.all().any(driver::ConsoleKind::supports) {
+        return Ok(None);
+    }
+
+    let mut register_shift = None;
+    let mut register_width = None;
+    let mut clock_hz = None;
+    for property in node.properties() {
+        let slot = match property.name {
+            "reg-shift" => &mut register_shift,
+            "reg-io-width" => &mut register_width,
+            "clock-frequency" => &mut clock_hz,
+            _ => continue,
+        };
+        // Preserve `FdtNode::property`'s first-match behavior for malformed values.
+        slot.get_or_insert(property.value);
+    }
+    let parse_u32 = |value: &[u8]| value.try_into().ok().map(u32::from_be_bytes);
+    let register_shift = register_shift.and_then(parse_u32);
+    let register_width = register_width.and_then(parse_u32);
+    let clock_hz = clock_hz.and_then(parse_u32);
+    let kind = compatibles
+        .all()
+        .find_map(|compatible| {
+            driver::ConsoleKind::from_fdt(compatible, register_shift, register_width)
+        })
+        .ok_or(runtime::Error::InvalidArgs)?;
     let registers = platform
-        .device_registers(&node)?
-        .and_then(|ranges| ranges.first().copied())
+        .device_register(node)?
         .ok_or(runtime::Error::InvalidArgs)?;
 
     Ok(Some(ConsoleInfo {
         registers,
         kind,
-        clock_hz: node
-            .get_prop("clock-frequency")
-            .map(|property| property.deserialize::<u32>()),
+        clock_hz,
     }))
 }

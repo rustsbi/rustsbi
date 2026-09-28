@@ -7,7 +7,7 @@ use std::{
 use clap::Parser;
 
 use super::{
-    BuildArgs, BuildMode, BuildPaths, PlatformAddresses, PrototyperCommand, Target,
+    BuildArgs, BuildMode, BuildPaths, FirmwareLayout, PrototyperCommand, Target,
     build::remove_stale_payload_artifacts,
     generate_build_inputs,
     kernels::{self, Kernel, KernelArgs, ResolvedRun, forbidden_patterns},
@@ -20,10 +20,12 @@ use crate::utils::cargo_target_dir_in;
 static NEXT_TEST_DIR: AtomicUsize = AtomicUsize::new(0);
 
 const VALID_CONFIG_TOML: &str = "link_start_address = 0x80000000\n\
+                                  heap_size = 0x15000\n\
                                   payload_address = 0x80200000\n\
                                   jump_address = 0x80200000\n";
-const LINKER_TEMPLATE: &str =
-    ". = @LINK_START_ADDRESS@;\n.text @PAYLOAD_ADDRESS@ : ALIGN(0x1000) { *(.payload) }\n";
+const LINKER_TEMPLATE: &str = ". = @LINK_START_ADDRESS@;\n\
+    .bss : { sbi_heap_start = .; . += @HEAP_SIZE@; sbi_heap_end = .; }\n\
+    .text @PAYLOAD_ADDRESS@ : ALIGN(0x1000) { *(.payload) }\n";
 
 #[derive(Parser)]
 struct TestCli {
@@ -300,9 +302,17 @@ fn resolve_rejects_mode_features_and_invalid_config() {
     let error = resolve_in(&base_build_args(), &root, &root).unwrap_err();
     assert!(format!("{error:#}").contains("`payload_address`"));
 
+    for heap_size in ["", "heap_size = 31"] {
+        let config = VALID_CONFIG_TOML.replace("heap_size = 0x15000", heap_size);
+        fs::write(&config_path, config).unwrap();
+        let error = resolve_in(&base_build_args(), &root, &root).unwrap_err();
+        assert!(format!("{error:#}").contains("`heap_size`"));
+    }
+
     fs::write(
         &config_path,
         "link_start_address = 0x80200000\n\
+         heap_size = 0x15000\n\
          payload_address = 0x80000000\n\
          jump_address = 0x80200000\n",
     )
@@ -426,17 +436,15 @@ fn generated_inputs_and_stamp_follow_build_mode() {
 
 #[test]
 fn linker_template_renders_known_addresses_and_rejects_unknown_tokens() {
-    let addresses = PlatformAddresses {
+    let addresses = FirmwareLayout {
         link_start_address: 0x80000000,
+        heap_size_bytes: 0x15000,
         payload_address: 0x80200000,
     };
-    let rendered = render_linker_script(
-        ". = @LINK_START_ADDRESS@; .text @PAYLOAD_ADDRESS@ : { *(.payload) }",
-        &addresses,
-    )
-    .unwrap();
+    let rendered = render_linker_script(LINKER_TEMPLATE, &addresses).unwrap();
     assert!(rendered.contains("0x80000000"));
     assert!(rendered.contains("0x80200000"));
+    assert!(rendered.contains(". += 0x15000;"));
 
     // Placeholder-shaped unknown tokens are rejected.
     let error = render_linker_script(". = @UNKNOWN@;", &addresses).unwrap_err();

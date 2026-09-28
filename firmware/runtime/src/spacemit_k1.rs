@@ -10,7 +10,7 @@ use core::mem::size_of;
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 use core::arch::asm;
 
-use serde_device_tree::buildin::{Node, StrSeq};
+use fdt::node::FdtNode;
 
 use crate::Result;
 use crate::memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange};
@@ -99,13 +99,12 @@ impl SpacemitK1Registers {
     }
 
     /// Returns K1 system registers when the root compatible list identifies K1.
-    pub(crate) fn from_root(root: &Node<'_>) -> Result<Option<Self>> {
-        let Some(compatible) = root.get_prop("compatible") else {
+    pub(crate) fn from_root(root: FdtNode<'_, '_>) -> Result<Option<Self>> {
+        let Some(compatible) = root.compatible() else {
             return Ok(None);
         };
         if !compatible
-            .deserialize::<StrSeq>()
-            .iter()
+            .all()
             .any(|value| value == SPACEMIT_K1_COMPATIBLE)
         {
             return Ok(None);

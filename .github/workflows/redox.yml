@@ -1,0 +1,82 @@
+name: Redox
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-redox-boot.sh"
+      - ".github/workflows/redox.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-redox-boot.sh"
+      - ".github/workflows/redox.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  redox-boot:
+    name: Boot Redox OS
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bzip2 \
+            ca-certificates \
+            curl \
+            qemu-system-riscv \
+            qemu-utils \
+            zstd
+          qemu-system-riscv64 --version
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      - name: Cache Redox image
+        uses: actions/cache@v5
+        with:
+          path: .cache/redox/rustsbi-ci-2026-09-27
+          key: redox-riscv64-rustsbi-ci-2026-09-27-a49e0af5-edk2-v10.2.1
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build
+
+      - name: Boot Redox OS
+        run: .github/scripts/prototyper-redox-boot.sh
+
+      - name: Upload Redox logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: redox-serial-logs
+          path: qemu-logs/
+          if-no-files-found: warn

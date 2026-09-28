@@ -4,7 +4,8 @@
 //! only the highest-priority matched driver into a [`ResetDevice`].
 
 use runtime::Result;
-use serde_device_tree::buildin::Node;
+
+use crate::devicetree::EnabledNode;
 
 use super::ResetDevice;
 use super::registry::{BindResources, Registry};
@@ -15,37 +16,27 @@ pub(crate) struct Description {
 }
 
 impl Description {
-    /// An empty description used before the single discovery pass.
-    pub(crate) fn empty() -> Self {
+    /// Returns an empty placeholder used while constructing [`BoardInfo`](crate::platform::BoardInfo).
+    pub(crate) const fn empty() -> Self {
         Self {
             registry: Registry::empty(),
         }
     }
 
-    /// Walks the tree once and lets every registered reset driver inspect it.
-    pub(crate) fn discover(platform: &runtime::PlatformView<'_>) -> Result<Self> {
-        let mut description = Self {
+    /// Creates a reset description ready for the shared discovery pass.
+    pub(crate) fn new() -> Self {
+        Self {
             registry: Registry::new(),
-        };
-        description.visit(platform, platform.root(), None)?;
-        Ok(description)
+        }
     }
 
-    fn visit<'tree>(
+    /// Lets every registered reset driver inspect one enabled node.
+    pub(crate) fn probe(
         &mut self,
-        platform: &runtime::PlatformView<'tree>,
-        node: &Node<'tree>,
-        parent: Option<&Node<'tree>>,
+        platform: &runtime::PlatformView<'_>,
+        node: EnabledNode<'_, '_>,
     ) -> Result<()> {
-        if !runtime::node_is_enabled(node) {
-            return Ok(());
-        }
-        self.registry.probe(platform, node, parent)?;
-        for child in node.nodes() {
-            let child = child.deserialize::<Node<'tree>>();
-            self.visit(platform, &child, Some(node))?;
-        }
-        Ok(())
+        self.registry.probe(platform, node)
     }
 
     /// Binds the first discovered driver in registration priority order.

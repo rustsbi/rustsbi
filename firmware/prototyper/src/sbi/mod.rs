@@ -22,7 +22,6 @@ pub(crate) mod vendor;
 
 pub mod features;
 pub mod hart_local;
-pub mod heap;
 pub mod logger;
 
 use console::SbiConsole;

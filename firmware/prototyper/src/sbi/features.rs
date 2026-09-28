@@ -2,18 +2,14 @@
 
 use ::riscv::register::mstatus::MPP;
 use riscv::register::misa;
+use runtime::FdtNode;
 use seq_macro::seq;
-#[cfg(not(feature = "nemu"))]
-use serde_device_tree::buildin::Node;
-use serde_device_tree::buildin::NodeSeq;
 
 use crate::fail;
 use crate::platform::mark_hart_privilege_checked;
 use crate::riscv::csr::*;
 use crate::sbi::hart_local::{with_current, with_hart};
 use runtime::hart::HartId;
-#[cfg(not(feature = "nemu"))]
-use runtime::node_is_enabled;
 
 #[derive(Default)]
 pub struct HartFeatures {
@@ -48,11 +44,12 @@ pub enum Extension {
     Hypervisor = 1,
     Smaia = 2,
     Svpbmt = 3,
+    Zkr = 4,
     // Remember to increment `Extension::COUNT` while implementing new extensions.
 }
 
 impl Extension {
-    pub const COUNT: usize = 4;
+    pub const COUNT: usize = 5;
 
     pub const fn as_str(&self) -> &'static str {
         match self {
@@ -60,6 +57,7 @@ impl Extension {
             Self::Hypervisor => "h",
             Self::Smaia => "smaia", // TODO verify with DTB standard
             Self::Svpbmt => "svpbmt",
+            Self::Zkr => "zkr",
         }
     }
 
@@ -69,7 +67,14 @@ impl Extension {
     }
 
     pub fn iter() -> impl Iterator<Item = Self> {
-        [Self::Sstc, Self::Hypervisor, Self::Smaia, Self::Svpbmt].into_iter()
+        [
+            Self::Sstc,
+            Self::Hypervisor,
+            Self::Smaia,
+            Self::Svpbmt,
+            Self::Zkr,
+        ]
+        .into_iter()
     }
 }
 
@@ -97,71 +102,44 @@ pub fn hart_mhpm_mask(hart_id: usize) -> u32 {
     })
 }
 
-/// Detects RISC-V extensions from the device tree for all harts.
+/// Records the extensions of one enabled hart during CPU discovery.
 #[cfg(not(feature = "nemu"))]
-pub fn detect_extensions(cpus: &NodeSeq, enabled_harts: &[bool]) {
-    use crate::devicetree::Cpu;
-
-    for cpu_node in cpus.iter() {
-        let node = cpu_node.deserialize::<Node>();
-        if !node_is_enabled(&node) {
-            continue;
+pub fn detect_extensions(hart_id: usize, cpu: FdtNode<'_, '_>) {
+    let mut extensions = [false; Extension::COUNT];
+    if let Some(property) = cpu.property("riscv,isa-extensions") {
+        for name in property.value.split(|byte| *byte == 0) {
+            for extension in Extension::iter() {
+                extensions[extension.index()] |= name == extension.as_str().as_bytes();
+            }
         }
-        let cpu = cpu_node.deserialize::<Cpu>();
-        let Some(hart_id) = cpu.reg.iter().next().map(|register| register.0.start) else {
-            continue;
-        };
-        if enabled_harts.get(hart_id) != Some(&true) {
-            continue;
+    } else if let Some(isa) = cpu
+        .property("riscv,isa")
+        .and_then(|property| property.as_str())
+    {
+        for part in isa.split('_') {
+            for extension in Extension::iter() {
+                let name = extension.as_str();
+                extensions[extension.index()] |=
+                    part == name || (name.len() == 1 && part.contains(name));
+            }
         }
-        let mut extensions = [false; Extension::COUNT];
-
-        for extension in Extension::iter() {
-            let extension_index = extension.index();
-            let extension_name = extension.as_str();
-
-            let described_by_device_tree = device_tree_has_extension(extension_name, &cpu);
-            extensions[extension_index] = match extension {
-                Extension::Hypervisor
-                    if hart_id
-                        == HartId::current()
-                            .expect("BUG: current hart exceeds Runtime capacity")
-                            .as_usize() =>
-                {
-                    misa::read().has_extension('H')
-                }
-                _ => described_by_device_tree,
-            };
-        }
-
-        with_hart(hart_id, |local| {
-            local.with_features_mut(|features| features.extensions = extensions)
-        });
     }
+
+    if hart_id
+        == HartId::current()
+            .expect("BUG: current hart exceeds Runtime capacity")
+            .as_usize()
+    {
+        extensions[Extension::Hypervisor.index()] = misa::read().has_extension('H');
+    }
+    with_hart(hart_id, |local| {
+        local.with_features_mut(|features| features.extensions = extensions)
+    });
 }
 
 /// NEMU supplies a fixed feature profile through [`init`].
 #[cfg(feature = "nemu")]
-pub fn detect_extensions(_cpus: &NodeSeq, _enabled_harts: &[bool]) {}
-
-#[cfg(not(feature = "nemu"))]
-fn device_tree_has_extension(extension: &str, cpu: &crate::devicetree::Cpu) -> bool {
-    // Check isa-extensions first (preferred, list of strings)
-    if let Some(isa_extensions) = &cpu.isa_extensions {
-        return isa_extensions.iter().any(|name| name == extension);
-    }
-
-    // Fallback to isa (take first string, default to empty)
-    cpu.isa
-        .iter()
-        .next()
-        .and_then(|isa| isa.iter().next())
-        .map(|isa| {
-            isa.split('_')
-                .any(|part| part == extension || (extension.len() == 1 && part.contains(extension)))
-        })
-        .unwrap_or(false)
-}
+pub fn detect_extensions(_hart_id: usize, _cpu: FdtNode<'_, '_>) {}
 
 fn detect_privileged_version() {
     let mut privileged_version = PrivilegedVersion::Unknown;
@@ -229,8 +207,12 @@ pub fn detect_hart_features() {
 }
 
 #[cfg(feature = "nemu")]
-pub fn init(cpus: &NodeSeq) {
-    for hart_id in 0..cpus.len() {
+pub fn init(cpus: FdtNode<'_, '_>) {
+    let hart_count = cpus
+        .children()
+        .filter(|node| crate::devicetree::is_cpu_node(*node))
+        .count();
+    for hart_id in 0..hart_count {
         let mut hart_exts = [false; Extension::COUNT];
         hart_exts[Extension::Sstc.index()] = true;
         with_hart(hart_id, |local| {
@@ -301,6 +283,10 @@ pub fn configure_hart_environment() {
         // page-memory-type extension as Svpbmt and requires PBMTE.
         if hart_has_extension(hart_id, Extension::Svpbmt) {
             menvcfg::set_bits(menvcfg::PBMTE);
+        }
+        // The S-mode access to the Zkr `seed` CSR is gated under `mseccfg.SSEED`.
+        if hart_has_extension(hart_id, Extension::Zkr) && has_csr::<CSR_MSECCFG>() {
+            mseccfg::set_bits(mseccfg::SSEED);
         }
         let enable_aia =
             crate::driver::ipi::uses_imsic() && hart_has_extension(hart_id, Extension::Smaia);

@@ -1,22 +1,29 @@
-//! Secure Memory Region Allocators
+//! Example allocators for secure-memory regions.
 //!
-//! Concrete **SecMemAllocator** examples for diverse TEE memory paradigms.
-//! **AppAlloc**: Shared-region management using **Buddy System** (Penglai-style).
-//! **RTAlloc**: Exclusive-region occupation for **RT** enclaves (Keystone-style).
-//! Ensures security via strict **2^n** alignment and full-state recovery tests.
+//! [`AppAlloc`] uses first-fit placement in a shared region with a fixed limit
+//! on live allocations. [`RTAlloc`] hands out its region to one enclave at a time.
 
+use self::region::RegionAllocator;
 use super::SecMemAllocator;
-use buddy_system_allocator::Heap;
 use core::alloc::Layout;
 use core::ptr::NonNull;
 
-pub struct AppAlloc<const ORDER: usize> {
-    buddy: Heap<ORDER>,
+mod region;
+
+/// First-fit allocator for a shared secure-memory region.
+///
+/// `MAX_LIVE_ALLOCATIONS` bounds simultaneously live allocations. Reaching
+/// that limit returns an allocation error and reports zero availability even
+/// if the region has free bytes.
+/// Records are stored inline; allocation and free do not use the global heap.
+pub struct AppAlloc<const ORDER: usize, const MAX_LIVE_ALLOCATIONS: usize> {
+    range_allocator: RegionAllocator<MAX_LIVE_ALLOCATIONS>,
 }
+
 pub struct RTAlloc<const ORDER: usize> {
-    addr: usize,
-    len: usize,
-    total: usize,
+    start_addr: usize,
+    available_bytes: usize,
+    total_bytes: usize,
 }
 
 pub struct NoneAlloc<const ORDER: usize> {}
@@ -27,30 +34,36 @@ impl<const ORDER: usize> SecMemAllocator<ORDER> for NoneAlloc<ORDER> {
     }
 }
 
-/// Memory allocation style of Penglai. Penglai supports enclaves sharing a
-/// secure memory region, which is allocated using the buddy algorithm.
-impl<const ORDER: usize> SecMemAllocator<ORDER> for AppAlloc<ORDER> {
+impl<const ORDER: usize, const MAX_LIVE_ALLOCATIONS: usize> SecMemAllocator<ORDER>
+    for AppAlloc<ORDER, MAX_LIVE_ALLOCATIONS>
+{
     fn new() -> Self {
         Self {
-            buddy: Heap::<ORDER>::new(),
+            range_allocator: RegionAllocator::new(),
         }
     }
-    fn init(&mut self, addr: usize, len: usize) {
-        unsafe {
-            self.buddy.init(addr as usize, len as usize);
-        }
+    fn init(&mut self, start_addr: usize, size_bytes: usize) {
+        let end_addr = start_addr
+            .checked_add(size_bytes)
+            .expect("[AppAlloc] memory range overflow");
+        self.range_allocator
+            .initialize(start_addr, end_addr)
+            .expect("[AppAlloc] invalid memory range");
     }
     fn alloc(&mut self, layout: Layout) -> Result<NonNull<u8>, ()> {
-        self.buddy.alloc(layout)
+        let start_addr = self.range_allocator.alloc(layout)?;
+        Ok(NonNull::new(start_addr as *mut u8).expect("region allocator excludes address zero"))
     }
     fn free(&mut self, ptr: NonNull<u8>, layout: Layout) {
-        self.buddy.dealloc(ptr, layout);
+        self.range_allocator
+            .free(ptr.as_ptr() as usize, layout)
+            .expect("[AppAlloc] deallocating an invalid allocation");
     }
     fn available(&self) -> usize {
-        self.buddy.stats_total_bytes() - self.buddy.stats_alloc_actual()
+        self.range_allocator.available_bytes()
     }
     fn total(&self) -> usize {
-        self.buddy.stats_total_bytes()
+        self.range_allocator.total_bytes()
     }
 }
 
@@ -60,34 +73,34 @@ impl<const ORDER: usize> SecMemAllocator<ORDER> for AppAlloc<ORDER> {
 impl<const ORDER: usize> SecMemAllocator<ORDER> for RTAlloc<ORDER> {
     fn new() -> Self {
         Self {
-            addr: 0,
-            len: 0,
-            total: 0,
+            start_addr: 0,
+            available_bytes: 0,
+            total_bytes: 0,
         }
     }
-    fn init(&mut self, addr: usize, len: usize) {
-        self.addr = addr;
-        self.len = len;
-        self.total = len;
+    fn init(&mut self, start_addr: usize, size_bytes: usize) {
+        self.start_addr = start_addr;
+        self.available_bytes = size_bytes;
+        self.total_bytes = size_bytes;
     }
     fn alloc(&mut self, layout: Layout) -> Result<NonNull<u8>, ()> {
-        if (self.len as usize) < layout.size() {
+        if self.available_bytes < layout.size() {
             return Err(());
         }
-        self.len = 0;
-        Ok(NonNull::new(self.addr as *mut u8).ok_or(())?)
+        self.available_bytes = 0;
+        NonNull::new(self.start_addr as *mut u8).ok_or(())
     }
     fn free(&mut self, ptr: NonNull<u8>, layout: Layout) {
-        if ptr.as_ptr() as usize != self.addr {
+        if ptr.as_ptr() as usize != self.start_addr {
             panic!("[RTAlloc] Deallocating foreign or incorrect pointer");
         }
-        self.len = layout.size() as usize;
+        self.available_bytes = layout.size();
     }
     fn available(&self) -> usize {
-        self.len as usize
+        self.available_bytes
     }
     fn total(&self) -> usize {
-        self.total as usize
+        self.total_bytes
     }
 }
 
@@ -110,7 +123,7 @@ mod stress_tests {
         const MEM_SIZE: usize = TEST_MEM_SIZE;
         let raw_mem = unsafe { FAKE_HARDWARE_MEM.0.as_mut_ptr() };
 
-        let mut allocator = AppAlloc::<TEST_EXPONENT>::new();
+        let mut allocator = AppAlloc::<TEST_EXPONENT, 64>::new();
         allocator.init(raw_mem as usize, MEM_SIZE);
 
         let initial_available = allocator.available();
@@ -149,20 +162,31 @@ mod stress_tests {
 
         assert_eq!(allocator.available(), initial_available);
     }
+
+    #[test]
+    fn app_alloc_reuses_its_explicit_record_capacity() {
+        let mut backing = [0u8; 64];
+        let mut allocator = AppAlloc::<6, 1>::new();
+        allocator.init(backing.as_mut_ptr() as usize, backing.len());
+        let layout = Layout::from_size_align(8, 1).unwrap();
+        let first = allocator.alloc(layout).unwrap();
+        assert_eq!(allocator.available(), 0);
+        assert!(allocator.alloc(layout).is_err());
+        allocator.free(first, layout);
+        assert_eq!(allocator.available(), backing.len());
+        assert_eq!(allocator.alloc(layout), Ok(first));
+    }
     #[test]
     fn stress_test_rt_alloc() {
         let mut allocator = RTAlloc::<TEST_EXPONENT>::new();
         let base_addr: usize = unsafe { FAKE_HARDWARE_MEM.0.as_ptr() as usize };
+        let layout = Layout::from_size_align(TEST_MEM_SIZE, TEST_MEM_SIZE).unwrap();
 
-        for _ in 12..TEST_EXPONENT {
-            let layout = Layout::from_size_align(TEST_MEM_SIZE, TEST_MEM_SIZE).unwrap();
+        allocator.init(base_addr, TEST_MEM_SIZE);
+        let ptr = allocator.alloc(layout).unwrap();
+        assert_eq!(allocator.available(), 0);
 
-            allocator.init(base_addr, TEST_MEM_SIZE);
-            let ptr = allocator.alloc(layout).unwrap();
-            assert_eq!(allocator.available(), 0);
-
-            allocator.free(ptr, layout);
-            assert_eq!(allocator.available(), TEST_MEM_SIZE);
-        }
+        allocator.free(ptr, layout);
+        assert_eq!(allocator.available(), TEST_MEM_SIZE);
     }
 }

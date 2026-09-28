@@ -66,7 +66,8 @@ pub trait SecMemAllocator<const ORDER: usize> {
     fn free(&mut self, ptr: NonNull<u8>, layout: Layout) {
         let _ = (ptr, layout);
     }
-    /// Avaliable mem can be alloced.
+    /// Returns an upper bound on bytes available for another allocation.
+    /// A particular layout may still fail because of alignment or fragmentation.
     fn available(&self) -> usize {
         0
     }

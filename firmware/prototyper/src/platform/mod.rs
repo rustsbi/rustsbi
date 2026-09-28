@@ -10,6 +10,7 @@ pub(crate) mod allwinner;
 mod boot;
 mod discovery;
 mod error;
+mod handoff;
 mod info;
 mod report;
 mod state;
@@ -17,7 +18,7 @@ mod state;
 pub(crate) mod qemu_aplic;
 
 pub use boot::{firmware_ram_range, init_board, initialize_secondary_hart, wait_until_ready};
-pub(crate) use info::{BoardInfo, ImsicInfo};
+pub(crate) use info::{BoardInfo, ClintResource, ImsicInfo};
 pub(crate) use state::{
     board_info, console_device, enabled_harts, hart_privilege_checked, mark_hart_privilege_checked,
 };

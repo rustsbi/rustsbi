@@ -13,7 +13,7 @@
 //! - [K3 datasheet](https://github.com/spacemit-com/docs-chip/blob/abd7802bc2151fe814b90309fc69982e531b30a3/en/key_stone/k3/k3_docs/k3_ds.md):
 //!   X100 and A100 core descriptions, and RT24's RV64GC ISA (section 2.1).
 
-use serde_device_tree::buildin::{Node, StrSeq};
+use fdt::node::FdtNode;
 
 use crate::Result;
 use crate::soc::Soc;
@@ -27,18 +27,15 @@ pub struct SpacemitK3Soc {
 }
 
 impl Soc for SpacemitK3Soc {
-    fn from_root(root: &Node<'_>) -> Result<Option<Self>> {
+    fn from_root(root: FdtNode<'_, '_>) -> Result<Option<Self>> {
         Ok((cfg!(target_arch = "riscv64") && matches_root(root)).then_some(Self { _private: () }))
     }
 }
 
-fn matches_root(root: &Node<'_>) -> bool {
+fn matches_root(root: FdtNode<'_, '_>) -> bool {
     // A generic SpacemiT match does not identify the X100 application cores.
     crate::node_is_enabled(root)
-        && root.get_prop("compatible").is_some_and(|property| {
-            property
-                .deserialize::<StrSeq>()
-                .iter()
-                .any(|compatible| compatible == "spacemit,k3")
-        })
+        && root
+            .compatible()
+            .is_some_and(|values| values.all().any(|compatible| compatible == "spacemit,k3"))
 }

@@ -1,6 +1,6 @@
 //! Access to physical memory described by the boot device tree.
 //!
-//! [`crate::PlatformDescription::into_memory_resources`] returns supervisor RAM with reserved
+//! [`crate::PlatformDescription::memory_resources`] returns supervisor RAM with reserved
 //! memory and the firmware image excluded, plus a [`MemoryRegistry`] from
 //! which non-overlapping device register windows can be acquired.
 //! [`HandoffBuffer`] holds linked bytes whose ownership passes to the next

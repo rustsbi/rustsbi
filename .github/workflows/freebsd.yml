@@ -1,0 +1,111 @@
+name: FreeBSD
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-freebsd-boot.sh"
+      - ".github/workflows/freebsd.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-freebsd-boot.sh"
+      - ".github/workflows/freebsd.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  freebsd-boot:
+    name: Boot FreeBSD 14.1 (${{ matrix.boot-path }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        boot-path:
+          - sbi
+          - u-boot
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc \
+            bison \
+            device-tree-compiler \
+            flex \
+            gcc-riscv64-linux-gnu \
+            git \
+            libgnutls28-dev \
+            libssl-dev \
+            make \
+            python3-dev \
+            python3-setuptools \
+            qemu-system-misc \
+            u-boot-tools \
+            xz-utils
+          qemu-system-riscv64 --version
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      - name: Cache FreeBSD VM image
+        uses: actions/cache@v5
+        with:
+          path: |
+            .cache/freebsd/14.1/FreeBSD-14.1-RELEASE-riscv-riscv64.raw
+            .cache/freebsd/14.1/FreeBSD-14.1-RELEASE-riscv-riscv64.raw.xz
+          key: freebsd-riscv64-14.1-509b24437156e65e031ca12219a408460743f0f0e82368ce4afa83dddbb4806e
+
+      - name: Cache FreeBSD kernel archive
+        if: matrix.boot-path == 'sbi'
+        uses: actions/cache@v5
+        with:
+          path: .cache/freebsd/14.1/kernel.txz
+          key: freebsd-riscv64-14.1-kernel-321e538f9078659d8852e9a1628febac013fc3167e22e782266039a4b54fd3b7
+
+      - name: Cache U-Boot source
+        if: matrix.boot-path == 'u-boot'
+        uses: actions/cache@v5
+        with:
+          path: .cache/u-boot/v2024.04
+          key: u-boot-25049ad560826f7dc1c4740883b0016014a59789
+
+      - name: Build RustSBI Prototyper and boot FreeBSD
+        run: |
+          cargo prototyper build
+          .github/scripts/prototyper-freebsd-boot.sh "${{ matrix.boot-path }}"
+
+      - name: Upload FreeBSD serial log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: freebsd-serial-log-${{ matrix.boot-path }}
+          path: qemu-logs/prototyper-freebsd-${{ matrix.boot-path }}.log
+          if-no-files-found: warn

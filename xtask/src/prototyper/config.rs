@@ -12,6 +12,9 @@ use super::{
     build::{BuildArgs, BuildMode},
 };
 
+// The RV64 first-fit free list needs one 32-byte node in the heap.
+const MIN_HEAP_SIZE_BYTES: i64 = 32;
+
 /// A resolved and validated prototyper build.
 #[derive(Debug, Clone)]
 pub(crate) struct BuildSpec {
@@ -32,17 +35,19 @@ pub(crate) struct BuildSpec {
     pub(crate) debug: bool,
     /// Config file source installed into the build-input directory.
     pub(crate) config_source: PathBuf,
-    /// Platform addresses parsed and validated from the active config TOML.
-    pub(crate) platform_addresses: PlatformAddresses,
+    /// Firmware layout parsed and validated from the active config TOML.
+    pub(crate) firmware_layout: FirmwareLayout,
     /// Artifact name suffix.
     pub(crate) artifact_suffix: String,
 }
 
-/// Platform addresses parsed from the active config TOML.
+/// Firmware layout parsed from the active config TOML.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct PlatformAddresses {
+pub(crate) struct FirmwareLayout {
     /// Link start of the firmware image.
     pub(crate) link_start_address: u64,
+    /// Size in bytes reserved for the firmware heap.
+    pub(crate) heap_size_bytes: u64,
     /// Where the payload section is linked.
     pub(crate) payload_address: u64,
 }
@@ -115,7 +120,7 @@ pub(crate) fn resolve_in(
     if !config_source.exists() {
         bail!("config file '{}' does not exist", config_source.display());
     }
-    let platform_addresses = parse_config(&config_source)?;
+    let firmware_layout = parse_config(&config_source)?;
 
     let artifact_suffix = default_artifact_suffix(&mode).to_string();
 
@@ -128,7 +133,7 @@ pub(crate) fn resolve_in(
         custom_target: args.target.clone(),
         debug: args.debug,
         config_source,
-        platform_addresses,
+        firmware_layout,
         artifact_suffix,
     })
 }
@@ -151,7 +156,7 @@ fn absolutize(path: &Path, current_dir: &Path) -> PathBuf {
     }
 }
 
-fn parse_config(config_source: &Path) -> Result<PlatformAddresses> {
+fn parse_config(config_source: &Path) -> Result<FirmwareLayout> {
     let content = fs::read_to_string(config_source)
         .with_context(|| format!("failed to read config file '{}'", config_source.display()))?;
     let value: toml::Value = toml::from_str(&content).with_context(|| {
@@ -165,8 +170,9 @@ fn parse_config(config_source: &Path) -> Result<PlatformAddresses> {
         match value.get(key) {
             None => bail!(
                 "config '{}' is missing required key `{}`; \
-                 the config schema requires `link_start_address`, `payload_address` \
-                 and `jump_address` — copy them from `firmware/prototyper/config/default.toml`",
+                 the config schema requires `link_start_address`, `payload_address`, \
+                 `jump_address`, and `heap_size` — copy them from \
+                 `firmware/prototyper/config/default.toml`",
                 config_source.display(),
                 key
             ),
@@ -194,6 +200,14 @@ fn parse_config(config_source: &Path) -> Result<PlatformAddresses> {
     let payload_address = address("payload_address")?;
     address("jump_address")?;
 
+    let heap_size_bytes = match value.get("heap_size") {
+        Some(toml::Value::Integer(size)) if *size >= MIN_HEAP_SIZE_BYTES => *size as u64,
+        _ => bail!(
+            "config key `heap_size` in '{}' must be an integer of at least {MIN_HEAP_SIZE_BYTES} bytes",
+            config_source.display()
+        ),
+    };
+
     if link_start_address >= payload_address {
         bail!(
             "invalid platform addresses in config '{}': `link_start_address` ({:#x}) \
@@ -204,8 +218,9 @@ fn parse_config(config_source: &Path) -> Result<PlatformAddresses> {
         );
     }
 
-    Ok(PlatformAddresses {
+    Ok(FirmwareLayout {
         link_start_address,
+        heap_size_bytes,
         payload_address,
     })
 }

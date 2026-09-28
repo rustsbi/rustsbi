@@ -14,9 +14,8 @@
 use core::mem::{align_of, size_of};
 use runtime::Result;
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
-use serde_device_tree::buildin::Node;
 
-use crate::devicetree;
+use crate::devicetree::EnabledNode;
 
 use super::super::registry::{self, BindResources, ResetDriver};
 use super::super::{ResetBackend, ResetError, ResetRequest, ResetType};
@@ -45,18 +44,18 @@ impl ResetDriver for V104Driver {
     fn probe(
         &mut self,
         platform: &runtime::PlatformView<'_>,
-        node: &Node<'_>,
-        _parent: Option<&Node<'_>>,
+        discovered: EnabledNode<'_, '_>,
     ) -> Result<()> {
-        let Some(compatibles) = devicetree::compatible_strings(node) else {
+        let Some(compatibles) = discovered.compatible() else {
             return Ok(());
         };
         if !compatibles
-            .iter()
+            .all()
             .any(|compatible| COMPATIBLES.contains(&compatible))
         {
             return Ok(());
         }
+        let node = discovered.node();
         let registers = registry::primary_registers(platform, node)?;
         registry::set_once(&mut self.registers, registers)
     }

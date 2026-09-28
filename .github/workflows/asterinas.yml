@@ -1,0 +1,93 @@
+name: Asterinas
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-asterinas-boot.sh"
+      - ".github/workflows/asterinas.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-asterinas-boot.sh"
+      - ".github/workflows/asterinas.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  asterinas-boot:
+    name: Boot Asterinas (sbi)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      # The Asterinas development image unpacks to roughly 15 GiB, which does
+      # not fit next to the runner's preinstalled toolchains. Drop the ones the
+      # boot test never uses before the image is pulled.
+      - name: Free disk space
+        run: |
+          sudo rm -rf \
+            /usr/lib/google-cloud-sdk/* \
+            /usr/local/lib/android/* \
+            /usr/share/dotnet/*
+          df -h /
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git \
+            qemu-system-misc
+          qemu-system-riscv64 --version
+          docker --version
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      # Asterinas is checked out by exact commit in the script and built inside
+      # the digest-pinned development image. Only the resulting kernel ELF and
+      # initramfs are cached; bump the trailing revision after editing the build
+      # recipe in the script.
+      - name: Cache Asterinas boot products
+        uses: actions/cache@v5
+        with:
+          path: .cache/asterinas
+          key: asterinas-d924a963-kernel-dev-0.18.1-20260918-v1
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build
+
+      - name: Boot Asterinas
+        run: .github/scripts/prototyper-asterinas-boot.sh
+
+      - name: Upload Asterinas log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: asterinas-log
+          path: qemu-logs/prototyper-asterinas.log

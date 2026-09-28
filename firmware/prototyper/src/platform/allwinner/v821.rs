@@ -8,9 +8,8 @@
 
 use runtime::memory::DeviceRegisterRange;
 use runtime::soc::allwinner::v821::{AllwinnerV821Soc, NoncacheableAlias};
-use serde_device_tree::buildin::Node;
 
-use crate::devicetree;
+use crate::devicetree::EnabledNode;
 
 const L2_COMPATIBLE: &str = "cache";
 const USB_COMPATIBLE: &str = "allwinner,sunxi-udc";
@@ -32,56 +31,34 @@ pub(crate) struct ExtensionDeviceDescription {
 }
 
 impl Description {
-    pub(crate) fn discover(
-        soc: AllwinnerV821Soc,
-        platform: &runtime::PlatformView<'_>,
-    ) -> runtime::Result<Self> {
-        let mut description = Self {
+    /// Creates a V821 description ready for the shared discovery pass.
+    pub(crate) const fn new(soc: AllwinnerV821Soc) -> Self {
+        Self {
             soc,
             cache: None,
             usb_dma_bypass: None,
-        };
-        description.visit(platform, platform.root())?;
-        Ok(description)
-    }
-
-    fn visit<'tree>(
-        &mut self,
-        platform: &runtime::PlatformView<'tree>,
-        node: &Node<'tree>,
-    ) -> runtime::Result<()> {
-        if !runtime::node_is_enabled(node) {
-            return Ok(());
         }
-        self.probe(platform, node)?;
-        for child in node.nodes() {
-            let child = child.deserialize::<Node<'tree>>();
-            self.visit(platform, &child)?;
-        }
-        Ok(())
     }
 
     /// Retains V821-only device descriptions inside the vendor description.
-    fn probe(
+    pub(crate) fn probe(
         &mut self,
         platform: &runtime::PlatformView<'_>,
-        node: &Node<'_>,
+        discovered: EnabledNode<'_, '_>,
     ) -> runtime::Result<()> {
-        let Some(compatibles) = devicetree::compatible_strings(node) else {
+        let Some(compatibles) = discovered.compatible() else {
             return Ok(());
         };
-        let is_l2 = compatibles.iter().any(|value| value == L2_COMPATIBLE)
-            && node
-                .get_prop("cache-level")
-                .is_some_and(|property| property.deserialize::<u32>() == 2);
-        let is_usb = compatibles.iter().any(|value| value == USB_COMPATIBLE);
+        let node = discovered.node();
+        let is_l2 = compatibles.all().any(|value| value == L2_COMPATIBLE)
+            && crate::devicetree::u32_property(node, "cache-level") == Some(2);
+        let is_usb = compatibles.all().any(|value| value == USB_COMPATIBLE);
         if !is_l2 && !is_usb {
             return Ok(());
         }
 
         let registers = platform
-            .device_registers(node)?
-            .and_then(|ranges| ranges.first().copied())
+            .device_register(node)?
             .ok_or(runtime::Error::InvalidArgs)?;
         if is_l2 && self.cache.replace(registers).is_some() {
             return Err(runtime::Error::InvalidArgs);

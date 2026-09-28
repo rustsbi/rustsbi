@@ -11,16 +11,12 @@ mod linux;
 use core::arch::{asm, naked_asm};
 use core::mem::MaybeUninit;
 use core::sync::{atomic::AtomicBool, atomic::AtomicUsize, atomic::Ordering};
+use fdt::Fdt;
 use log::*;
 use sbi::SbiRet;
 use sbi_spec::binary::{HartMask, MaskError};
 use sbi_spec::hsm::hart_state;
 use sbi_testing::sbi;
-use serde::Deserialize;
-use serde_device_tree::{
-    Dtb, DtbPtr,
-    buildin::{Node, NodeSeq, Reg, StrSeq},
-};
 
 const RISCV_HEAD_FLAGS: u64 = 0;
 const RISCV_HEADER_VERSION: u32 = 0x2;
@@ -194,38 +190,35 @@ fn get_time() -> u64 {
 }
 
 extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
-    #[derive(Deserialize)]
-    struct Tree<'a> {
-        cpus: Cpus<'a>,
-    }
-    #[derive(Deserialize)]
-    #[serde(rename_all = "kebab-case")]
-    struct Cpus<'a> {
-        timebase_frequency: u32,
-        cpu: NodeSeq<'a>,
-    }
-    #[derive(Deserialize)]
-    struct Cpu<'a> {
-        reg: Reg<'a>,
-        status: Option<StrSeq<'a>>,
-    }
     rcore_console::init_console(&Console);
     rcore_console::set_log_level(option_env!("LOG"));
-    let dtb_ptr = DtbPtr::from_raw(dtb_pa as _).unwrap();
-    let dtb = Dtb::from(dtb_ptr).share();
-    let root: Node = serde_device_tree::from_raw_mut(&dtb).unwrap();
-    let tree: Tree = root.deserialize();
-    let smp = tree.cpus.cpu.len();
-    let frequency = tree.cpus.timebase_frequency;
+    // SAFETY: the SBI next-stage ABI supplies a readable FDT at `dtb_pa`.
+    let fdt = unsafe { Fdt::from_ptr(dtb_pa as *const u8) }.unwrap();
+    let cpus = fdt.find_node("/cpus").expect("/cpus");
+    let cpu_nodes = || {
+        cpus.children()
+            .filter(|node| node.name.split('@').next() == Some("cpu"))
+    };
+    let smp = cpu_nodes().count();
+    let frequency = cpus
+        .property("timebase-frequency")
+        .and_then(|property| property.value.try_into().ok())
+        .map(u32::from_be_bytes)
+        .expect("timebase-frequency");
     // Both benchmark stages use directly indexed stacks and contiguous masks.
     // Reject unsupported topology instead of starting a guessed hart ID.
     assert!(smp > 0 && smp < MAX_HART_NUM && hartid < smp);
     let mut present = [false; MAX_HART_NUM];
-    for node in tree.cpus.cpu.iter() {
-        let cpu = node.deserialize::<Cpu>();
-        let status = cpu.status.as_ref().and_then(|value| value.iter().next());
+    for node in cpu_nodes() {
+        let status = node
+            .property("status")
+            .and_then(|property| property.as_str());
         assert!(matches!(status, None | Some("ok" | "okay")));
-        let id = cpu.reg.iter().next().expect("CPU reg").0.start;
+        let id = node
+            .reg()
+            .and_then(|mut registers| registers.next())
+            .expect("Hart reg")
+            .starting_address as usize;
         assert!(id < smp && !present[id], "bench requires harts 0..smp");
         present[id] = true;
     }

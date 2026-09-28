@@ -1,0 +1,147 @@
+name: eweOS
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-eweos-boot.sh"
+      - ".github/workflows/eweos.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-eweos-boot.sh"
+      - ".github/workflows/eweos.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  eweos-boot:
+    name: Boot eweOS (${{ matrix.boot-path }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        boot-path:
+          - sbi
+          - u-boot
+          - edk2
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      # Resolve once for this boot job; all later steps keep this digest.
+      - name: Read official eweOS checksum
+        id: iso
+        run: |
+          digest=$(.github/scripts/prototyper-eweos-boot.sh resolve-iso)
+          echo "sha256=$digest" >>"$GITHUB_OUTPUT"
+          echo "EWEOS_ISO_SHA256=$digest" >>"$GITHUB_ENV"
+          echo "eweOS ISO SHA-256: $digest"
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            acpica-tools \
+            bc \
+            bison \
+            build-essential \
+            dosfstools \
+            flex \
+            gcc-riscv64-linux-gnu \
+            git \
+            libarchive-tools \
+            libfdt-dev \
+            libglib2.0-dev \
+            libpixman-1-dev \
+            libssl-dev \
+            mtools \
+            nasm \
+            ninja-build \
+            pkg-config \
+            python3 \
+            python3-dev \
+            python3-setuptools \
+            python3-venv \
+            swig \
+            uuid-dev \
+            zlib1g-dev
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      # The script builds a pinned QEMU because Ubuntu 24.04's QEMU 8.2.2
+      # stalls this boot at random; see the script header. Bump the trailing
+      # revision after changing the configure flags in the script.
+      - name: Cache QEMU build
+        uses: actions/cache@v5
+        with:
+          path: .cache/eweos/qemu-10.2.2
+          key: eweos-qemu-10.2.2-${{ runner.os }}-v1
+
+      # Use the checksum resolved by this boot job for its cache and checks.
+      - name: Cache eweOS live ISO
+        uses: actions/cache@v5
+        with:
+          path: .cache/eweos/eweos-riscv64-liveimage-standard.iso
+          key: eweos-riscv64-standard-${{ steps.iso.outputs.sha256 }}
+
+      # Check a restored ISO before anything else uses it. A cache miss passes
+      # here and the boot step downloads and verifies the image.
+      - name: Check cached eweOS ISO
+        run: .github/scripts/prototyper-eweos-boot.sh check-iso
+
+      # U-Boot runs in S-mode and does not embed the firmware, so its build
+      # is cached. The boot command is compiled in from the script, so the key
+      # follows the script.
+      - name: Cache U-Boot build
+        if: matrix.boot-path == 'u-boot'
+        uses: actions/cache@v5
+        with:
+          path: .cache/eweos/u-boot-2024.04-smode
+          key: eweos-u-boot-2024.04-smode-${{ hashFiles('.github/scripts/prototyper-eweos-boot.sh') }}
+
+      # EDK II is checked out by exact commit in the script.
+      - name: Cache EDK II build
+        if: matrix.boot-path == 'edk2'
+        uses: actions/cache@v5
+        with:
+          path: .cache/eweos/edk2-6951dfe7d59d144a3a980bd7eda699db2d8554ac
+          key: eweos-edk2-6951dfe7-v1
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build
+
+      - name: Boot eweOS
+        run: .github/scripts/prototyper-eweos-boot.sh "${{ matrix.boot-path }}"
+
+      - name: Upload eweOS log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: eweos-log-${{ matrix.boot-path }}
+          path: qemu-logs/prototyper-eweos-${{ matrix.boot-path }}.log

@@ -9,7 +9,7 @@ use runtime::memory::SupervisorMemory;
 use spin::Once;
 
 use super::error::{self, ResultContext};
-use super::info::{BoardInfo, ImsicInfo};
+use super::info::{BoardInfo, ImsicInfo, SocDescription};
 use super::{discovery, report, state};
 use crate::driver::ipi::IpiDevice;
 use crate::driver::timer::TimerDevice;
@@ -32,14 +32,13 @@ pub fn init_board(platform_description: runtime::PlatformDescription) -> usize {
     try_init_board(platform_description).unwrap_or_else(|error| panic!("{error}"))
 }
 
-fn try_init_board(mut platform_description: runtime::PlatformDescription) -> error::Result<usize> {
-    let device_tree_address = platform_description.address().as_usize();
+fn try_init_board(platform_description: runtime::PlatformDescription) -> error::Result<usize> {
     let (mut board, pmu) = platform_description
-        .inspect(discover_board_and_pmu)
+        .inspect(|platform| discovery::discover_platform(&platform))
         .during("reading the platform description")?;
 
     let (supervisor_memory, mut memory) = platform_description
-        .into_memory_resources()
+        .memory_resources()
         .during("deriving Runtime memory resources")?;
     board.memory.ram_ranges = memory.ram_ranges().collect();
     let firmware_image_range = memory.firmware_image_range();
@@ -51,16 +50,23 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
             .during("locating the firmware RAM bank")?,
     );
 
-    let v821 = board
-        .soc
-        .v821
-        .take()
-        .map(|description| description.prepare(board.harts.count))
-        .transpose()
-        .during("preparing V821 platform resources")?;
+    let v821 = match board.soc.take() {
+        Some(SocDescription::V821(description)) => Some(description.prepare(board.harts.count)),
+        soc => {
+            board.soc = soc;
+            None
+        }
+    }
+    .transpose()
+    .during("preparing V821 platform resources")?;
     board.memory.noncacheable_alias_offset = v821
         .as_ref()
         .map(crate::platform::allwinner::v821::V821::noncacheable_alias_offset);
+
+    if let Some(v821) = v821.as_ref() {
+        driver::allwinner::v821::release_boot0_isp_sram(v821.soc(), &mut memory)
+            .during("releasing V821 boot0 ISP SRAM")?;
+    }
 
     if board.devices.interrupts.plmt.is_some()
         && board.devices.interrupts.plicsw.is_some()
@@ -74,28 +80,38 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
         .during("binding platform devices")?;
     let custom_extension = sbi::vendor::Extension::bind(v821, &mut memory)
         .during("binding Allwinner custom-extension devices")?;
-    let k1_resources = board
-        .soc
-        .spacemit_k1
+    let k1_registers = match &board.soc {
+        Some(SocDescription::SpacemitK1(registers)) => Some(*registers),
+        _ => None,
+    };
+    let k1_resources = k1_registers
         .map(|registers| K1BootResources::acquire(&mut memory, registers))
         .transpose()
         .during("acquiring SpacemiT K1 resources")?;
-    let v861_wake = board
-        .soc
-        .v861
-        .map(|soc| driver::allwinner::v861::V861HartRelease::bind(soc, &mut memory))
-        .transpose()
-        .during("initializing V861 C907 resources")?;
+    let v861_wake = match &board.soc {
+        Some(SocDescription::V861(soc)) => Some(driver::allwinner::v861::V861HartRelease::bind(
+            *soc,
+            &mut memory,
+        )),
+        _ => None,
+    }
+    .transpose()
+    .during("initializing V861 C907 resources")?;
 
-    let uses_imsic = devices.uses_imsic();
-    let next_stage_fdt_address = crate::firmware::patch_device_tree(
-        device_tree_address,
-        &board,
-        firmware_image_range,
-        uses_imsic,
-        memory.firmware_is_reserved(),
-    )
-    .during("preparing the next-stage platform description")?;
+    let next_stage_fdt_address = {
+        let hidden_node_paths = if devices.uses_imsic() {
+            board
+                .devices
+                .interrupts
+                .aia_handoff_paths()
+                .collect::<alloc::vec::Vec<_>>()
+        } else {
+            alloc::vec::Vec::new()
+        };
+        super::handoff::prepare_device_tree(&memory, &hidden_node_paths, platform_description)
+            .during("preparing the next-stage platform description")?
+            .as_usize()
+    };
 
     let hart_wake = k1_resources
         .map(|resources| {
@@ -119,7 +135,7 @@ fn try_init_board(mut platform_description: runtime::PlatformDescription) -> err
 fn select_imsic(board: &BoardInfo) -> Option<&ImsicInfo> {
     use sbi::features::{self, Extension};
 
-    let imsic = board.devices.interrupts.imsic.as_ref()?;
+    let imsic = board.devices.interrupts.imsic()?.resource();
     for (hart, enabled) in board.harts.enabled.iter().copied().enumerate() {
         if enabled
             && (!features::hart_has_extension(hart, Extension::Smaia)
@@ -133,14 +149,6 @@ fn select_imsic(board: &BoardInfo) -> Option<&ImsicInfo> {
         }
     }
     Some(imsic)
-}
-
-fn discover_board_and_pmu(
-    platform: runtime::PlatformView<'_>,
-) -> runtime::Result<(BoardInfo, Option<SbiPmu>)> {
-    let board = discovery::discover_platform(&platform)?;
-    let pmu = sbi::pmu::init(platform.root()).or_else(|| board.soc.v861.map(|_| SbiPmu::default()));
-    Ok((board, pmu))
 }
 
 fn publish_platform_services(
@@ -163,9 +171,9 @@ fn publish_platform_services(
         let iid = board
             .devices
             .interrupts
-            .imsic
-            .as_ref()
+            .imsic()
             .expect("selected IMSIC has a description")
+            .resource()
             .ipi_iid;
         Some(IMSIC.call_once(|| driver::ImsicInterrupt::new(iid))
             as &dyn runtime::irq::ExternalInterrupt)
@@ -239,8 +247,8 @@ fn publish_sbi_dispatcher(
 
 /// Runs the SoC-specific per-hart setup for secondary harts.
 pub fn initialize_secondary_hart() {
-    if let Some(platform) = state::board_info().soc.spacemit_k1 {
-        spacemit_k1::initialize_hart(platform);
+    if let Some(SocDescription::SpacemitK1(platform)) = &state::board_info().soc {
+        spacemit_k1::initialize_hart(*platform);
     }
 }
 

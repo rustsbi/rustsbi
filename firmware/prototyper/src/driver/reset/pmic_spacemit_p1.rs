@@ -10,9 +10,8 @@ mod controller;
 use bitflags::bitflags;
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry};
 use runtime::{Error, Result};
-use serde_device_tree::buildin::Node;
 
-use crate::devicetree;
+use crate::devicetree::EnabledNode;
 
 use super::registry::{self, BindResources, ResetDriver};
 use super::{ResetBackend, ResetError, ResetReason, ResetRequest, ResetType};
@@ -87,37 +86,33 @@ impl ResetDriver for P1PmicDriver {
     fn probe(
         &mut self,
         platform: &runtime::PlatformView<'_>,
-        node: &Node<'_>,
-        parent: Option<&Node<'_>>,
+        discovered: EnabledNode<'_, '_>,
     ) -> Result<()> {
-        let Some(compatibles) = devicetree::compatible_strings(node) else {
+        let Some(compatibles) = discovered.compatible() else {
             return Ok(());
         };
         if !compatibles
-            .iter()
+            .all()
             .any(|compatible| PMIC_COMPATIBLES.contains(&compatible))
         {
             return Ok(());
         }
+        let node = discovered.node();
 
         // A PMIC child's `reg` value is an address on its parent I2C bus,
         // not a physical MMIO range, so it must not use `device_registers`.
-        let addresses = node
-            .get_prop("reg")
-            .ok_or(Error::InvalidArgs)?
-            .deserialize::<serde_device_tree::buildin::Reg>();
-        let mut address_entries = addresses.iter();
+        let mut address_entries = node.reg().ok_or(Error::InvalidArgs)?;
         let address_entry = address_entries.next().ok_or(Error::InvalidArgs)?;
         if address_entries.next().is_some() {
             return Err(Error::InvalidArgs);
         }
-        let address = I2cAddress::new(address_entry.0.start).ok_or(Error::InvalidArgs)?;
+        let address =
+            I2cAddress::new(address_entry.starting_address as usize).ok_or(Error::InvalidArgs)?;
 
-        let parent = parent.ok_or(Error::InvalidArgs)?;
-        let parent_compatibles =
-            devicetree::compatible_strings(parent).ok_or(Error::InvalidArgs)?;
+        let parent = discovered.parent().ok_or(Error::InvalidArgs)?;
+        let parent_compatibles = parent.compatible().ok_or(Error::InvalidArgs)?;
         if !parent_compatibles
-            .iter()
+            .all()
             .any(|compatible| I2C_COMPATIBLES.contains(&compatible))
         {
             return Err(Error::InvalidArgs);

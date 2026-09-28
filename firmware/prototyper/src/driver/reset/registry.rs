@@ -7,8 +7,9 @@
 use alloc::{boxed::Box, vec, vec::Vec};
 
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry};
-use runtime::{Error, Result};
-use serde_device_tree::buildin::Node;
+use runtime::{Error, FdtNode, Result};
+
+use crate::devicetree::EnabledNode;
 
 use super::{ResetBackend, pmic_spacemit_p1, sifive_test, sunxi_watchdog, syscon};
 
@@ -41,8 +42,7 @@ pub(super) trait ResetDriver: Send + Sync {
     fn probe(
         &mut self,
         platform: &runtime::PlatformView<'_>,
-        node: &Node<'_>,
-        parent: Option<&Node<'_>>,
+        node: EnabledNode<'_, '_>,
     ) -> Result<()>;
 
     /// Returns whether this driver found a complete device description.
@@ -80,11 +80,10 @@ impl Registry {
     pub(super) fn probe(
         &mut self,
         platform: &runtime::PlatformView<'_>,
-        node: &Node<'_>,
-        parent: Option<&Node<'_>>,
+        node: EnabledNode<'_, '_>,
     ) -> Result<()> {
         for driver in &mut self.drivers {
-            driver.probe(platform, node, parent)?;
+            driver.probe(platform, node)?;
         }
         Ok(())
     }
@@ -122,10 +121,7 @@ pub(super) fn set_once<T>(slot: &mut Option<T>, value: T) -> Result<()> {
 /// Reads the primary register range for an MMIO device node.
 pub(super) fn primary_registers(
     platform: &runtime::PlatformView<'_>,
-    node: &Node<'_>,
+    node: FdtNode<'_, '_>,
 ) -> Result<DeviceRegisterRange> {
-    platform
-        .device_registers(node)?
-        .and_then(|ranges| ranges.first().copied())
-        .ok_or(Error::InvalidArgs)
+    platform.device_register(node)?.ok_or(Error::InvalidArgs)
 }

@@ -15,7 +15,8 @@ mod description;
 mod device;
 
 use runtime::Result;
-use serde_device_tree::buildin::Node;
+
+use crate::devicetree::EnabledNode;
 
 use super::ResetBackend;
 use super::registry::{BindResources, ResetDriver};
@@ -45,14 +46,15 @@ impl ResetDriver for SysconDriver {
     fn probe(
         &mut self,
         platform: &runtime::PlatformView<'_>,
-        node: &Node<'_>,
-        parent: Option<&Node<'_>>,
+        discovered: EnabledNode<'_, '_>,
     ) -> Result<()> {
-        let Some(compatibles) = crate::devicetree::compatible_strings(node) else {
+        let Some(compatibles) = discovered.compatible() else {
             return Ok(());
         };
+        let node = discovered.node();
+        let parent = discovered.parent();
         if compatibles
-            .iter()
+            .all()
             .any(|compatible| compatible == POWEROFF_COMPATIBLE)
         {
             Self::consider(
@@ -61,7 +63,7 @@ impl ResetDriver for SysconDriver {
             );
         }
         if compatibles
-            .iter()
+            .all()
             .any(|compatible| compatible == REBOOT_COMPATIBLE)
         {
             Self::consider(

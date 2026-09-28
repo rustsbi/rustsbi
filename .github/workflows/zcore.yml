@@ -1,0 +1,98 @@
+name: zCore
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-zcore-boot.sh"
+      - ".github/workflows/zcore.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-zcore-boot.sh"
+      - ".github/workflows/zcore.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  zcore-boot:
+    name: Boot zCore (${{ matrix.boot-path }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        boot-path:
+          - sbi
+          - u-boot
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bison \
+            build-essential \
+            dosfstools \
+            flex \
+            gcc-riscv64-linux-gnu \
+            git \
+            libssl-dev \
+            mtools \
+            python3 \
+            python3-dev \
+            python3-setuptools \
+            qemu-system-misc \
+            qemu-utils \
+            swig
+          qemu-system-riscv64 --version
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      # zCore is checked out by exact commit in the script, and its inputs are
+      # checksum-pinned. Bump the trailing revision after editing the build
+      # recipe in the script.
+      - name: Cache zCore build
+        uses: actions/cache@v5
+        with:
+          path: .cache/zcore
+          key: zcore-8de51f4ee053bcaaf435897febf648bcb4d45479-busybox-1.36.1-v1
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build
+
+      - name: Boot zCore
+        run: .github/scripts/prototyper-zcore-boot.sh "${{ matrix.boot-path }}"
+
+      - name: Upload zCore log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: zcore-log-${{ matrix.boot-path }}
+          path: qemu-logs/prototyper-zcore-${{ matrix.boot-path }}.log

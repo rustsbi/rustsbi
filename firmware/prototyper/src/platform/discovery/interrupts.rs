@@ -3,105 +3,165 @@
 //! This pass records unbound interrupt descriptions in [`BoardInfo`]. Driver
 //! selection and MMIO ownership remain in [`crate::driver`].
 
-use runtime::node_is_enabled;
-use serde_device_tree::buildin::Node;
+use runtime::{FdtNode, memory::DeviceRegisterRange};
 
-use crate::devicetree::compatible_strings;
+use crate::devicetree::EnabledNode;
 use crate::driver;
-use crate::platform::info::BoardInfo;
+use crate::platform::info::{BoardInfo, ClintResource, MachineAplicHandoff};
 use crate::platform::qemu_aplic;
 
 use super::imsic;
 
-pub(super) fn discover(
+pub(super) fn discover_node(
     board: &mut BoardInfo,
     platform: &runtime::PlatformView<'_>,
-) -> runtime::Result<()> {
-    let root = platform.root();
-    let cpu_interrupt_controllers = imsic::cpu_interrupt_controllers(root)?;
-    visit_subtree(board, platform, root, &cpu_interrupt_controllers)
-}
-
-fn visit_subtree<'tree>(
-    board: &mut BoardInfo,
-    platform: &runtime::PlatformView<'tree>,
-    node: &Node<'tree>,
+    discovered: EnabledNode<'_, '_>,
+    source_path: &[&str],
     cpu_interrupt_controllers: &[imsic::CpuInterruptController],
 ) -> runtime::Result<()> {
-    if !node_is_enabled(node) {
+    let Some(compatibles) = discovered.compatible() else {
         return Ok(());
-    }
-    discover_node(board, platform, node, cpu_interrupt_controllers)?;
-    for child in node.nodes() {
-        let child = child.deserialize::<Node<'tree>>();
-        visit_subtree(board, platform, &child, cpu_interrupt_controllers)?;
-    }
-    Ok(())
-}
+    };
+    let node = discovered.node();
 
-fn discover_node(
-    board: &mut BoardInfo,
-    platform: &runtime::PlatformView<'_>,
-    node: &Node<'_>,
-    cpu_interrupt_controllers: &[imsic::CpuInterruptController],
-) -> runtime::Result<()> {
-    let Some(compatibles) = compatible_strings(node) else {
+    let Some(controller) = InterruptController::from_compatibles(node, compatibles) else {
         return Ok(());
     };
 
-    let has_interrupt_device = compatibles
-        .iter()
-        .any(|compatible| is_interrupt_device(node, compatible));
-    if !has_interrupt_device {
-        return Ok(());
-    }
-
-    let registers = platform
-        .device_registers(node)?
-        .ok_or(runtime::Error::InvalidArgs)?;
-    let primary_register_range = registers
-        .first()
-        .copied()
-        .ok_or(runtime::Error::InvalidArgs)?;
-    for compatible in compatibles.iter() {
-        let slot = match compatible {
-            driver::PLMT_COMPATIBLE => Some(&mut board.devices.interrupts.plmt),
-            driver::SUNXI_PLICSW_COMPATIBLE => Some(&mut board.devices.interrupts.plicsw),
-            _ => None,
-        };
-        if let Some(slot) = slot
-            && slot.replace(primary_register_range).is_some()
-        {
-            return Err(runtime::Error::InvalidArgs);
+    let (registers, primary_register_range) = match &controller {
+        InterruptController::Imsic => {
+            let registers = platform
+                .device_registers(node)?
+                .ok_or(runtime::Error::InvalidArgs)?;
+            let primary = registers
+                .first()
+                .copied()
+                .ok_or(runtime::Error::InvalidArgs)?;
+            (Some(registers), primary)
         }
-        if let Some(kind) = driver::ClintKind::from_fdt(compatible) {
-            board.devices.interrupts.clint = Some((primary_register_range, kind));
-        }
-        if driver::IMSIC_COMPATIBLES.contains(&compatible)
-            && board.devices.interrupts.imsic.is_none()
-        {
-            board.devices.interrupts.imsic = imsic::discover(
-                node,
-                &registers,
-                cpu_interrupt_controllers,
-                &board.harts.enabled,
-            )?;
-        }
-        if qemu_aplic::is_machine_domain(node, compatible) {
-            board.devices.interrupts.machine_aplic = Some(primary_register_range);
-        }
-        if driver::THEAD_PLIC_COMPATIBLES.contains(&compatible) {
-            board.devices.interrupts.thead_plic = Some(primary_register_range);
-        }
-    }
-    Ok(())
+        _ => (
+            None,
+            platform
+                .device_register(node)?
+                .ok_or(runtime::Error::InvalidArgs)?,
+        ),
+    };
+    controller.record(
+        board,
+        node,
+        source_path,
+        registers.as_deref(),
+        primary_register_range,
+        cpu_interrupt_controllers,
+    )
 }
 
-fn is_interrupt_device(node: &Node<'_>, compatible: &str) -> bool {
-    compatible == driver::PLMT_COMPATIBLE
-        || compatible == driver::SUNXI_PLICSW_COMPATIBLE
-        || driver::ClintKind::from_fdt(compatible).is_some()
-        || driver::IMSIC_COMPATIBLES.contains(&compatible)
-        || driver::THEAD_PLIC_COMPATIBLES.contains(&compatible)
-        || qemu_aplic::is_machine_domain(node, compatible)
+/// The interrupt driver selected for one device-tree node.
+enum InterruptController {
+    Plmt,
+    Plicsw,
+    Clint(driver::ClintKind),
+    Imsic,
+    MachineAplic(MachineAplicHandoff),
+    TheadPlic,
+}
+
+impl InterruptController {
+    /// Selects the first supported `compatible`, following the fallback order
+    /// used by OpenSBI's FDT driver dispatcher.
+    ///
+    /// See <https://github.com/riscv-software-src/opensbi/blob/master/lib/utils/fdt/fdt_driver.c>.
+    fn from_compatibles(
+        node: FdtNode<'_, '_>,
+        compatibles: runtime::Compatible<'_>,
+    ) -> Option<Self> {
+        compatibles
+            .all()
+            .find_map(|compatible| Self::from_compatible(node, compatible))
+    }
+
+    fn from_compatible(node: FdtNode<'_, '_>, compatible: &str) -> Option<Self> {
+        if compatible == driver::PLMT_COMPATIBLE {
+            Some(Self::Plmt)
+        } else if compatible == driver::SUNXI_PLICSW_COMPATIBLE {
+            Some(Self::Plicsw)
+        } else if let Some(kind) = driver::ClintKind::from_fdt(compatible) {
+            Some(Self::Clint(kind))
+        } else if driver::IMSIC_COMPATIBLES.contains(&compatible) {
+            Some(Self::Imsic)
+        } else if qemu_aplic::is_machine_domain(node, compatible) {
+            let handoff = if qemu_aplic::is_delegated_machine_domain(node, compatible) {
+                MachineAplicHandoff::Hide
+            } else {
+                MachineAplicHandoff::KeepVisible
+            };
+            Some(Self::MachineAplic(handoff))
+        } else if driver::THEAD_PLIC_COMPATIBLES.contains(&compatible) {
+            Some(Self::TheadPlic)
+        } else {
+            None
+        }
+    }
+
+    fn record(
+        self,
+        board: &mut BoardInfo,
+        node: FdtNode<'_, '_>,
+        source_path: &[&str],
+        registers: Option<&[DeviceRegisterRange]>,
+        primary_register_range: DeviceRegisterRange,
+        cpu_interrupt_controllers: &[imsic::CpuInterruptController],
+    ) -> runtime::Result<()> {
+        match self {
+            Self::Plmt => {
+                if board.devices.interrupts.plmt.is_some() {
+                    return Err(runtime::Error::InvalidArgs);
+                }
+                board.devices.interrupts.plmt = Some(primary_register_range);
+            }
+            Self::Plicsw => {
+                if board.devices.interrupts.plicsw.is_some() {
+                    return Err(runtime::Error::InvalidArgs);
+                }
+                board.devices.interrupts.plicsw = Some(primary_register_range);
+            }
+            Self::Clint(kind) => {
+                board.devices.interrupts.set_clint(
+                    ClintResource {
+                        registers: primary_register_range,
+                        kind,
+                    },
+                    source_path,
+                )?;
+            }
+            Self::Imsic => {
+                let registers = registers.ok_or(runtime::Error::InvalidArgs)?;
+                if let Some(imsic) = imsic::discover(
+                    node,
+                    registers,
+                    cpu_interrupt_controllers,
+                    &board.harts.enabled,
+                )? {
+                    if board.devices.interrupts.imsic().is_some() {
+                        return Err(runtime::Error::InvalidArgs);
+                    }
+                    board.devices.interrupts.set_imsic(imsic, source_path)?;
+                }
+            }
+            Self::MachineAplic(handoff) => {
+                board.devices.interrupts.set_machine_aplic(
+                    primary_register_range,
+                    source_path,
+                    handoff,
+                )?;
+            }
+            Self::TheadPlic => {
+                if board.devices.interrupts.thead_plic.is_some() {
+                    return Err(runtime::Error::InvalidArgs);
+                }
+                board.devices.interrupts.thead_plic = Some(primary_register_range);
+            }
+        }
+        Ok(())
+    }
 }

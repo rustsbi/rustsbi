@@ -133,7 +133,8 @@ tlb_flush_limit = 16384      # 16 KiB (page_size * 4)
 
 - `num_hart_max`: Maximum number of supported harts (hardware threads).
 - `stack_size_per_hart`: Stack size per hart, in bytes.
-- `heap_size`: Heap size, in bytes.
+- `heap_size`: Linker-reserved firmware heap size in bytes (at least 32). Prototyper
+  uses a first-fit allocator; Runtime owns the heap storage and global allocation boundary.
 - `page_size`: Page size, in bytes.
 - `log_level`: Logging level (`TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`).
 - `link_start_address`: Address where the firmware itself is linked and loaded.
@@ -141,7 +142,7 @@ tlb_flush_limit = 16384      # 16 KiB (page_size * 4)
 - `jump_address`: Target address for jump mode.
 - `tlb_flush_limit`: TLB flush limit, in bytes.
 
-Custom configuration files must define `link_start_address`, `payload_address`, and `jump_address`. Addresses must be 0x1000-aligned, and `link_start_address` must be lower than `payload_address`.
+Custom configuration files must define `link_start_address`, `payload_address`, `jump_address`, and `heap_size`. Addresses must be 0x1000-aligned, and `link_start_address` must be lower than `payload_address`.
 
 To use a custom configuration file, specify it with:
 
