@@ -7,6 +7,7 @@ use core::sync::atomic::{AtomicU8, Ordering};
 use super::HartId;
 use crate::boot::NextStage;
 use crate::cfg::NUM_HART_MAX;
+use crate::context::ExecutionContext;
 
 // State values are private Runtime facts, not SBI state IDs.
 const STATE_STARTED: u8 = 0;
@@ -17,10 +18,11 @@ const STATE_RESUME_PENDING: u8 = 6;
 const STATE_STARTING: u8 = u8::MAX;
 
 #[repr(align(128))]
-struct HartStateCell {
+pub(crate) struct HartStateCell {
     state: AtomicU8,
     stage: UnsafeCell<Option<NextStage>>,
     transfer: UnsafeCell<Option<ControlTransfer>>,
+    active_context: UnsafeCell<Option<&'static ExecutionContext>>,
 }
 
 impl HartStateCell {
@@ -29,7 +31,53 @@ impl HartStateCell {
             state: AtomicU8::new(STATE_STOPPED),
             stage: UnsafeCell::new(None),
             transfer: UnsafeCell::new(None),
+            active_context: UnsafeCell::new(None),
         }
+    }
+
+    /// Whether the hart is executing normally.
+    pub(crate) fn is_started(&self) -> bool {
+        self.state.load(Ordering::Acquire) == STATE_STARTED
+    }
+
+    /// Whether an ecall return-path control transfer is pending.
+    pub(crate) fn has_staged_transfer(&self) -> bool {
+        // SAFETY: only the owning hart's ecall path stages or consumes
+        // its transfer marker.
+        unsafe { (*self.transfer.get()).is_some() }
+    }
+
+    /// The context the hart is currently executing, if a retentive
+    /// transfer has recorded one.
+    pub(crate) fn active_context(&self) -> Option<&'static ExecutionContext> {
+        // SAFETY: the active-context word is written only by this hart's
+        // own ecall return path and stop, and read by the same hart.
+        unsafe { *self.active_context.get() }
+    }
+
+    /// Records the hart's active context (or clears the record).
+    pub(crate) fn set_active_context(&self, context: Option<&'static ExecutionContext>) {
+        // SAFETY: see `active_context`.
+        unsafe { *self.active_context.get() = context };
+    }
+
+    /// Publishes a staged retentive transfer. Infallible by construction:
+    /// callers verify the hart is started, owns no staged transfer, and
+    /// have already staged the context pair.
+    pub(crate) fn stage_retentive(
+        &self,
+        suspend_into: &'static ExecutionContext,
+        resume_from: &'static ExecutionContext,
+    ) {
+        // SAFETY: the current hart owns its transfer slot on its own
+        // M-mode ecall path; the marker is consumed once by the same
+        // hart's return path.
+        unsafe {
+            *self.transfer.get() = Some(ControlTransfer::Retentive {
+                suspend_into,
+                resume_from,
+            })
+        };
     }
 }
 
@@ -108,39 +156,14 @@ pub enum ResumeError {
 pub(crate) enum ControlTransfer {
     /// Enter the supplied lower-privilege stage from the ecall return path.
     NonRetentiveResume(NextStage),
-    /// Switch execution contexts retentively from the ecall return path: the
-    /// outgoing context is saved, the incoming context is loaded into the
-    /// frame, and the normal ecall-return ceremony enters the incoming one.
-    RetentiveResume(&'static dyn DomainContext),
-}
-
-/// A client-owned saved execution context exchanged by a retentive control
-/// transfer.
-///
-/// A domain switch must save the outgoing context and load an incoming one
-/// without duplicating Runtime's register-lifetime protocol: the GPR file is
-/// exchanged through this trait, and Runtime copies it into and out of its
-/// private trap frame. The implementor decides where saved contexts live;
-/// Runtime decides when the exchange happens and keeps the frame private.
-///
-/// The trait is consulted on the ecall return path of the hart that staged
-/// the transfer, with interrupts disabled in M-mode.
-pub trait DomainContext: Sync {
-    /// Receives the outgoing context's GPR file and resume PC. The GPR file
-    /// is indexed by register number, with `gprs[0]` hardwired to zero. The
-    /// PC is the outgoing context's live resume address at the point of the
-    /// transfer (on the ecall return path, the instruction after the ecall).
-    fn save_outgoing(&self, gprs: &[usize; 32], pc: usize);
-    /// Fills the incoming context's GPR file (indexed by register number;
-    /// `gprs[0]` is ignored on restore) and returns the incoming context's
-    /// entry PC, which Runtime programs into `mepc` for the `mret`.
-    ///
-    /// Runs after Runtime has staged its entry trap-state reset, so the
-    /// implementation may restore incoming S-mode CSRs (such as `satp`) that
-    /// the reset cleared. Runtime flushes the local TLB after this call
-    /// returns, so an implementation may switch `satp` (including ASID)
-    /// without issuing its own `sfence.vma`.
-    fn restore_incoming(&self, gprs: &mut [usize; 32]) -> usize;
+    /// Switch execution contexts retentively from the ecall return path:
+    /// the outgoing execution is saved into the suspend target and the
+    /// resume source is entered, both as plain data movement performed by
+    /// Runtime alone.
+    Retentive {
+        suspend_into: &'static ExecutionContext,
+        resume_from: &'static ExecutionContext,
+    },
 }
 
 /// Stages the initial boot handoff for the current hart.
@@ -165,18 +188,14 @@ pub fn stage_current(stage: NextStage) -> Result<(), StageError> {
     Ok(())
 }
 
-/// Stages a retentive control transfer for the current hart's ecall return
-/// path. The transfer is consumed once, by the same hart, when its pending
-/// ecall returns through the dispatch.
-pub fn stage_retentive_transfer(context: &'static dyn DomainContext) -> Result<(), StageError> {
-    let cell = cell(current_hart());
-    if cell.state.load(Ordering::Acquire) != STATE_STARTED {
-        return Err(StageError::NotRunning);
-    }
-    // SAFETY: the current hart owns its transfer slot on its own M-mode ecall
-    // path; the marker is consumed once by the same hart's return path.
-    unsafe { *cell.transfer.get() = Some(ControlTransfer::RetentiveResume(context)) };
-    Ok(())
+/// Returns the current hart's lifecycle cell for transfer staging.
+pub(crate) fn current_cell() -> &'static HartStateCell {
+    cell(current_hart())
+}
+
+/// Records (or clears) the current hart's active execution context.
+pub(crate) fn set_active_context(context: Option<&'static ExecutionContext>) {
+    cell(current_hart()).set_active_context(context);
 }
 
 /// Reserves and wakes a stopped hart, publishing its stage only after wake.
@@ -267,9 +286,10 @@ pub fn stop_current() -> Result<core::convert::Infallible, StopError> {
     let ipi = crate::ipi::get().ok_or(StopError::Platform)?;
     ipi.clear_current().map_err(|_| StopError::Platform)?;
     crate::csr::mie::set_machine_software();
-    cell(current_hart())
-        .state
-        .store(STATE_STOPPED, Ordering::Release);
+    let cell = cell(current_hart());
+    // Stopping discards the supervisor context, so its tracking goes too.
+    cell.set_active_context(None);
+    cell.state.store(STATE_STOPPED, Ordering::Release);
     // SAFETY: M-mode interrupts remain disabled. Stop retires the current
     // trap call chain, allowing the Runtime finisher to reuse the clean stack
     // and wait for a new start without returning to the stopped supervisor.

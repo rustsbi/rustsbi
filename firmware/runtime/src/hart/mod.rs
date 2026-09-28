@@ -14,13 +14,14 @@ pub use wakeup::{HartWake, install_wakeup};
 
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub(crate) use lifecycle::{
-    ControlTransfer, HartEvent, current_hart, take_control_transfer, take_local_event,
+    ControlTransfer, HartEvent, current_cell, current_hart, set_active_context,
+    take_control_transfer, take_local_event,
 };
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub use lifecycle::{
-    DomainContext, HartState, ResumeError, ResumeTicket, StageError, StartError, StartOutcome,
-    StopError, SuspendError, begin_nonretentive_resume, can_receive_ipi, resume_current_retentive,
-    stage_current, stage_retentive_transfer, start, status, stop_current, suspend_current,
+    HartState, ResumeError, ResumeTicket, StageError, StartError, StartOutcome, StopError,
+    SuspendError, begin_nonretentive_resume, can_receive_ipi, resume_current_retentive,
+    stage_current, start, status, stop_current, suspend_current,
 };
 pub use local::{HartLocal, HartLocalError};
 pub use set::{HartSet, HartSetIter};

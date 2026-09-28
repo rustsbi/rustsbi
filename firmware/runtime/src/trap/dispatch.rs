@@ -15,6 +15,7 @@ use super::frame::TrapFrame;
 use super::redirect::redirect_trap;
 use super::{emulate, init};
 use crate::boot::NextStage;
+use crate::context;
 use crate::hart::{self, HartEvent};
 
 /// Machine interrupt cause codes.
@@ -134,30 +135,44 @@ fn sbi_ecall(frame: &mut TrapFrame) {
             riscv::asm::fence_i();
             frame.write_x(10, hart::current_hart().as_usize());
             frame.write_x(11, next_stage.opaque);
+            // The fresh stage is not a tracked execution context.
+            hart::set_active_context(None);
         }
-        Some(hart::ControlTransfer::RetentiveResume(context)) => {
+        Some(hart::ControlTransfer::Retentive {
+            suspend_into,
+            resume_from,
+        }) => {
             // The advance above has already committed the outgoing context's
-            // resume PC.
+            // resume PC. The whole switch is data movement performed by
+            // Runtime alone; no client code runs inside this sequence.
             let resume_pc = mepc::read();
-            // The GPR file is exchanged indexed by register number, so the
-            // private frame layout stays inside Runtime.
-            let mut gprs = [0usize; 32];
-            gprs[1..].copy_from_slice(&frame.x);
-            context.save_outgoing(&gprs, resume_pc);
+            // Read the outgoing translation state before the entry reset
+            // clears it, so it is preserved in the snapshot.
+            let outgoing = context::ProtectionState::current();
             // SAFETY: M-mode writes to this hart's S-mode and trap CSRs for
             // the staged transfer.
             unsafe {
                 stage_smode_trap_state();
                 mstatus::set_mpp(mstatus::MPP::Supervisor);
             }
-            let entry_pc = context.restore_incoming(&mut gprs);
-            frame.x.copy_from_slice(&gprs[1..]);
-            // The incoming context may have switched satp (including ASID);
-            // flush the local TLB so stale translations of the outgoing
-            // domain cannot survive the switch. The fence must follow the
-            // satp write, so it stays after `restore_incoming`.
-            riscv::asm::sfence_vma_all();
+            // Save the outgoing execution as data, then install the
+            // declared incoming state.
+            suspend_into.save_outgoing(&frame.x, resume_pc, outgoing);
+            let incoming = resume_from.protection();
+            incoming.install();
+            // The incoming context may declare a different address space
+            // (including a reused ASID); fence the local TLB only when it
+            // actually differs from the outgoing one.
+            if incoming != outgoing {
+                riscv::asm::sfence_vma_all();
+            }
             riscv::asm::fence_i();
+            // Load the incoming registers and entry PC.
+            let entry_pc = resume_from.resume_into(&mut frame.x);
+            // Commit the exchange: the suspend target now holds the
+            // outgoing snapshot, the resume source becomes active.
+            context::commit_pair(suspend_into, resume_from);
+            hart::set_active_context(Some(resume_from));
             // SAFETY: M-mode writes to this hart's mepc for the staged
             // transfer into the incoming context.
             unsafe { mepc::write(entry_pc) };
