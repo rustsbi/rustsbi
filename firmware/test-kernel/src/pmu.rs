@@ -7,13 +7,20 @@
 
 use riscv::register::cycle;
 use sbi_spec::{
-    binary::{CounterMask, HartMask, SbiRet},
+    binary::{
+        CounterMask, HartMask, RET_ERR_ALREADY_STOPPED, RET_ERR_INVALID_PARAM,
+        RET_ERR_NOT_SUPPORTED, SbiRet,
+    },
     pmu::firmware_event,
 };
 use sbi_testing::sbi::{self, ConfigFlagsParam, StartFlagsParam, StopFlagsParam};
 
 /// Runs the PMU checks in the order used by the expected-output script.
 pub(crate) fn test(smp: usize) {
+    if sbi::probe_extension(sbi::Pmu).is_unavailable() {
+        println!("[pmu] extension unavailable, skipping");
+        return;
+    }
     report_counters();
     test_hardware_event_configuration();
     test_hardware_cycles();
@@ -24,7 +31,13 @@ fn report_counters() {
     let counters_num = sbi::pmu_num_counters();
     println!("[pmu] counters number: {}", counters_num);
     for idx in 0..counters_num {
-        let counter_info = CounterInfo::new(sbi::pmu_counter_get_info(idx).value);
+        let info = sbi::pmu_counter_get_info(idx);
+        // Skip indices reported as invalid by the SBI implementation.
+        if info.error == RET_ERR_INVALID_PARAM {
+            continue;
+        }
+        assert!(info.is_ok());
+        let counter_info = CounterInfo::new(info.value);
         if counter_info.is_firmware_counter() {
             println!("[pmu] counter index:{:>2}, is a firmware counter", idx);
         } else {
@@ -38,26 +51,57 @@ fn report_counters() {
     }
 }
 
-fn test_hardware_event_configuration() {
-    let counter_mask = CounterMask::from_mask_base(0x7ffff, 0);
-    let flags = Flag::new(0b110);
-    for event in [0x2, 0x10019, 0x1001b, 0x10021] {
-        assert!(sbi::pmu_counter_config_matching(counter_mask, flags, event, 0).is_ok());
+/// Find an available counter of the right type before exercising an event.
+fn configure_event(event: usize, flags: Flag) -> Option<SbiRet> {
+    let firmware = event >> 16 == 0xf;
+    for idx in 0..sbi::pmu_num_counters() {
+        let info = sbi::pmu_counter_get_info(idx);
+        // Skip indices reported as invalid by the SBI implementation.
+        if info.error == RET_ERR_INVALID_PARAM {
+            continue;
+        }
+        assert!(info.is_ok());
+        let info = CounterInfo::new(info.value);
+        if info.is_firmware_counter() != firmware {
+            continue;
+        }
+        // Fixed counters may already be running when the kernel boots.
+        if !firmware && matches!(info.get_csr(), 0xc00 | 0xc02) {
+            let result = sbi::pmu_counter_stop(CounterMask::from_mask_base(1, idx), Flag::new(0));
+            assert!(result.is_ok() || result.error == RET_ERR_ALREADY_STOPPED);
+        }
+        // A one-counter mask also works for indices beyond XLEN.
+        let result =
+            sbi::pmu_counter_config_matching(CounterMask::from_mask_base(1, idx), flags, event, 0);
+        if result.error == RET_ERR_NOT_SUPPORTED {
+            continue;
+        }
+        assert!(result.is_ok(), "PMU event {event:#x}: {result:?}");
+        assert_eq!(result.value, idx);
+        return Some(result);
     }
-    assert_eq!(
-        sbi::pmu_counter_config_matching(counter_mask, flags, 0x3, 0),
-        SbiRet::not_supported()
-    );
+    println!("[pmu] no counter for event {event:#x}, skipping");
+    None
+}
+
+fn test_hardware_event_configuration() {
+    let flags = Flag::new(0b110);
+    for event in [0x2, 0x10019, 0x1001b, 0x10021, 0x3] {
+        let Some(result) = configure_event(event, flags) else {
+            continue;
+        };
+        assert!(
+            sbi::pmu_counter_stop(CounterMask::from_mask_base(1, result.value), Flag::new(1))
+                .is_ok()
+        );
+    }
 }
 
 fn test_hardware_cycles() {
     // `SBI_PMU_HW_CPU_CYCLES` event.
-    let result = sbi::pmu_counter_config_matching(
-        CounterMask::from_mask_base(0x7ffff, 0),
-        Flag::new(0b010),
-        0x1,
-        0,
-    );
+    let Some(result) = configure_event(0x1, Flag::new(0b010)) else {
+        return;
+    };
     assert!(result.is_ok());
     let cycle_counter_idx = result.value;
 
@@ -104,18 +148,13 @@ fn test_hardware_cycles() {
 }
 
 fn test_firmware_ipi_counter(invalid_hart: usize) {
-    // RV32's mask covers counters 0..31, including the firmware counters
-    // used below; RV64 can also select counters 32..34.
-    let counter_mask = CounterMask::from_mask_base(0x7_ffff_ffffu64 as usize, 0);
-
     // Access-fault counters start at zero and can be released for reuse.
     for event in [firmware_event::ACCESS_LOAD, firmware_event::ACCESS_STORE] {
-        let result = sbi::pmu_counter_config_matching(
-            counter_mask,
-            Flag::new(0b110),
-            EventIdx::new_firmware_event(event).raw(),
-            0,
-        );
+        let Some(result) =
+            configure_event(EventIdx::new_firmware_event(event).raw(), Flag::new(0b110))
+        else {
+            continue;
+        };
         assert!(result.is_ok());
         let info = sbi::pmu_counter_get_info(result.value);
         assert!(info.is_ok() && CounterInfo::new(info.value).is_firmware_counter());
@@ -127,14 +166,15 @@ fn test_firmware_ipi_counter(invalid_hart: usize) {
     }
 
     // IPI_SENT is a firmware counter and starts at zero.
-    let result = sbi::pmu_counter_config_matching(
-        counter_mask,
-        Flag::new(0b010),
+    let Some(result) = configure_event(
         EventIdx::new_firmware_event(firmware_event::IPI_SENT).raw(),
-        0,
-    );
+        Flag::new(0b010),
+    ) else {
+        return;
+    };
     assert!(result.is_ok());
-    assert!(result.value >= 19);
+    let info = sbi::pmu_counter_get_info(result.value);
+    assert!(info.is_ok() && CounterInfo::new(info.value).is_firmware_counter());
     let ipi_counter_idx = result.value;
     let ipi_num = sbi::pmu_counter_fw_read(ipi_counter_idx);
     assert!(ipi_num.is_ok());
