@@ -110,3 +110,7 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Removed
 - Remove Prototyper's fast-trap integration and unavailable NACL/SSE adapters.
+
+
+### Fixed
+- Probe PMU counters and skip unsupported events in test-kernel instead of assuming a fixed counter layout.
