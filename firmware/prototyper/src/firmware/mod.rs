@@ -16,56 +16,57 @@ cfg_if::cfg_if! {
 
 use core::fmt;
 
-use riscv::register::{self, Permission};
+use riscv::register::{self, Permission, misa, mstatus::MPP};
 
 use runtime::hart::HartId;
 
-/// Decides whether this hart leads the boot (designated in `DynamicInfo`,
-/// or raced when absent).
+/// Returns whether the current hart can enter the requested next-stage mode.
+///
+/// Invalid or unreadable dynamic information is deliberately left eligible so
+/// that one hart can initialize the console and report the validation error.
+fn supports_next_stage(dynamic_info_address: usize) -> bool {
+    cfg_if::cfg_if! {
+        if #[cfg(any(feature = "payload", feature = "jump"))] {
+            let _ = dynamic_info_address;
+            let next_mode = Some(MPP::Supervisor);
+        } else {
+            let next_mode = read_dynamic_info(dynamic_info_address)
+                .ok()
+                .and_then(|dynamic_info| match dynamic_info.next_mode {
+                    3 => Some(MPP::Machine),
+                    1 => Some(MPP::Supervisor),
+                    0 => Some(MPP::User),
+                    _ => None,
+                });
+        }
+    }
+
+    match next_mode {
+        Some(MPP::Supervisor) => misa::read().has_extension('S'),
+        Some(MPP::User) => misa::read().has_extension('U'),
+        _ => true,
+    }
+}
+
+/// Elects the hart that initializes the platform and enters the next stage.
+///
+/// `DynamicInfo::boot_hart` applies only to the earlier relocation election.
+/// At this stage, all harts capable of entering `next_mode` participate in a
+/// separate lottery, matching OpenSBI's cold-boot selection semantics.
 fn is_selected_boot_hart(dynamic_info_address: usize) -> bool {
     use core::sync::atomic::{AtomicUsize, Ordering};
     static BOOT_HART_ID: AtomicUsize = AtomicUsize::new(usize::MAX);
 
-    cfg_if::cfg_if! {
-        if #[cfg(any(feature = "payload", feature = "jump"))] {
-            let _ = dynamic_info_address;
-            let selected_hart: Option<usize> = None;
-        }
-        else {
-            let selected_hart = read_dynamic_info(dynamic_info_address)
-                .ok()
-                .map(|dynamic_info| dynamic_info.boot_hart);
-        }
+    if !supports_next_stage(dynamic_info_address) {
+        return false;
     }
 
-    let claim_boot_hart = || {
-        let hart_id = HartId::current()
-            .expect("BUG: current hart exceeds Runtime capacity")
-            .as_usize();
-        match BOOT_HART_ID.compare_exchange(
-            usize::MAX,
-            hart_id,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        ) {
-            Ok(_) => true,
-            Err(selected_hart) => selected_hart == hart_id,
-        }
-    };
-
-    match selected_hart {
-        Some(hart_id) => {
-            if hart_id == usize::MAX {
-                claim_boot_hart()
-            } else {
-                HartId::current()
-                    .expect("BUG: current hart exceeds Runtime capacity")
-                    .as_usize()
-                    == hart_id
-            }
-        }
-        // Without a readable DynamicInfo, race to elect a single boot hart.
-        None => claim_boot_hart(),
+    let hart_id = HartId::current()
+        .expect("BUG: current hart exceeds Runtime capacity")
+        .as_usize();
+    match BOOT_HART_ID.compare_exchange(usize::MAX, hart_id, Ordering::AcqRel, Ordering::Acquire) {
+        Ok(_) => true,
+        Err(selected_hart) => selected_hart == hart_id,
     }
 }
 
@@ -85,8 +86,7 @@ pub struct BootInfo {
 }
 
 impl BootInfo {
-    /// Decodes the entry handoff, electing a boot hart by race when
-    /// `DynamicInfo` is unreadable.
+    /// Decodes the entry handoff, electing a next-mode-capable boot hart.
     pub fn decode(
         device_tree: runtime::DeviceTreeHandoff,
         dynamic_info_address: usize,
