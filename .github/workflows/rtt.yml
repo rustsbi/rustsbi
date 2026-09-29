@@ -1,0 +1,88 @@
+name: RT-Thread
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-rtt-boot.sh"
+      - ".github/workflows/rtt.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-rtt-boot.sh"
+      - ".github/workflows/rtt.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  rtt-boot:
+    name: Boot RT-Thread (sbi)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git python3 qemu-system-misc scons
+          qemu-system-riscv64 --version
+          scons --version
+
+      # Not the gcc-riscv64-unknown-elf package: it ships no C library and this
+      # BSP links -lsupc++. RT-Thread's own CI points RTT_EXEC_PATH at this
+      # newlib toolchain.
+      - name: Install RISC-V toolchain
+        run: |
+          toolchain=riscv64-unknown-elf-toolchain-10.2.0-2020.12.8-x86_64-linux-ubuntu14
+          wget -q "https://github.com/RT-Thread/toolchains-ci/releases/download/v1.4/${toolchain}.tar.gz"
+          sudo tar zxf "${toolchain}.tar.gz" -C /opt
+          "/opt/${toolchain}/bin/riscv64-unknown-elf-gcc" --version
+          echo "RTT_EXEC_PATH=/opt/${toolchain}/bin" >> "$GITHUB_ENV"
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      - name: Cache RT-Thread build
+        uses: actions/cache@v5
+        with:
+          path: .cache/rtt
+          key: rtt-${{ hashFiles('.github/scripts/prototyper-rtt-boot.sh') }}-${{ github.sha }}
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build
+
+      - name: Boot RT-Thread
+        run: .github/scripts/prototyper-rtt-boot.sh
+
+      - name: Upload RT-Thread log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rtt-log
+          path: qemu-logs/prototyper-rtt.log
