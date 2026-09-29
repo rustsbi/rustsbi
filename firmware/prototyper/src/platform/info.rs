@@ -16,6 +16,66 @@ use crate::driver;
 
 pub(super) type HartEnableList = [bool; NUM_HART_MAX];
 
+/// Per-hart register index assigned by one ACLINT device, keyed by hart ID.
+///
+/// The ACLINT specification says a device assigns a HART index starting from
+/// zero to each HART connected to it, and that this index "may or may not have
+/// any relationship" with the hart ID. The index of a hart is therefore taken
+/// from the device's interrupt list instead of being assumed equal to its ID.
+#[derive(Clone, Copy)]
+pub(crate) struct HartIndexMap {
+    indices: [Option<u32>; NUM_HART_MAX],
+    count: u32,
+}
+
+impl HartIndexMap {
+    pub(crate) const fn new() -> Self {
+        Self {
+            indices: [None; NUM_HART_MAX],
+            count: 0,
+        }
+    }
+
+    /// Records the device register index `index` for `hart_id`.
+    pub(crate) fn insert(&mut self, hart_id: usize, index: u32) -> bool {
+        let Some(slot) = self.indices.get_mut(hart_id) else {
+            return false;
+        };
+        if slot.is_some() {
+            return false;
+        }
+        *slot = Some(index);
+        self.count += 1;
+        true
+    }
+
+    /// Returns the device register index of `hart_id`.
+    pub(crate) fn get(&self, hart_id: usize) -> Option<u32> {
+        self.indices.get(hart_id).copied().flatten()
+    }
+
+    /// Returns how many harts this device serves.
+    pub(crate) const fn count(self) -> u32 {
+        self.count
+    }
+}
+
+/// One ACLINT MSWI device: its IPI register window plus per-hart indexing.
+#[derive(Clone, Copy)]
+pub(crate) struct AclintMswi {
+    pub(crate) registers: DeviceRegisterRange,
+    pub(crate) hart_indices: HartIndexMap,
+}
+
+/// One ACLINT MTIMER device: its compare window, its optional time window, and
+/// per-hart indexing.
+#[derive(Clone, Copy)]
+pub(crate) struct AclintMtimer {
+    pub(crate) compare: DeviceRegisterRange,
+    pub(crate) time: Option<DeviceRegisterRange>,
+    pub(crate) hart_indices: HartIndexMap,
+}
+
 /// Address layout of the machine-level IMSIC interrupt files.
 pub(crate) struct ImsicAddressLayout {
     pub(crate) machine_base: PhysAddr,
@@ -143,6 +203,8 @@ pub(crate) struct InterruptDescriptions {
     pub(crate) thead_plic: Option<DeviceRegisterRange>,
     pub(crate) plmt: Option<DeviceRegisterRange>,
     pub(crate) plicsw: Option<DeviceRegisterRange>,
+    pub(crate) aclint_mswi: Option<AclintMswi>,
+    pub(crate) aclint_mtimer: Option<AclintMtimer>,
 }
 
 impl InterruptDescriptions {
@@ -212,6 +274,8 @@ impl InterruptDescriptions {
             thead_plic: None,
             plmt: None,
             plicsw: None,
+            aclint_mswi: None,
+            aclint_mtimer: None,
         }
     }
 }
