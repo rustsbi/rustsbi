@@ -1,0 +1,95 @@
+name: Zephyr
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-zephyr-boot.sh"
+      - ".github/workflows/zephyr.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-zephyr-boot.sh"
+      - ".github/workflows/zephyr.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  zephyr-boot:
+    name: Boot Zephyr (sbi)
+    # The board requests priv_spec=v1.12.0 and sv39; QEMU from Ubuntu 24.04
+    # provides both.
+    runs-on: ubuntu-24.04
+    # A cold run clones the Zephyr workspace and downloads the SDK; warm runs
+    # reuse both and only rebuild the sample.
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            curl \
+            device-tree-compiler \
+            python3-venv \
+            qemu-system-misc
+          qemu-system-riscv64 --version
+
+      # The Zephyr workspace holds a pinned checkout plus every module the
+      # manifest lists. Bump the revision after changing ZEPHYR_COMMIT in the
+      # boot script.
+      - name: Cache Zephyr workspace
+        uses: actions/cache@v5
+        with:
+          path: .cache/zephyr/zephyrproject
+          key: zephyr-workspace-6607bdd711f-v1
+
+      # The SDK is assembled from pinned, digest-verified release assets.
+      # Bump the revision after changing SDK_VERSION or SDK_TOOLCHAIN in the
+      # boot script.
+      - name: Cache Zephyr SDK
+        uses: actions/cache@v5
+        with:
+          path: .cache/zephyr/zephyr-sdk
+          key: zephyr-sdk-1.0.1-riscv64-v1
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build
+
+      - name: Boot Zephyr
+        run: .github/scripts/prototyper-zephyr-boot.sh
+
+      - name: Upload Zephyr log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: zephyr-log
+          path: qemu-logs/prototyper-zephyr.log
