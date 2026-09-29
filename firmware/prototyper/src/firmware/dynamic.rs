@@ -11,6 +11,11 @@ use crate::fail;
 
 use riscv::register::mstatus;
 
+pub(crate) const DYNAMIC_INFO_MAGIC: usize = 0x4942534f;
+pub(crate) const DYNAMIC_INFO_VERSION_2: usize = 2;
+pub(crate) const DYNAMIC_INFO_VERSION_OFFSET: usize = size_of::<usize>();
+pub(crate) const DYNAMIC_INFO_BOOT_HART_OFFSET: usize = 5 * size_of::<usize>();
+
 /// Derives the next-stage address and privilege mode from the `a2`
 /// `DynamicInfo`; prints and stops on invalid input.
 pub(crate) fn decode_next_stage(dynamic_info_address: usize) -> (mstatus::MPP, usize) {
@@ -33,12 +38,18 @@ pub struct DynamicInfo {
     pub next_mode: usize,
     /// M-mode firmware options; its definition varies between SBI implementations.
     pub options: usize,
-    /// Boot hart ID of current environment.
+    /// Preferred boot hart ID for firmware relocation.
+    ///
+    /// This does not require that the same hart enter the next boot stage.
     pub boot_hart: usize,
 }
 
+const _: () = {
+    assert!(core::mem::offset_of!(DynamicInfo, version) == DYNAMIC_INFO_VERSION_OFFSET);
+    assert!(core::mem::offset_of!(DynamicInfo, boot_hart) == DYNAMIC_INFO_BOOT_HART_OFFSET);
+};
+
 const NULL_DYNAMIC_INFO_ADDRESS: usize = 0;
-pub(crate) const MAGIC: usize = 0x4942534f;
 const SUPPORTED_VERSION: Range<usize> = 0..3;
 
 /// Error type for dynamic info read failures.
@@ -66,7 +77,7 @@ pub fn read_dynamic_info(address: usize) -> Result<DynamicInfo, ReadError> {
     let dynamic_info = unsafe { *(address as *const DynamicInfo) };
 
     // Validate magic number and version.
-    if dynamic_info.magic != MAGIC {
+    if dynamic_info.magic != DYNAMIC_INFO_MAGIC {
         error.invalid_magic = Some(dynamic_info.magic);
     }
     if !SUPPORTED_VERSION.contains(&dynamic_info.version) {
