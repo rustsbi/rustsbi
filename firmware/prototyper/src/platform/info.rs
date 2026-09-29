@@ -143,6 +143,8 @@ pub(crate) struct InterruptDescriptions {
     pub(crate) thead_plic: Option<DeviceRegisterRange>,
     pub(crate) plmt: Option<DeviceRegisterRange>,
     pub(crate) plicsw: Option<DeviceRegisterRange>,
+    pub(crate) aclint_mswi: Option<DeviceRegisterRange>,
+    pub(crate) aclint_mtimer: Option<DeviceRegisterRange>,
 }
 
 impl InterruptDescriptions {
@@ -212,6 +214,8 @@ impl InterruptDescriptions {
             thead_plic: None,
             plmt: None,
             plicsw: None,
+            aclint_mswi: None,
+            aclint_mtimer: None,
         }
     }
 }

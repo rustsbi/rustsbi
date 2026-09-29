@@ -1,5 +1,8 @@
 //! Platform timer devices shared by boot, Runtime, and SBI TIME.
 
+pub(super) mod mtimer;
+pub(super) mod plmt;
+
 use crate::riscv::csr::stimecmp;
 use alloc::boxed::Box;
 use runtime::csr::{mie, mip};

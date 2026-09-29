@@ -1,5 +1,6 @@
 //! Machine IPI devices and validated target windows.
 
+pub(super) mod mswi;
 pub(super) mod plicsw;
 
 use alloc::boxed::Box;
