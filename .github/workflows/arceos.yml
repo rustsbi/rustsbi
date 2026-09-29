@@ -1,0 +1,101 @@
+name: ArceOS
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-arceos-boot.sh"
+      - ".github/workflows/arceos.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-arceos-boot.sh"
+      - ".github/workflows/arceos.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  arceos-boot:
+    name: Boot ArceOS (${{ matrix.boot-path }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        boot-path:
+          - sbi
+          - u-boot
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc \
+            bison \
+            flex \
+            gcc-riscv64-linux-gnu \
+            libc6-dev-riscv64-cross \
+            libssl-dev \
+            qemu-system-misc
+          qemu-system-riscv64 --version
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      # The payload is a pinned revision, so the key changes only when the pin
+      # does; bump the trailing revision after editing its build recipe.
+      - name: Cache ArceOS build
+        uses: actions/cache@v5
+        with:
+          path: .cache/arceos
+          key: arceos-8d2e6f97efc4-v1
+
+      # Only the u-boot path builds U-Boot. Keep it in a separate cache so
+      # another matrix entry cannot populate the shared key without the binary.
+      - name: Cache U-Boot build
+        if: matrix.boot-path == 'u-boot'
+        uses: actions/cache@v5
+        with:
+          path: .cache/uboot-smode
+          key: uboot-smode-25049ad56082-v1
+
+      - name: Build RustSBI Prototyper
+        run: |
+          cargo prototyper build
+          cargo prototyper build jump
+
+      - name: Boot ArceOS
+        run: .github/scripts/prototyper-arceos-boot.sh "${{ matrix.boot-path }}"
+
+      - name: Upload ArceOS log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: arceos-log-${{ matrix.boot-path }}
+          path: qemu-logs/prototyper-arceos-${{ matrix.boot-path }}.log
