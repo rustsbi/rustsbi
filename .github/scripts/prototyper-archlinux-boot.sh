@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Boot a checksum-pinned Arch Linux RISC-V rootfs through RustSBI and U-Boot/EDK II.
+# Boot a checksum-pinned Arch Linux RISC-V rootfs through RustSBI.
 set -euo pipefail
 
 if (( $# != 1 )); then
-  echo "Usage: $0 u-boot|edk2" >&2
+  echo "Usage: $0 sbi|u-boot|edk2" >&2
   exit 2
 fi
 readonly BOOT_MODE=$1
 case "$BOOT_MODE" in
-  u-boot | edk2) ;;
+  sbi | u-boot | edk2) ;;
   *) echo "Unknown boot mode: $BOOT_MODE" >&2; exit 2 ;;
 esac
 
@@ -46,6 +46,7 @@ readonly RUSTSBI_FIT_BIN="${RUSTSBI_DIR}/rustsbi-prototyper.bin"
 readonly RUSTSBI_DYNAMIC_BIN="${RUSTSBI_DIR}/rustsbi-prototyper-dynamic.bin"
 
 QEMU_PID=""
+ROOT_SPEC=""
 NBD_DEVICE=""
 ROOT_MOUNTED=false
 ESP_MOUNTED=false
@@ -216,12 +217,21 @@ set -euo pipefail
   . /etc/os-release
   test "$ID" = arch
   test "$(cat /proc/1/comm)" = systemd
-  if test -r /sys/firmware/efi/fw_platform_size; then
-    test "$(cat /sys/firmware/efi/fw_platform_size)" = 64
-    echo RUSTSBI_ARCH_EDK2_OK
-  else
-    echo RUSTSBI_ARCH_UBOOT_OK
-  fi
+  case "$(cat /etc/rustsbi-arch-boot-mode)" in
+    sbi)
+      test ! -d /sys/firmware/efi
+      echo RUSTSBI_ARCH_SBI_OK
+      ;;
+    u-boot)
+      test ! -d /sys/firmware/efi
+      echo RUSTSBI_ARCH_UBOOT_OK
+      ;;
+    edk2)
+      test "$(cat /sys/firmware/efi/fw_platform_size)" = 64
+      echo RUSTSBI_ARCH_EDK2_OK
+      ;;
+    *) exit 1 ;;
+  esac
 } | tee /var/log/rustsbi-arch-smoke.log /dev/console
 EOF
   cat > "$config_dir/rustsbi-arch-smoke.service" <<'EOF'
@@ -241,7 +251,7 @@ EOF
 }
 
 prepare_disk() {
-  local partuuid root_spec config_dir="${WORK_DIR}/guest-config"
+  local partuuid config_dir="${WORK_DIR}/guest-config"
   download_asset "$ARCH_URL" "$ARCH_ARCHIVE" "$ARCH_SHA256"
   prepare_guest_config
   rm -f "$DISK_IMAGE"
@@ -262,8 +272,8 @@ prepare_disk() {
   sudo mkfs.ext4 -q -F "${NBD_DEVICE}p2"
   partuuid=$(sudo blkid -s PARTUUID -o value "${NBD_DEVICE}p2")
   test -n "$partuuid"
-  root_spec="PARTUUID=$partuuid"
-  echo "Arch root: $root_spec"
+  ROOT_SPEC="PARTUUID=$partuuid"
+  echo "Arch root: $ROOT_SPEC"
   mkdir -p "$ROOTFS_MOUNT"
   sudo mount "${NBD_DEVICE}p2" "$ROOTFS_MOUNT"
   ROOT_MOUNTED=true
@@ -273,6 +283,7 @@ prepare_disk() {
     "$ROOTFS_MOUNT/usr/local/sbin/rustsbi-arch-smoke"
   sudo install -D -m 644 "$config_dir/rustsbi-arch-smoke.service" \
     "$ROOTFS_MOUNT/etc/systemd/system/rustsbi-arch-smoke.service"
+  printf '%s\n' "$BOOT_MODE" | sudo tee "$ROOTFS_MOUNT/etc/rustsbi-arch-boot-mode" >/dev/null
   sudo mkdir -p "$ROOTFS_MOUNT/etc/systemd/system/multi-user.target.wants" \
     "$ROOTFS_MOUNT/boot/extlinux"
   sudo ln -s ../rustsbi-arch-smoke.service \
@@ -283,14 +294,14 @@ DEFAULT arch
 TIMEOUT 1
 LABEL arch
     KERNEL /boot/Image
-    APPEND root=$root_spec rootwait rw console=ttyS0,115200
+    APPEND root=$ROOT_SPEC rootwait rw console=ttyS0,115200
 EOF
   sudo install -m 644 "$config_dir/extlinux.conf" "$ROOTFS_MOUNT/boot/extlinux/extlinux.conf"
   sudo mount "${NBD_DEVICE}p1" "$ROOTFS_MOUNT/boot"
   ESP_MOUNTED=true
   sudo cp "$KERNEL_IMAGE" "$ROOTFS_MOUNT/boot/linux-${KERNEL_VERSION}.elf"
   printf '\\linux-%s.elf rw root=%s rootwait console=ttyS0,115200\r\n' \
-    "$KERNEL_VERSION" "$root_spec" > "$config_dir/startup.nsh"
+    "$KERNEL_VERSION" "$ROOT_SPEC" > "$config_dir/startup.nsh"
   sudo install -m 644 "$config_dir/startup.nsh" "$ROOTFS_MOUNT/boot/startup.nsh"
   sync
   release_disk
@@ -301,6 +312,13 @@ start_qemu() {
   if [[ "$BOOT_MODE" = u-boot ]]; then
     qemu-system-riscv64 -machine virt -smp 1 -m 4G -nographic -no-reboot \
       -bios "$UBOOT_SPL" -device "loader,file=${UBOOT_ITB},addr=0x80200000" \
+      -drive "file=${DISK_IMAGE},format=qcow2,id=hd0,if=none" \
+      -device virtio-blk-device,drive=hd0 \
+      </dev/null > "$LOG_FILE" 2>&1 &
+  elif [[ "$BOOT_MODE" = sbi ]]; then
+    qemu-system-riscv64 -machine virt -smp 1 -m 4G -nographic -no-reboot \
+      -bios "$RUSTSBI_DYNAMIC_BIN" -kernel "$KERNEL_IMAGE" \
+      -append "root=$ROOT_SPEC rootwait rw console=ttyS0,115200" \
       -drive "file=${DISK_IMAGE},format=qcow2,id=hd0,if=none" \
       -device virtio-blk-device,drive=hd0 \
       </dev/null > "$LOG_FILE" 2>&1 &
@@ -326,6 +344,8 @@ userspace_ready() {
   if [[ "$BOOT_MODE" = u-boot ]]; then
     marker=RUSTSBI_ARCH_UBOOT_OK
     grep -Fq 'Starting kernel ...' "$LOG_FILE" || return 1
+  elif [[ "$BOOT_MODE" = sbi ]]; then
+    marker=RUSTSBI_ARCH_SBI_OK
   else
     marker=RUSTSBI_ARCH_EDK2_OK
     grep -Fq 'EFI stub: Booting Linux Kernel' "$LOG_FILE" || return 1
@@ -381,12 +401,13 @@ main() {
   trap cleanup EXIT
   qemu-system-riscv64 --version
   "$CROSS_COMPILE"gcc --version | head -n 1
-  test -s "$RUSTSBI_FIT_BIN" && test -s "$RUSTSBI_DYNAMIC_BIN"
+  test -s "$RUSTSBI_DYNAMIC_BIN"
   prepare_kernel
   prepare_disk
   if [[ "$BOOT_MODE" = u-boot ]]; then
+    test -s "$RUSTSBI_FIT_BIN"
     prepare_uboot
-  else
+  elif [[ "$BOOT_MODE" = edk2 ]]; then
     prepare_edk2
   fi
   start_qemu

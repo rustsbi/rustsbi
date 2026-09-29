@@ -46,6 +46,7 @@ jobs:
       fail-fast: false
       matrix:
         boot-path:
+          - sbi
           - u-boot
           - edk2
     steps:
