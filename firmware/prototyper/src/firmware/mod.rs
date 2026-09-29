@@ -16,7 +16,35 @@ cfg_if::cfg_if! {
 
 use core::{arch::asm, fmt, ops::Range};
 
-use riscv::register::{self, Permission};
+use riscv::register::{self, Permission, misa, mstatus::MPP};
+
+/// Returns whether the current hart can enter the requested next-stage mode.
+///
+/// Invalid or unreadable dynamic information is deliberately left eligible so
+/// that one hart can initialize the console and report the validation error.
+fn supports_next_stage(dynamic_info_address: usize) -> bool {
+    cfg_if::cfg_if! {
+        if #[cfg(any(feature = "payload", feature = "jump"))] {
+            let _ = dynamic_info_address;
+            let next_mode = Some(MPP::Supervisor);
+        } else {
+            let next_mode = read_dynamic_info(dynamic_info_address)
+                .ok()
+                .and_then(|dynamic_info| match dynamic_info.next_mode {
+                    3 => Some(MPP::Machine),
+                    1 => Some(MPP::Supervisor),
+                    0 => Some(MPP::User),
+                    _ => None,
+                });
+        }
+    }
+
+    match next_mode {
+        Some(MPP::Supervisor) => misa::read().has_extension('S'),
+        Some(MPP::User) => misa::read().has_extension('U'),
+        _ => true,
+    }
+}
 
 use runtime::boot::NextStage;
 
@@ -33,32 +61,24 @@ pub(crate) struct BootInfo {
 impl BootInfo {
     /// Decodes a boot candidate's handoff under the entry bootstrap lock.
     ///
-    /// Without a designated hart, the first enabled candidate leads boot.
+    /// The first enabled candidate capable of entering the next stage leads boot.
     pub(crate) fn decode(
         device_tree: runtime::DeviceTreeHandoff,
         dynamic_info_address: usize,
     ) -> runtime::Result<Self> {
         let current_hart = runtime::csr::mhartid();
-        let designated_hart = designated_boot_hart(dynamic_info_address);
-        // Only the designated boot hart's FDT belongs to platform discovery.
-        if designated_hart.is_some_and(|hart| hart != current_hart) {
+        if !supports_next_stage(dynamic_info_address) {
             return Ok(Self::secondary(device_tree, dynamic_info_address));
         }
         let device_tree_address = resolve_device_tree_address(device_tree.address().as_usize());
         let platform = device_tree.claim(runtime::memory::PhysAddr::new(device_tree_address))?;
-        let is_boot_hart = if designated_hart.is_some() {
-            // Runtime validates this designated hart's membership before
-            // publishing the topology or releasing secondary harts.
-            true
-        } else {
-            platform.inspect(|view| {
-                let mut enabled = false;
-                for hart_id in view.hart_ids()? {
-                    enabled |= hart_id? == current_hart;
-                }
-                Ok(enabled)
-            })?
-        };
+        let is_boot_hart = platform.inspect(|view| {
+            let mut enabled = false;
+            for hart_id in view.hart_ids()? {
+                enabled |= hart_id? == current_hart;
+            }
+            Ok(enabled)
+        })?;
         Ok(Self {
             device_tree_address,
             is_boot_hart,
@@ -125,21 +145,6 @@ impl BootInfo {
             start_addr: start_address,
             next_mode,
             opaque: self.device_tree_address,
-        }
-    }
-}
-
-fn designated_boot_hart(dynamic_info_address: usize) -> Option<usize> {
-    cfg_if::cfg_if! {
-        if #[cfg(any(feature = "payload", feature = "jump"))] {
-            let _ = dynamic_info_address;
-            None
-        }
-        else {
-            read_dynamic_info(dynamic_info_address)
-                .ok()
-                .map(|dynamic_info| dynamic_info.boot_hart)
-                .filter(|hart_id| *hart_id != usize::MAX)
         }
     }
 }
