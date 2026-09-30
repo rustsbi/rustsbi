@@ -39,9 +39,15 @@ permissions:
 
 jobs:
   rtt-boot:
-    name: Boot RT-Thread (sbi)
+    name: Boot RT-Thread (${{ matrix.boot-path }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        boot-path:
+          - sbi
+          - u-boot
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -50,7 +56,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential git python3 qemu-system-misc scons
+            build-essential git python3 qemu-system-misc scons \
+            gcc-riscv64-linux-gnu bison flex swig libssl-dev python3-dev \
+            device-tree-compiler dosfstools mtools
           qemu-system-riscv64 --version
           scons --version
 
@@ -73,16 +81,20 @@ jobs:
         with:
           path: .cache/rtt
           key: rtt-${{ hashFiles('.github/scripts/prototyper-rtt-boot.sh') }}-${{ github.sha }}
+          # Fall back to the newest cache for the same script so a pull request
+          # with several commits still hits the pinned RT-Thread build.
+          restore-keys: |
+            rtt-${{ hashFiles('.github/scripts/prototyper-rtt-boot.sh') }}-
 
       - name: Build RustSBI Prototyper
         run: cargo prototyper build
 
       - name: Boot RT-Thread
-        run: .github/scripts/prototyper-rtt-boot.sh
+        run: .github/scripts/prototyper-rtt-boot.sh "${{ matrix.boot-path }}"
 
       - name: Upload RT-Thread log
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: rtt-log
-          path: qemu-logs/prototyper-rtt.log
+          name: rtt-log-${{ matrix.boot-path }}
+          path: qemu-logs/prototyper-rtt-*.log
