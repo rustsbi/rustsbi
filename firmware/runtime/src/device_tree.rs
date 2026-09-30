@@ -158,6 +158,56 @@ impl<'tree> PlatformView<'tree> {
         Ok((!ranges.is_empty()).then_some(ranges))
     }
 
+    /// Returns the `reg` entry named by the node's `reg-names` property.
+    ///
+    /// Returns `Ok(None)` when the node is disabled or carries no `reg-names`
+    /// property; callers use that to apply a legacy positional fallback of
+    /// their own. When `reg-names` is present, the requested name must exist
+    /// and must have a corresponding `reg` entry: a node that names its
+    /// resources has declared their meaning, so an absent name is an error
+    /// rather than a cue to guess an index. A `reg-names` value that is not
+    /// NUL-terminated is rejected as malformed.
+    pub fn device_register_by_name(
+        &self,
+        node: FdtNode<'_, 'tree>,
+        name: &str,
+    ) -> Result<Option<DeviceRegisterRange>> {
+        if !node_is_enabled(node) {
+            return Ok(None);
+        }
+        let Some(names) = node.property("reg-names") else {
+            return Ok(None);
+        };
+
+        let encoded = PhysAddrRange::from_start_len(
+            PhysAddr::new(names.value.as_ptr() as usize),
+            names.value.len(),
+        )?;
+        if !self.fdt_storage.contains(encoded) {
+            return Err(Error::AccessDenied);
+        }
+
+        // Devicetree Specification v0.4, section 2.3.3: a string list is a
+        // sequence of NUL-terminated strings, and an empty string is still a
+        // list element. Positions therefore stay aligned with `reg` indices
+        // even when a name in between is empty.
+        if !names.value.ends_with(&[0]) {
+            return Err(Error::InvalidArgs);
+        }
+        let index = names
+            .value
+            .split(|byte| *byte == 0)
+            .position(|entry| !entry.is_empty() && entry == name.as_bytes())
+            .ok_or(Error::InvalidArgs)?;
+
+        let registers = self.device_registers(node)?.ok_or(Error::InvalidArgs)?;
+        registers
+            .get(index)
+            .copied()
+            .map(Some)
+            .ok_or(Error::InvalidArgs)
+    }
+
     /// Returns the first register range of an enabled node.
     ///
     /// Most device drivers consume only the primary `reg` entry. Callers such
