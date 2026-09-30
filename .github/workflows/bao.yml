@@ -1,0 +1,92 @@
+name: Bao Hypervisor
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/bao/**"
+      - ".github/scripts/prototyper-bao-boot.sh"
+      - ".github/workflows/bao.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/bao/**"
+      - ".github/scripts/prototyper-bao-boot.sh"
+      - ".github/workflows/bao.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  bao-boot:
+    name: Boot Linux under Bao
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc \
+            bison \
+            build-essential \
+            cpio \
+            curl \
+            device-tree-compiler \
+            flex \
+            gcc-riscv64-linux-gnu \
+            gcc-riscv64-unknown-elf \
+            git \
+            libc6-dev-riscv64-cross \
+            libssl-dev \
+            qemu-system-misc \
+            xz-utils
+          qemu-system-riscv64 --version
+
+      - name: Install cargo-binutils
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      - name: Cache Linux and BusyBox builds
+        uses: actions/cache@v5
+        with:
+          path: |
+            target/prototyper-bao/cache/linux-6.12.110-bao-Image
+            target/prototyper-bao/cache/busybox-1.36.1-install
+          key: bao-linux-6.12.110-busybox-1.36.1-${{ hashFiles('.github/bao/init', '.github/scripts/prototyper-bao-boot.sh') }}
+
+      - name: Boot Linux under Bao
+        run: .github/scripts/prototyper-bao-boot.sh
+
+      - name: Upload QEMU logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: prototyper-bao-qemu-logs
+          path: |
+            qemu-logs/prototyper-bao-firmware.log
+            qemu-logs/prototyper-bao-guest.log
