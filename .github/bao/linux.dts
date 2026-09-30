@@ -1,0 +1,100 @@
+/dts-v1/;
+
+/ {
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		timebase-frequency = <10000000>;
+
+		cpu@0 {
+			device_type = "cpu";
+			reg = <0>;
+			status = "okay";
+			compatible = "riscv";
+			riscv,isa = "rv64imafdch_zicntr_zicsr_zifencei_sstc";
+			mmu-type = "riscv,sv48";
+			cpu0_intc: interrupt-controller {
+				#interrupt-cells = <1>;
+				interrupt-controller;
+				compatible = "riscv,cpu-intc";
+			};
+		};
+
+		cpu@1 {
+			device_type = "cpu";
+			reg = <1>;
+			status = "okay";
+			compatible = "riscv";
+			riscv,isa = "rv64imafdch_zicntr_zicsr_zifencei_sstc";
+			mmu-type = "riscv,sv48";
+			cpu1_intc: interrupt-controller {
+				#interrupt-cells = <1>;
+				interrupt-controller;
+				compatible = "riscv,cpu-intc";
+			};
+		};
+
+		cpu@2 {
+			device_type = "cpu";
+			reg = <2>;
+			status = "okay";
+			compatible = "riscv";
+			riscv,isa = "rv64imafdch_zicntr_zicsr_zifencei_sstc";
+			mmu-type = "riscv,sv48";
+			cpu2_intc: interrupt-controller {
+				#interrupt-cells = <1>;
+				interrupt-controller;
+				compatible = "riscv,cpu-intc";
+			};
+		};
+
+		cpu@3 {
+			device_type = "cpu";
+			reg = <3>;
+			status = "okay";
+			compatible = "riscv";
+			riscv,isa = "rv64imafdch_zicntr_zicsr_zifencei_sstc";
+			mmu-type = "riscv,sv48";
+			cpu3_intc: interrupt-controller {
+				#interrupt-cells = <1>;
+				interrupt-controller;
+				compatible = "riscv,cpu-intc";
+			};
+		};
+	};
+
+	memory@90000000 {
+		device_type = "memory";
+		reg = <0 0x90000000 0 0x40000000>;
+	};
+
+	plic: interrupt-controller@c000000 {
+		riscv,ndev = <60>;
+		reg = <0 0x0c000000 0 0x04000000>;
+		interrupts-extended = <
+			&cpu0_intc 11 &cpu0_intc 9
+			&cpu1_intc 11 &cpu1_intc 9
+			&cpu2_intc 11 &cpu2_intc 9
+			&cpu3_intc 11 &cpu3_intc 9
+		>;
+		interrupt-controller;
+		compatible = "riscv,plic0";
+		#interrupt-cells = <1>;
+	};
+
+	virtio_mmio@10008000 { interrupts = <8>; interrupt-parent = <&plic>; reg = <0 0x10008000 0 0x1000>; compatible = "virtio,mmio"; };
+	virtio_mmio@10007000 { interrupts = <7>; interrupt-parent = <&plic>; reg = <0 0x10007000 0 0x1000>; compatible = "virtio,mmio"; };
+	virtio_mmio@10006000 { interrupts = <6>; interrupt-parent = <&plic>; reg = <0 0x10006000 0 0x1000>; compatible = "virtio,mmio"; };
+	virtio_mmio@10005000 { interrupts = <5>; interrupt-parent = <&plic>; reg = <0 0x10005000 0 0x1000>; compatible = "virtio,mmio"; };
+	virtio_mmio@10004000 { interrupts = <4>; interrupt-parent = <&plic>; reg = <0 0x10004000 0 0x1000>; compatible = "virtio,mmio"; };
+	virtio_mmio@10003000 { interrupts = <3>; interrupt-parent = <&plic>; reg = <0 0x10003000 0 0x1000>; compatible = "virtio,mmio"; };
+	virtio_mmio@10002000 { interrupts = <2>; interrupt-parent = <&plic>; reg = <0 0x10002000 0 0x1000>; compatible = "virtio,mmio"; };
+	virtio_mmio@10001000 { interrupts = <1>; interrupt-parent = <&plic>; reg = <0 0x10001000 0 0x1000>; compatible = "virtio,mmio"; };
+
+	chosen {
+		bootargs = "earlycon console=hvc0 rdinit=/init";
+	};
+};

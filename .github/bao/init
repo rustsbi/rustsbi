@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+/bin/mount -t proc none /proc
+/bin/mount -t sysfs none /sys
+/bin/mount -t devtmpfs none /dev
+
+/usr/bin/test "$(/bin/uname -m)" = riscv64
+/usr/bin/test -r /proc/version
+echo RUSTSBI-BAO-LINUX-OK
+/bin/sync
+/sbin/poweroff -f
