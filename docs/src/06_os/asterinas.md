@@ -1,4 +1,4 @@
-# Asterinas 内核（不基于发行版）
+# Asterinas 内核（不使用发行版）
 
 [Asterinas](https://asterinas.github.io/book/) 是用 Rust 语言开发的通用操作系统内核，提供与 Linux ABI 兼容的用户态接口。
 
