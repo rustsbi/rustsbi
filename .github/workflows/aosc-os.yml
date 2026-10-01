@@ -1,0 +1,83 @@
+name: AOSC OS
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-aosc-os-boot.sh"
+      - ".github/workflows/aosc-os.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-aosc-os-boot.sh"
+      - ".github/workflows/aosc-os.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  aosc-os-boot:
+    name: Boot AOSC OS (${{ matrix.boot-path }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        boot-path:
+          - sbi
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install boot dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ca-certificates cpio curl e2fsprogs gcc-riscv64-linux-gnu gzip \
+            libc6-dev-riscv64-cross qemu-system-misc tar xz-utils zstd
+          qemu-system-riscv64 --version
+
+      - name: Install required cargo tool
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      - name: Cache AOSC OS rootfs and generated initramfs
+        uses: actions/cache@v5
+        with:
+          path: .cache/aosc-os
+          key: aosc-os-20260621-${{ matrix.boot-path }}-${{ hashFiles('.github/scripts/prototyper-aosc-os-boot.sh') }}
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build
+
+      - name: Boot AOSC OS
+        run: .github/scripts/prototyper-aosc-os-boot.sh "${{ matrix.boot-path }}"
+
+      - name: Upload AOSC OS serial log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: aosc-os-serial-${{ matrix.boot-path }}
+          path: qemu-logs/prototyper-aosc-os-${{ matrix.boot-path }}.log
+          if-no-files-found: warn
