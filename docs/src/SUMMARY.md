@@ -24,6 +24,7 @@
     - [Sipeed M1s Dock 开发板](./05_platform/sipeed_m1s_dock.md)
     - [Allwinner Nezha D1-H 平台](./05_platform/allwinner_nezha.md)
     - [Milk-V Duo 开发板](./05_platform/milkv_duo.md)
+    - [StarFive VisionFive2 开发板](./05_platform/starfive_visionfive2.md)
 - [系统内核与发行版用户指南](./chapter_06_os.md)
     - [Linux 内核（不使用发行版）](./06_os/linux_kernel.md)
     - [Arch Linux 操作系统](./06_os/arch_linux.md)
