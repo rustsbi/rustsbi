@@ -35,7 +35,7 @@
     - [Ubuntu 操作系统](./06_os/ubuntu.md)
     - [ArceOS 操作系统](./06_os/arceos.md)
     - [DragonOS 操作系统](./06_os/dragonos.md)
-    - [Asterinas 操作系统](./06_os/asterinas.md)
+    - [Asterinas 内核（不基于发行版）](./06_os/asterinas.md)
     - [rCore 操作系统](./06_os/rcore.md)
     - [RustSBI 测试用内核](./06_os/rustsbi_test_kernel.md)
 - [RustSBI 开发实战](./chapter_07_development.md)
