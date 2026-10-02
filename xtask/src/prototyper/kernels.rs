@@ -86,18 +86,25 @@ impl Kernel {
         let (_, target_dir) = kernel_paths();
 
         info!("Building {} kernel", self.command_name());
-        let build_status = cargo::Cargo::new("build")
+        let mut build = cargo::Cargo::new("build");
+        build
             .package(self.package_name())
             .target(Target::Kernel.triple())
-            .release()
-            .status()
-            .with_context(|| {
-                format!(
-                    "failed to execute cargo build for package '{}' with target '{}'",
-                    self.package_name(),
-                    Target::Kernel.triple()
-                )
-            })?;
+            .release();
+        if matches!(self, Kernel::Test) {
+            // Rebuild core too, so its jump tables are position-independent.
+            build.unstable("build-std", ["core"]).env(
+                "CARGO_ENCODED_RUSTFLAGS",
+                "-C\u{1f}relocation-model=pie\u{1f}-C\u{1f}link-arg=-pie",
+            );
+        }
+        let build_status = build.status().with_context(|| {
+            format!(
+                "failed to execute cargo build for package '{}' with target '{}'",
+                self.package_name(),
+                Target::Kernel.triple()
+            )
+        })?;
         if !build_status.success() {
             bail!(
                 "failed to build {} kernel; please check the cargo output above for detailed error information",
