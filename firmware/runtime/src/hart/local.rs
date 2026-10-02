@@ -41,9 +41,17 @@ impl<T> HartLocal<T> {
     ///
     /// Panics if the slot is uninitialized or already borrowed, including
     /// recursive access and reentry from an interrupt handler.
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+    /// Panics on non-RISC-V targets.
     pub fn with_current_mut<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
-        self.with_mut(super::current_hart(), f)
+        match () {
+            #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+            () => self.with_mut(super::current_hart(), f),
+            #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+            () => {
+                let _ = f;
+                unimplemented!("accessing the current hart's value requires RISC-V")
+            }
+        }
     }
 
     #[cfg(any(test, target_arch = "riscv32", target_arch = "riscv64"))]
