@@ -9,27 +9,25 @@
 # with dracut, and boots again with it. The second boot is what the job asserts
 # on, so dracut's early userspace is covered as well.
 #
+# The direct SBI path hands the kernel to QEMU's fw_dynamic loader. The U-Boot
+# path embeds the firmware built from the commit under test as the OpenSBI
+# payload of U-Boot SPL and boots the distribution through `sysboot`, the same
+# extlinux flow AOSC OS uses on its own U-Boot platforms.
+#
 # The root disk is assembled from the pinned tarball through a loop mount, and
 # the generated initramfs is read back with debugfs, so it needs no mount of its
 # own.
 #
 # Requires: cargo prototyper build, qemu-system-riscv64, curl, xz, zstd,
-# e2fsprogs (mkfs.ext4/debugfs), riscv64-linux-gnu-gcc and sudo.
+# e2fsprogs (mkfs.ext4/debugfs), riscv64-linux-gnu-gcc and sudo; the U-Boot
+# path additionally needs the U-Boot build toolchain (see aosc-os.yml).
 set -euo pipefail
 
-if (( $# != 1 )); then
-  echo "Usage: $0 sbi" >&2
+if (( $# != 1 )) || [[ "$1" != sbi && "$1" != u-boot ]]; then
+  echo "Usage: $0 <sbi|u-boot>" >&2
   exit 2
 fi
 readonly BOOT_MODE=$1
-case "$BOOT_MODE" in
-  sbi) ;;
-  *)
-    echo "Unknown AOSC OS boot mode: $BOOT_MODE" >&2
-    echo "Usage: $0 sbi" >&2
-    exit 2
-    ;;
-esac
 
 cd "$(dirname "$0")/../.."
 
@@ -41,10 +39,16 @@ readonly AOSC_KERNEL_VERSION=7.0.12-aosc-main
 readonly AOSC_INITRD_PATH="/boot/initramfs-${AOSC_KERNEL_VERSION}.img"
 readonly CROSS_COMPILE=riscv64-linux-gnu-
 readonly RUSTSBI_DYNAMIC_BIN=target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.bin
+readonly RUSTSBI_FIT_BIN=target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin
+
+readonly UBOOT_VERSION=2024.04
+readonly UBOOT_URL="https://github.com/u-boot/u-boot/archive/refs/tags/v${UBOOT_VERSION}.tar.gz"
+readonly UBOOT_SHA256=d6b57ce574a0a0504a5b6596644ceacb7f77bde9353779bcf2fde07c4b9a2b92
 
 readonly CACHE_DIR="${AOSC_CACHE_DIR:-.cache/aosc-os}"
 readonly ROOTFS_ARCHIVE="${CACHE_DIR}/aosc-os_base_${AOSC_RELEASE}_riscv64.tar.xz"
 readonly CACHED_INITRAMFS="${CACHE_DIR}/initramfs-${AOSC_KERNEL_VERSION}.img"
+readonly UBOOT_ARCHIVE="${CACHE_DIR}/u-boot-v${UBOOT_VERSION}.tar.gz"
 WORK_DIR="$(realpath -m "${AOSC_WORK_DIR:-${RUNNER_TEMP:-/tmp}/rustsbi-aosc-os-${BOOT_MODE}}")"
 readonly WORK_DIR
 readonly LOG_DIR="${QEMU_LOG_DIR:-qemu-logs}"
@@ -61,6 +65,9 @@ readonly INITRAMFS_TREE="${WORK_DIR}/bootstrap"
 readonly BOOTSTRAP_INITRAMFS="${WORK_DIR}/bootstrap-initramfs.cpio.gz"
 readonly KERNEL_IMAGE="${WORK_DIR}/Image"
 readonly GENERATED_INITRAMFS="${WORK_DIR}/initramfs-${AOSC_KERNEL_VERSION}.img"
+readonly UBOOT_TREE="${WORK_DIR}/u-boot-${UBOOT_VERSION}"
+readonly UBOOT_SPL="${UBOOT_TREE}/spl/u-boot-spl"
+readonly UBOOT_ITB="${UBOOT_TREE}/u-boot.itb"
 
 readonly DISK_SIZE="${AOSC_DISK_SIZE:-8G}"
 readonly GUEST_MEMORY=4G
@@ -69,9 +76,13 @@ readonly BOOT_TIMEOUT_SECS="${AOSC_BOOT_TIMEOUT_SECS:-1800}"
 readonly DOWNLOAD_CONNECT_TIMEOUT_SECS="${AOSC_DOWNLOAD_CONNECT_TIMEOUT_SECS:-30}"
 readonly DOWNLOAD_TIMEOUT_SECS="${AOSC_DOWNLOAD_TIMEOUT_SECS:-1800}"
 
-readonly BOOT_FAILURE_PATTERN='Kernel panic|not syncing|Attempted to kill init|Bad Linux RISCV Image magic|VFS: Unable to mount root fs|VFS: Cannot open root device|Gave up waiting for root'
+# The U-Boot path also fails fast when its loader cannot read the extlinux entry
+# or the kernel and initrd that entry points at.
+readonly BOOT_FAILURE_PATTERN='Kernel panic|not syncing|Attempted to kill init|Bad Linux RISCV Image magic|VFS: Unable to mount root fs|VFS: Cannot open root device|Gave up waiting for root|Error reading config file|for failure retrieving kernel|for failure retrieving initrd'
 readonly GENERATE_MARKER="RUSTSBI_AOSC_INITRAMFS_GENERATED ${AOSC_KERNEL_VERSION}"
-readonly SMOKE_MARKER="RUSTSBI_AOSC_SBI_OK"
+# One marker per boot path, so an uploaded log says which chain was exercised.
+SMOKE_MARKER="RUSTSBI_AOSC_$(tr 'a-z-' 'A-Z_' <<<"$BOOT_MODE")_OK"
+readonly SMOKE_MARKER
 # Each phase selects exactly one CI unit through the kernel command line, so no
 # unit needs a negated condition to stay out of the other phase.
 readonly GENERATE_CMDLINE=rustsbi.aosc.generate-initramfs=1
@@ -278,6 +289,52 @@ adopt_existing_disk() {
   unmount_disk
 }
 
+# Build U-Boot with the firmware under test embedded as the SPL's OpenSBI
+# payload, the same way the other U-Boot boot tests in this repository do.
+prepare_uboot() {
+  local rustsbi_path tarball
+  rustsbi_path=$(realpath "$RUSTSBI_FIT_BIN")
+  tarball="${UBOOT_ARCHIVE}"
+  download_asset "$UBOOT_URL" "$tarball" "$UBOOT_SHA256"
+
+  rm -rf "$UBOOT_TREE"
+  tar -xzf "$tarball" -C "$WORK_DIR"
+  make -C "$UBOOT_TREE" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
+    OPENSBI="$rustsbi_path" qemu-riscv64_spl_defconfig
+  # U-Boot runs the distribution's own extlinux entry, which is how AOSC OS
+  # boots on U-Boot platforms; the distribution initramfs comes from the disk.
+  "$UBOOT_TREE/scripts/config" --file "$UBOOT_TREE/.config" --enable USE_BOOTCOMMAND
+  "$UBOOT_TREE/scripts/config" --file "$UBOOT_TREE/.config" --set-str BOOTCOMMAND \
+    'setenv fdt_high; virtio scan; sysboot virtio 0 any 0x84000000 /boot/extlinux/extlinux.conf'
+  make -C "$UBOOT_TREE" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
+    OPENSBI="$rustsbi_path" -j"$(nproc)"
+
+  test -s "$UBOOT_SPL" && test -s "$UBOOT_ITB"
+  "$UBOOT_TREE/tools/dumpimage" -T flat_dt -p 1 -o "${WORK_DIR}/rustsbi-from-fit.bin" \
+    "$UBOOT_ITB" >"${WORK_DIR}/fit-layout.log"
+  cmp "$rustsbi_path" "${WORK_DIR}/rustsbi-from-fit.bin"
+  echo "Verified u-boot.itb contains current-commit RustSBI"
+}
+
+# Stage the kernel and the distribution initramfs on the root disk, together
+# with the extlinux entry U-Boot reads them from.
+install_boot_files() {
+  mount_disk rw
+  sudo install -D -m 0644 "$KERNEL_IMAGE" "${MOUNT_DIR}/boot/Image"
+  sudo install -D -m 0644 "$GENERATED_INITRAMFS" "${MOUNT_DIR}/boot/initrd.img"
+  cat > "${WORK_DIR}/extlinux.conf" <<EOF
+DEFAULT aosc
+TIMEOUT 1
+LABEL aosc
+    KERNEL /boot/Image
+    INITRD /boot/initrd.img
+    APPEND console=ttyS0,115200 ${KERNEL_CMDLINE} ${VERIFY_CMDLINE}
+EOF
+  sudo install -D -m 0644 "${WORK_DIR}/extlinux.conf" \
+    "${MOUNT_DIR}/boot/extlinux/extlinux.conf"
+  unmount_disk
+}
+
 # The bootstrap /init loads the virtio modules and hands over to the
 # distribution's own systemd. It is the only compiled artifact in this test.
 build_bootstrap_initramfs() {
@@ -391,6 +448,28 @@ start_qemu() {
   QEMU_PID=$!
 }
 
+# The U-Boot path starts from the SPL, which carries the firmware under test,
+# and loads u-boot.itb as its next stage; everything after that (kernel and
+# initramfs) comes off the root disk through U-Boot's own extlinux flow.
+start_qemu_u_boot() {
+  local cpu_args=()
+  [[ -n "${AOSC_QEMU_CPU:-}" ]] && cpu_args=(-cpu "$AOSC_QEMU_CPU")
+  : > "$LOG_FILE"
+  qemu-system-riscv64 \
+    -machine virt \
+    -smp 1 \
+    -m "$GUEST_MEMORY" \
+    -nographic \
+    -no-reboot \
+    "${cpu_args[@]}" \
+    -bios "$UBOOT_SPL" \
+    -device "loader,file=${UBOOT_ITB},addr=0x80200000" \
+    -drive "file=${DISK_IMAGE},format=raw,id=hd0,if=none" \
+    -device virtio-blk-device,drive=hd0 \
+    </dev/null > "$LOG_FILE" 2>&1 &
+  QEMU_PID=$!
+}
+
 boot_has_failed() {
   grep -Eq "$BOOT_FAILURE_PATTERN|RUSTSBI_AOSC_BOOTSTRAP_FAILED" "$LOG_FILE"
 }
@@ -461,10 +540,18 @@ generate_distribution_initramfs() {
 
 # Phase 2: boot the pinned AOSC OS with that initramfs.
 verify_aosc_os_boot() {
-  echo "Phase 2: booting AOSC OS with its own initramfs"
-  start_qemu "$GENERATED_INITRAMFS" "console=ttyS0,115200 ${KERNEL_CMDLINE} ${VERIFY_CMDLINE}"
+  echo "Phase 2: booting AOSC OS with its own initramfs (${BOOT_MODE})"
+  if [[ "$BOOT_MODE" = u-boot ]]; then
+    start_qemu_u_boot
+  else
+    start_qemu "$GENERATED_INITRAMFS" "console=ttyS0,115200 ${KERNEL_CMDLINE} ${VERIFY_CMDLINE}"
+  fi
   wait_for_marker "$SMOKE_MARKER" "userspace boot"
   grep -Fq 'Welcome to' "$LOG_FILE"
+  if [[ "$BOOT_MODE" = u-boot ]]; then
+    grep -Fq "U-Boot ${UBOOT_VERSION}" "$LOG_FILE"
+    grep -Fq 'Starting kernel ...' "$LOG_FILE"
+  fi
   stop_qemu
 }
 
@@ -475,6 +562,12 @@ main() {
     echo "Missing ${RUSTSBI_DYNAMIC_BIN}; run 'cargo prototyper build' first" >&2
     return 1
   }
+  if [[ "$BOOT_MODE" = u-boot ]]; then
+    test -s "$RUSTSBI_FIT_BIN" || {
+      echo "Missing ${RUSTSBI_FIT_BIN}; run 'cargo prototyper build' first" >&2
+      return 1
+    }
+  fi
   qemu-system-riscv64 --version
   "${CROSS_COMPILE}gcc" --version | head -n 1
 
@@ -497,6 +590,8 @@ main() {
   fi
   fetch_boot_artifacts
   build_bootstrap_initramfs
+  # Build U-Boot before the long phase 1 boot, so a toolchain problem fails fast.
+  [[ "$BOOT_MODE" = u-boot ]] && prepare_uboot
 
   if [[ -s "$CACHED_INITRAMFS" ]]; then
     echo "Using cached ${CACHED_INITRAMFS}"
@@ -504,6 +599,7 @@ main() {
   else
     generate_distribution_initramfs
   fi
+  [[ "$BOOT_MODE" = u-boot ]] && install_boot_files
 
   verify_aosc_os_boot
 
