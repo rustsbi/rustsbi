@@ -8,7 +8,7 @@
 
 use core::arch::asm;
 use core::fmt;
-use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use core::sync::atomic::Ordering;
 
 use riscv::register::medeleg;
 use rustsbi::RustSBI;
@@ -16,22 +16,16 @@ use spin::Once;
 
 use super::ValueKind;
 use super::entry::trap_entry;
-use crate::cfg::NUM_HART_MAX;
-use crate::hart::{HartId, current_hart};
-
-/// Private lifecycle phases.
-const PHASE_UNINITIALIZED: u8 = 0;
-const PHASE_INITIALIZING: u8 = 1;
-const PHASE_READY: u8 = 2;
-const PHASE_ARMED: u8 = 3;
+use crate::hart::{HartId, TrapPhase, current_hart, get_context};
 
 /// Marks `hart`'s lifecycle phase Armed; called only by the divergent
 /// `finish_boot` on the current hart.
 pub(crate) fn mark_armed(hart: usize) {
-    let state = HARTS
-        .get(hart)
-        .expect("BUG: hart ID exceeds the configured limit");
-    state.phase.store(PHASE_ARMED, Ordering::Release);
+    let hart = HartId::from_raw(hart).expect("BUG: hart ID exceeds the configured limit");
+    let state = &get_context(hart)
+        .expect("BUG: hart has no Runtime context")
+        .trap;
+    state.phase.store(TrapPhase::Armed as u8, Ordering::Release);
 }
 
 /// An error from [`init`].
@@ -39,7 +33,7 @@ pub(crate) fn mark_armed(hart: usize) {
 pub enum InitError {
     /// This hart's trap state is already initialized.
     AlreadyInitialized,
-    /// `mhartid` is beyond the Runtime's configured hart capacity.
+    /// The hart ID is out of range or has no boot-discovered Runtime context.
     InvalidHartId,
 }
 
@@ -47,27 +41,10 @@ impl fmt::Display for InitError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::AlreadyInitialized => "trap state already initialized on this hart",
-            Self::InvalidHartId => "hart ID beyond the configured capacity",
+            Self::InvalidHartId => "hart ID out of range or no boot-discovered Runtime context",
         })
     }
 }
-
-/// The per-hart Runtime trap state: lifecycle phase, erased policy, and the
-/// architectural Sstc capability, shared only under `Sync`. Platform services
-/// live in their own subsystem modules rather than in CPU-local state.
-struct HartState {
-    phase: AtomicU8,
-    policy: Once<&'static (dyn RustSBI + Sync)>,
-    has_sstc: AtomicBool,
-}
-
-static HARTS: [HartState; NUM_HART_MAX] = [const {
-    HartState {
-        phase: AtomicU8::new(PHASE_UNINITIALIZED),
-        policy: Once::new(),
-        has_sstc: AtomicBool::new(false),
-    }
-}; NUM_HART_MAX];
 
 /// Returns the current hart's published policy.
 ///
@@ -76,11 +53,10 @@ static HARTS: [HartState; NUM_HART_MAX] = [const {
 /// Panics when this hart was never initialized; dispatch only runs after
 /// `init` published `Ready`.
 pub(crate) fn policy() -> &'static (dyn RustSBI + Sync) {
-    let hart = current_hart().as_usize();
-    let state = HARTS
-        .get(hart)
-        .expect("BUG: hart ID exceeds the configured limit");
-    if state.phase.load(Ordering::Acquire) < PHASE_READY {
+    let state = &get_context(current_hart())
+        .expect("BUG: hart has no Runtime context")
+        .trap;
+    if state.phase.load(Ordering::Acquire) < TrapPhase::Ready as u8 {
         unreachable!("BUG: trap dispatch before trap::init published Ready");
     }
     *state
@@ -93,16 +69,16 @@ pub(crate) fn policy() -> &'static (dyn RustSBI + Sync) {
 /// Returns false until trap initialization has probed the CSR.
 #[inline]
 pub fn has_sstc() -> bool {
-    let hart = current_hart().as_usize();
-    let state = HARTS
-        .get(hart)
-        .expect("BUG: hart ID exceeds the configured limit");
+    let state = &get_context(current_hart())
+        .expect("BUG: hart has no Runtime context")
+        .trap;
     state.has_sstc.load(Ordering::Acquire)
 }
 
 /// Initializes trap handling on the current hart and stores the policy in this
 /// hart's private slot. Platform services are published by
 /// their own subsystem modules before this function is called.
+/// [`crate::hart::init`] must have published the boot-discovered contexts first.
 /// Machine interrupts stay disabled throughout; `mscratch` keeps the zero boot
 /// sentinel, so an unexpected trap before `finish_boot` fail-stops.
 pub fn init<P>(policy: &'static P) -> Result<(), InitError>
@@ -110,19 +86,18 @@ where
     P: RustSBI + Sync + 'static,
 {
     // 1. Validate the hart before any address arithmetic or CSR writes.
-    let hart = HartId::current()
-        .map_err(|_| InitError::InvalidHartId)?
-        .as_usize();
-    let Some(state) = HARTS.get(hart) else {
+    let hart = HartId::current().map_err(|_| InitError::InvalidHartId)?;
+    let Some(context) = get_context(hart) else {
         return Err(InitError::InvalidHartId);
     };
+    let state = &context.trap;
 
     // 2. Reserve the slot transactionally.
     if state
         .phase
         .compare_exchange(
-            PHASE_UNINITIALIZED,
-            PHASE_INITIALIZING,
+            TrapPhase::Uninitialized as u8,
+            TrapPhase::Initializing as u8,
             Ordering::AcqRel,
             Ordering::Acquire,
         )
@@ -159,7 +134,7 @@ where
         medeleg::clear_store_fault();
     }
 
-    state.phase.store(PHASE_READY, Ordering::Release);
+    state.phase.store(TrapPhase::Ready as u8, Ordering::Release);
     // 5. Commit Ready by installing the final normal vector last: before
     //    this write a trap reaches the early fail-stop vector.
     // SAFETY: the Runtime-owned entry is a valid, aligned M-mode direct

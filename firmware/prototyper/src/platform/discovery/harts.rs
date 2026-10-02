@@ -10,11 +10,11 @@ use crate::sbi::features::detect_extensions;
 
 use super::imsic::{self, CpuInterruptController};
 
-/// Reads hart topology and features, retaining CPU interrupt wiring for IMSIC discovery.
+/// Reads present hart IDs and enabled-hart features and interrupt wiring.
 pub(super) fn discover(
     board: &mut BoardInfo,
     platform: &runtime::PlatformView<'_>,
-) -> runtime::Result<Vec<CpuInterruptController>> {
+) -> runtime::Result<(Vec<usize>, Vec<CpuInterruptController>)> {
     let root = platform.root();
     let cpus = platform
         .find_enabled_node("/cpus")
@@ -27,16 +27,22 @@ pub(super) fn discover(
         .unwrap_or("<unspecified>")
         .to_string();
 
+    let mut present = Vec::new();
     let mut controllers = Vec::new();
     for node in cpus.children().filter(|node| is_cpu_node(*node)) {
-        if !node_is_enabled(node) {
-            continue;
-        }
         let hart_id = node
             .reg()
             .and_then(|mut registers| registers.next())
-            .map(|register| register.starting_address as usize)
-            .ok_or(runtime::Error::InvalidArgs)?;
+            .map(|register| register.starting_address as usize);
+        if let Some(hart_id) = hart_id {
+            // Disabled harts may already be running the firmware and need
+            // Runtime state to initialize traps and enter the parked loop.
+            present.push(hart_id);
+        }
+        if !node_is_enabled(node) {
+            continue;
+        }
+        let hart_id = hart_id.ok_or(runtime::Error::InvalidArgs)?;
         let enabled = board
             .harts
             .enabled
@@ -51,5 +57,5 @@ pub(super) fn discover(
         );
     }
 
-    Ok(controllers)
+    Ok((present, controllers))
 }

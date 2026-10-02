@@ -5,16 +5,18 @@ mod harts;
 mod imsic;
 mod interrupts;
 
+use alloc::vec::Vec;
+
 use super::info::{BoardInfo, SocDescription};
 use crate::devicetree::try_for_each_enabled_node;
 use crate::sbi::pmu::{self, SbiPmu};
 
-/// Reads the platform facts and PMU mappings consumed by driver and SBI initialization.
+/// Reads platform facts, PMU mappings, and all present hart IDs.
 pub(super) fn discover_platform(
     platform: &runtime::PlatformView<'_>,
-) -> runtime::Result<(BoardInfo, Option<SbiPmu>)> {
+) -> runtime::Result<(BoardInfo, Option<SbiPmu>, Vec<usize>)> {
     let mut board = BoardInfo::empty();
-    let cpu_interrupt_controllers = harts::discover(&mut board, platform)?;
+    let (hart_ids, cpu_interrupt_controllers) = harts::discover(&mut board, platform)?;
     board.devices.console = console::discover(platform)?;
     let mut reset = crate::driver::ResetDescription::new();
     let mut soc =
@@ -49,5 +51,5 @@ pub(super) fn discover_platform(
     let pmu = pmu_node.and_then(pmu::from_node).or_else(|| {
         matches!(&board.soc, Some(SocDescription::V861(_))).then_some(SbiPmu::default())
     });
-    Ok((board, pmu))
+    Ok((board, pmu, hart_ids))
 }
