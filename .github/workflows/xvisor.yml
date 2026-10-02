@@ -1,0 +1,101 @@
+name: Xvisor
+
+on:
+  pull_request:
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-xvisor-boot.sh"
+      - ".github/workflows/xvisor.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-xvisor-boot.sh"
+      - ".github/workflows/xvisor.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  xvisor-boot:
+    name: Boot Xvisor (sbi)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc \
+            bison \
+            build-essential \
+            bzip2 \
+            ca-certificates \
+            cpio \
+            curl \
+            device-tree-compiler \
+            file \
+            flex \
+            gcc-riscv64-linux-gnu \
+            genext2fs \
+            git \
+            libc6-dev-riscv64-cross \
+            libelf-dev \
+            libncurses-dev \
+            libssl-dev \
+            python3 \
+            qemu-system-misc \
+            xz-utils
+          qemu-system-riscv64 --version
+          riscv64-linux-gnu-gcc --version | head -1
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      # Only the built Xvisor, guest firmware and guest disk are cached, and
+      # only against immutable pins, so the key changes whenever a pinned
+      # commit or release does. Bump the trailing revision after editing the
+      # build recipe in the script.
+      - name: Cache Xvisor build
+        uses: actions/cache@v5
+        with:
+          path: .cache/xvisor
+          key: xvisor-e700f46-linux-6.1.1-busybox-1.33.1-v1
+
+      # Xvisor is an HS-mode hypervisor, so the SBI it runs on has to expose
+      # the H extension; that is what the `hypervisor` feature turns on.
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build --features hypervisor
+
+      - name: Boot Xvisor
+        run: .github/scripts/prototyper-xvisor-boot.sh
+
+      - name: Upload Xvisor log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: xvisor-log
+          path: qemu-logs/prototyper-xvisor.log
