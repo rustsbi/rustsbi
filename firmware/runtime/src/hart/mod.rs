@@ -14,7 +14,8 @@ pub use wakeup::{HartWake, install_wakeup};
 
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub(crate) use lifecycle::{
-    ControlTransfer, HartEvent, current_hart, take_control_transfer, take_local_event,
+    ControlTransfer, HartEvent, current_cell, current_hart, set_active_context,
+    take_control_transfer, take_local_event,
 };
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub use lifecycle::{
