@@ -33,9 +33,13 @@ pub fn init_board(platform_description: runtime::PlatformDescription) -> usize {
 }
 
 fn try_init_board(platform_description: runtime::PlatformDescription) -> error::Result<usize> {
-    let (mut board, pmu) = platform_description
+    let (mut board, pmu, hart_ids) = platform_description
         .inspect(|platform| discovery::discover_platform(&platform))
         .during("reading the platform description")?;
+
+    runtime::hart::init(hart_ids)
+        .map_err(|_| runtime::Error::InvalidArgs)
+        .during("initializing Runtime hart contexts")?;
 
     let (supervisor_memory, mut memory) = platform_description
         .memory_resources()

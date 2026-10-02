@@ -124,6 +124,7 @@ fn cargo_build(spec: &BuildSpec, paths: &BuildPaths) -> Result<ExitStatus> {
                 .unwrap_or(spec.target.triple()),
         )
         .unstable("build-std", ["core", "alloc"])
+        .unstable("build-std-features", ["optimize_for_size"])
         .env(
             "CARGO_ENCODED_RUSTFLAGS",
             spec.encoded_rustflags(&linker_script),

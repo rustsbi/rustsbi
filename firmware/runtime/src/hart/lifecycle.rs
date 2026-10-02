@@ -6,7 +6,6 @@ use core::sync::atomic::{AtomicU8, Ordering};
 
 use super::HartId;
 use crate::boot::NextStage;
-use crate::cfg::NUM_HART_MAX;
 
 // State values are private Runtime facts, not SBI state IDs.
 const STATE_STARTED: u8 = 0;
@@ -17,14 +16,14 @@ const STATE_RESUME_PENDING: u8 = 6;
 const STATE_STARTING: u8 = u8::MAX;
 
 #[repr(align(128))]
-struct HartStateCell {
+pub(super) struct HartStateCell {
     state: AtomicU8,
     stage: UnsafeCell<Option<NextStage>>,
     transfer: UnsafeCell<Option<ControlTransfer>>,
 }
 
 impl HartStateCell {
-    const fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self {
             state: AtomicU8::new(STATE_STOPPED),
             stage: UnsafeCell::new(None),
@@ -36,8 +35,6 @@ impl HartStateCell {
 // SAFETY: state publication is atomic; staged values are only written while
 // a private reservation is held and are consumed by the owning hart.
 unsafe impl Sync for HartStateCell {}
-
-static HART_STATES: [HartStateCell; NUM_HART_MAX] = [const { HartStateCell::new() }; NUM_HART_MAX];
 
 /// Protocol-independent hart lifecycle state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -339,7 +336,9 @@ pub(crate) fn take_control_transfer() -> Option<ControlTransfer> {
 
 #[inline]
 fn cell(hart: HartId) -> &'static HartStateCell {
-    &HART_STATES[hart.0]
+    &super::get_context(hart)
+        .expect("hart table not initialized or unknown hart")
+        .lifecycle
 }
 
 #[inline]

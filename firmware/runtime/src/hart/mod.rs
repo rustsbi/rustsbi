@@ -1,13 +1,17 @@
-//! RISC-V hart identity, sets, local storage, and lifecycle.
+//! RISC-V hart identity, sets, local storage, contexts, and lifecycle.
 //!
 //! SBI HSM policy and ABI translation belong to the firmware.
 
+mod context;
 mod lifecycle;
 mod local;
 mod set;
 mod wakeup;
 
 pub use wakeup::{HartWake, install_wakeup};
+
+pub use context::{HartInitError, init};
+pub(crate) use context::{TrapPhase, get as get_context};
 
 pub(crate) use lifecycle::{
     ControlTransfer, HartEvent, current_hart, take_control_transfer, take_local_event,
