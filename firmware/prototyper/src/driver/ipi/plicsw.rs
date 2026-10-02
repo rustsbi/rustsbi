@@ -41,7 +41,7 @@ pub(in crate::driver) fn bind(
 impl IpiBackend for PlicSw {
     fn send_ipi(&self, request: IpiRequest) -> Result<(), IpiError> {
         riscv::asm::fence();
-        for hart in request.harts() {
+        for hart in request.target_hart_ids() {
             if hart >= self.hart_count {
                 return Err(IpiError::Failed);
             }
