@@ -12,7 +12,6 @@ mod cci;
 mod clint;
 mod console;
 pub(crate) mod ipi;
-mod plmt;
 mod reset;
 pub(crate) mod timer;
 
@@ -39,6 +38,8 @@ pub(crate) use runtime::hart::HartWake;
 
 pub(crate) const PLMT_COMPATIBLE: &str = "andestech,plmt0";
 pub(crate) const SUNXI_PLICSW_COMPATIBLE: &str = "allwinner,sun300i-plicsw";
+pub(crate) const ACLINT_MSWI_COMPATIBLE: &str = "riscv,aclint-mswi";
+pub(crate) const ACLINT_MTIMER_COMPATIBLE: &str = "riscv,aclint-mtimer";
 
 pub(crate) const THEAD_PLIC_COMPATIBLES: [&str; 2] =
     ["thead,c900-plic", "allwinner,thead,c900-plic"];
@@ -99,8 +100,25 @@ fn bind_interrupts(
             .map(|last| last + 1)
             .ok_or(runtime::Error::InvalidArgs)?;
         return Ok((
-            Some(Box::new(plmt::bind(plmt, memory, hart_count)?)),
+            Some(Box::new(timer::plmt::bind(plmt, memory, hart_count)?)),
             Some(Box::new(ipi::plicsw::bind(plicsw, memory, hart_count)?)),
+        ));
+    }
+    // ACLINT splits the legacy CLINT into MTIMER and MSWI devices.
+    if let (Some(mtimer), Some(mswi)) = (
+        board.devices.interrupts.aclint_mtimer,
+        board.devices.interrupts.aclint_mswi,
+    ) {
+        let hart_count = board
+            .harts
+            .enabled
+            .iter()
+            .rposition(|enabled| *enabled)
+            .map(|last| last + 1)
+            .ok_or(runtime::Error::InvalidArgs)?;
+        return Ok((
+            Some(Box::new(timer::mtimer::bind(mtimer, memory, hart_count)?)),
+            Some(Box::new(ipi::mswi::bind(mswi, memory, hart_count)?)),
         ));
     }
     let Some(description) = board.devices.interrupts.clint() else {
