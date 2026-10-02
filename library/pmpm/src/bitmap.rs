@@ -60,7 +60,10 @@ impl PMPSlotAllocator {
     }
 
     pub fn free(&mut self, idx: u32) -> Result<(), PmpError> {
-        let free_slot = 1u64 << (idx & (MAX_PMP_ENTRY_COUNT - 1));
+        if idx >= MAX_PMP_ENTRY_COUNT {
+            return Err(PmpError::IndexOutOfRange);
+        }
+        let free_slot = 1u64 << idx;
         loop {
             let cur_slots = self.pmp_slots.load(Ordering::Acquire);
             if (cur_slots & free_slot & self.alloc_mask) == 0 {
@@ -83,7 +86,10 @@ impl PMPSlotAllocator {
     }
 
     pub fn is_alloc(&self, idx: u32) -> Result<bool, PmpError> {
-        let check_slot = 1u64 << (idx & (MAX_PMP_ENTRY_COUNT - 1));
+        if idx >= MAX_PMP_ENTRY_COUNT {
+            return Err(PmpError::IndexOutOfRange);
+        }
+        let check_slot = 1u64 << idx;
         if (check_slot & self.alloc_mask) == 0 {
             return Err(PmpError::IndexOutOfRange);
         }
@@ -182,10 +188,16 @@ mod tests {
         // 3. Error: Index not allocated (idx 5 is in range, but free)
         assert_eq!(allocator.free(5), Err(PmpError::IndexOutOfRange));
 
-        // 4. Success: Free allocated slot 4
+        // 4. Error: Out-of-range index must not alias slot 4
+        assert_eq!(
+            allocator.free(MAX_PMP_ENTRY_COUNT + 4),
+            Err(PmpError::IndexOutOfRange)
+        );
+
+        // 5. Success: Free allocated slot 4
         assert_eq!(allocator.free(4), Ok(()));
 
-        // 5. Error: Index not allocated (idx 4 is now free)
+        // 6. Error: Index not allocated (idx 4 is now free)
         assert_eq!(allocator.free(4), Err(PmpError::IndexOutOfRange));
     }
 
@@ -212,6 +224,10 @@ mod tests {
         );
         assert_eq!(
             allocator.is_alloc(MAX_PMP_ENTRY_COUNT),
+            Err(PmpError::IndexOutOfRange)
+        );
+        assert_eq!(
+            allocator.is_alloc(MAX_PMP_ENTRY_COUNT + TEST_BIT1),
             Err(PmpError::IndexOutOfRange)
         );
 
