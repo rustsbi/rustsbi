@@ -284,8 +284,8 @@ pub(crate) fn stage_pair(
     if core::ptr::eq(suspend_into, resume_from) {
         return Err(TransferError::SameContext);
     }
-    // Reserve the resume source first; losing this race means another
-    // hart stages it and the caller retries or picks another context.
+    // Reserve the resume source first; losing the race means another
+    // hart stages it.
     if resume_from
         .state
         .compare_exchange(

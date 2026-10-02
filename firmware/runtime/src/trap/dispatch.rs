@@ -152,12 +152,9 @@ fn sbi_ecall(frame: &mut TrapFrame) {
             suspend_into,
             resume_from,
         }) => {
-            // The advance above has already committed the outgoing context's
-            // resume PC. The whole switch is data movement performed by
-            // Runtime alone; no client code runs inside this sequence.
+            // The advance above already committed the outgoing resume PC.
             let resume_pc = mepc::read();
-            // Read the outgoing translation state before the entry reset
-            // clears it, so it is preserved in the snapshot.
+            // Read the outgoing satp before the reset below clears it.
             let outgoing = satp::read();
             // SAFETY: M-mode writes to this hart's S-mode and trap CSRs for
             // the staged transfer.
@@ -165,24 +162,17 @@ fn sbi_ecall(frame: &mut TrapFrame) {
                 stage_smode_trap_state();
                 mstatus::set_mpp(mstatus::MPP::Supervisor);
             }
-            // Save the outgoing execution as data, then install the
-            // declared incoming state.
             suspend_into.save_outgoing(&frame.x, resume_pc, outgoing);
             let incoming = resume_from.satp();
-            // SAFETY: M-mode installs the staged transfer's declared
-            // translation state on the current hart.
+            // SAFETY: M-mode installs the staged transfer's declared satp.
             unsafe { satp::write(incoming) };
-            // The incoming context may declare a different address space
-            // (including a reused ASID); fence the local TLB only when it
-            // actually differs from the outgoing one.
+            // Fence only on an actual address-space change, a reused ASID
+            // included.
             if incoming != outgoing {
                 riscv::asm::sfence_vma_all();
             }
             riscv::asm::fence_i();
-            // Load the incoming registers and entry PC.
             let entry_pc = resume_from.resume_into(&mut frame.x);
-            // Commit the exchange: the suspend target now holds the
-            // outgoing snapshot, the resume source becomes active.
             context::commit_pair(suspend_into, resume_from);
             hart::set_active_context(Some(resume_from));
             // SAFETY: M-mode writes to this hart's mepc for the staged

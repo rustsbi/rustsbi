@@ -70,16 +70,10 @@ impl fmt::Display for Error {
 /// and `resume_from` is entered when the pending ecall returns through the
 /// dispatch.
 ///
-/// The context representation and its state machine live in
-/// [`crate::context`]; this entry point binds them to the hart lifecycle,
-/// and the ceremony is performed by the dispatch's ecall return path.
-///
-/// Everything that can fail is checked here. On success the transfer is
-/// consumed exactly once, by the same hart's ecall return path, and
-/// cannot fail: the ceremony saves the outgoing context (registers, resume
-/// PC, translation state) as data, installs the declared translation
-/// state, fences only on an actual state change, loads the incoming
-/// registers, and `mret`s. Monitor code never runs inside the ceremony.
+/// The context state machine lives in [`crate::context`]; the ceremony
+/// runs in the dispatch's ecall return path. Everything that can fail is
+/// checked here; the transfer is consumed exactly once by the same hart,
+/// and the committed ceremony cannot fail.
 ///
 /// # Errors
 ///
