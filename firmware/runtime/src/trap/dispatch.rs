@@ -148,7 +148,7 @@ fn sbi_ecall(frame: &mut TrapFrame) {
             let resume_pc = mepc::read();
             // Read the outgoing translation state before the entry reset
             // clears it, so it is preserved in the snapshot.
-            let outgoing = context::ProtectionState::current();
+            let outgoing = satp::read();
             // SAFETY: M-mode writes to this hart's S-mode and trap CSRs for
             // the staged transfer.
             unsafe {
@@ -158,8 +158,10 @@ fn sbi_ecall(frame: &mut TrapFrame) {
             // Save the outgoing execution as data, then install the
             // declared incoming state.
             suspend_into.save_outgoing(&frame.x, resume_pc, outgoing);
-            let incoming = resume_from.protection();
-            incoming.install();
+            let incoming = resume_from.satp();
+            // SAFETY: M-mode installs the staged transfer's declared
+            // translation state on the current hart.
+            unsafe { satp::write(incoming) };
             // The incoming context may declare a different address space
             // (including a reused ASID); fence the local TLB only when it
             // actually differs from the outgoing one.

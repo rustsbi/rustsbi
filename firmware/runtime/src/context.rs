@@ -11,8 +11,8 @@
 //! path: it saves the outgoing register file, resume PC and translation
 //! state into the suspend target, installs the resume source's declared
 //! translation state, fences only when that state actually changes, loads
-//! the incoming registers, and `mret`s. No client code executes inside
-//! the sequence: the exchange is expressed entirely as data movement
+//! the incoming registers, and `mret`s. No client code executes inside the
+//! sequence: the exchange is expressed entirely as data movement
 //! between Runtime's private trap frame and the two context objects, so
 //! the transfer's invariants hold by construction rather than by
 //! convention. Staging is requested through
@@ -66,22 +66,9 @@
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicU8, Ordering};
 
-/// Privileged translation state a context resumes with, installed by
-/// Runtime as part of the transfer ceremony.
-///
-/// The declared value is data, not a callback: Runtime writes it, compares
-/// it against the outgoing state, and derives the required fences itself.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ProtectionState {
-    /// Bare mode: no translation (`satp` zero).
-    Bare,
-    /// Supervisor translation with the given raw `satp` value (mode, ASID
-    /// and page-table base encoded as the architecture defines).
-    Supervisor {
-        /// The raw `satp` CSR value to install.
-        satp: usize,
-    },
-}
+/// The `satp` register value, re-exported so the public fields below name
+/// their type from this module.
+pub use riscv::register::satp::Satp;
 
 /// Context state values; private Runtime facts transitioned only by the
 /// functions in this module.
@@ -109,12 +96,13 @@ pub enum ContextState {
 /// A by-value copy of a context's saved data, for monitor introspection.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ContextSnapshot {
-    /// General registers indexed by register number; `gprs[0]` is zero.
-    pub gprs: [usize; 32],
+    /// Registers x1-x31 at index `n - 1`; x0 is hardwired zero and has no
+    /// slot.
+    pub x1_x31: [usize; 31],
     /// The resume address.
     pub pc: usize,
     /// The translation state the context resumes with.
-    pub protection: ProtectionState,
+    pub satp: Satp,
 }
 
 /// A neutral, plain-data execution context exchanged by a retentive
@@ -145,11 +133,11 @@ impl Default for ExecutionContext {
 
 #[derive(Clone, Copy)]
 struct ContextData {
-    /// Indexed by register number; `gprs[0]` is stored as zero and ignored
-    /// on resume.
-    gprs: [usize; 32],
+    /// Registers x1-x31 at index `n - 1`; x0 is hardwired zero and has no
+    /// slot.
+    x1_x31: [usize; 31],
     pc: usize,
-    protection: ProtectionState,
+    satp: Satp,
 }
 
 /// Failure while parking, filling, or staging a retentive transfer.
@@ -182,9 +170,9 @@ impl ExecutionContext {
     pub const fn new() -> Self {
         ExecutionContext {
             data: UnsafeCell::new(ContextData {
-                gprs: [0; 32],
+                x1_x31: [0; 31],
                 pc: 0,
-                protection: ProtectionState::Bare,
+                satp: Satp::from_bits(0),
             }),
             state: AtomicU8::new(context_state::EMPTY),
         }
@@ -211,9 +199,9 @@ impl ExecutionContext {
         // only for staged contexts, which the caller synchronizes with.
         let data = unsafe { &*self.data.get() };
         ContextSnapshot {
-            gprs: data.gprs,
+            x1_x31: data.x1_x31,
             pc: data.pc,
-            protection: data.protection,
+            satp: data.satp,
         }
     }
 
@@ -226,12 +214,7 @@ impl ExecutionContext {
     /// context belongs to an in-flight transaction. Fills of a context
     /// that another hart may concurrently stage must be serialized by the
     /// monitor.
-    pub fn fill(
-        &self,
-        gprs: [usize; 32],
-        pc: usize,
-        protection: ProtectionState,
-    ) -> Result<(), TransferError> {
+    pub fn fill(&self, x1_x31: [usize; 31], pc: usize, satp: Satp) -> Result<(), TransferError> {
         let state = self.state.load(Ordering::Acquire);
         if state != context_state::EMPTY && state != context_state::SUSPENDED {
             return Err(TransferError::InvalidState);
@@ -239,13 +222,7 @@ impl ExecutionContext {
         // SAFETY: empty or suspended contexts have no Runtime writer; the
         // monitor serializes its own concurrent fills.
         let data = unsafe { &mut *self.data.get() };
-        let mut gprs = gprs;
-        gprs[0] = 0;
-        *data = ContextData {
-            gprs,
-            pc,
-            protection,
-        };
+        *data = ContextData { x1_x31, pc, satp };
         Ok(())
     }
 
@@ -269,25 +246,19 @@ impl ExecutionContext {
     /// Saves the outgoing execution into this context. Runtime-internal,
     /// called by the transfer ceremony on a context it owns as the staged
     /// suspend target.
-    pub(crate) fn save_outgoing(
-        &self,
-        x1_x31: &[usize; 31],
-        pc: usize,
-        protection: ProtectionState,
-    ) {
+    pub(crate) fn save_outgoing(&self, x1_x31: &[usize; 31], pc: usize, satp: Satp) {
         // SAFETY: the staged suspend target is owned by this hart's
         // in-flight transaction; no other accessor may touch it.
         let data = unsafe { &mut *self.data.get() };
-        data.gprs = [0; 32];
-        data.gprs[1..].copy_from_slice(x1_x31);
+        data.x1_x31.copy_from_slice(x1_x31);
         data.pc = pc;
-        data.protection = protection;
+        data.satp = satp;
     }
 
     /// Returns the declared translation state to install.
-    pub(crate) fn protection(&self) -> ProtectionState {
+    pub(crate) fn satp(&self) -> Satp {
         // SAFETY: staged resume sources have no writer.
-        unsafe { &*self.data.get() }.protection
+        unsafe { &*self.data.get() }.satp
     }
 
     /// Loads the incoming registers into the trap frame's x1-x31 slots and
@@ -296,7 +267,7 @@ impl ExecutionContext {
     pub(crate) fn resume_into(&self, x1_x31: &mut [usize; 31]) -> usize {
         // SAFETY: staged resume sources have no writer.
         let data = unsafe { &*self.data.get() };
-        x1_x31.copy_from_slice(&data.gprs[1..]);
+        x1_x31.copy_from_slice(&data.x1_x31);
         data.pc
     }
 }
@@ -382,25 +353,25 @@ pub(crate) fn commit_pair(
 mod tests {
     use super::*;
 
-    const GPRS_A: [usize; 32] = {
-        let mut gprs = [0; 32];
-        gprs[10] = 0x1111;
+    const GPRS_A: [usize; 31] = {
+        let mut gprs = [0; 31];
+        gprs[9] = 0x1111;
         gprs
     };
-    const GPRS_B: [usize; 32] = {
-        let mut gprs = [0; 32];
-        gprs[10] = 0x2222;
+    const GPRS_B: [usize; 31] = {
+        let mut gprs = [0; 31];
+        gprs[9] = 0x2222;
         gprs
     };
 
-    fn filled(pc: usize) -> ([usize; 32], usize, ProtectionState) {
-        (GPRS_B, pc, ProtectionState::Supervisor { satp: 0x8000 })
+    fn filled(pc: usize) -> ([usize; 31], usize, Satp) {
+        (GPRS_B, pc, Satp::from_bits(0x8000))
     }
 
     #[test]
     fn park_requires_empty_and_fill_requires_parkable_state() {
         static CTX: ExecutionContext = ExecutionContext::new();
-        CTX.fill(GPRS_A, 0x1000, ProtectionState::Bare).unwrap();
+        CTX.fill(GPRS_A, 0x1000, Satp::from_bits(0)).unwrap();
         CTX.park().unwrap();
         assert_eq!(CTX.state(), ContextState::Suspended);
         assert_eq!(CTX.park(), Err(TransferError::InvalidState));
@@ -410,26 +381,26 @@ mod tests {
     fn fill_rejected_while_staged_or_active() {
         static SUSPEND: ExecutionContext = ExecutionContext::new();
         static RESUME: ExecutionContext = ExecutionContext::new();
-        RESUME.fill(GPRS_B, 0x2000, ProtectionState::Bare).unwrap();
+        RESUME.fill(GPRS_B, 0x2000, Satp::from_bits(0)).unwrap();
         RESUME.park().unwrap();
         stage_pair(&SUSPEND, &RESUME).unwrap();
         assert_eq!(SUSPEND.state(), ContextState::Staged);
         assert_eq!(RESUME.state(), ContextState::Staged);
         assert_eq!(
-            SUSPEND.fill(GPRS_A, 1, ProtectionState::Bare),
+            SUSPEND.fill(GPRS_A, 1, Satp::from_bits(0)),
             Err(TransferError::InvalidState)
         );
         assert_eq!(
-            RESUME.fill(GPRS_B, 1, ProtectionState::Bare),
+            RESUME.fill(GPRS_B, 1, Satp::from_bits(0)),
             Err(TransferError::InvalidState)
         );
         commit_pair(&SUSPEND, &RESUME);
         assert_eq!(SUSPEND.state(), ContextState::Suspended);
         assert_eq!(RESUME.state(), ContextState::Active);
         // A suspended snapshot may be updated; an active context may not.
-        SUSPEND.fill(GPRS_A, 0x1001, ProtectionState::Bare).unwrap();
+        SUSPEND.fill(GPRS_A, 0x1001, Satp::from_bits(0)).unwrap();
         assert_eq!(
-            RESUME.fill(GPRS_B, 1, ProtectionState::Bare),
+            RESUME.fill(GPRS_B, 1, Satp::from_bits(0)),
             Err(TransferError::InvalidState)
         );
     }
@@ -437,7 +408,7 @@ mod tests {
     #[test]
     fn stage_rejects_same_context() {
         static CTX: ExecutionContext = ExecutionContext::new();
-        CTX.fill(GPRS_A, 0x1000, ProtectionState::Bare).unwrap();
+        CTX.fill(GPRS_A, 0x1000, Satp::from_bits(0)).unwrap();
         CTX.park().unwrap();
         assert_eq!(stage_pair(&CTX, &CTX), Err(TransferError::SameContext));
     }
@@ -458,7 +429,7 @@ mod tests {
         static FIRST: ExecutionContext = ExecutionContext::new();
         static SECOND: ExecutionContext = ExecutionContext::new();
         static RESUME: ExecutionContext = ExecutionContext::new();
-        RESUME.fill(GPRS_B, 0x2000, ProtectionState::Bare).unwrap();
+        RESUME.fill(GPRS_B, 0x2000, Satp::from_bits(0)).unwrap();
         RESUME.park().unwrap();
         stage_pair(&FIRST, &RESUME).unwrap();
         assert_eq!(
@@ -475,8 +446,8 @@ mod tests {
     fn suspend_target_must_be_active_or_empty() {
         static SUSPEND: ExecutionContext = ExecutionContext::new();
         static RESUME: ExecutionContext = ExecutionContext::new();
-        SUSPEND.fill(GPRS_A, 0x1000, ProtectionState::Bare).unwrap();
-        RESUME.fill(GPRS_B, 0x2000, ProtectionState::Bare).unwrap();
+        SUSPEND.fill(GPRS_A, 0x1000, Satp::from_bits(0)).unwrap();
+        RESUME.fill(GPRS_B, 0x2000, Satp::from_bits(0)).unwrap();
         SUSPEND.park().unwrap();
         RESUME.park().unwrap();
         // A suspended suspend target is meaningless: its data would be
@@ -495,11 +466,9 @@ mod tests {
         static ACTIVE: ExecutionContext = ExecutionContext::new();
         static SNAPSHOT: ExecutionContext = ExecutionContext::new();
         static FRESH: ExecutionContext = ExecutionContext::new();
-        SNAPSHOT
-            .fill(GPRS_B, 0x2000, ProtectionState::Bare)
-            .unwrap();
+        SNAPSHOT.fill(GPRS_B, 0x2000, Satp::from_bits(0)).unwrap();
         SNAPSHOT.park().unwrap();
-        ACTIVE.fill(GPRS_A, 0x1000, ProtectionState::Bare).unwrap();
+        ACTIVE.fill(GPRS_A, 0x1000, Satp::from_bits(0)).unwrap();
         ACTIVE.park().unwrap();
         stage_pair(&FRESH, &SNAPSHOT).unwrap();
         commit_pair(&FRESH, &SNAPSHOT);
@@ -518,38 +487,27 @@ mod tests {
     fn full_cycle_saves_and_restores_as_data() {
         static HOST: ExecutionContext = ExecutionContext::new();
         static TSM: ExecutionContext = ExecutionContext::new();
-        let (gprs, pc, protection) = filled(0x80400000);
-        HOST.fill(
-            GPRS_A,
-            0x80800000,
-            ProtectionState::Supervisor { satp: 0x8080_0000 },
-        )
-        .unwrap();
-        TSM.fill(gprs, pc, protection).unwrap();
+        let (gprs, pc, satp) = filled(0x80400000);
+        HOST.fill(GPRS_A, 0x80800000, Satp::from_bits(0x8080_0000))
+            .unwrap();
+        TSM.fill(gprs, pc, satp).unwrap();
         TSM.park().unwrap();
 
         // First transfer: adopt the running execution into the fresh HOST
         // context and enter TSM.
         stage_pair(&HOST, &TSM).unwrap();
         let outgoing = [7usize; 31];
-        HOST.save_outgoing(
-            &outgoing,
-            0x8080_0100,
-            ProtectionState::Supervisor { satp: 0x8080_0000 },
-        );
+        HOST.save_outgoing(&outgoing, 0x8080_0100, Satp::from_bits(0x8080_0000));
         let mut frame = [0usize; 31];
         let entry = TSM.resume_into(&mut frame);
         assert_eq!(entry, pc);
-        assert_eq!(&frame[..], &GPRS_B[1..]);
+        assert_eq!(&frame[..], &GPRS_B[..]);
         commit_pair(&HOST, &TSM);
 
         let snapshot = HOST.snapshot();
         assert_eq!(snapshot.pc, 0x8080_0100);
-        assert_eq!(
-            snapshot.protection,
-            ProtectionState::Supervisor { satp: 0x8080_0000 }
-        );
-        assert_eq!(snapshot.gprs[1], 7);
+        assert_eq!(snapshot.satp, Satp::from_bits(0x8080_0000));
+        assert_eq!(snapshot.x1_x31[0], 7);
         assert_eq!(HOST.state(), ContextState::Suspended);
         assert_eq!(TSM.state(), ContextState::Active);
 
@@ -560,8 +518,8 @@ mod tests {
         assert_eq!(TSM.state(), ContextState::Suspended);
         assert_eq!(HOST.state(), ContextState::Active);
         let entry = HOST.resume_into(&mut frame);
-        // The saved snapshot is restored verbatim, including its x0 zero.
+        // The saved snapshot is restored verbatim.
         assert_eq!(entry, 0x8080_0100);
-        assert_eq!(&frame[..], &outgoing);
+        assert_eq!(&frame[..], &outgoing[..]);
     }
 }

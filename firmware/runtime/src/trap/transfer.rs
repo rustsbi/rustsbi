@@ -5,30 +5,7 @@
 //! the translation CSRs, and exposes the staging entry point. The
 //! ceremony itself is performed by the dispatch's ecall return path.
 
-use crate::context::{ExecutionContext, ProtectionState, TransferError};
-
-impl ProtectionState {
-    /// Reads the hart's current translation state.
-    pub(crate) fn current() -> Self {
-        let bits = riscv::register::satp::read().bits();
-        if bits == 0 {
-            ProtectionState::Bare
-        } else {
-            ProtectionState::Supervisor { satp: bits }
-        }
-    }
-
-    /// Installs this state into the hart's `satp`.
-    pub(crate) fn install(&self) {
-        let bits = match *self {
-            ProtectionState::Bare => 0,
-            ProtectionState::Supervisor { satp } => satp,
-        };
-        // SAFETY: M-mode installs the staged transfer's declared
-        // translation state on the current hart.
-        unsafe { riscv::register::satp::write(riscv::register::satp::Satp::from_bits(bits)) };
-    }
-}
+use crate::context::{ExecutionContext, TransferError};
 
 /// Stages a retentive control transfer for the current hart's ecall return
 /// path: the hart's current execution is suspended into `suspend_into`,
