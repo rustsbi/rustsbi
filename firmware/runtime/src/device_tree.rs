@@ -310,14 +310,19 @@ impl PlatformDescription {
 
     /// Prepares the device tree passed to the next stage.
     ///
-    /// Adds the firmware reservation and hides selected nodes from the next
-    /// stage. If no edits are requested, the original address is returned.
+    /// Adds the firmware reservation, hides selected nodes, and disables
+    /// nodes that must remain present for phandle references. If no edits are
+    /// requested, the original address is returned.
     pub fn prepare_next_stage(
         self,
         firmware_reservation: Option<PhysAddrRange>,
         hidden_node_paths: &[&str],
+        disabled_node_paths: &[&str],
     ) -> Result<PhysAddr> {
-        if firmware_reservation.is_none() && hidden_node_paths.is_empty() {
+        if firmware_reservation.is_none()
+            && hidden_node_paths.is_empty()
+            && disabled_node_paths.is_empty()
+        {
             return Ok(self.address);
         }
 
@@ -330,7 +335,8 @@ impl PlatformDescription {
                 patch::Reservation::new(address, size).ok_or(Error::InvalidArgs)
             })
             .transpose()?;
-        let rewritten = patch::prepare_next_stage(source, reservation, hidden_node_paths)?;
+        let rewritten =
+            patch::prepare_next_stage(source, reservation, hidden_node_paths, disabled_node_paths)?;
         Ok(leak_aligned(rewritten))
     }
 
