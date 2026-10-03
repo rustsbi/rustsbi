@@ -5,6 +5,7 @@
 use alloc::boxed::Box;
 use core::ops::Range;
 
+use riscv::register::mstatus::MPP;
 use runtime::memory::SupervisorMemory;
 use spin::Once;
 
@@ -28,13 +29,19 @@ use crate::sbi::suspend::SbiSuspend;
 
 /// Discovers the platform, initializes its devices, and publishes its
 /// services. Returns the device tree prepared for the next stage.
-pub fn init_board(platform_description: runtime::PlatformDescription) -> usize {
-    try_init_board(platform_description).unwrap_or_else(|error| panic!("{error}"))
+pub fn init_board(
+    platform_description: runtime::PlatformDescription,
+    next_mode: Option<MPP>,
+) -> usize {
+    try_init_board(platform_description, next_mode).unwrap_or_else(|error| panic!("{error}"))
 }
 
-fn try_init_board(platform_description: runtime::PlatformDescription) -> error::Result<usize> {
+fn try_init_board(
+    platform_description: runtime::PlatformDescription,
+    next_mode: Option<MPP>,
+) -> error::Result<usize> {
     let (mut board, pmu) = platform_description
-        .inspect(|platform| discovery::discover_platform(&platform))
+        .inspect(|platform| discovery::discover_platform(&platform, next_mode))
         .during("reading the platform description")?;
 
     let (supervisor_memory, mut memory) = platform_description
@@ -108,9 +115,20 @@ fn try_init_board(platform_description: runtime::PlatformDescription) -> error::
         } else {
             alloc::vec::Vec::new()
         };
-        super::handoff::prepare_device_tree(&memory, &hidden_node_paths, platform_description)
-            .during("preparing the next-stage platform description")?
-            .as_usize()
+        let disabled_node_paths = board
+            .harts
+            .disabled_cpu_paths
+            .iter()
+            .map(|path| path.as_str())
+            .collect::<alloc::vec::Vec<_>>();
+        super::handoff::prepare_device_tree(
+            &memory,
+            &hidden_node_paths,
+            &disabled_node_paths,
+            platform_description,
+        )
+        .during("preparing the next-stage platform description")?
+        .as_usize()
     };
 
     let hart_wake = k1_resources

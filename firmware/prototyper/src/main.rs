@@ -44,7 +44,7 @@ fn boot_hart(mut boot: BootInfo) {
     let platform_description = boot
         .take_platform_description()
         .expect("BUG: boot hart entered without a validated Platform Description");
-    let next_stage_fdt_address = platform::init_board(platform_description);
+    let next_stage_fdt_address = platform::init_board(platform_description, boot.next_mode_hint());
 
     let firmware_ram = platform::firmware_ram_range();
     firmware::set_pmp(&firmware_ram);

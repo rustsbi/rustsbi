@@ -20,28 +20,30 @@ use riscv::register::{self, Permission, misa, mstatus::MPP};
 
 use runtime::hart::HartId;
 
+/// Returns a validated next-stage mode without reporting handoff errors.
+///
+/// The boot hart uses this hint before the console is available. Invalid
+/// dynamic information remains deferred to `next_stage()` for diagnostics.
+fn decode_next_mode_hint(dynamic_info_address: usize) -> Option<MPP> {
+    cfg_if::cfg_if! {
+        if #[cfg(any(feature = "payload", feature = "jump"))] {
+            let _ = dynamic_info_address;
+            Some(MPP::Supervisor)
+        } else {
+            let dynamic_info = read_dynamic_info(dynamic_info_address).ok()?;
+            dynamic::validate_next_stage(&dynamic_info)
+                .ok()
+                .map(|(next_mode, _)| next_mode)
+        }
+    }
+}
+
 /// Returns whether the current hart can enter the requested next-stage mode.
 ///
 /// Invalid or unreadable dynamic information is deliberately left eligible so
 /// that one hart can initialize the console and report the validation error.
 fn supports_next_stage(dynamic_info_address: usize) -> bool {
-    cfg_if::cfg_if! {
-        if #[cfg(any(feature = "payload", feature = "jump"))] {
-            let _ = dynamic_info_address;
-            let next_mode = Some(MPP::Supervisor);
-        } else {
-            let next_mode = read_dynamic_info(dynamic_info_address)
-                .ok()
-                .and_then(|dynamic_info| match dynamic_info.next_mode {
-                    3 => Some(MPP::Machine),
-                    1 => Some(MPP::Supervisor),
-                    0 => Some(MPP::User),
-                    _ => None,
-                });
-        }
-    }
-
-    match next_mode {
+    match decode_next_mode_hint(dynamic_info_address) {
         Some(MPP::Supervisor) => misa::read().has_extension('S'),
         Some(MPP::User) => misa::read().has_extension('U'),
         _ => true,
@@ -116,6 +118,11 @@ impl BootInfo {
     /// Returns the boot hart's validated Platform Description.
     pub fn take_platform_description(&mut self) -> Option<runtime::PlatformDescription> {
         self.platform_description.take()
+    }
+
+    /// Returns the validated next-stage mode when the entry handoff is usable.
+    pub fn next_mode_hint(&self) -> Option<MPP> {
+        decode_next_mode_hint(self.dynamic_info_address)
     }
 
     /// Returns the next-stage handoff; `opaque` carries the unpatched
