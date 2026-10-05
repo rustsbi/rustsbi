@@ -35,8 +35,8 @@ const FIRMWARE_IPI_IDENTITY: u16 = 1;
 
 #[derive(Clone, Copy)]
 pub(super) struct CpuInterruptController {
-    phandle: u32,
-    hart_id: usize,
+    pub(super) phandle: u32,
+    pub(super) hart_id: usize,
 }
 
 struct MachineInterruptFile {
@@ -183,7 +183,7 @@ fn machine_interrupt_files(
     Ok(machine_files)
 }
 
-fn u32_cells(node: FdtNode<'_, '_>, name: &str) -> Option<Vec<u32>> {
+pub(super) fn u32_cells(node: FdtNode<'_, '_>, name: &str) -> Option<Vec<u32>> {
     let bytes = node.property(name)?.value;
     let mut cells = Vec::new();
     let mut chunks = bytes.chunks_exact(size_of::<u32>());

@@ -14,12 +14,12 @@ enum Register {
 
 const COMPARE_STRIDE: usize = 8;
 
-pub(super) struct Plmt {
+pub(in crate::driver) struct Plmt {
     registers: MmioRegion,
     hart_count: usize,
 }
 
-pub(super) fn bind(
+pub(in crate::driver) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
     hart_count: usize,

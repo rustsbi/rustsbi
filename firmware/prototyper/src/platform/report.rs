@@ -65,6 +65,22 @@ fn log_interrupt_controller(board: &BoardInfo) {
         );
         return;
     }
+    if let (Some(mtimer), Some(mswi)) = (
+        board.devices.interrupts.aclint_mtimer,
+        board.devices.interrupts.aclint_mswi,
+    ) {
+        info!(
+            "{:<30}: ACLINT MSWI (Base Address: 0x{:x})",
+            "Platform IPI Extension",
+            mswi.registers.start().as_usize()
+        );
+        info!(
+            "{:<30}: ACLINT MTIMER (Base Address: 0x{:x})",
+            "Platform Timer Extension",
+            mtimer.compare.start().as_usize()
+        );
+        return;
+    }
     match board.devices.interrupts.clint() {
         Some(description) => info!(
             "{:<30}: {} (Base Address: 0x{:x})",

@@ -74,7 +74,7 @@ impl ImsicIpi {
 impl IpiBackend for ImsicIpi {
     #[inline(always)]
     fn send_ipi(&self, req: IpiRequest) -> Result<(), IpiError> {
-        for hart_id in req.harts() {
+        for hart_id in req.target_hart_ids() {
             let file = self
                 .hart_files
                 .get(hart_id)

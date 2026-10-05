@@ -1,5 +1,6 @@
 //! Machine IPI devices and validated target windows.
 
+pub(super) mod mswi;
 pub(super) mod plicsw;
 
 use alloc::boxed::Box;
@@ -24,8 +25,13 @@ pub struct IpiRequest {
 }
 
 impl IpiRequest {
-    /// Iterates the targets of an already validated ordinary window.
-    pub(crate) fn harts(self) -> impl Iterator<Item = usize> {
+    /// Iterates the hart IDs selected by this window's mask and base.
+    ///
+    /// This is the target set of one already validated SBI window, not the set
+    /// of all platform harts: the SBI adaptation layer expands the special
+    /// "all available harts" encoding into ordinary windows before a backend
+    /// sees a request.
+    pub(crate) fn target_hart_ids(self) -> impl Iterator<Item = usize> {
         sbi_spec::binary::HartMask::from_mask_base(self.hart_mask, self.hart_mask_base).into_iter()
     }
 }

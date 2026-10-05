@@ -147,7 +147,7 @@ impl THeadIpi {
 impl IpiBackend for THeadIpi {
     #[inline(always)]
     fn send_ipi(&self, req: IpiRequest) -> Result<(), IpiError> {
-        for hart_id in req.harts() {
+        for hart_id in req.target_hart_ids() {
             self.write(IpiRegister::Msip, hart_id, IpiState::Pending)?;
         }
         Ok(())

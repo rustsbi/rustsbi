@@ -43,7 +43,7 @@ impl runtime::rustsbi::Ipi for SbiIpi {
         };
 
         for req in requests {
-            for hart_id in req.harts() {
+            for hart_id in req.target_hart_ids() {
                 set_ipi_type(hart_id, IPI_TYPE_SSOFT);
             }
             // Always signal: pending bits can remain after a failed send.
@@ -78,7 +78,7 @@ impl SbiIpi {
         let local = rfence::local_rfence().unwrap();
         let mut result = SbiRet::success(0);
 
-        for hart_id in requests.flat_map(IpiRequest::harts) {
+        for hart_id in requests.flat_map(IpiRequest::target_hart_ids) {
             // Improve performance if the RFence request runs on the local host.
             if hart_id == current_hart {
                 rfence::rfence_local_handler(ctx);
