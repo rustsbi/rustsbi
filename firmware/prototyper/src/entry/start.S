@@ -13,8 +13,17 @@ csrw    mie, zero
 la      t0, {early_vector}
 csrw    mtvec, t0
 
-// 2. Elect a single boot hart: the first hart to arrive wins the race
-// (amoadd returns the previous value; nonzero means another hart won).
+// 2. Ask the boot protocol for a preferred relocation hart, then elect one.
+// -1 means no preference; the first arriving hart wins the lottery. Save a0
+// across the helper call because it is the current hart ID and must reach Rust.
+    mv       s0, a0
+    call     {preferred_relocation_hart}
+    mv       t2, a0
+    mv       a0, s0
+    li       t1, -1
+    beq      t2, t1, 8f
+    bne      a0, t2, 4f
+8:
     lla      t0, 6f
     li       t1, 1
     amoadd.w t0, t1, 0(t0)

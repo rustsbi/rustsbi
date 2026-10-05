@@ -58,10 +58,17 @@ pub(super) fn prepare_next_stage(
     source: &[u8],
     firmware_reservation: Option<Reservation>,
     hidden_node_paths: &[&str],
+    disabled_node_paths: &[&str],
 ) -> Result<Vec<u8>> {
     if hidden_node_paths
         .iter()
+        .chain(disabled_node_paths)
         .any(|path| !path.starts_with('/') || *path == "/" || path.as_bytes().contains(&0))
+        || hidden_node_paths.iter().any(|hidden| {
+            disabled_node_paths.iter().any(|disabled| {
+                path_is_within(hidden, disabled) || path_is_within(disabled, hidden)
+            })
+        })
     {
         return Err(Error::InvalidArgs);
     }
@@ -73,14 +80,29 @@ pub(super) fn prepare_next_stage(
         layout.structure,
         layout.strings,
         hidden_node_paths,
+        disabled_node_paths,
         reservation_name.as_deref(),
     )?;
     let mut structure = layout.structure.to_vec();
     nop_nodes(&mut structure, &edits.hidden_nodes)?;
 
+    let mut strings = layout.strings.to_vec();
+    let mut rewrites = Vec::new();
+    if !edits.disabled_status_edits.is_empty() {
+        let status_name = writer::append_string(&mut strings, "status")?;
+        for span in edits.disabled_status_edits.iter().cloned() {
+            let mut property = Vec::new();
+            writer::push_property(&mut property, status_name, b"disabled\0")?;
+            rewrites.push((span, property));
+        }
+    }
     if let (Some(reservation), Some(name)) = (firmware_reservation, reservation_name.as_deref()) {
-        add_firmware_reservation(&layout, &edits, &structure, reservation, name)
-    } else {
+        let (offset, insertion) =
+            firmware_reservation_insertion(&edits, &mut strings, reservation, name)?;
+        rewrites.push((offset..offset, insertion));
+    }
+
+    if rewrites.is_empty() {
         let mut output = source[..layout.total_size].to_vec();
         let end = layout
             .structure_offset
@@ -90,17 +112,45 @@ pub(super) fn prepare_next_stage(
             .get_mut(layout.structure_offset..end)
             .ok_or(Error::InvalidArgs)?
             .copy_from_slice(&structure);
-        Ok(output)
+        return Ok(output);
     }
+
+    rewrites.sort_by_key(|(span, _)| span.start);
+    let (removed_size, inserted_size) =
+        rewrites
+            .iter()
+            .try_fold((0usize, 0usize), |(removed, inserted), (span, bytes)| {
+                Ok::<_, Error>((
+                    removed.checked_add(span.len()).ok_or(Error::Overflow)?,
+                    inserted.checked_add(bytes.len()).ok_or(Error::Overflow)?,
+                ))
+            })?;
+    let capacity = structure
+        .len()
+        .checked_sub(removed_size)
+        .ok_or(Error::InvalidArgs)?
+        .checked_add(inserted_size)
+        .ok_or(Error::Overflow)?;
+    let mut rewritten = Vec::with_capacity(capacity);
+    let mut copied = 0;
+    for (span, replacement) in rewrites {
+        if span.start < copied || span.end < span.start || span.end > structure.len() {
+            return Err(Error::InvalidArgs);
+        }
+        rewritten.extend_from_slice(&structure[copied..span.start]);
+        rewritten.extend_from_slice(&replacement);
+        copied = span.end;
+    }
+    rewritten.extend_from_slice(&structure[copied..]);
+    writer::rebuild(&layout, &rewritten, &strings)
 }
 
-fn add_firmware_reservation(
-    layout: &Layout<'_>,
+fn firmware_reservation_insertion(
     edits: &EditPlan,
-    structure: &[u8],
+    strings: &mut Vec<u8>,
     reservation: Reservation,
     child_name: &str,
-) -> Result<Vec<u8>> {
+) -> Result<(usize, Vec<u8>)> {
     if let Some(reserved) = edits.reserved_memory.as_ref()
         && (!reserved.accepts_firmware_child
             || reserved.cells != edits.root_cells
@@ -115,12 +165,11 @@ fn add_firmware_reservation(
         .unwrap_or(edits.root_cells);
     plan::validate_cell_widths(cells)?;
 
-    let mut strings = layout.strings.to_vec();
-    let address_cells_name = writer::append_string(&mut strings, "#address-cells")?;
-    let size_cells_name = writer::append_string(&mut strings, "#size-cells")?;
-    let ranges_name = writer::append_string(&mut strings, "ranges")?;
-    let reg_name = writer::append_string(&mut strings, "reg")?;
-    let no_map_name = writer::append_string(&mut strings, "no-map")?;
+    let address_cells_name = writer::append_string(strings, "#address-cells")?;
+    let size_cells_name = writer::append_string(strings, "#size-cells")?;
+    let ranges_name = writer::append_string(strings, "ranges")?;
+    let reg_name = writer::append_string(strings, "reg")?;
+    let no_map_name = writer::append_string(strings, "no-map")?;
 
     let mut child = Vec::new();
     writer::push_begin_node(&mut child, child_name)?;
@@ -135,7 +184,7 @@ fn add_firmware_reservation(
     writer::push_property(&mut child, no_map_name, &[])?;
     writer::push_u32(&mut child, format::END_NODE);
 
-    let (insertion_offset, insertion) = if let Some(reserved) = edits.reserved_memory.as_ref() {
+    let insertion = if let Some(reserved) = edits.reserved_memory.as_ref() {
         (reserved.end, child)
     } else {
         let mut parent = Vec::new();
@@ -155,16 +204,14 @@ fn add_firmware_reservation(
         writer::push_u32(&mut parent, format::END_NODE);
         (edits.root_end, parent)
     };
+    Ok(insertion)
+}
 
-    let structure_size = structure
-        .len()
-        .checked_add(insertion.len())
-        .ok_or(Error::Overflow)?;
-    let mut rewritten = Vec::with_capacity(structure_size);
-    rewritten.extend_from_slice(&structure[..insertion_offset]);
-    rewritten.extend_from_slice(&insertion);
-    rewritten.extend_from_slice(&structure[insertion_offset..]);
-    writer::rebuild(layout, &rewritten, &strings)
+fn path_is_within(path: &str, ancestor: &str) -> bool {
+    path == ancestor
+        || path
+            .strip_prefix(ancestor)
+            .is_some_and(|suffix| suffix.starts_with('/'))
 }
 
 fn nop_nodes(structure: &mut [u8], spans: &[core::ops::Range<usize>]) -> Result<()> {

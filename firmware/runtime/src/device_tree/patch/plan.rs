@@ -46,13 +46,14 @@ impl ValidationNode {
     }
 }
 
-/// Offsets and format facts needed by the two supported next-stage edits.
+/// Offsets and format facts needed by the supported next-stage edits.
 pub(in crate::device_tree::patch) struct EditPlan {
     pub(in crate::device_tree::patch) root_end: usize,
     pub(in crate::device_tree::patch) root_cells: CellCounts,
     pub(in crate::device_tree::patch) reserved_memory: Option<ReservedMemory>,
     pub(in crate::device_tree::patch) reservation_exists: bool,
     pub(in crate::device_tree::patch) hidden_nodes: Vec<Range<usize>>,
+    pub(in crate::device_tree::patch) disabled_status_edits: Vec<Range<usize>>,
 }
 
 pub(in crate::device_tree::patch) struct ReservedMemory {
@@ -72,6 +73,8 @@ struct OpenNode {
     size_cells: Option<u32>,
     enabled: bool,
     empty_ranges: bool,
+    // None leaves the node alone; an empty range inserts status, otherwise replaces it.
+    disabled_status_edit: Option<Range<usize>>,
 }
 
 struct EditPlanner {
@@ -82,10 +85,19 @@ struct EditPlanner {
     reserved_memory: Option<ReservedMemory>,
     reservation_exists: bool,
     hidden_nodes: Vec<Range<usize>>,
+    disabled_status_edits: Vec<Range<usize>>,
 }
 
 impl OpenNode {
-    fn record_property(&mut self, name: &str, value: &[u8]) -> Result<()> {
+    fn record_property(&mut self, span: Range<usize>, name: &str, value: &[u8]) -> Result<()> {
+        if name == "status"
+            && let Some(edit) = self.disabled_status_edit.as_mut()
+        {
+            if edit.start != edit.end {
+                return Err(Error::InvalidArgs);
+            }
+            *edit = span;
+        }
         match name {
             "#address-cells" => self.address_cells = Some(single_cell(value)?),
             "#size-cells" => self.size_cells = Some(single_cell(value)?),
@@ -117,14 +129,17 @@ impl EditPlanner {
             reserved_memory: None,
             reservation_exists: false,
             hidden_nodes: Vec::new(),
+            disabled_status_edits: Vec::new(),
         }
     }
 
     fn begin_node(
         &mut self,
         start: usize,
+        property_insertion: usize,
         name: &str,
         hidden_node_paths: &[&str],
+        disabled_node_paths: &[&str],
         reservation_name: Option<&str>,
     ) -> Result<()> {
         if self.root_end.is_some() {
@@ -162,15 +177,18 @@ impl EditPlanner {
             size_cells: None,
             enabled: true,
             empty_ranges: false,
+            disabled_status_edit: disabled_node_paths
+                .contains(&self.path.as_str())
+                .then_some(property_insertion..property_insertion),
         });
         Ok(())
     }
 
-    fn record_property(&mut self, name: &str, value: &[u8]) -> Result<()> {
+    fn record_property(&mut self, span: Range<usize>, name: &str, value: &[u8]) -> Result<()> {
         self.stack
             .last_mut()
             .ok_or(Error::InvalidArgs)?
-            .record_property(name, value)
+            .record_property(span, name, value)
     }
 
     fn end_node(&mut self, token_offset: usize, end: usize) -> Result<()> {
@@ -195,6 +213,9 @@ impl EditPlanner {
         if node.hide {
             self.hidden_nodes.push(node.start..end);
         }
+        if let Some(disabled_status_edit) = node.disabled_status_edit {
+            self.disabled_status_edits.push(disabled_status_edit);
+        }
         self.path.truncate(node.previous_path_length);
         if node.is_root {
             if !self.stack.is_empty() {
@@ -216,6 +237,7 @@ impl EditPlanner {
             reserved_memory: self.reserved_memory,
             reservation_exists: self.reservation_exists,
             hidden_nodes: self.hidden_nodes,
+            disabled_status_edits: self.disabled_status_edits,
         })
     }
 }
@@ -338,6 +360,7 @@ pub(in crate::device_tree::patch) fn plan_edits(
     structure: &[u8],
     strings: &[u8],
     hidden_node_paths: &[&str],
+    disabled_node_paths: &[&str],
     reservation_name: Option<&str>,
 ) -> Result<EditPlan> {
     let mut offset = 0;
@@ -349,14 +372,21 @@ pub(in crate::device_tree::patch) fn plan_edits(
         match token {
             BEGIN_NODE => {
                 let name = take_c_string(structure, &mut offset)?;
-                planner.begin_node(token_offset, name, hidden_node_paths, reservation_name)?;
+                planner.begin_node(
+                    token_offset,
+                    offset,
+                    name,
+                    hidden_node_paths,
+                    disabled_node_paths,
+                    reservation_name,
+                )?;
             }
             PROPERTY => {
                 let length = take_u32(structure, &mut offset)? as usize;
                 let name_offset = take_u32(structure, &mut offset)? as usize;
                 let value = take_aligned(structure, &mut offset, length)?;
                 let property_name = string_at(strings, name_offset)?;
-                planner.record_property(property_name, value)?;
+                planner.record_property(token_offset..offset, property_name, value)?;
             }
             END_NODE => planner.end_node(token_offset, offset)?,
             NOP => {}

@@ -8,13 +8,15 @@ mod interrupts;
 use super::info::{BoardInfo, SocDescription};
 use crate::devicetree::try_for_each_enabled_node;
 use crate::sbi::pmu::{self, SbiPmu};
+use riscv::register::mstatus::MPP;
 
 /// Reads the platform facts and PMU mappings consumed by driver and SBI initialization.
 pub(super) fn discover_platform(
     platform: &runtime::PlatformView<'_>,
+    next_mode: Option<MPP>,
 ) -> runtime::Result<(BoardInfo, Option<SbiPmu>)> {
     let mut board = BoardInfo::empty();
-    let cpu_interrupt_controllers = harts::discover(&mut board, platform)?;
+    let cpu_interrupt_controllers = harts::discover(&mut board, platform, next_mode)?;
     board.devices.console = console::discover(platform)?;
     let mut reset = crate::driver::ResetDescription::new();
     let mut soc =

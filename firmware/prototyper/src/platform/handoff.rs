@@ -10,9 +10,10 @@ use runtime::memory::{MemoryRegistry, PhysAddr};
 pub(super) fn prepare_device_tree(
     memory: &MemoryRegistry,
     hidden_node_paths: &[&str],
+    disabled_node_paths: &[&str],
     device_tree: PlatformDescription,
 ) -> runtime::Result<PhysAddr> {
     let firmware_reservation =
         (!memory.firmware_is_reserved()).then(|| memory.firmware_image_range());
-    device_tree.prepare_next_stage(firmware_reservation, hidden_node_paths)
+    device_tree.prepare_next_stage(firmware_reservation, hidden_node_paths, disabled_node_paths)
 }

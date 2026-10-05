@@ -104,6 +104,7 @@ pub(crate) struct HartInfo {
     pub(crate) count: usize,
     pub(crate) timebase_frequency_hz: Option<u32>,
     pub(crate) enabled: HartEnableList,
+    pub(crate) disabled_cpu_paths: Vec<String>,
 }
 
 impl HartInfo {
@@ -112,6 +113,7 @@ impl HartInfo {
             count: 0,
             timebase_frequency_hz: None,
             enabled: [false; NUM_HART_MAX],
+            disabled_cpu_paths: Vec::new(),
         }
     }
 }

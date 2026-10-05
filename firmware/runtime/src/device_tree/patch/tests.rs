@@ -16,7 +16,7 @@ use fdt::Fdt;
 fn adds_reserved_memory_using_root_cell_widths() {
     let source = fixture(1, 1, false);
     let reservation = range(0x1000, 0x2000);
-    let output = prepare_next_stage(&source, Some(reservation), &[]).unwrap();
+    let output = prepare_next_stage(&source, Some(reservation), &[], &[]).unwrap();
     let fdt = Fdt::new(&output).unwrap();
     let parent = fdt.find_node("/reserved-memory").unwrap();
     assert_eq!(property_u32(parent, "#address-cells"), 1);
@@ -32,7 +32,7 @@ fn adds_reserved_memory_using_root_cell_widths() {
 #[test]
 fn adds_child_to_existing_reserved_memory() {
     let source = fixture(2, 2, true);
-    let output = prepare_next_stage(&source, Some(range(0x1_0000_0000, 0x4000)), &[]).unwrap();
+    let output = prepare_next_stage(&source, Some(range(0x1_0000_0000, 0x4000)), &[], &[]).unwrap();
     let fdt = Fdt::new(&output).unwrap();
     assert!(fdt.find_node("/reserved-memory/keep@2000").is_some());
     let node = fdt
@@ -47,9 +47,9 @@ fn adds_child_to_existing_reserved_memory() {
 fn rejects_an_already_generated_firmware_reservation() {
     let source = fixture(2, 2, false);
     let reservation = range(0x1_0000_0000, 0x4000);
-    let output = prepare_next_stage(&source, Some(reservation), &[]).unwrap();
+    let output = prepare_next_stage(&source, Some(reservation), &[], &[]).unwrap();
     assert_eq!(
-        prepare_next_stage(&output, Some(reservation), &[]),
+        prepare_next_stage(&output, Some(reservation), &[], &[]),
         Err(Error::InvalidArgs)
     );
 }
@@ -57,7 +57,7 @@ fn rejects_an_already_generated_firmware_reservation() {
 #[test]
 fn replaces_only_the_node_at_the_exact_path() {
     let source = fixture(2, 2, false);
-    let output = prepare_next_stage(&source, None, &["/soc/clint@2000000"]).unwrap();
+    let output = prepare_next_stage(&source, None, &["/soc/clint@2000000"], &[]).unwrap();
     let fdt = Fdt::new(&output).unwrap();
     assert!(fdt.find_node("/soc").is_some());
     assert!(fdt.find_node("/soc/clint@2000000").is_none());
@@ -68,7 +68,7 @@ fn replaces_only_the_node_at_the_exact_path() {
 fn rejects_relative_hidden_node_path() {
     let source = fixture(2, 2, false);
     assert_eq!(
-        prepare_next_stage(&source, None, &["clint@2000000"]),
+        prepare_next_stage(&source, None, &["clint@2000000"], &[]),
         Err(Error::InvalidArgs)
     );
 }
@@ -80,6 +80,7 @@ fn adds_reservation_and_replaces_node_in_one_rewrite() {
         &source,
         Some(range(0x1_0000_0000, 0x4000)),
         &["/soc/clint@2000000"],
+        &["/cpus/cpu@0"],
     )
     .unwrap();
     let fdt = Fdt::new(&output).unwrap();
@@ -88,13 +89,57 @@ fn adds_reservation_and_replaces_node_in_one_rewrite() {
             .is_some()
     );
     assert!(fdt.find_node("/soc/clint@2000000").is_none());
+    assert_eq!(
+        fdt.find_node("/cpus/cpu@0")
+            .unwrap()
+            .property("status")
+            .unwrap()
+            .as_str(),
+        Some("disabled")
+    );
+}
+
+#[test]
+fn disables_cpu_nodes_without_removing_children() {
+    let source = fixture(2, 2, false);
+    let output = prepare_next_stage(&source, None, &[], &["/cpus/cpu@0", "/cpus/cpu@1"]).unwrap();
+    let fdt = Fdt::new(&output).unwrap();
+    for path in ["/cpus/cpu@0", "/cpus/cpu@1"] {
+        assert_eq!(
+            fdt.find_node(path)
+                .unwrap()
+                .property("status")
+                .unwrap()
+                .as_str(),
+            Some("disabled")
+        );
+    }
+    assert!(fdt.find_node("/cpus/cpu@0/interrupt-controller").is_some());
+}
+
+#[test]
+fn rejects_overlapping_hidden_and_disabled_paths() {
+    let source = fixture(2, 2, false);
+    assert_eq!(
+        prepare_next_stage(&source, None, &["/cpus"], &["/cpus/cpu@0"]),
+        Err(Error::InvalidArgs)
+    );
+}
+
+#[test]
+fn rejects_relative_disabled_node_path() {
+    let source = fixture(2, 2, false);
+    assert_eq!(
+        prepare_next_stage(&source, None, &[], &["cpus/cpu@0"]),
+        Err(Error::InvalidArgs)
+    );
 }
 
 #[test]
 fn rejects_value_that_does_not_fit_one_cell() {
     let source = fixture(1, 1, false);
     assert_eq!(
-        prepare_next_stage(&source, Some(range(0x1_0000_0000, 0x1000)), &[]),
+        prepare_next_stage(&source, Some(range(0x1_0000_0000, 0x1000)), &[], &[],),
         Err(Error::Overflow)
     );
 }
@@ -105,7 +150,7 @@ fn rejects_malformed_structure_without_panicking() {
     let structure_offset = read_usize(&source, STRUCTURE_OFFSET_OFFSET).unwrap();
     source[structure_offset..structure_offset + 4].copy_from_slice(&0xffff_ffffu32.to_be_bytes());
     assert_eq!(
-        prepare_next_stage(&source, None, &[]),
+        prepare_next_stage(&source, None, &[], &[]),
         Err(Error::InvalidArgs)
     );
 }
@@ -120,7 +165,7 @@ fn rejects_unsupported_header_version() {
     )
     .unwrap();
     assert_eq!(
-        prepare_next_stage(&source, None, &[]),
+        prepare_next_stage(&source, None, &[], &[]),
         Err(Error::InvalidArgs)
     );
 
@@ -132,7 +177,7 @@ fn rejects_unsupported_header_version() {
     )
     .unwrap();
     assert_eq!(
-        prepare_next_stage(&source, None, &[]),
+        prepare_next_stage(&source, None, &[], &[]),
         Err(Error::InvalidArgs)
     );
 }
@@ -217,6 +262,8 @@ fn fixture(address_cells: u32, size_cells: u32, existing_reserved: bool) -> Vec<
     let size_name = append_string(&mut strings, "#size-cells").unwrap();
     let ranges_name = append_string(&mut strings, "ranges").unwrap();
     let reg_name = append_string(&mut strings, "reg").unwrap();
+    let status_name = append_string(&mut strings, "status").unwrap();
+    let phandle_name = append_string(&mut strings, "phandle").unwrap();
 
     let mut structure = Vec::new();
     push_begin_node(&mut structure, "").unwrap();
@@ -235,6 +282,20 @@ fn fixture(address_cells: u32, size_cells: u32, existing_reserved: bool) -> Vec<
         push_u32(&mut structure, END_NODE);
         push_u32(&mut structure, END_NODE);
     }
+    push_begin_node(&mut structure, "cpus").unwrap();
+    push_property(&mut structure, address_name, &1u32.to_be_bytes()).unwrap();
+    push_property(&mut structure, size_name, &0u32.to_be_bytes()).unwrap();
+    push_begin_node(&mut structure, "cpu@0").unwrap();
+    push_property(&mut structure, reg_name, &0u32.to_be_bytes()).unwrap();
+    push_property(&mut structure, status_name, b"okay\0").unwrap();
+    push_begin_node(&mut structure, "interrupt-controller").unwrap();
+    push_property(&mut structure, phandle_name, &1u32.to_be_bytes()).unwrap();
+    push_u32(&mut structure, END_NODE);
+    push_u32(&mut structure, END_NODE);
+    push_begin_node(&mut structure, "cpu@1").unwrap();
+    push_property(&mut structure, reg_name, &1u32.to_be_bytes()).unwrap();
+    push_u32(&mut structure, END_NODE);
+    push_u32(&mut structure, END_NODE);
     push_begin_node(&mut structure, "soc").unwrap();
     push_begin_node(&mut structure, "clint@2000000").unwrap();
     push_u32(&mut structure, END_NODE);
