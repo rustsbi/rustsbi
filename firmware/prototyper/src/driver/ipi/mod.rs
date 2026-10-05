@@ -6,27 +6,52 @@ use alloc::boxed::Box;
 use runtime::hart::HartId;
 use spin::Once;
 
-/// One ordinary sPI hart-mask window request forwarded to the backend.
+/// An ordinary SBI hart-mask window delivered to a machine IPI backend.
 ///
-/// This backend models only the normal `(hart_mask, hart_mask_base)` window
-/// form of the SBI hart-mask encoding.
-///
-/// The SBI special encoding `hart_mask_base == usize::MAX` means "ignore
-/// hart_mask and target all available harts"; the SBI adaptation layer expands
-/// it into ordinary window requests before calling the backend.
-///
-/// One call selects at most XLEN harts, matching MSWI / CLINT hardware
-/// provisioned for the actual hart count rather than a specification maximum.
+/// The SBI adaptation layer validates targets and expands the special
+/// `hart_mask_base == usize::MAX` broadcast encoding into ordinary windows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct IpiRequest {
-    pub hart_mask: usize,
-    pub hart_mask_base: usize,
+pub(crate) struct IpiRequest {
+    hart_mask: usize,
+    hart_mask_base: usize,
 }
 
 impl IpiRequest {
+    /// Creates an ordinary window whose targets the SBI layer has validated.
+    pub(crate) fn from_mask_base(hart_mask: usize, hart_mask_base: usize) -> Self {
+        assert_ne!(
+            hart_mask_base,
+            usize::MAX,
+            "broadcast must be expanded first"
+        );
+        Self {
+            hart_mask,
+            hart_mask_base,
+        }
+    }
+
+    /// Creates an ordinary window containing only `hart_id`.
+    pub(crate) fn for_hart(hart_id: usize) -> Self {
+        let bit = hart_id % usize::BITS as usize;
+        // Align the base so even the highest hart ID avoids the broadcast marker.
+        Self {
+            hart_mask: 1 << bit,
+            hart_mask_base: hart_id - bit,
+        }
+    }
+
     /// Iterates the targets of an already validated ordinary window.
     pub(crate) fn harts(self) -> impl Iterator<Item = usize> {
         sbi_spec::binary::HartMask::from_mask_base(self.hart_mask, self.hart_mask_base).into_iter()
+    }
+
+    /// Merges targets in the same window, leaving other windows unchanged.
+    pub(crate) fn try_merge(&mut self, other: Self) -> bool {
+        if self.hart_mask_base != other.hart_mask_base {
+            return false;
+        }
+        self.hart_mask |= other.hart_mask;
+        true
     }
 }
 
@@ -39,7 +64,7 @@ impl IpiRequest {
 /// - Requests reaching this backend have already passed SBI target validation.
 /// - The backend therefore only reports unspecified operational failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum IpiError {
+pub(crate) enum IpiError {
     /// Mapped by the SBI adaptation layer to `SBI_ERR_FAILED`.
     Failed,
 }
@@ -53,7 +78,7 @@ pub enum IpiError {
 /// Calls may run concurrently on different harts. Implementations must
 /// synchronize any mutable software state internally; independent MMIO
 /// writes and hart-local interrupt claims do not require a global lock.
-pub trait IpiBackend {
+pub(crate) trait IpiBackend {
     /// Sends supervisor IPIs to the targets of one ordinary request window.
     ///
     /// Returns `Ok(())` if all targets were signaled, or `Err(IpiError::Failed)`
@@ -114,11 +139,8 @@ impl IpiDevice {
 
 impl runtime::ipi::IpiDevice for IpiDevice {
     fn send(&self, hart: HartId) -> Result<(), runtime::ipi::IpiError> {
-        self.send_ipi(IpiRequest {
-            hart_mask: 1,
-            hart_mask_base: hart.as_usize(),
-        })
-        .map_err(|_| runtime::ipi::IpiError)
+        self.send_ipi(IpiRequest::for_hart(hart.as_usize()))
+            .map_err(|_| runtime::ipi::IpiError)
     }
 
     fn clear_current(&self) -> Result<(), runtime::ipi::IpiError> {

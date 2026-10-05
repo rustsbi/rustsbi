@@ -3,12 +3,14 @@
 use super::{PhysAddr, PhysAddrRange};
 use crate::Result;
 
-pub(crate) fn locate_firmware_image() -> Result<PhysAddrRange> {
+/// Returns firmware-owned memory, including the stacks established at boot.
+pub fn locate_firmware_image() -> Result<PhysAddrRange> {
     let (image_start, image_end) = linker_image_bounds()?;
+    let image_end = crate::boot::firmware_end().unwrap_or(image_end);
     PhysAddrRange::new(PhysAddr::new(image_start), PhysAddr::new(image_end))
 }
 
-fn linker_image_bounds() -> Result<(usize, usize)> {
+pub(crate) fn linker_image_bounds() -> Result<(usize, usize)> {
     match () {
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         () => {

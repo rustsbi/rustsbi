@@ -14,68 +14,14 @@ cfg_if::cfg_if! {
     }
 }
 
-use core::fmt;
+use core::{arch::asm, fmt, ops::Range};
 
 use riscv::register::{self, Permission};
-
-use runtime::hart::HartId;
-
-/// Decides whether this hart leads the boot (designated in `DynamicInfo`,
-/// or raced when absent).
-fn is_selected_boot_hart(dynamic_info_address: usize) -> bool {
-    use core::sync::atomic::{AtomicUsize, Ordering};
-    static BOOT_HART_ID: AtomicUsize = AtomicUsize::new(usize::MAX);
-
-    cfg_if::cfg_if! {
-        if #[cfg(any(feature = "payload", feature = "jump"))] {
-            let _ = dynamic_info_address;
-            let selected_hart: Option<usize> = None;
-        }
-        else {
-            let selected_hart = read_dynamic_info(dynamic_info_address)
-                .ok()
-                .map(|dynamic_info| dynamic_info.boot_hart);
-        }
-    }
-
-    let claim_boot_hart = || {
-        let hart_id = HartId::current()
-            .expect("BUG: current hart exceeds Runtime capacity")
-            .as_usize();
-        match BOOT_HART_ID.compare_exchange(
-            usize::MAX,
-            hart_id,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        ) {
-            Ok(_) => true,
-            Err(selected_hart) => selected_hart == hart_id,
-        }
-    };
-
-    match selected_hart {
-        Some(hart_id) => {
-            if hart_id == usize::MAX {
-                claim_boot_hart()
-            } else {
-                HartId::current()
-                    .expect("BUG: current hart exceeds Runtime capacity")
-                    .as_usize()
-                    == hart_id
-            }
-        }
-        // Without a readable DynamicInfo, race to elect a single boot hart.
-        None => claim_boot_hart(),
-    }
-}
-
-use core::arch::asm;
-use core::ops::Range;
 
 use runtime::boot::NextStage;
 
 /// Boot information decoded from the previous-stage register envelope (a1/a2).
-pub struct BootInfo {
+pub(crate) struct BootInfo {
     device_tree_address: usize,
     is_boot_hart: bool,
     platform_description: Option<runtime::PlatformDescription>,
@@ -85,43 +31,95 @@ pub struct BootInfo {
 }
 
 impl BootInfo {
-    /// Decodes the entry handoff, electing a boot hart by race when
-    /// `DynamicInfo` is unreadable.
-    pub fn decode(
+    /// Decodes a boot candidate's handoff under the entry bootstrap lock.
+    ///
+    /// Without a designated hart, the first enabled candidate leads boot.
+    pub(crate) fn decode(
         device_tree: runtime::DeviceTreeHandoff,
         dynamic_info_address: usize,
     ) -> runtime::Result<Self> {
-        let selection =
-            resolve_boot_selection(device_tree.address().as_usize(), dynamic_info_address);
-        let platform_description = if selection.is_boot_hart {
-            Some(device_tree.claim(runtime::memory::PhysAddr::new(
-                selection.device_tree_address,
-            ))?)
+        let current_hart = runtime::csr::mhartid();
+        let designated_hart = designated_boot_hart(dynamic_info_address);
+        // Only the designated boot hart's FDT belongs to platform discovery.
+        if designated_hart.is_some_and(|hart| hart != current_hart) {
+            return Ok(Self::secondary(device_tree, dynamic_info_address));
+        }
+        let device_tree_address = resolve_device_tree_address(device_tree.address().as_usize());
+        let platform = device_tree.claim(runtime::memory::PhysAddr::new(device_tree_address))?;
+        let is_boot_hart = if designated_hart.is_some() {
+            // Runtime validates this designated hart's membership before
+            // publishing the topology or releasing secondary harts.
+            true
         } else {
-            None
+            platform.inspect(|view| {
+                let mut enabled = false;
+                for hart_id in view.hart_ids()? {
+                    enabled |= hart_id? == current_hart;
+                }
+                Ok(enabled)
+            })?
         };
         Ok(Self {
-            device_tree_address: selection.device_tree_address,
-            is_boot_hart: selection.is_boot_hart,
-            platform_description,
+            device_tree_address,
+            is_boot_hart,
+            platform_description: is_boot_hart.then_some(platform),
             dynamic_info_address,
         })
     }
 
+    /// Constructs a secondary handoff without reading the boot hart's FDT.
+    pub(crate) fn secondary(
+        device_tree: runtime::DeviceTreeHandoff,
+        dynamic_info_address: usize,
+    ) -> Self {
+        Self {
+            device_tree_address: resolve_device_tree_address(device_tree.address().as_usize()),
+            is_boot_hart: false,
+            platform_description: None,
+            dynamic_info_address,
+        }
+    }
+
+    pub(crate) fn platform_description(&self) -> &runtime::PlatformDescription {
+        self.platform_description
+            .as_ref()
+            .expect("boot hart owns its platform description")
+    }
+
+    /// Returns the dynamic boot information's storage range, if present.
+    ///
+    /// Jump and payload modes return `None`. Stack placement checks this range
+    /// independently of the device tree's storage.
+    pub(crate) fn dynamic_info_range(
+        &self,
+    ) -> runtime::Result<Option<runtime::memory::PhysAddrRange>> {
+        #[cfg(not(any(feature = "payload", feature = "jump")))]
+        {
+            runtime::memory::PhysAddrRange::from_start_len(
+                runtime::memory::PhysAddr::new(self.dynamic_info_address),
+                size_of::<dynamic::DynamicInfo>(),
+            )
+            .map(Some)
+        }
+        #[cfg(any(feature = "payload", feature = "jump"))]
+        {
+            Ok(None)
+        }
+    }
+
     /// Returns whether this hart leads the boot.
-    pub fn is_boot_hart(&self) -> bool {
+    pub(crate) fn is_boot_hart(&self) -> bool {
         self.is_boot_hart
     }
 
     /// Returns the boot hart's validated Platform Description.
-    pub fn take_platform_description(&mut self) -> Option<runtime::PlatformDescription> {
+    pub(crate) fn take_platform_description(&mut self) -> Option<runtime::PlatformDescription> {
         self.platform_description.take()
     }
 
     /// Returns the next-stage handoff; `opaque` carries the unpatched
-    /// device tree address. Must be called after the console is up:
-    /// prints and stops on invalid `DynamicInfo`.
-    pub fn next_stage(&self) -> NextStage {
+    /// device tree address. Invalid `DynamicInfo` stops boot.
+    pub(crate) fn next_stage(&self) -> NextStage {
         let (next_mode, start_address) = decode_next_stage(self.dynamic_info_address);
         NextStage {
             start_addr: start_address,
@@ -131,10 +129,19 @@ impl BootInfo {
     }
 }
 
-/// The local hart's boot role and its resolved device tree address.
-struct BootSelection {
-    device_tree_address: usize,
-    is_boot_hart: bool,
+fn designated_boot_hart(dynamic_info_address: usize) -> Option<usize> {
+    cfg_if::cfg_if! {
+        if #[cfg(any(feature = "payload", feature = "jump"))] {
+            let _ = dynamic_info_address;
+            None
+        }
+        else {
+            read_dynamic_info(dynamic_info_address)
+                .ok()
+                .map(|dynamic_info| dynamic_info.boot_hart)
+                .filter(|hart_id| *hart_id != usize::MAX)
+        }
+    }
 }
 
 #[cfg(all(feature = "fdt", not(feature = "payload")))]
@@ -153,14 +160,9 @@ fn linked_fdt_address() -> usize {
     address
 }
 
-/// Resolves this hart's boot role and the device tree address.
+/// Resolves the device tree address selected by the firmware build.
 #[allow(unused_mut, unused_assignments)]
-fn resolve_boot_selection(
-    entry_device_tree_address: usize,
-    dynamic_info_address: usize,
-) -> BootSelection {
-    let is_boot_hart = is_selected_boot_hart(dynamic_info_address);
-
+fn resolve_device_tree_address(entry_device_tree_address: usize) -> usize {
     let mut device_tree_address = entry_device_tree_address;
 
     #[cfg(feature = "fdt")]
@@ -168,10 +170,7 @@ fn resolve_boot_selection(
         device_tree_address = linked_fdt_address();
     }
 
-    BootSelection {
-        device_tree_address,
-        is_boot_hart,
-    }
+    device_tree_address
 }
 
 static mut FIRMWARE_START_ADDRESS: usize = 0;
@@ -223,7 +222,10 @@ pub fn set_pmp(firmware_ram: &Range<usize>) {
         use riscv::register::*;
 
         asm!("la {}, sbi_start", out(reg) FIRMWARE_START_ADDRESS, options(nomem));
-        asm!("la {}, sbi_end", out(reg) FIRMWARE_END_ADDRESS, options(nomem));
+        FIRMWARE_END_ADDRESS = runtime::memory::locate_firmware_image()
+            .expect("firmware bounds are available after topology initialization")
+            .end()
+            .as_usize();
         asm!(
             "la {}, sbi_rodata_start",
             out(reg) FIRMWARE_RODATA_START_ADDRESS,
@@ -270,10 +272,9 @@ pub fn set_pmp(firmware_ram: &Range<usize>) {
                 .resource()
                 .hart_files
                 .iter()
-                .flatten()
                 .map(|range| range.end().as_usize())
                 .max()
-                .unwrap_or(machine_imsic_start + 0x1000);
+                .expect("BUG: every enabled hart requires an IMSIC file");
 
             set_pmp_config(0, Range::OFF, Permission::NONE, false);
             pmpaddr0::write(0);

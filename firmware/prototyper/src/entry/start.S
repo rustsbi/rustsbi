@@ -10,10 +10,11 @@
 // 1. Mask all interrupts and install the Runtime's stack-independent
 //    fail-stop vector: any trap before per-hart initialization parks.
 csrw    mie, zero
+csrw    mscratch, zero
 la      t0, {early_vector}
 csrw    mtvec, t0
 
-// 2. Elect a single boot hart: the first hart to arrive wins the race
+// 2. Elect a bootstrap hart: the first hart to arrive wins the race
 // (amoadd returns the previous value; nonzero means another hart won).
     lla      t0, 6f
     li       t1, 1
@@ -38,7 +39,7 @@ csrw    mtvec, t0
 3:
     lla     t0, 7f
     li      t1, 1
-    amoadd.w t0, t1, 0(t0)
+    amoadd.w.rl t0, t1, 0(t0)
     j       5f
 
 // 4. Secondary harts wait for the bss-ready signal.
@@ -46,14 +47,55 @@ csrw    mtvec, t0
     lla     t0, 7f
     lw      t0, 0(t0)
     beqz    t0, 4b
+    fence   r, rw
 
-// 5. Every hart locates its Runtime-owned stack and enters the policy
-//    entry. When main returns, boot is over: the Runtime's finish_boot
-//    discards the boot call chain, arms the reused stack as the trap
-//    stack, and enters the staged S/HS next stage (or parks until one is
-//    staged); mscratch keeps the zero sentinel until then.
+// 5. Serialize boot candidates on the linker-owned stack. The relocation
+//    winner need not be the boot hart designated by fw_dynamic.
 5:
+    mv      s1, a0
+    mv      s2, a1
+    mv      s3, a2
+8:
+    la      t0, {boot_ready}
+    lw      t1, 0(t0)
+    bnez    t1, 11f
+    la      t0, {boot_lock}
+    li      t1, 1
+    amoswap.w.aq t1, t1, 0(t0)
+    bnez    t1, 8b
+    // Recheck after acquiring the lock: the owner may have published while
+    // this hart was attempting to acquire it.
+    la      t0, {boot_ready}
+    lw      t1, 0(t0)
+    bnez    t1, 10f
+    la      sp, {boot_stack}
+    li      t0, {stack_size}
+    add     sp, sp, t0
+    mv      a0, s1
+    mv      a1, s2
+    mv      a2, s3
+    call    {initialize}
+    beqz    a0, 10f
+    // Discovery's Rust frames are dead before BOOT_READY releases anyone.
     call    {locate_stack}
+    la      t0, {boot_ready}
+    li      t1, 1
+    amoswap.w.rl zero, t1, 0(t0)
+    j       12f
+10:
+    la      t0, {boot_lock}
+    amoswap.w.rl zero, zero, 0(t0)
+9:
+    la      t0, {boot_ready}
+    lw      t1, 0(t0)
+    beqz    t1, 9b
+11:
+    fence   r, rw
+    call    {locate_stack}
+12:
+    mv      a0, s1
+    mv      a1, s2
+    mv      a2, s3
     call    {main}
     j       {finish_boot}
     .balign  4

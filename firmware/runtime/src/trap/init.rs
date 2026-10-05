@@ -6,6 +6,7 @@
 //! [`finish_boot`](crate::boot::finish_boot) later establishes `Armed` with
 //! the clean stack top in `mscratch`.
 
+use alloc::boxed::Box;
 use core::arch::asm;
 use core::fmt;
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -16,7 +17,6 @@ use spin::Once;
 
 use super::ValueKind;
 use super::entry::trap_entry;
-use crate::cfg::NUM_HART_MAX;
 use crate::hart::{HartId, current_hart};
 
 /// Private lifecycle phases.
@@ -27,10 +27,10 @@ const PHASE_ARMED: u8 = 3;
 
 /// Marks `hart`'s lifecycle phase Armed; called only by the divergent
 /// `finish_boot` on the current hart.
-pub(crate) fn mark_armed(hart: usize) {
-    let state = HARTS
-        .get(hart)
-        .expect("BUG: hart ID exceeds the configured limit");
+pub(crate) fn mark_armed(hart: HartId) {
+    let state = hart_states()
+        .get(hart.index())
+        .expect("BUG: hart index is outside the boot topology");
     state.phase.store(PHASE_ARMED, Ordering::Release);
 }
 
@@ -39,7 +39,7 @@ pub(crate) fn mark_armed(hart: usize) {
 pub enum InitError {
     /// This hart's trap state is already initialized.
     AlreadyInitialized,
-    /// `mhartid` is beyond the Runtime's configured hart capacity.
+    /// `mhartid` is not an enabled hart in the boot topology.
     InvalidHartId,
 }
 
@@ -47,7 +47,7 @@ impl fmt::Display for InitError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::AlreadyInitialized => "trap state already initialized on this hart",
-            Self::InvalidHartId => "hart ID beyond the configured capacity",
+            Self::InvalidHartId => "hart ID is not in the boot topology",
         })
     }
 }
@@ -61,25 +61,30 @@ struct HartState {
     has_sstc: AtomicBool,
 }
 
-static HARTS: [HartState; NUM_HART_MAX] = [const {
-    HartState {
-        phase: AtomicU8::new(PHASE_UNINITIALIZED),
-        policy: Once::new(),
-        has_sstc: AtomicBool::new(false),
-    }
-}; NUM_HART_MAX];
+static HARTS: Once<Box<[HartState]>> = Once::new();
 
-/// Returns the current hart's published policy.
+fn hart_states() -> &'static [HartState] {
+    HARTS.call_once(|| {
+        HartId::all()
+            .map(|_| HartState {
+                phase: AtomicU8::new(PHASE_UNINITIALIZED),
+                policy: Once::new(),
+                has_sstc: AtomicBool::new(false),
+            })
+            .collect()
+    })
+}
+
+/// Returns `hart`'s published policy.
 ///
 /// # Panics
 ///
-/// Panics when this hart was never initialized; dispatch only runs after
+/// Panics when `hart` was never initialized; dispatch only runs after
 /// `init` published `Ready`.
-pub(crate) fn policy() -> &'static (dyn RustSBI + Sync) {
-    let hart = current_hart().as_usize();
-    let state = HARTS
-        .get(hart)
-        .expect("BUG: hart ID exceeds the configured limit");
+pub(crate) fn policy(hart: HartId) -> &'static (dyn RustSBI + Sync) {
+    let state = hart_states()
+        .get(hart.index())
+        .expect("BUG: hart index is outside the boot topology");
     if state.phase.load(Ordering::Acquire) < PHASE_READY {
         unreachable!("BUG: trap dispatch before trap::init published Ready");
     }
@@ -93,10 +98,10 @@ pub(crate) fn policy() -> &'static (dyn RustSBI + Sync) {
 /// Returns false until trap initialization has probed the CSR.
 #[inline]
 pub fn has_sstc() -> bool {
-    let hart = current_hart().as_usize();
-    let state = HARTS
+    let hart = current_hart().index();
+    let state = hart_states()
         .get(hart)
-        .expect("BUG: hart ID exceeds the configured limit");
+        .expect("BUG: hart index is outside the boot topology");
     state.has_sstc.load(Ordering::Acquire)
 }
 
@@ -112,8 +117,8 @@ where
     // 1. Validate the hart before any address arithmetic or CSR writes.
     let hart = HartId::current()
         .map_err(|_| InitError::InvalidHartId)?
-        .as_usize();
-    let Some(state) = HARTS.get(hart) else {
+        .index();
+    let Some(state) = hart_states().get(hart) else {
         return Err(InitError::InvalidHartId);
     };
 

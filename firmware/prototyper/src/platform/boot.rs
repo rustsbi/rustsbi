@@ -33,10 +33,19 @@ pub fn init_board(platform_description: runtime::PlatformDescription) -> usize {
 }
 
 fn try_init_board(platform_description: runtime::PlatformDescription) -> error::Result<usize> {
-    let (mut board, pmu) = platform_description
-        .inspect(|platform| discovery::discover_platform(&platform))
+    let mut board = Box::new(BoardInfo::empty());
+    let pmu = platform_description
+        .inspect(|platform| discovery::discover_platform(&mut board, &platform))
         .during("reading the platform description")?;
 
+    initialize_platform(platform_description, board, pmu)
+}
+
+fn initialize_platform(
+    platform_description: runtime::PlatformDescription,
+    mut board: Box<BoardInfo>,
+    pmu: Option<SbiPmu>,
+) -> error::Result<usize> {
     let (supervisor_memory, mut memory) = platform_description
         .memory_resources()
         .during("deriving Runtime memory resources")?;
@@ -51,7 +60,9 @@ fn try_init_board(platform_description: runtime::PlatformDescription) -> error::
     );
 
     let v821 = match board.soc.take() {
-        Some(SocDescription::V821(description)) => Some(description.prepare(board.harts.count)),
+        Some(SocDescription::V821(description)) => {
+            Some(description.prepare(runtime::hart::HartId::count()))
+        }
         soc => {
             board.soc = soc;
             None
@@ -136,10 +147,9 @@ fn select_imsic(board: &BoardInfo) -> Option<&ImsicInfo> {
     use sbi::features::{self, Extension};
 
     let imsic = board.devices.interrupts.imsic()?.resource();
-    for (hart, enabled) in board.harts.enabled.iter().copied().enumerate() {
-        if enabled
-            && (!features::hart_has_extension(hart, Extension::Smaia)
-                || !features::hart_has_extension(hart, Extension::Sstc))
+    for hart in runtime::hart::HartId::all().map(|hart| hart.as_usize()) {
+        if !features::hart_has_extension(hart, Extension::Smaia)
+            || !features::hart_has_extension(hart, Extension::Sstc)
         {
             warn!(
                 "AIA: hart {} requires Smaia and Sstc; falling back to CLINT",
@@ -152,7 +162,7 @@ fn select_imsic(board: &BoardInfo) -> Option<&ImsicInfo> {
 }
 
 fn publish_platform_services(
-    board: BoardInfo,
+    board: Box<BoardInfo>,
     supervisor_memory: SupervisorMemory,
     devices: driver::Devices,
     custom_extension: sbi::vendor::Extension,

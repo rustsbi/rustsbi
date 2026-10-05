@@ -69,7 +69,7 @@ impl SbiIpi {
         ctx: rfence::RFenceContext,
     ) -> SbiRet {
         let current_hart = HartId::current()
-            .expect("BUG: current hart exceeds Runtime capacity")
+            .expect("BUG: current hart is not in the boot topology")
             .as_usize();
         let requests = match target_requests(hart_mask) {
             Ok(requests) => requests,
@@ -113,10 +113,7 @@ impl SbiIpi {
     /// Sends a firmware IPI to a hart.
     #[inline]
     pub(crate) fn send_ipi(&self, hart_id: usize) -> Result<(), IpiError> {
-        self.device.send_ipi(IpiRequest {
-            hart_mask: 1,
-            hart_mask_base: hart_id,
-        })
+        self.device.send_ipi(IpiRequest::for_hart(hart_id))
     }
 }
 
@@ -148,39 +145,27 @@ pub fn get_and_reset_ipi_type() -> u8 {
     // The device clear/claim must precede the pending-event read.
     crate::riscv::csr::fence::io_to_memory();
     let hart_id = HartId::current()
-        .expect("BUG: current hart exceeds Runtime capacity")
+        .expect("BUG: current hart is not in the boot topology")
         .as_usize();
     hart_local(hart_id).ipi_type.swap(0, Acquire)
 }
 
 fn target_requests(hart_mask: HartMask) -> Result<impl Iterator<Item = IpiRequest>, SbiRet> {
-    let enabled = &crate::platform::board_info().harts.enabled;
-    let assigned = |hart_id: usize| {
-        HartId::from_raw(hart_id).is_ok() && enabled.get(hart_id).copied().unwrap_or(false)
-    };
-    let available = |hart_id: usize| {
-        let Ok(hart) = HartId::from_raw(hart_id) else {
-            return false;
-        };
-        assigned(hart_id)
-            && crate::platform::hart_privilege_checked(hart_id)
-            && hart::can_receive_ipi(hart)
+    let available = |hart: HartId| {
+        crate::platform::hart_privilege_checked(hart.as_usize()) && hart::can_receive_ipi(hart)
     };
     let (mask, base) = hart_mask.into_inner();
     let mut single = None;
-    let mut requests = Vec::new();
+    let mut requests: Vec<IpiRequest> = Vec::new();
     if base == usize::MAX {
         // Ignore mask and expand all available harts into ordinary windows.
-        for (window, harts) in enabled.chunks(usize::BITS as usize).enumerate() {
-            let base = window * usize::BITS as usize;
-            let mask = (0..harts.len()).fold(0, |mask, bit| {
-                mask | (usize::from(available(base + bit)) << bit)
-            });
-            if mask != 0 {
-                requests.push(IpiRequest {
-                    hart_mask: mask,
-                    hart_mask_base: base,
-                });
+        for hart in HartId::all().filter(|hart| available(*hart)) {
+            let singleton = IpiRequest::for_hart(hart.as_usize());
+            if !requests
+                .last_mut()
+                .is_some_and(|request| request.try_merge(singleton))
+            {
+                requests.push(singleton);
             }
         }
     } else if mask != 0 {
@@ -189,20 +174,13 @@ fn target_requests(hart_mask: HartMask) -> Result<impl Iterator<Item = IpiReques
         let mut active_mask = 0;
         for bit in HartMask::from_mask_base(mask, 0) {
             let hart_id = base.checked_add(bit).ok_or_else(SbiRet::invalid_param)?;
-            if !assigned(hart_id) {
-                return Err(SbiRet::invalid_param());
-            }
-            if available(hart_id) {
+            let hart = HartId::from_raw(hart_id).map_err(|_| SbiRet::invalid_param())?;
+            if available(hart) {
                 active_mask |= 1 << bit;
             }
         }
-        // An ordinary mask needs one window, without a heap allocation
-        single = (active_mask != 0).then_some(IpiRequest {
-            hart_mask: active_mask,
-            hart_mask_base: base,
-        });
+        // An ordinary mask needs one window, without a heap allocation.
+        single = (active_mask != 0).then_some(IpiRequest::from_mask_base(active_mask, base));
     }
-    // Chains single request with batch requests, which improves performance
-    // for single hart request.
     Ok(single.into_iter().chain(requests))
 }

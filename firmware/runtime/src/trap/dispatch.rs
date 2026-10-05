@@ -120,7 +120,8 @@ fn sbi_ecall(frame: &mut TrapFrame) {
         frame.read_x(15),
     ];
 
-    let ret: SbiRet = init::policy().handle_ecall(extension, function, param);
+    let hart = hart::current_hart();
+    let ret: SbiRet = init::policy(hart).handle_ecall(extension, function, param);
     frame.write_x(10, ret.error);
     frame.write_x(11, ret.value);
 
@@ -132,7 +133,7 @@ fn sbi_ecall(frame: &mut TrapFrame) {
     // through Runtime's protocol-free marker. The SBI adapter has already
     // validated the operation; dispatch only performs the machine ceremony.
     if let Some(hart::ControlTransfer::NonRetentiveResume(next_stage)) =
-        hart::take_control_transfer()
+        hart::take_control_transfer(hart)
     {
         // SAFETY: M-mode writes to this hart's S-mode and trap CSRs for the
         // staged resume.
@@ -143,7 +144,7 @@ fn sbi_ecall(frame: &mut TrapFrame) {
         }
         frame.x.fill(0);
         riscv::asm::fence_i();
-        frame.write_x(10, hart::current_hart().as_usize());
+        frame.write_x(10, hart.as_usize());
         frame.write_x(11, next_stage.opaque);
     }
 }

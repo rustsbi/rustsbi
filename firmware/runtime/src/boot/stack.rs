@@ -1,68 +1,186 @@
-//! Runtime-owned per-hart stacks.
+//! Two-stage stack setup for the enabled hart topology.
 //!
-//! One fixed-size region per supported hart, placed by the firmware linker
-//! script in `.bss.stack`. Each slot is sequentially reused: boot Rust runs
-//! on it after entry, `finish_boot` discards the boot call chain, and every
-//! later trap starts from the clean top through `mscratch`.
+//! Entry serializes boot candidates on one linker-owned stack. The selected
+//! boot hart keeps it; the other harts receive stacks immediately after the
+//! linked image. Entry releases them only after discovery has left Rust.
 
+use alloc::vec::Vec;
 use core::cell::UnsafeCell;
+use core::mem::MaybeUninit;
 
-use crate::cfg::{NUM_HART_MAX, STACK_SIZE_PER_HART};
+use spin::Once;
 
-/// Raw stack slot for each hart.
+use crate::hart::{HART_TABLE, HartEntry};
+use crate::memory::{PhysAddr, PhysAddrRange, linker_image_bounds};
+use crate::trap::entry::FRAME_BYTES;
+use crate::{Error, PlatformDescription, Result};
+
+static FIRMWARE_END: Once<usize> = Once::new();
+
+/// Linker-owned storage used first for discovery, then by the boot hart.
+///
+/// No safe method exposes its bytes. Entry serializes discovery and later
+/// gives this stack exclusively to the selected boot hart.
 #[repr(C, align(128))]
-struct HartStack(UnsafeCell<[u8; STACK_SIZE_PER_HART]>);
+pub struct BootStack<const SIZE: usize>(UnsafeCell<MaybeUninit<[u8; SIZE]>>);
 
-// SAFETY: `HartStack` is raw storage addressed by hart id: the naked entry
-// reaches it via `sym ROOT_STACK`, and Rust code only forms references to
-// the caller's own slot through checked accessors.
-unsafe impl Sync for HartStack {}
+// SAFETY: only entry assembly accesses the bytes, under the bootstrap lock
+// until ownership passes permanently to the selected boot hart.
+unsafe impl<const SIZE: usize> Sync for BootStack<SIZE> {}
 
-/// Root stack array for all harts, placed in the BSS stack section.
-#[used]
-#[unsafe(link_section = ".bss.stack")]
-static ROOT_STACK: [HartStack; NUM_HART_MAX] = [const { HartStack::zero() }; NUM_HART_MAX];
-
-// Slots are pairwise disjoint by construction and every Rust call boundary
-// stays 16-byte aligned: slot starts are stack-size aligned and the size is
-// a multiple of 16.
-const _: () = assert!(STACK_SIZE_PER_HART.is_multiple_of(core::mem::align_of::<HartStack>()));
-const _: () = assert!(STACK_SIZE_PER_HART.is_multiple_of(16));
-
-impl HartStack {
-    /// All-zero slot, usable as an array repeat operand.
-    const fn zero() -> Self {
-        Self(UnsafeCell::new([0; STACK_SIZE_PER_HART]))
+impl<const SIZE: usize> BootStack<SIZE> {
+    /// Creates uninitialized stack storage for a firmware static.
+    pub const fn uninit() -> Self {
+        assert!(
+            SIZE.is_multiple_of(core::mem::align_of::<Self>()),
+            "stack size must be a multiple of the stack alignment"
+        );
+        assert!(SIZE > FRAME_BYTES, "stack size must exceed the trap frame");
+        Self(UnsafeCell::new(MaybeUninit::uninit()))
     }
 }
 
-/// Locates the current hart's stack and moves `sp` to its clean top.
+pub(crate) fn firmware_end() -> Option<usize> {
+    FIRMWARE_END.get().copied()
+}
+
+/// Initializes the shared hart topology and its stacks before policy boot.
 ///
-/// The bound is validated before any address arithmetic: a hart beyond the
-/// configured capacity parks on the stack-independent fail-stop path.
+/// The heap must already be initialized. `capacity` limits the enabled hart
+/// count, not the numerical values of hardware IDs.
 ///
 /// # Safety
 ///
-/// Naked helper for the firmware entry and `finish_boot`; it must
-/// run before Rust relies on `sp`.
-#[unsafe(naked)]
+/// Called once by the selected boot hart while it exclusively owns `boot_stack`
+/// and other harts wait without stacks. The loader must provide exclusive RAM
+/// after the linked image for the remaining stacks, including exclusion of the
+/// complete next-stage image and all other live loader objects. The checks here
+/// cover described RAM, reservations, the DTB, handoff and next-stage entry;
+/// the entry address alone cannot describe the entire next-stage image.
+/// Entry must return from this Rust call before releasing secondary harts.
+#[doc(hidden)]
+pub unsafe fn initialize_stacks<const SIZE: usize>(
+    boot_stack: &'static BootStack<SIZE>,
+    capacity: usize,
+    platform: &PlatformDescription,
+    next_stage_entry: usize,
+    handoff: Option<PhysAddrRange>,
+) -> Result<()> {
+    if FIRMWARE_END.is_completed() {
+        return Err(Error::InvalidArgs);
+    }
+    let mut entries = platform.inspect(|view| {
+        let mut entries = Vec::new();
+        for raw_id in view.hart_ids()? {
+            if entries.len() == capacity {
+                return Err(Error::NotEnoughResources);
+            }
+            entries.push(HartEntry {
+                raw_id: raw_id?,
+                stack_top: 0,
+            });
+        }
+        Ok(entries)
+    })?;
+    entries.sort_unstable_by_key(|entry| entry.raw_id);
+    if entries.is_empty()
+        || entries
+            .windows(2)
+            .any(|pair| pair[0].raw_id == pair[1].raw_id)
+    {
+        return Err(Error::InvalidArgs);
+    }
+    let boot_id = crate::csr::mhartid();
+    let boot_index = entries
+        .binary_search_by_key(&boot_id, |entry| entry.raw_id)
+        .map_err(|_| Error::InvalidArgs)?;
+    let (image_start, image_end) = linker_image_bounds()?;
+    let boot_start = boot_stack.0.get() as usize;
+    let boot_top = boot_start.checked_add(SIZE).ok_or(Error::Overflow)?;
+    if boot_start < image_start
+        || boot_top > image_end
+        || !image_end.is_multiple_of(core::mem::align_of::<BootStack<SIZE>>())
+    {
+        return Err(Error::InvalidArgs);
+    }
+    let extra_size = (entries.len() - 1)
+        .checked_mul(SIZE)
+        .ok_or(Error::Overflow)?;
+    let end = image_end.checked_add(extra_size).ok_or(Error::Overflow)?;
+    let firmware = PhysAddrRange::new(PhysAddr::new(image_start), PhysAddr::new(end))?;
+    if extra_size != 0 {
+        let stacks = PhysAddrRange::new(PhysAddr::new(image_end), PhysAddr::new(end))?;
+        let dtb = platform.inspect(|view| Ok(view.storage_range()))?;
+        if stacks.overlaps(dtb)
+            || (image_end..end).contains(&next_stage_entry)
+            || handoff.is_some_and(|range| stacks.overlaps(range))
+        {
+            return Err(Error::AccessDenied);
+        }
+        let (_, memory) = platform.memory_resources()?;
+        memory.validate_firmware_extension(firmware)?;
+    }
+    let mut top = image_end;
+    for (index, entry) in entries.iter_mut().enumerate() {
+        entry.stack_top = if index == boot_index {
+            boot_top
+        } else {
+            top += SIZE;
+            top
+        };
+    }
+    FIRMWARE_END.call_once(|| end);
+    crate::hart::publish(entries.into_boxed_slice());
+    Ok(())
+}
+
+/// Selects the current hart's initialized stack without using a stack.
+///
+/// # Safety
+///
+/// Entry/exit helper only. The caller must be ready to discard its old call
+/// chain. Cold entry must wait until the bootstrap owner has left Rust.
+#[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
 pub unsafe extern "C" fn locate_stack() {
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     core::arch::naked_asm!(
-        "   csrr  t1, mhartid            // Get current hart ID
-            li    t0, {num_hart_max}
-            bgeu  t1, t0, 2f            // Out of range: fail-stop
-            la    sp, {stack}            // Load stack base address
-            li    t0, {per_hart_stack_size} // Load stack size per hart
-            addi  t1, t1,  1             // Add 1 to hart ID
-         1: add   sp, sp, t0             // Calculate stack pointer
-            addi  t1, t1, -1             // Decrement counter
-            bnez  t1, 1b                 // Loop if not zero
-            ret                         // sp = this hart's clean stack top
-         2: j     {fail_stop}
-        ",
-        per_hart_stack_size = const STACK_SIZE_PER_HART,
-        num_hart_max = const NUM_HART_MAX,
-        stack = sym ROOT_STACK,
-        fail_stop = sym super::fail_stop,
-    )
+        "csrr t1, mhartid",
+        "la t0, {table}",
+        ".if {xlen} == 64",
+        "ld t2, 0(t0)",
+        ".else",
+        "lw t2, 0(t0)",
+        ".endif",
+        "fence r, rw",
+        "beqz t2, {fail}",
+        ".if {xlen} == 64",
+        "ld t0, 8(t0)",
+        ".else",
+        "lw t0, 4(t0)",
+        ".endif",
+        "1:",
+        "beqz t0, {fail}",
+        ".if {xlen} == 64",
+        "ld t3, 0(t2)",
+        ".else",
+        "lw t3, 0(t2)",
+        ".endif",
+        "beq t1, t3, 2f",
+        "addi t2, t2, {entry_size}",
+        "addi t0, t0, -1",
+        "j 1b",
+        "2:",
+        ".if {xlen} == 64",
+        "ld sp, 8(t2)",
+        ".else",
+        "lw sp, 4(t2)",
+        ".endif",
+        "ret",
+        xlen = const usize::BITS,
+        entry_size = const size_of::<HartEntry>(),
+        table = sym HART_TABLE,
+        fail = sym super::fail_stop,
+    );
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+    unimplemented!("Stack selection requires a RISC-V target");
 }

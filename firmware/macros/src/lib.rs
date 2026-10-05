@@ -29,6 +29,46 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
         #policy
 
         const _: () = {
+            #[used]
+            #[unsafe(link_section = ".bss.stack")]
+            static BOOT_STACK: runtime::boot::BootStack<
+                { crate::cfg::STACK_SIZE_PER_HART },
+            > = runtime::boot::BootStack::uninit();
+
+            static BOOT_LOCK: ::core::sync::atomic::AtomicU32 = ::core::sync::atomic::AtomicU32::new(0);
+            static BOOT_READY: ::core::sync::atomic::AtomicU32 = ::core::sync::atomic::AtomicU32::new(0);
+            static BOOT_INFO: spin::Mutex<Option<crate::firmware::BootInfo>> = spin::Mutex::new(None);
+            static BOOT_HART: spin::Once<usize> = spin::Once::new();
+
+            // Called only under BOOT_LOCK, before any hart enters policy.
+            extern "C" fn initialize(
+                _hart_id: usize,
+                device_tree: runtime::DeviceTreeHandoff,
+                dynamic_info_address: usize,
+            ) -> usize {
+                let boot = crate::firmware::BootInfo::decode(device_tree, dynamic_info_address)
+                    .expect("firmware entry rejected the platform description");
+                if !boot.is_boot_hart() {
+                    return 0;
+                }
+                crate::heap::init();
+                // SAFETY: the loader's entry contract grants exclusive RAM
+                // for firmware and stacks. BOOT_LOCK serializes candidates;
+                // BOOT_READY remains clear until this Rust frame is retired.
+                unsafe {
+                    runtime::boot::initialize_stacks(
+                        &BOOT_STACK,
+                        crate::cfg::HART_CAPACITY,
+                        boot.platform_description(),
+                        boot.next_stage().start_addr,
+                        boot.dynamic_info_range().expect("invalid dynamic boot information range"),
+                    )
+                }.expect("firmware could not initialize its hart topology");
+                BOOT_HART.call_once(runtime::csr::mhartid);
+                *BOOT_INFO.lock() = Some(boot);
+                1
+            }
+
             /// Connects Firmware Entry to the policy function.
             #[doc(hidden)]
             #[unsafe(export_name = "__rustsbi_prototyper_main")]
@@ -50,14 +90,10 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
                 // `sbi::trap::boot`) — S-mode cannot read mhartid and
                 // depends on receiving its hart ID this way.
                 let policy_entry: fn(crate::firmware::BootInfo) = #policy_name;
-                let boot = match crate::firmware::BootInfo::decode(
-                    device_tree,
-                    dynamic_info_address,
-                ) {
-                    Ok(boot) => boot,
-                    Err(error) => {
-                        panic!("firmware entry rejected the platform description: {error}")
-                    }
+                let boot = if BOOT_HART.get().copied() == Some(runtime::csr::mhartid()) {
+                    BOOT_INFO.lock().take().expect("boot handoff consumed once")
+                } else {
+                    crate::firmware::BootInfo::secondary(device_tree, dynamic_info_address)
                 };
                 policy_entry(boot)
             }
@@ -67,7 +103,7 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
             ///
             /// # Safety
             ///
-            /// Called exactly once by the elected boot hart from `_start`,
+            /// Called exactly once by the elected bootstrap hart from `_start`,
             /// before BSS, stacks, or any Rust reference exist.
             #[doc(hidden)]
             #[unsafe(naked)]
@@ -94,6 +130,9 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
             /// The boot hart's selected device tree must remain writable and
             /// exclusively owned through platform initialization, and its
             /// enabled memory and device descriptions must match the hardware.
+            /// RAM immediately after the linked image must also be exclusively
+            /// available for the discovered harts' stacks, without overlapping
+            /// any live loader objects or the complete next-stage image.
             /// Runs before relocation, BSS, and stacks exist, so the
             /// assembly may not touch Rust memory until those steps
             /// complete.
@@ -107,6 +146,11 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
                     early_vector = sym runtime::boot::fail_stop,
                     relocation_update = sym relocation_update,
                     locate_stack = sym runtime::boot::locate_stack,
+                    boot_stack = sym BOOT_STACK,
+                    stack_size = const crate::cfg::STACK_SIZE_PER_HART,
+                    boot_lock = sym BOOT_LOCK,
+                    boot_ready = sym BOOT_READY,
+                    initialize = sym initialize,
                     main = sym __rustsbi_prototyper_main,
                     finish_boot = sym runtime::boot::finish_boot,
                     XLEN = const usize::BITS,

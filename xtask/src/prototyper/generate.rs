@@ -6,13 +6,14 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 
-use crate::utils::workspace_root;
+use crate::utils::{cargo_target_dir, workspace_root};
 
 use super::{build::BuildMode, config::BuildSpec};
 
 const CONFIG_FILE_NAME: &str = "config.toml";
-const BUILD_INPUTS_DIR_NAME: &str = "target/prototyper";
+const BUILD_INPUTS_DIR_NAME: &str = "prototyper";
 const LINKER_SCRIPT_NAME: &str = "rustsbi-prototyper.ld";
+const CONFIG_SOURCE_NAME: &str = "generated_config.rs";
 const ALIGNMENT_SOURCE_NAME: &str = "generated_alignment.rs";
 const PAYLOAD_SOURCE_NAME: &str = "generated_payload.rs";
 const FDT_SOURCE_NAME: &str = "generated_fdt.rs";
@@ -21,12 +22,17 @@ const STAMP_FILE_NAME: &str = "stamp";
 /// Workspace paths used by one prototyper build.
 #[derive(Debug)]
 pub(crate) struct BuildPaths {
+    pub(crate) target_dir: PathBuf,
     pub(crate) artifact_dir: PathBuf,
     pub(crate) build_inputs_dir: PathBuf,
     pub(crate) linker_template: PathBuf,
 }
 
 impl BuildPaths {
+    pub(crate) fn config_source(&self) -> PathBuf {
+        self.build_inputs_dir.join(CONFIG_SOURCE_NAME)
+    }
+
     pub(crate) fn linker_script(&self) -> PathBuf {
         self.build_inputs_dir.join(LINKER_SCRIPT_NAME)
     }
@@ -50,14 +56,16 @@ impl BuildPaths {
 
 pub(crate) fn prepare_build_paths(spec: &BuildSpec) -> Result<BuildPaths> {
     let workspace_root = workspace_root();
-    let artifact_dir = spec.artifact_dir();
-    let build_inputs_dir = workspace_root.join(BUILD_INPUTS_DIR_NAME);
+    let target_dir = cargo_target_dir();
+    let artifact_dir = spec.artifact_dir_in(&target_dir);
+    let build_inputs_dir = target_dir.join(BUILD_INPUTS_DIR_NAME);
     let linker_template = workspace_root
         .join("firmware")
         .join("prototyper")
         .join("rustsbi-prototyper.ld.in");
 
     Ok(BuildPaths {
+        target_dir,
         artifact_dir,
         build_inputs_dir,
         linker_template,
@@ -73,17 +81,21 @@ pub(crate) fn generate_build_inputs(spec: &BuildSpec, paths: &BuildPaths) -> Res
         )
     })?;
 
-    info!("Copy config from: {}", spec.config_source.display());
-    let config_content = fs::read(&spec.config_source).with_context(|| {
-        format!(
-            "failed to read config file '{}'",
-            spec.config_source.display()
-        )
-    })?;
+    info!(
+        "Copy config from: {}",
+        spec.firmware_config.source.display()
+    );
+    let config_content = spec.firmware_config.content.as_bytes();
     write_if_changed(
         &paths.build_inputs_dir.join(CONFIG_FILE_NAME),
-        &config_content,
+        config_content,
     )?;
+
+    let config_source = render_config_source(
+        &paths.build_inputs_dir.join(CONFIG_FILE_NAME),
+        &spec.firmware_config.layout,
+    )?;
+    write_if_changed(&paths.config_source(), config_source.as_bytes())?;
 
     let linker_template = fs::read_to_string(&paths.linker_template).with_context(|| {
         format!(
@@ -91,7 +103,7 @@ pub(crate) fn generate_build_inputs(spec: &BuildSpec, paths: &BuildPaths) -> Res
             paths.linker_template.display()
         )
     })?;
-    let linker_script = render_linker_script(&linker_template, &spec.firmware_layout)?;
+    let linker_script = render_linker_script(&linker_template, &spec.firmware_config.layout)?;
     write_if_changed(&paths.linker_script(), linker_script.as_bytes())?;
 
     let alignment_source = render_alignment_source();
@@ -105,7 +117,8 @@ pub(crate) fn generate_build_inputs(spec: &BuildSpec, paths: &BuildPaths) -> Res
 
     let stamp = render_build_stamp(
         spec,
-        &config_content,
+        config_content,
+        &config_source,
         &linker_template,
         &alignment_source,
         &payload_source,
@@ -114,6 +127,21 @@ pub(crate) fn generate_build_inputs(spec: &BuildSpec, paths: &BuildPaths) -> Res
     write_if_changed(&paths.stamp(), stamp.as_bytes())?;
 
     Ok(())
+}
+
+fn render_config_source(
+    config_file: &Path,
+    layout: &super::config::FirmwareLayout,
+) -> Result<String> {
+    let config_file = config_file
+        .to_str()
+        .with_context(|| format!("config path '{}' is not valid UTF-8", config_file.display()))?;
+    Ok(format!(
+        "static_toml! {{ const CONFIG = include_toml!({config_file:?}); }}\n\
+         pub(crate) const HART_CAPACITY: usize = {};\n\
+         pub(crate) const STACK_SIZE_PER_HART: usize = {};\n",
+        layout.hart_capacity, layout.stack_size_per_hart
+    ))
 }
 
 fn render_alignment_source() -> String {
@@ -179,6 +207,7 @@ fn embedded_file(path: &Path) -> Result<(u64, &str)> {
 fn render_build_stamp(
     spec: &BuildSpec,
     config_content: &[u8],
+    config_source: &str,
     linker_template: &str,
     alignment_source: &str,
     payload_source: &str,
@@ -196,6 +225,7 @@ fn render_build_stamp(
     spec.target.triple().hash(&mut hasher);
     spec.profile().hash(&mut hasher);
     config_content.hash(&mut hasher);
+    config_source.hash(&mut hasher);
     linker_template.hash(&mut hasher);
     alignment_source.hash(&mut hasher);
     payload_source.hash(&mut hasher);

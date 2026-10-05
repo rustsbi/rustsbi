@@ -5,8 +5,7 @@
 //! the entry assembly. This module owns
 //!
 //! - [`fail_stop`]: the stack-independent early and fatal vector;
-//! - [`locate_stack`]: per-hart Runtime stack selection with the hart bound
-//!   checked before any address arithmetic;
+//! - [`locate_stack`]: selects a stack by hardware ID in the published topology;
 //! - [`finish_boot`]: the never-returning end of boot — it discards the
 //!   boot call chain, arms the reused stack as the trap stack, and either
 //!   `mret`s into the staged S/HS next stage or parks the hart until one is
@@ -17,7 +16,8 @@
 
 mod stack;
 
-pub use stack::locate_stack;
+pub(crate) use stack::firmware_end;
+pub use stack::{BootStack, initialize_stacks, locate_stack};
 
 use crate::hart::{self, HartEvent};
 use crate::trap::init::mark_armed;
@@ -164,7 +164,7 @@ pub unsafe extern "C" fn finish_boot() -> ! {
 /// until one arrives.
 fn finish_boot_rust() -> ! {
     let hart = hart::current_hart();
-    mark_armed(hart.as_usize());
+    mark_armed(hart);
     loop {
         // Acknowledge before observing the state. Clearing after observing
         // Stopped could erase a concurrent start's wakeup just before WFI.
