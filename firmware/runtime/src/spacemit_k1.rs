@@ -7,9 +7,6 @@
 
 use core::mem::size_of;
 
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-use core::arch::asm;
-
 use fdt::node::FdtNode;
 
 use crate::Result;
@@ -80,9 +77,9 @@ impl SpacemitK1Registers {
     /// # Safety
     /// Called only on K1 in M-mode, with cluster coherency already enabled.
     /// This stackless entry clobbers t0/t1 and must be called from assembly.
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-    #[unsafe(naked)]
+    #[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
     pub unsafe extern "C" fn prepare_warm_hart() {
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         core::arch::naked_asm!(
             "csrr t0, mhartid",
             "andi t0, t0, 3",
@@ -95,7 +92,9 @@ impl SpacemitK1Registers {
             l2 = const K1Csr::MachineL2Setup as u16,
             setup = const K1Csr::MachineSetup as u16,
             features = const MachineSetup::enabled().0,
-        )
+        );
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+        unimplemented!("SpacemiT K1 warm-hart preparation requires a RISC-V target");
     }
 
     /// Returns K1 system registers when the root compatible list identifies K1.
@@ -172,26 +171,27 @@ impl SpacemitK1Registers {
     }
 }
 
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 #[inline]
 fn set_csr<const CSR: u16>(bits: usize) {
-    // SAFETY: `SpacemitK1Registers` is created only after the Platform
-    // Description identifies a K1. These implementation-defined CSRs affect
-    // only machine features of the current hart.
-    unsafe {
-        asm!(
-            "csrs {csr}, {bits}",
-            csr = const CSR,
-            bits = in(reg) bits,
-            options(nomem)
-        );
+    match () {
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+        () => unsafe {
+            // SAFETY: `SpacemitK1Registers` is created only after the Platform
+            // Description identifies a K1. These implementation-defined CSRs affect
+            // only machine features of the current hart.
+            core::arch::asm!(
+                "csrs {csr}, {bits}",
+                csr = const CSR,
+                bits = in(reg) bits,
+                options(nomem)
+            );
+        },
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+        () => {
+            let _ = (CSR, bits);
+            unimplemented!("SpacemiT K1 CSR access requires a RISC-V target");
+        }
     }
-}
-
-#[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-fn set_csr<const CSR: u16>(_: usize) {
-    let _ = CSR;
-    panic!("SpacemiT K1 CSR access requires a RISC-V target");
 }
 
 fn cci_snoop_control_range(interface_index: usize) -> Result<DeviceRegisterRange> {

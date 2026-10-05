@@ -40,10 +40,13 @@ pub struct NextStage {
 /// # Safety
 ///
 /// Naked `mtvec` target, never a callable function.
-#[unsafe(naked)]
+#[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
 #[unsafe(export_name = "runtime_fail_stop")]
 pub unsafe extern "C" fn fail_stop() {
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     core::arch::naked_asm!(".align 2", "csrw mie, zero", "1: wfi", "   j 1b",);
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+    unimplemented!("The fail-stop vector requires a RISC-V target");
 }
 
 /// Enters a K1 hart released from hardware reset, without an SPL handoff.
@@ -53,8 +56,9 @@ pub unsafe extern "C" fn fail_stop() {
 /// Assembly entry on a K1 hart only. The boot hart must have published the
 /// platform and enabled cluster coherency before releasing this hart.
 /// `initialize` performs that hart's safe platform setup and trap activation.
-#[unsafe(naked)]
+#[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
 pub unsafe extern "C" fn k1_warm_entry(initialize: extern "C" fn()) -> ! {
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     core::arch::naked_asm!(
         ".balign 4",
         "csrw mie, zero",
@@ -71,7 +75,12 @@ pub unsafe extern "C" fn k1_warm_entry(initialize: extern "C" fn()) -> ! {
         prepare = sym crate::SpacemitK1Registers::prepare_warm_hart,
         locate = sym locate_stack,
         finish = sym finish_boot,
-    )
+    );
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+    {
+        let _ = initialize;
+        unimplemented!("K1 warm entry requires a RISC-V target");
+    }
 }
 
 /// Enters a C907 hart released from hardware reset.
@@ -81,8 +90,9 @@ pub unsafe extern "C" fn k1_warm_entry(initialize: extern "C" fn()) -> ! {
 /// Only a compatible C907 reset controller may enter here, after shared
 /// Runtime and platform state are published. `initialize` restores the
 /// platform-owned cache policy and activates traps.
-#[unsafe(naked)]
+#[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
 pub unsafe extern "C" fn c907_reset_entry(initialize: extern "C" fn()) -> ! {
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     core::arch::naked_asm!(
         ".balign 4",
         "csrw mie, zero",
@@ -103,7 +113,12 @@ pub unsafe extern "C" fn c907_reset_entry(initialize: extern "C" fn()) -> ! {
         fail = sym fail_stop,
         locate = sym locate_stack,
         finish = sym finish_boot,
-    )
+    );
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+    {
+        let _ = initialize;
+        unimplemented!("C907 reset entry requires a RISC-V target");
+    }
 }
 
 /// Enters the next stage or parks after boot or a hart stop. Never returns.
@@ -120,9 +135,10 @@ pub unsafe extern "C" fn c907_reset_entry(initialize: extern "C" fn()) -> ! {
 ///
 /// The caller must run in M-mode with interrupts disabled. The current
 /// boot or stopped trap call chain must be safe to discard without unwinding.
-#[unsafe(naked)]
+#[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
 #[unsafe(export_name = "runtime_finish_boot")]
 pub unsafe extern "C" fn finish_boot() -> ! {
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     core::arch::naked_asm!(
         ".align 2",
         // Discard the current call chain: sp becomes this hart's clean top.
@@ -137,6 +153,11 @@ pub unsafe extern "C" fn finish_boot() -> ! {
         finisher = sym finish_boot_rust,
         fail_stop = sym fail_stop,
     );
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+    {
+        let _ = finish_boot_rust;
+        unimplemented!("Boot completion requires a RISC-V target");
+    }
 }
 
 /// The Rust side of the boot finisher: enter the staged next stage, or park
@@ -194,8 +215,9 @@ fn finish_boot_rust() -> ! {
 ///
 /// # Safety
 /// The next-stage CSRs and Runtime trap stack must already be prepared.
-#[unsafe(naked)]
+#[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
 unsafe extern "C" fn enter_stage(hart_id: usize, opaque: usize) -> ! {
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     core::arch::naked_asm!(
         "fence.i",
         "li ra, 0",
@@ -228,5 +250,10 @@ unsafe extern "C" fn enter_stage(hart_id: usize, opaque: usize) -> ! {
         "li t5, 0",
         "li t6, 0",
         "mret",
-    )
+    );
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+    {
+        let _ = (hart_id, opaque);
+        unimplemented!("Next-stage entry requires a RISC-V target");
+    }
 }
