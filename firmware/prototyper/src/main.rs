@@ -36,7 +36,6 @@ fn main(boot: BootInfo) {
 }
 
 fn boot_hart(mut boot: BootInfo) {
-    heap::init();
     // Initialize this hart's policy storage before any user: platform
     // discovery seeds secondary harts' features, and feature detection
     // writes this hart's.
@@ -51,7 +50,7 @@ fn boot_hart(mut boot: BootInfo) {
     firmware::log_pmp_cfg(&firmware_ram);
 
     let hart_id = HartId::current()
-        .expect("BUG: current hart exceeds Runtime capacity")
+        .expect("BUG: current hart is not in the boot topology")
         .as_usize();
     info!("{:<30}: {}", "Boot HART ID", hart_id);
 

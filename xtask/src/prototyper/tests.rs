@@ -23,9 +23,15 @@ const VALID_CONFIG_TOML: &str = "link_start_address = 0x80000000\n\
                                   heap_size = 0x15000\n\
                                   payload_address = 0x80200000\n\
                                   jump_address = 0x80200000\n";
-const LINKER_TEMPLATE: &str = ". = @LINK_START_ADDRESS@;\n\
-    .bss : { sbi_heap_start = .; . += @HEAP_SIZE@; sbi_heap_end = .; }\n\
-    .text @PAYLOAD_ADDRESS@ : ALIGN(0x1000) { *(.payload) }\n";
+const LINKER_TEMPLATE: &str = r#". = @LINK_START_ADDRESS@;
+.bss : {
+    *(.bss.stack)
+    sbi_heap_start = .;
+    . += @HEAP_SIZE@;
+    sbi_heap_end = .;
+}
+.text @PAYLOAD_ADDRESS@ : ALIGN(0x1000) { *(.payload) }
+"#;
 
 #[derive(Parser)]
 struct TestCli {
@@ -258,6 +264,8 @@ fn resolve_normalizes_files_and_derives_features() {
     };
 
     let spec = resolve_in(&args, &root, &root).unwrap();
+    assert_eq!(spec.firmware_config.layout.hart_capacity, 8);
+    assert_eq!(spec.firmware_config.layout.stack_size_per_hart, 16384);
     assert_eq!(
         spec.mode,
         BuildMode::Payload {
@@ -269,6 +277,15 @@ fn resolve_normalizes_files_and_derives_features() {
         spec.cargo_features(),
         ["hypervisor", "serde", "fdt", "payload"]
     );
+
+    fs::write(
+        config_dir.join("default.toml"),
+        format!("{VALID_CONFIG_TOML}num_hart_max = 2\nstack_size_per_hart = 8192\n"),
+    )
+    .unwrap();
+    let spec = resolve_in(&args, &root, &root).unwrap();
+    assert_eq!(spec.firmware_config.layout.hart_capacity, 2);
+    assert_eq!(spec.firmware_config.layout.stack_size_per_hart, 8192);
     let _ = fs::remove_dir_all(&root);
 }
 
@@ -307,6 +324,16 @@ fn resolve_rejects_mode_features_and_invalid_config() {
         fs::write(&config_path, config).unwrap();
         let error = resolve_in(&base_build_args(), &root, &root).unwrap_err();
         assert!(format!("{error:#}").contains("`heap_size`"));
+    }
+
+    for (key, value) in [("num_hart_max", "0"), ("stack_size_per_hart", "-128")] {
+        fs::write(
+            &config_path,
+            format!("{VALID_CONFIG_TOML}{key} = {value}\n"),
+        )
+        .unwrap();
+        let error = resolve_in(&base_build_args(), &root, &root).unwrap_err();
+        assert!(format!("{error:#}").contains(key));
     }
 
     fs::write(
@@ -372,6 +399,7 @@ fn generated_inputs_and_stamp_follow_build_mode() {
     let linker_template = root.join("firmware/prototyper/rustsbi-prototyper.ld.in");
     fs::write(&linker_template, LINKER_TEMPLATE).unwrap();
     let paths = BuildPaths {
+        target_dir: root.join("target"),
         artifact_dir: root
             .join("target")
             .join(Target::Firmware.triple())
@@ -385,7 +413,38 @@ fn generated_inputs_and_stamp_follow_build_mode() {
     );
     let dynamic = resolve_in(&base_build_args(), &root, &root).unwrap();
     generate_build_inputs(&dynamic, &paths).unwrap();
+    assert_eq!(
+        fs::read_to_string(paths.build_inputs_dir.join("config.toml")).unwrap(),
+        VALID_CONFIG_TOML
+    );
+    assert!(
+        fs::read_to_string(paths.config_source())
+            .unwrap()
+            .contains(paths.build_inputs_dir.join("config.toml").to_str().unwrap())
+    );
+    assert!(
+        fs::read_to_string(paths.linker_script())
+            .unwrap()
+            .contains("*(.bss.stack)")
+    );
+    let generated_config = fs::read_to_string(paths.config_source()).unwrap();
+    assert!(generated_config.contains("pub(crate) const HART_CAPACITY: usize = 8;"));
+    assert!(generated_config.contains("pub(crate) const STACK_SIZE_PER_HART: usize = 16384;"));
     let dynamic_stamp = fs::read_to_string(paths.stamp()).unwrap();
+    fs::write(
+        config_dir.join("default.toml"),
+        format!("{VALID_CONFIG_TOML}num_hart_max = 1\n"),
+    )
+    .unwrap();
+    let custom = resolve_in(&base_build_args(), &root, &root).unwrap();
+    generate_build_inputs(&custom, &paths).unwrap();
+    assert!(
+        fs::read_to_string(paths.config_source())
+            .unwrap()
+            .contains("pub(crate) const HART_CAPACITY: usize = 1;")
+    );
+    assert_ne!(dynamic_stamp, fs::read_to_string(paths.stamp()).unwrap());
+    fs::write(config_dir.join("default.toml"), VALID_CONFIG_TOML).unwrap();
     let minimal = resolve_in(
         &BuildArgs {
             no_default_features: true,
@@ -440,11 +499,14 @@ fn linker_template_renders_known_addresses_and_rejects_unknown_tokens() {
         link_start_address: 0x80000000,
         heap_size_bytes: 0x15000,
         payload_address: 0x80200000,
+        hart_capacity: 2,
+        stack_size_per_hart: 8192,
     };
     let rendered = render_linker_script(LINKER_TEMPLATE, &addresses).unwrap();
     assert!(rendered.contains("0x80000000"));
     assert!(rendered.contains("0x80200000"));
     assert!(rendered.contains(". += 0x15000;"));
+    assert!(rendered.contains("*(.bss.stack)"));
 
     // Placeholder-shaped unknown tokens are rejected.
     let error = render_linker_script(". = @UNKNOWN@;", &addresses).unwrap_err();

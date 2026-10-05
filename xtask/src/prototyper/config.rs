@@ -14,6 +14,8 @@ use super::{
 
 // The RV64 first-fit free list needs one 32-byte node in the heap.
 const MIN_HEAP_SIZE_BYTES: i64 = 32;
+const DEFAULT_HART_CAPACITY: u64 = 8;
+const DEFAULT_STACK_SIZE_PER_HART: u64 = 16 * 1024;
 
 /// A resolved and validated prototyper build.
 #[derive(Debug, Clone)]
@@ -33,15 +35,13 @@ pub(crate) struct BuildSpec {
     pub(crate) custom_target: Option<String>,
     /// Build in the debug profile instead of release.
     pub(crate) debug: bool,
-    /// Config file source installed into the build-input directory.
-    pub(crate) config_source: PathBuf,
-    /// Firmware layout parsed and validated from the active config TOML.
-    pub(crate) firmware_layout: FirmwareLayout,
+    /// Selected firmware config and its original contents.
+    pub(crate) firmware_config: FirmwareConfig,
     /// Artifact name suffix.
     pub(crate) artifact_suffix: String,
 }
 
-/// Firmware layout parsed from the active config TOML.
+/// Resolved firmware layout from the active config TOML.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct FirmwareLayout {
     /// Link start of the firmware image.
@@ -50,6 +50,21 @@ pub(crate) struct FirmwareLayout {
     pub(crate) heap_size_bytes: u64,
     /// Where the payload section is linked.
     pub(crate) payload_address: u64,
+    /// Maximum enabled hart count.
+    pub(crate) hart_capacity: u64,
+    /// Number of bytes reserved for each boot/trap stack.
+    pub(crate) stack_size_per_hart: u64,
+}
+
+/// Build inputs from the selected firmware configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FirmwareConfig {
+    /// Path of the selected configuration file.
+    pub(crate) source: PathBuf,
+    /// Config contents used by the Prototyper build.
+    pub(crate) content: String,
+    /// Validated layout used to generate firmware build inputs.
+    pub(crate) layout: FirmwareLayout,
 }
 
 /// Resolve raw CLI arguments into a validated build specification.
@@ -120,7 +135,7 @@ pub(crate) fn resolve_in(
     if !config_source.exists() {
         bail!("config file '{}' does not exist", config_source.display());
     }
-    let firmware_layout = parse_config(&config_source)?;
+    let firmware_config = parse_config(&config_source)?;
 
     let artifact_suffix = default_artifact_suffix(&mode).to_string();
 
@@ -132,8 +147,7 @@ pub(crate) fn resolve_in(
         target: Target::Firmware,
         custom_target: args.target.clone(),
         debug: args.debug,
-        config_source,
-        firmware_layout,
+        firmware_config,
         artifact_suffix,
     })
 }
@@ -156,7 +170,7 @@ fn absolutize(path: &Path, current_dir: &Path) -> PathBuf {
     }
 }
 
-fn parse_config(config_source: &Path) -> Result<FirmwareLayout> {
+fn parse_config(config_source: &Path) -> Result<FirmwareConfig> {
     let content = fs::read_to_string(config_source)
         .with_context(|| format!("failed to read config file '{}'", config_source.display()))?;
     let value: toml::Value = toml::from_str(&content).with_context(|| {
@@ -208,6 +222,21 @@ fn parse_config(config_source: &Path) -> Result<FirmwareLayout> {
         ),
     };
 
+    let optional_positive_integer = |key: &str| -> Result<Option<u64>> {
+        match value.get(key) {
+            None => Ok(None),
+            Some(toml::Value::Integer(value)) if *value > 0 => Ok(Some(*value as u64)),
+            _ => bail!(
+                "config key `{key}` in '{}' must be a positive integer",
+                config_source.display()
+            ),
+        }
+    };
+
+    let hart_capacity = optional_positive_integer("num_hart_max")?.unwrap_or(DEFAULT_HART_CAPACITY);
+    let stack_size_per_hart =
+        optional_positive_integer("stack_size_per_hart")?.unwrap_or(DEFAULT_STACK_SIZE_PER_HART);
+
     if link_start_address >= payload_address {
         bail!(
             "invalid platform addresses in config '{}': `link_start_address` ({:#x}) \
@@ -218,10 +247,16 @@ fn parse_config(config_source: &Path) -> Result<FirmwareLayout> {
         );
     }
 
-    Ok(FirmwareLayout {
-        link_start_address,
-        heap_size_bytes,
-        payload_address,
+    Ok(FirmwareConfig {
+        source: config_source.to_path_buf(),
+        content,
+        layout: FirmwareLayout {
+            link_start_address,
+            heap_size_bytes,
+            payload_address,
+            hart_capacity,
+            stack_size_per_hart,
+        },
     })
 }
 

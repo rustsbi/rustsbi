@@ -10,11 +10,8 @@ use riscv_aia::Iid;
 use runtime::SpacemitK1Registers;
 use runtime::memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange};
 
-use crate::cfg::NUM_HART_MAX;
 use crate::devicetree::{NodeSelection, select_from_node_once};
 use crate::driver;
-
-pub(super) type HartEnableList = [bool; NUM_HART_MAX];
 
 /// Address layout of the machine-level IMSIC interrupt files.
 pub(crate) struct ImsicAddressLayout {
@@ -65,7 +62,7 @@ pub(crate) struct ImsicInfo {
     pub(crate) layout: ImsicAddressLayout,
     pub(crate) num_ids: u16,
     pub(crate) ipi_iid: Iid,
-    pub(crate) hart_files: [Option<DeviceRegisterRange>; NUM_HART_MAX],
+    pub(crate) hart_files: Vec<DeviceRegisterRange>,
 }
 
 /// Console resources selected from the device tree.
@@ -96,23 +93,6 @@ impl MemoryInfo {
             .iter()
             .copied()
             .find(|ram| ram.start() <= range.start() && range.end() <= ram.end())
-    }
-}
-
-/// Hart topology and architectural timer frequency.
-pub(crate) struct HartInfo {
-    pub(crate) count: usize,
-    pub(crate) timebase_frequency_hz: Option<u32>,
-    pub(crate) enabled: HartEnableList,
-}
-
-impl HartInfo {
-    const fn empty() -> Self {
-        Self {
-            count: 0,
-            timebase_frequency_hz: None,
-            enabled: [false; NUM_HART_MAX],
-        }
     }
 }
 
@@ -244,7 +224,7 @@ pub(crate) enum SocDescription {
 pub(crate) struct BoardInfo {
     pub(crate) model: String,
     pub(crate) memory: MemoryInfo,
-    pub(crate) harts: HartInfo,
+    pub(crate) timebase_frequency_hz: Option<u32>,
     pub(crate) devices: DeviceDescriptions,
     pub(crate) soc: Option<SocDescription>,
 }
@@ -254,7 +234,7 @@ impl BoardInfo {
         Self {
             model: String::new(),
             memory: MemoryInfo::empty(),
-            harts: HartInfo::empty(),
+            timebase_frequency_hz: None,
             devices: DeviceDescriptions::empty(),
             soc: None,
         }

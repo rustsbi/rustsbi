@@ -8,6 +8,7 @@ use alloc::vec::Vec;
 use core::mem::size_of;
 
 use fdt::{Fdt, node::FdtNode};
+use spin::Once;
 
 use crate::memory::{
     DeviceRegisterRange, MemoryRegistry, PhysAddr, PhysAddrRange, SupervisorMemory,
@@ -66,6 +67,7 @@ impl DeviceTreeHandoff {
 /// views or derive physical-memory access from it.
 pub struct PlatformDescription {
     address: PhysAddr,
+    memory_ranges: Once<(Vec<PhysAddrRange>, Vec<PhysAddrRange>)>,
 }
 
 /// A temporary, provenance-preserving view of a [`PlatformDescription`].
@@ -78,6 +80,46 @@ pub struct PlatformView<'tree> {
 }
 
 impl<'tree> PlatformView<'tree> {
+    /// Iterates over hardware IDs of enabled CPU nodes without allocating.
+    pub fn hart_ids(&self) -> Result<impl Iterator<Item = Result<usize>> + '_> {
+        let cpus = self.find_enabled_node("/cpus").ok_or(Error::InvalidArgs)?;
+        let cells = cpus
+            .property("#address-cells")
+            .and_then(|property| property.as_usize())
+            .ok_or(Error::InvalidArgs)?;
+        if !(1..=2).contains(&cells) {
+            return Err(Error::InvalidArgs);
+        }
+        Ok(cpus
+            .children()
+            .filter(|node| node.name.split('@').next() == Some("cpu") && node_is_enabled(*node))
+            .map(Self::hart_id))
+    }
+
+    /// Decodes the hardware ID of a CPU node, including disabled nodes.
+    pub fn hart_id(node: FdtNode<'_, 'tree>) -> Result<usize> {
+        let reg = node.property("reg").ok_or(Error::InvalidArgs)?.value;
+        let register = node
+            .raw_reg()
+            .and_then(|mut registers| registers.next())
+            .ok_or(Error::InvalidArgs)?;
+        if !matches!(register.address.len(), 4 | 8)
+            || reg.len() != register.address.len()
+            || !register.size.is_empty()
+        {
+            return Err(Error::InvalidArgs);
+        }
+        let raw = register
+            .address
+            .iter()
+            .fold(0u64, |raw, byte| (raw << 8) | u64::from(*byte));
+        usize::try_from(raw).map_err(|_| Error::Overflow)
+    }
+
+    pub(crate) fn storage_range(&self) -> PhysAddrRange {
+        self.fdt_storage
+    }
+
     /// Returns the parsed device tree used for platform discovery.
     pub const fn fdt(&self) -> &Fdt<'tree> {
         &self.fdt
@@ -274,7 +316,10 @@ impl PlatformDescription {
         patch::validate(source)?;
         let fdt = Fdt::new(source).map_err(|_| Error::InvalidArgs)?;
         fdt.find_node("/").ok_or(Error::InvalidArgs)?;
-        Ok(Self { address })
+        Ok(Self {
+            address,
+            memory_ranges: Once::new(),
+        })
     }
 
     fn source(&self) -> Result<&[u8]> {
@@ -293,9 +338,11 @@ impl PlatformDescription {
         &self,
         inspect: impl for<'tree> FnOnce(PlatformView<'tree>) -> Result<R>,
     ) -> Result<R> {
-        let source = self.source()?;
-        let fdt = Fdt::new(source).map_err(|_| Error::InvalidArgs)?;
-        let fdt_storage = PhysAddrRange::from_start_len(self.address, source.len())?;
+        // SAFETY: construction validated the complete FDT. Ownership keeps
+        // its storage readable and unchanged, and the view cannot escape.
+        let fdt = unsafe { Fdt::from_ptr(self.address.as_usize() as *const u8) }
+            .map_err(|_| Error::InvalidArgs)?;
+        let fdt_storage = PhysAddrRange::from_start_len(self.address, fdt.total_size())?;
         inspect(PlatformView { fdt, fdt_storage })
     }
 
@@ -304,8 +351,12 @@ impl PlatformDescription {
     /// RAM and reserved ranges are read by Runtime. MMIO windows may then be
     /// acquired only from physical-address holes outside those ranges.
     pub fn memory_resources(&self) -> Result<(SupervisorMemory, MemoryRegistry)> {
-        let (ram, reserved) = self.memory_ranges()?;
-        MemoryRegistry::from_ranges(ram, reserved)
+        // The FDT is immutable, but the firmware span can grow during boot.
+        // Reuse its ranges and derive access against the current span each time.
+        let (ram, reserved) = self
+            .memory_ranges
+            .try_call_once(|| self.read_memory_ranges())?;
+        MemoryRegistry::from_ranges(ram.iter().copied(), reserved.iter().copied())
     }
 
     /// Prepares the device tree passed to the next stage.
@@ -334,7 +385,7 @@ impl PlatformDescription {
         Ok(leak_aligned(rewritten))
     }
 
-    fn memory_ranges(&self) -> Result<(Vec<PhysAddrRange>, Vec<PhysAddrRange>)> {
+    fn read_memory_ranges(&self) -> Result<(Vec<PhysAddrRange>, Vec<PhysAddrRange>)> {
         let source = self.source()?;
         let fdt = Fdt::new(source).map_err(|_| Error::InvalidArgs)?;
         let mut ram = Vec::new();

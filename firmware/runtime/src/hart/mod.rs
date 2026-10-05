@@ -5,6 +5,7 @@
 mod lifecycle;
 mod local;
 mod set;
+mod topology;
 mod wakeup;
 
 pub use wakeup::{HartWake, install_wakeup};
@@ -20,20 +21,25 @@ pub use lifecycle::{
 pub use local::{HartLocal, HartLocalError};
 pub use set::{HartSet, HartSetIter};
 
-use crate::cfg::NUM_HART_MAX;
+pub(crate) use topology::{HART_TABLE, HartEntry, publish};
 
 /// A validated RISC-V hart identifier.
 ///
-/// The first implementation retains the firmware's existing contract that
-/// `mhartid` is a direct index below [`NUM_HART_MAX`].
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct HartId(usize);
+/// Hardware IDs may be sparse. Runtime assigns each enabled hart a compact
+/// index once during boot; devices and SBI handoffs retain the hardware ID.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct HartId {
+    raw: usize,
+    index: usize,
+}
 
 /// Failure to turn a hardware hart identifier into a configured [`HartId`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HartIdError {
-    /// The identifier is outside Runtime's configured capacity.
-    OutOfRange,
+    /// Boot has not published the hart topology yet.
+    Unavailable,
+    /// The identifier does not belong to an enabled hart.
+    Unknown,
 }
 
 impl HartId {
@@ -51,16 +57,28 @@ impl HartId {
     /// Validates a raw hardware hart identifier.
     #[inline]
     pub fn from_raw(raw: usize) -> Result<Self, HartIdError> {
-        if raw < NUM_HART_MAX {
-            Ok(Self(raw))
-        } else {
-            Err(HartIdError::OutOfRange)
-        }
+        topology::from_raw(raw)
     }
 
     /// Returns the hardware identifier used by platform devices.
     #[inline]
     pub const fn as_usize(self) -> usize {
-        self.0
+        self.raw
+    }
+
+    /// Returns the compact index used by per-hart software storage.
+    #[inline]
+    pub const fn index(self) -> usize {
+        self.index
+    }
+
+    /// Returns the number of enabled harts, or zero before boot publication.
+    pub fn count() -> usize {
+        topology::count()
+    }
+
+    /// Iterates over enabled harts in ascending hardware-ID order.
+    pub fn all() -> impl DoubleEndedIterator<Item = Self> + ExactSizeIterator {
+        topology::all()
     }
 }

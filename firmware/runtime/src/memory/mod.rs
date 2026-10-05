@@ -14,7 +14,8 @@ mod region;
 mod registry;
 mod supervisor;
 
-pub(crate) use image::locate_firmware_image;
+pub(crate) use image::linker_image_bounds;
+pub use image::locate_firmware_image;
 
 pub use address::PhysAddr;
 pub use handoff::HandoffBuffer;

@@ -118,6 +118,7 @@ fn cargo_build(spec: &BuildSpec, paths: &BuildPaths) -> Result<ExitStatus> {
     let mut command = cargo::Cargo::new("build");
     command
         .package(PACKAGE_NAME)
+        .env("CARGO_TARGET_DIR", &paths.target_dir)
         .target(
             spec.custom_target
                 .as_deref()

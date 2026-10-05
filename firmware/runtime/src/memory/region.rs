@@ -114,7 +114,7 @@ impl PhysAddrRange {
         self.start <= other.start && other.end <= self.end
     }
 
-    pub(super) fn overlaps(self, other: Self) -> bool {
+    pub(crate) fn overlaps(self, other: Self) -> bool {
         self.start < other.end && other.start < self.end
     }
 

@@ -18,7 +18,7 @@ use super::dispatch::trap_dispatch;
 use super::frame::offsets;
 use super::recovery::RecoveryRecord;
 
-const FRAME_BYTES: usize =
+pub(crate) const FRAME_BYTES: usize =
     (offsets::SIZE_WORDS * core::mem::size_of::<usize>()).next_multiple_of(16);
 const _: () = assert!(FRAME_BYTES.is_multiple_of(16));
 #[cfg(target_pointer_width = "32")]
