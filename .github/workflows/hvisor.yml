@@ -1,0 +1,95 @@
+name: hvisor
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-hvisor-boot.sh"
+      - ".github/workflows/hvisor.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-hvisor-boot.sh"
+      - ".github/workflows/hvisor.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  hvisor-boot:
+    name: Boot hvisor (sbi)
+    # The rva23s64 CPU model requires the QEMU version from Ubuntu 26.04.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc \
+            bison \
+            curl \
+            device-tree-compiler \
+            flex \
+            git \
+            libelf-dev \
+            libssl-dev \
+            make \
+            python3-pip \
+            python3-venv \
+            qemu-system-riscv \
+            unzip \
+            xz-utils
+          qemu-system-riscv64 --version
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      # Only hvisor, hvisor-tool and the guest assets are cached, and only
+      # against immutable pins, so the key changes whenever a pinned commit
+      # does. Bump the trailing revision after editing the build recipe.
+      - name: Cache hvisor build
+        uses: actions/cache@v5
+        with:
+          path: .cache/hvisor
+          key: hvisor-be9ba59-tool-ba997a4-linux-6.10-rc1-toolchain-2026.08.27-v2
+
+      # hvisor is an HS-mode hypervisor, so the SBI it runs on has to expose
+      # the H extension; that is what the `hypervisor` feature turns on.
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build --features hypervisor
+
+      - name: Boot hvisor
+        run: .github/scripts/prototyper-hvisor-boot.sh
+
+      - name: Upload hvisor log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: hvisor-log
+          path: qemu-logs/prototyper-hvisor.log

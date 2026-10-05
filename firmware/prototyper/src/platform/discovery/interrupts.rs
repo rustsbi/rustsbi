@@ -29,7 +29,8 @@ pub(super) fn discover_node(
     };
 
     let (registers, primary_register_range) = match &controller {
-        InterruptController::Imsic => {
+        // ACLINT MTIMER splits `mtime` and `mtimecmp` into separate `reg` entries.
+        InterruptController::Imsic | InterruptController::Mtimer => {
             let registers = platform
                 .device_registers(node)?
                 .ok_or(runtime::Error::InvalidArgs)?;
@@ -62,6 +63,8 @@ enum InterruptController {
     Plicsw,
     Clint(driver::ClintKind),
     Imsic,
+    Mswi,
+    Mtimer,
     MachineAplic(MachineAplicHandoff),
     TheadPlic,
 }
@@ -85,6 +88,10 @@ impl InterruptController {
             Some(Self::Plmt)
         } else if compatible == driver::SUNXI_PLICSW_COMPATIBLE {
             Some(Self::Plicsw)
+        } else if compatible == driver::ACLINT_MSWI_COMPATIBLE {
+            Some(Self::Mswi)
+        } else if compatible == driver::ACLINT_MTIMER_COMPATIBLE {
+            Some(Self::Mtimer)
         } else if let Some(kind) = driver::ClintKind::from_fdt(compatible) {
             Some(Self::Clint(kind))
         } else if driver::IMSIC_COMPATIBLES.contains(&compatible) {
@@ -125,6 +132,19 @@ impl InterruptController {
                 }
                 board.devices.interrupts.plicsw = Some(primary_register_range);
             }
+            Self::Mswi => {
+                if board.devices.interrupts.aclint_mswi.is_some() {
+                    return Err(runtime::Error::InvalidArgs);
+                }
+                board.devices.interrupts.aclint_mswi = Some(primary_register_range);
+            }
+            Self::Mtimer => {
+                if board.devices.interrupts.aclint_mtimer.is_some() {
+                    return Err(runtime::Error::InvalidArgs);
+                }
+                let registers = registers.ok_or(runtime::Error::InvalidArgs)?;
+                board.devices.interrupts.aclint_mtimer = Some(base_register_range(registers)?);
+            }
             Self::Clint(kind) => {
                 board.devices.interrupts.set_clint(
                     ClintResource {
@@ -164,4 +184,13 @@ impl InterruptController {
         }
         Ok(())
     }
+}
+
+/// Returns the lowest-address `reg` window, the ACLINT MTIMER base.
+fn base_register_range(registers: &[DeviceRegisterRange]) -> runtime::Result<DeviceRegisterRange> {
+    registers
+        .iter()
+        .copied()
+        .min_by_key(|range| range.start().as_usize())
+        .ok_or(runtime::Error::InvalidArgs)
 }
