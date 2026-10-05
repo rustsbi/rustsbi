@@ -46,6 +46,12 @@ repository = "https://github.com/rustsbi/rustsbi"
 [profile.release]
 debug = true
 
+[profile.release.package.rustsbi-prototyper]
+codegen-units = 1
+
+[profile.release.package.rustsbi-firmware-runtime]
+codegen-units = 1
+
 [workspace.dependencies]
 fdt = "0.1.5"
 riscv = { version = "0.16.1", default-features = false }
