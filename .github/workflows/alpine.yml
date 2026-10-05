@@ -1,0 +1,88 @@
+name: Alpine Linux
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-alpine-boot.sh"
+      - ".github/workflows/alpine.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main", "ci/**"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-alpine-boot.sh"
+      - ".github/workflows/alpine.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  QEMU_PACKAGE_VERSION: "1:8.2.2+ds-0ubuntu1.18"
+
+jobs:
+  alpine-boot:
+    name: Boot Alpine Linux (${{ matrix.boot-path }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        boot-path: [sbi, u-boot, edk2]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            curl xorriso gzip u-boot-tools \
+            "qemu-system-misc=${QEMU_PACKAGE_VERSION}"
+          qemu-system-riscv64 --version
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      - name: Check serial acceptance and failure handling
+        run: .github/scripts/prototyper-alpine-boot.sh --self-test
+
+      # Cache only digest-verified downloads. Firmware and extracted guest
+      # assets are rebuilt or prepared from the current checkout every run.
+      - name: Cache Alpine and bootloader downloads
+        uses: actions/cache@v5
+        with:
+          path: target/alpine-boot/cache
+          key: alpine-3.23.3-uboot-2025.10-0ubuntu0.24.04.2-edk2-2024.02-2ubuntu0.10-${{ matrix.boot-path }}-v1
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build
+
+      - name: Boot Alpine Linux
+        run: .github/scripts/prototyper-alpine-boot.sh "${{ matrix.boot-path }}"
+
+      - name: Upload Alpine serial log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: alpine-log-${{ matrix.boot-path }}
+          path: qemu-logs/prototyper-alpine-${{ matrix.boot-path }}.log
+          if-no-files-found: warn
