@@ -45,7 +45,12 @@ impl BootInfo {
             return Ok(Self::secondary(device_tree, dynamic_info_address));
         }
         let device_tree_address = resolve_device_tree_address(device_tree.address().as_usize());
-        let platform = device_tree.claim(runtime::memory::PhysAddr::new(device_tree_address))?;
+        // SAFETY: entry guarantees exclusive writable storage for the handed-off
+        // DTB and its 1024 trailing bytes. With `fdt`, the span belongs to the
+        // linked HandoffBuffer; the bootstrap lock serializes candidate claims
+        // until the boot owner is selected.
+        let platform =
+            unsafe { device_tree.claim(runtime::memory::PhysAddr::new(device_tree_address))? };
         let is_boot_hart = if designated_hart.is_some() {
             // Runtime validates this designated hart's membership before
             // publishing the topology or releasing secondary harts.
@@ -117,7 +122,7 @@ impl BootInfo {
         self.platform_description.take()
     }
 
-    /// Returns the next-stage handoff; `opaque` carries the unpatched
+    /// Returns the next-stage handoff; `opaque` carries the selected
     /// device tree address. Invalid `DynamicInfo` stops boot.
     pub(crate) fn next_stage(&self) -> NextStage {
         let (next_mode, start_address) = decode_next_stage(self.dynamic_info_address);
@@ -144,14 +149,13 @@ fn designated_boot_hart(dynamic_info_address: usize) -> Option<usize> {
     }
 }
 
-#[cfg(all(feature = "fdt", not(feature = "payload")))]
-const LINKED_FDT_PTR: *const u8 = raw_fdt.0.as_ptr();
-#[cfg(all(feature = "fdt", feature = "payload"))]
-const LINKED_FDT_PTR: *const u8 = payload::raw_fdt.0.as_ptr();
 #[inline]
 #[cfg(feature = "fdt")]
 fn linked_fdt_address() -> usize {
-    let address = LINKED_FDT_PTR as usize;
+    #[cfg(not(feature = "payload"))]
+    let address = raw_fdt.0.address().as_usize();
+    #[cfg(feature = "payload")]
+    let address = payload::raw_fdt.0.address().as_usize();
     // SAFETY: the empty asm is only an optimization barrier; it reads no
     // memory, uses no stack, and preserves flags, so that the runtime
     // (post-relocation) address of the linker-script-placed `.fdt` section

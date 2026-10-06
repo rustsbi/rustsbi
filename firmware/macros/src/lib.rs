@@ -127,9 +127,10 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
             /// the selected boot protocol: `a0 = hart ID`, `a1 = device
             /// tree pointer` (base RISC-V convention), `a2 = DynamicInfo
             /// address` (fw_dynamic extension, dynamic variant only).
-            /// The boot hart's selected device tree must remain writable and
-            /// exclusively owned through platform initialization, and its
-            /// enabled memory and device descriptions must match the hardware.
+            /// The boot hart's selected device tree and 1024 bytes after its
+            /// `totalsize` must remain writable and exclusively owned through
+            /// platform initialization. Its enabled memory and device
+            /// descriptions must match the hardware.
             /// RAM immediately after the linked image must also be exclusively
             /// available for the discovered harts' stacks, without overlapping
             /// any live loader objects or the complete next-stage image.

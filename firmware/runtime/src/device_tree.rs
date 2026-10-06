@@ -23,6 +23,7 @@ mod patch;
 // 32-bit big-endian fields, with `totalsize` as its second field.
 const FDT_HEADER_SIZE: usize = 10 * size_of::<u32>();
 const FDT_TOTAL_SIZE_OFFSET: usize = size_of::<u32>();
+const RUSTSBI_FDT_PADDING: usize = 1024;
 
 /// The device-tree address received at the firmware entry point.
 ///
@@ -46,7 +47,13 @@ impl DeviceTreeHandoff {
     ///
     /// The selected address may be the entry argument itself or an FDT linked
     /// inside the current firmware image.
-    pub fn claim(self, selected_address: PhysAddr) -> Result<PlatformDescription> {
+    ///
+    /// # Safety
+    ///
+    /// The selected FDT's `totalsize` span plus 1024 trailing bytes must be
+    /// writable and exclusively owned through platform initialization. Linked
+    /// storage must permit mutation and remain live for the next stage.
+    pub unsafe fn claim(self, selected_address: PhysAddr) -> Result<PlatformDescription> {
         if selected_address == self.address {
             // SAFETY: values of this opaque type enter Rust only through the
             // generated firmware-entry ABI, whose contract covers the FDT.
@@ -55,7 +62,8 @@ impl DeviceTreeHandoff {
 
         validate_linked_fdt(selected_address)?;
         // SAFETY: `validate_linked_fdt` checked both the FDT header and its
-        // declared complete span against the linked firmware image.
+        // declared complete span against the linked firmware image. The caller
+        // guarantees writable, exclusively owned storage.
         unsafe { PlatformDescription::from_raw(selected_address) }
     }
 }
@@ -116,8 +124,14 @@ impl<'tree> PlatformView<'tree> {
         usize::try_from(raw).map_err(|_| Error::Overflow)
     }
 
-    pub(crate) fn storage_range(&self) -> PhysAddrRange {
-        self.fdt_storage
+    pub(crate) fn storage_range(&self) -> Result<PhysAddrRange> {
+        PhysAddrRange::from_start_len(
+            self.fdt_storage.start(),
+            self.fdt_storage
+                .size()
+                .checked_add(RUSTSBI_FDT_PADDING)
+                .ok_or(Error::Overflow)?,
+        )
     }
 
     /// Returns the parsed device tree used for platform discovery.
@@ -305,10 +319,11 @@ impl PlatformDescription {
     ///
     /// # Safety
     ///
-    /// `address` must be non-null and point to readable memory containing the
-    /// fixed FDT header and the complete FDT declared by its `totalsize`
-    /// field. The bytes must remain readable and unchanged for as long as the
-    /// returned description is used.
+    /// `address` must be non-null and point to exclusively owned, readable and
+    /// writable memory containing the fixed FDT header and the complete FDT
+    /// declared by its `totalsize` field, followed by 1024 writable bytes.
+    /// External code must not access this storage while the description owns
+    /// it. It must remain live until the next stage has finished using it.
     unsafe fn from_raw(address: PhysAddr) -> Result<Self> {
         // SAFETY: the caller of this function provides the pointer validity
         // and lifetime guarantees documented above.
@@ -361,8 +376,14 @@ impl PlatformDescription {
 
     /// Prepares the device tree passed to the next stage.
     ///
-    /// Adds the firmware reservation and hides selected nodes from the next
-    /// stage. If no edits are requested, the original address is returned.
+    /// Adds the firmware reservation and hides selected nodes in the original
+    /// DTB buffer, using the 1024 trailing bytes guaranteed by the boot protocol.
+    /// The address is preserved; after editing, `totalsize` includes the added
+    /// capacity and unused space is zeroed.
+    ///
+    /// # Panics
+    ///
+    /// Panics before writing if the edited DTB exceeds `totalsize + 1024`.
     pub fn prepare_next_stage(
         self,
         firmware_reservation: Option<PhysAddrRange>,
@@ -373,6 +394,12 @@ impl PlatformDescription {
         }
 
         let source = self.source()?;
+        let capacity = source
+            .len()
+            .checked_add(RUSTSBI_FDT_PADDING)
+            .ok_or(Error::Overflow)?;
+        let total_size = u32::try_from(capacity).map_err(|_| Error::Overflow)?;
+        PhysAddrRange::from_start_len(self.address, capacity)?;
         let reservation = firmware_reservation
             .map(|reservation| {
                 let address =
@@ -381,8 +408,27 @@ impl PlatformDescription {
                 patch::Reservation::new(address, size).ok_or(Error::InvalidArgs)
             })
             .transpose()?;
-        let rewritten = patch::prepare_next_stage(source, reservation, hidden_node_paths)?;
-        Ok(leak_aligned(rewritten))
+        let mut rewritten = patch::prepare_next_stage(source, reservation, hidden_node_paths)?;
+        assert!(
+            rewritten.len() <= capacity,
+            "DTB buffer too small: need {} bytes, have {capacity}",
+            rewritten.len()
+        );
+        // Publish the extra capacity with initialized padding for later edits.
+        rewritten.resize(capacity, 0);
+        rewritten[FDT_TOTAL_SIZE_OFFSET..FDT_TOTAL_SIZE_OFFSET + size_of::<u32>()]
+            .copy_from_slice(&total_size.to_be_bytes());
+        // SAFETY: construction guarantees exclusive writable storage covering
+        // `capacity` bytes. All tree views have ended, and consuming `self`
+        // prevents further inspection. The checked output is a separate buffer.
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                rewritten.as_ptr(),
+                self.address.as_usize() as *mut u8,
+                rewritten.len(),
+            );
+        }
+        Ok(self.address)
     }
 
     fn read_memory_ranges(&self) -> Result<(Vec<PhysAddrRange>, Vec<PhysAddrRange>)> {
@@ -432,20 +478,6 @@ impl PlatformDescription {
     }
 }
 
-fn leak_aligned(bytes: Vec<u8>) -> PhysAddr {
-    // The next stage keeps this rewritten DTB after `PlatformDescription` is
-    // consumed, so intentionally leak the aligned allocation to preserve its
-    // lifetime. Native-endian words only provide alignment; the bytes remain
-    // in their original order when copied into the allocation.
-    let mut words = Vec::with_capacity(bytes.len().div_ceil(size_of::<u64>()));
-    for chunk in bytes.chunks(size_of::<u64>()) {
-        let mut encoded = [0; size_of::<u64>()];
-        encoded[..chunk.len()].copy_from_slice(chunk);
-        words.push(u64::from_ne_bytes(encoded));
-    }
-    PhysAddr::new(words.leak().as_ptr() as usize)
-}
-
 /// Returns the complete FDT byte range described by an entry-point address.
 ///
 /// # Safety
@@ -480,7 +512,10 @@ fn validate_linked_fdt(address: PhysAddr) -> Result<()> {
             .ok_or(Error::Overflow)? as *const u32;
         u32::from_be(total_size_pointer.read_unaligned()) as usize
     };
-    let complete_fdt = PhysAddrRange::from_start_len(address, total_size)?;
+    let capacity = total_size
+        .checked_add(RUSTSBI_FDT_PADDING)
+        .ok_or(Error::Overflow)?;
+    let complete_fdt = PhysAddrRange::from_start_len(address, capacity)?;
     if firmware.contains(complete_fdt) {
         Ok(())
     } else {
@@ -520,7 +555,7 @@ mod tests {
     // production invariant is about the FDT trust boundary, not test-tree data.
     #[test]
     fn from_raw_rejects_fdt_without_root_node() {
-        let mut storage = alloc::vec![0u64; 16];
+        let mut storage = alloc::vec![0u64; 160];
         let source = minimal_fdt(&mut storage, 0);
         write_test_u32(source, 56, 9);
 
@@ -533,7 +568,7 @@ mod tests {
 
     #[test]
     fn from_raw_accepts_a_four_byte_aligned_fdt() {
-        let mut storage = alloc::vec![0u64; 16];
+        let mut storage = alloc::vec![0u64; 160];
         let source = minimal_fdt(&mut storage, 4);
 
         // SAFETY: `minimal_fdt` built a complete fixture whose declared span
