@@ -3,11 +3,8 @@
 use alloc::vec::Vec;
 
 use super::info::BoardInfo;
-use super::state::board_info;
 
-pub(super) fn log_platform_summary() {
-    let board = board_info();
-
+pub(super) fn log_platform_summary(board: &BoardInfo) {
     info!("RustSBI version {}", runtime::rustsbi::VERSION);
     runtime::rustsbi::LOGO
         .lines()
@@ -16,7 +13,7 @@ pub(super) fn log_platform_summary() {
     info!("{:<30}: {}", "Platform Name", board.model);
 
     log_harts();
-    log_interrupt_controller(board);
+    super::state::interrupts().log(board);
     log_console(board);
     log_reset(board);
     log_sbi_extensions();
@@ -34,45 +31,6 @@ fn log_harts() {
         .map(|hart| hart.as_usize())
         .collect();
     info!("{:<30}: {:?}", "Enabled HARTs", enabled_harts);
-}
-
-fn log_interrupt_controller(board: &BoardInfo) {
-    if crate::driver::ipi::uses_imsic()
-        && let Some(imsic) = board.devices.interrupts.imsic()
-    {
-        info!(
-            "{:<30}: IMSIC (M-level Base Address: 0x{:x})",
-            "Platform IPI Extension",
-            imsic.resource().layout.machine_base.as_usize()
-        );
-        return;
-    }
-
-    if let (Some(plmt), Some(plicsw)) = (
-        board.devices.interrupts.plmt,
-        board.devices.interrupts.plicsw,
-    ) {
-        info!(
-            "{:<30}: Sunxi PLICSW (Base Address: 0x{:x})",
-            "Platform IPI Extension",
-            plicsw.start().as_usize()
-        );
-        info!(
-            "{:<30}: Andes PLMT (Base Address: 0x{:x})",
-            "Platform Timer Extension",
-            plmt.start().as_usize()
-        );
-        return;
-    }
-    match board.devices.interrupts.clint() {
-        Some(description) => info!(
-            "{:<30}: {} (Base Address: 0x{:x})",
-            "Platform IPI Extension",
-            description.resource().kind.name(),
-            description.resource().registers.start().as_usize()
-        ),
-        None => warn!("{:<30}: Not Available", "Platform IPI Device"),
-    }
 }
 
 fn log_console(board: &BoardInfo) {

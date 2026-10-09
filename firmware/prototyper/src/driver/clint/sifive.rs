@@ -10,7 +10,11 @@ use core::mem::{align_of, size_of};
 
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
-use crate::driver::{IpiBackend, IpiError, IpiRequest, TimerBackend};
+use runtime::hart::HartId;
+use runtime::ipi::IpiDevice;
+use runtime::timer::{TimeSource, TimerDevice};
+
+use super::Msip;
 
 // The ACLINT legacy mapping places MTIMECMP at 0x4000 and MTIME at 0xbff8.
 const MTIMECMP_OFFSET: usize = 0x4000;
@@ -36,30 +40,11 @@ impl TimerRegister {
     }
 }
 
-#[repr(usize)]
-#[derive(Clone, Copy)]
-enum IpiRegister {
-    Msip = 0,
-}
-
-impl IpiRegister {
-    const fn offset(self) -> usize {
-        self as usize
-    }
-
-    fn offset_for_hart(self, hart_id: usize) -> Result<usize, IpiError> {
-        hart_id
-            .checked_mul(size_of::<u32>())
-            .and_then(|offset| self.offset().checked_add(offset))
-            .ok_or(IpiError::Failed)
-    }
-}
-
 pub(super) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
     hart_id_upper_bound: usize,
-) -> runtime::Result<(Box<dyn TimerBackend>, Box<dyn IpiBackend + Send + Sync>)> {
+) -> runtime::Result<(Box<dyn TimerDevice>, Box<dyn IpiDevice>)> {
     let msip_size_bytes = hart_id_upper_bound
         .checked_mul(size_of::<u32>())
         .ok_or(runtime::Error::Overflow)?;
@@ -85,7 +70,7 @@ pub(super) fn bind(
     let timer_mmio = memory.acquire_mmio(timer_registers)?;
     Ok((
         Box::new(SiFiveTimer::new(timer_mmio)),
-        Box::new(SiFiveIpi::new(ipi_mmio)),
+        Box::new(Msip::new(ipi_mmio)),
     ))
 }
 
@@ -124,7 +109,7 @@ impl SiFiveTimer {
 
         #[cfg(target_pointer_width = "32")]
         {
-            // Compare-safe split writes, as in the T-Head CLINT backend.
+            // Raise the low word first so a split update cannot assert an early interrupt.
             self.write_word(offset, u32::MAX);
             self.write_word(offset + 4, (value >> 32) as u32);
             self.write_word(offset, value as u32);
@@ -146,51 +131,20 @@ impl SiFiveTimer {
     }
 }
 
-impl TimerBackend for SiFiveTimer {
+impl TimerDevice for SiFiveTimer {
     #[inline(always)]
-    fn set_timer(&self, hart_id: usize, value: u64) {
-        self.write_mtimecmp(hart_id, value)
+    fn set_deadline(&self, hart: HartId, deadline: u64) {
+        self.write_mtimecmp(hart.as_usize(), deadline)
     }
 
-    #[inline(always)]
-    fn read_time(&self) -> Option<u64> {
-        Some(self.read(TimerRegister::Mtime))
+    fn time_source(&self) -> Option<&dyn TimeSource> {
+        Some(self)
     }
 }
 
-#[repr(u32)]
-enum IpiState {
-    Clear = 0,
-    Pending = 1,
-}
-
-struct SiFiveIpi {
-    registers: MmioRegion,
-}
-
-impl SiFiveIpi {
-    fn new(registers: MmioRegion) -> Self {
-        Self { registers }
-    }
-
-    fn write(&self, reg: IpiRegister, hart_id: usize, value: IpiState) -> Result<(), IpiError> {
-        self.registers
-            .write(reg.offset_for_hart(hart_id)?, value as u32)
-            .map_err(|_| IpiError::Failed)
-    }
-}
-
-impl IpiBackend for SiFiveIpi {
+impl TimeSource for SiFiveTimer {
     #[inline(always)]
-    fn send_ipi(&self, req: IpiRequest) -> Result<(), IpiError> {
-        for hart_id in req.harts() {
-            self.write(IpiRegister::Msip, hart_id, IpiState::Pending)?;
-        }
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn clear_ipi(&self, hart_id: usize) -> Result<(), IpiError> {
-        self.write(IpiRegister::Msip, hart_id, IpiState::Clear)
+    fn read_time(&self) -> u64 {
+        self.read(TimerRegister::Mtime)
     }
 }

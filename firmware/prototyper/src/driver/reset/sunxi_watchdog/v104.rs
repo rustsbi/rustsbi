@@ -1,10 +1,10 @@
 //! Allwinner V104 watchdog reset driver.
 //!
-//! Runtime acquires the register window once. The SBI reset mutex serializes
-//! calls through this driver only; platform integration must ensure that no
+//! Binding claims the register window once. [`super::super::ResetController`]
+//! serializes calls through this driver only; platform integration must ensure no
 //! other firmware or supervisor watchdog driver programs the same registers.
-//! The loader must leave the watchdog clock and architectural time counter
-//! running.
+//! The watchdog clock and Runtime's selected time source must remain running
+//! during a reset request.
 //!
 //! # References
 //!
@@ -14,11 +14,12 @@
 use core::mem::{align_of, size_of};
 use runtime::Result;
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
+use runtime::timer::Timer;
 
 use crate::devicetree::EnabledNode;
 
-use super::super::registry::{self, BindResources, ResetDriver};
-use super::super::{ResetBackend, ResetError, ResetRequest, ResetType};
+use super::super::registry::{self, ResetDriver};
+use super::super::{ResetDevice, ResetError, ResetRequest, ResetType};
 
 #[repr(usize)]
 #[derive(Clone, Copy)]
@@ -66,14 +67,14 @@ impl ResetDriver for V104Driver {
 
     fn bind(
         &self,
-        resources: &mut BindResources<'_>,
-    ) -> Result<alloc::boxed::Box<dyn ResetBackend>> {
+        memory: &mut MemoryRegistry,
+        timebase_frequency_hz: Option<u32>,
+    ) -> Result<alloc::boxed::Box<dyn ResetDevice>> {
         let registers = self.registers.ok_or(runtime::Error::InvalidArgs)?;
-        let timebase_frequency_hz = resources.timebase_frequency_hz();
         Ok(alloc::boxed::Box::new(V104Watchdog::bind(
             registers,
             timebase_frequency_hz,
-            resources.memory(),
+            memory,
         )?))
     }
 
@@ -122,30 +123,43 @@ impl V104Watchdog {
     fn write(&mut self, register: Register, value: u32) -> runtime::Result<()> {
         self.registers.write(register as usize, value.to_le())?;
         // Order each device write before the next register access or delay.
-        riscv::asm::fence();
+        self.registers.synchronize();
         Ok(())
     }
 
-    fn start_reset(&mut self) -> runtime::Result<()> {
-        riscv::asm::fence();
+    fn start_reset(&mut self) -> core::result::Result<(), ResetError> {
+        let time_error = |error| {
+            error!("V104 watchdog: reset time source failed: {error:?}");
+            ResetError::Failed
+        };
+        let register_error = |error| {
+            error!("V104 watchdog: reset register access failed: {error}");
+            ResetError::Failed
+        };
+        let timer = Timer::current().map_err(time_error)?;
+        self.registers.synchronize();
         // Stop an active watchdog before synchronizing its reset output.
-        self.write(Register::Mode, UPDATE_KEY)?;
+        self.write(Register::Mode, UPDATE_KEY)
+            .map_err(register_error)?;
         // Clear CFG bit 0 before the delay, preserving its other fields.
-        let config = self.read(Register::Config)?;
-        self.write(Register::Config, (config & !CONFIG_ENABLE) | UPDATE_KEY)?;
-        let start = riscv::register::time::read64();
-        while riscv::register::time::read64().wrapping_sub(start) < self.delay_ticks {
+        let config = self.read(Register::Config).map_err(register_error)?;
+        self.write(Register::Config, (config & !CONFIG_ENABLE) | UPDATE_KEY)
+            .map_err(register_error)?;
+        let start = timer.read_time().map_err(time_error)?;
+        while timer.read_time().map_err(time_error)?.wrapping_sub(start) < self.delay_ticks {
             core::hint::spin_loop();
         }
 
         // Select system reset and the shortest hardware timeout (encoding 0).
-        self.write(Register::Config, UPDATE_KEY | CONFIG_ENABLE)?;
-        let mode = self.read(Register::Mode)?;
+        self.write(Register::Config, UPDATE_KEY | CONFIG_ENABLE)
+            .map_err(register_error)?;
+        let mode = self.read(Register::Mode).map_err(register_error)?;
         self.write(Register::Mode, mode | MODE_ENABLE | UPDATE_KEY)
+            .map_err(register_error)
     }
 }
 
-impl ResetBackend for V104Watchdog {
+impl ResetDevice for V104Watchdog {
     fn system_reset(&mut self, request: ResetRequest) -> ResetError {
         // The watchdog has no encoding for the reset reason.
         if !matches!(

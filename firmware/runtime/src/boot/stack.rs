@@ -4,9 +4,8 @@
 //! boot hart keeps it; the other harts receive stacks immediately after the
 //! linked image. Entry releases them only after discovery has left Rust.
 
+use crate::csr::Readable;
 use alloc::vec::Vec;
-use core::cell::UnsafeCell;
-use core::mem::MaybeUninit;
 
 use spin::Once;
 
@@ -17,28 +16,7 @@ use crate::{Error, PlatformDescription, Result};
 
 static FIRMWARE_END: Once<usize> = Once::new();
 
-/// Linker-owned storage used first for discovery, then by the boot hart.
-///
-/// No safe method exposes its bytes. Entry serializes discovery and later
-/// gives this stack exclusively to the selected boot hart.
-#[repr(C, align(128))]
-pub struct BootStack<const SIZE: usize>(UnsafeCell<MaybeUninit<[u8; SIZE]>>);
-
-// SAFETY: only entry assembly accesses the bytes, under the bootstrap lock
-// until ownership passes permanently to the selected boot hart.
-unsafe impl<const SIZE: usize> Sync for BootStack<SIZE> {}
-
-impl<const SIZE: usize> BootStack<SIZE> {
-    /// Creates uninitialized stack storage for a firmware static.
-    pub const fn uninit() -> Self {
-        assert!(
-            SIZE.is_multiple_of(core::mem::align_of::<Self>()),
-            "stack size must be a multiple of the stack alignment"
-        );
-        assert!(SIZE > FRAME_BYTES, "stack size must exceed the trap frame");
-        Self(UnsafeCell::new(MaybeUninit::uninit()))
-    }
-}
+const STACK_ALIGNMENT: usize = 128;
 
 pub(crate) fn firmware_end() -> Option<usize> {
     FIRMWARE_END.get().copied()
@@ -51,16 +29,15 @@ pub(crate) fn firmware_end() -> Option<usize> {
 ///
 /// # Safety
 ///
-/// Called once by the selected boot hart while it exclusively owns `boot_stack`
-/// and other harts wait without stacks. The loader must provide exclusive RAM
-/// after the linked image for the remaining stacks, including exclusion of the
+/// Called once by the selected boot hart while it exclusively owns the linker
+/// bootstrap stack and other harts wait without stacks. The loader must provide
+/// exclusive RAM after the linked image for the remaining stacks, excluding the
 /// complete next-stage image and all other live loader objects. The checks here
 /// cover described RAM, reservations, the DTB, handoff and next-stage entry;
 /// the entry address alone cannot describe the entire next-stage image.
 /// Entry must return from this Rust call before releasing secondary harts.
-#[doc(hidden)]
-pub unsafe fn initialize_stacks<const SIZE: usize>(
-    boot_stack: &'static BootStack<SIZE>,
+pub(super) unsafe fn initialize_stacks(
+    size: usize,
     capacity: usize,
     platform: &PlatformDescription,
     next_stage_entry: usize,
@@ -90,21 +67,19 @@ pub unsafe fn initialize_stacks<const SIZE: usize>(
     {
         return Err(Error::InvalidArgs);
     }
-    let boot_id = crate::csr::mhartid();
+    let boot_id =
+        crate::csr::Mhartid::read().expect("machine hart ID CSR is always readable in M-mode");
     let boot_index = entries
         .binary_search_by_key(&boot_id, |entry| entry.raw_id)
         .map_err(|_| Error::InvalidArgs)?;
     let (image_start, image_end) = linker_image_bounds()?;
-    let boot_start = boot_stack.0.get() as usize;
-    let boot_top = boot_start.checked_add(SIZE).ok_or(Error::Overflow)?;
-    if boot_start < image_start
-        || boot_top > image_end
-        || !image_end.is_multiple_of(core::mem::align_of::<BootStack<SIZE>>())
-    {
+    let image = PhysAddrRange::new(PhysAddr::new(image_start), PhysAddr::new(image_end))?;
+    let boot_stack = bootstrap_stack_range(size, image)?;
+    if !image.end().is_aligned_to(STACK_ALIGNMENT) {
         return Err(Error::InvalidArgs);
     }
     let extra_size = (entries.len() - 1)
-        .checked_mul(SIZE)
+        .checked_mul(size)
         .ok_or(Error::Overflow)?;
     let end = image_end.checked_add(extra_size).ok_or(Error::Overflow)?;
     let firmware = PhysAddrRange::new(PhysAddr::new(image_start), PhysAddr::new(end))?;
@@ -123,9 +98,9 @@ pub unsafe fn initialize_stacks<const SIZE: usize>(
     let mut top = image_end;
     for (index, entry) in entries.iter_mut().enumerate() {
         entry.stack_top = if index == boot_index {
-            boot_top
+            boot_stack.end().as_usize()
         } else {
-            top += SIZE;
+            top += size;
             top
         };
     }
@@ -138,10 +113,11 @@ pub unsafe fn initialize_stacks<const SIZE: usize>(
 ///
 /// # Safety
 ///
-/// Entry/exit helper only. The caller must be ready to discard its old call
-/// chain. Cold entry must wait until the bootstrap owner has left Rust.
+/// The caller runs in M-mode after topology and stack storage are published,
+/// and can discard its old call chain. Cold entry waits until the bootstrap
+/// owner has left Rust before reusing its stack.
 #[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
-pub unsafe extern "C" fn locate_stack() {
+pub(crate) unsafe extern "C" fn locate_stack() {
     #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     core::arch::naked_asm!(
         "csrr t1, mhartid",
@@ -183,4 +159,36 @@ pub unsafe extern "C" fn locate_stack() {
     );
     #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
     unimplemented!("Stack selection requires a RISC-V target");
+}
+
+/// Resolves and validates linker-owned bootstrap storage without borrowing it.
+fn bootstrap_stack_range(size: usize, image: PhysAddrRange) -> Result<PhysAddrRange> {
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+    {
+        let (start, end);
+        // SAFETY: linker-symbol addresses only; no memory is dereferenced.
+        unsafe {
+            core::arch::asm!(
+                "lla {start}, sbi_boot_stack_start",
+                "lla {end}, sbi_boot_stack_end",
+                start = out(reg) start, end = out(reg) end,
+                options(nomem, nostack),
+            );
+        }
+        let range = PhysAddrRange::new(PhysAddr::new(start), PhysAddr::new(end))?;
+        if size <= FRAME_BYTES
+            || !size.is_multiple_of(STACK_ALIGNMENT)
+            || range.size() != size
+            || !range.start().is_aligned_to(STACK_ALIGNMENT)
+            || !image.contains(range)
+        {
+            return Err(Error::InvalidArgs);
+        }
+        Ok(range)
+    }
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+    {
+        let _ = (size, image);
+        Err(Error::NotEnoughResources)
+    }
 }

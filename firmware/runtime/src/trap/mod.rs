@@ -1,10 +1,7 @@
-//! Trap mechanism: complete trapped-instruction operations and the
-//! Runtime-owned machine trap entry, dispatch, and lifecycle.
+//! Machine trap initialization, dispatch, emulation, and guarded recovery.
 //!
-//! The safe surface exposes only complete operations whose inputs bind to
-//! the hardware trap CSRs; the individual steps (fetch, decode, memory
-//! access, write-back, `mepc` advance) stay internal, and the one real
-//! [`TrapFrame`](frame::TrapFrame) never escapes the Runtime.
+//! Firmware publishes SBI policy and an optional [`AccessDispatcher`]. Runtime
+//! retains the trap frame and instruction-emulation steps internally.
 
 mod decode;
 pub(crate) mod dispatch;
@@ -16,26 +13,50 @@ mod recovery;
 mod redirect;
 
 pub use decode::ValueKind;
-pub use init::{
-    AccessDispatcher, AccessError, InitError, has_sstc, init, install_access_dispatcher,
-    misaligned_delegated, set_misaligned_delegation,
+pub use init::{AccessDispatcher, AccessError, InitError, init, install_access_dispatcher};
+pub(crate) use recovery::{
+    read_boot_byte_guarded, read_csr_guarded, sfence_vma_guarded, swap_csr_guarded,
+    write_csr_guarded,
 };
-pub use recovery::{read_csr_guarded, swap_csr_guarded, write_csr_guarded};
 
 use core::fmt;
 
-/// An error from a trap operation. No operation panics on input reachable
-/// from the Next Stage or from policy code; panics are reserved for
-/// detected firmware bugs.
+/// The current hart's live machine trap facts for diagnostic reporting.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DiagnosticSnapshot {
+    /// Machine interrupt or exception cause, retaining its architectural code.
+    pub cause: riscv::interrupt::Trap<usize, usize>,
+    /// Instruction address recorded by the most recent machine trap.
+    pub program_counter: usize,
+    /// Additional trap information recorded by the hardware.
+    pub trap_value: usize,
+}
+
+impl DiagnosticSnapshot {
+    /// Captures this hart's live trap facts with machine interrupts masked.
+    pub fn capture() -> Self {
+        use crate::csr::{Mcause, Mepc, Mtval, Readable};
+        riscv::interrupt::machine::free(|| {
+            let bits = Mcause::read().expect("machine cause CSR read failed");
+            Self {
+                cause: riscv::register::mcause::Mcause::from_bits(bits).cause(),
+                program_counter: Mepc::read().expect("machine exception PC CSR read failed"),
+                trap_value: Mtval::read().expect("machine trap value CSR read failed"),
+            }
+        })
+    }
+}
+
+/// An error from a guarded machine operation or trap emulation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Error {
     /// The instruction is not emulated — unknown, or its write-back target
-    /// is unavailable. The caller should redirect.
+    /// is unavailable.
+    /// The caller should redirect.
     UnsupportedInstruction,
-    /// Fetch or data access faulted under the trapped context's privilege,
-    /// carrying the recovered fault's facts: `cause` is the precise
-    /// secondary exception to deliver, and `tval` the actually failing
-    /// address. The caller should redirect with these facts.
+    /// A guarded instruction fetch or data access faulted.
+    /// `cause` and `tval` retain the recovered fault's exception and address;
+    /// emulation callers redirect with these secondary facts.
     MemoryFault {
         /// The recovered fault's `mcause`.
         cause: usize,
@@ -43,7 +64,8 @@ pub enum Error {
         tval: usize,
     },
     /// The trap originated from M-mode; there is no lower-privilege owner to
-    /// receive a redirect. The caller should fail.
+    /// receive a redirect.
+    /// The caller should fail.
     MachineOrigin,
 }
 

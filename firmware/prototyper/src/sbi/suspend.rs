@@ -7,7 +7,6 @@
 
 #![forbid(unsafe_code)]
 
-use riscv::register::mstatus;
 use runtime::rustsbi::{Hsm, SbiRet};
 use sbi_spec::hsm::suspend_type::NON_RETENTIVE;
 
@@ -15,7 +14,7 @@ use runtime::hart::{self, HartId, HartState};
 
 const SUSPEND_TO_RAM: u32 = 0x0;
 
-/// Implementation of SBI System Suspend Extension extension.
+/// SBI system-suspend adapter using HSM non-retentive resume.
 pub(crate) struct SbiSuspend;
 
 impl runtime::rustsbi::Susp for SbiSuspend {
@@ -24,12 +23,7 @@ impl runtime::rustsbi::Susp for SbiSuspend {
             return SbiRet::invalid_param();
         }
 
-        let prev_mode = mstatus::read().mpp();
-        if prev_mode != mstatus::MPP::Supervisor && prev_mode != mstatus::MPP::User {
-            return SbiRet::failed();
-        }
-
-        // Check if all harts except the current hart are stopped
+        // Runtime dispatches SBI calls only from supervisor ecalls.
         let hart_enable_map = if let Some(hart_enable_map) = crate::platform::enabled_harts() {
             hart_enable_map
         } else {
@@ -42,8 +36,8 @@ impl runtime::rustsbi::Susp for SbiSuspend {
             }
         }
 
-        // TODO: The validity of `resume_addr` should be checked.
-        // If it is invalid, `SBI_ERR_INVALID_ADDRESS` should be returned.
+        // TODO: Validate `resume_addr` and return `SBI_ERR_INVALID_ADDRESS`
+        // if it is invalid.
 
         match crate::sbi::hsm() {
             Some(hsm) => hsm.hart_suspend(NON_RETENTIVE, resume_addr, opaque),

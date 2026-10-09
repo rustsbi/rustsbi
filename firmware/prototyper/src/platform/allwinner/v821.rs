@@ -1,15 +1,15 @@
 //! One-time V821 platform preparation.
 //!
 //! [`Description`] keeps V821-only discovery out of generic platform state.
-//! [`V821`] proves that the boot contract and machine-wide PMA setup ran
-//! before its [`ExtensionDeviceDescription`] can be bound.
+//! [`V821`] proves that the boot contract, PMA, SRAM handshake, and selected
+//! clock setup completed before devices can be bound.
 
-#![forbid(unsafe_code)]
-
-use runtime::memory::DeviceRegisterRange;
+use runtime::memory::{DeviceRegisterRange, MemoryRegistry};
 use runtime::soc::allwinner::v821::{AllwinnerV821Soc, NoncacheableAlias};
 
 use crate::devicetree::EnabledNode;
+use crate::driver::allwinner::v821::{self, A27L2Cache, UsbDmaBypass};
+use crate::platform::error::{self, ResultContext};
 
 const L2_COMPATIBLE: &str = "cache";
 const USB_COMPATIBLE: &str = "allwinner,sunxi-udc";
@@ -23,13 +23,6 @@ pub(crate) struct Description {
     usb_dma_bypass: Option<DeviceRegisterRange>,
 }
 
-/// Prepared descriptions of devices used only by V821 custom SBI extensions.
-pub(crate) struct ExtensionDeviceDescription {
-    soc: AllwinnerV821Soc,
-    cache: DeviceRegisterRange,
-    usb_dma_bypass: Option<DeviceRegisterRange>,
-}
-
 impl Description {
     /// Creates a V821 description ready for the shared discovery pass.
     pub(crate) const fn new(soc: AllwinnerV821Soc) -> Self {
@@ -40,7 +33,7 @@ impl Description {
         }
     }
 
-    /// Retains V821-only device descriptions inside the vendor description.
+    /// Collects V821 cache and USB device descriptions.
     pub(crate) fn probe(
         &mut self,
         platform: &runtime::PlatformView<'_>,
@@ -72,18 +65,28 @@ impl Description {
         Ok(())
     }
 
-    /// Validates the boot contract and prepares the machine-wide PMA state.
-    pub(crate) fn prepare(self, hart_count: usize) -> runtime::Result<V821> {
-        let hart = runtime::hart::HartId::current().map_err(|_| runtime::Error::InvalidArgs)?;
+    /// Validates the boot contract and prepares PMA and boot devices before binding.
+    pub(in crate::platform) fn prepare(
+        self,
+        memory: &mut MemoryRegistry,
+        enable_plmt_clock: bool,
+    ) -> error::Result<V821> {
+        let hart = runtime::hart::HartId::current()
+            .map_err(|_| runtime::Error::InvalidArgs)
+            .during("preparing V821 platform resources")?;
         const BOOT_HART: usize = 0;
         const ANDES_VENDOR_ID: usize = 0x31e;
         if hart.as_usize() != BOOT_HART
-            || hart_count != 1
-            || riscv::register::mvendorid::read().bits() != ANDES_VENDOR_ID
+            || runtime::hart::HartId::count() != 1
+            || runtime::hart::vendor_id() != ANDES_VENDOR_ID
         {
-            return Err(runtime::Error::InvalidArgs);
+            return Err(runtime::Error::InvalidArgs).during("preparing V821 platform resources");
         }
-        let noncacheable_alias = self.soc.csr().initialize_noncacheable_alias();
+        let noncacheable_alias = self.soc.initialize_noncacheable_alias();
+        v821::release_boot0_isp_sram(self.soc, memory).during("releasing V821 boot0 ISP SRAM")?;
+        if enable_plmt_clock {
+            v821::enable_plmt_clock(self.soc, memory).during("enabling the V821 PLMT clock")?;
+        }
         Ok(V821 {
             description: self,
             noncacheable_alias,
@@ -91,7 +94,7 @@ impl Description {
     }
 }
 
-/// A V821 SoC whose boot contract and machine-wide PMA are prepared.
+/// A V821 SoC whose boot contract, PMA, and boot devices are prepared.
 pub(crate) struct V821 {
     description: Description,
     noncacheable_alias: NoncacheableAlias,
@@ -103,31 +106,18 @@ impl V821 {
         self.noncacheable_alias.offset()
     }
 
-    /// Returns the SoC capability required by V821 firmware drivers.
-    pub(crate) const fn soc(&self) -> AllwinnerV821Soc {
-        self.description.soc
-    }
-
-    /// Returns the prepared descriptions consumed by V821 custom extensions.
-    pub(crate) fn into_extension_devices(self) -> runtime::Result<ExtensionDeviceDescription> {
-        let cache = self.description.cache.ok_or(runtime::Error::InvalidArgs)?;
-        Ok(ExtensionDeviceDescription {
-            soc: self.description.soc,
-            cache,
-            usb_dma_bypass: self.description.usb_dma_bypass,
-        })
-    }
-}
-
-impl ExtensionDeviceDescription {
-    /// Splits this prepared description for the custom-extension binder.
-    pub(crate) fn into_parts(
+    /// Binds the devices consumed by V821 custom extensions after preparation.
+    pub(crate) fn bind_extension_devices(
         self,
-    ) -> (
-        AllwinnerV821Soc,
-        DeviceRegisterRange,
-        Option<DeviceRegisterRange>,
-    ) {
-        (self.soc, self.cache, self.usb_dma_bypass)
+        memory: &mut MemoryRegistry,
+    ) -> runtime::Result<(A27L2Cache, Option<UsbDmaBypass>)> {
+        let cache = self.description.cache.ok_or(runtime::Error::InvalidArgs)?;
+        let cache = A27L2Cache::bind(self.description.soc, cache, memory)?;
+        let usb_dma_bypass = self
+            .description
+            .usb_dma_bypass
+            .map(|registers| UsbDmaBypass::bind(registers, memory))
+            .transpose()?;
+        Ok((cache, usb_dma_bypass))
     }
 }

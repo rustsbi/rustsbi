@@ -1,15 +1,15 @@
-//! Transactional per-hart trap initialization.
+//! Per-hart trap policy publication and entry activation.
 //!
-//! The private lifecycle is `Uninitialized → Ready → Armed`:
-//! [`init`] publishes `Ready` transactionally with the final normal `mtvec`
-//! write as its commit point; the never-returning
-//! [`finish_boot`](crate::boot::finish_boot) later establishes `Armed` with
-//! the clean stack top in `mscratch`.
+//! The lifecycle is `Uninitialized → Ready → Armed`. [`init`] publishes policy
+//! after device initialization and installs the normal vector last.
+//! [`finish_boot`](crate::boot::finish_boot) later arms the clean stack through
+//! `mscratch`. A device initialization error releases the slot for retry;
+//! device side effects are not rolled back.
 
 use alloc::boxed::Box;
 use core::arch::asm;
 use core::fmt;
-use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicU8, Ordering};
 
 use riscv::register::medeleg;
 use rustsbi::RustSBI;
@@ -17,7 +17,7 @@ use spin::Once;
 
 use super::ValueKind;
 use super::entry::trap_entry;
-use crate::hart::{HartId, current_hart};
+use crate::hart::HartId;
 
 /// Private lifecycle phases.
 const PHASE_UNINITIALIZED: u8 = 0;
@@ -41,38 +41,54 @@ pub enum InitError {
     AlreadyInitialized,
     /// `mhartid` is not an enabled hart in the boot topology.
     InvalidHartId,
+    /// The current hart's timer could not be initialized.
+    Timer(crate::timer::Error),
+    /// The current hart's firmware IPI source could not be initialized.
+    Ipi(crate::ipi::Error),
 }
 
 impl fmt::Display for InitError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::AlreadyInitialized => "trap state already initialized on this hart",
-            Self::InvalidHartId => "hart ID is not in the boot topology",
-        })
+        match self {
+            Self::AlreadyInitialized => {
+                formatter.write_str("trap state already initialized on this hart")
+            }
+            Self::InvalidHartId => formatter.write_str("hart ID is not in the boot topology"),
+            Self::Timer(error) => write!(formatter, "timer initialization failed: {error}"),
+            Self::Ipi(error) => write!(formatter, "IPI initialization failed: {error}"),
+        }
     }
 }
 
-/// The per-hart Runtime trap state: lifecycle phase, erased policy, and the
-/// architectural Sstc capability, shared only under `Sync`. Platform services
-/// live in their own subsystem modules rather than in CPU-local state.
+/// Per-hart trap lifecycle and published SBI policy.
 struct HartState {
     phase: AtomicU8,
     policy: Once<&'static (dyn RustSBI + Sync)>,
-    has_sstc: AtomicBool,
 }
 
 static HARTS: Once<Box<[HartState]>> = Once::new();
 
 fn hart_states() -> &'static [HartState] {
     HARTS.call_once(|| {
+        assert!(
+            HartId::count() > 0,
+            "BUG: trap state requires the boot topology"
+        );
         HartId::all()
             .map(|_| HartState {
                 phase: AtomicU8::new(PHASE_UNINITIALIZED),
                 policy: Once::new(),
-                has_sstc: AtomicBool::new(false),
             })
             .collect()
     })
+}
+
+/// Checks reset initialization before discarding the boot call chain.
+pub(crate) fn current_is_ready() -> bool {
+    let Ok(hart) = HartId::current() else {
+        return false;
+    };
+    hart_states()[hart.index()].phase.load(Ordering::Acquire) == PHASE_READY
 }
 
 /// Returns `hart`'s published policy.
@@ -94,27 +110,23 @@ pub(crate) fn policy(hart: HartId) -> &'static (dyn RustSBI + Sync) {
         .expect("initialized phase implies a policy")
 }
 
-/// Returns the current hart's Sstc capability cached by [`init`].
-/// Returns false until trap initialization has probed the CSR.
-#[inline]
-pub fn has_sstc() -> bool {
-    let hart = current_hart().index();
-    let state = hart_states()
-        .get(hart)
-        .expect("BUG: hart index is outside the boot topology");
-    state.has_sstc.load(Ordering::Acquire)
-}
-
-/// Initializes trap handling on the current hart and stores the policy in this
-/// hart's private slot. Platform services are published by
-/// their own subsystem modules before this function is called.
-/// Machine interrupts stay disabled throughout; `mscratch` keeps the zero boot
-/// sentinel, so an unexpected trap before `finish_boot` fail-stops.
+/// Initializes trap handling and publishes SBI policy for the current hart.
+///
+/// Publish platform services before calling this during hart initialization.
+/// Runtime's boot entry calls this with machine interrupts disabled and keeps
+/// the zero `mscratch` sentinel until [`crate::boot::finish_boot`]. An unexpected
+/// trap in that interval fail-stops. This function does not itself clear MIE.
+///
+/// # Errors
+///
+/// Returns an error for an unknown hart, a repeated initialization, or an IPI
+/// or timer initialization failure. Device errors release the slot for retry,
+/// but do not roll back device side effects.
 pub fn init<P>(policy: &'static P) -> Result<(), InitError>
 where
     P: RustSBI + Sync + 'static,
 {
-    // 1. Validate the hart before any address arithmetic or CSR writes.
+    // Reject unknown harts before indexing per-hart state or writing CSRs.
     let hart = HartId::current()
         .map_err(|_| InitError::InvalidHartId)?
         .index();
@@ -122,7 +134,7 @@ where
         return Err(InitError::InvalidHartId);
     };
 
-    // 2. Reserve the slot transactionally.
+    // Reserve before touching devices so repeated initialization cannot replace active state.
     if state
         .phase
         .compare_exchange(
@@ -136,20 +148,29 @@ where
         return Err(InitError::AlreadyInitialized);
     }
 
-    // 3. Initialize the handler state before publishing Ready.
+    // Keep policy unpublished until both IPI and timer initialization succeed.
+    let ipi_result = match crate::ipi::Ipi::current() {
+        Ok(ipi) => ipi.initialize(),
+        Err(crate::ipi::Error::Unavailable) => Ok(()),
+        Err(error) => Err(error),
+    };
+    if let Err(error) = ipi_result {
+        state.phase.store(PHASE_UNINITIALIZED, Ordering::Release);
+        return Err(InitError::Ipi(error));
+    }
+    if let Err(error) =
+        crate::timer::Timer::current().and_then(|timer| timer.initialize_current_hart())
+    {
+        state.phase.store(PHASE_UNINITIALIZED, Ordering::Release);
+        return Err(InitError::Timer(error));
+    }
     state.policy.call_once(|| policy as &(dyn RustSBI + Sync));
 
-    // Sstc is an architectural capability, so probe its CSR here instead of
-    // asking the platform adapter to report it on every timer trap. The
-    // guarded read safely turns an absent CSR into `false`.
-    let has_sstc = crate::csr::has_stimecmp();
-    state.has_sstc.store(has_sstc, Ordering::Release);
-
-    // 4. Fixed delegation and counter policy. The
-    //    delegation CSRs are WARL; retained exceptions are handled below
-    //    or software-redirected by the dispatch.
-    // SAFETY: M-mode init on the current hart; the written values are the
-    // firmware's fixed delegation policy.
+    // Delegation is WARL; dispatch handles or software-redirects exceptions
+    // that hardware retains in M-mode.
+    // SAFETY:
+    // 1. Runtime initializes the current hart in M-mode.
+    // 2. These writes establish its fixed delegation and counter-access policy.
     unsafe {
         asm!("csrw mideleg,    {}", in(reg) !0);
         asm!("csrw medeleg,    {}", in(reg) !0);
@@ -165,10 +186,10 @@ where
     }
 
     state.phase.store(PHASE_READY, Ordering::Release);
-    // 5. Commit Ready by installing the final normal vector last: before
-    //    this write a trap reaches the early fail-stop vector.
-    // SAFETY: the Runtime-owned entry is a valid, aligned M-mode direct
-    // target.
+    // Retain the early fail-stop vector until devices and policy are ready.
+    // SAFETY:
+    // 1. Runtime executes in M-mode and has published this hart's policy.
+    // 2. The assembly entry is aligned for an M-mode direct vector.
     unsafe {
         riscv::register::mtvec::write(riscv::register::mtvec::Mtvec::new(
             trap_entry as *const () as _,
@@ -202,16 +223,12 @@ pub trait AccessDispatcher: Sync {
     fn store(&self, addr: usize, kind: ValueKind, value: usize) -> Result<(), AccessError>;
 }
 
-/// The erased access-fault service: one global dispatcher shared by every
-/// hart, published once during boot.
+/// Shared platform access-fault service.
 static ACCESS_DISPATCHER: Once<&'static dyn AccessDispatcher> = Once::new();
 
 /// Publishes the platform's access-fault dispatcher once during boot.
 ///
-/// This uses the same `Once`-backed erased-reference pattern as the SBI
-/// policy stored by [`init`] — though that policy is per-hart while this
-/// dispatcher is global — and trap dispatch reads it directly. Later calls
-/// are ignored.
+/// Every hart uses the first published dispatcher. Later calls leave it unchanged.
 pub fn install_access_dispatcher<D>(dispatcher: &'static D)
 where
     D: AccessDispatcher + 'static,
@@ -223,35 +240,4 @@ where
 /// platform installed none.
 pub(crate) fn access_dispatcher() -> Option<&'static dyn AccessDispatcher> {
     ACCESS_DISPATCHER.get().copied()
-}
-
-/// Misaligned load/store exception `medeleg` bits (causes 4 and 6).
-const MIS_DELEG: usize = (1 << 4) | (1 << 6);
-
-/// Reads whether misaligned load/store exceptions are delegated to S-mode.
-///
-/// Narrow fact backing the FWFT extension's `MISALIGNED_EXC_DELEG` feature;
-/// no arbitrary delegation mask is exposed.
-pub fn misaligned_delegated() -> bool {
-    (riscv::register::medeleg::read().bits() & MIS_DELEG) != 0
-}
-
-/// Sets or clears the misaligned load/store exception delegation,
-/// preserving every other `medeleg` bit.
-///
-/// Narrow operation backing the FWFT extension's `MISALIGNED_EXC_DELEG`
-/// feature; `medeleg` is trap-sensitive CSR, so policy reaches it only
-/// through this operation.
-pub fn set_misaligned_delegation(enabled: bool) {
-    let current = riscv::register::medeleg::read().bits();
-    let next = if enabled {
-        current | MIS_DELEG
-    } else {
-        current & !MIS_DELEG
-    };
-    // SAFETY: M-mode write on the current hart; `next` preserves every
-    // `medeleg` bit except the two misaligned exception bits.
-    unsafe {
-        riscv::register::medeleg::write(riscv::register::medeleg::Medeleg::from_bits(next));
-    }
 }

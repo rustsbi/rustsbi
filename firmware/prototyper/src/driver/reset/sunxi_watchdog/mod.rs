@@ -7,17 +7,5 @@
 mod v104;
 mod v105;
 
-use alloc::boxed::Box;
-
-use super::registry::ResetDriver;
-
-/// Returns unbound driver probes from newest to oldest.
-///
-/// Both implementations are compiled in, but only the probe matching the
-/// Platform Description can claim MMIO and become a reset backend.
-pub(super) fn built_in_drivers() -> [Box<dyn ResetDriver>; 2] {
-    [
-        Box::new(v105::V105Driver::default()),
-        Box::new(v104::V104Driver::default()),
-    ]
-}
+pub(super) use v104::V104Driver;
+pub(super) use v105::V105Driver;

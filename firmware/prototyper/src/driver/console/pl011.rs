@@ -10,7 +10,7 @@ use bitflags::bitflags;
 use core::mem::size_of;
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
-use crate::driver::console::{BAUD_RATE, DbcnBackend, DbcnError, acquire_registers};
+use crate::driver::console::{BAUD_RATE, ConsoleDevice, ConsoleError, acquire_registers};
 
 // PL011 derives Baud16 from UARTCLK / 16 and stores the fractional divisor in
 // sixty-fourths.
@@ -66,7 +66,7 @@ pub(super) fn bind(
     registers: DeviceRegisterRange,
     clock_hz: Option<u32>,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn DbcnBackend + Send>> {
+) -> runtime::Result<Box<dyn ConsoleDevice>> {
     let clock_hz = clock_hz.ok_or(runtime::Error::InvalidArgs)?;
     let divisors = BaudDivisors::from_clock_hz(clock_hz).ok_or(runtime::Error::InvalidArgs)?;
     let registers = acquire_registers::<u32>(registers, SPAN, memory)?;
@@ -141,21 +141,21 @@ impl UartPl011 {
         Flags::from_bits_retain(self.read_reg(Register::Flags))
     }
 
-    fn read_byte(&self) -> Result<Option<u8>, DbcnError> {
+    fn read_byte(&self) -> Result<Option<u8>, ConsoleError> {
         if self.flags().contains(Flags::RX_FIFO_EMPTY) {
             return Ok(None);
         }
         let data_register = self.read_reg(Register::Data);
         let errors = DataStatus::from_bits_truncate(data_register);
         if !errors.is_empty() {
-            return Err(DbcnError::Failed);
+            return Err(ConsoleError::Failed);
         }
         Ok(Some(data_register as u8))
     }
 }
 
-impl DbcnBackend for UartPl011 {
-    fn read_slice(&mut self, buf: &mut [u8]) -> Result<usize, DbcnError> {
+impl ConsoleDevice for UartPl011 {
+    fn try_read(&mut self, buf: &mut [u8]) -> Result<usize, ConsoleError> {
         let mut count = 0;
         for byte in buf.iter_mut() {
             let Some(received_byte) = self.read_byte()? else {
@@ -167,7 +167,7 @@ impl DbcnBackend for UartPl011 {
         Ok(count)
     }
 
-    fn write_slice(&mut self, buf: &[u8]) -> Result<usize, DbcnError> {
+    fn try_write(&mut self, buf: &[u8]) -> Result<usize, ConsoleError> {
         let mut count = 0;
         for &byte in buf {
             if self.flags().contains(Flags::TX_FIFO_FULL) {

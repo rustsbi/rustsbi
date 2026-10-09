@@ -1,7 +1,7 @@
 //! Discovery of interrupt-controller resources.
 //!
 //! This pass records unbound interrupt descriptions in [`BoardInfo`]. Driver
-//! selection and MMIO ownership remain in [`crate::driver`].
+//! selection remains in [`mod@super::super::interrupts`]; drivers own MMIO protocols.
 
 use runtime::{FdtNode, memory::DeviceRegisterRange};
 

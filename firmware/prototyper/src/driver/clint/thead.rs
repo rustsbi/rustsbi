@@ -19,7 +19,11 @@ use core::mem::{align_of, size_of};
 
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
-use crate::driver::{IpiBackend, IpiError, IpiRequest, TimerBackend};
+use runtime::hart::HartId;
+use runtime::ipi::IpiDevice;
+use runtime::timer::TimerDevice;
+
+use super::Msip;
 
 // The ACLINT legacy mapping places MTIMECMP at offset 0x4000.
 const MTIMECMP_OFFSET: usize = 0x4000;
@@ -44,30 +48,11 @@ impl TimerRegister {
     }
 }
 
-#[repr(usize)]
-#[derive(Clone, Copy)]
-enum IpiRegister {
-    Msip = 0,
-}
-
-impl IpiRegister {
-    const fn offset(self) -> usize {
-        self as usize
-    }
-
-    fn offset_for_hart(self, hart_id: usize) -> Result<usize, IpiError> {
-        hart_id
-            .checked_mul(size_of::<u32>())
-            .and_then(|offset| self.offset().checked_add(offset))
-            .ok_or(IpiError::Failed)
-    }
-}
-
 pub(super) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
     hart_id_upper_bound: usize,
-) -> runtime::Result<(Box<dyn TimerBackend>, Box<dyn IpiBackend + Send + Sync>)> {
+) -> runtime::Result<(Box<dyn TimerDevice>, Box<dyn IpiDevice>)> {
     let msip_size_bytes = hart_id_upper_bound
         .checked_mul(size_of::<u32>())
         .ok_or(runtime::Error::Overflow)?;
@@ -89,7 +74,7 @@ pub(super) fn bind(
     let mtimecmp_mmio = memory.acquire_mmio(mtimecmp_registers)?;
     Ok((
         Box::new(THeadTimer::new(mtimecmp_mmio)),
-        Box::new(THeadIpi::new(msip_mmio)),
+        Box::new(Msip::new(msip_mmio)),
     ))
 }
 
@@ -121,46 +106,9 @@ impl THeadTimer {
     }
 }
 
-impl TimerBackend for THeadTimer {
+impl TimerDevice for THeadTimer {
     #[inline(always)]
-    fn set_timer(&self, hart_id: usize, value: u64) {
-        self.set_mtimecmp(hart_id, value);
-    }
-}
-
-#[repr(u32)]
-enum IpiState {
-    Clear = 0,
-    Pending = 1,
-}
-
-struct THeadIpi {
-    msip: MmioRegion,
-}
-
-impl THeadIpi {
-    fn new(msip: MmioRegion) -> Self {
-        Self { msip }
-    }
-
-    fn write(&self, reg: IpiRegister, hart_id: usize, value: IpiState) -> Result<(), IpiError> {
-        self.msip
-            .write(reg.offset_for_hart(hart_id)?, value as u32)
-            .map_err(|_| IpiError::Failed)
-    }
-}
-
-impl IpiBackend for THeadIpi {
-    #[inline(always)]
-    fn send_ipi(&self, req: IpiRequest) -> Result<(), IpiError> {
-        for hart_id in req.harts() {
-            self.write(IpiRegister::Msip, hart_id, IpiState::Pending)?;
-        }
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn clear_ipi(&self, hart_id: usize) -> Result<(), IpiError> {
-        self.write(IpiRegister::Msip, hart_id, IpiState::Clear)
+    fn set_deadline(&self, hart: HartId, deadline: u64) {
+        self.set_mtimecmp(hart.as_usize(), deadline);
     }
 }

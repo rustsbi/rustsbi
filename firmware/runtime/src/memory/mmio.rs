@@ -33,8 +33,8 @@ impl_mmio_value!(u64);
 
 /// A bounded MMIO register window.
 ///
-/// Accesses are volatile and use native byte order. Hardware access faults are
-/// not recovered.
+/// Accesses are volatile and use native byte order. Offsets are checked for
+/// bounds, arithmetic overflow, and alignment. Hardware faults are not recovered.
 pub struct MmioRegion {
     range: PhysAddrRange,
 }
@@ -44,22 +44,35 @@ impl MmioRegion {
         Self { range }
     }
 
+    /// Orders prior memory and device accesses before subsequent accesses.
+    ///
+    /// Drivers use this at device-protocol transaction boundaries. Volatile
+    /// reads and writes alone do not provide this ordering.
+    #[inline]
+    pub fn synchronize(&self) {
+        riscv::asm::fence();
+    }
+
     /// Reads a value at byte offset `offset`.
     #[inline(always)]
     pub fn read<T: MmioValue>(&self, offset: usize) -> Result<T> {
         let address = self.checked_address::<T>(offset)?;
-        // SAFETY: `MmioValue` is sealed to integers, and `checked_address`
-        // checked the
-        // complete access and its alignment within this registered window.
+        // SAFETY:
+        // 1. MemoryRegistry excludes RAM/reservations from production windows;
+        //    test windows use exclusively owned backing storage.
+        // 2. checked_address validates the complete access and its alignment.
+        // 3. MmioValue is sealed to integers, for which every bit pattern is valid.
         Ok(unsafe { (address as *const T).read_volatile() })
     }
 
     /// Writes a value at byte offset `offset`.
     pub fn write<T: MmioValue>(&self, offset: usize, value: T) -> Result<()> {
         let address = self.checked_address::<T>(offset)?;
-        // SAFETY: `MmioValue` is sealed to integers, and `checked_address`
-        // checked the
-        // complete access and its alignment within this registered window.
+        // SAFETY:
+        // 1. MemoryRegistry excludes RAM/reservations from production windows;
+        //    test windows use exclusively owned backing storage.
+        // 2. checked_address validates the complete access and its alignment.
+        // 3. MmioValue is sealed to integers, for which every bit pattern is valid.
         unsafe { (address as *mut T).write_volatile(value) };
         Ok(())
     }

@@ -1,0 +1,225 @@
+//! SpacemiT K1 system-register descriptions.
+//!
+//! Compatibility reference: the pinned [OpenSBI K1 platform header] defines
+//! the SpacemiT K1 addresses used here.
+//!
+//! [OpenSBI K1 platform header]: https://github.com/riscv-software-src/opensbi/blob/35511bc6ee1c9c17b6a89b44c52e2044bb51b979/platform/generic/include/spacemit/k1.h
+
+use core::mem::size_of;
+
+use fdt::node::FdtNode;
+
+use crate::Result;
+use crate::boot::{ResetEntry, ResetEntryAlreadyRegistered};
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+use crate::csr::Csr;
+use crate::csr::{native_bit_ops, native_registers};
+use crate::memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange};
+
+const SPACEMIT_K1_COMPATIBLE: &str = "spacemit,k1x";
+const K1_RESET_VECTOR_BASES: [PhysAddr; 2] =
+    [PhysAddr::new(0xd428_2db0), PhysAddr::new(0xd428_2eb0)];
+const K1_CCI_BASE: PhysAddr = PhysAddr::new(0xd850_0000);
+const K1_CCI_FIRST_INTERFACE_OFFSET: usize = 0x1000;
+const K1_CCI_INTERFACE_STRIDE: usize = 0x1000;
+const K1_HARTS_PER_CLUSTER: usize = 4;
+const K1_CORE_STATUS: PhysAddr = PhysAddr::new(0xd428_2890);
+const K1_WAKEUP_BASES: [PhysAddr; 2] = [PhysAddr::new(0xd428_292c), PhysAddr::new(0xd428_2b24)];
+
+native_registers!(@identity MachineSetupCsr: usize = 0x7c0);
+native_registers!(@identity MachineL2Setup: usize = 0x7f0);
+
+native_bit_ops! { ordered; set { MachineSetupCsr; MachineL2Setup; } clear {} }
+
+impl MachineSetupCsr {
+    const DATA_CACHE_ENABLE: usize = 1 << 0;
+    const INSTRUCTION_CACHE_ENABLE: usize = 1 << 1;
+    const BRANCH_PREDICTION_ENABLE: usize = 1 << 4;
+    const PREFETCH_ENABLE: usize = 1 << 5;
+    const MISALIGNED_ACCESS_ENABLE: usize = 1 << 6;
+    const ECC_ENABLE: usize = 1 << 16;
+
+    const ENABLED_FEATURES: usize = Self::DATA_CACHE_ENABLE
+        | Self::INSTRUCTION_CACHE_ENABLE
+        | Self::BRANCH_PREDICTION_ENABLE
+        | Self::PREFETCH_ENABLE
+        | Self::MISALIGNED_ACCESS_ENABLE
+        | Self::ECC_ENABLE;
+}
+
+#[repr(usize)]
+enum ResetVectorRegister {
+    AddressHigh = 0x04,
+}
+
+#[repr(usize)]
+enum CciRegister {
+    SnoopControl = 0x0000,
+    Status = 0x000c,
+}
+
+/// K1 system-register ranges authorized by the Platform Description.
+#[derive(Clone, Copy)]
+pub struct SpacemitK1Registers {
+    reset_vectors: [DeviceRegisterRange; 2],
+    cci_status: DeviceRegisterRange,
+    cci_snoop_controls: [DeviceRegisterRange; 2],
+    core_status: DeviceRegisterRange,
+    wakeup_controls: [DeviceRegisterRange; 2],
+}
+
+impl SpacemitK1Registers {
+    /// Registers the K1 hardware-reset entry and its secondary-hart initializer.
+    ///
+    /// Enable cluster coherency and publish platform services before releasing
+    /// a hart. The initializer must activate Runtime traps before returning.
+    pub fn register_reset_entry(
+        self,
+        initialize: fn(),
+    ) -> core::result::Result<ResetEntry, ResetEntryAlreadyRegistered> {
+        ResetEntry::register(reset_entry, initialize)
+    }
+
+    /// Enables K1 hart-local cache access before a warm entry touches memory.
+    ///
+    /// # Safety
+    ///
+    /// 1. The caller runs on K1 in M-mode with cluster coherency enabled.
+    /// 2. The assembly caller permits t0/t1 to be clobbered; no stack is used.
+    #[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
+    unsafe extern "C" fn prepare_warm_hart() {
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+        core::arch::naked_asm!(
+            "csrr t0, mhartid",
+            "andi t0, t0, 3",
+            "li t1, 1",
+            "sll t1, t1, t0",
+            "csrs {l2}, t1",
+            "li t0, {features}",
+            "csrs {setup}, t0",
+            "ret",
+            l2 = const MachineL2Setup::NUMBER,
+            setup = const MachineSetupCsr::NUMBER,
+            features = const MachineSetupCsr::ENABLED_FEATURES,
+        );
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+        unimplemented!("SpacemiT K1 warm-hart preparation requires a RISC-V target");
+    }
+
+    /// Returns K1 system registers when the root compatible list identifies K1.
+    pub(crate) fn from_root(root: FdtNode<'_, '_>) -> Result<Option<Self>> {
+        let Some(compatible) = root.compatible() else {
+            return Ok(None);
+        };
+        if !compatible
+            .all()
+            .any(|value| value == SPACEMIT_K1_COMPATIBLE)
+        {
+            return Ok(None);
+        }
+
+        let reset_vector_span = ResetVectorRegister::AddressHigh as usize + size_of::<u32>();
+        let reset_vectors = [
+            fixed_register_range(K1_RESET_VECTOR_BASES[0], reset_vector_span)?,
+            fixed_register_range(K1_RESET_VECTOR_BASES[1], reset_vector_span)?,
+        ];
+        let cci_status = fixed_register_range(
+            K1_CCI_BASE
+                .checked_add(CciRegister::Status as usize)
+                .ok_or(crate::Error::Overflow)?,
+            size_of::<u32>(),
+        )?;
+        let cci_snoop_controls = [cci_snoop_control_range(0)?, cci_snoop_control_range(1)?];
+
+        Ok(Some(Self {
+            reset_vectors,
+            cci_status,
+            cci_snoop_controls,
+            core_status: fixed_register_range(K1_CORE_STATUS, size_of::<u32>())?,
+            wakeup_controls: [
+                fixed_register_range(K1_WAKEUP_BASES[0], 4 * size_of::<u32>())?,
+                fixed_register_range(K1_WAKEUP_BASES[1], 4 * size_of::<u32>())?,
+            ],
+        }))
+    }
+
+    /// Returns the two cluster reset-vector register ranges.
+    pub const fn reset_vectors(self) -> [DeviceRegisterRange; 2] {
+        self.reset_vectors
+    }
+
+    /// Returns the CCI status-register range.
+    pub const fn cci_status(self) -> DeviceRegisterRange {
+        self.cci_status
+    }
+
+    /// Returns the two cluster CCI snoop-control ranges.
+    pub const fn cci_snoop_controls(self) -> [DeviceRegisterRange; 2] {
+        self.cci_snoop_controls
+    }
+
+    /// Returns `PMU_CORE_STATUS` (K1 User Manual, section 9.9.4.9.3).
+    pub const fn core_status(self) -> DeviceRegisterRange {
+        self.core_status
+    }
+
+    /// Returns the per-caller wakeup registers (K1 User Manual, section 9.9.4.9.12).
+    pub const fn wakeup_controls(self) -> [DeviceRegisterRange; 2] {
+        self.wakeup_controls
+    }
+
+    /// Initializes the current K1 hart's L2, cache and prediction features.
+    pub fn initialize_current_hart(self) -> core::result::Result<(), crate::hart::HartIdError> {
+        let hart = crate::hart::HartId::current()?;
+        let cluster_hart = hart.as_usize() % K1_HARTS_PER_CLUSTER;
+        MachineL2Setup::set_bits(1 << cluster_hart);
+        MachineSetupCsr::set_bits(MachineSetupCsr::ENABLED_FEATURES);
+        Ok(())
+    }
+}
+
+/// Enters K1 after hardware reset without a stack or a loader handoff.
+///
+/// # Safety
+///
+/// Only a K1 hart may enter in M-mode. The boot hart must have published the
+/// initializer and platform services and enabled cluster coherency.
+#[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
+unsafe extern "C" fn reset_entry() -> ! {
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+    core::arch::naked_asm!(
+        ".balign 4",
+        "csrw mie, zero",
+        "csrci mstatus, 8",
+        "lla t0, {fail}",
+        "csrw mtvec, t0",
+        "csrw mscratch, zero",
+        "call {prepare}",
+        "call {locate}",
+        "tail {initialize}",
+        fail = sym crate::boot::fail_stop,
+        prepare = sym SpacemitK1Registers::prepare_warm_hart,
+        locate = sym crate::boot::locate_stack,
+        initialize = sym crate::boot::reset::initialize_reset_hart,
+    );
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+    unimplemented!("K1 hardware reset requires a RISC-V target");
+}
+
+fn cci_snoop_control_range(interface_index: usize) -> Result<DeviceRegisterRange> {
+    let offset = K1_CCI_INTERFACE_STRIDE
+        .checked_mul(interface_index)
+        .and_then(|offset| K1_CCI_FIRST_INTERFACE_OFFSET.checked_add(offset))
+        .and_then(|offset| offset.checked_add(CciRegister::SnoopControl as usize))
+        .ok_or(crate::Error::Overflow)?;
+    fixed_register_range(
+        K1_CCI_BASE
+            .checked_add(offset)
+            .ok_or(crate::Error::Overflow)?,
+        size_of::<u32>(),
+    )
+}
+
+fn fixed_register_range(start: PhysAddr, len: usize) -> Result<DeviceRegisterRange> {
+    PhysAddrRange::from_start_len(start, len).map(DeviceRegisterRange::from_description)
+}

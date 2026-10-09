@@ -7,20 +7,18 @@
 
 #![forbid(unsafe_code)]
 
-use alloc::boxed::Box;
 use core::fmt;
 use runtime::memory::{PhysAddr, PhysAddrRange, SupervisorMemory};
-use runtime::rustsbi::{Console, Physical, SbiRet};
-use spin::Mutex;
+use runtime::rustsbi::{self, Physical, SbiRet};
 
-use crate::driver::{DbcnBackend, DbcnError};
+use crate::driver::{Console, ConsoleError};
 
-/// Bounds stack use and work performed while the console device lock is held.
+/// Maximum bytes transferred by one DBCN read or write.
 const MAX_TRANSFER_BYTES: usize = 256;
 
 /// SBI console service over a platform console device.
 pub(crate) struct SbiConsole {
-    device: &'static Mutex<Box<dyn DbcnBackend + Send>>,
+    console: &'static Console,
     supervisor_memory: &'static SupervisorMemory,
 }
 
@@ -28,11 +26,11 @@ impl SbiConsole {
     /// Creates a new SBI console handle over the published console device.
     #[inline]
     pub(crate) fn new(
-        device: &'static Mutex<Box<dyn DbcnBackend + Send>>,
+        console: &'static Console,
         supervisor_memory: &'static SupervisorMemory,
     ) -> Self {
         Self {
-            device,
+            console,
             supervisor_memory,
         }
     }
@@ -64,19 +62,9 @@ impl SbiConsole {
 
         Ok((start, len))
     }
-
-    pub(super) fn write_byte_blocking(&self, byte: u8) -> Result<(), DbcnError> {
-        loop {
-            match self.device.lock().write_slice(&[byte])? {
-                0 => core::hint::spin_loop(),
-                1 => return Ok(()),
-                _ => return Err(DbcnError::Failed),
-            }
-        }
-    }
 }
 
-impl Console for SbiConsole {
+impl rustsbi::Console for SbiConsole {
     /// Writes bytes from the physical buffer described by `buffer`.
     #[inline]
     fn write(&self, buffer: Physical<&[u8]>) -> SbiRet {
@@ -92,7 +80,8 @@ impl Console for SbiConsole {
         // reports any unconsumed suffix to the supervisor.
         let mut chunk = [0; MAX_TRANSFER_BYTES];
         let chunk_len = len.min(chunk.len());
-        // DBCN keeps the input buffer stable for this synchronous transfer.
+        // Stage supervisor bytes locally so the device driver never receives a
+        // caller-supplied physical pointer.
         if self
             .supervisor_memory
             .read(start, &mut chunk[..chunk_len])
@@ -100,13 +89,10 @@ impl Console for SbiConsole {
         {
             return SbiRet::invalid_param();
         }
-        let count = match self.device.lock().write_slice(&chunk[..chunk_len]) {
+        let count = match self.console.try_write(&chunk[..chunk_len]) {
             Ok(count) => count,
-            Err(error) => return dbcn_error(error),
+            Err(ConsoleError::Failed) => return SbiRet::failed(),
         };
-        if count > chunk_len {
-            return SbiRet::failed();
-        }
         SbiRet::success(count)
     }
 
@@ -125,14 +111,11 @@ impl Console for SbiConsole {
         // and reports the partial result directly.
         let mut chunk = [0; MAX_TRANSFER_BYTES];
         let chunk_len = len.min(chunk.len());
-        let count = match self.device.lock().read_slice(&mut chunk[..chunk_len]) {
+        let count = match self.console.try_read(&mut chunk[..chunk_len]) {
             Ok(count) => count,
-            Err(error) => return dbcn_error(error),
+            Err(ConsoleError::Failed) => return SbiRet::failed(),
         };
-        if count > chunk_len {
-            return SbiRet::failed();
-        }
-        // DBCN reserves the output buffer for this synchronous transfer.
+        // Leave bytes beyond the received prefix untouched.
         if count != 0
             && self
                 .supervisor_memory
@@ -147,20 +130,10 @@ impl Console for SbiConsole {
     /// Writes `byte` to the console.
     #[inline]
     fn write_byte(&self, byte: u8) -> SbiRet {
-        match self.write_byte_blocking(byte) {
+        match self.console.write_byte_blocking(byte) {
             Ok(()) => SbiRet::success(0),
-            Err(error) => dbcn_error(error),
+            Err(ConsoleError::Failed) => SbiRet::failed(),
         }
-    }
-}
-
-/// Maps backend denial and I/O errors from DBCN Tables 50-52.
-/// Physical-memory errors are handled at entry; unsupported EIDs/FIDs belong
-/// to the SBI dispatcher and are not backend errors.
-fn dbcn_error(error: DbcnError) -> SbiRet {
-    match error {
-        DbcnError::Denied => SbiRet::denied(),
-        DbcnError::Failed => SbiRet::failed(),
     }
 }
 
@@ -169,40 +142,12 @@ fn dbcn_error(error: DbcnError) -> SbiRet {
 /// Used by the `print!` and `println!` macros. Retries until all bytes
 /// have been written, spinning whenever a write returns zero.
 /// Does nothing if no console device has been initialized.
-/// Stops on backend errors without recursively logging through the failed device.
+/// Stops on device errors without recursively logging through the failed device.
 pub fn _print(args: fmt::Arguments) {
     use core::fmt::Write as _;
 
-    struct ConsoleWriter<'a> {
-        device: &'a Mutex<Box<dyn DbcnBackend + Send>>,
-    }
-
-    impl fmt::Write for ConsoleWriter<'_> {
-        #[inline]
-        fn write_str(&mut self, s: &str) -> fmt::Result {
-            let bytes = s.as_bytes();
-            let mut written = 0;
-            while written < bytes.len() {
-                let n = self
-                    .device
-                    .lock()
-                    .write_slice(&bytes[written..])
-                    .map_err(|_| fmt::Error)?;
-                if n > bytes.len() - written {
-                    return Err(fmt::Error);
-                }
-                if n == 0 {
-                    core::hint::spin_loop();
-                } else {
-                    written += n;
-                }
-            }
-            Ok(())
-        }
-    }
-
-    if let Some(device) = crate::platform::console_device() {
-        let _ = ConsoleWriter { device }.write_fmt(args);
+    if let Some(mut console) = crate::platform::console_device() {
+        let _ = console.write_fmt(args);
     }
 }
 

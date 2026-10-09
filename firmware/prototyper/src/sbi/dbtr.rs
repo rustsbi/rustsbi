@@ -25,54 +25,13 @@ impl SbiDbtr {
     }
 }
 
-// The `riscv` crate has no Sdtrig CSR wrappers, so probes use raw CSR helpers
-// that contain illegal-instruction traps for absent CSRs.
-const CSR_TSELECT: u16 = 0x7a0;
-const CSR_TDATA1: u16 = 0x7a1;
-// Bound the `tselect` walk independently of the hardware.
-const MAX_PROBED_TRIGGERS: usize = 256;
-
-// The trigger count is cached once; `usize::MAX` denotes an empty cache.
-static CACHED_TRIGGER_COUNT: AtomicUsize = AtomicUsize::new(usize::MAX);
-
 static SHMEM_ADDRESS: AtomicUsize = AtomicUsize::new(0);
 
-fn probe_triggers() -> usize {
-    let mut count = 0;
-    // The Runtime guard turns an illegal instruction from an optional CSR
-    // into `Err`, so probing an absent trigger block does not trap out of
-    // firmware.
-    // A selector is usable only if it reads back unchanged. A zero
-    // `tdata1.type` field does not identify an implemented trigger.
-    for index in 0..MAX_PROBED_TRIGGERS {
-        if runtime::trap::write_csr_guarded::<CSR_TSELECT>(index).is_err() {
-            break;
-        }
-        let Ok(selected) = runtime::trap::read_csr_guarded::<CSR_TSELECT>() else {
-            break;
-        };
-        if selected != index {
-            break;
-        }
-        let Ok(tdata1) = runtime::trap::read_csr_guarded::<CSR_TDATA1>() else {
-            break;
-        };
-
-        if ((tdata1 >> (usize::BITS - 4)) & 0xf) != 0 {
-            count += 1;
-        }
-    }
-    count
-}
-
 fn cached_trigger_count() -> usize {
-    let cached = CACHED_TRIGGER_COUNT.load(Ordering::Relaxed);
-    if cached != usize::MAX {
-        return cached;
-    }
-    let probed = probe_triggers();
-    CACHED_TRIGGER_COUNT.store(probed, Ordering::Relaxed);
-    probed
+    runtime::debug::DebugTriggers::current()
+        .expect("BUG: current hart outside published topology")
+        .count()
+        .expect("BUG: cannot probe current hart debug triggers")
 }
 
 impl runtime::rustsbi::Dbtr for SbiDbtr {
@@ -81,7 +40,7 @@ impl runtime::rustsbi::Dbtr for SbiDbtr {
             cached_trigger_count()
         } else {
             // A nonzero `tdata1` request requires trigger-type filtering,
-            // which this scaffolding does not implement.
+            // which this adapter does not support.
             0
         }
     }

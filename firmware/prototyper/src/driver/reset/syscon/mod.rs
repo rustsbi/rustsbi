@@ -1,8 +1,7 @@
 //! Syscon poweroff and reboot driver.
 //!
-//! This module is the reset-driver adapter. Devicetree parsing stays in
-//! [`description`], while acquired MMIO and command execution stay in
-//! [`device`].
+//! Poweroff and reboot descriptions select independent masked register
+//! updates. The selected reset controller serializes their execution.
 //!
 //! # References
 //!
@@ -15,18 +14,19 @@ mod description;
 mod device;
 
 use runtime::Result;
+use runtime::memory::MemoryRegistry;
 
 use crate::devicetree::EnabledNode;
 
-use super::ResetBackend;
-use super::registry::{BindResources, ResetDriver};
+use super::ResetDevice;
+use super::registry::ResetDriver;
 use description::ActionDescription;
 use device::SysconReset;
 
 const POWEROFF_COMPATIBLE: &str = "syscon-poweroff";
 const REBOOT_COMPATIBLE: &str = "syscon-reboot";
 
-/// Matches syscon reset nodes and retains their unbound descriptions.
+/// Devicetree descriptions for matched syscon reset nodes.
 #[derive(Default)]
 pub(in crate::driver::reset) struct SysconDriver {
     poweroff: Option<ActionDescription>,
@@ -80,12 +80,13 @@ impl ResetDriver for SysconDriver {
 
     fn bind(
         &self,
-        resources: &mut BindResources<'_>,
-    ) -> Result<alloc::boxed::Box<dyn ResetBackend>> {
+        memory: &mut MemoryRegistry,
+        _timebase_frequency_hz: Option<u32>,
+    ) -> Result<alloc::boxed::Box<dyn ResetDevice>> {
         Ok(alloc::boxed::Box::new(SysconReset::bind(
             self.poweroff,
             self.reboot,
-            resources.memory(),
+            memory,
         )?))
     }
 

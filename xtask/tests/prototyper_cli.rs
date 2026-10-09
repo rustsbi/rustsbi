@@ -12,7 +12,7 @@ fn xtask() -> Command {
     Command::new(env!("CARGO_BIN_EXE_xtask"))
 }
 
-/// Both riscv targets the prototyper pipeline needs.
+/// Returns whether the RISC-V targets used by these CLI tests are installed.
 fn riscv_targets_installed() -> bool {
     let installed = std::process::Command::new("rustup")
         .args(["target", "list", "--installed"])
@@ -31,15 +31,16 @@ fn boot_stack_size(firmware: &Path) -> usize {
         .expect("rust-nm is required to inspect the firmware ELF");
     assert!(output.status.success(), "rust-nm failed: {output:?}");
     let symbols = String::from_utf8(output.stdout).unwrap();
-    let stack = symbols
-        .lines()
-        .find(|line| {
-            line.split_whitespace()
-                .last()
-                .is_some_and(|name| name.ends_with("BOOT_STACK"))
-        })
-        .expect("firmware ELF has no BOOT_STACK symbol");
-    usize::from_str_radix(stack.split_whitespace().nth(1).unwrap(), 16).unwrap()
+    let address = |symbol: &str| {
+        let line = symbols
+            .lines()
+            .find(|line| line.split_whitespace().last() == Some(symbol))
+            .unwrap_or_else(|| panic!("firmware ELF has no {symbol} symbol"));
+        usize::from_str_radix(line.split_whitespace().next().unwrap(), 16).unwrap()
+    };
+    address("sbi_boot_stack_end")
+        .checked_sub(address("sbi_boot_stack_start"))
+        .expect("firmware ELF has reversed bootstrap stack bounds")
 }
 
 #[test]

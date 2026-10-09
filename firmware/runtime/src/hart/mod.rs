@@ -8,7 +8,13 @@ mod set;
 mod topology;
 mod wakeup;
 
-pub use wakeup::{HartWake, install_wakeup};
+/// Returns the current hart's architectural vendor identifier.
+/// Zero means that the hardware does not publish an identifier.
+pub fn vendor_id() -> usize {
+    use crate::csr::{Mvendorid, Readable};
+    Mvendorid::read().expect("machine vendor CSR is always readable in M-mode")
+}
+pub use wakeup::{HartWakeDevice, install_wakeup};
 
 pub(crate) use lifecycle::{
     ControlTransfer, HartEvent, current_hart, take_control_transfer, take_local_event,
@@ -48,7 +54,10 @@ impl HartId {
     pub fn current() -> Result<Self, HartIdError> {
         match () {
             #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-            () => Self::from_raw(crate::csr::mhartid()),
+            () => Self::from_raw({
+                use crate::csr::{Mhartid, Readable};
+                Mhartid::read().expect("machine hart ID CSR is always readable in M-mode")
+            }),
             #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
             () => unimplemented!("Reading the current hart ID requires a RISC-V target"),
         }

@@ -1,5 +1,9 @@
 //! Runtime support for RustSBI firmware.
 //!
+//! Firmware calls semantic services such as [`timer`], [`pmu`], and [`pmp`].
+//! Runtime owns their architectural operations and keeps numeric CSR access
+//! private to the subsystem implementations.
+//!
 //! [`PlatformDescription`] validates the device tree received at firmware
 //! entry. Policy firmware may inspect that description, while [`memory`]
 //! derives physical-memory access from it.
@@ -12,17 +16,21 @@ extern crate alloc;
 use core::fmt;
 
 pub mod boot;
-pub mod csr;
+mod csr;
+pub mod debug;
 mod device_tree;
 pub mod events;
+pub mod features;
 pub mod hart;
 pub mod heap;
+mod instructions;
 pub mod ipi;
-pub mod irq;
 pub mod machine_irq;
 pub mod memory;
+pub mod pmp;
+pub mod pmu;
+pub mod rfence;
 pub mod soc;
-mod spacemit_k1;
 mod sunxi_rtc_v203;
 pub mod timer;
 pub mod trap;
@@ -35,7 +43,7 @@ pub use fdt::{Fdt, node::FdtNode, standard_nodes::Compatible};
 /// Firmware policy crates receive RustSBI transitively through this crate
 /// and refer to it as `runtime::rustsbi`.
 pub use rustsbi;
-pub use spacemit_k1::SpacemitK1Registers;
+pub use soc::spacemit::k1::SpacemitK1Registers;
 
 /// An error returned by a Runtime operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -48,6 +56,8 @@ pub enum Error {
     NotEnoughResources,
     /// Address arithmetic overflowed.
     Overflow,
+    /// A one-time Runtime resource has already been initialized.
+    AlreadyInitialized,
 }
 
 impl fmt::Display for Error {
@@ -57,6 +67,7 @@ impl fmt::Display for Error {
             Self::AccessDenied => "access denied",
             Self::NotEnoughResources => "resource unavailable",
             Self::Overflow => "address overflow",
+            Self::AlreadyInitialized => "resource already initialized",
         })
     }
 }

@@ -18,4 +18,9 @@ riscv-decode = "0.2.1"
 rustsbi = { version = "0.4.1", features = [
     "machine",
 ], path = "../../library/rustsbi" }
-spin = "0.9.8"
+spin = { workspace = true }
+riscv-aia = { workspace = true }
+seq-macro = "0.3.5"
+
+[features]
+hypervisor = []

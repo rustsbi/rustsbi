@@ -1,24 +1,28 @@
 OUTPUT_ARCH(riscv)
-ENTRY(_start) 
+ENTRY(_start)
+FIRMWARE_SECTION_ALIGNMENT = 0x1000;
+
 SECTIONS {
     . = @LINK_START_ADDRESS@;
 
-    . = ALIGN(0x1000); /* Need this to create proper sections */
+    . = ALIGN(FIRMWARE_SECTION_ALIGNMENT);
     sbi_start = .;
+    sbi_link_start = ABSOLUTE(sbi_start);
 
-    .text : ALIGN(0x1000) { 
-        *(.text.entry)
+    .text : ALIGN(FIRMWARE_SECTION_ALIGNMENT) {
+        _start = .;
+        KEEP(*(.text.entry))
         *(.text .text.*)
     }
 
-    . = ALIGN(0x1000);
+    . = ALIGN(FIRMWARE_SECTION_ALIGNMENT);
     sbi_rodata_start = .;
 
-    .rodata : ALIGN(0x1000) { 
+    .rodata : ALIGN(FIRMWARE_SECTION_ALIGNMENT) {
         *(.rodata .rodata.*)
         *(.srodata .srodata.*)
-        . = ALIGN(0x1000);  
-    } 
+        . = ALIGN(FIRMWARE_SECTION_ALIGNMENT);
+    }
 
     .dynsym : ALIGN(8) {
         *(.dynsym)
@@ -30,50 +34,53 @@ SECTIONS {
         __rel_dyn_end = .;
     }
 
-    . = ALIGN(0x1000);
+    . = ALIGN(FIRMWARE_SECTION_ALIGNMENT);
     sbi_rodata_end = .;
 
-	/*
-	 * PMP regions must be to be power-of-2. RX/RW will have separate
-	 * regions, so ensure that the split is power-of-2.
-	 */
-	/* . = ALIGN(1 << LOG2CEIL((SIZEOF(.rodata) + SIZEOF(.text)
-				+ SIZEOF(.dynsym) + SIZEOF(.rela.dyn)))); */
-
-    .data : ALIGN(0x1000) { 
+    .data : ALIGN(FIRMWARE_SECTION_ALIGNMENT) {
         sbi_data_start = .;
         *(.data .data.*)
         *(.sdata .sdata.*)
-        . = ALIGN(0x1000); 
+        . = ALIGN(FIRMWARE_SECTION_ALIGNMENT);
         sbi_data_end = .;
     }
     sidata = LOADADDR(.data);
 
-    .bss (NOLOAD) : ALIGN(0x1000) {  
-        *(.bss.stack)
-        . = ALIGN(0x1000);
+    .bss (NOLOAD) : ALIGN(FIRMWARE_SECTION_ALIGNMENT) {
+        . = ALIGN(128);
+        sbi_boot_stack_start = .;
+        BOOT_STACK = .;
+        . = . + @STACK_SIZE_PER_HART@;
+        sbi_boot_stack_end = .;
+        . = ALIGN(FIRMWARE_SECTION_ALIGNMENT);
         sbi_heap_start = .;
         . = . + @HEAP_SIZE@;
         sbi_heap_end = .;
-        . = ALIGN(0x1000); 
+        . = ALIGN(FIRMWARE_SECTION_ALIGNMENT);
         sbi_bss_start = .;
         *(.bss .bss.*)
         *(.sbss .sbss.*)
         sbi_bss_end = .;
-    } 
+    }
     /DISCARD/ : {
         *(.eh_frame)
     }
 
-    . = ALIGN(0x1000);
+    . = ALIGN(FIRMWARE_SECTION_ALIGNMENT);
 
-    .text : ALIGN(0x1000) {
-        *(.fdt)
+    .fdt : ALIGN(FIRMWARE_SECTION_ALIGNMENT) {
+        . = ALIGN(16);
+        sbi_fdt_start = .;
+        KEEP(*(.fdt))
+        sbi_fdt_end = .;
     }
-    . = ALIGN(0x1000);
+    . = ALIGN(FIRMWARE_SECTION_ALIGNMENT);
     sbi_end = .;
 
-    .text @PAYLOAD_ADDRESS@ : ALIGN(0x1000) {
-        *(.payload)
+    .payload @PAYLOAD_ADDRESS@ : ALIGN(FIRMWARE_SECTION_ALIGNMENT) {
+        . = ALIGN(4);
+        sbi_payload_start = .;
+        KEEP(*(.payload))
+        sbi_payload_end = .;
     }
 }

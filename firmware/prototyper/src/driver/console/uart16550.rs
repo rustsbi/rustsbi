@@ -10,17 +10,17 @@ use bitflags::bitflags;
 use core::mem::size_of;
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
-use crate::driver::console::{DbcnBackend, DbcnError, acquire_registers};
+use crate::driver::console::{ConsoleDevice, ConsoleError, acquire_registers};
 
 #[repr(usize)]
 #[derive(Clone, Copy)]
-enum Register {
+pub(super) enum Register {
     Data = 0,
     LineStatus = 5,
 }
 
 impl Register {
-    const fn index(self) -> usize {
+    pub(super) const fn index(self) -> usize {
         self as usize
     }
 }
@@ -38,7 +38,7 @@ bitflags! {
 pub(super) fn bind_u8(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn DbcnBackend + Send>> {
+) -> runtime::Result<Box<dyn ConsoleDevice>> {
     let registers = acquire_registers::<u8>(registers, U8_SPAN, memory)?;
     Ok(Box::new(Uart16550::new(U8RegisterAccess(registers))))
 }
@@ -46,12 +46,12 @@ pub(super) fn bind_u8(
 pub(super) fn bind_u32(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn DbcnBackend + Send>> {
+) -> runtime::Result<Box<dyn ConsoleDevice>> {
     let registers = acquire_registers::<u32>(registers, U32_SPAN, memory)?;
     Ok(Box::new(Uart16550::new(U32RegisterAccess(registers))))
 }
 
-trait RegisterAccess {
+pub(super) trait RegisterAccess {
     fn read(&self, register: Register) -> u8;
     fn write(&self, register: Register, value: u8);
 }
@@ -88,12 +88,12 @@ impl RegisterAccess for U32RegisterAccess {
     }
 }
 
-struct Uart16550<Access> {
+pub(super) struct Uart16550<Access> {
     registers: Access,
 }
 
 impl<Access: RegisterAccess> Uart16550<Access> {
-    fn new(registers: Access) -> Self {
+    pub(super) fn new(registers: Access) -> Self {
         Self { registers }
     }
 
@@ -102,8 +102,8 @@ impl<Access: RegisterAccess> Uart16550<Access> {
     }
 }
 
-impl<Access: RegisterAccess> DbcnBackend for Uart16550<Access> {
-    fn read_slice(&mut self, buf: &mut [u8]) -> Result<usize, DbcnError> {
+impl<Access: RegisterAccess + Send> ConsoleDevice for Uart16550<Access> {
+    fn try_read(&mut self, buf: &mut [u8]) -> Result<usize, ConsoleError> {
         let mut count = 0;
         for byte in buf.iter_mut() {
             if !self.line_status().contains(LineStatus::DATA_READY) {
@@ -115,7 +115,7 @@ impl<Access: RegisterAccess> DbcnBackend for Uart16550<Access> {
         Ok(count)
     }
 
-    fn write_slice(&mut self, buf: &[u8]) -> Result<usize, DbcnError> {
+    fn try_write(&mut self, buf: &[u8]) -> Result<usize, ConsoleError> {
         let mut count = 0;
         for &byte in buf {
             if !self

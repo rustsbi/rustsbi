@@ -7,41 +7,41 @@
 
 #![forbid(unsafe_code)]
 
-use crate::driver::{ResetDevice, ResetError, ResetReason, ResetRequest, ResetType};
+use crate::driver::{ResetController, ResetError, ResetReason, ResetRequest, ResetType};
 use runtime::rustsbi::{self, SbiRet};
 
 /// SBI system-reset extension over a selected reset device.
 #[derive(Default)]
 pub struct SbiReset {
-    device: ResetDevice,
+    controller: Option<&'static ResetController>,
 }
 
 impl SbiReset {
-    pub(crate) fn new(device: ResetDevice) -> Self {
-        Self { device }
+    pub(crate) fn new(controller: Option<&'static ResetController>) -> Self {
+        Self { controller }
     }
 }
 
 impl rustsbi::Reset for SbiReset {
     fn _rustsbi_probe(&self) -> usize {
-        usize::from(self.device.is_available())
+        usize::from(self.controller.is_some())
     }
 
     fn system_reset(&self, reset_type: u32, reset_reason: u32) -> SbiRet {
         let Some(request) = parse_request(reset_type, reset_reason) else {
             return SbiRet::invalid_param();
         };
-        let Some(error) = self.device.reset(request) else {
+        let Some(controller) = self.controller else {
             return SbiRet::not_supported();
         };
-        match error {
+        match controller.reset(request) {
             ResetError::InvalidRequest => SbiRet::invalid_param(),
             ResetError::Failed => SbiRet::failed(),
         }
     }
 }
 
-/// Validates both raw parameters before querying or invoking a reset backend.
+/// Validates both raw parameters before querying or invoking a reset device.
 fn parse_request(reset_type: u32, reset_reason: u32) -> Option<ResetRequest> {
     use runtime::rustsbi::spec::srst::{
         RESET_REASON_NO_REASON, RESET_REASON_SYSTEM_FAILURE, RESET_TYPE_COLD_REBOOT,

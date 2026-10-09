@@ -1,7 +1,7 @@
-//! Allwinner firmware drivers.
+//! Allwinner SoC-specific firmware drivers.
 //!
-//! [`v821`] owns devices used only by custom SBI extensions. [`v861`] adapts
-//! V861's C907 power controls to the generic HSM hart-wakeup interface.
+//! Each chip module owns its device register protocols. Platform modules
+//! select these devices and determine their initialization order.
 
 pub(crate) mod v821;
 pub(crate) mod v861;

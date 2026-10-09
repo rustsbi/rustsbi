@@ -1,7 +1,7 @@
 //! SBI Hart State Management adapter.
 //!
-//! The SBI ABI and platform enabled-hart policy live here.  Runtime owns the
-//! protocol-free hart state machine and all privileged transitions.
+//! The SBI ABI and enabled-hart policy live here. Runtime owns hart-state
+//! transitions and privileged entry.
 //!
 //! # References
 //!
@@ -36,8 +36,6 @@ impl SbiHsm {
         Ok(hart)
     }
 
-    /// Implements the HSM suspend/resume transition described by the SBI
-    /// HSM extension.
     fn suspend(&self, suspend_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
         if !matches!(
             suspend_type,
@@ -68,12 +66,29 @@ impl SbiHsm {
 
         // The ticket reserves the current hart before policy state is reset;
         // a failed wake drops the reservation back to Suspended.
-        crate::sbi::hart_local::reset_current();
+        if let Err(error) = crate::sbi::hart_local::reset_current() {
+            warn!("PMU reset before non-retentive resume failed: {error:?}");
+            drop(ticket);
+            return resume_original_context_after_failure();
+        }
         match ticket.commit() {
             Ok(()) => SbiRet::success(0),
-            Err(_) => SbiRet::failed(),
+            Err(error) => {
+                warn!("Non-retentive resume failed: {error:?}");
+                resume_original_context_after_failure()
+            }
         }
     }
+}
+
+/// Restores the hart's running state before returning to its retained supervisor.
+/// The failed or dropped resume ticket has already restored Suspended.
+fn resume_original_context_after_failure() -> SbiRet {
+    if let Err(error) = hart::resume_current_retentive() {
+        error!("Cannot restore hart state after failed non-retentive resume: {error:?}");
+        crate::fail::stop();
+    }
+    SbiRet::failed()
 }
 
 impl Hsm for SbiHsm {
@@ -104,7 +119,7 @@ impl Hsm for SbiHsm {
         }
     }
 
-    /// Gets the current state of a hart.
+    /// Returns the current state of a hart.
     #[inline]
     fn hart_get_status(&self, hartid: usize) -> SbiRet {
         let hart = match self.hart_id(hartid) {

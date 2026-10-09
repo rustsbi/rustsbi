@@ -1,7 +1,8 @@
-use std::{env, fs, path::PathBuf};
+#![forbid(unsafe_code)]
+
+use std::{env, path::PathBuf};
 
 fn main() {
-    let cargo_out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo did not set OUT_DIR"));
     let firmware_crate_dir = PathBuf::from(
         env::var_os("CARGO_MANIFEST_DIR").expect("Cargo did not set CARGO_MANIFEST_DIR"),
     );
@@ -13,22 +14,26 @@ fn main() {
         .unwrap_or_else(|| workspace_dir.join("target"));
     let build_inputs_dir = target_dir.join("prototyper");
 
-    for file_name in [
-        "generated_config.rs",
-        "generated_alignment.rs",
-        "generated_payload.rs",
-        "generated_fdt.rs",
+    let output_dir = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo did not set OUT_DIR"));
+    let config = build_inputs_dir.join("generated_config.rs");
+    std::fs::copy(&config, output_dir.join("generated_config.rs"))
+        .expect("copy generated firmware configuration");
+    println!("cargo:rerun-if-changed={}", config.display());
+
+    for (feature, file_name) in [
+        ("CARGO_FEATURE_PAYLOAD", "payload.o"),
+        ("CARGO_FEATURE_FDT", "fdt.o"),
     ] {
-        let generated_file = build_inputs_dir.join(file_name);
-        let cargo_file = cargo_out_dir.join(file_name);
-        fs::copy(&generated_file, &cargo_file).unwrap_or_else(|error| {
-            panic!(
-                "failed to copy generated firmware source from '{}' to '{}': {error}; \
-                 run `cargo prototyper build` first",
-                generated_file.display(),
-                cargo_file.display(),
+        if env::var_os(feature).is_some() {
+            let object = build_inputs_dir.join(file_name);
+            assert!(
+                object.is_file(),
+                "missing embedded-image object '{}'; run `cargo prototyper build` first",
+                object.display()
             );
-        });
+            println!("cargo:rustc-link-arg={}", object.display());
+            println!("cargo:rerun-if-changed={}", object.display());
+        }
     }
 
     let stamp = build_inputs_dir.join("stamp");

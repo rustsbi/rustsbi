@@ -6,6 +6,7 @@ use crate::Result;
 
 pub mod allwinner;
 pub mod spacemit;
+pub mod thead;
 
 /// A SoC capability recognized from the Platform Description root node.
 ///
@@ -13,7 +14,8 @@ pub mod spacemit;
 /// the matched SoC. Device discovery and firmware policy remain outside
 /// Runtime.
 pub trait Soc: Sized {
-    /// Recognizes this SoC and constructs its capability.
+    /// Constructs a capability when the root node identifies this SoC.
+    /// Returns `Ok(None)` for a different SoC.
     ///
     /// # Errors
     ///

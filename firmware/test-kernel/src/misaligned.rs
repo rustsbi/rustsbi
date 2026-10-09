@@ -1,7 +1,7 @@
 //! Misaligned load/store values and stack-pointer write-back.
 //!
 //! RAM accesses may complete in hardware (for example QEMU with Zicclsm).
-//! These checks prove the resulting values, not that emulation was entered.
+//! These checks verify the resulting values without detecting emulation.
 
 use core::arch::asm;
 
@@ -23,6 +23,7 @@ macro_rules! check {
 
 fn test_loads() {
     let mut buffer = Buffer([0u8; 16]);
+    // SAFETY: byte offset 1 is inside the live 16-byte allocation.
     let odd = unsafe { buffer.0.as_mut_ptr().add(1) as usize };
     let patterns: [[u8; 8]; 2] = [
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
@@ -43,41 +44,51 @@ fn test_loads() {
         );
         let half = b0 | b1 << 8;
         let word = b0 | b1 << 8 | b2 << 16 | b3 << 24;
-        let doubleword = u64::from_le_bytes(pattern) as usize;
-        let (lb, lbu, lh, lhu, lw, lwu, ld): (usize, usize, usize, usize, usize, usize, usize);
-        // SAFETY: These instructions intentionally access `odd`, an address
-        // one byte past the start of an aligned local buffer.
+        let (lb, lbu, lh, lhu, lw): (usize, usize, usize, usize, usize);
+        // SAFETY:
+        // 1. All loads read initialized bytes inside the live buffer.
+        // 2. Their output registers are declared by the assembly.
         unsafe {
             asm!("lb {value}, 0({address})", address = in(reg) odd, value = lateout(reg) lb);
             asm!("lbu {value}, 0({address})", address = in(reg) odd, value = lateout(reg) lbu);
             asm!("lh {value}, 0({address})", address = in(reg) odd, value = lateout(reg) lh);
             asm!("lhu {value}, 0({address})", address = in(reg) odd, value = lateout(reg) lhu);
             asm!("lw {value}, 0({address})", address = in(reg) odd, value = lateout(reg) lw);
-            asm!("lwu {value}, 0({address})", address = in(reg) odd, value = lateout(reg) lwu);
-            asm!("ld {value}, 0({address})", address = in(reg) odd, value = lateout(reg) ld);
         }
         check!("lb", lb, b0 as i8 as usize);
         check!("lbu", lbu, b0);
         check!("lh", lh, half as i16 as usize);
         check!("lhu", lhu, half);
         check!("lw", lw, word as i32 as usize);
-        check!("lwu", lwu, word);
-        check!("ld", ld, doubleword);
+        #[cfg(target_pointer_width = "64")]
+        {
+            let doubleword = u64::from_le_bytes(pattern) as usize;
+            let (lwu, ld): (usize, usize);
+            // SAFETY: both RV64-only loads remain within the local buffer.
+            unsafe {
+                asm!("lwu {value}, 0({address})", address = in(reg) odd, value = lateout(reg) lwu);
+                asm!("ld {value}, 0({address})", address = in(reg) odd, value = lateout(reg) ld);
+            }
+            check!("lwu", lwu, word);
+            check!("ld", ld, doubleword);
+        }
     }
     println!("[misaligned] load widths pass");
 }
 
 fn test_stores() {
     let mut buffer = Buffer([0u8; 16]);
+    // SAFETY: byte offset 1 is inside the live 16-byte allocation.
     let odd = unsafe { buffer.0.as_mut_ptr().add(1) as usize };
-    let cases: [(&str, usize, u64); 4] = [
+    let cases: &[(&str, usize, u64)] = &[
         ("sb", 1, 0xAB),
         ("sh", 2, 0xBEEF),
         ("sw", 4, 0xDEAD_BEEF),
+        #[cfg(target_pointer_width = "64")]
         ("sd", 8, 0xAA00_BB11_CC22_DD33),
     ];
 
-    for (what, width, value) in cases {
+    for &(what, width, value) in cases {
         for byte in &mut buffer.0 {
             *byte = 0;
         }
@@ -94,14 +105,17 @@ fn test_stores() {
                 4 => {
                     asm!("sw {value}, 0({address})", address = in(reg) odd, value = in(reg) value as usize)
                 }
-                _ => {
+                #[cfg(target_pointer_width = "64")]
+                8 => {
                     asm!("sd {value}, 0({address})", address = in(reg) odd, value = in(reg) value as usize)
                 }
+                _ => unreachable!("store width must name an XLEN-supported test instruction"),
             }
         }
         let bytes = value.to_le_bytes();
         for (index, want) in bytes.iter().take(width).enumerate() {
-            // SAFETY: the loop is bounded by the store width.
+            // SAFETY: `index` is below the tested width (at most eight bytes),
+            // and `odd` is byte offset 1 in the live 16-byte buffer.
             let got = unsafe { core::ptr::read_volatile((odd + index) as *const u8) };
             check!(what, got as u64, *want as u64);
         }
@@ -111,26 +125,37 @@ fn test_stores() {
 
 fn test_stack_pointer() {
     let mut buffer = Buffer([0u8; 16]);
+    // SAFETY: byte offset 1 is inside the live 16-byte allocation.
     let odd = unsafe { buffer.0.as_mut_ptr().add(1) as usize };
-    // A misaligned `ld sp` must write back to the trapped register's real
+    // A misaligned XLEN load to sp must write back to the trapped register's real
     // frame slot instead of corrupting supervisor `sscratch`.
+    // SAFETY:
+    // 1. All XLEN-byte accesses stay within the live 16-byte buffer.
+    // 2. The buffer contains the saved `sp`, so loading it leaves the stack
+    //    pointer unchanged. The assembly also restores that saved value.
+    // 3. Every other register modified by the assembly is a declared output.
     unsafe {
         let sp_save: usize;
         asm!("mv {saved}, sp", saved = out(reg) sp_save);
-        for (index, byte) in (sp_save as u64).to_le_bytes().iter().enumerate() {
+        for (index, byte) in sp_save.to_le_bytes().iter().enumerate() {
             core::ptr::write_volatile((odd + index) as *mut u8, *byte);
         }
         asm!(
             ".option push",
             ".option norvc",
+            ".if {XLEN} == 64",
             "ld sp, 0({address})",
+            ".else",
+            "lw sp, 0({address})",
+            ".endif",
             ".option pop",
             address = in(reg) odd,
+            XLEN = const usize::BITS,
         );
         let got: usize;
         asm!("mv {value}, sp", value = out(reg) got);
         asm!("mv sp, {saved}", saved = in(reg) sp_save);
-        check!("ld sp", got, sp_save);
+        check!("XLEN load to sp", got, sp_save);
     }
     println!("[misaligned] sp write-back pass");
 }

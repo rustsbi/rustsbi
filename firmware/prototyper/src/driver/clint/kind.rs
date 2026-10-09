@@ -1,4 +1,4 @@
-//! CLINT backend selection from FDT identity and register layout.
+//! CLINT driver selection from FDT identity and register layout.
 //!
 //! Compatible strings follow the pinned [SiFive CLINT binding]. Register
 //! offsets and access widths are documented by the selected driver.
@@ -28,7 +28,7 @@ impl ClintKind {
         }
     }
 
-    /// Device name reported in boot logs.
+    /// Returns the device name used in boot logs.
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::SiFive => "SiFiveClint",

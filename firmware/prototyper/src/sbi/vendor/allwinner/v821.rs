@@ -1,7 +1,7 @@
 //! Allwinner V821 vendor SBI extensions.
 //!
-//! Device ownership remains in the firmware drivers; this module translates
-//! SBI function IDs into typed operations.
+//! The adapters own the selected cache and USB devices and translate SBI
+//! function IDs into typed operations.
 //!
 //! # References
 //!
@@ -32,12 +32,10 @@ impl Extension {
         v821: V821,
         memory: &mut MemoryRegistry,
     ) -> runtime::Result<Self> {
-        let (soc, cache, usb_dma_bypass) = v821.into_extension_devices()?.into_parts();
+        let (cache, usb_dma_bypass) = v821.bind_extension_devices(memory)?;
         Ok(Self {
-            cache: A27L2Cache::bind(soc, cache, memory)?,
-            usb_dma_bypass: usb_dma_bypass
-                .map(|registers| UsbDmaBypass::bind(registers, memory))
-                .transpose()?,
+            cache,
+            usb_dma_bypass,
         })
     }
 

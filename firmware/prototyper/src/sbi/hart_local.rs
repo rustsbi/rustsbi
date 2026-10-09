@@ -1,26 +1,21 @@
-//! Hart-local policy state: the per-hart bookkeeping consumed by the SBI
-//! extension layer.
+//! Per-hart SBI policy state.
 //!
-//! This storage is policy state, deliberately decoupled from the
-//! Runtime-owned trap stacks: the Runtime owns stack memory; the policy
-//! firmware owns its own context records. Slots are initialized once during
-//! boot, then their mutable fields are accessed through atomics or locks.
-
-#![forbid(unsafe_code)]
+//! Slots are initialized once during boot. Mutable fields use atomics or locks.
 
 use alloc::boxed::Box;
 use core::sync::atomic::AtomicU8;
 use runtime::hart::HartId;
+use runtime::pmu::{self, CounterError, CounterTopology};
 use spin::{Mutex, Once};
 
 use super::features::HartFeatures;
 use super::pmu::PmuState;
 use super::rfence::queue::{LocalRFenceCell, RFenceCell, RemoteRFenceCell};
 
-/// Separates independently written hart state into 128-byte blocks.
+/// Hart-state storage aligned to 128 bytes to limit false sharing.
 ///
-/// This conservative performance alignment also separates 64-byte cache
-/// lines; it is not a hardware cache-line-size or a correctness requirement.
+/// The alignment is a performance choice, not a detected cache-line size or
+/// a hardware correctness requirement.
 #[repr(align(128))]
 pub(crate) struct CacheAligned<T>(pub T);
 
@@ -32,11 +27,11 @@ impl<T> core::ops::Deref for CacheAligned<T> {
     }
 }
 
-/// Hart-local state, consumed by the sbi extension layer.
+/// Hart-local state consumed by the SBI extension layer.
 pub struct HartLocal {
     /// Remote fence synchronization cell.
     pub rfence: RFenceCell,
-    /// Type of inter-processor interrupt pending.
+    /// Pending firmware IPI types.
     pub ipi_type: CacheAligned<AtomicU8>,
     /// Supported hart features.
     features: Mutex<HartFeatures>,
@@ -78,36 +73,29 @@ impl HartLocal {
         f(&mut self.pmu_state.lock())
     }
 
-    /// Rebuilds PMU state after feature detection has populated the counter mask.
-    pub(crate) fn init_pmu(&self) {
-        let mhpm_mask = self.with_features(HartFeatures::mhpm_mask);
-        self.with_pmu(|pmu| *pmu = PmuState::new(mhpm_mask));
+    /// Rebuilds policy PMU state from Runtime's detected counter topology.
+    pub(crate) fn init_pmu(&self, counters: CounterTopology) {
+        self.with_pmu(|pmu| *pmu = PmuState::new(counters.mask()));
     }
 
-    #[inline]
-    fn pmu_state_reset(&self) {
-        use super::features::PrivilegedVersion;
-        // stop all hardware pmu event
-        let hart_priv_version = self.with_features(HartFeatures::privileged_version);
-        if hart_priv_version >= PrivilegedVersion::Version1_11 {
-            // The CSR wrapper owns the machine-mode write; this policy state
-            // only requests the reset of the current hart's counters.
-            crate::riscv::csr::mcountinhibit::write_raw(!0b111usize);
-        }
-        // reset hart pmu state
-        self.init_pmu();
+    fn pmu_state_reset(&self) -> Result<(), CounterError> {
+        let pmu = pmu::Pmu::current()?;
+        pmu.reset()?;
+        self.init_pmu(pmu.probe()?);
+        Ok(())
     }
 }
 
 static HART_LOCALS: Once<Box<[HartLocal]>> = Once::new();
 
-/// Initializes all policy slots on the boot hart before platform discovery.
+/// Initializes all policy slots on the boot hart after topology publication.
 /// Secondary harts wait for platform publication before accessing them.
 pub fn init() {
+    assert!(HartId::count() > 0, "BUG: hart topology is not initialized");
     HART_LOCALS.call_once(|| HartId::all().map(|_| HartLocal::new()).collect());
 }
 
-/// Forms the shared reference to `hart_id`'s state after initialization.
+/// Returns the shared state for an initialized, enabled `hart_id`.
 pub fn hart_local(hart_id: usize) -> &'static HartLocal {
     let hart = HartId::from_raw(hart_id).expect("BUG: unknown hart ID");
     slot(hart)
@@ -119,9 +107,7 @@ fn slot(hart: HartId) -> &'static HartLocal {
         .expect("BUG: hart-local state used before initialization")[hart.index()]
 }
 
-/// Runs `f` with shared access to the current hart's state. Mutable policy
-/// fields are updated through their own locks, so this does not create an
-/// aliasing contract for callers.
+/// Runs `f` with shared access to the current hart's state.
 pub fn with_current<F, R>(f: F) -> R
 where
     F: FnOnce(&HartLocal) -> R,
@@ -138,12 +124,12 @@ where
     f(hart_local(hart_id))
 }
 
-/// Gets the local fence context for the current hart.
+/// Returns the local fence context for the current hart.
 pub fn local_rfence() -> Option<LocalRFenceCell<'static>> {
     Some(slot(HartId::current().ok()?).rfence.local())
 }
 
-/// Gets the remote fence context for a specific hart.
+/// Returns the remote fence context for a specific hart.
 pub fn remote_rfence(hart_id: usize) -> Option<RemoteRFenceCell<'static>> {
     let hart = HartId::from_raw(hart_id).ok()?;
     Some(slot(hart).rfence.remote())
@@ -151,6 +137,6 @@ pub fn remote_rfence(hart_id: usize) -> Option<RemoteRFenceCell<'static>> {
 
 /// Resets the current hart's PMU state before a non-retentive resume.
 /// Pending IPIs and fence requests remain valid across suspend/resume.
-pub(crate) fn reset_current() {
-    with_current(HartLocal::pmu_state_reset);
+pub(crate) fn reset_current() -> Result<(), CounterError> {
+    with_current(HartLocal::pmu_state_reset)
 }

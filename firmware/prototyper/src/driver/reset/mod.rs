@@ -1,19 +1,19 @@
 //! System-reset firmware drivers.
 //!
-//! [`Description`] discovers reset hardware and selects a registered
-//! reset driver without acquiring MMIO. Binding produces one [`ResetDevice`],
-//! which owns and serializes the selected backend for the SBI SRST adapter.
+//! [`Description`] discovers reset hardware and selects a built-in
+//! reset driver without acquiring MMIO. Binding produces a [`ResetController`],
+//! which owns and serializes the selected [`ResetDevice`].
 
+mod controller;
 mod description;
-mod device;
 mod pmic_spacemit_p1;
 mod registry;
 mod sifive_test;
 mod sunxi_watchdog;
 mod syscon;
 
+pub(crate) use controller::ResetController;
 pub(crate) use description::Description;
-pub(crate) use device::ResetDevice;
 
 /// Parsed reset type accepted by the SRST driver layer.
 ///
@@ -46,8 +46,6 @@ pub(crate) enum ResetReason {
 }
 
 /// Fully parsed SRST request.
-///
-/// This is the unit consumed by the driver layer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ResetRequest {
     reset_type: ResetType,
@@ -71,13 +69,10 @@ impl ResetRequest {
     }
 }
 
-/// Low-level error category for an SRST backend.
+/// Failure of a reset device operation.
 ///
-/// # Semantics
-///
-/// - `InvalidParam` is intentionally absent.
-/// - Successful reset is intentionally absent too, because a successful
-///   SRST request does not return.
+/// Invalid raw SBI values are rejected before device dispatch.
+/// A successful reset request does not return.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ResetError {
     /// The selected device cannot represent the requested operation.
@@ -88,11 +83,11 @@ pub(crate) enum ResetError {
     Failed,
 }
 
-/// Behavior required of a selected reset backend.
+/// Operations supported by a selected reset device.
 ///
 /// Validation and execution share one call because a successful reset never
 /// returns; an unimplemented request must fail before any side effect.
-pub(in crate::driver) trait ResetBackend: Send {
+pub(in crate::driver) trait ResetDevice: Send {
     /// Attempts the requested reset.
     fn system_reset(&mut self, request: ResetRequest) -> ResetError;
 }

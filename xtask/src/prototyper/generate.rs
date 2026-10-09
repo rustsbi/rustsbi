@@ -1,6 +1,7 @@
 use std::{
     fs,
     hash::{Hash, Hasher},
+    io::ErrorKind,
     path::{Path, PathBuf},
 };
 
@@ -14,9 +15,8 @@ const CONFIG_FILE_NAME: &str = "config.toml";
 const BUILD_INPUTS_DIR_NAME: &str = "prototyper";
 const LINKER_SCRIPT_NAME: &str = "rustsbi-prototyper.ld";
 const CONFIG_SOURCE_NAME: &str = "generated_config.rs";
-const ALIGNMENT_SOURCE_NAME: &str = "generated_alignment.rs";
-const PAYLOAD_SOURCE_NAME: &str = "generated_payload.rs";
-const FDT_SOURCE_NAME: &str = "generated_fdt.rs";
+const PAYLOAD_DATA_NAME: &str = "payload.bin";
+const FDT_DATA_NAME: &str = "fdt.bin";
 const STAMP_FILE_NAME: &str = "stamp";
 
 /// Workspace paths used by one prototyper build.
@@ -37,16 +37,20 @@ impl BuildPaths {
         self.build_inputs_dir.join(LINKER_SCRIPT_NAME)
     }
 
-    pub(crate) fn alignment_source(&self) -> PathBuf {
-        self.build_inputs_dir.join(ALIGNMENT_SOURCE_NAME)
+    pub(crate) fn payload_data(&self) -> PathBuf {
+        self.build_inputs_dir.join(PAYLOAD_DATA_NAME)
     }
 
-    pub(crate) fn payload_source(&self) -> PathBuf {
-        self.build_inputs_dir.join(PAYLOAD_SOURCE_NAME)
+    pub(crate) fn payload_object(&self) -> PathBuf {
+        self.build_inputs_dir.join("payload.o")
     }
 
-    pub(crate) fn fdt_source(&self) -> PathBuf {
-        self.build_inputs_dir.join(FDT_SOURCE_NAME)
+    pub(crate) fn fdt_data(&self) -> PathBuf {
+        self.build_inputs_dir.join(FDT_DATA_NAME)
+    }
+
+    pub(crate) fn fdt_object(&self) -> PathBuf {
+        self.build_inputs_dir.join("fdt.o")
     }
 
     pub(crate) fn stamp(&self) -> PathBuf {
@@ -72,7 +76,7 @@ pub(crate) fn prepare_build_paths(spec: &BuildSpec) -> Result<BuildPaths> {
     })
 }
 
-/// Install the files consumed by the firmware crate for this build.
+/// Installs the files consumed by the firmware crate for this build.
 pub(crate) fn generate_build_inputs(spec: &BuildSpec, paths: &BuildPaths) -> Result<()> {
     fs::create_dir_all(&paths.build_inputs_dir).with_context(|| {
         format!(
@@ -103,26 +107,35 @@ pub(crate) fn generate_build_inputs(spec: &BuildSpec, paths: &BuildPaths) -> Res
             paths.linker_template.display()
         )
     })?;
-    let linker_script = render_linker_script(&linker_template, &spec.firmware_config.layout)?;
+    let linker_script = render_linker_script(
+        &linker_template,
+        &spec.firmware_config.layout,
+        match spec.mode {
+            BuildMode::Payload { .. } => Some(spec.firmware_config.layout.payload_address),
+            BuildMode::Dynamic | BuildMode::Jump => None,
+        },
+    )?;
     write_if_changed(&paths.linker_script(), linker_script.as_bytes())?;
 
-    let alignment_source = render_alignment_source();
-    write_if_changed(&paths.alignment_source(), alignment_source.as_bytes())?;
-
-    let payload_source = render_payload_source(spec)?;
-    write_if_changed(&paths.payload_source(), payload_source.as_bytes())?;
-
-    let fdt_source = render_fdt_source(spec)?;
-    write_if_changed(&paths.fdt_source(), fdt_source.as_bytes())?;
+    let payload = match &spec.mode {
+        BuildMode::Payload { path } => Some(read_image(path)?),
+        BuildMode::Dynamic | BuildMode::Jump => None,
+    };
+    install_image(
+        payload.as_deref(),
+        &paths.payload_data(),
+        &paths.payload_object(),
+    )?;
+    let fdt = spec.fdt.as_deref().map(read_image).transpose()?;
+    install_image(fdt.as_deref(), &paths.fdt_data(), &paths.fdt_object())?;
 
     let stamp = render_build_stamp(
         spec,
         config_content,
         &config_source,
         &linker_template,
-        &alignment_source,
-        &payload_source,
-        &fdt_source,
+        payload.as_deref(),
+        fdt.as_deref(),
     );
     write_if_changed(&paths.stamp(), stamp.as_bytes())?;
 
@@ -144,64 +157,31 @@ fn render_config_source(
     ))
 }
 
-fn render_alignment_source() -> String {
-    String::from(
-        "#[allow(dead_code)]\n\
-         #[repr(align(16))]\n\
-         pub struct Aligned16<const N: usize>(pub [u8; N]);\n",
-    )
+fn read_image(path: &Path) -> Result<Vec<u8>> {
+    let bytes = fs::read(path)
+        .with_context(|| format!("failed to read embedded image '{}'", path.display()))?;
+    if bytes.is_empty() {
+        bail!("embedded image '{}' is empty", path.display());
+    }
+    Ok(bytes)
 }
 
-fn render_payload_source(spec: &BuildSpec) -> Result<String> {
-    match &spec.mode {
-        BuildMode::Payload { path } => {
-            let (size, path_string) = embedded_file(path)?;
-            Ok(format!(
-                "\n#[allow(non_upper_case_globals)]\n\
-                 #[unsafe(link_section = \".payload\")]\n\
-                 pub static payload_image: ::runtime::memory::HandoffBuffer<{size}> = \
-                     ::runtime::memory::HandoffBuffer::new(*include_bytes!({path_string:?}));\n"
-            ))
-        }
-        BuildMode::Dynamic | BuildMode::Jump => Ok(String::new()),
+fn install_image(bytes: Option<&[u8]>, data: &Path, object: &Path) -> Result<()> {
+    if let Some(bytes) = bytes {
+        write_if_changed(data, bytes)
+    } else {
+        remove_generated_file(data)?;
+        remove_generated_file(object)
     }
 }
 
-fn render_fdt_source(spec: &BuildSpec) -> Result<String> {
-    match &spec.fdt {
-        Some(path) => render_embedded_static("raw_fdt", ".fdt", "Aligned16", path),
-        None => Ok(String::new()),
+fn remove_generated_file(path: &Path) -> Result<()> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error)
+            .with_context(|| format!("failed to remove generated image '{}'", path.display())),
     }
-}
-
-/// Render one embedded binary static.
-fn render_embedded_static(
-    symbol_name: &str,
-    section_name: &str,
-    alignment_type: &str,
-    path: &Path,
-) -> Result<String> {
-    let (size, path_string) = embedded_file(path)?;
-    Ok(format!(
-        "\n#[allow(dead_code, non_upper_case_globals)]\n\
-         #[unsafe(link_section = \"{section_name}\")]\n\
-         pub static {symbol_name}: {alignment_type}<{size}> = {alignment_type}(*include_bytes!({path_string:?}));\n"
-    ))
-}
-
-fn embedded_file(path: &Path) -> Result<(u64, &str)> {
-    let size = fs::metadata(path)
-        .with_context(|| {
-            format!(
-                "failed to generate embedded firmware source: cannot read '{}'",
-                path.display()
-            )
-        })?
-        .len();
-    let path_string = path
-        .to_str()
-        .with_context(|| format!("path '{}' is not valid UTF-8", path.display()))?;
-    Ok((size, path_string))
 }
 
 fn render_build_stamp(
@@ -209,9 +189,8 @@ fn render_build_stamp(
     config_content: &[u8],
     config_source: &str,
     linker_template: &str,
-    alignment_source: &str,
-    payload_source: &str,
-    fdt_source: &str,
+    payload: Option<&[u8]>,
+    fdt: Option<&[u8]>,
 ) -> String {
     let mode = match &spec.mode {
         BuildMode::Dynamic => "dynamic".to_string(),
@@ -223,21 +202,26 @@ fn render_build_stamp(
     spec.cargo_features().hash(&mut hasher);
     spec.no_default_features.hash(&mut hasher);
     spec.target.triple().hash(&mut hasher);
+    spec.custom_target.hash(&mut hasher);
     spec.profile().hash(&mut hasher);
     config_content.hash(&mut hasher);
     config_source.hash(&mut hasher);
     linker_template.hash(&mut hasher);
-    alignment_source.hash(&mut hasher);
-    payload_source.hash(&mut hasher);
-    fdt_source.hash(&mut hasher);
+    payload.hash(&mut hasher);
+    fdt.hash(&mut hasher);
     format!("{:016x}\n", hasher.finish())
 }
 
-/// Render the linker script from its firmware layout template.
+/// Renders the linker script from its firmware layout template.
 pub(crate) fn render_linker_script(
     template: &str,
     layout: &super::config::FirmwareLayout,
+    payload_address: Option<u64>,
 ) -> Result<String> {
+    // An empty output section must not move the location counter backwards.
+    // Some boards place the unused payload address below the debug image end.
+    let payload_address =
+        payload_address.map_or_else(String::new, |address| format!("{address:#x}"));
     let rendered = template
         .replace(
             "@LINK_START_ADDRESS@",
@@ -245,16 +229,18 @@ pub(crate) fn render_linker_script(
         )
         .replace("@HEAP_SIZE@", &format!("{:#x}", layout.heap_size_bytes))
         .replace(
-            "@PAYLOAD_ADDRESS@",
-            &format!("{:#x}", layout.payload_address),
-        );
+            "@STACK_SIZE_PER_HART@",
+            &format!("{:#x}", layout.stack_size_per_hart),
+        )
+        .replace("@PAYLOAD_ADDRESS@", &payload_address);
     reject_unknown_placeholders(&rendered)?;
     Ok(rendered)
 }
 
-/// Bail when the rendered script still contains a placeholder-shaped
-/// `@TOKEN@` (non-empty, uppercase/digits/underscores only). Literal `@`
-/// characters, e.g. in comments, are allowed through.
+/// Rejects unresolved `@TOKEN@` placeholders in the rendered linker script.
+///
+/// Tokens are nonempty and contain only uppercase letters, digits, and
+/// underscores. Other uses of `@`, including those in comments, are allowed.
 fn reject_unknown_placeholders(rendered: &str) -> Result<()> {
     let mut rest = rendered;
     while let Some(open) = rest.find('@') {
@@ -275,8 +261,8 @@ fn reject_unknown_placeholders(rendered: &str) -> Result<()> {
     Ok(())
 }
 
-/// Write `content` only when it differs from the existing file.
-fn write_if_changed(path: &Path, content: &[u8]) -> Result<()> {
+/// Writes `content` only when it differs from the existing file.
+pub(super) fn write_if_changed(path: &Path, content: &[u8]) -> Result<()> {
     if fs::read(path).is_ok_and(|existing| existing == content) {
         return Ok(());
     }
