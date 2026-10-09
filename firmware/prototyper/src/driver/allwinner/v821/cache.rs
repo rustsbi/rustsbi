@@ -1,37 +1,28 @@
-//! V821 boot handshake, A27L2 cache, and USB firmware drivers.
+//! A27L2 cache maintenance through V821 MMIO and Andes CSRs.
 //!
-//! Both devices are selected by the same V821 root capability. They stay
-//! outside the platform-wide device set because only the V821 custom SBI
-//! extensions consume them.
+//! This device is consumed by the V821 vendor SBI extension. Binding requires
+//! the prepared V821 SoC and its discovered L2 register range.
 //!
 //! # References
 //!
 //! - Vendor implementation: [V821 SPL cache support](https://github.com/sam-yangjj/tina-v821-v1.3-brandy/blob/34809037526678ccda1720cb4b4ec7ee32272c38/brandy-2.0/spl/arch/riscv/cpu/ads_rv32/mmu.c)
 //!   — A27L2 MMIO layout, command encodings, cache-line size, and initialization
 //!   bits.
-//! - Vendor register definitions: [V821 USB controller](https://github.com/sam-yangjj/tina-v821-v1.3-bsp/blob/4f82c3bed72342d306e1b14755f9618a6ca7a504/drivers/usb/sunxi_usb/include/sunxi_usb_bsp.h)
-//!   — DMA word-address bypass register offset.
-
-#![forbid(unsafe_code)]
 
 use runtime::memory::{
     DeviceRegisterRange, MemoryRegistry, MmioRegion, PhysAddr, PhysAddrRange, SupervisorMemory,
 };
 use runtime::soc::allwinner::v821::{
-    A27L2LineOperation as L1Operation, AllwinnerV821Soc, AndesStatusRegister, V821Csr,
+    A27L2LineOperation as L1Operation, AllwinnerV821Soc, AndesStatusRegister,
 };
+use runtime::timer::TimeSource;
 
 /// The A27L2 cache-maintenance MMIO device.
 ///
 /// V821 preparation requires exactly one enabled hart, so its CSR/MMIO
 /// command sequence needs no inter-hart mutex.
 pub(crate) struct A27L2Cache {
-    csr: V821Csr,
-    registers: CacheRegisters,
-}
-
-/// The USB controller's DMA word-address bypass register.
-pub(crate) struct UsbDmaBypass {
+    soc: AllwinnerV821Soc,
     registers: MmioRegion,
 }
 
@@ -53,12 +44,6 @@ enum CacheRegister {
     Status = 0x80,
 }
 
-impl CacheRegister {
-    const fn offset(self) -> usize {
-        self as usize
-    }
-}
-
 /// BSP-required A27L2 control bits set during firmware binding.
 const L2_CONTROL_INIT_MASK: u32 = (1 << 13) | (1 << 10) | 1;
 const CACHE_LINE_SIZE: usize = 64;
@@ -67,63 +52,42 @@ const COMMAND_TIMEOUT_TICKS: u32 = 4_000_000;
 const STATUS_STATE_MASK: u32 = 0xf;
 const STATUS_BUSY: u32 = 1;
 
-/// Lets the RTOS ISP driver reclaim boot0's SRAM after firmware moves to DRAM.
-pub(crate) fn release_boot0_isp_sram(
-    soc: AllwinnerV821Soc,
-    memory: &mut MemoryRegistry,
-) -> runtime::Result<()> {
-    const BOOT0_ISP_SRAM_RELEASED: u32 = 1 << 0;
-
-    let registers = memory.acquire_mmio(soc.boot0_isp_sram_release()?)?;
-    riscv::asm::fence();
-    let flags = registers.read::<u32>(0)?;
-    registers.write(0, flags | BOOT0_ISP_SRAM_RELEASED)?;
-    riscv::asm::fence();
-    Ok(())
-}
-
-/// Enables the V821 CCU gate required by the PLMT timer.
-pub(crate) fn enable_plmt_clock(
-    soc: AllwinnerV821Soc,
-    memory: &mut MemoryRegistry,
-) -> runtime::Result<()> {
-    const CLOCK_ENABLE: u32 = 1 << 31;
-
-    let registers = memory.acquire_mmio(soc.plmt_clock()?)?;
-    let value = u32::from_le(registers.read::<u32>(0)?);
-    registers.write(0, (value | CLOCK_ENABLE).to_le())?;
-    riscv::asm::fence();
-    Ok(())
-}
-
 impl A27L2Cache {
     pub(crate) fn bind(
         soc: AllwinnerV821Soc,
         registers: DeviceRegisterRange,
         memory: &mut MemoryRegistry,
     ) -> runtime::Result<Self> {
-        let registers = CacheRegisters {
-            mmio: memory.acquire_mmio(registers)?,
+        // Keep the entire described window reserved even though layout checks only
+        // cover the registers this driver accesses.
+        if !registers
+            .subrange(0, CacheRegister::Status as usize + size_of::<u32>())?
+            .has_aligned_bounds(align_of::<u32>())
+        {
+            return Err(runtime::Error::InvalidArgs);
+        }
+        let cache = Self {
+            soc,
+            registers: memory.acquire_mmio(registers)?,
         };
-        let control = registers.read_u32(CacheRegister::Control)?;
-        registers.write_u32(CacheRegister::Control, control | L2_CONTROL_INIT_MASK)?;
-        riscv::asm::fence();
-        Ok(Self {
-            csr: soc.csr(),
-            registers,
-        })
+        let control = cache.read_u32(CacheRegister::Control)?;
+        cache.write_u32(CacheRegister::Control, control | L2_CONTROL_INIT_MASK)?;
+        cache.registers.synchronize();
+        Ok(cache)
     }
 
     /// Reads an Andes machine-control status register.
     pub(crate) fn read_status(&self, register: AndesStatusRegister) -> usize {
-        self.csr.read_status(register)
+        self.soc.read_status(register)
     }
 
-    /// Flushes the complete A27L2 cache.
+    /// Writes back and invalidates all L1 and A27L2 cache lines.
     pub(crate) fn flush_all(&self) -> runtime::Result<()> {
+        let time_source =
+            crate::platform::time_source().ok_or(runtime::Error::NotEnoughResources)?;
         // Flush L1 before issuing the corresponding L2-wide operation.
-        self.csr.write_back_and_invalidate_l1_all();
-        self.l2_command(L2Command::WriteBackAndInvalidateAll)
+        self.soc.write_back_and_invalidate_l1_all();
+        self.l2_command(L2Command::WriteBackAndInvalidateAll, time_source)
     }
 
     pub(crate) fn write_back_range(
@@ -144,7 +108,6 @@ impl A27L2Cache {
         self.maintain_range(start, length, RangeOperation::Invalidate, memory)
     }
 
-    /// Performs one validated A27L2 cache-range operation.
     fn maintain_range(
         &self,
         start: usize,
@@ -169,6 +132,8 @@ impl A27L2Cache {
         if operation == RangeOperation::WriteBack && length >= LARGE_FLUSH_THRESHOLD {
             return self.flush_all();
         }
+        let time_source =
+            crate::platform::time_source().ok_or(runtime::Error::NotEnoughResources)?;
 
         for address in (first..last).step_by(CACHE_LINE_SIZE) {
             let partial = address < start || end - address < CACHE_LINE_SIZE;
@@ -184,33 +149,41 @@ impl A27L2Cache {
             };
             // The full cache-line span was checked against supervisor RAM;
             // partial lines retain surrounding dirty bytes by writeback.
-            self.csr.maintain_a27l2_line(address, l1_operation);
+            self.soc.maintain_a27l2_line(address, l1_operation);
             let line_address = u32::try_from(address).map_err(|_| runtime::Error::InvalidArgs)?;
-            self.registers
-                .write_u32(CacheRegister::LineAddress, line_address)?;
-            self.l2_command(l2_command)?;
+            self.write_u32(CacheRegister::LineAddress, line_address)?;
+            self.l2_command(l2_command, time_source)?;
         }
         Ok(())
     }
 
-    fn l2_command(&self, command: L2Command) -> runtime::Result<()> {
-        riscv::asm::fence();
-        self.registers
-            .write_u32(CacheRegister::Command, command as u32)?;
-        let timer = crate::platform::time_source().ok_or(runtime::Error::NotEnoughResources)?;
-        let read_time_fn = || -> runtime::Result<u32> { Ok(timer.read_time_low() as u32) };
-        let start = read_time_fn()?;
+    fn l2_command(&self, command: L2Command, time_source: &dyn TimeSource) -> runtime::Result<()> {
+        self.registers.synchronize();
+        self.write_u32(CacheRegister::Command, command as u32)?;
+        let start = time_source.read_time_low() as u32;
         loop {
-            match self.registers.read_u32(CacheRegister::Status)? & STATUS_STATE_MASK {
+            match self.read_u32(CacheRegister::Status)? & STATUS_STATE_MASK {
                 0 => {
-                    riscv::asm::fence();
+                    self.registers.synchronize();
                     return Ok(());
                 }
-                STATUS_BUSY if read_time_fn()?.wrapping_sub(start) < COMMAND_TIMEOUT_TICKS => {}
+                STATUS_BUSY
+                    if (time_source.read_time_low() as u32).wrapping_sub(start)
+                        < COMMAND_TIMEOUT_TICKS => {}
                 _ => return Err(runtime::Error::NotEnoughResources),
             }
             core::hint::spin_loop();
         }
+    }
+
+    fn read_u32(&self, register: CacheRegister) -> runtime::Result<u32> {
+        self.registers
+            .read::<u32>(register as usize)
+            .map(u32::from_le)
+    }
+
+    fn write_u32(&self, register: CacheRegister, value: u32) -> runtime::Result<()> {
+        self.registers.write(register as usize, value.to_le())
     }
 }
 
@@ -218,40 +191,4 @@ impl A27L2Cache {
 enum RangeOperation {
     WriteBack,
     Invalidate,
-}
-
-impl UsbDmaBypass {
-    pub(crate) fn bind(
-        registers: DeviceRegisterRange,
-        memory: &mut MemoryRegistry,
-    ) -> runtime::Result<Self> {
-        Ok(Self {
-            registers: memory.acquire_mmio(registers)?,
-        })
-    }
-
-    /// Enables DMA word-address bypass after the supervisor enables USB clocks.
-    ///
-    /// Concurrent calls write the same idempotent value, so this operation
-    /// needs no mutex; the fences remain ordered around each individual write.
-    pub(crate) fn enable(&self) -> runtime::Result<()> {
-        riscv::asm::fence();
-        self.registers.write(0, 1u32)?;
-        riscv::asm::fence();
-        Ok(())
-    }
-}
-
-struct CacheRegisters {
-    mmio: MmioRegion,
-}
-
-impl CacheRegisters {
-    fn read_u32(&self, register: CacheRegister) -> runtime::Result<u32> {
-        self.mmio.read::<u32>(register.offset()).map(u32::from_le)
-    }
-
-    fn write_u32(&self, register: CacheRegister, value: u32) -> runtime::Result<()> {
-        self.mmio.write(register.offset(), value.to_le())
-    }
 }
