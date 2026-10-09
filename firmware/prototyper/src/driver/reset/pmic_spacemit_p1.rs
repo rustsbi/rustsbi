@@ -13,8 +13,8 @@ use runtime::{Error, Result};
 
 use crate::devicetree::EnabledNode;
 
-use super::registry::{self, BindResources, ResetDriver};
-use super::{ResetBackend, ResetError, ResetReason, ResetRequest, ResetType};
+use super::registry::{self, ResetDriver};
+use super::{ResetDevice, ResetError, ResetReason, ResetRequest, ResetType};
 
 use controller::K1I2cController;
 
@@ -133,15 +133,15 @@ impl ResetDriver for P1PmicDriver {
 
     fn bind(
         &self,
-        resources: &mut BindResources<'_>,
-    ) -> Result<alloc::boxed::Box<dyn ResetBackend>> {
+        memory: &mut MemoryRegistry,
+        timebase_frequency_hz: Option<u32>,
+    ) -> Result<alloc::boxed::Box<dyn ResetDevice>> {
         let description = self.description.ok_or(Error::InvalidArgs)?;
-        let timebase_frequency_hz = resources.timebase_frequency_hz();
         Ok(alloc::boxed::Box::new(P1Pmic::bind(
             description.controller,
             description.address,
             timebase_frequency_hz,
-            resources.memory(),
+            memory,
         )?))
     }
 
@@ -170,17 +170,19 @@ impl P1Pmic {
         })
     }
 
-    fn set_power_control(&self, control: PowerControl) -> bool {
+    fn set_power_control(
+        &self,
+        control: PowerControl,
+    ) -> core::result::Result<bool, runtime::timer::Error> {
         let register = Register::PowerControl2 as u8;
-        self.i2c
-            .read_register(self.address, register)
-            .is_some_and(|current| {
-                self.i2c.write_register(
-                    self.address,
-                    register,
-                    (PowerControl::from_bits_retain(current) | control).bits(),
-                )
-            })
+        let Some(current) = self.i2c.read_register(self.address, register)? else {
+            return Ok(false);
+        };
+        self.i2c.write_register(
+            self.address,
+            register,
+            (PowerControl::from_bits_retain(current) | control).bits(),
+        )
     }
 
     fn park(&self) -> ! {
@@ -190,15 +192,16 @@ impl P1Pmic {
     }
 }
 
-impl ResetBackend for P1Pmic {
+impl ResetDevice for P1Pmic {
     fn system_reset(&mut self, request: ResetRequest) -> ResetError {
         let Some(control) = PowerControl::for_request(request) else {
             return ResetError::InvalidRequest;
         };
-        if !self.set_power_control(control) {
-            error!("P1 PMIC: power-control transaction failed");
-            return ResetError::Failed;
+        match self.set_power_control(control) {
+            Ok(true) => self.park(),
+            Ok(false) => error!("P1 PMIC: power-control transaction failed"),
+            Err(error) => error!("P1 PMIC: power-control time source failed: {error:?}"),
         }
-        self.park()
+        ResetError::Failed
     }
 }

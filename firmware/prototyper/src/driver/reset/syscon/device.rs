@@ -4,7 +4,7 @@ use core::mem::{align_of, size_of};
 
 use runtime::memory::{MemoryRegistry, MmioRegion};
 
-use super::super::{ResetBackend, ResetError, ResetRequest, ResetType};
+use super::super::{ResetDevice, ResetError, ResetRequest, ResetType};
 use super::description::ActionDescription;
 
 /// One syscon family binding with optional poweroff and reboot actions.
@@ -29,7 +29,7 @@ impl SysconReset {
     }
 }
 
-impl ResetBackend for SysconReset {
+impl ResetDevice for SysconReset {
     fn system_reset(&mut self, request: ResetRequest) -> ResetError {
         match request.reset_type() {
             ResetType::Shutdown => self
@@ -68,7 +68,7 @@ impl SysconAction {
 
     fn execute(&self) -> ResetError {
         // Order earlier memory and device accesses before issuing reset.
-        riscv::asm::fence();
+        self.registers.synchronize();
         let Ok(old) = self.registers.read::<u32>(0) else {
             return ResetError::Failed;
         };
@@ -76,7 +76,7 @@ impl SysconAction {
         if self.registers.write(0, value.to_le()).is_err() {
             return ResetError::Failed;
         }
-        riscv::asm::fence();
+        self.registers.synchronize();
         // Successful reset never returns. Returning after issue is a failure.
         ResetError::Failed
     }

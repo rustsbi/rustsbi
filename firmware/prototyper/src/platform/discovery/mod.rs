@@ -16,7 +16,7 @@ pub(super) fn discover_platform(
 ) -> runtime::Result<Option<SbiPmu>> {
     let cpu_interrupt_controllers = harts::discover(board, platform)?;
     board.devices.console = console::discover(platform)?;
-    let mut reset = crate::driver::ResetDescription::new();
+    let mut reset = crate::driver::ResetDescription::default();
     let mut soc =
         if let Some(v821) = platform.soc::<runtime::soc::allwinner::v821::AllwinnerV821Soc>()? {
             Some(SocDescription::V821(

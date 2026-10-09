@@ -9,8 +9,8 @@
 
 use bitflags::bitflags;
 use core::mem::{align_of, size_of};
-use core::time::Duration;
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
+use runtime::timer::{Error as TimerError, Timer};
 
 use super::I2cAddress;
 
@@ -98,41 +98,14 @@ enum Direction {
     Read = 1,
 }
 
-const CONTROLLER_RESET_DELAY: Duration = Duration::from_micros(10);
-const TRANSFER_TIMEOUT: Duration = Duration::from_micros(1_000);
-const NANOSECONDS_PER_SECOND: u64 = 1_000_000_000;
-
-#[derive(Clone, Copy)]
-struct Timebase(u64);
-
-impl Timebase {
-    fn new(frequency_hz: u32) -> Option<Self> {
-        (frequency_hz != 0).then_some(Self(u64::from(frequency_hz)))
-    }
-
-    fn ticks_for(self, duration: Duration) -> u64 {
-        let whole_seconds = duration.as_secs().saturating_mul(self.0);
-        let fractional = u64::from(duration.subsec_nanos())
-            .saturating_mul(self.0)
-            .div_ceil(NANOSECONDS_PER_SECOND);
-        whole_seconds.saturating_add(fractional)
-    }
-
-    fn elapsed(self, start: u64, duration: Duration) -> bool {
-        riscv::register::time::read64().wrapping_sub(start) >= self.ticks_for(duration)
-    }
-
-    fn delay(self, duration: Duration) {
-        let start = riscv::register::time::read64();
-        while !self.elapsed(start, duration) {
-            core::hint::spin_loop();
-        }
-    }
-}
+// The controller requires 10 us between reset steps and a 1 ms transfer limit.
+const RESET_DELAY_TICKS_DIVISOR: u64 = 100_000;
+const TRANSFER_TIMEOUT_TICKS_DIVISOR: u64 = 1_000;
 
 pub(super) struct K1I2cController {
     registers: MmioRegion,
-    timebase: Timebase,
+    reset_delay_ticks: u64,
+    transfer_timeout_ticks: u64,
 }
 
 impl K1I2cController {
@@ -141,15 +114,20 @@ impl K1I2cController {
         timebase_frequency_hz: Option<u32>,
         memory: &mut MemoryRegistry,
     ) -> runtime::Result<Self> {
-        let timebase = Timebase::new(timebase_frequency_hz.ok_or(runtime::Error::InvalidArgs)?)
-            .ok_or(runtime::Error::InvalidArgs)?;
+        let frequency = u64::from(
+            timebase_frequency_hz
+                .filter(|frequency| *frequency != 0)
+                .ok_or(runtime::Error::InvalidArgs)?,
+        );
         let registers = registers.subrange(0, REGISTER_SPAN)?;
         if !registers.start().is_aligned_to(align_of::<u32>()) {
             return Err(runtime::Error::InvalidArgs);
         }
         Ok(Self {
             registers: memory.acquire_mmio(registers)?,
-            timebase,
+            // Round up so short delays and timeouts do not end early.
+            reset_delay_ticks: frequency.div_ceil(RESET_DELAY_TICKS_DIVISOR),
+            transfer_timeout_ticks: frequency.div_ceil(TRANSFER_TIMEOUT_TICKS_DIVISOR),
         })
     }
 
@@ -167,44 +145,52 @@ impl K1I2cController {
             .expect("BUG: K1 I2C register escaped its MMIO window")
     }
 
-    fn reset(&self) {
+    fn reset(&self, timer: &Timer) -> Result<(), TimerError> {
+        let delay = || -> Result<(), TimerError> {
+            let start = timer.read_time()?;
+            while timer.read_time()?.wrapping_sub(start) < self.reset_delay_ticks {
+                core::hint::spin_loop();
+            }
+            Ok(())
+        };
         self.write(Register::Control, Control::empty().bits());
-        self.timebase.delay(CONTROLLER_RESET_DELAY);
+        delay()?;
         self.write(Register::Control, Control::UNIT_RESET.bits());
-        self.timebase.delay(CONTROLLER_RESET_DELAY);
+        delay()?;
         self.write(
             Register::Control,
             (Control::UNIT_ENABLE | Control::SCL_ENABLE).bits(),
         );
+        Ok(())
     }
 
     fn clear_status(&self, status: Status) {
         self.write(Register::Status, (status & CLEARABLE_STATUS).bits());
     }
 
-    fn wait_for_status(&self, mask: Status) -> Option<Status> {
-        let start = riscv::register::time::read64();
+    fn wait_for_status(&self, timer: &Timer, mask: Status) -> Result<Option<Status>, TimerError> {
+        let start = timer.read_time()?;
         loop {
             let status = Status::from_bits_retain(self.read(Register::Status));
             if status.intersects(STATUS_ERRORS | Status::ACK_NAK) {
                 self.clear_status(status);
-                self.reset();
-                return None;
+                self.reset(timer)?;
+                return Ok(None);
             }
             if status.intersects(mask) {
                 self.clear_status(status);
-                return Some(status);
+                return Ok(Some(status));
             }
-            if self.timebase.elapsed(start, TRANSFER_TIMEOUT) {
-                self.reset();
-                return None;
+            if timer.read_time()?.wrapping_sub(start) >= self.transfer_timeout_ticks {
+                self.reset(timer)?;
+                return Ok(None);
             }
             core::hint::spin_loop();
         }
     }
 
-    fn prepare_transfer(&self) -> bool {
-        self.reset();
+    fn prepare_transfer(&self, timer: &Timer) -> Result<bool, TimerError> {
+        self.reset(timer)?;
         let reset_cycle = ResetCycle::from_bits_retain(self.read(Register::ResetCycle))
             | ResetCycle::SDA_GLITCH_FILTER_BYPASS;
         self.write(Register::ResetCycle, reset_cycle.bits());
@@ -218,15 +204,15 @@ impl K1I2cController {
         );
         self.clear_status(Status::from_bits_retain(self.read(Register::Status)));
 
-        let start = riscv::register::time::read64();
+        let start = timer.read_time()?;
         loop {
             let status = Status::from_bits_retain(self.read(Register::Status));
             if !status.intersects(Status::UNIT_BUSY | Status::BUS_BUSY) {
-                return true;
+                return Ok(true);
             }
-            if self.timebase.elapsed(start, TRANSFER_TIMEOUT) {
-                self.reset();
-                return false;
+            if timer.read_time()?.wrapping_sub(start) >= self.transfer_timeout_ticks {
+                self.reset(timer)?;
+                return Ok(false);
             }
             core::hint::spin_loop();
         }
@@ -237,7 +223,12 @@ impl K1I2cController {
         self.write(Register::Control, (control - Control::UNIT_ENABLE).bits());
     }
 
-    fn start(&self, device: I2cAddress, direction: Direction) -> bool {
+    fn start(
+        &self,
+        timer: &Timer,
+        device: I2cAddress,
+        direction: Direction,
+    ) -> Result<bool, TimerError> {
         let address = (device.get() << 1) | direction as u8;
         self.write(Register::DataBuffer, u32::from(address));
         let control = Control::from_bits_retain(self.read(Register::Control)) - TRANSFER_CONTROL;
@@ -245,10 +236,10 @@ impl K1I2cController {
             Register::Control,
             (control | Control::START | Control::TRANSFER_BYTE).bits(),
         );
-        self.wait_for_status(Status::TX_EMPTY).is_some()
+        Ok(self.wait_for_status(timer, Status::TX_EMPTY)?.is_some())
     }
 
-    fn send_byte(&self, value: u8, stop: bool) -> bool {
+    fn send_byte(&self, timer: &Timer, value: u8, stop: bool) -> Result<bool, TimerError> {
         self.write(Register::DataBuffer, u32::from(value));
         let mut control = (Control::from_bits_retain(self.read(Register::Control))
             - TRANSFER_CONTROL)
@@ -257,35 +248,52 @@ impl K1I2cController {
             control |= Control::STOP;
         }
         self.write(Register::Control, control.bits());
-        self.wait_for_status(if stop {
-            Status::MASTER_STOP_DETECTED
-        } else {
-            Status::TX_EMPTY
-        })
-        .is_some()
+        Ok(self
+            .wait_for_status(
+                timer,
+                if stop {
+                    Status::MASTER_STOP_DETECTED
+                } else {
+                    Status::TX_EMPTY
+                },
+            )?
+            .is_some())
     }
 
-    pub(super) fn write_register(&self, device: I2cAddress, register: u8, value: u8) -> bool {
-        if !self.prepare_transfer() {
-            return false;
-        }
-        let result = self.start(device, Direction::Write)
-            && self.send_byte(register, false)
-            && self.send_byte(value, true);
+    pub(super) fn write_register(
+        &self,
+        device: I2cAddress,
+        register: u8,
+        value: u8,
+    ) -> Result<bool, TimerError> {
+        let timer = Timer::current()?;
+        let result = (|| {
+            if !self.prepare_transfer(&timer)? {
+                return Ok(false);
+            }
+            Ok(self.start(&timer, device, Direction::Write)?
+                && self.send_byte(&timer, register, false)?
+                && self.send_byte(&timer, value, true)?)
+        })();
+        // A failed time read must release the controller just like a transfer
+        // failure, while retaining the original timer error for the caller.
         self.disable();
         result
     }
 
-    pub(super) fn read_register(&self, device: I2cAddress, register: u8) -> Option<u8> {
-        if !self.prepare_transfer() {
-            return None;
-        }
+    pub(super) fn read_register(
+        &self,
+        device: I2cAddress,
+        register: u8,
+    ) -> Result<Option<u8>, TimerError> {
+        let timer = Timer::current()?;
         let value = (|| {
-            if !self.start(device, Direction::Write)
-                || !self.send_byte(register, false)
-                || !self.start(device, Direction::Read)
+            if !self.prepare_transfer(&timer)?
+                || !self.start(&timer, device, Direction::Write)?
+                || !self.send_byte(&timer, register, false)?
+                || !self.start(&timer, device, Direction::Read)?
             {
-                return None;
+                return Ok(None);
             }
             let control = (Control::from_bits_retain(self.read(Register::Control))
                 - TRANSFER_CONTROL)
@@ -293,12 +301,18 @@ impl K1I2cController {
                 | Control::STOP
                 | Control::TRANSFER_BYTE;
             self.write(Register::Control, control.bits());
-            let status = self.wait_for_status(Status::RX_FULL)?;
+            let Some(status) = self.wait_for_status(&timer, Status::RX_FULL)? else {
+                return Ok(None);
+            };
             let value = self.read(Register::DataBuffer) as u8;
-            if !status.contains(Status::MASTER_STOP_DETECTED) {
-                self.wait_for_status(Status::MASTER_STOP_DETECTED)?;
+            if !status.contains(Status::MASTER_STOP_DETECTED)
+                && self
+                    .wait_for_status(&timer, Status::MASTER_STOP_DETECTED)?
+                    .is_none()
+            {
+                return Ok(None);
             }
-            Some(value)
+            Ok(Some(value))
         })();
         self.disable();
         value

@@ -3,7 +3,7 @@
 //! The driver stops the watchdog before issuing its dedicated software-reset
 //! command. When the Platform Description supplies an RTC V203 `gprcm_reg`
 //! window, it also enables the associated reset gate. Discovery and binding do
-//! not modify hardware; [`super::super::ResetDevice`] serializes the command
+//! not modify hardware; [`super::super::ResetController`] serializes the command
 //! sequence across harts.
 //!
 //! # References
@@ -17,8 +17,8 @@ use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
 use crate::devicetree::EnabledNode;
 
-use super::super::registry::{self, BindResources, ResetDriver};
-use super::super::{ResetBackend, ResetError, ResetRequest, ResetType};
+use super::super::registry::{self, ResetDriver};
+use super::super::{ResetDevice, ResetError, ResetRequest, ResetType};
 
 #[repr(usize)]
 #[derive(Clone, Copy)]
@@ -69,13 +69,14 @@ impl ResetDriver for V105Driver {
 
     fn bind(
         &self,
-        resources: &mut BindResources<'_>,
-    ) -> Result<alloc::boxed::Box<dyn ResetBackend>> {
+        memory: &mut MemoryRegistry,
+        _timebase_frequency_hz: Option<u32>,
+    ) -> Result<alloc::boxed::Box<dyn ResetDevice>> {
         let registers = self.registers.ok_or(runtime::Error::InvalidArgs)?;
         Ok(alloc::boxed::Box::new(V105Watchdog::bind(
             registers,
             self.reset_gate,
-            resources.memory(),
+            memory,
         )?))
     }
 
@@ -122,11 +123,11 @@ impl V105Watchdog {
     }
 
     fn start_reset(&mut self) -> runtime::Result<()> {
-        riscv::asm::fence();
+        self.registers.synchronize();
         if let Some(gate) = &self.reset_gate {
             let value = u32::from_le(gate.read::<u32>(0)?) | RESET_GATE_ENABLE;
             gate.write(0, value.to_le())?;
-            riscv::asm::fence();
+            gate.synchronize();
         }
 
         // Retain MODE's writable low fields, clear enable, and replace the key.
@@ -134,19 +135,19 @@ impl V105Watchdog {
         let stopped = (mode & MODE_WRITABLE_BITS) | UPDATE_KEY;
         self.registers
             .write(Register::Mode as usize, stopped.to_le())?;
-        riscv::asm::fence();
+        self.registers.synchronize();
 
         // V105 has a dedicated immediate reset command; no timer is required.
         self.registers.write(
             Register::SoftwareReset as usize,
             (UPDATE_KEY | SOFTWARE_RESET_TRIGGER).to_le(),
         )?;
-        riscv::asm::fence();
+        self.registers.synchronize();
         Ok(())
     }
 }
 
-impl ResetBackend for V105Watchdog {
+impl ResetDevice for V105Watchdog {
     fn system_reset(&mut self, request: ResetRequest) -> ResetError {
         if !matches!(
             request.reset_type(),

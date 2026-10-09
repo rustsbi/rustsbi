@@ -11,8 +11,8 @@ use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
 use crate::devicetree::EnabledNode;
 
-use super::registry::{self, BindResources, ResetDriver};
-use super::{ResetBackend, ResetError, ResetReason, ResetRequest, ResetType};
+use super::registry::{self, ResetDriver};
+use super::{ResetDevice, ResetError, ResetReason, ResetRequest, ResetType};
 
 #[repr(usize)]
 #[derive(Clone, Copy)]
@@ -61,12 +61,12 @@ impl ResetDriver for SifiveTestDriver {
 
     fn bind(
         &self,
-        resources: &mut BindResources<'_>,
-    ) -> Result<alloc::boxed::Box<dyn ResetBackend>> {
+        memory: &mut MemoryRegistry,
+        _timebase_frequency_hz: Option<u32>,
+    ) -> Result<alloc::boxed::Box<dyn ResetDevice>> {
         let registers = self.registers.ok_or(runtime::Error::InvalidArgs)?;
         Ok(alloc::boxed::Box::new(SifiveTestDevice::bind(
-            registers,
-            resources.memory(),
+            registers, memory,
         )?))
     }
 
@@ -126,7 +126,7 @@ impl SifiveTestDevice {
         })
     }
 
-    /// Writes the finish value and parks the hart until the board powers off.
+    /// Issues the finish command and waits for board reset or exit.
     fn finish(&mut self, command: FinishCommand) -> ResetError {
         if self
             .registers
@@ -141,7 +141,7 @@ impl SifiveTestDevice {
     }
 }
 
-impl ResetBackend for SifiveTestDevice {
+impl ResetDevice for SifiveTestDevice {
     fn system_reset(&mut self, request: ResetRequest) -> ResetError {
         let Some(command) = FinishCommand::for_request(request) else {
             return ResetError::InvalidRequest;

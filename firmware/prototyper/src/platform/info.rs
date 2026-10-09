@@ -207,7 +207,7 @@ impl DeviceDescriptions {
     fn empty() -> Self {
         Self {
             console: None,
-            reset: driver::ResetDescription::empty(),
+            reset: driver::ResetDescription::default(),
             interrupts: InterruptDescriptions::empty(),
         }
     }

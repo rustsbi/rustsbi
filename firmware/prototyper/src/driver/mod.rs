@@ -24,7 +24,8 @@ use runtime::memory::MemoryRegistry;
 use crate::platform::{BoardInfo, ClintResource, ImsicInfo};
 
 pub(crate) use reset::{
-    Description as ResetDescription, ResetDevice, ResetError, ResetReason, ResetRequest, ResetType,
+    Description as ResetDescription, ResetController, ResetError, ResetReason, ResetRequest,
+    ResetType,
 };
 
 pub(crate) use aia::{IMSIC_COMPATIBLES, IMSIC_FILE_SPAN};
@@ -47,7 +48,7 @@ pub(crate) struct Devices {
     pub(crate) timer: Option<Box<dyn TimerDevice>>,
     pub(crate) ipi: Option<Box<dyn IpiDevice>>,
     pub(crate) console: Option<Console>,
-    pub(crate) reset: ResetDevice,
+    pub(crate) reset: Option<ResetController>,
 }
 
 impl Devices {
