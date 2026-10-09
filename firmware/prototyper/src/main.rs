@@ -19,7 +19,7 @@ mod sbi;
 use crate::driver::{ipi, timer};
 use crate::firmware::BootInfo;
 use crate::sbi::features::{
-    check_next_stage_privilege, detect_hart_features, hart_mhpm_mask, hart_privileged_version,
+    check_next_stage_privilege, detect_hart_features, hart_privileged_version,
 };
 use crate::sbi::hart_local;
 use ::riscv::register::mstatus::MPP;
@@ -122,6 +122,9 @@ fn log_hart_capabilities(hart_id: usize) {
     info!(
         "{:<30}: {:#08x}",
         "Boot HART MHPM Mask:",
-        hart_mhpm_mask(hart_id)
+        runtime::pmu::Pmu::current()
+            .and_then(|pmu| pmu.probe())
+            .expect("failed to discover current-hart counters")
+            .mask()
     );
 }

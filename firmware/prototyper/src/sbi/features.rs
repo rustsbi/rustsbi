@@ -1,11 +1,11 @@
-use crate::riscv::csr::*;
+use crate::riscv::csr::{CSR_STIMECMP, has_csr};
 use ::riscv::register::mstatus::MPP;
 use core::fmt;
 use runtime::FdtNode;
 use runtime::features as arch_features;
 pub use runtime::features::PrivilegedVersion;
 use runtime::features::SupervisorEnvironmentPolicy;
-use seq_macro::seq;
+use runtime::pmu;
 
 use crate::fail;
 use crate::platform::mark_hart_privilege_checked;
@@ -16,6 +16,7 @@ use runtime::hart::HartId;
 #[derive(Debug)]
 pub(crate) enum HartInitError {
     PrivilegedVersion(arch_features::FeatureError),
+    CounterReset(pmu::CounterError),
     SupervisorEnvironment(arch_features::FeatureError),
 }
 
@@ -28,6 +29,7 @@ impl fmt::Display for HartInitError {
                     "privileged architecture discovery failed: {error}"
                 )
             }
+            Self::CounterReset(error) => write!(formatter, "counter reset failed: {error:?}"),
             Self::SupervisorEnvironment(error) => {
                 write!(formatter, "supervisor environment setup failed: {error}")
             }
@@ -39,17 +41,11 @@ impl fmt::Display for HartInitError {
 pub struct HartFeatures {
     extensions: [bool; Extension::COUNT],
     privileged_version: PrivilegedVersion,
-    mhpm_mask: u32,
-    mhpm_bits: u32,
 }
 
 impl HartFeatures {
     pub const fn privileged_version(&self) -> PrivilegedVersion {
         self.privileged_version
-    }
-
-    pub const fn mhpm_mask(&self) -> u32 {
-        self.mhpm_mask
     }
 }
 
@@ -103,12 +99,6 @@ pub fn hart_has_extension(hart_id: usize, extension: Extension) -> bool {
 pub fn hart_privileged_version(hart_id: usize) -> PrivilegedVersion {
     with_hart(hart_id, |local| {
         local.with_features(HartFeatures::privileged_version)
-    })
-}
-
-pub fn hart_mhpm_mask(hart_id: usize) -> u32 {
-    with_hart(hart_id, |local| {
-        local.with_features(HartFeatures::mhpm_mask)
     })
 }
 
@@ -172,32 +162,10 @@ fn detect_sstc() {
 }
 
 fn detect_mhpm_counters() {
-    // mcycle, minstret, and time are treated as always implemented;
-    // bits 0-2 of the mask record them.
-    let mut mhpm_mask: u32 = 0b111;
-
-    macro_rules! m_probe_mhpm_csr {
-        ($csr_num:expr, $value:expr) => {
-            probe_mhpm_csr::<$csr_num>($value)
-        };
-    }
-
-    // mhpmcounter3:  0xb03
-    // mhpmcounter31: 0xb1f
-    seq!(csr_num in 0xb03..=0xb1f{
-        m_probe_mhpm_csr!(csr_num, &mut mhpm_mask);
-    });
-
-    with_current(|local| {
-        local.with_features_mut(|features| {
-            features.mhpm_mask = mhpm_mask;
-            // TODO: at present, the prototyper only supports 64-bit counters.
-            features.mhpm_bits = 64;
-        });
-        // The PMU state snapshots the counter topology; rebuild it now that
-        // the mask is known.
-        local.init_pmu();
-    });
+    let counters = pmu::Pmu::current()
+        .and_then(|pmu| pmu.probe())
+        .expect("failed to discover current-hart counters");
+    with_current(|local| local.init_pmu(counters));
 }
 
 /// Detects the current hart's privileged-architecture version, Sstc support
@@ -223,8 +191,6 @@ pub fn init(cpus: FdtNode<'_, '_>) {
                 *features = HartFeatures {
                     extensions: hart_exts,
                     privileged_version: PrivilegedVersion::Version1_12,
-                    mhpm_mask: 0,
-                    mhpm_bits: 0,
                 }
             })
         });
@@ -279,9 +245,9 @@ pub(crate) fn configure_hart_environment() -> Result<(), HartInitError> {
         })
     });
     let hart = HartId::current().expect("BUG: invalid hart ID").as_usize();
-    if hart_privileged_version(hart) >= PrivilegedVersion::Version1_11 {
-        crate::riscv::csr::mcountinhibit::write_raw(!0b111usize);
-    }
+    pmu::Pmu::current()
+        .and_then(|pmu| pmu.reset())
+        .map_err(HartInitError::CounterReset)?;
     if hart_has_extension(hart, Extension::Sstc) {
         crate::riscv::csr::menvcfg::set_bits(crate::riscv::csr::menvcfg::STCE);
     }

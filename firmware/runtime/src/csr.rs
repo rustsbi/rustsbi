@@ -200,6 +200,26 @@ pub(crate) trait Writable: Csr {
     fn write(value: Self::Value) -> Result<(), Error>;
 }
 
+pub(crate) trait Csr64: Csr<Value = usize> + Readable {
+    #[cfg(target_pointer_width = "32")]
+    type High: Readable<Value = usize>;
+
+    fn read64() -> Result<u64, Error> {
+        #[cfg(target_pointer_width = "64")]
+        {
+            Self::read().map(|value| value as u64)
+        }
+        #[cfg(target_pointer_width = "32")]
+        loop {
+            let high = Self::High::read()?;
+            let low = Self::read()?;
+            if high == Self::High::read()? {
+                return Ok(((high as u64) << 32) | low as u64);
+            }
+        }
+    }
+}
+
 macro_rules! word_value {
     ($($(#[$attribute:meta])* $name:ident;)*) => {$(
         $(#[$attribute])*
@@ -465,9 +485,9 @@ registers! {
     read {
         Tdata1: TriggerData = 0x7a1;
         Mcounteren: usize = 0x306;
-        Mcountinhibit: usize = 0x320;
     }
     write {
+        Mcountinhibit: usize = 0x320;
         Menvcfg: EnvironmentConfig = 0x30a;
         #[cfg(target_pointer_width = "32")]
         MenvcfgHigh: EnvironmentConfigHigh = 0x31a;
@@ -475,6 +495,16 @@ registers! {
         Tselect: usize = 0x7a0;
     }
 }
+
+pub(crate) const SUPERVISOR_COUNTER_BASE: u16 = 0xc00;
+
+pub(crate) enum MachineCounter<const INDEX: u8> {}
+
+pub(crate) enum MachineCounterHigh<const INDEX: u8> {}
+
+pub(crate) enum CounterEvent<const INDEX: u8> {}
+
+pub(crate) enum CounterEventHigh<const INDEX: u8> {}
 
 pub(crate) enum MachineState<const INDEX: usize> {}
 
@@ -485,6 +515,28 @@ pub(crate) enum SupervisorState<const INDEX: usize> {}
 pub(crate) enum HypervisorState<const INDEX: usize> {}
 
 pub(crate) enum HypervisorStateHigh<const INDEX: usize> {}
+
+readable!(MachineCounter<0>, 0xb00, usize);
+writable!(MachineCounter<0>, 0xb00);
+readable!(MachineCounterHigh<0>, 0xb80, usize);
+writable!(MachineCounterHigh<0>, 0xb80);
+readable!(MachineCounter<2>, 0xb02, usize);
+writable!(MachineCounter<2>, 0xb02);
+readable!(MachineCounterHigh<2>, 0xb82, usize);
+writable!(MachineCounterHigh<2>, 0xb82);
+
+seq_macro::seq!(N in 3..=31 {
+    #(
+        readable!(MachineCounter<N>, 0xb00 + N, usize);
+        writable!(MachineCounter<N>, 0xb00 + N);
+        readable!(MachineCounterHigh<N>, 0xb80 + N, usize);
+        writable!(MachineCounterHigh<N>, 0xb80 + N);
+        readable!(CounterEvent<N>, 0x320 + N, usize);
+        writable!(CounterEvent<N>, 0x320 + N);
+        readable!(CounterEventHigh<N>, 0x720 + N, usize);
+        writable!(CounterEventHigh<N>, 0x720 + N);
+    )*
+});
 
 readable!(MachineState<0>, 0x30c, StateEnable);
 writable!(MachineState<0>, 0x30c);
@@ -509,4 +561,19 @@ seq_macro::seq!(N in 1..4 {
         identity!(HypervisorStateHigh<N>, 0x61c + N, StateEnableHigh);
         writable!(HypervisorStateHigh<N>, 0x61c + N);
     )*
+});
+
+macro_rules! csr64 {
+    ($low:ty, $high:ty) => {
+        impl Csr64 for $low {
+            #[cfg(target_pointer_width = "32")]
+            type High = $high;
+        }
+    };
+}
+
+csr64!(MachineCounter<0>, MachineCounterHigh<0>);
+csr64!(MachineCounter<2>, MachineCounterHigh<2>);
+seq_macro::seq!(N in 3..=31 {
+    #(csr64!(MachineCounter<N>, MachineCounterHigh<N>);)*
 });

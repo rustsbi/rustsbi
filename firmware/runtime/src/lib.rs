@@ -68,3 +68,5 @@ pub type Result<T> = core::result::Result<T, Error>;
 pub mod features;
 
 mod instructions;
+
+pub mod pmu;
