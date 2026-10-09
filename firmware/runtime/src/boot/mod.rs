@@ -22,6 +22,7 @@ pub use images::{embedded_fdt, embedded_payload};
 pub(crate) use stack::firmware_end;
 pub use stack::{BootStack, initialize_stacks, locate_stack};
 
+use crate::csr::Mie;
 use crate::hart::{self, HartEvent};
 use crate::trap::init::mark_armed;
 
@@ -168,24 +169,25 @@ pub unsafe extern "C" fn finish_boot() -> ! {
 fn finish_boot_rust() -> ! {
     let hart = hart::current_hart();
     mark_armed(hart);
+    let ipi = match crate::ipi::Ipi::current() {
+        Ok(ipi) => Some(ipi),
+        Err(crate::ipi::Error::Unavailable) => None,
+        Err(error) => panic!("BUG: invalid boot IPI capability: {error}"),
+    };
     loop {
         // Acknowledge before observing the state. Clearing after observing
         // Stopped could erase a concurrent start's wakeup just before WFI.
-        if let Some(ipi) = crate::ipi::get() {
-            ipi.clear_current()
-                .expect("BUG: could not clear the hart wake interrupt");
-            riscv::asm::fence();
-        }
-        let event = hart::take_local_event();
-        // A sender may have selected this hart before it stopped, or just
-        // after STARTED became visible. Complete its work before handoff/WFI.
-        if let Some(handler) = crate::ipi::handler() {
-            handler.deliver_current();
-        }
+        let event = match ipi.as_ref() {
+            Some(ipi) => ipi
+                .poll()
+                .expect("BUG: could not receive the hart wake interrupt"),
+            None => hart::take_local_event(),
+        };
         match event {
             HartEvent::Start(next_stage) => {
-                // SAFETY: M-mode writes to this hart's S-mode and trap
-                // CSRs for the staged entry.
+                // SAFETY:
+                // 1. The entry/stop path retains M-mode with MIE clear.
+                // 2. This hart's traps and timer are initialized; its cell owns the entry.
                 unsafe {
                     crate::trap::dispatch::stage_next_mode(
                         next_stage.start_addr,
@@ -193,15 +195,19 @@ fn finish_boot_rust() -> ! {
                     )
                 };
                 let hart_id = hart.as_usize();
-                // SAFETY: the diverging final `mret` into S/HS mode; the
-                // ceremony above staged every CSR the architecture needs.
+                // SAFETY:
+                // 1. stage_next_mode prepared the return mode and PC with MIE clear.
+                // 2. finish_boot armed this hart's trap stack; this call chain is retired.
                 unsafe { enter_stage(hart_id, next_stage.opaque) }
             }
             HartEvent::Park => {
-                // SAFETY: M-mode write to this hart's mie around the parked
-                // wait; a staged start wakes this hart into the machine
-                // software transport, which performs the entry.
-                crate::csr::mie::set_machine_software();
+                // Arm the selected IPI transport before waiting for a staged start.
+                match ipi.as_ref() {
+                    Some(ipi) => ipi
+                        .prepare_wait()
+                        .expect("BUG: IPI capability used on another hart"),
+                    None => Mie::set_bits(Mie::MACHINE_SOFTWARE),
+                }
                 riscv::asm::wfi();
                 // A masked wake re-checks the cell instead of returning
                 // into the discarded boot context.

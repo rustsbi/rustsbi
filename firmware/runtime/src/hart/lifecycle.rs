@@ -216,15 +216,17 @@ pub enum StopError {
 /// in M-mode until a new start request arrives, including across spurious WFI
 /// wakeups. Only failures return to the caller.
 pub fn stop_current() -> Result<core::convert::Infallible, StopError> {
-    let ipi = crate::ipi::get().ok_or(StopError::Platform)?;
-    ipi.clear_current().map_err(|_| StopError::Platform)?;
-    crate::csr::mie::set_machine_software();
+    let ipi = crate::ipi::Ipi::current().map_err(|_| StopError::Platform)?;
+    ipi.drain().map_err(|_| StopError::Platform)?;
+    ipi.prepare_wait()
+        .expect("BUG: IPI capability used on another hart");
     cell(current_hart())
         .state
         .store(STATE_STOPPED, Ordering::Release);
-    // SAFETY: M-mode interrupts remain disabled. Stop retires the current
-    // trap call chain, allowing the Runtime finisher to reuse the clean stack
-    // and wait for a new start without returning to the stopped supervisor.
+    // SAFETY:
+    // 1. The initialized M-mode trap path retains MIE clear and a published stack.
+    // 2. Stop retires this call chain so finish_boot can reuse the clean stack
+    //    without returning to the stopped supervisor.
     unsafe {
         core::arch::asm!(
             "tail {finish}",
@@ -236,14 +238,10 @@ pub fn stop_current() -> Result<core::convert::Infallible, StopError> {
 
 /// Enters the platform suspend wait for the current hart.
 pub fn suspend_current() -> Result<(), SuspendError> {
-    let ipi = crate::ipi::get().ok_or(SuspendError::Platform)?;
-    if ipi.clear_current().is_err() {
-        return Err(SuspendError::Platform);
-    }
-    crate::ipi::handler()
-        .expect("BUG: IPI handler not published")
-        .deliver_current();
-    crate::csr::mie::set_machine_software();
+    let ipi = crate::ipi::Ipi::current().map_err(|_| SuspendError::Platform)?;
+    ipi.drain().map_err(|_| SuspendError::Platform)?;
+    ipi.prepare_wait()
+        .expect("BUG: IPI capability used on another hart");
     cell(current_hart())
         .state
         .store(STATE_SUSPENDED, Ordering::Release);
@@ -307,14 +305,12 @@ pub struct ResumeTicket {
 impl ResumeTicket {
     /// Wakes the hart and publishes its lower-privilege handoff.
     pub fn commit(mut self) -> Result<(), ResumeError> {
-        let Some(wake) = crate::ipi::get() else {
-            return Err(ResumeError::WakeFailed);
-        };
-        if wake.send(self.hart).is_err() {
+        if !crate::ipi::Ipi::current().is_ok_and(|ipi| ipi.send(self.hart).is_ok()) {
             return Err(ResumeError::WakeFailed);
         }
-        // SAFETY: the ticket owns the cell while it is ResumePending; this
-        // marker is consumed by the same hart's ecall return path.
+        // SAFETY:
+        // 1. The ticket exclusively reserves this cell in ResumePending.
+        // 2. The ticket stays on its hart, whose ecall path alone consumes the marker.
         unsafe {
             *self.cell.transfer.get() = Some(ControlTransfer::NonRetentiveResume(self.stage));
         }

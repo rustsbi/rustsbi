@@ -12,6 +12,7 @@ mod cci;
 mod clint;
 mod console;
 pub(crate) mod ipi;
+mod plicsw;
 mod plmt;
 mod reset;
 pub(crate) mod timer;
@@ -26,12 +27,11 @@ pub(crate) use reset::{
     Description as ResetDescription, ResetDevice, ResetError, ResetReason, ResetRequest, ResetType,
 };
 
-pub(crate) use aia::ImsicInterrupt;
-pub(crate) use aia::{IMSIC_COMPATIBLES, IMSIC_FILE_SPAN, initialize_hart_imsic};
+pub(crate) use aia::{IMSIC_COMPATIBLES, IMSIC_FILE_SPAN};
 pub(crate) use cci::Cci550;
 pub(crate) use clint::ClintKind;
 pub(crate) use console::{ConsoleKind, DbcnBackend, DbcnError};
-pub(crate) use ipi::{IpiBackend, IpiError, IpiRequest};
+use runtime::ipi::{InterruptSource, IpiDevice};
 use runtime::timer::TimerDevice;
 
 pub(crate) use runtime::hart::HartWake;
@@ -45,7 +45,7 @@ pub(crate) const THEAD_PLIC_COMPATIBLES: [&str; 2] =
 /// Platform devices constructed from the discovered hardware description.
 pub(crate) struct Devices {
     pub(crate) timer: Option<Box<dyn TimerDevice>>,
-    pub(crate) ipi: Option<Box<dyn IpiBackend + Send + Sync>>,
+    pub(crate) ipi: Option<Box<dyn IpiDevice>>,
     pub(crate) console: Option<Box<dyn DbcnBackend + Send>>,
     pub(crate) reset: ResetDevice,
 }
@@ -53,14 +53,13 @@ pub(crate) struct Devices {
 impl Devices {
     /// Returns whether firmware IPIs use IMSIC interrupt files.
     pub(crate) fn uses_imsic(&self) -> bool {
-        self.ipi.as_ref().is_some_and(|ipi| ipi.is_imsic())
+        self.ipi
+            .as_ref()
+            .is_some_and(|ipi| matches!(ipi.interrupt_source(), InterruptSource::Imsic(_)))
     }
 }
 
-type InterruptDevices = (
-    Option<Box<dyn TimerDevice>>,
-    Option<Box<dyn IpiBackend + Send + Sync>>,
-);
+type InterruptDevices = (Option<Box<dyn TimerDevice>>, Option<Box<dyn IpiDevice>>);
 
 fn bind_interrupts(
     board: &BoardInfo,
@@ -83,7 +82,10 @@ fn bind_interrupts(
             warn!("AIA: skipping QEMU virt M-APLIC setup on '{}'", board.model);
             None
         };
-        let ipi = aia::bind(imsic, aplic_config, memory)?;
+        let ipi = aia::bind(imsic, memory)?;
+        if let Some(aplic_config) = aplic_config {
+            aplic_config.bind(memory)?;
+        }
         return Ok((None, Some(ipi)));
     }
     if let (Some(plmt), Some(plicsw)) = (
@@ -96,11 +98,7 @@ fn bind_interrupts(
             .ok_or(runtime::Error::InvalidArgs)?;
         return Ok((
             Some(Box::new(plmt::bind(plmt, memory, hart_id_upper_bound)?)),
-            Some(Box::new(ipi::plicsw::bind(
-                plicsw,
-                memory,
-                hart_id_upper_bound,
-            )?)),
+            Some(plicsw::bind(plicsw, memory, hart_id_upper_bound)?),
         ));
     }
     let Some(description) = board.devices.interrupts.clint() else {

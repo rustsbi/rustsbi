@@ -25,8 +25,8 @@ pub(super) fn wake(hart: HartId) -> Result<(), super::StartError> {
     {
         return Ok(());
     }
-    crate::ipi::get()
-        .ok_or(super::StartError::WakeFailed)?
+    crate::ipi::Ipi::current()
+        .map_err(|_| super::StartError::WakeFailed)?
         .send(hart)
         .map_err(|_| super::StartError::WakeFailed)
 }

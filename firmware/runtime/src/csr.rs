@@ -144,7 +144,7 @@ pub mod mip {
     }
 }
 
-use crate::trap::Error;
+use crate::trap::{self, Error};
 
 pub(crate) mod private {
     pub trait Sealed {}
@@ -440,6 +440,7 @@ word_value! {
     SecurityConfig;
     StateEnable;
     StateEnableHigh;
+    TopExternalInterrupt;
 }
 
 impl TriggerData {
@@ -483,6 +484,12 @@ impl StateEnable {
     pub(crate) const STATE_ENABLE: u64 = 1 << 63;
 }
 
+impl TopExternalInterrupt {
+    pub(crate) fn identity(self) -> u16 {
+        ((self.0 >> 16) & 0x7ff) as u16
+    }
+}
+
 native_registers! {
     read {
         Mhartid: usize = 0xf14;
@@ -512,10 +519,13 @@ native_registers!(@identity Mip: usize = 0x344);
 native_bit_ops! { set { Mie; Mip; } clear { Mie; Mip; } }
 
 impl Mie {
+    pub(crate) const MACHINE_SOFTWARE: usize = 1 << 3;
     pub(crate) const MACHINE_TIMER: usize = 1 << 7;
+    pub(crate) const MACHINE_EXTERNAL: usize = 1 << 11;
 }
 
 impl Mip {
+    pub(crate) const SUPERVISOR_SOFTWARE: usize = 1 << 1;
     pub(crate) const SUPERVISOR_TIMER: usize = 1 << 5;
 }
 
@@ -525,6 +535,7 @@ registers! {
         #[cfg(target_pointer_width = "32")]
         TimeHigh: usize = 0xc81;
         Tdata1: TriggerData = 0x7a1;
+        Mtopei: TopExternalInterrupt = 0x35c;
         Mcounteren: usize = 0x306;
         Htimedelta: usize = 0x605;
         #[cfg(target_pointer_width = "32")]
@@ -553,6 +564,13 @@ impl Mcounteren {
     #[inline]
     pub(crate) fn read_native() -> usize {
         native_read!(Self::NUMBER)
+    }
+}
+
+impl Mtopei {
+    /// Claims and acknowledges exactly the returned interrupt identity.
+    pub(crate) fn claim() -> Result<TopExternalInterrupt, Error> {
+        trap::swap_csr_guarded::<{ Self::NUMBER }>(0).map(TopExternalInterrupt::from_bits)
     }
 }
 

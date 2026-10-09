@@ -43,6 +43,8 @@ pub enum InitError {
     InvalidHartId,
     /// The current hart's timer could not be initialized.
     Timer(crate::timer::Error),
+    /// The current hart's firmware IPI source could not be initialized.
+    Ipi(crate::ipi::Error),
 }
 
 impl fmt::Display for InitError {
@@ -53,6 +55,7 @@ impl fmt::Display for InitError {
             }
             Self::InvalidHartId => formatter.write_str("hart ID is not in the boot topology"),
             Self::Timer(error) => write!(formatter, "timer initialization failed: {error}"),
+            Self::Ipi(error) => write!(formatter, "IPI initialization failed: {error}"),
         }
     }
 }
@@ -129,6 +132,15 @@ where
     }
 
     // Keep policy unpublished until both IPI and timer initialization succeed.
+    let ipi_result = match crate::ipi::Ipi::current() {
+        Ok(ipi) => ipi.initialize(),
+        Err(crate::ipi::Error::Unavailable) => Ok(()),
+        Err(error) => Err(error),
+    };
+    if let Err(error) = ipi_result {
+        state.phase.store(PHASE_UNINITIALIZED, Ordering::Release);
+        return Err(InitError::Ipi(error));
+    }
     if let Err(error) =
         crate::timer::Timer::current().and_then(|timer| timer.initialize_current_hart())
     {

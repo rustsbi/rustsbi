@@ -7,6 +7,7 @@
 //! any; an exception is either an SBI ecall, one of the emulated classes, or
 //! is software-redirected to S/HS. Nothing here is public policy surface.
 
+use crate::csr::Mie;
 use core::arch::asm;
 
 use riscv::register::{mepc, mstatus, satp, sstatus};
@@ -219,20 +220,12 @@ enum Access {
 /// any queued remote-fence work) is delivered.
 #[inline(never)]
 fn machine_soft(frame: &mut TrapFrame) {
-    let ipi = crate::ipi::get().expect("BUG: software interrupt without an IPI device");
-    ipi.clear_current()
-        .expect("BUG: IPI backend could not clear the current hart");
-    let event = hart::take_local_event();
-    crate::ipi::handler()
-        .expect("BUG: IPI handler not published")
-        .deliver_current();
-    match event {
-        HartEvent::Start(next_stage) => enter_next_stage(frame, next_stage),
-        HartEvent::Park => {
-            crate::csr::mie::set_machine_software();
-            riscv::asm::wfi();
-        }
-        HartEvent::None => {}
+    let ipi = crate::ipi::Ipi::current().expect("BUG: software IPI source unavailable");
+    if let Some(event) = ipi
+        .receive_software()
+        .expect("BUG: could not receive software IPI")
+    {
+        complete_ipi(frame, &ipi, event);
     }
 }
 
@@ -251,25 +244,28 @@ fn machine_timer() {
 /// carries the same delivery work as the machine software interrupt.
 #[inline(never)]
 fn machine_external(frame: &mut TrapFrame) {
-    let Some(controller) = crate::irq::get() else {
-        return;
+    let ipi = match crate::ipi::Ipi::current() {
+        Ok(ipi) => ipi,
+        Err(crate::ipi::Error::Unavailable) => return,
+        Err(error) => panic!("BUG: invalid external IPI capability: {error}"),
     };
-    if controller.claim_ipi() {
-        let event = hart::take_local_event();
-        crate::ipi::handler()
-            .expect("BUG: IPI handler not published")
-            .deliver_current();
-        match event {
-            HartEvent::Start(next_stage) => {
-                enter_next_stage(frame, next_stage);
-            }
-            HartEvent::Park => {
-                crate::csr::mie::set_machine_software();
-                crate::csr::mie::set_machine_external();
-                riscv::asm::wfi();
-            }
-            HartEvent::None => {}
+    if let Some(event) = ipi
+        .receive_external()
+        .expect("BUG: could not receive external IPI")
+    {
+        complete_ipi(frame, &ipi, event);
+    }
+}
+
+fn complete_ipi(frame: &mut TrapFrame, ipi: &crate::ipi::Ipi, event: HartEvent) {
+    match event {
+        HartEvent::Start(next_stage) => enter_next_stage(frame, next_stage),
+        HartEvent::Park => {
+            ipi.prepare_wait()
+                .expect("BUG: IPI capability used on another hart");
+            riscv::asm::wfi();
         }
+        HartEvent::None => {}
     }
 }
 
@@ -307,13 +303,21 @@ unsafe fn stage_smode_trap_state() {
 ///
 /// M-mode writes to this hart's S-mode and trap CSRs.
 pub(crate) unsafe fn stage_next_mode(start_addr: usize, next_mode: mstatus::MPP) {
+    // SAFETY:
+    // 1. The caller owns this hart's return state in M-mode with MIE clear.
+    // 2. The staged handoff supplies the caller-selected mode and foreign PC;
+    //    preparing those CSRs does not dereference the target as a Rust pointer.
+    // 3. Runtime owns the initialized interrupt controls and timer transport.
     unsafe {
         stage_smode_trap_state();
         mstatus::set_mpie();
         mstatus::set_mpp(next_mode);
-        crate::csr::mie::set_machine_software();
-        if crate::irq::get().is_some() {
-            crate::csr::mie::set_machine_external();
+        match crate::ipi::Ipi::current() {
+            Ok(ipi) => ipi
+                .prepare_wait()
+                .expect("BUG: IPI capability used on another hart"),
+            Err(crate::ipi::Error::Unavailable) => Mie::set_bits(Mie::MACHINE_SOFTWARE),
+            Err(error) => panic!("BUG: invalid next-stage IPI capability: {error}"),
         }
         crate::timer::Timer::current()
             .and_then(|timer| timer.prepare_next_stage())

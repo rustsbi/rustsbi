@@ -1,8 +1,10 @@
-//! PLICSW uses an 8-by-8 source/target matrix.
+//! PLICSW software interrupts through an 8-by-8 source/target matrix.
 
+use alloc::boxed::Box;
 use core::mem::{align_of, size_of};
 
-use super::{IpiBackend, IpiError, IpiRequest};
+use runtime::hart::HartId;
+use runtime::ipi::{InterruptSource, IpiDevice, IpiError, SoftwareInterruptDevice};
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
 const MATRIX_WIDTH: usize = 8;
@@ -14,17 +16,17 @@ const CONTEXT_STRIDE: usize = 0x1000;
 // Bit 0 of each source's eight-target group, shifted for the selected target.
 const ALL_SOURCES_ENABLE_MASK: u32 = 0x0101_0101;
 
-pub(in crate::driver) struct PlicSw {
+struct PlicSw {
     registers: MmioRegion,
     // Exclusive raw hart ID bound; missing IDs still occupy hardware slots.
     hart_id_upper_bound: usize,
 }
 
-pub(in crate::driver) fn bind(
+pub(crate) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
     hart_id_upper_bound: usize,
-) -> runtime::Result<PlicSw> {
+) -> runtime::Result<Box<dyn IpiDevice>> {
     if hart_id_upper_bound == 0
         || hart_id_upper_bound > MATRIX_WIDTH
         || !registers.has_aligned_bounds(align_of::<u32>())
@@ -44,55 +46,49 @@ pub(in crate::driver) fn bind(
         registers.write(enable_offset + size_of::<u32>(), enabled)?;
         registers.write(CONTEXT_OFFSET + CONTEXT_STRIDE * hart, 0u32)?;
     }
-    riscv::asm::fence();
-    Ok(PlicSw {
+    registers.synchronize();
+    Ok(Box::new(PlicSw {
         registers,
         hart_id_upper_bound,
-    })
+    }))
 }
 
-impl IpiBackend for PlicSw {
-    fn send_ipi(&self, request: IpiRequest) -> Result<(), IpiError> {
-        riscv::asm::fence();
-        for hart in request.harts() {
-            if hart >= self.hart_id_upper_bound {
-                return Err(IpiError::Failed);
-            }
-            let source = runtime::hart::HartId::current()
-                .expect("invalid current hart")
-                .as_usize();
-            if source >= self.hart_id_upper_bound {
-                return Err(IpiError::Failed);
-            }
-            let bit = MATRIX_WIDTH * source + hart;
-            self.registers
-                .write(
-                    PENDING_OFFSET + size_of::<u32>() * (bit / u32::BITS as usize),
-                    (1u32 << (bit % u32::BITS as usize)).to_le(),
-                )
-                .map_err(|_| IpiError::Failed)?;
+impl IpiDevice for PlicSw {
+    fn send(&self, hart: HartId) -> Result<(), IpiError> {
+        let source = HartId::current().map_err(|_| IpiError)?.as_usize();
+        let target = hart.as_usize();
+        if source >= self.hart_id_upper_bound || target >= self.hart_id_upper_bound {
+            return Err(IpiError);
         }
-        riscv::asm::fence();
+        let bit = MATRIX_WIDTH * source + target;
+        self.registers.synchronize();
+        self.registers
+            .write(
+                PENDING_OFFSET + size_of::<u32>() * (bit / u32::BITS as usize),
+                (1u32 << (bit % u32::BITS as usize)).to_le(),
+            )
+            .map_err(|_| IpiError)?;
+        self.registers.synchronize();
         Ok(())
     }
 
-    fn clear_ipi(&self, hart: usize) -> Result<(), IpiError> {
-        if hart >= self.hart_id_upper_bound
-            || hart
-                != runtime::hart::HartId::current()
-                    .expect("invalid current hart")
-                    .as_usize()
-        {
-            return Err(IpiError::Failed);
+    fn interrupt_source(&self) -> InterruptSource<'_> {
+        InterruptSource::Software(self)
+    }
+}
+
+impl SoftwareInterruptDevice for PlicSw {
+    fn clear(&self, hart: HartId) -> Result<(), IpiError> {
+        let hart = hart.as_usize();
+        if hart >= self.hart_id_upper_bound {
+            return Err(IpiError);
         }
         let offset = CONTEXT_OFFSET + CONTEXT_STRIDE * hart + size_of::<u32>();
-        let source: u32 = self.registers.read(offset).map_err(|_| IpiError::Failed)?;
+        let source: u32 = self.registers.read(offset).map_err(|_| IpiError)?;
         if source != 0 {
-            self.registers
-                .write(offset, source)
-                .map_err(|_| IpiError::Failed)?;
+            self.registers.write(offset, source).map_err(|_| IpiError)?;
         }
-        riscv::asm::fence();
+        self.registers.synchronize();
         Ok(())
     }
 }

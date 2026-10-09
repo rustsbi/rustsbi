@@ -11,7 +11,6 @@ use spin::Once;
 use super::error::{self, ResultContext};
 use super::info::{BoardInfo, ImsicInfo, SocDescription};
 use super::{discovery, report, state};
-use crate::driver::ipi::IpiDevice;
 use crate::driver::{self, HartWake};
 use crate::riscv::spacemit_k1::{self, K1BootResources};
 use crate::sbi;
@@ -24,6 +23,7 @@ use crate::sbi::pmu::SbiPmu;
 use crate::sbi::reset::SbiReset;
 use crate::sbi::rfence::SbiRFence;
 use crate::sbi::suspend::SbiSuspend;
+use runtime::ipi::IpiSender;
 
 /// Discovers the platform, initializes its devices, and publishes its
 /// services. Returns the device tree prepared for the next stage.
@@ -174,29 +174,11 @@ fn publish_platform_services(
         console,
         reset,
     } = devices;
-    // Hardware ownership is established independently of the SBI dispatcher.
-    let external = if ipi.as_ref().is_some_and(|device| device.is_imsic()) {
-        static IMSIC: Once<driver::ImsicInterrupt> = Once::new();
-        let iid = board
-            .devices
-            .interrupts
-            .imsic()
-            .expect("selected IMSIC has a description")
-            .resource()
-            .ipi_iid;
-        Some(IMSIC.call_once(|| driver::ImsicInterrupt::new(iid))
-            as &dyn runtime::irq::ExternalInterrupt)
-    } else {
-        None
-    };
     static HART_WAKE: Once<Box<dyn HartWake>> = Once::new();
     let hart_wake = hart_wake.map(|device| HART_WAKE.call_once(|| device).as_ref());
     runtime::hart::install_wakeup(hart_wake);
     let ipi = ipi.map(driver::ipi::init);
     let timer = timer.map(driver::timer::init);
-    runtime::ipi::install(ipi.map(|device| device as &dyn runtime::ipi::IpiDevice));
-    runtime::ipi::install_handler(ipi.map(|_| sbi::ipi::runtime_handler()));
-    runtime::irq::install(external);
     runtime::timer::Timer::install(timer).expect("BUG: timer device published more than once");
     runtime::events::install(pmu.as_ref().map(|_| sbi::pmu::runtime_counters()));
 
@@ -206,7 +188,23 @@ fn publish_platform_services(
     info!("Hello RustSBI!");
 
     let reset = SbiReset::new(reset);
-    publish_sbi_dispatcher(ipi, reset, custom_extension, pmu, hart_wake);
+    let dispatcher = publish_sbi_dispatcher(
+        ipi.map(IpiSender::new),
+        reset,
+        custom_extension,
+        pmu,
+        hart_wake,
+    );
+    if let Some(device) = ipi {
+        runtime::ipi::Ipi::install(
+            device,
+            dispatcher
+                .ipi
+                .as_ref()
+                .expect("BUG: bound IPI without SBI handler"),
+        )
+        .expect("BUG: IPI service published more than once");
+    }
 
     state::mark_ready();
 
@@ -214,12 +212,12 @@ fn publish_platform_services(
 }
 
 fn publish_sbi_dispatcher(
-    ipi: Option<&'static IpiDevice>,
+    ipi: Option<IpiSender>,
     reset: SbiReset,
     custom_extension: sbi::vendor::Extension,
     pmu: Option<SbiPmu>,
     hart_wake: Option<&'static dyn HartWake>,
-) {
+) -> &'static SbiDispatcher {
     let supervisor_memory = state::supervisor_memory();
     let console = state::console_device()
         .map(|device| sbi::console::SbiConsole::new(device, supervisor_memory));
@@ -254,7 +252,7 @@ fn publish_sbi_dispatcher(
         sta,
         mpxy,
         vendor,
-    });
+    })
 }
 
 /// Runs the SoC-specific per-hart setup for secondary harts.

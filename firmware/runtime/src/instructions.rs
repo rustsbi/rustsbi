@@ -134,3 +134,23 @@ pub(crate) mod fence {
         };
     }
 }
+
+pub(crate) fn memory_to_io() {
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+    // SAFETY: FENCE is valid in M-mode and does not dereference memory.
+    unsafe {
+        core::arch::asm!("fence w, o", options(nostack))
+    };
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+    unimplemented!("machine I/O ordering requires a RISC-V hart");
+}
+
+pub(crate) fn io_to_memory() {
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+    // SAFETY: FENCE is valid in M-mode and does not dereference memory.
+    unsafe {
+        core::arch::asm!("fence io, rw", options(nostack))
+    };
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+    unimplemented!("machine I/O ordering requires a RISC-V hart");
+}

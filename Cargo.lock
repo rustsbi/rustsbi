@@ -584,6 +584,7 @@ version = "0.0.0"
 dependencies = [
  "fdt",
  "riscv",
+ "riscv-aia",
  "seq-macro",
  "riscv-decode",
  "rustsbi",
