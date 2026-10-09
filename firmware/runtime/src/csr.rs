@@ -155,3 +155,214 @@ pub mod mip {
         unsafe { riscv::register::mip::clear_stimer() }
     }
 }
+
+use crate::trap::Error;
+
+pub(crate) mod private {
+    pub trait Sealed {}
+}
+
+pub(crate) trait Value: Copy {
+    fn from_bits(bits: usize) -> Self;
+    fn bits(self) -> usize;
+}
+
+impl Value for usize {
+    fn from_bits(bits: usize) -> Self {
+        bits
+    }
+
+    fn bits(self) -> usize {
+        self
+    }
+}
+
+pub(crate) trait Csr: private::Sealed {
+    type Value: Value;
+    const NUMBER: u16;
+}
+
+pub(crate) trait Readable: Csr {
+    /// Reads through this CSR's native or guarded architectural access.
+    fn read() -> Result<Self::Value, Error>;
+}
+
+pub(crate) trait Writable: Csr {
+    fn write(value: Self::Value) -> Result<(), Error>;
+}
+
+macro_rules! word_value {
+    ($($(#[$attribute:meta])* $name:ident;)*) => {$(
+        $(#[$attribute])*
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        pub(crate) struct $name(usize);
+
+        $(#[$attribute])*
+        impl Value for $name {
+            fn from_bits(bits: usize) -> Self { Self(bits) }
+            fn bits(self) -> usize { self.0 }
+        }
+    )*};
+}
+
+macro_rules! identity {
+    ($name:ty, $number:expr, $value:ty) => {
+        impl $crate::csr::private::Sealed for $name {}
+        impl $crate::csr::Csr for $name {
+            type Value = $value;
+            const NUMBER: u16 = $number;
+        }
+    };
+}
+
+macro_rules! readable {
+    ($name:ty, $number:expr, $value:ty) => {
+        $crate::csr::identity!($name, $number, $value);
+        impl $crate::csr::Readable for $name {
+            fn read() -> core::result::Result<Self::Value, $crate::trap::Error> {
+                $crate::trap::read_csr_guarded::<{ $number }>()
+                    .map(<Self::Value as $crate::csr::Value>::from_bits)
+            }
+        }
+    };
+}
+
+macro_rules! writable {
+    ($name:ty, $number:expr) => {
+        impl $crate::csr::Writable for $name {
+            fn write(value: Self::Value) -> core::result::Result<(), $crate::trap::Error> {
+                $crate::trap::write_csr_guarded::<{ $number }>($crate::csr::Value::bits(value))
+            }
+        }
+    };
+}
+
+macro_rules! registers {
+    (read { $($(#[$attribute:meta])* $name:ident: $value:ty = $number:expr;)* }
+     write { $($(#[$rw_attribute:meta])* $rw_name:ident: $rw_value:ty = $rw_number:expr;)* }) => {
+        $(
+            $(#[$attribute])*
+            pub(crate) enum $name {}
+            $(#[$attribute])*
+            $crate::csr::readable!($name, $number, $value);
+        )*
+        $(
+            $(#[$rw_attribute])*
+            pub(crate) enum $rw_name {}
+            $(#[$rw_attribute])*
+            $crate::csr::readable!($rw_name, $rw_number, $rw_value);
+            $(#[$rw_attribute])*
+            $crate::csr::writable!($rw_name, $rw_number);
+        )*
+    };
+}
+
+macro_rules! native_read {
+    ($number:expr) => { $crate::csr::native_read!($number, nomem, nostack) };
+    ($number:expr, [$($option:ident),*]) => {
+        $crate::csr::native_read!($number, $($option),*)
+    };
+    ($number:expr, $($option:ident),*) => {{
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+        {
+            let bits: usize;
+            // SAFETY:
+            // 1. The owning mechanism fixes this CSR identity at compile time.
+            // 2. Its callers establish the execution mode and extension prerequisites.
+            unsafe {
+                core::arch::asm!(
+                    "csrr {value}, {csr}",
+                    csr = const $number,
+                    value = out(reg) bits,
+                    options($($option),*),
+                );
+            }
+            bits
+        }
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+        unimplemented!("native CSR access requires a RISC-V target")
+    }};
+}
+
+macro_rules! native_registers {
+    (read { $($read:tt)* } write { $($write:tt)* }) => {
+        $crate::csr::native_registers!(@impl [nomem, nostack]
+            read { $($read)* } write { $($write)* } write_only {});
+    };
+    (ordered; read { $($read:tt)* } write { $($write:tt)* }
+     write_only { $($write_only:tt)* }) => {
+        $crate::csr::native_registers!(@impl [nostack]
+            read { $($read)* } write { $($write)* } write_only { $($write_only)* });
+    };
+    (@impl $options:tt
+     read { $($(#[$attribute:meta])* $name:ident: $value:ty = $number:expr;)* }
+     write { $($rw_name:ident: $rw_value:ty = $rw_number:expr;)* }
+     write_only { $($wo_name:ident: $wo_value:ty = $wo_number:expr;)* }) => {
+        $(
+            $(#[$attribute])*
+            $crate::csr::native_registers!(@identity $name: $value = $number);
+            $(#[$attribute])*
+            impl $crate::csr::Readable for $name {
+                #[inline]
+                fn read() -> core::result::Result<Self::Value, $crate::trap::Error> {
+                    match () {
+                        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+                        () => Ok(<Self::Value as $crate::csr::Value>::from_bits(
+                            $crate::csr::native_read!(
+                                <Self as $crate::csr::Csr>::NUMBER, $options
+                            ),
+                        )),
+                        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+                        () => unimplemented!("native CSR access requires a RISC-V target"),
+                    }
+                }
+            }
+        )*
+        $(
+            $crate::csr::native_registers!(@impl $options
+                read { $rw_name: $rw_value = $rw_number; } write {} write_only {});
+            $crate::csr::native_registers!(@write $options $rw_name);
+        )*
+        $(
+            $crate::csr::native_registers!(@identity $wo_name: $wo_value = $wo_number);
+            $crate::csr::native_registers!(@write $options $wo_name);
+        )*
+    };
+    (@identity $name:ident: $value:ty = $number:expr) => {
+        pub(crate) enum $name {}
+        $crate::csr::identity!($name, $number, $value);
+    };
+    (@write $options:tt $name:ident) => {
+        impl $crate::csr::Writable for $name {
+            #[inline]
+            fn write(value: Self::Value) -> core::result::Result<(), $crate::trap::Error> {
+                match () {
+                    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+                    () => {
+                        $crate::csr::native_write!("csrw", value, $options);
+                        Ok(())
+                    }
+                    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+                    () => {
+                        let _ = value;
+                        unimplemented!("native CSR access requires a RISC-V target")
+                    }
+                }
+            }
+        }
+    };
+}
+
+pub(crate) use {identity, native_read, native_registers, readable, writable};
+
+word_value! { TriggerData; }
+
+impl TriggerData {
+    pub(crate) fn trigger_type(self) -> usize {
+        self.0 >> (usize::BITS - 4)
+    }
+}
+
+native_registers! { read { Mhartid: usize = 0xf14; } write {} }
+
+registers! { read { Tdata1: TriggerData = 0x7a1; } write { Tselect: usize = 0x7a0; } }

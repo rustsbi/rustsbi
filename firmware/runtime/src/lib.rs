@@ -13,6 +13,7 @@ use core::fmt;
 
 pub mod boot;
 pub mod csr;
+pub mod debug;
 mod device_tree;
 pub mod events;
 pub mod hart;
