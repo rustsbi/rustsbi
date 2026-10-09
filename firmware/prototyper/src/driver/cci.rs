@@ -44,6 +44,9 @@ impl SnoopControlRegister {
                 (SnoopControl::ENABLE_SNOOPS | SnoopControl::ENABLE_DVM_MESSAGES).bits(),
             )
             .expect("BUG: CCI-550 snoop-control register escaped its MMIO window");
+        // Order this interface's write before polling status; an atomic fence
+        // only orders ordinary memory, not device I/O.
+        self.0.synchronize();
     }
 }
 
@@ -74,9 +77,6 @@ impl<const N: usize> Cci550<N> {
     pub(crate) fn enable_coherency(&self) {
         for control in &self.snoop_control {
             control.enable_coherency();
-            // Order the MMIO write before polling status; an atomic fence
-            // only orders ordinary memory, not device I/O.
-            riscv::asm::fence();
             while self.status.change_pending() {
                 core::hint::spin_loop();
             }
