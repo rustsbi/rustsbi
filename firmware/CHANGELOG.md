@@ -46,6 +46,24 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+
+- Expose hart-local Timer, PMU, IPI, environment, debug, PMP, and local-fence capabilities.
+- Keep shared CSR identities and permissions in one catalog; make hardware transactions private to their subsystems.
+- Group SoC-specific firmware drivers by vendor and chip; keep device register
+  protocols in drivers and startup ordering in platform modules.
+- Use functional device traits with explicit sharing and synchronization; publish
+  the complete platform device set and remove duplicate timer and IPI adapters.
+- Keep platform device ownership in Prototyper and lend permanent references to
+  Runtime; separate time sources from comparators, freeze IPI receive selection
+  at installation, and reject duplicate or premature device installation use.
+- Move cold/reset entry, relocation, owned handoffs, linker image storage and PMP
+  mechanisms into Runtime; keep safe boot policy and functional device drivers in Prototyper.
+- Keep Sstc selection, timer interrupt delivery, IMSIC CSR access and local fence
+  execution in Runtime; share bound IPI devices through send-only handles and
+  retain receiver failures until remote fence batches finish.
+- Move hardware PMU, debug-trigger discovery and supervisor environment operations into
+  typed Runtime CSR implementations; keep SBI event mapping and error translation in policy.
+- Preserve enclosing machine trap state across guarded CSR operations.
 - Size per-hart stacks and software state from the enabled hart topology, and
   honor firmware hart-capacity and stack-size settings without configuring Runtime.
 - Move Prototyper heap storage and the global allocation boundary into Runtime,
