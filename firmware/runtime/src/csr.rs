@@ -471,6 +471,9 @@ native_registers! {
         Mhartid: usize = 0xf14;
         Mvendorid: usize = 0xf11;
         Misa: IsaExtensions = 0x301;
+        Mcause: usize = 0x342;
+        Mepc: usize = 0x341;
+        Mtval: usize = 0x343;
     }
     write {
         Medeleg: usize = 0x302;

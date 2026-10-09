@@ -63,3 +63,29 @@ impl fmt::Display for Error {
 }
 
 pub(crate) use recovery::sfence_vma_guarded;
+
+/// The current hart's live machine trap facts for diagnostic reporting.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DiagnosticSnapshot {
+    /// Machine interrupt or exception cause, retaining its architectural code.
+    pub cause: riscv::interrupt::Trap<usize, usize>,
+    /// Instruction address recorded by the most recent machine trap.
+    pub program_counter: usize,
+    /// Additional trap information recorded by the hardware.
+    pub trap_value: usize,
+}
+
+impl DiagnosticSnapshot {
+    /// Captures this hart's live trap facts with machine interrupts masked.
+    pub fn capture() -> Self {
+        use crate::csr::{Mcause, Mepc, Mtval, Readable};
+        riscv::interrupt::machine::free(|| {
+            let bits = Mcause::read().expect("machine cause CSR read failed");
+            Self {
+                cause: riscv::register::mcause::Mcause::from_bits(bits).cause(),
+                program_counter: Mepc::read().expect("machine exception PC CSR read failed"),
+                trap_value: Mtval::read().expect("machine trap value CSR read failed"),
+            }
+        })
+    }
+}

@@ -7,15 +7,15 @@ compile_error!("feature \"payload\" and feature \"jump\" cannot be enabled at th
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    use ::riscv::register::*;
     let hart_id = HartId::current()
         .map(|hart| hart.as_usize())
         .unwrap_or(usize::MAX);
+    let trap = runtime::trap::DiagnosticSnapshot::capture();
     error!("Hart {} {info}", hart_id);
     error!("-----------------------------");
-    error!("mcause:  {:?}", mcause::read().cause());
-    error!("mepc:    {:#018x}", mepc::read());
-    error!("mtval:   {:#018x}", mtval::read());
+    error!("mcause:  {:?}", trap.cause);
+    error!("mepc:    {:#018x}", trap.program_counter);
+    error!("mtval:   {:#018x}", trap.trap_value);
     error!("-----------------------------");
     error!("System shutdown scheduled due to RustSBI panic");
     loop {}
