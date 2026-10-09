@@ -15,7 +15,6 @@ mod boot;
 mod devices;
 mod discovery;
 mod error;
-mod handoff;
 mod info;
 mod interrupts;
 pub(crate) mod protection;

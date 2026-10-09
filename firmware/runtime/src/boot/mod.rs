@@ -67,7 +67,7 @@ pub unsafe extern "C" fn fail_stop() -> ! {
 pub unsafe extern "C" fn finish_boot() -> ! {
     #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     core::arch::naked_asm!(
-        ".align 2",
+        ".balign 4",
         // Discard the current call chain: sp becomes this hart's clean top.
         "call {locate}",
         // Arm the trap stack: from here, a lower-origin trap enters through

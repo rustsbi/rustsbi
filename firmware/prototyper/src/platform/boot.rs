@@ -98,7 +98,10 @@ fn initialize_platform(
             .interrupts
             .hidden_node_paths(&board)
             .collect::<alloc::vec::Vec<_>>();
-        super::handoff::prepare_device_tree(&memory, &hidden_node_paths, platform_description)
+        let firmware_reservation =
+            (!memory.firmware_is_reserved()).then(|| memory.firmware_image_range());
+        platform_description
+            .prepare_next_stage(firmware_reservation, &hidden_node_paths)
             .during("preparing the next-stage platform description")?
             .as_usize()
     };
