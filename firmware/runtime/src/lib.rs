@@ -12,7 +12,7 @@ extern crate alloc;
 use core::fmt;
 
 pub mod boot;
-pub mod csr;
+mod csr;
 pub mod debug;
 mod device_tree;
 pub mod events;

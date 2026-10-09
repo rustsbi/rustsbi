@@ -389,7 +389,7 @@ macro_rules! guarded_machine_instruction {
 /// which the recovery entry turns into [`Error::UnsupportedInstruction`].
 /// The guard masks machine interrupts; unexpected faults fail-stop.
 #[inline(never)]
-pub fn read_csr_guarded<const CSR: u16>() -> Result<usize, Error> {
+pub(crate) fn read_csr_guarded<const CSR: u16>() -> Result<usize, Error> {
     match () {
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         () => guarded_machine_instruction!("csrr t0, {csr}", 0, CSR),
@@ -406,7 +406,7 @@ pub fn read_csr_guarded<const CSR: u16>() -> Result<usize, Error> {
 /// An illegal-instruction exception becomes [`Error::UnsupportedInstruction`].
 /// Unexpected faults fail-stop.
 #[inline(never)]
-pub fn write_csr_guarded<const CSR: u16>(value: usize) -> Result<(), Error> {
+pub(crate) fn write_csr_guarded<const CSR: u16>(value: usize) -> Result<(), Error> {
     match () {
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         () => guarded_machine_instruction!("csrw {csr}, t0", value, CSR).map(|_| ()),
@@ -424,7 +424,7 @@ pub fn write_csr_guarded<const CSR: u16>(value: usize) -> Result<(), Error> {
 /// IMSIC claim uses the exchange to read and acknowledge one interrupt
 /// atomically.
 #[inline(never)]
-pub fn swap_csr_guarded<const CSR: u16>(value: usize) -> Result<usize, Error> {
+pub(crate) fn swap_csr_guarded<const CSR: u16>(value: usize) -> Result<usize, Error> {
     match () {
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         () => guarded_machine_instruction!("csrrw t0, {csr}, t0", value, CSR),
@@ -471,6 +471,7 @@ pub(crate) fn write_value(addr: usize, value: usize, kind: ValueKind) -> Result<
 use super::decode::ValueKind;
 
 /// Synchronizes address translations under the guarded instruction recovery protocol.
+#[inline(never)]
 pub(crate) fn sfence_vma_guarded() -> Result<(), Error> {
     match () {
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]

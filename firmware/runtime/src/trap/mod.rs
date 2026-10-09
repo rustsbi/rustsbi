@@ -17,7 +17,7 @@ mod redirect;
 
 pub use decode::ValueKind;
 pub use init::{AccessDispatcher, AccessError, InitError, init, install_access_dispatcher};
-pub use recovery::{read_csr_guarded, swap_csr_guarded, write_csr_guarded};
+pub(crate) use recovery::{read_csr_guarded, swap_csr_guarded, write_csr_guarded};
 
 use core::fmt;
 

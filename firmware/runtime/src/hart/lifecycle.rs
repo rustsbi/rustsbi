@@ -1,5 +1,6 @@
 //! Hart start, stop, and suspend state transitions.
 
+use crate::csr::Readable;
 use alloc::boxed::Box;
 use core::cell::UnsafeCell;
 use core::hint::spin_loop;
@@ -330,7 +331,10 @@ impl Drop for ResumeTicket {
 
 /// Takes the one-shot machine control transfer marker for the dispatch hart.
 pub(crate) fn take_control_transfer(hart: HartId) -> Option<ControlTransfer> {
-    assert_eq!(hart.as_usize(), crate::csr::mhartid());
+    assert_eq!(
+        hart.as_usize(),
+        crate::csr::Mhartid::read().expect("machine hart ID CSR is always readable in M-mode")
+    );
     // SAFETY: the identity belongs to the calling hart, which consumes only
     // its own marker in the M-mode ecall return path.
     unsafe { (*cell(hart).transfer.get()).take() }
