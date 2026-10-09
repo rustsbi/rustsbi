@@ -50,18 +50,16 @@ pub unsafe extern "C" fn fail_stop() -> ! {
 
 /// Enters the next stage or parks after boot or a hart stop. Never returns.
 ///
-/// One stack per hart is sequentially reused for boot and traps, so before
-/// that stack may serve traps, the still-live boot or stopped trap call chain must be
-/// discarded: `sp` is reset to the clean stack top, the top is published in
-/// `mscratch` (the Armed condition), and the hart then either executes the
-/// final `mret` into the staged S/HS next stage or parks until one is
-/// staged. Initial boot establishes Ready → Armed here; stopping a hart
-/// reuses this path to discard its old supervisor context.
+/// Each hart reuses one stack for boot and traps. This operation discards
+/// the old call chain, arms the clean stack for traps, and waits for a staged
+/// next stage if necessary. Initial boot transitions from Ready to Armed here;
+/// hart stop uses the same path to retire the previous supervisor context.
 ///
 /// # Safety
 ///
-/// The caller must run in M-mode with interrupts disabled. The current
-/// boot or stopped trap call chain must be safe to discard without unwinding.
+/// 1. The caller runs in M-mode with machine interrupts disabled, on a hart
+///    with a published Runtime stack and initialized traps.
+/// 2. The boot or stopped trap call chain can be discarded without unwinding.
 #[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
 #[unsafe(export_name = "runtime_finish_boot")]
 pub unsafe extern "C" fn finish_boot() -> ! {
@@ -87,8 +85,7 @@ pub unsafe extern "C" fn finish_boot() -> ! {
     }
 }
 
-/// The Rust side of the boot finisher: enter the staged next stage, or park
-/// until one arrives.
+/// Enters the staged next stage, or parks until one arrives.
 fn finish_boot_rust() -> ! {
     let hart = hart::current_hart();
     mark_armed(hart);
@@ -146,7 +143,9 @@ fn finish_boot_rust() -> ! {
 /// Hands off with only the SBI entry arguments retained in general registers.
 ///
 /// # Safety
-/// The next-stage CSRs and Runtime trap stack must already be prepared.
+///
+/// The caller runs in M-mode with MIE clear, with the next-stage CSRs and
+/// Runtime trap stack prepared. The current call chain can be discarded.
 #[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
 unsafe extern "C" fn enter_stage(hart_id: usize, opaque: usize) -> ! {
     #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]

@@ -33,7 +33,7 @@ impl Description {
         }
     }
 
-    /// Retains V821-only device descriptions inside the vendor description.
+    /// Collects V821 cache and USB device descriptions.
     pub(crate) fn probe(
         &mut self,
         platform: &runtime::PlatformView<'_>,

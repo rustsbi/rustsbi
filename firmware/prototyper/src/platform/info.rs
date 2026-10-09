@@ -1,4 +1,4 @@
-//! Platform facts retained after inspecting the Platform Description.
+//! Boot-time facts collected from the Platform Description.
 //!
 //! [`BoardInfo`] groups facts by their policy consumer so generic boot code
 //! does not depend on individual reset or interrupt-controller models.
@@ -72,7 +72,7 @@ pub(crate) struct ConsoleInfo {
     pub(crate) clock_hz: Option<u32>,
 }
 
-/// Memory layout retained for firmware policy and platform reporting.
+/// Memory layout used during platform initialization and startup reporting.
 pub(crate) struct MemoryInfo {
     pub(crate) ram_ranges: Vec<PhysAddrRange>,
     pub(crate) firmware_ram_range: Option<PhysAddrRange>,
@@ -165,7 +165,7 @@ impl InterruptDescriptions {
         Ok(())
     }
 
-    /// Returns source paths hidden when firmware selects IMSIC for IPIs.
+    /// Returns source paths to hide if firmware selects IMSIC for IPIs.
     pub(crate) fn aia_handoff_paths(&self) -> impl Iterator<Item = &str> + '_ {
         let machine_aplic = match self.machine_aplic_handoff {
             MachineAplicHandoff::KeepVisible => None,
@@ -220,7 +220,7 @@ pub(crate) enum SocDescription {
     V861(runtime::soc::allwinner::v861::AllwinnerV861Soc),
 }
 
-/// Platform facts grouped by the policy that consumes them.
+/// Discovery facts released after device binding and startup reporting.
 pub(crate) struct BoardInfo {
     pub(crate) model: String,
     pub(crate) memory: MemoryInfo,

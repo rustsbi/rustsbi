@@ -12,7 +12,7 @@ fn xtask() -> Command {
     Command::new(env!("CARGO_BIN_EXE_xtask"))
 }
 
-/// Both riscv targets the prototyper pipeline needs.
+/// Returns whether the RISC-V targets used by these CLI tests are installed.
 fn riscv_targets_installed() -> bool {
     let installed = std::process::Command::new("rustup")
         .args(["target", "list", "--installed"])

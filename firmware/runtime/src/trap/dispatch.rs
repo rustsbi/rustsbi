@@ -1,6 +1,6 @@
 //! Private trap classification and dispatch.
 //!
-//! The entry hands this function the one real [`TrapFrame`]. Machine
+//! The entry supplies the saved [`TrapFrame`]. Machine
 //! timer/software/external interrupts are Runtime-private transports; other
 //! machine interrupt causes are offered to the installed
 //! [`MachineInterruptPolicy`](crate::machine_irq::MachineInterruptPolicy), if
@@ -33,7 +33,7 @@ const STORE_MISALIGNED: usize = 6;
 const LOAD_FAULT: usize = 5;
 const STORE_FAULT: usize = 7;
 
-/// The Rust trap dispatch, called by the normal entry with the saved frame.
+/// Dispatches the saved frame supplied by the normal trap entry.
 ///
 /// The live trap CSRs still hold this trap's facts on entry; committed
 /// effects (instruction advance, redirection, next-stage entry) write the
@@ -81,7 +81,7 @@ pub(crate) extern "C" fn trap_dispatch(frame: &mut TrapFrame) {
     }
 }
 
-/// Redirect with the emulation failure's secondary facts, or fail-stop when
+/// Redirects with the emulation failure's secondary facts, or fail-stops when
 /// even the redirect is impossible.
 #[inline(never)]
 fn redirect_or_fatal(error: Option<Error>) {
@@ -94,10 +94,11 @@ fn redirect_or_fatal(error: Option<Error>) {
     }
 }
 
-/// The fatal path: diverge into the stack-independent fail-stop vector. Never returns.
+/// Stops this hart through the stack-independent fail-stop vector.
 fn fatal() -> ! {
-    // SAFETY: a diverging tail jump into the naked fail-stop vector; the
-    // vector never returns and touches no stack.
+    // SAFETY:
+    // 1. Trap dispatch executes in M-mode, as fail_stop requires.
+    // 2. The vector never returns or accesses the retired call chain.
     unsafe {
         core::arch::asm!(
             "tail {fail}",
@@ -107,8 +108,7 @@ fn fatal() -> ! {
     }
 }
 
-/// The SBI ecall path: extract the standard registers, call the original
-/// `RustSBI` policy, commit `SbiRet`, and advance `mepc` by exactly 4.
+/// Dispatches an SBI ecall, commits `SbiRet`, and advances past the ecall.
 fn sbi_ecall(frame: &mut TrapFrame) {
     let extension = frame.read_x(17); // a7
     let function = frame.read_x(16); // a6
@@ -126,18 +126,21 @@ fn sbi_ecall(frame: &mut TrapFrame) {
     frame.write_x(10, ret.error);
     frame.write_x(11, ret.value);
 
-    // SAFETY: M-mode advance of this hart's mepc past the ecall; the ECALL
-    // instruction is exactly 4 bytes.
+    // SAFETY:
+    // 1. The M-mode handler owns this hart's return PC with MIE clear.
+    // 2. The dispatched ECALL instruction occupies exactly four bytes.
     unsafe { mepc::write(mepc::read() + 4) };
 
-    // A successful non-retentive resume stages the lower-privilege handoff
-    // through Runtime's protocol-free marker. The SBI adapter has already
-    // validated the operation; dispatch only performs the machine ceremony.
+    // The current hart's committed ticket publishes the caller-selected
+    // supervisor resume entry for this ecall return. The address is not
+    // validated here; preparing the handoff only writes architectural state.
     if let Some(hart::ControlTransfer::NonRetentiveResume(next_stage)) =
         hart::take_control_transfer(hart)
     {
-        // SAFETY: M-mode writes to this hart's S-mode and trap CSRs for the
-        // staged resume.
+        // SAFETY:
+        // 1. This initialized M-mode handler owns the return state with MIE clear.
+        // 2. This hart's committed ticket supplies the foreign supervisor entry;
+        //    writing mepc does not construct or dereference a Rust pointer.
         unsafe {
             stage_smode_trap_state();
             mstatus::set_mpp(mstatus::MPP::Supervisor);
@@ -150,9 +153,7 @@ fn sbi_ecall(frame: &mut TrapFrame) {
     }
 }
 
-/// Illegal-instruction handling for pure `time`/`timeh` reads (design
-/// section 11): decode the instruction, obtain the counter through the
-/// guarded architecture read, and commit or redirect.
+/// Emulates pure `time`/`timeh` reads, or redirects the illegal instruction.
 #[inline(never)]
 fn illegal_instruction(frame: &mut TrapFrame) {
     if let Some(counters) = crate::events::get() {
@@ -163,7 +164,7 @@ fn illegal_instruction(frame: &mut TrapFrame) {
     }
 }
 
-/// Misaligned integer load/store emulation.
+/// Emulates a misaligned integer load or store.
 #[inline(never)]
 fn misaligned(frame: &mut TrapFrame, access: Access) {
     let result = match access {
@@ -185,11 +186,11 @@ fn misaligned(frame: &mut TrapFrame, access: Access) {
     }
 }
 
-/// Complete load/store access faults via the installed platform dispatcher.
+/// Completes Supervisor-origin access faults through the platform dispatcher.
 ///
-/// The dispatcher first tries to complete the access, but only for Supervisor-
-/// origin faults. If it declines, is absent, or the instruction is not a decodable
-/// integer load/store, nothing commits and the original fault is redirected.
+/// Register writeback and PC advancement require success. A declined or
+/// unsupported access redirects the original fault; a fault while fetching
+/// the instruction redirects the secondary fetch fault.
 fn access_fault(frame: &mut TrapFrame, access: Access) {
     if let Some(counters) = crate::events::get() {
         match access {
@@ -215,9 +216,7 @@ enum Access {
     Store,
 }
 
-/// The machine software interrupt transport: a staged hart start performs
-/// the next-stage entry; otherwise the pending SBI software interrupt (and
-/// any queued remote-fence work) is delivered.
+/// Receives staged hart starts and pending work through a software IPI.
 #[inline(never)]
 fn machine_soft(frame: &mut TrapFrame) {
     let ipi = crate::ipi::Ipi::current().expect("BUG: software IPI source unavailable");
@@ -229,8 +228,7 @@ fn machine_soft(frame: &mut TrapFrame) {
     }
 }
 
-/// The machine timer transport: stop re-trapping and inject the supervisor
-/// timer interrupt when the platform lacks Sstc.
+/// Acknowledges MTIP and injects the supervisor timer interrupt when required.
 fn machine_timer() {
     if crate::timer::Timer::current()
         .and_then(|timer| timer.on_machine_timer())
@@ -240,8 +238,7 @@ fn machine_timer() {
     }
 }
 
-/// The machine external interrupt transport: the platform's IPI identity
-/// carries the same delivery work as the machine software interrupt.
+/// Receives queued firmware work from the selected IMSIC interrupt file.
 #[inline(never)]
 fn machine_external(frame: &mut TrapFrame) {
     let ipi = match crate::ipi::Ipi::current() {
@@ -269,12 +266,11 @@ fn complete_ipi(frame: &mut TrapFrame, ipi: &crate::ipi::Ipi, event: HartEvent) 
     }
 }
 
-/// Perform a staged transition into S/HS mode: program the S-mode entry
-/// ceremony on the frame and live CSRs so the entry's restore path lands in
-/// the next stage.
+/// Prepares the saved frame and live CSRs for a staged next-stage entry.
 fn enter_next_stage(frame: &mut TrapFrame, next: NextStage) {
-    // SAFETY: M-mode writes to this hart's S-mode and trap CSRs for the
-    // staged entry.
+    // SAFETY:
+    // 1. This initialized M-mode handler owns the return state with MIE clear.
+    // 2. The hart cell supplies the staged entry; its timer and traps are ready.
     unsafe { stage_next_mode(next.start_addr, next.next_mode) };
     frame.x.fill(0);
     riscv::asm::fence_i();
@@ -282,12 +278,16 @@ fn enter_next_stage(frame: &mut TrapFrame, next: NextStage) {
     frame.write_x(11, next.opaque);
 }
 
-/// Stage the S-mode trap state reset shared by every next-stage entry.
+/// Resets outgoing S-mode interrupt and translation state.
 ///
 /// # Safety
 ///
-/// M-mode writes to this hart's S-mode CSRs.
+/// The caller runs in M-mode with MIE clear and owns this hart's outgoing
+/// supervisor state.
 unsafe fn stage_smode_trap_state() {
+    // SAFETY:
+    // 1. The caller retains M-mode with machine interrupts disabled.
+    // 2. It owns the outgoing supervisor state being cleared before handoff.
     unsafe {
         asm!("csrw sie, zero", options(nomem));
         sstatus::clear_sie();
@@ -295,13 +295,17 @@ unsafe fn stage_smode_trap_state() {
     }
 }
 
-/// Stage the CSR ceremony for a staged hart start entering S/HS mode: the
-/// entry mirrors a fresh boot (`MPIE=1` so the entering software runs with
-/// its own interrupt state, and the wake sources enabled).
+/// Stages the privilege mode and entry address for the next `mret`.
+///
+/// The transition clears outgoing supervisor state, restores timer transport,
+/// and enables the selected wake source. `MPIE` is set for the return.
 ///
 /// # Safety
 ///
-/// M-mode writes to this hart's S-mode and trap CSRs.
+/// The caller runs in M-mode with MIE clear, owns this hart's return state,
+/// and has initialized its traps and timer. The caller selects the foreign
+/// next-stage mode and entry. This preparation writes the address to `mepc`
+/// without validating it or dereferencing it as a Rust pointer.
 pub(crate) unsafe fn stage_next_mode(start_addr: usize, next_mode: mstatus::MPP) {
     // SAFETY:
     // 1. The caller owns this hart's return state in M-mode with MIE clear.
@@ -331,8 +335,11 @@ pub(crate) unsafe fn stage_next_mode(start_addr: usize, next_mode: mstatus::MPP)
 /// `rdtime s0` needs the full frame and continues to normal emulation.
 ///
 /// # Safety
-/// Entry has initialized the caller-saved slots and trap CSRs, but not s0-s11.
-/// Access only initialized fields through raw pointers; never borrow the full frame.
+///
+/// 1. `frame` points to writable, aligned storage for a `TrapFrame`. Entry has
+///    initialized its caller-saved register slots and saved CSR fields.
+/// 2. The caller handles that trap in M-mode with MIE clear. The s0-s11 slots
+///    may be uninitialized; no reference to the complete frame may be formed.
 #[inline(never)]
 pub(super) unsafe extern "C" fn try_fast_emulate_time(frame: *mut TrapFrame) -> bool {
     // SAFETY:

@@ -1,7 +1,7 @@
 //! Misaligned load/store values and stack-pointer write-back.
 //!
 //! RAM accesses may complete in hardware (for example QEMU with Zicclsm).
-//! These checks prove the resulting values, not that emulation was entered.
+//! These checks verify the resulting values without detecting emulation.
 
 use core::arch::asm;
 
@@ -23,6 +23,7 @@ macro_rules! check {
 
 fn test_loads() {
     let mut buffer = Buffer([0u8; 16]);
+    // SAFETY: byte offset 1 is inside the live 16-byte allocation.
     let odd = unsafe { buffer.0.as_mut_ptr().add(1) as usize };
     let patterns: [[u8; 8]; 2] = [
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
@@ -44,8 +45,9 @@ fn test_loads() {
         let half = b0 | b1 << 8;
         let word = b0 | b1 << 8 | b2 << 16 | b3 << 24;
         let (lb, lbu, lh, lhu, lw): (usize, usize, usize, usize, usize);
-        // SAFETY: These instructions intentionally access `odd`, an address
-        // one byte past the start of an aligned local buffer.
+        // SAFETY:
+        // 1. All loads read initialized bytes inside the live buffer.
+        // 2. Their output registers are declared by the assembly.
         unsafe {
             asm!("lb {value}, 0({address})", address = in(reg) odd, value = lateout(reg) lb);
             asm!("lbu {value}, 0({address})", address = in(reg) odd, value = lateout(reg) lbu);
@@ -76,6 +78,7 @@ fn test_loads() {
 
 fn test_stores() {
     let mut buffer = Buffer([0u8; 16]);
+    // SAFETY: byte offset 1 is inside the live 16-byte allocation.
     let odd = unsafe { buffer.0.as_mut_ptr().add(1) as usize };
     let cases: &[(&str, usize, u64)] = &[
         ("sb", 1, 0xAB),
@@ -111,7 +114,8 @@ fn test_stores() {
         }
         let bytes = value.to_le_bytes();
         for (index, want) in bytes.iter().take(width).enumerate() {
-            // SAFETY: the loop is bounded by the store width.
+            // SAFETY: `index` is below the tested width (at most eight bytes),
+            // and `odd` is byte offset 1 in the live 16-byte buffer.
             let got = unsafe { core::ptr::read_volatile((odd + index) as *const u8) };
             check!(what, got as u64, *want as u64);
         }
@@ -121,9 +125,15 @@ fn test_stores() {
 
 fn test_stack_pointer() {
     let mut buffer = Buffer([0u8; 16]);
+    // SAFETY: byte offset 1 is inside the live 16-byte allocation.
     let odd = unsafe { buffer.0.as_mut_ptr().add(1) as usize };
     // A misaligned XLEN load to sp must write back to the trapped register's real
     // frame slot instead of corrupting supervisor `sscratch`.
+    // SAFETY:
+    // 1. All XLEN-byte accesses stay within the live 16-byte buffer.
+    // 2. The buffer contains the saved `sp`, so loading it leaves the stack
+    //    pointer unchanged. The assembly also restores that saved value.
+    // 3. Every other register modified by the assembly is a declared output.
     unsafe {
         let sp_save: usize;
         asm!("mv {saved}, sp", saved = out(reg) sp_save);

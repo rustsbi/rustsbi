@@ -158,7 +158,7 @@ impl SpacemitK1Registers {
         self.cci_snoop_controls
     }
 
-    /// Returns PMU_CORE_STATUS (K1 User Manual, section 9.9.4.9.3).
+    /// Returns `PMU_CORE_STATUS` (K1 User Manual, section 9.9.4.9.3).
     pub const fn core_status(self) -> DeviceRegisterRange {
         self.core_status
     }

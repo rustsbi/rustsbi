@@ -35,8 +35,11 @@ impl HartStateCell {
     }
 }
 
-// SAFETY: state publication is atomic; staged values are only written while
-// a private reservation is held and are consumed by the owning hart.
+// SAFETY:
+// 1. A STARTING reservation excludes competing stage writers; Release publication
+//    and the consuming Acquire transition order the owning hart's read.
+// 2. Transfer markers are written by a hart-local ResumeTicket and consumed only
+//    by that hart's ecall path. The ticket cannot be sent or shared.
 unsafe impl Sync for HartStateCell {}
 
 static HART_STATES: Once<Box<[HartStateCell]>> = Once::new();
@@ -91,7 +94,7 @@ pub enum StageError {
 /// Failure while entering or leaving suspend.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SuspendError {
-    /// The platform software-interrupt state could not be cleared.
+    /// The current hart's IPI service could not be acquired or acknowledged.
     Platform,
 }
 
@@ -173,8 +176,9 @@ pub(crate) fn take_local_event() -> HartEvent {
                     )
                     .is_ok()
                 {
-                    // SAFETY: the AcqRel transition consumes the published
-                    // stage, and only this hart consumes its local stage.
+                    // SAFETY:
+                    // 1. The AcqRel transition acquires the published stage.
+                    // 2. Only the owning hart consumes it; STARTED excludes new writers.
                     let stage = unsafe { (*cell.stage.get()).take() }
                         .expect("BUG: start state without staged handoff");
                     return HartEvent::Start(stage);
@@ -209,7 +213,7 @@ pub fn can_receive_ipi(hart: HartId) -> bool {
 /// Failure to acknowledge the interrupt source before stopping a hart.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StopError {
-    /// The platform IPI device is absent or could not clear its source.
+    /// The current hart's IPI service could not be acquired or acknowledged.
     Platform,
 }
 
@@ -268,7 +272,7 @@ pub fn resume_current_retentive() -> Result<(), ResumeError> {
     Ok(())
 }
 
-/// Reserves a non-retentive resume without exposing the cell itself.
+/// Reserves the current suspended hart for a non-retentive resume.
 pub fn begin_nonretentive_resume(stage: NextStage) -> Result<ResumeTicket, ResumeError> {
     let hart = current_hart();
     let cell = cell(hart);
@@ -293,7 +297,9 @@ pub fn begin_nonretentive_resume(stage: NextStage) -> Result<ResumeTicket, Resum
     })
 }
 
-/// A non-retentive resume reservation.
+/// A hart-local non-retentive resume reservation.
+///
+/// Dropping an uncommitted ticket restores the suspended state.
 pub struct ResumeTicket {
     hart: HartId,
     cell: &'static HartStateCell,
@@ -335,8 +341,9 @@ pub(crate) fn take_control_transfer(hart: HartId) -> Option<ControlTransfer> {
         hart.as_usize(),
         crate::csr::Mhartid::read().expect("machine hart ID CSR is always readable in M-mode")
     );
-    // SAFETY: the identity belongs to the calling hart, which consumes only
-    // its own marker in the M-mode ecall return path.
+    // SAFETY:
+    // 1. The assertion above binds the cell to the executing hart.
+    // 2. Its ecall path alone consumes the marker written by its local ticket.
     unsafe { (*cell(hart).transfer.get()).take() }
 }
 

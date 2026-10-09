@@ -1,6 +1,6 @@
 //! Allwinner platform policy.
 //!
-//! V821 discovery and one-time boot-contract preparation live here; acquired
-//! devices and register sequencing remain in [`crate::driver::allwinner`].
+//! V821 discovery, boot0 handshakes, and one-time platform preparation live here.
+//! Acquired cache, USB, and hart-wakeup devices live in their functional driver modules.
 
 pub(crate) mod v821;

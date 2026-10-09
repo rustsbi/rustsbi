@@ -1,7 +1,7 @@
 //! Allwinner V821 vendor SBI extensions.
 //!
-//! Device ownership remains in the firmware drivers; this module translates
-//! SBI function IDs into typed operations.
+//! The adapters own the selected cache and USB devices and translate SBI
+//! function IDs into typed operations.
 //!
 //! # References
 //!
