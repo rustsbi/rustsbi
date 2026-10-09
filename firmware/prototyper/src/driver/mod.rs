@@ -30,7 +30,7 @@ pub(crate) use reset::{
 pub(crate) use aia::{IMSIC_COMPATIBLES, IMSIC_FILE_SPAN};
 pub(crate) use cci::Cci550;
 pub(crate) use clint::ClintKind;
-pub(crate) use console::{ConsoleKind, DbcnBackend, DbcnError};
+pub(crate) use console::{Console, ConsoleError, ConsoleKind};
 use runtime::ipi::{InterruptSource, IpiDevice};
 use runtime::timer::TimerDevice;
 
@@ -46,7 +46,7 @@ pub(crate) const THEAD_PLIC_COMPATIBLES: [&str; 2] =
 pub(crate) struct Devices {
     pub(crate) timer: Option<Box<dyn TimerDevice>>,
     pub(crate) ipi: Option<Box<dyn IpiDevice>>,
-    pub(crate) console: Option<Box<dyn DbcnBackend + Send>>,
+    pub(crate) console: Option<Console>,
     pub(crate) reset: ResetDevice,
 }
 
@@ -125,7 +125,12 @@ pub(crate) fn bind_devices(
         control.write(0, 1u32)?;
     }
     let (timer, ipi) = bind_interrupts(board, selected_imsic, memory)?;
-    let console = console::bind(board, memory)?;
+    let console = board
+        .devices
+        .console
+        .as_ref()
+        .map(|console| Console::bind(console.registers, console.kind, console.clock_hz, memory))
+        .transpose()?;
     let reset = board
         .devices
         .reset

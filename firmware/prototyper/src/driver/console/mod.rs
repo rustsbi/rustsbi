@@ -1,4 +1,4 @@
-//! Byte-oriented console backends.
+//! Byte-oriented console devices and synchronized access.
 //!
 //! # References
 //!
@@ -14,75 +14,96 @@ mod uart16550;
 mod xscale;
 
 use alloc::boxed::Box;
-use core::mem::align_of;
+use core::{fmt, mem::align_of};
 
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion, MmioValue};
-
-use crate::platform::BoardInfo;
+use spin::Mutex;
 
 pub(crate) use kind::ConsoleKind;
 
-/// Low-level error category for one backend slice operation.
-///
-/// These are the backend errors shared by all three DBCN functions in SBI v3.0,
-/// Section 12, Tables 50-52. Lack of progress is `Ok(0)`, not an error.
-///
-/// Important:
-/// - `InvalidParam` is intentionally absent.
-///   Physical-memory-range validation and translation belong to the SBI entry layer.
-/// - `write_slice` / `read_slice` operate on one concrete contiguous slice only.
-///   They are not identical to SBI `write` / `read`.
+/// Failure of a console device operation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DbcnError {
-    /// Console access is not allowed; mapped to `SBI_ERR_DENIED` (-4).
-    #[allow(
-        dead_code,
-        reason = "current UART backends do not restrict console access"
-    )]
-    Denied,
-    /// Backend I/O failure; mapped to `SBI_ERR_FAILED` (-1), not `SBI_ERR_IO`.
+pub(crate) enum ConsoleError {
+    /// The device operation failed.
     Failed,
 }
 
-/// A backend that can serve as the byte-oriented data path of an SBI DBCN console.
-///
-/// Important:
-/// - This trait is intentionally not named `Uart`.
-/// - This trait is also intentionally not phrased in terms of SBI calls.
-/// - It models one backend operation on one contiguous slice.
-///
-/// Relationship with SBI DBCN:
-/// - SBI `write` may translate one physical memory range into 1..N slices, then
-///   call `write_slice` repeatedly.
-/// - SBI `read` may translate one physical memory range into 1..N slices, then
-///   call `read_slice` repeatedly.
-/// - SBI `write_byte` uses `write_slice(&[byte])`, retrying `Ok(0)` to preserve
-///   the SBI call's blocking semantics.
-pub trait DbcnBackend {
-    /// Try to write bytes from one contiguous source slice.
-    ///
-    /// Returns:
-    /// - `Ok(n)` where `0 <= n <= src.len()`, meaning exactly the first `n` bytes
-    ///   of `src` are accepted by the backend;
-    /// - `Err(DbcnError::Denied)` if writes are not allowed;
-    /// - `Err(DbcnError::Failed)` on backend I/O failure.
-    ///
-    /// This is a non-blocking slice operation. It is not the SBI `write` call itself.
-    fn write_slice(&mut self, src: &[u8]) -> Result<usize, DbcnError>;
+/// Non-blocking byte operations supported by a console device.
+pub(crate) trait ConsoleDevice: Send {
+    /// Accepts a prefix of `src`, returning its length or zero when busy.
+    fn try_write(&mut self, src: &[u8]) -> Result<usize, ConsoleError>;
 
-    /// Try to read bytes into one contiguous destination slice.
-    ///
-    /// Returns:
-    /// - `Ok(n)` where `0 <= n <= dst.len()`, meaning exactly `n` bytes are consumed
-    ///   from the backend receive queue and written into the destination slice;
-    /// - `Err(DbcnError::Denied)` if reads are not allowed;
-    /// - `Err(DbcnError::Failed)` on backend I/O failure.
-    ///
-    /// This is a non-blocking slice operation. It is not the SBI `read` call itself.
-    ///
-    /// Note: this abstraction specifies the backend state transition and the
-    /// number of bytes read. It does not model the concrete contents of `dst` yet.
-    fn read_slice(&mut self, dst: &mut [u8]) -> Result<usize, DbcnError>;
+    /// Receives a prefix of `dst`, returning its length or zero when empty.
+    fn try_read(&mut self, dst: &mut [u8]) -> Result<usize, ConsoleError>;
+}
+
+/// A console device with serialized access from all harts.
+pub(crate) struct Console {
+    device: Mutex<Box<dyn ConsoleDevice>>,
+}
+
+impl Console {
+    /// Binds one console device to its discovered register range and clock.
+    pub(crate) fn bind(
+        registers: DeviceRegisterRange,
+        kind: ConsoleKind,
+        clock_hz: Option<u32>,
+        memory: &mut MemoryRegistry,
+    ) -> runtime::Result<Self> {
+        let device = match kind {
+            ConsoleKind::Uart16550U8 => uart16550::bind_u8(registers, memory)?,
+            ConsoleKind::Uart16550U32 => uart16550::bind_u32(registers, memory)?,
+            ConsoleKind::AxiLite => axi_lite::bind(registers, memory)?,
+            ConsoleKind::Bl808 => bl808::bind(registers, memory)?,
+            ConsoleKind::SiFive => sifive::bind(registers, memory)?,
+            ConsoleKind::Pl011 => pl011::bind(registers, clock_hz, memory)?,
+            ConsoleKind::XScale => xscale::bind(registers, clock_hz, memory)?,
+        };
+        Ok(Self {
+            device: Mutex::new(device),
+        })
+    }
+
+    /// Writes the prefix the device can accept without waiting for space.
+    pub(crate) fn try_write(&self, src: &[u8]) -> Result<usize, ConsoleError> {
+        let count = self.device.lock().try_write(src)?;
+        if count > src.len() {
+            return Err(ConsoleError::Failed);
+        }
+        Ok(count)
+    }
+
+    /// Reads the prefix currently available without waiting for input.
+    pub(crate) fn try_read(&self, dst: &mut [u8]) -> Result<usize, ConsoleError> {
+        let count = self.device.lock().try_read(dst)?;
+        if count > dst.len() {
+            return Err(ConsoleError::Failed);
+        }
+        Ok(count)
+    }
+
+    /// Waits until the device accepts one byte, releasing the lock between tries.
+    pub(crate) fn write_byte_blocking(&self, byte: u8) -> Result<(), ConsoleError> {
+        while self.try_write(&[byte])? == 0 {
+            core::hint::spin_loop();
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Write for &Console {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        let mut remaining = s.as_bytes();
+        while !remaining.is_empty() {
+            let count = self.try_write(remaining).map_err(|_| fmt::Error)?;
+            if count == 0 {
+                core::hint::spin_loop();
+            } else {
+                remaining = &remaining[count..];
+            }
+        }
+        Ok(())
+    }
 }
 
 pub(super) const BAUD_RATE: u32 = 115_200;
@@ -110,24 +131,4 @@ fn acquire_registers<T: MmioValue>(
         return Err(runtime::Error::InvalidArgs);
     }
     memory.acquire_mmio(registers)
-}
-
-/// Binds the console selected during platform discovery.
-pub(super) fn bind(
-    board: &BoardInfo,
-    memory: &mut MemoryRegistry,
-) -> runtime::Result<Option<Box<dyn DbcnBackend + Send>>> {
-    let Some(console) = board.devices.console.as_ref() else {
-        return Ok(None);
-    };
-    let device = match console.kind {
-        ConsoleKind::Uart16550U8 => uart16550::bind_u8(console.registers, memory)?,
-        ConsoleKind::Uart16550U32 => uart16550::bind_u32(console.registers, memory)?,
-        ConsoleKind::AxiLite => axi_lite::bind(console.registers, memory)?,
-        ConsoleKind::Bl808 => bl808::bind(console.registers, memory)?,
-        ConsoleKind::SiFive => sifive::bind(console.registers, memory)?,
-        ConsoleKind::Pl011 => pl011::bind(console.registers, console.clock_hz, memory)?,
-        ConsoleKind::XScale => xscale::bind(console.registers, console.clock_hz, memory)?,
-    };
-    Ok(Some(device))
 }

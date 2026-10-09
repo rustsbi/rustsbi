@@ -5,9 +5,9 @@ use core::sync::atomic::{AtomicBool, Ordering};
 
 use runtime::hart::HartId;
 use runtime::memory::SupervisorMemory;
-use spin::{Mutex, Once};
+use spin::Once;
 
-use crate::driver::DbcnBackend;
+use crate::driver::Console;
 
 use super::info::BoardInfo;
 
@@ -17,7 +17,7 @@ static READY: AtomicBool = AtomicBool::new(false);
 struct Platform {
     board: Box<BoardInfo>,
     supervisor_memory: SupervisorMemory,
-    console: Option<Mutex<Box<dyn DbcnBackend + Send>>>,
+    console: Option<Console>,
     privilege_checked: Box<[AtomicBool]>,
 }
 
@@ -25,12 +25,12 @@ struct Platform {
 pub(super) fn publish_resources(
     board: Box<BoardInfo>,
     supervisor_memory: SupervisorMemory,
-    console: Option<Box<dyn DbcnBackend + Send>>,
+    console: Option<Console>,
 ) {
     PLATFORM.call_once(|| Platform {
         board,
         supervisor_memory,
-        console: console.map(Mutex::new),
+        console,
         privilege_checked: HartId::all().map(|_| AtomicBool::new(false)).collect(),
     });
 }
@@ -60,7 +60,7 @@ pub(crate) fn supervisor_memory() -> &'static SupervisorMemory {
     &platform().supervisor_memory
 }
 
-pub(crate) fn console_device() -> Option<&'static Mutex<Box<dyn DbcnBackend + Send>>> {
+pub(crate) fn console_device() -> Option<&'static Console> {
     PLATFORM
         .get()
         .and_then(|platform| platform.console.as_ref())

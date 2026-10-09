@@ -10,7 +10,7 @@ use bitflags::bitflags;
 use core::mem::size_of;
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
-use crate::driver::console::{DbcnBackend, DbcnError, acquire_registers, uart_divisor};
+use crate::driver::console::{ConsoleDevice, acquire_registers, uart_divisor, uart16550};
 
 #[repr(usize)]
 #[derive(Clone, Copy)]
@@ -46,18 +46,13 @@ bitflags! {
         const RX_FIFO_RESET = 1 << 1;
         const TX_FIFO_RESET = 1 << 2;
     }
-
-    struct LineStatus: u32 {
-        const DATA_READY = 1 << 0;
-        const TX_HOLDING_REGISTER_EMPTY = 1 << 5;
-    }
 }
 
 pub(super) fn bind(
     registers: DeviceRegisterRange,
     clock_hz: Option<u32>,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn DbcnBackend + Send>> {
+) -> runtime::Result<Box<dyn ConsoleDevice>> {
     // A device tree may name a clock provider without supplying its rate.
     // In that case, preserve the divisor installed by the previous boot stage.
     let baud = match clock_hz {
@@ -65,7 +60,9 @@ pub(super) fn bind(
         None => BaudSetup::Preserve,
     };
     let registers = acquire_registers::<u32>(registers, SPAN, memory)?;
-    Ok(Box::new(UartXScale::new(registers, baud)))
+    Ok(Box::new(uart16550::Uart16550::new(UartXScale::new(
+        registers, baud,
+    ))))
 }
 
 /// The 16-bit divisor shared by the DLL and DLH registers.
@@ -135,48 +132,23 @@ impl UartXScale {
         self.write_reg(Register::LineControl, LineControl::WORD_LENGTH_8.bits());
     }
 
-    fn read_reg(&self, reg: Register) -> u32 {
-        self.registers
-            .read(reg.offset())
-            .expect("BUG: XScale UART register escaped its MMIO window")
-    }
-
     fn write_reg(&self, reg: Register, value: u32) {
         self.registers
             .write(reg.offset(), value)
             .expect("BUG: XScale UART register escaped its MMIO window")
     }
-
-    fn line_status(&self) -> LineStatus {
-        LineStatus::from_bits_retain(self.read_reg(Register::LineStatus))
-    }
 }
 
-impl DbcnBackend for UartXScale {
-    fn read_slice(&mut self, buf: &mut [u8]) -> Result<usize, DbcnError> {
-        let mut count = 0;
-        for byte in buf.iter_mut() {
-            if !self.line_status().contains(LineStatus::DATA_READY) {
-                break;
-            }
-            *byte = self.read_reg(Register::DataOrDivisorLow) as u8;
-            count += 1;
-        }
-        Ok(count)
+impl uart16550::RegisterAccess for UartXScale {
+    fn read(&self, register: uart16550::Register) -> u8 {
+        self.registers
+            .read::<u32>(register.index() * size_of::<u32>())
+            .expect("BUG: XScale UART register escaped its MMIO window") as u8
     }
 
-    fn write_slice(&mut self, buf: &[u8]) -> Result<usize, DbcnError> {
-        let mut count = 0;
-        for &byte in buf {
-            if !self
-                .line_status()
-                .contains(LineStatus::TX_HOLDING_REGISTER_EMPTY)
-            {
-                break;
-            }
-            self.write_reg(Register::DataOrDivisorLow, byte as u32);
-            count += 1;
-        }
-        Ok(count)
+    fn write(&self, register: uart16550::Register, value: u8) {
+        self.registers
+            .write(register.index() * size_of::<u32>(), u32::from(value))
+            .expect("BUG: XScale UART register escaped its MMIO window")
     }
 }

@@ -9,7 +9,7 @@ use alloc::boxed::Box;
 use core::mem::size_of;
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
-use crate::driver::console::{DbcnBackend, DbcnError, acquire_registers};
+use crate::driver::console::{ConsoleDevice, ConsoleError, acquire_registers};
 
 #[repr(usize)]
 #[derive(Clone, Copy)]
@@ -30,7 +30,7 @@ const SPAN: usize = Register::RxData.offset() + size_of::<u32>();
 pub(super) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn DbcnBackend + Send>> {
+) -> runtime::Result<Box<dyn ConsoleDevice>> {
     let registers = acquire_registers::<u32>(registers, SPAN, memory)?;
     Ok(Box::new(UartBl808::new(registers)))
 }
@@ -80,8 +80,8 @@ impl UartBl808 {
     }
 }
 
-impl DbcnBackend for UartBl808 {
-    fn read_slice(&mut self, buf: &mut [u8]) -> Result<usize, DbcnError> {
+impl ConsoleDevice for UartBl808 {
+    fn try_read(&mut self, buf: &mut [u8]) -> Result<usize, ConsoleError> {
         let available_count = self.fifo_counts().rx_available_count();
         if available_count == 0 {
             return Ok(0);
@@ -93,7 +93,7 @@ impl DbcnBackend for UartBl808 {
         Ok(len)
     }
 
-    fn write_slice(&mut self, buf: &[u8]) -> Result<usize, DbcnError> {
+    fn try_write(&mut self, buf: &[u8]) -> Result<usize, ConsoleError> {
         let mut count = 0;
         for &byte in buf {
             if self.fifo_counts().tx_available_count() == 0 {
