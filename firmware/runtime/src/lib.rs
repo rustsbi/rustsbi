@@ -22,7 +22,6 @@ pub mod ipi;
 pub mod machine_irq;
 pub mod memory;
 pub mod soc;
-mod spacemit_k1;
 mod sunxi_rtc_v203;
 pub mod timer;
 pub mod trap;
@@ -35,7 +34,7 @@ pub use fdt::{Fdt, node::FdtNode, standard_nodes::Compatible};
 /// Firmware policy crates receive RustSBI transitively through this crate
 /// and refer to it as `runtime::rustsbi`.
 pub use rustsbi;
-pub use spacemit_k1::SpacemitK1Registers;
+pub use soc::spacemit::k1::SpacemitK1Registers;
 
 /// An error returned by a Runtime operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

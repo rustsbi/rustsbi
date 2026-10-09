@@ -14,7 +14,7 @@ use crate::boot;
 use crate::memory::{
     DeviceRegisterRange, MemoryRegistry, PhysAddr, PhysAddrRange, SupervisorMemory,
 };
-use crate::spacemit_k1::SpacemitK1Registers;
+use crate::soc::spacemit::k1::SpacemitK1Registers;
 use crate::{Error, Result};
 
 mod patch;

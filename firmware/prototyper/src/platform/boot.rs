@@ -9,9 +9,9 @@ use runtime::memory::SupervisorMemory;
 
 use super::error::{self, ResultContext};
 use super::info::{BoardInfo, SocDescription};
+use super::spacemit::k1::{self as spacemit_k1, K1BootResources};
 use super::{devices::Devices, discovery, report, state};
-use crate::driver::{self, HartWake};
-use crate::riscv::spacemit_k1::{self, K1BootResources};
+use crate::driver::{self, HartWakeDevice};
 use crate::sbi;
 use crate::sbi::SbiDispatcher;
 use crate::sbi::cppc::SbiCppc;
@@ -96,7 +96,7 @@ fn initialize_platform(
         .transpose()
         .during("acquiring SpacemiT K1 resources")?;
     let v861_wake = match &board.soc {
-        Some(SocDescription::V861(soc)) => Some(driver::allwinner::v861::V861HartRelease::bind(
+        Some(SocDescription::V861(soc)) => Some(driver::allwinner::v861::V861HartWake::bind(
             *soc,
             &mut memory,
         )),
@@ -117,9 +117,9 @@ fn initialize_platform(
 
     devices.hart_wake = k1_resources
         .map(|resources| {
-            Box::new(spacemit_k1::initialize_boot_hart(resources)) as Box<dyn HartWake>
+            Box::new(spacemit_k1::initialize_boot_hart(resources)) as Box<dyn HartWakeDevice>
         })
-        .or_else(|| v861_wake.map(|wake| Box::new(wake) as Box<dyn HartWake>));
+        .or_else(|| v861_wake.map(|wake| Box::new(wake) as Box<dyn HartWakeDevice>));
 
     publish_platform_services(&board, supervisor_memory, devices, custom_extension, pmu)?;
     Ok(next_stage_fdt_address)
@@ -213,7 +213,9 @@ fn publish_sbi_dispatcher(
 /// Runs the SoC-specific per-hart setup for secondary harts.
 pub fn initialize_secondary_hart() {
     if let Some(platform) = state::platform().secondary_hart {
-        spacemit_k1::initialize_hart(platform);
+        platform
+            .initialize_current_hart()
+            .expect("BUG: current K1 hart exceeds Runtime capacity");
     }
 }
 

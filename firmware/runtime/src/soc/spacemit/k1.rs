@@ -10,6 +10,10 @@ use core::mem::size_of;
 use fdt::node::FdtNode;
 
 use crate::Result;
+use crate::boot::{ResetEntry, ResetEntryAlreadyRegistered};
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+use crate::csr::Csr;
+use crate::csr::{native_bit_ops, native_registers};
 use crate::memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange};
 
 const SPACEMIT_K1_COMPATIBLE: &str = "spacemit,k1x";
@@ -22,15 +26,12 @@ const K1_HARTS_PER_CLUSTER: usize = 4;
 const K1_CORE_STATUS: PhysAddr = PhysAddr::new(0xd428_2890);
 const K1_WAKEUP_BASES: [PhysAddr; 2] = [PhysAddr::new(0xd428_292c), PhysAddr::new(0xd428_2b24)];
 
-#[repr(u16)]
-enum K1Csr {
-    MachineSetup = 0x7c0,
-    MachineL2Setup = 0x7f0,
-}
+native_registers!(@identity MachineSetupCsr: usize = 0x7c0);
+native_registers!(@identity MachineL2Setup: usize = 0x7f0);
 
-struct MachineSetup(usize);
+native_bit_ops! { ordered; set { MachineSetupCsr; MachineL2Setup; } clear {} }
 
-impl MachineSetup {
+impl MachineSetupCsr {
     const DATA_CACHE_ENABLE: usize = 1 << 0;
     const INSTRUCTION_CACHE_ENABLE: usize = 1 << 1;
     const BRANCH_PREDICTION_ENABLE: usize = 1 << 4;
@@ -38,16 +39,12 @@ impl MachineSetup {
     const MISALIGNED_ACCESS_ENABLE: usize = 1 << 6;
     const ECC_ENABLE: usize = 1 << 16;
 
-    const fn enabled() -> Self {
-        Self(
-            Self::DATA_CACHE_ENABLE
-                | Self::INSTRUCTION_CACHE_ENABLE
-                | Self::BRANCH_PREDICTION_ENABLE
-                | Self::PREFETCH_ENABLE
-                | Self::MISALIGNED_ACCESS_ENABLE
-                | Self::ECC_ENABLE,
-        )
-    }
+    const ENABLED_FEATURES: usize = Self::DATA_CACHE_ENABLE
+        | Self::INSTRUCTION_CACHE_ENABLE
+        | Self::BRANCH_PREDICTION_ENABLE
+        | Self::PREFETCH_ENABLE
+        | Self::MISALIGNED_ACCESS_ENABLE
+        | Self::ECC_ENABLE;
 }
 
 #[repr(usize)]
@@ -72,13 +69,25 @@ pub struct SpacemitK1Registers {
 }
 
 impl SpacemitK1Registers {
+    /// Registers the K1 hardware-reset entry and its secondary-hart initializer.
+    ///
+    /// Enable cluster coherency and publish platform services before releasing
+    /// a hart. The initializer must activate Runtime traps before returning.
+    pub fn register_reset_entry(
+        self,
+        initialize: fn(),
+    ) -> core::result::Result<ResetEntry, ResetEntryAlreadyRegistered> {
+        ResetEntry::register(reset_entry, initialize)
+    }
+
     /// Enables K1 hart-local cache access before a warm entry touches memory.
     ///
     /// # Safety
-    /// Called only on K1 in M-mode, with cluster coherency already enabled.
-    /// This stackless entry clobbers t0/t1 and must be called from assembly.
+    ///
+    /// 1. The caller runs on K1 in M-mode with cluster coherency enabled.
+    /// 2. The assembly caller permits t0/t1 to be clobbered; no stack is used.
     #[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
-    pub unsafe extern "C" fn prepare_warm_hart() {
+    unsafe extern "C" fn prepare_warm_hart() {
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         core::arch::naked_asm!(
             "csrr t0, mhartid",
@@ -89,9 +98,9 @@ impl SpacemitK1Registers {
             "li t0, {features}",
             "csrs {setup}, t0",
             "ret",
-            l2 = const K1Csr::MachineL2Setup as u16,
-            setup = const K1Csr::MachineSetup as u16,
-            features = const MachineSetup::enabled().0,
+            l2 = const MachineL2Setup::NUMBER,
+            setup = const MachineSetupCsr::NUMBER,
+            features = const MachineSetupCsr::ENABLED_FEATURES,
         );
         #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
         unimplemented!("SpacemiT K1 warm-hart preparation requires a RISC-V target");
@@ -159,39 +168,42 @@ impl SpacemitK1Registers {
         self.wakeup_controls
     }
 
-    /// Enables this hart's bit in the K1 cluster L2 setup register.
-    pub fn enable_hart_l2(self, hart_id: usize) {
-        let cluster_hart = hart_id % K1_HARTS_PER_CLUSTER;
-        set_csr::<{ K1Csr::MachineL2Setup as u16 }>(1 << cluster_hart);
-    }
-
-    /// Enables the K1 machine-mode cache and prediction features used by firmware.
-    pub fn enable_machine_features(self) {
-        set_csr::<{ K1Csr::MachineSetup as u16 }>(MachineSetup::enabled().0);
+    /// Initializes the current K1 hart's L2, cache and prediction features.
+    pub fn initialize_current_hart(self) -> core::result::Result<(), crate::hart::HartIdError> {
+        let hart = crate::hart::HartId::current()?;
+        let cluster_hart = hart.as_usize() % K1_HARTS_PER_CLUSTER;
+        MachineL2Setup::set_bits(1 << cluster_hart);
+        MachineSetupCsr::set_bits(MachineSetupCsr::ENABLED_FEATURES);
+        Ok(())
     }
 }
 
-#[inline]
-fn set_csr<const CSR: u16>(bits: usize) {
-    match () {
-        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-        () => unsafe {
-            // SAFETY: `SpacemitK1Registers` is created only after the Platform
-            // Description identifies a K1. These implementation-defined CSRs affect
-            // only machine features of the current hart.
-            core::arch::asm!(
-                "csrs {csr}, {bits}",
-                csr = const CSR,
-                bits = in(reg) bits,
-                options(nomem)
-            );
-        },
-        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-        () => {
-            let _ = (CSR, bits);
-            unimplemented!("SpacemiT K1 CSR access requires a RISC-V target");
-        }
-    }
+/// Enters K1 after hardware reset without a stack or a loader handoff.
+///
+/// # Safety
+///
+/// Only a K1 hart may enter in M-mode. The boot hart must have published the
+/// initializer and platform services and enabled cluster coherency.
+#[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
+unsafe extern "C" fn reset_entry() -> ! {
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+    core::arch::naked_asm!(
+        ".balign 4",
+        "csrw mie, zero",
+        "csrci mstatus, 8",
+        "lla t0, {fail}",
+        "csrw mtvec, t0",
+        "csrw mscratch, zero",
+        "call {prepare}",
+        "call {locate}",
+        "tail {initialize}",
+        fail = sym crate::boot::fail_stop,
+        prepare = sym SpacemitK1Registers::prepare_warm_hart,
+        locate = sym crate::boot::locate_stack,
+        initialize = sym crate::boot::reset::initialize_reset_hart,
+    );
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+    unimplemented!("K1 hardware reset requires a RISC-V target");
 }
 
 fn cci_snoop_control_range(interface_index: usize) -> Result<DeviceRegisterRange> {

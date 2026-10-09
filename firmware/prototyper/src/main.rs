@@ -1,4 +1,5 @@
 #![feature(alloc_error_handler)]
+#![forbid(unsafe_code)]
 #![no_std]
 #![no_main]
 
@@ -11,9 +12,7 @@ mod cfg;
 mod devicetree;
 mod driver;
 mod fail;
-mod firmware;
 mod heap;
 mod next_stage;
 mod platform;
-mod riscv;
 mod sbi;

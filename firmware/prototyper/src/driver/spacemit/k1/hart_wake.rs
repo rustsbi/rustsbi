@@ -6,18 +6,16 @@
 //!
 //! [OpenSBI implementation]: https://github.com/spacemit-com/opensbi/blob/fc02b891b17b8bdc1273a39f80aa374cd99ba9a2/lib/utils/psci/spacemit/plat/k1x/underly_implement.c
 
+use runtime::hart::{HartId, HartWakeDevice};
 use runtime::memory::{MemoryRegistry, MmioRegion};
 
-use crate::driver::HartWake;
-use runtime::hart::HartId;
-
-pub(super) struct K1Wakeup {
+pub(crate) struct K1HartWake {
     status: MmioRegion,
     controls: [MmioRegion; 2],
 }
 
-impl K1Wakeup {
-    pub(super) fn acquire(
+impl K1HartWake {
+    pub(crate) fn acquire(
         memory: &mut MemoryRegistry,
         registers: runtime::SpacemitK1Registers,
     ) -> runtime::Result<Self> {
@@ -32,7 +30,7 @@ impl K1Wakeup {
     }
 }
 
-impl HartWake for K1Wakeup {
+impl HartWakeDevice for K1HartWake {
     fn wake(&self, hart: HartId) -> runtime::Result<bool> {
         let hart_id = hart.as_usize();
         let caller = HartId::current()
@@ -47,11 +45,11 @@ impl HartWake for K1Wakeup {
         }
 
         // Order firmware state and the reset vector before the wake request.
-        riscv::asm::fence();
+        self.controls[caller / 4].synchronize();
         // Each caller writes its own register. Bits are wake requests,
         // cleared by hardware; writing zero has no effect, so never RMW.
         self.controls[caller / 4].write((caller % 4) * size_of::<u32>(), 1u32 << hart_id)?;
-        riscv::asm::fence();
+        self.controls[caller / 4].synchronize();
         Ok(true)
     }
 }

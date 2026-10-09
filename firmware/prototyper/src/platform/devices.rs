@@ -2,7 +2,7 @@
 
 use alloc::boxed::Box;
 
-use runtime::hart::HartWake;
+use runtime::hart::HartWakeDevice;
 use runtime::memory::MemoryRegistry;
 
 use super::error::{self, ResultContext};
@@ -15,7 +15,7 @@ pub(super) struct Devices {
     pub(super) interrupts: InterruptController,
     pub(super) console: Option<Console>,
     pub(super) reset: Option<ResetController>,
-    pub(super) hart_wake: Option<Box<dyn HartWake>>,
+    pub(super) hart_wake: Option<Box<dyn HartWakeDevice>>,
 }
 
 impl Devices {

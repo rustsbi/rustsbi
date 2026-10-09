@@ -20,6 +20,7 @@ mod info;
 mod interrupts;
 pub(crate) mod protection;
 mod report;
+mod spacemit;
 mod state;
 
 pub(crate) mod qemu_aplic;

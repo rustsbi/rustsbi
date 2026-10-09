@@ -8,11 +8,13 @@ use crate::csr::Mie;
 mod cold;
 mod handoff;
 mod images;
+pub(crate) mod reset;
 mod stack;
 
 pub use cold::{BootInput, BootPolicy, BootStorage, FirmwareEntry, PreparedBoot};
 pub use handoff::{DynamicInfo, DynamicReadError};
 pub use images::{embedded_fdt, embedded_payload};
+pub use reset::{ResetEntry, ResetEntryAlreadyRegistered};
 pub(crate) use stack::firmware_end;
 pub(crate) use stack::locate_stack;
 
@@ -44,78 +46,6 @@ pub unsafe extern "C" fn fail_stop() -> ! {
     core::arch::naked_asm!(".balign 4", "csrw mie, zero", "1: wfi", "   j 1b",);
     #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
     unimplemented!("The fail-stop vector requires a RISC-V target");
-}
-
-/// Enters a K1 hart released from hardware reset, without an SPL handoff.
-///
-/// # Safety
-///
-/// Assembly entry on a K1 hart only. The boot hart must have published the
-/// platform and enabled cluster coherency before releasing this hart.
-/// `initialize` performs that hart's safe platform setup and trap activation.
-#[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
-pub unsafe extern "C" fn k1_warm_entry(initialize: extern "C" fn()) -> ! {
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-    core::arch::naked_asm!(
-        ".balign 4",
-        "csrw mie, zero",
-        "csrci mstatus, 8",
-        "la t0, {fail}",
-        "csrw mtvec, t0",
-        "csrw mscratch, zero",
-        "mv s0, a0",
-        "call {prepare}",
-        "call {locate}",
-        "jalr s0",
-        "tail {finish}",
-        fail = sym fail_stop,
-        prepare = sym crate::SpacemitK1Registers::prepare_warm_hart,
-        locate = sym locate_stack,
-        finish = sym finish_boot,
-    );
-    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-    {
-        let _ = initialize;
-        unimplemented!("K1 warm entry requires a RISC-V target");
-    }
-}
-
-/// Enters a C907 hart released from hardware reset.
-///
-/// # Safety
-///
-/// Only a compatible C907 reset controller may enter here, after shared
-/// Runtime and platform state are published. `initialize` restores the
-/// platform-owned cache policy and activates traps.
-#[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
-pub unsafe extern "C" fn c907_reset_entry(initialize: extern "C" fn()) -> ! {
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-    core::arch::naked_asm!(
-        ".balign 4",
-        "csrw mie, zero",
-        "csrci mstatus, 8",
-        "la t0, {fail}",
-        "csrw mtvec, t0",
-        "csrw mscratch, zero",
-        "mv s0, a0",
-        // Invalidate caches and join coherency before using shared memory.
-        "li t0, 0x70013",
-        "csrw 0x7c2, t0",
-        "li t0, 1",
-        "csrw 0x7f3, t0",
-        "fence rw, rw",
-        "call {locate}",
-        "jalr s0",
-        "tail {finish}",
-        fail = sym fail_stop,
-        locate = sym locate_stack,
-        finish = sym finish_boot,
-    );
-    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-    {
-        let _ = initialize;
-        unimplemented!("C907 reset entry requires a RISC-V target");
-    }
 }
 
 /// Enters the next stage or parks after boot or a hart stop. Never returns.

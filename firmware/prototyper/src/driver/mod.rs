@@ -11,6 +11,7 @@ mod console;
 pub(crate) mod plicsw;
 pub(crate) mod plmt;
 mod reset;
+pub(crate) mod spacemit;
 pub(crate) mod thead;
 
 pub(crate) use reset::{
@@ -23,7 +24,7 @@ pub(crate) use cci::Cci550;
 pub(crate) use clint::ClintKind;
 pub(crate) use console::{Console, ConsoleError, ConsoleKind};
 
-pub(crate) use runtime::hart::HartWake;
+pub(crate) use runtime::hart::HartWakeDevice;
 
 pub(crate) const PLMT_COMPATIBLE: &str = "andestech,plmt0";
 pub(crate) const SUNXI_PLICSW_COMPATIBLE: &str = "allwinner,sun300i-plicsw";

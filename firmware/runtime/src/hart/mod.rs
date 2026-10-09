@@ -8,7 +8,7 @@ mod set;
 mod topology;
 mod wakeup;
 
-pub use wakeup::{HartWake, install_wakeup};
+pub use wakeup::{HartWakeDevice, install_wakeup};
 
 pub(crate) use lifecycle::{
     ControlTransfer, HartEvent, current_hart, take_control_transfer, take_local_event,

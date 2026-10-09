@@ -2,6 +2,6 @@
 
 mod csr;
 mod description;
+mod reset;
 
-pub use csr::C907CacheState;
 pub use description::{AllwinnerV861Soc, C907_HART_COUNT};

@@ -1,4 +1,4 @@
-//! Safe accessors for the V861 C907 custom CSRs.
+//! V861 C907 custom-CSR and reset-cache operations.
 //!
 //! The API remains visible on non-RISC-V targets for static analysis, but an
 //! attempted hardware operation on such a target panics.
@@ -6,12 +6,42 @@
 //! # References
 //!
 //! - Reference implementation: [OpenSBI D1 cache setup](https://github.com/riscv-software-src/opensbi/blob/3593a5facc4c6938b90429a6973ba9ee21fc5899/platform/generic/allwinner/sun20i-d1.c)
-//!   — C907 CSR numbers and cache-policy bits.
+//!   — shared C9xx status/cache registers and cache-invalidate encoding.
 
 use super::AllwinnerV861Soc;
+use crate::csr::{Readable, Writable, native_bit_ops, native_registers};
+use spin::Once;
+
+static BOOT_CACHE: Once<C907CacheState> = Once::new();
+
+native_registers! {
+    ordered;
+    read {}
+    write {
+        ExtendedStatus: usize = 0x7c0;
+        CacheControl: usize = 0x7c1;
+        L2Control: usize = 0x7c3;
+        Hint: usize = 0x7c5;
+    }
+    write_only {
+        CacheOperation: usize = 0x7c2;
+        SmpControl: usize = 0x7f3;
+    }
+}
+
+native_bit_ops! { ordered; set { CacheControl; } clear {} }
+
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+#[repr(usize)]
+pub(super) enum CacheCommand {
+    InvalidateAll = 0x70013,
+}
+
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+pub(super) const SMP_COHERENCY_ENABLE: usize = 1;
 
 /// Cache policy captured on the boot C907 and restored on reset harts.
-pub struct C907CacheState {
+struct C907CacheState {
     l2: usize,
     status: usize,
     hint: usize,
@@ -20,110 +50,36 @@ pub struct C907CacheState {
 
 impl C907CacheState {
     fn read() -> Self {
-        arch::read()
+        Self {
+            l2: L2Control::read().expect("C907 L2 control read failed"),
+            status: ExtendedStatus::read().expect("C907 extended status read failed"),
+            hint: Hint::read().expect("C907 hint register read failed"),
+            cache: CacheControl::read().expect("C907 cache control read failed"),
+        }
     }
 
-    /// Restores this policy on a hardware-reset C907.
-    pub fn restore(&self) {
-        arch::restore(self);
+    /// Restores this policy on a hardware-reset C907 after joining coherency.
+    fn restore(&self) {
+        L2Control::write(self.l2).expect("C907 L2 control write failed");
+        ExtendedStatus::write(self.status).expect("C907 extended status write failed");
+        Hint::write(self.hint).expect("C907 hint register write failed");
+        CacheControl::write(self.cache).expect("C907 cache control write failed");
     }
 }
 
 impl AllwinnerV861Soc {
-    /// Enables firmware C907 cache controls and captures the loader policy.
-    pub fn initialize_c907_cache(self) -> C907CacheState {
-        arch::enable_cache_controls();
-        C907CacheState::read()
+    pub(super) fn save_boot_cache(self) {
+        BOOT_CACHE.call_once(|| {
+            const CACHE_CONTROL_ENABLE: usize = (1 << 24) | (1 << 12);
+            CacheControl::set_bits(CACHE_CONTROL_ENABLE);
+            C907CacheState::read()
+        });
     }
 }
 
-mod arch {
-    use super::C907CacheState;
-
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-    const L2_CONTROL_CSR: usize = 0x7c3;
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-    const EXTENDED_STATUS_CSR: usize = 0x7c0;
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-    const HINT_CSR: usize = 0x7c5;
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-    const CACHE_CONTROL_CSR: usize = 0x7c1;
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-    const CACHE_CONTROL_ENABLE: usize = (1 << 24) | (1 << 12);
-
-    pub(super) fn read() -> C907CacheState {
-        match () {
-            #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-            () => unsafe {
-                let (l2, status, hint, cache);
-                // SAFETY: the public interface is reachable only through a V861 SoC
-                // capability, and the firmware invokes it in machine mode.
-                core::arch::asm!(
-                    "csrr {l2}, {l2_csr}", "csrr {status}, {status_csr}",
-                    "csrr {hint}, {hint_csr}", "csrr {cache}, {cache_csr}",
-                    l2_csr = const L2_CONTROL_CSR,
-                    status_csr = const EXTENDED_STATUS_CSR,
-                    hint_csr = const HINT_CSR,
-                    cache_csr = const CACHE_CONTROL_CSR,
-                    l2 = out(reg) l2,
-                    status = out(reg) status,
-                    hint = out(reg) hint,
-                    cache = out(reg) cache,
-                );
-                C907CacheState {
-                    l2,
-                    status,
-                    hint,
-                    cache,
-                }
-            },
-            #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-            () => unimplemented!("V861 custom CSRs require a RISC-V target"),
-        }
-    }
-
-    pub(super) fn restore(state: &C907CacheState) {
-        match () {
-            #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-            () => unsafe {
-                // SAFETY: the reset hart has invalidated its caches and joined
-                // coherency before its first shared-memory access.
-                core::arch::asm!(
-                    "csrw {l2_csr}, {l2}", "csrw {status_csr}, {status}",
-                    "csrw {hint_csr}, {hint}", "csrw {cache_csr}, {cache}",
-                    l2_csr = const L2_CONTROL_CSR,
-                    status_csr = const EXTENDED_STATUS_CSR,
-                    hint_csr = const HINT_CSR,
-                    cache_csr = const CACHE_CONTROL_CSR,
-                    l2 = in(reg) state.l2,
-                    status = in(reg) state.status,
-                    hint = in(reg) state.hint,
-                    cache = in(reg) state.cache,
-                );
-            },
-            #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-            () => {
-                let _ = (state.l2, state.status, state.hint, state.cache);
-                unimplemented!("V861 custom CSRs require a RISC-V target");
-            }
-        }
-    }
-
-    pub(super) fn enable_cache_controls() {
-        match () {
-            #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-            () => unsafe {
-                // SAFETY: the public interface requires a V861 C907 capability and
-                // the firmware invokes it in machine mode.
-                core::arch::asm!(
-                    "csrs {cache_csr}, {mask}",
-                    cache_csr = const CACHE_CONTROL_CSR,
-                    mask = in(reg) CACHE_CONTROL_ENABLE,
-                    options(nomem, nostack),
-                );
-            },
-            #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-            () => unimplemented!("V861 custom CSRs require a RISC-V target"),
-        }
-    }
+pub(super) fn restore_boot_cache() {
+    BOOT_CACHE
+        .get()
+        .expect("BUG: C907 cache policy must be saved before hart release")
+        .restore();
 }

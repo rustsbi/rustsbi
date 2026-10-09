@@ -1,32 +1,27 @@
 //! SpacemiT K1 processor setup.
 //!
-//! Compatibility reference: [OpenSBI's K1 platform header] defines the
+//! [OpenSBI's K1 platform header] defines the
 //! private CSRs and SoC addresses, while its [K1 platform implementation]
-//! supplies the startup sequence. Hardware manual: [Arm CoreLink CCI-550
+//! supplies the startup sequence.
+//! Hardware manual: [Arm CoreLink CCI-550
 //! TRM], chapter 3, defines the CCI register semantics.
 //!
 //! [OpenSBI's K1 platform header]: https://github.com/riscv-software-src/opensbi/blob/35511bc6ee1c9c17b6a89b44c52e2044bb51b979/platform/generic/include/spacemit/k1.h
 //! [K1 platform implementation]: https://github.com/riscv-software-src/opensbi/blob/35511bc6ee1c9c17b6a89b44c52e2044bb51b979/platform/generic/spacemit/k1.c
 //! [Arm CoreLink CCI-550 TRM]: https://documentation-service.arm.com/static/5e7dd450cbfe76649ba52b0c
 
-#![forbid(unsafe_code)]
-
-mod reset_vector;
-mod wakeup;
-
 use runtime::{SpacemitK1Registers, memory::MemoryRegistry};
 
-use crate::driver::{Cci550, HartWake};
-use runtime::hart::HartId;
-
-use reset_vector::ResetVectorRegisters;
+use crate::driver::Cci550;
+use crate::driver::spacemit::k1::{K1HartWake, ResetVectorRegisters};
+use runtime::hart::HartWakeDevice;
 
 /// MMIO resources used by the K1 cold-boot sequence.
 pub(crate) struct K1BootResources {
     system_registers: SpacemitK1Registers,
     reset_vectors: ResetVectorRegisters,
     cci: Cci550<2>,
-    wakeup: wakeup::K1Wakeup,
+    wakeup: K1HartWake,
 }
 
 impl K1BootResources {
@@ -42,27 +37,22 @@ impl K1BootResources {
                 registers.cci_status(),
                 registers.cci_snoop_controls(),
             )?,
-            wakeup: wakeup::K1Wakeup::acquire(memory, registers)?,
+            wakeup: K1HartWake::acquire(memory, registers)?,
         })
     }
 }
 
-/// Performs the K1 per-hart L2 and machine-feature setup.
-pub(crate) fn initialize_hart(registers: SpacemitK1Registers) {
-    registers.enable_hart_l2(
-        HartId::current()
-            .expect("BUG: current hart exceeds Runtime capacity")
-            .as_usize(),
-    );
-    registers.enable_machine_features();
-}
-
 /// Runs the K1-only setup performed once by the boot hart.
-pub(crate) fn initialize_boot_hart(resources: K1BootResources) -> impl HartWake {
-    initialize_hart(resources.system_registers);
+pub(crate) fn initialize_boot_hart(resources: K1BootResources) -> impl HartWakeDevice {
     resources
-        .reset_vectors
-        .set_reset_vector(crate::firmware::warm_entry as *const () as usize as u64);
+        .system_registers
+        .initialize_current_hart()
+        .expect("BUG: current K1 hart exceeds Runtime capacity");
     resources.cci.enable_coherency();
+    let entry = resources
+        .system_registers
+        .register_reset_entry(crate::boot::initialize_reset_hart)
+        .expect("BUG: K1 reset entry registered more than once");
+    resources.reset_vectors.set_reset_vector(entry.address());
     resources.wakeup
 }

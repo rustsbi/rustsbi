@@ -1,9 +1,10 @@
-//! Compatibility reference: K1 reset-vector registers from the pinned
-//! [OpenSBI K1 platform header].
+//! K1 secondary-hart reset-vector registers.
+//!
+//! Register addresses follow the pinned [OpenSBI K1 platform header].
 //!
 //! [OpenSBI K1 platform header]: https://github.com/riscv-software-src/opensbi/blob/35511bc6ee1c9c17b6a89b44c52e2044bb51b979/platform/generic/include/spacemit/k1.h
 
-use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
+use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion, PhysAddr};
 
 #[repr(usize)]
 enum Register {
@@ -11,10 +12,10 @@ enum Register {
     AddressHigh = 0x04,
 }
 
-pub(super) struct ResetVectorRegisters([MmioRegion; 2]);
+pub(crate) struct ResetVectorRegisters([MmioRegion; 2]);
 
 impl ResetVectorRegisters {
-    pub(super) fn acquire(
+    pub(crate) fn acquire(
         memory: &mut MemoryRegistry,
         [cluster0, cluster1]: [DeviceRegisterRange; 2],
     ) -> runtime::Result<Self> {
@@ -23,7 +24,8 @@ impl ResetVectorRegisters {
         Ok(Self([cluster0, cluster1]))
     }
 
-    pub(super) fn set_reset_vector(&self, address: u64) {
+    pub(crate) fn set_reset_vector(&self, address: PhysAddr) {
+        let address = address.as_usize() as u64;
         for registers in &self.0 {
             registers
                 .write(Register::AddressLow as usize, address as u32)
