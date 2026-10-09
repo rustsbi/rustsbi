@@ -1,5 +1,9 @@
 //! Runtime support for RustSBI firmware.
 //!
+//! Firmware calls semantic services such as [`timer`], [`pmu`], and [`pmp`].
+//! Runtime owns their architectural operations and keeps numeric CSR access
+//! private to the subsystem implementations.
+//!
 //! [`PlatformDescription`] validates the device tree received at firmware
 //! entry. Policy firmware may inspect that description, while [`memory`]
 //! derives physical-memory access from it.
@@ -16,11 +20,16 @@ mod csr;
 pub mod debug;
 mod device_tree;
 pub mod events;
+pub mod features;
 pub mod hart;
 pub mod heap;
+mod instructions;
 pub mod ipi;
 pub mod machine_irq;
 pub mod memory;
+pub mod pmp;
+pub mod pmu;
+pub mod rfence;
 pub mod soc;
 mod sunxi_rtc_v203;
 pub mod timer;
@@ -41,37 +50,27 @@ pub use soc::spacemit::k1::SpacemitK1Registers;
 pub enum Error {
     /// An argument is invalid for the requested operation.
     InvalidArgs,
-    /// A one-time Runtime service has already been published.
-    AlreadyInitialized,
     /// The caller does not have access to the requested resource.
     AccessDenied,
     /// The requested resource is unavailable.
     NotEnoughResources,
     /// Address arithmetic overflowed.
     Overflow,
+    /// A one-time Runtime resource has already been initialized.
+    AlreadyInitialized,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::InvalidArgs => "invalid argument",
-            Self::AlreadyInitialized => "runtime service already initialized",
             Self::AccessDenied => "access denied",
             Self::NotEnoughResources => "resource unavailable",
             Self::Overflow => "address overflow",
+            Self::AlreadyInitialized => "resource already initialized",
         })
     }
 }
 
 /// A result returned by a Runtime operation.
 pub type Result<T> = core::result::Result<T, Error>;
-
-pub mod features;
-
-mod instructions;
-
-pub mod pmu;
-
-pub mod pmp;
-
-pub mod rfence;

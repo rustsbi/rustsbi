@@ -1,4 +1,28 @@
-//! Private instructions used by Runtime operations.
+//! Private instructions used by Runtime's complete operations.
+
+/// Publishes shared-memory writes before notifying an I/O device.
+#[inline]
+pub(crate) fn memory_to_io() {
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+    // SAFETY: FENCE is valid in M-mode and does not dereference memory.
+    unsafe {
+        core::arch::asm!("fence w, o", options(nostack))
+    };
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+    unimplemented!("machine I/O ordering requires a RISC-V hart");
+}
+
+/// Orders device acknowledgement before accessing shared event state.
+#[inline]
+pub(crate) fn io_to_memory() {
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+    // SAFETY: FENCE is valid in M-mode and does not dereference memory.
+    unsafe {
+        core::arch::asm!("fence io, rw", options(nostack))
+    };
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+    unimplemented!("machine I/O ordering requires a RISC-V hart");
+}
 
 pub(crate) mod fence {
     use core::arch::asm;
@@ -133,26 +157,4 @@ pub(crate) mod fence {
             asm!(".option push", ".option arch, +h", "hfence.vvma {}, {}", ".option pop", in(reg) addr, in(reg) asid, options(nostack))
         };
     }
-}
-
-#[inline]
-pub(crate) fn memory_to_io() {
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-    // SAFETY: FENCE is valid in M-mode and does not dereference memory.
-    unsafe {
-        core::arch::asm!("fence w, o", options(nostack))
-    };
-    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-    unimplemented!("machine I/O ordering requires a RISC-V hart");
-}
-
-#[inline]
-pub(crate) fn io_to_memory() {
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-    // SAFETY: FENCE is valid in M-mode and does not dereference memory.
-    unsafe {
-        core::arch::asm!("fence io, rw", options(nostack))
-    };
-    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-    unimplemented!("machine I/O ordering requires a RISC-V hart");
 }

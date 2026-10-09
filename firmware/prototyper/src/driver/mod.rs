@@ -25,8 +25,6 @@ pub(crate) use cci::Cci550;
 pub(crate) use clint::ClintKind;
 pub(crate) use console::{Console, ConsoleError, ConsoleKind};
 
-pub(crate) use runtime::hart::HartWakeDevice;
-
 pub(crate) const PLMT_COMPATIBLE: &str = "andestech,plmt0";
 pub(crate) const SUNXI_PLICSW_COMPATIBLE: &str = "allwinner,sun300i-plicsw";
 

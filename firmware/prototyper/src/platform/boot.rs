@@ -1,17 +1,16 @@
-#![forbid(unsafe_code)]
-
 //! One-time platform discovery, resource acquisition, and publication.
 
 use alloc::boxed::Box;
 use core::ops::Range;
 
+use runtime::hart::HartWakeDevice;
 use runtime::memory::SupervisorMemory;
 
 use super::error::{self, ResultContext};
 use super::info::{BoardInfo, SocDescription};
-use super::spacemit::k1::{self as spacemit_k1, K1BootResources};
+use super::spacemit::k1::{self, K1BootResources};
 use super::{devices::Devices, discovery, report, state};
-use crate::driver::{self, HartWakeDevice};
+use crate::driver;
 use crate::sbi;
 use crate::sbi::SbiDispatcher;
 use crate::sbi::cppc::SbiCppc;
@@ -23,8 +22,10 @@ use crate::sbi::reset::SbiReset;
 use crate::sbi::rfence::SbiRFence;
 use crate::sbi::suspend::SbiSuspend;
 
-/// Discovers the platform, initializes its devices, and publishes its
-/// services. Returns the device tree prepared for the next stage.
+/// Discovers the platform, initializes its devices, and publishes its services.
+///
+/// Returns the physical address of the next-stage device tree.
+/// Panics if discovery, resource binding, or publication fails.
 pub fn init_board(platform_description: runtime::PlatformDescription) -> usize {
     try_init_board(platform_description).unwrap_or_else(|error| panic!("{error}"))
 }
@@ -107,9 +108,7 @@ fn initialize_platform(
     };
 
     devices.hart_wake = k1_resources
-        .map(|resources| {
-            Box::new(spacemit_k1::initialize_boot_hart(resources)) as Box<dyn HartWakeDevice>
-        })
+        .map(|resources| Box::new(k1::initialize_boot_hart(resources)) as Box<dyn HartWakeDevice>)
         .or_else(|| v861_wake.map(|wake| Box::new(wake) as Box<dyn HartWakeDevice>));
 
     publish_platform_services(&board, supervisor_memory, devices, custom_extension, pmu)?;

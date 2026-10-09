@@ -1,5 +1,4 @@
 //! SpacemiT SoC capabilities.
 
-pub mod k3;
-
 pub mod k1;
+pub mod k3;

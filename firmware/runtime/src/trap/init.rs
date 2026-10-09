@@ -1,10 +1,10 @@
-//! Transactional per-hart trap initialization.
+//! Per-hart trap policy publication and entry activation.
 //!
-//! The private lifecycle is `Uninitialized → Ready → Armed`:
-//! [`init`] publishes `Ready` transactionally with the final normal `mtvec`
-//! write as its commit point; the never-returning
-//! [`finish_boot`](crate::boot::finish_boot) later establishes `Armed` with
-//! the clean stack top in `mscratch`.
+//! The lifecycle is `Uninitialized → Ready → Armed`. [`init`] publishes policy
+//! after device initialization and installs the normal vector last.
+//! [`finish_boot`](crate::boot::finish_boot) later arms the clean stack through
+//! `mscratch`. A device initialization error releases the slot for retry;
+//! device side effects are not rolled back.
 
 use alloc::boxed::Box;
 use core::arch::asm;
@@ -60,9 +60,7 @@ impl fmt::Display for InitError {
     }
 }
 
-/// The per-hart Runtime trap state: lifecycle phase, erased policy, and the
-/// architectural Sstc capability, shared only under `Sync`. Platform services
-/// live in their own subsystem modules rather than in CPU-local state.
+/// Per-hart trap lifecycle and published SBI policy.
 struct HartState {
     phase: AtomicU8,
     policy: Once<&'static (dyn RustSBI + Sync)>,
@@ -85,6 +83,14 @@ fn hart_states() -> &'static [HartState] {
     })
 }
 
+/// Checks reset initialization before discarding the boot call chain.
+pub(crate) fn current_is_ready() -> bool {
+    let Ok(hart) = HartId::current() else {
+        return false;
+    };
+    hart_states()[hart.index()].phase.load(Ordering::Acquire) == PHASE_READY
+}
+
 /// Returns `hart`'s published policy.
 ///
 /// # Panics
@@ -104,11 +110,18 @@ pub(crate) fn policy(hart: HartId) -> &'static (dyn RustSBI + Sync) {
         .expect("initialized phase implies a policy")
 }
 
-/// Initializes trap handling on the current hart and stores the policy in this
-/// hart's private slot. Platform services are published by
-/// their own subsystem modules before this function is called.
-/// Machine interrupts stay disabled throughout; `mscratch` keeps the zero boot
-/// sentinel, so an unexpected trap before `finish_boot` fail-stops.
+/// Initializes trap handling and publishes SBI policy for the current hart.
+///
+/// Publish platform services before calling this during hart initialization.
+/// Runtime's boot entry calls this with machine interrupts disabled and keeps
+/// the zero `mscratch` sentinel until [`crate::boot::finish_boot`]. An unexpected
+/// trap in that interval fail-stops. This function does not itself clear MIE.
+///
+/// # Errors
+///
+/// Returns an error for an unknown hart, a repeated initialization, or an IPI
+/// or timer initialization failure. Device errors release the slot for retry,
+/// but do not roll back device side effects.
 pub fn init<P>(policy: &'static P) -> Result<(), InitError>
 where
     P: RustSBI + Sync + 'static,
@@ -210,16 +223,12 @@ pub trait AccessDispatcher: Sync {
     fn store(&self, addr: usize, kind: ValueKind, value: usize) -> Result<(), AccessError>;
 }
 
-/// The erased access-fault service: one global dispatcher shared by every
-/// hart, published once during boot.
+/// Shared platform access-fault service.
 static ACCESS_DISPATCHER: Once<&'static dyn AccessDispatcher> = Once::new();
 
 /// Publishes the platform's access-fault dispatcher once during boot.
 ///
-/// This uses the same `Once`-backed erased-reference pattern as the SBI
-/// policy stored by [`init`] — though that policy is per-hart while this
-/// dispatcher is global — and trap dispatch reads it directly. Later calls
-/// are ignored.
+/// Every hart uses the first published dispatcher. Later calls leave it unchanged.
 pub fn install_access_dispatcher<D>(dispatcher: &'static D)
 where
     D: AccessDispatcher + 'static,
@@ -231,12 +240,4 @@ where
 /// platform installed none.
 pub(crate) fn access_dispatcher() -> Option<&'static dyn AccessDispatcher> {
     ACCESS_DISPATCHER.get().copied()
-}
-
-/// Checks reset initialization before discarding the boot call chain.
-pub(crate) fn current_is_ready() -> bool {
-    let Ok(hart) = HartId::current() else {
-        return false;
-    };
-    hart_states()[hart.index()].phase.load(Ordering::Acquire) == PHASE_READY
 }

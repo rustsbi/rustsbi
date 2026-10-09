@@ -1,10 +1,9 @@
 use ::riscv::register::mstatus::MPP;
 use core::fmt;
 use runtime::FdtNode;
-use runtime::features as arch_features;
 pub use runtime::features::PrivilegedVersion;
 use runtime::features::SupervisorEnvironmentPolicy;
-use runtime::pmu;
+use runtime::{features as arch_features, pmu};
 
 use crate::fail;
 use crate::platform::mark_hart_privilege_checked;
@@ -23,13 +22,13 @@ pub(crate) enum HartInitError {
 impl fmt::Display for HartInitError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Timer(error) => write!(formatter, "timer discovery failed: {error}"),
             Self::PrivilegedVersion(error) => {
                 write!(
                     formatter,
                     "privileged architecture discovery failed: {error}"
                 )
             }
+            Self::Timer(error) => write!(formatter, "timer discovery failed: {error}"),
             Self::CounterReset(error) => write!(formatter, "counter reset failed: {error:?}"),
             Self::SupervisorEnvironment(error) => {
                 write!(formatter, "supervisor environment setup failed: {error}")

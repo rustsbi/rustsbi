@@ -1,5 +1,3 @@
-#![forbid(unsafe_code)]
-
 //! Platform discovery, initialization, and shared services.
 //!
 //! The boot hart turns the Runtime-owned Platform Description into [`info::BoardInfo`], binds
@@ -24,7 +22,7 @@ mod state;
 
 pub(crate) mod qemu_aplic;
 
-pub use boot::{firmware_ram_range, init_board, initialize_secondary_hart};
+pub(crate) use boot::{firmware_ram_range, init_board, initialize_secondary_hart};
 pub(crate) use info::ImsicInfo;
 pub(crate) use state::{
     console_device, enabled_harts, hart_privilege_checked, interrupts, mark_hart_privilege_checked,

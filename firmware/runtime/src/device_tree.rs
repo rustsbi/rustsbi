@@ -10,11 +10,11 @@ use core::mem::size_of;
 use fdt::{Fdt, node::FdtNode};
 use spin::Once;
 
+use crate::SpacemitK1Registers;
 use crate::boot;
 use crate::memory::{
     DeviceRegisterRange, MemoryRegistry, PhysAddr, PhysAddrRange, SupervisorMemory,
 };
-use crate::soc::spacemit::k1::SpacemitK1Registers;
 use crate::{Error, Result};
 
 mod patch;
@@ -26,9 +26,9 @@ const FDT_TOTAL_SIZE_OFFSET: usize = size_of::<u32>();
 
 /// The device-tree address received at the firmware entry point.
 ///
-/// The generated entry bridge receives this opaque value directly from the
-/// boot ABI. Its private representation prevents safe policy code from
-/// manufacturing another entry capability.
+/// Runtime captures this opaque value from the boot ABI. Its private
+/// representation prevents safe policy code from manufacturing an entry
+/// capability.
 #[doc(hidden)]
 #[repr(transparent)]
 pub struct DeviceTreeHandoff {
@@ -56,18 +56,21 @@ impl DeviceTreeHandoff {
 
     /// Claims the selected boot device tree.
     ///
-    /// The selected address may be the entry argument itself or an FDT linked
-    /// inside the current firmware image.
+    /// The selected address may be the entry argument itself or the start of
+    /// the dedicated embedded-FDT section.
     pub fn claim(self, selected_address: PhysAddr) -> Result<PlatformDescription> {
         if selected_address == self.address {
-            // SAFETY: values of this opaque type enter Rust only through the
-            // generated firmware-entry ABI, whose contract covers the FDT.
+            // SAFETY:
+            // 1. The private entry constructor grants the complete FDT storage contract.
+            // 2. This address matches that entry handoff; its reserved storage remains live.
             return unsafe { PlatformDescription::from_raw(selected_address) };
         }
 
         validate_linked_fdt(selected_address)?;
-        // SAFETY: `validate_linked_fdt` checked both the FDT header and its
-        // declared complete span against the linked firmware image.
+        // SAFETY:
+        // 1. validate_linked_fdt authenticated the dedicated embedded section and
+        //    checked the header and complete declared span.
+        // 2. The linker-owned handoff storage stays live until next-stage entry.
         unsafe { PlatformDescription::from_raw(selected_address) }
     }
 }
@@ -214,13 +217,11 @@ impl<'tree> PlatformView<'tree> {
 
     /// Returns the `reg` entry named by the node's `reg-names` property.
     ///
-    /// Returns `Ok(None)` when the node is disabled or carries no `reg-names`
-    /// property; callers use that to apply a legacy positional fallback of
-    /// their own. When `reg-names` is present, the requested name must exist
-    /// and must have a corresponding `reg` entry: a node that names its
-    /// resources has declared their meaning, so an absent name is an error
-    /// rather than a cue to guess an index. A `reg-names` value that is not
-    /// NUL-terminated is rejected as malformed.
+    /// Returns `Ok(None)` for a disabled node or an absent `reg-names`
+    /// property, allowing policy to choose a positional fallback.
+    /// When names are present, the requested name and corresponding `reg` entry
+    /// must exist. The named layout is authoritative, so a missing name is an
+    /// error. A non-NUL-terminated string list is also rejected.
     pub fn device_register_by_name(
         &self,
         node: FdtNode<'_, 'tree>,
@@ -322,8 +323,9 @@ impl PlatformDescription {
     /// field. The bytes must remain readable and unchanged for as long as the
     /// returned description is used.
     unsafe fn from_raw(address: PhysAddr) -> Result<Self> {
-        // SAFETY: the caller of this function provides the pointer validity
-        // and lifetime guarantees documented above.
+        // SAFETY:
+        // 1. The caller grants readable storage for the header and complete FDT.
+        // 2. Its storage contract keeps those bytes unchanged for this description.
         let source = unsafe { fdt_source(address)? };
         patch::validate(source)?;
         let fdt = Fdt::new(source).map_err(|_| Error::InvalidArgs)?;
@@ -335,9 +337,9 @@ impl PlatformDescription {
     }
 
     fn source(&self) -> Result<&[u8]> {
-        // SAFETY: construction validated the complete FDT, and the
-        // description's ownership contract keeps its storage readable and
-        // unchanged.
+        // SAFETY:
+        // 1. Construction validated the complete FDT span.
+        // 2. The description's storage contract keeps it readable and unchanged.
         unsafe { fdt_source(self.address) }
     }
 
@@ -350,8 +352,10 @@ impl PlatformDescription {
         &self,
         inspect: impl for<'tree> FnOnce(PlatformView<'tree>) -> Result<R>,
     ) -> Result<R> {
-        // SAFETY: construction validated the complete FDT. Ownership keeps
-        // its storage readable and unchanged, and the view cannot escape.
+        // SAFETY:
+        // 1. Construction validated the complete FDT span.
+        // 2. Ownership keeps the storage readable and unchanged during inspection.
+        // 3. The higher-ranked closure prevents the borrowed view from escaping.
         let fdt = unsafe { Fdt::from_ptr(self.address.as_usize() as *const u8) }
             .map_err(|_| Error::InvalidArgs)?;
         let fdt_storage = PhysAddrRange::from_start_len(self.address, fdt.total_size())?;
@@ -469,11 +473,14 @@ unsafe fn fdt_source<'a>(address: PhysAddr) -> Result<&'a [u8]> {
     if address.as_usize() == 0 {
         return Err(Error::InvalidArgs);
     }
-    // SAFETY: the caller guarantees that the address points to a readable FDT
-    // header and complete declared span.
+    // SAFETY:
+    // 1. The caller grants a readable header and complete declared FDT span.
+    // 2. Its lifetime guarantee keeps those bytes unchanged during parsing.
     let fdt = unsafe { Fdt::from_ptr(address.as_usize() as *const u8) }
         .map_err(|_| Error::InvalidArgs)?;
-    // SAFETY: the same caller guarantee covers the complete `totalsize` span.
+    // SAFETY:
+    // 1. The caller grants the complete contiguous totalsize span.
+    // 2. Those bytes stay readable and unchanged for the returned slice's lifetime.
     Ok(unsafe { core::slice::from_raw_parts(address.as_usize() as *const u8, fdt.total_size()) })
 }
 
@@ -541,8 +548,6 @@ fn record_nonempty_range(
 mod tests {
     use super::*;
 
-    // Keep the trust-seam checks together: the fixture is shared because the
-    // production invariant is about the FDT trust boundary, not test-tree data.
     #[test]
     fn linked_fdt_requires_the_dedicated_section_start() {
         let start = PhysAddr::new(0x1000);
@@ -601,8 +606,9 @@ mod tests {
         let source = minimal_fdt(&mut storage, 0);
         write_test_u32(source, 56, 9);
 
-        // SAFETY: `minimal_fdt` built a complete, writable fixture whose
-        // declared span remains live in `storage` for this call.
+        // SAFETY:
+        // 1. minimal_fdt built the complete declared span in this allocation.
+        // 2. storage stays live and the fixture is unchanged during this call.
         let result =
             unsafe { PlatformDescription::from_raw(PhysAddr::new(source.as_ptr() as usize)) };
         assert_eq!(result.err(), Some(Error::InvalidArgs));
@@ -613,8 +619,9 @@ mod tests {
         let mut storage = alloc::vec![0u64; 16];
         let source = minimal_fdt(&mut storage, 4);
 
-        // SAFETY: `minimal_fdt` built a complete fixture whose declared span
-        // remains live in `storage` for this call.
+        // SAFETY:
+        // 1. minimal_fdt built the complete declared span in this allocation.
+        // 2. storage stays live and the fixture is unchanged during this call.
         unsafe { PlatformDescription::from_raw(PhysAddr::new(source.as_ptr() as usize)) }
             .expect("a 4-byte-aligned FDT is valid");
     }
@@ -632,8 +639,10 @@ mod tests {
     }
 
     fn minimal_fdt(storage: &mut [u64], offset: usize) -> &mut [u8] {
-        // SAFETY: the fixture uses an in-bounds byte range within the live
-        // `u64` allocation; the four-byte offset models an unaligned FDT.
+        // The four-byte offset tests FDT alignment below the backing u64 alignment.
+        // SAFETY:
+        // 1. Both fixture callers provide an in-bounds range in the live u64 allocation.
+        // 2. The mutable borrow of storage gives exclusive access to these bytes.
         let source = unsafe {
             core::slice::from_raw_parts_mut(storage.as_mut_ptr().cast::<u8>().add(offset), 72)
         };

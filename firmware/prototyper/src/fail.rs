@@ -1,5 +1,3 @@
-#![forbid(unsafe_code)]
-
 use runtime::hart::HartId;
 
 #[cfg(all(feature = "payload", feature = "jump"))]
@@ -28,6 +26,7 @@ pub fn stop() -> ! {
     }
 }
 
+/// Reports a boot-time hart initialization failure before supervisor entry.
 #[cold]
 pub(crate) fn hart_initialization(error: impl core::fmt::Display) -> ! {
     let hart_id = HartId::current().expect("BUG: initializing hart is outside the boot topology");

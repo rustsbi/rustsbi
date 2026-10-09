@@ -8,6 +8,12 @@ mod set;
 mod topology;
 mod wakeup;
 
+/// Returns the current hart's architectural vendor identifier.
+/// Zero means that the hardware does not publish an identifier.
+pub fn vendor_id() -> usize {
+    use crate::csr::{Mvendorid, Readable};
+    Mvendorid::read().expect("machine vendor CSR is always readable in M-mode")
+}
 pub use wakeup::{HartWakeDevice, install_wakeup};
 
 pub(crate) use lifecycle::{
@@ -84,11 +90,4 @@ impl HartId {
     pub fn all() -> impl DoubleEndedIterator<Item = Self> + ExactSizeIterator {
         topology::all()
     }
-}
-
-/// Returns the current hart's architectural vendor identifier.
-/// Zero means that the hardware does not publish an identifier.
-pub fn vendor_id() -> usize {
-    use crate::csr::{Mvendorid, Readable};
-    Mvendorid::read().expect("machine vendor CSR is always readable in M-mode")
 }

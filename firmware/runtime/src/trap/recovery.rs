@@ -3,8 +3,9 @@
 //! A guarded operation publishes a [`RecoveryRecord`] through `mscratch`
 //! and switches `mtvec` to the private `recovery_entry` for the duration of
 //! exactly one guarded instruction. The entry accepts the fault only on an
-//! exact record/origin/PC/cause match; every mismatch fail-stops. This
-//! replaces the older unconditional-skip expected-trap vector.
+//! exact record/origin/PC/cause match; every mismatch fail-stops.
+//! CSR guards also preserve the enclosing trap facts and the previous
+//! `mscratch` value.
 
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 use core::arch::asm;
@@ -55,7 +56,7 @@ impl RecoveryRecord {
         }
     }
 
-    /// Whether the guarded instruction faulted and was recovered.
+    /// Returns whether the guarded instruction faulted and was recovered.
     #[allow(unused)]
     fn trapped(&self) -> bool {
         self.trapped != 0
@@ -96,7 +97,7 @@ pub(crate) mod cause {
     pub(crate) const STORE_PAGE: usize = 1 << 15;
 }
 
-/// Generate one guarded operation: publish the record, install the recovery
+/// Generates one guarded operation: publish the record, install the recovery
 /// vector, execute exactly one guarded instruction with `MPRV|MXR` set (so
 /// the access uses the trapped context's privilege), retire the record,
 /// restore `mtvec`/`mstatus`, and report whether the operation faulted.
@@ -120,11 +121,13 @@ macro_rules! guarded_access {
                 () => {
                     let mut data = data;
                     let mut record = RecoveryRecord::new($cause_mask);
-                    // SAFETY: machine interrupts are disabled for the whole window
-                    // (M-mode trap handling or boot with `mie` masked), so the
-                    // temporary `mtvec`/`mscratch` publication cannot be observed
-                    // by an unrelated trap. All touched CSRs are restored on both
-                    // the success and the recovered-fault paths.
+                    // SAFETY:
+                    // 1. The enclosing M-mode trap has MIE clear and mscratch zero;
+                    //    an interrupt cannot interleave with the temporary vector.
+                    // 2. The live stack record has recovery_entry's checked layout;
+                    //    fixed-register clobbers are declared. Unexpected faults fail-stop.
+                    // 3. Assembly restores mstatus/mtvec and clears mscratch. The outer
+                    //    TrapFacts restores mepc/mcause/mtval before dispatch continues.
                     unsafe {
                         let prev_mtvec = mtvec::read().bits();
                         mtvec::write(mtvec::Mtvec::new(
@@ -132,7 +135,7 @@ macro_rules! guarded_access {
                             mtvec::TrapMode::Direct,
                         ));
                         asm!(
-                            // Publish the record, then the exact faulting address.
+                            // Publish the record and the exact guarded instruction PC.
                             "csrw mscratch, a3",
                             "lla t2, 2f",
                             store_word!(t2 => [a3]),
@@ -179,21 +182,21 @@ fn fault_of(record: &RecoveryRecord) -> Error {
 }
 
 guarded_access!(
-    /// Read one byte at `addr` (`lbu`).
+    /// Reads one byte at `addr` (`lbu`).
     read_u8,
     "lbu t0, 0(t1)",
     cause::LOAD_ACCESS | cause::LOAD_PAGE
 );
 
 guarded_access!(
-    /// Read one halfword at `addr` (`lhu`); `addr` must be halfword-aligned.
+    /// Reads one halfword at `addr` (`lhu`); `addr` must be halfword-aligned.
     read_u16,
     "lhu t0, 0(t1)",
     cause::LOAD_ACCESS | cause::LOAD_PAGE
 );
 
 guarded_access!(
-    /// Write one byte `data` at `addr` (`sb`).
+    /// Writes one byte `data` at `addr` (`sb`).
     write_u8,
     "sb t0, 0(t1)",
     cause::STORE_ACCESS | cause::STORE_PAGE
@@ -436,7 +439,21 @@ pub(crate) fn swap_csr_guarded<const CSR: u16>(value: usize) -> Result<usize, Er
     }
 }
 
-/// Fetch the instruction at `mepc`, returning its encoding and length.
+/// Synchronizes address translations after changing the PMP table.
+///
+/// A hart that supports only Bare translation may not implement SFENCE.VMA;
+/// report that absence while preserving the enclosing trap and guard state.
+#[inline(never)]
+pub(crate) fn sfence_vma_guarded() -> Result<(), Error> {
+    match () {
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+        () => guarded_machine_instruction!("sfence.vma x0, x0", 0).map(|_| ()),
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+        () => unimplemented!("Guarded address-translation fence requires a RISC-V target"),
+    }
+}
+
+/// Fetches the instruction at `mepc`, returning its encoding and length.
 ///
 /// Only 16- and 32-bit encodings are fetched; longer encodings read as
 /// 4 bytes, fail decode, and are redirected.
@@ -451,7 +468,7 @@ pub(crate) fn fetch(mepc: usize) -> Result<(u32, usize), Error> {
     }
 }
 
-/// Read a `kind`-wide value at `addr`, composing the bytes little-endian.
+/// Reads a `kind`-wide value at `addr`, composing the bytes little-endian.
 pub(crate) fn read_value(addr: usize, kind: ValueKind) -> Result<usize, Error> {
     let mut data = 0;
     for i in (0..kind.width()).rev() {
@@ -460,7 +477,9 @@ pub(crate) fn read_value(addr: usize, kind: ValueKind) -> Result<usize, Error> {
     Ok(data)
 }
 
-/// Write a `kind`-wide `value` at `addr`, decomposing it little-endian.
+/// Writes a `kind`-wide `value` at `addr`, decomposing it little-endian.
+///
+/// A later byte fault can leave earlier writes visible.
 pub(crate) fn write_value(addr: usize, value: usize, kind: ValueKind) -> Result<(), Error> {
     for i in 0..kind.width() {
         write_u8(addr + i, (value >> (8 * i)) & 0xff)?;
@@ -469,14 +488,3 @@ pub(crate) fn write_value(addr: usize, value: usize, kind: ValueKind) -> Result<
 }
 
 use super::decode::ValueKind;
-
-/// Synchronizes address translations under the guarded instruction recovery protocol.
-#[inline(never)]
-pub(crate) fn sfence_vma_guarded() -> Result<(), Error> {
-    match () {
-        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-        () => guarded_machine_instruction!("sfence.vma x0, x0", 0).map(|_| ()),
-        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-        () => unimplemented!("Guarded address-translation fence requires a RISC-V target"),
-    }
-}

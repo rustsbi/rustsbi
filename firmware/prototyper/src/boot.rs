@@ -148,11 +148,7 @@ fn detect_current_hart() {
 }
 
 fn enable_supervisor_services() {
-    sbi::features::configure_hart_environment()
-        .unwrap_or_else(|error| fail::hart_initialization(error));
-    // Transactional per-hart trap activation: publishes the policy, applies
-    // the fixed delegation/counter policy, and installs the final trap
-    // vector as the Ready commit point.
+    features::configure_hart_environment().unwrap_or_else(|error| fail::hart_initialization(error));
     runtime::trap::init(
         sbi::SBI_DISPATCHER
             .get()
