@@ -1,31 +1,4 @@
 // Sstc: supervisor timer compare register.
-pub const CSR_STIMECMP: u16 = 0x14D;
-
-/// Probes whether the CSR selected by `CSR` is implemented on this hart.
-pub fn has_csr<const CSR: u16>() -> bool {
-    runtime::trap::read_csr_guarded::<CSR>().is_ok()
-}
-
-/// Machine environment configuration register (menvcfg) bit fields.
-pub mod menvcfg {
-    use core::arch::asm;
-    /// Supervisor timer counter enable.
-    pub const STCE: u64 = 0x1 << 63;
-
-    /// Sets specified bits in menvcfg register.
-    pub fn set_bits(option: u64) {
-        // SAFETY: M-mode update of this hart's own menvcfg. On RV32 the
-        // upper half is menvcfgh (0x31a); callers probe the extension before
-        // requesting its high bits.
-        unsafe {
-            asm!("csrs menvcfg, {}", in(reg) option as usize, options(nomem));
-            #[cfg(target_pointer_width = "32")]
-            if option >> 32 != 0 {
-                asm!("csrs 0x31a, {}", in(reg) (option >> 32) as usize, options(nomem));
-            }
-        }
-    }
-}
 
 /// Machine interrupt-file CSR operations.
 pub mod imsic {
@@ -71,32 +44,6 @@ pub mod imsic {
         }
 
         runtime::csr::mie::set_machine_external();
-    }
-}
-
-/// Supervisor timer compare register operations.
-pub mod stimecmp {
-    use core::arch::asm;
-
-    /// Sets the supervisor timer compare value.
-    pub fn set(value: u64) {
-        // SAFETY: callers have probed Sstc; M-mode may program stimecmp on
-        // this hart when the extension is implemented.
-        unsafe {
-            #[cfg(target_pointer_width = "64")]
-            asm!("csrrw zero, stimecmp, {}", in(reg) value, options(nomem));
-            // Avoid an early interrupt while replacing the two halves.
-            #[cfg(target_pointer_width = "32")]
-            asm!(
-                "csrw stimecmp, {max}",
-                "csrw 0x15d, {high}",
-                "csrw stimecmp, {low}",
-                max = in(reg) usize::MAX,
-                high = in(reg) (value >> 32) as usize,
-                low = in(reg) value as usize,
-                options(nomem),
-            );
-        }
     }
 }
 

@@ -239,12 +239,11 @@ fn machine_soft(frame: &mut TrapFrame) {
 /// The machine timer transport: stop re-trapping and inject the supervisor
 /// timer interrupt when the platform lacks Sstc.
 fn machine_timer() {
-    crate::csr::mie::clear_machine_timer();
-    if !init::has_sstc() {
-        if let Some(timer) = crate::timer::get() {
-            timer.acknowledge_current();
-        }
-        crate::csr::mip::set_supervisor_timer();
+    if crate::timer::Timer::current()
+        .and_then(|timer| timer.on_machine_timer())
+        .is_err()
+    {
+        fatal();
     }
 }
 
@@ -316,9 +315,9 @@ pub(crate) unsafe fn stage_next_mode(start_addr: usize, next_mode: mstatus::MPP)
         if crate::irq::get().is_some() {
             crate::csr::mie::set_machine_external();
         }
-        if !init::has_sstc() {
-            crate::csr::mie::set_machine_timer();
-        }
+        crate::timer::Timer::current()
+            .and_then(|timer| timer.prepare_next_stage())
+            .expect("BUG: next-stage timer is not initialized");
         mepc::write(start_addr);
     }
 }
@@ -332,7 +331,9 @@ pub(crate) unsafe fn stage_next_mode(start_addr: usize, next_mode: mstatus::MPP)
 /// Access only initialized fields through raw pointers; never borrow the full frame.
 #[inline(never)]
 pub(super) unsafe extern "C" fn try_fast_emulate_time(frame: *mut TrapFrame) -> bool {
-    // SAFETY: these CSR slots are initialized by entry before this call.
+    // SAFETY:
+    // 1. Entry supplies aligned frame storage valid for these raw accesses.
+    // 2. It initialized the named CSR fields before this call.
     let (status, cause, inst, pc) = unsafe {
         (
             (*frame).mstatus,
@@ -341,22 +342,29 @@ pub(super) unsafe extern "C" fn try_fast_emulate_time(frame: *mut TrapFrame) -> 
             (*frame).mepc,
         )
     };
+    // mstatus.MPP and the funct3/rs1/opcode fields of a CSRRS register read.
+    const MPP_MASK: usize = 0b11 << 11;
+    const CSR_READ_MASK: u32 = 0x000f_f07f;
+    const CSR_READ_ENCODING: u32 = 0x2073;
+
     let rd = ((inst >> 7) & 31) as usize;
     if cause != ILLEGAL_INSTRUCTION
-        || status & 0x1800 == 0x1800
-        || inst & 0x000f_f07f != 0x2073
+        || status & MPP_MASK == MPP_MASK
+        || inst & CSR_READ_MASK != CSR_READ_ENCODING
         || !matches!(rd, 0 | 1 | 5..=7 | 10..=17 | 28..=31)
     {
         return false;
     }
-    let Some(value) = emulate::device_counter_word((inst >> 20) as u16) else {
+    let Some(value) = emulate::device_counter_word((inst >> 20) as u16, status) else {
         return false;
     };
     if let Some(counters) = crate::events::get() {
         counters.record_illegal_instruction();
     }
     if rd != 0 {
-        // SAFETY: rd names an initialized caller-saved slot within the allocated frame.
+        // SAFETY:
+        // 1. Entry supplies writable storage for the complete frame allocation.
+        // 2. The test above restricts nonzero rd to an initialized caller-saved slot.
         unsafe {
             core::ptr::addr_of_mut!((*frame).x)
                 .cast::<usize>()
@@ -364,7 +372,9 @@ pub(super) unsafe extern "C" fn try_fast_emulate_time(frame: *mut TrapFrame) -> 
                 .write(value);
         }
     }
-    // SAFETY: the pure 32-bit CSR read completed; other trap CSRs were not modified.
+    // SAFETY:
+    // 1. Entry retains this trap in M-mode with MIE clear and a saved return PC.
+    // 2. The pure 32-bit CSR read completed without modifying other trap CSRs.
     unsafe {
         mepc::write(pc.wrapping_add(4));
     }

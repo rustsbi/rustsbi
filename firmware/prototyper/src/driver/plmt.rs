@@ -1,7 +1,8 @@
 //! Andes PLMT: MTIME at +0, per-hart MTIMECMP at +8.
 
-use crate::driver::TimerBackend;
+use runtime::hart::HartId;
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
+use runtime::timer::{TimeSource, TimerDevice};
 
 #[repr(usize)]
 #[derive(Clone, Copy)]
@@ -14,13 +15,13 @@ enum Register {
 
 const COMPARE_STRIDE: usize = 8;
 
-pub(super) struct Plmt {
+pub(crate) struct Plmt {
     registers: MmioRegion,
     hart_id_upper_bound: usize,
 }
 
 /// Binds the timer registers below the exclusive raw hart ID upper bound.
-pub(super) fn bind(
+pub(crate) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
     hart_id_upper_bound: usize,
@@ -61,44 +62,50 @@ impl Plmt {
     }
 }
 
-impl TimerBackend for Plmt {
-    fn read_time(&self) -> Option<u64> {
+impl TimeSource for Plmt {
+    fn read_time(&self) -> u64 {
         loop {
             let high = self.read_word(Register::CounterHigh);
             let low = self.read_word(Register::CounterLow);
             if high == self.read_word(Register::CounterHigh) {
-                return Some((u64::from(high) << 32) | u64::from(low));
+                return (u64::from(high) << 32) | u64::from(low);
             }
         }
     }
 
-    fn read_time_low(&self) -> Option<usize> {
+    fn read_time_low(&self) -> usize {
         #[cfg(target_pointer_width = "32")]
         {
-            Some(self.read_word(Register::CounterLow) as usize)
+            self.read_word(Register::CounterLow) as usize
         }
         #[cfg(target_pointer_width = "64")]
         {
-            self.read_time().map(|value| value as usize)
+            self.read_time() as usize
         }
     }
 
     #[cfg(target_pointer_width = "32")]
-    fn read_time_high(&self) -> Option<usize> {
-        Some(self.read_word(Register::CounterHigh) as usize)
+    fn read_time_high(&self) -> usize {
+        self.read_word(Register::CounterHigh) as usize
+    }
+}
+
+impl TimerDevice for Plmt {
+    fn time_source(&self) -> Option<&dyn TimeSource> {
+        Some(self)
     }
 
-    fn set_timer(&self, hart_id: usize, value: u64) {
+    fn set_deadline(&self, hart: HartId, value: u64) {
+        let hart_id = hart.as_usize();
         assert!(hart_id < self.hart_id_upper_bound);
-        // Safe RV32 comparator update even if the old high half matches MTIME.
+        // The low/high/low sequence avoids a transient early timer interrupt.
         self.write_compare_word(Register::CompareLow, hart_id, u32::MAX);
         self.write_compare_word(Register::CompareHigh, hart_id, (value >> 32) as u32);
         self.write_compare_word(Register::CompareLow, hart_id, value as u32);
-        riscv::asm::fence();
+        self.registers.synchronize();
     }
 
-    // Masking MTIE prevents retrapping until the next set_timer rearms the comparator.
-    fn clear_on_interrupt(&self) -> bool {
-        false
-    }
+    // Runtime masks MTIE on expiry. Keep the comparison value until the next
+    // deadline; unlike explicit cancellation, acknowledgement needs no MMIO.
+    fn acknowledge(&self, _hart: HartId) {}
 }

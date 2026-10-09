@@ -16,7 +16,7 @@ mod platform;
 mod riscv;
 mod sbi;
 
-use crate::driver::{ipi, timer};
+use crate::driver::ipi;
 use crate::firmware::BootInfo;
 use crate::sbi::features::{
     check_next_stage_privilege, detect_hart_features, hart_privileged_version,
@@ -87,7 +87,6 @@ fn secondary_hart(boot: Option<&BootInfo>) {
 
 fn enable_supervisor_services() {
     ipi::clear_current();
-    timer::clear_current();
     // Gate per-hart IMSIC setup on the device selected during platform
     // initialization, not on AIA discovery alone.
     if ipi::uses_imsic() {

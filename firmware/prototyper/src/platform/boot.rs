@@ -12,7 +12,6 @@ use super::error::{self, ResultContext};
 use super::info::{BoardInfo, ImsicInfo, SocDescription};
 use super::{discovery, report, state};
 use crate::driver::ipi::IpiDevice;
-use crate::driver::timer::TimerDevice;
 use crate::driver::{self, HartWake};
 use crate::riscv::spacemit_k1::{self, K1BootResources};
 use crate::sbi;
@@ -198,7 +197,7 @@ fn publish_platform_services(
     runtime::ipi::install(ipi.map(|device| device as &dyn runtime::ipi::IpiDevice));
     runtime::ipi::install_handler(ipi.map(|_| sbi::ipi::runtime_handler()));
     runtime::irq::install(external);
-    runtime::timer::install(timer.map(|device| device as &dyn runtime::timer::TimerDevice));
+    runtime::timer::Timer::install(timer).expect("BUG: timer device published more than once");
     runtime::events::install(pmu.as_ref().map(|_| sbi::pmu::runtime_counters()));
 
     state::publish_resources(board, supervisor_memory, console);
@@ -207,7 +206,7 @@ fn publish_platform_services(
     info!("Hello RustSBI!");
 
     let reset = SbiReset::new(reset);
-    publish_sbi_dispatcher(ipi, timer, reset, custom_extension, pmu, hart_wake);
+    publish_sbi_dispatcher(ipi, reset, custom_extension, pmu, hart_wake);
 
     state::mark_ready();
 
@@ -216,7 +215,6 @@ fn publish_platform_services(
 
 fn publish_sbi_dispatcher(
     ipi: Option<&'static IpiDevice>,
-    timer: Option<&'static TimerDevice>,
     reset: SbiReset,
     custom_extension: sbi::vendor::Extension,
     pmu: Option<SbiPmu>,
@@ -229,7 +227,11 @@ fn publish_sbi_dispatcher(
     let dbtr = Some(SbiDbtr::new(supervisor_memory));
     let fwft = Some(SbiFwft);
     let ipi = ipi.map(sbi::ipi::SbiIpi::new);
-    let timer = timer.map(sbi::timer::SbiTimer::new);
+    let timer = match runtime::timer::Timer::current().and_then(|timer| timer.require_available()) {
+        Ok(()) => Some(sbi::timer::SbiTimer),
+        Err(runtime::timer::Error::Unavailable) => None,
+        Err(error) => panic!("BUG: could not publish SBI TIME: {error}"),
+    };
     let hsm = ipi.as_ref().map(|_| SbiHsm::new(hart_wake.is_some()));
     let rfence = ipi.as_ref().map(|_| SbiRFence);
     let susp = hsm.as_ref().map(|_| SbiSuspend);

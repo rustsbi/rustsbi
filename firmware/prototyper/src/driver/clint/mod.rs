@@ -8,7 +8,8 @@ use runtime::memory::{DeviceRegisterRange, MemoryRegistry};
 
 use alloc::boxed::Box;
 
-use crate::driver::{IpiBackend, TimerBackend};
+use crate::driver::IpiBackend;
+use runtime::timer::TimerDevice;
 
 pub(crate) use kind::ClintKind;
 
@@ -21,7 +22,7 @@ pub(super) fn bind(
     kind: ClintKind,
     memory: &mut MemoryRegistry,
     hart_id_upper_bound: usize,
-) -> runtime::Result<(Box<dyn TimerBackend>, Box<dyn IpiBackend + Send + Sync>)> {
+) -> runtime::Result<(Box<dyn TimerDevice>, Box<dyn IpiBackend + Send + Sync>)> {
     match kind {
         ClintKind::SiFive => sifive::bind(registers, memory, hart_id_upper_bound),
         ClintKind::THead => thead::bind(registers, memory, hart_id_upper_bound),

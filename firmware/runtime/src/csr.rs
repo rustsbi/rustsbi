@@ -10,18 +10,6 @@ pub fn mhartid() -> usize {
     riscv::register::mhartid::read()
 }
 
-/// The supervisor timer compare CSR introduced by Sstc.
-pub(crate) const STIMECMP: u16 = 0x14d;
-
-/// Probes whether the current hart implements Sstc's `stimecmp` CSR.
-///
-/// The probe is only used during Runtime trap initialization, after the
-/// guarded-fault entry is available; an absent CSR is reported as `false`.
-#[inline(never)]
-pub(crate) fn has_stimecmp() -> bool {
-    crate::trap::read_csr_guarded::<STIMECMP>().is_ok()
-}
-
 /// State-enable registers used to prepare a supervisor next stage.
 pub mod stateen {
     use core::arch::asm;
@@ -413,8 +401,34 @@ macro_rules! native_write {
     }};
 }
 
+macro_rules! native_bit_ops {
+    (set { $($set:tt)* } clear { $($clear:tt)* }) => {
+        $crate::csr::native_bit_ops!(@impl [nomem, nostack]
+            set { $($set)* } clear { $($clear)* });
+    };
+    (ordered; set { $($set:tt)* } clear { $($clear:tt)* }) => {
+        $crate::csr::native_bit_ops!(@impl [nostack]
+            set { $($set)* } clear { $($clear)* });
+    };
+    (@impl $options:tt set { $($set:ident;)* } clear { $($clear:ident;)* }) => {
+        $(impl $set {
+            #[inline]
+            pub(crate) fn set_bits(bits: <Self as $crate::csr::Csr>::Value) {
+                $crate::csr::native_write!("csrs", bits, $options)
+            }
+        })*
+        $(impl $clear {
+            #[inline]
+            pub(crate) fn clear_bits(bits: <Self as $crate::csr::Csr>::Value) {
+                $crate::csr::native_write!("csrc", bits, $options)
+            }
+        })*
+    };
+}
+
 pub(crate) use {
-    identity, native_read, native_registers, native_write, readable, registers, writable,
+    identity, native_bit_ops, native_read, native_registers, native_write, readable, registers,
+    writable,
 };
 
 word_value! {
@@ -438,11 +452,14 @@ impl EnvironmentConfig {
     pub(crate) const CACHE_BLOCK_OPERATIONS: usize = (0b11 << 4) | (1 << 6) | (1 << 7);
     #[cfg(target_pointer_width = "64")]
     pub(crate) const PAGE_BASED_MEMORY_TYPES: usize = 1 << 62;
+    #[cfg(target_pointer_width = "64")]
+    pub(crate) const SUPERVISOR_TIMER: usize = 1 << 63;
 }
 
 #[cfg(target_pointer_width = "32")]
 impl EnvironmentConfigHigh {
     pub(crate) const PAGE_BASED_MEMORY_TYPES: usize = 1 << 30;
+    pub(crate) const SUPERVISOR_TIMER: usize = 1 << 31;
 }
 
 impl IsaExtensions {
@@ -474,6 +491,10 @@ native_registers! {
         Mcause: usize = 0x342;
         Mepc: usize = 0x341;
         Mtval: usize = 0x343;
+        #[cfg(target_pointer_width = "32")]
+        Mstatush: usize = 0x310;
+        Scounteren: usize = 0x106;
+        Hcounteren: usize = 0x606;
     }
     write {
         Medeleg: usize = 0x302;
@@ -484,10 +505,30 @@ impl Medeleg {
     pub(crate) const MISALIGNED_EXCEPTIONS: usize = (1 << 4) | (1 << 6);
 }
 
+native_registers!(@identity Mie: usize = 0x304);
+
+native_registers!(@identity Mip: usize = 0x344);
+
+native_bit_ops! { set { Mie; Mip; } clear { Mie; Mip; } }
+
+impl Mie {
+    pub(crate) const MACHINE_TIMER: usize = 1 << 7;
+}
+
+impl Mip {
+    pub(crate) const SUPERVISOR_TIMER: usize = 1 << 5;
+}
+
 registers! {
     read {
+        Time: usize = 0xc01;
+        #[cfg(target_pointer_width = "32")]
+        TimeHigh: usize = 0xc81;
         Tdata1: TriggerData = 0x7a1;
         Mcounteren: usize = 0x306;
+        Htimedelta: usize = 0x605;
+        #[cfg(target_pointer_width = "32")]
+        HtimedeltaHigh: usize = 0x615;
     }
     write {
         Mcountinhibit: usize = 0x320;
@@ -496,6 +537,18 @@ registers! {
         MenvcfgHigh: EnvironmentConfigHigh = 0x31a;
         Mseccfg: SecurityConfig = 0x747;
         Tselect: usize = 0x7a0;
+        Stimecmp: usize = 0x14d;
+        #[cfg(target_pointer_width = "32")]
+        StimecmpHigh: usize = 0x15d;
+    }
+}
+
+impl Mcounteren {
+    /// Reads an already-present counter-enable CSR without entering recovery.
+    /// The timer trap path uses this to retain its original machine facts.
+    #[inline]
+    pub(crate) fn read_native() -> usize {
+        native_read!(Self::NUMBER)
     }
 }
 
@@ -600,6 +653,10 @@ macro_rules! csr64 {
         }
     };
 }
+
+csr64!(Time, TimeHigh);
+
+csr64!(Htimedelta, HtimedeltaHigh);
 
 csr64!(MachineCounter<0>, MachineCounterHigh<0>);
 csr64!(MachineCounter<2>, MachineCounterHigh<2>);

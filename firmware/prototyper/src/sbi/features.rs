@@ -1,4 +1,3 @@
-use crate::riscv::csr::{CSR_STIMECMP, has_csr};
 use ::riscv::register::mstatus::MPP;
 use core::fmt;
 use runtime::FdtNode;
@@ -18,11 +17,13 @@ pub(crate) enum HartInitError {
     PrivilegedVersion(arch_features::FeatureError),
     CounterReset(pmu::CounterError),
     SupervisorEnvironment(arch_features::FeatureError),
+    Timer(runtime::timer::Error),
 }
 
 impl fmt::Display for HartInitError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Timer(error) => write!(formatter, "timer discovery failed: {error}"),
             Self::PrivilegedVersion(error) => {
                 write!(
                     formatter,
@@ -152,13 +153,14 @@ fn detect_privileged_version() -> Result<(), HartInitError> {
 }
 
 /// Detects Sstc even when it is omitted from the device tree.
-fn detect_sstc() {
-    let sstc = hart_privileged_version(HartId::current().expect("BUG: invalid hart ID").as_usize())
-        >= PrivilegedVersion::Version1_12
-        && has_csr::<CSR_STIMECMP>();
+fn detect_sstc() -> Result<(), HartInitError> {
+    let sstc = runtime::timer::Timer::current()
+        .and_then(|timer| timer.supports_sstc())
+        .map_err(HartInitError::Timer)?;
     with_current(|local| {
         local.with_features_mut(|features| features.extensions[Extension::Sstc.index()] = sstc)
     });
+    Ok(())
 }
 
 fn detect_mhpm_counters() {
@@ -172,7 +174,7 @@ fn detect_mhpm_counters() {
 /// and hardware counters after device-tree discovery.
 pub(crate) fn detect_hart_features() -> Result<(), HartInitError> {
     detect_privileged_version()?;
-    detect_sstc();
+    detect_sstc()?;
     detect_mhpm_counters();
     Ok(())
 }
@@ -244,13 +246,9 @@ pub(crate) fn configure_hart_environment() -> Result<(), HartInitError> {
             )
         })
     });
-    let hart = HartId::current().expect("BUG: invalid hart ID").as_usize();
     pmu::Pmu::current()
         .and_then(|pmu| pmu.reset())
         .map_err(HartInitError::CounterReset)?;
-    if hart_has_extension(hart, Extension::Sstc) {
-        crate::riscv::csr::menvcfg::set_bits(crate::riscv::csr::menvcfg::STCE);
-    }
     if standard_page_memory_types
         && let Some(thead) = runtime::soc::thead::THead::current()
             .expect("BUG: current hart outside published topology")

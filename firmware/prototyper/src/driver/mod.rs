@@ -32,8 +32,7 @@ pub(crate) use cci::Cci550;
 pub(crate) use clint::ClintKind;
 pub(crate) use console::{ConsoleKind, DbcnBackend, DbcnError};
 pub(crate) use ipi::{IpiBackend, IpiError, IpiRequest};
-use timer::SstcTimer;
-pub(crate) use timer::TimerBackend;
+use runtime::timer::TimerDevice;
 
 pub(crate) use runtime::hart::HartWake;
 
@@ -45,7 +44,7 @@ pub(crate) const THEAD_PLIC_COMPATIBLES: [&str; 2] =
 
 /// Platform devices constructed from the discovered hardware description.
 pub(crate) struct Devices {
-    pub(crate) timer: Option<Box<dyn TimerBackend>>,
+    pub(crate) timer: Option<Box<dyn TimerDevice>>,
     pub(crate) ipi: Option<Box<dyn IpiBackend + Send + Sync>>,
     pub(crate) console: Option<Box<dyn DbcnBackend + Send>>,
     pub(crate) reset: ResetDevice,
@@ -59,7 +58,7 @@ impl Devices {
 }
 
 type InterruptDevices = (
-    Option<Box<dyn TimerBackend>>,
+    Option<Box<dyn TimerDevice>>,
     Option<Box<dyn IpiBackend + Send + Sync>>,
 );
 
@@ -84,8 +83,8 @@ fn bind_interrupts(
             warn!("AIA: skipping QEMU virt M-APLIC setup on '{}'", board.model);
             None
         };
-        let (timer, ipi) = aia::bind(imsic, aplic_config, memory)?;
-        return Ok((Some(timer), Some(ipi)));
+        let ipi = aia::bind(imsic, aplic_config, memory)?;
+        return Ok((None, Some(ipi)));
     }
     if let (Some(plmt), Some(plicsw)) = (
         board.devices.interrupts.plmt,

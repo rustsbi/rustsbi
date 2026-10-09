@@ -9,7 +9,7 @@
 use alloc::boxed::Box;
 use core::arch::asm;
 use core::fmt;
-use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicU8, Ordering};
 
 use riscv::register::medeleg;
 use rustsbi::RustSBI;
@@ -17,7 +17,7 @@ use spin::Once;
 
 use super::ValueKind;
 use super::entry::trap_entry;
-use crate::hart::{HartId, current_hart};
+use crate::hart::HartId;
 
 /// Private lifecycle phases.
 const PHASE_UNINITIALIZED: u8 = 0;
@@ -41,14 +41,19 @@ pub enum InitError {
     AlreadyInitialized,
     /// `mhartid` is not an enabled hart in the boot topology.
     InvalidHartId,
+    /// The current hart's timer could not be initialized.
+    Timer(crate::timer::Error),
 }
 
 impl fmt::Display for InitError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::AlreadyInitialized => "trap state already initialized on this hart",
-            Self::InvalidHartId => "hart ID is not in the boot topology",
-        })
+        match self {
+            Self::AlreadyInitialized => {
+                formatter.write_str("trap state already initialized on this hart")
+            }
+            Self::InvalidHartId => formatter.write_str("hart ID is not in the boot topology"),
+            Self::Timer(error) => write!(formatter, "timer initialization failed: {error}"),
+        }
     }
 }
 
@@ -58,7 +63,6 @@ impl fmt::Display for InitError {
 struct HartState {
     phase: AtomicU8,
     policy: Once<&'static (dyn RustSBI + Sync)>,
-    has_sstc: AtomicBool,
 }
 
 static HARTS: Once<Box<[HartState]>> = Once::new();
@@ -69,7 +73,6 @@ fn hart_states() -> &'static [HartState] {
             .map(|_| HartState {
                 phase: AtomicU8::new(PHASE_UNINITIALIZED),
                 policy: Once::new(),
-                has_sstc: AtomicBool::new(false),
             })
             .collect()
     })
@@ -94,17 +97,6 @@ pub(crate) fn policy(hart: HartId) -> &'static (dyn RustSBI + Sync) {
         .expect("initialized phase implies a policy")
 }
 
-/// Returns the current hart's Sstc capability cached by [`init`].
-/// Returns false until trap initialization has probed the CSR.
-#[inline]
-pub fn has_sstc() -> bool {
-    let hart = current_hart().index();
-    let state = hart_states()
-        .get(hart)
-        .expect("BUG: hart index is outside the boot topology");
-    state.has_sstc.load(Ordering::Acquire)
-}
-
 /// Initializes trap handling on the current hart and stores the policy in this
 /// hart's private slot. Platform services are published by
 /// their own subsystem modules before this function is called.
@@ -114,7 +106,7 @@ pub fn init<P>(policy: &'static P) -> Result<(), InitError>
 where
     P: RustSBI + Sync + 'static,
 {
-    // 1. Validate the hart before any address arithmetic or CSR writes.
+    // Reject unknown harts before indexing per-hart state or writing CSRs.
     let hart = HartId::current()
         .map_err(|_| InitError::InvalidHartId)?
         .index();
@@ -122,7 +114,7 @@ where
         return Err(InitError::InvalidHartId);
     };
 
-    // 2. Reserve the slot transactionally.
+    // Reserve before touching devices so repeated initialization cannot replace active state.
     if state
         .phase
         .compare_exchange(
@@ -136,20 +128,20 @@ where
         return Err(InitError::AlreadyInitialized);
     }
 
-    // 3. Initialize the handler state before publishing Ready.
+    // Keep policy unpublished until both IPI and timer initialization succeed.
+    if let Err(error) =
+        crate::timer::Timer::current().and_then(|timer| timer.initialize_current_hart())
+    {
+        state.phase.store(PHASE_UNINITIALIZED, Ordering::Release);
+        return Err(InitError::Timer(error));
+    }
     state.policy.call_once(|| policy as &(dyn RustSBI + Sync));
 
-    // Sstc is an architectural capability, so probe its CSR here instead of
-    // asking the platform adapter to report it on every timer trap. The
-    // guarded read safely turns an absent CSR into `false`.
-    let has_sstc = crate::csr::has_stimecmp();
-    state.has_sstc.store(has_sstc, Ordering::Release);
-
-    // 4. Fixed delegation and counter policy. The
-    //    delegation CSRs are WARL; retained exceptions are handled below
-    //    or software-redirected by the dispatch.
-    // SAFETY: M-mode init on the current hart; the written values are the
-    // firmware's fixed delegation policy.
+    // Delegation is WARL; dispatch handles or software-redirects exceptions
+    // that hardware retains in M-mode.
+    // SAFETY:
+    // 1. Runtime initializes the current hart in M-mode.
+    // 2. These writes establish its fixed delegation and counter-access policy.
     unsafe {
         asm!("csrw mideleg,    {}", in(reg) !0);
         asm!("csrw medeleg,    {}", in(reg) !0);
@@ -165,10 +157,10 @@ where
     }
 
     state.phase.store(PHASE_READY, Ordering::Release);
-    // 5. Commit Ready by installing the final normal vector last: before
-    //    this write a trap reaches the early fail-stop vector.
-    // SAFETY: the Runtime-owned entry is a valid, aligned M-mode direct
-    // target.
+    // Retain the early fail-stop vector until devices and policy are ready.
+    // SAFETY:
+    // 1. Runtime executes in M-mode and has published this hart's policy.
+    // 2. The assembly entry is aligned for an M-mode direct vector.
     unsafe {
         riscv::register::mtvec::write(riscv::register::mtvec::Mtvec::new(
             trap_entry as *const () as _,

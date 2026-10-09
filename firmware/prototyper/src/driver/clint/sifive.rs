@@ -10,7 +10,9 @@ use core::mem::{align_of, size_of};
 
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
-use crate::driver::{IpiBackend, IpiError, IpiRequest, TimerBackend};
+use crate::driver::{IpiBackend, IpiError, IpiRequest};
+use runtime::hart::HartId;
+use runtime::timer::{TimeSource, TimerDevice};
 
 // The ACLINT legacy mapping places MTIMECMP at 0x4000 and MTIME at 0xbff8.
 const MTIMECMP_OFFSET: usize = 0x4000;
@@ -59,7 +61,7 @@ pub(super) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
     hart_id_upper_bound: usize,
-) -> runtime::Result<(Box<dyn TimerBackend>, Box<dyn IpiBackend + Send + Sync>)> {
+) -> runtime::Result<(Box<dyn TimerDevice>, Box<dyn IpiBackend + Send + Sync>)> {
     let msip_size_bytes = hart_id_upper_bound
         .checked_mul(size_of::<u32>())
         .ok_or(runtime::Error::Overflow)?;
@@ -146,15 +148,21 @@ impl SiFiveTimer {
     }
 }
 
-impl TimerBackend for SiFiveTimer {
+impl TimerDevice for SiFiveTimer {
     #[inline(always)]
-    fn set_timer(&self, hart_id: usize, value: u64) {
-        self.write_mtimecmp(hart_id, value)
+    fn set_deadline(&self, hart: HartId, deadline: u64) {
+        self.write_mtimecmp(hart.as_usize(), deadline)
     }
 
+    fn time_source(&self) -> Option<&dyn TimeSource> {
+        Some(self)
+    }
+}
+
+impl TimeSource for SiFiveTimer {
     #[inline(always)]
-    fn read_time(&self) -> Option<u64> {
-        Some(self.read(TimerRegister::Mtime))
+    fn read_time(&self) -> u64 {
+        self.read(TimerRegister::Mtime)
     }
 }
 

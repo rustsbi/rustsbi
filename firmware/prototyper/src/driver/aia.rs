@@ -12,7 +12,7 @@ use riscv_aia::register::mtopei;
 use runtime::hart::HartId;
 use runtime::memory::{MemoryRegistry, MmioRegion};
 
-use crate::driver::{IpiBackend, IpiError, IpiRequest, SstcTimer, TimerBackend};
+use crate::driver::{IpiBackend, IpiError, IpiRequest};
 use crate::platform::ImsicInfo;
 use crate::platform::qemu_aplic::QemuAplicConfig;
 use crate::riscv::csr::imsic;
@@ -108,7 +108,7 @@ pub(super) fn bind(
     imsic: &ImsicInfo,
     aplic_config: Option<QemuAplicConfig>,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<(Box<dyn TimerBackend>, Box<dyn IpiBackend + Send + Sync>)> {
+) -> runtime::Result<Box<dyn IpiBackend + Send + Sync>> {
     // No fallback is permitted after the first MMIO window is issued. All
     // hardware capability checks above therefore precede initialization.
     let hart_files: runtime::Result<alloc::vec::Vec<_>> = imsic
@@ -122,7 +122,7 @@ pub(super) fn bind(
         aplic_config.bind(memory)?;
     }
 
-    Ok((Box::new(SstcTimer), Box::new(ipi)))
+    Ok(Box::new(ipi))
 }
 
 /// Sets up this hart's machine interrupt file: delivery, thresholds, and

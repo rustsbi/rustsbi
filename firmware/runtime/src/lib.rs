@@ -43,6 +43,8 @@ pub use spacemit_k1::SpacemitK1Registers;
 pub enum Error {
     /// An argument is invalid for the requested operation.
     InvalidArgs,
+    /// A one-time Runtime service has already been published.
+    AlreadyInitialized,
     /// The caller does not have access to the requested resource.
     AccessDenied,
     /// The requested resource is unavailable.
@@ -55,6 +57,7 @@ impl fmt::Display for Error {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::InvalidArgs => "invalid argument",
+            Self::AlreadyInitialized => "runtime service already initialized",
             Self::AccessDenied => "access denied",
             Self::NotEnoughResources => "resource unavailable",
             Self::Overflow => "address overflow",

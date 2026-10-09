@@ -19,7 +19,9 @@ use core::mem::{align_of, size_of};
 
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
-use crate::driver::{IpiBackend, IpiError, IpiRequest, TimerBackend};
+use crate::driver::{IpiBackend, IpiError, IpiRequest};
+use runtime::hart::HartId;
+use runtime::timer::TimerDevice;
 
 // The ACLINT legacy mapping places MTIMECMP at offset 0x4000.
 const MTIMECMP_OFFSET: usize = 0x4000;
@@ -67,7 +69,7 @@ pub(super) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
     hart_id_upper_bound: usize,
-) -> runtime::Result<(Box<dyn TimerBackend>, Box<dyn IpiBackend + Send + Sync>)> {
+) -> runtime::Result<(Box<dyn TimerDevice>, Box<dyn IpiBackend + Send + Sync>)> {
     let msip_size_bytes = hart_id_upper_bound
         .checked_mul(size_of::<u32>())
         .ok_or(runtime::Error::Overflow)?;
@@ -121,10 +123,10 @@ impl THeadTimer {
     }
 }
 
-impl TimerBackend for THeadTimer {
+impl TimerDevice for THeadTimer {
     #[inline(always)]
-    fn set_timer(&self, hart_id: usize, value: u64) {
-        self.set_mtimecmp(hart_id, value);
+    fn set_deadline(&self, hart: HartId, deadline: u64) {
+        self.set_mtimecmp(hart.as_usize(), deadline);
     }
 }
 

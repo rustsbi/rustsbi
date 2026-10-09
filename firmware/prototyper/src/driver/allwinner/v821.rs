@@ -200,8 +200,8 @@ impl A27L2Cache {
         let timer = crate::driver::timer::get().ok_or(runtime::Error::NotEnoughResources)?;
         let read_time_fn = || {
             timer
-                .read_time_low()
-                .map(|value| value as u32)
+                .time_source()
+                .map(|source| source.read_time_low() as u32)
                 .ok_or(runtime::Error::NotEnoughResources)
         };
         let start = read_time_fn()?;
