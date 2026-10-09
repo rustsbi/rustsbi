@@ -1,6 +1,7 @@
 mod build;
 mod config;
 mod generate;
+mod images;
 mod kernels;
 mod qemu;
 mod scheme;
@@ -19,7 +20,7 @@ pub(crate) const PACKAGE_NAME: &str = "rustsbi-prototyper";
 /// Prototyper commands. `build` produces firmware; `test` and `bench`
 /// compose a kernel build with a payload-mode firmware build, then boot
 /// the firmware in QEMU and verify the kernel output (unless `--no-run`).
-#[derive(Debug, Subcommand, Clone)]
+#[derive(Clone, Debug, Subcommand)]
 pub enum PrototyperCommand {
     /// Build RustSBI Prototyper firmware.
     Build(build::BuildArgs),

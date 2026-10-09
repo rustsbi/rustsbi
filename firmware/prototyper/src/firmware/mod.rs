@@ -144,20 +144,13 @@ fn designated_boot_hart(dynamic_info_address: usize) -> Option<usize> {
     }
 }
 
-#[cfg(all(feature = "fdt", not(feature = "payload")))]
-const LINKED_FDT_PTR: *const u8 = raw_fdt.0.as_ptr();
-#[cfg(all(feature = "fdt", feature = "payload"))]
-const LINKED_FDT_PTR: *const u8 = payload::raw_fdt.0.as_ptr();
 #[inline]
 #[cfg(feature = "fdt")]
 fn linked_fdt_address() -> usize {
-    let address = LINKED_FDT_PTR as usize;
-    // SAFETY: the empty asm is only an optimization barrier; it reads no
-    // memory, uses no stack, and preserves flags, so that the runtime
-    // (post-relocation) address of the linker-script-placed `.fdt` section
-    // is used instead of a constant-folded link-time address.
-    unsafe { core::arch::asm!("", options(nomem, nostack, preserves_flags)) };
-    address
+    runtime::boot::embedded_fdt()
+        .expect("BUG: fdt firmware has no embedded device tree")
+        .start()
+        .as_usize()
 }
 
 /// Resolves the device tree address selected by the firmware build.
@@ -433,8 +426,3 @@ pub fn log_pmp_cfg(_firmware_ram: &Range<usize>) {
         });
     }
 }
-
-#[cfg(all(feature = "fdt", not(feature = "payload")))]
-include!(concat!(env!("OUT_DIR"), "/generated_alignment.rs"));
-#[cfg(all(feature = "fdt", not(feature = "payload")))]
-include!(concat!(env!("OUT_DIR"), "/generated_fdt.rs"));

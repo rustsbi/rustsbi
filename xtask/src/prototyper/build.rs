@@ -12,12 +12,13 @@ use crate::utils::{CmdOptional, cargo};
 
 use super::{
     PACKAGE_NAME,
-    config::{BuildSpec, resolve},
-    generate::{BuildPaths, generate_build_inputs, prepare_build_paths},
+    config::{self, BuildSpec},
+    generate::{self, BuildPaths},
+    images,
 };
 
 /// Arguments for `cargo prototyper build`.
-#[derive(Debug, Args, Clone)]
+#[derive(Args, Clone, Debug)]
 pub struct BuildArgs {
     #[command(subcommand)]
     pub mode: Option<BuildMode>,
@@ -43,7 +44,7 @@ pub struct BuildArgs {
 }
 
 /// Firmware image variant selected by `cargo prototyper build`.
-#[derive(Debug, Subcommand, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, Eq, PartialEq, Subcommand)]
 pub enum BuildMode {
     /// Build dynamic firmware (default when no subcommand is given).
     Dynamic,
@@ -69,7 +70,7 @@ impl BuildArgs {
         }
     }
 
-    /// Dynamic-mode firmware build with the given user options.
+    /// Creates dynamic-mode build arguments with the given user options.
     pub(crate) fn dynamic(debug: bool, config_file: Option<PathBuf>) -> Self {
         Self {
             mode: None,
@@ -84,14 +85,15 @@ impl BuildArgs {
 }
 
 pub(crate) fn run(args: &BuildArgs) -> Result<ExitStatus> {
-    let spec = resolve(args).context("failed to resolve prototyper build inputs")?;
+    let spec = config::resolve(args).context("failed to resolve prototyper build inputs")?;
     build_firmware(&spec)
 }
 
-/// Build firmware from a resolved specification.
+/// Builds firmware from a resolved specification.
 pub(super) fn build_firmware(spec: &BuildSpec) -> Result<ExitStatus> {
-    let paths = prepare_build_paths(spec)?;
-    generate_build_inputs(spec, &paths)?;
+    let paths = generate::prepare_build_paths(spec)?;
+    generate::generate_build_inputs(spec, &paths)?;
+    images::build_image_objects(spec, &paths)?;
 
     let exit_status = cargo_build(spec, &paths)?;
     if !exit_status.success() {
@@ -198,10 +200,11 @@ fn copy_mode_artifacts(spec: &BuildSpec, paths: &BuildPaths) -> Result<()> {
     copy_artifact(&binary_source, &binary_destination)
 }
 
-/// Remove the generic `rustsbi-prototyper-payload.{elf,bin}` artifacts when
-/// building a kernel-suffixed payload variant (e.g. `payload-test`), so a
-/// stale generic artifact cannot be mistaken for the fresh output. Dynamic
-/// and jump artifacts are never touched: CI builds all modes side by side.
+/// Removes generic payload artifacts for suffixed payload builds.
+///
+/// Generic `rustsbi-prototyper-payload.{elf,bin}` files could otherwise be
+/// mistaken for the output of a fresh `payload-test` build.
+/// Dynamic and jump artifacts remain available for CI.
 pub(super) fn remove_stale_payload_artifacts(artifact_dir: &Path, mode_suffix: &str) -> Result<()> {
     if !(mode_suffix.starts_with("payload") && mode_suffix != "payload") {
         return Ok(());

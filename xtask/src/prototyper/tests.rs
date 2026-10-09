@@ -1,10 +1,10 @@
 use std::{
-    env, fs,
+    fs,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicUsize, Ordering},
 };
 
 use clap::Parser;
+use tempfile::TempDir;
 
 use super::{
     BuildArgs, BuildMode, BuildPaths, FirmwareLayout, PrototyperCommand, Target,
@@ -17,20 +17,20 @@ use super::{
 };
 use crate::utils::cargo_target_dir_in;
 
-static NEXT_TEST_DIR: AtomicUsize = AtomicUsize::new(0);
-
 const VALID_CONFIG_TOML: &str = "link_start_address = 0x80000000\n\
                                   heap_size = 0x15000\n\
                                   payload_address = 0x80200000\n\
                                   jump_address = 0x80200000\n";
 const LINKER_TEMPLATE: &str = r#". = @LINK_START_ADDRESS@;
 .bss : {
-    *(.bss.stack)
+    sbi_boot_stack_start = .;
+    . += @STACK_SIZE_PER_HART@;
+    sbi_boot_stack_end = .;
     sbi_heap_start = .;
     . += @HEAP_SIZE@;
     sbi_heap_end = .;
 }
-.text @PAYLOAD_ADDRESS@ : ALIGN(0x1000) { *(.payload) }
+.payload @PAYLOAD_ADDRESS@ : ALIGN(0x1000) { *(.payload) }
 "#;
 
 #[derive(Parser)]
@@ -185,7 +185,7 @@ fn qemu_output_verification_checks_expected_and_forbidden_patterns() {
 #[test]
 fn scheme_defaults_drive_kernel_runs() {
     let scheme = Scheme::default();
-    // Changing a default is a one-line edit in scheme.rs (AE2).
+    // Defaults come from `scheme.rs`, independently of explicit CLI flags.
     assert_eq!(scheme.action(Action::Test).smp, 1);
     assert_eq!(scheme.action(Action::Bench).smp, 4);
     assert_eq!(scheme.action(Action::Bench).timeout_secs, 90);
@@ -223,9 +223,9 @@ fn qemu_retries_only_after_timeout() {
 
 #[test]
 fn console_pattern_files_drive_qemu_verification() {
-    // The shared pattern files under `prototyper/` are the single source for
-    // xtask and `.github/scripts/prototyper-qemu-boot.sh`; they must parse,
-    // substitute `{smp}`, and keep the load-bearing patterns.
+    // xtask and `.github/scripts/prototyper-qemu-boot.sh` share these pattern
+    // files. They must parse, substitute `{smp}`, and retain the required output
+    // and failure patterns.
     let test_patterns = Kernel::Test.expected_patterns(4).unwrap();
     assert!(test_patterns.contains(&"Hello RustSBI!".to_string()));
     assert!(test_patterns.contains(&"Platform HART Count           : 4".to_string()));
@@ -244,11 +244,8 @@ fn console_pattern_files_drive_qemu_verification() {
 
 #[test]
 fn resolve_normalizes_files_and_derives_features() {
-    let root = env::temp_dir().join(format!(
-        "xtask-prototyper-test-{}-{}",
-        std::process::id(),
-        NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed)
-    ));
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
     let config_dir = root.join("firmware/prototyper/config");
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(config_dir.join("default.toml"), VALID_CONFIG_TOML).unwrap();
@@ -263,7 +260,7 @@ fn resolve_normalizes_files_and_derives_features() {
         ..base_build_args()
     };
 
-    let spec = resolve_in(&args, &root, &root).unwrap();
+    let spec = resolve_in(&args, root, root).unwrap();
     assert_eq!(spec.firmware_config.layout.hart_capacity, 8);
     assert_eq!(spec.firmware_config.layout.stack_size_per_hart, 16384);
     assert_eq!(
@@ -283,19 +280,16 @@ fn resolve_normalizes_files_and_derives_features() {
         format!("{VALID_CONFIG_TOML}num_hart_max = 2\nstack_size_per_hart = 8192\n"),
     )
     .unwrap();
-    let spec = resolve_in(&args, &root, &root).unwrap();
+    let spec = resolve_in(&args, root, root).unwrap();
     assert_eq!(spec.firmware_config.layout.hart_capacity, 2);
     assert_eq!(spec.firmware_config.layout.stack_size_per_hart, 8192);
-    let _ = fs::remove_dir_all(&root);
+    temp.close().unwrap();
 }
 
 #[test]
 fn resolve_rejects_mode_features_and_invalid_config() {
-    let root = env::temp_dir().join(format!(
-        "xtask-prototyper-test-{}-{}",
-        std::process::id(),
-        NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed)
-    ));
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
     let config_dir = root.join("firmware/prototyper/config");
     fs::create_dir_all(&config_dir).unwrap();
     let config_path = config_dir.join("default.toml");
@@ -306,7 +300,7 @@ fn resolve_rejects_mode_features_and_invalid_config() {
             ..base_build_args()
         };
         assert!(
-            resolve_in(&args, &root, &root).is_err(),
+            resolve_in(&args, root, root).is_err(),
             "accepted feature {feature}"
         );
     }
@@ -316,13 +310,13 @@ fn resolve_rejects_mode_features_and_invalid_config() {
         "link_start_address = 0x80000000\njump_address = 0x80200000\n",
     )
     .unwrap();
-    let error = resolve_in(&base_build_args(), &root, &root).unwrap_err();
+    let error = resolve_in(&base_build_args(), root, root).unwrap_err();
     assert!(format!("{error:#}").contains("`payload_address`"));
 
     for heap_size in ["", "heap_size = 31"] {
         let config = VALID_CONFIG_TOML.replace("heap_size = 0x15000", heap_size);
         fs::write(&config_path, config).unwrap();
-        let error = resolve_in(&base_build_args(), &root, &root).unwrap_err();
+        let error = resolve_in(&base_build_args(), root, root).unwrap_err();
         assert!(format!("{error:#}").contains("`heap_size`"));
     }
 
@@ -332,7 +326,7 @@ fn resolve_rejects_mode_features_and_invalid_config() {
             format!("{VALID_CONFIG_TOML}{key} = {value}\n"),
         )
         .unwrap();
-        let error = resolve_in(&base_build_args(), &root, &root).unwrap_err();
+        let error = resolve_in(&base_build_args(), root, root).unwrap_err();
         assert!(format!("{error:#}").contains(key));
     }
 
@@ -344,18 +338,15 @@ fn resolve_rejects_mode_features_and_invalid_config() {
          jump_address = 0x80200000\n",
     )
     .unwrap();
-    let error = resolve_in(&base_build_args(), &root, &root).unwrap_err();
+    let error = resolve_in(&base_build_args(), root, root).unwrap_err();
     assert!(format!("{error:#}").contains("must be less than"));
-    let _ = fs::remove_dir_all(&root);
+    temp.close().unwrap();
 }
 
 #[test]
 fn resolve_derives_target_profile_and_rustflags() {
-    let root = env::temp_dir().join(format!(
-        "xtask-prototyper-test-{}-{}",
-        std::process::id(),
-        NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed)
-    ));
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
     let config_dir = root.join("firmware/prototyper/config");
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(config_dir.join("default.toml"), VALID_CONFIG_TOML).unwrap();
@@ -367,7 +358,7 @@ fn resolve_derives_target_profile_and_rustflags() {
         features: vec!["hypervisor,serde".to_string()],
         ..base_build_args()
     };
-    let spec = resolve_in(&args, &root, &root).unwrap();
+    let spec = resolve_in(&args, root, root).unwrap();
     assert_eq!(
         spec.custom_target.as_deref(),
         Some(target.to_str().unwrap())
@@ -383,16 +374,13 @@ fn resolve_derives_target_profile_and_rustflags() {
             .split('\u{1f}')
             .any(|flag| flag == "link-arg=-Tlinker path.ld")
     );
-    let _ = fs::remove_dir_all(&root);
+    temp.close().unwrap();
 }
 
 #[test]
 fn generated_inputs_and_stamp_follow_build_mode() {
-    let root = env::temp_dir().join(format!(
-        "xtask-prototyper-test-{}-{}",
-        std::process::id(),
-        NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed)
-    ));
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
     let config_dir = root.join("firmware/prototyper/config");
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(config_dir.join("default.toml"), VALID_CONFIG_TOML).unwrap();
@@ -411,7 +399,7 @@ fn generated_inputs_and_stamp_follow_build_mode() {
         paths.linker_script(),
         root.join("target/prototyper/rustsbi-prototyper.ld")
     );
-    let dynamic = resolve_in(&base_build_args(), &root, &root).unwrap();
+    let dynamic = resolve_in(&base_build_args(), root, root).unwrap();
     generate_build_inputs(&dynamic, &paths).unwrap();
     assert_eq!(
         fs::read_to_string(paths.build_inputs_dir.join("config.toml")).unwrap(),
@@ -425,7 +413,7 @@ fn generated_inputs_and_stamp_follow_build_mode() {
     assert!(
         fs::read_to_string(paths.linker_script())
             .unwrap()
-            .contains("*(.bss.stack)")
+            .contains("sbi_boot_stack_start = .;")
     );
     let generated_config = fs::read_to_string(paths.config_source()).unwrap();
     assert!(generated_config.contains("pub(crate) const HART_CAPACITY: usize = 8;"));
@@ -436,7 +424,7 @@ fn generated_inputs_and_stamp_follow_build_mode() {
         format!("{VALID_CONFIG_TOML}num_hart_max = 1\n"),
     )
     .unwrap();
-    let custom = resolve_in(&base_build_args(), &root, &root).unwrap();
+    let custom = resolve_in(&base_build_args(), root, root).unwrap();
     generate_build_inputs(&custom, &paths).unwrap();
     assert!(
         fs::read_to_string(paths.config_source())
@@ -450,24 +438,15 @@ fn generated_inputs_and_stamp_follow_build_mode() {
             no_default_features: true,
             ..base_build_args()
         },
-        &root,
-        &root,
+        root,
+        root,
     )
     .unwrap();
     assert!(minimal.no_default_features);
     generate_build_inputs(&minimal, &paths).unwrap();
     assert_ne!(dynamic_stamp, fs::read_to_string(paths.stamp()).unwrap());
-    assert!(
-        fs::read_to_string(paths.alignment_source())
-            .unwrap()
-            .contains("Aligned16")
-    );
-    assert!(
-        fs::read_to_string(paths.payload_source())
-            .unwrap()
-            .is_empty()
-    );
-    assert!(fs::read_to_string(paths.fdt_source()).unwrap().is_empty());
+    assert!(!paths.payload_data().exists());
+    assert!(!paths.fdt_data().exists());
 
     let payload = root.join("kernel.bin");
     let fdt = root.join("board.dtb");
@@ -480,17 +459,45 @@ fn generated_inputs_and_stamp_follow_build_mode() {
         fdt: Some(fdt.clone()),
         ..base_build_args()
     };
-    let payload_build = resolve_in(&args, &root, &root).unwrap();
+    let payload_build = resolve_in(&args, root, root).unwrap();
     generate_build_inputs(&payload_build, &paths).unwrap();
     let payload_stamp = fs::read_to_string(paths.stamp()).unwrap();
-    let payload_source = fs::read_to_string(paths.payload_source()).unwrap();
-    let fdt_source = fs::read_to_string(paths.fdt_source()).unwrap();
     assert_ne!(dynamic_stamp, payload_stamp);
-    assert!(payload_source.contains("pub static payload_image"));
-    assert!(payload_source.contains(&format!("{payload:?}")));
-    assert!(fdt_source.contains("pub static raw_fdt"));
-    assert!(fdt_source.contains(&format!("{fdt:?}")));
-    let _ = fs::remove_dir_all(&root);
+    assert_eq!(fs::read(paths.payload_data()).unwrap(), b"kernel-bytes");
+    assert_eq!(fs::read(paths.fdt_data()).unwrap(), b"dtb");
+
+    // Replacing an image at the same path must invalidate the Cargo stamp.
+    fs::write(&payload, b"changed-bytes").unwrap();
+    generate_build_inputs(&payload_build, &paths).unwrap();
+    assert_ne!(payload_stamp, fs::read_to_string(paths.stamp()).unwrap());
+    assert_eq!(fs::read(paths.payload_data()).unwrap(), b"changed-bytes");
+    let changed_payload_stamp = fs::read_to_string(paths.stamp()).unwrap();
+    fs::write(&fdt, b"new-dtb").unwrap();
+    generate_build_inputs(&payload_build, &paths).unwrap();
+    assert_ne!(
+        changed_payload_stamp,
+        fs::read_to_string(paths.stamp()).unwrap()
+    );
+    assert_eq!(fs::read(paths.fdt_data()).unwrap(), b"new-dtb");
+
+    // Dynamic/jump builds must not reuse objects left by a payload/FDT build.
+    fs::write(paths.payload_object(), b"previous-object").unwrap();
+    fs::write(paths.fdt_object(), b"previous-object").unwrap();
+    generate_build_inputs(&dynamic, &paths).unwrap();
+    assert!(!paths.payload_data().exists());
+    assert!(!paths.payload_object().exists());
+    assert!(!paths.fdt_data().exists());
+    assert!(!paths.fdt_object().exists());
+    assert_eq!(dynamic_stamp, fs::read_to_string(paths.stamp()).unwrap());
+
+    fs::write(&payload, b"").unwrap();
+    assert!(
+        generate_build_inputs(&payload_build, &paths)
+            .unwrap_err()
+            .to_string()
+            .contains("is empty")
+    );
+    temp.close().unwrap();
 }
 
 #[test]
@@ -502,24 +509,31 @@ fn linker_template_renders_known_addresses_and_rejects_unknown_tokens() {
         hart_capacity: 2,
         stack_size_per_hart: 8192,
     };
-    let rendered = render_linker_script(LINKER_TEMPLATE, &addresses).unwrap();
+    let rendered =
+        render_linker_script(LINKER_TEMPLATE, &addresses, Some(addresses.payload_address)).unwrap();
     assert!(rendered.contains("0x80000000"));
     assert!(rendered.contains("0x80200000"));
     assert!(rendered.contains(". += 0x15000;"));
-    assert!(rendered.contains("*(.bss.stack)"));
+    assert!(rendered.contains(". += 0x2000;"));
+    assert!(rendered.contains("sbi_boot_stack_end = .;"));
+    assert!(rendered.contains(".payload 0x80200000 :"));
+
+    let rendered_without_payload = render_linker_script(LINKER_TEMPLATE, &addresses, None).unwrap();
+    assert!(!rendered_without_payload.contains("0x80200000"));
+    assert!(rendered_without_payload.contains(".payload  :"));
 
     // Placeholder-shaped unknown tokens are rejected.
-    let error = render_linker_script(". = @UNKNOWN@;", &addresses).unwrap_err();
+    let error = render_linker_script(". = @UNKNOWN@;", &addresses, None).unwrap_err();
     assert!(format!("{error:#}").contains("@UNKNOWN@"));
 
     // Literal `@` characters (e.g. in comments) are not placeholders.
-    let rendered = render_linker_script("/* report bugs to dev@example.com */\n", &addresses)
+    let rendered = render_linker_script("/* report bugs to dev@example.com */\n", &addresses, None)
         .expect("literal @ must not be rejected");
     assert!(rendered.contains("dev@example.com"));
-    let rendered = render_linker_script("/* v2.0 @ 2026 */\n", &addresses)
+    let rendered = render_linker_script("/* v2.0 @ 2026 */\n", &addresses, None)
         .expect("lowercase tokens must not be rejected");
     assert!(rendered.contains("@ 2026"));
-    assert!(render_linker_script("@@", &addresses).is_ok());
+    assert!(render_linker_script("@@", &addresses, None).is_ok());
 }
 
 #[test]
@@ -572,12 +586,9 @@ fn cargo_target_dir_honors_env_override() {
 
 #[test]
 fn stale_generic_payload_artifacts_are_removed_for_suffixed_payload_builds() {
-    let root = env::temp_dir().join(format!(
-        "xtask-prototyper-test-{}-{}",
-        std::process::id(),
-        NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed)
-    ));
-    fs::create_dir_all(&root).unwrap();
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    fs::create_dir_all(root).unwrap();
     for extension in ["elf", "bin"] {
         fs::write(
             root.join(format!("rustsbi-prototyper-payload.{extension}")),
@@ -591,7 +602,7 @@ fn stale_generic_payload_artifacts_are_removed_for_suffixed_payload_builds() {
         .unwrap();
     }
 
-    remove_stale_payload_artifacts(&root, "payload-test").unwrap();
+    remove_stale_payload_artifacts(root, "payload-test").unwrap();
     assert!(!root.join("rustsbi-prototyper-payload.elf").exists());
     assert!(!root.join("rustsbi-prototyper-payload.bin").exists());
     // Dynamic artifacts are side-by-side outputs and must survive.
@@ -605,12 +616,12 @@ fn stale_generic_payload_artifacts_are_removed_for_suffixed_payload_builds() {
         )
         .unwrap();
     }
-    remove_stale_payload_artifacts(&root, "payload").unwrap();
+    remove_stale_payload_artifacts(root, "payload").unwrap();
     assert!(root.join("rustsbi-prototyper-payload.elf").exists());
-    remove_stale_payload_artifacts(&root, "jump").unwrap();
-    remove_stale_payload_artifacts(&root, "payload-bench").unwrap();
+    remove_stale_payload_artifacts(root, "jump").unwrap();
+    remove_stale_payload_artifacts(root, "payload-bench").unwrap();
     assert!(!root.join("rustsbi-prototyper-payload.elf").exists());
-    let _ = fs::remove_dir_all(&root);
+    temp.close().unwrap();
 }
 
 #[test]
@@ -645,11 +656,8 @@ fn resolved_run_prefers_cli_overrides_and_falls_back_to_scheme() {
 fn pattern_files_must_yield_at_least_one_pattern() {
     // Fail closed: an emptied pattern file must not silently verify nothing
     // (mirrors the CI script's `test -s` guard).
-    let root = env::temp_dir().join(format!(
-        "xtask-pattern-test-{}-{}",
-        std::process::id(),
-        NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed)
-    ));
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
     let dir = root.join("firmware/scripts");
     fs::create_dir_all(&dir).unwrap();
     fs::write(dir.join("empty.txt"), "# only comments\n\n").unwrap();
@@ -662,5 +670,5 @@ fn pattern_files_must_yield_at_least_one_pattern() {
         kernels::read_console_patterns(&dir.join("ok.txt")).unwrap(),
         vec!["Hello".to_string()]
     );
-    let _ = fs::remove_dir_all(&root);
+    temp.close().unwrap();
 }

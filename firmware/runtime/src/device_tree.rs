@@ -10,9 +10,9 @@ use core::mem::size_of;
 use fdt::{Fdt, node::FdtNode};
 use spin::Once;
 
+use crate::boot;
 use crate::memory::{
     DeviceRegisterRange, MemoryRegistry, PhysAddr, PhysAddrRange, SupervisorMemory,
-    locate_firmware_image,
 };
 use crate::spacemit_k1::SpacemitK1Registers;
 use crate::{Error, Result};
@@ -466,13 +466,12 @@ unsafe fn fdt_source<'a>(address: PhysAddr) -> Result<&'a [u8]> {
 }
 
 fn validate_linked_fdt(address: PhysAddr) -> Result<()> {
-    let firmware = locate_firmware_image()?;
-    let header = PhysAddrRange::from_start_len(address, FDT_HEADER_SIZE)?;
-    if !firmware.contains(header) {
-        return Err(Error::AccessDenied);
-    }
+    let image = boot::embedded_fdt();
+    validate_linked_fdt_range(address, image, FDT_HEADER_SIZE)?;
 
-    // SAFETY: the complete fixed-size header lies inside the linked image.
+    // SAFETY:
+    // 1. Validation identifies the dedicated embedded-FDT start and bounds its header.
+    // 2. The linker-owned section is live; read_unaligned permits its field alignment.
     let total_size = unsafe {
         let total_size_pointer = address
             .as_usize()
@@ -480,12 +479,26 @@ fn validate_linked_fdt(address: PhysAddr) -> Result<()> {
             .ok_or(Error::Overflow)? as *const u32;
         u32::from_be(total_size_pointer.read_unaligned()) as usize
     };
-    let complete_fdt = PhysAddrRange::from_start_len(address, total_size)?;
-    if firmware.contains(complete_fdt) {
-        Ok(())
-    } else {
-        Err(Error::AccessDenied)
+    validate_linked_fdt_range(address, image, total_size)
+}
+
+fn validate_linked_fdt_range(
+    address: PhysAddr,
+    image: Option<PhysAddrRange>,
+    total_size: usize,
+) -> Result<()> {
+    let storage = image.ok_or(Error::AccessDenied)?;
+    if address != storage.start() {
+        return Err(Error::AccessDenied);
     }
+    if total_size < FDT_HEADER_SIZE {
+        return Err(Error::InvalidArgs);
+    }
+    let complete_fdt = PhysAddrRange::from_start_len(address, total_size)?;
+    if !storage.contains(complete_fdt) {
+        return Err(Error::AccessDenied);
+    }
+    Ok(())
 }
 
 /// Returns whether a Platform Description node is available for use.
@@ -518,6 +531,58 @@ mod tests {
 
     // Keep the trust-seam checks together: the fixture is shared because the
     // production invariant is about the FDT trust boundary, not test-tree data.
+    #[test]
+    fn linked_fdt_requires_the_dedicated_section_start() {
+        let start = PhysAddr::new(0x1000);
+        let image = Some(PhysAddrRange::from_start_len(start, 128).unwrap());
+        assert_eq!(validate_linked_fdt_range(start, image, 72), Ok(()));
+        assert_eq!(
+            validate_linked_fdt_range(start, None, 72),
+            Err(Error::AccessDenied)
+        );
+        for address in [0x800, 0x1008, 0x1080, 0x2000] {
+            assert_eq!(
+                validate_linked_fdt_range(PhysAddr::new(address), image, 72),
+                Err(Error::AccessDenied)
+            );
+        }
+    }
+
+    #[test]
+    fn linked_fdt_requires_a_complete_header_and_declared_span() {
+        let start = PhysAddr::new(0x1000);
+        assert_eq!(
+            validate_linked_fdt_range(
+                start,
+                Some(PhysAddrRange::from_start_len(start, FDT_HEADER_SIZE - 1).unwrap()),
+                FDT_HEADER_SIZE
+            ),
+            Err(Error::AccessDenied)
+        );
+        let image = Some(PhysAddrRange::from_start_len(start, 72).unwrap());
+        assert_eq!(
+            validate_linked_fdt_range(start, image, FDT_HEADER_SIZE - 1),
+            Err(Error::InvalidArgs)
+        );
+        assert_eq!(
+            validate_linked_fdt_range(start, image, 73),
+            Err(Error::AccessDenied)
+        );
+        assert_eq!(
+            validate_linked_fdt_range(start, image, usize::MAX),
+            Err(Error::Overflow)
+        );
+        let near_end = PhysAddr::new(usize::MAX - FDT_HEADER_SIZE);
+        assert_eq!(
+            validate_linked_fdt_range(
+                near_end,
+                Some(PhysAddrRange::from_start_len(near_end, FDT_HEADER_SIZE).unwrap()),
+                FDT_HEADER_SIZE + 1
+            ),
+            Err(Error::Overflow)
+        );
+    }
+
     #[test]
     fn from_raw_rejects_fdt_without_root_node() {
         let mut storage = alloc::vec![0u64; 16];

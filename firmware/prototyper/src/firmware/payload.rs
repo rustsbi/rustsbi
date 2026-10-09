@@ -7,10 +7,8 @@ pub(crate) fn decode_next_stage(_dynamic_info_address: usize) -> (mstatus::MPP, 
 
 #[inline]
 fn payload_address() -> usize {
-    payload_image.address().as_usize()
+    runtime::boot::embedded_payload()
+        .expect("BUG: payload firmware has no embedded payload")
+        .start()
+        .as_usize()
 }
-
-include!(concat!(env!("OUT_DIR"), "/generated_alignment.rs"));
-include!(concat!(env!("OUT_DIR"), "/generated_payload.rs"));
-#[cfg(feature = "fdt")]
-include!(concat!(env!("OUT_DIR"), "/generated_fdt.rs"));

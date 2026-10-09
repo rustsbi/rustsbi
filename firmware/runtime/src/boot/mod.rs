@@ -14,7 +14,10 @@
 //! The procedural entry macro in `firmware/macros` references these symbols
 //! directly; they are not policy API.
 
+mod images;
 mod stack;
+
+pub use images::{embedded_fdt, embedded_payload};
 
 pub(crate) use stack::firmware_end;
 pub use stack::{BootStack, initialize_stacks, locate_stack};

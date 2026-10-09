@@ -67,13 +67,19 @@ SECTIONS {
 
     . = ALIGN(0x1000);
 
-    .text : ALIGN(0x1000) {
-        *(.fdt)
+    .fdt : ALIGN(0x1000) {
+        . = ALIGN(16);
+        sbi_fdt_start = .;
+        KEEP(*(.fdt))
+        sbi_fdt_end = .;
     }
     . = ALIGN(0x1000);
     sbi_end = .;
 
-    .text @PAYLOAD_ADDRESS@ : ALIGN(0x1000) {
-        *(.payload)
+    .payload @PAYLOAD_ADDRESS@ : ALIGN(0x1000) {
+        . = ALIGN(4);
+        sbi_payload_start = .;
+        KEEP(*(.payload))
+        sbi_payload_end = .;
     }
 }
