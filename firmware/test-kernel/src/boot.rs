@@ -1,8 +1,4 @@
-//! Test-kernel entry points and top-level test orchestration.
-//!
-//! The individual suites live in sibling modules.  Keeping this module to
-//! boot-time setup and the final result decision makes the execution order
-//! visible without hiding suite details in a single large function.
+//! Test-kernel startup and suite execution.
 
 use core::arch::{asm, naked_asm};
 
@@ -15,7 +11,14 @@ const RISCV_HEADER_VERSION: u32 = 0x2;
 const RISCV_IMAGE_MAGIC: u64 = 0x5643534952; // Magic number, little endian, "RISCV".
 const RISCV_IMAGE_MAGIC2: u32 = 0x05435352; // Magic number 2, little endian, "RSC\x05".
 
-/// RISC-V Linux image boot header.
+/// Enters the test image through its RISC-V Linux boot header.
+///
+/// # Safety
+///
+/// Enter only in Supervisor mode with `satp` set to Bare and interrupts disabled,
+/// the sole boot hart's ID in `a0`, and a device tree address in `a1`.
+/// The image must occupy its linked RAM range. The device tree must remain
+/// readable and unmodified for the test run.
 #[unsafe(naked)]
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".head.text")]
@@ -42,6 +45,14 @@ unsafe extern "C" fn _boot_header() -> ! {
 }
 
 /// Enters Rust after clearing `.bss` and installing the boot hart's stack.
+///
+/// # Safety
+///
+/// Enter only from the image header in Supervisor mode with `satp` set to Bare
+/// and interrupts disabled.
+/// The linker-defined `.bss` and stack ranges must be writable, and no other
+/// hart may access them before initialization completes. The device tree
+/// must remain readable and unmodified for the test run.
 #[unsafe(naked)]
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text.entry")]
@@ -158,8 +169,12 @@ fn finish(passed: bool) -> ! {
 #[cfg_attr(not(test), panic_handler)]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     let (hart_id, pc): (usize, usize);
-    unsafe { asm!("mv    {}, tp", out(reg) hart_id) };
-    unsafe { asm!("auipc {},  0", out(reg) pc) };
+    // SAFETY: this instruction copies tp to its declared output register.
+    // It does not access memory or alter the stack.
+    unsafe { asm!("mv    {}, tp", out(reg) hart_id, options(nomem, nostack)) };
+    // SAFETY: AUIPC obtains this instruction's PC in the declared output
+    // register without accessing memory or altering the stack.
+    unsafe { asm!("auipc {},  0", out(reg) pc, options(nomem, nostack)) };
     println!("[test-kernel-panic] hart {hart_id} {info}");
     println!("[test-kernel-panic] pc = {pc:#x}");
     println!("[test-kernel-panic] SBI test FAILED due to panic");
