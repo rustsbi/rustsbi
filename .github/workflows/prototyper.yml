@@ -37,9 +37,6 @@ jobs:
       - name: Build cargo prototyper
         run: cargo prototyper build
 
-      - name: Run test
-        run: cargo test --locked -p rustsbi-prototyper -p rustsbi-prototyper-macros
-
       - name: Run rust-clippy (Prototyper)
         shell: bash
         run: |

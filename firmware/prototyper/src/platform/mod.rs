@@ -12,6 +12,7 @@ mod discovery;
 mod error;
 mod handoff;
 mod info;
+pub(crate) mod protection;
 mod report;
 mod state;
 

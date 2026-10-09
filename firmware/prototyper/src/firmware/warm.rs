@@ -17,5 +17,5 @@ pub(crate) unsafe extern "C" fn warm_entry() -> ! {
 }
 
 extern "C" fn initialize() {
-    crate::secondary_hart(None);
+    crate::boot::initialize_reset_hart();
 }

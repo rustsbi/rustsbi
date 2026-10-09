@@ -87,3 +87,5 @@ impl DiagnosticSnapshot {
         })
     }
 }
+
+pub(crate) use recovery::read_boot_byte_guarded;

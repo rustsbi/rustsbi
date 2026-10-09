@@ -72,6 +72,10 @@ static HARTS: Once<Box<[HartState]>> = Once::new();
 
 fn hart_states() -> &'static [HartState] {
     HARTS.call_once(|| {
+        assert!(
+            HartId::count() > 0,
+            "BUG: trap state requires the boot topology"
+        );
         HartId::all()
             .map(|_| HartState {
                 phase: AtomicU8::new(PHASE_UNINITIALIZED),
@@ -227,4 +231,12 @@ where
 /// platform installed none.
 pub(crate) fn access_dispatcher() -> Option<&'static dyn AccessDispatcher> {
     ACCESS_DISPATCHER.get().copied()
+}
+
+/// Checks reset initialization before discarding the boot call chain.
+pub(crate) fn current_is_ready() -> bool {
+    let Ok(hart) = HartId::current() else {
+        return false;
+    };
+    hart_states()[hart.index()].phase.load(Ordering::Acquire) == PHASE_READY
 }

@@ -264,6 +264,70 @@ impl Drop for CsrTrapState {
     }
 }
 
+/// Copies one physical handoff byte before the regular trap vector exists.
+///
+/// # Safety
+///
+/// 1. Firmware entry authorizes this byte of foreign handoff storage;
+///    the address does not designate MMIO or a live firmware Rust allocation.
+/// 2. Storage remains immutable until its owned snapshot has been copied.
+/// 3. The hart runs in M-mode with a Runtime stack and an installed early vector.
+#[inline(never)]
+pub(crate) unsafe fn read_boot_byte_guarded(address: usize) -> Result<u8, Error> {
+    match () {
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+        () => riscv::interrupt::machine::free(|| {
+            let _trap_state = CsrTrapState::capture();
+            let mut data: usize = 0;
+            let mut record = RecoveryRecord::new(cause::LOAD_ACCESS);
+            // SAFETY:
+            // 1. The caller authorizes immutable foreign storage and an M-mode stack/vector.
+            // 2. machine::free masks interrupts; the live record accepts only an
+            //    M-origin access fault at this exact 4-byte load. MPRV is cleared.
+            // 3. Assembly restores mstatus/mtvec/mscratch on success or recovery;
+            //    CsrTrapState restores enclosing trap facts before interrupts resume.
+            unsafe {
+                let previous_mtvec = mtvec::read().bits();
+                mtvec::write(mtvec::Mtvec::new(
+                    recovery_entry as *const () as _,
+                    mtvec::TrapMode::Direct,
+                ));
+                asm!(
+                    "csrrw t5, mscratch, a3",
+                    "lla t2, 2f",
+                    store_word!(t2 => [a3]),
+                    "csrrc a3, mstatus, t3",
+                    ".option push",
+                    ".option norvc",
+                    "2:",
+                    "lbu t0, 0(t1)",
+                    ".option pop",
+                    "csrw mstatus, a3",
+                    "csrw mscratch, t5",
+                    "csrw mtvec, t4",
+                    inout("t1") address => _,
+                    inout("t3") MPRV_BIT => _,
+                    in("t4") previous_mtvec,
+                    inout("a3") &mut record as *mut RecoveryRecord => _,
+                    inout("t0") data,
+                    out("t2") _,
+                    out("t5") _,
+                );
+            }
+            if record.trapped() {
+                Err(fault_of(&record))
+            } else {
+                Ok(data as u8)
+            }
+        }),
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+        () => {
+            let _ = address;
+            unimplemented!("Guarded boot handoff access requires a RISC-V target");
+        }
+    }
+}
+
 /// Executes one machine instruction under the same register contract as the
 /// memory guards. The saved trap state drops before machine interrupts are
 /// restored, including when an unsupported instruction returns an error.

@@ -36,6 +36,18 @@ pub struct DeviceTreeHandoff {
 }
 
 impl DeviceTreeHandoff {
+    /// Captures the previous stage's FDT register at Runtime's cold entry.
+    ///
+    /// # Safety
+    ///
+    /// The entry contract must guarantee exclusive writable FDT storage,
+    /// reserved through platform initialization, and truthful descriptions.
+    pub(crate) const unsafe fn from_entry_register(address: usize) -> Self {
+        Self {
+            address: PhysAddr::new(address),
+        }
+    }
+
     /// Returns the address supplied by the previous stage.
     #[inline]
     pub const fn address(&self) -> PhysAddr {

@@ -612,20 +612,10 @@ dependencies = [
  "riscv",
  "riscv-aia",
  "rustsbi-firmware-runtime",
- "rustsbi-prototyper-macros",
  "sbi-spec",
  "seq-macro",
  "spin",
  "static-toml",
-]
-
-[[package]]
-name = "rustsbi-prototyper-macros"
-version = "0.0.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
 ]
 
 [[package]]

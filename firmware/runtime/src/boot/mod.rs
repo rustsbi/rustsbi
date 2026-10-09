@@ -1,28 +1,21 @@
-//! The firmware-entry adapter: the boot-domain pieces the architectural
-//! entry path connects to.
+//! Firmware entry, stack setup, and next-stage handoff.
 //!
-//! Stack selection and allocation belong to boot and are referenced by
-//! the entry assembly. This module owns
-//!
-//! - [`fail_stop`]: the stack-independent early and fatal vector;
-//! - [`locate_stack`]: selects a stack by hardware ID in the published topology;
-//! - [`finish_boot`]: the never-returning end of boot — it discards the
-//!   boot call chain, arms the reused stack as the trap stack, and either
-//!   `mret`s into the staged S/HS next stage or parks the hart until one is
-//!   staged.
-//!
-//! The procedural entry macro in `firmware/macros` references these symbols
-//! directly; they are not policy API.
+//! Firmware connects its boot policy through [`FirmwareEntry`]. Runtime sets up
+//! disjoint hart stacks, then [`finish_boot`] discards the boot call chain and
+//! reuses each stack for traps. [`fail_stop`] also works before stacks exist.
 
+use crate::csr::Mie;
+mod cold;
+mod handoff;
 mod images;
 mod stack;
 
+pub use cold::{BootInput, BootPolicy, BootStorage, FirmwareEntry, PreparedBoot};
+pub use handoff::{DynamicInfo, DynamicReadError};
 pub use images::{embedded_fdt, embedded_payload};
-
 pub(crate) use stack::firmware_end;
-pub use stack::{BootStack, initialize_stacks, locate_stack};
+pub(crate) use stack::locate_stack;
 
-use crate::csr::Mie;
 use crate::hart::{self, HartEvent};
 use crate::trap::init::mark_armed;
 
@@ -37,18 +30,18 @@ pub struct NextStage {
     pub next_mode: riscv::register::mstatus::MPP,
 }
 
-/// The stack-independent fail-stop vector: the early `mtvec` target
-/// installed at firmware entry before any Runtime state exists, and the
-/// terminal target of every fatal path.
+/// Stops this hart without using its stack.
+///
+/// This is also the early `mtvec` target, before Runtime state exists.
 ///
 /// # Safety
 ///
-/// Naked `mtvec` target, never a callable function.
+/// The caller must run in M-mode. This function never returns or unwinds.
 #[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
 #[unsafe(export_name = "runtime_fail_stop")]
-pub unsafe extern "C" fn fail_stop() {
+pub unsafe extern "C" fn fail_stop() -> ! {
     #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-    core::arch::naked_asm!(".align 2", "csrw mie, zero", "1: wfi", "   j 1b",);
+    core::arch::naked_asm!(".balign 4", "csrw mie, zero", "1: wfi", "   j 1b",);
     #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
     unimplemented!("The fail-stop vector requires a RISC-V target");
 }

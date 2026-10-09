@@ -159,5 +159,5 @@ pub(crate) extern "C" fn initialize_secondary() {
         .get()
         .expect("BUG: boot cache policy must be published before hart power-on")
         .restore();
-    crate::secondary_hart(None);
+    crate::boot::initialize_reset_hart();
 }

@@ -2,9 +2,6 @@ use static_toml::static_toml;
 
 include!(concat!(env!("OUT_DIR"), "/generated_config.rs"));
 
-/// The address where the SBI link start.
-pub const SBI_LINK_START_ADDRESS: usize = CONFIG.link_start_address as usize;
-
 #[cfg(not(any(feature = "payload", feature = "jump")))]
 pub type NextAddr = crate::cfg::config::next_addr::NextAddr;
 /// Log Level.
