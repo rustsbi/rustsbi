@@ -61,3 +61,5 @@ impl fmt::Display for Error {
         })
     }
 }
+
+pub(crate) use recovery::sfence_vma_guarded;

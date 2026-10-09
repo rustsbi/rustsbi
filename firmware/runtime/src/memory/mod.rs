@@ -14,7 +14,7 @@ mod registry;
 mod supervisor;
 
 pub(crate) use image::linker_image_bounds;
-pub use image::locate_firmware_image;
+pub use image::{FirmwareImageLayout, firmware_image_layout};
 
 pub use address::PhysAddr;
 pub use mmio::{MmioRegion, MmioValue};

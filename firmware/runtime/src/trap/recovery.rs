@@ -405,3 +405,13 @@ pub(crate) fn write_value(addr: usize, value: usize, kind: ValueKind) -> Result<
 }
 
 use super::decode::ValueKind;
+
+/// Synchronizes address translations under the guarded instruction recovery protocol.
+pub(crate) fn sfence_vma_guarded() -> Result<(), Error> {
+    match () {
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+        () => guarded_machine_instruction!("sfence.vma x0, x0", 0).map(|_| ()),
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+        () => unimplemented!("Guarded address-translation fence requires a RISC-V target"),
+    }
+}

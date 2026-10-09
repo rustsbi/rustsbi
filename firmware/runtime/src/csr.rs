@@ -506,6 +506,10 @@ pub(crate) enum CounterEvent<const INDEX: u8> {}
 
 pub(crate) enum CounterEventHigh<const INDEX: u8> {}
 
+pub(crate) enum PmpAddress<const INDEX: usize> {}
+
+pub(crate) enum PmpConfig<const INDEX: usize> {}
+
 pub(crate) enum MachineState<const INDEX: usize> {}
 
 pub(crate) enum MachineStateHigh<const INDEX: usize> {}
@@ -537,6 +541,28 @@ seq_macro::seq!(N in 3..=31 {
         writable!(CounterEventHigh<N>, 0x720 + N);
     )*
 });
+
+readable!(PmpAddress<0>, 0x3b0, usize);
+writable!(PmpAddress<0>, 0x3b0);
+seq_macro::seq!(N in 1..16 {
+    #(
+        readable!(PmpAddress<N>, 0x3b0 + N, usize);
+        writable!(PmpAddress<N>, 0x3b0 + N);
+    )*
+});
+readable!(PmpConfig<0>, 0x3a0, usize);
+writable!(PmpConfig<0>, 0x3a0);
+readable!(PmpConfig<2>, 0x3a2, usize);
+writable!(PmpConfig<2>, 0x3a2);
+readable!(PmpConfig<4>, 0x3a4, usize);
+#[cfg(target_pointer_width = "32")]
+readable!(PmpConfig<1>, 0x3a1, usize);
+#[cfg(target_pointer_width = "32")]
+writable!(PmpConfig<1>, 0x3a1);
+#[cfg(target_pointer_width = "32")]
+readable!(PmpConfig<3>, 0x3a3, usize);
+#[cfg(target_pointer_width = "32")]
+writable!(PmpConfig<3>, 0x3a3);
 
 readable!(MachineState<0>, 0x30c, StateEnable);
 writable!(MachineState<0>, 0x30c);

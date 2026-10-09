@@ -46,8 +46,8 @@ fn boot_hart(mut boot: BootInfo) {
     let next_stage_fdt_address = platform::init_board(platform_description);
 
     let firmware_ram = platform::firmware_ram_range();
-    firmware::set_pmp(&firmware_ram);
-    firmware::log_pmp_cfg(&firmware_ram);
+    let pmp_entries = firmware::set_pmp(&firmware_ram);
+    firmware::log_pmp_cfg(pmp_entries);
 
     let hart_id = HartId::current()
         .expect("BUG: current hart is not in the boot topology")
