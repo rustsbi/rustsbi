@@ -20,7 +20,7 @@ fn test_ecall_registers() {
     // Check the caller-saved t0–t6 and a2–a7 registers across an SBI ecall.
     // a0/a1 carry its result and are intentionally excluded.
     unsafe {
-        let magic = |register: usize| 0x5150_0000_0000_0000usize | register;
+        let magic = |register: usize| (0x5150usize << (usize::BITS - 16)) | register;
         let (mut x5, mut x6, mut x7, mut x28, mut x29, mut x30, mut x31): (
             usize,
             usize,
@@ -111,7 +111,11 @@ unsafe extern "C" fn s_skip_trap() {
         "csrr t0, scause",
         "bltz t0, 1f",
         "la t2, {cause}",
+        ".if {XLEN} == 64",
         "sd t0, 0(t2)",
+        ".else",
+        "sw t0, 0(t2)",
+        ".endif",
         "csrr t1, sepc",
         "addi t1, t1, 4",
         "csrw sepc, t1",
@@ -120,6 +124,7 @@ unsafe extern "C" fn s_skip_trap() {
         "csrci sip, 2",
         "sret",
         cause = sym TRAP_CAUSE,
+        XLEN = const usize::BITS,
     );
 }
 
