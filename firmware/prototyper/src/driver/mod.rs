@@ -5,6 +5,7 @@
 
 pub(crate) mod aia;
 pub(crate) mod allwinner;
+pub(crate) mod aplic;
 mod cci;
 pub(crate) mod clint;
 mod console;

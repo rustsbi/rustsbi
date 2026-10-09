@@ -1,12 +1,9 @@
+//! APLIC delegation of interrupt sources to a supervisor domain.
+//!
 //! Specification: [RISC-V AIA 1.0], sections 4.5.2–4.5.4 and 4.5.11,
 //! defines this register layout.
 //!
-//! QEMU 10.1 reads the hart-index width from the supervisor MSI address
-//! register when routing supervisor interrupts, so that compatibility field is
-//! repeated below. See QEMU's [APLIC implementation].
-//!
 //! [RISC-V AIA 1.0]: https://docs.riscv.org/reference/aia/_attachments/riscv-interrupts.pdf
-//! [APLIC implementation]: https://github.com/qemu/qemu/blob/v10.1.0/hw/intc/riscv_aplic.c
 
 use bitflags::bitflags;
 use core::mem::size_of;
@@ -24,23 +21,13 @@ const HART_INDEX_WIDTH_FIELD_WIDTH: u32 = 4;
 const MAX_HART_INDEX_BITS: u32 = (1 << HART_INDEX_WIDTH_FIELD_WIDTH) - 1;
 
 #[derive(Clone, Copy)]
-pub(super) struct EncodedMsiAddress {
+pub(crate) struct MsiAddress {
     low: u32,
     high: u32,
 }
 
-impl EncodedMsiAddress {
-    pub(super) fn machine(base: PhysAddr, hart_index_bits: u32) -> runtime::Result<Self> {
-        Self::encode(base, hart_index_bits)
-    }
-
-    pub(super) fn supervisor(base: PhysAddr, hart_index_bits: u32) -> runtime::Result<Self> {
-        // AIA defines LHXW in mmsiaddrcfgh. QEMU 10.1 instead takes it from
-        // smsiaddrcfgh for an S-level domain, so repeat it for that emulator.
-        Self::encode(base, hart_index_bits)
-    }
-
-    fn encode(base: PhysAddr, hart_index_bits: u32) -> runtime::Result<Self> {
+impl MsiAddress {
+    pub(crate) fn new(base: PhysAddr, hart_index_bits: u32) -> runtime::Result<Self> {
         if hart_index_bits > MAX_HART_INDEX_BITS || !base.is_aligned_to(PAGE_SIZE) {
             return Err(Error::InvalidArgs);
         }
@@ -111,17 +98,17 @@ bitflags! {
     }
 }
 
-pub(super) struct AplicRegisters(MmioRegion);
+pub(crate) struct Aplic(MmioRegion);
 
-impl AplicRegisters {
-    pub(super) fn new(registers: MmioRegion) -> Self {
+impl Aplic {
+    pub(crate) fn new(registers: MmioRegion) -> Self {
         Self(registers)
     }
 
-    pub(super) fn configure_and_delegate_sources(
+    pub(crate) fn configure_and_delegate_sources(
         &self,
-        machine_msi: EncodedMsiAddress,
-        supervisor_msi: EncodedMsiAddress,
+        machine_msi: MsiAddress,
+        supervisor_msi: MsiAddress,
         num_sources: usize,
     ) -> runtime::Result<bool> {
         let msi_configuration_locked = MsiAddressConfigHigh::from_bits_retain(
@@ -163,7 +150,7 @@ impl AplicRegisters {
         &self,
         low_register: Register,
         high_register: Register,
-        address: EncodedMsiAddress,
+        address: MsiAddress,
     ) -> runtime::Result<()> {
         self.write(low_register, address.low)?;
         self.write(high_register, address.high)
