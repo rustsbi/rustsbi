@@ -9,7 +9,7 @@
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 use core::arch::asm;
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-use riscv::register::mtvec;
+use riscv::register::{mcause, mepc, mtval, mtvec};
 
 use super::Error;
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
@@ -199,20 +199,87 @@ guarded_access!(
     cause::STORE_ACCESS | cause::STORE_PAGE
 );
 
-/// Read the 12-bit-immediate CSR `CSR` under the recovery guard.
+/// Saved enclosing trap facts for a guarded machine instruction.
 ///
-/// Reading an unimplemented CSR raises an illegal-instruction exception,
-/// which the recovery entry turns into [`Error::UnsupportedInstruction`]. The
-/// guard runs with interrupts disabled, exactly like the memory guards.
-#[inline(never)]
-pub fn read_csr_guarded<const CSR: u16>() -> Result<usize, Error> {
-    match () {
-        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-        () => {
-            let mut data: usize = 0;
+/// Keep this guard inside the machine-interrupt-disabled window so no
+/// unrelated trap can replace the captured facts before they are restored.
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+struct CsrTrapState {
+    mepc: usize,
+    mcause: usize,
+    mtval: usize,
+    #[cfg(target_arch = "riscv32")]
+    mstatush: Option<usize>,
+}
+
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+impl CsrTrapState {
+    fn capture() -> Self {
+        #[cfg(target_arch = "riscv32")]
+        let mstatush = if riscv::register::misa::read().has_extension('H') {
+            let value;
+            // Capture MPV before a nested trap can replace the guest origin.
+            // SAFETY:
+            // 1. Guarded machine operations run in M-mode.
+            // 2. The H check above establishes mstatush on RV32.
+            unsafe {
+                asm!("csrr {value}, mstatush", value = out(reg) value, options(nomem, nostack));
+            }
+            Some(value)
+        } else {
+            None
+        };
+        Self {
+            mepc: mepc::read(),
+            mcause: mcause::read().bits(),
+            mtval: mtval::read(),
+            #[cfg(target_arch = "riscv32")]
+            mstatush,
+        }
+    }
+}
+
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+impl Drop for CsrTrapState {
+    fn drop(&mut self) {
+        // SAFETY:
+        // 1. The guard retired its record and restored mstatus/mtvec/mscratch.
+        // 2. Drop runs inside machine::free, still in M-mode with interrupts masked.
+        // 3. These values were captured on this hart before the guarded instruction.
+        unsafe {
+            asm!(
+                "csrw mepc, {mepc}",
+                "csrw mcause, {mcause}",
+                "csrw mtval, {mtval}",
+                mepc = in(reg) self.mepc,
+                mcause = in(reg) self.mcause,
+                mtval = in(reg) self.mtval,
+                options(nomem),
+            );
+            #[cfg(target_arch = "riscv32")]
+            if let Some(value) = self.mstatush {
+                asm!("csrw mstatush, {value}", value = in(reg) value, options(nomem, nostack));
+            }
+        }
+    }
+}
+
+/// Executes one machine instruction under the same register contract as the
+/// memory guards. The saved trap state drops before machine interrupts are
+/// restored, including when an unsupported instruction returns an error.
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+macro_rules! guarded_machine_instruction {
+    ($instruction:literal, $value:expr $(, $csr:ident)?) => {
+        riscv::interrupt::machine::free(|| {
+            let _trap_state = CsrTrapState::capture();
+            let mut data: usize = $value;
             let mut record = RecoveryRecord::new(cause::ILLEGAL);
-            // SAFETY: same window contract as the generated guards; the CSR number
-            // is a compile-time immediate.
+            // SAFETY:
+            // 1. Runtime runs in M-mode; machine::free masks interrupts for the window.
+            // 2. Any CSR number is a compile-time immediate. The live stack record
+            //    has recovery_entry's checked layout; fixed-register clobbers are declared.
+            // 3. Assembly restores mstatus/mtvec/mscratch on success or recovery;
+            //    CsrTrapState restores enclosing trap facts before interrupts resume.
             unsafe {
                 let prev_mtvec = mtvec::read().bits();
                 mtvec::write(mtvec::Mtvec::new(
@@ -220,7 +287,7 @@ pub fn read_csr_guarded<const CSR: u16>() -> Result<usize, Error> {
                     mtvec::TrapMode::Direct,
                 ));
                 asm!(
-                    "csrw mscratch, a3",
+                    "csrrw t5, mscratch, a3",
                     "lla t2, 2f",
                     store_word!(t2 => [a3]),
                     // The record is in mscratch; a3 survives the recovery vector.
@@ -228,29 +295,40 @@ pub fn read_csr_guarded<const CSR: u16>() -> Result<usize, Error> {
                     ".option push",
                     ".option norvc",
                     "2:",
-                    "csrr t0, {csr}",
+                    $instruction,
                     ".option pop",
                     "csrw mstatus, a3",
-                    "csrw mscratch, zero",
+                    "csrw mscratch, t5",
                     "csrw mtvec, t4",
-                    csr = const CSR,
+                    $(csr = const $csr,)?
                     inout("t3") MPRV_BIT | MXR_BIT => _,
                     in("t4") prev_mtvec,
                     inout("a3") &mut record as *mut RecoveryRecord => _,
                     inout("t0") data,
                     out("t1") _,
                     out("t2") _,
+                    out("t5") _,
                 );
             }
             if record.trapped() {
-                // Reading the CSR itself raised illegal instruction: the machine
-                // cannot supply the counter, so no register or PC commits and the
-                // original illegal-instruction exception is redirected (design
-                // section 11.3).
-                return Err(Error::UnsupportedInstruction);
+                Err(Error::UnsupportedInstruction)
+            } else {
+                Ok(data)
             }
-            Ok(data)
-        }
+        })
+    };
+}
+
+/// Reads the 12-bit-immediate CSR `CSR` under the recovery guard.
+///
+/// Reading an unimplemented CSR raises an illegal-instruction exception,
+/// which the recovery entry turns into [`Error::UnsupportedInstruction`].
+/// The guard masks machine interrupts; unexpected faults fail-stop.
+#[inline(never)]
+pub fn read_csr_guarded<const CSR: u16>() -> Result<usize, Error> {
+    match () {
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+        () => guarded_machine_instruction!("csrr t0, {csr}", 0, CSR),
         #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
         () => {
             let _ = CSR;
@@ -259,52 +337,15 @@ pub fn read_csr_guarded<const CSR: u16>() -> Result<usize, Error> {
     }
 }
 
-/// Write `value` to the 12-bit-immediate CSR `CSR` under the recovery guard.
-/// Returns `Err` when the CSR instruction faults.
+/// Writes `value` to the 12-bit-immediate CSR `CSR` under the recovery guard.
 ///
-/// Mirrors [`read_csr_guarded`]: an illegal-instruction exception from an
-/// unimplemented CSR becomes [`Error::UnsupportedInstruction`].
+/// An illegal-instruction exception becomes [`Error::UnsupportedInstruction`].
+/// Unexpected faults fail-stop.
 #[inline(never)]
 pub fn write_csr_guarded<const CSR: u16>(value: usize) -> Result<(), Error> {
     match () {
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-        () => {
-            let mut record = RecoveryRecord::new(cause::ILLEGAL);
-            // SAFETY: same window contract as the other guards.
-            unsafe {
-                let prev_mtvec = mtvec::read().bits();
-                mtvec::write(mtvec::Mtvec::new(
-                    recovery_entry as *const () as _,
-                    mtvec::TrapMode::Direct,
-                ));
-                asm!(
-                    "csrw mscratch, a3",
-                    "lla t2, 2f",
-                    store_word!(t2 => [a3]),
-                    // The record is in mscratch; a3 survives the recovery vector.
-                    "csrrs a3, mstatus, t3",
-                    ".option push",
-                    ".option norvc",
-                    "2:",
-                    "csrw {csr}, t0",
-                    ".option pop",
-                    "csrw mstatus, a3",
-                    "csrw mscratch, zero",
-                    "csrw mtvec, t4",
-                    csr = const CSR,
-                    inout("t3") MPRV_BIT | MXR_BIT => _,
-                    in("t4") prev_mtvec,
-                    inout("a3") &mut record as *mut RecoveryRecord => _,
-                    inout("t0") value => _,
-                    out("t1") _,
-                    out("t2") _,
-                );
-            }
-            if record.trapped() {
-                return Err(Error::UnsupportedInstruction);
-            }
-            Ok(())
-        }
+        () => guarded_machine_instruction!("csrw {csr}, t0", value, CSR).map(|_| ()),
         #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
         () => {
             let _ = (CSR, value);
@@ -316,50 +357,13 @@ pub fn write_csr_guarded<const CSR: u16>(value: usize) -> Result<(), Error> {
 /// Exchanges `value` with the 12-bit-immediate CSR `CSR` under the recovery
 /// guard and returns the previous CSR value.
 ///
-/// This is used by feature discovery to test a writable counter without
-/// exposing an unguarded CSR instruction to policy code.
+/// IMSIC claim uses the exchange to read and acknowledge one interrupt
+/// atomically.
 #[inline(never)]
 pub fn swap_csr_guarded<const CSR: u16>(value: usize) -> Result<usize, Error> {
     match () {
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-        () => {
-            let mut data = value;
-            let mut record = RecoveryRecord::new(cause::ILLEGAL);
-            // SAFETY: same window contract as the other guarded CSR operations.
-            unsafe {
-                let prev_mtvec = mtvec::read().bits();
-                mtvec::write(mtvec::Mtvec::new(
-                    recovery_entry as *const () as _,
-                    mtvec::TrapMode::Direct,
-                ));
-                asm!(
-                    "csrw mscratch, a3",
-                    "lla t2, 2f",
-                    store_word!(t2 => [a3]),
-                    // The record is in mscratch; a3 survives the recovery vector.
-                    "csrrs a3, mstatus, t3",
-                    ".option push",
-                    ".option norvc",
-                    "2:",
-                    "csrrw t0, {csr}, t0",
-                    ".option pop",
-                    "csrw mstatus, a3",
-                    "csrw mscratch, zero",
-                    "csrw mtvec, t4",
-                    csr = const CSR,
-                    inout("t3") MPRV_BIT | MXR_BIT => _,
-                    in("t4") prev_mtvec,
-                    inout("a3") &mut record as *mut RecoveryRecord => _,
-                    inout("t0") data,
-                    out("t1") _,
-                    out("t2") _,
-                );
-            }
-            if record.trapped() {
-                return Err(Error::UnsupportedInstruction);
-            }
-            Ok(data)
-        }
+        () => guarded_machine_instruction!("csrrw t0, {csr}, t0", value, CSR),
         #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
         () => {
             let _ = (CSR, value);
