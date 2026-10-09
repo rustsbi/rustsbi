@@ -230,7 +230,7 @@ pub fn check_next_stage_privilege(next_mode: MPP) {
 /// Returns access failures to the boot caller before Runtime activates the final
 /// trap vector.
 pub(crate) fn configure_hart_environment() -> Result<(), HartInitError> {
-    let imsic_ipis = crate::driver::ipi::uses_imsic();
+    let imsic_ipis = crate::platform::interrupts().supervisor_aia();
     let (policy, standard_page_memory_types) = with_current(|local| {
         local.with_features(|features| {
             // C907 advertises its RV32 page-memory-type extension as Svpbmt.

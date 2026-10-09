@@ -6,19 +6,31 @@ use super::HartId;
 
 /// A platform's hardware hart-release device.
 pub trait HartWake: Send + Sync {
-    /// Returns true if hardware wakeup was requested, or false to use an IPI.
+    /// Requests hardware wakeup, returning `false` to use an IPI instead.
+    ///
+    /// An error aborts the start request; Runtime does not then fall back to an IPI.
     fn wake(&self, hart: HartId) -> crate::Result<bool>;
 }
 
 static WAKEUP: Once<Option<&'static dyn HartWake>> = Once::new();
 
 /// Publishes the optional hardware wakeup device before harts can be started.
-pub fn install_wakeup(device: Option<&'static dyn HartWake>) {
-    WAKEUP.call_once(|| device);
+pub fn install_wakeup(device: Option<&'static dyn HartWake>) -> crate::Result<()> {
+    let mut installed = false;
+    WAKEUP.call_once(|| {
+        installed = true;
+        device
+    });
+    if installed {
+        Ok(())
+    } else {
+        Err(crate::Error::AlreadyInitialized)
+    }
 }
 
 pub(super) fn wake(hart: HartId) -> Result<(), super::StartError> {
-    if let Some(device) = WAKEUP.get().copied().flatten()
+    let wakeup = WAKEUP.get().ok_or(super::StartError::WakeFailed)?;
+    if let Some(device) = *wakeup
         && device
             .wake(hart)
             .map_err(|_| super::StartError::WakeFailed)?

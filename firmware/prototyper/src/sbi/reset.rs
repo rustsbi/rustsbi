@@ -13,11 +13,11 @@ use runtime::rustsbi::{self, SbiRet};
 /// SBI system-reset extension over a selected reset device.
 #[derive(Default)]
 pub struct SbiReset {
-    controller: Option<ResetController>,
+    controller: Option<&'static ResetController>,
 }
 
 impl SbiReset {
-    pub(crate) fn new(controller: Option<ResetController>) -> Self {
+    pub(crate) fn new(controller: Option<&'static ResetController>) -> Self {
         Self { controller }
     }
 }
@@ -31,7 +31,7 @@ impl rustsbi::Reset for SbiReset {
         let Some(request) = parse_request(reset_type, reset_reason) else {
             return SbiRet::invalid_param();
         };
-        let Some(controller) = self.controller.as_ref() else {
+        let Some(controller) = self.controller else {
             return SbiRet::not_supported();
         };
         match controller.reset(request) {

@@ -1,4 +1,4 @@
-//! Firmware memory-protection policy.
+//! Firmware and machine-controller regions protected from the next stage.
 
 use core::ops::Range;
 
@@ -44,47 +44,7 @@ pub(crate) fn install(firmware_ram: &Range<usize>) -> usize {
         tor_fn(firmware_ram.end as u64, Permission::ReadWriteExecute),
     ];
 
-    let board = crate::platform::board_info();
-    let mut protected_regions = alloc::vec::Vec::new();
-    if crate::driver::ipi::uses_imsic()
-        && board.is_qemu_virt()
-        && let Some(imsic) = board.devices.interrupts.imsic()
-    {
-        const QEMU_VIRT_CLINT_BASE: usize = 0x0200_0000;
-        const QEMU_VIRT_CLINT_SIZE: usize = 0x1_0000;
-        let clint_start = board
-            .devices
-            .interrupts
-            .clint()
-            .map(|description| description.resource().registers.start())
-            .unwrap_or(runtime::memory::PhysAddr::new(QEMU_VIRT_CLINT_BASE));
-        protected_regions.push(
-            runtime::memory::PhysAddrRange::from_start_len(clint_start, QEMU_VIRT_CLINT_SIZE)
-                .expect("BUG: QEMU CLINT range is invalid"),
-        );
-        let aplic = board
-            .devices
-            .interrupts
-            .machine_aplic()
-            .expect("BUG: QEMU AIA setup requires a machine APLIC")
-            .resource();
-        protected_regions.push(
-            runtime::memory::PhysAddrRange::new(aplic.start(), aplic.end())
-                .expect("BUG: QEMU APLIC range is invalid"),
-        );
-        let imsic = imsic.resource();
-        let machine_imsic_end = imsic
-            .hart_files
-            .iter()
-            .map(|range| range.end())
-            .max_by_key(|address| address.as_usize())
-            .expect("BUG: every enabled hart requires an IMSIC file");
-        protected_regions.push(
-            runtime::memory::PhysAddrRange::new(imsic.layout.machine_base, machine_imsic_end)
-                .expect("BUG: QEMU IMSIC range is invalid"),
-        );
-    }
-    let protected_regions = protected_regions.as_slice();
+    let protected_regions = super::state::interrupts().protected_regions();
     // Interrupt policy supplies ordered, non-overlapping machine windows.
     // Two TOR entries per window deny it while preserving the gaps.
     let mut plan = [off_fn(0); 14];
@@ -100,7 +60,7 @@ pub(crate) fn install(firmware_ram: &Range<usize>) -> usize {
     plan[count..count + firmware_regions.len()].copy_from_slice(&firmware_regions);
     count += firmware_regions.len();
     if protected_regions.is_empty()
-        && let Some(alias) = board.memory.noncacheable_alias_offset
+        && let Some(alias) = super::state::platform().noncacheable_alias_offset
     {
         assert!(alias.is_power_of_two() && alias >= firmware_ram.end as u64);
         let start = firmware_start

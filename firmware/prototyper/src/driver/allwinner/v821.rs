@@ -197,13 +197,8 @@ impl A27L2Cache {
         riscv::asm::fence();
         self.registers
             .write_u32(CacheRegister::Command, command as u32)?;
-        let timer = crate::driver::timer::get().ok_or(runtime::Error::NotEnoughResources)?;
-        let read_time_fn = || {
-            timer
-                .time_source()
-                .map(|source| source.read_time_low() as u32)
-                .ok_or(runtime::Error::NotEnoughResources)
-        };
+        let timer = crate::platform::time_source().ok_or(runtime::Error::NotEnoughResources)?;
+        let read_time_fn = || -> runtime::Result<u32> { Ok(timer.read_time_low() as u32) };
         let start = read_time_fn()?;
         loop {
             match self.registers.read_u32(CacheRegister::Status)? & STATUS_STATE_MASK {
