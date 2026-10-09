@@ -61,59 +61,10 @@ impl SbiIpi {
     pub(crate) fn new(device: &'static IpiDevice) -> Self {
         Self { device }
     }
-
-    /// Sends an IPI carrying a remote fence operation.
-    pub fn send_ipi_by_fence(
-        &self,
-        hart_mask: runtime::rustsbi::HartMask,
-        ctx: rfence::RFenceContext,
-    ) -> SbiRet {
-        let current_hart = HartId::current()
-            .expect("BUG: current hart is not in the boot topology")
-            .as_usize();
-        let requests = match target_requests(hart_mask) {
-            Ok(requests) => requests,
-            Err(error) => return error,
-        };
-        let local = rfence::local_rfence().unwrap();
-        let mut result = SbiRet::success(0);
-
-        for hart_id in requests.flat_map(IpiRequest::harts) {
-            // Improve performance if the RFence request runs on the local host.
-            if hart_id == current_hart {
-                rfence::rfence_local_handler(ctx);
-                continue;
-            }
-
-            let remote = rfence::remote_rfence(hart_id).unwrap();
-            local.add();
-            remote.set(ctx);
-
-            set_ipi_type(hart_id, IPI_TYPE_FENCE);
-            if self.send_ipi(hart_id).is_ok() {
-                continue;
-            }
-            // Cancel this source's queued request; a receiver that already
-            // took it remains responsible for the acknowledgement.
-            if remote.cancel(current_hart) {
-                rfence::remote_rfence(current_hart).unwrap().sub();
-            }
-            result = SbiRet::failed();
-            break;
-        }
-
-        // Complete previously submitted operations even if a later send failed.
-        while !local.is_sync() {
-            rfence::rfence_poll();
-        }
-
-        result
-    }
-
-    /// Sends a firmware IPI to a hart.
-    #[inline]
-    pub(crate) fn send_ipi(&self, hart_id: usize) -> Result<(), IpiError> {
-        self.device.send_ipi(IpiRequest::for_hart(hart_id))
+    /// Marks remote fence work pending and signals its target hart.
+    pub(super) fn send_fence_ipi(&self, hart: HartId) -> Result<(), IpiError> {
+        set_ipi_type(hart.as_usize(), IPI_TYPE_FENCE);
+        self.device.send_ipi(IpiRequest::for_hart(hart.as_usize()))
     }
 }
 
@@ -183,4 +134,49 @@ fn target_requests(hart_mask: HartMask) -> Result<impl Iterator<Item = IpiReques
         single = (active_mask != 0).then_some(IpiRequest::from_mask_base(active_mask, base));
     }
     Ok(single.into_iter().chain(requests))
+}
+
+/// Targets selected once from the SBI mask and current HSM state.
+pub(super) enum TargetHarts {
+    Mask(HartMask),
+    Broadcast(Vec<HartId>),
+}
+
+impl TargetHarts {
+    pub(super) fn iter(&self) -> impl Iterator<Item = HartId> + '_ {
+        let (mask, broadcast) = match self {
+            Self::Mask(mask) => (*mask, &[][..]),
+            Self::Broadcast(harts) => (HartMask::from_mask_base(0, 0), harts.as_slice()),
+        };
+        broadcast.iter().copied().chain(mask.into_iter().map(|raw| {
+            // Selection checked every ID against the immutable boot topology.
+            HartId::from_raw(raw).expect("BUG: validated IPI target disappeared")
+        }))
+    }
+}
+
+/// Selects eligible harts after validating every requested ID.
+pub(super) fn target_harts(hart_mask: HartMask) -> Result<TargetHarts, SbiRet> {
+    let available = |hart: HartId| {
+        crate::platform::hart_privilege_checked(hart.as_usize()) && hart::can_receive_ipi(hart)
+    };
+    let (mask, base) = hart_mask.into_inner();
+    if base == usize::MAX {
+        return Ok(TargetHarts::Broadcast(
+            HartId::all().filter(|hart| available(*hart)).collect(),
+        ));
+    }
+    let mut active_mask = 0;
+    for bit in HartMask::from_mask_base(mask, 0) {
+        let raw = base.checked_add(bit).ok_or_else(SbiRet::invalid_param)?;
+        let hart = HartId::from_raw(raw).map_err(|_| SbiRet::invalid_param())?;
+        // Stopped harts are valid targets but need no supervisor notification.
+        if available(hart) {
+            active_mask |= 1 << bit;
+        }
+    }
+    Ok(TargetHarts::Mask(HartMask::from_mask_base(
+        active_mask,
+        base,
+    )))
 }

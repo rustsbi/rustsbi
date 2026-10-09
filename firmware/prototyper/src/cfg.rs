@@ -7,9 +7,6 @@ pub const SBI_LINK_START_ADDRESS: usize = CONFIG.link_start_address as usize;
 
 #[cfg(not(any(feature = "payload", feature = "jump")))]
 pub type NextAddr = crate::cfg::config::next_addr::NextAddr;
-
-/// Platform page size.
-pub const PAGE_SIZE: usize = CONFIG.page_size as usize;
 /// Log Level.
 pub const LOG_LEVEL: &str = CONFIG.log_level;
 /// Address for jump mode.

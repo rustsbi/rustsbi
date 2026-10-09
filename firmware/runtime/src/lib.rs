@@ -75,3 +75,5 @@ mod instructions;
 pub mod pmu;
 
 pub mod pmp;
+
+pub mod rfence;

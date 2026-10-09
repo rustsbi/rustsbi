@@ -90,7 +90,7 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     let console_result = console::test();
     pmu::test(smp);
     crate::fwft::test();
-    rfence::test(hartid, smp);
+    rfence::test(hartid, smp, dtb_pa);
     reset::test();
     misaligned::test();
     trap::test();

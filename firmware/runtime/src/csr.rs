@@ -540,6 +540,10 @@ registers! {
         Stimecmp: usize = 0x14d;
         #[cfg(target_pointer_width = "32")]
         StimecmpHigh: usize = 0x15d;
+        #[cfg(feature = "hypervisor")]
+        Vsatp: usize = 0x280;
+        #[cfg(feature = "hypervisor")]
+        Hgatp: usize = 0x680;
     }
 }
 
