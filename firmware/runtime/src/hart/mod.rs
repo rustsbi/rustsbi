@@ -85,3 +85,10 @@ impl HartId {
         topology::all()
     }
 }
+
+/// Returns the current hart's architectural vendor identifier.
+/// Zero means that the hardware does not publish an identifier.
+pub fn vendor_id() -> usize {
+    use crate::csr::{Mvendorid, Readable};
+    Mvendorid::read().expect("machine vendor CSR is always readable in M-mode")
+}

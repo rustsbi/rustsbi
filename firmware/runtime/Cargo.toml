@@ -19,3 +19,5 @@ rustsbi = { version = "0.4.1", features = [
     "machine",
 ], path = "../../library/rustsbi" }
 spin = "0.9.8"
+
+seq-macro = "0.3.5"

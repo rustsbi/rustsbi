@@ -1,15 +1,39 @@
-#![forbid(unsafe_code)]
-
+use crate::riscv::csr::*;
 use ::riscv::register::mstatus::MPP;
-use riscv::register::misa;
+use core::fmt;
 use runtime::FdtNode;
+use runtime::features as arch_features;
+pub use runtime::features::PrivilegedVersion;
+use runtime::features::SupervisorEnvironmentPolicy;
 use seq_macro::seq;
 
 use crate::fail;
 use crate::platform::mark_hart_privilege_checked;
-use crate::riscv::csr::*;
 use crate::sbi::hart_local::{with_current, with_hart};
 use runtime::hart::HartId;
+
+/// A failure while detecting or preparing the current hart for supervisor use.
+#[derive(Debug)]
+pub(crate) enum HartInitError {
+    PrivilegedVersion(arch_features::FeatureError),
+    SupervisorEnvironment(arch_features::FeatureError),
+}
+
+impl fmt::Display for HartInitError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::PrivilegedVersion(error) => {
+                write!(
+                    formatter,
+                    "privileged architecture discovery failed: {error}"
+                )
+            }
+            Self::SupervisorEnvironment(error) => {
+                write!(formatter, "supervisor environment setup failed: {error}")
+            }
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct HartFeatures {
@@ -29,23 +53,14 @@ impl HartFeatures {
     }
 }
 
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub enum PrivilegedVersion {
-    #[default]
-    Unknown = 0,
-    Version1_10 = 1,
-    Version1_11 = 2,
-    Version1_12 = 3,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Extension {
     Sstc = 0,
     Hypervisor = 1,
     Smaia = 2,
     Svpbmt = 3,
     Zkr = 4,
-    // Remember to increment `Extension::COUNT` while implementing new extensions.
+    // `COUNT` and `iter()` must cover every variant used as an array index.
 }
 
 impl Extension {
@@ -55,13 +70,12 @@ impl Extension {
         match self {
             Self::Sstc => "sstc",
             Self::Hypervisor => "h",
-            Self::Smaia => "smaia", // TODO verify with DTB standard
+            Self::Smaia => "smaia",
             Self::Svpbmt => "svpbmt",
             Self::Zkr => "zkr",
         }
     }
 
-    #[inline]
     pub const fn index(&self) -> usize {
         *self as usize
     }
@@ -79,23 +93,19 @@ impl Extension {
 }
 
 /// Returns whether a specific extension is supported for the given hart.
-#[inline]
 pub fn hart_has_extension(hart_id: usize, extension: Extension) -> bool {
     with_hart(hart_id, |local| {
         local.with_features(|features| features.extensions[extension.index()])
     })
 }
 
-/// Gets the privileged version for the given hart.
-#[inline]
+/// Returns the privileged-architecture version for the given hart.
 pub fn hart_privileged_version(hart_id: usize) -> PrivilegedVersion {
     with_hart(hart_id, |local| {
         local.with_features(HartFeatures::privileged_version)
     })
 }
 
-/// Gets the MHPM mask for the given hart.
-#[inline]
 pub fn hart_mhpm_mask(hart_id: usize) -> u32 {
     with_hart(hart_id, |local| {
         local.with_features(HartFeatures::mhpm_mask)
@@ -130,33 +140,25 @@ pub fn detect_extensions(hart_id: usize, cpu: FdtNode<'_, '_>) {
             .expect("BUG: current hart exceeds Runtime capacity")
             .as_usize()
     {
-        extensions[Extension::Hypervisor.index()] = misa::read().has_extension('H');
+        extensions[Extension::Hypervisor.index()] = environment().supports_hypervisor_mode();
     }
     with_hart(hart_id, |local| {
         local.with_features_mut(|features| features.extensions = extensions)
     });
 }
 
-/// NEMU supplies a fixed feature profile through [`init`].
+/// Preserves the fixed NEMU feature profile installed by [`init`].
 #[cfg(feature = "nemu")]
 pub fn detect_extensions(_hart_id: usize, _cpu: FdtNode<'_, '_>) {}
 
-fn detect_privileged_version() {
-    let mut privileged_version = PrivilegedVersion::Unknown;
-    {
-        if has_csr::<CSR_MCOUNTEREN>() {
-            privileged_version = PrivilegedVersion::Version1_10;
-            if has_csr::<CSR_MCOUNTINHIBIT>() {
-                privileged_version = PrivilegedVersion::Version1_11;
-                if has_csr::<CSR_MENVCFG>() {
-                    privileged_version = PrivilegedVersion::Version1_12;
-                }
-            }
-        }
-    }
+fn detect_privileged_version() -> Result<(), HartInitError> {
+    let privileged_version = environment()
+        .probe_privileged_version()
+        .map_err(HartInitError::PrivilegedVersion)?;
     with_current(|local| {
         local.with_features_mut(|features| features.privileged_version = privileged_version)
     });
+    Ok(())
 }
 
 /// Detects Sstc even when it is omitted from the device tree.
@@ -200,10 +202,11 @@ fn detect_mhpm_counters() {
 
 /// Detects the current hart's privileged-architecture version, Sstc support
 /// and hardware counters after device-tree discovery.
-pub fn detect_hart_features() {
-    detect_privileged_version();
+pub(crate) fn detect_hart_features() -> Result<(), HartInitError> {
+    detect_privileged_version()?;
     detect_sstc();
     detect_mhpm_counters();
+    Ok(())
 }
 
 #[cfg(feature = "nemu")]
@@ -237,14 +240,14 @@ pub fn check_next_stage_privilege(next_mode: MPP) {
         .as_usize();
     match next_mode {
         MPP::Supervisor => {
-            if !misa::read().has_extension('S') {
+            if !environment().supports_supervisor_mode() {
                 warn!("Hart {} does not support Supervisor mode", hart_id);
                 fail::stop();
             }
             mark_hart_privilege_checked(hart_id);
         }
         MPP::User => {
-            if !misa::read().has_extension('U') {
+            if !environment().supports_user_mode() {
                 warn!("Hart {} does not support User mode", hart_id);
                 fail::stop();
             }
@@ -254,42 +257,48 @@ pub fn check_next_stage_privilege(next_mode: MPP) {
     }
 }
 
-/// Configures the per-hart S-mode environment CSRs for supervisor
-/// hand-off (counter inhibits and environment features).
+/// Resets hardware counters and applies the discovered supervisor feature policy.
 ///
-/// Delegation, counter access, and the trap vector itself are Runtime
-/// mechanism and are configured by `runtime::trap::init`.
-pub fn configure_hart_environment() {
-    let hart_id = HartId::current()
-        .expect("BUG: current hart exceeds Runtime capacity")
-        .as_usize();
-    // Standard Sv32 and Svpbmt page tables must not use T-Head MAEE.
-    if cfg!(target_pointer_width = "32") || hart_has_extension(hart_id, Extension::Svpbmt) {
-        disable_thead_maee();
+/// Returns access failures to the boot caller before Runtime activates the final
+/// trap vector.
+pub(crate) fn configure_hart_environment() -> Result<(), HartInitError> {
+    let imsic_ipis = crate::driver::ipi::uses_imsic();
+    let (policy, standard_page_memory_types) = with_current(|local| {
+        local.with_features(|features| {
+            // C907 advertises its RV32 page-memory-type extension as Svpbmt.
+            let svpbmt = features.extensions[Extension::Svpbmt.index()];
+            (
+                SupervisorEnvironmentPolicy {
+                    page_based_memory_types: svpbmt,
+                    supervisor_seed: features.extensions[Extension::Zkr.index()],
+                    supervisor_aia: imsic_ipis && features.extensions[Extension::Smaia.index()],
+                },
+                // Standard RV32 page tables and Svpbmt require T-Head MAEE off.
+                cfg!(target_pointer_width = "32") || svpbmt,
+            )
+        })
+    });
+    let hart = HartId::current().expect("BUG: invalid hart ID").as_usize();
+    if hart_privileged_version(hart) >= PrivilegedVersion::Version1_11 {
+        crate::riscv::csr::mcountinhibit::write_raw(!0b111usize);
     }
-    let hart_priv_version = hart_privileged_version(hart_id);
-    if hart_priv_version >= PrivilegedVersion::Version1_11 {
-        mcountinhibit::write_raw(!0b111usize);
+    if hart_has_extension(hart, Extension::Sstc) {
+        crate::riscv::csr::menvcfg::set_bits(crate::riscv::csr::menvcfg::STCE);
     }
-    if hart_priv_version >= PrivilegedVersion::Version1_12 {
-        if hart_has_extension(hart_id, Extension::Sstc) {
-            menvcfg::set_bits(
-                menvcfg::STCE | menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE,
-            );
-        } else {
-            menvcfg::set_bits(menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE | menvcfg::CBZE);
-        }
-        // Follow the device tree: C907 firmware also describes its RV32
-        // page-memory-type extension as Svpbmt and requires PBMTE.
-        if hart_has_extension(hart_id, Extension::Svpbmt) {
-            menvcfg::set_bits(menvcfg::PBMTE);
-        }
-        // The S-mode access to the Zkr `seed` CSR is gated under `mseccfg.SSEED`.
-        if hart_has_extension(hart_id, Extension::Zkr) && has_csr::<CSR_MSECCFG>() {
-            mseccfg::set_bits(mseccfg::SSEED);
-        }
-        let enable_aia =
-            crate::driver::ipi::uses_imsic() && hart_has_extension(hart_id, Extension::Smaia);
-        runtime::csr::stateen::configure_supervisor(enable_aia);
+    if standard_page_memory_types
+        && let Some(thead) = runtime::soc::thead::THead::current()
+            .expect("BUG: current hart outside published topology")
+    {
+        thead.use_standard_page_memory_types().map_err(|error| {
+            HartInitError::SupervisorEnvironment(arch_features::FeatureError::Access(error))
+        })?;
     }
+    environment()
+        .configure(policy)
+        .map_err(HartInitError::SupervisorEnvironment)
+}
+
+fn environment() -> arch_features::SupervisorEnvironment {
+    arch_features::SupervisorEnvironment::current()
+        .expect("BUG: current hart outside published topology")
 }

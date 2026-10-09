@@ -104,3 +104,10 @@ cfg_if::cfg_if! {
         }
     }
 }
+
+#[cold]
+pub(crate) fn hart_initialization(error: impl core::fmt::Display) -> ! {
+    let hart_id = HartId::current().expect("BUG: initializing hart is outside the boot topology");
+    error!("Hart {} initialization failed: {error}", hart_id.as_usize());
+    stop()
+}

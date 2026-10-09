@@ -224,34 +224,3 @@ where
 pub(crate) fn access_dispatcher() -> Option<&'static dyn AccessDispatcher> {
     ACCESS_DISPATCHER.get().copied()
 }
-
-/// Misaligned load/store exception `medeleg` bits (causes 4 and 6).
-const MIS_DELEG: usize = (1 << 4) | (1 << 6);
-
-/// Reads whether misaligned load/store exceptions are delegated to S-mode.
-///
-/// Narrow fact backing the FWFT extension's `MISALIGNED_EXC_DELEG` feature;
-/// no arbitrary delegation mask is exposed.
-pub fn misaligned_delegated() -> bool {
-    (riscv::register::medeleg::read().bits() & MIS_DELEG) != 0
-}
-
-/// Sets or clears the misaligned load/store exception delegation,
-/// preserving every other `medeleg` bit.
-///
-/// Narrow operation backing the FWFT extension's `MISALIGNED_EXC_DELEG`
-/// feature; `medeleg` is trap-sensitive CSR, so policy reaches it only
-/// through this operation.
-pub fn set_misaligned_delegation(enabled: bool) {
-    let current = riscv::register::medeleg::read().bits();
-    let next = if enabled {
-        current | MIS_DELEG
-    } else {
-        current & !MIS_DELEG
-    };
-    // SAFETY: M-mode write on the current hart; `next` preserves every
-    // `medeleg` bit except the two misaligned exception bits.
-    unsafe {
-        riscv::register::medeleg::write(riscv::register::medeleg::Medeleg::from_bits(next));
-    }
-}

@@ -54,7 +54,7 @@ fn boot_hart(mut boot: BootInfo) {
         .as_usize();
     info!("{:<30}: {}", "Boot HART ID", hart_id);
 
-    detect_hart_features();
+    detect_hart_features().unwrap_or_else(|error| fail::hart_initialization(error));
     log_hart_capabilities(hart_id);
 
     let mut next_stage = boot.next_stage();
@@ -73,7 +73,7 @@ fn boot_hart(mut boot: BootInfo) {
 
 fn secondary_hart(boot: Option<&BootInfo>) {
     platform::wait_until_ready();
-    detect_hart_features();
+    detect_hart_features().unwrap_or_else(|error| fail::hart_initialization(error));
 
     platform::initialize_secondary_hart();
     firmware::set_pmp(&platform::firmware_ram_range());
@@ -100,7 +100,8 @@ fn enable_supervisor_services() {
                 .expect("selected IMSIC has a description"),
         );
     }
-    sbi::features::configure_hart_environment();
+    sbi::features::configure_hart_environment()
+        .unwrap_or_else(|error| fail::hart_initialization(error));
     // Transactional per-hart trap activation: publishes the policy, applies
     // the fixed delegation/counter policy, and installs the final trap
     // vector as the Ready commit point.

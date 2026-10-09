@@ -1,15 +1,8 @@
+#[cfg(target_pointer_width = "32")]
 use core::arch::asm;
 
 // Sstc: supervisor timer compare register.
 pub const CSR_STIMECMP: u16 = 0x14D;
-
-// Machine counter-enable and environment-configuration CSRs.
-pub const CSR_MCOUNTEREN: u16 = 0x306;
-pub const CSR_MENVCFG: u16 = 0x30a;
-pub const CSR_MSECCFG: u16 = 0x747;
-
-// Machine counter inhibit and the event-selector CSR range.
-pub const CSR_MCOUNTINHIBIT: u16 = 0x320;
 pub const CSR_MHPMEVENT3: u16 = 0x323;
 pub const CSR_MHPMEVENT31: u16 = 0x33f;
 
@@ -35,33 +28,9 @@ pub fn probe_mhpm_csr<const CSR_NUM: u16>(mhpm_mask: &mut u32) {
     }
 }
 
-/// Disables T-Head's non-standard page memory attributes on this hart.
-pub fn disable_thead_maee() {
-    const THEAD_VENDOR_ID: usize = 0x5b7;
-    const CSR_MXSTATUS: u16 = 0x7c0;
-    const MAEE: usize = 1 << 21;
-
-    if riscv::register::mvendorid::read().bits() == THEAD_VENDOR_ID && has_csr::<CSR_MXSTATUS>() {
-        // SAFETY: M-mode initialization of this hart's probed T-Head CSR.
-        // Clear only MAEE, preserving the loader's other mxstatus settings.
-        unsafe {
-            asm!("csrc {csr}, {mask}", csr = const CSR_MXSTATUS, mask = in(reg) MAEE, options(nomem));
-        }
-    }
-}
-
 /// Machine environment configuration register (menvcfg) bit fields.
 pub mod menvcfg {
     use core::arch::asm;
-
-    /// Cache-block-invalidate effect: invalidate (CBIE=11).
-    pub const CBIE_INVALIDATE: u64 = 0b11 << 4;
-    /// Cache-block-clean flush enable.
-    pub const CBCFE: u64 = 0x1 << 6;
-    /// Cache-block-zero enable.
-    pub const CBZE: u64 = 0x1 << 7;
-    /// Page-based memory types enable.
-    pub const PBMTE: u64 = 0x1 << 62;
     /// Supervisor timer counter enable.
     pub const STCE: u64 = 0x1 << 63;
 
@@ -76,24 +45,6 @@ pub mod menvcfg {
             if option >> 32 != 0 {
                 asm!("csrs 0x31a, {}", in(reg) (option >> 32) as usize, options(nomem));
             }
-        }
-    }
-}
-
-/// Machine security configuration register (mseccfg) bit fields.
-pub mod mseccfg {
-    use core::arch::asm;
-
-    /// S-mode access to the `seed` CSR (Zkr).
-    pub const SSEED: u64 = 0x1 << 9;
-
-    /// Sets specified bits in mseccfg register.
-    pub fn set_bits(option: u64) {
-        // SAFETY: M-mode update of this hart's own mseccfg. Callers probe the
-        // CSR first; the Zkr bits live in the low 32 bits on every XLEN, so
-        // no high-half write is needed on RV32.
-        unsafe {
-            asm!("csrs mseccfg, {}", in(reg) option as usize, options(nomem));
         }
     }
 }

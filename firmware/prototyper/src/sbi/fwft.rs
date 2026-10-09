@@ -2,114 +2,37 @@
 //!
 //! # References
 //!
-//! - Specification: [RISC-V SBI FWFT extension](https://docs.riscv.org/reference/sbi/v3.0/ext-firmware-features.html) —
+//! - Specification: [RISC-V SBI FWFT extension](https://github.com/riscv-non-isa/riscv-sbi-doc/blob/v3.0/src/ext-firmware-features.adoc) —
 //!   feature identifiers and get/set semantics.
 
+use runtime::features::{EnvironmentFeature, FeatureError, SupervisorEnvironment};
 use runtime::rustsbi::SbiRet;
 use runtime::rustsbi::spec::fwft::feature_type;
 
-use crate::riscv::csr::CSR_MENVCFG;
-
-// `menvcfg` fields defined by the corresponding RISC-V extensions.
-const ENVCFG_LPE: usize = 1 << 0; // Landing pad (Zicfilp)
-const ENVCFG_DTE: usize = 1 << 1; // Double trap (Smdbltrp)
-const ENVCFG_ADUE: usize = 1 << 5; // PTE A/D hardware updating (SVADU)
-const ENVCFG_SSE: usize = 1 << 8; // Shadow stack (Zicfiss)
-const ENVCFG_PMM_SHIFT: usize = 9; // Pointer masking tag length (Smnpm)
-const ENVCFG_PMM: usize = 0b11 << ENVCFG_PMM_SHIFT;
-
-/// Firmware Features extension backed by narrow Runtime operations.
-///
-/// Misaligned exception delegation and `menvcfg` are trap-sensitive CSR
-/// mechanism, so every register access goes through the Runtime: the
-/// misaligned-delegation bits through a dedicated narrow operation, and
-/// `menvcfg` through the Runtime's guarded CSR leaves.
+/// SBI identifiers and result translation for Runtime environment operations.
 pub(crate) struct SbiFwft;
 
 impl SbiFwft {
-    fn has_s_mode() -> bool {
-        riscv::register::misa::read().has_extension('S')
-    }
-
-    fn menvcfg_read() -> Option<usize> {
-        runtime::trap::read_csr_guarded::<CSR_MENVCFG>().ok()
-    }
-
-    fn menvcfg_write(value: usize) -> bool {
-        runtime::trap::write_csr_guarded::<CSR_MENVCFG>(value).is_ok()
-    }
-
-    fn menvcfg_bit(feature_id: usize) -> Option<usize> {
+    fn environment_feature(feature_id: usize) -> Option<EnvironmentFeature> {
         match feature_id {
-            feature_type::LANDING_PAD => Some(ENVCFG_LPE),
-            feature_type::SHADOW_STACK => Some(ENVCFG_SSE),
-            feature_type::DOUBLE_TRAP => Some(ENVCFG_DTE),
-            feature_type::PTE_AD_HW_UPDATING => Some(ENVCFG_ADUE),
+            feature_type::LANDING_PAD => Some(EnvironmentFeature::LandingPad),
+            feature_type::SHADOW_STACK => Some(EnvironmentFeature::ShadowStack),
+            feature_type::DOUBLE_TRAP => Some(EnvironmentFeature::DoubleTrap),
+            feature_type::PTE_AD_HW_UPDATING => Some(EnvironmentFeature::PteAdHardwareUpdating),
+            feature_type::POINTER_MASKING_PMLEN => Some(EnvironmentFeature::PointerMasking),
             _ => None,
         }
     }
 
-    fn set_menvcfg_bit(bit: usize, value: usize) -> SbiRet {
-        if value > 1 {
-            return SbiRet::invalid_param();
+    fn feature_error(error: FeatureError) -> SbiRet {
+        match error {
+            FeatureError::InvalidValue => SbiRet::invalid_param(),
+            FeatureError::Unsupported => SbiRet::not_supported(),
+            error => {
+                warn!("Firmware feature operation failed: {:?}", error);
+                SbiRet::failed()
+            }
         }
-        let Some(current) = Self::menvcfg_read() else {
-            return SbiRet::not_supported();
-        };
-        let next = if value == 1 {
-            current | bit
-        } else {
-            current & !bit
-        };
-        if !Self::menvcfg_write(next) {
-            return SbiRet::not_supported();
-        }
-        let Some(read_back) = Self::menvcfg_read() else {
-            return SbiRet::not_supported();
-        };
-        // WARL fields may ignore writes when the backing extension is absent.
-        if (read_back & bit) != (next & bit) {
-            return SbiRet::not_supported();
-        }
-        SbiRet::success(0)
-    }
-
-    fn set_pmm(value: usize) -> SbiRet {
-        if value > 3 {
-            return SbiRet::invalid_param();
-        }
-        let Some(current) = Self::menvcfg_read() else {
-            return SbiRet::not_supported();
-        };
-        let next = (current & !ENVCFG_PMM) | (value << ENVCFG_PMM_SHIFT);
-        if !Self::menvcfg_write(next) {
-            return SbiRet::not_supported();
-        }
-        let Some(read_back) = Self::menvcfg_read() else {
-            return SbiRet::not_supported();
-        };
-        // PMM is WARL and may reject tag lengths unsupported by Smnpm.
-        if (read_back & ENVCFG_PMM) != (next & ENVCFG_PMM) {
-            return SbiRet::not_supported();
-        }
-        SbiRet::success(0)
-    }
-
-    // Probe whether WARL fields retain set bits, then attempt to restore
-    // the original value.
-    fn menvcfg_bits_supported(mask: usize) -> bool {
-        let Some(current) = Self::menvcfg_read() else {
-            return false;
-        };
-        if !Self::menvcfg_write(current | mask) {
-            return false;
-        }
-        let Some(probed) = Self::menvcfg_read() else {
-            let _ = Self::menvcfg_write(current);
-            return false;
-        };
-        let _ = Self::menvcfg_write(current);
-        (probed & mask) != 0
     }
 }
 
@@ -120,54 +43,38 @@ impl runtime::rustsbi::Fwft for SbiFwft {
         if flags != 0 {
             return SbiRet::invalid_param();
         }
-        match feature_id as usize {
-            feature_type::MISALIGNED_EXC_DELEG => {
-                if !Self::has_s_mode() {
-                    return SbiRet::not_supported();
-                }
-                if value > 1 {
-                    return SbiRet::invalid_param();
-                }
-                runtime::trap::set_misaligned_delegation(value == 1);
-                SbiRet::success(0)
-            }
-            feature_type::POINTER_MASKING_PMLEN => Self::set_pmm(value),
-            _ => match Self::menvcfg_bit(feature_id as usize) {
-                Some(bit) => Self::set_menvcfg_bit(bit, value),
-                None => SbiRet::not_supported(),
-            },
+        let environment = SupervisorEnvironment::current()
+            .expect("BUG: firmware feature request is outside the published hart topology");
+        if feature_id as usize == feature_type::MISALIGNED_EXC_DELEG {
+            return match environment.set_misaligned_delegation(value) {
+                Ok(()) => SbiRet::success(0),
+                Err(error) => Self::feature_error(error),
+            };
+        }
+        let Some(feature) = Self::environment_feature(feature_id as usize) else {
+            return SbiRet::not_supported();
+        };
+        match environment.set(feature, value) {
+            Ok(()) => SbiRet::success(0),
+            Err(error) => Self::feature_error(error),
         }
     }
 
     fn get(&self, feature_id: u32) -> SbiRet {
-        match feature_id as usize {
-            feature_type::MISALIGNED_EXC_DELEG => {
-                if !Self::has_s_mode() {
-                    return SbiRet::not_supported();
-                }
-                SbiRet::success(runtime::trap::misaligned_delegated() as usize)
-            }
-            feature_type::POINTER_MASKING_PMLEN => {
-                if !Self::menvcfg_bits_supported(ENVCFG_PMM) {
-                    return SbiRet::not_supported();
-                }
-                match Self::menvcfg_read() {
-                    Some(value) => SbiRet::success((value & ENVCFG_PMM) >> ENVCFG_PMM_SHIFT),
-                    None => SbiRet::not_supported(),
-                }
-            }
-            _ => match Self::menvcfg_bit(feature_id as usize) {
-                Some(bit) => {
-                    if !Self::menvcfg_bits_supported(bit) {
-                        return SbiRet::not_supported();
-                    }
-                    match Self::menvcfg_read() {
-                        Some(value) => SbiRet::success(((value & bit) != 0) as usize),
-                        None => SbiRet::not_supported(),
-                    }
-                }
-                None => SbiRet::not_supported(),
-            },
+        let environment = SupervisorEnvironment::current()
+            .expect("BUG: firmware feature request is outside the published hart topology");
+        if feature_id as usize == feature_type::MISALIGNED_EXC_DELEG {
+            return match environment.get_misaligned_delegation() {
+                Ok(value) => SbiRet::success(value),
+                Err(error) => Self::feature_error(error),
+            };
+        }
+        let Some(feature) = Self::environment_feature(feature_id as usize) else {
+            return SbiRet::not_supported();
+        };
+        match environment.get(feature) {
+            Ok(value) => SbiRet::success(value),
+            Err(error) => Self::feature_error(error),
         }
     }
 }

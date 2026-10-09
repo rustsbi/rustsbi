@@ -21,3 +21,5 @@ pub trait Soc: Sized {
     /// description.
     fn from_root(root: FdtNode<'_, '_>) -> Result<Option<Self>>;
 }
+
+pub mod thead;

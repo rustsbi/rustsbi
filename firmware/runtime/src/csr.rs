@@ -185,6 +185,15 @@ pub(crate) trait Csr: private::Sealed {
 pub(crate) trait Readable: Csr {
     /// Reads through this CSR's native or guarded architectural access.
     fn read() -> Result<Self::Value, Error>;
+
+    /// Reads an optional CSR, distinguishing absence from other faults.
+    fn read_optional() -> Result<Option<Self::Value>, Error> {
+        match Self::read() {
+            Ok(value) => Ok(Some(value)),
+            Err(Error::UnsupportedInstruction) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
 }
 
 pub(crate) trait Writable: Csr {
@@ -353,9 +362,51 @@ macro_rules! native_registers {
     };
 }
 
-pub(crate) use {identity, native_read, native_registers, readable, writable};
+macro_rules! native_write {
+    ($instruction:literal, $value:expr) => {
+        $crate::csr::native_write!($instruction, $value, nomem, nostack)
+    };
+    ($instruction:literal, $value:expr, [$($option:ident),*]) => {
+        $crate::csr::native_write!($instruction, $value, $($option),*)
+    };
+    ($instruction:literal, $value:expr, $($option:ident),*) => {{
+        let bits = $crate::csr::Value::bits($value);
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+        {
+            // SAFETY:
+            // 1. The owning Runtime mechanism fixes the CSR identity.
+            // 2. Its callers establish the mode and vendor/extension prerequisites.
+            unsafe {
+                core::arch::asm!(
+                    concat!($instruction, " {csr}, {value}"),
+                    csr = const <Self as $crate::csr::Csr>::NUMBER,
+                    value = in(reg) bits,
+                    options($($option),*),
+                );
+            }
+        }
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+        {
+            let _ = bits;
+            unimplemented!("native CSR access requires a RISC-V target")
+        }
+    }};
+}
 
-word_value! { TriggerData; }
+pub(crate) use {
+    identity, native_read, native_registers, native_write, readable, registers, writable,
+};
+
+word_value! {
+    TriggerData;
+    EnvironmentConfig;
+    #[cfg(target_pointer_width = "32")]
+    EnvironmentConfigHigh;
+    IsaExtensions;
+    SecurityConfig;
+    StateEnable;
+    StateEnableHigh;
+}
 
 impl TriggerData {
     pub(crate) fn trigger_type(self) -> usize {
@@ -363,6 +414,99 @@ impl TriggerData {
     }
 }
 
-native_registers! { read { Mhartid: usize = 0xf14; } write {} }
+impl EnvironmentConfig {
+    pub(crate) const CACHE_BLOCK_OPERATIONS: usize = (0b11 << 4) | (1 << 6) | (1 << 7);
+    #[cfg(target_pointer_width = "64")]
+    pub(crate) const PAGE_BASED_MEMORY_TYPES: usize = 1 << 62;
+}
 
-registers! { read { Tdata1: TriggerData = 0x7a1; } write { Tselect: usize = 0x7a0; } }
+#[cfg(target_pointer_width = "32")]
+impl EnvironmentConfigHigh {
+    pub(crate) const PAGE_BASED_MEMORY_TYPES: usize = 1 << 30;
+}
+
+impl IsaExtensions {
+    pub(crate) fn has_extension(self, extension: char) -> bool {
+        let bit = (extension as u8).saturating_sub(b'A');
+        bit <= 25 && self.0 & (1 << bit) != 0
+    }
+}
+
+impl SecurityConfig {
+    pub(crate) const SUPERVISOR_SEED: usize = 1 << 9;
+}
+
+impl StateEnable {
+    /// Shared definitions use the complete 64-bit architectural layout.
+    pub(crate) const CONTEXT: u64 = 1 << 57;
+    pub(crate) const IMSIC: u64 = 1 << 58;
+    pub(crate) const AIA: u64 = 1 << 59;
+    pub(crate) const INDIRECT_SUPERVISOR: u64 = 1 << 60;
+    pub(crate) const ENVIRONMENT: u64 = 1 << 62;
+    pub(crate) const STATE_ENABLE: u64 = 1 << 63;
+}
+
+native_registers! {
+    read {
+        Mhartid: usize = 0xf14;
+        Mvendorid: usize = 0xf11;
+        Misa: IsaExtensions = 0x301;
+    }
+    write {
+        Medeleg: usize = 0x302;
+    }
+}
+
+impl Medeleg {
+    pub(crate) const MISALIGNED_EXCEPTIONS: usize = (1 << 4) | (1 << 6);
+}
+
+registers! {
+    read {
+        Tdata1: TriggerData = 0x7a1;
+        Mcounteren: usize = 0x306;
+        Mcountinhibit: usize = 0x320;
+    }
+    write {
+        Menvcfg: EnvironmentConfig = 0x30a;
+        #[cfg(target_pointer_width = "32")]
+        MenvcfgHigh: EnvironmentConfigHigh = 0x31a;
+        Mseccfg: SecurityConfig = 0x747;
+        Tselect: usize = 0x7a0;
+    }
+}
+
+pub(crate) enum MachineState<const INDEX: usize> {}
+
+pub(crate) enum MachineStateHigh<const INDEX: usize> {}
+
+pub(crate) enum SupervisorState<const INDEX: usize> {}
+
+pub(crate) enum HypervisorState<const INDEX: usize> {}
+
+pub(crate) enum HypervisorStateHigh<const INDEX: usize> {}
+
+readable!(MachineState<0>, 0x30c, StateEnable);
+writable!(MachineState<0>, 0x30c);
+identity!(MachineStateHigh<0>, 0x31c, StateEnableHigh);
+writable!(MachineStateHigh<0>, 0x31c);
+readable!(SupervisorState<0>, 0x10c, usize);
+writable!(SupervisorState<0>, 0x10c);
+readable!(HypervisorState<0>, 0x60c, StateEnable);
+writable!(HypervisorState<0>, 0x60c);
+identity!(HypervisorStateHigh<0>, 0x61c, StateEnableHigh);
+writable!(HypervisorStateHigh<0>, 0x61c);
+seq_macro::seq!(N in 1..4 {
+    #(
+        identity!(MachineState<N>, 0x30c + N, StateEnable);
+        writable!(MachineState<N>, 0x30c + N);
+        identity!(MachineStateHigh<N>, 0x31c + N, StateEnableHigh);
+        writable!(MachineStateHigh<N>, 0x31c + N);
+        identity!(SupervisorState<N>, 0x10c + N, usize);
+        writable!(SupervisorState<N>, 0x10c + N);
+        identity!(HypervisorState<N>, 0x60c + N, StateEnable);
+        writable!(HypervisorState<N>, 0x60c + N);
+        identity!(HypervisorStateHigh<N>, 0x61c + N, StateEnableHigh);
+        writable!(HypervisorStateHigh<N>, 0x61c + N);
+    )*
+});
