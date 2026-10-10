@@ -148,7 +148,7 @@ fn render_alignment_source() -> String {
     String::from(
         "#[allow(dead_code)]\n\
          #[repr(align(16))]\n\
-         pub struct Aligned16<const N: usize>(pub [u8; N]);\n",
+         pub struct Aligned16<const N: usize>(pub ::runtime::memory::HandoffBuffer<N>);\n",
     )
 }
 
@@ -174,7 +174,7 @@ fn render_fdt_source(spec: &BuildSpec) -> Result<String> {
     }
 }
 
-/// Render one embedded binary static.
+/// Render an embedded FDT with 1 KiB of space for in-place handoff edits.
 fn render_embedded_static(
     symbol_name: &str,
     section_name: &str,
@@ -185,7 +185,16 @@ fn render_embedded_static(
     Ok(format!(
         "\n#[allow(dead_code, non_upper_case_globals)]\n\
          #[unsafe(link_section = \"{section_name}\")]\n\
-         pub static {symbol_name}: {alignment_type}<{size}> = {alignment_type}(*include_bytes!({path_string:?}));\n"
+         pub static {symbol_name}: {alignment_type}<{{ {size} + 1024 }}> = {{\n\
+             let source = include_bytes!({path_string:?});\n\
+             let mut bytes = [0; {size} + 1024];\n\
+             let mut index = 0;\n\
+             while index < source.len() {{\n\
+                 bytes[index] = source[index];\n\
+                 index += 1;\n\
+             }}\n\
+             {alignment_type}(::runtime::memory::HandoffBuffer::new(bytes))\n\
+         }};\n"
     ))
 }
 

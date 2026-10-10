@@ -110,7 +110,7 @@ pub unsafe fn initialize_stacks<const SIZE: usize>(
     let firmware = PhysAddrRange::new(PhysAddr::new(image_start), PhysAddr::new(end))?;
     if extra_size != 0 {
         let stacks = PhysAddrRange::new(PhysAddr::new(image_end), PhysAddr::new(end))?;
-        let dtb = platform.inspect(|view| Ok(view.storage_range()))?;
+        let dtb = platform.inspect(|view| view.storage_range())?;
         if stacks.overlaps(dtb)
             || (image_end..end).contains(&next_stage_entry)
             || handoff.is_some_and(|range| stacks.overlaps(range))
@@ -182,5 +182,8 @@ pub unsafe extern "C" fn locate_stack() {
         fail = sym super::fail_stop,
     );
     #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-    unimplemented!("Stack selection requires a RISC-V target");
+    {
+        let _ = (&HART_TABLE, super::fail_stop);
+        unimplemented!("Stack selection requires a RISC-V target");
+    }
 }
