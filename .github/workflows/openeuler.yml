@@ -1,0 +1,92 @@
+name: openEuler
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-openeuler-boot*.sh"
+      - ".github/workflows/openeuler.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main", "ci/**"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-openeuler-boot*.sh"
+      - ".github/workflows/openeuler.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/macros/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  QEMU_PACKAGE_VERSION: "1:10.2.1+ds-1ubuntu3.2"
+
+jobs:
+  openeuler-edk2-boot:
+    name: Boot openEuler 25.09 (EDK II)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install emulation dependencies
+        run: |
+          apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30)
+          sudo timeout 5m apt-get "${apt_options[@]}" update --error-on=any
+          sudo timeout 5m apt-get "${apt_options[@]}" install -y --no-install-recommends \
+            curl xz-utils shellcheck \
+            "qemu-system-riscv=${QEMU_PACKAGE_VERSION}" \
+            "qemu-utils=${QEMU_PACKAGE_VERSION}"
+          qemu-system-riscv64 --version
+
+      - name: Check script syntax and offline failure handling
+        run: |
+          bash -n .github/scripts/prototyper-openeuler-boot.sh
+          shellcheck .github/scripts/prototyper-openeuler-boot.sh
+          .github/scripts/prototyper-openeuler-boot.sh --self-test
+
+      - name: Install cargo-binutils
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      # Only digest-verified archives and release firmware are cached. Each run
+      # extracts a fresh base disk and uses a disposable qcow2 overlay and VARS.
+      - name: Cache openEuler downloads
+        uses: actions/cache@v5
+        with:
+          path: target/openeuler-boot/cache
+          key: openeuler-25.09-5ba2eb5f-edk2-58e96e55-ea8094e9-v1
+
+      - name: Build current RustSBI Prototyper
+        run: |
+          set -o pipefail
+          mkdir -p qemu-logs
+          cargo prototyper build 2>&1 | tee qemu-logs/prototyper-openeuler-build.log
+
+      - name: Boot openEuler through EDK II
+        run: .github/scripts/prototyper-openeuler-boot.sh edk2
+
+      - name: Upload serial log and build provenance
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: openeuler-edk2-logs
+          path: qemu-logs/prototyper-openeuler-*.log
+          if-no-files-found: warn
