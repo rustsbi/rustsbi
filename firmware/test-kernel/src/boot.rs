@@ -41,7 +41,7 @@ unsafe extern "C" fn _boot_header() -> ! {
     );
 }
 
-/// Enters Rust after clearing `.bss` and installing the boot hart's stack.
+/// Relocates the image, clears `.bss`, and installs the boot hart's stack.
 #[unsafe(naked)]
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text.entry")]
@@ -52,9 +52,40 @@ unsafe extern "C" fn _start(hartid: usize, device_tree_paddr: usize) -> ! {
     static mut STACK: [u8; STACK_SIZE] = [0u8; STACK_SIZE];
 
     naked_asm!(
+        // The PIE is linked at zero, so its runtime base is the load bias.
+        // Use PC-relative addresses until the GOT and static pointers are fixed.
+        ".option push",
+        ".option norelax",
+        "   lla     t0, __rela_start
+            lla     t1, __rela_end
+            lla     t2, istart
+            li      t3, {R_RISCV_RELATIVE}
+        3:  bgeu    t0, t1, 5f
+            .if {XLEN} == 64
+            ld      t4, 8(t0)
+            bne     t4, t3, 4f
+            ld      t4, 0(t0)
+            ld      t5, 16(t0)
+            add     t4, t4, t2
+            add     t5, t5, t2
+            sd      t5, 0(t4)
+            addi    t0, t0, 24
+            .else
+            lw      t4, 4(t0)
+            bne     t4, t3, 4f
+            lw      t4, 0(t0)
+            lw      t5, 8(t0)
+            add     t4, t4, t2
+            add     t5, t5, t2
+            sw      t5, 0(t4)
+            addi    t0, t0, 12
+            .endif
+            j       3b
+        4:  j       4b
+        5:",
         // Clear the zero-initialized data segment before Rust starts.
-        "   la      t0, sbss
-            la      t1, ebss
+        "   lla     t0, sbss
+            lla     t1, ebss
         1:  bgeu    t0, t1, 2f
             .if {XLEN} == 64
             sd      zero, 0(t0)
@@ -65,12 +96,14 @@ unsafe extern "C" fn _start(hartid: usize, device_tree_paddr: usize) -> ! {
             .endif
             j       1b",
         "2:",
-        "   la sp, {stack} + {stack_size}",
+        "   lla sp, {stack} + {stack_size}",
         "   j  {main}",
+        ".option pop",
         stack_size = const STACK_SIZE,
         stack = sym STACK,
         main = sym rust_main,
         XLEN = const usize::BITS,
+        R_RISCV_RELATIVE = const 3,
     )
 }
 

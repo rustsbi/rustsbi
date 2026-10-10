@@ -13,7 +13,7 @@ fn main() {
 const LINKER_SCRIPT: &[u8] = b"OUTPUT_ARCH(riscv)
 ENTRY(_start) 
 SECTIONS {
-    . = 0x80200000;
+    . = 0;
     istart = .;
 	  .head.text : ALIGN(8) {		
         KEEP(*(.head.text))
@@ -30,6 +30,11 @@ SECTIONS {
         . = ALIGN(8);  
         erodata = .;
     } 
+    .rela.dyn : ALIGN(8) {
+        __rela_start = .;
+        *(.rela.dyn)
+        __rela_end = .;
+    }
     .data : ALIGN(8) { 
         sdata = .;
         *(.data .data.*)
