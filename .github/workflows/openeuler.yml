@@ -39,9 +39,13 @@ env:
   QEMU_PACKAGE_VERSION: "1:10.2.1+ds-1ubuntu3.2"
 
 jobs:
-  openeuler-edk2-boot:
-    name: Boot openEuler 25.09 (EDK II)
+  openeuler-boot:
+    name: Boot openEuler 25.09 (${{ matrix.boot-mode }})
     runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        boot-mode: [edk2, u-boot]
     timeout-minutes: 60
     steps:
       - name: Checkout code
@@ -52,7 +56,7 @@ jobs:
           apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30)
           sudo timeout 5m apt-get "${apt_options[@]}" update --error-on=any
           sudo timeout 5m apt-get "${apt_options[@]}" install -y --no-install-recommends \
-            curl xz-utils shellcheck \
+            curl xz-utils shellcheck dpkg \
             "qemu-system-riscv=${QEMU_PACKAGE_VERSION}" \
             "qemu-utils=${QEMU_PACKAGE_VERSION}"
           qemu-system-riscv64 --version
@@ -72,7 +76,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: target/openeuler-boot/cache
-          key: openeuler-25.09-5ba2eb5f-edk2-58e96e55-ea8094e9-v1
+          key: openeuler-25.09-5ba2eb5f-${{ matrix.boot-mode }}-u-boot-852a1f5d-v1
 
       - name: Build current RustSBI Prototyper
         run: |
@@ -80,13 +84,13 @@ jobs:
           mkdir -p qemu-logs
           cargo prototyper build 2>&1 | tee qemu-logs/prototyper-openeuler-build.log
 
-      - name: Boot openEuler through EDK II
-        run: .github/scripts/prototyper-openeuler-boot.sh edk2
+      - name: Boot openEuler through ${{ matrix.boot-mode }}
+        run: .github/scripts/prototyper-openeuler-boot.sh ${{ matrix.boot-mode }}
 
       - name: Upload serial log and build provenance
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: openeuler-edk2-logs
+          name: openeuler-${{ matrix.boot-mode }}-logs
           path: qemu-logs/prototyper-openeuler-*.log
           if-no-files-found: warn
