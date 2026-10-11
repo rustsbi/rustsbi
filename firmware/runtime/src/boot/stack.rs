@@ -108,6 +108,8 @@ pub unsafe fn initialize_stacks<const SIZE: usize>(
         .ok_or(Error::Overflow)?;
     let end = image_end.checked_add(extra_size).ok_or(Error::Overflow)?;
     let firmware = PhysAddrRange::new(PhysAddr::new(image_start), PhysAddr::new(end))?;
+    let (_, memory) = platform.memory_resources()?;
+    platform.validate_destination(firmware, next_stage_entry, handoff, memory.ram_ranges())?;
     if extra_size != 0 {
         let stacks = PhysAddrRange::new(PhysAddr::new(image_end), PhysAddr::new(end))?;
         let dtb = platform.inspect(|view| Ok(view.storage_range()))?;
@@ -117,7 +119,6 @@ pub unsafe fn initialize_stacks<const SIZE: usize>(
         {
             return Err(Error::AccessDenied);
         }
-        let (_, memory) = platform.memory_resources()?;
         memory.validate_firmware_extension(firmware)?;
     }
     let mut top = image_end;
@@ -182,5 +183,8 @@ pub unsafe extern "C" fn locate_stack() {
         fail = sym super::fail_stop,
     );
     #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-    unimplemented!("Stack selection requires a RISC-V target");
+    {
+        let _ = (&HART_TABLE, super::fail_stop);
+        unimplemented!("Stack selection requires a RISC-V target");
+    }
 }

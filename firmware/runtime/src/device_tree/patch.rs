@@ -53,6 +53,20 @@ pub(super) fn validate(source: &[u8]) -> Result<()> {
     plan::validate_structure(layout.structure, layout.strings)
 }
 
+/// Records the destination capacity in a prepared DTB without resizing it.
+///
+/// The caller must copy the prepared bytes and initialize the remaining
+/// destination storage before exposing the DTB with its enlarged `totalsize`.
+pub(super) fn set_total_size(output: &mut [u8], capacity: usize) -> Result<()> {
+    if output.len() < format::HEADER_SIZE {
+        return Err(Error::InvalidArgs);
+    }
+    if output.len() > capacity {
+        return Err(Error::NotEnoughResources);
+    }
+    writer::write_header_field(output, format::TOTAL_SIZE_OFFSET, capacity)
+}
+
 /// Returns a validated DTB with the requested next-stage edits.
 pub(super) fn prepare_next_stage(
     source: &[u8],

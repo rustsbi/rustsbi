@@ -97,6 +97,7 @@ fn redirect_or_fatal(error: Option<Error>) {
 fn fatal() -> ! {
     // SAFETY: a diverging tail jump into the naked fail-stop vector; the
     // vector never returns and touches no stack.
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     unsafe {
         core::arch::asm!(
             "tail {fail}",
@@ -104,6 +105,8 @@ fn fatal() -> ! {
             options(noreturn)
         )
     }
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+    unimplemented!("Trap dispatch requires a RISC-V target");
 }
 
 /// The SBI ecall path: extract the standard registers, call the original

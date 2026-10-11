@@ -266,6 +266,7 @@ fn resolve_normalizes_files_and_derives_features() {
     let spec = resolve_in(&args, &root, &root).unwrap();
     assert_eq!(spec.firmware_config.layout.hart_capacity, 8);
     assert_eq!(spec.firmware_config.layout.stack_size_per_hart, 16384);
+    assert_eq!(spec.firmware_config.layout.fdt_handoff, None);
     assert_eq!(
         spec.mode,
         BuildMode::Payload {
@@ -286,6 +287,18 @@ fn resolve_normalizes_files_and_derives_features() {
     let spec = resolve_in(&args, &root, &root).unwrap();
     assert_eq!(spec.firmware_config.layout.hart_capacity, 2);
     assert_eq!(spec.firmware_config.layout.stack_size_per_hart, 8192);
+    fs::write(
+        config_dir.join("default.toml"),
+        format!(
+            "{VALID_CONFIG_TOML}fdt_handoff_address = 0x88000000\nfdt_handoff_capacity = 65536\n"
+        ),
+    )
+    .unwrap();
+    let spec = resolve_in(&args, &root, &root).unwrap();
+    assert_eq!(
+        spec.firmware_config.layout.fdt_handoff,
+        Some((0x88000000, 65536))
+    );
     let _ = fs::remove_dir_all(&root);
 }
 
@@ -334,6 +347,19 @@ fn resolve_rejects_mode_features_and_invalid_config() {
         .unwrap();
         let error = resolve_in(&base_build_args(), &root, &root).unwrap_err();
         assert!(format!("{error:#}").contains(key));
+    }
+
+    for settings in [
+        "fdt_handoff_address = 0x88000000\n",
+        "fdt_handoff_capacity = 4096\n",
+        "fdt_handoff_address = 0\nfdt_handoff_capacity = 4096\n",
+        "fdt_handoff_address = 0x88000001\nfdt_handoff_capacity = 4096\n",
+        "fdt_handoff_address = 0x88000000\nfdt_handoff_capacity = 32\n",
+        "fdt_handoff_address = 0x88000000\nfdt_handoff_capacity = 0x100000000\n",
+    ] {
+        fs::write(&config_path, format!("{VALID_CONFIG_TOML}{settings}")).unwrap();
+        let error = resolve_in(&base_build_args(), &root, &root).unwrap_err();
+        assert!(format!("{error:#}").contains("fdt_handoff"));
     }
 
     fs::write(
@@ -420,7 +446,10 @@ fn generated_inputs_and_stamp_follow_build_mode() {
     assert!(
         fs::read_to_string(paths.config_source())
             .unwrap()
-            .contains(paths.build_inputs_dir.join("config.toml").to_str().unwrap())
+            .contains(&format!(
+                "{:?}",
+                paths.build_inputs_dir.join("config.toml").to_str().unwrap()
+            ))
     );
     assert!(
         fs::read_to_string(paths.linker_script())
@@ -430,10 +459,11 @@ fn generated_inputs_and_stamp_follow_build_mode() {
     let generated_config = fs::read_to_string(paths.config_source()).unwrap();
     assert!(generated_config.contains("pub(crate) const HART_CAPACITY: usize = 8;"));
     assert!(generated_config.contains("pub(crate) const STACK_SIZE_PER_HART: usize = 16384;"));
+    assert!(generated_config.contains("pub(crate) const FDT_HANDOFF: Option<(u64, u64)> = None;"));
     let dynamic_stamp = fs::read_to_string(paths.stamp()).unwrap();
     fs::write(
         config_dir.join("default.toml"),
-        format!("{VALID_CONFIG_TOML}num_hart_max = 1\n"),
+        format!("{VALID_CONFIG_TOML}num_hart_max = 1\nfdt_handoff_address = 0x88000000\nfdt_handoff_capacity = 4096\n"),
     )
     .unwrap();
     let custom = resolve_in(&base_build_args(), &root, &root).unwrap();
@@ -444,6 +474,11 @@ fn generated_inputs_and_stamp_follow_build_mode() {
             .contains("pub(crate) const HART_CAPACITY: usize = 1;")
     );
     assert_ne!(dynamic_stamp, fs::read_to_string(paths.stamp()).unwrap());
+    assert!(
+        fs::read_to_string(paths.config_source())
+            .unwrap()
+            .contains("FDT_HANDOFF: Option<(u64, u64)> = Some((2281701376, 4096));")
+    );
     fs::write(config_dir.join("default.toml"), VALID_CONFIG_TOML).unwrap();
     let minimal = resolve_in(
         &BuildArgs {
@@ -501,6 +536,7 @@ fn linker_template_renders_known_addresses_and_rejects_unknown_tokens() {
         payload_address: 0x80200000,
         hart_capacity: 2,
         stack_size_per_hart: 8192,
+        fdt_handoff: None,
     };
     let rendered = render_linker_script(LINKER_TEMPLATE, &addresses).unwrap();
     assert!(rendered.contains("0x80000000"));

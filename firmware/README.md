@@ -152,6 +152,13 @@ tlb_flush_limit = 16384      # 16 KiB (page_size * 4)
 - `link_start_address`: Address where the firmware itself is linked and loaded.
 - `payload_address`: Address where payload-mode firmware loads and jumps to the payload.
 - `jump_address`: Target address for jump mode.
+- `fdt_handoff_address`, `fdt_handoff_capacity`: Optional paired DTB destination
+  address (nonzero, 8-byte aligned) and writable capacity in bytes. Without them,
+  the loader must provide an incoming DTB at `a1` with its initial `totalsize` plus
+  1024 writable bytes, including when `--fdt` selects an embedded source. This is
+  a loader precondition, not a capacity measured by RustSBI. The destination must
+  be exclusively writable, outside firmware and other live objects, and remain
+  valid until the next stage finishes using it. Configuring a range does not allocate it.
 - `tlb_flush_limit`: TLB flush limit, in bytes.
 
 Custom configuration files must define `link_start_address`, `payload_address`, `jump_address`, and `heap_size`. Addresses must be 0x1000-aligned, and `link_start_address` must be lower than `payload_address`.

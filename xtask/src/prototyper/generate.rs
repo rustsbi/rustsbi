@@ -139,8 +139,9 @@ fn render_config_source(
     Ok(format!(
         "static_toml! {{ const CONFIG = include_toml!({config_file:?}); }}\n\
          pub(crate) const HART_CAPACITY: usize = {};\n\
-         pub(crate) const STACK_SIZE_PER_HART: usize = {};\n",
-        layout.hart_capacity, layout.stack_size_per_hart
+         pub(crate) const STACK_SIZE_PER_HART: usize = {};\n\
+         pub(crate) const FDT_HANDOFF: Option<(u64, u64)> = {:?};\n",
+        layout.hart_capacity, layout.stack_size_per_hart, layout.fdt_handoff
     ))
 }
 
@@ -174,7 +175,7 @@ fn render_fdt_source(spec: &BuildSpec) -> Result<String> {
     }
 }
 
-/// Render one embedded binary static.
+/// Render an immutable embedded FDT source.
 fn render_embedded_static(
     symbol_name: &str,
     section_name: &str,
