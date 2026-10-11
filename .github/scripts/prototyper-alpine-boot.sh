@@ -38,7 +38,8 @@ readonly UBOOT_DEB=u-boot-qemu_2025.10-0ubuntu0.24.04.2_all.deb
 readonly UBOOT_SHA256=2154e34e4c7037105e8448514faad296b2bbfb1cc460674e3d67cca42d402d9a
 readonly EDK2_DEB=qemu-efi-riscv64_2024.02-2ubuntu0.10_all.deb
 readonly EDK2_SHA256=4f2a7b3757906f60eeedca3181e8d83af6f45477ecc9f306f483cebf665ecdd4
-readonly PACKAGE_MIRROR=https://archive.ubuntu.com/ubuntu
+# Keep pinned bootloaders available after newer packages supersede them.
+readonly PACKAGE_MIRROR=https://snapshot.ubuntu.com/ubuntu/20261006T100000Z
 readonly CACHE_DIR="${ALPINE_CACHE_DIR:-target/alpine-boot/cache}"
 readonly WORK_BASE="${ALPINE_WORK_DIR:-target/alpine-boot/work}"
 readonly LOG_DIR="${QEMU_LOG_DIR:-qemu-logs}"
