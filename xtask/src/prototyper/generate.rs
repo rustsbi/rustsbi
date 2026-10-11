@@ -139,8 +139,9 @@ fn render_config_source(
     Ok(format!(
         "static_toml! {{ const CONFIG = include_toml!({config_file:?}); }}\n\
          pub(crate) const HART_CAPACITY: usize = {};\n\
-         pub(crate) const STACK_SIZE_PER_HART: usize = {};\n",
-        layout.hart_capacity, layout.stack_size_per_hart
+         pub(crate) const STACK_SIZE_PER_HART: usize = {};\n\
+         pub(crate) const FDT_HANDOFF: Option<(u64, u64)> = {:?};\n",
+        layout.hart_capacity, layout.stack_size_per_hart, layout.fdt_handoff
     ))
 }
 
@@ -148,7 +149,7 @@ fn render_alignment_source() -> String {
     String::from(
         "#[allow(dead_code)]\n\
          #[repr(align(16))]\n\
-         pub struct Aligned16<const N: usize>(pub ::runtime::memory::HandoffBuffer<N>);\n",
+         pub struct Aligned16<const N: usize>(pub [u8; N]);\n",
     )
 }
 
@@ -174,7 +175,7 @@ fn render_fdt_source(spec: &BuildSpec) -> Result<String> {
     }
 }
 
-/// Render an embedded FDT with 1 KiB of space for in-place handoff edits.
+/// Render an immutable embedded FDT source.
 fn render_embedded_static(
     symbol_name: &str,
     section_name: &str,
@@ -185,16 +186,7 @@ fn render_embedded_static(
     Ok(format!(
         "\n#[allow(dead_code, non_upper_case_globals)]\n\
          #[unsafe(link_section = \"{section_name}\")]\n\
-         pub static {symbol_name}: {alignment_type}<{{ {size} + 1024 }}> = {{\n\
-             let source = include_bytes!({path_string:?});\n\
-             let mut bytes = [0; {size} + 1024];\n\
-             let mut index = 0;\n\
-             while index < source.len() {{\n\
-                 bytes[index] = source[index];\n\
-                 index += 1;\n\
-             }}\n\
-             {alignment_type}(::runtime::memory::HandoffBuffer::new(bytes))\n\
-         }};\n"
+         pub static {symbol_name}: {alignment_type}<{size}> = {alignment_type}(*include_bytes!({path_string:?}));\n"
     ))
 }
 

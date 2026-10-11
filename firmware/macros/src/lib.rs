@@ -123,20 +123,20 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
             ///
             /// # Safety
             ///
-            /// The previous stage must enter with the register envelope of
-            /// the selected boot protocol: `a0 = hart ID`, `a1 = device
-            /// tree pointer` (base RISC-V convention), `a2 = DynamicInfo
-            /// address` (fw_dynamic extension, dynamic variant only).
-            /// The boot hart's selected device tree and 1024 bytes after its
-            /// `totalsize` must remain writable and exclusively owned through
-            /// platform initialization. Its enabled memory and device
-            /// descriptions must match the hardware.
-            /// RAM immediately after the linked image must also be exclusively
-            /// available for the discovered harts' stacks, without overlapping
-            /// any live loader objects or the complete next-stage image.
-            /// Runs before relocation, BSS, and stacks exist, so the
-            /// assembly may not touch Rust memory until those steps
-            /// complete.
+            /// - Pass `a0 = hart ID`, `a1 = DTB pointer`, and
+            ///   `a2 = DynamicInfo pointer` (dynamic mode only).
+            /// - The selected DTB must describe the hardware and remain readable
+            ///   and unchanged through platform initialization.
+            /// - Provide exclusively writable DTB storage at the configured
+            ///   destination with its declared capacity, or at the boot hart's
+            ///   incoming `a1` with a readable FDT and its initial `totalsize + 1024`
+            ///   bytes of storage. Keep it valid until the next stage finishes
+            ///   using it, outside firmware, stacks, the complete next-stage image,
+            ///   and other live objects.
+            /// - Reserve RAM immediately after the linked image for all discovered
+            ///   harts' stacks, without overlapping any other live objects.
+            /// - Do not access Rust memory before relocation, BSS initialization,
+            ///   and stack setup complete.
             #[doc(hidden)]
             #[unsafe(naked)]
             #[unsafe(link_section = ".text.entry")]

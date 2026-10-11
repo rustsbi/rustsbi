@@ -47,6 +47,10 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Separate the selected DTB source from the next-stage destination, preserving
+  the incoming address for embedded DTBs and supporting an explicit destination
+  address and capacity. Check destination bounds before writing and document
+  the loader's storage and lifetime requirements.
 - Size per-hart stacks and software state from the enabled hart topology, and
   honor firmware hart-capacity and stack-size settings without configuring Runtime.
 - Move Prototyper heap storage and the global allocation boundary into Runtime,

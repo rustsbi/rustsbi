@@ -54,6 +54,8 @@ pub(crate) struct FirmwareLayout {
     pub(crate) hart_capacity: u64,
     /// Number of bytes reserved for each boot/trap stack.
     pub(crate) stack_size_per_hart: u64,
+    /// Optional next-stage DTB destination address and writable capacity.
+    pub(crate) fdt_handoff: Option<(u64, u64)>,
 }
 
 /// Build inputs from the selected firmware configuration.
@@ -236,6 +238,25 @@ fn parse_config(config_source: &Path) -> Result<FirmwareConfig> {
     let hart_capacity = optional_positive_integer("num_hart_max")?.unwrap_or(DEFAULT_HART_CAPACITY);
     let stack_size_per_hart =
         optional_positive_integer("stack_size_per_hart")?.unwrap_or(DEFAULT_STACK_SIZE_PER_HART);
+    let fdt_handoff = match (
+        optional_positive_integer("fdt_handoff_address")?,
+        optional_positive_integer("fdt_handoff_capacity")?,
+    ) {
+        (None, None) => None,
+        (Some(address), Some(capacity)) => {
+            if !address.is_multiple_of(8) {
+                bail!("`fdt_handoff_address` must be 8-byte aligned");
+            }
+            if !(40..=u32::MAX as u64).contains(&capacity) {
+                bail!("`fdt_handoff_capacity` must fit a DTB header and its 32-bit totalsize");
+            }
+            address
+                .checked_add(capacity)
+                .context("FDT destination address overflow")?;
+            Some((address, capacity))
+        }
+        _ => bail!("`fdt_handoff_address` and `fdt_handoff_capacity` must be supplied together"),
+    };
 
     if link_start_address >= payload_address {
         bail!(
@@ -256,6 +277,7 @@ fn parse_config(config_source: &Path) -> Result<FirmwareConfig> {
             payload_address,
             hart_capacity,
             stack_size_per_hart,
+            fdt_handoff,
         },
     })
 }

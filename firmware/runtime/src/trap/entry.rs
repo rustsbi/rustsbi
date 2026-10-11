@@ -27,6 +27,7 @@ const _: () = assert!(FRAME_BYTES == 144);
 const _: () = assert!(FRAME_BYTES == 288);
 
 #[cfg(target_pointer_width = "32")]
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 macro_rules! save_word {
     ($reg:ident => $base:ident[$offset:expr]) => {
         concat!(
@@ -42,6 +43,7 @@ macro_rules! save_word {
 }
 
 #[cfg(target_pointer_width = "32")]
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 macro_rules! load_word {
     ($base:ident[$offset:expr] => $reg:ident) => {
         concat!(
@@ -57,6 +59,7 @@ macro_rules! load_word {
 }
 
 #[cfg(target_pointer_width = "64")]
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 macro_rules! save_word {
     ($reg:ident => $base:ident[$offset:expr]) => {
         concat!(
@@ -72,6 +75,7 @@ macro_rules! save_word {
 }
 
 #[cfg(target_pointer_width = "64")]
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 macro_rules! load_word {
     ($base:ident[$offset:expr] => $reg:ident) => {
         concat!(
@@ -93,9 +97,10 @@ macro_rules! load_word {
 /// Naked `mtvec` target, never a callable function. Requires `mscratch` to
 /// hold either the zero sentinel or the Runtime stack top, as maintained by
 /// this module's protocol.
-#[unsafe(naked)]
+#[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
 #[unsafe(export_name = "runtime_trap_entry")]
 pub unsafe extern "C" fn trap_entry() {
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     core::arch::naked_asm!(
         ".align 2",
         // Symmetric swap: sp ← mscratch (Runtime stack top), mscratch ←
@@ -215,6 +220,15 @@ pub unsafe extern "C" fn trap_entry() {
         fast_time = sym super::dispatch::try_fast_emulate_time,
         fail_stop = sym crate::boot::fail_stop,
     );
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+    {
+        let _ = (
+            trap_dispatch,
+            super::dispatch::try_fast_emulate_time,
+            crate::boot::fail_stop,
+        );
+        unimplemented!("Trap entry requires a RISC-V target");
+    }
 }
 
 /// The expected-fault recovery vector for guarded machine operations.
@@ -228,9 +242,10 @@ pub unsafe extern "C" fn trap_entry() {
 /// # Safety
 ///
 /// Naked `mtvec` target, never a callable function.
-#[unsafe(naked)]
+#[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
 #[unsafe(export_name = "runtime_recovery_entry")]
 pub(crate) unsafe extern "C" fn recovery_entry() {
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     core::arch::naked_asm!(
         ".align 2",
         // The record must be published; mscratch is zero otherwise.
@@ -274,6 +289,8 @@ pub(crate) unsafe extern "C" fn recovery_entry() {
         "mret",
         fail_stop = sym crate::boot::fail_stop,
     );
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+    unimplemented!("Trap recovery requires a RISC-V target");
 }
 
 const _: () = assert!(RecoveryRecord::WORDS == 6);
