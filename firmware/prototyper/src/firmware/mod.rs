@@ -36,10 +36,10 @@ impl BootInfo {
     ///
     /// Without a designated hart, the first enabled candidate leads boot.
     pub(crate) fn decode(
+        current_hart: usize,
         device_tree: runtime::DeviceTreeHandoff,
         dynamic_info_address: usize,
     ) -> runtime::Result<Self> {
-        let current_hart = runtime::csr::mhartid();
         let designated_hart = designated_boot_hart(dynamic_info_address);
         // Only the designated boot hart's FDT belongs to platform discovery.
         if designated_hart.is_some_and(|hart| hart != current_hart) {

@@ -1,6 +1,6 @@
 [package]
-name = "rustsbi-prototyper-macros"
-description = "Entry-point proc-macro for the RustSBI Prototyper firmware"
+name = "rustsbi-runtime-macros"
+description = "Entry-point proc-macro for the RustSBI firmware Runtime"
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true

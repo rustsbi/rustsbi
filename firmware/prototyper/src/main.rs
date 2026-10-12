@@ -23,8 +23,8 @@ use crate::sbi::features::{
 };
 use crate::sbi::hart_local;
 use ::riscv::register::mstatus::MPP;
+use runtime::entry;
 use runtime::hart::HartId;
-use rustsbi_prototyper_macros::entry;
 
 #[entry]
 fn main(boot: BootInfo) {
