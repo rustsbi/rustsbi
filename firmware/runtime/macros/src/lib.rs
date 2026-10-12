@@ -1,4 +1,4 @@
-//! Entry-point proc-macro for the RustSBI Prototyper firmware.
+//! Entry-point proc-macro for the RustSBI firmware Runtime.
 
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -24,6 +24,8 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
         return quote! { compile_error!("`entry` can be applied only to a function"); };
     };
     let policy_name = &policy.sig.ident;
+    let start = include_str!("entry/start.S");
+    let relocation = include_str!("entry/relocation.S");
 
     quote! {
         #policy
@@ -42,11 +44,11 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
 
             // Called only under BOOT_LOCK, before any hart enters policy.
             extern "C" fn initialize(
-                _hart_id: usize,
+                hart_id: usize,
                 device_tree: runtime::DeviceTreeHandoff,
                 dynamic_info_address: usize,
             ) -> usize {
-                let boot = crate::firmware::BootInfo::decode(device_tree, dynamic_info_address)
+                let boot = crate::firmware::BootInfo::decode(hart_id, device_tree, dynamic_info_address)
                     .expect("firmware entry rejected the platform description");
                 if !boot.is_boot_hart() {
                     return 0;
@@ -64,7 +66,7 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
                         boot.dynamic_info_range().expect("invalid dynamic boot information range"),
                     )
                 }.expect("firmware could not initialize its hart topology");
-                BOOT_HART.call_once(runtime::csr::mhartid);
+                BOOT_HART.call_once(|| hart_id);
                 *BOOT_INFO.lock() = Some(boot);
                 1
             }
@@ -73,24 +75,13 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
             #[doc(hidden)]
             #[unsafe(export_name = "__rustsbi_prototyper_main")]
             extern "C" fn __rustsbi_prototyper_main(
-                _hart_id: usize,
+                hart_id: usize,
                 device_tree: runtime::DeviceTreeHandoff,
                 dynamic_info_address: usize,
             ) {
-                // Boot register handoff from the previous stage:
-                //   a0 = hart ID, a1 = device tree pointer (base RISC-V
-                //   convention); a2 = DynamicInfo address (fw_dynamic
-                //   extension, dynamic variant only).
-                //
-                // `_hart_id` keeps the first ABI argument position but its value is unused:
-                // arguments bind by position, so removing the parameter
-                // would shift `a1`/`a2`. In M-mode the hart ID is always
-                // re-read from the mhartid CSR, and it is re-materialized
-                // into `a0` when this firmware boots the next stage (see
-                // `sbi::trap::boot`) — S-mode cannot read mhartid and
-                // depends on receiving its hart ID this way.
+                // Entry reads a0 from mhartid and preserves the loader's a1/a2 handoff.
                 let policy_entry: fn(crate::firmware::BootInfo) = #policy_name;
-                let boot = if BOOT_HART.get().copied() == Some(runtime::csr::mhartid()) {
+                let boot = if BOOT_HART.get().copied() == Some(hart_id) {
                     BOOT_INFO.lock().take().expect("boot handoff consumed once")
                 } else {
                     crate::firmware::BootInfo::secondary(device_tree, dynamic_info_address)
@@ -109,7 +100,7 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
             #[unsafe(naked)]
             unsafe extern "C" fn relocation_update() {
                 ::core::arch::naked_asm!(
-                    include_str!("entry/relocation.S"),
+                    #relocation,
                     R_RISCV_RELATIVE = const R_RISCV_RELATIVE,
                     START_ADDRESS = const crate::cfg::SBI_LINK_START_ADDRESS,
                     XLEN = const usize::BITS,
@@ -143,7 +134,7 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
             #[unsafe(export_name = "_start")]
             unsafe extern "C" fn __rustsbi_prototyper_start() -> ! {
                 ::core::arch::naked_asm!(
-                    include_str!("entry/start.S"),
+                    #start,
                     early_vector = sym runtime::boot::fail_stop,
                     relocation_update = sym relocation_update,
                     locate_stack = sym runtime::boot::locate_stack,

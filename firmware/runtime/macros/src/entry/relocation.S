@@ -1,4 +1,4 @@
-// Handle relocations for position-independent code.
+// Apply relocations for position-independent code.
 
 // Get load offset.
    li t0, {START_ADDRESS}

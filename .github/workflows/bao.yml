@@ -13,7 +13,6 @@ on:
       - "rust-toolchain.toml"
       - "xtask/**"
       - "library/**"
-      - "firmware/macros/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
   push:
@@ -28,7 +27,6 @@ on:
       - "rust-toolchain.toml"
       - "xtask/**"
       - "library/**"
-      - "firmware/macros/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
   workflow_dispatch:

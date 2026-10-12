@@ -590,6 +590,7 @@ dependencies = [
  "riscv",
  "riscv-decode",
  "rustsbi",
+ "rustsbi-runtime-macros",
  "spin",
 ]
 
@@ -614,7 +615,6 @@ dependencies = [
  "riscv",
  "riscv-aia",
  "rustsbi-firmware-runtime",
- "rustsbi-prototyper-macros",
  "sbi-spec",
  "seq-macro",
  "spin",
@@ -622,7 +622,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustsbi-prototyper-macros"
+name = "rustsbi-runtime-macros"
 version = "0.0.0"
 dependencies = [
  "proc-macro2",

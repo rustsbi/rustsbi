@@ -11,8 +11,8 @@
 //!   `mret`s into the staged S/HS next stage or parks the hart until one is
 //!   staged.
 //!
-//! The procedural entry macro in `firmware/macros` references these symbols
-//! directly; they are not policy API.
+//! Runtime's [`entry`](crate::entry) macro references these symbols directly;
+//! they are not policy API.
 
 mod stack;
 

@@ -1,5 +1,5 @@
 // Machine-mode startup ceremony: from the architectural reset vector to
-// safe Rust policy. The `#[entry]` attribute macro wraps this file into the
+// safe Rust policy. Runtime's `#[entry]` macro wraps this file into the
 // `_start` entry point; steps are marked inline.
 //
 // The 6:/7: signal words are read before BSS is cleared, so they must live
@@ -52,7 +52,7 @@ csrw    mtvec, t0
 // 5. Serialize boot candidates on the linker-owned stack. The relocation
 //    winner need not be the boot hart designated by fw_dynamic.
 5:
-    mv      s1, a0
+    csrr    s1, mhartid
     mv      s2, a1
     mv      s3, a2
 8:
