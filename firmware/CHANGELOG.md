@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Added
 
+- Add typed RISC-V CSR definitions for `mhartid` and `mcounteren`.
 - Build test-kernel as a position-independent executable and relocate its static pointers at startup.
 - Release V821 boot0 ISP SRAM after switching to the firmware DRAM stack.
 - Recognize the K3 AP SoC capability on RV64 from an enabled `spacemit,k3` device-tree root.

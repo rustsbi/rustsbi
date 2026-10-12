@@ -15,6 +15,7 @@ members = [
     "library/smm",
     "firmware/macros",
     "firmware/runtime",
+    "firmware/runtime/lib/csr",
     "firmware/prototyper",
     "firmware/bench-kernel",
     "firmware/test-kernel",
