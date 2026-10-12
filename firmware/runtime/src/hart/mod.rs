@@ -46,12 +46,8 @@ impl HartId {
     /// Reads and validates the current hart's `mhartid`.
     #[inline]
     pub fn current() -> Result<Self, HartIdError> {
-        match () {
-            #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-            () => Self::from_raw(crate::csr::mhartid()),
-            #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-            () => unimplemented!("Reading the current hart ID requires a RISC-V target"),
-        }
+        use csr::standard::isa::privileged::machine::HartId;
+        Self::from_raw(HartId::read())
     }
 
     /// Validates a raw hardware hart identifier.

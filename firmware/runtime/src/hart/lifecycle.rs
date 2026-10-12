@@ -334,7 +334,7 @@ impl Drop for ResumeTicket {
 
 /// Takes the one-shot machine control transfer marker for the dispatch hart.
 pub(crate) fn take_control_transfer(hart: HartId) -> Option<ControlTransfer> {
-    assert_eq!(hart.as_usize(), crate::csr::mhartid());
+    assert_eq!(hart, current_hart());
     // SAFETY: the identity belongs to the calling hart, which consumes only
     // its own marker in the M-mode ecall return path.
     unsafe { (*cell(hart).transfer.get()).take() }
