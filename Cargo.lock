@@ -590,6 +590,7 @@ dependencies = [
  "riscv",
  "riscv-decode",
  "rustsbi",
+ "rustsbi-csr",
  "rustsbi-runtime-macros",
  "spin",
 ]

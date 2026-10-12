@@ -54,6 +54,7 @@ All notable changes to this project will be documented in this file. See [conven
   address and capacity. Check destination bounds before writing and document
   the loader's storage and lifetime requirements.
 - Move firmware entry macros and startup assembly into Runtime.
+- Read `mhartid` through typed CSR access while retaining Runtime hart validation.
 - Size per-hart stacks and software state from the enabled hart topology, and
   honor firmware hart-capacity and stack-size settings without configuring Runtime.
 - Move Prototyper heap storage and the global allocation boundary into Runtime,

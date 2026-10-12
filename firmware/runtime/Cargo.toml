@@ -15,6 +15,7 @@ bench = false
 macros = { package = "rustsbi-runtime-macros", version = "0.0.0", path = "macros" }
 fdt = { workspace = true }
 riscv = { workspace = true }
+csr = { package = "rustsbi-csr", path = "lib/csr" }
 riscv-decode = "0.2.1"
 rustsbi = { version = "0.4.1", features = [
     "machine",

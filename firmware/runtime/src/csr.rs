@@ -4,12 +4,6 @@
 //! platform adapter therefore only has to acknowledge its own device; it
 //! does not need to know how Runtime enables or signals a RISC-V interrupt.
 
-/// Reads the current hart's architectural identifier.
-#[inline]
-pub fn mhartid() -> usize {
-    riscv::register::mhartid::read()
-}
-
 /// The supervisor timer compare CSR introduced by Sstc.
 pub(crate) const STIMECMP: u16 = 0x14d;
 

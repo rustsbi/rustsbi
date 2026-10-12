@@ -8,6 +8,7 @@ use alloc::vec::Vec;
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
 
+use csr::standard::isa::privileged::machine::HartId;
 use spin::Once;
 
 use crate::hart::{HART_TABLE, HartEntry};
@@ -90,7 +91,7 @@ pub unsafe fn initialize_stacks<const SIZE: usize>(
     {
         return Err(Error::InvalidArgs);
     }
-    let boot_id = crate::csr::mhartid();
+    let boot_id = HartId::read();
     let boot_index = entries
         .binary_search_by_key(&boot_id, |entry| entry.raw_id)
         .map_err(|_| Error::InvalidArgs)?;
