@@ -1,0 +1,80 @@
+name: rCore-Tutorial
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-rcore-tutorial-boot.*"
+      - ".github/workflows/rcore-tutorial.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-rcore-tutorial-boot.*"
+      - ".github/workflows/rcore-tutorial.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rcore-tutorial:
+    name: Boot ch1-ch9
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install guest and QEMU build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl git make python3 qemu-system-misc \
+            qemu-utils shellcheck
+          qemu-system-riscv64 --version
+
+      - name: Install pinned guest Rust toolchain
+        run: |
+          rustup toolchain install 1.94.0 --profile minimal \
+            --component llvm-tools-preview \
+            --target riscv64gc-unknown-none-elf
+          cargo +1.94.0 install --locked cargo-binutils@0.4.0
+          rust-objcopy --version
+
+      - name: Offline serial acceptance regression tests
+        run: |
+          shellcheck .github/scripts/prototyper-rcore-tutorial-boot.sh
+          bash -n .github/scripts/prototyper-rcore-tutorial-boot.sh
+          .github/scripts/prototyper-rcore-tutorial-boot.sh --self-test
+
+      - name: Build RustSBI Prototyper from this revision
+        run: cargo prototyper build
+
+      - name: Boot all nine rCore-Tutorial chapters in one job
+        run: .github/scripts/prototyper-rcore-tutorial-boot.sh
+
+      - name: Upload serial and source provenance for every chapter
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rcore-tutorial-ch1-ch9-boot-logs
+          path: qemu-logs/rcore-tutorial/
+          if-no-files-found: warn
