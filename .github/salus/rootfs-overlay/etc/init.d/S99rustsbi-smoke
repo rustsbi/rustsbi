@@ -1,0 +1,15 @@
+#!/bin/sh
+# Run in the Linux VM, after the normal Buildroot services have started.
+case "$1" in
+  start)
+    set -eu
+    test -r /proc/cpuinfo
+    test -d /sys/class
+    test -x /bin/busybox
+    uname -a
+    grep ' / ' /proc/mounts
+    printf '\nRUSTSBI-SALUS-LINUX-OK\n'
+    sync
+    /sbin/poweroff
+    ;;
+esac
