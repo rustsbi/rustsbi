@@ -1,0 +1,45 @@
+diff --git a/s-mode-utils/src/sbi_console.rs b/s-mode-utils/src/sbi_console.rs
+index fea839e..39e8b68 100644
+--- a/s-mode-utils/src/sbi_console.rs
++++ b/s-mode-utils/src/sbi_console.rs
+@@ -6 +6 @@ use sbi_rs::api::debug_console::console_puts;
+-use sbi_rs::{ecall_send, SbiMessage};
++use sbi_rs::{ecall_send, DebugConsoleFunction, SbiMessage};
+@@ -67,0 +68,24 @@ impl ConsoleDriver for SbiConsoleV01 {
++
++/// Early console using the modern SBI debug-console byte operation.
++pub struct SbiConsoleByte;
++
++static SBI_CONSOLE_BYTE: SbiConsoleByte = SbiConsoleByte;
++
++impl SbiConsoleByte {
++    /// Selects a console that does not require a physical-memory buffer.
++    pub fn set_as_console() {
++        Console::set_driver(&SBI_CONSOLE_BYTE);
++    }
++}
++
++impl ConsoleDriver for SbiConsoleByte {
++    fn write_bytes(&self, bytes: &[u8]) {
++        for &byte in bytes {
++            let message =
++                SbiMessage::DebugConsole(DebugConsoleFunction::WriteByte { byte: byte as u64 });
++            // Safety: WriteByte contains no memory references.
++            // Ignore errors, matching the existing modern debug console.
++            let _ = unsafe { ecall_send::<()>(&message) };
++        }
++    }
++}
+diff --git a/src/main.rs b/src/main.rs
+index aff1b19..bbe9bb7 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -64 +64 @@ use s_mode_utils::print::*;
+-use s_mode_utils::sbi_console::SbiConsoleV01;
++use s_mode_utils::sbi_console::SbiConsoleByte;
+@@ -336 +336 @@ extern "C" fn _primary_init(_hart_id: u64, _fdt_addr: u64) -> CpuParams {
+-    SbiConsoleV01::set_as_console();
++    SbiConsoleByte::set_as_console();
+@@ -450 +450 @@ fn primary_init(hart_id: u64, fdt_addr: u64) -> Result<CpuParams, Error> {
+-    SbiConsoleV01::set_as_console();
++    SbiConsoleByte::set_as_console();
