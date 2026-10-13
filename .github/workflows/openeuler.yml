@@ -43,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        boot-mode: [edk2, u-boot]
+        boot-mode: [edk2, u-boot, sbi]
     timeout-minutes: 60
     steps:
       - name: Checkout code
@@ -54,7 +54,7 @@ jobs:
           apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30)
           sudo timeout 5m apt-get "${apt_options[@]}" update --error-on=any
           sudo timeout 5m apt-get "${apt_options[@]}" install -y --no-install-recommends \
-            curl xz-utils shellcheck dpkg \
+            curl xz-utils shellcheck dpkg mtools \
             "qemu-system-riscv=${QEMU_PACKAGE_VERSION}" \
             "qemu-utils=${QEMU_PACKAGE_VERSION}"
           qemu-system-riscv64 --version
