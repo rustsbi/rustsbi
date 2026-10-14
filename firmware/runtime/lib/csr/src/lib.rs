@@ -5,7 +5,7 @@
 //! `modify` performs a non-atomic read followed by a write. Hardware may constrain
 //! writable values or change register state between those operations.
 //! Standard registers use `mode::Name`; vendor registers use `vendor::mode::Name`.
-//! For example, use [`machine::CounterEnable`].
+//! For example, use [`machine::CounterEnable`] and [`thead::machine::ExtendedStatus`].
 //!
 //! ```no_run
 //! use csr::machine;
@@ -59,11 +59,15 @@
 
 mod macros;
 mod value;
-mod standard;
 
 pub use value::{Readable, Writeable};
+
+mod standard;
+mod vendor;
+
 pub use standard::isa::{
-    privileged::{machine, supervisor, hypervisor, virtual_supervisor},
+    privileged::{hypervisor, machine, supervisor, virtual_supervisor},
+    unprivileged::counter_timer as user,
     values,
 };
-pub use standard::isa::unprivileged::counter_timer as user;
+pub use vendor::thead;

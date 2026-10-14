@@ -14,3 +14,4 @@ pub use configuration::*;
 pub use state_enable::*;
 pub use counter_timer::*;
 pub use counter_setup::*;
+pub use super::debug::{TriggerData, TriggerData1, TriggerIndex, TriggerSelect};
