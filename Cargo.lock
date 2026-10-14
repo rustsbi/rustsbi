@@ -581,6 +581,9 @@ dependencies = [
 [[package]]
 name = "rustsbi-csr"
 version = "0.0.0"
+dependencies = [
+ "pastey 0.2.3",
+]
 
 [[package]]
 name = "rustsbi-firmware-runtime"

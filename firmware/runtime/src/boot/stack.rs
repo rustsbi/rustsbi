@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
 
-use csr::standard::isa::privileged::machine::HartId;
+use csr::machine;
 use spin::Once;
 
 use crate::hart::{HART_TABLE, HartEntry};
@@ -25,8 +25,8 @@ static FIRMWARE_END: Once<usize> = Once::new();
 #[repr(C, align(128))]
 pub struct BootStack<const SIZE: usize>(UnsafeCell<MaybeUninit<[u8; SIZE]>>);
 
-// SAFETY: only entry assembly accesses the bytes, under the bootstrap lock
-// until ownership passes permanently to the selected boot hart.
+// SAFETY: No safe method exposes the bytes. Startup serializes discovery,
+// then assigns this storage exclusively to the selected boot hart's stack.
 unsafe impl<const SIZE: usize> Sync for BootStack<SIZE> {}
 
 impl<const SIZE: usize> BootStack<SIZE> {
@@ -91,7 +91,7 @@ pub unsafe fn initialize_stacks<const SIZE: usize>(
     {
         return Err(Error::InvalidArgs);
     }
-    let boot_id = HartId::read();
+    let boot_id = machine::HartId::read().into();
     let boot_index = entries
         .binary_search_by_key(&boot_id, |entry| entry.raw_id)
         .map_err(|_| Error::InvalidArgs)?;

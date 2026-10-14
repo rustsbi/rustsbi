@@ -11,7 +11,7 @@ use core::arch::asm;
 use core::fmt;
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
-use csr::standard::isa::privileged::machine::CounterEnable;
+use csr::{machine::CounterEnable, values::counter::CounterSet};
 use riscv::register::medeleg;
 use rustsbi::RustSBI;
 use spin::Once;
@@ -154,7 +154,7 @@ where
     unsafe {
         asm!("csrw mideleg,    {}", in(reg) !0);
         asm!("csrw medeleg,    {}", in(reg) !0);
-        CounterEnable::write(u32::MAX);
+        CounterEnable::write(CounterSet::all());
         asm!("csrw scounteren, {}", in(reg) !0);
         medeleg::clear_supervisor_env_call();
         medeleg::clear_load_misaligned();
