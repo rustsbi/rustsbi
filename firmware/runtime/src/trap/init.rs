@@ -9,7 +9,7 @@
 use alloc::boxed::Box;
 use core::arch::asm;
 use core::fmt;
-use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicU8, Ordering};
 
 use csr::{machine::CounterEnable, values::counter::CounterSet};
 use riscv::register::medeleg;
@@ -18,7 +18,7 @@ use spin::Once;
 
 use super::ValueKind;
 use super::entry::trap_entry;
-use crate::hart::{HartId, current_hart};
+use crate::hart::HartId;
 
 /// Private lifecycle phases.
 const PHASE_UNINITIALIZED: u8 = 0;
@@ -53,13 +53,12 @@ impl fmt::Display for InitError {
     }
 }
 
-/// The per-hart Runtime trap state: lifecycle phase, erased policy, and the
-/// architectural Sstc capability, shared only under `Sync`. Platform services
+/// The per-hart Runtime trap state: lifecycle phase and erased policy.
+/// Platform services
 /// live in their own subsystem modules rather than in CPU-local state.
 struct HartState {
     phase: AtomicU8,
     policy: Once<&'static (dyn RustSBI + Sync)>,
-    has_sstc: AtomicBool,
 }
 
 static HARTS: Once<Box<[HartState]>> = Once::new();
@@ -70,7 +69,6 @@ fn hart_states() -> &'static [HartState] {
             .map(|_| HartState {
                 phase: AtomicU8::new(PHASE_UNINITIALIZED),
                 policy: Once::new(),
-                has_sstc: AtomicBool::new(false),
             })
             .collect()
     })
@@ -95,15 +93,9 @@ pub(crate) fn policy(hart: HartId) -> &'static (dyn RustSBI + Sync) {
         .expect("initialized phase implies a policy")
 }
 
-/// Returns the current hart's Sstc capability cached by [`init`].
-/// Returns false until trap initialization has probed the CSR.
-#[inline]
+/// Returns this hart's timer-compare capability.
 pub fn has_sstc() -> bool {
-    let hart = current_hart().index();
-    let state = hart_states()
-        .get(hart)
-        .expect("BUG: hart index is outside the boot topology");
-    state.has_sstc.load(Ordering::Acquire)
+    crate::timer::has_sstc()
 }
 
 /// Initializes trap handling on the current hart and stores the policy in this
@@ -143,8 +135,7 @@ where
     // Sstc is an architectural capability, so probe its CSR here instead of
     // asking the platform adapter to report it on every timer trap. The
     // guarded read safely turns an absent CSR into `false`.
-    let has_sstc = crate::csr::has_stimecmp();
-    state.has_sstc.store(has_sstc, Ordering::Release);
+    let _ = crate::timer::has_sstc();
 
     // 4. Fixed delegation and counter policy. The
     //    delegation CSRs are WARL; retained exceptions are handled below

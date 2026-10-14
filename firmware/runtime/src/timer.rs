@@ -1,12 +1,23 @@
 //! Runtime's platform timer service.
 //!
-//! Prototyper constructs the concrete timer implementation. Runtime uses
-//! this service to clear a machine timer source and, when available, read a
-//! device counter after the guarded architectural `time` CSR access fails.
+//! Prototyper supplies the platform timer through [`TimerDevice`].
+//! Runtime clears machine timer sources and reads time through this module.
+//! A direct device word takes precedence over the CSR and full device counter.
 
+use alloc::boxed::Box;
 use spin::Once;
 
 static TIMER: Once<Option<&'static dyn TimerDevice>> = Once::new();
+// CSR availability belongs to each hart; mixed-hart platforms need separate results.
+static SSTC: Once<Box<[Once<bool>]>> = Once::new();
+
+/// Returns whether the current hart permits Sstc timer-compare reads.
+///
+/// The result is cached for this hart after Runtime startup installs trap entry.
+pub fn has_sstc() -> bool {
+    let capabilities = SSTC.call_once(|| crate::hart::HartId::all().map(|_| Once::new()).collect());
+    *capabilities[crate::hart::current_hart().index()].call_once(crate::csr::has_stimecmp)
+}
 
 /// The platform timer device used by the machine timer transport and the
 /// `time` CSR emulation fallback.
@@ -30,7 +41,9 @@ pub trait TimerDevice: Sync {
     /// Clears the current hart's platform timer source.
     fn clear_current(&self);
 
-    /// Acknowledges expiry after MTIE is masked, retaining cancellation as the default.
+    /// Acknowledges timer expiry after `MTIE` is masked.
+    ///
+    /// The default cancels the timer through [`Self::clear_current`].
     fn acknowledge_current(&self) {
         self.clear_current();
     }
