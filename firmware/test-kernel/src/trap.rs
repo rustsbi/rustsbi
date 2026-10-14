@@ -169,6 +169,46 @@ unsafe extern "C" fn s_skip_trap() {
     );
 }
 
+/// Executes one access to the unmapped gap below CLINT on QEMU virt.
+pub(crate) fn access_fault(store: bool) {
+    const UNMAPPED: usize = 0x0100_0000;
+    // SAFETY: QEMU virt leaves this address unmapped. The temporary vector skips
+    // the faulting four-byte instruction, and its register clobbers are declared.
+    // Restore stvec before checking the recorded cause, PC, and address.
+    let (cause, pc, value, fault_pc) = unsafe {
+        let old_vector: usize;
+        asm!("csrr {old}, stvec", "csrw stvec, {new}",
+            old = out(reg) old_vector, new = in(reg) s_skip_trap as *const () as usize);
+        core::ptr::write_volatile(&raw mut TRAP_CAUSE, 0);
+        let fault_pc: usize;
+        if store {
+            asm!(
+                ".option push", ".option norvc",
+                "lla {pc}, 2f", "2: sw zero, 0({address})", ".option pop",
+                address = in(reg) UNMAPPED, pc = out(reg) fault_pc,
+                out("t0") _, out("t1") _, out("t2") _,
+            );
+        } else {
+            asm!(
+                ".option push", ".option norvc",
+                "lla {pc}, 2f", "2: lw zero, 0({address})", ".option pop",
+                address = in(reg) UNMAPPED, pc = out(reg) fault_pc,
+                out("t0") _, out("t1") _, out("t2") _,
+            );
+        }
+        asm!("csrw stvec, {old}", old = in(reg) old_vector);
+        (
+            core::ptr::read_volatile(&raw const TRAP_CAUSE),
+            core::ptr::read_volatile(&raw const TRAP_PC),
+            core::ptr::read_volatile(&raw const TRAP_VALUE),
+            fault_pc,
+        )
+    };
+    assert_eq!(cause, if store { 7 } else { 5 });
+    assert_eq!(pc, fault_pc);
+    assert_eq!(value, UNMAPPED);
+}
+
 fn test_redirected_traps() {
     // The firmware refuses to emulate an unknown CSR read. It must redirect
     // that illegal instruction to S-mode while continuing to run.
