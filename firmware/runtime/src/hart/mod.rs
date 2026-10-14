@@ -46,8 +46,8 @@ impl HartId {
     /// Reads and validates the current hart's `mhartid`.
     #[inline]
     pub fn current() -> Result<Self, HartIdError> {
-        use csr::standard::isa::privileged::machine::HartId;
-        Self::from_raw(HartId::read())
+        use csr::machine;
+        Self::from_raw(machine::HartId::read().into())
     }
 
     /// Validates a raw hardware hart identifier.

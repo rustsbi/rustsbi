@@ -1,10 +1,11 @@
-//! Machine-mode CSR definitions.
-use crate::macros::csr;
+//! Machine information and counter-access registers.
+use crate::{macros::csr, values::counter::CounterSet};
 
 csr! {
-    /// [RISC-V Privileged Architecture: mhartid](https://docs.riscv.org/reference/isa/priv/machine.html#mhartid).
-    HartId { 0xf14, RO, value: usize }
+    pub struct HartIdentifier(usize);
 
-    /// [RISC-V Privileged Architecture: mcounteren](https://docs.riscv.org/reference/isa/priv/machine.html#mcounteren).
-    CounterEnable { 0x306, RW, value: u32 }
+    /// Machine hart identifier (`mhartid`).
+    HartId { 0xf14, r: HartIdentifier }
+    /// Counter access permitted to lower privilege modes (`mcounteren`).
+    CounterEnable { 0x306, r: CounterSet, w: CounterSet }
 }

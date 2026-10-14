@@ -1,0 +1,4 @@
+edition = "2024"
+# Keep CSR modules and re-exports in privileged specification order.
+reorder_modules = false
+reorder_imports = false

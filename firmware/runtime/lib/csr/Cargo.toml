@@ -9,6 +9,9 @@ publish = false
 
 [lib]
 name = "csr"
-test = false
-doctest = false
+test = true
+doctest = true
 bench = false
+
+[dependencies]
+pastey = "0.2.3"
