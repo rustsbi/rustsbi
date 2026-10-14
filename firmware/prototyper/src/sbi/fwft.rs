@@ -32,11 +32,13 @@ impl SbiFwft {
     }
 
     fn menvcfg_read() -> Option<usize> {
-        runtime::trap::read_csr_guarded::<CSR_MENVCFG>().ok()
+        // SAFETY: Runtime entry is installed; this M-mode operation owns the probed register.
+        unsafe { runtime::trap::read_csr_guarded::<CSR_MENVCFG>() }.ok()
     }
 
     fn menvcfg_write(value: usize) -> bool {
-        runtime::trap::write_csr_guarded::<CSR_MENVCFG>(value).is_ok()
+        // SAFETY: Runtime entry is installed; this M-mode operation owns the probed register.
+        unsafe { runtime::trap::write_csr_guarded::<CSR_MENVCFG>(value) }.is_ok()
     }
 
     fn menvcfg_bit(feature_id: usize) -> Option<usize> {
