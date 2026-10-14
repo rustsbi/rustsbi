@@ -16,8 +16,10 @@ done
 mkdir -p qemu-logs
 
 set +e
+# Pinned Miralis does not handle virtual-instruction exceptions from H guests.
+# Native Prototyper QEMU tests cover HS/VS trap routing with H enabled.
 timeout "${timeout_secs}s" qemu-system-riscv64 \
-  -machine virt -m 256M -smp 1 -nographic -no-reboot -bios "$miralis" \
+  -machine virt -cpu rv64,h=false -m 256M -smp 1 -nographic -no-reboot -bios "$miralis" \
   -device "loader,file=$firmware,addr=0x80200000,force-raw=on" \
   -d int,guest_errors -D "$trace" \
   >"$log" 2>&1

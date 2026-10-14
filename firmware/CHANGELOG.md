@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Recover registered machine faults through the common trap vector.
 - Add test-kernel checks for user time permissions and supervisor trap metadata.
 - Add PMU tests for load/store access-fault accounting.
+- Add HS/VS routing tests and restrict pinned Miralis to its supported CPU extensions.
 - Add typed RISC-V CSR definitions for `mhartid` and `mcounteren`.
 - Build test-kernel as a position-independent executable and relocate its static pointers at startup.
 - Release V821 boot0 ISP SRAM after switching to the firmware DRAM stack.
