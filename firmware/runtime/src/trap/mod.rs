@@ -28,9 +28,3 @@ enum Error {
     Unsupported,
     Fault(Fault),
 }
-
-mod legacy;
-pub use legacy::{
-    misaligned_delegated, read_csr_guarded, set_misaligned_delegation, swap_csr_guarded,
-    write_csr_guarded,
-};

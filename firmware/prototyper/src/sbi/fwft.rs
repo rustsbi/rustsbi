@@ -1,14 +1,11 @@
-//! Firmware feature control.
+//! Firmware feature control through the SBI FWFT extension.
 //!
-//! # References
-//!
-//! - Specification: [RISC-V SBI FWFT extension](https://docs.riscv.org/reference/sbi/v3.0/ext-firmware-features.html) —
-//!   feature identifiers and get/set semantics.
+//! Specification: <https://docs.riscv.org/reference/sbi/v3.0/ext-firmware-features.html>.
 
 use runtime::rustsbi::SbiRet;
 use runtime::rustsbi::spec::fwft::feature_type;
 
-use crate::riscv::csr::CSR_MENVCFG;
+use csr::{machine, values::trap::Exception};
 
 // `menvcfg` fields defined by the corresponding RISC-V extensions.
 const ENVCFG_LPE: usize = 1 << 0; // Landing pad (Zicfilp)
@@ -18,27 +15,43 @@ const ENVCFG_SSE: usize = 1 << 8; // Shadow stack (Zicfiss)
 const ENVCFG_PMM_SHIFT: usize = 9; // Pointer masking tag length (Smnpm)
 const ENVCFG_PMM: usize = 0b11 << ENVCFG_PMM_SHIFT;
 
-/// Firmware Features extension backed by narrow Runtime operations.
-///
-/// Misaligned exception delegation and `menvcfg` are trap-sensitive CSR
-/// mechanism, so every register access goes through the Runtime: the
-/// misaligned-delegation bits through a dedicated narrow operation, and
-/// `menvcfg` through the Runtime's guarded CSR leaves.
+/// Firmware Features extension.
 pub(crate) struct SbiFwft;
 
 impl SbiFwft {
+    fn misaligned_delegated() -> bool {
+        let exceptions = machine::ExceptionDelegation::read();
+        exceptions.contains(Exception::LoadMisaligned)
+            || exceptions.contains(Exception::StoreMisaligned)
+    }
+
+    fn set_misaligned_delegation(enabled: bool) {
+        // TODO: Move misaligned-exception delegation into a Runtime operation.
+        const MISALIGNED: usize = (1 << 4) | (1 << 6);
+        let current = usize::from(machine::ExceptionDelegation::read());
+        let next = if enabled {
+            current | MISALIGNED
+        } else {
+            current & !MISALIGNED
+        };
+        machine::ExceptionDelegation::write(next.into());
+    }
+
     fn has_s_mode() -> bool {
         riscv::register::misa::read().has_extension('S')
     }
 
     fn menvcfg_read() -> Option<usize> {
-        // SAFETY: Runtime entry is installed; this M-mode operation owns the probed register.
-        unsafe { runtime::trap::read_csr_guarded::<CSR_MENVCFG>() }.ok()
+        // SAFETY: Runtime entry is installed; menvcfg reads have no side effects.
+        unsafe { runtime::csr::read::<machine::EnvironmentConfiguration>() }
+            .ok()
+            .map(usize::from)
     }
 
     fn menvcfg_write(value: usize) -> bool {
-        // SAFETY: Runtime entry is installed; this M-mode operation owns the probed register.
-        unsafe { runtime::trap::write_csr_guarded::<CSR_MENVCFG>(value) }.is_ok()
+        // SAFETY: Callers change only the requested lower-mode feature bits,
+        // preserving the M-mode execution and translation context.
+        unsafe { runtime::csr::write::<machine::EnvironmentConfiguration>(value.into()) }.is_ok()
     }
 
     fn menvcfg_bit(feature_id: usize) -> Option<usize> {
@@ -130,7 +143,7 @@ impl runtime::rustsbi::Fwft for SbiFwft {
                 if value > 1 {
                     return SbiRet::invalid_param();
                 }
-                runtime::trap::set_misaligned_delegation(value == 1);
+                Self::set_misaligned_delegation(value == 1);
                 SbiRet::success(0)
             }
             feature_type::POINTER_MASKING_PMLEN => Self::set_pmm(value),
@@ -147,7 +160,7 @@ impl runtime::rustsbi::Fwft for SbiFwft {
                 if !Self::has_s_mode() {
                     return SbiRet::not_supported();
                 }
-                SbiRet::success(runtime::trap::misaligned_delegated() as usize)
+                SbiRet::success(Self::misaligned_delegated() as usize)
             }
             feature_type::POINTER_MASKING_PMLEN => {
                 if !Self::menvcfg_bits_supported(ENVCFG_PMM) {

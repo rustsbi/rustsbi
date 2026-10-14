@@ -618,6 +618,7 @@ dependencies = [
  "pastey 0.1.1",
  "riscv",
  "riscv-aia",
+ "rustsbi-csr",
  "rustsbi-firmware-runtime",
  "sbi-spec",
  "seq-macro",
