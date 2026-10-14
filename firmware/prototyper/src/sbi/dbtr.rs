@@ -1,20 +1,18 @@
-//! Debug-trigger support.
+//! SBI DBTR trigger discovery and shared-memory registration.
 //!
-//! # References
-//!
-//! - Specification: [RISC-V SBI DBTR extension](https://docs.riscv.org/reference/sbi/v3.0/ext-debug-triggers.html) —
-//!   shared-memory layout and debug-trigger operations.
+//! Specification: <https://docs.riscv.org/reference/sbi/v3.0/ext-debug-triggers.html>.
 
 use core::mem::{align_of, size_of};
 use core::sync::atomic::{AtomicUsize, Ordering};
+use csr::machine;
 
 use runtime::memory::{PhysAddr, PhysAddrRange, SupervisorMemory};
 use runtime::rustsbi::SbiRet;
 use sbi_spec::binary::{SharedPtr, TriggerMask};
 
-/// Debug Triggers extension for harts with the RISC-V Sdtrig interface.
+/// SBI DBTR implementation for harts with the RISC-V Sdtrig interface.
 ///
-/// Trigger configuration is not supported.
+/// Only unfiltered trigger discovery and shared-memory registration are supported.
 pub(crate) struct SbiDbtr {
     supervisor_memory: &'static SupervisorMemory,
 }
@@ -25,10 +23,6 @@ impl SbiDbtr {
     }
 }
 
-// The `riscv` crate has no Sdtrig CSR wrappers, so probes use raw CSR helpers
-// that contain illegal-instruction traps for absent CSRs.
-const CSR_TSELECT: u16 = 0x7a0;
-const CSR_TDATA1: u16 = 0x7a1;
 // Bound the `tselect` walk independently of the hardware.
 const MAX_PROBED_TRIGGERS: usize = 256;
 
@@ -39,29 +33,28 @@ static SHMEM_ADDRESS: AtomicUsize = AtomicUsize::new(0);
 
 fn probe_triggers() -> usize {
     let mut count = 0;
-    // The Runtime guard turns an illegal instruction from an optional CSR
-    // into `Err`, so probing an absent trigger block does not trap out of
-    // firmware.
-    // A selector is usable only if it reads back unchanged. A zero
-    // `tdata1.type` field does not identify an implemented trigger.
+    // Unavailable registers trap, and WARL selectors may reject an index.
+    // Count only accepted selectors with a nonzero tdata1.type field.
     for index in 0..MAX_PROBED_TRIGGERS {
-        // SAFETY: Runtime entry is installed; this M-mode operation owns the probed register.
-        if unsafe { runtime::trap::write_csr_guarded::<CSR_TSELECT>(index) }.is_err() {
+        // SAFETY: SBI dispatch runs in M-mode with interrupts masked and
+        // Runtime entry installed; this probe owns the hart's selector/data sequence.
+        if unsafe { runtime::csr::write::<machine::TriggerSelect>(index.into()) }.is_err() {
             break;
         }
-        // SAFETY: Runtime entry is installed; this M-mode operation owns the probed register.
-        let Ok(selected) = (unsafe { runtime::trap::read_csr_guarded::<CSR_TSELECT>() }) else {
+        // SAFETY: Selector reads have no side effects; Runtime entry is installed.
+        let Ok(selected) = (unsafe { runtime::csr::read::<machine::TriggerSelect>() }) else {
             break;
         };
-        if selected != index {
+        if usize::from(selected) != index {
             break;
         }
-        // SAFETY: Runtime entry is installed; this M-mode operation owns the probed register.
-        let Ok(tdata1) = (unsafe { runtime::trap::read_csr_guarded::<CSR_TDATA1>() }) else {
+        // SAFETY: The probe still owns the selected trigger in Runtime's
+        // trap context; this read does not enable or reconfigure the trigger.
+        let Ok(tdata1) = (unsafe { runtime::csr::read::<machine::TriggerData1>() }) else {
             break;
         };
 
-        if ((tdata1 >> (usize::BITS - 4)) & 0xf) != 0 {
+        if ((usize::from(tdata1) >> (usize::BITS - 4)) & 0xf) != 0 {
             count += 1;
         }
     }
@@ -83,8 +76,8 @@ impl runtime::rustsbi::Dbtr for SbiDbtr {
         if trigger_data1 == 0 {
             cached_trigger_count()
         } else {
-            // A nonzero `tdata1` request requires trigger-type filtering,
-            // which this scaffolding does not implement.
+            // Nonzero tdata1 requests require trigger-type filtering,
+            // which this implementation does not support.
             0
         }
     }
