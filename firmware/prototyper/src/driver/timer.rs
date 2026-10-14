@@ -13,9 +13,9 @@ pub(crate) trait TimerBackend: Send + Sync {
 
     /// Reads a device-provided time source for Runtime's `rdtime` fallback.
     ///
-    /// Runtime first reads the architecture `time` CSR. A backend returns
-    /// `Some` only when it also owns a readable counter, such as a CLINT
-    /// `mtime`; a CSR-only backend returns `None`.
+    /// Runtime uses this if direct word and architecture `time` reads are unavailable.
+    /// A backend returns `Some` only when it owns a readable counter, such as
+    /// a CLINT `mtime`; a CSR-only backend returns `None`.
     fn read_time(&self) -> Option<u64> {
         None
     }
@@ -33,7 +33,7 @@ pub(crate) trait TimerBackend: Send + Sync {
         None
     }
 
-    /// Whether expiry needs comparator cancellation after MTIE is masked.
+    /// Returns whether expiry needs comparator cancellation after `MTIE` is masked.
     fn clear_on_interrupt(&self) -> bool {
         true
     }

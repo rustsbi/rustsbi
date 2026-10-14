@@ -54,6 +54,7 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Modified
 - Use XLEN-sized sentinel values in trap register tests.
+- Keep per-hart Sstc detection in Runtime's timer service.
 - Enable S-mode CBO instructions only when each hart advertises `zicbom` or `zicboz`.
 - Separate the selected DTB source from the next-stage destination, preserving
   the incoming address for embedded DTBs and supporting an explicit destination
