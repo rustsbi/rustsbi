@@ -58,6 +58,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Keep per-hart Sstc detection in Runtime's timer service.
 - Save integer return context and original trap metadata before Rust dispatch.
 - Use typed fallible CSR access for Prototyper feature, trigger, and FWFT operations.
+- Move T-Head MAEE control into Runtime.
 - Enable S-mode CBO instructions only when each hart advertises `zicbom` or `zicboz`.
 - Separate the selected DTB source from the next-stage destination, preserving
   the incoming address for embedded DTBs and supporting an explicit destination

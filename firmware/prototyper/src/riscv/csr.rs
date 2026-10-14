@@ -1,6 +1,6 @@
 #[cfg(target_pointer_width = "32")]
 use core::arch::asm;
-use csr::{machine, thead};
+use csr::machine;
 
 // Machine counter inhibit and the event-selector CSR range.
 pub const CSR_MHPMEVENT3: u16 = 0x323;
@@ -38,39 +38,6 @@ pub unsafe fn probe_mhpm_csr<const INDEX: u8>(mhpm_mask: &mut u32) {
             == Ok(1)
     {
         *mhpm_mask |= 1 << INDEX;
-    }
-}
-
-/// Disables T-Head's non-standard page memory attributes on this hart.
-pub fn disable_thead_maee() {
-    const THEAD_VENDOR_ID: usize = 0x5b7;
-
-    // SAFETY: M-mode startup, Runtime entry installed, side-effect-free read.
-    if riscv::register::mvendorid::read().bits() == THEAD_VENDOR_ID
-        && unsafe { has_csr::<thead::machine::ExtendedStatus>() }
-    {
-        // SAFETY: M-mode initialization of this hart's probed T-Head CSR.
-        unsafe { mxstatus::clear_maee() };
-    }
-}
-
-/// T-Head extended machine status operations.
-mod mxstatus {
-    use core::arch::asm;
-    use csr::thead::machine::ExtendedStatus;
-
-    /// Disables non-standard page memory attributes, preserving other fields.
-    ///
-    /// # Safety
-    ///
-    /// Run in M-mode on a T-Head hart with `mxstatus`, before enabling translation.
-    pub unsafe fn clear_maee() {
-        const MAEE: usize = 1 << 21;
-        // SAFETY: The caller establishes CSR support and owns translation setup.
-        unsafe {
-            asm!("csrc {csr}, {mask}", csr = const ExtendedStatus::NUMBER,
-                mask = in(reg) MAEE, options(nomem));
-        }
     }
 }
 
