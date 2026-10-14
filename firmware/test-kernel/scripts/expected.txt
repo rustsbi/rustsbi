@@ -18,4 +18,5 @@ Sbi `SRST` validation test pass
 [misaligned] sp write-back pass
 [trap] ecall register preservation pass
 [trap] redirected traps survived
+[trap] U-mode time access restrictions pass
 SBI tests completed: PASS
