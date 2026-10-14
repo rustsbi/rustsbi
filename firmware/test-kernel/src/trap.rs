@@ -1,4 +1,4 @@
-//! SBI ecall register preservation and illegal-instruction redirection.
+//! Trap register preservation, counter permissions, and S/HS/VS forwarding.
 
 use core::arch::{asm, naked_asm};
 
@@ -7,6 +7,32 @@ const ILLEGAL_INSTRUCTION: usize = 2;
 pub(crate) fn test() {
     test_ecall_registers();
     test_redirected_traps();
+    test_user_time_access();
+}
+
+#[cfg(target_pointer_width = "64")]
+macro_rules! store {
+    ($reg:literal, $slot:literal, $base:literal) => {
+        concat!("sd ", $reg, ", 8*", $slot, "(", $base, ")")
+    };
+}
+#[cfg(target_pointer_width = "32")]
+macro_rules! store {
+    ($reg:literal, $slot:literal, $base:literal) => {
+        concat!("sw ", $reg, ", 4*", $slot, "(", $base, ")")
+    };
+}
+#[cfg(target_pointer_width = "64")]
+macro_rules! load {
+    ($reg:literal, $slot:literal, $base:literal) => {
+        concat!("ld ", $reg, ", 8*", $slot, "(", $base, ")")
+    };
+}
+#[cfg(target_pointer_width = "32")]
+macro_rules! load {
+    ($reg:literal, $slot:literal, $base:literal) => {
+        concat!("lw ", $reg, ", 4*", $slot, "(", $base, ")")
+    };
 }
 
 macro_rules! check {
@@ -19,6 +45,8 @@ macro_rules! check {
 fn test_ecall_registers() {
     // Check the caller-saved t0–t6 and a2–a7 registers across an SBI ecall.
     // a0/a1 carry its result and are intentionally excluded.
+    // SAFETY: The call uses an unsupported SBI extension and declares all
+    // result-register clobbers; other supplied registers must survive the trap.
     unsafe {
         let magic = |register: usize| 0x5150_0000usize | register;
         let (mut x5, mut x6, mut x7, mut x28, mut x29, mut x30, mut x31): (
@@ -102,7 +130,18 @@ fn test_ecall_registers() {
 #[unsafe(no_mangle)]
 static mut TRAP_CAUSE: usize = 0;
 
-/// S-mode vector used to observe traps redirected by the firmware.
+#[unsafe(no_mangle)]
+static mut TRAP_PC: usize = 0;
+
+#[unsafe(no_mangle)]
+static mut TRAP_VALUE: usize = 0;
+
+/// Records a test exception and resumes after its four-byte instruction slot.
+///
+/// # Safety
+///
+/// Install only as an S-mode trap vector with writable test records.
+/// Test instructions must occupy four-byte slots and account for `t0`/`t1`/`t2` clobbers.
 #[unsafe(naked)]
 #[unsafe(no_mangle)]
 unsafe extern "C" fn s_skip_trap() {
@@ -111,8 +150,13 @@ unsafe extern "C" fn s_skip_trap() {
         "csrr t0, scause",
         "bltz t0, 1f",
         "la t2, {cause}",
-        "sd t0, 0(t2)",
+        store!("t0", "0", "t2"),
         "csrr t1, sepc",
+        "la t2, {pc}",
+        store!("t1", "0", "t2"),
+        "csrr t0, stval",
+        "la t2, {value}",
+        store!("t0", "0", "t2"),
         "addi t1, t1, 4",
         "csrw sepc, t1",
         "sret",
@@ -120,12 +164,17 @@ unsafe extern "C" fn s_skip_trap() {
         "csrci sip, 2",
         "sret",
         cause = sym TRAP_CAUSE,
+        pc = sym TRAP_PC,
+        value = sym TRAP_VALUE,
     );
 }
 
 fn test_redirected_traps() {
     // The firmware refuses to emulate an unknown CSR read. It must redirect
     // that illegal instruction to S-mode while continuing to run.
+    // SAFETY: The temporary S-mode vector records only these test traps.
+    // Inline assembly declares its scratch registers, and the original vector
+    // is restored before any assertion can panic.
     unsafe {
         let old_stvec: usize;
         asm!("csrr {value}, stvec", value = out(reg) old_stvec);
@@ -160,6 +209,26 @@ fn test_redirected_traps() {
             );
             *cause = core::ptr::read_volatile(&raw const TRAP_CAUSE);
         }
+        // The zero encoding forces the mtval=0 fetch path; redirection must
+        // retain the original exception even after those memory accesses.
+        core::ptr::write_volatile(&raw mut TRAP_CAUSE, 0);
+        core::ptr::write_volatile(&raw mut TRAP_PC, usize::MAX);
+        core::ptr::write_volatile(&raw mut TRAP_VALUE, usize::MAX);
+        let fault_pc: usize;
+        asm!(
+            ".option push",
+            ".option norvc",
+            "lla {pc}, 2f",
+            "2: .4byte 0",
+            ".option pop",
+            pc = out(reg) fault_pc,
+            out("t0") _,
+            out("t1") _,
+            out("t2") _,
+        );
+        let fetched_cause = core::ptr::read_volatile(&raw const TRAP_CAUSE);
+        let fetched_pc = core::ptr::read_volatile(&raw const TRAP_PC);
+        let fetched_value = core::ptr::read_volatile(&raw const TRAP_VALUE);
         // Restore the vector before an assertion can panic.
         asm!("csrw stvec, {value}", value = in(reg) old_stvec);
         assert_eq!(
@@ -172,6 +241,141 @@ fn test_redirected_traps() {
                 "a write to time must redirect to S-mode"
             );
         }
+        check!(
+            "fetched illegal instruction cause",
+            fetched_cause,
+            ILLEGAL_INSTRUCTION
+        );
+        check!("fetched illegal instruction PC", fetched_pc, fault_pc);
+        check!("fetched illegal instruction value", fetched_value, 0);
     }
     println!("[trap] redirected traps survived");
+}
+
+#[repr(C)]
+#[derive(Default)]
+struct UserTimeTrap {
+    cause: usize,
+    pc: usize,
+    value: usize,
+    read_pc: usize,
+    saved: [usize; 5],
+}
+
+fn test_user_time_access() {
+    const TM: usize = 1 << 1;
+    // SAFETY: The temporary vector skips a four-byte time read if unavailable.
+    // Both stvec and scounteren are restored before leaving this probe.
+    let enabled = unsafe {
+        let old_vector: usize;
+        asm!("csrr {old}, stvec", "csrw stvec, {new}",
+            old = out(reg) old_vector, new = in(reg) s_skip_trap as *const () as usize);
+        core::ptr::write_volatile(&raw mut TRAP_CAUSE, 0);
+        asm!(".option push", ".option norvc", "csrr zero, time", ".option pop",
+            out("t0") _, out("t1") _, out("t2") _);
+        let readable = core::ptr::read_volatile(&raw const TRAP_CAUSE) == 0;
+        asm!("csrw stvec, {old}", old = in(reg) old_vector);
+        let enabled: usize;
+        asm!("csrr {old}, scounteren", "csrs scounteren, {mask}",
+            "csrr {enabled}, scounteren", "csrw scounteren, {old}",
+            old = out(reg) _, enabled = out(reg) enabled, mask = in(reg) TM);
+        readable && enabled & TM != 0
+    };
+    for high in 0..if cfg!(target_pointer_width = "32") {
+        2
+    } else {
+        1
+    } {
+        for allow in [false, true] {
+            if allow && !enabled {
+                continue;
+            }
+            let mut facts = UserTimeTrap::default();
+            // SAFETY: The assembly runs only rdtime/timeh and ecall in U-mode,
+            // then restores saved supervisor control CSRs before returning to Rust.
+            unsafe { user_time_roundtrip(&mut facts, if allow { TM } else { 0 }, high) };
+            assert_eq!(
+                facts.cause,
+                if allow { 8 } else { ILLEGAL_INSTRUCTION },
+                "U-mode time access: allow={allow}, high={high}"
+            );
+            if !allow {
+                assert_eq!(facts.pc, facts.read_pc, "denied read must retain its PC");
+                assert_eq!(
+                    facts.value, 0x55aa,
+                    "denied read must preserve its destination"
+                );
+            }
+        }
+    }
+    println!("[trap] U-mode time access restrictions pass");
+}
+
+/// Attempts a U-mode time read and returns with its first trap recorded.
+///
+/// # Safety
+///
+/// Run in S-mode with bare translation and Runtime trap handling installed.
+/// The first argument must exclusively reference a writable `UserTimeTrap`.
+/// Select the high time word only on RV32.
+#[unsafe(naked)]
+unsafe extern "C" fn user_time_roundtrip(_: *mut UserTimeTrap, _: usize, _: usize) {
+    naked_asm!(
+        "csrr t0, sstatus",
+        store!("t0", "4", "a0"),
+        "csrr t0, stvec",
+        store!("t0", "5", "a0"),
+        "csrr t0, sepc",
+        store!("t0", "6", "a0"),
+        "csrr t0, sie",
+        store!("t0", "7", "a0"),
+        "csrr t0, scounteren",
+        store!("t0", "8", "a0"),
+        "csrw sie, zero",
+        "csrw scounteren, a1",
+        "li t0, (1 << 1) | (1 << 5) | (1 << 8)",
+        "csrc sstatus, t0",
+        "lla t0, 4f",
+        "csrw stvec, t0",
+        "lla t0, 2f",
+        "beqz a2, 1f",
+        "lla t0, 3f",
+        "1:",
+        store!("t0", "3", "a0"),
+        "csrw sepc, t0",
+        "li a3, 0x55aa",
+        "sret",
+        ".option push",
+        ".option norvc",
+        "2: csrr a3, time",
+        "j 6f",
+        // The timeh branch is selected only by RV32 tests.
+        "3: csrr a3, 0xc81",
+        "6: ecall",
+        ".balign 4",
+        "4:",
+        "csrr t0, scause",
+        store!("t0", "0", "a0"),
+        "csrr t0, sepc",
+        store!("t0", "1", "a0"),
+        store!("a3", "2", "a0"),
+        "li t0, 1 << 8",
+        "csrs sstatus, t0",
+        "lla t0, 5f",
+        "csrw sepc, t0",
+        "sret",
+        "5:",
+        ".option pop",
+        load!("t0", "5", "a0"),
+        "csrw stvec, t0",
+        load!("t0", "6", "a0"),
+        "csrw sepc, t0",
+        load!("t0", "8", "a0"),
+        "csrw scounteren, t0",
+        load!("t0", "4", "a0"),
+        "csrw sstatus, t0",
+        load!("t0", "7", "a0"),
+        "csrw sie, t0",
+        "ret",
+    );
 }
