@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Add typed machine trap, configuration, and counter CSRs.
 - Add typed supervisor trap, translation, timer, and state-enable CSRs.
 - Add typed hypervisor and virtual-supervisor trap CSRs.
+- Add typed debug-trigger and T-Head status CSRs.
 - Add typed RISC-V CSR definitions for `mhartid` and `mcounteren`.
 - Build test-kernel as a position-independent executable and relocate its static pointers at startup.
 - Release V821 boot0 ISP SRAM after switching to the firmware DRAM stack.
