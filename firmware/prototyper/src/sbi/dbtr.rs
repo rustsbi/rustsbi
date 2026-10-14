@@ -45,16 +45,19 @@ fn probe_triggers() -> usize {
     // A selector is usable only if it reads back unchanged. A zero
     // `tdata1.type` field does not identify an implemented trigger.
     for index in 0..MAX_PROBED_TRIGGERS {
-        if runtime::trap::write_csr_guarded::<CSR_TSELECT>(index).is_err() {
+        // SAFETY: Runtime entry is installed; this M-mode operation owns the probed register.
+        if unsafe { runtime::trap::write_csr_guarded::<CSR_TSELECT>(index) }.is_err() {
             break;
         }
-        let Ok(selected) = runtime::trap::read_csr_guarded::<CSR_TSELECT>() else {
+        // SAFETY: Runtime entry is installed; this M-mode operation owns the probed register.
+        let Ok(selected) = (unsafe { runtime::trap::read_csr_guarded::<CSR_TSELECT>() }) else {
             break;
         };
         if selected != index {
             break;
         }
-        let Ok(tdata1) = runtime::trap::read_csr_guarded::<CSR_TDATA1>() else {
+        // SAFETY: Runtime entry is installed; this M-mode operation owns the probed register.
+        let Ok(tdata1) = (unsafe { runtime::trap::read_csr_guarded::<CSR_TDATA1>() }) else {
             break;
         };
 

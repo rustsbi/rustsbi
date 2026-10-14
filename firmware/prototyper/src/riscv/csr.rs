@@ -21,15 +21,19 @@ pub const CSR_CYCLE: u16 = 0xc00;
 
 /// Probes whether the CSR selected by `CSR` is implemented on this hart.
 pub fn has_csr<const CSR: u16>() -> bool {
-    runtime::trap::read_csr_guarded::<CSR>().is_ok()
+    // SAFETY: Runtime entry is installed; this M-mode operation owns the probed register.
+    unsafe { runtime::trap::read_csr_guarded::<CSR>() }.is_ok()
 }
 
 /// Probes whether the `mhpmcounter` CSR selected by `CSR_NUM` (0xb03..=0xb1f)
 /// exists and is writable, setting its bit in `mhpm_mask` when it does.
 pub fn probe_mhpm_csr<const CSR_NUM: u16>(mhpm_mask: &mut u32) {
-    if let Ok(old_value) = runtime::trap::read_csr_guarded::<CSR_NUM>()
-        && runtime::trap::write_csr_guarded::<CSR_NUM>(1).is_ok()
-        && runtime::trap::swap_csr_guarded::<CSR_NUM>(old_value) == Ok(1)
+    // SAFETY: Runtime entry is installed; this M-mode operation owns the probed register.
+    if let Ok(old_value) = unsafe { runtime::trap::read_csr_guarded::<CSR_NUM>() }
+        // SAFETY: Runtime entry is installed; this M-mode operation owns the probed register.
+        && unsafe { runtime::trap::write_csr_guarded::<CSR_NUM>(1) }.is_ok()
+        // SAFETY: Runtime entry is installed; this M-mode operation owns the probed register.
+        && unsafe { runtime::trap::swap_csr_guarded::<CSR_NUM>(old_value) } == Ok(1)
     {
         *mhpm_mask |= 1 << (CSR_NUM - CSR_MCYCLE);
     }

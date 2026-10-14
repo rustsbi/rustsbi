@@ -1,249 +1,100 @@
-//! Transactional per-hart trap initialization.
-//!
-//! The private lifecycle is `Uninitialized → Ready → Armed`:
-//! [`init`] publishes `Ready` transactionally with the final normal `mtvec`
-//! write as its commit point; the never-returning
-//! [`finish_boot`](crate::boot::finish_boot) later establishes `Armed` with
-//! the clean stack top in `mscratch`.
-
+//! One SBI policy publication per hart.
 use alloc::boxed::Box;
-use core::arch::asm;
 use core::fmt;
-use core::sync::atomic::{AtomicU8, Ordering};
 
-use csr::{machine::CounterEnable, values::counter::CounterSet};
-use riscv::register::medeleg;
 use rustsbi::RustSBI;
 use spin::Once;
 
-use super::ValueKind;
-use super::entry::trap_entry;
 use crate::hart::HartId;
 
-/// Private lifecycle phases.
-const PHASE_UNINITIALIZED: u8 = 0;
-const PHASE_INITIALIZING: u8 = 1;
-const PHASE_READY: u8 = 2;
-const PHASE_ARMED: u8 = 3;
+type Policy = &'static (dyn RustSBI + Sync);
+static POLICIES: Once<Box<[Once<Policy>]>> = Once::new();
 
-/// Marks `hart`'s lifecycle phase Armed; called only by the divergent
-/// `finish_boot` on the current hart.
-pub(crate) fn mark_armed(hart: HartId) {
-    let state = hart_states()
-        .get(hart.index())
-        .expect("BUG: hart index is outside the boot topology");
-    state.phase.store(PHASE_ARMED, Ordering::Release);
-}
-
-/// An error from [`init`].
+/// Failure to publish the current hart's SBI policy.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InitError {
-    /// This hart's trap state is already initialized.
+    /// This hart already has an SBI policy.
     AlreadyInitialized,
-    /// `mhartid` is not an enabled hart in the boot topology.
+    /// The current hart is absent from the boot topology.
     InvalidHartId,
 }
 
 impl fmt::Display for InitError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
-            Self::AlreadyInitialized => "trap state already initialized on this hart",
+            Self::AlreadyInitialized => "SBI policy already published on this hart",
             Self::InvalidHartId => "hart ID is not in the boot topology",
         })
     }
 }
 
-/// The per-hart Runtime trap state: lifecycle phase and erased policy.
-/// Platform services
-/// live in their own subsystem modules rather than in CPU-local state.
-struct HartState {
-    phase: AtomicU8,
-    policy: Once<&'static (dyn RustSBI + Sync)>,
+fn policies() -> &'static [Once<Policy>] {
+    POLICIES.call_once(|| HartId::all().map(|_| Once::new()).collect())
 }
 
-static HARTS: Once<Box<[HartState]>> = Once::new();
-
-fn hart_states() -> &'static [HartState] {
-    HARTS.call_once(|| {
-        HartId::all()
-            .map(|_| HartState {
-                phase: AtomicU8::new(PHASE_UNINITIALIZED),
-                policy: Once::new(),
-            })
-            .collect()
-    })
-}
-
-/// Returns `hart`'s published policy.
-///
-/// # Panics
-///
-/// Panics when `hart` was never initialized; dispatch only runs after
-/// `init` published `Ready`.
-pub(crate) fn policy(hart: HartId) -> &'static (dyn RustSBI + Sync) {
-    let state = hart_states()
-        .get(hart.index())
-        .expect("BUG: hart index is outside the boot topology");
-    if state.phase.load(Ordering::Acquire) < PHASE_READY {
-        unreachable!("BUG: trap dispatch before trap::init published Ready");
-    }
-    *state
-        .policy
+pub(super) fn policy(hart: HartId) -> Policy {
+    *policies()[hart.index()]
         .get()
-        .expect("initialized phase implies a policy")
+        .expect("SBI ecall before trap::init published its policy")
 }
 
-/// Returns this hart's timer-compare capability.
-pub fn has_sstc() -> bool {
-    crate::timer::has_sstc()
-}
-
-/// Initializes trap handling on the current hart and stores the policy in this
-/// hart's private slot. Platform services are published by
-/// their own subsystem modules before this function is called.
-/// Machine interrupts stay disabled throughout; `mscratch` keeps the zero boot
-/// sentinel, so an unexpected trap before `finish_boot` fail-stops.
-pub fn init<P>(policy: &'static P) -> Result<(), InitError>
-where
-    P: RustSBI + Sync + 'static,
-{
-    // 1. Validate the hart before any address arithmetic or CSR writes.
-    let hart = HartId::current()
-        .map_err(|_| InitError::InvalidHartId)?
-        .index();
-    let Some(state) = hart_states().get(hart) else {
-        return Err(InitError::InvalidHartId);
-    };
-
-    // 2. Reserve the slot transactionally.
-    if state
-        .phase
-        .compare_exchange(
-            PHASE_UNINITIALIZED,
-            PHASE_INITIALIZING,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        )
-        .is_err()
-    {
-        return Err(InitError::AlreadyInitialized);
-    }
-
-    // 3. Initialize the handler state before publishing Ready.
-    state.policy.call_once(|| policy as &(dyn RustSBI + Sync));
-
-    // Sstc is an architectural capability, so probe its CSR here instead of
-    // asking the platform adapter to report it on every timer trap. The
-    // guarded read safely turns an absent CSR into `false`.
-    let _ = crate::timer::has_sstc();
-
-    // 4. Fixed delegation and counter policy. The
-    //    delegation CSRs are WARL; retained exceptions are handled below
-    //    or software-redirected by the dispatch.
-    // SAFETY: M-mode init on the current hart; the written values are the
-    // firmware's fixed delegation policy.
-    unsafe {
-        asm!("csrw mideleg,    {}", in(reg) !0);
-        asm!("csrw medeleg,    {}", in(reg) !0);
-        CounterEnable::write(CounterSet::all());
-        asm!("csrw scounteren, {}", in(reg) !0);
-        medeleg::clear_supervisor_env_call();
-        medeleg::clear_load_misaligned();
-        medeleg::clear_store_misaligned();
-        medeleg::clear_illegal_instruction();
-        // Count access faults before redirecting them to the supervisor.
-        medeleg::clear_load_fault();
-        medeleg::clear_store_fault();
-    }
-
-    state.phase.store(PHASE_READY, Ordering::Release);
-    // 5. Commit Ready by installing the final normal vector last: before
-    //    this write a trap reaches the early fail-stop vector.
-    // SAFETY: the Runtime-owned entry is a valid, aligned M-mode direct
-    // target.
-    unsafe {
-        riscv::register::mtvec::write(riscv::register::mtvec::Mtvec::new(
-            trap_entry as *const () as _,
-            riscv::register::mtvec::TrapMode::Direct,
-        ))
-    };
-    Ok(())
-}
-
-/// An error returned when a platform dispatcher declines an access.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct AccessError;
-
-/// A platform service that completes S-mode load/store accesses the hardware
-/// refused.
+/// Publishes the current hart's SBI policy once.
 ///
-/// Runtime keeps the instruction semantics, fetching and decoding the trapped
-/// instruction, extending the loaded value, and advancing `mepc`. The service
-/// only performs the access itself, receiving the `mtval`-reported faulting
-/// address, the [`ValueKind`] (width and signedness), and the value for stores.
-///
-/// Declining (`Err`) leaves the original fault to be redirected to
-/// the supervisor unchanged.
-pub trait AccessDispatcher: Sync {
-    /// Completes a load of `kind` at `addr`, returning the raw unsigned value,
-    /// or `Err` if the access cannot be completed.
-    fn load(&self, addr: usize, kind: ValueKind) -> Result<usize, AccessError>;
-
-    /// Completes a store of the `kind.width()` low-order bytes of `value` at
-    /// `addr`, or returns `Err` if the access cannot be completed.
-    fn store(&self, addr: usize, kind: ValueKind, value: usize) -> Result<(), AccessError>;
+/// Runtime startup installs the exception entry before policy initialization.
+pub fn init<P: RustSBI + Sync + 'static>(policy: &'static P) -> Result<(), InitError> {
+    let hart = HartId::current().map_err(|_| InitError::InvalidHartId)?;
+    publish(&policies()[hart.index()], policy)
 }
 
-/// The erased access-fault service: one global dispatcher shared by every
-/// hart, published once during boot.
-static ACCESS_DISPATCHER: Once<&'static dyn AccessDispatcher> = Once::new();
-
-/// Publishes the platform's access-fault dispatcher once during boot.
-///
-/// This uses the same `Once`-backed erased-reference pattern as the SBI
-/// policy stored by [`init`] — though that policy is per-hart while this
-/// dispatcher is global — and trap dispatch reads it directly. Later calls
-/// are ignored.
-pub fn install_access_dispatcher<D>(dispatcher: &'static D)
-where
-    D: AccessDispatcher + 'static,
-{
-    ACCESS_DISPATCHER.call_once(|| dispatcher as &dyn AccessDispatcher);
-}
-
-/// Returns the published access-fault dispatcher, or `None` when the
-/// platform installed none.
-pub(crate) fn access_dispatcher() -> Option<&'static dyn AccessDispatcher> {
-    ACCESS_DISPATCHER.get().copied()
-}
-
-/// Misaligned load/store exception `medeleg` bits (causes 4 and 6).
-const MIS_DELEG: usize = (1 << 4) | (1 << 6);
-
-/// Reads whether misaligned load/store exceptions are delegated to S-mode.
-///
-/// Narrow fact backing the FWFT extension's `MISALIGNED_EXC_DELEG` feature;
-/// no arbitrary delegation mask is exposed.
-pub fn misaligned_delegated() -> bool {
-    (riscv::register::medeleg::read().bits() & MIS_DELEG) != 0
-}
-
-/// Sets or clears the misaligned load/store exception delegation,
-/// preserving every other `medeleg` bit.
-///
-/// Narrow operation backing the FWFT extension's `MISALIGNED_EXC_DELEG`
-/// feature; `medeleg` is trap-sensitive CSR, so policy reaches it only
-/// through this operation.
-pub fn set_misaligned_delegation(enabled: bool) {
-    let current = riscv::register::medeleg::read().bits();
-    let next = if enabled {
-        current | MIS_DELEG
+fn publish(slot: &Once<Policy>, policy: Policy) -> Result<(), InitError> {
+    let mut published = false;
+    slot.call_once(|| {
+        published = true;
+        policy
+    });
+    if published {
+        Ok(())
     } else {
-        current & !MIS_DELEG
-    };
-    // SAFETY: M-mode write on the current hart; `next` preserves every
-    // `medeleg` bit except the two misaligned exception bits.
-    unsafe {
-        riscv::register::medeleg::write(riscv::register::medeleg::Medeleg::from_bits(next));
+        Err(InitError::AlreadyInitialized)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+    use super::*;
+    use rustsbi::SbiRet;
+
+    struct StubPolicy(usize);
+    impl RustSBI for StubPolicy {
+        fn handle_ecall(&self, _: usize, _: usize, _: [usize; 6]) -> SbiRet {
+            SbiRet::success(self.0)
+        }
+    }
+    static FIRST: StubPolicy = StubPolicy(1);
+    static SECOND: StubPolicy = StubPolicy(2);
+
+    #[test]
+    fn duplicate_publication_preserves_the_original_policy() {
+        let slot = Once::new();
+        assert_eq!(publish(&slot, &FIRST), Ok(()));
+        assert_eq!(publish(&slot, &SECOND), Err(InitError::AlreadyInitialized));
+        assert_eq!(slot.get().unwrap().handle_ecall(0, 0, [0; 6]).value, 1);
+    }
+
+    #[test]
+    fn concurrent_publication_has_one_winner() {
+        let slot = Once::new();
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| publish(&slot, &FIRST));
+            let second = scope.spawn(|| publish(&slot, &SECOND));
+            let results = (first.join().unwrap(), second.join().unwrap());
+            let winner = match results {
+                (Ok(()), Err(InitError::AlreadyInitialized)) => 1,
+                (Err(InitError::AlreadyInitialized), Ok(())) => 2,
+                other => panic!("publication must have exactly one winner: {other:?}"),
+            };
+            assert_eq!(slot.get().unwrap().handle_ecall(0, 0, [0; 6]).value, winner);
+        });
     }
 }

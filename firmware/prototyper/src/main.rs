@@ -101,9 +101,10 @@ fn enable_supervisor_services() {
         );
     }
     sbi::features::configure_hart_environment();
-    // Transactional per-hart trap activation: publishes the policy, applies
-    // the fixed delegation/counter policy, and installs the final trap
-    // vector as the Ready commit point.
+    // SAFETY: Runtime startup installed trap entry; this hart is still in
+    // M-mode with machine interrupts disabled and no lower-mode context.
+    unsafe { runtime::boot::configure_next_stage() };
+    // Publish the SBI policy after configuring the next-stage environment.
     runtime::trap::init(
         sbi::SBI_DISPATCHER
             .get()

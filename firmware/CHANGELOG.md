@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Add typed supervisor trap, translation, timer, and state-enable CSRs.
 - Add typed hypervisor and virtual-supervisor trap CSRs.
 - Add typed debug-trigger and T-Head status CSRs.
+- Recover registered machine faults through the common trap vector.
 - Add typed RISC-V CSR definitions for `mhartid` and `mcounteren`.
 - Build test-kernel as a position-independent executable and relocate its static pointers at startup.
 - Release V821 boot0 ISP SRAM after switching to the firmware DRAM stack.
@@ -55,6 +56,7 @@ All notable changes to this project will be documented in this file. See [conven
 ### Modified
 - Use XLEN-sized sentinel values in trap register tests.
 - Keep per-hart Sstc detection in Runtime's timer service.
+- Save integer return context and original trap metadata before Rust dispatch.
 - Enable S-mode CBO instructions only when each hart advertises `zicbom` or `zicboz`.
 - Separate the selected DTB source from the next-stage destination, preserving
   the incoming address for embedded DTBs and supporting an explicit destination
