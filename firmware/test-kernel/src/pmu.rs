@@ -1,9 +1,8 @@
 //! SBI PMU conformance checks used by the QEMU test kernel.
 //!
 //! The suite follows the PMU flow in three stages: enumerate counters,
-//! validate event selection, then exercise one hardware and one firmware
-//! counter.  The firmware-counter test intentionally sends an invalid IPI so
-//! that the counter's increment contract is observable.
+//! validate event selection, then exercise hardware and firmware counters.
+//! Firmware-counter checks trigger access faults and attempt IPIs to invalid harts.
 
 use riscv::register::cycle;
 use sbi_spec::{
@@ -24,6 +23,7 @@ pub(crate) fn test(smp: usize) {
     report_counters();
     test_hardware_event_configuration();
     test_hardware_cycles();
+    test_access_fault_counters();
     test_firmware_ipi_counter(smp + 1);
 }
 
@@ -147,24 +147,47 @@ fn test_hardware_cycles() {
     assert!(restart_cycle_num > stopped_cycle_num);
 }
 
-fn test_firmware_ipi_counter(invalid_hart: usize) {
-    // Access-fault counters start at zero and can be released for reuse.
+fn test_access_fault_counters() {
     for event in [firmware_event::ACCESS_LOAD, firmware_event::ACCESS_STORE] {
         let Some(result) =
             configure_event(EventIdx::new_firmware_event(event).raw(), Flag::new(0b110))
         else {
-            continue;
+            return;
         };
         assert!(result.is_ok());
         let info = sbi::pmu_counter_get_info(result.value);
         assert!(info.is_ok() && CounterInfo::new(info.value).is_firmware_counter());
         assert_eq!(sbi::pmu_counter_fw_read(result.value), SbiRet::success(0));
+        for count in 1..=2 {
+            crate::trap::access_fault(event == firmware_event::ACCESS_STORE);
+            assert_eq!(
+                sbi::pmu_counter_fw_read(result.value),
+                SbiRet::success(count)
+            );
+        }
+        assert!(
+            sbi::pmu_counter_stop(CounterMask::from_mask_base(1, result.value), Flag::new(0))
+                .is_ok()
+        );
+        crate::trap::access_fault(event == firmware_event::ACCESS_STORE);
+        assert_eq!(sbi::pmu_counter_fw_read(result.value), SbiRet::success(2));
+        assert!(
+            sbi::pmu_counter_start(
+                CounterMask::from_mask_base(1, result.value),
+                Flag::new(0),
+                0
+            )
+            .is_ok()
+        );
         assert!(
             sbi::pmu_counter_stop(CounterMask::from_mask_base(1, result.value), Flag::new(1))
                 .is_ok()
         );
     }
+    println!("[pmu] access-fault counters pass");
+}
 
+fn test_firmware_ipi_counter(invalid_hart: usize) {
     // IPI_SENT is a firmware counter and starts at zero.
     let Some(result) = configure_event(
         EventIdx::new_firmware_event(firmware_event::IPI_SENT).raw(),
@@ -191,7 +214,7 @@ fn test_firmware_ipi_counter(invalid_hart: usize) {
     assert!(ipi_num.is_ok());
     assert_eq!(ipi_num.value, 25);
 
-    // A rejected IPI must not be sent or counted.
+    // IPI_SENT counts send attempts, including rejected targets.
     let send_ipi_result = sbi::send_ipi(HartMask::from_mask_base(0x1, invalid_hart));
     assert_eq!(send_ipi_result, SbiRet::invalid_param());
     let ipi_num = sbi::pmu_counter_fw_read(ipi_counter_idx);
