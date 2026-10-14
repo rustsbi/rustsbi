@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Added
 
+- Add RV32/RV64 QEMU checks for repeated interrupts into M-mode payloads.
 - Add typed CSR read snapshots, write values, and field codecs.
 - Add typed machine trap, configuration, and counter CSRs.
 - Add typed supervisor trap, translation, timer, and state-enable CSRs.

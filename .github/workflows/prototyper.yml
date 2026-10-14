@@ -181,6 +181,12 @@ jobs:
         shell: bash
         run: bash .github/scripts/prototyper-fdt-handoff.sh
 
+      - name: Verify repeated M-mode payload interrupts
+        shell: bash
+        run: |
+          bash firmware/test-kernel/scripts/test-machine-stack.sh 32
+          bash firmware/test-kernel/scripts/test-machine-stack.sh 64
+
       - name: Upload QEMU log
         if: failure()
         uses: actions/upload-artifact@v7
