@@ -48,6 +48,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Use XLEN-sized sentinel values in trap register tests.
 - Enable S-mode CBO instructions only when each hart advertises `zicbom` or `zicboz`.
 - Separate the selected DTB source from the next-stage destination, preserving
   the incoming address for embedded DTBs and supporting an explicit destination
