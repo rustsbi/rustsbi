@@ -63,7 +63,7 @@ mod standard;
 
 pub use value::{Readable, Writeable};
 pub use standard::isa::{
-    privileged::{machine, supervisor},
+    privileged::{machine, supervisor, hypervisor, virtual_supervisor},
     values,
 };
 pub use standard::isa::unprivileged::counter_timer as user;
