@@ -8,6 +8,7 @@ pub(crate) fn test() {
     test_ecall_registers();
     test_redirected_traps();
     test_user_time_access();
+    test_guest_traps();
 }
 
 #[cfg(target_pointer_width = "64")]
@@ -416,6 +417,214 @@ unsafe extern "C" fn user_time_roundtrip(_: *mut UserTimeTrap, _: usize, _: usiz
         "csrw sstatus, t0",
         load!("t0", "7", "a0"),
         "csrw sie, t0",
+        "ret",
+    );
+}
+
+#[repr(C)]
+#[derive(Debug, Default)]
+struct GuestTraps {
+    hs_cause: usize,
+    hs_pc: usize,
+    hs_status: usize,
+    hs_value2: usize,
+    hs_instruction: usize,
+    vs_cause: usize,
+    vs_pc: usize,
+    illegal_pc: usize,
+    ecall_pc: usize,
+    vs_status: usize,
+    hs_value: usize,
+    saved: [usize; 11],
+}
+
+fn test_guest_traps() {
+    // Probe H through the S-mode skip vector so the same kernel runs without H.
+    // SAFETY: The temporary vector skips the four-byte hstatus read if absent;
+    // the original vector is restored before the probe returns.
+    let available = unsafe {
+        let old_vector: usize;
+        asm!("csrr {old}, stvec", "csrw stvec, {new}",
+            old = out(reg) old_vector, new = in(reg) s_skip_trap as *const () as usize);
+        core::ptr::write_volatile(&raw mut TRAP_CAUSE, 0);
+        asm!(".option push", ".option norvc", "csrr zero, hstatus", ".option pop",
+            out("t0") _, out("t1") _, out("t2") _);
+        asm!("csrw stvec, {old}", old = in(reg) old_vector);
+        core::ptr::read_volatile(&raw const TRAP_CAUSE) == 0
+    };
+    if !available {
+        println!("[trap] H extension unavailable");
+        return;
+    }
+    for supervisor in [false, true] {
+        for delegate in [false, true] {
+            let mut facts = GuestTraps::default();
+            // SAFETY: The helper uses bare translation, restores saved host control CSRs,
+            // and returns through private HS/VS vectors with no Rust in a guest.
+            unsafe {
+                guest_roundtrip(
+                    &mut facts,
+                    if delegate { 1 << 2 } else { 0 },
+                    usize::from(supervisor) << 8,
+                );
+            }
+            assert_eq!(
+                facts.hs_status & (1 << 7),
+                1 << 7,
+                "HS trap must record V=1"
+            );
+            assert_eq!(
+                facts.hs_status & (1 << 8),
+                usize::from(supervisor) << 8,
+                "SPVP: supervisor={supervisor}, delegate={delegate}, facts={facts:x?}"
+            );
+            assert_eq!(
+                facts.hs_status & (1 << 6),
+                0,
+                "instruction faults have no guest address"
+            );
+            assert_eq!(facts.hs_value2, 0);
+            assert_eq!(facts.hs_instruction, 0);
+            assert_eq!(facts.hs_value, 0);
+            if delegate {
+                assert_eq!(facts.vs_cause, ILLEGAL_INSTRUCTION);
+                assert_eq!(facts.vs_pc, facts.illegal_pc);
+                assert_eq!(facts.vs_status & (1 << 8), usize::from(supervisor) << 8);
+                assert_eq!(
+                    facts.hs_cause,
+                    if supervisor { 10 } else { 8 },
+                    "guest ecall belongs to HS"
+                );
+                assert_eq!(facts.hs_pc, facts.ecall_pc);
+            } else {
+                assert_eq!(facts.vs_cause, 0);
+                assert_eq!(facts.hs_cause, ILLEGAL_INSTRUCTION);
+                assert_eq!(facts.hs_pc, facts.illegal_pc);
+            }
+        }
+    }
+    println!("[trap] HS/VS routing pass");
+}
+
+/// Runs a guest exception and ecall through private HS/VS test vectors.
+///
+/// # Safety
+///
+/// Run in HS-mode on a hart with H and bare host translation.
+/// `a0` must exclusively reference `GuestTraps` writable from the bare HS/VS contexts.
+/// `a1` supplies the `hedeleg` mask; `a2` supplies only the initial `SPP` bit.
+#[unsafe(naked)]
+unsafe extern "C" fn guest_roundtrip(_: *mut GuestTraps, _: usize, _: usize) {
+    naked_asm!(
+        "csrr t0, hstatus",
+        store!("t0", "11", "a0"),
+        "csrr t0, hedeleg",
+        store!("t0", "12", "a0"),
+        "csrr t0, vstvec",
+        store!("t0", "13", "a0"),
+        "csrr t0, vsstatus",
+        store!("t0", "14", "a0"),
+        "csrr t0, vsatp",
+        store!("t0", "15", "a0"),
+        "csrr t0, hgatp",
+        store!("t0", "16", "a0"),
+        "csrr t0, stvec",
+        store!("t0", "17", "a0"),
+        "csrr t0, sepc",
+        store!("t0", "18", "a0"),
+        "csrr t0, sstatus",
+        store!("t0", "19", "a0"),
+        "csrr t0, sie",
+        store!("t0", "20", "a0"),
+        "csrr t0, vsie",
+        store!("t0", "21", "a0"),
+        "csrw sie, zero",
+        "csrw vsie, zero",
+        "li t0, (1 << 1) | (1 << 5) | (1 << 8)",
+        "csrc sstatus, t0",
+        "csrs sstatus, a2",
+        "li t0, (1 << 7) | (1 << 8)",
+        "csrs hstatus, t0",
+        "csrw hedeleg, a1",
+        "csrw vsstatus, zero",
+        "csrw vsatp, zero",
+        "csrw hgatp, zero",
+        "hfence.gvma",
+        "hfence.vvma",
+        "lla t0, 3f",
+        "csrw stvec, t0",
+        "lla t0, 4f",
+        "csrw vstvec, t0",
+        "lla t0, 2f",
+        "csrw sepc, t0",
+        store!("t0", "7", "a0"),
+        "lla t0, 5f",
+        store!("t0", "8", "a0"),
+        "sret",
+        ".option push",
+        ".option norvc",
+        "2: .4byte 0",
+        "5: ecall",
+        ".balign 4",
+        // HS captures the forwarded metadata, then leaves the guest.
+        "3:",
+        "csrr t0, scause",
+        store!("t0", "0", "a0"),
+        "csrr t0, sepc",
+        store!("t0", "1", "a0"),
+        "csrr t0, hstatus",
+        store!("t0", "2", "a0"),
+        "csrr t0, htval",
+        store!("t0", "3", "a0"),
+        "csrr t0, htinst",
+        store!("t0", "4", "a0"),
+        "csrr t0, stval",
+        store!("t0", "10", "a0"),
+        "li t0, 1 << 7",
+        "csrc hstatus, t0",
+        "li t0, 1 << 8",
+        "csrs sstatus, t0",
+        "lla t0, 6f",
+        "csrw sepc, t0",
+        "sret",
+        ".balign 4",
+        // VS handles the delegated illegal instruction and resumes its guest.
+        "4:",
+        "csrr t0, scause",
+        store!("t0", "5", "a0"),
+        "csrr t0, sepc",
+        store!("t0", "6", "a0"),
+        "csrr t1, sstatus",
+        store!("t1", "9", "a0"),
+        "addi t0, t0, 4",
+        "csrw sepc, t0",
+        "sret",
+        "6:",
+        ".option pop",
+        load!("t0", "11", "a0"),
+        "csrw hstatus, t0",
+        load!("t0", "12", "a0"),
+        "csrw hedeleg, t0",
+        load!("t0", "13", "a0"),
+        "csrw vstvec, t0",
+        load!("t0", "14", "a0"),
+        "csrw vsstatus, t0",
+        load!("t0", "15", "a0"),
+        "csrw vsatp, t0",
+        load!("t0", "16", "a0"),
+        "csrw hgatp, t0",
+        "hfence.gvma",
+        "hfence.vvma",
+        load!("t0", "17", "a0"),
+        "csrw stvec, t0",
+        load!("t0", "18", "a0"),
+        "csrw sepc, t0",
+        load!("t0", "20", "a0"),
+        "csrw sie, t0",
+        load!("t0", "21", "a0"),
+        "csrw vsie, t0",
+        load!("t0", "19", "a0"),
+        "csrw sstatus, t0",
         "ret",
     );
 }
