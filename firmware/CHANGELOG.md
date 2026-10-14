@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file. See [conven
 ### Added
 
 - Add typed CSR read snapshots, write values, and field codecs.
+- Add typed machine trap, configuration, and counter CSRs.
 - Add typed RISC-V CSR definitions for `mhartid` and `mcounteren`.
 - Build test-kernel as a position-independent executable and relocate its static pointers at startup.
 - Release V821 boot0 ISP SRAM after switching to the firmware DRAM stack.
