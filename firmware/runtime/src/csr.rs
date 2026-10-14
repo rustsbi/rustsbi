@@ -1,6 +1,7 @@
 //! CSR access and the Runtime's specific interrupt operations.
 
 mod access;
+pub mod thead;
 pub use access::{IllegalInstruction, read, swap, write};
 
 /// State-enable registers used to prepare a supervisor next stage.

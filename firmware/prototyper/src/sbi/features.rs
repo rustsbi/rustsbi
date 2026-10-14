@@ -268,7 +268,9 @@ pub fn configure_hart_environment() {
         .as_usize();
     // Standard Sv32 and Svpbmt page tables must not use T-Head MAEE.
     if cfg!(target_pointer_width = "32") || hart_has_extension(hart_id, Extension::Svpbmt) {
-        disable_thead_maee();
+        // SAFETY: M-mode startup has installed Runtime entry, with mscratch zero,
+        // MPRV clear, and no lower-mode address space active on this hart.
+        unsafe { runtime::csr::thead::disable_maee() };
     }
     let hart_priv_version = hart_privileged_version(hart_id);
     if hart_priv_version >= PrivilegedVersion::Version1_11 {
