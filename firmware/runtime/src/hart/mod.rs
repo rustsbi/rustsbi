@@ -3,11 +3,17 @@
 //! SBI HSM policy and ABI translation belong to the firmware.
 
 use crate::Result;
+mod features;
 mod lifecycle;
 mod local;
 mod set;
 mod topology;
 mod wakeup;
+
+pub use features::{
+    PrivilegedVersion, detect_performance_counters, detect_privileged_version, has_hypervisor,
+    supports_privilege,
+};
 
 pub use wakeup::{HartWake, install_wakeup};
 
@@ -18,7 +24,7 @@ pub use lifecycle::{
     HartState, ResumeTicket, StartOutcome, begin_nonretentive_resume, can_receive_ipi,
     resume_current_retentive, stage_current, start, status, stop_current, suspend_current,
 };
-pub use local::HartLocal;
+pub(crate) use local::HartLocal;
 pub use set::{HartSet, HartSetIter};
 
 pub(crate) use topology::{HART_TABLE, HartEntry, publish};

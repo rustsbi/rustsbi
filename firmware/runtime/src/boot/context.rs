@@ -5,7 +5,7 @@ use csr::{
     values::{
         counter::CounterSet,
         trap::{Exception, ExceptionSet, InterruptSet},
-        vector::{TargetVectorMode, VectorBase},
+        vector::{TargetVectorMode, VectorBase, VectorMode},
     },
 };
 
@@ -13,8 +13,8 @@ use csr::{
 ///
 /// # Safety
 ///
-/// Run in M-mode with a valid Runtime stack, local machine interrupts
-/// disabled, and `mscratch` set to zero.
+/// Run in M-mode with a valid Runtime stack, local machine interrupts disabled,
+/// and `mscratch` set to zero.
 #[doc(hidden)]
 pub unsafe extern "C" fn prepare_traps() {
     // SAFETY: Startup owns this hart's trap state before entering policy.
@@ -25,20 +25,39 @@ pub unsafe extern "C" fn prepare_traps() {
             #[cfg(target_pointer_width = "64")]
             status.write::<machine::MDT>(machine::DoubleTrapState::Clear);
         });
-        // Install the basic vector before probing so an absent mstatush can recover.
-        #[cfg(target_pointer_width = "32")]
-        let high = crate::csr::read::<machine::StatusHigh>().ok();
-        #[cfg(target_pointer_width = "32")]
-        if high.is_some() {
+    }
+    // Install the basic vector before probing so an absent mstatush can recover.
+    #[cfg(target_pointer_width = "32")]
+    let high = crate::csr::instruction!("csrr {value}, {csr}", machine::StatusHigh::NUMBER, 0).ok();
+    #[cfg(target_pointer_width = "32")]
+    if high.is_some() {
+        // SAFETY: The probe confirmed mstatush; startup owns trap setup.
+        unsafe {
             machine::StatusHigh::modify(|_, status| {
                 status.write::<machine::MDT>(machine::DoubleTrapState::Clear);
             });
             install(entry::trap_entry_high);
         }
-        if machine::Isa::read().has_hypervisor() {
+    }
+    if machine::Isa::read().has_hypervisor() {
+        // SAFETY: H is present and startup owns trap setup.
+        unsafe {
             install(entry::trap_entry_hypervisor);
         }
     }
+}
+
+/// Checks the Direct trap entry installed by controlled Runtime boot on this hart.
+pub(crate) fn traps_ready() -> bool {
+    let vector = machine::TrapVector::read();
+    let base = usize::from(vector.read::<machine::BASE>().address());
+    let entry_matches = base == entry::trap_entry as *const () as usize
+        || base == entry::trap_entry_hypervisor as *const () as usize;
+    #[cfg(target_pointer_width = "32")]
+    let entry_matches = entry_matches || base == entry::trap_entry_high as *const () as usize;
+    vector.read::<machine::MODE>() == VectorMode::Direct
+        && entry_matches
+        && machine::Status::read().read::<machine::MPRV>() == machine::AccessPrivilege::Current
 }
 
 /// Installs a machine trap vector for the current hart.
@@ -63,20 +82,33 @@ unsafe fn install(entry: unsafe extern "C" fn()) {
 ///
 /// # Safety
 ///
-/// Run on the current hart in M-mode with machine interrupts disabled,
-/// Runtime trap entry installed, and no active lower-mode execution.
+/// Run on the current hart in M-mode with machine interrupts disabled, Runtime
+/// trap entry installed, and no active lower-mode execution.
 pub unsafe fn configure_next_stage() {
-    machine::InterruptDelegation::write(usize::MAX.into());
-    machine::ExceptionDelegation::write(ExceptionSet::except(&[
-        Exception::SupervisorEcall,
-        Exception::LoadMisaligned,
-        Exception::StoreMisaligned,
-        Exception::IllegalInstruction,
-        Exception::LoadAccess,
-        Exception::StoreAccess,
-    ]));
-    machine::CounterEnable::write(CounterSet::all());
-    supervisor::CounterEnable::write(CounterSet::all());
+    // SAFETY: The startup caller keeps MIE clear for this configuration.
+    let irq = unsafe { crate::irq::LocalIrqDisabled::assume_disabled() };
+    super::ipi()
+        .expect("IPI service not published")
+        .init_current(&irq)
+        .expect("could not initialize hart IPI state");
+    let timer = super::timer().expect("Timer service not published");
+    timer
+        .init_current(&irq)
+        .expect("could not initialize hart timer state");
+    // SAFETY: The caller owns this hart's next-stage configuration.
+    unsafe {
+        machine::InterruptDelegation::write(usize::MAX.into());
+        machine::ExceptionDelegation::write(ExceptionSet::except(&[
+            Exception::SupervisorEcall,
+            Exception::LoadMisaligned,
+            Exception::StoreMisaligned,
+            Exception::IllegalInstruction,
+            Exception::LoadAccess,
+            Exception::StoreAccess,
+        ]));
+        machine::CounterEnable::write(CounterSet::all());
+        supervisor::CounterEnable::write(CounterSet::all());
+    }
 }
 
 pub(crate) fn set_return_mode(
@@ -84,8 +116,8 @@ pub(crate) fn set_return_mode(
     mode: riscv::register::mstatus::MPP,
 ) {
     status.write::<machine::MPP>(privilege(mode));
-    status.write::<machine::MPIE>(machine::InterruptState::Enabled);
-    status.write::<machine::SIE>(machine::InterruptState::Disabled);
+    status.write::<machine::MPIE>(machine::Interrupt::Enabled);
+    status.write::<machine::SIE>(machine::Interrupt::Disabled);
     #[cfg(target_pointer_width = "64")]
     status.write::<machine::MPV>(machine::Virtualization::Off);
 }
@@ -102,7 +134,8 @@ fn privilege(mode: riscv::register::mstatus::MPP) -> machine::TargetPrivilege {
 ///
 /// # Safety
 ///
-/// Run in M-mode with interrupts disabled, `MPRV` clear, and Runtime trap entry installed.
+/// Run in M-mode with interrupts disabled, `MPRV` clear, and Runtime trap entry
+/// installed.
 /// The outgoing supervisor address space must no longer be needed.
 pub(crate) unsafe fn prepare_supervisor() {
     // SAFETY: The caller is replacing the outgoing supervisor context;
@@ -111,13 +144,11 @@ pub(crate) unsafe fn prepare_supervisor() {
         supervisor::InterruptEnable::write(InterruptSet::empty());
         supervisor::AddressTranslation::write(supervisor::AddressSpace::bare());
     }
-    crate::csr::mie::set_machine_software();
-    if crate::irq::get().is_some() {
-        crate::csr::mie::set_machine_external();
-    }
-    if !crate::timer::has_sstc() {
-        crate::csr::mie::set_machine_timer();
-    }
+    // SAFETY: This function's caller keeps MIE clear throughout the handoff.
+    let irq = unsafe { crate::irq::LocalIrqDisabled::assume_disabled() };
+    super::ipi()
+        .expect("IPI service not published")
+        .prepare_wakeup(&irq);
 }
 
 /// Programs the initial boot handoff in the current hart's CSRs.
@@ -130,14 +161,20 @@ pub(super) unsafe fn stage_next_mode(start_addr: usize, next_mode: riscv::regist
     // SAFETY: The boot caller owns the outgoing trap state.
     unsafe {
         prepare_supervisor();
-        // A recovered probe changes live trap state. Finish probes before
-        // staging the status and PC consumed by the final mret.
-        #[cfg(target_pointer_width = "32")]
-        if crate::csr::read::<machine::StatusHigh>().is_ok() {
+    }
+    // A recovered probe changes live trap state. Finish probes before
+    // staging the status and PC consumed by the final mret.
+    #[cfg(target_pointer_width = "32")]
+    if crate::csr::instruction!("csrr {value}, {csr}", machine::StatusHigh::NUMBER, 0).is_ok() {
+        // SAFETY: The probe succeeded; boot owns the outgoing trap state.
+        unsafe {
             machine::StatusHigh::modify(|_, high| {
                 high.write::<machine::MPV>(machine::Virtualization::Off);
             });
         }
+    }
+    // SAFETY: Boot owns the outgoing trap state after all recovered probes.
+    unsafe {
         machine::Status::modify(|_, status| set_return_mode(status, next_mode));
         machine::ExceptionPc::write(start_addr.into());
     }

@@ -15,17 +15,21 @@ cfg_if::cfg_if! {
 }
 
 use core::{arch::asm, fmt, ops::Range};
+use runtime::{
+    DeviceTreeHandoff, Error, PlatformDescription, Result,
+    boot::NextStage,
+    ipi::IpiDelivery,
+    memory::{PhysAddr, PhysAddrRange, locate_firmware_image},
+};
 
 use riscv::register::{self, Permission};
-
-use runtime::boot::NextStage;
 
 /// Boot information decoded from the previous-stage register envelope (a1/a2).
 pub(crate) struct BootInfo {
     /// The unmodified device-tree address received in `a1`.
     device_tree_address: usize,
     is_boot_hart: bool,
-    platform_description: Option<runtime::PlatformDescription>,
+    platform_description: Option<PlatformDescription>,
     /// The `a2` `DynamicInfo` address, kept for the deferred `next_stage()`
     /// decode.
     dynamic_info_address: usize,
@@ -37,9 +41,9 @@ impl BootInfo {
     /// Without a designated hart, the first enabled candidate leads boot.
     pub(crate) fn decode(
         current_hart: usize,
-        device_tree: runtime::DeviceTreeHandoff,
+        device_tree: DeviceTreeHandoff,
         dynamic_info_address: usize,
-    ) -> runtime::Result<Self> {
+    ) -> Result<Self> {
         let designated_hart = designated_boot_hart(dynamic_info_address);
         // Only the designated boot hart's FDT belongs to platform discovery.
         if designated_hart.is_some_and(|hart| hart != current_hart) {
@@ -48,11 +52,9 @@ impl BootInfo {
         let entry_device_tree_address = device_tree.address().as_usize();
         let source_device_tree_address = resolve_device_tree_address(entry_device_tree_address);
         let destination = match crate::cfg::FDT_HANDOFF {
-            Some((address, capacity)) => runtime::memory::PhysAddrRange::from_start_len(
-                runtime::memory::PhysAddr::new(
-                    usize::try_from(address).map_err(|_| runtime::Error::Overflow)?,
-                ),
-                usize::try_from(capacity).map_err(|_| runtime::Error::Overflow)?,
+            Some((address, capacity)) => PhysAddrRange::from_start_len(
+                PhysAddr::new(usize::try_from(address).map_err(|_| Error::Overflow)?),
+                usize::try_from(capacity).map_err(|_| Error::Overflow)?,
             )?,
             // SAFETY: without an explicit destination, entry requires an incoming
             // FDT with exclusive writable storage for totalsize + 1024 bytes.
@@ -62,12 +64,8 @@ impl BootInfo {
         // and exclusive writable destination storage until handoff. The latter
         // remains live until the next stage finishes using it. BOOT_LOCK serializes
         // candidate claims until the boot owner is selected.
-        let platform = unsafe {
-            device_tree.claim(
-                runtime::memory::PhysAddr::new(source_device_tree_address),
-                destination,
-            )?
-        };
+        let platform =
+            unsafe { device_tree.claim(PhysAddr::new(source_device_tree_address), destination)? };
         let is_boot_hart = if designated_hart.is_some() {
             // Runtime validates this designated hart's membership before
             // publishing the topology or releasing secondary harts.
@@ -90,10 +88,7 @@ impl BootInfo {
     }
 
     /// Constructs a secondary handoff without reading the boot hart's FDT.
-    pub(crate) fn secondary(
-        device_tree: runtime::DeviceTreeHandoff,
-        dynamic_info_address: usize,
-    ) -> Self {
+    pub(crate) fn secondary(device_tree: DeviceTreeHandoff, dynamic_info_address: usize) -> Self {
         Self {
             device_tree_address: device_tree.address().as_usize(),
             is_boot_hart: false,
@@ -102,7 +97,7 @@ impl BootInfo {
         }
     }
 
-    pub(crate) fn platform_description(&self) -> &runtime::PlatformDescription {
+    pub(crate) fn platform_description(&self) -> &PlatformDescription {
         self.platform_description
             .as_ref()
             .expect("boot hart owns its platform description")
@@ -112,13 +107,11 @@ impl BootInfo {
     ///
     /// Jump and payload modes return `None`. Stack placement checks this range
     /// independently of the device tree's storage.
-    pub(crate) fn dynamic_info_range(
-        &self,
-    ) -> runtime::Result<Option<runtime::memory::PhysAddrRange>> {
+    pub(crate) fn dynamic_info_range(&self) -> Result<Option<PhysAddrRange>> {
         #[cfg(not(any(feature = "payload", feature = "jump")))]
         {
-            runtime::memory::PhysAddrRange::from_start_len(
-                runtime::memory::PhysAddr::new(self.dynamic_info_address),
+            PhysAddrRange::from_start_len(
+                PhysAddr::new(self.dynamic_info_address),
                 size_of::<dynamic::DynamicInfo>(),
             )
             .map(Some)
@@ -135,7 +128,7 @@ impl BootInfo {
     }
 
     /// Returns the boot hart's validated Platform Description.
-    pub(crate) fn take_platform_description(&mut self) -> Option<runtime::PlatformDescription> {
+    pub(crate) fn take_platform_description(&mut self) -> Option<PlatformDescription> {
         self.platform_description.take()
     }
 
@@ -244,7 +237,7 @@ pub fn set_pmp(firmware_ram: &Range<usize>) {
         use riscv::register::*;
 
         asm!("la {}, sbi_start", out(reg) FIRMWARE_START_ADDRESS, options(nomem));
-        FIRMWARE_END_ADDRESS = runtime::memory::locate_firmware_image()
+        FIRMWARE_END_ADDRESS = locate_firmware_image()
             .expect("firmware bounds are available after topology initialization")
             .end()
             .as_usize();
@@ -268,8 +261,10 @@ pub fn set_pmp(firmware_ram: &Range<usize>) {
 
         // Keep machine-level interrupt controllers inaccessible to S-mode
         // only when the IMSIC device retained them for firmware use.
-        if crate::driver::ipi::uses_imsic()
-            && crate::platform::board_info().is_qemu_virt()
+        if matches!(
+            crate::platform::ipi_delivery(),
+            Some(IpiDelivery::Imsic { .. })
+        ) && crate::platform::board_info().is_qemu_virt()
             && let Some(imsic) = crate::platform::board_info().devices.interrupts.imsic()
         {
             const QEMU_VIRT_CLINT_BASE: usize = 0x0200_0000;

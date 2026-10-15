@@ -1,7 +1,11 @@
 //! Andes PLMT: MTIME at +0, per-hart MTIMECMP at +8.
 
-use crate::driver::TimerBackend;
-use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
+use runtime::{
+    Error, Result,
+    hart::HartId,
+    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+    timer::TimerDevice,
+};
 
 #[repr(usize)]
 #[derive(Clone, Copy)]
@@ -24,19 +28,19 @@ pub(super) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
     hart_id_upper_bound: usize,
-) -> runtime::Result<Plmt> {
+) -> Result<Plmt> {
     if hart_id_upper_bound == 0 {
-        return Err(runtime::Error::InvalidArgs);
+        return Err(Error::InvalidArgs);
     }
     let registers = registers.subrange(
         0,
         hart_id_upper_bound
             .checked_mul(COMPARE_STRIDE)
             .and_then(|size| size.checked_add(Register::CompareLow as usize))
-            .ok_or(runtime::Error::Overflow)?,
+            .ok_or(Error::Overflow)?,
     )?;
     if !registers.has_aligned_bounds(8) {
-        return Err(runtime::Error::InvalidArgs);
+        return Err(Error::InvalidArgs);
     }
     Ok(Plmt {
         registers: memory.acquire(registers)?,
@@ -61,7 +65,7 @@ impl Plmt {
     }
 }
 
-impl TimerBackend for Plmt {
+impl TimerDevice for Plmt {
     fn read_time(&self) -> Option<u64> {
         loop {
             let high = self.read_word(Register::CounterHigh);
@@ -88,7 +92,8 @@ impl TimerBackend for Plmt {
         Some(self.read_word(Register::CounterHigh) as usize)
     }
 
-    fn set_timer(&self, hart_id: usize, value: u64) {
+    fn set_compare(&self, hart: HartId, value: u64) {
+        let hart_id = hart.as_usize();
         assert!(hart_id < self.hart_id_upper_bound);
         // Safe RV32 comparator update even if the old high half matches MTIME.
         self.write_compare_word(Register::CompareLow, hart_id, u32::MAX);
@@ -97,8 +102,6 @@ impl TimerBackend for Plmt {
         riscv::asm::fence();
     }
 
-    // Masking MTIE prevents retrapping until the next set_timer rearms the comparator.
-    fn clear_on_interrupt(&self) -> bool {
-        false
-    }
+    // Masking MTIE prevents retrapping until the next deadline rearms delivery.
+    fn acknowledge(&self, _: HartId) {}
 }

@@ -24,11 +24,11 @@ csr! {
         /// stores.
         unsafe w
     }
-        SIE[1] { rw: InterruptState { Disabled = 0, Enabled = 1 } }
-        MIE[3] { rw: InterruptState }
-        SPIE[5] { rw: InterruptState }
+        SIE[1] { rw: Interrupt { Disabled = 0, Enabled = 1 } }
+        MIE[3] { rw: Interrupt }
+        SPIE[5] { rw: Interrupt }
         UBE[6] { rw: Endianness { Little = 0, Big = 1 } }
-        MPIE[7] { rw: InterruptState }
+        MPIE[7] { rw: Interrupt }
         SPP[8] { rw: SupervisorPrivilege { User = 0, Supervisor = 1 } }
         MPP[11..=12] {
             r: Privilege { User = 0, Supervisor = 1, Machine = 3 },
@@ -77,11 +77,11 @@ csr! {
         /// Install valid handlers for enabled sources.
         /// Permit their re-entry without violating active exclusion or memory
         /// invariants.
-        unsafe w
+        unsafe w: InterruptSet
     }
-        MSIE[3] { rw: InterruptState }
-        MTIE[7] { rw: InterruptState }
-        MEIE[11] { rw: InterruptState }
+        MSIE[3] { rw: Interrupt }
+        MTIE[7] { rw: Interrupt }
+        MEIE[11] { rw: Interrupt }
     /// Machine trap-vector register (`mtvec`).
     ///
     /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mtvec>.
@@ -123,10 +123,66 @@ csr! {
         MDT[10] { rw: DoubleTrapState { Clear = 0, Set = 1 } }
 }
 
-impl InterruptEnableWriteValue {
-    /// Disables all interrupt sources in the complete write value.
-    pub const fn disabled() -> Self {
-        Self(0)
+impl Status {
+    /// Sets an interrupt field with one CSRRS instruction.
+    ///
+    /// # Safety
+    ///
+    /// Execute in M-mode on the intended hart. Satisfy this register's write
+    /// requirements and permit interrupt reentry.
+    #[inline]
+    pub unsafe fn set<F: crate::value::WriteField<StatusWriteValue, Value = Interrupt>>() {
+        let mut mask = StatusWriteValue(0);
+        mask.write::<F>(Interrupt::Enabled);
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+        // SAFETY: The caller establishes current-hart access and write safety.
+        unsafe {
+            core::arch::asm!(
+                "csrs {csr}, {mask}",
+                csr = const Self::NUMBER,
+                mask = in(reg) usize::from(mask),
+                options(nostack),
+            );
+        }
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+        {
+            let _ = mask;
+            unimplemented!("CSR access requires RISC-V");
+        }
+    }
+
+    /// Atomically reads the register and clears an interrupt field with CSRRC.
+    /// Returns the snapshot before the field was cleared.
+    ///
+    /// # Safety
+    ///
+    /// Execute in M-mode on the intended hart and satisfy this register's write
+    /// requirements.
+    #[inline]
+    pub unsafe fn clear<F: crate::value::WriteField<StatusWriteValue, Value = Interrupt>>()
+    -> StatusReadValue {
+        let mut mask = StatusWriteValue(0);
+        mask.write::<F>(Interrupt::Enabled);
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+        {
+            let previous: usize;
+            // SAFETY: The caller establishes current-hart access and write safety.
+            unsafe {
+                core::arch::asm!(
+                    "csrrc {previous}, {csr}, {mask}",
+                    previous = out(reg) previous,
+                    csr = const Self::NUMBER,
+                    mask = in(reg) usize::from(mask),
+                    options(nostack),
+                );
+            }
+            StatusReadValue(previous)
+        }
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+        {
+            let _ = mask;
+            unimplemented!("CSR access requires RISC-V");
+        }
     }
 }
 
@@ -148,6 +204,14 @@ impl StatusWriteValue {
 impl IsaValue {
     pub const fn has_hypervisor(self) -> bool {
         self.0 & (1 << 7) != 0
+    }
+
+    pub const fn has_supervisor(self) -> bool {
+        self.0 & (1 << 18) != 0
+    }
+
+    pub const fn has_user(self) -> bool {
+        self.0 & (1 << 20) != 0
     }
 }
 

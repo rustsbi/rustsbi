@@ -1,27 +1,57 @@
-//! Runtime's external-interrupt controller service.
-//!
-//! An AIA/IMSIC platform may deliver the firmware IPI through a machine
-//! external interrupt instead of the CLINT software-interrupt source. The
-//! claim operation acknowledges the selected IMSIC IPI identity. This is the
-//! only external-interrupt operation currently required by Runtime.
+//! Local machine-interrupt exclusion for Runtime hardware operations.
 
-use spin::Once;
+use core::marker::PhantomData;
+use csr::machine;
 
-static CONTROLLER: Once<Option<&'static dyn ExternalInterrupt>> = Once::new();
-
-/// External-interrupt operation needed by Runtime's machine transport.
-pub trait ExternalInterrupt: Sync {
-    /// Claims the current hart's external interrupt when it is the firmware
-    /// IPI identity. The claim acknowledges the controller source.
-    fn claim_ipi(&self) -> bool;
+/// Proof that local machine interrupts remain disabled within a scope.
+///
+/// This context cannot be transferred to another hart or retained after
+/// its Runtime interrupt exclusion scope ends.
+/// It does not provide remote mutual exclusion.
+pub(crate) struct LocalIrqDisabled {
+    _local: PhantomData<*mut ()>,
 }
 
-/// Publishes the optional external-interrupt controller once during boot.
-pub fn install(controller: Option<&'static dyn ExternalInterrupt>) {
-    CONTROLLER.call_once(|| controller);
+impl LocalIrqDisabled {
+    /// Records exclusion already established by a Runtime entry.
+    ///
+    /// # Safety
+    ///
+    /// Keep MIE clear and stay on this hart while the context is in use.
+    pub(crate) unsafe fn assume_disabled() -> Self {
+        Self {
+            _local: PhantomData,
+        }
+    }
 }
 
-/// Returns the published external-interrupt controller.
-pub(crate) fn get() -> Option<&'static dyn ExternalInterrupt> {
-    CONTROLLER.get().and_then(|controller| *controller)
+/// Runs `f` with local machine interrupts disabled, then restores their state.
+///
+/// The restoration guard stays private, so nested scopes cannot restore IRQs
+/// out of order.
+/// References borrowed through the context cannot leave `f`.
+pub(crate) fn with_local_disabled<R>(f: impl FnOnce(&LocalIrqDisabled) -> R) -> R {
+    struct Restore {
+        previous: machine::Interrupt,
+    }
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            if self.previous == machine::Interrupt::Enabled {
+                // SAFETY: This scope masked MIE and is ending on the same hart.
+                unsafe { machine::Status::set::<machine::MIE>() };
+            }
+        }
+    }
+    let previous = machine::Status::read().read::<machine::MIE>();
+    if previous == machine::Interrupt::Enabled {
+        // SAFETY: M-mode interrupt entry restores the interrupted MIE state.
+        // Mask before invoking f; already-disabled callers need no CSR write.
+        unsafe { machine::Status::clear::<machine::MIE>() };
+    }
+    let restore = Restore { previous };
+    let result = f(&LocalIrqDisabled {
+        _local: PhantomData,
+    });
+    drop(restore);
+    result
 }

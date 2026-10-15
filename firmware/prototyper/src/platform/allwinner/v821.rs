@@ -6,8 +6,12 @@
 
 #![forbid(unsafe_code)]
 
-use runtime::memory::DeviceRegisterRange;
-use runtime::soc::allwinner::v821::{AllwinnerV821Soc, NoncacheableAlias};
+use runtime::{
+    Error, PlatformView, Result,
+    hart::HartId,
+    memory::DeviceRegisterRange,
+    soc::allwinner::v821::{AllwinnerV821Soc, NoncacheableAlias},
+};
 
 use crate::devicetree::EnabledNode;
 
@@ -43,9 +47,9 @@ impl Description {
     /// Retains V821-only device descriptions inside the vendor description.
     pub(crate) fn probe(
         &mut self,
-        platform: &runtime::PlatformView<'_>,
+        platform: &PlatformView<'_>,
         discovered: EnabledNode<'_, '_>,
-    ) -> runtime::Result<()> {
+    ) -> Result<()> {
         let Some(compatibles) = discovered.compatible() else {
             return Ok(());
         };
@@ -57,31 +61,29 @@ impl Description {
             return Ok(());
         }
 
-        let registers = platform
-            .device_register(node)?
-            .ok_or(runtime::Error::InvalidArgs)?;
+        let registers = platform.device_register(node)?.ok_or(Error::InvalidArgs)?;
         if is_l2 && self.cache.replace(registers).is_some() {
-            return Err(runtime::Error::InvalidArgs);
+            return Err(Error::InvalidArgs);
         }
         if is_usb {
             let dma_bypass = registers.subrange(USB_DMA_BYPASS_OFFSET, USB_DMA_BYPASS_SIZE)?;
             if self.usb_dma_bypass.replace(dma_bypass).is_some() {
-                return Err(runtime::Error::InvalidArgs);
+                return Err(Error::InvalidArgs);
             }
         }
         Ok(())
     }
 
     /// Validates the boot contract and prepares the machine-wide PMA state.
-    pub(crate) fn prepare(self, hart_count: usize) -> runtime::Result<V821> {
-        let hart = runtime::hart::HartId::current().map_err(|_| runtime::Error::InvalidArgs)?;
+    pub(crate) fn prepare(self, hart_count: usize) -> Result<V821> {
+        let hart = HartId::current().map_err(|_| Error::InvalidArgs)?;
         const BOOT_HART: usize = 0;
         const ANDES_VENDOR_ID: usize = 0x31e;
         if hart.as_usize() != BOOT_HART
             || hart_count != 1
             || riscv::register::mvendorid::read().bits() != ANDES_VENDOR_ID
         {
-            return Err(runtime::Error::InvalidArgs);
+            return Err(Error::InvalidArgs);
         }
         let noncacheable_alias = self.soc.csr().initialize_noncacheable_alias();
         Ok(V821 {
@@ -109,8 +111,8 @@ impl V821 {
     }
 
     /// Returns the prepared descriptions consumed by V821 custom extensions.
-    pub(crate) fn into_extension_devices(self) -> runtime::Result<ExtensionDeviceDescription> {
-        let cache = self.description.cache.ok_or(runtime::Error::InvalidArgs)?;
+    pub(crate) fn into_extension_devices(self) -> Result<ExtensionDeviceDescription> {
+        let cache = self.description.cache.ok_or(Error::InvalidArgs)?;
         Ok(ExtensionDeviceDescription {
             soc: self.description.soc,
             cache,

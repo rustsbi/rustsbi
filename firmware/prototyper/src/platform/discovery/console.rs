@@ -2,10 +2,9 @@
 
 use crate::driver;
 use crate::platform::info::ConsoleInfo;
+use runtime::{Error, FdtNode, PlatformView, Result, node_is_enabled};
 
-pub(super) fn discover(
-    platform: &runtime::PlatformView<'_>,
-) -> runtime::Result<Option<ConsoleInfo>> {
+pub(super) fn discover(platform: &PlatformView<'_>) -> Result<Option<ConsoleInfo>> {
     if let Some(chosen) = platform.find_enabled_node("/chosen")
         && let Some(stdout_path) = chosen
             .property("stdout-path")
@@ -18,7 +17,7 @@ pub(super) fn discover(
     }
 
     for node in platform.fdt().all_nodes() {
-        if !runtime::node_is_enabled(node) {
+        if !node_is_enabled(node) {
             continue;
         }
         if let Some(console) = discover_node(platform, node)? {
@@ -29,9 +28,9 @@ pub(super) fn discover(
 }
 
 fn discover_node(
-    platform: &runtime::PlatformView<'_>,
-    node: runtime::FdtNode<'_, '_>,
-) -> runtime::Result<Option<ConsoleInfo>> {
+    platform: &PlatformView<'_>,
+    node: FdtNode<'_, '_>,
+) -> Result<Option<ConsoleInfo>> {
     let Some(compatibles) = node.compatible() else {
         return Ok(None);
     };
@@ -61,10 +60,8 @@ fn discover_node(
         .find_map(|compatible| {
             driver::ConsoleKind::from_fdt(compatible, register_shift, register_width)
         })
-        .ok_or(runtime::Error::InvalidArgs)?;
-    let registers = platform
-        .device_register(node)?
-        .ok_or(runtime::Error::InvalidArgs)?;
+        .ok_or(Error::InvalidArgs)?;
+    let registers = platform.device_register(node)?.ok_or(Error::InvalidArgs)?;
 
     Ok(Some(ConsoleInfo {
         registers,

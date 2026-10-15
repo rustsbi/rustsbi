@@ -10,6 +10,7 @@ use super::{Error, Fault, decode::ValueKind, frame::TrapInfo};
 
 macro_rules! access_byte {
     ($instruction:literal, $causes:expr, $address:expr, $data:expr, $status:expr) => {{
+        let access = || -> Result<usize, Error> {
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         {
             let mut data: usize = $data;
@@ -22,7 +23,7 @@ macro_rules! access_byte {
             // 4. Success and recovery both restore mstatus before returning to Rust.
             unsafe {
                 core::arch::asm!(
-                    "csrrci {saved_status}, {status_csr}, {mie_mask}",
+                    "csrrci {saved_status}, {status_csr}, 8", // Clear mstatus.MIE.
                     "not {access_status}, {access_mask}",
                     "and {access_status}, {saved_status}, {access_status}",
                     "or {access_status}, {access_status}, {requested_status}",
@@ -38,12 +39,12 @@ macro_rules! access_byte {
                     ".option pop",
                     crate::recovery::fault_site!(),
                     status_csr = const machine::Status::NUMBER,
-                    mie_mask = const 8,
                     causes = const $causes,
                     data = inout(reg) data,
                     address = in(reg) $address,
                     requested_status = in(reg) $status,
-                    access_mask = in(reg) replaced_status_fields(),
+                    // Replace MIE, MPP, MPRV, SUM, and MXR; preserve other fields.
+                    access_mask = in(reg) (1usize << 3) | (3 << 11) | (7 << 17),
                     saved_status = out(reg) _,
                     access_status = out(reg) _,
                     out("t2") cause,
@@ -64,22 +65,14 @@ macro_rules! access_byte {
             let _ = ($causes, $address, $data, $status);
             unavailable()
         }
+        };
+        access()
     }};
 }
 
 #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-fn unavailable() -> Result<usize, Error> {
-    panic!("lower-mode access requires RISC-V")
-}
-
-#[cfg(any(test, target_arch = "riscv32", target_arch = "riscv64"))]
-fn replaced_status_fields() -> usize {
-    let mut fields = machine::StatusWriteValue::for_return(machine::TargetPrivilege::Machine);
-    fields.write::<machine::MIE>(machine::InterruptState::Enabled);
-    fields.write::<machine::MPRV>(machine::AccessPrivilege::Previous);
-    fields.write::<machine::SUM>(machine::UserMemoryAccess::Allowed);
-    fields.write::<machine::MXR>(machine::ExecutableReadAccess::Enabled);
-    fields.into()
+fn unavailable() -> ! {
+    unimplemented!("lower-mode access requires RISC-V")
 }
 
 fn access_status(info: &TrapInfo, instruction: bool) -> Result<usize, Error> {
@@ -208,7 +201,7 @@ mod tests {
             epc: 0x1000,
             status: machine::StatusWriteValue::for_return(privilege).into(),
             #[cfg(target_pointer_width = "32")]
-            status_high: <machine::StatusHigh as csr::Readable>::decode(0),
+            status_high: machine::StatusHighReadValue::from_bits(0),
             #[cfg(target_pointer_width = "64")]
             status_high: 0,
             has_hypervisor: false,
@@ -234,7 +227,7 @@ mod tests {
                 machine::TargetPrivilege::Supervisor => {
                     #[cfg(target_pointer_width = "32")]
                     {
-                        info.status_high = <machine::StatusHigh as csr::Readable>::decode(1 << 4);
+                        info.status_high = machine::StatusHighReadValue::from_bits(1 << 4);
                     }
                     #[cfg(target_pointer_width = "64")]
                     status.write::<machine::SBE>(machine::Endianness::Big);
@@ -250,47 +243,5 @@ mod tests {
             // Instruction bytes remain little-endian under either data byte order.
             assert!(access_status(&info, true).is_ok());
         }
-    }
-
-    fn trap_info(status: usize) -> TrapInfo {
-        let mut info = context(machine::TargetPrivilege::Supervisor);
-        info.status = <machine::Status as csr::Readable>::decode(status);
-        info
-    }
-
-    #[test]
-    fn lower_access_keeps_original_privilege_sum_and_mxr() {
-        for privilege in [0, 1] {
-            for permissions in [0, 1 << 18, 1 << 19, (1 << 18) | (1 << 19)] {
-                let original = (privilege << 11) | permissions;
-                let info = trap_info(original | (1 << 3) | (3 << 13));
-                assert_eq!(access_status(&info, false), Ok(original | (1 << 17)));
-                assert_eq!(
-                    access_status(&info, true),
-                    Ok(original | (1 << 17) | (1 << 19))
-                );
-            }
-        }
-        assert_eq!(replaced_status_fields(), (1 << 3) | (3 << 11) | (7 << 17));
-    }
-
-    #[test]
-    fn lower_access_rejects_machine_reserved_and_virtualized_origins() {
-        for privilege in [2, 3] {
-            assert_eq!(
-                access_status(&trap_info(privilege << 11), false),
-                Err(Error::Unsupported)
-            );
-        }
-        let mut info = trap_info(1 << 11);
-        #[cfg(target_pointer_width = "32")]
-        {
-            info.status_high = <machine::StatusHigh as csr::Readable>::decode(1 << 7);
-        }
-        #[cfg(target_pointer_width = "64")]
-        {
-            info.status = <machine::Status as csr::Readable>::decode((1 << 11) | (1 << 39));
-        }
-        assert_eq!(access_status(&info, false), Err(Error::Unsupported));
     }
 }

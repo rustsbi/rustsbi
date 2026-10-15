@@ -8,17 +8,18 @@
 #![forbid(unsafe_code)]
 
 use riscv::register::mstatus;
-use runtime::rustsbi::{Hsm, SbiRet};
+use runtime::{
+    hart::{self, HartId, HartState},
+    rustsbi::{Hsm, SbiRet, Susp},
+};
 use sbi_spec::hsm::suspend_type::NON_RETENTIVE;
-
-use runtime::hart::{self, HartId, HartState};
 
 const SUSPEND_TO_RAM: u32 = 0x0;
 
 /// Implementation of SBI System Suspend Extension extension.
 pub(crate) struct SbiSuspend;
 
-impl runtime::rustsbi::Susp for SbiSuspend {
+impl Susp for SbiSuspend {
     fn system_suspend(&self, sleep_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
         if sleep_type != SUSPEND_TO_RAM {
             return SbiRet::invalid_param();

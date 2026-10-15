@@ -23,6 +23,7 @@ pub(super) fn redirect_trap(
     let delegated = info.virtualized()
         && match cause.cause() {
             TrapCause::Exception(exception) => {
+                // Saved virtualized state establishes that H is present.
                 hypervisor::ExceptionDelegation::read().contains(exception)
             }
             TrapCause::Interrupt(_) => false,
@@ -35,7 +36,7 @@ pub(super) fn redirect_trap(
             virtual_supervisor::TrapValue::write(tval.into());
             virtual_supervisor::Status::modify(|read, status| {
                 status.write::<virtual_supervisor::SPIE>(read.read::<virtual_supervisor::SIE>());
-                status.write::<virtual_supervisor::SIE>(machine::InterruptState::Disabled);
+                status.write::<virtual_supervisor::SIE>(machine::Interrupt::Disabled);
                 status.write::<virtual_supervisor::SPP>(privilege);
             });
         }
@@ -66,15 +67,23 @@ pub(super) fn redirect_trap(
                 });
             }
             // Secondary faults here use one-stage S/U translation.
-            hypervisor::TrapValue::write((if secondary.is_none() { info.tval2 } else { 0 }).into());
-            hypervisor::TrapInstruction::write(
-                (if secondary.is_none() {
-                    info.instruction
-                } else {
-                    0
-                })
-                .into(),
-            );
+            // SAFETY: Dispatch owns this hart's HS trap metadata.
+            unsafe {
+                hypervisor::TrapValue::write(
+                    (if secondary.is_none() { info.tval2 } else { 0 }).into(),
+                )
+            };
+            // SAFETY: Dispatch owns this hart's HS trap metadata.
+            unsafe {
+                hypervisor::TrapInstruction::write(
+                    (if secondary.is_none() {
+                        info.instruction
+                    } else {
+                        0
+                    })
+                    .into(),
+                )
+            };
         }
         // SAFETY: The saved context is lower-mode. These writes reproduce
         // hardware entry into the supervisor handler.
@@ -88,7 +97,7 @@ pub(super) fn redirect_trap(
             .write::<machine::SPIE>(info.status.read::<machine::SIE>());
         frame
             .status
-            .write::<machine::SIE>(machine::InterruptState::Disabled);
+            .write::<machine::SIE>(machine::Interrupt::Disabled);
         frame.status.write::<machine::SPP>(privilege);
         frame
             .status

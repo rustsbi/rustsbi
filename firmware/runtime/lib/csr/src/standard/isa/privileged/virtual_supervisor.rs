@@ -1,5 +1,5 @@
 //! Virtual supervisor registers.
-use super::machine::{InterruptState, SupervisorPrivilege};
+use super::machine::{Interrupt, SupervisorPrivilege};
 use crate::macros::csr;
 use crate::values::{
     Address, TrapValueBits,
@@ -21,8 +21,8 @@ csr! {
         /// Preserve the guest execution state used by the next virtual `sret`.
         unsafe w
     }
-        SIE[1] { rw: InterruptState }
-        SPIE[5] { rw: InterruptState }
+        SIE[1] { rw: Interrupt }
+        SPIE[5] { rw: Interrupt }
         SPP[8] { rw: SupervisorPrivilege }
     /// Virtual supervisor trap-vector register (`vstvec`).
     ///
@@ -77,7 +77,7 @@ impl TrapVectorWriteValue {
 impl StatusWriteValue {
     /// Creates guest trap-entry state with interrupts and optional state
     /// disabled.
-    pub fn for_trap(previous: SupervisorPrivilege, interrupts: InterruptState) -> Self {
+    pub fn for_trap(previous: SupervisorPrivilege, interrupts: Interrupt) -> Self {
         let mut value = Self(0);
         value.write::<SPP>(previous);
         value.write::<SPIE>(interrupts);

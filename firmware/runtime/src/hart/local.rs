@@ -1,115 +1,88 @@
-//! Synchronized storage indexed by hart identity.
-
-#![forbid(unsafe_code)]
+//! Runtime storage for immutable per-hart timer bindings.
 
 use crate::{Error, Result};
 use alloc::boxed::Box;
-use spin::{Mutex, Once};
+use spin::Once;
 
 use super::HartId;
 
-/// A pool with one independently borrowed value per enabled hart.
-///
-/// Recursive access is rejected instead of creating aliased mutable references
-/// or waiting for a lock already held by the interrupted code.
-pub struct HartLocal<T> {
-    slots: Once<Box<[Mutex<Option<T>>]>>,
+/// One permanently placed value per hart.
+/// Values are ordinary shared data; hardware operations manage their own IRQ scope.
+pub(crate) struct HartLocal<T> {
+    slots: Once<Box<[Once<T>]>>,
 }
 
 impl<T> HartLocal<T> {
-    /// Creates an uninitialized storage pool.
-    pub const fn uninit() -> Self {
+    /// Creates an empty storage pool without accessing hardware.
+    pub(crate) const fn uninit() -> Self {
         Self { slots: Once::new() }
     }
+}
 
-    /// Initializes one hart's slot exactly once.
-    pub fn init(&self, hart: HartId, value: T) -> Result<()> {
-        let mut slot = self.slots()[hart.index()].try_lock().ok_or(Error::Busy)?;
-        if slot.is_some() {
-            return Err(Error::AlreadyInitialized);
-        }
-        *slot = Some(value);
-        Ok(())
-    }
-
-    /// Runs `f` with exclusive access to the current hart's value.
+impl<T: Send + Sync> HartLocal<T> {
+    /// Borrows this hart's initialized value.
     ///
     /// # Panics
     ///
-    /// Panics if the slot is uninitialized or already borrowed, including
-    /// recursive access and reentry from an interrupt handler.
-    /// Panics on non-RISC-V targets.
-    pub fn with_current_mut<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
-        match () {
-            #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-            () => self.with_mut(super::current_hart(), f),
-            #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-            () => {
-                let _ = f;
-                unimplemented!("accessing the current hart's value requires RISC-V")
-            }
-        }
+    /// Panics before topology publication or if this hart is uninitialized.
+    pub(crate) fn get_current(&self) -> &T {
+        self.try_get_current()
+            .expect("hart-local slot is uninitialized")
     }
 
-    #[cfg(any(test, target_arch = "riscv32", target_arch = "riscv64"))]
-    fn with_mut<R>(&self, hart: HartId, f: impl FnOnce(&mut T) -> R) -> R {
-        let mut slot = self.slots()[hart.index()]
-            .try_lock()
-            .expect("hart-local slot is already borrowed");
-        f(slot.as_mut().expect("hart-local slot is uninitialized"))
+    pub(crate) fn try_get_current(&self) -> Option<&T> {
+        let hart = HartId::current().expect("hart-local access before topology publication");
+        self.slots.get()?[hart.index()].get()
     }
 
-    fn slots(&self) -> &[Mutex<Option<T>>] {
-        self.slots
-            .call_once(|| HartId::all().map(|_| Mutex::new(None)).collect())
+    /// Publishes an already constructed value in the current hart's slot.
+    /// Initialization takes a value rather than a callback.
+    /// Duplicate publication preserves the original and drops the incoming value.
+    pub(crate) fn try_init_current(&self, value: T) -> Result<&T> {
+        let hart = super::current_hart();
+        let slots = self
+            .slots
+            .call_once(|| HartId::all().map(|_| Once::new()).collect());
+        publish(&slots[hart.index()], value)
+    }
+}
+
+fn publish<T>(slot: &Once<T>, value: T) -> Result<&T> {
+    let mut initialized = false;
+    let stored = slot.call_once(|| {
+        initialized = true;
+        value
+    });
+    if initialized {
+        Ok(stored)
+    } else {
+        Err(Error::AlreadyInitialized)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    extern crate std;
-
     use super::*;
     use core::sync::atomic::{AtomicUsize, Ordering};
-    use std::panic::{AssertUnwindSafe, catch_unwind};
 
     #[test]
-    fn recursive_access_is_rejected_and_releases_the_borrow() {
-        let pool = HartLocal::uninit();
-        pool.slots
-            .call_once(|| alloc::vec![Mutex::new(None)].into_boxed_slice());
-        let hart = HartId { raw: 7, index: 0 };
-        pool.init(hart, 7).unwrap();
-        assert!(
-            catch_unwind(AssertUnwindSafe(|| {
-                pool.with_mut(hart, |_| pool.with_mut(hart, |_| ()));
-            }))
-            .is_err()
-        );
-        pool.with_mut(hart, |value| *value += 1);
-        assert_eq!(pool.with_mut(hart, |value| *value), 8);
-    }
-
-    #[test]
-    fn duplicate_initialization_preserves_the_original_and_drops_values() {
-        struct CountDrop<'a>(&'a AtomicUsize);
+    fn duplicate_publication_preserves_the_original_and_drops_both_values_once() {
+        struct CountDrop<'a>(&'a AtomicUsize, usize);
         impl Drop for CountDrop<'_> {
             fn drop(&mut self) {
                 self.0.fetch_add(1, Ordering::Relaxed);
             }
         }
         let drops = AtomicUsize::new(0);
-        let pool = HartLocal::uninit();
-        pool.slots
-            .call_once(|| alloc::vec![Mutex::new(None)].into_boxed_slice());
-        let hart = HartId { raw: 7, index: 0 };
-        pool.init(hart, CountDrop(&drops)).unwrap();
-        assert_eq!(
-            pool.init(hart, CountDrop(&drops)),
+        let slot = Once::new();
+        publish(&slot, CountDrop(&drops, 1)).unwrap();
+        assert!(matches!(
+            publish(&slot, CountDrop(&drops, 2)),
             Err(Error::AlreadyInitialized)
-        );
+        ));
+        assert_eq!(slot.get().unwrap().1, 1);
         assert_eq!(drops.load(Ordering::Relaxed), 1);
-        drop(pool);
+        drop(slot);
         assert_eq!(drops.load(Ordering::Relaxed), 2);
     }
 }

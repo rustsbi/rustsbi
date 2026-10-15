@@ -9,9 +9,12 @@
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
-use runtime::FdtNode;
-use runtime::hart::HartId;
-use runtime::rustsbi::{Pmu, SbiRet};
+use runtime::{
+    FdtNode, Result,
+    events::{Exception, TrapCounters},
+    hart::HartId,
+    rustsbi::{Pmu, SbiRet},
+};
 use sbi_spec::binary::SharedPtr;
 use sbi_spec::pmu::shmem_size::SIZE;
 use sbi_spec::pmu::*;
@@ -29,13 +32,13 @@ const PMU_FIRMWARE_COUNTER_MAX: usize = 16;
 /// Marker value for inactive/invalid event indices.
 const PMU_EVENT_IDX_INVALID: usize = usize::MAX;
 
-/// PMU state tracking hardware and firmware performance counters
+/// PMU state for hardware and firmware performance counters.
 #[repr(C)]
 pub struct PmuState {
     active_event: [usize; PMU_HARDWARE_COUNTER_MAX + PMU_FIRMWARE_COUNTER_MAX],
-    /// Bitmap of active firmware counters (1 bit per counter)
+    /// Bitmap of active firmware counters, with one bit per counter.
     fw_counter_state: usize,
-    /// Values for firmware-managed counters
+    /// Values of firmware-managed counters.
     fw_counter: [u64; PMU_FIRMWARE_COUNTER_MAX],
     hw_counters_num: usize,
     total_counters_num: usize,
@@ -123,7 +126,7 @@ impl PmuState {
         Ok(())
     }
 
-    /// stop a firmware counter
+    /// Stops a firmware counter and optionally clears its event binding.
     #[inline]
     fn stop_fw_counter(
         &mut self,
@@ -163,43 +166,36 @@ pub struct SbiPmu {
     raw_event_to_mhpmcounter: Option<Vec<RawEventToCounterMap>>,
 }
 
-/// Runtime's firmware-event sink adapter. PMU remains an SBI extension; this
-/// zero-sized object is the separate Runtime service published to trap code.
+/// Runtime's firmware-event sink adapter.
+/// PMU remains an SBI extension; this zero-sized object is the separate Runtime
+/// service published to trap code.
 struct RuntimeTrapCounters;
 
 static RUNTIME_TRAP_COUNTERS: RuntimeTrapCounters = RuntimeTrapCounters;
 
-impl runtime::events::TrapCounters for RuntimeTrapCounters {
-    fn record_access_load(&self) {
-        pmu_firmware_counter_increment(firmware_event::ACCESS_LOAD);
-    }
-
-    fn record_access_store(&self) {
-        pmu_firmware_counter_increment(firmware_event::ACCESS_STORE);
-    }
-
-    fn record_illegal_instruction(&self) {
-        pmu_firmware_counter_increment(firmware_event::ILLEGAL_INSN);
-    }
-
-    fn record_misaligned_load(&self) {
-        pmu_firmware_counter_increment(firmware_event::MISALIGNED_LOAD);
-    }
-
-    fn record_misaligned_store(&self) {
-        pmu_firmware_counter_increment(firmware_event::MISALIGNED_STORE);
+impl TrapCounters for RuntimeTrapCounters {
+    fn record(&self, exception: Exception) {
+        let event = match exception {
+            Exception::IllegalInstruction => firmware_event::ILLEGAL_INSN,
+            Exception::LoadMisaligned => firmware_event::MISALIGNED_LOAD,
+            Exception::StoreMisaligned => firmware_event::MISALIGNED_STORE,
+            Exception::LoadAccess => firmware_event::ACCESS_LOAD,
+            Exception::StoreAccess => firmware_event::ACCESS_STORE,
+            _ => return,
+        };
+        pmu_firmware_counter_increment(event);
     }
 }
 
 /// Returns the Runtime firmware-event sink adapter.
-pub(crate) fn runtime_counters() -> &'static dyn runtime::events::TrapCounters {
+pub(crate) fn runtime_counters() -> &'static dyn TrapCounters {
     &RUNTIME_TRAP_COUNTERS
 }
 
 impl Pmu for SbiPmu {
-    /// Returns the total number of available performance counters
+    /// Returns the total number of available performance counters.
     ///
-    /// Implements SBI PMU extension function (FID #0)
+    /// Implements SBI PMU function 0.
     #[inline]
     fn num_counters(&self) -> usize {
         let hart_id = HartId::current()
@@ -208,8 +204,7 @@ impl Pmu for SbiPmu {
         hart_local(hart_id).with_pmu(|pmu_state| pmu_state.get_total_counters_num())
     }
 
-    /// DONE:
-    /// Function: Get details of a counter (FID #1)
+    /// Returns a counter's CSR, encoded width, and type (SBI PMU function 1).
     #[inline]
     fn counter_get_info(&self, counter_idx: usize) -> SbiRet {
         if counter_idx >= self.num_counters() {
@@ -224,14 +219,12 @@ impl Pmu for SbiPmu {
         if counter_idx < hw_counters_num {
             let mask = hart_mhpm_mask(hart_id);
 
-            // Find the corresponding hardware counter using bit manipulation
-            // This is more efficient than iterating through all possible offsets
+            // Set bits identify implemented counters in logical-index order.
             let mut remaining_mask = mask;
             let mut count = 0;
 
             while remaining_mask != 0 {
                 if count == counter_idx {
-                    // Found the counter - get its CSR offset
                     let offset = remaining_mask.trailing_zeros() as u16;
                     // time cannot be started or stopped through the PMU extension.
                     if offset == 1 {
@@ -250,7 +243,7 @@ impl Pmu for SbiPmu {
         SbiRet::success(CounterInfo::with_firmware_info().inner())
     }
 
-    /// Find and configure a matching counter (FID #2)
+    /// Finds and configures a matching counter (SBI PMU function 2).
     #[inline]
     fn counter_config_matching(
         &self,
@@ -334,8 +327,7 @@ impl Pmu for SbiPmu {
         })
     }
 
-    /// Start one or more counters (FID #3)
-    /// Note: The next two functions contain redundant logic and should be refactored.
+    /// Starts one or more counters (SBI PMU function 3).
     #[inline]
     fn counter_start(
         &self,
@@ -393,7 +385,7 @@ impl Pmu for SbiPmu {
         })
     }
 
-    /// Stop one or more counters (FID #4)
+    /// Stops one or more counters (SBI PMU function 4).
     #[inline]
     fn counter_stop(
         &self,
@@ -455,8 +447,7 @@ impl Pmu for SbiPmu {
         })
     }
 
-    /// Reads a firmware counter value
-    /// Function: Read a firmware counter (FID #5).
+    /// Reads a firmware counter (SBI PMU function 5).
     #[inline]
     fn counter_fw_read(&self, counter_idx: usize) -> SbiRet {
         let hart_id = HartId::current()
@@ -746,7 +737,7 @@ fn configure_counter(
     Ok(())
 }
 
-/// Get the offset of the mhpmcounter CSR corresponding to counter_idx relative to mcycle
+/// Returns the counter's CSR offset relative to `mcycle`.
 fn get_mhpm_csr_offset(counter_idx: usize) -> Option<u16> {
     let hart_id = HartId::current()
         .expect("BUG: current hart exceeds Runtime capacity")
@@ -764,7 +755,7 @@ fn get_mhpm_csr_offset(counter_idx: usize) -> Option<u16> {
     None
 }
 
-/// Start Hardware Counter
+/// Failure to start a performance counter.
 enum StartCounterErr {
     OffsetInvalid,
     AlreadyStart,
@@ -870,7 +861,7 @@ fn start_hardware_counter(
     Ok(())
 }
 
-/// Stop Hardware Counter
+/// Failure to stop a performance counter.
 enum StopCounterErr {
     OffsetInvalid,
     AlreadyStop,
@@ -901,12 +892,15 @@ fn stop_hardware_counter(mhpm_offset: u16, is_reset: bool) -> Result<(), StopCou
     Ok(())
 }
 
-/// Wrap for counter info
+/// Packed SBI PMU counter information.
+///
+/// See <https://docs.riscv.org/reference/sbi/v3.0/ext-pmu.html>.
 struct CounterInfo {
     /// Packed representation of counter information:
-    /// - Bits [11:0]: CSR number for hardware counters
-    /// - Bits [17:12]: Counter width (typically 63 for RV64)
-    /// - MSB: Set for firmware counters, clear for hardware counters
+    ///
+    /// - Bits `[11:0]`: CSR number for hardware counters.
+    /// - Bits `[17:12]`: One less than the hardware counter's width in bits.
+    /// - MSB: Set for firmware counters, clear for hardware counters.
     inner: usize,
 }
 
@@ -961,8 +955,9 @@ impl Default for CounterInfo {
 #[derive(Clone, Copy)]
 pub struct EventIdx {
     /// Packed representation of event information:
-    /// - Bits [15:0]: Event code
-    /// - Bits [19:16]: Event type
+    ///
+    /// - Bits `[15:0]`: Event code.
+    /// - Bits `[19:16]`: Event type.
     inner: usize,
 }
 
@@ -995,19 +990,19 @@ impl EventIdx {
         self.inner & 0xFFFF
     }
 
-    /// Extracts the cache ID for HARDWARE_CACHE events (13 bits, [15:3])
+    /// Returns the cache ID for `HARDWARE_CACHE` events (bits `[15:3]`).
     #[inline]
     const fn cache_id(&self) -> usize {
         (self.inner >> 3) & 0x1FFF
     }
 
-    /// Extracts the cache operation ID (2 bits, [2:1])
+    /// Returns the cache operation ID (bits `[2:1]`).
     #[inline]
     const fn cache_op_id(&self) -> usize {
         (self.inner >> 1) & 0x3
     }
 
-    /// Extracts the cache result ID (1 bit, [0])
+    /// Returns the cache result ID (bit `[0]`).
     #[inline]
     const fn cache_result_id(&self) -> usize {
         self.inner & 0x1
@@ -1072,14 +1067,14 @@ impl EventIdx {
             && event_code < firmware_event::PLATFORM)
             || event_code >= firmware_event::PLATFORM
         {
-            // TODO:Currently RustSBI Prototyper does not support PLATFORM practice
+            // Platform-specific firmware events are not implemented.
             return false;
         }
         true
     }
 }
 
-/// event to mhpmcounter map
+/// A mapping from an event-code range to supported hardware counters.
 #[derive(Debug)]
 pub struct EventToCounterMap {
     counters_mask: u32,   // Bitmask of supported counters

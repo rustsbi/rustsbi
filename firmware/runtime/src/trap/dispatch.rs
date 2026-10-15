@@ -24,17 +24,27 @@ pub(super) unsafe extern "C" fn trap_dispatch(saved: &mut SavedTrap) {
     let frame = &mut saved.frame;
     let info = &saved.info;
     match CauseValue::from(info.cause).cause() {
-        TrapCause::Interrupt(interrupt) => match interrupt {
-            Interrupt::MachineSoftware => handlers::software_interrupt(frame),
-            Interrupt::MachineTimer => handlers::timer_interrupt(),
-            Interrupt::MachineExternal => handlers::external_interrupt(frame),
-            _ => {
-                let code = info.cause & !(1usize << (usize::BITS - 1));
-                if !crate::machine_irq::get().is_some_and(|policy| policy.handle_interrupt(code)) {
-                    fatal(&frame.general, info);
+        TrapCause::Interrupt(interrupt) => {
+            // SAFETY: Runtime entry keeps MIE clear throughout interrupt dispatch.
+            let irq = unsafe { crate::irq::LocalIrqDisabled::assume_disabled() };
+            match interrupt {
+                Interrupt::MachineSoftware => handlers::software_interrupt(frame, &irq),
+                Interrupt::MachineTimer => {
+                    crate::boot::timer()
+                        .expect("Timer service not published")
+                        .interrupt(&irq);
+                }
+                Interrupt::MachineExternal => handlers::external_interrupt(frame, &irq),
+                _ => {
+                    let code = info.cause & !(1usize << (usize::BITS - 1));
+                    if !crate::machine_irq::get()
+                        .is_some_and(|policy| policy.handle_interrupt(code))
+                    {
+                        fatal(&frame.general, info);
+                    }
                 }
             }
-        },
+        }
         TrapCause::Exception(exception) => {
             let privilege = match info.origin() {
                 machine::Privilege::Machine => {
@@ -62,14 +72,7 @@ fn handle_lower_exception(
     privilege: machine::SupervisorPrivilege,
 ) {
     if let Some(counters) = crate::events::get() {
-        match exception {
-            Exception::IllegalInstruction => counters.record_illegal_instruction(),
-            Exception::LoadMisaligned => counters.record_misaligned_load(),
-            Exception::StoreMisaligned => counters.record_misaligned_store(),
-            Exception::LoadAccess => counters.record_access_load(),
-            Exception::StoreAccess => counters.record_access_store(),
-            _ => {}
-        }
+        counters.record(exception);
     }
     // Guests always forward to HS or VS; their ecalls never invoke machine SBI.
     let result = if info.virtualized() {
@@ -107,7 +110,7 @@ fn fatal(registers: &GeneralRegs, info: &TrapInfo) -> ! {
                 .expect("aligned fail-stop vector"),
             TargetVectorMode::Direct,
         ));
-        machine::InterruptEnable::write(machine::InterruptEnableWriteValue::disabled());
+        machine::InterruptEnable::write(csr::values::trap::InterruptSet::empty());
     }
     #[cfg(target_pointer_width = "32")]
     let status_high = usize::from(info.status_high);

@@ -6,28 +6,6 @@ pub(crate) trait Value: Copy {
     fn bits(self) -> usize;
 }
 
-/// A CSR whose typed value can be obtained by an ordinary CSR read.
-/// Registers with dedicated read operations omit this implementation.
-pub trait Readable {
-    /// Architectural CSR address.
-    const NUMBER: u16;
-    /// Immutable register snapshot.
-    type Value;
-    /// Decodes the instruction result, preserving unknown field encodings.
-    fn decode(bits: usize) -> Self::Value;
-}
-
-/// A CSR whose typed value can be encoded for an ordinary whole-register write.
-/// Registers with dedicated write operations omit this implementation.
-pub trait Writeable {
-    /// Architectural CSR address.
-    const NUMBER: u16;
-    /// Complete register write value.
-    type Value;
-    /// Encodes a typed write value without accessing hardware.
-    fn encode(value: Self::Value) -> usize;
-}
-
 /// A typed field readable from a register snapshot.
 pub trait ReadField<R> {
     type Value;
@@ -58,7 +36,7 @@ pub(crate) unsafe fn read<const CSR: u16>() -> usize {
         bits
     }
     #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-    panic!("CSR access requires RISC-V")
+    unimplemented!("CSR access requires RISC-V")
 }
 
 /// Writes an encoded operand to the selected CSR.
@@ -78,7 +56,7 @@ pub(crate) unsafe fn write<const CSR: u16>(bits: usize) {
     #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
     {
         let _ = bits;
-        panic!("CSR access requires RISC-V");
+        unimplemented!("CSR access requires RISC-V");
     }
 }
 
@@ -100,7 +78,7 @@ mod tests {
         let read = machine::StatusReadValue::from_bits(bits);
         assert_eq!(read.read::<machine::MPP>(), machine::Privilege::Unknown(2));
         let mut write = machine::StatusWriteValue::from_bits(bits);
-        write.write::<machine::MIE>(machine::InterruptState::Enabled);
+        write.write::<machine::MIE>(machine::Interrupt::Enabled);
         assert_eq!(usize::from(write), bits | (1 << 3));
         assert_eq!(read.bits(), bits);
     }
@@ -109,10 +87,7 @@ mod tests {
     fn independent_write_value_has_typed_privilege() {
         let value = machine::StatusWriteValue::for_return(machine::TargetPrivilege::Supervisor);
         assert_eq!(value.read::<machine::MPP>(), machine::Privilege::Supervisor);
-        assert_eq!(
-            value.read::<machine::MIE>(),
-            machine::InterruptState::Disabled
-        );
+        assert_eq!(value.read::<machine::MIE>(), machine::Interrupt::Disabled);
     }
 
     #[test]

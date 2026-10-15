@@ -2,8 +2,11 @@
 
 pub(crate) mod allwinner;
 
-use runtime::memory::{MemoryRegistry, SupervisorMemory};
-use runtime::rustsbi::VendorSBI;
+use runtime::{
+    Result,
+    memory::{MemoryRegistry, SupervisorMemory},
+    rustsbi::{self, VendorSBI},
+};
 
 use crate::platform::allwinner::v821::V821;
 
@@ -13,7 +16,7 @@ pub(crate) struct Extension {
 }
 
 impl Extension {
-    pub(crate) fn bind(v821: Option<V821>, memory: &mut MemoryRegistry) -> runtime::Result<Self> {
+    pub(crate) fn bind(v821: Option<V821>, memory: &mut MemoryRegistry) -> Result<Self> {
         let v821 = v821
             .map(|platform| allwinner::v821::Extension::bind(platform, memory))
             .transpose()?;
@@ -23,7 +26,7 @@ impl Extension {
 
 /// Vendor-specific extension set selected for the current platform.
 #[derive(VendorSBI)]
-#[rustsbi(crate = runtime::rustsbi)]
+#[rustsbi(crate = rustsbi)]
 pub(crate) enum Vendor {
     Allwinner(allwinner::v821::Extensions),
 }

@@ -3,7 +3,10 @@
 //!
 //! [OpenSBI K1 platform header]: https://github.com/riscv-software-src/opensbi/blob/35511bc6ee1c9c17b6a89b44c52e2044bb51b979/platform/generic/include/spacemit/k1.h
 
-use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
+use runtime::{
+    Result,
+    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+};
 
 #[repr(usize)]
 enum Register {
@@ -17,7 +20,7 @@ impl ResetVectorRegisters {
     pub(super) fn acquire(
         memory: &mut MemoryRegistry,
         [cluster0, cluster1]: [DeviceRegisterRange; 2],
-    ) -> runtime::Result<Self> {
+    ) -> Result<Self> {
         let cluster0 = memory.acquire(cluster0)?;
         let cluster1 = memory.acquire(cluster1)?;
         Ok(Self([cluster0, cluster1]))

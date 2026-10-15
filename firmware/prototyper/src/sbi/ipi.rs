@@ -8,15 +8,16 @@
 #![forbid(unsafe_code)]
 
 use super::pmu::pmu_firmware_counter_increment;
-use crate::driver::ipi::IpiDevice;
-use crate::driver::{IpiError, IpiRequest};
 use crate::sbi::hart_local::hart_local;
 use crate::sbi::rfence;
 use alloc::vec::Vec;
 use core::sync::atomic::Ordering::{Acquire, Release};
-use csr::machine;
-use runtime::hart::{self, HartId};
-use runtime::rustsbi::{HartMask, SbiRet};
+use runtime::{
+    Result,
+    hart::{self, HartId},
+    ipi::{Ipi, IpiRequest},
+    rustsbi::{self, HartMask, SbiRet},
+};
 use sbi_spec::pmu::firmware_event;
 
 /// IPI type for supervisor software interrupt.
@@ -25,18 +26,19 @@ pub(crate) const IPI_TYPE_SSOFT: u8 = 1 << 0;
 pub(crate) const IPI_TYPE_FENCE: u8 = 1 << 1;
 
 /// SBI IPI extension.
+/// Owns Runtime's IPI state; without a device, the extension probes unavailable.
 pub struct SbiIpi {
-    device: &'static IpiDevice,
+    ipi: Ipi,
 }
 
-/// Delivers SBI work after Runtime acknowledges the device interrupt.
-struct RuntimeIpiHandler;
-static RUNTIME_IPI_HANDLER: RuntimeIpiHandler = RuntimeIpiHandler;
+impl rustsbi::Ipi for SbiIpi {
+    fn _rustsbi_probe(&self) -> usize {
+        usize::from(self.ipi.delivery().is_some())
+    }
 
-impl runtime::rustsbi::Ipi for SbiIpi {
     /// Sends IPIs to the specified harts.
     #[inline]
-    fn send_ipi(&self, hart_mask: runtime::rustsbi::HartMask) -> SbiRet {
+    fn send_ipi(&self, hart_mask: HartMask) -> SbiRet {
         pmu_firmware_counter_increment(firmware_event::IPI_SENT);
         let requests = match target_requests(hart_mask) {
             Ok(requests) => requests,
@@ -48,7 +50,7 @@ impl runtime::rustsbi::Ipi for SbiIpi {
                 set_ipi_type(hart_id, IPI_TYPE_SSOFT);
             }
             // Always signal: pending bits can remain after a failed send.
-            if self.device.send_ipi(req).is_err() {
+            if self.ipi.send(req).is_err() {
                 return SbiRet::failed();
             }
         }
@@ -58,17 +60,16 @@ impl runtime::rustsbi::Ipi for SbiIpi {
 }
 
 impl SbiIpi {
-    /// Adapts a published machine IPI device to the SBI IPI extension.
-    pub(crate) fn new(device: &'static IpiDevice) -> Self {
-        Self { device }
+    pub(crate) fn new(ipi: Ipi) -> Self {
+        Self { ipi }
+    }
+
+    pub(crate) fn ipi(&self) -> &Ipi {
+        &self.ipi
     }
 
     /// Sends an IPI carrying a remote fence operation.
-    pub fn send_ipi_by_fence(
-        &self,
-        hart_mask: runtime::rustsbi::HartMask,
-        ctx: rfence::RFenceContext,
-    ) -> SbiRet {
+    pub fn send_ipi_by_fence(&self, hart_mask: HartMask, ctx: rfence::RFenceContext) -> SbiRet {
         let current_hart = HartId::current()
             .expect("BUG: current hart is not in the boot topology")
             .as_usize();
@@ -91,7 +92,9 @@ impl SbiIpi {
             remote.set(ctx);
 
             set_ipi_type(hart_id, IPI_TYPE_FENCE);
-            if self.send_ipi(hart_id).is_ok() {
+            let send_result = HartId::from_raw(hart_id)
+                .and_then(|hart| self.ipi.send(IpiRequest::for_hart(hart)));
+            if send_result.is_ok() {
                 continue;
             }
             // Cancel this source's queued request; a receiver that already
@@ -110,30 +113,20 @@ impl SbiIpi {
 
         result
     }
-
-    /// Sends a firmware IPI to a hart.
-    #[inline]
-    pub(crate) fn send_ipi(&self, hart_id: usize) -> Result<(), IpiError> {
-        self.device.send_ipi(IpiRequest::for_hart(hart_id))
-    }
 }
 
-impl runtime::ipi::IpiHandler for RuntimeIpiHandler {
-    fn deliver_current(&self) {
-        let ipi_type = get_and_reset_ipi_type();
-        if (ipi_type & IPI_TYPE_SSOFT) != 0 {
-            pmu_firmware_counter_increment(firmware_event::IPI_RECEIVED);
-            machine::InterruptPending::set::<machine::SSIP>();
-        }
-        if (ipi_type & IPI_TYPE_FENCE) != 0 {
-            rfence::rfence_handler();
-        }
+/// Delivers SBI work after Runtime acknowledges the device interrupt.
+/// Returns whether Runtime must notify the supervisor.
+pub(crate) fn deliver_current() -> bool {
+    let ipi_type = get_and_reset_ipi_type();
+    let notify_supervisor = (ipi_type & IPI_TYPE_SSOFT) != 0;
+    if notify_supervisor {
+        pmu_firmware_counter_increment(firmware_event::IPI_RECEIVED);
     }
-}
-
-/// Returns the Runtime firmware-work adapter.
-pub(crate) fn runtime_handler() -> &'static dyn runtime::ipi::IpiHandler {
-    &RUNTIME_IPI_HANDLER
+    if (ipi_type & IPI_TYPE_FENCE) != 0 {
+        rfence::rfence_handler();
+    }
+    notify_supervisor
 }
 
 /// Marks `event_id` pending for `hart_id`, returning the previous set.
@@ -161,7 +154,7 @@ fn target_requests(hart_mask: HartMask) -> Result<impl Iterator<Item = IpiReques
     if base == usize::MAX {
         // Ignore mask and expand all available harts into ordinary windows.
         for hart in HartId::all().filter(|hart| available(*hart)) {
-            let singleton = IpiRequest::for_hart(hart.as_usize());
+            let singleton = IpiRequest::for_hart(hart);
             if !requests
                 .last_mut()
                 .is_some_and(|request| request.try_merge(singleton))
@@ -181,7 +174,12 @@ fn target_requests(hart_mask: HartMask) -> Result<impl Iterator<Item = IpiReques
             }
         }
         // An ordinary mask needs one window, without a heap allocation.
-        single = (active_mask != 0).then_some(IpiRequest::from_mask_base(active_mask, base));
+        if active_mask != 0 {
+            single = Some(
+                IpiRequest::from_mask_base(active_mask, base)
+                    .map_err(|_| SbiRet::invalid_param())?,
+            );
+        }
     }
     Ok(single.into_iter().chain(requests))
 }

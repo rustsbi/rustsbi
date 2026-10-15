@@ -24,5 +24,7 @@ pub(super) fn wake(hart: HartId) -> Result<()> {
     {
         return Ok(());
     }
-    crate::ipi::get().ok_or(Error::IoError)?.send(hart)
+    crate::boot::ipi()
+        .ok_or(Error::IoError)?
+        .send(crate::ipi::IpiRequest::for_hart(hart))
 }

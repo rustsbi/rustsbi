@@ -1,11 +1,12 @@
 //! Error context for boot-hart platform initialization.
 
 use core::fmt;
+use runtime::{Error, Result};
 
 #[derive(Debug)]
 pub(super) struct InitError {
     operation: &'static str,
-    source: runtime::Error,
+    source: Error,
 }
 
 impl fmt::Display for InitError {
@@ -18,14 +19,12 @@ impl fmt::Display for InitError {
     }
 }
 
-pub(super) type Result<T> = core::result::Result<T, InitError>;
-
 pub(super) trait ResultContext<T> {
-    fn during(self, operation: &'static str) -> Result<T>;
+    fn during(self, operation: &'static str) -> Result<T, InitError>;
 }
 
-impl<T> ResultContext<T> for runtime::Result<T> {
-    fn during(self, operation: &'static str) -> Result<T> {
+impl<T> ResultContext<T> for Result<T> {
+    fn during(self, operation: &'static str) -> Result<T, InitError> {
         self.map_err(|source| InitError { operation, source })
     }
 }
