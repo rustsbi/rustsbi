@@ -7,9 +7,10 @@ pub mod machine {
     csr! {
         pub struct ExtendedStatusValue(usize);
 
-        /// T-Head extended machine status (`mxstatus`).
+        /// T-Head extended status register (`mxstatus`).
         ///
-        /// <https://github.com/riscv-software-src/opensbi/blob/master/platform/generic/include/thead/c9xx_encoding.h>
+        /// See
+        /// <https://github.com/riscv-software-src/opensbi/blob/master/platform/generic/include/thead/c9xx_encoding.h>.
         ExtendedStatus { 0x7c0, r: ExtendedStatusValue }
     }
 }

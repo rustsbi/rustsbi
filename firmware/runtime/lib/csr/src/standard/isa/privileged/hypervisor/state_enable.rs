@@ -2,8 +2,8 @@
 use crate::{macros::csr, values::StateEnableSet};
 
 csr! {
-    /// State access permitted to virtual modes (`hstateen0`).
+    /// Hypervisor state-enable register zero (`hstateen0`).
     ///
-    /// <https://docs.riscv.org/reference/isa/priv/smstateen.html>
+    /// See <https://docs.riscv.org/reference/isa/priv/smstateen.html>.
     StateEnable0 { 0x60c, r: StateEnableSet }
 }

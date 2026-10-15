@@ -2,8 +2,8 @@
 use crate::{macros::csr, values::StateEnableSet};
 
 csr! {
-    /// State access permitted to lower privilege modes (`mstateen0`).
+    /// Machine state-enable register zero (`mstateen0`).
     ///
-    /// <https://docs.riscv.org/reference/isa/priv/smstateen.html>
+    /// See <https://docs.riscv.org/reference/isa/priv/smstateen.html>.
     StateEnable0 { 0x30c, r: StateEnableSet }
 }

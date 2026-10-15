@@ -2,8 +2,9 @@
 use crate::{macros::csr, values::counter::CounterSet};
 
 csr! {
-    /// Counter increment inhibition (`mcountinhibit`).
+    /// Machine counter-inhibit register (`mcountinhibit`).
     ///
-    /// <https://docs.riscv.org/reference/isa/priv/machine.html#mcountinhibit>
+    /// See
+    /// <https://docs.riscv.org/reference/isa/priv/machine.html#mcountinhibit>.
     CounterInhibit { 0x320, r: CounterSet }
 }

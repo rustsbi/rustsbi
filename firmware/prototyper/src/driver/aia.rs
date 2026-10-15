@@ -7,8 +7,8 @@
 
 use alloc::boxed::Box;
 
+use csr::aia::machine::Mtopei;
 use riscv_aia::Iid;
-use riscv_aia::register::mtopei;
 use runtime::hart::HartId;
 use runtime::memory::{MemoryRegistry, MmioRegion};
 
@@ -57,7 +57,9 @@ impl ImsicInterrupt {
 
 impl runtime::irq::ExternalInterrupt for ImsicInterrupt {
     fn claim_ipi(&self) -> bool {
-        mtopei::claim().iid() == Some(self.ipi_iid)
+        Mtopei::claim()
+            .iid()
+            .is_some_and(|iid| iid.get() == self.ipi_iid.number())
     }
 }
 
@@ -93,7 +95,7 @@ impl IpiBackend for ImsicIpi {
         {
             return Err(IpiError::Failed);
         }
-        let _ = mtopei::claim();
+        let _ = Mtopei::claim();
         Ok(())
     }
 
