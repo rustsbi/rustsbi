@@ -8,7 +8,8 @@ pub fn has_hypervisor() -> bool {
     machine::Isa::read().has_hypervisor()
 }
 
-/// Returns whether this hart reports the requested privilege mode in `misa`.
+/// Checks support for the requested privilege mode.
+/// M-mode is always supported; S/U support follows the bits reported by `misa`.
 pub fn supports_privilege(mode: riscv::register::mstatus::MPP) -> bool {
     use riscv::register::mstatus::MPP;
     match mode {
