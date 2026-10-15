@@ -1,5 +1,6 @@
 //! Optional hardware wakeup for harts that have not entered firmware.
 
+use crate::{Error, Result};
 use spin::Once;
 
 use super::HartId;
@@ -17,16 +18,11 @@ pub fn install_wakeup(device: Option<&'static dyn HartWake>) {
     WAKEUP.call_once(|| device);
 }
 
-pub(super) fn wake(hart: HartId) -> Result<(), super::StartError> {
+pub(super) fn wake(hart: HartId) -> Result<()> {
     if let Some(device) = WAKEUP.get().copied().flatten()
-        && device
-            .wake(hart)
-            .map_err(|_| super::StartError::WakeFailed)?
+        && device.wake(hart)?
     {
         return Ok(());
     }
-    crate::ipi::get()
-        .ok_or(super::StartError::WakeFailed)?
-        .send(hart)
-        .map_err(|_| super::StartError::WakeFailed)
+    crate::ipi::get().ok_or(Error::IoError)?.send(hart)
 }

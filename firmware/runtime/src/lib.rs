@@ -1,19 +1,19 @@
 //! Runtime support for RustSBI firmware.
 //!
 //! [`PlatformDescription`] validates the device tree received at firmware
-//! entry. Policy firmware may inspect that description, while [`memory`]
-//! derives physical-memory access from it.
+//! entry.
+//! Policy firmware may inspect that description, while [`memory`] derives
+//! physical-memory access from it.
 
 #![no_std]
 #![warn(missing_docs)]
 
 extern crate alloc;
 
-use core::fmt;
-
 pub mod boot;
 pub mod csr;
 mod device_tree;
+mod error;
 pub mod events;
 pub mod hart;
 pub mod heap;
@@ -28,40 +28,15 @@ mod sunxi_rtc_v203;
 pub mod timer;
 pub mod trap;
 
+pub use error::{Error, Result};
+
 pub use device_tree::{DeviceTreeHandoff, PlatformDescription, PlatformView, node_is_enabled};
 /// Read-only Flattened Devicetree types used by firmware policy.
 pub use fdt::{Fdt, node::FdtNode, standard_nodes::Compatible};
 pub use macros::entry;
 /// The original RustSBI library, re-exported under its own name.
 ///
-/// Firmware policy crates receive RustSBI transitively through this crate
-/// and refer to it as `runtime::rustsbi`.
+/// Firmware policy crates receive RustSBI transitively through this crate and
+/// refer to it as `runtime::rustsbi`.
 pub use rustsbi;
 pub use spacemit_k1::SpacemitK1Registers;
-
-/// An error returned by a Runtime operation.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Error {
-    /// An argument is invalid for the requested operation.
-    InvalidArgs,
-    /// The caller does not have access to the requested resource.
-    AccessDenied,
-    /// The requested resource is unavailable.
-    NotEnoughResources,
-    /// Address arithmetic overflowed.
-    Overflow,
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::InvalidArgs => "invalid argument",
-            Self::AccessDenied => "access denied",
-            Self::NotEnoughResources => "resource unavailable",
-            Self::Overflow => "address overflow",
-        })
-    }
-}
-
-/// A result returned by a Runtime operation.
-pub type Result<T> = core::result::Result<T, Error>;

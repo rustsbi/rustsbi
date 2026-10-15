@@ -2,6 +2,7 @@
 //!
 //! SBI HSM policy and ABI translation belong to the firmware.
 
+use crate::Result;
 mod lifecycle;
 mod local;
 mod set;
@@ -14,45 +15,36 @@ pub(crate) use lifecycle::{
     ControlTransfer, HartEvent, current_hart, take_control_transfer, take_local_event,
 };
 pub use lifecycle::{
-    HartState, ResumeError, ResumeTicket, StageError, StartError, StartOutcome, StopError,
-    SuspendError, begin_nonretentive_resume, can_receive_ipi, resume_current_retentive,
-    stage_current, start, status, stop_current, suspend_current,
+    HartState, ResumeTicket, StartOutcome, begin_nonretentive_resume, can_receive_ipi,
+    resume_current_retentive, stage_current, start, status, stop_current, suspend_current,
 };
-pub use local::{HartLocal, HartLocalError};
+pub use local::HartLocal;
 pub use set::{HartSet, HartSetIter};
 
 pub(crate) use topology::{HART_TABLE, HartEntry, publish};
 
 /// A validated RISC-V hart identifier.
 ///
-/// Hardware IDs may be sparse. Runtime assigns each enabled hart a compact
-/// index once during boot; devices and SBI handoffs retain the hardware ID.
+/// Hardware IDs may be sparse.
+/// Runtime assigns each enabled hart a compact index once during boot; devices
+/// and SBI handoffs retain the hardware ID.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct HartId {
     raw: usize,
     index: usize,
 }
 
-/// Failure to turn a hardware hart identifier into a configured [`HartId`].
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum HartIdError {
-    /// Boot has not published the hart topology yet.
-    Unavailable,
-    /// The identifier does not belong to an enabled hart.
-    Unknown,
-}
-
 impl HartId {
     /// Reads and validates the current hart's `mhartid`.
     #[inline]
-    pub fn current() -> Result<Self, HartIdError> {
+    pub fn current() -> Result<Self> {
         use csr::machine;
         Self::from_raw(machine::HartId::read().into())
     }
 
     /// Validates a raw hardware hart identifier.
     #[inline]
-    pub fn from_raw(raw: usize) -> Result<Self, HartIdError> {
+    pub fn from_raw(raw: usize) -> Result<Self> {
         topology::from_raw(raw)
     }
 

@@ -55,51 +55,46 @@ impl IpiRequest {
     }
 }
 
-/// Low-level error category for one sPI backend operation.
+/// Operational failure of a firmware IPI backend.
 ///
-/// Important:
-/// - `InvalidParam` is intentionally absent.
-///   Raw `(hart_mask, hart_mask_base)` decoding and target validation belong to
-///   the SBI adaptation layer.
-/// - Requests reaching this backend have already passed SBI target validation.
-/// - The backend therefore only reports unspecified operational failure.
+/// The SBI adaptation layer validates hart-mask requests before dispatch.
+/// A backend failure can occur after some targets have already been signaled.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum IpiError {
     /// Mapped by the SBI adaptation layer to `SBI_ERR_FAILED`.
     Failed,
 }
 
-/// A backend that implements one ordinary backend-side sPI send operation.
+/// A firmware IPI transport for validated hart-mask windows.
 ///
-/// This operation follows SBI decoding and validation: `InvalidParam` and the
-/// special "all available harts" encoding are not backend-visible outcomes or
-/// request forms; higher layers split all-hart targets into ordinary windows.
+/// The SBI adaptation layer validates targets and expands broadcasts into
+/// ordinary windows before calling the backend.
 ///
-/// Calls may run concurrently on different harts. Implementations must
-/// synchronize any mutable software state internally; independent MMIO
-/// writes and hart-local interrupt claims do not require a global lock.
+/// Calls may run concurrently on different harts.
+/// Implementations must synchronize any mutable software state internally;
+/// independent MMIO writes and hart-local interrupt claims do not require a
+/// global lock.
 pub(crate) trait IpiBackend {
     /// Sends supervisor IPIs to the targets of one ordinary request window.
     ///
-    /// Returns `Ok(())` if all targets were signaled, or `Err(IpiError::Failed)`
-    /// for an unspecified or unknown operational failure; some targets may
-    /// already have been signaled when an error is returned.
+    /// Returns `Ok(())` if all targets were signaled, or
+    /// `Err(IpiError::Failed)` for an unspecified or unknown operational
+    /// failure; some targets may already have been signaled when an error is
+    /// returned.
     ///
-    /// Requests have already been decoded, validated, and normalized by the
-    /// SBI adaptation layer, including expansion of "all available harts".
+    /// Requests have already been decoded, validated, and normalized by the SBI
+    /// adaptation layer, including expansion of "all available harts".
     fn send_ipi(&self, req: IpiRequest) -> Result<(), IpiError>;
 
-    /// *Internal function* that clears the firmware IPI pending register for
-    /// the specified hart.
+    /// Clears the specified hart's firmware IPI pending register.
     ///
-    /// This is an internal firmware operation, not an SBI function; it does
-    /// not clear the supervisor's SSIP bit or software event bookkeeping.
+    /// This is an internal firmware operation, not an SBI function; it does not
+    /// clear the supervisor's SSIP bit or software event bookkeeping.
     /// Returns `Failed` if the register cannot be cleared, including when a
     /// backend can only clear the calling hart and a remote hart was requested.
     fn clear_ipi(&self, hart_id: usize) -> Result<(), IpiError>;
 
-    /// *Internal function* that reports whether firmware IPIs arrive through
-    /// an IMSIC interrupt file.
+    /// Returns whether firmware IPIs arrive through an IMSIC interrupt file.
     ///
     /// This internal property selects the firmware interrupt handling path.
     fn is_imsic(&self) -> bool {
@@ -138,16 +133,16 @@ impl IpiDevice {
 }
 
 impl runtime::ipi::IpiDevice for IpiDevice {
-    fn send(&self, hart: HartId) -> Result<(), runtime::ipi::IpiError> {
+    fn send(&self, hart: HartId) -> runtime::Result<()> {
         self.send_ipi(IpiRequest::for_hart(hart.as_usize()))
-            .map_err(|_| runtime::ipi::IpiError)
+            .map_err(|_| runtime::Error::IoError)
     }
 
-    fn clear_current(&self) -> Result<(), runtime::ipi::IpiError> {
+    fn clear_current(&self) -> runtime::Result<()> {
         let hart = HartId::current()
-            .map_err(|_| runtime::ipi::IpiError)?
+            .map_err(|_| runtime::Error::IoError)?
             .as_usize();
-        self.clear_ipi(hart).map_err(|_| runtime::ipi::IpiError)
+        self.clear_ipi(hart).map_err(|_| runtime::Error::IoError)
     }
 }
 
