@@ -12,5 +12,6 @@ mod platform;
 mod pmu;
 mod reset;
 mod rfence;
+mod timer;
 
 mod trap;

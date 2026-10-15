@@ -1,14 +1,12 @@
 //! Test-kernel entry points and top-level test orchestration.
 //!
-//! The individual suites live in sibling modules.  Keeping this module to
-//! boot-time setup and the final result decision makes the execution order
-//! visible without hiding suite details in a single large function.
+//! The individual suites live in sibling modules.
 
 use core::arch::{asm, naked_asm};
 
 use sbi_testing::sbi;
 
-use crate::{console, misaligned, platform, pmu, reset, rfence, trap};
+use crate::{console, misaligned, platform, pmu, reset, rfence, timer, trap};
 
 const RISCV_HEAD_FLAGS: u64 = 0;
 const RISCV_HEADER_VERSION: u32 = 0x2;
@@ -120,6 +118,7 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     }
     .test();
 
+    timer::test(frequency);
     let console_result = console::test();
     pmu::test(smp);
     rfence::test(hartid, smp);
