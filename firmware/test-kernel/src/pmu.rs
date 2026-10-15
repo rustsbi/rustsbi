@@ -51,6 +51,26 @@ fn report_counters() {
     }
 }
 
+/// Runs a real trap while its firmware event counter is active.
+pub(crate) fn test_trap_counter(event: usize, trigger: impl FnOnce()) {
+    if sbi::probe_extension(sbi::Pmu).is_unavailable() {
+        trigger();
+        return;
+    }
+    let counter = configure_event(EventIdx::new_firmware_event(event).raw(), Flag::new(0b110));
+    trigger();
+    if let Some(counter) = counter {
+        let value = sbi::pmu_counter_fw_read(counter.value);
+        let stopped =
+            sbi::pmu_counter_stop(CounterMask::from_mask_base(1, counter.value), Flag::new(1));
+        assert!(stopped.is_ok());
+        assert!(
+            value.is_ok() && value.value > 0,
+            "PMU firmware trap event {event:#x} stayed zero after its exception"
+        );
+    }
+}
+
 /// Find an available counter of the right type before exercising an event.
 fn configure_event(event: usize, flags: Flag) -> Option<SbiRet> {
     let firmware = event >> 16 == 0xf;
@@ -326,8 +346,8 @@ impl StopFlagsParam for Flag {
 
 /// Decodes the packed value returned by `pmu_counter_get_info`.
 struct CounterInfo {
-    /// Bits [11:0] hold the CSR number, [17:12] the width, and the MSB marks
-    /// a firmware counter.
+    /// Bits [11:0] hold the CSR number, [17:12] the width, and the MSB marks a
+    /// firmware counter.
     inner: usize,
 }
 
