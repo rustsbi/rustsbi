@@ -1,8 +1,9 @@
 //! SBI extension implementations and the platform's published dispatcher.
 //!
 //! Platform boot selects the extension fields. Runtime calls the dispatcher
-//! through the original RustSBI trait; device ownership stays in the drivers.
+//! through the original RustSBI trait and borrows its timer and IPI objects.
 
+use runtime::rustsbi::{self, RustSBI};
 use spin::Once;
 
 pub mod console;
@@ -38,8 +39,8 @@ use sta::SbiSta;
 use suspend::SbiSuspend;
 use timer::SbiTimer;
 
-#[derive(runtime::rustsbi::RustSBI, Default)]
-#[rustsbi(dynamic, crate = runtime::rustsbi)]
+#[derive(RustSBI)]
+#[rustsbi(dynamic, crate = rustsbi)]
 pub struct SbiDispatcher {
     #[rustsbi(console)]
     pub(crate) console: Option<SbiConsole>,
@@ -50,9 +51,9 @@ pub struct SbiDispatcher {
     #[rustsbi(fwft)]
     pub(crate) fwft: Option<SbiFwft>,
     #[rustsbi(ipi)]
-    pub(crate) ipi: Option<SbiIpi>,
+    pub(crate) ipi: SbiIpi,
     #[rustsbi(timer)]
-    pub(crate) timer: Option<SbiTimer>,
+    pub(crate) timer: SbiTimer,
     #[rustsbi(hsm)]
     pub(crate) hsm: Option<SbiHsm>,
     #[rustsbi(reset)]
@@ -79,7 +80,19 @@ pub(crate) static SBI_DISPATCHER: Once<SbiDispatcher> = Once::new();
 
 /// Returns the ipi extension, if present.
 pub(crate) fn ipi() -> Option<&'static SbiIpi> {
-    SBI_DISPATCHER.get().and_then(|sbi| sbi.ipi.as_ref())
+    SBI_DISPATCHER
+        .get()
+        .map(|sbi| &sbi.ipi)
+        .filter(|sbi| sbi.ipi().delivery().is_some())
+}
+
+/// Returns the published timer for firmware counter reads.
+pub(crate) fn timer() -> &'static runtime::timer::Timer {
+    SBI_DISPATCHER
+        .get()
+        .expect("SBI dispatcher not initialized")
+        .timer
+        .timer()
 }
 
 /// Returns the hsm extension, if present.

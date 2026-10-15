@@ -65,8 +65,15 @@ impl InterruptPending {
     /// CSRRS excludes the external signal from the value used for the update.
     /// A separate read/write can latch that signal into software pending state.
     /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mip>.
+    ///
+    /// # Safety
+    ///
+    /// Execute in M-mode on the intended hart and coordinate pending-state
+    /// changes with its interrupt-delivery owner.
     #[inline]
-    pub fn set<F: crate::value::WriteField<InterruptPendingWriteValue, Value = PendingState>>() {
+    pub unsafe fn set<
+        F: crate::value::WriteField<InterruptPendingWriteValue, Value = PendingState>,
+    >() {
         let mut mask = InterruptPendingWriteValue::cleared();
         mask.write::<F>(PendingState::Pending);
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
@@ -83,7 +90,7 @@ impl InterruptPending {
         #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
         {
             let _ = mask;
-            panic!("CSR access requires RISC-V");
+            unimplemented!("CSR access requires RISC-V");
         }
     }
 
@@ -93,8 +100,15 @@ impl InterruptPending {
     /// signal.
     /// Clearing software SEIP does not clear an asserted external signal.
     /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mip>.
+    ///
+    /// # Safety
+    ///
+    /// Execute in M-mode on the intended hart and coordinate pending-state
+    /// changes with its interrupt-delivery owner.
     #[inline]
-    pub fn clear<F: crate::value::WriteField<InterruptPendingWriteValue, Value = PendingState>>() {
+    pub unsafe fn clear<
+        F: crate::value::WriteField<InterruptPendingWriteValue, Value = PendingState>,
+    >() {
         let mut mask = InterruptPendingWriteValue::cleared();
         mask.write::<F>(PendingState::Pending);
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
@@ -111,7 +125,7 @@ impl InterruptPending {
         #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
         {
             let _ = mask;
-            panic!("CSR access requires RISC-V");
+            unimplemented!("CSR access requires RISC-V");
         }
     }
 }

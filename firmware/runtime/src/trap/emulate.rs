@@ -1,5 +1,6 @@
-//! Complete instruction emulation. Only successful operations advance the PC.
-use csr::{machine, supervisor, values::counter::Counter};
+//! Complete instruction emulation.
+//! Only successful operations advance the PC.
+use csr::{machine, supervisor, user, values::counter::Counter};
 
 use super::{
     Error, decode,
@@ -35,14 +36,22 @@ pub(super) fn emulate_time_read(frame: &mut TrapFrame, info: &TrapInfo) -> Resul
     let op = decode::decode_time_read(raw).ok_or(Error::Unsupported)?;
     // https://docs.riscv.org/reference/isa/priv/supervisor.html#scounteren
     // Emulation must preserve the original mode's counter-access restrictions.
-    if !machine::CounterEnable::read().contains(Counter::Time)
+    let machine_counters = machine::CounterEnable::read();
+    let supervisor_counters = supervisor::CounterEnable::read();
+    if !machine_counters.contains(Counter::Time)
         || (info.origin() == machine::Privilege::User
-            && !supervisor::CounterEnable::read().contains(Counter::Time))
+            && !supervisor_counters.contains(Counter::Time))
     {
         return Err(Error::Unsupported);
     }
-    let value = crate::timer::read_time(op.word).ok_or(Error::Unsupported)?;
-    frame.general.write(op.rd, value);
+    let timer = crate::boot::timer().ok_or(Error::Unsupported)?;
+    let value = match op.csr {
+        user::Time::NUMBER => timer.read_time(),
+        #[cfg(target_pointer_width = "32")]
+        user::TimeHigh::NUMBER => timer.read_time_high(),
+        _ => return Err(Error::Unsupported),
+    };
+    frame.general.write(op.rd, value.ok_or(Error::Unsupported)?);
     frame.epc = frame.epc.wrapping_add(len);
     Ok(())
 }

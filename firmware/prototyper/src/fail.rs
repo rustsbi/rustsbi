@@ -7,7 +7,7 @@ compile_error!("feature \"payload\" and feature \"jump\" cannot be enabled at th
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    use ::riscv::register::*;
+    use riscv::register::*;
     let hart_id = HartId::current()
         .map(|hart| hart.as_usize())
         .unwrap_or(usize::MAX);

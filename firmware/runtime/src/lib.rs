@@ -11,14 +11,16 @@
 extern crate alloc;
 
 pub mod boot;
-pub mod csr;
+mod csr;
+pub mod debug;
 mod device_tree;
 mod error;
 pub mod events;
+pub mod fwft;
 pub mod hart;
 pub mod heap;
 pub mod ipi;
-pub mod irq;
+mod irq;
 pub mod machine_irq;
 pub mod memory;
 mod recovery;

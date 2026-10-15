@@ -147,7 +147,7 @@ macro_rules! trap_vector {
                 // A return to an M-mode payload republishes its Runtime stack;
                 // a nested Runtime return keeps mscratch zero.
                 load!("t1", "{runtime_stack}", "sp"),
-                "li t2, {mpp_mask}",
+                "li t2, 3 << 11", // mstatus.MPP = M-mode
                 "and t3, t0, t2",
                 "beq t2, t3, 4f",
                 // mret clears MPRV on a lower-mode return. Clear it before
@@ -218,7 +218,6 @@ macro_rules! trap_vector {
                     #[cfg(target_pointer_width = "32")]
                     { 0 }
                 },
-                mpp_mask = const 3 << 11,
                 high = const $high,
                 hypervisor = const $hypervisor,
                 dispatch = sym super::dispatch::trap_dispatch,

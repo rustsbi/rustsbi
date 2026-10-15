@@ -7,8 +7,11 @@
 
 #![forbid(unsafe_code)]
 
-use runtime::hart::HartId;
-use runtime::rustsbi::{HartMask, SbiRet};
+use runtime::{
+    Result,
+    hart::HartId,
+    rustsbi::{Fence, HartMask, SbiRet},
+};
 use sbi_spec::pmu::firmware_event;
 
 use crate::cfg::{PAGE_SIZE, TLB_FLUSH_LIMIT};
@@ -128,7 +131,7 @@ fn supports_hypervisor_extension() -> bool {
     super::features::hart_has_extension(hart_id, super::features::Extension::Hypervisor)
 }
 
-impl runtime::rustsbi::Fence for SbiRFence {
+impl Fence for SbiRFence {
     /// Remote instruction fence for specified harts.
     fn remote_fence_i(&self, hart_mask: HartMask) -> SbiRet {
         pmu_firmware_counter_increment(firmware_event::FENCE_I_SENT);

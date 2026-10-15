@@ -11,9 +11,12 @@
 
 #![forbid(unsafe_code)]
 
-use runtime::boot::NextStage;
-use runtime::hart::{self, HartId, HartState};
-use runtime::rustsbi::{Hsm, SbiRet};
+use runtime::{
+    Result,
+    boot::NextStage,
+    hart::{self, HartId, HartState},
+    rustsbi::{Hsm, SbiRet},
+};
 use sbi_spec::hsm::{hart_state, suspend_type};
 
 /// SBI HSM extension composed from platform policy and Runtime hart mechanism.

@@ -1,5 +1,7 @@
 //! Entry for a K1 hart released from hardware reset after platform publication.
 
+use runtime::boot;
+
 /// Enters firmware on K1 without a previous-stage register handoff.
 ///
 /// # Safety
@@ -12,7 +14,7 @@ pub(crate) unsafe extern "C" fn warm_entry() -> ! {
         "la a0, {initialize}",
         "tail {entry}",
         initialize = sym initialize,
-        entry = sym runtime::boot::k1_warm_entry,
+        entry = sym boot::k1_warm_entry,
     )
 }
 

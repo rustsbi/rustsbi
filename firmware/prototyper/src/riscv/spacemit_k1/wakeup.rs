@@ -6,10 +6,13 @@
 //!
 //! [OpenSBI implementation]: https://github.com/spacemit-com/opensbi/blob/fc02b891b17b8bdc1273a39f80aa374cd99ba9a2/lib/utils/psci/spacemit/plat/k1x/underly_implement.c
 
-use runtime::memory::{MemoryRegistry, MmioRegion};
+use runtime::{
+    Error, Result, SpacemitK1Registers,
+    hart::HartId,
+    memory::{MemoryRegistry, MmioRegion},
+};
 
 use crate::driver::HartWake;
-use runtime::hart::HartId;
 
 pub(super) struct K1Wakeup {
     status: MmioRegion,
@@ -19,27 +22,24 @@ pub(super) struct K1Wakeup {
 impl K1Wakeup {
     pub(super) fn acquire(
         memory: &mut MemoryRegistry,
-        registers: runtime::SpacemitK1Registers,
-    ) -> runtime::Result<Self> {
+        registers: SpacemitK1Registers,
+    ) -> Result<Self> {
         let [cluster0, cluster1] = registers.wakeup_controls();
         Ok(Self {
             status: memory.acquire(registers.core_status())?,
-            controls: [
-                memory.acquire(cluster0)?,
-                memory.acquire(cluster1)?,
-            ],
+            controls: [memory.acquire(cluster0)?, memory.acquire(cluster1)?],
         })
     }
 }
 
 impl HartWake for K1Wakeup {
-    fn wake(&self, hart: HartId) -> runtime::Result<bool> {
+    fn wake(&self, hart: HartId) -> Result<bool> {
         let hart_id = hart.as_usize();
         let caller = HartId::current()
-            .map_err(|_| runtime::Error::InvalidArgs)?
+            .map_err(|_| Error::InvalidArgs)?
             .as_usize();
         if hart_id >= 8 || caller >= 8 {
-            return Err(runtime::Error::InvalidArgs);
+            return Err(Error::InvalidArgs);
         }
         let c2_bit = 6 + (hart_id / 4) * 16 + (hart_id % 4) * 3;
         if self.status.read::<u32>(0)? & (1 << c2_bit) == 0 {

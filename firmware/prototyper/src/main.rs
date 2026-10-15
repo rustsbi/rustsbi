@@ -16,15 +16,18 @@ mod platform;
 mod riscv;
 mod sbi;
 
-use crate::driver::{ipi, timer};
 use crate::firmware::BootInfo;
 use crate::sbi::features::{
     check_next_stage_privilege, detect_hart_features, hart_mhpm_mask, hart_privileged_version,
 };
 use crate::sbi::hart_local;
 use ::riscv::register::mstatus::MPP;
-use runtime::entry;
-use runtime::hart::HartId;
+use runtime::{
+    boot, entry,
+    hart::{self, HartId},
+    ipi::IpiDelivery,
+    trap,
+};
 
 #[entry]
 fn main(boot: BootInfo) {
@@ -65,8 +68,7 @@ fn boot_hart(mut boot: BootInfo) {
         "Redirecting hart {} to {:#016x} in {:?} mode.",
         hart_id, next_stage.start_addr, next_stage.next_mode
     );
-    runtime::hart::stage_current(next_stage)
-        .expect("BUG: boot hart could not stage its initial handoff");
+    hart::stage_current(next_stage).expect("BUG: boot hart could not stage its initial handoff");
 
     enable_supervisor_services();
 }
@@ -86,11 +88,12 @@ fn secondary_hart(boot: Option<&BootInfo>) {
 }
 
 fn enable_supervisor_services() {
-    ipi::clear_current();
-    timer::clear_current();
     // Gate per-hart IMSIC setup on the device selected during platform
     // initialization, not on AIA discovery alone.
-    if ipi::uses_imsic() {
+    if matches!(
+        crate::platform::ipi_delivery(),
+        Some(IpiDelivery::Imsic { .. })
+    ) {
         driver::initialize_hart_imsic(
             platform::board_info()
                 .devices
@@ -103,14 +106,12 @@ fn enable_supervisor_services() {
     sbi::features::configure_hart_environment();
     // SAFETY: Runtime startup installed trap entry; this hart is still in
     // M-mode with machine interrupts disabled and no lower-mode context.
-    unsafe { runtime::boot::configure_next_stage() };
+    unsafe { boot::configure_next_stage() };
+    let dispatcher = sbi::SBI_DISPATCHER
+        .get()
+        .expect("SBI dispatcher not initialized");
     // Publish the SBI policy after configuring the next-stage environment.
-    runtime::trap::init(
-        sbi::SBI_DISPATCHER
-            .get()
-            .expect("SBI dispatcher not initialized"),
-    )
-    .expect("BUG: failed to activate Runtime trap handling");
+    trap::init(dispatcher).expect("BUG: failed to activate Runtime trap handling");
 }
 
 fn log_hart_capabilities(hart_id: usize) {

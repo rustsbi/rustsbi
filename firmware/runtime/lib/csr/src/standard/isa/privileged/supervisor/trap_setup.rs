@@ -1,5 +1,5 @@
 //! Supervisor trap setup.
-use super::super::machine::{InterruptState, SupervisorPrivilege};
+use super::super::machine::{Interrupt, SupervisorPrivilege};
 use crate::macros::csr;
 use crate::values::{
     counter::CounterSet,
@@ -21,8 +21,8 @@ csr! {
         /// invariants.
         unsafe w
     }
-        SIE[1] { rw: InterruptState }
-        SPIE[5] { rw: InterruptState }
+        SIE[1] { rw: Interrupt }
+        SPIE[5] { rw: Interrupt }
         SPP[8] { rw: SupervisorPrivilege }
     /// Supervisor interrupt-enable register (`sie`).
     ///
@@ -72,7 +72,7 @@ impl TrapVectorWriteValue {
 
 impl StatusWriteValue {
     /// Creates trap-entry state with interrupts and optional state disabled.
-    pub fn for_trap(previous: SupervisorPrivilege, interrupts: InterruptState) -> Self {
+    pub fn for_trap(previous: SupervisorPrivilege, interrupts: Interrupt) -> Self {
         let mut value = Self(0);
         value.write::<SPP>(previous);
         value.write::<SPIE>(interrupts);

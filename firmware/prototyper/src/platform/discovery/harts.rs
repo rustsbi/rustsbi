@@ -1,8 +1,7 @@
 //! Hart and model discovery.
 
 use alloc::{string::ToString, vec::Vec};
-
-use runtime::node_is_enabled;
+use runtime::{Error, PlatformView, Result, hart::HartId, node_is_enabled};
 
 use crate::devicetree::{is_cpu_node, u32_property};
 use crate::platform::info::BoardInfo;
@@ -13,12 +12,12 @@ use super::imsic::{self, CpuInterruptController};
 /// Reads hart topology and features, retaining CPU interrupt wiring for IMSIC discovery.
 pub(super) fn discover(
     board: &mut BoardInfo,
-    platform: &runtime::PlatformView<'_>,
-) -> runtime::Result<Vec<CpuInterruptController>> {
+    platform: &PlatformView<'_>,
+) -> Result<Vec<CpuInterruptController>> {
     let root = platform.root();
     let cpus = platform
         .find_enabled_node("/cpus")
-        .ok_or(runtime::Error::InvalidArgs)?;
+        .ok_or(Error::InvalidArgs)?;
     board.timebase_frequency_hz =
         u32_property(cpus, "timebase-frequency").filter(|frequency| *frequency != 0);
     board.model = root
@@ -29,7 +28,7 @@ pub(super) fn discover(
 
     let mut controllers = Vec::new();
     for node in cpus.children().filter(|node| is_cpu_node(*node)) {
-        let hart_id = runtime::PlatformView::hart_id(node)?;
+        let hart_id = PlatformView::hart_id(node)?;
         controllers.extend(
             node.children()
                 .filter_map(|child| imsic::cpu_interrupt_controller(child, hart_id)),
@@ -37,7 +36,7 @@ pub(super) fn discover(
         if !node_is_enabled(node) {
             continue;
         }
-        runtime::hart::HartId::from_raw(hart_id).map_err(|_| runtime::Error::InvalidArgs)?;
+        HartId::from_raw(hart_id).map_err(|_| Error::InvalidArgs)?;
         detect_extensions(hart_id, node);
     }
 

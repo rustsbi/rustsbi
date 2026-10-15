@@ -3,7 +3,6 @@
 //! [`ValueKind`] combines access width and signedness for register write-back.
 //! Unsupported instructions return `None` for dispatch to forward.
 
-use crate::timer::TimeWord;
 use csr::user;
 use riscv_decode::Instruction;
 
@@ -72,8 +71,7 @@ pub(super) struct StoreOp {
 
 /// A pure `time` or RV32 `timeh` read.
 pub(super) struct TimeReadOp {
-    pub(super) word: TimeWord,
-    /// Destination register for the read value.
+    pub(super) csr: u16,
     pub(super) rd: u8,
 }
 
@@ -158,14 +156,15 @@ pub(super) fn decode_time_read(raw: u32) -> Option<TimeReadOp> {
     }
     let op = match riscv_decode::decode(raw) {
         Ok(Instruction::Csrrs(i)) => {
-            let word = match i.csr() as u16 {
-                user::Time::NUMBER => TimeWord::Low,
-                #[cfg(target_pointer_width = "32")]
-                user::TimeHigh::NUMBER => TimeWord::High,
-                _ => return None,
-            };
+            let csr = i.csr() as u16;
+            let supported = csr == user::Time::NUMBER;
+            #[cfg(target_pointer_width = "32")]
+            let supported = supported || csr == user::TimeHigh::NUMBER;
+            if !supported {
+                return None;
+            }
             TimeReadOp {
-                word,
+                csr,
                 rd: i.rd() as u8,
             }
         }
@@ -199,8 +198,7 @@ mod tests {
         // csrrs a0, time, x0
         let raw = 0xc010_2573;
         let op = decode_time_read(raw).unwrap();
-        assert_eq!(op.rd, 10);
-        assert_eq!(op.word, TimeWord::Low);
+        assert_eq!((op.csr, op.rd), (user::Time::NUMBER, 10));
         // A non-x0 source attempts a write regardless of the source value.
         assert!(decode_time_read(raw | (1 << 15)).is_none());
         // csrrw a0, time, x0 also writes the CSR.
@@ -214,7 +212,7 @@ mod tests {
     fn high_time_word_is_available_only_on_rv32() {
         let op = decode_time_read(0xc810_2573);
         #[cfg(target_pointer_width = "32")]
-        assert_eq!(op.unwrap().word, TimeWord::High);
+        assert_eq!(op.unwrap().csr, user::TimeHigh::NUMBER);
         #[cfg(target_pointer_width = "64")]
         assert!(op.is_none());
     }

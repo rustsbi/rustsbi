@@ -1,43 +1,35 @@
-//! Timer programming through the SBI TIME extension.
-//!
-//! Specification: <https://docs.riscv.org/reference/sbi/v3.0/ext-time.html>.
+//! SBI TIME policy over Runtime's supervisor timer.
 
 #![forbid(unsafe_code)]
 
 use super::pmu::pmu_firmware_counter_increment;
-use crate::driver::timer::TimerDevice;
-use crate::riscv::csr::stimecmp;
-use runtime::csr::{mie, mip};
-use runtime::hart::HartId;
+use runtime::{rustsbi, timer::Timer};
 use sbi_spec::pmu::firmware_event;
 
-/// SBI TIME extension using a published platform timer.
+/// SBI TIME extension with permission to program the supervisor timer.
 pub struct SbiTimer {
-    device: &'static TimerDevice,
+    timer: Timer,
 }
 
-impl runtime::rustsbi::Timer for SbiTimer {
-    /// Sets the timer for the current hart.
-    #[inline]
-    fn set_timer(&self, stime_value: u64) {
-        pmu_firmware_counter_increment(firmware_event::SET_TIMER);
-        let hart_id = HartId::current()
-            .expect("BUG: current hart exceeds Runtime capacity")
-            .as_usize();
+impl rustsbi::Timer for SbiTimer {
+    fn _rustsbi_probe(&self) -> usize {
+        usize::from(self.timer.is_available())
+    }
 
-        if runtime::timer::has_sstc() {
-            stimecmp::set(stime_value);
-        } else {
-            self.device.set_timer(hart_id, stime_value);
-            mip::clear_supervisor_timer();
-            mie::set_machine_timer();
-        }
+    fn set_timer(&self, deadline: u64) {
+        pmu_firmware_counter_increment(firmware_event::SET_TIMER);
+        self.timer
+            .set_deadline(deadline)
+            .expect("supervisor timer not initialized on this hart");
     }
 }
 
 impl SbiTimer {
-    /// Adapts the selected timer to the SBI TIME extension.
-    pub(crate) fn new(device: &'static TimerDevice) -> Self {
-        Self { device }
+    pub(crate) const fn new(timer: Timer) -> Self {
+        Self { timer }
+    }
+
+    pub(crate) fn timer(&self) -> &Timer {
+        &self.timer
     }
 }

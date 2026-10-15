@@ -1,13 +1,21 @@
 //! Firmware startup, hart stacks, and initial privilege transitions.
 //!
 //! Runtime's [`entry`](crate::entry) macro uses the startup and stack helpers.
-//! Trap handling shares the supervisor-context setup for hart starts and resumes.
+//! Trap handling shares the supervisor-context setup for hart starts and
+//! resumes.
 
 mod context;
+mod services;
 mod stack;
 
+pub use crate::csr::enable_supervisor_seed;
+pub use crate::csr::stateen::configure_supervisor as configure_state_access;
+pub use crate::csr::thead::disable_maee as disable_thead_maee;
+
 pub use context::{configure_next_stage, prepare_traps};
-pub(crate) use context::{prepare_supervisor, set_return_mode};
+pub(crate) use context::{prepare_supervisor, set_return_mode, traps_ready};
+pub use services::install_services;
+pub(crate) use services::{ipi, timer};
 
 pub(crate) use stack::firmware_end;
 pub use stack::{BootStack, initialize_stacks, locate_stack};
@@ -151,21 +159,22 @@ pub unsafe extern "C" fn finish_boot() -> ! {
 
 /// Enters a staged next stage or waits for a hart-start event.
 fn finish_boot_rust() -> ! {
+    // SAFETY: The boot finisher is entered with MIE clear and never enables it.
+    let irq = unsafe { crate::irq::LocalIrqDisabled::assume_disabled() };
     let hart = hart::current_hart();
+    let ipi = ipi().expect("IPI service not published");
     loop {
         // Acknowledge before observing the state. Clearing after observing
         // Stopped could erase a concurrent start's wakeup just before WFI.
-        if let Some(ipi) = crate::ipi::get() {
-            ipi.clear_current()
+        if ipi.delivery().is_some() {
+            ipi.clear_current(&irq)
                 .expect("BUG: could not clear the hart wake interrupt");
             riscv::asm::fence();
         }
         let event = hart::take_local_event();
         // A sender may have selected this hart before it stopped, or just
         // after STARTED became visible. Complete its work before handoff/WFI.
-        if let Some(handler) = crate::ipi::handler() {
-            handler.deliver_current();
-        }
+        ipi.deliver_current(&irq);
         match event {
             HartEvent::Start(next_stage) => {
                 // SAFETY: The boot finisher owns the outgoing context in
@@ -177,9 +186,7 @@ fn finish_boot_rust() -> ! {
                 unsafe { enter_stage(hart_id, next_stage.opaque) }
             }
             HartEvent::Park => {
-                // A staged start wakes the parked hart through the machine
-                // software interrupt transport.
-                crate::csr::mie::set_machine_software();
+                ipi.prepare_wakeup(&irq);
                 riscv::asm::wfi();
                 // A masked wake re-checks the cell instead of returning
                 // into the discarded boot context.

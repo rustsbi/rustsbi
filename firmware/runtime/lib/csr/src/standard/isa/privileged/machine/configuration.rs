@@ -47,3 +47,9 @@ impl From<usize> for EnvironmentConfig {
         Self(bits)
     }
 }
+
+impl From<usize> for EnvironmentConfigHigh {
+    fn from(bits: usize) -> Self {
+        Self(bits)
+    }
+}
