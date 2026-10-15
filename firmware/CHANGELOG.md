@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Added
 
+- Give SBI adapters ownership of Runtime's `Timer` and `Ipi` services.
+  Keep comparator programming, interrupt delivery, and optional CSR recovery in Runtime.
+  Use typed CSR operations and shared Runtime error codes.
+  Add timer-deadline and access-fault counter regression checks.
 - Add RV32/RV64 QEMU checks for repeated interrupts into M-mode payloads.
 - Add typed CSR read snapshots, write values, and field codecs.
 - Add typed machine trap, configuration, and counter CSRs.

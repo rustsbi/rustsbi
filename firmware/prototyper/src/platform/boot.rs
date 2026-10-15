@@ -5,7 +5,7 @@
 use alloc::boxed::Box;
 use core::ops::Range;
 use runtime::{
-    Error, PlatformDescription, Result, events,
+    Error, PlatformDescription, Result, boot, events,
     hart::{self, HartId},
     ipi::Ipi,
     memory::SupervisorMemory,
@@ -250,7 +250,7 @@ fn publish_sbi_dispatcher(
         mpxy,
         vendor,
     });
-    runtime::boot::install_services(dispatcher.timer.timer(), dispatcher.ipi.ipi())
+    boot::install_services(dispatcher.timer.timer(), dispatcher.ipi.ipi())
         .expect("BUG: Runtime services registered more than once");
 }
 

@@ -3,7 +3,10 @@
 //! Platform boot selects the extension fields. Runtime calls the dispatcher
 //! through the original RustSBI trait and borrows its timer and IPI objects.
 
-use runtime::rustsbi::{self, RustSBI};
+use runtime::{
+    rustsbi::{self, RustSBI},
+    timer::Timer,
+};
 use spin::Once;
 
 pub mod console;
@@ -87,7 +90,7 @@ pub(crate) fn ipi() -> Option<&'static SbiIpi> {
 }
 
 /// Returns the published timer for firmware counter reads.
-pub(crate) fn timer() -> &'static runtime::timer::Timer {
+pub(crate) fn timer() -> &'static Timer {
     SBI_DISPATCHER
         .get()
         .expect("SBI dispatcher not initialized")

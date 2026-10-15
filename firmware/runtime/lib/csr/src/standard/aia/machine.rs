@@ -22,8 +22,8 @@ impl Mtopei {
     /// Claims and returns the current hart's top machine external interrupt.
     ///
     /// Executes one `csrrw rd, mtopei, x0`.
-    /// It clears the pending bit for the returned identity, even if another
-    /// interrupt arrives during the operation.
+    /// It reads the top identity and clears that identity's pending bit atomically.
+    /// A later arrival can make that interrupt pending again.
     /// A zero identity means no interrupt was available.
     /// An ordinary read followed by a separate write cannot provide this
     /// guarantee.
