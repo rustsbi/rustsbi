@@ -12,8 +12,10 @@
 //!   — CFG/MODE sequence, update key, and required one-millisecond delay.
 
 use core::mem::{align_of, size_of};
-use runtime::Result;
-use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
+use runtime::{
+    Error, PlatformView, Result,
+    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+};
 
 use crate::devicetree::EnabledNode;
 
@@ -43,7 +45,7 @@ pub(in crate::driver::reset) struct V104Driver {
 impl ResetDriver for V104Driver {
     fn probe(
         &mut self,
-        platform: &runtime::PlatformView<'_>,
+        platform: &PlatformView<'_>,
         discovered: EnabledNode<'_, '_>,
     ) -> Result<()> {
         let Some(compatibles) = discovered.compatible() else {
@@ -68,7 +70,7 @@ impl ResetDriver for V104Driver {
         &self,
         resources: &mut BindResources<'_>,
     ) -> Result<alloc::boxed::Box<dyn ResetBackend>> {
-        let registers = self.registers.ok_or(runtime::Error::InvalidArgs)?;
+        let registers = self.registers.ok_or(Error::InvalidArgs)?;
         let timebase_frequency_hz = resources.timebase_frequency_hz();
         Ok(alloc::boxed::Box::new(V104Watchdog::bind(
             registers,
@@ -98,35 +100,35 @@ impl V104Watchdog {
         registers: DeviceRegisterRange,
         timebase_frequency_hz: Option<u32>,
         memory: &mut MemoryRegistry,
-    ) -> runtime::Result<Self> {
+    ) -> Result<Self> {
         let frequency = timebase_frequency_hz
             .filter(|frequency| *frequency != 0)
-            .ok_or(runtime::Error::InvalidArgs)?;
+            .ok_or(Error::InvalidArgs)?;
         let registers = registers.subrange(0, REGISTER_SPAN)?;
         if !registers.start().is_aligned_to(align_of::<u32>()) {
-            return Err(runtime::Error::InvalidArgs);
+            return Err(Error::InvalidArgs);
         }
         Ok(Self {
-            registers: memory.acquire_mmio(registers)?,
+            registers: memory.acquire(registers)?,
             // Round up so the delay is at least one millisecond.
             delay_ticks: u64::from(frequency).div_ceil(DELAY_TICKS_1MS_DIVISOR),
         })
     }
 
-    fn read(&self, register: Register) -> runtime::Result<u32> {
+    fn read(&self, register: Register) -> Result<u32> {
         self.registers
             .read::<u32>(register as usize)
             .map(u32::from_le)
     }
 
-    fn write(&mut self, register: Register, value: u32) -> runtime::Result<()> {
+    fn write(&mut self, register: Register, value: u32) -> Result<()> {
         self.registers.write(register as usize, value.to_le())?;
         // Order each device write before the next register access or delay.
         riscv::asm::fence();
         Ok(())
     }
 
-    fn start_reset(&mut self) -> runtime::Result<()> {
+    fn start_reset(&mut self) -> Result<()> {
         riscv::asm::fence();
         // Stop an active watchdog before synchronizing its reset output.
         self.write(Register::Mode, UPDATE_KEY)?;

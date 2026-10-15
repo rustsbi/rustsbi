@@ -12,8 +12,10 @@
 //!   — V105 register offsets, update key, and stop-then-trigger ordering.
 
 use core::mem::{align_of, size_of};
-use runtime::Result;
-use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
+use runtime::{
+    Error, PlatformView, Result,
+    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+};
 
 use crate::devicetree::EnabledNode;
 
@@ -45,7 +47,7 @@ pub(in crate::driver::reset) struct V105Driver {
 impl ResetDriver for V105Driver {
     fn probe(
         &mut self,
-        platform: &runtime::PlatformView<'_>,
+        platform: &PlatformView<'_>,
         discovered: EnabledNode<'_, '_>,
     ) -> Result<()> {
         let node = discovered.node();
@@ -71,7 +73,7 @@ impl ResetDriver for V105Driver {
         &self,
         resources: &mut BindResources<'_>,
     ) -> Result<alloc::boxed::Box<dyn ResetBackend>> {
-        let registers = self.registers.ok_or(runtime::Error::InvalidArgs)?;
+        let registers = self.registers.ok_or(Error::InvalidArgs)?;
         Ok(alloc::boxed::Box::new(V105Watchdog::bind(
             registers,
             self.reset_gate,
@@ -100,19 +102,19 @@ impl V105Watchdog {
         registers: DeviceRegisterRange,
         gprcm: Option<DeviceRegisterRange>,
         memory: &mut MemoryRegistry,
-    ) -> runtime::Result<Self> {
+    ) -> Result<Self> {
         let registers = registers.subrange(0, REGISTER_SPAN)?;
         if !registers.start().is_aligned_to(align_of::<u32>()) {
-            return Err(runtime::Error::InvalidArgs);
+            return Err(Error::InvalidArgs);
         }
-        let registers = memory.acquire_mmio(registers)?;
+        let registers = memory.acquire(registers)?;
         let reset_gate = gprcm
             .map(|registers| {
                 let gate = registers.subrange(RESET_GATE_OFFSET, size_of::<u32>())?;
                 if !gate.start().is_aligned_to(align_of::<u32>()) {
-                    return Err(runtime::Error::InvalidArgs);
+                    return Err(Error::InvalidArgs);
                 }
-                memory.acquire_mmio(gate)
+                memory.acquire(gate)
             })
             .transpose()?;
         Ok(Self {
@@ -121,7 +123,7 @@ impl V105Watchdog {
         })
     }
 
-    fn start_reset(&mut self) -> runtime::Result<()> {
+    fn start_reset(&mut self) -> Result<()> {
         riscv::asm::fence();
         if let Some(gate) = &self.reset_gate {
             let value = u32::from_le(gate.read::<u32>(0)?) | RESET_GATE_ENABLE;

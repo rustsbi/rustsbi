@@ -9,8 +9,8 @@ use core::mem::size_of;
 
 use fdt::node::FdtNode;
 
-use crate::Result;
 use crate::memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange};
+use crate::{Error, Result};
 
 const SPACEMIT_K1_COMPATIBLE: &str = "spacemit,k1x";
 const K1_RESET_VECTOR_BASES: [PhysAddr; 2] =
@@ -117,7 +117,7 @@ impl SpacemitK1Registers {
         let cci_status = fixed_register_range(
             K1_CCI_BASE
                 .checked_add(CciRegister::Status as usize)
-                .ok_or(crate::Error::Overflow)?,
+                .ok_or(Error::Overflow)?,
             size_of::<u32>(),
         )?;
         let cci_snoop_controls = [cci_snoop_control_range(0)?, cci_snoop_control_range(1)?];
@@ -199,11 +199,9 @@ fn cci_snoop_control_range(interface_index: usize) -> Result<DeviceRegisterRange
         .checked_mul(interface_index)
         .and_then(|offset| K1_CCI_FIRST_INTERFACE_OFFSET.checked_add(offset))
         .and_then(|offset| offset.checked_add(CciRegister::SnoopControl as usize))
-        .ok_or(crate::Error::Overflow)?;
+        .ok_or(Error::Overflow)?;
     fixed_register_range(
-        K1_CCI_BASE
-            .checked_add(offset)
-            .ok_or(crate::Error::Overflow)?,
+        K1_CCI_BASE.checked_add(offset).ok_or(Error::Overflow)?,
         size_of::<u32>(),
     )
 }

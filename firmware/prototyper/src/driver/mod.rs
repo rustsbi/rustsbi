@@ -124,7 +124,7 @@ pub(crate) fn bind_devices(
 ) -> runtime::Result<Devices> {
     if let Some(registers) = board.devices.interrupts.thead_plic {
         // T-Head PLIC_CTRL bit 0 delegates access to S-mode.
-        let control = memory.acquire_mmio(registers.subrange(0x1ffffc, size_of::<u32>())?)?;
+        let control = memory.acquire(registers.subrange(0x1ffffc, size_of::<u32>())?)?;
         control.write(0, 1u32)?;
     }
     let (timer, ipi) = bind_interrupts(board, selected_imsic, memory)?;

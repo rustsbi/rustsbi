@@ -81,8 +81,8 @@ pub(super) fn bind(
         return Err(runtime::Error::InvalidArgs);
     }
 
-    let ipi_mmio = memory.acquire_mmio(ipi_registers)?;
-    let timer_mmio = memory.acquire_mmio(timer_registers)?;
+    let ipi_mmio = memory.acquire(ipi_registers)?;
+    let timer_mmio = memory.acquire(timer_registers)?;
     Ok((
         Box::new(SiFiveTimer::new(timer_mmio)),
         Box::new(SiFiveIpi::new(ipi_mmio)),

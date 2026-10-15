@@ -8,7 +8,10 @@
 use alloc::boxed::Box;
 use bitflags::bitflags;
 use core::mem::size_of;
-use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
+use runtime::{
+    Error, Result,
+    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+};
 
 use crate::driver::console::{BAUD_RATE, DbcnBackend, DbcnError, acquire_registers};
 
@@ -66,9 +69,9 @@ pub(super) fn bind(
     registers: DeviceRegisterRange,
     clock_hz: Option<u32>,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn DbcnBackend + Send>> {
-    let clock_hz = clock_hz.ok_or(runtime::Error::InvalidArgs)?;
-    let divisors = BaudDivisors::from_clock_hz(clock_hz).ok_or(runtime::Error::InvalidArgs)?;
+) -> Result<Box<dyn DbcnBackend + Send>> {
+    let clock_hz = clock_hz.ok_or(Error::InvalidArgs)?;
+    let divisors = BaudDivisors::from_clock_hz(clock_hz).ok_or(Error::InvalidArgs)?;
     let registers = acquire_registers::<u32>(registers, SPAN, memory)?;
     Ok(Box::new(UartPl011::new(registers, divisors)))
 }

@@ -18,8 +18,8 @@ impl ResetVectorRegisters {
         memory: &mut MemoryRegistry,
         [cluster0, cluster1]: [DeviceRegisterRange; 2],
     ) -> runtime::Result<Self> {
-        let cluster0 = memory.acquire_mmio(cluster0)?;
-        let cluster1 = memory.acquire_mmio(cluster1)?;
+        let cluster0 = memory.acquire(cluster0)?;
+        let cluster1 = memory.acquire(cluster1)?;
         Ok(Self([cluster0, cluster1]))
     }
 

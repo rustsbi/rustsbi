@@ -15,8 +15,10 @@ mod xscale;
 
 use alloc::boxed::Box;
 use core::mem::align_of;
-
-use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion, MmioValue};
+use runtime::{
+    Error, Result,
+    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion, MmioValue},
+};
 
 use crate::platform::BoardInfo;
 
@@ -104,19 +106,19 @@ fn acquire_registers<T: MmioValue>(
     registers: DeviceRegisterRange,
     span: usize,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<MmioRegion> {
+) -> Result<MmioRegion> {
     let registers = registers.subrange(0, span)?;
     if !registers.has_aligned_bounds(align_of::<T>()) {
-        return Err(runtime::Error::InvalidArgs);
+        return Err(Error::InvalidArgs);
     }
-    memory.acquire_mmio(registers)
+    memory.acquire(registers)
 }
 
 /// Binds the console selected during platform discovery.
 pub(super) fn bind(
     board: &BoardInfo,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Option<Box<dyn DbcnBackend + Send>>> {
+) -> Result<Option<Box<dyn DbcnBackend + Send>>> {
     let Some(console) = board.devices.console.as_ref() else {
         return Ok(None);
     };

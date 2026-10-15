@@ -6,8 +6,10 @@
 //!   finisher register values and exit-code encoding.
 
 use core::mem::{align_of, size_of};
-use runtime::Result;
-use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
+use runtime::{
+    Error, PlatformView, Result,
+    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+};
 
 use crate::devicetree::EnabledNode;
 
@@ -38,7 +40,7 @@ pub(in crate::driver::reset) struct SifiveTestDriver {
 impl ResetDriver for SifiveTestDriver {
     fn probe(
         &mut self,
-        platform: &runtime::PlatformView<'_>,
+        platform: &PlatformView<'_>,
         discovered: EnabledNode<'_, '_>,
     ) -> Result<()> {
         let Some(compatibles) = discovered.compatible() else {
@@ -63,7 +65,7 @@ impl ResetDriver for SifiveTestDriver {
         &self,
         resources: &mut BindResources<'_>,
     ) -> Result<alloc::boxed::Box<dyn ResetBackend>> {
-        let registers = self.registers.ok_or(runtime::Error::InvalidArgs)?;
+        let registers = self.registers.ok_or(Error::InvalidArgs)?;
         Ok(alloc::boxed::Box::new(SifiveTestDevice::bind(
             registers,
             resources.memory(),
@@ -116,13 +118,13 @@ struct SifiveTestDevice {
 }
 
 impl SifiveTestDevice {
-    fn bind(registers: DeviceRegisterRange, memory: &mut MemoryRegistry) -> runtime::Result<Self> {
+    fn bind(registers: DeviceRegisterRange, memory: &mut MemoryRegistry) -> Result<Self> {
         let registers = registers.subrange(0, SPAN)?;
         if !registers.start().is_aligned_to(align_of::<u32>()) {
-            return Err(runtime::Error::InvalidArgs);
+            return Err(Error::InvalidArgs);
         }
         Ok(Self {
-            registers: memory.acquire_mmio(registers)?,
+            registers: memory.acquire(registers)?,
         })
     }
 

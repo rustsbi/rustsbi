@@ -23,10 +23,10 @@ impl K1Wakeup {
     ) -> runtime::Result<Self> {
         let [cluster0, cluster1] = registers.wakeup_controls();
         Ok(Self {
-            status: memory.acquire_mmio(registers.core_status())?,
+            status: memory.acquire(registers.core_status())?,
             controls: [
-                memory.acquire_mmio(cluster0)?,
-                memory.acquire_mmio(cluster1)?,
+                memory.acquire(cluster0)?,
+                memory.acquire(cluster1)?,
             ],
         })
     }

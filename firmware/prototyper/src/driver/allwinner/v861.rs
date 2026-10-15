@@ -13,9 +13,12 @@
 //!   — C907 cache-policy preservation across reset.
 
 use crate::driver::HartWake;
-use runtime::hart::HartId;
-use runtime::memory::{MemoryRegistry, MmioRegion};
-use runtime::soc::allwinner::v861::{AllwinnerV861Soc, C907_HART_COUNT, C907CacheState};
+use runtime::{
+    Error, Result,
+    hart::HartId,
+    memory::{MemoryRegistry, MmioRegion},
+    soc::allwinner::v861::{AllwinnerV861Soc, C907_HART_COUNT, C907CacheState},
+};
 
 const CLOCK_CONTROL_ENABLE: u32 = 0x0001_0001;
 const RESET_VECTOR_MODE_MASK: u32 = 0x3 << 8;
@@ -34,11 +37,11 @@ pub(crate) struct V861HartRelease {
 struct C907ClockControl(MmioRegion);
 
 impl C907ClockControl {
-    fn bind(soc: AllwinnerV861Soc, memory: &mut MemoryRegistry) -> runtime::Result<Self> {
-        Ok(Self(memory.acquire_mmio(soc.c907_clock_control()?)?))
+    fn bind(soc: AllwinnerV861Soc, memory: &mut MemoryRegistry) -> Result<Self> {
+        Ok(Self(memory.acquire(soc.c907_clock_control()?)?))
     }
 
-    fn enable(&self) -> runtime::Result<()> {
+    fn enable(&self) -> Result<()> {
         let value = u32::from_le(self.0.read::<u32>(0)?);
         self.0.write(0, (value | CLOCK_CONTROL_ENABLE).to_le())?;
         riscv::asm::fence();
@@ -56,15 +59,11 @@ enum ResetVectorRegister {
 }
 
 impl HartResetVector {
-    fn bind(
-        soc: AllwinnerV861Soc,
-        hart: usize,
-        memory: &mut MemoryRegistry,
-    ) -> runtime::Result<Self> {
-        Ok(Self(memory.acquire_mmio(soc.hart_reset_vector(hart)?)?))
+    fn bind(soc: AllwinnerV861Soc, hart: usize, memory: &mut MemoryRegistry) -> Result<Self> {
+        Ok(Self(memory.acquire(soc.hart_reset_vector(hart)?)?))
     }
 
-    fn program(&self, entry: u64) -> runtime::Result<()> {
+    fn program(&self, entry: u64) -> Result<()> {
         let mode = if cfg!(target_pointer_width = "64") {
             RV64_MODE
         } else {
@@ -94,15 +93,11 @@ enum PowerRegister {
 }
 
 impl HartPowerControl {
-    fn bind(
-        soc: AllwinnerV861Soc,
-        hart: usize,
-        memory: &mut MemoryRegistry,
-    ) -> runtime::Result<Self> {
-        Ok(Self(memory.acquire_mmio(soc.hart_power_control(hart)?)?))
+    fn bind(soc: AllwinnerV861Soc, hart: usize, memory: &mut MemoryRegistry) -> Result<Self> {
+        Ok(Self(memory.acquire(soc.hart_power_control(hart)?)?))
     }
 
-    fn power_on(&self) -> runtime::Result<()> {
+    fn power_on(&self) -> Result<()> {
         self.0
             .write(PowerRegister::Clamp as usize, POWER_CLAMP_RELEASE.to_le())?;
         self.0
@@ -113,10 +108,7 @@ impl HartPowerControl {
 static CACHE_STATE: spin::Once<C907CacheState> = spin::Once::new();
 
 impl V861HartRelease {
-    pub(crate) fn bind(
-        soc: AllwinnerV861Soc,
-        memory: &mut MemoryRegistry,
-    ) -> runtime::Result<Self> {
+    pub(crate) fn bind(soc: AllwinnerV861Soc, memory: &mut MemoryRegistry) -> Result<Self> {
         C907ClockControl::bind(soc, memory)?.enable()?;
         let release = Self {
             reset_vectors: [
@@ -136,10 +128,10 @@ impl V861HartRelease {
 }
 
 impl HartWake for V861HartRelease {
-    fn wake(&self, hart: HartId) -> runtime::Result<bool> {
+    fn wake(&self, hart: HartId) -> Result<bool> {
         let hart = hart.as_usize();
         if hart >= C907_HART_COUNT {
-            return Err(runtime::Error::InvalidArgs);
+            return Err(Error::InvalidArgs);
         }
         if crate::platform::hart_privilege_checked(hart) {
             return Ok(false);

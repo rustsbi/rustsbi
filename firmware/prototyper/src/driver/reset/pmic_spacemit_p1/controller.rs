@@ -10,7 +10,10 @@
 use bitflags::bitflags;
 use core::mem::{align_of, size_of};
 use core::time::Duration;
-use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
+use runtime::{
+    Error, Result,
+    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+};
 
 use super::I2cAddress;
 
@@ -140,15 +143,15 @@ impl K1I2cController {
         registers: DeviceRegisterRange,
         timebase_frequency_hz: Option<u32>,
         memory: &mut MemoryRegistry,
-    ) -> runtime::Result<Self> {
-        let timebase = Timebase::new(timebase_frequency_hz.ok_or(runtime::Error::InvalidArgs)?)
-            .ok_or(runtime::Error::InvalidArgs)?;
+    ) -> Result<Self> {
+        let timebase = Timebase::new(timebase_frequency_hz.ok_or(Error::InvalidArgs)?)
+            .ok_or(Error::InvalidArgs)?;
         let registers = registers.subrange(0, REGISTER_SPAN)?;
         if !registers.start().is_aligned_to(align_of::<u32>()) {
-            return Err(runtime::Error::InvalidArgs);
+            return Err(Error::InvalidArgs);
         }
         Ok(Self {
-            registers: memory.acquire_mmio(registers)?,
+            registers: memory.acquire(registers)?,
             timebase,
         })
     }

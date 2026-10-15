@@ -50,5 +50,5 @@ impl fmt::Display for Error {
     }
 }
 
-/// A result returned by a Runtime operation.
-pub type Result<T> = core::result::Result<T, Error>;
+/// A result that defaults to Runtime's error type.
+pub type Result<T, E = Error> = core::result::Result<T, E>;

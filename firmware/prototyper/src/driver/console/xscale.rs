@@ -8,7 +8,10 @@
 use alloc::boxed::Box;
 use bitflags::bitflags;
 use core::mem::size_of;
-use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
+use runtime::{
+    Error, Result,
+    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+};
 
 use crate::driver::console::{DbcnBackend, DbcnError, acquire_registers, uart_divisor};
 
@@ -57,11 +60,11 @@ pub(super) fn bind(
     registers: DeviceRegisterRange,
     clock_hz: Option<u32>,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<Box<dyn DbcnBackend + Send>> {
+) -> Result<Box<dyn DbcnBackend + Send>> {
     // A device tree may name a clock provider without supplying its rate.
     // In that case, preserve the divisor installed by the previous boot stage.
     let baud = match clock_hz {
-        Some(clock_hz) => BaudSetup::from_clock_hz(clock_hz).ok_or(runtime::Error::InvalidArgs)?,
+        Some(clock_hz) => BaudSetup::from_clock_hz(clock_hz).ok_or(Error::InvalidArgs)?,
         None => BaudSetup::Preserve,
     };
     let registers = acquire_registers::<u32>(registers, SPAN, memory)?;

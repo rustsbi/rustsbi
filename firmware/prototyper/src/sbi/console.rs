@@ -9,8 +9,11 @@
 
 use alloc::boxed::Box;
 use core::fmt;
-use runtime::memory::{PhysAddr, PhysAddrRange, SupervisorMemory};
-use runtime::rustsbi::{Console, Physical, SbiRet};
+use runtime::{
+    Result,
+    memory::{PhysAddr, PhysAddrRange, SupervisorMemory},
+    rustsbi::{Console, Physical, SbiRet},
+};
 use spin::Mutex;
 
 use crate::driver::{DbcnBackend, DbcnError};

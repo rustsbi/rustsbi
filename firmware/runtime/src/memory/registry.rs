@@ -84,7 +84,7 @@ impl MemoryRegistry {
     ///
     /// The range must not overlap a window acquired earlier from this registry.
     /// A successful acquisition is recorded for all later checks.
-    pub fn acquire_mmio(&mut self, registers: DeviceRegisterRange) -> Result<MmioRegion> {
+    pub fn acquire(&mut self, registers: DeviceRegisterRange) -> Result<MmioRegion> {
         let range = registers.physical_range();
         if self
             .ram_ranges
@@ -294,18 +294,18 @@ mod tests {
         )
         .unwrap();
 
-        registry.acquire_mmio(registers(0x3000, 0x40)).unwrap();
+        registry.acquire(registers(0x3000, 0x40)).unwrap();
         assert!(matches!(
-            registry.acquire_mmio(registers(0x3030, 0x20)),
+            registry.acquire(registers(0x3030, 0x20)),
             Err(Error::AccessDenied)
         ));
         assert!(matches!(
-            registry.acquire_mmio(registers(0x3080, 0x10)),
+            registry.acquire(registers(0x3080, 0x10)),
             Err(Error::AccessDenied)
         ));
-        assert!(registry.acquire_mmio(registers(0x3090, 0x70)).is_ok());
+        assert!(registry.acquire(registers(0x3090, 0x70)).is_ok());
         assert!(matches!(
-            registry.acquire_mmio(registers(0x1f00, 0x200)),
+            registry.acquire(registers(0x1f00, 0x200)),
             Err(Error::AccessDenied)
         ));
     }

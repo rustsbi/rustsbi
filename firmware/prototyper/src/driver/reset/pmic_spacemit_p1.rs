@@ -8,8 +8,10 @@
 mod controller;
 
 use bitflags::bitflags;
-use runtime::memory::{DeviceRegisterRange, MemoryRegistry};
-use runtime::{Error, Result};
+use runtime::{
+    Error, PlatformView, Result,
+    memory::{DeviceRegisterRange, MemoryRegistry},
+};
 
 use crate::devicetree::EnabledNode;
 
@@ -85,7 +87,7 @@ pub(in crate::driver::reset) struct P1PmicDriver {
 impl ResetDriver for P1PmicDriver {
     fn probe(
         &mut self,
-        platform: &runtime::PlatformView<'_>,
+        platform: &PlatformView<'_>,
         discovered: EnabledNode<'_, '_>,
     ) -> Result<()> {
         let Some(compatibles) = discovered.compatible() else {
@@ -163,7 +165,7 @@ impl P1Pmic {
         address: I2cAddress,
         timebase_frequency_hz: Option<u32>,
         memory: &mut MemoryRegistry,
-    ) -> runtime::Result<Self> {
+    ) -> Result<Self> {
         Ok(Self {
             i2c: K1I2cController::bind(registers, timebase_frequency_hz, memory)?,
             address,

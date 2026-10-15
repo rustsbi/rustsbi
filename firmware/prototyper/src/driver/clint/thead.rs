@@ -85,8 +85,8 @@ pub(super) fn bind(
         return Err(runtime::Error::InvalidArgs);
     }
 
-    let msip_mmio = memory.acquire_mmio(msip_registers)?;
-    let mtimecmp_mmio = memory.acquire_mmio(mtimecmp_registers)?;
+    let msip_mmio = memory.acquire(msip_registers)?;
+    let mtimecmp_mmio = memory.acquire(mtimecmp_registers)?;
     Ok((
         Box::new(THeadTimer::new(mtimecmp_mmio)),
         Box::new(THeadIpi::new(msip_mmio)),

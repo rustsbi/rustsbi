@@ -116,7 +116,7 @@ pub(super) fn bind(
     let hart_files: runtime::Result<alloc::vec::Vec<_>> = imsic
         .hart_files
         .iter()
-        .map(|register_range| memory.acquire_mmio(*register_range))
+        .map(|register_range| memory.acquire(*register_range))
         .collect();
     let ipi = ImsicIpi::new(imsic.ipi_iid, hart_files?.into_boxed_slice());
 
