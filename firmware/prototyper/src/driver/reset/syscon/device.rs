@@ -1,8 +1,10 @@
 //! Bound syscon reset actions and MMIO command execution.
 
 use core::mem::{align_of, size_of};
-
-use runtime::memory::{MemoryRegistry, MmioRegion};
+use runtime::{
+    Error, Result,
+    memory::{MemoryRegistry, MmioRegion},
+};
 
 use super::super::{ResetBackend, ResetError, ResetRequest, ResetType};
 use super::description::ActionDescription;
@@ -18,7 +20,7 @@ impl SysconReset {
         poweroff: Option<ActionDescription>,
         reboot: Option<ActionDescription>,
         memory: &mut MemoryRegistry,
-    ) -> runtime::Result<Self> {
+    ) -> Result<Self> {
         let poweroff = poweroff
             .map(|description| SysconAction::bind(description, memory))
             .transpose()?;
@@ -53,14 +55,14 @@ struct SysconAction {
 }
 
 impl SysconAction {
-    fn bind(description: ActionDescription, memory: &mut MemoryRegistry) -> runtime::Result<Self> {
+    fn bind(description: ActionDescription, memory: &mut MemoryRegistry) -> Result<Self> {
         let (registers, value, mask) = description.into_parts();
         let range = registers.subrange(0, size_of::<u32>())?;
         if !range.start().is_aligned_to(align_of::<u32>()) {
-            return Err(runtime::Error::InvalidArgs);
+            return Err(Error::InvalidArgs);
         }
         Ok(Self {
-            registers: memory.acquire_mmio(range)?,
+            registers: memory.acquire(range)?,
             value,
             mask,
         })

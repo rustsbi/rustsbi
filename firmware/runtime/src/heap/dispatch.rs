@@ -65,6 +65,7 @@ impl<'a> HeapDispatch<'a> {
 mod tests {
     use super::*;
     use crate::heap::{GlobalHeapAllocator, HeapSlot, HeapSlotList};
+    use crate::{Error, Result};
     use alloc::boxed::Box;
     use core::mem::MaybeUninit;
     use spin::Mutex;
@@ -92,8 +93,8 @@ mod tests {
     }
 
     impl GlobalHeapAllocator for OneSlot {
-        fn alloc(&self, _slot_layout: Layout) -> crate::Result<HeapSlot<'static>> {
-            self.available.lock().take().ok_or(crate::Error::NoMemory)
+        fn alloc(&self, _slot_layout: Layout) -> Result<HeapSlot<'static>> {
+            self.available.lock().take().ok_or(Error::NoMemory)
         }
 
         fn dealloc(&self, slot: HeapSlot<'static>) {

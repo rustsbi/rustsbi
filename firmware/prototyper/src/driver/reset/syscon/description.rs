@@ -2,8 +2,7 @@
 
 use core::mem::{align_of, size_of};
 
-use runtime::memory::DeviceRegisterRange;
-use runtime::{Error, FdtNode, Result};
+use runtime::{Error, FdtNode, PlatformView, Result, memory::DeviceRegisterRange, node_is_enabled};
 
 use super::super::registry;
 
@@ -18,7 +17,7 @@ pub(super) struct ActionDescription {
 
 impl ActionDescription {
     pub(super) fn from_node<'tree>(
-        platform: &runtime::PlatformView<'tree>,
+        platform: &PlatformView<'tree>,
         node: FdtNode<'_, 'tree>,
         parent: Option<FdtNode<'_, 'tree>>,
     ) -> Result<Self> {
@@ -92,7 +91,7 @@ impl ActionDescription {
         phandle: u32,
     ) -> Result<Option<FdtNode<'view, 'tree>>> {
         // A disabled ancestor also makes a referenced provider unavailable.
-        if !runtime::node_is_enabled(node) {
+        if !node_is_enabled(node) {
             return Ok(None);
         }
         let handle = Self::read_u32(node, "phandle")?.or(Self::read_u32(node, "linux,phandle")?);
@@ -111,7 +110,7 @@ impl ActionDescription {
         let is_syscon = node
             .compatible()
             .is_some_and(|values| values.all().any(|value| value == "syscon"));
-        if !runtime::node_is_enabled(node)
+        if !node_is_enabled(node)
             || !is_syscon
             || Self::read_u32(node, "reg-io-width")?.is_some_and(|width| width != 4)
             || node.property("big-endian").is_some()

@@ -3,7 +3,7 @@
 //! [`Description`] owns the reset-local registry during discovery, then binds
 //! only the highest-priority matched driver into a [`ResetDevice`].
 
-use runtime::Result;
+use runtime::{PlatformView, Result, memory::MemoryRegistry};
 
 use crate::devicetree::EnabledNode;
 
@@ -33,7 +33,7 @@ impl Description {
     /// Lets every registered reset driver inspect one enabled node.
     pub(crate) fn probe(
         &mut self,
-        platform: &runtime::PlatformView<'_>,
+        platform: &PlatformView<'_>,
         node: EnabledNode<'_, '_>,
     ) -> Result<()> {
         self.registry.probe(platform, node)
@@ -43,7 +43,7 @@ impl Description {
     pub(crate) fn bind(
         &self,
         timebase_frequency_hz: Option<u32>,
-        memory: &mut runtime::memory::MemoryRegistry,
+        memory: &mut MemoryRegistry,
     ) -> Result<ResetDevice> {
         let mut resources = BindResources::new(memory, timebase_frequency_hz);
         Ok(ResetDevice::new(self.registry.bind_first(&mut resources)?))

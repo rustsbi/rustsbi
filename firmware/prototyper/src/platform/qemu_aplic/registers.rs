@@ -10,9 +10,8 @@
 
 use bitflags::bitflags;
 use core::mem::size_of;
-
 use runtime::{
-    Error,
+    Error, Result,
     memory::{MmioRegion, PhysAddr},
 };
 
@@ -30,17 +29,17 @@ pub(super) struct EncodedMsiAddress {
 }
 
 impl EncodedMsiAddress {
-    pub(super) fn machine(base: PhysAddr, hart_index_bits: u32) -> runtime::Result<Self> {
+    pub(super) fn machine(base: PhysAddr, hart_index_bits: u32) -> Result<Self> {
         Self::encode(base, hart_index_bits)
     }
 
-    pub(super) fn supervisor(base: PhysAddr, hart_index_bits: u32) -> runtime::Result<Self> {
+    pub(super) fn supervisor(base: PhysAddr, hart_index_bits: u32) -> Result<Self> {
         // AIA defines LHXW in mmsiaddrcfgh. QEMU 10.1 instead takes it from
         // smsiaddrcfgh for an S-level domain, so repeat it for that emulator.
         Self::encode(base, hart_index_bits)
     }
 
-    fn encode(base: PhysAddr, hart_index_bits: u32) -> runtime::Result<Self> {
+    fn encode(base: PhysAddr, hart_index_bits: u32) -> Result<Self> {
         if hart_index_bits > MAX_HART_INDEX_BITS || !base.is_aligned_to(PAGE_SIZE) {
             return Err(Error::InvalidArgs);
         }
@@ -123,7 +122,7 @@ impl AplicRegisters {
         machine_msi: EncodedMsiAddress,
         supervisor_msi: EncodedMsiAddress,
         num_sources: usize,
-    ) -> runtime::Result<bool> {
+    ) -> Result<bool> {
         let msi_configuration_locked = MsiAddressConfigHigh::from_bits_retain(
             self.read(Register::MachineMsiAddressConfigHigh)?,
         )
@@ -164,25 +163,20 @@ impl AplicRegisters {
         low_register: Register,
         high_register: Register,
         address: EncodedMsiAddress,
-    ) -> runtime::Result<()> {
+    ) -> Result<()> {
         self.write(low_register, address.low)?;
         self.write(high_register, address.high)
     }
 
-    fn read(&self, register: Register) -> runtime::Result<u32> {
+    fn read(&self, register: Register) -> Result<u32> {
         self.0.read(register.offset())
     }
 
-    fn write(&self, register: Register, value: u32) -> runtime::Result<()> {
+    fn write(&self, register: Register, value: u32) -> Result<()> {
         self.0.write(register.offset(), value)
     }
 
-    fn write_array(
-        &self,
-        registers: RegisterArray,
-        index: usize,
-        value: u32,
-    ) -> runtime::Result<()> {
+    fn write_array(&self, registers: RegisterArray, index: usize, value: u32) -> Result<()> {
         self.0.write(registers.element_offset(index), value)
     }
 }

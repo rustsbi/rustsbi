@@ -5,7 +5,7 @@
 //! - Specification: [RISC-V SBI CPPC extension](https://docs.riscv.org/reference/sbi/v3.0/ext-cppc.html) —
 //!   register discovery and access operations.
 
-use runtime::rustsbi::SbiRet;
+use runtime::rustsbi::{Cppc, SbiRet};
 
 /// CPPC extension for platforms without a register backend.
 pub(crate) struct SbiCppc;
@@ -16,7 +16,7 @@ impl SbiCppc {
     }
 }
 
-impl runtime::rustsbi::Cppc for SbiCppc {
+impl Cppc for SbiCppc {
     fn probe(&self, _reg_id: u32) -> SbiRet {
         SbiRet::success(0)
     }

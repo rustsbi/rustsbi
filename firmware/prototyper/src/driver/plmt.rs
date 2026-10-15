@@ -39,7 +39,7 @@ pub(super) fn bind(
         return Err(runtime::Error::InvalidArgs);
     }
     Ok(Plmt {
-        registers: memory.acquire_mmio(registers)?,
+        registers: memory.acquire(registers)?,
         hart_id_upper_bound,
     })
 }

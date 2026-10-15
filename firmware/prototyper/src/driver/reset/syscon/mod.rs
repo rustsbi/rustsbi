@@ -14,7 +14,7 @@
 mod description;
 mod device;
 
-use runtime::Result;
+use runtime::{PlatformView, Result};
 
 use crate::devicetree::EnabledNode;
 
@@ -45,7 +45,7 @@ impl SysconDriver {
 impl ResetDriver for SysconDriver {
     fn probe(
         &mut self,
-        platform: &runtime::PlatformView<'_>,
+        platform: &PlatformView<'_>,
         discovered: EnabledNode<'_, '_>,
     ) -> Result<()> {
         let Some(compatibles) = discovered.compatible() else {

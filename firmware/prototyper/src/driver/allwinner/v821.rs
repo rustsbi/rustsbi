@@ -74,7 +74,7 @@ pub(crate) fn release_boot0_isp_sram(
 ) -> runtime::Result<()> {
     const BOOT0_ISP_SRAM_RELEASED: u32 = 1 << 0;
 
-    let registers = memory.acquire_mmio(soc.boot0_isp_sram_release()?)?;
+    let registers = memory.acquire(soc.boot0_isp_sram_release()?)?;
     riscv::asm::fence();
     let flags = registers.read::<u32>(0)?;
     registers.write(0, flags | BOOT0_ISP_SRAM_RELEASED)?;
@@ -89,7 +89,7 @@ pub(crate) fn enable_plmt_clock(
 ) -> runtime::Result<()> {
     const CLOCK_ENABLE: u32 = 1 << 31;
 
-    let registers = memory.acquire_mmio(soc.plmt_clock()?)?;
+    let registers = memory.acquire(soc.plmt_clock()?)?;
     let value = u32::from_le(registers.read::<u32>(0)?);
     registers.write(0, (value | CLOCK_ENABLE).to_le())?;
     riscv::asm::fence();
@@ -103,7 +103,7 @@ impl A27L2Cache {
         memory: &mut MemoryRegistry,
     ) -> runtime::Result<Self> {
         let registers = CacheRegisters {
-            mmio: memory.acquire_mmio(registers)?,
+            mmio: memory.acquire(registers)?,
         };
         let control = registers.read_u32(CacheRegister::Control)?;
         registers.write_u32(CacheRegister::Control, control | L2_CONTROL_INIT_MASK)?;
@@ -231,7 +231,7 @@ impl UsbDmaBypass {
         memory: &mut MemoryRegistry,
     ) -> runtime::Result<Self> {
         Ok(Self {
-            registers: memory.acquire_mmio(registers)?,
+            registers: memory.acquire(registers)?,
         })
     }
 

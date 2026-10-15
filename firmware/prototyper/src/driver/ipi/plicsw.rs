@@ -31,7 +31,7 @@ pub(in crate::driver) fn bind(
     {
         return Err(runtime::Error::InvalidArgs);
     }
-    let registers = memory.acquire_mmio(
+    let registers = memory.acquire(
         registers.subrange(0, CONTEXT_OFFSET + CONTEXT_STRIDE * hart_id_upper_bound)?,
     )?;
     for source in 1..=MATRIX_WIDTH * hart_id_upper_bound {
