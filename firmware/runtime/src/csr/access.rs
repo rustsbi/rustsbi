@@ -5,20 +5,8 @@
 //! Known registers can use the CSR crate directly.
 //! These operations serve probes and accesses that must report failure.
 
-use core::fmt;
+use crate::{Error, Result};
 use csr::{Readable, Writeable};
-
-/// An illegal-instruction exception from a recoverable CSR access.
-///
-/// This error does not distinguish an absent register from denied access.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct IllegalInstruction;
-
-impl fmt::Display for IllegalInstruction {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("CSR access raised an illegal-instruction exception")
-    }
-}
 
 macro_rules! instruction {
     ($instruction:literal, $number:expr, $value:expr) => {{
@@ -46,7 +34,7 @@ macro_rules! instruction {
                     out("t3") _,
                 );
             }
-            if cause == 0 { Ok(value) } else { Err(IllegalInstruction) }
+            if cause == 0 { Ok(value) } else { Err(Error::IllegalInstruction) }
         }
         #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
         {
@@ -57,7 +45,7 @@ macro_rules! instruction {
 }
 
 #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-fn unavailable() -> Result<usize, IllegalInstruction> {
+fn unavailable() -> Result<usize> {
     panic!("CSR access requires RISC-V")
 }
 
@@ -70,7 +58,7 @@ fn unavailable() -> Result<usize, IllegalInstruction> {
 /// Permit the CSR's read effects and exclude conflicting accesses.
 /// Recovery does not undo successful read effects.
 #[inline(never)]
-pub unsafe fn read<R: Readable>() -> Result<R::Value, IllegalInstruction> {
+pub unsafe fn read<R: Readable>() -> Result<R::Value> {
     instruction!("csrr {value}, {csr}", R::NUMBER, 0usize).map(R::decode)
 }
 
@@ -85,7 +73,7 @@ pub unsafe fn read<R: Readable>() -> Result<R::Value, IllegalInstruction> {
 /// Establish the CSR's write and access-exclusion requirements.
 /// Preserve the active memory, execution, interrupt, and trap-entry invariants.
 #[inline(never)]
-pub unsafe fn write<R: Writeable>(value: R::Value) -> Result<(), IllegalInstruction> {
+pub unsafe fn write<R: Writeable>(value: R::Value) -> Result<()> {
     instruction!("csrw {csr}, {value}", R::NUMBER, R::encode(value)).map(|_| ())
 }
 
@@ -97,7 +85,7 @@ pub unsafe fn write<R: Writeable>(value: R::Value) -> Result<(), IllegalInstruct
 #[inline(never)]
 pub unsafe fn swap<R: Readable + Writeable>(
     value: <R as Writeable>::Value,
-) -> Result<<R as Readable>::Value, IllegalInstruction> {
+) -> Result<<R as Readable>::Value> {
     const {
         assert!(<R as Readable>::NUMBER == <R as Writeable>::NUMBER);
     }

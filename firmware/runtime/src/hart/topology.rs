@@ -1,11 +1,12 @@
 //! Immutable mapping from hardware hart IDs to compact storage indices.
 
+use crate::{Error, Result};
 use alloc::boxed::Box;
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 use spin::Once;
 
-use super::{HartId, HartIdError};
+use super::HartId;
 
 #[repr(C)]
 pub(crate) struct HartEntry {
@@ -15,8 +16,9 @@ pub(crate) struct HartEntry {
 
 /// Entry-assembly view of the published hart table.
 ///
-/// The pointer and count occupy the first two native words. Safe code cannot
-/// modify them. Records are owned by Runtime for the firmware's lifetime.
+/// The pointer and count occupy the first two native words.
+/// Safe code cannot modify them.
+/// Records are owned by Runtime for the firmware's lifetime.
 #[repr(C)]
 pub(crate) struct HartTable {
     entries: AtomicPtr<HartEntry>,
@@ -49,11 +51,11 @@ pub(crate) fn publish(entries: Box<[HartEntry]>) {
         .store(entries.as_ptr().cast_mut(), Ordering::Release);
 }
 
-pub(crate) fn from_raw(raw: usize) -> Result<HartId, HartIdError> {
-    let entries = ENTRIES.get().ok_or(HartIdError::Unavailable)?;
+pub(crate) fn from_raw(raw: usize) -> Result<HartId> {
+    let entries = ENTRIES.get().ok_or(Error::NotReady)?;
     let index = entries
         .binary_search_by_key(&raw, |entry| entry.raw_id)
-        .map_err(|_| HartIdError::Unknown)?;
+        .map_err(|_| Error::InvalidArgs)?;
     Ok(HartId { raw, index })
 }
 

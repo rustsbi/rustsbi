@@ -1,6 +1,6 @@
 //! One SBI policy publication per hart.
+use crate::{Error, Result};
 use alloc::boxed::Box;
-use core::fmt;
 
 use rustsbi::RustSBI;
 use spin::Once;
@@ -9,24 +9,6 @@ use crate::hart::HartId;
 
 type Policy = &'static (dyn RustSBI + Sync);
 static POLICIES: Once<Box<[Once<Policy>]>> = Once::new();
-
-/// Failure to publish the current hart's SBI policy.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum InitError {
-    /// This hart already has an SBI policy.
-    AlreadyInitialized,
-    /// The current hart is absent from the boot topology.
-    InvalidHartId,
-}
-
-impl fmt::Display for InitError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::AlreadyInitialized => "SBI policy already published on this hart",
-            Self::InvalidHartId => "hart ID is not in the boot topology",
-        })
-    }
-}
 
 fn policies() -> &'static [Once<Policy>] {
     POLICIES.call_once(|| HartId::all().map(|_| Once::new()).collect())
@@ -41,12 +23,12 @@ pub(super) fn policy(hart: HartId) -> Policy {
 /// Publishes the current hart's SBI policy once.
 ///
 /// Runtime startup installs the exception entry before policy initialization.
-pub fn init<P: RustSBI + Sync + 'static>(policy: &'static P) -> Result<(), InitError> {
-    let hart = HartId::current().map_err(|_| InitError::InvalidHartId)?;
+pub fn init<P: RustSBI + Sync + 'static>(policy: &'static P) -> Result<()> {
+    let hart = HartId::current()?;
     publish(&policies()[hart.index()], policy)
 }
 
-fn publish(slot: &Once<Policy>, policy: Policy) -> Result<(), InitError> {
+fn publish(slot: &Once<Policy>, policy: Policy) -> Result<()> {
     let mut published = false;
     slot.call_once(|| {
         published = true;
@@ -55,7 +37,7 @@ fn publish(slot: &Once<Policy>, policy: Policy) -> Result<(), InitError> {
     if published {
         Ok(())
     } else {
-        Err(InitError::AlreadyInitialized)
+        Err(Error::AlreadyInitialized)
     }
 }
 
@@ -78,7 +60,7 @@ mod tests {
     fn duplicate_publication_preserves_the_original_policy() {
         let slot = Once::new();
         assert_eq!(publish(&slot, &FIRST), Ok(()));
-        assert_eq!(publish(&slot, &SECOND), Err(InitError::AlreadyInitialized));
+        assert_eq!(publish(&slot, &SECOND), Err(Error::AlreadyInitialized));
         assert_eq!(slot.get().unwrap().handle_ecall(0, 0, [0; 6]).value, 1);
     }
 
@@ -90,8 +72,8 @@ mod tests {
             let second = scope.spawn(|| publish(&slot, &SECOND));
             let results = (first.join().unwrap(), second.join().unwrap());
             let winner = match results {
-                (Ok(()), Err(InitError::AlreadyInitialized)) => 1,
-                (Err(InitError::AlreadyInitialized), Ok(())) => 2,
+                (Ok(()), Err(Error::AlreadyInitialized)) => 1,
+                (Err(Error::AlreadyInitialized), Ok(())) => 2,
                 other => panic!("publication must have exactly one winner: {other:?}"),
             };
             assert_eq!(slot.get().unwrap().handle_ecall(0, 0, [0; 6]).value, winner);

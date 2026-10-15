@@ -1,27 +1,23 @@
 //! Runtime's platform IPI service.
 //!
-//! Prototyper constructs the concrete CLINT or IMSIC implementation. Runtime
-//! only depends on these operations while waking harts and transporting
+//! Prototyper constructs the concrete CLINT or IMSIC implementation.
+//! Runtime only depends on these operations while waking harts and transporting
 //! machine interrupt work.
 
-use crate::hart::HartId;
+use crate::{Result, hart::HartId};
 use spin::Once;
 
 static DEVICE: Once<Option<&'static dyn IpiDevice>> = Once::new();
 static HANDLER: Once<Option<&'static dyn IpiHandler>> = Once::new();
 
-/// A platform IPI operation failed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct IpiError;
-
 /// The platform IPI device used for hart wakeups and machine interrupt
 /// acknowledgement.
 pub trait IpiDevice: Sync {
     /// Sends a machine IPI to `hart`.
-    fn send(&self, hart: HartId) -> Result<(), IpiError>;
+    fn send(&self, hart: HartId) -> Result<()>;
 
     /// Clears the current hart's pending software interrupt source.
-    fn clear_current(&self) -> Result<(), IpiError>;
+    fn clear_current(&self) -> Result<()>;
 }
 
 /// Handles firmware work recorded for the current hart after the interrupt

@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+use crate::{Error, Result};
 use alloc::boxed::Box;
 use spin::{Mutex, Once};
 
@@ -22,12 +23,10 @@ impl<T> HartLocal<T> {
     }
 
     /// Initializes one hart's slot exactly once.
-    pub fn init(&self, hart: HartId, value: T) -> Result<(), HartLocalError> {
-        let mut slot = self.slots()[hart.index()]
-            .try_lock()
-            .ok_or(HartLocalError::Borrowed)?;
+    pub fn init(&self, hart: HartId, value: T) -> Result<()> {
+        let mut slot = self.slots()[hart.index()].try_lock().ok_or(Error::Busy)?;
         if slot.is_some() {
-            return Err(HartLocalError::AlreadyInitialized);
+            return Err(Error::AlreadyInitialized);
         }
         *slot = Some(value);
         Ok(())
@@ -64,15 +63,6 @@ impl<T> HartLocal<T> {
         self.slots
             .call_once(|| HartId::all().map(|_| Mutex::new(None)).collect())
     }
-}
-
-/// Failure to initialize a hart-local slot.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum HartLocalError {
-    /// The slot already contains a value.
-    AlreadyInitialized,
-    /// An operation currently holds the slot.
-    Borrowed,
 }
 
 #[cfg(test)]
@@ -116,7 +106,7 @@ mod tests {
         pool.init(hart, CountDrop(&drops)).unwrap();
         assert_eq!(
             pool.init(hart, CountDrop(&drops)),
-            Err(HartLocalError::AlreadyInitialized)
+            Err(Error::AlreadyInitialized)
         );
         assert_eq!(drops.load(Ordering::Relaxed), 1);
         drop(pool);
