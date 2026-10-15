@@ -14,6 +14,7 @@ use crate::sbi::hart_local::hart_local;
 use crate::sbi::rfence;
 use alloc::vec::Vec;
 use core::sync::atomic::Ordering::{Acquire, Release};
+use csr::machine;
 use runtime::hart::{self, HartId};
 use runtime::rustsbi::{HartMask, SbiRet};
 use sbi_spec::pmu::firmware_event;
@@ -122,7 +123,7 @@ impl runtime::ipi::IpiHandler for RuntimeIpiHandler {
         let ipi_type = get_and_reset_ipi_type();
         if (ipi_type & IPI_TYPE_SSOFT) != 0 {
             pmu_firmware_counter_increment(firmware_event::IPI_RECEIVED);
-            runtime::csr::mip::set_supervisor_software();
+            machine::InterruptPending::set::<machine::SSIP>();
         }
         if (ipi_type & IPI_TYPE_FENCE) != 0 {
             rfence::rfence_handler();

@@ -135,57 +135,22 @@ pub mod mie {
     }
 }
 
-/// Machine-interrupt pending bits used by the Runtime trap mechanism.
+/// Machine-interrupt pending bits used by Runtime.
 pub mod mip {
     use csr::machine;
 
-    // SEIP reads combine software state with the external interrupt signal.
-    // A separate read/write would latch that signal into software pending state.
-    // CSRRS/CSRRC update only the software state, as specified for mip.SEIP:
-    // https://docs.riscv.org/reference/isa/priv/machine.html#mip
-    #[inline]
-    fn write(mask: usize, pending: machine::PendingState) {
-        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-        // SAFETY: Callers select only Runtime-owned SSIP or STIP bits.
-        // Updating these pending bits preserves interrupt enables and SEIP.
-        unsafe {
-            match pending {
-                machine::PendingState::Pending => core::arch::asm!(
-                    "csrs {csr}, {mask}",
-                    csr = const machine::InterruptPending::NUMBER,
-                    mask = in(reg) mask,
-                    options(nostack),
-                ),
-                machine::PendingState::Clear => core::arch::asm!(
-                    "csrc {csr}, {mask}",
-                    csr = const machine::InterruptPending::NUMBER,
-                    mask = in(reg) mask,
-                    options(nostack),
-                ),
-            }
-        }
-        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-        {
-            let _ = (mask, pending);
-            unimplemented!("CSR access requires RISC-V");
-        }
-    }
-
-    /// Signals a supervisor software interrupt to the next-stage supervisor.
-    #[inline]
+    /// Signals a supervisor software interrupt.
     pub fn set_supervisor_software() {
-        write(machine::SSIP::MASK, machine::PendingState::Pending);
+        machine::InterruptPending::set::<machine::SSIP>();
     }
 
-    /// Signals a supervisor timer interrupt to the next-stage supervisor.
-    #[inline]
+    /// Signals a supervisor timer interrupt.
     pub fn set_supervisor_timer() {
-        write(machine::STIP::MASK, machine::PendingState::Pending);
+        machine::InterruptPending::set::<machine::STIP>();
     }
 
-    /// Clears the supervisor timer interrupt pending bit on the current hart.
-    #[inline]
+    /// Clears a supervisor timer interrupt.
     pub fn clear_supervisor_timer() {
-        write(machine::STIP::MASK, machine::PendingState::Clear);
+        machine::InterruptPending::clear::<machine::STIP>();
     }
 }

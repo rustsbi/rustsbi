@@ -6,16 +6,17 @@ use crate::values::trap::ExceptionSet;
 use crate::values::xlen::{TargetXlen, Xlen};
 
 csr! {
-    /// Hypervisor guest privilege and execution state (`hstatus`).
+    /// Hypervisor status register (`hstatus`).
     ///
-    /// <https://docs.riscv.org/reference/isa/priv/hypervisor.html#hstatus>
+    /// See <https://docs.riscv.org/reference/isa/priv/hypervisor.html#hstatus>.
     Status { 0x600, r,
-        /// See <https://docs.riscv.org/reference/isa/priv/hypervisor.html#hstatus>.
+        /// See
+        /// <https://docs.riscv.org/reference/isa/priv/hypervisor.html#hstatus>.
         ///
         /// # Safety
         ///
-        /// Preserve the guest address-space and privilege context used by `sret`
-        /// and by hypervisor loads and stores.
+        /// Preserve the guest address-space and privilege context used by
+        /// `sret` and by hypervisor loads and stores.
         unsafe w
     }
         GVA[6] { rw: GuestAddress }
@@ -23,14 +24,15 @@ csr! {
         SPVP[8] { rw: SupervisorPrivilege }
         #[cfg(target_pointer_width = "64")]
         VSXL[32..=33] { r: Option<Xlen>, w: TargetXlen }
-    /// Exceptions delegated to virtual supervisor mode (`hedeleg`).
+    /// Hypervisor exception delegation register (`hedeleg`).
     ///
-    /// <https://docs.riscv.org/reference/isa/priv/hypervisor.html#hedeleg>
+    /// See <https://docs.riscv.org/reference/isa/priv/hypervisor.html#hedeleg>.
     ExceptionDelegation { 0x602, r: ExceptionSet, w: ExceptionSet }
 }
 
 impl StatusWriteValue {
-    /// Creates a guest return context using the hart's XLEN and little-endian accesses.
+    /// Creates a guest return context using the hart's XLEN and little-endian
+    /// accesses.
     pub fn for_guest(privilege: SupervisorPrivilege) -> Self {
         let mut value = Self(0);
         #[cfg(target_pointer_width = "64")]

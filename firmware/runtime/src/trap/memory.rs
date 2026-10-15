@@ -38,12 +38,12 @@ macro_rules! access_byte {
                     ".option pop",
                     crate::recovery::fault_site!(),
                     status_csr = const machine::Status::NUMBER,
-                    mie_mask = const machine::MIE::MASK,
+                    mie_mask = const 8,
                     causes = const $causes,
                     data = inout(reg) data,
                     address = in(reg) $address,
                     requested_status = in(reg) $status,
-                    access_mask = in(reg) ACCESS_MASK,
+                    access_mask = in(reg) replaced_status_fields(),
                     saved_status = out(reg) _,
                     access_status = out(reg) _,
                     out("t2") cause,
@@ -72,11 +72,15 @@ fn unavailable() -> Result<usize, Error> {
     panic!("lower-mode access requires RISC-V")
 }
 
-const ACCESS_MASK: usize = machine::MIE::MASK
-    | machine::MPP::MASK
-    | machine::MPRV::MASK
-    | machine::SUM::MASK
-    | machine::MXR::MASK;
+#[cfg(any(test, target_arch = "riscv32", target_arch = "riscv64"))]
+fn replaced_status_fields() -> usize {
+    let mut fields = machine::StatusWriteValue::for_return(machine::TargetPrivilege::Machine);
+    fields.write::<machine::MIE>(machine::InterruptState::Enabled);
+    fields.write::<machine::MPRV>(machine::AccessPrivilege::Previous);
+    fields.write::<machine::SUM>(machine::UserMemoryAccess::Allowed);
+    fields.write::<machine::MXR>(machine::ExecutableReadAccess::Enabled);
+    fields.into()
+}
 
 fn access_status(info: &TrapInfo, instruction: bool) -> Result<usize, Error> {
     let endianness = match info.origin() {
@@ -84,11 +88,7 @@ fn access_status(info: &TrapInfo, instruction: bool) -> Result<usize, Error> {
         machine::Privilege::Supervisor => {
             #[cfg(target_pointer_width = "32")]
             {
-                if info.status_high & machine::SBE::MASK == 0 {
-                    machine::Endianness::Little
-                } else {
-                    machine::Endianness::Big
-                }
+                info.status_high.read::<machine::SBE>()
             }
             #[cfg(target_pointer_width = "64")]
             {
@@ -102,9 +102,20 @@ fn access_status(info: &TrapInfo, instruction: bool) -> Result<usize, Error> {
     if info.virtualized() || (!instruction && endianness == machine::Endianness::Big) {
         return Err(Error::Unsupported);
     }
-    let saved =
-        usize::from(info.status) & (machine::MPP::MASK | machine::SUM::MASK | machine::MXR::MASK);
-    Ok(saved | machine::MPRV::MASK | if instruction { machine::MXR::MASK } else { 0 })
+    let privilege = match info.origin() {
+        machine::Privilege::User => machine::TargetPrivilege::User,
+        machine::Privilege::Supervisor => machine::TargetPrivilege::Supervisor,
+        _ => unreachable!("origin checked above"),
+    };
+    let mut status = machine::StatusWriteValue::for_return(privilege);
+    status.write::<machine::SUM>(info.status.read::<machine::SUM>());
+    status.write::<machine::MXR>(if instruction {
+        machine::ExecutableReadAccess::Enabled
+    } else {
+        info.status.read::<machine::MXR>()
+    });
+    status.write::<machine::MPRV>(machine::AccessPrivilege::Previous);
+    Ok(status.into())
 }
 
 /// Fetches up to four instruction bytes under the original S/U context.
@@ -196,6 +207,9 @@ mod tests {
         TrapInfo {
             epc: 0x1000,
             status: machine::StatusWriteValue::for_return(privilege).into(),
+            #[cfg(target_pointer_width = "32")]
+            status_high: <machine::StatusHigh as csr::Readable>::decode(0),
+            #[cfg(target_pointer_width = "64")]
             status_high: 0,
             has_hypervisor: false,
             cause: 0,
@@ -220,7 +234,7 @@ mod tests {
                 machine::TargetPrivilege::Supervisor => {
                     #[cfg(target_pointer_width = "32")]
                     {
-                        info.status_high = machine::SBE::MASK;
+                        info.status_high = <machine::StatusHigh as csr::Readable>::decode(1 << 4);
                     }
                     #[cfg(target_pointer_width = "64")]
                     status.write::<machine::SBE>(machine::Endianness::Big);
@@ -236,5 +250,47 @@ mod tests {
             // Instruction bytes remain little-endian under either data byte order.
             assert!(access_status(&info, true).is_ok());
         }
+    }
+
+    fn trap_info(status: usize) -> TrapInfo {
+        let mut info = context(machine::TargetPrivilege::Supervisor);
+        info.status = <machine::Status as csr::Readable>::decode(status);
+        info
+    }
+
+    #[test]
+    fn lower_access_keeps_original_privilege_sum_and_mxr() {
+        for privilege in [0, 1] {
+            for permissions in [0, 1 << 18, 1 << 19, (1 << 18) | (1 << 19)] {
+                let original = (privilege << 11) | permissions;
+                let info = trap_info(original | (1 << 3) | (3 << 13));
+                assert_eq!(access_status(&info, false), Ok(original | (1 << 17)));
+                assert_eq!(
+                    access_status(&info, true),
+                    Ok(original | (1 << 17) | (1 << 19))
+                );
+            }
+        }
+        assert_eq!(replaced_status_fields(), (1 << 3) | (3 << 11) | (7 << 17));
+    }
+
+    #[test]
+    fn lower_access_rejects_machine_reserved_and_virtualized_origins() {
+        for privilege in [2, 3] {
+            assert_eq!(
+                access_status(&trap_info(privilege << 11), false),
+                Err(Error::Unsupported)
+            );
+        }
+        let mut info = trap_info(1 << 11);
+        #[cfg(target_pointer_width = "32")]
+        {
+            info.status_high = <machine::StatusHigh as csr::Readable>::decode(1 << 7);
+        }
+        #[cfg(target_pointer_width = "64")]
+        {
+            info.status = <machine::Status as csr::Readable>::decode((1 << 11) | (1 << 39));
+        }
+        assert_eq!(access_status(&info, false), Err(Error::Unsupported));
     }
 }

@@ -3,7 +3,10 @@ use crate::value::Value;
 use crate::values::counter::CounterValue;
 use crate::{Readable, Writeable};
 
-/// <https://docs.riscv.org/reference/isa/priv/machine.html#_hardware_performance_monitor>
+/// Machine performance counter indexed from 3 through 31.
+///
+/// See
+/// <https://docs.riscv.org/reference/isa/priv/machine.html#_hardware_performance_monitor>.
 pub enum PerformanceCounter<const INDEX: u8> {}
 
 impl<const INDEX: u8> Readable for PerformanceCounter<INDEX> {

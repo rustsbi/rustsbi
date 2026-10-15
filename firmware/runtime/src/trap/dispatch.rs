@@ -109,11 +109,15 @@ fn fatal(registers: &GeneralRegs, info: &TrapInfo) -> ! {
         ));
         machine::InterruptEnable::write(machine::InterruptEnableWriteValue::disabled());
     }
+    #[cfg(target_pointer_width = "32")]
+    let status_high = usize::from(info.status_high);
+    #[cfg(target_pointer_width = "64")]
+    let status_high = info.status_high;
     panic!(
         "unhandled machine trap: pc={:#x}, status={:#x}, status_high={:#x}, cause={:#x}, tval={:#x}, tval2={:#x}, instruction={:#x}\n{:#x?}",
         info.epc,
         usize::from(info.status),
-        info.status_high,
+        status_high,
         info.cause,
         info.tval,
         info.tval2,

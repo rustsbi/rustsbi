@@ -218,7 +218,7 @@ macro_rules! trap_vector {
                     #[cfg(target_pointer_width = "32")]
                     { 0 }
                 },
-                mpp_mask = const machine::MPP::MASK,
+                mpp_mask = const 3 << 11,
                 high = const $high,
                 hypervisor = const $hypervisor,
                 dispatch = sym super::dispatch::trap_dispatch,

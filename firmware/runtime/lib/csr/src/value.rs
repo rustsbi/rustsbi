@@ -6,7 +6,8 @@ pub(crate) trait Value: Copy {
     fn bits(self) -> usize;
 }
 
-/// A CSR with a typed read value.
+/// A CSR whose typed value can be obtained by an ordinary CSR read.
+/// Registers with dedicated read operations omit this implementation.
 pub trait Readable {
     /// Architectural CSR address.
     const NUMBER: u16;
@@ -16,7 +17,8 @@ pub trait Readable {
     fn decode(bits: usize) -> Self::Value;
 }
 
-/// A CSR with a typed write value.
+/// A CSR whose typed value can be encoded for an ordinary whole-register write.
+/// Registers with dedicated write operations omit this implementation.
 pub trait Writeable {
     /// Architectural CSR address.
     const NUMBER: u16;
@@ -99,7 +101,7 @@ mod tests {
         assert_eq!(read.read::<machine::MPP>(), machine::Privilege::Unknown(2));
         let mut write = machine::StatusWriteValue::from_bits(bits);
         write.write::<machine::MIE>(machine::InterruptState::Enabled);
-        assert_eq!(usize::from(write), bits | machine::MIE::MASK);
+        assert_eq!(usize::from(write), bits | (1 << 3));
         assert_eq!(read.bits(), bits);
     }
 
@@ -122,6 +124,13 @@ mod tests {
         let read = machine::TrapVectorReadValue::from_bits(0x1003);
         assert_eq!(read.read::<machine::MODE>(), VectorMode::Unknown(3));
         assert_eq!(usize::from(read.read::<machine::BASE>().address()), 0x1000);
+        let top = VectorBase::new(Address::from(usize::MAX & !3)).unwrap();
+        let value = machine::TrapVectorWriteValue::new(top, TargetVectorMode::Vectored);
+        assert_eq!(usize::from(value), usize::MAX & !2);
+        assert_eq!(
+            usize::from(value.read::<machine::BASE>().address()),
+            usize::MAX & !3
+        );
     }
 
     #[test]
