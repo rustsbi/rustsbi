@@ -48,7 +48,7 @@ jobs:
       - name: Install dev dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-riscv u-boot-tools
+          sudo apt-get install -y aria2 qemu-system-riscv u-boot-tools
           qemu-system-riscv64 --version
 
       - name: Install required cargo
