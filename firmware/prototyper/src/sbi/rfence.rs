@@ -12,6 +12,8 @@ use runtime::{
     hart::HartId,
     rustsbi::{Fence, HartMask, SbiRet},
 };
+#[cfg(feature = "hypervisor")]
+use runtime::hart::Hart;
 
 use crate::cfg::{PAGE_SIZE, TLB_FLUSH_LIMIT};
 use crate::riscv::csr::fence;
@@ -124,10 +126,7 @@ fn remote_fence_process(rfence_ctx: RFenceContext, hart_mask: HartMask) -> SbiRe
 
 #[cfg(feature = "hypervisor")]
 fn supports_hypervisor_extension() -> bool {
-    let hart_id = HartId::current()
-        .expect("BUG: current hart exceeds Runtime capacity")
-        .as_usize();
-    super::features::hart_has_extension(hart_id, super::features::Extension::Hypervisor)
+    Hart::current().is_ok_and(Hart::has_hypervisor)
 }
 
 impl Fence for SbiRFence {

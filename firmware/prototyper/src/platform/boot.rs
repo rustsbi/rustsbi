@@ -6,7 +6,7 @@ use alloc::boxed::Box;
 use core::ops::Range;
 use runtime::{
     Error, PlatformDescription, Result, boot,
-    hart::{self, HartId},
+    hart::{self, Hart, HartId, IsaExtensions},
     ipi::Ipi,
     memory::SupervisorMemory,
     timer::Timer,
@@ -150,16 +150,14 @@ fn initialize_platform(
 /// Sstc timer.
 /// Device construction performs no SBI feature-policy queries.
 fn select_imsic(board: &BoardInfo) -> Option<&ImsicInfo> {
-    use sbi::features::{self, Extension};
-
     let imsic = board.devices.interrupts.imsic()?.resource();
-    for hart in HartId::all().map(|hart| hart.as_usize()) {
-        if !features::hart_has_extension(hart, Extension::Smaia)
-            || !features::hart_has_extension(hart, Extension::Sstc)
+    for hart in Hart::all() {
+        if !hart.extensions().contains(IsaExtensions::SMAIA)
+            || !hart.extensions().contains(IsaExtensions::SSTC)
         {
             warn!(
                 "AIA: hart {} requires Smaia and Sstc; falling back to CLINT",
-                hart
+                hart.id().as_usize()
             );
             return None;
         }

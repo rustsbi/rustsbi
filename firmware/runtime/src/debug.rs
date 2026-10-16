@@ -1,6 +1,6 @@
 //! Debug-trigger discovery used by the SBI DBTR service.
 
-use crate::csr::{csrr, csrw};
+use crate::recovery::{csrr, csrw};
 use csr::machine;
 
 /// Counts accepted trigger selectors with a nonzero trigger type.

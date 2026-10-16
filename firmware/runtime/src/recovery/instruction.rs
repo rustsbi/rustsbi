@@ -57,13 +57,7 @@ macro_rules! csrw {
     };
 }
 
-macro_rules! csrrw {
-    ($register:ty, $value:expr) => {
-        $crate::recovery::instruction!("csrrw {value}, {csr}, {value}", <$register>::NUMBER, $value)
-    };
-}
-
-pub(crate) use {csrr, csrrw, csrw};
+pub(crate) use {csrr, csrw};
 
 #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
 pub(crate) fn unavailable() -> ! {

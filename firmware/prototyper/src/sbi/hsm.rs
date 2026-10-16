@@ -14,7 +14,7 @@
 use runtime::{
     Result,
     boot::NextStage,
-    hart::{self, HartId, HartState},
+    hart::{Hart, HartId, HartState, StartOutcome},
     rustsbi::{Hsm, SbiRet},
 };
 use sbi_spec::hsm::{hart_state, suspend_type};
@@ -31,12 +31,12 @@ impl SbiHsm {
     }
 
     /// Validates an enabled SBI hart ID against platform privilege policy.
-    fn hart_id(&self, raw: usize) -> Result<HartId, SbiRet> {
+    fn hart(&self, raw: usize) -> Result<&'static Hart, SbiRet> {
         let hart = HartId::from_raw(raw).map_err(|_| SbiRet::invalid_param())?;
         if !(self.hardware_wakeup || crate::platform::hart_privilege_checked(raw)) {
             return Err(SbiRet::invalid_param());
         }
-        Ok(hart)
+        Hart::get(hart).map_err(Into::into)
     }
 
     /// Implements the HSM suspend/resume transition described by the SBI HSM
@@ -48,28 +48,23 @@ impl SbiHsm {
         ) {
             return SbiRet::invalid_param();
         }
-        if hart::suspend_current().is_err() {
+        let hart = match Hart::current() {
+            Ok(hart) => hart,
+            Err(error) => return error.into(),
+        };
+        if hart.suspend().is_err() {
             return SbiRet::failed();
         }
 
         if suspend_type == suspend_type::RETENTIVE {
-            return match hart::resume_current_retentive() {
+            return match hart.resume_retentive() {
                 Ok(()) => SbiRet::success(0),
                 Err(_) => SbiRet::failed(),
             };
         }
 
-        let stage = NextStage {
-            start_addr: resume_addr,
-            opaque,
-            next_mode: riscv::register::mstatus::MPP::Supervisor,
-        };
-        let ticket = match hart::begin_nonretentive_resume(stage) {
-            Ok(ticket) => ticket,
-            Err(_) => return SbiRet::failed(),
-        };
-
-        match ticket.commit() {
+        let stage = NextStage::supervisor(resume_addr, opaque);
+        match hart.resume_nonretentive(stage) {
             Ok(()) => SbiRet::success(0),
             Err(_) => SbiRet::failed(),
         }
@@ -79,18 +74,14 @@ impl SbiHsm {
 impl Hsm for SbiHsm {
     /// Starts execution on a stopped hart.
     fn hart_start(&self, hartid: usize, start_addr: usize, opaque: usize) -> SbiRet {
-        let hart = match self.hart_id(hartid) {
+        let hart = match self.hart(hartid) {
             Ok(hart) => hart,
             Err(error) => return error,
         };
-        let stage = NextStage {
-            start_addr,
-            opaque,
-            next_mode: riscv::register::mstatus::MPP::Supervisor,
-        };
-        match hart::start(hart, stage) {
-            Ok(hart::StartOutcome::Accepted) => SbiRet::success(0),
-            Ok(hart::StartOutcome::AlreadyRunning) => SbiRet::already_available(),
+        let stage = NextStage::supervisor(start_addr, opaque);
+        match hart.start(stage) {
+            Ok(StartOutcome::Accepted) => SbiRet::success(0),
+            Ok(StartOutcome::AlreadyRunning) => SbiRet::already_available(),
             Err(_) => SbiRet::failed(),
         }
     }
@@ -98,8 +89,8 @@ impl Hsm for SbiHsm {
     /// Stops execution on the current hart.
     #[inline]
     fn hart_stop(&self) -> SbiRet {
-        match hart::stop_current() {
-            Ok(never) => match never {},
+        match Hart::current().and_then(Hart::stop) {
+            Ok(()) => SbiRet::success(0),
             Err(_) => SbiRet::failed(),
         }
     }
@@ -107,13 +98,14 @@ impl Hsm for SbiHsm {
     /// Gets the current state of a hart.
     #[inline]
     fn hart_get_status(&self, hartid: usize) -> SbiRet {
-        let hart = match self.hart_id(hartid) {
+        let hart = match self.hart(hartid) {
             Ok(hart) => hart,
             Err(error) => return error,
         };
-        let state = match hart::status(hart) {
+        let state = match hart.status() {
             HartState::Started => hart_state::STARTED,
             HartState::Stopped => hart_state::STOPPED,
+            HartState::StopPending => hart_state::STOP_PENDING,
             HartState::StartPending => hart_state::START_PENDING,
             HartState::Suspended => hart_state::SUSPENDED,
             HartState::ResumePending => hart_state::RESUME_PENDING,

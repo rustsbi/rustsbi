@@ -14,7 +14,7 @@ use alloc::vec::Vec;
 use core::sync::atomic::Ordering::{Acquire, Release};
 use runtime::{
     Result,
-    hart::{self, HartId},
+    hart::{Hart, HartId},
     ipi::{Ipi, IpiRequest},
     rustsbi::{self, HartMask, SbiRet},
 };
@@ -145,7 +145,7 @@ pub fn get_and_reset_ipi_type() -> u8 {
 
 fn target_requests(hart_mask: HartMask) -> Result<impl Iterator<Item = IpiRequest>, SbiRet> {
     let available = |hart: HartId| {
-        crate::platform::hart_privilege_checked(hart.as_usize()) && hart::can_receive_ipi(hart)
+        crate::platform::hart_privilege_checked(hart.as_usize()) && Hart::get(hart).is_ok_and(Hart::can_receive_ipi)
     };
     let (mask, base) = hart_mask.into_inner();
     let mut single = None;

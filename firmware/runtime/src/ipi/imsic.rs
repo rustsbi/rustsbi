@@ -2,8 +2,8 @@
 
 use crate::{
     Error, Result,
-    csr::{csrr, csrw},
     irq::LocalIrqDisabled,
+    recovery::{csrr, csrw},
 };
 use core::num::NonZeroU16;
 use csr::aia::imsic::ImsicRegister;

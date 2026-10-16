@@ -1,7 +1,7 @@
 //! SBI extension implementations and the platform's published dispatcher.
 //!
 //! Platform boot selects the extension fields. Runtime calls the dispatcher
-//! through the original RustSBI trait and borrows its timer and IPI objects.
+//! through the original RustSBI trait and borrows its owned Runtime objects.
 
 use runtime::{
     rustsbi::{self, RustSBI},
@@ -10,24 +10,23 @@ use runtime::{
 };
 use spin::Once;
 
-pub mod console;
-pub mod cppc;
-pub mod dbtr;
-pub mod fwft;
+pub(crate) mod console;
+pub(crate) mod cppc;
+pub(crate) mod dbtr;
+pub(crate) mod fwft;
 pub(crate) mod hsm;
-pub mod ipi;
-pub mod mpxy;
-pub mod pmu;
-pub mod reset;
-pub mod rfence;
-pub mod sta;
-pub mod suspend;
-pub mod timer;
+pub(crate) mod ipi;
+pub(crate) mod mpxy;
+pub(crate) mod pmu;
+pub(crate) mod reset;
+pub(crate) mod rfence;
+pub(crate) mod sta;
+pub(crate) mod suspend;
+pub(crate) mod timer;
 pub(crate) mod vendor;
 
-pub mod features;
-pub mod hart_local;
-pub mod logger;
+pub(crate) mod hart_local;
+pub(crate) mod logger;
 
 use console::SbiConsole;
 use cppc::SbiCppc;
@@ -45,7 +44,7 @@ use timer::SbiTimer;
 
 #[derive(RustSBI)]
 #[rustsbi(dynamic, crate = rustsbi)]
-pub struct SbiDispatcher {
+pub(crate) struct SbiDispatcher {
     #[rustsbi(console)]
     pub(crate) console: Option<SbiConsole>,
     #[rustsbi(cppc)]

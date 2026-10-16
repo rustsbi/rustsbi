@@ -137,11 +137,8 @@ impl BootInfo {
     /// Invalid `DynamicInfo` stops boot.
     pub(crate) fn next_stage(&self) -> NextStage {
         let (next_mode, start_address) = decode_next_stage(self.dynamic_info_address);
-        NextStage {
-            start_addr: start_address,
-            next_mode,
-            opaque: self.device_tree_address,
-        }
+        // SAFETY: The loader establishes the architectural entry contract.
+        unsafe { NextStage::new(start_address, self.device_tree_address, next_mode) }
     }
 }
 

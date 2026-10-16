@@ -5,33 +5,23 @@
 //! resumes.
 
 mod context;
+mod environment;
 mod services;
 mod stack;
+mod stage;
+mod thead;
 
-pub use crate::csr::enable_supervisor_seed;
-pub use crate::csr::stateen::configure_supervisor as configure_state_access;
-pub use crate::csr::thead::disable_maee as disable_thead_maee;
-
-pub use context::{configure_next_stage, prepare_traps};
+pub(crate) use context::configure_next_stage;
+pub use context::prepare_traps;
 pub(crate) use context::{prepare_supervisor, set_return_mode, traps_ready};
 pub use services::{Services, install_services};
 pub(crate) use services::{ipi, pmu, timer};
+pub use stage::NextStage;
 
 pub(crate) use stack::firmware_end;
 pub use stack::{BootStack, initialize_stacks, locate_stack};
 
-use crate::hart::{self, HartEvent};
-
-/// Information needed to boot into the next execution stage.
-#[derive(Clone, Copy, Debug)]
-pub struct NextStage {
-    /// Starting address to jump to.
-    pub start_addr: usize,
-    /// Opaque value passed to next stage.
-    pub opaque: usize,
-    /// Privilege mode for next stage.
-    pub next_mode: riscv::register::mstatus::MPP,
-}
+use crate::hart::Hart;
 
 /// Stops the current hart without accessing its stack.
 ///
@@ -43,7 +33,7 @@ pub struct NextStage {
 #[unsafe(export_name = "runtime_fail_stop")]
 pub unsafe extern "C" fn fail_stop() {
     #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-    core::arch::naked_asm!(".align 2", "csrw mie, zero", "1: wfi", "   j 1b",);
+    core::arch::naked_asm!(".balign 4", "csrw mie, zero", "1: wfi", "   j 1b",);
     #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
     unimplemented!("The fail-stop vector requires a RISC-V target");
 }
@@ -138,7 +128,7 @@ pub unsafe extern "C" fn c907_reset_entry(initialize: extern "C" fn()) -> ! {
 pub unsafe extern "C" fn finish_boot() -> ! {
     #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     core::arch::naked_asm!(
-        ".align 2",
+        ".balign 4",
         // Discard the current call chain: sp becomes this hart's clean top.
         "call {locate}",
         // Runtime Rust uses the interrupted M stack for machine exceptions.
@@ -159,44 +149,15 @@ pub unsafe extern "C" fn finish_boot() -> ! {
 
 /// Enters a staged next stage or waits for a hart-start event.
 fn finish_boot_rust() -> ! {
+    context::complete_setup();
     // SAFETY: The boot finisher is entered with MIE clear and never enables it.
     let irq = unsafe { crate::irq::LocalIrqDisabled::assume_disabled() };
-    let hart = hart::current_hart();
-    let ipi = ipi().expect("IPI service not published");
-    loop {
-        // Acknowledge before observing the state. Clearing after observing
-        // Stopped could erase a concurrent start's wakeup just before WFI.
-        if ipi.delivery().is_some() {
-            ipi.clear_current(&irq)
-                .expect("BUG: could not clear the hart wake interrupt");
-            riscv::asm::fence();
-        }
-        let event = hart::take_local_event();
-        // A sender may have selected this hart before it stopped, or just
-        // after STARTED became visible. Complete its work before handoff/WFI.
-        ipi.deliver_current(&irq);
-        match event {
-            HartEvent::Start(next_stage) => {
-                // SAFETY: The boot finisher owns the outgoing context in
-                // M-mode, with interrupts disabled and Runtime entry installed.
-                unsafe { context::stage_next_mode(next_stage.start_addr, next_stage.next_mode) };
-                let hart_id = hart.as_usize();
-                // SAFETY: The next-stage CSRs are staged and this hart's
-                // initialized stack is ready for subsequent traps.
-                unsafe { enter_stage(hart_id, next_stage.opaque) }
-            }
-            HartEvent::Park => {
-                ipi.prepare_wakeup(&irq);
-                riscv::asm::wfi();
-                // A masked wake re-checks the cell instead of returning
-                // into the discarded boot context.
-                continue;
-            }
-            // A fresh cell is STOPPED or START_PENDING at this point; any
-            // other state is a firmware bug.
-            HartEvent::None => unreachable!("boot-stage hart is neither start nor park"),
-        }
-    }
+    let hart = Hart::current().expect("boot hart");
+    let next_stage = hart.wait_for_start(&irq);
+    // SAFETY: The boot finisher owns the outgoing M-mode context with MIE clear.
+    unsafe { context::stage_next_mode(next_stage.start_addr(), next_stage.next_mode()) };
+    // SAFETY: The next-stage CSRs and the initialized trap stack are ready.
+    unsafe { enter_stage(hart.id().as_usize(), next_stage.opaque()) }
 }
 
 /// Hands off with only the SBI entry arguments retained in general registers.

@@ -1,19 +1,14 @@
-//! Hart-local policy state: the per-hart bookkeeping consumed by the SBI
-//! extension layer.
+//! Hart-local policy state for the SBI IPI and RFENCE adapters.
 //!
-//! This storage is policy state, deliberately decoupled from the
-//! Runtime-owned trap stacks: the Runtime owns stack memory; the policy
-//! firmware owns its own context records. Slots are initialized once during
-//! boot, then their mutable fields are accessed through atomics or locks.
+//! This storage remains policy state; Runtime owns hart lifecycle and stacks.
 
 #![forbid(unsafe_code)]
 
 use alloc::boxed::Box;
 use core::sync::atomic::AtomicU8;
 use runtime::hart::HartId;
-use spin::{Mutex, Once};
+use spin::Once;
 
-use super::features::HartFeatures;
 use super::rfence::queue::{LocalRFenceCell, RFenceCell, RemoteRFenceCell};
 
 /// Separates independently written hart state into 128-byte blocks.
@@ -31,14 +26,12 @@ impl<T> core::ops::Deref for CacheAligned<T> {
     }
 }
 
-/// Hart-local state, consumed by the sbi extension layer.
+/// Hart-local state, consumed by the SBI extension layer.
 pub struct HartLocal {
     /// Remote fence synchronization cell.
     pub rfence: RFenceCell,
     /// Type of inter-processor interrupt pending.
     pub ipi_type: CacheAligned<AtomicU8>,
-    /// Supported hart features.
-    features: Mutex<HartFeatures>,
 }
 
 impl HartLocal {
@@ -46,26 +39,8 @@ impl HartLocal {
         Self {
             rfence: RFenceCell::new(),
             ipi_type: CacheAligned(AtomicU8::new(0)),
-            features: Mutex::new(HartFeatures::default()),
         }
     }
-
-    /// Runs a read-only operation on this hart's detected features.
-    pub(crate) fn with_features<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&HartFeatures) -> R,
-    {
-        f(&self.features.lock())
-    }
-
-    /// Runs an update on this hart's detected features.
-    pub(crate) fn with_features_mut<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&mut HartFeatures) -> R,
-    {
-        f(&mut self.features.lock())
-    }
-
 }
 
 static HART_LOCALS: Once<Box<[HartLocal]>> = Once::new();
@@ -88,25 +63,6 @@ fn slot(hart: HartId) -> &'static HartLocal {
         .expect("BUG: hart-local state used before initialization")[hart.index()]
 }
 
-/// Runs `f` with shared access to the current hart's state. Mutable policy
-/// fields are updated through their own locks, so this does not create an
-/// aliasing contract for callers.
-pub fn with_current<F, R>(f: F) -> R
-where
-    F: FnOnce(&HartLocal) -> R,
-{
-    let hart = HartId::current().expect("BUG: current hart is not in the boot topology");
-    f(slot(hart))
-}
-
-/// Runs `f` with shared access to an arbitrary hart's state.
-pub fn with_hart<F, R>(hart_id: usize, f: F) -> R
-where
-    F: FnOnce(&HartLocal) -> R,
-{
-    f(hart_local(hart_id))
-}
-
 /// Gets the local fence context for the current hart.
 pub fn local_rfence() -> Option<LocalRFenceCell<'static>> {
     Some(slot(HartId::current().ok()?).rfence.local())
@@ -117,4 +73,3 @@ pub fn remote_rfence(hart_id: usize) -> Option<RemoteRFenceCell<'static>> {
     let hart = HartId::from_raw(hart_id).ok()?;
     Some(slot(hart).rfence.remote())
 }
-

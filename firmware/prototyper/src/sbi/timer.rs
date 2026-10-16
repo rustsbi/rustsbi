@@ -6,7 +6,7 @@ use super::pmu::{FirmwareEvent, SbiPmu};
 use runtime::{rustsbi, timer::Timer};
 
 /// SBI TIME extension with permission to program the supervisor timer.
-pub struct SbiTimer {
+pub(crate) struct SbiTimer {
     timer: Timer,
 }
 

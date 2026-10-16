@@ -61,7 +61,7 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
                         &BOOT_STACK,
                         crate::cfg::HART_CAPACITY,
                         boot.platform_description(),
-                        boot.next_stage().start_addr,
+                        boot.next_stage().start_addr(),
                         boot.dynamic_info_range().expect("invalid dynamic boot information range"),
                     )
                 }.expect("firmware could not initialize its hart topology");

@@ -3,7 +3,7 @@
 use crate::rustsbi::spec::fwft::feature_type;
 use crate::{
     Error, Result,
-    csr::{csrr, csrw},
+    recovery::{csrr, csrw},
 };
 use csr::{machine, values::trap::Exception};
 
