@@ -126,17 +126,20 @@ fn execute(request: Request) {
             range.for_each(fence::hfence_gvma_all, fence::hfence_gvma_addr);
         }
         #[cfg(feature = "hypervisor")]
-        Request::HFenceVvmaAsid { range, asid } => {
+        Request::HFenceVvmaAsid { range, asid, vmid } => {
             SbiPmu::record_event(FirmwareEvent::HfenceVvmaAsidReceived);
             range.for_each(
-                || fence::hfence_vvma_asid(asid),
-                |addr| fence::hfence_vvma_addr_asid(addr, asid),
+                || fence::hfence_vvma_asid(asid, vmid),
+                |addr| fence::hfence_vvma_addr_asid(addr, asid, vmid),
             );
         }
         #[cfg(feature = "hypervisor")]
-        Request::HFenceVvma { range } => {
+        Request::HFenceVvma { range, vmid } => {
             SbiPmu::record_event(FirmwareEvent::HfenceVvmaReceived);
-            range.for_each(fence::hfence_vvma_all, fence::hfence_vvma_addr);
+            range.for_each(
+                || fence::hfence_vvma_all(vmid),
+                |addr| fence::hfence_vvma_addr(addr, vmid),
+            );
         }
     }
 }
