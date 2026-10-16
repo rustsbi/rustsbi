@@ -2,9 +2,9 @@
 
 use super::{AddressRange, Request, SbiRFence};
 use crate::sbi::pmu::{FirmwareEvent, SbiPmu};
-#[cfg(feature = "hypervisor")]
-use runtime::hart::Hart;
 use runtime::rustsbi::{Fence, HartMask, SbiRet};
+#[cfg(feature = "hypervisor")]
+use runtime::{fence, hart::Hart};
 
 impl Fence for SbiRFence {
     /// Remote instruction fence for specified harts.
@@ -88,6 +88,10 @@ impl Fence for SbiRFence {
         if !Hart::current().is_ok_and(Hart::has_hypervisor) {
             return SbiRet::not_supported();
         }
+        let vmid = match fence::current_vmid() {
+            Ok(vmid) => vmid,
+            Err(error) => return error.into(),
+        };
         SbiPmu::record_event(FirmwareEvent::HfenceVvmaAsidSent);
 
         let range = match AddressRange::new(start_addr, size) {
@@ -95,7 +99,7 @@ impl Fence for SbiRFence {
             Err(e) => return e,
         };
 
-        self.send(Request::HFenceVvmaAsid { range, asid }, hart_mask)
+        self.send(Request::HFenceVvmaAsid { range, asid, vmid }, hart_mask)
     }
 
     #[cfg(feature = "hypervisor")]
@@ -103,6 +107,10 @@ impl Fence for SbiRFence {
         if !Hart::current().is_ok_and(Hart::has_hypervisor) {
             return SbiRet::not_supported();
         }
+        let vmid = match fence::current_vmid() {
+            Ok(vmid) => vmid,
+            Err(error) => return error.into(),
+        };
         SbiPmu::record_event(FirmwareEvent::HfenceVvmaSent);
 
         let range = match AddressRange::new(start_addr, size) {
@@ -110,6 +118,6 @@ impl Fence for SbiRFence {
             Err(e) => return e,
         };
 
-        self.send(Request::HFenceVvma { range }, hart_mask)
+        self.send(Request::HFenceVvma { range, vmid }, hart_mask)
     }
 }

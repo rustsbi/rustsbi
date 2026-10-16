@@ -31,11 +31,13 @@ enum Request {
     #[cfg(feature = "hypervisor")]
     HFenceVvma {
         range: AddressRange,
+        vmid: usize,
     },
     #[cfg(feature = "hypervisor")]
     HFenceVvmaAsid {
         range: AddressRange,
         asid: usize,
+        vmid: usize,
     },
 }
 
