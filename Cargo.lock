@@ -589,12 +589,14 @@ dependencies = [
 name = "rustsbi-firmware-runtime"
 version = "0.0.0"
 dependencies = [
+ "bitflags",
  "fdt",
  "riscv",
  "riscv-decode",
  "rustsbi",
  "rustsbi-csr",
  "rustsbi-runtime-macros",
+ "seq-macro",
  "spin",
 ]
 
@@ -618,6 +620,7 @@ dependencies = [
  "pastey 0.1.1",
  "riscv",
  "riscv-aia",
+ "rustsbi-csr",
  "rustsbi-firmware-runtime",
  "sbi-spec",
  "seq-macro",
