@@ -1,5 +1,6 @@
 //! Existing architectural-time emulation and direct platform counter reads.
 
+use crate::csr::csrr;
 use csr::user;
 
 impl super::Timer {
@@ -15,7 +16,7 @@ impl super::Timer {
             return Some(time);
         }
         // Trap dispatch installed recovery; unavailable CSR access can fall back.
-        if let Ok(time) = crate::csr::instruction!("csrr {value}, {csr}", user::Time::NUMBER, 0) {
+        if let Ok(time) = csrr!(user::Time) {
             return Some(time);
         }
         self.machine()?.read_time().map(|time| time as usize)
@@ -27,8 +28,7 @@ impl super::Timer {
         if let Some(time) = self.machine().and_then(|machine| machine.read_time_high()) {
             return Some(time);
         }
-        if let Ok(time) = crate::csr::instruction!("csrr {value}, {csr}", user::TimeHigh::NUMBER, 0)
-        {
+        if let Ok(time) = csrr!(user::TimeHigh) {
             return Some(time);
         }
         self.machine()?

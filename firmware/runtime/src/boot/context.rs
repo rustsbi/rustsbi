@@ -1,4 +1,6 @@
 //! Trap installation and next-stage architectural context.
+#[cfg(target_pointer_width = "32")]
+use crate::csr::csrr;
 use crate::trap::entry;
 use csr::{
     machine, supervisor,
@@ -28,7 +30,7 @@ pub unsafe extern "C" fn prepare_traps() {
     }
     // Install the basic vector before probing so an absent mstatush can recover.
     #[cfg(target_pointer_width = "32")]
-    let high = crate::csr::instruction!("csrr {value}, {csr}", machine::StatusHigh::NUMBER, 0).ok();
+    let high = csrr!(machine::StatusHigh).ok();
     #[cfg(target_pointer_width = "32")]
     if high.is_some() {
         // SAFETY: The probe confirmed mstatush; startup owns trap setup.
@@ -165,7 +167,7 @@ pub(super) unsafe fn stage_next_mode(start_addr: usize, next_mode: riscv::regist
     // A recovered probe changes live trap state. Finish probes before
     // staging the status and PC consumed by the final mret.
     #[cfg(target_pointer_width = "32")]
-    if crate::csr::instruction!("csrr {value}, {csr}", machine::StatusHigh::NUMBER, 0).is_ok() {
+    if csrr!(machine::StatusHigh).is_ok() {
         // SAFETY: The probe succeeded; boot owns the outgoing trap state.
         unsafe {
             machine::StatusHigh::modify(|_, high| {

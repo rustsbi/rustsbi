@@ -1,6 +1,6 @@
 //! Current-hart ISA, privileged-version, and performance-counter discovery.
 
-use crate::csr::instruction;
+use crate::csr::{csrr, csrrw, csrw};
 use csr::machine;
 
 /// Returns whether this hart reports the hypervisor extension in `misa`.
@@ -38,17 +38,11 @@ pub fn detect_privileged_version() -> PrivilegedVersion {
     if !crate::boot::traps_ready() {
         return PrivilegedVersion::Unknown;
     }
-    if instruction!("csrr {value}, {csr}", machine::CounterEnable::NUMBER, 0).is_err() {
+    if csrr!(machine::CounterEnable).is_err() {
         PrivilegedVersion::Unknown
-    } else if instruction!("csrr {value}, {csr}", machine::CounterInhibit::NUMBER, 0).is_err() {
+    } else if csrr!(machine::CounterInhibit).is_err() {
         PrivilegedVersion::Version1_10
-    } else if instruction!(
-        "csrr {value}, {csr}",
-        machine::EnvironmentConfiguration::NUMBER,
-        0
-    )
-    .is_err()
-    {
+    } else if csrr!(machine::EnvironmentConfiguration).is_err() {
         PrivilegedVersion::Version1_11
     } else {
         PrivilegedVersion::Version1_12
@@ -67,10 +61,9 @@ pub unsafe fn detect_performance_counters() -> u32 {
         let mut mask = 0b111;
         macro_rules! probe {
             ($($index:literal),*) => { $( {
-                const NUMBER: u16 = machine::PerformanceCounter::<$index>::NUMBER;
-                if let Ok(old) = instruction!("csrr {value}, {csr}", NUMBER, 0)
-                    && instruction!("csrw {csr}, {value}", NUMBER, 1).is_ok()
-                    && instruction!("csrrw {value}, {csr}, {value}", NUMBER, old) == Ok(1) {
+                if let Ok(old) = csrr!(machine::PerformanceCounter<$index>)
+                    && csrw!(machine::PerformanceCounter<$index>, 1).is_ok()
+                    && csrrw!(machine::PerformanceCounter<$index>, old) == Ok(1) {
                     mask |= 1 << $index;
                 }
             } )* };
