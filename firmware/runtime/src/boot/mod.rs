@@ -15,7 +15,7 @@ pub(crate) use context::configure_next_stage;
 pub use context::prepare_traps;
 pub(crate) use context::{prepare_supervisor, set_return_mode, traps_ready};
 pub use services::{Services, install_services};
-pub(crate) use services::{ipi, pmu, timer};
+pub(crate) use services::{fwft, ipi, pmu, timer};
 pub use stage::NextStage;
 
 pub(crate) use stack::firmware_end;

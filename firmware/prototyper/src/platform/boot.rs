@@ -6,6 +6,7 @@ use alloc::boxed::Box;
 use core::ops::Range;
 use runtime::{
     Error, PlatformDescription, Result, boot,
+    fwft::Fwft,
     hart::{self, Hart, HartId, IsaExtensions},
     ipi::Ipi,
     memory::SupervisorMemory,
@@ -221,7 +222,7 @@ fn publish_sbi_dispatcher(
         .map(|device| sbi::console::SbiConsole::new(device, supervisor_memory));
     let cppc = Some(SbiCppc::new());
     let dbtr = Some(SbiDbtr::new(supervisor_memory));
-    let fwft = Some(SbiFwft);
+    let fwft = Some(SbiFwft::new(Fwft::new()).expect("failed to construct FWFT locks"));
     let ipi_available = ipi.ipi().delivery().is_some();
     let hsm = ipi_available.then(|| SbiHsm::new(hart_wake.is_some()));
     let rfence = ipi_available.then(|| SbiRFence::new().expect("failed to construct fence queues"));
@@ -250,6 +251,7 @@ fn publish_sbi_dispatcher(
         timer: dispatcher.timer.timer(),
         ipi: dispatcher.ipi.ipi(),
         pmu: dispatcher.pmu.as_ref().map(SbiPmu::pmu),
+        fwft: dispatcher.fwft.as_ref().map(SbiFwft::fwft),
     })
     .expect("BUG: Runtime services registered more than once");
 }
