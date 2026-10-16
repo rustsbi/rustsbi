@@ -6,7 +6,7 @@ use core::arch::{asm, naked_asm};
 
 use sbi_testing::sbi;
 
-use crate::{console, misaligned, platform, pmu, reset, rfence, timer, trap};
+use crate::{console, fwft, misaligned, platform, pmu, reset, rfence, timer, trap};
 
 const RISCV_HEAD_FLAGS: u64 = 0;
 const RISCV_HEADER_VERSION: u32 = 0x2;
@@ -14,6 +14,11 @@ const RISCV_IMAGE_MAGIC: u64 = 0x5643534952; // Magic number, little endian, "RI
 const RISCV_IMAGE_MAGIC2: u32 = 0x05435352; // Magic number 2, little endian, "RSC\x05".
 
 /// RISC-V Linux image boot header.
+///
+/// # Safety
+/// Enter in S-mode with a hart ID in a0 and a readable DTB address in a1.
+/// The loaded image must be writable and exclusively owned for initialization.
+/// No Rust references or other users of its static storage may be live.
 #[unsafe(naked)]
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".head.text")]
@@ -40,6 +45,11 @@ unsafe extern "C" fn _boot_header() -> ! {
 }
 
 /// Relocates the image, clears `.bss`, and installs the boot hart's stack.
+///
+/// # Safety
+/// Enter once in S-mode with a hart ID and a readable DTB address.
+/// The writable image and boot stack must be exclusively owned.
+/// No Rust references may survive relocation or `.bss` initialization.
 #[unsafe(naked)]
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".text.entry")]
@@ -110,9 +120,16 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     let platform::BoardInfo { smp, frequency } = platform::initialize(dtb_pa);
     print_banner(hartid, smp, frequency, dtb_pa);
 
+    assert!(
+        smp <= usize::BITS as usize,
+        "test harness hart mask exceeds XLEN"
+    );
     let test_result = sbi_testing::Testing {
         hartid,
-        hart_mask: (1 << smp) - 1,
+        // Shifting by XLEN is invalid; the full-width topology uses all bits.
+        hart_mask: usize::MAX
+            .checked_shr(usize::BITS.saturating_sub(smp as u32))
+            .unwrap_or(0),
         hart_mask_base: 0,
         delay: frequency,
     }
@@ -125,6 +142,7 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     reset::test();
     misaligned::test();
     trap::test();
+    fwft::test(hartid, smp, frequency);
 
     let console_passed = console_result.is_ok();
     report_console_result(console_result);
@@ -189,7 +207,9 @@ fn finish(passed: bool) -> ! {
 #[cfg_attr(not(test), panic_handler)]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     let (hart_id, pc): (usize, usize);
+    // SAFETY: Reads tp into a declared output without accessing memory.
     unsafe { asm!("mv    {}, tp", out(reg) hart_id) };
+    // SAFETY: Reads the current PC without changing execution configuration.
     unsafe { asm!("auipc {},  0", out(reg) pc) };
     println!("[test-kernel-panic] hart {hart_id} {info}");
     println!("[test-kernel-panic] pc = {pc:#x}");
