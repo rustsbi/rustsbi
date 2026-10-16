@@ -27,6 +27,93 @@ pub enum Counter {
     InstructionsRetired = 2,
 }
 
+/// A programmable machine counter index, restricted to 3 through 31.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HpmCounter(u8);
+
+impl HpmCounter {
+    /// Validates an architectural programmable-counter index.
+    pub const fn new(index: u16) -> Option<Self> {
+        if index >= 3 && index <= 31 {
+            Some(Self(index as u8))
+        } else {
+            None
+        }
+    }
+    /// Returns the architectural counter index.
+    pub const fn index(self) -> u8 {
+        self.0
+    }
+}
+
+/// A machine counter whose accumulation firmware can control.
+/// The read-only time counter is deliberately excluded.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HardwareCounter {
+    Cycle,
+    InstructionsRetired,
+    Hpm(HpmCounter),
+}
+
+impl HardwareCounter {
+    /// Validates an index into the architectural counter bank.
+    pub const fn from_index(index: u16) -> Option<Self> {
+        match index {
+            0 => Some(Self::Cycle),
+            2 => Some(Self::InstructionsRetired),
+            _ => match HpmCounter::new(index) {
+                Some(hpm) => Some(Self::Hpm(hpm)),
+                None => None,
+            },
+        }
+    }
+    /// Returns the index shared by the machine and user counter banks.
+    pub const fn index(self) -> u8 {
+        match self {
+            Self::Cycle => 0,
+            Self::InstructionsRetired => 2,
+            Self::Hpm(hpm) => hpm.index(),
+        }
+    }
+    /// Returns the read-only S/U-mode shadow CSR number.
+    pub const fn user_csr(self) -> u16 {
+        0xc00 + self.index() as u16
+    }
+}
+
+/// Counter-inhibit bits. Time is not an inhibit-able counter.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InhibitedCounters(u32);
+
+impl InhibitedCounters {
+    /// Decodes a register snapshot, excluding the reserved time-counter bit.
+    pub const fn from_bits(bits: usize) -> Self {
+        Self(bits as u32 & !(1 << 1))
+    }
+    /// Selects all programmable counters while leaving cycle and instret running.
+    pub const fn programmable() -> Self {
+        Self(!0b111)
+    }
+    /// Selects exactly one controlled counter.
+    pub const fn one(counter: HardwareCounter) -> Self {
+        Self(1 << counter.index())
+    }
+    /// Reports whether accumulation of this counter is inhibited.
+    pub const fn contains(self, counter: HardwareCounter) -> bool {
+        self.0 & (1 << counter.index()) != 0
+    }
+}
+
+impl Value for InhibitedCounters {
+    const BITS: u32 = 32;
+    fn from_bits(bits: usize) -> Self {
+        Self(bits as u32 & !(1 << 1))
+    }
+    fn bits(self) -> usize {
+        self.0 as usize
+    }
+}
+
 impl CounterSet {
     /// Reports whether the selected base counter's bit is set.
     pub const fn contains(self, counter: Counter) -> bool {
