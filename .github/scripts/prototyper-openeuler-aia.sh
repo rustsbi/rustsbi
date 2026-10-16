@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-base_url=${OPENEULER_AIA_BASE_URL:-https://repo.openeuler.org/openEuler-25.09/virtual_machine_img/riscv64}
+# Use the same release mirror and hashes as prototyper-openeuler-boot.sh.
+base_url=${OPENEULER_AIA_BASE_URL:-https://mirror.maeen.sa/openeuler/openEuler-25.09/virtual_machine_img/riscv64}
 image_name=${OPENEULER_AIA_IMAGE_NAME:-openEuler-25.09-riscv64.qcow2}
 image_archive=${OPENEULER_AIA_IMAGE_ARCHIVE:-${image_name}.xz}
+image_sha256=${OPENEULER_AIA_IMAGE_SHA256:-5ba2eb5f0dac1594e8e041e36125fc6e5a2bd4547b4039258e5bd5139fa067ba}
+code_sha256=${OPENEULER_AIA_CODE_SHA256:-58e96e55744516ed5debff8ed90eaface7b8a51a9466e7c0a687f4025ed5c600}
+vars_sha256=${OPENEULER_AIA_VARS_SHA256:-ea8094e953b1215444bd001ee1cf22818f1f7f8abcb158e62180cbaa6c1f70af}
 cache_dir=${OPENEULER_AIA_CACHE_DIR:-.openeuler-aia/cache}
 work_dir=${OPENEULER_AIA_WORK_DIR:-.openeuler-aia/work}
 log_dir=${OPENEULER_AIA_LOG_DIR:-qemu-logs}
@@ -18,47 +22,51 @@ mkdir -p "$cache_dir" "$work_dir" "$log_dir"
 download() {
     local url=$1
     local dest=$2
+    local digest=$3
+    local temp
 
-    if [ -s "$dest" ]; then
-        echo "Using cached $(basename "$dest")" >&2
+    if [ -s "$dest" ] && printf '%s  %s\n' "$digest" "$dest" | sha256sum --check --status; then
+        echo "Using verified $(basename "$dest")" >&2
         return
     fi
 
     echo "Downloading $url" >&2
-    curl --fail --location --retry 5 --retry-delay 5 --output "$dest" "$url"
+    temp=$(mktemp "${dest}.part.XXXXXX") || return 1
+    if ! curl --fail --location --connect-timeout 30 --max-time 1200 \
+        --retry 2 --retry-all-errors --retry-max-time 1200 --output "$temp" "$url" \
+        || ! printf '%s  %s\n' "$digest" "$temp" | sha256sum --check --status; then
+        rm -f "$temp"
+        echo "Failed to download verified asset: $url" >&2
+        return 1
+    fi
+    mv "$temp" "$dest"
 }
 
 prepare_downloaded_image() {
     local archive_path="$cache_dir/$image_archive"
-    local checksum_path="$cache_dir/$image_archive.sha256sum"
-    local image_path="$work_dir/$image_name"
+    local temp
+    image_path="$work_dir/$image_name"
 
-    download "$base_url/RISCV_VIRT_CODE.fd" "$cache_dir/RISCV_VIRT_CODE.fd"
-    download "$base_url/RISCV_VIRT_VARS.fd" "$cache_dir/RISCV_VIRT_VARS.fd"
-    download "$base_url/$image_archive" "$archive_path"
-    download "$base_url/$image_archive.sha256sum" "$checksum_path"
+    download "$base_url/RISCV_VIRT_CODE.fd" "$cache_dir/RISCV_VIRT_CODE.fd" "$code_sha256" || return 1
+    download "$base_url/RISCV_VIRT_VARS.fd" "$cache_dir/RISCV_VIRT_VARS.fd" "$vars_sha256" || return 1
+    download "$base_url/$image_archive" "$archive_path" "$image_sha256" || return 1
 
-    (
-        cd "$cache_dir"
-        sha256sum -c "$(basename "$checksum_path")"
-    ) >&2
-
-    if [ ! -s "$image_path" ]; then
-        case "$image_archive" in
-            *.zst)
-                zstd --decompress --force --keep -o "$image_path" "$archive_path"
-                ;;
-            *.xz)
-                xz --decompress --force --keep --stdout "$archive_path" >"$image_path"
-                ;;
-            *)
-                echo "Unsupported image archive: $image_archive" >&2
-                return 1
-                ;;
-        esac
-    fi
-
-    printf '%s\n' "$image_path"
+    # Publish only a complete extraction, even after an interrupted earlier run.
+    temp=$(mktemp "${image_path}.part.XXXXXX") || return 1
+    case "$image_archive" in
+        *.zst)
+            zstd --decompress --stdout "$archive_path" >"$temp" || { rm -f "$temp"; return 1; }
+            ;;
+        *.xz)
+            xz --decompress --stdout "$archive_path" >"$temp" || { rm -f "$temp"; return 1; }
+            ;;
+        *)
+            rm -f "$temp"
+            echo "Unsupported image archive: $image_archive" >&2
+            return 1
+            ;;
+    esac
+    mv "$temp" "$image_path"
 }
 
 image_path=${OPENEULER_AIA_IMAGE_PATH:-}
@@ -66,7 +74,7 @@ code_fd=${OPENEULER_AIA_CODE_FD:-}
 vars_fd=${OPENEULER_AIA_VARS_FD:-}
 
 if [ -z "$image_path" ]; then
-    image_path=$(prepare_downloaded_image)
+    prepare_downloaded_image
 fi
 if [ -z "$code_fd" ]; then
     code_fd="$cache_dir/RISCV_VIRT_CODE.fd"
