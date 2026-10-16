@@ -6,6 +6,12 @@
 //! It resumes at the continuation with `t2 = mcause` and `t3 = mtval`.
 //! Callers initialize `t2` to zero and declare `t2` and `t3` as assembly outputs.
 
+mod instruction;
+
+#[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+pub(crate) use instruction::unavailable;
+pub(crate) use instruction::{csrr, csrw, instruction};
+
 #[repr(C)]
 struct FaultSite {
     instruction: i32,
@@ -52,6 +58,7 @@ pub(crate) fn find_fixup(pc: usize, cause: usize) -> Option<usize> {
 /// Label `2` marks the faulting instruction; label `3` marks its continuation.
 /// Both precede this macro. The enclosing assembly supplies `{causes}` and
 /// follows this module's `t2`/`t3` output protocol.
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 macro_rules! fault_site {
     () => {
         concat!(
@@ -65,6 +72,7 @@ macro_rules! fault_site {
     };
 }
 
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub(crate) use fault_site;
 
 #[cfg(test)]

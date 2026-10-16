@@ -71,9 +71,7 @@ fn handle_lower_exception(
     exception: Exception,
     privilege: machine::SupervisorPrivilege,
 ) {
-    if let Some(counters) = crate::events::get() {
-        counters.record(exception);
-    }
+    super::init::policy(crate::hart::current_hart()).on_exception(exception);
     // Guests always forward to HS or VS; their ecalls never invoke machine SBI.
     let result = if info.virtualized() {
         Err(Error::Unsupported)

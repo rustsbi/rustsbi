@@ -7,7 +7,7 @@ mod interrupts;
 
 use super::info::{BoardInfo, SocDescription};
 use crate::devicetree::try_for_each_enabled_node;
-use crate::sbi::pmu::{self, SbiPmu};
+use crate::sbi::pmu::SbiPmu;
 use runtime::{
     PlatformView, Result,
     soc::allwinner::{v821::AllwinnerV821Soc, v861::AllwinnerV861Soc},
@@ -49,8 +49,9 @@ pub(super) fn discover_platform(
     })?;
     board.devices.reset = reset;
     board.soc = soc;
-    let pmu = pmu_node.and_then(pmu::from_node).or_else(|| {
-        matches!(&board.soc, Some(SocDescription::V861(_))).then_some(SbiPmu::default())
-    });
-    Ok(pmu)
+    match pmu_node {
+        Some(node) => SbiPmu::from_node(node).map(Some),
+        None if matches!(&board.soc, Some(SocDescription::V861(_))) => SbiPmu::new().map(Some),
+        None => Ok(None),
+    }
 }

@@ -5,7 +5,7 @@
 // its own instruction; recovery does not emulate the register.
 macro_rules! instruction {
     ($instruction:literal, $number:expr, $value:expr) => {{
-        let instruction = || -> $crate::Result<usize> {
+        let instruction_fn = || -> $crate::Result<usize> {
         const { assert!($number < 0x1000, "CSR number must fit in 12 bits"); }
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         {
@@ -35,10 +35,10 @@ macro_rules! instruction {
         #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
         {
             let _ = $value;
-            crate::csr::unavailable()
+            crate::recovery::unavailable()
         }
         };
-        instruction()
+        instruction_fn()
     }};
 }
 
@@ -46,23 +46,18 @@ pub(crate) use instruction;
 
 macro_rules! csrr {
     ($register:ty) => {
-        $crate::csr::instruction!("csrr {value}, {csr}", <$register>::NUMBER, 0)
+        $crate::recovery::instruction!("csrr {value}, {csr}", <$register>::NUMBER, 0)
     };
 }
 
 macro_rules! csrw {
     ($register:ty, $value:expr) => {
-        $crate::csr::instruction!("csrw {csr}, {value}", <$register>::NUMBER, $value).map(|_| ())
+        $crate::recovery::instruction!("csrw {csr}, {value}", <$register>::NUMBER, $value)
+            .map(|_| ())
     };
 }
 
-macro_rules! csrrw {
-    ($register:ty, $value:expr) => {
-        $crate::csr::instruction!("csrrw {value}, {csr}, {value}", <$register>::NUMBER, $value)
-    };
-}
-
-pub(crate) use {csrr, csrrw, csrw};
+pub(crate) use {csrr, csrw};
 
 #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
 pub(crate) fn unavailable() -> ! {

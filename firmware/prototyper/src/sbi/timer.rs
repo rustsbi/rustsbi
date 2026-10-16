@@ -2,12 +2,11 @@
 
 #![forbid(unsafe_code)]
 
-use super::pmu::pmu_firmware_counter_increment;
+use super::pmu::{FirmwareEvent, SbiPmu};
 use runtime::{rustsbi, timer::Timer};
-use sbi_spec::pmu::firmware_event;
 
 /// SBI TIME extension with permission to program the supervisor timer.
-pub struct SbiTimer {
+pub(crate) struct SbiTimer {
     timer: Timer,
 }
 
@@ -17,7 +16,7 @@ impl rustsbi::Timer for SbiTimer {
     }
 
     fn set_timer(&self, deadline: u64) {
-        pmu_firmware_counter_increment(firmware_event::SET_TIMER);
+        SbiPmu::record_event(FirmwareEvent::SetTimer);
         self.timer
             .set_deadline(deadline)
             .expect("supervisor timer not initialized on this hart");

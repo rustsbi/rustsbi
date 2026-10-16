@@ -3,31 +3,32 @@
 //! SBI HSM policy and ABI translation belong to the firmware.
 
 use crate::Result;
-mod features;
-mod lifecycle;
+mod descriptor;
+mod extensions;
 mod local;
 mod set;
+mod state;
+mod state_enable;
 mod topology;
 mod wakeup;
 
-pub use features::{
-    PrivilegedVersion, detect_performance_counters, detect_privileged_version, has_hypervisor,
-    supports_privilege,
-};
+pub use descriptor::{Hart, PrivilegedVersion};
+pub use extensions::IsaExtensions;
+pub use state_enable::StateEnable;
 
 pub use wakeup::{HartWake, install_wakeup};
 
-pub(crate) use lifecycle::{
-    ControlTransfer, HartEvent, current_hart, take_control_transfer, take_local_event,
-};
-pub use lifecycle::{
-    HartState, ResumeTicket, StartOutcome, begin_nonretentive_resume, can_receive_ipi,
-    resume_current_retentive, stage_boot_handoff, start, status, stop_current, suspend_current,
-};
 pub use local::HartLocal;
 pub use set::{HartSet, HartSetIter};
+pub(crate) use state::{ControlTransfer, HartEvent};
+pub use state::{HartState, StartOutcome};
 
 pub(crate) use topology::{HART_TABLE, HartEntry, publish};
+
+#[inline]
+pub(crate) fn current_hart() -> HartId {
+    HartId::current().expect("BUG: current hart is not in the boot topology")
+}
 
 /// A validated RISC-V hart identifier.
 ///

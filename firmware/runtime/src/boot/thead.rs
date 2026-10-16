@@ -10,13 +10,13 @@ use csr::thead::machine::ExtendedStatus;
 ///
 /// Run during M-mode startup after Runtime trap entry is installed, with
 /// `mscratch` zero and `MPRV` clear. No lower-mode address space may be active.
-pub unsafe fn disable_maee() {
+pub(crate) unsafe fn disable_maee() {
     const THEAD_VENDOR_ID: usize = 0x5b7;
     if riscv::register::mvendorid::read().bits() != THEAD_VENDOR_ID {
         return;
     }
     // Runtime entry recovers an unavailable mxstatus before any MAEE update.
-    if super::csrr!(ExtendedStatus).is_ok() {
+    if crate::recovery::csrr!(ExtendedStatus).is_ok() {
         // SAFETY: The caller owns translation setup and the CSR probe succeeded.
         unsafe { clear_maee() };
     }

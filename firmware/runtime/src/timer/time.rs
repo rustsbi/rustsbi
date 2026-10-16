@@ -1,6 +1,6 @@
 //! Existing architectural-time emulation and direct platform counter reads.
 
-use crate::csr::csrr;
+use crate::recovery::csrr;
 use csr::user;
 
 impl super::Timer {

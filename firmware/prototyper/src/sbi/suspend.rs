@@ -7,9 +7,9 @@
 
 #![forbid(unsafe_code)]
 
-use riscv::register::mstatus;
+use csr::machine::{self, Privilege, Status};
 use runtime::{
-    hart::{self, HartId, HartState},
+    hart::{Hart, HartId, HartState},
     rustsbi::{Hsm, SbiRet, Susp},
 };
 use sbi_spec::hsm::suspend_type::NON_RETENTIVE;
@@ -25,8 +25,8 @@ impl Susp for SbiSuspend {
             return SbiRet::invalid_param();
         }
 
-        let prev_mode = mstatus::read().mpp();
-        if prev_mode != mstatus::MPP::Supervisor && prev_mode != mstatus::MPP::User {
+        let prev_mode = Status::read().read::<machine::MPP>();
+        if !matches!(prev_mode, Privilege::Supervisor | Privilege::User) {
             return SbiRet::failed();
         }
 
@@ -38,7 +38,9 @@ impl Susp for SbiSuspend {
         };
         let current_hart = HartId::current().expect("BUG: unknown current hart");
         for hart in hart_enable_map {
-            if hart != current_hart && hart::status(hart) != HartState::Stopped {
+            if hart != current_hart
+                && Hart::get(hart).expect("enabled hart").status() != HartState::Stopped
+            {
                 return SbiRet::denied();
             }
         }

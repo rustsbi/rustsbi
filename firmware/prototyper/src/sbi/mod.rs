@@ -1,32 +1,31 @@
 //! SBI extension implementations and the platform's published dispatcher.
 //!
 //! Platform boot selects the extension fields. Runtime calls the dispatcher
-//! through the original RustSBI trait and borrows its timer and IPI objects.
+//! through the original RustSBI trait and borrows its owned Runtime objects.
 
 use runtime::{
     rustsbi::{self, RustSBI},
     timer::Timer,
+    trap::{Exception, TrapPolicy},
 };
 use spin::Once;
 
-pub mod console;
-pub mod cppc;
-pub mod dbtr;
-pub mod fwft;
+pub(crate) mod console;
+pub(crate) mod cppc;
+pub(crate) mod dbtr;
+pub(crate) mod fwft;
 pub(crate) mod hsm;
-pub mod ipi;
-pub mod mpxy;
-pub mod pmu;
-pub mod reset;
-pub mod rfence;
-pub mod sta;
-pub mod suspend;
-pub mod timer;
+pub(crate) mod ipi;
+pub(crate) mod mpxy;
+pub(crate) mod pmu;
+pub(crate) mod reset;
+pub(crate) mod rfence;
+pub(crate) mod sta;
+pub(crate) mod suspend;
+pub(crate) mod timer;
 pub(crate) mod vendor;
 
-pub mod features;
-pub mod hart_local;
-pub mod logger;
+pub(crate) mod logger;
 
 use console::SbiConsole;
 use cppc::SbiCppc;
@@ -35,7 +34,7 @@ use fwft::SbiFwft;
 use hsm::SbiHsm;
 use ipi::SbiIpi;
 use mpxy::SbiMpxy;
-use pmu::SbiPmu;
+use pmu::{FirmwareEvent, SbiPmu};
 use reset::SbiReset;
 use rfence::SbiRFence;
 use sta::SbiSta;
@@ -44,7 +43,7 @@ use timer::SbiTimer;
 
 #[derive(RustSBI)]
 #[rustsbi(dynamic, crate = rustsbi)]
-pub struct SbiDispatcher {
+pub(crate) struct SbiDispatcher {
     #[rustsbi(console)]
     pub(crate) console: Option<SbiConsole>,
     #[rustsbi(cppc)]
@@ -73,6 +72,21 @@ pub struct SbiDispatcher {
     pub(crate) mpxy: Option<SbiMpxy>,
     #[rustsbi(vendor)]
     pub(crate) vendor: Option<vendor::Vendor>,
+}
+
+impl TrapPolicy for SbiDispatcher {
+    fn on_nonretentive_resume(&self) {
+        if let Some(pmu) = &self.pmu {
+            pmu.reset_records()
+                .expect("could not reset PMU policy records");
+        }
+    }
+
+    fn on_exception(&self, exception: Exception) {
+        if let Ok(event) = FirmwareEvent::try_from(exception) {
+            SbiPmu::record_event(event);
+        }
+    }
 }
 
 /// The SBI extension set, owned by the sbi layer.
