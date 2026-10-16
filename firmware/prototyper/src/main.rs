@@ -18,10 +18,11 @@ mod sbi;
 
 use crate::firmware::BootInfo;
 use csr::machine::TargetPrivilege;
-use runtime::{boot::NextStage, entry, hart::Hart, trap};
+use runtime::{DeviceTreeHandoff, boot::NextStage, entry, hart::Hart, trap};
 
-#[entry]
-fn main(boot: BootInfo) {
+#[entry(initialize = firmware::initialize, stack_size = cfg::STACK_SIZE_PER_HART, link_start = cfg::SBI_LINK_START_ADDRESS)]
+fn main(hart_id: usize, device_tree: DeviceTreeHandoff, dynamic_info: usize) {
+    let boot = firmware::boot_info(hart_id, device_tree, dynamic_info);
     if boot.is_boot_hart() {
         boot_hart(boot);
     } else {
