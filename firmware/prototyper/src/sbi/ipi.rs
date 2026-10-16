@@ -69,7 +69,7 @@ impl SbiIpi {
     }
 
     /// Sends an IPI carrying a remote fence operation.
-    pub fn send_ipi_by_fence(&self, hart_mask: HartMask, ctx: rfence::RFenceContext) -> SbiRet {
+    pub fn send_fence_by_ipi(&self, hart_mask: HartMask, ctx: rfence::RFenceContext) -> SbiRet {
         let current_hart = HartId::current()
             .expect("BUG: current hart is not in the boot topology")
             .as_usize();

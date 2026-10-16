@@ -81,7 +81,7 @@ pub(crate) enum ControlTransfer {
 }
 
 /// Stages the initial boot handoff for the current hart.
-pub fn stage_current(stage: NextStage) -> Result<()> {
+pub fn stage_boot_handoff(stage: NextStage) -> Result<()> {
     let hart = current_hart();
     let cell = cell(hart);
     if cell

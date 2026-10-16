@@ -55,8 +55,8 @@ impl MachineTimer {
             })
     }
 
-    pub(super) fn interrupt(&self, irq: &LocalIrqDisabled) {
-        self.local.get_current().interrupt(irq);
+    pub(super) fn on_interrupt(&self, irq: &LocalIrqDisabled) {
+        self.local.get_current().on_interrupt(irq);
     }
 
     pub(super) fn read_time_low(&self) -> Option<usize> {
@@ -93,7 +93,7 @@ impl MachineTimerState {
         }
     }
 
-    fn interrupt(&self, irq: &LocalIrqDisabled) {
+    fn on_interrupt(&self, irq: &LocalIrqDisabled) {
         self.set_enabled(machine::Interrupt::Disabled, irq);
         self.machine.device.acknowledge(self.hart);
         match self.target {
