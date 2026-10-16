@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Added
 
+- Split PMU and FWFT hardware access in Runtime from SBI counter policy and feature locks.
 - Give SBI adapters ownership of Runtime's `Timer` and `Ipi` services.
   Keep comparator programming, interrupt delivery, and optional CSR recovery in Runtime.
   Use typed CSR operations and shared Runtime error codes.
@@ -62,6 +63,8 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Centralize hart environment setup and typed CSR privilege handling in Runtime.
+- Fix PMU allocation, HSM transitions, guest fences, and firmware PMP protection.
 - Use XLEN-sized sentinel values in trap register tests.
 - Keep per-hart Sstc detection in Runtime's timer service.
 - Save integer return context and original trap metadata before Rust dispatch.
@@ -93,7 +96,7 @@ All notable changes to this project will be documented in this file. See [conven
 - Avoid locking side-effect-free timer reads while keeping comparator writes serialized.
 - Inline Runtime MMIO reads and address validation into device access paths.
 - Name Runtime interrupt enables by privilege mode and leave `stvec`/`sscratch` untouched on HSM entry.
-- Reuse Runtime Sstc detection and skip firmware PMU bookkeeping when no PMU is installed.
+- Select Sstc inside Runtime and skip firmware PMU bookkeeping when no PMU is installed.
 - Preserve `mstatus` and declare all clobbers across guarded CSR and memory fault recovery.
 - Split the test kernel into boot, platform, PMU, RFENCE, misaligned-access and trap modules.
 - Compose SBI extensions in Prototyper over Runtime trap and hart mechanisms and independent devices.
