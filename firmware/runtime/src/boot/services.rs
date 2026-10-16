@@ -1,6 +1,6 @@
 //! Runtime borrows from the permanently published SBI owners.
 
-use crate::{Error, Result, ipi::Ipi, pmu::Pmu, timer::Timer};
+use crate::{Error, Result, fwft::Fwft, ipi::Ipi, pmu::Pmu, timer::Timer};
 use spin::Once;
 
 /// Stable borrows registered after publishing the SBI dispatcher.
@@ -11,6 +11,8 @@ pub struct Services {
     pub ipi: &'static Ipi,
     /// Machine-counter owner.
     pub pmu: Option<&'static Pmu>,
+    /// Firmware-feature owner.
+    pub fwft: Option<&'static Fwft>,
 }
 
 static SERVICES: Once<Services> = Once::new();
@@ -41,4 +43,7 @@ pub(crate) fn ipi() -> Option<&'static Ipi> {
 
 pub(crate) fn pmu() -> Option<&'static Pmu> {
     SERVICES.get().and_then(|services| services.pmu)
+}
+pub(crate) fn fwft() -> Option<&'static Fwft> {
+    SERVICES.get().and_then(|services| services.fwft)
 }
