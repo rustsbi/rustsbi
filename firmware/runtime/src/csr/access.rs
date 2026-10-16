@@ -44,6 +44,26 @@ macro_rules! instruction {
 
 pub(crate) use instruction;
 
+macro_rules! csrr {
+    ($register:ty) => {
+        $crate::csr::instruction!("csrr {value}, {csr}", <$register>::NUMBER, 0)
+    };
+}
+
+macro_rules! csrw {
+    ($register:ty, $value:expr) => {
+        $crate::csr::instruction!("csrw {csr}, {value}", <$register>::NUMBER, $value).map(|_| ())
+    };
+}
+
+macro_rules! csrrw {
+    ($register:ty, $value:expr) => {
+        $crate::csr::instruction!("csrrw {value}, {csr}, {value}", <$register>::NUMBER, $value)
+    };
+}
+
+pub(crate) use {csrr, csrrw, csrw};
+
 #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
 pub(crate) fn unavailable() -> ! {
     unimplemented!("CSR access requires RISC-V")

@@ -1,7 +1,10 @@
 //! Firmware feature configuration used by the SBI FWFT service.
 
 use crate::rustsbi::spec::fwft::feature_type;
-use crate::{Error, Result, csr::instruction};
+use crate::{
+    Error, Result,
+    csr::{csrr, csrw},
+};
 use csr::{machine, values::trap::Exception};
 
 /// Sets one supported firmware feature on the current hart.
@@ -57,23 +60,13 @@ fn has_s_mode() -> bool {
 
 fn menvcfg_read() -> Option<usize> {
     // SAFETY: Runtime entry is installed; menvcfg reads have no side effects.
-    instruction!(
-        "csrr {value}, {csr}",
-        machine::EnvironmentConfiguration::NUMBER,
-        0
-    )
-    .ok()
+    csrr!(machine::EnvironmentConfiguration).ok()
 }
 
 fn menvcfg_write(value: usize) -> bool {
     // SAFETY: Callers change only the requested lower-mode feature bits,
     // preserving the M-mode execution and translation context.
-    instruction!(
-        "csrw {csr}, {value}",
-        machine::EnvironmentConfiguration::NUMBER,
-        value
-    )
-    .is_ok()
+    csrw!(machine::EnvironmentConfiguration, value).is_ok()
 }
 
 fn menvcfg_bit(feature_id: usize) -> Option<usize> {

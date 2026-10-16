@@ -2,22 +2,16 @@
 
 mod access;
 pub mod thead;
-pub(crate) use access::instruction;
 #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
 pub(crate) use access::unavailable;
+pub(crate) use access::{csrr, csrrw, csrw, instruction};
 
 /// Enables supervisor access to seed when the security CSR is available.
 pub fn enable_supervisor_seed() {
     if !crate::boot::traps_ready() {
         return;
     }
-    if instruction!(
-        "csrr {value}, {csr}",
-        csr::machine::SecurityConfiguration::NUMBER,
-        0
-    )
-    .is_ok()
-    {
+    if csrr!(csr::machine::SecurityConfiguration).is_ok() {
         // SAFETY: The fixed SSEED bit permits supervisor seed access without
         // changing M-mode. One CSRS preserves concurrent updates to other bits.
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
@@ -64,7 +58,7 @@ pub mod stateen {
     pub fn configure_supervisor(aia_enabled: bool) {
         // SAFETY: Runtime entry is installed. State-enable reads have no
         // side effects, and this function runs in the M-mode boot context.
-        if super::instruction!("csrr {value}, {csr}", machine::StateEnable0::NUMBER, 0).is_err() {
+        if super::csrr!(machine::StateEnable0).is_err() {
             return;
         }
 
@@ -81,14 +75,14 @@ pub mod stateen {
         write64::<MSTATEEN3, { MSTATEEN3 + 0x10 }>(STATEN);
 
         // SAFETY: Same boot context and side-effect-free bank probe.
-        if super::instruction!("csrr {value}, {csr}", supervisor::StateEnable0::NUMBER, 0).is_ok() {
+        if super::csrr!(supervisor::StateEnable0).is_ok() {
             write::<SSTATEEN0>(0);
             write::<SSTATEEN1>(0);
             write::<SSTATEEN2>(0);
             write::<SSTATEEN3>(0);
         }
         // SAFETY: Same boot context and side-effect-free bank probe.
-        if super::instruction!("csrr {value}, {csr}", hypervisor::StateEnable0::NUMBER, 0).is_ok() {
+        if super::csrr!(hypervisor::StateEnable0).is_ok() {
             write64::<HSTATEEN0, { HSTATEEN0 + 0x10 }>(0);
             write64::<HSTATEEN1, { HSTATEEN1 + 0x10 }>(0);
             write64::<HSTATEEN2, { HSTATEEN2 + 0x10 }>(0);

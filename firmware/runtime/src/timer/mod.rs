@@ -6,6 +6,7 @@ mod time;
 
 use crate::{
     Error, Result,
+    csr::csrr,
     hart::HartLocal,
     irq::{self, LocalIrqDisabled},
 };
@@ -142,9 +143,7 @@ impl Timer {
 
     /// Detects supervisor comparison access after Runtime trap installation.
     pub fn supports_sstc() -> bool {
-        crate::boot::traps_ready()
-            && crate::csr::instruction!("csrr {value}, {csr}", supervisor::TimerCompare::NUMBER, 0)
-                .is_ok()
+        crate::boot::traps_ready() && csrr!(supervisor::TimerCompare).is_ok()
     }
 
     fn sstc_available() -> Result<bool> {
@@ -152,26 +151,19 @@ impl Timer {
         type Configuration = registers::EnvironmentConfiguration;
         #[cfg(target_pointer_width = "32")]
         type Configuration = registers::EnvironmentConfigurationHigh;
-        let enabled = { crate::csr::instruction!("csrr {value}, {csr}", Configuration::NUMBER, 0) }
-            .is_ok_and(|config| {
-                #[cfg(target_pointer_width = "64")]
-                let config = registers::EnvironmentConfig::from(config);
-                #[cfg(target_pointer_width = "32")]
-                let config = registers::EnvironmentConfigHigh::from(config);
-                config.supervisor_timer_enabled()
-            });
+        let enabled = csrr!(Configuration).is_ok_and(|config| {
+            #[cfg(target_pointer_width = "64")]
+            let config = registers::EnvironmentConfig::from(config);
+            #[cfg(target_pointer_width = "32")]
+            let config = registers::EnvironmentConfigHigh::from(config);
+            config.supervisor_timer_enabled()
+        });
         if !enabled {
             return Ok(false);
         }
-        crate::csr::instruction!("csrr {value}, {csr}", supervisor::TimerCompare::NUMBER, 0)
-            .map_err(|_| Error::NotSupported)?;
+        csrr!(supervisor::TimerCompare).map_err(|_| Error::NotSupported)?;
         #[cfg(target_pointer_width = "32")]
-        crate::csr::instruction!(
-            "csrr {value}, {csr}",
-            supervisor::TimerCompareHigh::NUMBER,
-            0
-        )
-        .map_err(|_| Error::NotSupported)?;
+        csrr!(supervisor::TimerCompareHigh).map_err(|_| Error::NotSupported)?;
         Ok(true)
     }
 

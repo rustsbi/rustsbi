@@ -1,6 +1,6 @@
 //! Debug-trigger discovery used by the SBI DBTR service.
 
-use crate::csr::instruction;
+use crate::csr::{csrr, csrw};
 use csr::machine;
 
 /// Counts accepted trigger selectors with a nonzero trigger type.
@@ -12,14 +12,13 @@ pub fn trigger_count() -> usize {
     crate::irq::with_local_disabled(|_| {
         let mut count = 0;
         for index in 0..256 {
-            if instruction!("csrw {csr}, {value}", machine::TriggerSelect::NUMBER, index).is_err() {
+            if csrw!(machine::TriggerSelect, index).is_err() {
                 break;
             }
-            if instruction!("csrr {value}, {csr}", machine::TriggerSelect::NUMBER, 0) != Ok(index) {
+            if csrr!(machine::TriggerSelect) != Ok(index) {
                 break;
             }
-            let Ok(data) = instruction!("csrr {value}, {csr}", machine::TriggerData1::NUMBER, 0)
-            else {
+            let Ok(data) = csrr!(machine::TriggerData1) else {
                 break;
             };
             if data >> (usize::BITS - 4) & 0xf != 0 {

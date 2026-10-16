@@ -16,7 +16,7 @@ pub unsafe fn disable_maee() {
         return;
     }
     // Runtime entry recovers an unavailable mxstatus before any MAEE update.
-    if super::instruction!("csrr {value}, {csr}", ExtendedStatus::NUMBER, 0).is_ok() {
+    if super::csrr!(ExtendedStatus).is_ok() {
         // SAFETY: The caller owns translation setup and the CSR probe succeeded.
         unsafe { clear_maee() };
     }
