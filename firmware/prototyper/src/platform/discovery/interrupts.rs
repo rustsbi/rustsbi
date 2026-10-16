@@ -136,12 +136,7 @@ impl InterruptController {
             }
             Self::Imsic => {
                 let registers = registers.ok_or(runtime::Error::InvalidArgs)?;
-                if let Some(imsic) = imsic::discover(
-                    node,
-                    registers,
-                    cpu_interrupt_controllers,
-                    &board.harts.enabled,
-                )? {
+                if let Some(imsic) = imsic::discover(node, registers, cpu_interrupt_controllers)? {
                     if board.devices.interrupts.imsic().is_some() {
                         return Err(runtime::Error::InvalidArgs);
                     }

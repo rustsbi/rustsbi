@@ -1,6 +1,6 @@
 //! Andes PLMT: MTIME at +0, per-hart MTIMECMP at +8.
 
-use crate::{cfg::NUM_HART_MAX, driver::TimerBackend};
+use crate::driver::TimerBackend;
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
 #[repr(usize)]
@@ -16,27 +16,31 @@ const COMPARE_STRIDE: usize = 8;
 
 pub(super) struct Plmt {
     registers: MmioRegion,
-    hart_count: usize,
+    hart_id_upper_bound: usize,
 }
 
+/// Binds the timer registers below the exclusive raw hart ID upper bound.
 pub(super) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
-    hart_count: usize,
+    hart_id_upper_bound: usize,
 ) -> runtime::Result<Plmt> {
-    if hart_count == 0 || hart_count > NUM_HART_MAX {
+    if hart_id_upper_bound == 0 {
         return Err(runtime::Error::InvalidArgs);
     }
     let registers = registers.subrange(
         0,
-        Register::CompareLow as usize + COMPARE_STRIDE * hart_count,
+        hart_id_upper_bound
+            .checked_mul(COMPARE_STRIDE)
+            .and_then(|size| size.checked_add(Register::CompareLow as usize))
+            .ok_or(runtime::Error::Overflow)?,
     )?;
     if !registers.has_aligned_bounds(8) {
         return Err(runtime::Error::InvalidArgs);
     }
     Ok(Plmt {
         registers: memory.acquire_mmio(registers)?,
-        hart_count,
+        hart_id_upper_bound,
     })
 }
 
@@ -85,7 +89,7 @@ impl TimerBackend for Plmt {
     }
 
     fn set_timer(&self, hart_id: usize, value: u64) {
-        assert!(hart_id < self.hart_count);
+        assert!(hart_id < self.hart_id_upper_bound);
         // Safe RV32 comparator update even if the old high half matches MTIME.
         self.write_compare_word(Register::CompareLow, hart_id, u32::MAX);
         self.write_compare_word(Register::CompareHigh, hart_id, (value >> 32) as u32);

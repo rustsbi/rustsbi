@@ -8,6 +8,18 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Added
 
+- Add RV32/RV64 QEMU checks for repeated interrupts into M-mode payloads.
+- Add typed CSR read snapshots, write values, and field codecs.
+- Add typed machine trap, configuration, and counter CSRs.
+- Add typed supervisor trap, translation, timer, and state-enable CSRs.
+- Add typed hypervisor and virtual-supervisor trap CSRs.
+- Add typed debug-trigger and T-Head status CSRs.
+- Recover registered machine faults through the common trap vector.
+- Add test-kernel checks for user time permissions and supervisor trap metadata.
+- Add PMU tests for load/store access-fault accounting.
+- Add HS/VS routing tests and restrict pinned Miralis to its supported CPU extensions.
+- Add typed RISC-V CSR definitions for `mhartid` and `mcounteren`.
+- Build test-kernel as a position-independent executable and relocate its static pointers at startup.
 - Release V821 boot0 ISP SRAM after switching to the firmware DRAM stack.
 - Recognize the K3 AP SoC capability on RV64 from an enabled `spacemit,k3` device-tree root.
   Document the compatible and all K3 cores' RV64 architecture with pinned source and datasheet references.
@@ -46,6 +58,21 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Use XLEN-sized sentinel values in trap register tests.
+- Keep per-hart Sstc detection in Runtime's timer service.
+- Save integer return context and original trap metadata before Rust dispatch.
+- Use typed fallible CSR access for Prototyper feature, trigger, and FWFT operations.
+- Move T-Head MAEE control into Runtime.
+- Enable S-mode CBO instructions only when each hart advertises `zicbom` or `zicboz`.
+- Separate the selected DTB source from the next-stage destination, preserving
+  the incoming address for embedded DTBs and supporting an explicit destination
+  address and capacity. Check destination bounds before writing and document
+  the loader's storage and lifetime requirements.
+- Move firmware entry macros and startup assembly into Runtime.
+- Read `mhartid` through typed CSR access while retaining Runtime hart validation.
+- Write `mcounteren` through typed CSR access during trap initialization.
+- Size per-hart stacks and software state from the enabled hart topology, and
+  honor firmware hart-capacity and stack-size settings without configuring Runtime.
 - Move Prototyper heap storage and the global allocation boundary into Runtime,
   keep first-fit placement in safe policy code, and remove the buddy dependency.
 - Reduce repeated device-tree scans during hart, ISA, interrupt-controller, console, and PMU discovery.
@@ -110,3 +137,7 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Removed
 - Remove Prototyper's fast-trap integration and unavailable NACL/SSE adapters.
+
+
+### Fixed
+- Probe PMU counters and skip unsupported events in test-kernel instead of assuming a fixed counter layout.

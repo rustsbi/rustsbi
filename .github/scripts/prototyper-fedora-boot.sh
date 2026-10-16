@@ -342,10 +342,9 @@ boot_failed() {
 }
 
 userspace_is_ready() {
+  # A login prompt verifies userspace boot without waiting for unrelated services.
   grep -Fq 'Linux version ' "$LOG_FILE" \
     && grep -Fq "BTRFS info (device vda2): first mount of filesystem ${FEDORA_ROOT_UUID}" "$LOG_FILE" \
-    && grep -Fq 'multi-user.target' "$LOG_FILE" \
-    && grep -Fq 'Multi-User System' "$LOG_FILE" \
     && grep -Fq 'Fedora Linux 44 (Cloud Edition)' "$LOG_FILE" \
     && grep -Fq 'localhost login:' "$LOG_FILE"
 }

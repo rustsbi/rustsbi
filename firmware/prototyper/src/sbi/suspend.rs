@@ -35,16 +35,10 @@ impl runtime::rustsbi::Susp for SbiSuspend {
         } else {
             return SbiRet::failed();
         };
-        let current_hart = HartId::current()
-            .expect("BUG: current hart exceeds Runtime capacity")
-            .as_usize();
-        for (hartid, hart_enable) in hart_enable_map.iter().enumerate() {
-            if *hart_enable && hartid != current_hart {
-                let hart = HartId::from_raw(hartid)
-                    .expect("BUG: enabled-hart policy exceeds Runtime capacity");
-                if hart::status(hart) != HartState::Stopped {
-                    return SbiRet::denied();
-                }
+        let current_hart = HartId::current().expect("BUG: unknown current hart");
+        for hart in hart_enable_map {
+            if hart != current_hart && hart::status(hart) != HartState::Stopped {
+                return SbiRet::denied();
             }
         }
 

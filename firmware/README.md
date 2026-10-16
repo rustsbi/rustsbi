@@ -115,7 +115,8 @@ After compilation, the resulting firmware files are generated in the `target/ris
 
 ### Configuration File
 
-Customize bootloader parameters by editing `default.toml` located at `prototyper/prototyper/config/default.toml`. Example:
+Customize firmware parameters in `firmware/prototyper/config/default.toml`, or
+select another file with `--config-file`. Example:
 
 ```toml
 num_hart_max = 8
@@ -131,8 +132,19 @@ tlb_flush_limit = 16384      # 16 KiB (page_size * 4)
 
 #### Configuration Options
 
-- `num_hart_max`: Maximum number of supported harts (hardware threads).
-- `stack_size_per_hart`: Stack size per hart, in bytes.
+- `num_hart_max`: Maximum enabled hart count accepted at boot, defaulting to 8.
+  Hardware IDs may be sparse: IDs 0 and 4 need capacity 2. Runtime establishes
+  one compact mapping shared by stack selection and per-hart software state;
+  there is no fixed eight-hart limit in Runtime.
+- `stack_size_per_hart`: Boot/trap stack size per enabled hart, in bytes. It must
+  be a multiple of 128 and defaults to 16384 (16 KiB) when omitted. Choose a
+  size that accommodates the firmware's boot and trap call paths. Changing
+  either stack setting does not recompile Runtime. One stack is linked for
+  serialized discovery and then retained by the boot hart. The other stacks
+  are placed after the linked image according to the discovered hart count.
+  The loader must provide exclusive RAM there, outside the complete next-stage
+  image and other live objects. Boot checks RAM, reservations, DTB and handoff
+  ranges; the resulting firmware reservation and PMP boundary include all stacks.
 - `heap_size`: Linker-reserved firmware heap size in bytes (at least 32). Prototyper
   uses a first-fit allocator; Runtime owns the heap storage and global allocation boundary.
 - `page_size`: Page size, in bytes.
@@ -140,6 +152,13 @@ tlb_flush_limit = 16384      # 16 KiB (page_size * 4)
 - `link_start_address`: Address where the firmware itself is linked and loaded.
 - `payload_address`: Address where payload-mode firmware loads and jumps to the payload.
 - `jump_address`: Target address for jump mode.
+- `fdt_handoff_address`, `fdt_handoff_capacity`: Optional paired DTB destination
+  address (nonzero, 8-byte aligned) and writable capacity in bytes. Without them,
+  the loader must provide an incoming DTB at `a1` with its initial `totalsize` plus
+  1024 writable bytes, including when `--fdt` selects an embedded source. This is
+  a loader precondition, not a capacity measured by RustSBI. The destination must
+  be exclusively writable, outside firmware and other live objects, and remain
+  valid until the next stage finishes using it. Configuring a range does not allocate it.
 - `tlb_flush_limit`: TLB flush limit, in bytes.
 
 Custom configuration files must define `link_start_address`, `payload_address`, `jump_address`, and `heap_size`. Addresses must be 0x1000-aligned, and `link_start_address` must be lower than `payload_address`.

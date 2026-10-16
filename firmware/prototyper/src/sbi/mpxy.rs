@@ -7,6 +7,7 @@
 
 #![forbid(unsafe_code)]
 
+use alloc::boxed::Box;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use runtime::hart::HartId;
@@ -22,24 +23,24 @@ const SHARED_MEMORY_SIZE: usize = 1usize << PAGE_SHIFT;
 
 /// Message Proxy extension with per-hart shared memory but no message channels.
 pub(crate) struct SbiMpxy {
-    shmem: [AtomicUsize; crate::cfg::NUM_HART_MAX],
+    shmem: Box<[AtomicUsize]>,
     supervisor_memory: &'static SupervisorMemory,
 }
 
 impl SbiMpxy {
-    pub(crate) const fn new(supervisor_memory: &'static SupervisorMemory) -> Self {
+    pub(crate) fn new(supervisor_memory: &'static SupervisorMemory) -> Self {
         Self {
-            shmem: [const { AtomicUsize::new(0) }; crate::cfg::NUM_HART_MAX],
+            shmem: HartId::all().map(|_| AtomicUsize::new(0)).collect(),
             supervisor_memory,
         }
     }
 
     #[inline]
     fn current_shmem(&self) -> &AtomicUsize {
-        let hart_id = HartId::current()
-            .expect("BUG: current hart exceeds Runtime capacity")
-            .as_usize();
-        &self.shmem[hart_id]
+        let hart_index = HartId::current()
+            .expect("BUG: current hart is not in the boot topology")
+            .index();
+        &self.shmem[hart_index]
     }
 }
 

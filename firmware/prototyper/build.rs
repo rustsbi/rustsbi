@@ -8,9 +8,13 @@ fn main() {
     let workspace_dir = env::var_os("CARGO_WORKSPACE_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| firmware_crate_dir.join("../.."));
-    let build_inputs_dir = workspace_dir.join("target/prototyper");
+    let target_dir = env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| workspace_dir.join("target"));
+    let build_inputs_dir = target_dir.join("prototyper");
 
     for file_name in [
+        "generated_config.rs",
         "generated_alignment.rs",
         "generated_payload.rs",
         "generated_fdt.rs",

@@ -8,8 +8,8 @@
 
 #![forbid(unsafe_code)]
 
+use alloc::boxed::Box;
 use core::sync::atomic::AtomicU8;
-use runtime::cfg::NUM_HART_MAX;
 use runtime::hart::HartId;
 use spin::{Mutex, Once};
 
@@ -99,23 +99,24 @@ impl HartLocal {
     }
 }
 
-static HART_LOCALS: [Once<HartLocal>; NUM_HART_MAX] = [const { Once::new() }; NUM_HART_MAX];
+static HART_LOCALS: Once<Box<[HartLocal]>> = Once::new();
 
 /// Initializes all policy slots on the boot hart before platform discovery.
 /// Secondary harts wait for platform publication before accessing them.
 pub fn init() {
-    for slot in &HART_LOCALS {
-        slot.call_once(HartLocal::new);
-    }
+    HART_LOCALS.call_once(|| HartId::all().map(|_| HartLocal::new()).collect());
 }
 
 /// Forms the shared reference to `hart_id`'s state after initialization.
 pub fn hart_local(hart_id: usize) -> &'static HartLocal {
-    let slot = HART_LOCALS
-        .get(hart_id)
-        .expect("BUG: hart ID exceeds the configured limit");
-    slot.get()
-        .expect("BUG: hart-local state used before initialization")
+    let hart = HartId::from_raw(hart_id).expect("BUG: unknown hart ID");
+    slot(hart)
+}
+
+fn slot(hart: HartId) -> &'static HartLocal {
+    &HART_LOCALS
+        .get()
+        .expect("BUG: hart-local state used before initialization")[hart.index()]
 }
 
 /// Runs `f` with shared access to the current hart's state. Mutable policy
@@ -125,10 +126,8 @@ pub fn with_current<F, R>(f: F) -> R
 where
     F: FnOnce(&HartLocal) -> R,
 {
-    let hart_id = HartId::current()
-        .expect("BUG: current hart exceeds Runtime capacity")
-        .as_usize();
-    f(hart_local(hart_id))
+    let hart = HartId::current().expect("BUG: current hart is not in the boot topology");
+    f(slot(hart))
 }
 
 /// Runs `f` with shared access to an arbitrary hart's state.
@@ -141,19 +140,13 @@ where
 
 /// Gets the local fence context for the current hart.
 pub fn local_rfence() -> Option<LocalRFenceCell<'static>> {
-    let hart_id = HartId::current()
-        .expect("BUG: current hart exceeds Runtime capacity")
-        .as_usize();
-    HART_LOCALS
-        .get(hart_id)
-        .map(|_| hart_local(hart_id).rfence.local())
+    Some(slot(HartId::current().ok()?).rfence.local())
 }
 
 /// Gets the remote fence context for a specific hart.
 pub fn remote_rfence(hart_id: usize) -> Option<RemoteRFenceCell<'static>> {
-    HART_LOCALS
-        .get(hart_id)
-        .map(|_| hart_local(hart_id).rfence.remote())
+    let hart = HartId::from_raw(hart_id).ok()?;
+    Some(slot(hart).rfence.remote())
 }
 
 /// Resets the current hart's PMU state before a non-retentive resume.

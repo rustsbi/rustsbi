@@ -1,279 +1,238 @@
-//! The machine trap entries: the normal and recovery assembly entries.
-//!
-//! Two naked trap vectors implementing the normal and recovery entry paths:
-//!
-//! - [`trap_entry`]: the normal vector. `mscratch` is either the zero
-//!   sentinel (M-origin while not Armed: reverse the swap and fail-stop) or
-//!   the Runtime stack top (lower-origin trap: allocate the frame below the
-//!   top, save everything, zero `mscratch`, and call the Rust dispatch).
-//! - [`recovery_entry`]: the expected-fault vector for guarded operations.
-//!   It validates the active `RecoveryRecord` (exact `mepc`, allowed
-//!   `mcause`, M-origin), records the facts, and skips the faulting
-//!   instruction; every mismatch fail-stops.
-//!
-//! Both park into [`crate::boot::fail_stop`], the boot domain's
-//! stack-independent vector.
+//! Machine trap entry and return with integer-register preservation.
+use csr::machine;
 
-use super::dispatch::trap_dispatch;
-use super::frame::offsets;
-use super::recovery::RecoveryRecord;
+use super::frame::SavedTrap;
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+use super::frame::{TrapFrame, TrapInfo};
 
-const FRAME_BYTES: usize =
-    (offsets::SIZE_WORDS * core::mem::size_of::<usize>()).next_multiple_of(16);
-const _: () = assert!(FRAME_BYTES.is_multiple_of(16));
+pub(crate) const FRAME_BYTES: usize = core::mem::size_of::<SavedTrap>().next_multiple_of(16);
+
+#[cfg(target_arch = "riscv32")]
+const STATUS_HIGH_NUMBER: u16 = machine::StatusHigh::NUMBER;
+#[cfg(target_arch = "riscv64")]
+const STATUS_HIGH_NUMBER: u16 = machine::Status::NUMBER; // Unused assembly branch.
+
+#[cfg(target_arch = "riscv32")]
+macro_rules! store {
+    ($reg:literal, $offset:literal, $base:literal) => {
+        concat!("sw ", $reg, ", 4*(", $offset, ")(", $base, ")")
+    };
+}
+#[cfg(target_arch = "riscv64")]
+macro_rules! store {
+    ($reg:literal, $offset:literal, $base:literal) => {
+        concat!("sd ", $reg, ", 8*(", $offset, ")(", $base, ")")
+    };
+}
+#[cfg(target_arch = "riscv32")]
+macro_rules! load {
+    ($reg:literal, $offset:literal, $base:literal) => {
+        concat!("lw ", $reg, ", 4*(", $offset, ")(", $base, ")")
+    };
+}
+#[cfg(target_arch = "riscv64")]
+macro_rules! load {
+    ($reg:literal, $offset:literal, $base:literal) => {
+        concat!("ld ", $reg, ", 8*(", $offset, ")(", $base, ")")
+    };
+}
+
+// Share the layout and restore sequence across optional-CSR variants.
+// Boot selects a variant only after establishing its CSR availability.
+macro_rules! trap_vector {
+    ($name:ident, $high:literal, $hypervisor:literal) => {
+        /// Handles a hardware machine trap using Runtime's stack protocol.
+        ///
+        /// # Safety
+        ///
+        /// Enter only through a hardware trap on this hart.
+        /// In Runtime, `sp` must address a valid Runtime stack and `mscratch` must be zero.
+        /// In a payload of any privilege, `mscratch` must hold this hart's clean Runtime stack top.
+        /// Every optional CSR used by this entry must exist on the hart.
+        #[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
+        pub(crate) unsafe extern "C" fn $name() {
+            #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+            core::arch::naked_asm!(
+                ".balign 4",
+                // mscratch is zero during Runtime execution and a clean
+                // Runtime stack top while running a payload of any privilege.
+                "csrrw sp, {scratch}, sp",
+                "bnez sp, 2f",
+                "csrr sp, {scratch}",
+                "addi sp, sp, -{frame_size}",
+                store!( "t0", "4", "sp"),
+                "li t0, 0",
+                "j 3f",
+                "2:",
+                "addi sp, sp, -{frame_size}",
+                store!( "t0", "4", "sp"),
+                "addi t0, sp, {frame_size}",
+                "3:",
+                store!("t0", "{runtime_stack}", "sp"),
+                store!( "ra", "0", "sp"),
+                store!( "gp", "2", "sp"),
+                store!( "tp", "3", "sp"),
+                store!( "t1", "5", "sp"),
+                store!( "t2", "6", "sp"),
+                store!( "s0", "7", "sp"),
+                store!( "s1", "8", "sp"),
+                store!( "a0", "9", "sp"),
+                store!( "a1", "10", "sp"),
+                store!( "a2", "11", "sp"),
+                store!( "a3", "12", "sp"),
+                store!( "a4", "13", "sp"),
+                store!( "a5", "14", "sp"),
+                store!( "a6", "15", "sp"),
+                store!( "a7", "16", "sp"),
+                store!( "s2", "17", "sp"),
+                store!( "s3", "18", "sp"),
+                store!( "s4", "19", "sp"),
+                store!( "s5", "20", "sp"),
+                store!( "s6", "21", "sp"),
+                store!( "s7", "22", "sp"),
+                store!( "s8", "23", "sp"),
+                store!( "s9", "24", "sp"),
+                store!( "s10", "25", "sp"),
+                store!( "s11", "26", "sp"),
+                store!( "t3", "27", "sp"),
+                store!( "t4", "28", "sp"),
+                store!( "t5", "29", "sp"),
+                store!( "t6", "30", "sp"),
+                "csrr t0, {scratch}",
+                store!("t0", "1", "sp"),
+                "csrr t0, {epc_csr}",
+                store!("t0", "{epc}", "sp"),
+                store!("t0", "{original_epc}", "sp"),
+                "csrr t0, {status_csr}",
+                store!("t0", "{status}", "sp"),
+                store!("t0", "{original_status}", "sp"),
+                "csrr t0, {cause_csr}",
+                store!("t0", "{cause}", "sp"),
+                "csrr t0, {tval_csr}",
+                store!("t0", "{tval}", "sp"),
+                "li t0, 0",
+                ".if {high}",
+                "csrr t0, {status_high_csr}",
+                ".endif",
+                store!("t0", "{status_high}", "sp"),
+                store!("t0", "{original_status_high}", "sp"),
+                "li t0, 0",
+                "li t1, 0",
+                ".if {hypervisor}",
+                "csrr t0, {tval2_csr}",
+                "csrr t1, {instruction_csr}",
+                ".endif",
+                store!("t0", "{tval2}", "sp"),
+                store!("t1", "{instruction}", "sp"),
+                "li t0, {hypervisor}",
+                store!("t0", "{hypervisor_offset}", "sp"),
+                // Clear MPRV before Rust runs so nested probes use M-mode accesses.
+                "li t0, {clear_status}",
+                "csrc {status_csr}, t0",
+                ".if {high}",
+                "li t0, 1 << 10",
+                "csrc {status_high_csr}, t0",
+                ".endif",
+                "csrw {scratch}, zero",
+                "mv a0, sp",
+                "call {dispatch}",
+                // Restore return state from the frame; nested traps may change live CSRs.
+                load!("t0", "{epc}", "sp"),
+                "csrw {epc_csr}, t0",
+                ".if {high}",
+                load!("t0", "{status_high}", "sp"),
+                "csrw {status_high_csr}, t0",
+                ".endif",
+                load!("t0", "{status}", "sp"),
+                // A return to an M-mode payload republishes its Runtime stack;
+                // a nested Runtime return keeps mscratch zero.
+                load!("t1", "{runtime_stack}", "sp"),
+                "li t2, {mpp_mask}",
+                "and t3, t0, t2",
+                "beq t2, t3, 4f",
+                // mret clears MPRV on a lower-mode return. Clear it before
+                // reloading the frame so those loads remain M-mode accesses.
+                "li t1, 1 << 17",
+                "not t1, t1",
+                "and t0, t0, t1",
+                "addi t1, sp, {frame_size}",
+                "4:",
+                "csrw {scratch}, t1",
+                "csrw {status_csr}, t0",
+                load!( "ra", "0", "sp"),
+                load!( "gp", "2", "sp"),
+                load!( "tp", "3", "sp"),
+                load!( "t0", "4", "sp"),
+                load!( "t1", "5", "sp"),
+                load!( "t2", "6", "sp"),
+                load!( "s0", "7", "sp"),
+                load!( "s1", "8", "sp"),
+                load!( "a0", "9", "sp"),
+                load!( "a1", "10", "sp"),
+                load!( "a2", "11", "sp"),
+                load!( "a3", "12", "sp"),
+                load!( "a4", "13", "sp"),
+                load!( "a5", "14", "sp"),
+                load!( "a6", "15", "sp"),
+                load!( "a7", "16", "sp"),
+                load!( "s2", "17", "sp"),
+                load!( "s3", "18", "sp"),
+                load!( "s4", "19", "sp"),
+                load!( "s5", "20", "sp"),
+                load!( "s6", "21", "sp"),
+                load!( "s7", "22", "sp"),
+                load!( "s8", "23", "sp"),
+                load!( "s9", "24", "sp"),
+                load!( "s10", "25", "sp"),
+                load!( "s11", "26", "sp"),
+                load!( "t3", "27", "sp"),
+                load!( "t4", "28", "sp"),
+                load!( "t5", "29", "sp"),
+                load!( "t6", "30", "sp"),
+                load!("sp", "1", "sp"),
+                "mret",
+                frame_size = const FRAME_BYTES,
+                epc = const (core::mem::offset_of!(SavedTrap, frame) + core::mem::offset_of!(TrapFrame, epc)) / core::mem::size_of::<usize>(),
+                status = const (core::mem::offset_of!(SavedTrap, frame) + core::mem::offset_of!(TrapFrame, status)) / core::mem::size_of::<usize>(),
+                status_high = const (core::mem::offset_of!(SavedTrap, frame) + core::mem::offset_of!(TrapFrame, status_high)) / core::mem::size_of::<usize>(),
+                original_epc = const (core::mem::offset_of!(SavedTrap, info) + core::mem::offset_of!(TrapInfo, epc)) / core::mem::size_of::<usize>(),
+                original_status = const (core::mem::offset_of!(SavedTrap, info) + core::mem::offset_of!(TrapInfo, status)) / core::mem::size_of::<usize>(),
+                original_status_high = const (core::mem::offset_of!(SavedTrap, info) + core::mem::offset_of!(TrapInfo, status_high)) / core::mem::size_of::<usize>(),
+                cause = const (core::mem::offset_of!(SavedTrap, info) + core::mem::offset_of!(TrapInfo, cause)) / core::mem::size_of::<usize>(),
+                tval = const (core::mem::offset_of!(SavedTrap, info) + core::mem::offset_of!(TrapInfo, tval)) / core::mem::size_of::<usize>(),
+                tval2 = const (core::mem::offset_of!(SavedTrap, info) + core::mem::offset_of!(TrapInfo, tval2)) / core::mem::size_of::<usize>(),
+                instruction = const (core::mem::offset_of!(SavedTrap, info) + core::mem::offset_of!(TrapInfo, instruction)) / core::mem::size_of::<usize>(),
+                hypervisor_offset = const (core::mem::offset_of!(SavedTrap, info) + core::mem::offset_of!(TrapInfo, has_hypervisor)) / core::mem::size_of::<usize>(),
+                runtime_stack = const core::mem::offset_of!(SavedTrap, runtime_stack) / core::mem::size_of::<usize>(),
+                scratch = const machine::Scratch::NUMBER,
+                epc_csr = const machine::ExceptionPc::NUMBER,
+                status_csr = const machine::Status::NUMBER,
+                status_high_csr = const STATUS_HIGH_NUMBER,
+                cause_csr = const machine::Cause::NUMBER,
+                tval_csr = const machine::TrapValue::NUMBER,
+                tval2_csr = const machine::TrapValue2::NUMBER,
+                instruction_csr = const machine::TrapInstruction::NUMBER,
+                clear_status = const (1usize << 17) | {
+                    #[cfg(target_pointer_width = "64")]
+                    { 1usize << 42 }
+                    #[cfg(target_pointer_width = "32")]
+                    { 0 }
+                },
+                mpp_mask = const machine::MPP::MASK,
+                high = const $high,
+                hypervisor = const $hypervisor,
+                dispatch = sym super::dispatch::trap_dispatch,
+            );
+            #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+            panic!("trap entry requires RISC-V");
+        }
+    };
+}
+
+trap_vector!(trap_entry, 0, 0);
 #[cfg(target_pointer_width = "32")]
-const _: () = assert!(FRAME_BYTES == 144);
-#[cfg(target_pointer_width = "64")]
-const _: () = assert!(FRAME_BYTES == 288);
-
+trap_vector!(trap_entry_high, 1, 0);
 #[cfg(target_pointer_width = "32")]
-macro_rules! save_word {
-    ($reg:ident => $base:ident[$offset:expr]) => {
-        concat!(
-            "sw ",
-            stringify!($reg),
-            ", 4*",
-            $offset,
-            "(",
-            stringify!($base),
-            ")"
-        )
-    };
-}
-
-#[cfg(target_pointer_width = "32")]
-macro_rules! load_word {
-    ($base:ident[$offset:expr] => $reg:ident) => {
-        concat!(
-            "lw ",
-            stringify!($reg),
-            ", 4*",
-            $offset,
-            "(",
-            stringify!($base),
-            ")"
-        )
-    };
-}
-
+trap_vector!(trap_entry_hypervisor, 1, 1);
 #[cfg(target_pointer_width = "64")]
-macro_rules! save_word {
-    ($reg:ident => $base:ident[$offset:expr]) => {
-        concat!(
-            "sd ",
-            stringify!($reg),
-            ", 8*",
-            $offset,
-            "(",
-            stringify!($base),
-            ")"
-        )
-    };
-}
-
-#[cfg(target_pointer_width = "64")]
-macro_rules! load_word {
-    ($base:ident[$offset:expr] => $reg:ident) => {
-        concat!(
-            "ld ",
-            stringify!($reg),
-            ", 8*",
-            $offset,
-            "(",
-            stringify!($base),
-            ")"
-        )
-    };
-}
-
-/// The normal machine trap vector (direct mode).
-///
-/// # Safety
-///
-/// Naked `mtvec` target, never a callable function. Requires `mscratch` to
-/// hold either the zero sentinel or the Runtime stack top, as maintained by
-/// this module's protocol.
-#[unsafe(naked)]
-#[unsafe(export_name = "runtime_trap_entry")]
-pub unsafe extern "C" fn trap_entry() {
-    core::arch::naked_asm!(
-        ".align 2",
-        // Symmetric swap: sp ← mscratch (Runtime stack top), mscratch ←
-        // trapped sp. No register has been touched yet.
-        "csrrw sp, mscratch, sp",
-        "bnez sp, 1f",
-        // Zero sentinel: an M-origin trap outside the Armed windows. Reverse
-        // the swap without touching memory and fail-stop.
-        "csrrw sp, mscratch, sp",
-        "j {fail_stop}",
-        // Lower-origin trap: sp = the clean stack top; allocate the frame.
-        "1:",
-        "addi sp, sp, -{frame_size}",
-        // Save caller-saved registers first; defer s0-s11 until needed.
-        // Slots omit x0: register xN uses sp[N - 1], so ra (x1) uses sp[0].
-        save_word!(ra => sp[0]),
-        save_word!(gp => sp[2]),
-        save_word!(tp => sp[3]),
-        save_word!(t0 => sp[4]),
-        save_word!(t1 => sp[5]),
-        save_word!(t2 => sp[6]),
-        save_word!(a0 => sp[9]),
-        save_word!(a1 => sp[10]),
-        save_word!(a2 => sp[11]),
-        save_word!(a3 => sp[12]),
-        save_word!(a4 => sp[13]),
-        save_word!(a5 => sp[14]),
-        save_word!(a6 => sp[15]),
-        save_word!(a7 => sp[16]),
-        save_word!(t3 => sp[27]),
-        save_word!(t4 => sp[28]),
-        save_word!(t5 => sp[29]),
-        save_word!(t6 => sp[30]),
-        // The trapped x2 rides in mscratch; store it into its frame slot.
-        "csrr t0, mscratch",
-        save_word!(t0 => sp[1]),
-        // Save the trap CSRs for Rust inspection; the live CSRs keep the
-        // trap facts until Rust commits an effect.
-        "csrr t0, mepc",
-        save_word!(t0 => sp[31]),
-        "csrr t0, mstatus",
-        save_word!(t0 => sp[32]),
-        "csrr t0, mcause",
-        save_word!(t0 => sp[33]),
-        "csrr t0, mtval",
-        save_word!(t0 => sp[34]),
-        // Zero the sentinel before entering Runtime Rust; a nested trap now
-        // fail-stops through the sentinel branch.
-        "csrw mscratch, zero",
-        "csrr t0, mcause",
-        "li t1, 2",
-        "bne t0, t1, 2f",
-        "mv a0, sp",
-        "call {fast_time}",
-        "bnez a0, 3f",
-        "2:",
-        save_word!(s0 => sp[7]),
-        save_word!(s1 => sp[8]),
-        save_word!(s2 => sp[17]),
-        save_word!(s3 => sp[18]),
-        save_word!(s4 => sp[19]),
-        save_word!(s5 => sp[20]),
-        save_word!(s6 => sp[21]),
-        save_word!(s7 => sp[22]),
-        save_word!(s8 => sp[23]),
-        save_word!(s9 => sp[24]),
-        save_word!(s10 => sp[25]),
-        save_word!(s11 => sp[26]),
-        "mv a0, sp",
-        "call {dispatch}",
-        load_word!(sp[7] => s0),
-        load_word!(sp[8] => s1),
-        load_word!(sp[17] => s2),
-        load_word!(sp[18] => s3),
-        load_word!(sp[19] => s4),
-        load_word!(sp[20] => s5),
-        load_word!(sp[21] => s6),
-        load_word!(sp[22] => s7),
-        load_word!(sp[23] => s8),
-        load_word!(sp[24] => s9),
-        load_word!(sp[25] => s10),
-        load_word!(sp[26] => s11),
-        "3:",
-        // Return path: publish the clean top into mscratch first, so no
-        // untrusted lower pointer is ever interpreted as a Runtime stack.
-        "addi t1, sp, {frame_size}",
-        "csrw mscratch, t1",
-        // Restore the remaining saved registers except x2 (sp); t0/t1 restore normally —
-        // the trapped x2 loads last, directly into sp: the base uses the
-        // frame pointer for this final access, so no scratch register is
-        // consumed and none of the restored values is clobbered.
-        // Slots omit x0: register xN uses sp[N - 1], so ra (x1) uses sp[0].
-        load_word!(sp[0] => ra),
-        load_word!(sp[2] => gp),
-        load_word!(sp[3] => tp),
-        load_word!(sp[6] => t2),
-        load_word!(sp[9] => a0),
-        load_word!(sp[10] => a1),
-        load_word!(sp[11] => a2),
-        load_word!(sp[12] => a3),
-        load_word!(sp[13] => a4),
-        load_word!(sp[14] => a5),
-        load_word!(sp[15] => a6),
-        load_word!(sp[16] => a7),
-        load_word!(sp[27] => t3),
-        load_word!(sp[28] => t4),
-        load_word!(sp[29] => t5),
-        load_word!(sp[30] => t6),
-        // Restore t0, then use it to carry the trapped x2 across the stack
-        // switch; t1 keeps t0's trapped value alive through the move.
-        load_word!(sp[4] => t0),
-        load_word!(sp[5] => t1),
-        load_word!(sp[1] => sp),
-        "mret",
-        frame_size = const FRAME_BYTES,
-        dispatch = sym trap_dispatch,
-        fast_time = sym super::dispatch::try_fast_emulate_time,
-        fail_stop = sym crate::boot::fail_stop,
-    );
-}
-
-/// The expected-fault recovery vector for guarded machine operations.
-///
-/// A recovery is valid only when the active record is published in
-/// `mscratch`, the nested trap came from M-mode, `mepc` is exactly the
-/// registered faulting instruction, and `mcause` is in the record's allowed
-/// set. Accepted faults record their facts and skip the instruction; every
-/// mismatch fail-stops.
-///
-/// # Safety
-///
-/// Naked `mtvec` target, never a callable function.
-#[unsafe(naked)]
-#[unsafe(export_name = "runtime_recovery_entry")]
-pub(crate) unsafe extern "C" fn recovery_entry() {
-    core::arch::naked_asm!(
-        ".align 2",
-        // The record must be published; mscratch is zero otherwise.
-        "csrr t0, mscratch",
-        "beqz t0, {fail_stop}",
-        // The guarded instruction executes in M-mode, so the nested trap's
-        // previous privilege must be M.
-        "csrr t1, mstatus",
-        "srli t1, t1, 11",
-        "andi t1, t1, 3",
-        "li t2, 3",
-        "bne t1, t2, {fail_stop}",
-        // Exact faulting-instruction match.
-        "csrr t1, mepc",
-        load_word!(t0[0] => t2),
-        "bne t1, t2, {fail_stop}",
-        // Allowed-cause match: exceptions only (interrupt bit clear), the
-        // cause's bit must be set in the record's mask.
-        "csrr t1, mcause",
-        "bltz t1, {fail_stop}",
-        "li t2, 32",
-        "bgeu t1, t2, {fail_stop}",
-        "li t2, 1",
-        "sll t3, t2, t1",
-        load_word!(t0[1] => t2),
-        "and t3, t3, t2",
-        "beqz t3, {fail_stop}",
-        // Accepted: record the facts and skip the 4-byte guarded
-        // instruction (guards force `.option norvc`).
-        "csrr t1, mepc",
-        save_word!(t1 => t0[3]),
-        "csrr t1, mcause",
-        save_word!(t1 => t0[4]),
-        "csrr t1, mtval",
-        save_word!(t1 => t0[5]),
-        "li t1, 1",
-        save_word!(t1 => t0[2]),
-        "csrr t1, mepc",
-        "addi t1, t1, 4",
-        "csrw mepc, t1",
-        "mret",
-        fail_stop = sym crate::boot::fail_stop,
-    );
-}
-
-const _: () = assert!(RecoveryRecord::WORDS == 6);
+trap_vector!(trap_entry_hypervisor, 0, 1);

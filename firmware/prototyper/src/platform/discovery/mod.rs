@@ -11,10 +11,10 @@ use crate::sbi::pmu::{self, SbiPmu};
 
 /// Reads the platform facts and PMU mappings consumed by driver and SBI initialization.
 pub(super) fn discover_platform(
+    board: &mut BoardInfo,
     platform: &runtime::PlatformView<'_>,
-) -> runtime::Result<(BoardInfo, Option<SbiPmu>)> {
-    let mut board = BoardInfo::empty();
-    let cpu_interrupt_controllers = harts::discover(&mut board, platform)?;
+) -> runtime::Result<Option<SbiPmu>> {
+    let cpu_interrupt_controllers = harts::discover(board, platform)?;
     board.devices.console = console::discover(platform)?;
     let mut reset = crate::driver::ResetDescription::new();
     let mut soc =
@@ -42,12 +42,12 @@ pub(super) fn discover_platform(
         if let Some(SocDescription::V821(v821)) = &mut soc {
             v821.probe(platform, node)?;
         }
-        interrupts::discover_node(&mut board, platform, node, path, &cpu_interrupt_controllers)
+        interrupts::discover_node(board, platform, node, path, &cpu_interrupt_controllers)
     })?;
     board.devices.reset = reset;
     board.soc = soc;
     let pmu = pmu_node.and_then(pmu::from_node).or_else(|| {
         matches!(&board.soc, Some(SocDescription::V861(_))).then_some(SbiPmu::default())
     });
-    Ok((board, pmu))
+    Ok(pmu)
 }

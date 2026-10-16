@@ -38,7 +38,9 @@ jobs:
         run: cargo prototyper build
 
       - name: Run test
-        run: cargo test --locked -p rustsbi-prototyper -p rustsbi-prototyper-macros
+        run: |
+          cargo test --locked -p rustsbi-prototyper -p rustsbi-runtime-macros
+          cargo test --locked -p rustsbi-firmware-runtime --lib
 
       - name: Run rust-clippy (Prototyper)
         shell: bash
@@ -103,7 +105,7 @@ jobs:
       - name: Install dev dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-riscv u-boot-tools
+          sudo apt-get install -y qemu-system-riscv u-boot-tools device-tree-compiler
           qemu-system-riscv64 --version
 
       - name: Install required cargo
@@ -174,6 +176,16 @@ jobs:
           test "${{ steps.payload_bench.outcome }}" = "success"
           test "${{ steps.dynamic_bench.outcome }}" = "success"
           test "${{ steps.jump_bench.outcome }}" = "success"
+
+      - name: Verify embedded DTB handoff outside firmware mappings
+        shell: bash
+        run: bash .github/scripts/prototyper-fdt-handoff.sh
+
+      - name: Verify repeated M-mode payload interrupts
+        shell: bash
+        run: |
+          bash firmware/test-kernel/scripts/test-machine-stack.sh 32
+          bash firmware/test-kernel/scripts/test-machine-stack.sh 64
 
       - name: Upload QEMU log
         if: failure()

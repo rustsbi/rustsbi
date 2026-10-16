@@ -1,0 +1,563 @@
+#!/usr/bin/env bash
+# RustSBI dynamic firmware -> Linux directly, U-Boot or EDK II -> openEuler.
+set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# Fixed mirror listed at https://www.openeuler.org/en/mirror/list/.
+# The central repo timed out after 1200s on a cold GitHub runner download.
+readonly BASE_URL=https://mirror.maeen.sa/openeuler/openEuler-25.09/virtual_machine_img/riscv64
+readonly IMAGE_NAME=openEuler-25.09-riscv64.qcow2
+# Published in repo.openeuler.org and the mirror's .xz.sha256sum file.
+readonly IMAGE_SHA256=5ba2eb5f0dac1594e8e041e36125fc6e5a2bd4547b4039258e5bd5139fa067ba
+# Fixed release firmware from the same directory, also used by the AIA test.
+readonly CODE_SHA256=58e96e55744516ed5debff8ed90eaface7b8a51a9466e7c0a687f4025ed5c600
+readonly VARS_SHA256=ea8094e953b1215444bd001ee1cf22818f1f7f8abcb158e62180cbaa6c1f70af
+readonly UBOOT_PACKAGE=u-boot-qemu_2025.10-0ubuntu0.24.04.3_all.deb
+readonly UBOOT_SHA256=852a1f5d4a5d00a3a63f694a4bf46744f02737f5ffdea091666ee44d784f5eba
+readonly UBOOT_URL=https://security.ubuntu.com/ubuntu/pool/main/u/u-boot/$UBOOT_PACKAGE
+# Extract these files from the same SHA256-pinned guest disk's FAT boot partition.
+readonly BARE_ESP_OFFSET=1048576
+readonly BARE_KERNEL_NAME=vmlinuz-6.6.0-102.0.0.5.oe2509.riscv64
+readonly BARE_KERNEL_SHA256=47df6d65a9f3a6e2cb79aa838c4e81d174f1d5e2e10c8e04ac300f4453b1e246
+readonly BARE_INITRD_NAME=initramfs-6.6.0-102.0.0.5.oe2509.riscv64.img
+readonly BARE_INITRD_SHA256=ecdc8cda635d17daab14c8fed6d871c26a6ef142e315d354253f950bc3354200
+# Copied from the pinned distribution's /efi/EFI/openEuler/grub.cfg.
+readonly BARE_CMDLINE='root=UUID=c6dd218d-fc09-4066-bc5d-b20a8eb9da7a ro console=ttyS0 highres=off earlycon no4lvl systemd.default_timeout_start_sec=600 rootfstype=ext4 quiet net.ifnames=0 biosdevname=0 nmi_watchdog=1 rd.shell=0 selinux=0 crashkernel=256M reserve_kbox_mem=16M crash_kexec_post_notifiers panic=3 no-steal-time use-sched-idle-time'
+CACHE_DIR=${OPENEULER_CACHE_DIR:-target/openeuler-boot/cache}
+WORK_DIR=${OPENEULER_WORK_DIR:-target/openeuler-boot/work}
+LOG_DIR=${QEMU_LOG_DIR:-qemu-logs}
+BOOT_MODE=edk2
+LOG_FILE="$LOG_DIR/prototyper-openeuler-$BOOT_MODE.log"
+RUSTSBI=target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.bin
+QEMU=qemu-system-riscv64
+BOOT_TIMEOUT_SECS=${OPENEULER_BOOT_TIMEOUT_SECS:-900}
+DOWNLOAD_TIMEOUT_SECS=1200
+SETTLE_SECS=5
+QEMU_PID=
+DOWNLOAD_TEMP=
+RUN_DIR=
+IMAGE_PATH=
+UBOOT_ELF=
+BARE_KERNEL=
+BARE_INITRD=
+
+cleanup() {
+  local i
+  if [[ -n "$QEMU_PID" ]]; then
+    if kill -0 "$QEMU_PID" 2>/dev/null; then
+      kill "$QEMU_PID" 2>/dev/null || true
+      for ((i=0; i<5; i++)); do
+        kill -0 "$QEMU_PID" 2>/dev/null || break
+        sleep 1
+      done
+      kill -KILL "$QEMU_PID" 2>/dev/null || true
+    fi
+    wait "$QEMU_PID" 2>/dev/null || true
+    QEMU_PID=
+  fi
+  [[ -z "$DOWNLOAD_TEMP" ]] || rm -f "$DOWNLOAD_TEMP"
+  [[ -z "$RUN_DIR" ]] || rm -rf "$RUN_DIR"
+}
+
+verify_sha256() {
+  # Hash bytes directly: filenames cannot inject checksum-file entries.
+  local actual
+  actual=$(sha256sum < "$2") || return 1
+  [[ "${actual%% *}" = "$1" ]]
+}
+
+download_asset() {
+  local url=$1 destination=$2 digest=$3
+  if [[ -f "$destination" ]] && verify_sha256 "$digest" "$destination"; then
+    echo "Using verified $(basename "$destination")"
+    return 0
+  fi
+  DOWNLOAD_TEMP=$(mktemp "${destination}.part.XXXXXX") || return 1
+  curl --fail --location --connect-timeout 30 --max-time "$DOWNLOAD_TIMEOUT_SECS" \
+    --retry 2 --retry-all-errors --retry-max-time "$DOWNLOAD_TIMEOUT_SECS" \
+    --output "$DOWNLOAD_TEMP" "$url" || return 1
+  if ! verify_sha256 "$digest" "$DOWNLOAD_TEMP"; then
+    echo "SHA-256 mismatch: $url" >&2
+    return 1
+  fi
+  mv "$DOWNLOAD_TEMP" "$destination" || return 1
+  DOWNLOAD_TEMP=
+}
+
+prepare_assets() {
+  download_asset "$BASE_URL/$IMAGE_NAME.xz" "$CACHE_DIR/$IMAGE_NAME.xz" "$IMAGE_SHA256"
+  if [[ "$BOOT_MODE" = edk2 ]]; then
+    download_asset "$BASE_URL/RISCV_VIRT_CODE.fd" "$CACHE_DIR/RISCV_VIRT_CODE.fd" "$CODE_SHA256"
+    download_asset "$BASE_URL/RISCV_VIRT_VARS.fd" "$CACHE_DIR/RISCV_VIRT_VARS.fd" "$VARS_SHA256"
+  elif [[ "$BOOT_MODE" = u-boot ]]; then
+    download_asset "$UBOOT_URL" "$CACHE_DIR/$UBOOT_PACKAGE" "$UBOOT_SHA256"
+  fi
+  IMAGE_PATH="$RUN_DIR/$IMAGE_NAME"
+  timeout --foreground 300 xz -dc "$CACHE_DIR/$IMAGE_NAME.xz" > "$IMAGE_PATH"
+  chmod a-w "$IMAGE_PATH"
+  if [[ "$BOOT_MODE" = edk2 ]]; then
+    cp "$CACHE_DIR/RISCV_VIRT_VARS.fd" "$RUN_DIR/RISCV_VIRT_VARS.fd"
+  elif [[ "$BOOT_MODE" = u-boot ]]; then
+    mkdir -p "$RUN_DIR/uboot"
+    if command -v dpkg-deb >/dev/null 2>&1; then
+      dpkg-deb -x "$CACHE_DIR/$UBOOT_PACKAGE" "$RUN_DIR/uboot"
+    elif command -v ar >/dev/null 2>&1 && command -v bsdtar >/dev/null 2>&1; then
+      ar p "$CACHE_DIR/$UBOOT_PACKAGE" data.tar.zst | bsdtar -xf - -C "$RUN_DIR/uboot"
+    else
+      echo 'Need dpkg-deb or ar + bsdtar to extract U-Boot' >&2
+      return 1
+    fi
+    UBOOT_ELF="$RUN_DIR/uboot/usr/lib/u-boot/qemu-riscv64_smode/uboot.elf"
+    test -s "$UBOOT_ELF"
+  else
+    # Work only from the verified disk, without mounting it or modifying the guest.
+    # The 40 GiB raw representation is sparse (~1.4 GiB allocated on ext4).
+    timeout --foreground 300 qemu-img convert -f qcow2 -O raw -S 4k "$IMAGE_PATH" "$RUN_DIR/disk.raw"
+    BARE_KERNEL="$RUN_DIR/$BARE_KERNEL_NAME"
+    BARE_INITRD="$RUN_DIR/$BARE_INITRD_NAME"
+    mcopy -i "$RUN_DIR/disk.raw@@$BARE_ESP_OFFSET" "::/$BARE_KERNEL_NAME" "$BARE_KERNEL"
+    mcopy -i "$RUN_DIR/disk.raw@@$BARE_ESP_OFFSET" "::/$BARE_INITRD_NAME" "$BARE_INITRD"
+    if ! verify_sha256 "$BARE_KERNEL_SHA256" "$BARE_KERNEL" ||
+       ! verify_sha256 "$BARE_INITRD_SHA256" "$BARE_INITRD"; then
+      echo 'Extracted Bare SBI kernel or initramfs digest mismatch' >&2
+      return 1
+    fi
+    rm -f "$RUN_DIR/disk.raw"
+  fi
+  qemu-img create -q -f qcow2 -F qcow2 -b "$IMAGE_PATH" "$RUN_DIR/overlay.qcow2"
+}
+
+start_qemu() {
+  local -a args=(
+    -accel tcg -smp 4 -m 4G -display none -monitor none -no-reboot
+    -bios "$RUSTSBI"
+  )
+  if [[ "$BOOT_MODE" = edk2 ]]; then
+    args+=(-machine 'virt,pflash0=pflash0,pflash1=pflash1,acpi=off'
+      -blockdev "node-name=pflash0,driver=file,read-only=on,filename=$CACHE_DIR/RISCV_VIRT_CODE.fd"
+      -blockdev "node-name=pflash1,driver=file,filename=$RUN_DIR/RISCV_VIRT_VARS.fd")
+  elif [[ "$BOOT_MODE" = u-boot ]]; then
+    args+=(-machine 'virt,acpi=off' -kernel "$UBOOT_ELF")
+  else
+    args+=(-machine 'virt,acpi=off' -kernel "$BARE_KERNEL"
+      -initrd "$BARE_INITRD" -append "$BARE_CMDLINE")
+  fi
+  args+=(-drive "file=$RUN_DIR/overlay.qcow2,format=qcow2,id=hd0,if=none"
+    -device 'virtio-blk-device,drive=hd0'
+    -device virtio-rng-device
+    -serial "file:$LOG_FILE")
+  # Only the UART writes boot evidence; never reuse previous boot logs.
+  : > "$LOG_FILE"
+  {
+    printf 'Boot mode: %s\n' "$BOOT_MODE"
+    printf 'QEMU command: '
+    printf '%q ' "$QEMU" "${args[@]}"
+    printf '\n'
+  } >> "$LOG_DIR/prototyper-openeuler-metadata.log"
+  "$QEMU" "${args[@]}" </dev/null > "$LOG_DIR/prototyper-openeuler-qemu.log" 2>&1 &
+  QEMU_PID=$!
+}
+
+check_serial() {
+  # Return 0 for the complete ordered chain, 1 while booting, 2 on fatal error.
+  # openEuler requires an authenticated login. No password or guest changes are
+  # introduced: getty is the same minimum userspace milestone as the AIA CI.
+  awk -v boot_mode="$BOOT_MODE" '
+    {
+      gsub(/\r/, "")
+      gsub(/\033\[[0-?]*[ -\/]*[@-~]/, "")
+      if (/Kernel panic|not syncing|VFS: Unable to mount root fs|Cannot open root device|Attempted to kill init|panicked at|Synchronous Exception|Unhandled exception|grub rescue>|No bootable device|SystemFailure|Invalid data in dynamic/) fatal=1
+      if (stage == 0 && /^\[RustSBI\].*Hello RustSBI!$/) stage=1
+      if (stage == 1 && /^\[RustSBI\].*Platform IPI Extension *: SiFiveClint /) clint=1
+      if (stage == 1 && boot_mode == "edk2" && /^\[RustSBI\].*Redirecting hart [0-9]+ to 0x00000020000000 in Supervisor mode\.$/) handoff=1
+      if (stage == 1 && (boot_mode == "u-boot" || boot_mode == "sbi") && /^\[RustSBI\].*Redirecting hart [0-9]+ to 0x00000080200000 in Supervisor mode\.$/) handoff=1
+      if (stage == 1 && boot_mode == "sbi" && handoff && clint) stage=2
+      # Direct Linux boot must not be accepted through a U-Boot/EDK II trace.
+      if (boot_mode == "sbi" && (/^U-Boot / || /RISC-V EDK2 firmware/ || /GNU GRUB *version/ || /^Booting: Label: virtio/)) fatal=1
+      if (stage == 1 && boot_mode == "edk2" && /^RISC-V EDK2 firmware version 2\.7$/) stage=2
+      if (stage == 1 && boot_mode == "u-boot" && /^U-Boot 2025\.10-0ubuntu0\.24\.04\.3 /) stage=2
+      if (stage == 2 && boot_mode == "u-boot" && /^Booting: Label: virtio 0 /) efi=1
+      if (stage == 2 && boot_mode == "u-boot" && efi && /GNU GRUB *version 2\.12/) grub=1
+      if (stage == 2 && /^Loading Linux 6\.6\.0-102\.0\.0\.5\.oe2509\.riscv64 /) loading=1
+      if (stage == 2 && /^Loading initial ramdisk /) initrd=1
+      # The release grub.cfg uses quiet. Kernel task/timestamp lines and the
+      # getty kernel/architecture banner remain visible without changing it.
+      if (stage == 2 && boot_mode == "sbi" && /^\[ *[0-9.]+\]\[ *T[0-9]+\] /) stage=3
+      if (stage == 2 && (boot_mode == "edk2" || (boot_mode == "u-boot" && efi && grub)) && loading && initrd && /^\[ *[0-9.]+\]\[ *T[0-9]+\] /) stage=3
+      if (stage == 3 && /^(Welcome to )?openEuler 25\.09$/) distro=1
+      if (stage == 3 && distro && /^Kernel 6\.6\.0-102\.0\.0\.5\.oe2509\.riscv64 on an riscv64$/) kernel=1
+      if (stage == 3 && kernel && /^localhost login: *$/) login=1
+    }
+    END { if (fatal) exit 2; exit !(stage == 3 && clint && handoff && distro && kernel && login) }
+  ' "$LOG_FILE"
+}
+
+wait_for_guest() {
+  local deadline=$((SECONDS + BOOT_TIMEOUT_SECS)) ready_at=0 result qemu_exit
+  while (( SECONDS < deadline )); do
+    if ! kill -0 "$QEMU_PID" 2>/dev/null; then
+      qemu_exit=0
+      wait "$QEMU_PID" || qemu_exit=$?
+      QEMU_PID=
+      echo "QEMU exited before acceptance (exit=$qemu_exit)" >&2
+      return 1
+    fi
+    result=0
+    check_serial || result=$?
+    if (( result == 2 )); then
+      echo 'Fatal firmware, kernel or RootFS error in guest serial log' >&2
+      return 1
+    elif (( result == 0 )); then
+      if (( ready_at == 0 )); then ready_at=$SECONDS; fi
+      if (( SECONDS - ready_at >= SETTLE_SECS )); then
+        kill -0 "$QEMU_PID" 2>/dev/null || return 1
+        return 0
+      fi
+    else
+      ready_at=0
+    fi
+    sleep 1
+  done
+  echo "openEuler boot timed out after ${BOOT_TIMEOUT_SECS}s" >&2
+  return 1
+}
+
+main() {
+  if [[ ! "$BOOT_TIMEOUT_SECS" =~ ^[1-9][0-9]*$ ]] || (( BOOT_TIMEOUT_SECS > 1800 )); then
+    echo 'OPENEULER_BOOT_TIMEOUT_SECS must be an integer in 1..1800' >&2
+    return 2
+  fi
+  cd "$SCRIPT_DIR/../.."
+  # QEMU keyval paths use comma separators; reject ambiguous overrides.
+  for path in "$CACHE_DIR" "$WORK_DIR" "$LOG_DIR"; do
+    [[ "$path" != *','* && "$path" != *$'\n'* ]] || {
+      echo 'Directory paths must not contain commas or newlines' >&2
+      return 2
+    }
+  done
+  mkdir -p "$CACHE_DIR" "$WORK_DIR" "$LOG_DIR"
+  CACHE_DIR=$(realpath "$CACHE_DIR")
+  LOG_DIR=$(realpath "$LOG_DIR")
+  LOG_FILE="$LOG_DIR/prototyper-openeuler-$BOOT_MODE.log"
+  trap cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  test -s "$RUSTSBI" || {
+    echo "Missing $RUSTSBI; run cargo prototyper build first" >&2
+    return 1
+  }
+  RUN_DIR=$(mktemp -d "$(realpath "$WORK_DIR")/$BOOT_MODE.XXXXXX")
+  {
+    printf 'RustSBI checkout: '; git rev-parse HEAD
+    printf 'CI revision: %s\n' "${GITHUB_SHA:-local}"
+    git status --short
+    printf 'Boot mode: %s\n' "$BOOT_MODE"
+    "$QEMU" --version
+    sha256sum "$RUSTSBI"
+    printf 'Guest URL: %s/%s.xz\n' "$BASE_URL" "$IMAGE_NAME"
+    printf 'Serial log: %s\n' "$LOG_FILE"
+  } > "$LOG_DIR/prototyper-openeuler-metadata.log"
+  prepare_assets
+  if [[ "$BOOT_MODE" = edk2 ]]; then
+    sha256sum "$CACHE_DIR/$IMAGE_NAME.xz" "$CACHE_DIR/"*.fd >> "$LOG_DIR/prototyper-openeuler-metadata.log"
+  elif [[ "$BOOT_MODE" = u-boot ]]; then
+    sha256sum "$CACHE_DIR/$IMAGE_NAME.xz" "$CACHE_DIR/$UBOOT_PACKAGE" "$UBOOT_ELF" >> "$LOG_DIR/prototyper-openeuler-metadata.log"
+  else
+    sha256sum "$CACHE_DIR/$IMAGE_NAME.xz" "$BARE_KERNEL" "$BARE_INITRD" >> "$LOG_DIR/prototyper-openeuler-metadata.log"
+    printf 'Bare kernel cmdline: %s\nESP partition offset: %s\n' "$BARE_CMDLINE" "$BARE_ESP_OFFSET" >> "$LOG_DIR/prototyper-openeuler-metadata.log"
+  fi
+  start_qemu
+  if ! wait_for_guest; then
+    tail -n 160 "$LOG_FILE" "$LOG_DIR/prototyper-openeuler-qemu.log" >&2 || true
+    return 1
+  fi
+  # Stop QEMU, then reject fatal errors emitted during the shutdown race too.
+  cleanup
+  check_serial
+  tail -n 80 "$LOG_FILE"
+  echo "RustSBI -> $BOOT_MODE -> openEuler 25.09 userspace (serial login): $LOG_FILE"
+}
+
+# Offline process/serial fixtures; these are NOT QEMU or guest boot results.
+# Isolate test functions, mocks, variables and traps from the normal boot path.
+run_self_tests() (
+  TEST_DIR=$(mktemp -d)
+  trap 'rm -rf "$TEST_DIR"' EXIT
+
+  uboot_fixture() {
+    local variant=$1
+    variant=$(printf '%s' "$variant" | sed 's/^uboot-//')
+    [[ "$variant" = missing-rustsbi ]] || printf '[RustSBI] INFO - Hello RustSBI!\n'
+    if [[ "$variant" = aia ]]; then
+      printf '[RustSBI] INFO - Platform IPI Extension        : IMSIC (M-level Base Address: 0x24000000)\n'
+    else
+      printf '[RustSBI] INFO - Platform IPI Extension        : SiFiveClint (Base Address: 0x2000000)\n'
+    fi
+    if [[ "$variant" = wrong-handoff ]]; then
+      printf '[RustSBI] INFO - Redirecting hart 0 to 0x00000020000000 in Supervisor mode.\n'
+    elif [[ "$variant" != missing-handoff ]]; then
+      printf '[RustSBI] INFO - Redirecting hart 0 to 0x00000080200000 in Supervisor mode.\n'
+    fi
+    if [[ "$variant" = edk2-only ]]; then
+      printf 'RISC-V EDK2 firmware version 2.7\n'
+    elif [[ "$variant" != missing-uboot ]]; then
+      printf 'U-Boot 2025.10-0ubuntu0.24.04.3 (Oct 01 2026 - 20:02:47 +0000)\n'
+    fi
+    if [[ "$variant" = grub-before-efi ]]; then
+      printf 'GNU GRUB  version 2.12\n'
+    fi
+    [[ "$variant" = missing-efi ]] || printf 'Booting: Label: virtio 0 Device path: /VenHw()\n'
+    [[ "$variant" = missing-grub || "$variant" = grub-before-efi ]] || printf 'GNU GRUB  version 2.12\n'
+    printf 'Loading Linux 6.6.0-102.0.0.5.oe2509.riscv64 ...\nLoading initial ramdisk ...\n'
+    [[ "$variant" = missing-linux ]] || printf '[    1.998919][    T1] integrity: Unable to open file: /etc/keys/x509_evm.der (-2)\n'
+    if [[ "$variant" = linux-only ]]; then
+      printf '[    0.000000] Linux version 6.6.0 (builder)\n'
+      return 0
+    fi
+    if [[ "$variant" = early-login ]]; then
+      printf 'localhost login:\n'
+      return 0
+    fi
+    if [[ "$variant" = wrong-distro ]]; then
+      printf 'openEuler 24.03\n'
+    else
+      printf 'openEuler 25.09\n'
+    fi
+    printf 'Kernel 6.6.0-102.0.0.5.oe2509.riscv64 on an riscv64\n'
+    case "$variant" in
+      panic) printf 'Kernel panic - not syncing: test\n' ;;
+      rootfs) printf 'VFS: Unable to mount root fs on unknown-block(0,0)\n' ;;
+      injected) printf 'echo localhost login:\n'; return 0 ;;
+      marker-only) printf 'RUSTSBI-OPENEULER-SMOKE-OK\n'; return 0 ;;
+    esac
+    printf '\r\nlocalhost login: '
+  }
+
+  sbi_fixture() {
+    local variant=${1#sbi-}
+    [[ "$variant" = missing-rustsbi ]] || printf '[RustSBI] INFO - Hello RustSBI!\n'
+    if [[ "$variant" = wrong-clint ]]; then
+      printf '[RustSBI] INFO - Platform IPI Extension        : IMSIC (M-level Base Address: 0x24000000)\n'
+    elif [[ "$variant" != missing-clint ]]; then
+      printf '[RustSBI] INFO - Platform IPI Extension        : SiFiveClint (Base Address: 0x2000000)\n'
+    fi
+    if [[ "$variant" = early-linux-task ]]; then
+      printf '[    0.100000][    T1] early untrusted kernel event\n'
+    fi
+    if [[ "$variant" = wrong-handoff ]]; then
+      printf '[RustSBI] INFO - Redirecting hart 0 to 0x00000020000000 in Supervisor mode.\n'
+    elif [[ "$variant" != missing-handoff ]]; then
+      printf '[RustSBI] INFO - Redirecting hart 0 to 0x00000080200000 in Supervisor mode.\n'
+    fi
+    if [[ "$variant" = edk2-injection ]]; then
+      printf 'RISC-V EDK2 firmware version 2.7\n'
+    elif [[ "$variant" = uboot-injection ]]; then
+      printf 'U-Boot 2025.10-0ubuntu0.24.04.3\n'
+    fi
+    [[ "$variant" = missing-linux-task || "$variant" = early-linux-task ]] ||
+      printf '[    0.795178][    T1] syscon-poweroff poweroff: pm_power_off already claimed\n'
+    if [[ "$variant" = early-login ]]; then
+      printf 'localhost login: \n'
+      return 0
+    fi
+    if [[ "$variant" = wrong-distro ]]; then
+      printf 'openEuler 24.03\n'
+    else
+      printf 'openEuler 25.09\n'
+    fi
+    if [[ "$variant" = wrong-kernel ]]; then
+      printf 'Kernel 6.6.0 on an riscv64\n'
+    else
+      printf 'Kernel 6.6.0-102.0.0.5.oe2509.riscv64 on an riscv64\n'
+    fi
+    case "$variant" in
+      no-login) return 0 ;;
+      injected) printf 'echo localhost login:\n'; return 0 ;;
+      panic) printf 'Kernel panic - not syncing: fake\n' ;;
+      rootfs) printf 'VFS: Unable to mount root fs on unknown-block(0,0)\n' ;;
+    esac
+    printf '\r\nlocalhost login: '
+  }
+
+  fixture() {
+    local scenario=$1
+    if [[ "$BOOT_MODE" = sbi ]]; then
+      sbi_fixture "$scenario"
+      return
+    fi
+    if [[ "$BOOT_MODE" = u-boot ]]; then
+      uboot_fixture "$scenario"
+      return
+    fi
+    [[ "$scenario" = missing-rustsbi ]] || printf '\033[1;37m[RustSBI] \033[1;32mINFO \033[0m - Hello RustSBI!\n'
+    if [[ "$scenario" = aia ]]; then
+      printf '[RustSBI] INFO - Platform IPI Extension        : IMSIC (M-level Base Address: 0x24000000)\n'
+    else
+      printf '[RustSBI] INFO - Platform IPI Extension        : SiFiveClint (Base Address: 0x2000000)\n'
+    fi
+    [[ "$scenario" = missing-handoff ]] || printf '[RustSBI] INFO - Redirecting hart 0 to 0x00000020000000 in Supervisor mode.\n'
+    [[ "$scenario" = missing-edk2 ]] || printf 'RISC-V EDK2 firmware version 2.7\n'
+    printf 'Loading Linux 6.6.0-102.0.0.5.oe2509.riscv64 ...\nLoading initial ramdisk ...\n'
+    [[ "$scenario" = missing-linux ]] || printf '[    4.982194][    T1] integrity: Unable to open file: /etc/keys/x509_ima.der (-2)\n'
+    if [[ "$scenario" = linux-only ]]; then
+      printf '[    0.000000] Linux version 6.6.0 (builder)\n'
+      return 0
+    fi
+    [[ "$scenario" != early-login ]] || printf '\nlocalhost login: \n'
+    if [[ "$scenario" = wrong-version ]]; then
+      printf 'Welcome to openEuler 24.03\n'
+    else
+      printf 'Welcome to openEuler 25.09\n'
+    fi
+    printf 'Kernel 6.6.0-102.0.0.5.oe2509.riscv64 on an riscv64\n'
+    case "$scenario" in
+      panic) printf 'Kernel panic - not syncing: test\n' ;;
+      rootfs) printf 'VFS: Unable to mount root fs on unknown-block(0,0)\n' ;;
+      injected) printf 'echo localhost login:\n'; return 0 ;;
+      marker-only) printf 'RUSTSBI-OPENEULER-SMOKE-OK\n'; return 0 ;;
+      early-login) return 0 ;;
+    esac
+    printf '\r\nlocalhost login: '
+  }
+
+  serial_case() (
+    local scenario=$1 expected=$2 result=0
+    BOOT_MODE=edk2
+    if [[ "$scenario" = uboot-* ]]; then BOOT_MODE=u-boot; fi
+    if [[ "$scenario" = sbi-* ]]; then BOOT_MODE=sbi; fi
+    LOG_DIR="$TEST_DIR/$scenario"
+    mkdir -p "$LOG_DIR"
+    LOG_FILE="$LOG_DIR/serial.log"
+    BOOT_TIMEOUT_SECS=4
+    SETTLE_SECS=1
+    RUN_DIR=$(mktemp -d "$TEST_DIR/run.XXXXXX")
+    trap cleanup EXIT
+    : > "$LOG_FILE"
+    if [[ "$scenario" = stale-log || "$scenario" = stderr-injection ||
+          "$scenario" = sbi-stale-log || "$scenario" = sbi-stderr-injection ]]; then
+      fixture success > "$LOG_FILE"
+      # start_qemu must truncate an earlier run's serial evidence.
+      QEMU=/usr/bin/true
+      if [[ "$scenario" = stderr-injection || "$scenario" = sbi-stderr-injection ]]; then
+        # Model a live QEMU error path emitting convincing text outside UART.
+        fixture success > "$RUN_DIR/diagnostic"
+        printf '#!/usr/bin/env bash\ncat "%s/diagnostic" >&2\nexec sleep 20\n' "$RUN_DIR" > "$RUN_DIR/qemu"
+        chmod +x "$RUN_DIR/qemu"
+        QEMU="$RUN_DIR/qemu"
+      fi
+      RUSTSBI=/dev/null
+      start_qemu
+    else
+      (
+        [[ "$scenario" != timeout && "$scenario" != uboot-timeout && "$scenario" != sbi-timeout ]] || exec sleep 20
+        fixture "$scenario"
+        [[ "$scenario" != early-exit && "$scenario" != uboot-early-exit && "$scenario" != sbi-early-exit ]] || exit 0
+        if [[ "$scenario" = late-panic || "$scenario" = uboot-late-panic || "$scenario" = sbi-late-panic ]]; then
+          sleep 0.5
+          printf '\nKernel panic - not syncing: after login\n'
+        fi
+        exec sleep 20
+      ) > "$LOG_FILE" &
+      QEMU_PID=$!
+    fi
+    wait_for_guest > "$LOG_DIR/result.txt" 2>&1 || result=$?
+    if [[ "$expected" = pass && "$result" != 0 ]] ||
+       [[ "$expected" = fail && "$result" = 0 ]]; then
+      cat "$LOG_DIR/result.txt" "$LOG_FILE" >&2
+      echo "FAIL: $scenario (expected $expected, exit $result)" >&2
+      exit 1
+    fi
+    local pid=$QEMU_PID run=$RUN_DIR
+    cleanup
+    [[ ! -d "$run" && -f "$LOG_FILE" ]]
+    [[ -z "$pid" ]] || ! kill -0 "$pid" 2>/dev/null
+    echo "PASS: $scenario ($expected, process cleaned, log retained)"
+  )
+
+  download_case() (
+    local scenario=$1 result=0
+    RUN_DIR=$(mktemp -d "$TEST_DIR/download.XXXXXX")
+    trap cleanup EXIT
+    printf 'verified asset\n' > "$RUN_DIR/source"
+    # Downloads live in cache, outside RUN_DIR. Removing the run directory alone
+    # must not conceal a leaked .part file on download failure.
+    mkdir -p "$TEST_DIR/cache-$scenario"
+    local digest destination="$TEST_DIR/cache-$scenario/asset"
+    digest=$(sha256sum "$RUN_DIR/source")
+    digest=${digest%% *}
+    if [[ "$scenario" = bad-digest ]]; then digest=$(printf '%064d' 0); fi
+    if [[ "$scenario" = interrupted ]]; then
+      # Model curl's partial-write/error boundary, not its HTTP implementation.
+      # shellcheck disable=SC2329 # Called indirectly by download_asset.
+      curl() {
+        while [[ "$1" != --output ]]; do shift; done
+        printf partial > "$2"
+        return 18
+      }
+    fi
+    download_asset "file://$RUN_DIR/source" "$destination" "$digest" || result=$?
+    if [[ "$scenario" = success ]]; then
+      [[ "$result" = 0 ]]
+      cmp "$RUN_DIR/source" "$destination"
+      # Corrupt cache must be revalidated and replaced, never accepted by size.
+      printf corrupt > "$destination"
+      download_asset "file://$RUN_DIR/source" "$destination" "$digest"
+      cmp "$RUN_DIR/source" "$destination"
+    else
+      [[ "$result" != 0 && ! -f "$destination" ]]
+    fi
+    local temporary=$DOWNLOAD_TEMP run=$RUN_DIR
+    cleanup
+    [[ ! -d "$run" ]]
+    [[ -z "$temporary" || ! -f "$temporary" ]]
+    echo "PASS: download $scenario (verification and cleanup)"
+  )
+
+  for scenario in success missing-rustsbi missing-handoff missing-edk2 missing-linux aia linux-only marker-only \
+    injected early-login panic rootfs early-exit timeout late-panic stale-log stderr-injection wrong-version; do
+    expected=fail
+    [[ "$scenario" != success ]] || expected=pass
+    serial_case "$scenario" "$expected"
+  done
+  # Same process/serial integrity contract for the U-Boot handoff path.
+  for scenario in uboot-success uboot-missing-rustsbi uboot-missing-handoff uboot-wrong-handoff uboot-missing-uboot uboot-missing-efi uboot-missing-grub uboot-grub-before-efi uboot-edk2-only uboot-aia uboot-missing-linux uboot-linux-only uboot-wrong-distro uboot-early-login uboot-injected uboot-marker-only uboot-panic uboot-rootfs uboot-early-exit uboot-timeout uboot-late-panic; do
+    expected=fail
+    [[ "$scenario" != uboot-success ]] || expected=pass
+    serial_case "$scenario" "$expected"
+  done
+  # Direct SBI boot: no intermediary bootloader is allowed to supply evidence.
+  for scenario in sbi-success sbi-missing-rustsbi sbi-missing-clint sbi-wrong-clint sbi-missing-handoff sbi-wrong-handoff sbi-early-linux-task sbi-missing-linux-task sbi-edk2-injection sbi-uboot-injection sbi-wrong-distro sbi-wrong-kernel sbi-no-login sbi-early-login sbi-injected sbi-panic sbi-rootfs sbi-timeout sbi-early-exit sbi-late-panic sbi-stale-log sbi-stderr-injection; do
+    expected=fail
+    [[ "$scenario" != sbi-success ]] || expected=pass
+    serial_case "$scenario" "$expected"
+  done
+  for scenario in success bad-digest interrupted; do download_case "$scenario"; done
+  # A newline in a filename must not inject another checksum-file entry.
+  (
+    RUN_DIR=$(mktemp -d "$TEST_DIR/filename.XXXXXX")
+    trap cleanup EXIT
+    printf original > "$RUN_DIR/original"
+    digest=$(sha256sum < "$RUN_DIR/original")
+    digest=${digest%% *}
+    injected="$RUN_DIR/asset"$'\n'"$digest  ignored"
+    printf corrupt > "$injected"
+    if verify_sha256 "$digest" "$injected"; then
+      echo 'FAIL: checksum filename injection' >&2
+      exit 1
+    fi
+    echo 'PASS: checksum filename injection (rejected)'
+  )
+  echo 'Offline openEuler self-tests passed; no guest boot was performed.'
+)
+
+if [[ "${BASH_SOURCE[0]}" = "$0" ]]; then
+  case "${1:-edk2}" in
+    --self-test) run_self_tests ;;
+    edk2 | u-boot | sbi)
+      (( $# <= 1 )) || exit 2
+      BOOT_MODE=edk2
+      [[ $# = 0 ]] || BOOT_MODE=$1
+      main ;;
+    *) echo "Usage: $0 [edk2|u-boot|sbi|--self-test]" >&2; exit 2 ;;
+  esac
+fi

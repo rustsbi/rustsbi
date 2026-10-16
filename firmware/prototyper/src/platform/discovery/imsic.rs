@@ -13,15 +13,15 @@ use core::mem::size_of;
 use riscv_aia::Iid;
 use runtime::{
     FdtNode,
+    hart::HartId,
     memory::{DeviceRegisterRange, PhysAddrRange},
     node_is_enabled,
 };
 
-use crate::cfg::NUM_HART_MAX;
 use crate::devicetree::u32_property;
 use crate::driver;
 
-use super::super::info::{HartEnableList, ImsicAddressLayout, ImsicInfo};
+use super::super::info::{ImsicAddressLayout, ImsicInfo};
 
 const MACHINE_EXTERNAL_INTERRUPT_ID: u32 = 11;
 const MIN_INTERRUPT_IDENTITIES: u32 = 63;
@@ -44,7 +44,7 @@ struct MachineInterruptFile {
     file_index: u32,
 }
 
-/// Associates an enabled CPU interrupt controller with its parent hart.
+/// Associates CPU interrupt wiring with its parent, including disabled harts.
 pub(super) fn cpu_interrupt_controller(
     node: FdtNode<'_, '_>,
     hart_id: usize,
@@ -64,7 +64,6 @@ pub(super) fn discover(
     node: FdtNode<'_, '_>,
     register_ranges: &[DeviceRegisterRange],
     cpu_interrupt_controllers: &[CpuInterruptController],
-    enabled_harts: &HartEnableList,
 ) -> runtime::Result<Option<ImsicInfo>> {
     let first_register_range = register_ranges.first().ok_or(runtime::Error::InvalidArgs)?;
     if register_ranges
@@ -85,9 +84,16 @@ pub(super) fn discover(
         return Ok(None);
     }
 
-    let machine_file_count =
-        u32::try_from(machine_files.len()).map_err(|_| runtime::Error::InvalidArgs)?;
-    let default_hart_index_bits = machine_file_count
+    // Disabled CPUs still occupy physical interrupt-file slots. Only software
+    // storage is compacted; the address layout uses the complete wiring list.
+    let file_count = node
+        .property("interrupts-extended")
+        .ok_or(runtime::Error::InvalidArgs)?
+        .value
+        .len()
+        / (2 * size_of::<u32>());
+    let file_count = u32::try_from(file_count).map_err(|_| runtime::Error::InvalidArgs)?;
+    let default_hart_index_bits = file_count
         .checked_sub(1)
         .map_or(0, |last| u32::BITS - last.leading_zeros());
     let hart_index_bits =
@@ -117,13 +123,7 @@ pub(super) fn discover(
         group_index_shift,
         file_page_shift + guest_index_bits,
     );
-    let hart_files = map_hart_files(
-        &layout,
-        register_ranges,
-        &machine_files,
-        enabled_harts,
-        group_index_bits,
-    )?;
+    let hart_files = map_hart_files(&layout, register_ranges, &machine_files, group_index_bits)?;
 
     Ok(Some(ImsicInfo {
         layout,
@@ -171,6 +171,9 @@ fn machine_interrupt_files(
             .iter()
             .find(|controller| controller.phandle == phandle)
             .ok_or(runtime::Error::InvalidArgs)?;
+        if HartId::from_raw(controller.hart_id).is_err() {
+            continue;
+        }
         let file_index = u32::try_from(file_index).map_err(|_| runtime::Error::InvalidArgs)?;
         machine_files.push(MachineInterruptFile {
             hart_id: controller.hart_id,
@@ -230,18 +233,19 @@ fn map_hart_files(
     layout: &ImsicAddressLayout,
     register_ranges: &[DeviceRegisterRange],
     machine_files: &[MachineInterruptFile],
-    enabled_harts: &HartEnableList,
     group_index_bits: u32,
-) -> runtime::Result<[Option<DeviceRegisterRange>; NUM_HART_MAX]> {
+) -> runtime::Result<Vec<DeviceRegisterRange>> {
     let topology_bits = layout.hart_index_bits + group_index_bits;
     let max_file_count = 1u64 << topology_bits;
     let hart_index_mask = low_bit_mask(layout.hart_index_bits);
     let group_index_mask = low_bit_mask(group_index_bits);
-    let mut hart_files = [None; NUM_HART_MAX];
+    let mut hart_files = alloc::vec![None; HartId::count()];
 
     for machine_file in machine_files {
-        if machine_file.hart_id >= NUM_HART_MAX
-            || u64::from(machine_file.file_index) >= max_file_count
+        let hart =
+            HartId::from_raw(machine_file.hart_id).map_err(|_| runtime::Error::InvalidArgs)?;
+        if u64::from(machine_file.file_index) >= max_file_count
+            || hart_files[hart.index()].is_some()
         {
             return Err(runtime::Error::InvalidArgs);
         }
@@ -257,18 +261,13 @@ fn map_hart_files(
             .find(|register_range| register_range.contains(file))
             .ok_or(runtime::Error::InvalidArgs)?;
         let offset = file.start().as_usize() - register_range.start().as_usize();
-        hart_files[machine_file.hart_id] =
-            Some(register_range.subrange(offset, driver::IMSIC_FILE_SPAN)?);
+        hart_files[hart.index()] = Some(register_range.subrange(offset, driver::IMSIC_FILE_SPAN)?);
     }
 
-    if enabled_harts
-        .iter()
-        .enumerate()
-        .any(|(hart_id, enabled)| *enabled && hart_files[hart_id].is_none())
-    {
-        return Err(runtime::Error::InvalidArgs);
-    }
-    Ok(hart_files)
+    hart_files
+        .into_iter()
+        .map(|file| file.ok_or(runtime::Error::InvalidArgs))
+        .collect()
 }
 
 const fn low_bit_mask(bits: u32) -> u32 {

@@ -1,13 +1,14 @@
 //! Hart start, stop, and suspend state transitions.
 
+use alloc::boxed::Box;
 use core::cell::UnsafeCell;
 use core::hint::spin_loop;
 use core::sync::atomic::{AtomicU8, Ordering};
 
 use super::HartId;
 use crate::boot::NextStage;
-use crate::cfg::NUM_HART_MAX;
 use crate::context::ExecutionContext;
+use spin::Once;
 
 // State values are private Runtime facts, not SBI state IDs.
 const STATE_STARTED: u8 = 0;
@@ -85,7 +86,7 @@ impl HartStateCell {
 // a private reservation is held and are consumed by the owning hart.
 unsafe impl Sync for HartStateCell {}
 
-static HART_STATES: [HartStateCell; NUM_HART_MAX] = [const { HartStateCell::new() }; NUM_HART_MAX];
+static HART_STATES: Once<Box<[HartStateCell]>> = Once::new();
 
 /// Protocol-independent hart lifecycle state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -132,8 +133,6 @@ pub enum StartError {
 pub enum StageError {
     /// The current hart was not in its initial stopped state.
     Busy,
-    /// The current hart was not in its started state.
-    NotRunning,
 }
 
 /// Failure while entering or leaving suspend.
@@ -186,16 +185,6 @@ pub fn stage_current(stage: NextStage) -> Result<(), StageError> {
     unsafe { *cell.stage.get() = Some(stage) };
     cell.state.store(STATE_START_PENDING, Ordering::Release);
     Ok(())
-}
-
-/// Returns the current hart's lifecycle cell for transfer staging.
-pub(crate) fn current_cell() -> &'static HartStateCell {
-    cell(current_hart())
-}
-
-/// Records (or clears) the current hart's active execution context.
-pub(crate) fn set_active_context(context: Option<&'static ExecutionContext>) {
-    cell(current_hart()).set_active_context(context);
 }
 
 /// Reserves and wakes a stopped hart, publishing its stage only after wake.
@@ -400,18 +389,30 @@ impl Drop for ResumeTicket {
     }
 }
 
-/// Takes the current hart's one-shot machine control transfer marker.
-pub(crate) fn take_control_transfer() -> Option<ControlTransfer> {
-    // SAFETY: only the current hart's M-mode ecall path consumes this marker.
-    unsafe { (*cell(current_hart()).transfer.get()).take() }
+/// Takes the one-shot machine control transfer marker for the dispatch hart.
+pub(crate) fn take_control_transfer(hart: HartId) -> Option<ControlTransfer> {
+    assert_eq!(hart, current_hart());
+    // SAFETY: the identity belongs to the calling hart, which consumes only
+    // its own marker in the M-mode ecall return path.
+    unsafe { (*cell(hart).transfer.get()).take() }
+}
+
+/// Returns the current hart's lifecycle cell for transfer staging.
+pub(crate) fn current_cell() -> &'static HartStateCell {
+    cell(current_hart())
+}
+
+/// Records (or clears) the current hart's active execution context.
+pub(crate) fn set_active_context(context: Option<&'static ExecutionContext>) {
+    cell(current_hart()).set_active_context(context);
 }
 
 #[inline]
 fn cell(hart: HartId) -> &'static HartStateCell {
-    &HART_STATES[hart.0]
+    &HART_STATES.call_once(|| HartId::all().map(|_| HartStateCell::new()).collect())[hart.index()]
 }
 
 #[inline]
 pub(crate) fn current_hart() -> HartId {
-    HartId::current().expect("BUG: current hart exceeds Runtime capacity")
+    HartId::current().expect("BUG: current hart is not in the boot topology")
 }

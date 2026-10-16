@@ -10,7 +10,8 @@ readonly UBOOT_DEB=u-boot-qemu_2025.10-0ubuntu0.24.04.2_all.deb
 readonly UBOOT_SHA256=2154e34e4c7037105e8448514faad296b2bbfb1cc460674e3d67cca42d402d9a
 readonly EDK2_DEB=qemu-efi-riscv64_2024.02-2ubuntu0.9_all.deb
 readonly EDK2_SHA256=40258b466ee56ea1e65a2990076e072488bc447430777c0ff120731a35477d18
-readonly PACKAGE_MIRROR="${UBUNTU_PACKAGE_MIRROR:-https://archive.ubuntu.com/ubuntu}"
+# Keep pinned bootloaders available after newer packages supersede them.
+readonly PACKAGE_MIRROR="${UBUNTU_PACKAGE_MIRROR:-https://snapshot.ubuntu.com/ubuntu/20261005T100000Z}"
 
 if (( $# != 1 )) || [[ "$1" != u-boot && "$1" != edk2 ]]; then
   echo "Usage: $0 <u-boot|edk2>" >&2

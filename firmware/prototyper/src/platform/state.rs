@@ -3,28 +3,27 @@
 use alloc::boxed::Box;
 use core::sync::atomic::{AtomicBool, Ordering};
 
+use runtime::hart::HartId;
 use runtime::memory::SupervisorMemory;
 use spin::{Mutex, Once};
 
-use crate::cfg::NUM_HART_MAX;
 use crate::driver::DbcnBackend;
 
-use super::info::{BoardInfo, HartEnableList};
+use super::info::BoardInfo;
 
 static PLATFORM: Once<Platform> = Once::new();
-static HART_PRIVILEGE_CHECKED: [AtomicBool; NUM_HART_MAX] =
-    [const { AtomicBool::new(false) }; NUM_HART_MAX];
 static READY: AtomicBool = AtomicBool::new(false);
 
 struct Platform {
-    board: BoardInfo,
+    board: Box<BoardInfo>,
     supervisor_memory: SupervisorMemory,
     console: Option<Mutex<Box<dyn DbcnBackend + Send>>>,
+    privilege_checked: Box<[AtomicBool]>,
 }
 
 /// Publishes resources constructed by the boot hart.
 pub(super) fn publish_resources(
-    board: BoardInfo,
+    board: Box<BoardInfo>,
     supervisor_memory: SupervisorMemory,
     console: Option<Box<dyn DbcnBackend + Send>>,
 ) {
@@ -32,6 +31,7 @@ pub(super) fn publish_resources(
         board,
         supervisor_memory,
         console: console.map(Mutex::new),
+        privilege_checked: HartId::all().map(|_| AtomicBool::new(false)).collect(),
     });
 }
 
@@ -67,24 +67,25 @@ pub(crate) fn console_device() -> Option<&'static Mutex<Box<dyn DbcnBackend + Se
 }
 
 /// Returns DT-enabled harts that have passed their privilege-mode check.
-pub(crate) fn enabled_harts() -> Option<HartEnableList> {
-    let mut enabled = PLATFORM.get()?.board.harts.enabled;
-    for (enabled, checked) in enabled.iter_mut().zip(&HART_PRIVILEGE_CHECKED) {
-        *enabled &= checked.load(Ordering::Acquire);
-    }
-    Some(enabled)
+pub(crate) fn enabled_harts() -> Option<impl Iterator<Item = HartId>> {
+    let platform = PLATFORM.get()?;
+    Some(
+        HartId::all()
+            .filter(move |hart| platform.privilege_checked[hart.index()].load(Ordering::Acquire)),
+    )
 }
 
 /// Returns whether the target hart has passed its privilege-mode check.
 pub(crate) fn hart_privilege_checked(hart_id: usize) -> bool {
-    HART_PRIVILEGE_CHECKED
-        .get(hart_id)
-        .is_some_and(|checked| checked.load(Ordering::Acquire))
+    let Ok(hart) = HartId::from_raw(hart_id) else {
+        return false;
+    };
+    PLATFORM
+        .get()
+        .is_some_and(|platform| platform.privilege_checked[hart.index()].load(Ordering::Acquire))
 }
 
 pub(crate) fn mark_hart_privilege_checked(hart_id: usize) {
-    HART_PRIVILEGE_CHECKED
-        .get(hart_id)
-        .expect("BUG: hart ID exceeds the configured limit")
-        .store(true, Ordering::Release);
+    let hart = HartId::from_raw(hart_id).expect("BUG: unknown hart ID");
+    platform().privilege_checked[hart.index()].store(true, Ordering::Release);
 }

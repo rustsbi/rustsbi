@@ -11,11 +11,8 @@ extern crate alloc;
 
 use core::fmt;
 
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub mod boot;
-pub mod cfg;
 pub mod context;
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub mod csr;
 mod device_tree;
 pub mod events;
@@ -25,16 +22,17 @@ pub mod ipi;
 pub mod irq;
 pub mod machine_irq;
 pub mod memory;
+mod recovery;
 pub mod soc;
 mod spacemit_k1;
 mod sunxi_rtc_v203;
 pub mod timer;
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub mod trap;
 
 pub use device_tree::{DeviceTreeHandoff, PlatformDescription, PlatformView, node_is_enabled};
 /// Read-only Flattened Devicetree types used by firmware policy.
 pub use fdt::{Fdt, node::FdtNode, standard_nodes::Compatible};
+pub use macros::entry;
 /// The original RustSBI library, re-exported under its own name.
 ///
 /// Firmware policy crates receive RustSBI transitively through this crate

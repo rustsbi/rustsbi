@@ -12,7 +12,6 @@ use riscv_aia::register::mtopei;
 use runtime::hart::HartId;
 use runtime::memory::{MemoryRegistry, MmioRegion};
 
-use crate::cfg::NUM_HART_MAX;
 use crate::driver::{IpiBackend, IpiError, IpiRequest, SstcTimer, TimerBackend};
 use crate::platform::ImsicInfo;
 use crate::platform::qemu_aplic::QemuAplicConfig;
@@ -41,7 +40,7 @@ impl Register {
 /// hart's machine-level interrupt file.
 pub(super) struct ImsicIpi {
     ipi_iid: Iid,
-    hart_files: [Option<MmioRegion>; NUM_HART_MAX],
+    hart_files: Box<[MmioRegion]>,
 }
 
 /// Claims the firmware IPI identity from the current machine interrupt file.
@@ -63,7 +62,7 @@ impl runtime::irq::ExternalInterrupt for ImsicInterrupt {
 }
 
 impl ImsicIpi {
-    pub(super) fn new(ipi_iid: Iid, hart_files: [Option<MmioRegion>; NUM_HART_MAX]) -> Self {
+    pub(super) fn new(ipi_iid: Iid, hart_files: Box<[MmioRegion]>) -> Self {
         Self {
             ipi_iid,
             hart_files,
@@ -75,11 +74,8 @@ impl IpiBackend for ImsicIpi {
     #[inline(always)]
     fn send_ipi(&self, req: IpiRequest) -> Result<(), IpiError> {
         for hart_id in req.harts() {
-            let file = self
-                .hart_files
-                .get(hart_id)
-                .and_then(Option::as_ref)
-                .ok_or(IpiError::Failed)?;
+            let hart = HartId::from_raw(hart_id).map_err(|_| IpiError::Failed)?;
+            let file = self.hart_files.get(hart.index()).ok_or(IpiError::Failed)?;
             file.write(Register::SetEipnumLe.offset(), self.ipi_iid.number() as u32)
                 .map_err(|_| IpiError::Failed)?;
         }
@@ -92,7 +88,7 @@ impl IpiBackend for ImsicIpi {
         // IPI identity is enabled in the machine interrupt file.
         if hart_id
             != HartId::current()
-                .expect("BUG: current hart exceeds Runtime capacity")
+                .expect("BUG: current hart is not in the boot topology")
                 .as_usize()
         {
             return Err(IpiError::Failed);
@@ -115,13 +111,12 @@ pub(super) fn bind(
 ) -> runtime::Result<(Box<dyn TimerBackend>, Box<dyn IpiBackend + Send + Sync>)> {
     // No fallback is permitted after the first MMIO window is issued. All
     // hardware capability checks above therefore precede initialization.
-    let mut hart_files = core::array::from_fn(|_| None);
-    for (hart_file, register_range) in hart_files.iter_mut().zip(imsic.hart_files) {
-        if let Some(register_range) = register_range {
-            *hart_file = Some(memory.acquire_mmio(register_range)?);
-        }
-    }
-    let ipi = ImsicIpi::new(imsic.ipi_iid, hart_files);
+    let hart_files: runtime::Result<alloc::vec::Vec<_>> = imsic
+        .hart_files
+        .iter()
+        .map(|register_range| memory.acquire_mmio(*register_range))
+        .collect();
+    let ipi = ImsicIpi::new(imsic.ipi_iid, hart_files?.into_boxed_slice());
 
     if let Some(aplic_config) = aplic_config {
         aplic_config.bind(memory)?;

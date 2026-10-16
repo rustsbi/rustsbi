@@ -1,9 +1,6 @@
-//! Timer programming.
+//! Timer programming through the SBI TIME extension.
 //!
-//! # References
-//!
-//! - Specification: [RISC-V SBI TIME extension](https://docs.riscv.org/reference/sbi/v3.0/ext-time.html) —
-//!   absolute deadlines and timer-interrupt behavior.
+//! Specification: <https://docs.riscv.org/reference/sbi/v3.0/ext-time.html>.
 
 #![forbid(unsafe_code)]
 
@@ -28,7 +25,7 @@ impl runtime::rustsbi::Timer for SbiTimer {
             .expect("BUG: current hart exceeds Runtime capacity")
             .as_usize();
 
-        if runtime::trap::has_sstc() {
+        if runtime::timer::has_sstc() {
             stimecmp::set(stime_value);
         } else {
             self.device.set_timer(hart_id, stime_value);

@@ -579,6 +579,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustsbi-csr"
+version = "0.0.0"
+dependencies = [
+ "pastey 0.2.3",
+]
+
+[[package]]
 name = "rustsbi-firmware-runtime"
 version = "0.0.0"
 dependencies = [
@@ -586,6 +593,8 @@ dependencies = [
  "riscv",
  "riscv-decode",
  "rustsbi",
+ "rustsbi-csr",
+ "rustsbi-runtime-macros",
  "spin",
 ]
 
@@ -609,8 +618,8 @@ dependencies = [
  "pastey 0.1.1",
  "riscv",
  "riscv-aia",
+ "rustsbi-csr",
  "rustsbi-firmware-runtime",
- "rustsbi-prototyper-macros",
  "sbi-spec",
  "seq-macro",
  "spin",
@@ -618,7 +627,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustsbi-prototyper-macros"
+name = "rustsbi-runtime-macros"
 version = "0.0.0"
 dependencies = [
  "proc-macro2",

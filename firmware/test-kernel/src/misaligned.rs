@@ -21,8 +21,16 @@ macro_rules! check {
     }};
 }
 
+// Emulation supports base integer accesses; keep assembler compression disabled.
+macro_rules! memory_access {
+    ($instruction:literal, $($operands:tt)*) => {
+        asm!(".option push", ".option norvc", $instruction, ".option pop", $($operands)*)
+    };
+}
+
 fn test_loads() {
     let mut buffer = Buffer([0u8; 16]);
+    // SAFETY: Offset one is inside the 16-byte buffer allocation.
     let odd = unsafe { buffer.0.as_mut_ptr().add(1) as usize };
     let patterns: [[u8; 8]; 2] = [
         [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
@@ -43,37 +51,73 @@ fn test_loads() {
         );
         let half = b0 | b1 << 8;
         let word = b0 | b1 << 8 | b2 << 16 | b3 << 24;
-        let doubleword = u64::from_le_bytes(pattern) as usize;
-        let (lb, lbu, lh, lhu, lw, lwu, ld): (usize, usize, usize, usize, usize, usize, usize);
+        let (lb, lbu, lh, lhu, lw): (usize, usize, usize, usize, usize);
         // SAFETY: These instructions intentionally access `odd`, an address
         // one byte past the start of an aligned local buffer.
         unsafe {
-            asm!("lb {value}, 0({address})", address = in(reg) odd, value = lateout(reg) lb);
-            asm!("lbu {value}, 0({address})", address = in(reg) odd, value = lateout(reg) lbu);
-            asm!("lh {value}, 0({address})", address = in(reg) odd, value = lateout(reg) lh);
-            asm!("lhu {value}, 0({address})", address = in(reg) odd, value = lateout(reg) lhu);
-            asm!("lw {value}, 0({address})", address = in(reg) odd, value = lateout(reg) lw);
-            asm!("lwu {value}, 0({address})", address = in(reg) odd, value = lateout(reg) lwu);
-            asm!("ld {value}, 0({address})", address = in(reg) odd, value = lateout(reg) ld);
+            memory_access!(
+                "lb {value}, 0({address})",
+                address = in(reg) odd,
+                value = lateout(reg) lb,
+            );
+            memory_access!(
+                "lbu {value}, 0({address})",
+                address = in(reg) odd,
+                value = lateout(reg) lbu,
+            );
+            memory_access!(
+                "lh {value}, 0({address})",
+                address = in(reg) odd,
+                value = lateout(reg) lh,
+            );
+            memory_access!(
+                "lhu {value}, 0({address})",
+                address = in(reg) odd,
+                value = lateout(reg) lhu,
+            );
+            memory_access!(
+                "lw {value}, 0({address})",
+                address = in(reg) odd,
+                value = lateout(reg) lw,
+            );
         }
         check!("lb", lb, b0 as i8 as usize);
         check!("lbu", lbu, b0);
         check!("lh", lh, half as i16 as usize);
         check!("lhu", lhu, half);
         check!("lw", lw, word as i32 as usize);
-        check!("lwu", lwu, word);
-        check!("ld", ld, doubleword);
+        #[cfg(target_arch = "riscv64")]
+        {
+            let (lwu, ld): (usize, usize);
+            // SAFETY: Both accesses stay inside the local buffer.
+            unsafe {
+                memory_access!(
+                    "lwu {value}, 0({address})",
+                    address = in(reg) odd,
+                    value = lateout(reg) lwu,
+                );
+                memory_access!(
+                    "ld {value}, 0({address})",
+                    address = in(reg) odd,
+                    value = lateout(reg) ld,
+                );
+            }
+            check!("lwu", lwu, word);
+            check!("ld", ld, u64::from_le_bytes(pattern) as usize);
+        }
     }
     println!("[misaligned] load widths pass");
 }
 
 fn test_stores() {
     let mut buffer = Buffer([0u8; 16]);
+    // SAFETY: Offset one is inside the 16-byte buffer allocation.
     let odd = unsafe { buffer.0.as_mut_ptr().add(1) as usize };
-    let cases: [(&str, usize, u64); 4] = [
-        ("sb", 1, 0xAB),
+    let cases = [
+        ("sb", 1, 0xABu64),
         ("sh", 2, 0xBEEF),
         ("sw", 4, 0xDEAD_BEEF),
+        #[cfg(target_arch = "riscv64")]
         ("sd", 8, 0xAA00_BB11_CC22_DD33),
     ];
 
@@ -86,22 +130,40 @@ fn test_stores() {
         unsafe {
             match width {
                 1 => {
-                    asm!("sb {value}, 0({address})", address = in(reg) odd, value = in(reg) value as usize)
+                    memory_access!(
+                        "sb {value}, 0({address})",
+                        address = in(reg) odd,
+                        value = in(reg) value as usize,
+                    )
                 }
                 2 => {
-                    asm!("sh {value}, 0({address})", address = in(reg) odd, value = in(reg) value as usize)
+                    memory_access!(
+                        "sh {value}, 0({address})",
+                        address = in(reg) odd,
+                        value = in(reg) value as usize,
+                    )
                 }
                 4 => {
-                    asm!("sw {value}, 0({address})", address = in(reg) odd, value = in(reg) value as usize)
+                    memory_access!(
+                        "sw {value}, 0({address})",
+                        address = in(reg) odd,
+                        value = in(reg) value as usize,
+                    )
                 }
-                _ => {
-                    asm!("sd {value}, 0({address})", address = in(reg) odd, value = in(reg) value as usize)
+                #[cfg(target_arch = "riscv64")]
+                8 => {
+                    memory_access!(
+                        "sd {value}, 0({address})",
+                        address = in(reg) odd,
+                        value = in(reg) value as usize,
+                    )
                 }
+                _ => unreachable!(),
             }
         }
         let bytes = value.to_le_bytes();
         for (index, want) in bytes.iter().take(width).enumerate() {
-            // SAFETY: the loop is bounded by the store width.
+            // SAFETY: The loop is bounded by the store width.
             let got = unsafe { core::ptr::read_volatile((odd + index) as *const u8) };
             check!(what, got as u64, *want as u64);
         }
@@ -111,15 +173,20 @@ fn test_stores() {
 
 fn test_stack_pointer() {
     let mut buffer = Buffer([0u8; 16]);
+    // SAFETY: Offset one is inside the 16-byte buffer allocation.
     let odd = unsafe { buffer.0.as_mut_ptr().add(1) as usize };
-    // A misaligned `ld sp` must write back to the trapped register's real
+    // A misaligned load into sp must write back to the trapped register's real
     // frame slot instead of corrupting supervisor `sscratch`.
+    // SAFETY: The local buffer contains the current stack-pointer value.
+    // Each misaligned load therefore preserves sp, and all byte writes stay
+    // within the buffer allocation.
     unsafe {
         let sp_save: usize;
         asm!("mv {saved}, sp", saved = out(reg) sp_save);
-        for (index, byte) in (sp_save as u64).to_le_bytes().iter().enumerate() {
+        for (index, byte) in sp_save.to_le_bytes().iter().enumerate() {
             core::ptr::write_volatile((odd + index) as *mut u8, *byte);
         }
+        #[cfg(target_arch = "riscv64")]
         asm!(
             ".option push",
             ".option norvc",
@@ -127,10 +194,18 @@ fn test_stack_pointer() {
             ".option pop",
             address = in(reg) odd,
         );
+        #[cfg(target_arch = "riscv32")]
+        asm!(
+            ".option push",
+            ".option norvc",
+            "lw sp, 0({address})",
+            ".option pop",
+            address = in(reg) odd,
+        );
         let got: usize;
         asm!("mv {value}, sp", value = out(reg) got);
         asm!("mv sp, {saved}", saved = in(reg) sp_save);
-        check!("ld sp", got, sp_save);
+        check!("load sp", got, sp_save);
     }
     println!("[misaligned] sp write-back pass");
 }

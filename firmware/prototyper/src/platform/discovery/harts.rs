@@ -19,7 +19,7 @@ pub(super) fn discover(
     let cpus = platform
         .find_enabled_node("/cpus")
         .ok_or(runtime::Error::InvalidArgs)?;
-    board.harts.timebase_frequency_hz =
+    board.timebase_frequency_hz =
         u32_property(cpus, "timebase-frequency").filter(|frequency| *frequency != 0);
     board.model = root
         .property("model")
@@ -29,26 +29,16 @@ pub(super) fn discover(
 
     let mut controllers = Vec::new();
     for node in cpus.children().filter(|node| is_cpu_node(*node)) {
-        if !node_is_enabled(node) {
-            continue;
-        }
-        let hart_id = node
-            .reg()
-            .and_then(|mut registers| registers.next())
-            .map(|register| register.starting_address as usize)
-            .ok_or(runtime::Error::InvalidArgs)?;
-        let enabled = board
-            .harts
-            .enabled
-            .get_mut(hart_id)
-            .ok_or(runtime::Error::InvalidArgs)?;
-        *enabled = true;
-        board.harts.count += 1;
-        detect_extensions(hart_id, node);
+        let hart_id = runtime::PlatformView::hart_id(node)?;
         controllers.extend(
             node.children()
                 .filter_map(|child| imsic::cpu_interrupt_controller(child, hart_id)),
         );
+        if !node_is_enabled(node) {
+            continue;
+        }
+        runtime::hart::HartId::from_raw(hart_id).map_err(|_| runtime::Error::InvalidArgs)?;
+        detect_extensions(hart_id, node);
     }
 
     Ok(controllers)

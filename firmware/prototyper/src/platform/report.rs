@@ -1,6 +1,6 @@
 //! Startup log for the discovered platform.
 
-use crate::cfg::NUM_HART_MAX;
+use alloc::vec::Vec;
 
 use super::info::BoardInfo;
 use super::state::board_info;
@@ -15,7 +15,7 @@ pub(super) fn log_platform_summary() {
     info!("Initializing RustSBI machine-mode environment.");
     info!("{:<30}: {}", "Platform Name", board.model);
 
-    log_harts(board);
+    log_harts();
     log_interrupt_controller(board);
     log_console(board);
     log_reset(board);
@@ -23,18 +23,17 @@ pub(super) fn log_platform_summary() {
     log_ram(board);
 }
 
-fn log_harts(board: &BoardInfo) {
-    info!("{:<30}: {}", "Platform HART Count", board.harts.count);
+fn log_harts() {
+    info!(
+        "{:<30}: {}",
+        "Platform HART Count",
+        runtime::hart::HartId::count()
+    );
 
-    let mut enabled_harts = [0; NUM_HART_MAX];
-    let mut count = 0;
-    for (hart_id, enabled) in board.harts.enabled.iter().copied().enumerate() {
-        if enabled {
-            enabled_harts[count] = hart_id;
-            count += 1;
-        }
-    }
-    info!("{:<30}: {:?}", "Enabled HARTs", &enabled_harts[..count]);
+    let enabled_harts: Vec<_> = runtime::hart::HartId::all()
+        .map(|hart| hart.as_usize())
+        .collect();
+    info!("{:<30}: {:?}", "Enabled HARTs", enabled_harts);
 }
 
 fn log_interrupt_controller(board: &BoardInfo) {

@@ -10,7 +10,6 @@ use core::mem::{align_of, size_of};
 
 use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
 
-use crate::cfg::NUM_HART_MAX;
 use crate::driver::{IpiBackend, IpiError, IpiRequest, TimerBackend};
 
 // The ACLINT legacy mapping places MTIMECMP at 0x4000 and MTIME at 0xbff8.
@@ -30,11 +29,10 @@ impl TimerRegister {
     }
 
     fn mtimecmp_offset_for_hart(hart_id: usize) -> usize {
-        assert!(
-            hart_id < NUM_HART_MAX,
-            "BUG: SiFive CLINT timer hart index is out of range"
-        );
-        Self::Mtimecmp.offset() + hart_id * size_of::<u64>()
+        Self::Mtimecmp.offset()
+            + hart_id
+                .checked_mul(size_of::<u64>())
+                .expect("CLINT hart offset overflowed")
     }
 }
 
@@ -60,16 +58,23 @@ impl IpiRegister {
 pub(super) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
+    hart_id_upper_bound: usize,
 ) -> runtime::Result<(Box<dyn TimerBackend>, Box<dyn IpiBackend + Send + Sync>)> {
-    let ipi_window_size = NUM_HART_MAX
+    let msip_size_bytes = hart_id_upper_bound
         .checked_mul(size_of::<u32>())
         .ok_or(runtime::Error::Overflow)?;
-    let timer_window_size = TimerRegister::Mtime
+    let mtimecmp_size_bytes = hart_id_upper_bound
+        .checked_mul(size_of::<u64>())
+        .ok_or(runtime::Error::Overflow)?;
+    if msip_size_bytes > MTIMECMP_OFFSET || mtimecmp_size_bytes > MTIME_WINDOW_OFFSET {
+        return Err(runtime::Error::InvalidArgs);
+    }
+    let timer_window_size_bytes = TimerRegister::Mtime
         .offset()
         .checked_add(size_of::<u64>())
         .ok_or(runtime::Error::Overflow)?;
-    let ipi_registers = registers.subrange(0, ipi_window_size)?;
-    let timer_registers = registers.subrange(MTIMECMP_OFFSET, timer_window_size)?;
+    let ipi_registers = registers.subrange(0, msip_size_bytes)?;
+    let timer_registers = registers.subrange(MTIMECMP_OFFSET, timer_window_size_bytes)?;
     if !ipi_registers.has_aligned_bounds(align_of::<u32>())
         || !timer_registers.has_aligned_bounds(align_of::<u64>())
     {

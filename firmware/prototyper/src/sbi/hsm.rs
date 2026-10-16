@@ -27,12 +27,10 @@ impl SbiHsm {
         Self { hardware_wakeup }
     }
 
-    /// Validates an SBI hart ID against Runtime capacity and platform policy.
+    /// Validates an enabled SBI hart ID against platform privilege policy.
     fn hart_id(&self, raw: usize) -> Result<HartId, SbiRet> {
         let hart = HartId::from_raw(raw).map_err(|_| SbiRet::invalid_param())?;
-        if crate::platform::board_info().harts.enabled.get(raw) != Some(&true)
-            || !(self.hardware_wakeup || crate::platform::hart_privilege_checked(raw))
-        {
+        if !(self.hardware_wakeup || crate::platform::hart_privilege_checked(raw)) {
             return Err(SbiRet::invalid_param());
         }
         Ok(hart)

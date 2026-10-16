@@ -91,23 +91,28 @@ fn bind_interrupts(
         board.devices.interrupts.plmt,
         board.devices.interrupts.plicsw,
     ) {
-        let hart_count = board
-            .harts
-            .enabled
-            .iter()
-            .rposition(|enabled| *enabled)
-            .map(|last| last + 1)
+        let hart_id_upper_bound = runtime::hart::HartId::all()
+            .last()
+            .and_then(|hart| hart.as_usize().checked_add(1))
             .ok_or(runtime::Error::InvalidArgs)?;
         return Ok((
-            Some(Box::new(plmt::bind(plmt, memory, hart_count)?)),
-            Some(Box::new(ipi::plicsw::bind(plicsw, memory, hart_count)?)),
+            Some(Box::new(plmt::bind(plmt, memory, hart_id_upper_bound)?)),
+            Some(Box::new(ipi::plicsw::bind(
+                plicsw,
+                memory,
+                hart_id_upper_bound,
+            )?)),
         ));
     }
     let Some(description) = board.devices.interrupts.clint() else {
         return Ok((None, None));
     };
     let ClintResource { registers, kind } = *description.resource();
-    let (timer, ipi) = clint::bind(registers, kind, memory)?;
+    let hart_id_upper_bound = runtime::hart::HartId::all()
+        .last()
+        .and_then(|hart| hart.as_usize().checked_add(1))
+        .ok_or(runtime::Error::InvalidArgs)?;
+    let (timer, ipi) = clint::bind(registers, kind, memory, hart_id_upper_bound)?;
     Ok((Some(timer), Some(ipi)))
 }
 
@@ -127,7 +132,7 @@ pub(crate) fn bind_devices(
     let reset = board
         .devices
         .reset
-        .bind(board.harts.timebase_frequency_hz, memory)?;
+        .bind(board.timebase_frequency_hz, memory)?;
     Ok(Devices {
         timer,
         ipi,

@@ -12,10 +12,12 @@ Sbi `DBCN` return contract test pass
 DBCN rejected non-zero upper-half write
 DBCN rejected non-zero upper-half read
 [pmu] counters number:
+[pmu] access-fault counters pass
 Sbi `SRST` validation test pass
 [misaligned] load widths pass
 [misaligned] store widths pass
 [misaligned] sp write-back pass
 [trap] ecall register preservation pass
 [trap] redirected traps survived
+[trap] U-mode time access restrictions pass
 SBI tests completed: PASS

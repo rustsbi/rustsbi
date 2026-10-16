@@ -9,9 +9,9 @@ use crate::{Error, Result};
 
 /// Tracks the physical resources issued by Runtime.
 ///
-/// [`crate::PlatformDescription::memory_resources`] supplies normalized RAM and reserved
-/// ranges. The registry retains them, plus each issued MMIO window, so later
-/// device bindings cannot acquire overlapping physical addresses.
+/// The registry normalizes RAM banks but retains individual platform reservations
+/// so firmware growth cannot treat separate reserved objects as one reservation.
+/// It also tracks each issued MMIO window to prevent overlapping device bindings.
 pub struct MemoryRegistry {
     firmware_image_range: PhysAddrRange,
     ram_ranges: Vec<PhysAddrRange>,
@@ -33,7 +33,7 @@ impl MemoryRegistry {
         reserved: impl IntoIterator<Item = PhysAddrRange>,
     ) -> Result<(SupervisorMemory, Self)> {
         let ram_ranges = normalize_ram_ranges(ram)?;
-        let reserved_ranges = normalize_reserved_ranges(reserved);
+        let reserved_ranges: Vec<_> = reserved.into_iter().collect();
         validate_memory_ranges(&ram_ranges, &reserved_ranges)?;
 
         let registry = Self {
@@ -63,6 +63,21 @@ impl MemoryRegistry {
     /// Returns the RAM ranges described by the platform.
     pub fn ram_ranges(&self) -> impl Iterator<Item = PhysAddrRange> + '_ {
         self.ram_ranges.iter().copied()
+    }
+
+    pub(crate) fn validate_firmware_extension(&self, firmware: PhysAddrRange) -> Result<()> {
+        if !self.ram_ranges.iter().any(|ram| ram.contains(firmware)) {
+            return Err(Error::NotEnoughResources);
+        }
+        let extension = PhysAddrRange::new(self.firmware_image_range.end(), firmware.end())?;
+        if self
+            .reserved_ranges
+            .iter()
+            .any(|reserved| reserved.overlaps(extension) && !reserved.contains(firmware))
+        {
+            return Err(Error::AccessDenied);
+        }
+        Ok(())
     }
 
     /// Acquires a device-register window outside RAM and reserved memory.
@@ -141,24 +156,6 @@ fn normalize_ram_ranges(
     Ok(normalized)
 }
 
-fn normalize_reserved_ranges(
-    ranges: impl IntoIterator<Item = PhysAddrRange>,
-) -> Vec<PhysAddrRange> {
-    let mut ranges: Vec<_> = ranges.into_iter().collect();
-    ranges.sort_unstable_by_key(|range| range.start());
-    let mut normalized: Vec<PhysAddrRange> = Vec::new();
-
-    for range in ranges {
-        match normalized.last_mut() {
-            Some(previous) if previous.overlaps(range) || previous.adjacent(range) => {
-                *previous = previous.join(range);
-            }
-            _ => normalized.push(range),
-        }
-    }
-    normalized
-}
-
 fn validate_memory_ranges(
     ram_ranges: &[PhysAddrRange],
     reserved_ranges: &[PhysAddrRange],
@@ -202,6 +199,39 @@ mod tests {
             )
             .unwrap();
             assert_eq!(registry.firmware_is_reserved(), expected);
+        }
+    }
+
+    #[test]
+    fn firmware_extension_preserves_individual_reservations() {
+        let firmware = range(0x1200, 0x100);
+        let extended = range(0x1200, 0x200);
+        for (reserved, expected) in [
+            (
+                &[firmware, range(0x1300, 0x100)][..],
+                Err(Error::AccessDenied),
+            ),
+            (
+                &[firmware, range(0x1280, 0x180)][..],
+                Err(Error::AccessDenied),
+            ),
+            (&[extended][..], Ok(())),
+        ] {
+            let (_, registry) = MemoryRegistry::from_ranges_with_firmware(
+                firmware,
+                [range(0x1000, 0x1000)],
+                reserved.iter().copied(),
+            )
+            .unwrap();
+            assert_eq!(registry.validate_firmware_extension(extended), expected);
+
+            let (_, registry) = MemoryRegistry::from_ranges_with_firmware(
+                extended,
+                [range(0x1000, 0x1000)],
+                reserved.iter().copied(),
+            )
+            .unwrap();
+            assert_eq!(registry.firmware_is_reserved(), expected.is_ok());
         }
     }
 

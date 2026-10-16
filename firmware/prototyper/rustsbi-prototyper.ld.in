@@ -15,6 +15,10 @@ SECTIONS {
     sbi_rodata_start = .;
 
     .rodata : ALIGN(0x1000) { 
+        . = ALIGN(4);
+        __trap_fixup_start = .;
+        KEEP(*(.trap_fixup))
+        __trap_fixup_end = .;
         *(.rodata .rodata.*)
         *(.srodata .srodata.*)
         . = ALIGN(0x1000);  

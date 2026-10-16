@@ -2,30 +2,28 @@
 
 #![forbid(unsafe_code)]
 
-use spin::Mutex;
+use alloc::boxed::Box;
+use spin::{Mutex, Once};
 
 use super::HartId;
-use crate::cfg::NUM_HART_MAX;
 
-/// A fixed-capacity pool with one independently borrowed value per hart.
+/// A pool with one independently borrowed value per enabled hart.
 ///
 /// Recursive access is rejected instead of creating aliased mutable references
 /// or waiting for a lock already held by the interrupted code.
 pub struct HartLocal<T> {
-    slots: [Mutex<Option<T>>; NUM_HART_MAX],
+    slots: Once<Box<[Mutex<Option<T>>]>>,
 }
 
 impl<T> HartLocal<T> {
     /// Creates an uninitialized storage pool.
     pub const fn uninit() -> Self {
-        Self {
-            slots: [const { Mutex::new(None) }; NUM_HART_MAX],
-        }
+        Self { slots: Once::new() }
     }
 
     /// Initializes one hart's slot exactly once.
     pub fn init(&self, hart: HartId, value: T) -> Result<(), HartLocalError> {
-        let mut slot = self.slots[hart.0]
+        let mut slot = self.slots()[hart.index()]
             .try_lock()
             .ok_or(HartLocalError::Borrowed)?;
         if slot.is_some() {
@@ -41,17 +39,30 @@ impl<T> HartLocal<T> {
     ///
     /// Panics if the slot is uninitialized or already borrowed, including
     /// recursive access and reentry from an interrupt handler.
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+    /// Panics on non-RISC-V targets.
     pub fn with_current_mut<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
-        self.with_mut(super::current_hart(), f)
+        match () {
+            #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+            () => self.with_mut(super::current_hart(), f),
+            #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+            () => {
+                let _ = f;
+                unimplemented!("accessing the current hart's value requires RISC-V")
+            }
+        }
     }
 
     #[cfg(any(test, target_arch = "riscv32", target_arch = "riscv64"))]
     fn with_mut<R>(&self, hart: HartId, f: impl FnOnce(&mut T) -> R) -> R {
-        let mut slot = self.slots[hart.0]
+        let mut slot = self.slots()[hart.index()]
             .try_lock()
             .expect("hart-local slot is already borrowed");
         f(slot.as_mut().expect("hart-local slot is uninitialized"))
+    }
+
+    fn slots(&self) -> &[Mutex<Option<T>>] {
+        self.slots
+            .call_once(|| HartId::all().map(|_| Mutex::new(None)).collect())
     }
 }
 
@@ -75,7 +86,9 @@ mod tests {
     #[test]
     fn recursive_access_is_rejected_and_releases_the_borrow() {
         let pool = HartLocal::uninit();
-        let hart = HartId::from_raw(0).unwrap();
+        pool.slots
+            .call_once(|| alloc::vec![Mutex::new(None)].into_boxed_slice());
+        let hart = HartId { raw: 7, index: 0 };
         pool.init(hart, 7).unwrap();
         assert!(
             catch_unwind(AssertUnwindSafe(|| {
@@ -97,7 +110,9 @@ mod tests {
         }
         let drops = AtomicUsize::new(0);
         let pool = HartLocal::uninit();
-        let hart = HartId::from_raw(0).unwrap();
+        pool.slots
+            .call_once(|| alloc::vec![Mutex::new(None)].into_boxed_slice());
+        let hart = HartId { raw: 7, index: 0 };
         pool.init(hart, CountDrop(&drops)).unwrap();
         assert_eq!(
             pool.init(hart, CountDrop(&drops)),

@@ -23,8 +23,8 @@ use crate::sbi::features::{
 };
 use crate::sbi::hart_local;
 use ::riscv::register::mstatus::MPP;
+use runtime::entry;
 use runtime::hart::HartId;
-use rustsbi_prototyper_macros::entry;
 
 #[entry]
 fn main(boot: BootInfo) {
@@ -36,7 +36,6 @@ fn main(boot: BootInfo) {
 }
 
 fn boot_hart(mut boot: BootInfo) {
-    heap::init();
     // Initialize this hart's policy storage before any user: platform
     // discovery seeds secondary harts' features, and feature detection
     // writes this hart's.
@@ -51,7 +50,7 @@ fn boot_hart(mut boot: BootInfo) {
     firmware::log_pmp_cfg(&firmware_ram);
 
     let hart_id = HartId::current()
-        .expect("BUG: current hart exceeds Runtime capacity")
+        .expect("BUG: current hart is not in the boot topology")
         .as_usize();
     info!("{:<30}: {}", "Boot HART ID", hart_id);
 
@@ -102,9 +101,10 @@ fn enable_supervisor_services() {
         );
     }
     sbi::features::configure_hart_environment();
-    // Transactional per-hart trap activation: publishes the policy, applies
-    // the fixed delegation/counter policy, and installs the final trap
-    // vector as the Ready commit point.
+    // SAFETY: Runtime startup installed trap entry; this hart is still in
+    // M-mode with machine interrupts disabled and no lower-mode context.
+    unsafe { runtime::boot::configure_next_stage() };
+    // Publish the SBI policy after configuring the next-stage environment.
     runtime::trap::init(
         sbi::SBI_DISPATCHER
             .get()

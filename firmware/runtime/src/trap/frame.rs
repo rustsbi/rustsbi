@@ -1,89 +1,127 @@
-//! The private trap frame: the assembly ABI save area for one trap.
-//!
-//! The frame is allocated by the normal entry directly below the Runtime
-//! stack top and holds every general-purpose register plus the machine
-//! trap CSRs. It never escapes the Runtime: policy receives copied SBI
-//! scalars only.
+//! Saved integer context and immutable facts for one machine trap.
 
-/// The private `#[repr(C)]` register save area.
-///
-/// Field order is the assembly ABI: `x[0..31]` for x1-x31, then `mepc`, `mstatus`,
-/// `mcause`, `mtval`. Offsets are consumed by the entry as compile-time
-/// constants (word units scaled by XLEN), never hand-written `* 8` values.
+use csr::machine;
+
+macro_rules! general_regs {
+    ($($name:ident = $id:literal),* $(,)?) => {
+        #[repr(C)]
+        #[derive(Debug, Default)]
+        pub(super) struct GeneralRegs {
+            $(pub(super) $name: usize,)*
+        }
+
+        // Entry addresses integer registers by architectural register number.
+        const _: () = {
+            $(assert!(core::mem::offset_of!(GeneralRegs, $name)
+                == ($id - 1) * size_of::<usize>());)*
+            assert!(size_of::<GeneralRegs>() == 31 * size_of::<usize>());
+        };
+
+        impl GeneralRegs {
+            pub(super) fn read(&self, id: u8) -> usize {
+                match id {
+                    0 => 0,
+                    $($id => self.$name,)*
+                    _ => unreachable!("invalid integer register"),
+                }
+            }
+
+            pub(super) fn write(&mut self, id: u8, value: usize) {
+                match id {
+                    0 => {}
+                    $($id => self.$name = value,)*
+                    _ => unreachable!("invalid integer register"),
+                }
+            }
+        }
+    };
+}
+
+general_regs! {
+    ra = 1, sp = 2, gp = 3, tp = 4,
+    t0 = 5, t1 = 6, t2 = 7, s0 = 8, s1 = 9,
+    a0 = 10, a1 = 11, a2 = 12, a3 = 13,
+    a4 = 14, a5 = 15, a6 = 16, a7 = 17,
+    s2 = 18, s3 = 19, s4 = 20, s5 = 21, s6 = 22,
+    s7 = 23, s8 = 24, s9 = 25, s10 = 26, s11 = 27,
+    t3 = 28, t4 = 29, t5 = 30, t6 = 31,
+}
+
+/// Original machine-trap facts, unchanged by nested recovery.
 #[repr(C)]
-pub(crate) struct TrapFrame {
-    /// Registers x1-x31 at index `id - 1`; x0 has no stored slot.
-    /// `x[1]` holds the original lower-privilege stack pointer.
-    pub(crate) x: [usize; 31],
-    /// The trap's `mepc`.
-    pub(crate) mepc: usize,
-    /// The trap's `mstatus`.
-    pub(crate) mstatus: usize,
-    /// The trap's `mcause`.
-    pub(crate) mcause: usize,
-    /// The trap's `mtval`.
-    pub(crate) mtval: usize,
+#[derive(Debug)]
+pub(super) struct TrapInfo {
+    pub(super) epc: usize,
+    pub(super) status: machine::StatusReadValue,
+    pub(super) status_high: usize,
+    /// Whether entry saved the H extension's trap metadata.
+    pub(super) has_hypervisor: bool,
+    pub(super) cause: usize,
+    pub(super) tval: usize,
+    pub(super) tval2: usize,
+    pub(super) instruction: usize,
 }
 
-/// Frame layout constants, in XLEN-sized words, shared with the assembly
-/// entry through `const` interpolation.
-pub(crate) mod offsets {
-    use super::TrapFrame;
-
-    /// Offset of `mepc` in words.
-    pub(crate) const MEPC: usize =
-        core::mem::offset_of!(TrapFrame, mepc) / core::mem::size_of::<usize>();
-    /// Offset of `mstatus` in words.
-    pub(crate) const MSTATUS: usize =
-        core::mem::offset_of!(TrapFrame, mstatus) / core::mem::size_of::<usize>();
-    /// Offset of `mcause` in words.
-    pub(crate) const MCAUSE: usize =
-        core::mem::offset_of!(TrapFrame, mcause) / core::mem::size_of::<usize>();
-    /// Offset of `mtval` in words.
-    pub(crate) const MTVAL: usize =
-        core::mem::offset_of!(TrapFrame, mtval) / core::mem::size_of::<usize>();
-    /// Frame size in words.
-    pub(crate) const SIZE_WORDS: usize =
-        core::mem::size_of::<TrapFrame>() / core::mem::size_of::<usize>();
+/// Integer registers and machine state restored on trap return.
+// Entry must initialize every field before Rust borrows this frame.
+#[repr(C)]
+#[derive(Debug)]
+pub(super) struct TrapFrame {
+    pub(super) general: GeneralRegs,
+    pub(super) epc: usize,
+    pub(super) status: machine::StatusWriteValue,
+    pub(super) status_high: usize,
 }
 
-// The frame stores 35 words; entry rounds its stack allocation to 16 bytes.
-const _: () = assert!(core::mem::offset_of!(TrapFrame, x) == 0);
-const _: () = assert!(core::mem::size_of::<TrapFrame>() == 35 * core::mem::size_of::<usize>());
+/// Return context and original facts for one machine trap.
+// Entry initializes both parts before dispatch borrows them separately.
+#[repr(C)]
+#[derive(Debug)]
+pub(super) struct SavedTrap {
+    pub(super) frame: TrapFrame,
+    pub(super) info: TrapInfo,
+    /// Clean Runtime stack top before entry, or zero for a nested Runtime trap.
+    pub(super) runtime_stack: usize,
+}
 
-// Bind the hand-written word offsets in `entry` to this layout: the
-// assembly literals are compile-time checked here, satisfying the design's
-// "no hand-tuned offsets" rule.
-const _: () = assert!(offsets::MEPC == 31);
-const _: () = assert!(offsets::MSTATUS == 32);
-const _: () = assert!(offsets::MCAUSE == 33);
-const _: () = assert!(offsets::MTVAL == 34);
-const _: () = assert!(offsets::SIZE_WORDS == 35);
-
-impl TrapFrame {
-    /// Reads register `id`, where `x0` is hardwired to zero.
-    pub(crate) fn read_x(&self, id: usize) -> usize {
-        if id == 0 { 0 } else { self.x[id - 1] }
+impl TrapInfo {
+    pub(super) fn origin(&self) -> machine::Privilege {
+        self.status.read::<machine::MPP>()
     }
 
-    /// Writes `value` to register `id`; writes to `x0` are discarded.
-    pub(crate) fn write_x(&mut self, id: usize, value: usize) {
-        if id != 0 {
-            self.x[id - 1] = value;
+    pub(super) fn virtualized(&self) -> bool {
+        #[cfg(target_pointer_width = "32")]
+        {
+            self.status_high & machine::MPV::MASK != 0
+        }
+        #[cfg(target_pointer_width = "64")]
+        {
+            self.status.read::<machine::MPV>() == machine::Virtualization::On
         }
     }
 
-    /// Whether the trapped context came from M-mode (`MPP = M`).
-    pub(crate) fn trapped_from_machine(&self) -> bool {
-        const MPP_MASK: usize = 0b11 << 11;
-        const MPP_MACHINE: usize = 0b11 << 11;
-        self.mstatus & MPP_MASK == MPP_MACHINE
+    pub(super) fn guest_address(&self) -> bool {
+        #[cfg(target_pointer_width = "32")]
+        {
+            self.status_high & machine::GVA::MASK != 0
+        }
+        #[cfg(target_pointer_width = "64")]
+        {
+            self.status.read::<machine::GVA>() == machine::GuestAddress::GuestVirtual
+        }
     }
+}
 
-    /// Whether the trapped context came from S-mode (`MPP = S`).
-    pub(crate) fn is_trapped_from_supervisor(&self) -> bool {
-        const MPP_MASK: usize = 0b11 << 11;
-        const MPP_SUPERVISOR: usize = 0b01 << 11;
-        self.mstatus & MPP_MASK == MPP_SUPERVISOR
+impl TrapFrame {
+    pub(super) fn leave_virtualization(&mut self) {
+        #[cfg(target_pointer_width = "32")]
+        {
+            self.status_high &= !machine::MPV::MASK;
+        }
+        #[cfg(target_pointer_width = "64")]
+        {
+            self.status
+                .write::<machine::MPV>(machine::Virtualization::Off);
+        }
     }
 }
