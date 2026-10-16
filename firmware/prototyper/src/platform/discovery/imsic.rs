@@ -112,7 +112,7 @@ pub(super) fn discover(
 
     let ipi_iid =
         Iid::new(FIRMWARE_IPI_IDENTITY).expect("BUG: firmware IPI identity must be nonzero");
-    if ipi_iid.number() >= num_ids {
+    if ipi_iid.number() > num_ids {
         return Err(Error::InvalidArgs);
     }
 
@@ -147,7 +147,9 @@ fn phandle(node: FdtNode<'_, '_>) -> Option<u32> {
 
 fn interrupt_identity_count(node: FdtNode<'_, '_>) -> Result<u16> {
     let num_ids = u32_property(node, "riscv,num-ids").ok_or(Error::InvalidArgs)?;
-    if !(MIN_INTERRUPT_IDENTITIES..=MAX_INTERRUPT_IDENTITIES).contains(&num_ids) {
+    if !(MIN_INTERRUPT_IDENTITIES..=MAX_INTERRUPT_IDENTITIES).contains(&num_ids)
+        || num_ids & 63 != 63
+    {
         return Err(Error::InvalidArgs);
     }
     Ok(num_ids as u16)

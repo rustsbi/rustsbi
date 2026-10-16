@@ -24,7 +24,7 @@ pub(crate) use reset::{
     Description as ResetDescription, ResetDevice, ResetError, ResetReason, ResetRequest, ResetType,
 };
 
-pub(crate) use aia::{IMSIC_COMPATIBLES, IMSIC_FILE_SPAN, initialize_hart_imsic};
+pub(crate) use aia::{IMSIC_COMPATIBLES, IMSIC_FILE_SPAN};
 pub(crate) use cci::Cci550;
 pub(crate) use clint::ClintKind;
 pub(crate) use console::{ConsoleKind, DbcnBackend, DbcnError};

@@ -22,7 +22,6 @@ use csr::machine::TargetPrivilege as MPP;
 use runtime::{
     boot, entry,
     hart::{self, HartId},
-    ipi::IpiDelivery,
 };
 
 #[entry]
@@ -86,21 +85,6 @@ fn secondary_hart(boot: Option<&BootInfo>) {
 }
 
 fn enable_supervisor_services() {
-    // Gate per-hart IMSIC setup on the device selected during platform
-    // initialization, not on AIA discovery alone.
-    if matches!(
-        crate::platform::ipi_delivery(),
-        Some(IpiDelivery::Imsic { .. })
-    ) {
-        driver::initialize_hart_imsic(
-            platform::board_info()
-                .devices
-                .interrupts
-                .imsic()
-                .map(|description| description.resource())
-                .expect("selected IMSIC has a description"),
-        );
-    }
     sbi::features::configure_hart_environment();
     // SAFETY:
     // 1. Runtime startup installed trap entry.
