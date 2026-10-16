@@ -25,7 +25,6 @@ pub(crate) mod suspend;
 pub(crate) mod timer;
 pub(crate) mod vendor;
 
-pub(crate) mod hart_local;
 pub(crate) mod logger;
 
 use console::SbiConsole;

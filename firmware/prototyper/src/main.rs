@@ -30,7 +30,6 @@ fn main(boot: BootInfo) {
 }
 
 fn boot_hart(mut boot: BootInfo) {
-    crate::sbi::hart_local::init();
     let platform_description = boot
         .take_platform_description()
         .expect("BUG: boot hart entered without a validated Platform Description");

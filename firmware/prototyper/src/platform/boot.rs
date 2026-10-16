@@ -185,7 +185,8 @@ fn publish_platform_services(
     let hart_wake = hart_wake.map(|device| HART_WAKE.call_once(|| device).as_ref());
     hart::install_wakeup(hart_wake);
     let ipi_delivery = ipi.as_ref().map(|device| device.delivery());
-    let sbi_ipi = sbi::ipi::SbiIpi::new(Ipi::new(ipi, sbi::ipi::deliver_current));
+    let sbi_ipi = sbi::ipi::SbiIpi::new(Ipi::new(ipi, sbi::ipi::SbiIpi::deliver_current))
+        .expect("failed to construct SBI IPI records");
 
     state::publish_resources(board, supervisor_memory, console, ipi_delivery);
 
@@ -223,7 +224,7 @@ fn publish_sbi_dispatcher(
     let fwft = Some(SbiFwft);
     let ipi_available = ipi.ipi().delivery().is_some();
     let hsm = ipi_available.then(|| SbiHsm::new(hart_wake.is_some()));
-    let rfence = ipi_available.then_some(SbiRFence);
+    let rfence = ipi_available.then(|| SbiRFence::new().expect("failed to construct fence queues"));
     let susp = hsm.as_ref().map(|_| SbiSuspend);
     let mpxy = Some(sbi::mpxy::SbiMpxy::new(supervisor_memory));
     let sta = Some(sbi::sta::SbiSta::new(supervisor_memory));
