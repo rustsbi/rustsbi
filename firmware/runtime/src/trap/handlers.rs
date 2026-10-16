@@ -5,6 +5,11 @@ use crate::{
     context::{self, ExecutionContext},
     hart::{self, HartEvent},
 };
+use csr::{
+    machine::{MPP, TargetPrivilege},
+    supervisor,
+    values::trap::InterruptSet,
+};
 
 pub(super) fn sbi_ecall(frame: &mut TrapFrame) {
     let regs = &mut frame.general;
@@ -97,7 +102,15 @@ fn enter_context(
         *slot = frame.general.read(id);
     }
     let outgoing = riscv::register::satp::read();
-    suspend_into.save_outgoing(&x1_x31, frame.epc, outgoing);
+    // SAFETY: Dispatch owns this hart's trap state, with MIE and MPRV clear
+    // and mscratch zero.
+    // A supervisor context always has a `sie`; a failed read resumes the
+    // incoming context with no interrupt sources rather than failing the
+    // infallible ceremony.
+    let outgoing_sie = unsafe { crate::csr::read::<supervisor::InterruptEnable>() }
+        .unwrap_or(InterruptSet::empty());
+    let outgoing_status = frame.status;
+    suspend_into.save_outgoing(&x1_x31, frame.epc, outgoing, outgoing_sie, outgoing_status);
     // SAFETY: M-mode rewrites this hart's supervisor environment for the
     // staged transfer.
     unsafe { crate::boot::prepare_supervisor() };
@@ -108,7 +121,13 @@ fn enter_context(
     if incoming != outgoing {
         riscv::asm::sfence_vma_all();
     }
-    crate::boot::set_return_mode(&mut frame.status, riscv::register::mstatus::MPP::Supervisor);
+    // SAFETY: M-mode installs the staged transfer's declared interrupt
+    // enables, replacing prepare_supervisor's clearing.
+    unsafe { supervisor::InterruptEnable::write(resume_from.sie()) };
+    frame.status = resume_from.status();
+    // The staged return state is the context's own, but a transfer always
+    // re-enters supervisor mode.
+    frame.status.write::<MPP>(TargetPrivilege::Supervisor);
     frame.leave_virtualization();
     let entry_pc = resume_from.resume_into(&mut x1_x31);
     for (id, value) in x1_x31.iter().enumerate() {
