@@ -5,7 +5,7 @@
 use alloc::boxed::Box;
 use core::ops::Range;
 use runtime::{
-    Error, PlatformDescription, Result, boot, events,
+    Error, PlatformDescription, Result, boot,
     hart::{self, HartId},
     ipi::Ipi,
     memory::SupervisorMemory,
@@ -188,7 +188,6 @@ fn publish_platform_services(
     hart::install_wakeup(hart_wake);
     let ipi_delivery = ipi.as_ref().map(|device| device.delivery());
     let sbi_ipi = sbi::ipi::SbiIpi::new(Ipi::new(ipi, sbi::ipi::deliver_current));
-    events::install(pmu.as_ref().map(|_| sbi::pmu::runtime_counters()));
 
     state::publish_resources(board, supervisor_memory, console, ipi_delivery);
 
@@ -248,8 +247,12 @@ fn publish_sbi_dispatcher(
         mpxy,
         vendor,
     });
-    boot::install_services(dispatcher.timer.timer(), dispatcher.ipi.ipi())
-        .expect("BUG: Runtime services registered more than once");
+    boot::install_services(boot::Services {
+        timer: dispatcher.timer.timer(),
+        ipi: dispatcher.ipi.ipi(),
+        pmu: dispatcher.pmu.as_ref().map(SbiPmu::pmu),
+    })
+    .expect("BUG: Runtime services registered more than once");
 }
 
 /// Runs the SoC-specific per-hart setup for secondary harts.

@@ -18,7 +18,7 @@ mod sbi;
 
 use crate::firmware::BootInfo;
 use crate::sbi::features::{
-    check_next_stage_privilege, detect_hart_features, hart_mhpm_mask, hart_privileged_version,
+    check_next_stage_privilege, detect_hart_features, hart_privileged_version,
 };
 use crate::sbi::hart_local;
 use ::riscv::register::mstatus::MPP;
@@ -91,7 +91,7 @@ fn enable_supervisor_services() {
     sbi::features::configure_hart_environment();
     // SAFETY: Runtime startup installed trap entry; this hart is still in
     // M-mode with machine interrupts disabled and no lower-mode context.
-    unsafe { boot::configure_next_stage() };
+    unsafe { boot::configure_next_stage() }.expect("failed to configure next stage");
     let dispatcher = sbi::SBI_DISPATCHER
         .get()
         .expect("SBI dispatcher not initialized");
@@ -105,9 +105,13 @@ fn log_hart_capabilities(hart_id: usize) {
         "Boot HART Privileged Version:",
         hart_privileged_version(hart_id)
     );
-    info!(
-        "{:<30}: {:#08x}",
-        "Boot HART MHPM Mask:",
-        hart_mhpm_mask(hart_id)
-    );
+    if let Some(pmu) = sbi::pmu() {
+        let mask = pmu
+            .pmu()
+            .with_current(|counters| Ok(counters.implemented()))
+            .expect("initialized PMU counters");
+        info!("{:<30}: {:#08x}", "Boot HART MHPM Mask:", mask);
+    } else {
+        info!("{:<30}: not selected", "Boot HART MHPM Mask:");
+    }
 }

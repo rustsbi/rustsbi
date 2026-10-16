@@ -12,13 +12,12 @@ use runtime::{
     hart::HartId,
     rustsbi::{Fence, HartMask, SbiRet},
 };
-use sbi_spec::pmu::firmware_event;
 
 use crate::cfg::{PAGE_SIZE, TLB_FLUSH_LIMIT};
 use crate::riscv::csr::fence;
 
 pub(super) mod queue;
-use super::pmu::pmu_firmware_counter_increment;
+use super::pmu::{FirmwareEvent, SbiPmu};
 use queue::{LocalRFenceCell, RemoteRFenceCell};
 
 /// Context information for a remote fence operation.
@@ -134,7 +133,7 @@ fn supports_hypervisor_extension() -> bool {
 impl Fence for SbiRFence {
     /// Remote instruction fence for specified harts.
     fn remote_fence_i(&self, hart_mask: HartMask) -> SbiRet {
-        pmu_firmware_counter_increment(firmware_event::FENCE_I_SENT);
+        SbiPmu::record_event(FirmwareEvent::FenceISent);
         remote_fence_process(
             RFenceContext {
                 start_addr: 0,
@@ -149,7 +148,7 @@ impl Fence for SbiRFence {
 
     /// Remote supervisor fence for virtual memory on specified harts.
     fn remote_sfence_vma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
-        pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_SENT);
+        SbiPmu::record_event(FirmwareEvent::SfenceVmaSent);
         let flush_size = match validate_address_range(start_addr, size) {
             Ok(size) => size,
             Err(e) => return e,
@@ -175,7 +174,7 @@ impl Fence for SbiRFence {
         size: usize,
         asid: usize,
     ) -> SbiRet {
-        pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_ASID_SENT);
+        SbiPmu::record_event(FirmwareEvent::SfenceVmaAsidSent);
         let flush_size = match validate_address_range(start_addr, size) {
             Ok(size) => size,
             Err(e) => return e,
@@ -204,7 +203,7 @@ impl Fence for SbiRFence {
         if !supports_hypervisor_extension() {
             return SbiRet::not_supported();
         }
-        pmu_firmware_counter_increment(firmware_event::HFENCE_GVMA_VMID_SENT);
+        SbiPmu::record_event(FirmwareEvent::HfenceGvmaVmidSent);
 
         let flush_size = match validate_address_range(start_addr, size) {
             Ok(s) => s,
@@ -228,7 +227,7 @@ impl Fence for SbiRFence {
         if !supports_hypervisor_extension() {
             return SbiRet::not_supported();
         }
-        pmu_firmware_counter_increment(firmware_event::HFENCE_GVMA_SENT);
+        SbiPmu::record_event(FirmwareEvent::HfenceGvmaSent);
 
         let flush_size = match validate_address_range(start_addr, size) {
             Ok(s) => s,
@@ -258,7 +257,7 @@ impl Fence for SbiRFence {
         if !supports_hypervisor_extension() {
             return SbiRet::not_supported();
         }
-        pmu_firmware_counter_increment(firmware_event::HFENCE_VVMA_ASID_SENT);
+        SbiPmu::record_event(FirmwareEvent::HfenceVvmaAsidSent);
 
         let flush_size = match validate_address_range(start_addr, size) {
             Ok(s) => s,
@@ -282,7 +281,7 @@ impl Fence for SbiRFence {
         if !supports_hypervisor_extension() {
             return SbiRet::not_supported();
         }
-        pmu_firmware_counter_increment(firmware_event::HFENCE_VVMA_SENT);
+        SbiPmu::record_event(FirmwareEvent::HfenceVvmaSent);
 
         let flush_size = match validate_address_range(start_addr, size) {
             Ok(s) => s,
@@ -351,11 +350,11 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
 
     match ctx.op {
         RFenceType::FenceI => {
-            pmu_firmware_counter_increment(firmware_event::FENCE_I_RECEIVED);
+            SbiPmu::record_event(FirmwareEvent::FenceIReceived);
             riscv::asm::fence_i();
         }
         RFenceType::SFenceVma => {
-            pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_RECEIVED);
+            SbiPmu::record_event(FirmwareEvent::SfenceVmaReceived);
             if full_flush {
                 fence::sfence_vma_all();
             } else {
@@ -366,7 +365,7 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
             }
         }
         RFenceType::SFenceVmaAsid => {
-            pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_ASID_RECEIVED);
+            SbiPmu::record_event(FirmwareEvent::SfenceVmaAsidReceived);
             let asid = ctx.asid;
             if full_flush {
                 fence::sfence_vma_asid(asid);
@@ -379,7 +378,7 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
         }
         #[cfg(feature = "hypervisor")]
         RFenceType::HFenceGvmaVmid => {
-            pmu_firmware_counter_increment(firmware_event::HFENCE_GVMA_VMID_RECEIVED);
+            SbiPmu::record_event(FirmwareEvent::HfenceGvmaVmidReceived);
             let vmid = ctx.vmid;
             if full_flush {
                 fence::hfence_gvma_vmid(vmid);
@@ -392,7 +391,7 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
         }
         #[cfg(feature = "hypervisor")]
         RFenceType::HFenceGvma => {
-            pmu_firmware_counter_increment(firmware_event::HFENCE_GVMA_RECEIVED);
+            SbiPmu::record_event(FirmwareEvent::HfenceGvmaReceived);
             if full_flush {
                 fence::hfence_gvma_all();
             } else {
@@ -404,7 +403,7 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
         }
         #[cfg(feature = "hypervisor")]
         RFenceType::HFenceVvmaAsid => {
-            pmu_firmware_counter_increment(firmware_event::HFENCE_VVMA_ASID_RECEIVED);
+            SbiPmu::record_event(FirmwareEvent::HfenceVvmaAsidReceived);
             let asid = ctx.asid;
             if full_flush {
                 fence::hfence_vvma_asid(asid);
@@ -417,7 +416,7 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
         }
         #[cfg(feature = "hypervisor")]
         RFenceType::HFenceVvma => {
-            pmu_firmware_counter_increment(firmware_event::HFENCE_VVMA_RECEIVED);
+            SbiPmu::record_event(FirmwareEvent::HfenceVvmaReceived);
             if full_flush {
                 fence::hfence_vvma_all();
             } else {

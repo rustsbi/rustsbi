@@ -14,7 +14,6 @@ use runtime::hart::HartId;
 use spin::{Mutex, Once};
 
 use super::features::HartFeatures;
-use super::pmu::PmuState;
 use super::rfence::queue::{LocalRFenceCell, RFenceCell, RemoteRFenceCell};
 
 /// Separates independently written hart state into 128-byte blocks.
@@ -40,8 +39,6 @@ pub struct HartLocal {
     pub ipi_type: CacheAligned<AtomicU8>,
     /// Supported hart features.
     features: Mutex<HartFeatures>,
-    /// PMU state.
-    pmu_state: Mutex<PmuState>,
 }
 
 impl HartLocal {
@@ -50,7 +47,6 @@ impl HartLocal {
             rfence: RFenceCell::new(),
             ipi_type: CacheAligned(AtomicU8::new(0)),
             features: Mutex::new(HartFeatures::default()),
-            pmu_state: Mutex::new(PmuState::new(0)),
         }
     }
 
@@ -70,33 +66,6 @@ impl HartLocal {
         f(&mut self.features.lock())
     }
 
-    /// Runs an update or read on this hart's PMU state.
-    pub(crate) fn with_pmu<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&mut PmuState) -> R,
-    {
-        f(&mut self.pmu_state.lock())
-    }
-
-    /// Rebuilds PMU state after feature detection has populated the counter mask.
-    pub(crate) fn init_pmu(&self) {
-        let mhpm_mask = self.with_features(HartFeatures::mhpm_mask);
-        self.with_pmu(|pmu| *pmu = PmuState::new(mhpm_mask));
-    }
-
-    #[inline]
-    fn pmu_state_reset(&self) {
-        use super::features::PrivilegedVersion;
-        // stop all hardware pmu event
-        let hart_priv_version = self.with_features(HartFeatures::privileged_version);
-        if hart_priv_version >= PrivilegedVersion::Version1_11 {
-            // The CSR wrapper owns the machine-mode write; this policy state
-            // only requests the reset of the current hart's counters.
-            crate::riscv::csr::mcountinhibit::write_raw(!0b111usize);
-        }
-        // reset hart pmu state
-        self.init_pmu();
-    }
 }
 
 static HART_LOCALS: Once<Box<[HartLocal]>> = Once::new();
@@ -149,8 +118,3 @@ pub fn remote_rfence(hart_id: usize) -> Option<RemoteRFenceCell<'static>> {
     Some(slot(hart).rfence.remote())
 }
 
-/// Resets the current hart's PMU state before a non-retentive resume.
-/// Pending IPIs and fence requests remain valid across suspend/resume.
-pub(crate) fn reset_current() {
-    with_current(HartLocal::pmu_state_reset);
-}

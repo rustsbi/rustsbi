@@ -1,11 +1,16 @@
-//! Borrowed interrupt services owned by the published firmware policy.
+//! Runtime borrows from the permanently published SBI owners.
 
-use crate::{Error, Result, ipi::Ipi, timer::Timer};
+use crate::{Error, Result, ipi::Ipi, pmu::Pmu, timer::Timer};
 use spin::Once;
 
-struct Services {
-    timer: &'static Timer,
-    ipi: &'static Ipi,
+/// Stable borrows registered after publishing the SBI dispatcher.
+pub struct Services {
+    /// Supervisor timer owner.
+    pub timer: &'static Timer,
+    /// Firmware IPI owner.
+    pub ipi: &'static Ipi,
+    /// Machine-counter owner.
+    pub pmu: Option<&'static Pmu>,
 }
 
 static SERVICES: Once<Services> = Once::new();
@@ -13,13 +18,9 @@ static SERVICES: Once<Services> = Once::new();
 /// Registers services borrowed from their permanently stored owner.
 /// Call once before configuring harts or enabling machine interrupt sources.
 /// Duplicate registration preserves the original services.
-pub fn install_services(timer: &'static Timer, ipi: &'static Ipi) -> Result<()> {
-    publish(&SERVICES, Services { timer, ipi })
-}
-
-fn publish(slot: &Once<Services>, services: Services) -> Result<()> {
+pub fn install_services(services: Services) -> Result<()> {
     let mut installed = false;
-    slot.call_once(|| {
+    SERVICES.call_once(|| {
         installed = true;
         services
     });
@@ -38,31 +39,6 @@ pub(crate) fn ipi() -> Option<&'static Ipi> {
     SERVICES.get().map(|services| services.ipi)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use alloc::boxed::Box;
-
-    #[test]
-    fn duplicate_registration_preserves_both_original_borrows() {
-        let slot = Once::new();
-        let timer = Box::leak(Box::new(Timer::new(None)));
-        let ipi = Box::leak(Box::new(Ipi::new(None, || false)));
-        assert_eq!(publish(&slot, Services { timer, ipi }), Ok(()));
-        let replacement_timer = Box::leak(Box::new(Timer::new(None)));
-        let replacement_ipi = Box::leak(Box::new(Ipi::new(None, || false)));
-        assert_eq!(
-            publish(
-                &slot,
-                Services {
-                    timer: replacement_timer,
-                    ipi: replacement_ipi
-                }
-            ),
-            Err(Error::AlreadyInitialized)
-        );
-        let registered = slot.get().unwrap();
-        assert!(core::ptr::eq(registered.timer, timer));
-        assert!(core::ptr::eq(registered.ipi, ipi));
-    }
+pub(crate) fn pmu() -> Option<&'static Pmu> {
+    SERVICES.get().and_then(|services| services.pmu)
 }

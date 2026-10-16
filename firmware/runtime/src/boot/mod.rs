@@ -14,8 +14,8 @@ pub use crate::csr::thead::disable_maee as disable_thead_maee;
 
 pub use context::{configure_next_stage, prepare_traps};
 pub(crate) use context::{prepare_supervisor, set_return_mode, traps_ready};
-pub use services::install_services;
-pub(crate) use services::{ipi, timer};
+pub use services::{Services, install_services};
+pub(crate) use services::{ipi, pmu, timer};
 
 pub(crate) use stack::firmware_end;
 pub use stack::{BootStack, initialize_stacks, locate_stack};

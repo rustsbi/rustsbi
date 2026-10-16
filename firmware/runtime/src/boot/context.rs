@@ -86,9 +86,13 @@ unsafe fn install(entry: unsafe extern "C" fn()) {
 ///
 /// Run on the current hart in M-mode with machine interrupts disabled, Runtime
 /// trap entry installed, and no active lower-mode execution.
-pub unsafe fn configure_next_stage() {
+pub unsafe fn configure_next_stage() -> crate::Result<()> {
     // SAFETY: The startup caller keeps MIE clear for this configuration.
     let irq = unsafe { crate::irq::LocalIrqDisabled::assume_disabled() };
+    let inhibit = crate::pmu::configure_initial()?;
+    if let Some(pmu) = super::pmu() {
+        pmu.init_current(inhibit)?;
+    }
     super::ipi()
         .expect("IPI service not published")
         .init_current(&irq)
@@ -111,6 +115,7 @@ pub unsafe fn configure_next_stage() {
         machine::CounterEnable::write(CounterSet::all());
         supervisor::CounterEnable::write(CounterSet::all());
     }
+    Ok(())
 }
 
 pub(crate) fn set_return_mode(

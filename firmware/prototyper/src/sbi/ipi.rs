@@ -7,7 +7,7 @@
 
 #![forbid(unsafe_code)]
 
-use super::pmu::pmu_firmware_counter_increment;
+use super::pmu::{FirmwareEvent, SbiPmu};
 use crate::sbi::hart_local::hart_local;
 use crate::sbi::rfence;
 use alloc::vec::Vec;
@@ -18,7 +18,6 @@ use runtime::{
     ipi::{Ipi, IpiRequest},
     rustsbi::{self, HartMask, SbiRet},
 };
-use sbi_spec::pmu::firmware_event;
 
 /// IPI type for supervisor software interrupt.
 pub(crate) const IPI_TYPE_SSOFT: u8 = 1 << 0;
@@ -39,7 +38,7 @@ impl rustsbi::Ipi for SbiIpi {
     /// Sends IPIs to the specified harts.
     #[inline]
     fn send_ipi(&self, hart_mask: HartMask) -> SbiRet {
-        pmu_firmware_counter_increment(firmware_event::IPI_SENT);
+        SbiPmu::record_event(FirmwareEvent::IpiSent);
         let requests = match target_requests(hart_mask) {
             Ok(requests) => requests,
             Err(error) => return error,
@@ -121,7 +120,7 @@ pub(crate) fn deliver_current() -> bool {
     let ipi_type = get_and_reset_ipi_type();
     let notify_supervisor = (ipi_type & IPI_TYPE_SSOFT) != 0;
     if notify_supervisor {
-        pmu_firmware_counter_increment(firmware_event::IPI_RECEIVED);
+        SbiPmu::record_event(FirmwareEvent::IpiReceived);
     }
     if (ipi_type & IPI_TYPE_FENCE) != 0 {
         rfence::rfence_handler();

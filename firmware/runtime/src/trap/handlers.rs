@@ -20,6 +20,11 @@ pub(super) fn sbi_ecall(frame: &mut TrapFrame) {
 
     if let Some(hart::ControlTransfer::NonRetentiveResume(next)) = hart::take_control_transfer(hart)
     {
+        if let Some(pmu) = crate::boot::pmu() {
+            pmu.reset_current()
+                .expect("committed PMU resume reset failed");
+        }
+        init::policy(hart).on_nonretentive_resume();
         enter_next_stage(frame, next);
     }
 }

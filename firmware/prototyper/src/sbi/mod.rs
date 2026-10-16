@@ -6,6 +6,7 @@
 use runtime::{
     rustsbi::{self, RustSBI},
     timer::Timer,
+    trap::{Exception, TrapPolicy},
 };
 use spin::Once;
 
@@ -35,7 +36,7 @@ use fwft::SbiFwft;
 use hsm::SbiHsm;
 use ipi::SbiIpi;
 use mpxy::SbiMpxy;
-use pmu::SbiPmu;
+use pmu::{FirmwareEvent, SbiPmu};
 use reset::SbiReset;
 use rfence::SbiRFence;
 use sta::SbiSta;
@@ -73,6 +74,21 @@ pub struct SbiDispatcher {
     pub(crate) mpxy: Option<SbiMpxy>,
     #[rustsbi(vendor)]
     pub(crate) vendor: Option<vendor::Vendor>,
+}
+
+impl TrapPolicy for SbiDispatcher {
+    fn on_nonretentive_resume(&self) {
+        if let Some(pmu) = &self.pmu {
+            pmu.reset_records()
+                .expect("could not reset PMU policy records");
+        }
+    }
+
+    fn on_exception(&self, exception: Exception) {
+        if let Ok(event) = FirmwareEvent::try_from(exception) {
+            SbiPmu::record_event(event);
+        }
+    }
 }
 
 /// The SBI extension set, owned by the sbi layer.

@@ -15,17 +15,11 @@ use crate::sbi::hart_local::{with_current, with_hart};
 pub struct HartFeatures {
     extensions: [bool; Extension::COUNT],
     privileged_version: PrivilegedVersion,
-    mhpm_mask: u32,
-    mhpm_bits: u32,
 }
 
 impl HartFeatures {
     pub const fn privileged_version(&self) -> PrivilegedVersion {
         self.privileged_version
-    }
-
-    pub const fn mhpm_mask(&self) -> u32 {
-        self.mhpm_mask
     }
 }
 
@@ -93,14 +87,6 @@ pub fn hart_privileged_version(hart_id: usize) -> PrivilegedVersion {
     })
 }
 
-/// Gets the MHPM mask for the given hart.
-#[inline]
-pub fn hart_mhpm_mask(hart_id: usize) -> u32 {
-    with_hart(hart_id, |local| {
-        local.with_features(HartFeatures::mhpm_mask)
-    })
-}
-
 /// Records the extensions of one enabled hart during CPU discovery.
 pub fn detect_extensions(hart_id: usize, cpu: FdtNode<'_, '_>) {
     let mut extensions = [false; Extension::COUNT];
@@ -150,28 +136,11 @@ fn detect_sstc() {
     });
 }
 
-fn detect_mhpm_counters() {
-    // SAFETY: Startup owns these counters before the PMU is published.
-    let mhpm_mask = unsafe { hart::detect_performance_counters() };
-
-    with_current(|local| {
-        local.with_features_mut(|features| {
-            features.mhpm_mask = mhpm_mask;
-            // TODO: at present, the prototyper only supports 64-bit counters.
-            features.mhpm_bits = 64;
-        });
-        // The PMU state snapshots the counter topology; rebuild it now that
-        // the mask is known.
-        local.init_pmu();
-    });
-}
-
-/// Detects the current hart's privileged-architecture version, Sstc support and
-/// hardware counters after device-tree discovery.
+/// Detects the current hart's privileged-architecture version and Sstc support
+/// after device-tree discovery.
 pub fn detect_hart_features() {
     detect_privileged_version();
     detect_sstc();
-    detect_mhpm_counters();
 }
 
 /// Checks that this hart supports the requested privilege mode.

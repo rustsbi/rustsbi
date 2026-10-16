@@ -69,9 +69,6 @@ impl SbiHsm {
             Err(_) => return SbiRet::failed(),
         };
 
-        // The ticket reserves the current hart before policy state is reset;
-        // a failed wake drops the reservation back to Suspended.
-        crate::sbi::hart_local::reset_current();
         match ticket.commit() {
             Ok(()) => SbiRet::success(0),
             Err(_) => SbiRet::failed(),
