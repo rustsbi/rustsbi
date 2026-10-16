@@ -14,22 +14,20 @@ use runtime::{
 
 use spin::Once;
 
-use super::error::{InitError, ResultContext};
-use super::info::{BoardInfo, ImsicInfo, SocDescription};
-use super::{discovery, report, state};
-use crate::driver::{self, HartWake};
-use crate::riscv::spacemit_k1::{self, K1BootResources};
-use crate::sbi;
-use crate::sbi::SbiDispatcher;
-use crate::sbi::cppc::SbiCppc;
-use crate::sbi::dbtr::SbiDbtr;
-use crate::sbi::fwft::SbiFwft;
-use crate::sbi::hsm::SbiHsm;
-use crate::sbi::pmu::SbiPmu;
-use crate::sbi::reset::SbiReset;
-use crate::sbi::rfence::SbiRFence;
-use crate::sbi::suspend::SbiSuspend;
-use crate::sbi::timer::SbiTimer;
+use super::{
+    discovery,
+    error::{InitError, ResultContext},
+    info::{BoardInfo, ImsicInfo, SocDescription},
+    report, state,
+};
+use crate::{
+    driver::{self, HartWake},
+    riscv::spacemit_k1::{self, K1BootResources},
+    sbi::{
+        self, SbiDispatcher, cppc::SbiCppc, dbtr::SbiDbtr, fwft::SbiFwft, hsm::SbiHsm, pmu::SbiPmu,
+        reset::SbiReset, rfence::SbiRFence, suspend::SbiSuspend, timer::SbiTimer,
+    },
+};
 
 /// Discovers the platform, initializes its devices, and publishes its services.
 /// Returns the device tree prepared for the next stage.

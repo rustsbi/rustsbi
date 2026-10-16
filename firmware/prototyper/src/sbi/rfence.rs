@@ -120,7 +120,7 @@ fn validate_address_range(start_addr: usize, size: usize) -> Result<usize, SbiRe
 fn remote_fence_process(rfence_ctx: RFenceContext, hart_mask: HartMask) -> SbiRet {
     crate::sbi::ipi()
         .unwrap()
-        .send_ipi_by_fence(hart_mask, rfence_ctx)
+        .send_fence_by_ipi(hart_mask, rfence_ctx)
 }
 
 #[cfg(feature = "hypervisor")]

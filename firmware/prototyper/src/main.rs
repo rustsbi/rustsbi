@@ -68,7 +68,8 @@ fn boot_hart(mut boot: BootInfo) {
         "Redirecting hart {} to {:#016x} in {:?} mode.",
         hart_id, next_stage.start_addr, next_stage.next_mode
     );
-    hart::stage_current(next_stage).expect("BUG: boot hart could not stage its initial handoff");
+    hart::stage_boot_handoff(next_stage)
+        .expect("BUG: boot hart could not stage its initial handoff");
 
     enable_supervisor_services();
 }

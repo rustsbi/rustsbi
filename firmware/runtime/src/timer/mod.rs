@@ -167,10 +167,10 @@ impl Timer {
         Ok(true)
     }
 
-    pub(crate) fn interrupt(&self, irq: &LocalIrqDisabled) {
+    pub(crate) fn on_interrupt(&self, irq: &LocalIrqDisabled) {
         self.machine()
             .expect("MTIP without native timer hardware")
-            .interrupt(irq);
+            .on_interrupt(irq);
     }
 
     fn machine(&self) -> Option<&MachineTimer> {

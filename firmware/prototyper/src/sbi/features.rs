@@ -203,7 +203,7 @@ pub fn init(cpus: FdtNode<'_, '_>) {
 
 /// Checks that this hart supports the requested privilege mode.
 ///
-/// Warns and stops the hart if it does not.
+/// Reports an error and stops the hart if it does not.
 pub fn check_next_stage_privilege(next_mode: MPP) {
     let hart_id = HartId::current()
         .expect("BUG: current hart exceeds Runtime capacity")
@@ -211,14 +211,14 @@ pub fn check_next_stage_privilege(next_mode: MPP) {
     match next_mode {
         MPP::Supervisor => {
             if !hart::supports_privilege(MPP::Supervisor) {
-                warn!("Hart {} does not support Supervisor mode", hart_id);
+                error!("Hart {} does not support Supervisor mode", hart_id);
                 fail::stop();
             }
             mark_hart_privilege_checked(hart_id);
         }
         MPP::User => {
             if !hart::supports_privilege(MPP::User) {
-                warn!("Hart {} does not support User mode", hart_id);
+                error!("Hart {} does not support User mode", hart_id);
                 fail::stop();
             }
             mark_hart_privilege_checked(hart_id);

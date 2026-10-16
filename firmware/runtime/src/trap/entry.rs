@@ -1,4 +1,5 @@
 //! Machine trap entry and return with integer-register preservation.
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 use csr::machine;
 
 use super::frame::SavedTrap;
@@ -223,7 +224,10 @@ macro_rules! trap_vector {
                 dispatch = sym super::dispatch::trap_dispatch,
             );
             #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-            panic!("trap entry requires RISC-V");
+            {
+                let _ = super::dispatch::trap_dispatch;
+                panic!("trap entry requires RISC-V");
+            }
         }
     };
 }
