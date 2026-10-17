@@ -15,12 +15,14 @@ mod plicsw;
 mod plmt;
 mod reset;
 
+use crate::platform::clint_topology;
 use alloc::boxed::Box;
+use alloc::vec::Vec;
 use runtime::{
     Error, Result, hart::HartId, ipi::IpiDevice, memory::MemoryRegistry, timer::TimerDevice,
 };
 
-use crate::platform::{BoardInfo, ClintResource, ImsicInfo};
+use crate::platform::{BoardInfo, ImsicInfo};
 
 pub(crate) use reset::{
     Description as ResetDescription, ResetDevice, ResetError, ResetReason, ResetRequest, ResetType,
@@ -55,6 +57,11 @@ fn bind_interrupts(
     memory: &mut MemoryRegistry,
 ) -> Result<InterruptDevices> {
     if let Some(imsic) = selected_imsic {
+        // The QEMU AIA PMP layout reserves only one CLINT MMIO interval.
+        // Reject unsupported multi-CLINT AIA rather than exposing other machine registers.
+        if board.is_qemu_virt() && board.devices.interrupts.clints().len() > 1 {
+            return Err(Error::InvalidArgs);
+        }
         let aplic_config = if board.is_qemu_virt() {
             Some(crate::platform::qemu_aplic::QemuAplicConfig::new(
                 board
@@ -86,16 +93,43 @@ fn bind_interrupts(
             Some(Box::new(plicsw::bind(plicsw, memory, hart_id_upper_bound)?)),
         ));
     }
-    let Some(description) = board.devices.interrupts.clint() else {
+    let descriptions = board.devices.interrupts.clints();
+    if descriptions.is_empty() {
         return Ok((None, None));
-    };
-    let ClintResource { registers, kind } = *description.resource();
-    let hart_id_upper_bound = HartId::all()
-        .last()
-        .and_then(|hart| hart.as_usize().checked_add(1))
-        .ok_or(Error::InvalidArgs)?;
-    let (timer, ipi) = clint::bind(registers, kind, memory, hart_id_upper_bound)?;
-    Ok((Some(timer), Some(ipi)))
+    }
+    // Reject intersecting hardware windows before any MMIO resources are acquired.
+    if !clint_topology::disjoint_ranges(descriptions.iter().map(|d| {
+        let reg = d.resource().registers;
+        (reg.start().as_usize(), reg.end().as_usize())
+    })) {
+        return Err(Error::InvalidArgs);
+    }
+    let routes = clint_topology::build_routes(
+        HartId::count(),
+        descriptions.iter().map(|d| {
+            let res = d.resource();
+            (res.active_harts.as_slice(), res.slot_count)
+        }),
+        |raw| HartId::from_raw(raw).ok().map(|hart| hart.index()),
+    )
+    .map_err(|_| Error::InvalidArgs)?;
+    let mut timers = Vec::new();
+    let mut ipis = Vec::new();
+    for description in descriptions {
+        let resource = description.resource();
+        let (timer, ipi) = clint::bind(
+            resource.registers,
+            resource.kind,
+            memory,
+            resource.slot_count,
+        )?;
+        timers.push(timer);
+        ipis.push(ipi);
+    }
+    Ok((
+        Some(Box::new(clint::RoutedTimer::new(timers, routes.clone()))),
+        Some(Box::new(clint::RoutedIpi::new(ipis, routes))),
+    ))
 }
 
 /// Binds all devices selected during platform discovery.

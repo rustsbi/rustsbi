@@ -63,14 +63,28 @@ fn log_interrupt_controller(board: &BoardInfo) {
         );
         return;
     }
-    match board.devices.interrupts.clint() {
-        Some(description) => info!(
-            "{:<30}: {} (Base Address: 0x{:x})",
-            "Platform IPI Extension",
-            description.resource().kind.name(),
-            description.resource().registers.start().as_usize()
-        ),
-        None => warn!("{:<30}: Not Available", "Platform IPI Device"),
+    let clints = board.devices.interrupts.clints();
+    if clints.is_empty() {
+        warn!("{:<30}: Not Available", "Platform IPI Device");
+    } else {
+        for (index, description) in clints.iter().enumerate() {
+            info!(
+                "{:<30}: {} (Base Address: 0x{:x}, harts: {:?})",
+                if index == 0 {
+                    "Platform IPI Extension"
+                } else {
+                    ""
+                },
+                description.resource().kind.name(),
+                description.resource().registers.start().as_usize(),
+                description
+                    .resource()
+                    .active_harts
+                    .iter()
+                    .map(|slot| slot.hart_id)
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 }
 

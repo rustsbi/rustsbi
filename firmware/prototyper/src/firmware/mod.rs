@@ -273,7 +273,8 @@ pub fn set_pmp(firmware_ram: &Range<usize>) {
             let clint_start = crate::platform::board_info()
                 .devices
                 .interrupts
-                .clint()
+                .clints()
+                .first()
                 .map(|description| description.resource().registers.start().as_usize())
                 .unwrap_or(QEMU_VIRT_CLINT_BASE);
             let clint_end = clint_start + QEMU_VIRT_CLINT_SIZE;

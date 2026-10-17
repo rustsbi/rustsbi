@@ -5,10 +5,12 @@
 
 use runtime::{Compatible, Error, FdtNode, PlatformView, Result, memory::DeviceRegisterRange};
 
+use super::clint_topology;
 use crate::devicetree::EnabledNode;
 use crate::driver;
 use crate::platform::info::{BoardInfo, ClintResource, MachineAplicHandoff};
 use crate::platform::qemu_aplic;
+use runtime::hart::HartId;
 
 use super::imsic;
 
@@ -116,10 +118,28 @@ impl InterruptController {
                 board.devices.interrupts.plicsw = Some(primary_register_range);
             }
             Self::Clint(kind) => {
+                let raw = node
+                    .property("interrupts-extended")
+                    .ok_or(runtime::Error::InvalidArgs)?
+                    .value;
+                let (slot_count, active_harts) = clint_topology::decode(raw, |phandle| {
+                    cpu_interrupt_controllers
+                        .iter()
+                        .find(|controller| controller.phandle == phandle)
+                        .map(|controller| {
+                            (
+                                controller.hart_id,
+                                HartId::from_raw(controller.hart_id).is_ok(),
+                            )
+                        })
+                })
+                .map_err(|_| runtime::Error::InvalidArgs)?;
                 board.devices.interrupts.set_clint(
                     ClintResource {
                         registers: primary_register_range,
                         kind,
+                        slot_count,
+                        active_harts,
                     },
                     source_path,
                 )?;

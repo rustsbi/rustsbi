@@ -14,14 +14,12 @@
 //! T-Head exposes the 64-bit `mtimecmp` register as two 32-bit MMIO words;
 //! [`TimerDevice::set_compare`] prevents a transient early timer interrupt.
 
+use super::{LocalIpi, LocalTimer};
 use alloc::boxed::Box;
 use core::mem::{align_of, size_of};
 use runtime::{
     Error, Result,
-    hart::HartId,
-    ipi::{IpiDevice, IpiRequest},
     memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
-    timer::TimerDevice,
 };
 
 // The ACLINT legacy mapping places MTIMECMP at offset 0x4000.
@@ -50,12 +48,12 @@ impl TimerRegister {
 pub(super) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
-    hart_id_upper_bound: usize,
-) -> Result<(Box<dyn TimerDevice>, Box<dyn IpiDevice>)> {
-    let msip_size_bytes = hart_id_upper_bound
+    slot_count: usize,
+) -> Result<(Box<dyn LocalTimer>, Box<dyn LocalIpi>)> {
+    let msip_size_bytes = slot_count
         .checked_mul(size_of::<u32>())
         .ok_or(Error::Overflow)?;
-    let mtimecmp_size_bytes = hart_id_upper_bound
+    let mtimecmp_size_bytes = slot_count
         .checked_mul(size_of::<u64>())
         .ok_or(Error::Overflow)?;
     if msip_size_bytes > MTIMECMP_OFFSET {
@@ -93,10 +91,10 @@ impl THeadTimer {
     }
 }
 
-impl TimerDevice for THeadTimer {
+impl LocalTimer for THeadTimer {
     #[inline(always)]
-    fn set_compare(&self, hart: HartId, value: u64) {
-        let hart_id = hart.as_usize();
+    fn set_compare_slot(&self, slot: usize, value: u64) {
+        let hart_id = slot;
         let low = value as u32;
         let high = (value >> u32::BITS) as u32;
 
@@ -134,19 +132,12 @@ impl THeadIpi {
     }
 }
 
-impl IpiDevice for THeadIpi {
-    #[inline(always)]
-    fn send(&self, req: IpiRequest) -> Result<()> {
-        for hart_id in req.harts() {
-            self.write_msip(hart_id, IpiState::Pending)?;
-        }
-        Ok(())
+impl LocalIpi for THeadIpi {
+    fn send_slot(&self, slot: usize) -> Result<()> {
+        self.write_msip(slot, IpiState::Pending)
     }
 
-    #[inline(always)]
-    fn acknowledge(&self) -> Result<bool> {
-        let hart = HartId::current()?;
-        self.write_msip(hart.as_usize(), IpiState::Clear)?;
-        Ok(true)
+    fn clear_slot(&self, slot: usize) -> Result<()> {
+        self.write_msip(slot, IpiState::Clear)
     }
 }

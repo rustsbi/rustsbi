@@ -38,6 +38,13 @@ pub(crate) struct NodeSelection<T> {
 }
 
 impl<T> NodeSelection<T> {
+    pub(crate) fn from_node(resource: T, source_path: &[&str]) -> Self {
+        Self {
+            resource,
+            source_path: absolute_path(source_path),
+        }
+    }
+
     pub(crate) fn resource(&self) -> &T {
         &self.resource
     }

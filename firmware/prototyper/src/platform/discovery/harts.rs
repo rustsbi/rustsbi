@@ -29,10 +29,17 @@ pub(super) fn discover(
     let mut controllers = Vec::new();
     for node in cpus.children().filter(|node| is_cpu_node(*node)) {
         let hart_id = PlatformView::hart_id(node)?;
-        controllers.extend(
-            node.children()
-                .filter_map(|child| imsic::cpu_interrupt_controller(child, hart_id)),
-        );
+        for child in node.children() {
+            if let Some(controller) = imsic::cpu_interrupt_controller(child, hart_id) {
+                if controllers
+                    .iter()
+                    .any(|existing: &CpuInterruptController| existing.phandle == controller.phandle)
+                {
+                    return Err(Error::InvalidArgs);
+                }
+                controllers.push(controller);
+            }
+        }
         if !node_is_enabled(node) {
             continue;
         }

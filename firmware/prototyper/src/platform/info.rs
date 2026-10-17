@@ -15,6 +15,7 @@ use riscv_aia::Iid;
 
 use crate::devicetree::{NodeSelection, select_from_node_once};
 use crate::driver;
+use crate::platform::discovery::clint_topology::ClintHartSlot;
 
 /// Address layout of the machine-level IMSIC interrupt files.
 pub(crate) struct ImsicAddressLayout {
@@ -103,6 +104,8 @@ impl MemoryInfo {
 pub(crate) struct ClintResource {
     pub(crate) registers: DeviceRegisterRange,
     pub(crate) kind: driver::ClintKind,
+    pub(crate) slot_count: usize,
+    pub(crate) active_harts: Vec<ClintHartSlot>,
 }
 
 /// Whether the machine APLIC node is hidden from the next-stage FDT.
@@ -119,7 +122,7 @@ pub(crate) enum MachineAplicHandoff {
 /// selected IMSIC policy may hide those nodes from the next-stage FDT. The
 /// legacy controller slots below only need their register ranges for binding.
 pub(crate) struct InterruptDescriptions {
-    clint: Option<NodeSelection<ClintResource>>,
+    clint: Vec<NodeSelection<ClintResource>>,
     imsic: Option<NodeSelection<ImsicInfo>>,
     machine_aplic: Option<NodeSelection<DeviceRegisterRange>>,
     machine_aplic_handoff: MachineAplicHandoff,
@@ -129,8 +132,8 @@ pub(crate) struct InterruptDescriptions {
 }
 
 impl InterruptDescriptions {
-    pub(crate) fn clint(&self) -> Option<&NodeSelection<ClintResource>> {
-        self.clint.as_ref()
+    pub(crate) fn clints(&self) -> &[NodeSelection<ClintResource>] {
+        &self.clint
     }
 
     pub(crate) fn imsic(&self) -> Option<&NodeSelection<ImsicInfo>> {
@@ -142,7 +145,9 @@ impl InterruptDescriptions {
     }
 
     pub(crate) fn set_clint(&mut self, value: ClintResource, source_path: &[&str]) -> Result<()> {
-        select_from_node_once(&mut self.clint, value, source_path)
+        self.clint
+            .push(NodeSelection::from_node(value, source_path));
+        Ok(())
     }
 
     pub(crate) fn set_imsic(&mut self, value: ImsicInfo, source_path: &[&str]) -> Result<()> {
@@ -169,18 +174,22 @@ impl InterruptDescriptions {
                 .as_ref()
                 .map(|selection| selection.source_path()),
         };
-        [
-            self.clint.as_ref().map(|selection| selection.source_path()),
-            self.imsic.as_ref().map(|selection| selection.source_path()),
-            machine_aplic,
-        ]
-        .into_iter()
-        .flatten()
+        self.clint
+            .iter()
+            .map(|selection| selection.source_path())
+            .chain(
+                [
+                    self.imsic.as_ref().map(|selection| selection.source_path()),
+                    machine_aplic,
+                ]
+                .into_iter()
+                .flatten(),
+            )
     }
 
     const fn empty() -> Self {
         Self {
-            clint: None,
+            clint: Vec::new(),
             imsic: None,
             machine_aplic: None,
             machine_aplic_handoff: MachineAplicHandoff::KeepVisible,

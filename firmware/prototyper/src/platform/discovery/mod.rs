@@ -1,5 +1,6 @@
 //! Platform facts and SBI PMU discovery from the device tree.
 
+pub(crate) mod clint_topology;
 mod console;
 mod harts;
 mod imsic;
