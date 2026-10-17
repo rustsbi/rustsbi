@@ -44,6 +44,7 @@ pub(crate) unsafe fn initialize(
     .expect("firmware could not initialize its hart topology");
     BOOT_HART.call_once(|| hart_id);
     *BOOT_INFO.lock() = Some(boot);
+    // Signal Runtime's entry assembly that it can release waiting harts.
     1
 }
 
