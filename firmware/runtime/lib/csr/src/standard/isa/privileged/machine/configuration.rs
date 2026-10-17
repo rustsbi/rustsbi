@@ -58,7 +58,7 @@ csr! {
     /// Machine environment configuration register (`menvcfg`).
     ///
     /// See <https://docs.riscv.org/reference/isa/priv/machine.html#menvcfg>.
-    EnvironmentConfiguration { 0x30a, r,
+    EnvironmentConfig { 0x30a, r,
         /// See
         /// <https://docs.riscv.org/reference/isa/priv/machine.html#menvcfg>.
         ///
@@ -87,7 +87,7 @@ csr! {
         #[cfg(target_pointer_width = "64")]
         STCE[63] { rw: FeatureState }
     /// Upper half of `menvcfg` on RV32.
-    EnvironmentConfigurationHigh { 0x31a, r,
+    EnvironmentConfigHigh { 0x31a, r,
         /// Preserves execution and translation invariants as for `menvcfg`.
         ///
         /// # Safety
@@ -104,18 +104,18 @@ csr! {
     /// Machine security configuration register (`mseccfg`).
     ///
     /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mseccfg>.
-    SecurityConfiguration { 0x747, r }
+    SecurityConfig { 0x747, r }
         SSEED[9] { rw: FeatureState }
 }
 
-impl SecurityConfiguration {
+impl SecurityConfig {
     /// Grants S-mode access to `seed` with one CSRRS instruction.
     /// Other security and PMP lock fields retain their values.
     ///
     /// # Safety
     /// Run on a hart with mseccfg during initial security-policy setup.
     pub unsafe fn enable_supervisor_seed() {
-        let mut mask = SecurityConfigurationWriteValue(0);
+        let mut mask = SecurityConfigWriteValue(0);
         mask.write::<SSEED>(FeatureState::Enabled);
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         // SAFETY: the caller owns this grant; CSRRS preserves unrelated locks.
@@ -131,7 +131,7 @@ impl SecurityConfiguration {
     }
 }
 
-impl EnvironmentConfigurationReadValue {
+impl EnvironmentConfigReadValue {
     /// Returns whether Sstc controls supervisor timer pending state on RV64.
     #[cfg(target_pointer_width = "64")]
     pub fn supervisor_timer_enabled(self) -> bool {
@@ -139,21 +139,21 @@ impl EnvironmentConfigurationReadValue {
     }
 }
 
-impl EnvironmentConfigurationHighReadValue {
+impl EnvironmentConfigHighReadValue {
     /// Returns whether Sstc controls supervisor timer pending state on RV32.
     pub fn supervisor_timer_enabled(self) -> bool {
         self.read::<STCEH>() == FeatureState::Enabled
     }
 }
 
-impl From<EnvironmentConfigurationReadValue> for EnvironmentConfigurationWriteValue {
-    fn from(value: EnvironmentConfigurationReadValue) -> Self {
+impl From<EnvironmentConfigReadValue> for EnvironmentConfigWriteValue {
+    fn from(value: EnvironmentConfigReadValue) -> Self {
         Self(value.0)
     }
 }
 
-impl From<EnvironmentConfigurationHighReadValue> for EnvironmentConfigurationHighWriteValue {
-    fn from(value: EnvironmentConfigurationHighReadValue) -> Self {
+impl From<EnvironmentConfigHighReadValue> for EnvironmentConfigHighWriteValue {
+    fn from(value: EnvironmentConfigHighReadValue) -> Self {
         Self(value.0)
     }
 }
@@ -196,8 +196,8 @@ mod tests {
 
     #[test]
     fn low_fields_preserve_unrelated_bits_and_reserved_encodings() {
-        let original = EnvironmentConfigurationReadValue::from_bits((1 << 0) | (2 << 4));
-        let mut value = EnvironmentConfigurationWriteValue::from(original);
+        let original = EnvironmentConfigReadValue::from_bits((1 << 0) | (2 << 4));
+        let mut value = EnvironmentConfigWriteValue::from(original);
         value.write::<LPE>(FeatureState::Enabled);
         value.write::<SSE>(FeatureState::Enabled);
         assert_eq!(
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn rv32_high_fields_match_the_architectural_positions() {
-        let mut value = EnvironmentConfigurationHighWriteValue::from_bits(0);
+        let mut value = EnvironmentConfigHighWriteValue::from_bits(0);
         value.write::<DTEH>(FeatureState::Enabled);
         value.write::<ADUEH>(FeatureState::Enabled);
         value.write::<STCEH>(FeatureState::Enabled);
@@ -231,7 +231,7 @@ mod tests {
     #[cfg(target_pointer_width = "64")]
     #[test]
     fn rv64_high_fields_and_pointer_masking_use_the_upper_word() {
-        let mut value = EnvironmentConfigurationWriteValue::from_bits(0);
+        let mut value = EnvironmentConfigWriteValue::from_bits(0);
         value.write::<PMM>(PointerMasking::Bits7);
         value.write::<DTE>(FeatureState::Enabled);
         value.write::<ADUE>(FeatureState::Enabled);

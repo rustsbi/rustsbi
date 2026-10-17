@@ -6,19 +6,18 @@ use crate::{
     recovery::{csrr, csrw},
 };
 use csr::machine::{
-    self, EnvironmentConfiguration as EnvConfig,
-    EnvironmentConfigurationReadValue as EnvConfigRead,
-    EnvironmentConfigurationWriteValue as EnvConfigWrite,
+    self, EnvironmentConfig as EnvConfig, EnvironmentConfigReadValue as EnvConfigRead,
+    EnvironmentConfigWriteValue as EnvConfigWrite,
 };
 #[cfg(target_pointer_width = "64")]
 use machine::{
-    EnvironmentConfiguration as Upper, EnvironmentConfigurationReadValue as UpperReadValue,
-    EnvironmentConfigurationWriteValue as UpperValue, PBMTE,
+    EnvironmentConfig as Upper, EnvironmentConfigReadValue as UpperReadValue,
+    EnvironmentConfigWriteValue as UpperValue, PBMTE,
 };
 #[cfg(target_pointer_width = "32")]
 use machine::{
-    EnvironmentConfigurationHigh as Upper, EnvironmentConfigurationHighReadValue as UpperReadValue,
-    EnvironmentConfigurationHighWriteValue as UpperValue, PBMTEH as PBMTE,
+    EnvironmentConfigHigh as Upper, EnvironmentConfigHighReadValue as UpperReadValue,
+    EnvironmentConfigHighWriteValue as UpperValue, PBMTEH as PBMTE,
 };
 
 impl Hart {
@@ -84,11 +83,11 @@ impl Hart {
         if !self.extensions().contains(IsaExtensions::ZKR) {
             return Ok(());
         }
-        csrr!(machine::SecurityConfiguration)?;
+        csrr!(machine::SecurityConfig)?;
         // SAFETY: Initial setup owns the seed grant and the CSR probe succeeded.
-        unsafe { machine::SecurityConfiguration::enable_supervisor_seed() };
-        if csrr!(machine::SecurityConfiguration)
-            .map(machine::SecurityConfigurationReadValue::from_bits)?
+        unsafe { machine::SecurityConfig::enable_supervisor_seed() };
+        if csrr!(machine::SecurityConfig)
+            .map(machine::SecurityConfigReadValue::from_bits)?
             .read::<machine::SSEED>()
             != machine::FeatureState::Enabled
         {

@@ -15,15 +15,14 @@ use csr::{machine as registers, supervisor};
 use machine::{MachineTimer, MachineTimerState};
 #[cfg(target_pointer_width = "64")]
 use registers::{
-    EnvironmentConfiguration as Configuration,
-    EnvironmentConfigurationReadValue as ConfigurationReadValue,
-    EnvironmentConfigurationWriteValue as ConfigurationWriteValue, STCE,
+    EnvironmentConfig as Configuration, EnvironmentConfigReadValue as ConfigurationReadValue,
+    EnvironmentConfigWriteValue as ConfigurationWriteValue, STCE,
 };
 #[cfg(target_pointer_width = "32")]
 use registers::{
-    EnvironmentConfigurationHigh as Configuration,
-    EnvironmentConfigurationHighReadValue as ConfigurationReadValue,
-    EnvironmentConfigurationHighWriteValue as ConfigurationWriteValue, STCEH as STCE,
+    EnvironmentConfigHigh as Configuration,
+    EnvironmentConfigHighReadValue as ConfigurationReadValue,
+    EnvironmentConfigHighWriteValue as ConfigurationWriteValue, STCEH as STCE,
 };
 use spin::Once;
 
