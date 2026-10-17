@@ -35,8 +35,8 @@ const FIRMWARE_IPI_IDENTITY: u16 = 1;
 
 #[derive(Clone, Copy)]
 pub(super) struct CpuInterruptController {
-    phandle: u32,
-    hart_id: usize,
+    pub(super) phandle: u32,
+    pub(super) hart_id: usize,
 }
 
 struct MachineInterruptFile {
