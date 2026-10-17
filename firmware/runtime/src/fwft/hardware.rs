@@ -4,19 +4,18 @@ use super::{Feature, PointerMasking, Value};
 use crate::recovery::{csrr, csrw};
 use crate::{Error, Result};
 use csr::machine;
-use machine::{EnvironmentConfiguration as Low, FeatureState};
+use machine::{EnvironmentConfig as Low, FeatureState};
 
 #[cfg(target_pointer_width = "64")]
 use machine::{
-    ADUE, DTE, EnvironmentConfiguration as Upper,
-    EnvironmentConfigurationReadValue as UpperReadValue,
-    EnvironmentConfigurationWriteValue as UpperValue,
+    ADUE, DTE, EnvironmentConfig as Upper, EnvironmentConfigReadValue as UpperReadValue,
+    EnvironmentConfigWriteValue as UpperValue,
 };
 #[cfg(target_pointer_width = "32")]
 use machine::{
-    ADUEH as ADUE, DTEH as DTE, EnvironmentConfigurationHigh as Upper,
-    EnvironmentConfigurationHighReadValue as UpperReadValue,
-    EnvironmentConfigurationHighWriteValue as UpperValue,
+    ADUEH as ADUE, DTEH as DTE, EnvironmentConfigHigh as Upper,
+    EnvironmentConfigHighReadValue as UpperReadValue,
+    EnvironmentConfigHighWriteValue as UpperValue,
 };
 
 pub(super) fn read(feature: Feature) -> Result<Value> {
@@ -36,13 +35,13 @@ pub(super) fn read(feature: Feature) -> Result<Value> {
         // SAFETY: the FWFT transaction owns these fixed, side-effect-free reads.
         Feature::LandingPad => {
             csrr!(Low)
-                .map(machine::EnvironmentConfigurationReadValue::from_bits)?
+                .map(machine::EnvironmentConfigReadValue::from_bits)?
                 .read::<machine::LPE>()
                 == FeatureState::Enabled
         }
         Feature::ShadowStack => {
             csrr!(Low)
-                .map(machine::EnvironmentConfigurationReadValue::from_bits)?
+                .map(machine::EnvironmentConfigReadValue::from_bits)?
                 .read::<machine::SSE>()
                 == FeatureState::Enabled
         }
@@ -72,8 +71,8 @@ pub(super) fn write(feature: Feature, value: Value) -> Result<()> {
         }
         (Feature::LandingPad | Feature::ShadowStack, Value::Enabled(enabled)) => {
             // SAFETY: the IRQ-scoped transaction owns this configuration update.
-            let mut value = machine::EnvironmentConfigurationWriteValue::from(
-                csrr!(Low).map(machine::EnvironmentConfigurationReadValue::from_bits)?,
+            let mut value = machine::EnvironmentConfigWriteValue::from(
+                csrr!(Low).map(machine::EnvironmentConfigReadValue::from_bits)?,
             );
             if feature == Feature::LandingPad {
                 value.write::<machine::LPE>(enabled.into());
@@ -106,7 +105,7 @@ fn read_pointer_masking() -> Result<PointerMasking> {
     #[cfg(target_pointer_width = "64")]
     {
         // SAFETY: the Runtime entry contract holds; this read has no effects.
-        let value = csrr!(Low).map(machine::EnvironmentConfigurationReadValue::from_bits)?;
+        let value = csrr!(Low).map(machine::EnvironmentConfigReadValue::from_bits)?;
         match value.read::<machine::PMM>() {
             machine::PointerMaskingRead::Disabled => Ok(PointerMasking::Disabled),
             machine::PointerMaskingRead::Bits7 => Ok(PointerMasking::Bits7),
@@ -122,8 +121,8 @@ fn write_pointer_masking(mode: PointerMasking) -> Result<()> {
     #[cfg(target_pointer_width = "64")]
     {
         // SAFETY: IRQ exclusion covers this field-preserving update.
-        let mut value = machine::EnvironmentConfigurationWriteValue::from(
-            csrr!(Low).map(machine::EnvironmentConfigurationReadValue::from_bits)?,
+        let mut value = machine::EnvironmentConfigWriteValue::from(
+            csrr!(Low).map(machine::EnvironmentConfigReadValue::from_bits)?,
         );
         value.write::<machine::PMM>(mode);
         // SAFETY: only supervisor pointer masking changes, with no active

@@ -45,7 +45,7 @@ impl HardwareFacts {
             PrivilegedVersion::Unknown
         } else if csrr!(machine::CounterInhibit).is_err() {
             PrivilegedVersion::Version1_10
-        } else if csrr!(machine::EnvironmentConfiguration).is_err() {
+        } else if csrr!(machine::EnvironmentConfig).is_err() {
             PrivilegedVersion::Version1_11
         } else {
             PrivilegedVersion::Version1_12
