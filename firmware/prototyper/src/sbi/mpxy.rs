@@ -10,9 +10,11 @@
 use alloc::boxed::Box;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use runtime::hart::HartId;
-use runtime::memory::{PhysAddr, PhysAddrRange, SupervisorMemory};
-use runtime::rustsbi::SbiRet;
+use runtime::{
+    hart::HartId,
+    memory::{PhysAddr, PhysAddrRange, SupervisorMemory},
+    rustsbi::{Mpxy, SbiRet},
+};
 use sbi_spec::binary::SharedPtr;
 
 // The MPXY ABI requires at least one 4096-byte page and requires the reported
@@ -44,7 +46,7 @@ impl SbiMpxy {
     }
 }
 
-impl runtime::rustsbi::Mpxy for SbiMpxy {
+impl Mpxy for SbiMpxy {
     fn get_shmem_size(&self) -> usize {
         SHARED_MEMORY_SIZE
     }

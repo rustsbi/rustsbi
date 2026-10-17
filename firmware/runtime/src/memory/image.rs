@@ -1,6 +1,8 @@
 //! Physical bounds of the current firmware image.
 
 use super::{PhysAddr, PhysAddrRange};
+#[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+use crate::Error;
 use crate::Result;
 
 /// Returns firmware-owned memory, including the stacks established at boot.
@@ -29,6 +31,6 @@ pub(crate) fn linker_image_bounds() -> Result<(usize, usize)> {
             Ok((start, end))
         }
         #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-        () => Err(crate::Error::NotEnoughResources),
+        () => Err(Error::NotEnoughResources),
     }
 }

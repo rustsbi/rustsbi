@@ -12,9 +12,12 @@
 
 use crate::driver::allwinner::v821::{A27L2Cache, UsbDmaBypass};
 use crate::platform::allwinner::v821::V821;
-use runtime::memory::{MemoryRegistry, SupervisorMemory};
-use runtime::rustsbi::{Extension as SbiExtension, SbiRet, VendorSBI};
-use runtime::soc::allwinner::v821::AndesStatusRegister;
+use runtime::{
+    Error, Result,
+    memory::{MemoryRegistry, SupervisorMemory},
+    rustsbi::{self, Extension as SbiExtension, SbiRet, VendorSBI},
+    soc::allwinner::v821::AndesStatusRegister,
+};
 
 /// EID of the V821 BSP's Andes cache-maintenance extension.
 const EXTENSION: usize = 0x0900_031e;
@@ -28,10 +31,7 @@ pub(in crate::sbi::vendor) struct Extension {
 }
 
 impl Extension {
-    pub(in crate::sbi::vendor) fn bind(
-        v821: V821,
-        memory: &mut MemoryRegistry,
-    ) -> runtime::Result<Self> {
+    pub(in crate::sbi::vendor) fn bind(v821: V821, memory: &mut MemoryRegistry) -> Result<Self> {
         let (soc, cache, usb_dma_bypass) = v821.into_extension_devices()?.into_parts();
         Ok(Self {
             cache: A27L2Cache::bind(soc, cache, memory)?,
@@ -54,7 +54,7 @@ impl Extension {
 
 /// Vendor-specific extensions implemented by the V821 platform.
 #[derive(VendorSBI)]
-#[rustsbi(crate = runtime::rustsbi)]
+#[rustsbi(crate = rustsbi)]
 pub(crate) struct Extensions {
     #[rustsbi(extension(eid = EXTENSION))]
     andes: Option<Andes>,
@@ -89,9 +89,19 @@ impl SbiExtension for Andes {
                 self.cache
                     .read_status(AndesStatusRegister::MachineMiscControl),
             ),
-            23 => sbi_result(self.cache.flush_all()),
-            27 => sbi_result(self.cache.write_back_range(args[0], args[1], self.memory)),
-            28 => sbi_result(self.cache.invalidate_range(args[0], args[1], self.memory)),
+            23 => sbi_result(self.cache.flush_all(crate::sbi::timer())),
+            27 => sbi_result(self.cache.write_back_range(
+                args[0],
+                args[1],
+                self.memory,
+                crate::sbi::timer(),
+            )),
+            28 => sbi_result(self.cache.invalidate_range(
+                args[0],
+                args[1],
+                self.memory,
+                crate::sbi::timer(),
+            )),
             _ => SbiRet::not_supported(),
         }
     }
@@ -121,10 +131,10 @@ impl SbiExtension for Awbase {
     }
 }
 
-fn sbi_result(result: runtime::Result<()>) -> SbiRet {
+fn sbi_result(result: Result<()>) -> SbiRet {
     match result {
         Ok(()) => SbiRet::success(0),
-        Err(runtime::Error::InvalidArgs | runtime::Error::Overflow) => SbiRet::invalid_param(),
+        Err(Error::InvalidArgs | Error::Overflow) => SbiRet::invalid_param(),
         Err(_) => SbiRet::failed(),
     }
 }

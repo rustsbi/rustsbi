@@ -1,5 +1,7 @@
 //! RISC-V entry adapter for a C907 released from hardware reset.
 
+use runtime::boot;
+
 /// Enters a reset C907 without a bootloader register envelope.
 ///
 /// # Safety
@@ -14,7 +16,7 @@ unsafe extern "C" fn reset_entry() -> ! {
         "la a0, {initialize}",
         "tail {entry}",
         initialize = sym crate::driver::allwinner::v861::initialize_secondary,
-        entry = sym runtime::boot::c907_reset_entry,
+        entry = sym boot::c907_reset_entry,
     );
 }
 

@@ -6,13 +6,16 @@
 //!   sections 2.1.5 and 2.1.8 — IMSIC MMIO pages and interrupt-file setup.
 
 use alloc::boxed::Box;
+use core::num::NonZeroU16;
+use runtime::{
+    Error, Result,
+    hart::HartId,
+    ipi::{IpiDelivery, IpiDevice, IpiRequest},
+    memory::{MemoryRegistry, MmioRegion},
+};
 
 use riscv_aia::Iid;
-use riscv_aia::register::mtopei;
-use runtime::hart::HartId;
-use runtime::memory::{MemoryRegistry, MmioRegion};
 
-use crate::driver::{IpiBackend, IpiError, IpiRequest, SstcTimer, TimerBackend};
 use crate::platform::ImsicInfo;
 use crate::platform::qemu_aplic::QemuAplicConfig;
 use crate::riscv::csr::imsic;
@@ -43,24 +46,6 @@ pub(super) struct ImsicIpi {
     hart_files: Box<[MmioRegion]>,
 }
 
-/// Claims the firmware IPI identity from the current machine interrupt file.
-/// Constructed only after every enabled hart has passed AIA eligibility checks.
-pub(crate) struct ImsicInterrupt {
-    ipi_iid: Iid,
-}
-
-impl ImsicInterrupt {
-    pub(crate) fn new(ipi_iid: Iid) -> Self {
-        Self { ipi_iid }
-    }
-}
-
-impl runtime::irq::ExternalInterrupt for ImsicInterrupt {
-    fn claim_ipi(&self) -> bool {
-        mtopei::claim().iid() == Some(self.ipi_iid)
-    }
-}
-
 impl ImsicIpi {
     pub(super) fn new(ipi_iid: Iid, hart_files: Box<[MmioRegion]>) -> Self {
         Self {
@@ -70,36 +55,23 @@ impl ImsicIpi {
     }
 }
 
-impl IpiBackend for ImsicIpi {
+impl IpiDevice for ImsicIpi {
     #[inline(always)]
-    fn send_ipi(&self, req: IpiRequest) -> Result<(), IpiError> {
+    fn send(&self, req: IpiRequest) -> Result<()> {
         for hart_id in req.harts() {
-            let hart = HartId::from_raw(hart_id).map_err(|_| IpiError::Failed)?;
-            let file = self.hart_files.get(hart.index()).ok_or(IpiError::Failed)?;
+            let hart = HartId::from_raw(hart_id).map_err(|_| Error::IoError)?;
+            let file = self.hart_files.get(hart.index()).ok_or(Error::IoError)?;
             file.write(Register::SetEipnumLe.offset(), self.ipi_iid.number() as u32)
-                .map_err(|_| IpiError::Failed)?;
+                .map_err(|_| Error::IoError)?;
         }
         Ok(())
     }
 
     #[inline(always)]
-    fn clear_ipi(&self, hart_id: usize) -> Result<(), IpiError> {
-        // IMSIC clearing uses CSRs on the attached hart; only the firmware
-        // IPI identity is enabled in the machine interrupt file.
-        if hart_id
-            != HartId::current()
-                .expect("BUG: current hart is not in the boot topology")
-                .as_usize()
-        {
-            return Err(IpiError::Failed);
+    fn delivery(&self) -> IpiDelivery {
+        IpiDelivery::Imsic {
+            iid: NonZeroU16::new(self.ipi_iid.number()).expect("validated IMSIC IPI identity"),
         }
-        let _ = mtopei::claim();
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn is_imsic(&self) -> bool {
-        true
     }
 }
 
@@ -108,13 +80,13 @@ pub(super) fn bind(
     imsic: &ImsicInfo,
     aplic_config: Option<QemuAplicConfig>,
     memory: &mut MemoryRegistry,
-) -> runtime::Result<(Box<dyn TimerBackend>, Box<dyn IpiBackend + Send + Sync>)> {
+) -> Result<Box<dyn IpiDevice>> {
     // No fallback is permitted after the first MMIO window is issued. All
     // hardware capability checks above therefore precede initialization.
-    let hart_files: runtime::Result<alloc::vec::Vec<_>> = imsic
+    let hart_files: Result<alloc::vec::Vec<_>> = imsic
         .hart_files
         .iter()
-        .map(|register_range| memory.acquire_mmio(*register_range))
+        .map(|register_range| memory.acquire(*register_range))
         .collect();
     let ipi = ImsicIpi::new(imsic.ipi_iid, hart_files?.into_boxed_slice());
 
@@ -122,16 +94,14 @@ pub(super) fn bind(
         aplic_config.bind(memory)?;
     }
 
-    Ok((Box::new(SstcTimer), Box::new(ipi)))
+    Ok(Box::new(ipi))
 }
 
-/// Sets up this hart's machine interrupt file: delivery, thresholds, and
-/// the firmware IPI interrupt enable, then enables machine externals.
+/// Sets up this hart's machine interrupt file: delivery, thresholds, and the
+/// firmware IPI interrupt enable.
+/// Runtime enables machine externals at handoff.
 pub(crate) fn initialize_hart_imsic(imsic_info: &ImsicInfo) {
     let ipi_iid = usize::from(imsic_info.ipi_iid.number());
     imsic::initialize_machine_file(usize::from(imsic_info.num_ids), ipi_iid);
-    debug!(
-        "IMSIC: hart init done, MEIE enabled, firmware IPI IID={}",
-        ipi_iid
-    );
+    debug!("IMSIC: hart init done, firmware IPI IID={}", ipi_iid);
 }

@@ -1,66 +1,93 @@
-//! Typed RISC-V CSR access for RustSBI firmware.
+//! Typed RISC-V CSR instructions and field values.
 //!
-//! Read snapshots and write values are ordinary data. A complete write does
-//! not require a prior read. Field edits preserve untouched bits in the local value.
-//! `modify` performs a non-atomic read followed by a write. Hardware may constrain
-//! writable values or change register state between those operations.
-//! Standard registers use `mode::Name`; vendor registers use `vendor::mode::Name`.
-//! For example, use [`machine::CounterEnable`] and [`thead::machine::ExtendedStatus`].
+//! Register types identify hardware; they have no instances or acquisition step.
+//! Read snapshots and write values are ordinary data. Their field operations
+//! execute no hardware instructions.
+//!
+//! Ordinary `read()` observes the current hart's register without changing it.
+//! Inaccessible or unavailable hardware can trap. Runtime owns probing,
+//! recovery, privilege checks, and hart-local execution.
+//!
+//! Writes and operations with side effects are unsafe. Their callers must
+//! establish current-hart access, coordinate conflicting operations, and
+//! preserve the register's documented execution requirements.
+//! Typed encodings do not prove that a hardware transition is safe.
+//!
+//! `modify` reads a snapshot and writes the edited value back.
+//! This sequence is not atomic.
+//!
+//! `InterruptPending::set` and `clear` use CSRRS and CSRRC. They update
+//! software-controlled pending bits without latching the external SEIP signal.
+//! Whole-register writes and generic read/modify/write are unavailable.
+//! See the [machine interrupt specification](https://docs.riscv.org/reference/isa/priv/machine.html#mip).
+//!
+//! `Mtopei::read` observes the top interrupt without acknowledgement.
+//! `Mtopei::claim` executes one `csrrw rd, mtopei, x0` to read and acknowledge
+//! the same identity. Generic writes and read/modify/write are unavailable.
+//! See the [IMSIC specification](https://docs.riscv.org/reference/aia/v1.0/IMSIC.html).
 //!
 //! ```no_run
+//! # #![cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), no_std)]
+//! # #![cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), no_main)]
+//! # #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+//! # #[panic_handler]
+//! # fn panic(_: &core::panic::PanicInfo<'_>) -> ! { loop {} }
+//! # fn main() {
 //! use csr::machine;
-//! let hart = machine::HartId::read();
-//! let mut value = machine::InterruptEnableWriteValue::disabled();
-//! value.write::<machine::MSIE>(machine::InterruptState::Enabled);
-//! // SAFETY: a valid machine software interrupt handler is installed.
-//! unsafe { machine::InterruptEnable::write(value) };
-//! // SAFETY: disabling this interrupt preserves the active execution context.
-//! unsafe {
-//!     machine::InterruptEnable::modify(|_, w| {
-//!         w.write::<machine::MSIE>(machine::InterruptState::Disabled);
-//!     });
-//! }
+//! let isa = machine::Isa::read();
+//! let supports_supervisor = isa.has_supervisor();
+//! // SAFETY: This M-mode example owns software pending-state delivery on its hart.
+//! unsafe { machine::InterruptPending::set::<machine::SSIP>(); }
+//! # }
 //! ```
 //!
-//! Read snapshots cannot be edited:
+//! Pending-bit operations reject interrupt-enable fields:
 //!
-//! ```compile_fail
+//! ```compile_fail,E0277
+//! # #![cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), no_std)]
+//! # #![cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), no_main)]
+//! # #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+//! # #[panic_handler]
+//! # fn panic(_: &core::panic::PanicInfo<'_>) -> ! { loop {} }
+//! # fn main() {
 //! use csr::machine;
-//! let mut status = machine::Status::read();
-//! status.write::<machine::MIE>(machine::InterruptState::Disabled);
+//! unsafe { machine::InterruptPending::set::<machine::MSIE>(); }
+//! # }
 //! ```
 //!
-//! Read encodings cannot be supplied where a write choice is required:
+//! Pending state has no whole-register write:
 //!
-//! ```compile_fail
+//! ```compile_fail,E0599
+//! # #![cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), no_std)]
+//! # #![cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), no_main)]
+//! # #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+//! # #[panic_handler]
+//! # fn panic(_: &core::panic::PanicInfo<'_>) -> ! { loop {} }
+//! # fn main() {
 //! use csr::machine;
-//! let mut status = machine::StatusWriteValue::for_return(machine::TargetPrivilege::Supervisor);
-//! status.write::<machine::MPP>(machine::Privilege::Machine);
+//! unsafe { machine::InterruptPending::write(machine::InterruptPending::read()); }
+//! # }
 //! ```
 //!
-//! Hardware status writes require their safety contract:
+//! Execution-environment writes require their safety contract:
 //!
-//! ```compile_fail
+//! ```compile_fail,E0133
+//! # #![cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), no_std)]
+//! # #![cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), no_main)]
+//! # #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+//! # #[panic_handler]
+//! # fn panic(_: &core::panic::PanicInfo<'_>) -> ! { loop {} }
+//! # fn main() {
 //! use csr::machine;
-//! machine::Status::modify(|_, w| w.write::<machine::MIE>(machine::InterruptState::Enabled));
-//! ```
-//!
-//! Interrupt-pending updates require dedicated bit operations. A read-modify-write
-//! could copy the hardware-ORed `SEIP` value into its software latch:
-//!
-//! ```compile_fail
-//! use csr::machine;
-//! machine::InterruptPending::modify(|_, w| {
-//!     w.write::<machine::SSIP>(machine::PendingState::Pending);
+//! machine::Status::modify(|_, value| {
+//!     value.write::<machine::MIE>(machine::Interrupt::Enabled);
 //! });
+//! # }
 //! ```
-
 #![no_std]
 
 mod macros;
 mod value;
-
-pub use value::{Readable, Writeable};
 
 mod standard;
 mod vendor;
@@ -71,3 +98,4 @@ pub use standard::isa::{
     values,
 };
 pub use vendor::thead;
+pub use standard::aia;

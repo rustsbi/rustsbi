@@ -16,7 +16,7 @@
 # and neither is the U-Boot build: the SPL embeds the firmware binary.
 #
 # Requires: `cargo prototyper build` to have produced the firmware, plus
-# qemu-system-riscv64, qemu-img, curl, xz, parted, debugfs (e2fsprogs),
+# qemu-system-riscv64, qemu-img, aria2c, xz, parted, debugfs (e2fsprogs),
 # riscv64-linux-gnu-gcc, swig, python3-dev and libssl-dev for the U-Boot
 # build. Everything runs unprivileged: the boot disk is assembled with
 # parted/dd/debugfs on plain files, with no loop devices or mounts.
@@ -75,7 +75,7 @@ download_asset() {
   local url=$1
   local destination=$2
   local digest=$3
-  local temp
+  local temp="${destination}.part"
 
   if [[ -f "$destination" ]] && printf '%s  %s\n' "$digest" "$destination" | sha256sum --check --status; then
     echo "Using cached $(basename "$destination")" >&2
@@ -84,23 +84,23 @@ download_asset() {
 
   echo "Downloading $url" >&2
   mkdir -p "$(dirname "$destination")"
-  temp=$(mktemp "${destination}.part.XXXXXX")
 
-  if ! curl --fail --location \
-    --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT_SECS" \
-    --max-time "$DOWNLOAD_TIMEOUT_SECS" \
-    --retry 3 \
-    --retry-all-errors \
-    --retry-max-time "$DOWNLOAD_TIMEOUT_SECS" \
-    --output "$temp" \
+  # Keep partial data and its control file so retries can resume the download.
+  if ! timeout "$DOWNLOAD_TIMEOUT_SECS" aria2c \
+    --no-conf=true \
+    --connect-timeout="$DOWNLOAD_CONNECT_TIMEOUT_SECS" \
+    --timeout=30 --max-tries=4 --retry-wait=2 \
+    --split=4 --max-connection-per-server=4 --min-split-size=1M \
+    --continue=true --allow-overwrite=true --auto-file-renaming=false \
+    --file-allocation=none \
+    --dir="$(dirname "$temp")" --out="$(basename "$temp")" \
     "$url"; then
-    rm -f "$temp"
     return 1
   fi
 
   if ! printf '%s  %s\n' "$digest" "$temp" | sha256sum --check --status; then
     echo "Checksum mismatch for $url" >&2
-    rm -f "$temp"
+    rm -f "$temp" "${temp}.aria2"
     return 1
   fi
 

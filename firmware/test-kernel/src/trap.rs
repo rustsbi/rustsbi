@@ -142,7 +142,8 @@ static mut TRAP_VALUE: usize = 0;
 /// # Safety
 ///
 /// Install only as an S-mode trap vector with writable test records.
-/// Test instructions must occupy four-byte slots and account for `t0`/`t1`/`t2` clobbers.
+/// Test instructions must occupy four-byte slots and account for `t0`/`t1`/`t2`
+/// clobbers.
 #[unsafe(naked)]
 #[unsafe(no_mangle)]
 unsafe extern "C" fn s_skip_trap() {
@@ -220,6 +221,29 @@ fn test_redirected_traps() {
         let old_stvec: usize;
         asm!("csrr {value}, stvec", value = out(reg) old_stvec);
         asm!("csrw stvec, {value}", value = in(reg) s_skip_trap as *const () as usize);
+
+        // Virt address zero has no backing device. Both faults must reach
+        // Runtime and increment the corresponding firmware counter.
+        crate::pmu::test_trap_counter(sbi_spec::pmu::firmware_event::ACCESS_LOAD, || {
+            core::ptr::write_volatile(&raw mut TRAP_CAUSE, 0);
+            asm!(".option push", ".option norvc", "lw zero, 0(zero)", ".option pop",
+                out("t0") _, out("t1") _, out("t2") _);
+            check!(
+                "load access fault",
+                core::ptr::read_volatile(&raw const TRAP_CAUSE),
+                5
+            );
+        });
+        crate::pmu::test_trap_counter(sbi_spec::pmu::firmware_event::ACCESS_STORE, || {
+            core::ptr::write_volatile(&raw mut TRAP_CAUSE, 0);
+            asm!(".option push", ".option norvc", "sw zero, 0(zero)", ".option pop",
+                out("t0") _, out("t1") _, out("t2") _);
+            check!(
+                "store access fault",
+                core::ptr::read_volatile(&raw const TRAP_CAUSE),
+                7
+            );
+        });
 
         core::ptr::write_volatile(&raw mut TRAP_CAUSE, 0);
         asm!(
@@ -511,7 +535,8 @@ fn test_guest_traps() {
 /// # Safety
 ///
 /// Run in HS-mode on a hart with H and bare host translation.
-/// `a0` must exclusively reference `GuestTraps` writable from the bare HS/VS contexts.
+/// `a0` must exclusively reference `GuestTraps` writable from the bare HS/VS
+/// contexts.
 /// `a1` supplies the `hedeleg` mask; `a2` supplies only the initial `SPP` bit.
 #[unsafe(naked)]
 unsafe extern "C" fn guest_roundtrip(_: *mut GuestTraps, _: usize, _: usize) {

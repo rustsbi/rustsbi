@@ -1,14 +1,15 @@
-use ::riscv::register::mstatus::MPP;
-use csr::machine;
-use riscv::register::misa;
-use runtime::FdtNode;
-use seq_macro::seq;
+use riscv::register::mstatus::MPP;
+use runtime::{
+    FdtNode, boot,
+    hart::{self, HartId},
+    ipi::IpiDelivery,
+    timer::Timer,
+};
 
 use crate::fail;
 use crate::platform::mark_hart_privilege_checked;
 use crate::riscv::csr::*;
 use crate::sbi::hart_local::{with_current, with_hart};
-use runtime::hart::HartId;
 
 #[derive(Default)]
 pub struct HartFeatures {
@@ -28,14 +29,7 @@ impl HartFeatures {
     }
 }
 
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub enum PrivilegedVersion {
-    #[default]
-    Unknown = 0,
-    Version1_10 = 1,
-    Version1_11 = 2,
-    Version1_12 = 3,
-}
+pub use runtime::hart::PrivilegedVersion;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Extension {
@@ -135,7 +129,7 @@ pub fn detect_extensions(hart_id: usize, cpu: FdtNode<'_, '_>) {
             .expect("BUG: current hart exceeds Runtime capacity")
             .as_usize()
     {
-        extensions[Extension::Hypervisor.index()] = misa::read().has_extension('H');
+        extensions[Extension::Hypervisor.index()] = hart::has_hypervisor();
     }
     with_hart(hart_id, |local| {
         local.with_features_mut(|features| features.extensions = extensions)
@@ -147,20 +141,7 @@ pub fn detect_extensions(hart_id: usize, cpu: FdtNode<'_, '_>) {
 pub fn detect_extensions(_hart_id: usize, _cpu: FdtNode<'_, '_>) {}
 
 fn detect_privileged_version() {
-    let mut privileged_version = PrivilegedVersion::Unknown;
-    // SAFETY: Feature discovery runs in M-mode after Runtime entry setup.
-    // These CSR reads have no side effects.
-    unsafe {
-        if has_csr::<machine::CounterEnable>() {
-            privileged_version = PrivilegedVersion::Version1_10;
-            if has_csr::<machine::CounterInhibit>() {
-                privileged_version = PrivilegedVersion::Version1_11;
-                if has_csr::<machine::EnvironmentConfiguration>() {
-                    privileged_version = PrivilegedVersion::Version1_12;
-                }
-            }
-        }
-    }
+    let privileged_version = hart::detect_privileged_version();
     with_current(|local| {
         local.with_features_mut(|features| features.privileged_version = privileged_version)
     });
@@ -168,27 +149,15 @@ fn detect_privileged_version() {
 
 /// Detects Sstc even when it is omitted from the device tree.
 fn detect_sstc() {
-    let sstc = runtime::timer::has_sstc();
+    let sstc = Timer::supports_sstc();
     with_current(|local| {
         local.with_features_mut(|features| features.extensions[Extension::Sstc.index()] = sstc)
     });
 }
 
 fn detect_mhpm_counters() {
-    // mcycle, minstret, and time are treated as always implemented;
-    // bits 0-2 of the mask record them.
-    let mut mhpm_mask: u32 = 0b111;
-
-    macro_rules! m_probe_mhpm_csr {
-        ($index:expr, $value:expr) => {
-            // SAFETY: Startup owns these counters before the PMU is published.
-            unsafe { probe_mhpm_csr::<$index>($value) }
-        };
-    }
-
-    seq!(index in 3..=31{
-        m_probe_mhpm_csr!(index, &mut mhpm_mask);
-    });
+    // SAFETY: Startup owns these counters before the PMU is published.
+    let mhpm_mask = unsafe { hart::detect_performance_counters() };
 
     with_current(|local| {
         local.with_features_mut(|features| {
@@ -202,8 +171,8 @@ fn detect_mhpm_counters() {
     });
 }
 
-/// Detects the current hart's privileged-architecture version, Sstc support
-/// and hardware counters after device-tree discovery.
+/// Detects the current hart's privileged-architecture version, Sstc support and
+/// hardware counters after device-tree discovery.
 pub fn detect_hart_features() {
     detect_privileged_version();
     detect_sstc();
@@ -234,22 +203,22 @@ pub fn init(cpus: FdtNode<'_, '_>) {
 
 /// Checks that this hart supports the requested privilege mode.
 ///
-/// Warns and stops the hart if it does not.
+/// Reports an error and stops the hart if it does not.
 pub fn check_next_stage_privilege(next_mode: MPP) {
     let hart_id = HartId::current()
         .expect("BUG: current hart exceeds Runtime capacity")
         .as_usize();
     match next_mode {
         MPP::Supervisor => {
-            if !misa::read().has_extension('S') {
-                warn!("Hart {} does not support Supervisor mode", hart_id);
+            if !hart::supports_privilege(MPP::Supervisor) {
+                error!("Hart {} does not support Supervisor mode", hart_id);
                 fail::stop();
             }
             mark_hart_privilege_checked(hart_id);
         }
         MPP::User => {
-            if !misa::read().has_extension('U') {
-                warn!("Hart {} does not support User mode", hart_id);
+            if !hart::supports_privilege(MPP::User) {
+                error!("Hart {} does not support User mode", hart_id);
                 fail::stop();
             }
             mark_hart_privilege_checked(hart_id);
@@ -258,8 +227,8 @@ pub fn check_next_stage_privilege(next_mode: MPP) {
     }
 }
 
-/// Configures the per-hart S-mode environment CSRs for supervisor
-/// hand-off (counter inhibits and environment features).
+/// Configures the per-hart S-mode environment CSRs for supervisor hand-off
+/// (counter inhibits and environment features).
 ///
 /// Runtime boot owns delegation, counter access and trap-vector setup.
 pub fn configure_hart_environment() {
@@ -270,7 +239,7 @@ pub fn configure_hart_environment() {
     if cfg!(target_pointer_width = "32") || hart_has_extension(hart_id, Extension::Svpbmt) {
         // SAFETY: M-mode startup has installed Runtime entry, with mscratch zero,
         // MPRV clear, and no lower-mode address space active on this hart.
-        unsafe { runtime::csr::thead::disable_maee() };
+        unsafe { boot::disable_thead_maee() };
     }
     let hart_priv_version = hart_privileged_version(hart_id);
     if hart_priv_version >= PrivilegedVersion::Version1_11 {
@@ -298,14 +267,13 @@ pub fn configure_hart_environment() {
             menvcfg::set_bits(menvcfg::PBMTE);
         }
         // The S-mode access to the Zkr `seed` CSR is gated under `mseccfg.SSEED`.
-        // SAFETY: M-mode startup with Runtime entry installed; mseccfg reads have no side effects.
-        if hart_has_extension(hart_id, Extension::Zkr)
-            && unsafe { has_csr::<machine::SecurityConfiguration>() }
-        {
-            mseccfg::set_bits(mseccfg::SSEED);
+        if hart_has_extension(hart_id, Extension::Zkr) {
+            boot::enable_supervisor_seed();
         }
-        let enable_aia =
-            crate::driver::ipi::uses_imsic() && hart_has_extension(hart_id, Extension::Smaia);
-        runtime::csr::stateen::configure_supervisor(enable_aia);
+        let enable_aia = matches!(
+            crate::platform::ipi_delivery(),
+            Some(IpiDelivery::Imsic { .. })
+        ) && hart_has_extension(hart_id, Extension::Smaia);
+        boot::configure_state_access(enable_aia);
     }
 }

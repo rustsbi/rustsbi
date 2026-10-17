@@ -1,6 +1,5 @@
 #[cfg(target_pointer_width = "32")]
 use core::arch::asm;
-use csr::machine;
 
 // Machine counter inhibit and the event-selector CSR range.
 pub const CSR_MHPMEVENT3: u16 = 0x323;
@@ -11,35 +10,6 @@ pub const CSR_MCYCLE: u16 = 0xb00;
 pub const CSR_MINSTRET: u16 = 0xb02;
 pub const CSR_MHPMCOUNTER3: u16 = 0xb03;
 pub const CSR_CYCLE: u16 = 0xc00;
-
-/// Probes whether the current hart can read a declared CSR.
-///
-/// # Safety
-///
-/// Satisfy [`runtime::csr::read`]'s entry and register-specific requirements.
-pub unsafe fn has_csr<R: csr::Readable>() -> bool {
-    // SAFETY: The caller establishes this CSR's read and entry requirements.
-    unsafe { runtime::csr::read::<R>() }.is_ok()
-}
-
-/// Probes the machine performance counter at `INDEX` (3..=31).
-///
-/// # Safety
-///
-/// Run during M-mode feature discovery after Runtime entry is installed,
-/// with `mscratch` zero, `MPRV` clear, and exclusive access to this counter.
-pub unsafe fn probe_mhpm_csr<const INDEX: u8>(mhpm_mask: &mut u32) {
-    // SAFETY: The caller owns this counter during Runtime feature discovery.
-    if let Ok(old_value) = unsafe { runtime::csr::read::<machine::PerformanceCounter<INDEX>>() }
-        // SAFETY: The probe still owns this counter and may change its value.
-        && unsafe { runtime::csr::write::<machine::PerformanceCounter<INDEX>>(1usize.into()) }.is_ok()
-        // SAFETY: The probe retains exclusive access and supplies the saved counter value.
-        && unsafe { runtime::csr::swap::<machine::PerformanceCounter<INDEX>>(old_value) }.map(usize::from)
-            == Ok(1)
-    {
-        *mhpm_mask |= 1 << INDEX;
-    }
-}
 
 /// Machine environment configuration register (`menvcfg`) bit fields.
 pub mod menvcfg {
@@ -83,24 +53,6 @@ pub mod menvcfg {
     }
 }
 
-/// Machine security configuration register (`mseccfg`) bit fields.
-pub mod mseccfg {
-    use core::arch::asm;
-
-    /// S-mode access to the `seed` CSR (Zkr).
-    pub const SSEED: u64 = 0x1 << 9;
-
-    /// Sets specified bits in `mseccfg` register.
-    pub fn set_bits(option: u64) {
-        // SAFETY: M-mode update of this hart's own mseccfg. Callers probe the
-        // CSR first; the Zkr bits live in the low 32 bits on every XLEN, so
-        // no high-half write is needed on RV32.
-        unsafe {
-            asm!("csrs mseccfg, {}", in(reg) option as usize, options(nomem));
-        }
-    }
-}
-
 /// Machine interrupt-file CSR operations.
 pub mod imsic {
     use riscv_aia::csrind::eidelivery::{self, Eidelivery};
@@ -108,8 +60,8 @@ pub mod imsic {
     use riscv_aia::csrind::eip::{self, Eip};
     use riscv_aia::csrind::eithreshold::{self, Eithreshold};
 
-    /// Initializes this hart's machine interrupt file and enables machine
-    /// external interrupts.
+    /// Initializes this hart's machine interrupt file.
+    /// Runtime enables machine external interrupts during next-stage handoff.
     ///
     /// Callers probe Smaia before reaching this architecture boundary;
     /// selectors are derived from the validated IMSIC identity count.
@@ -142,34 +94,6 @@ pub mod imsic {
             let bit_pos = ipi_iid % usize::BITS as usize;
             let enabled = eie::machine::read(eie_index).set_enabled(bit_pos as u32, true);
             eie::machine::write(eie_index, enabled);
-        }
-
-        runtime::csr::mie::set_machine_external();
-    }
-}
-
-/// Supervisor timer compare register operations.
-pub mod stimecmp {
-    use core::arch::asm;
-
-    /// Sets the supervisor timer compare value.
-    pub fn set(value: u64) {
-        // SAFETY: Callers have probed Sstc; M-mode may program stimecmp on
-        // this hart when the extension is implemented.
-        unsafe {
-            #[cfg(target_pointer_width = "64")]
-            asm!("csrrw zero, stimecmp, {}", in(reg) value, options(nomem));
-            // Avoid an early interrupt while replacing the two halves.
-            #[cfg(target_pointer_width = "32")]
-            asm!(
-                "csrw stimecmp, {max}",
-                "csrw 0x15d, {high}",
-                "csrw stimecmp, {low}",
-                max = in(reg) usize::MAX,
-                high = in(reg) (value >> 32) as usize,
-                low = in(reg) value as usize,
-                options(nomem),
-            );
         }
     }
 }
@@ -316,13 +240,6 @@ pub fn write_mhpmcounter(mhpm_offset: u16, mhpmcounter_val: u64) {
 pub mod fence {
     use core::arch::asm;
 
-    /// Publishes shared-memory writes before notifying an I/O device.
-    #[inline]
-    pub fn memory_to_io() {
-        // SAFETY: Orders memory writes before device output on this hart.
-        unsafe { asm!("fence w, o", options(nostack)) };
-    }
-
     /// Orders device acknowledgement before accessing shared event state.
     #[inline]
     pub fn io_to_memory() {
@@ -343,15 +260,15 @@ pub mod fence {
         unsafe { asm!("sfence.vma {}", in(reg) addr) };
     }
 
-    /// Invalidates all supervisor TLB entries for `asid`
-    /// (`sfence.vma x0, asid`).
+    /// Invalidates all supervisor TLB entries for `asid` (`sfence.vma x0,
+    /// asid`).
     pub fn sfence_vma_asid(asid: usize) {
         // SAFETY: Per-ASID TLB invalidate; requested by a validated SBI rfence call.
         unsafe { asm!("sfence.vma x0, {}", in(reg) asid) };
     }
 
-    /// Invalidates supervisor TLB entries for (`addr`, `asid`)
-    /// (`sfence.vma addr, asid`).
+    /// Invalidates supervisor TLB entries for (`addr`, `asid`) (`sfence.vma
+    /// addr, asid`).
     pub fn sfence_vma_addr_asid(addr: usize, asid: usize) {
         // SAFETY: Partial, per-ASID TLB invalidate; operands come from a
         // validated SBI rfence call.
@@ -382,8 +299,8 @@ pub mod fence {
         unsafe { asm!("hfence.gvma x0, {}", in(reg) vmid) };
     }
 
-    /// Invalidates guest TLB entries for (`addr`, `vmid`)
-    /// (`hfence.gvma addr, vmid`).
+    /// Invalidates guest TLB entries for (`addr`, `vmid`) (`hfence.gvma addr,
+    /// vmid`).
     #[cfg(feature = "hypervisor")]
     pub fn hfence_gvma_addr_vmid(addr: usize, vmid: usize) {
         // SAFETY: Partial, per-VMID guest-physical TLB invalidate; the
@@ -399,8 +316,8 @@ pub mod fence {
         unsafe { asm!("hfence.vvma x0, x0") };
     }
 
-    /// Invalidates guest supervisor TLB entries for `addr`
-    /// (`hfence.vvma addr, x0`).
+    /// Invalidates guest supervisor TLB entries for `addr` (`hfence.vvma addr,
+    /// x0`).
     #[cfg(feature = "hypervisor")]
     pub fn hfence_vvma_addr(addr: usize) {
         // SAFETY: Single-page guest-virtual TLB invalidate; the hypervisor
@@ -408,8 +325,8 @@ pub mod fence {
         unsafe { asm!("hfence.vvma {}, x0", in(reg) addr) };
     }
 
-    /// Invalidates all guest supervisor TLB entries for `asid`
-    /// (`hfence.vvma x0, asid`).
+    /// Invalidates all guest supervisor TLB entries for `asid` (`hfence.vvma
+    /// x0, asid`).
     #[cfg(feature = "hypervisor")]
     pub fn hfence_vvma_asid(asid: usize) {
         // SAFETY: Per-ASID guest-virtual TLB invalidate; the hypervisor

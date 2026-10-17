@@ -19,49 +19,46 @@ readonly DOWNLOAD_CONNECT_TIMEOUT_SECS="${OPENRUYI_DOWNLOAD_CONNECT_TIMEOUT_SECS
 readonly DOWNLOAD_TIMEOUT_SECS="${OPENRUYI_DOWNLOAD_TIMEOUT_SECS:-900}"
 
 QEMU_PID=""
-DOWNLOAD_TEMP=""
-
-verify_assets() {
-  (
-    cd "$CACHE_DIR"
-    printf '%s  %s\n%s  %s\n' \
-      "$KERNEL_SHA256" "$KERNEL_NAME" \
-      "$INITRD_SHA256" "$INITRD_NAME" \
-      | sha256sum --check
-  )
-}
 
 download_asset() {
-  local name=$1
+  local url=$1
   local destination=$2
-  DOWNLOAD_TEMP=$(mktemp "${destination}.part.XXXXXX")
+  local digest=$3
+  local temp="${destination}.part"
 
-  if ! curl --fail --location \
-    --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT_SECS" \
-    --max-time "$DOWNLOAD_TIMEOUT_SECS" \
-    --retry 3 \
-    --retry-all-errors \
-    --retry-max-time "$DOWNLOAD_TIMEOUT_SECS" \
-    --output "$DOWNLOAD_TEMP" \
-    "${BASE_URL}/${name}"; then
-    return 1
-  fi
-
-  mv "$DOWNLOAD_TEMP" "$destination"
-  DOWNLOAD_TEMP=""
-}
-
-prepare_assets() {
-  mkdir -p "$CACHE_DIR"
-  if verify_assets >/dev/null 2>&1; then
-    verify_assets
+  if [[ -f "$destination" ]] && printf '%s  %s\n' "$digest" "$destination" | sha256sum --check --status; then
+    echo "Using cached $(basename "$destination")" >&2
     return
   fi
 
-  echo "Downloading openRuyi ${RELEASE} Zero boot assets"
-  download_asset "$KERNEL_NAME" "$KERNEL_PATH"
-  download_asset "$INITRD_NAME" "$INITRD_PATH"
-  verify_assets
+  echo "Downloading $url" >&2
+  mkdir -p "$(dirname "$destination")"
+
+  # Keep partial data and its control file so retries can resume the download.
+  if ! timeout "$DOWNLOAD_TIMEOUT_SECS" aria2c \
+    --no-conf=true \
+    --connect-timeout="$DOWNLOAD_CONNECT_TIMEOUT_SECS" \
+    --timeout=30 --max-tries=4 --retry-wait=2 \
+    --split=4 --max-connection-per-server=4 --min-split-size=1M \
+    --continue=true --allow-overwrite=true --auto-file-renaming=false \
+    --file-allocation=none \
+    --dir="$(dirname "$temp")" --out="$(basename "$temp")" \
+    "$url"; then
+    return 1
+  fi
+
+  if ! printf '%s  %s\n' "$digest" "$temp" | sha256sum --check --status; then
+    echo "Checksum mismatch for $url" >&2
+    rm -f "$temp" "${temp}.aria2"
+    return 1
+  fi
+
+  mv "$temp" "$destination"
+}
+
+prepare_assets() {
+  download_asset "${BASE_URL}/${KERNEL_NAME}" "$KERNEL_PATH" "$KERNEL_SHA256"
+  download_asset "${BASE_URL}/${INITRD_NAME}" "$INITRD_PATH" "$INITRD_SHA256"
 }
 
 check_qemu() {
@@ -78,13 +75,6 @@ stop_qemu() {
     kill "$QEMU_PID" 2>/dev/null || true
     wait "$QEMU_PID" 2>/dev/null || true
   fi
-}
-
-cleanup() {
-  if [[ -n "$DOWNLOAD_TEMP" ]]; then
-    rm -f "$DOWNLOAD_TEMP"
-  fi
-  stop_qemu
 }
 
 start_qemu() {
@@ -138,7 +128,7 @@ wait_for_userspace() {
 }
 
 main() {
-  trap cleanup EXIT
+  trap stop_qemu EXIT
   prepare_assets
   check_qemu
   start_qemu

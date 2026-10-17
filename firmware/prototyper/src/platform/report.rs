@@ -1,6 +1,11 @@
 //! Startup log for the discovered platform.
 
 use alloc::vec::Vec;
+use runtime::{
+    hart::HartId,
+    ipi::IpiDelivery,
+    rustsbi::{LOGO, VERSION},
+};
 
 use super::info::BoardInfo;
 use super::state::board_info;
@@ -8,10 +13,8 @@ use super::state::board_info;
 pub(super) fn log_platform_summary() {
     let board = board_info();
 
-    info!("RustSBI version {}", runtime::rustsbi::VERSION);
-    runtime::rustsbi::LOGO
-        .lines()
-        .for_each(|line| info!("{}", line));
+    info!("RustSBI version {}", VERSION);
+    LOGO.lines().for_each(|line| info!("{}", line));
     info!("Initializing RustSBI machine-mode environment.");
     info!("{:<30}: {}", "Platform Name", board.model);
 
@@ -24,21 +27,17 @@ pub(super) fn log_platform_summary() {
 }
 
 fn log_harts() {
-    info!(
-        "{:<30}: {}",
-        "Platform HART Count",
-        runtime::hart::HartId::count()
-    );
+    info!("{:<30}: {}", "Platform HART Count", HartId::count());
 
-    let enabled_harts: Vec<_> = runtime::hart::HartId::all()
-        .map(|hart| hart.as_usize())
-        .collect();
+    let enabled_harts: Vec<_> = HartId::all().map(|hart| hart.as_usize()).collect();
     info!("{:<30}: {:?}", "Enabled HARTs", enabled_harts);
 }
 
 fn log_interrupt_controller(board: &BoardInfo) {
-    if crate::driver::ipi::uses_imsic()
-        && let Some(imsic) = board.devices.interrupts.imsic()
+    if matches!(
+        crate::platform::ipi_delivery(),
+        Some(IpiDelivery::Imsic { .. })
+    ) && let Some(imsic) = board.devices.interrupts.imsic()
     {
         info!(
             "{:<30}: IMSIC (M-level Base Address: 0x{:x})",

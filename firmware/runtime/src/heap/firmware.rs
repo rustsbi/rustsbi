@@ -1,9 +1,9 @@
 //! Linker heap acquisition and the firmware global allocator.
 
 use super::{
-    GlobalHeapAllocator, HeapAlreadyRegistered, HeapSlot, SlotSizeMap, dispatch::HeapDispatch,
-    memory::HeapArena,
+    GlobalHeapAllocator, HeapSlot, SlotSizeMap, dispatch::HeapDispatch, memory::HeapArena,
 };
+use crate::{Error, Result};
 use core::{
     alloc::{GlobalAlloc, Layout},
     ptr::NonNull,
@@ -40,13 +40,13 @@ pub fn take_heap() -> Option<HeapSlot<'static>> {
 
 /// Registers the initialized allocator before the first firmware allocation.
 ///
-/// Call this after [`take_heap`]. Every subsequent registration is rejected,
-/// even for the same instance.
+/// Call this after [`take_heap`].
+/// Every subsequent registration is rejected, even for the same instance.
 pub fn register_global_heap_allocator(
     allocator: &'static dyn GlobalHeapAllocator,
     size_map: SlotSizeMap,
-) -> Result<(), HeapAlreadyRegistered> {
-    let arena = *HEAP_ARENA.get().expect("firmware heap must be taken first");
+) -> Result<()> {
+    let arena = *HEAP_ARENA.get().ok_or(Error::NotReady)?;
     let mut installed = false;
     GLOBAL_HEAP_ALLOCATOR.call_once(|| {
         installed = true;
@@ -55,7 +55,7 @@ pub fn register_global_heap_allocator(
     if installed {
         Ok(())
     } else {
-        Err(HeapAlreadyRegistered)
+        Err(Error::AlreadyInitialized)
     }
 }
 

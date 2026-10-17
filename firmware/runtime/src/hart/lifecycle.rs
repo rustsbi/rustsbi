@@ -1,5 +1,6 @@
 //! Hart start, stop, and suspend state transitions.
 
+use crate::{Error, Result};
 use alloc::boxed::Box;
 use core::cell::UnsafeCell;
 use core::hint::spin_loop;
@@ -121,36 +122,6 @@ pub enum StartOutcome {
     AlreadyRunning,
 }
 
-/// Failure while publishing a start handoff.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum StartError {
-    /// The platform wake operation failed; the state was rolled back.
-    WakeFailed,
-}
-
-/// Failure while staging the initial boot handoff.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum StageError {
-    /// The current hart was not in its initial stopped state.
-    Busy,
-}
-
-/// Failure while entering or leaving suspend.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SuspendError {
-    /// The platform software-interrupt state could not be cleared.
-    Platform,
-}
-
-/// Failure while resuming a suspended hart.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ResumeError {
-    /// The hart was not in the expected suspended state.
-    InvalidState,
-    /// The platform wake operation failed and the state was rolled back.
-    WakeFailed,
-}
-
 /// A machine control transfer staged for the ecall return path.
 pub(crate) enum ControlTransfer {
     /// Enter the supplied lower-privilege stage from the ecall return path.
@@ -166,7 +137,7 @@ pub(crate) enum ControlTransfer {
 }
 
 /// Stages the initial boot handoff for the current hart.
-pub fn stage_current(stage: NextStage) -> Result<(), StageError> {
+pub fn stage_boot_handoff(stage: NextStage) -> Result<()> {
     let hart = current_hart();
     let cell = cell(hart);
     if cell
@@ -179,7 +150,7 @@ pub fn stage_current(stage: NextStage) -> Result<(), StageError> {
         )
         .is_err()
     {
-        return Err(StageError::Busy);
+        return Err(Error::Busy);
     }
     // SAFETY: STARTING reserves the slot for this hart's boot path.
     unsafe { *cell.stage.get() = Some(stage) };
@@ -188,7 +159,7 @@ pub fn stage_current(stage: NextStage) -> Result<(), StageError> {
 }
 
 /// Reserves and wakes a stopped hart, publishing its stage only after wake.
-pub fn start(hart: HartId, stage: NextStage) -> Result<StartOutcome, StartError> {
+pub fn start(hart: HartId, stage: NextStage) -> Result<StartOutcome> {
     let cell = cell(hart);
     if cell
         .state
@@ -261,24 +232,23 @@ pub fn can_receive_ipi(hart: HartId) -> bool {
     matches!(status(hart), HartState::Started | HartState::Suspended)
 }
 
-/// Failure to acknowledge the interrupt source before stopping a hart.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum StopError {
-    /// The platform IPI device is absent or could not clear its source.
-    Platform,
-}
-
-/// Stops the current hart. Success discards its supervisor context and parks
-/// in M-mode until a new start request arrives, including across spurious WFI
-/// wakeups. Only failures return to the caller.
-pub fn stop_current() -> Result<core::convert::Infallible, StopError> {
-    let ipi = crate::ipi::get().ok_or(StopError::Platform)?;
-    ipi.clear_current().map_err(|_| StopError::Platform)?;
-    crate::csr::mie::set_machine_software();
-    let cell = cell(current_hart());
+/// Stops the current hart.
+/// Success discards its supervisor context and parks in M-mode until a new
+/// start request arrives, including across spurious WFI wakeups.
+/// Only failures return to the caller.
+pub fn stop_current() -> Result<core::convert::Infallible> {
+    let ipi = crate::boot::ipi().ok_or(Error::IoError)?;
+    ipi.delivery().ok_or(Error::IoError)?;
+    crate::irq::with_local_disabled(|irq| {
+        ipi.clear_current(irq)?;
+        ipi.prepare_wakeup(irq);
+        Ok(())
+    })?;
     // Stopping discards the supervisor context, so its tracking goes too.
-    cell.set_active_context(None);
-    cell.state.store(STATE_STOPPED, Ordering::Release);
+    set_active_context(None);
+    cell(current_hart())
+        .state
+        .store(STATE_STOPPED, Ordering::Release);
     // SAFETY: M-mode interrupts remain disabled. Stop retires the current
     // trap call chain, allowing the Runtime finisher to reuse the clean stack
     // and wait for a new start without returning to the stopped supervisor.
@@ -292,15 +262,15 @@ pub fn stop_current() -> Result<core::convert::Infallible, StopError> {
 }
 
 /// Enters the platform suspend wait for the current hart.
-pub fn suspend_current() -> Result<(), SuspendError> {
-    let ipi = crate::ipi::get().ok_or(SuspendError::Platform)?;
-    if ipi.clear_current().is_err() {
-        return Err(SuspendError::Platform);
-    }
-    crate::ipi::handler()
-        .expect("BUG: IPI handler not published")
-        .deliver_current();
-    crate::csr::mie::set_machine_software();
+pub fn suspend_current() -> Result<()> {
+    let ipi = crate::boot::ipi().ok_or(Error::IoError)?;
+    ipi.delivery().ok_or(Error::IoError)?;
+    crate::irq::with_local_disabled(|irq| {
+        ipi.clear_current(irq)?;
+        ipi.deliver_current(irq);
+        ipi.prepare_wakeup(irq);
+        Ok(())
+    })?;
     cell(current_hart())
         .state
         .store(STATE_SUSPENDED, Ordering::Release);
@@ -309,7 +279,7 @@ pub fn suspend_current() -> Result<(), SuspendError> {
 }
 
 /// Completes a retentive resume on the current hart.
-pub fn resume_current_retentive() -> Result<(), ResumeError> {
+pub fn resume_current_retentive() -> Result<()> {
     let cell = cell(current_hart());
     if cell
         .state
@@ -321,13 +291,13 @@ pub fn resume_current_retentive() -> Result<(), ResumeError> {
         )
         .is_err()
     {
-        return Err(ResumeError::InvalidState);
+        return Err(Error::InvalidState);
     }
     Ok(())
 }
 
 /// Reserves a non-retentive resume without exposing the cell itself.
-pub fn begin_nonretentive_resume(stage: NextStage) -> Result<ResumeTicket, ResumeError> {
+pub fn begin_nonretentive_resume(stage: NextStage) -> Result<ResumeTicket> {
     let hart = current_hart();
     let cell = cell(hart);
     if cell
@@ -340,7 +310,7 @@ pub fn begin_nonretentive_resume(stage: NextStage) -> Result<ResumeTicket, Resum
         )
         .is_err()
     {
-        return Err(ResumeError::InvalidState);
+        return Err(Error::InvalidState);
     }
     Ok(ResumeTicket {
         hart,
@@ -363,13 +333,10 @@ pub struct ResumeTicket {
 
 impl ResumeTicket {
     /// Wakes the hart and publishes its lower-privilege handoff.
-    pub fn commit(mut self) -> Result<(), ResumeError> {
-        let Some(wake) = crate::ipi::get() else {
-            return Err(ResumeError::WakeFailed);
-        };
-        if wake.send(self.hart).is_err() {
-            return Err(ResumeError::WakeFailed);
-        }
+    pub fn commit(mut self) -> Result<()> {
+        crate::boot::ipi()
+            .ok_or(Error::IoError)?
+            .send(crate::ipi::IpiRequest::for_hart(self.hart))?;
         // SAFETY: the ticket owns the cell while it is ResumePending; this
         // marker is consumed by the same hart's ecall return path.
         unsafe {

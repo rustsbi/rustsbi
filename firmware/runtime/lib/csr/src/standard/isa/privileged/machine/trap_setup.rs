@@ -9,23 +9,26 @@ use crate::values::{
 csr! {
     pub struct IsaValue(usize);
 
-    /// Machine privilege, interrupt, and extension state (`mstatus`).
+    /// Machine status register (`mstatus`).
     ///
-    /// <https://docs.riscv.org/reference/isa/priv/machine.html#mstatus>
+    /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mstatus>.
     Status { 0x300, r,
-        /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mstatus>.
+        /// See
+        /// <https://docs.riscv.org/reference/isa/priv/machine.html#mstatus>.
         ///
         /// # Safety
         ///
-        /// Preserve address-space, extension-state, and interrupt-exclusion invariants.
-        /// `MPRV` selects the effective privilege of subsequent Rust loads and stores.
+        /// Preserve address-space, extension-state, and interrupt-exclusion
+        /// invariants.
+        /// `MPRV` selects the effective privilege of subsequent Rust loads and
+        /// stores.
         unsafe w
     }
-        SIE[1] { rw: InterruptState { Disabled = 0, Enabled = 1 } }
-        MIE[3] { rw: InterruptState }
-        SPIE[5] { rw: InterruptState }
+        SIE[1] { rw: Interrupt { Disabled = 0, Enabled = 1 } }
+        MIE[3] { rw: Interrupt }
+        SPIE[5] { rw: Interrupt }
         UBE[6] { rw: Endianness { Little = 0, Big = 1 } }
-        MPIE[7] { rw: InterruptState }
+        MPIE[7] { rw: Interrupt }
         SPP[8] { rw: SupervisorPrivilege { User = 0, Supervisor = 1 } }
         MPP[11..=12] {
             r: Privilege { User = 0, Supervisor = 1, Machine = 3 },
@@ -43,50 +46,52 @@ csr! {
         #[cfg(target_pointer_width = "64")]
         MDT[42] { rw: DoubleTrapState { Clear = 0, Set = 1 } }
 
-    /// Supported ISA extensions and base integer width (`misa`).
+    /// Machine ISA register (`misa`).
     ///
-    /// <https://docs.riscv.org/reference/isa/priv/machine.html#misa>
+    /// See <https://docs.riscv.org/reference/isa/priv/machine.html#misa>.
     Isa { 0x301, r: IsaValue,
         /// See <https://docs.riscv.org/reference/isa/priv/machine.html#misa>.
         ///
         /// # Safety
         ///
-        /// The selected extensions and instruction alignment must support all live
-        /// code, register state, and interrupt handlers on this hart.
+        /// The selected extensions and instruction alignment must support all
+        /// live code, register state, and interrupt handlers on this hart.
         unsafe w: IsaValue
     }
-    /// Exceptions delegated to supervisor mode (`medeleg`).
+    /// Machine exception delegation register (`medeleg`).
     ///
-    /// <https://docs.riscv.org/reference/isa/priv/machine.html#medeleg>
+    /// See <https://docs.riscv.org/reference/isa/priv/machine.html#medeleg>.
     ExceptionDelegation { 0x302, r: ExceptionSet, w: ExceptionSet }
-    /// Interrupts delegated to supervisor mode (`mideleg`).
+    /// Machine interrupt delegation register (`mideleg`).
     ///
-    /// <https://docs.riscv.org/reference/isa/priv/machine.html#mideleg>
+    /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mideleg>.
     InterruptDelegation { 0x303, r: InterruptSet, w: InterruptSet }
-    /// Machine interrupt-source enables (`mie`).
+    /// Machine interrupt-enable register (`mie`).
     ///
-    /// <https://docs.riscv.org/reference/isa/priv/machine.html#mie>
+    /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mie>.
     InterruptEnable { 0x304, r,
         /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mie>.
         ///
         /// # Safety
         ///
         /// Install valid handlers for enabled sources.
-        /// Permit their re-entry without violating active exclusion or memory invariants.
-        unsafe w
+        /// Permit their re-entry without violating active exclusion or memory
+        /// invariants.
+        unsafe w: InterruptSet
     }
-        MSIE[3] { rw: InterruptState }
-        MTIE[7] { rw: InterruptState }
-        MEIE[11] { rw: InterruptState }
-    /// Machine trap entry address and dispatch mode (`mtvec`).
+        MSIE[3] { rw: Interrupt }
+        MTIE[7] { rw: Interrupt }
+        MEIE[11] { rw: Interrupt }
+    /// Machine trap-vector register (`mtvec`).
     ///
-    /// <https://docs.riscv.org/reference/isa/priv/machine.html#mtvec>
+    /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mtvec>.
     TrapVector { 0x305, r,
         /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mtvec>.
         ///
         /// # Safety
         ///
-        /// The vector must preserve Rust execution state, with a valid trap stack.
+        /// The vector must preserve Rust execution state, with a valid trap
+        /// stack.
         unsafe w
     }
         MODE[0..=1] { r: VectorMode, w: TargetVectorMode }
@@ -94,20 +99,22 @@ csr! {
         BASE[2..=63] { rw: VectorBase }
         #[cfg(target_pointer_width = "32")]
         BASE[2..=31] { rw: VectorBase }
-    /// Counter access permitted to lower privilege modes (`mcounteren`).
+    /// Machine counter-enable register (`mcounteren`).
     ///
-    /// <https://docs.riscv.org/reference/isa/priv/machine.html#mcounteren>
+    /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mcounteren>.
     CounterEnable { 0x306, r: CounterSet, w: CounterSet }
-    /// Upper machine status bits on RV32 (`mstatush`).
+    /// Upper half of machine status on RV32 (`mstatush`).
     ///
-    /// <https://docs.riscv.org/reference/isa/priv/machine.html#mstatush>
+    /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mstatush>.
     #[cfg(target_pointer_width = "32")]
     StatusHigh { 0x310, r,
-        /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mstatush>.
+        /// See
+        /// <https://docs.riscv.org/reference/isa/priv/machine.html#mstatush>.
         ///
         /// # Safety
         ///
-        /// Preserve address translation, endianness, and trap exclusion on this hart.
+        /// Preserve address translation, endianness, and trap exclusion on this
+        /// hart.
         unsafe w
     }
         SBE[4] { rw: Endianness }
@@ -116,10 +123,66 @@ csr! {
         MDT[10] { rw: DoubleTrapState { Clear = 0, Set = 1 } }
 }
 
-impl InterruptEnableWriteValue {
-    /// Disables all interrupt sources in the complete write value.
-    pub const fn disabled() -> Self {
-        Self(0)
+impl Status {
+    /// Sets an interrupt field with one CSRRS instruction.
+    ///
+    /// # Safety
+    ///
+    /// Execute in M-mode on the intended hart. Satisfy this register's write
+    /// requirements and permit interrupt reentry.
+    #[inline]
+    pub unsafe fn set<F: crate::value::WriteField<StatusWriteValue, Value = Interrupt>>() {
+        let mut mask = StatusWriteValue(0);
+        mask.write::<F>(Interrupt::Enabled);
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+        // SAFETY: The caller establishes current-hart access and write safety.
+        unsafe {
+            core::arch::asm!(
+                "csrs {csr}, {mask}",
+                csr = const Self::NUMBER,
+                mask = in(reg) usize::from(mask),
+                options(nostack),
+            );
+        }
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+        {
+            let _ = mask;
+            unimplemented!("CSR access requires RISC-V");
+        }
+    }
+
+    /// Atomically reads the register and clears an interrupt field with CSRRC.
+    /// Returns the snapshot before the field was cleared.
+    ///
+    /// # Safety
+    ///
+    /// Execute in M-mode on the intended hart and satisfy this register's write
+    /// requirements.
+    #[inline]
+    pub unsafe fn clear<F: crate::value::WriteField<StatusWriteValue, Value = Interrupt>>()
+    -> StatusReadValue {
+        let mut mask = StatusWriteValue(0);
+        mask.write::<F>(Interrupt::Enabled);
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+        {
+            let previous: usize;
+            // SAFETY: The caller establishes current-hart access and write safety.
+            unsafe {
+                core::arch::asm!(
+                    "csrrc {previous}, {csr}, {mask}",
+                    previous = out(reg) previous,
+                    csr = const Self::NUMBER,
+                    mask = in(reg) usize::from(mask),
+                    options(nostack),
+                );
+            }
+            StatusReadValue(previous)
+        }
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+        {
+            let _ = mask;
+            unimplemented!("CSR access requires RISC-V");
+        }
     }
 }
 
@@ -132,13 +195,21 @@ impl From<bool> for Virtualization {
 impl StatusWriteValue {
     /// Creates a return context with interrupts and optional state disabled.
     pub const fn for_return(privilege: TargetPrivilege) -> Self {
-        Self((privilege as usize) << MPP::MASK.trailing_zeros())
+        Self((privilege as usize) << 11) // MPP[11..=12]
     }
 }
 
 impl IsaValue {
     pub const fn has_hypervisor(self) -> bool {
         self.0 & (1 << 7) != 0
+    }
+
+    pub const fn has_supervisor(self) -> bool {
+        self.0 & (1 << 18) != 0
+    }
+
+    pub const fn has_user(self) -> bool {
+        self.0 & (1 << 20) != 0
     }
 }
 

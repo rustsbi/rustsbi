@@ -9,9 +9,9 @@ use core::mem::size_of;
 
 use fdt::node::FdtNode;
 
-use crate::Result;
 use crate::memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange};
 use crate::soc::Soc;
+use crate::{Error, Result};
 
 /// Number of C907 harts controlled by the V861 power controller.
 pub const C907_HART_COUNT: usize = 2;
@@ -69,11 +69,11 @@ impl AllwinnerV861Soc {
     ///
     /// # Errors
     ///
-    /// Returns [`crate::Error::InvalidArgs`] when `hart` is outside the C907
+    /// Returns [`Error::InvalidArgs`] when `hart` is outside the C907
     /// hart range.
     pub fn hart_reset_vector(self, hart: usize) -> Result<DeviceRegisterRange> {
         if hart >= C907_HART_COUNT {
-            return Err(crate::Error::InvalidArgs);
+            return Err(Error::InvalidArgs);
         }
         range(
             RISCV_CONFIG_BASE + RESET_ENTRY_LOW_OFFSET + RISCV_CONFIG_HART_STRIDE * hart,
@@ -87,11 +87,11 @@ impl AllwinnerV861Soc {
     ///
     /// # Errors
     ///
-    /// Returns [`crate::Error::InvalidArgs`] when `hart` is outside the C907
+    /// Returns [`Error::InvalidArgs`] when `hart` is outside the C907
     /// hart range.
     pub fn hart_power_control(self, hart: usize) -> Result<DeviceRegisterRange> {
         if hart >= C907_HART_COUNT {
-            return Err(crate::Error::InvalidArgs);
+            return Err(Error::InvalidArgs);
         }
         range(
             PMC_BASE + PMC_HART_STRIDE * hart + SOFTWARE_MODE_CONTROL_0_OFFSET,

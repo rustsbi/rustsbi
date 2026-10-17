@@ -14,10 +14,9 @@
 mod reset_vector;
 mod wakeup;
 
-use runtime::{SpacemitK1Registers, memory::MemoryRegistry};
+use runtime::{Result, SpacemitK1Registers, hart::HartId, memory::MemoryRegistry};
 
 use crate::driver::{Cci550, HartWake};
-use runtime::hart::HartId;
 
 use reset_vector::ResetVectorRegisters;
 
@@ -33,7 +32,7 @@ impl K1BootResources {
     pub(crate) fn acquire(
         memory: &mut MemoryRegistry,
         registers: SpacemitK1Registers,
-    ) -> runtime::Result<Self> {
+    ) -> Result<Self> {
         Ok(Self {
             system_registers: registers,
             reset_vectors: ResetVectorRegisters::acquire(memory, registers.reset_vectors())?,

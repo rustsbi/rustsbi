@@ -11,8 +11,10 @@
 
 mod registers;
 
-use runtime::FdtNode;
-use runtime::memory::{DeviceRegisterRange, MemoryRegistry, PhysAddr};
+use runtime::{
+    FdtNode, Result,
+    memory::{DeviceRegisterRange, MemoryRegistry, PhysAddr},
+};
 
 use registers::{AplicRegisters, EncodedMsiAddress};
 
@@ -33,7 +35,7 @@ impl QemuAplicConfig {
         registers: DeviceRegisterRange,
         machine_imsic_base: PhysAddr,
         hart_index_bits: u32,
-    ) -> runtime::Result<Self> {
+    ) -> Result<Self> {
         Ok(Self {
             registers,
             machine_msi: EncodedMsiAddress::machine(machine_imsic_base, hart_index_bits)?,
@@ -42,8 +44,8 @@ impl QemuAplicConfig {
     }
 
     /// Acquires and configures the QEMU M-APLIC register block.
-    pub(crate) fn bind(self, memory: &mut MemoryRegistry) -> runtime::Result<()> {
-        let registers = memory.acquire_mmio(self.registers)?;
+    pub(crate) fn bind(self, memory: &mut MemoryRegistry) -> Result<()> {
+        let registers = memory.acquire(self.registers)?;
         let msi_configuration_locked = AplicRegisters::new(registers)
             .configure_and_delegate_sources(
                 self.machine_msi,

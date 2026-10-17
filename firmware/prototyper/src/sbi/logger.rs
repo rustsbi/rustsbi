@@ -2,6 +2,7 @@
 
 use core::str::FromStr;
 use log::{Level, LevelFilter};
+use runtime::Result;
 use spin::Mutex;
 
 use crate::println;

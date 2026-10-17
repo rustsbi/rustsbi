@@ -1,7 +1,8 @@
 //! SBI Hart State Management adapter.
 //!
-//! The SBI ABI and platform enabled-hart policy live here.  Runtime owns the
-//! protocol-free hart state machine and all privileged transitions.
+//! The SBI ABI and platform enabled-hart policy live here.
+//! Runtime owns the protocol-free hart state machine and all privileged
+//! transitions.
 //!
 //! # References
 //!
@@ -10,13 +11,15 @@
 
 #![forbid(unsafe_code)]
 
-use runtime::boot::NextStage;
-use runtime::hart::{self, HartId, HartState};
-use runtime::rustsbi::{Hsm, SbiRet};
+use runtime::{
+    Result,
+    boot::NextStage,
+    hart::{self, HartId, HartState},
+    rustsbi::{Hsm, SbiRet},
+};
 use sbi_spec::hsm::{hart_state, suspend_type};
 
-/// SBI HSM extension composed from platform policy and Runtime hart
-/// mechanism.
+/// SBI HSM extension composed from platform policy and Runtime hart mechanism.
 pub(crate) struct SbiHsm {
     hardware_wakeup: bool,
 }
@@ -36,8 +39,8 @@ impl SbiHsm {
         Ok(hart)
     }
 
-    /// Implements the HSM suspend/resume transition described by the SBI
-    /// HSM extension.
+    /// Implements the HSM suspend/resume transition described by the SBI HSM
+    /// extension.
     fn suspend(&self, suspend_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
         if !matches!(
             suspend_type,
@@ -91,7 +94,7 @@ impl Hsm for SbiHsm {
         match hart::start(hart, stage) {
             Ok(hart::StartOutcome::Accepted) => SbiRet::success(0),
             Ok(hart::StartOutcome::AlreadyRunning) => SbiRet::already_available(),
-            Err(hart::StartError::WakeFailed) => SbiRet::failed(),
+            Err(_) => SbiRet::failed(),
         }
     }
 

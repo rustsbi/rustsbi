@@ -7,10 +7,13 @@
 
 use alloc::boxed::Box;
 use core::mem::{align_of, size_of};
-
-use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
-
-use crate::driver::{IpiBackend, IpiError, IpiRequest, TimerBackend};
+use runtime::{
+    Error, Result,
+    hart::HartId,
+    ipi::{IpiDevice, IpiRequest},
+    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+    timer::TimerDevice,
+};
 
 // The ACLINT legacy mapping places MTIMECMP at 0x4000 and MTIME at 0xbff8.
 const MTIMECMP_OFFSET: usize = 0x4000;
@@ -36,53 +39,34 @@ impl TimerRegister {
     }
 }
 
-#[repr(usize)]
-#[derive(Clone, Copy)]
-enum IpiRegister {
-    Msip = 0,
-}
-
-impl IpiRegister {
-    const fn offset(self) -> usize {
-        self as usize
-    }
-
-    fn offset_for_hart(self, hart_id: usize) -> Result<usize, IpiError> {
-        hart_id
-            .checked_mul(size_of::<u32>())
-            .and_then(|offset| self.offset().checked_add(offset))
-            .ok_or(IpiError::Failed)
-    }
-}
-
 pub(super) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
     hart_id_upper_bound: usize,
-) -> runtime::Result<(Box<dyn TimerBackend>, Box<dyn IpiBackend + Send + Sync>)> {
+) -> Result<(Box<dyn TimerDevice>, Box<dyn IpiDevice>)> {
     let msip_size_bytes = hart_id_upper_bound
         .checked_mul(size_of::<u32>())
-        .ok_or(runtime::Error::Overflow)?;
+        .ok_or(Error::Overflow)?;
     let mtimecmp_size_bytes = hart_id_upper_bound
         .checked_mul(size_of::<u64>())
-        .ok_or(runtime::Error::Overflow)?;
+        .ok_or(Error::Overflow)?;
     if msip_size_bytes > MTIMECMP_OFFSET || mtimecmp_size_bytes > MTIME_WINDOW_OFFSET {
-        return Err(runtime::Error::InvalidArgs);
+        return Err(Error::InvalidArgs);
     }
     let timer_window_size_bytes = TimerRegister::Mtime
         .offset()
         .checked_add(size_of::<u64>())
-        .ok_or(runtime::Error::Overflow)?;
+        .ok_or(Error::Overflow)?;
     let ipi_registers = registers.subrange(0, msip_size_bytes)?;
     let timer_registers = registers.subrange(MTIMECMP_OFFSET, timer_window_size_bytes)?;
     if !ipi_registers.has_aligned_bounds(align_of::<u32>())
         || !timer_registers.has_aligned_bounds(align_of::<u64>())
     {
-        return Err(runtime::Error::InvalidArgs);
+        return Err(Error::InvalidArgs);
     }
 
-    let ipi_mmio = memory.acquire_mmio(ipi_registers)?;
-    let timer_mmio = memory.acquire_mmio(timer_registers)?;
+    let ipi_mmio = memory.acquire(ipi_registers)?;
+    let timer_mmio = memory.acquire(timer_registers)?;
     Ok((
         Box::new(SiFiveTimer::new(timer_mmio)),
         Box::new(SiFiveIpi::new(ipi_mmio)),
@@ -115,22 +99,6 @@ impl SiFiveTimer {
         }
     }
 
-    fn write_mtimecmp(&self, hart_id: usize, value: u64) {
-        let offset = TimerRegister::mtimecmp_offset_for_hart(hart_id);
-        #[cfg(target_pointer_width = "64")]
-        self.registers
-            .write(offset, value)
-            .expect("BUG: SiFive CLINT timer register escaped its MMIO window");
-
-        #[cfg(target_pointer_width = "32")]
-        {
-            // Compare-safe split writes, as in the T-Head CLINT backend.
-            self.write_word(offset, u32::MAX);
-            self.write_word(offset + 4, (value >> 32) as u32);
-            self.write_word(offset, value as u32);
-        }
-    }
-
     #[cfg(target_pointer_width = "32")]
     fn read_word(&self, offset: usize) -> u32 {
         self.registers
@@ -146,10 +114,22 @@ impl SiFiveTimer {
     }
 }
 
-impl TimerBackend for SiFiveTimer {
+impl TimerDevice for SiFiveTimer {
     #[inline(always)]
-    fn set_timer(&self, hart_id: usize, value: u64) {
-        self.write_mtimecmp(hart_id, value)
+    fn set_compare(&self, hart: HartId, value: u64) {
+        let offset = TimerRegister::mtimecmp_offset_for_hart(hart.as_usize());
+        #[cfg(target_pointer_width = "64")]
+        self.registers
+            .write(offset, value)
+            .expect("BUG: SiFive CLINT timer register escaped its MMIO window");
+
+        #[cfg(target_pointer_width = "32")]
+        {
+            // Compare-safe split writes, as in the T-Head CLINT backend.
+            self.write_word(offset, u32::MAX);
+            self.write_word(offset + 4, (value >> 32) as u32);
+            self.write_word(offset, value as u32);
+        }
     }
 
     #[inline(always)]
@@ -173,24 +153,29 @@ impl SiFiveIpi {
         Self { registers }
     }
 
-    fn write(&self, reg: IpiRegister, hart_id: usize, value: IpiState) -> Result<(), IpiError> {
+    fn write_msip(&self, hart_id: usize, value: IpiState) -> Result<()> {
+        let offset = hart_id
+            .checked_mul(size_of::<u32>())
+            .ok_or(Error::IoError)?;
         self.registers
-            .write(reg.offset_for_hart(hart_id)?, value as u32)
-            .map_err(|_| IpiError::Failed)
+            .write(offset, value as u32)
+            .map_err(|_| Error::IoError)
     }
 }
 
-impl IpiBackend for SiFiveIpi {
+impl IpiDevice for SiFiveIpi {
     #[inline(always)]
-    fn send_ipi(&self, req: IpiRequest) -> Result<(), IpiError> {
+    fn send(&self, req: IpiRequest) -> Result<()> {
         for hart_id in req.harts() {
-            self.write(IpiRegister::Msip, hart_id, IpiState::Pending)?;
+            self.write_msip(hart_id, IpiState::Pending)?;
         }
         Ok(())
     }
 
     #[inline(always)]
-    fn clear_ipi(&self, hart_id: usize) -> Result<(), IpiError> {
-        self.write(IpiRegister::Msip, hart_id, IpiState::Clear)
+    fn acknowledge(&self) -> Result<bool> {
+        let hart = HartId::current()?;
+        self.write_msip(hart.as_usize(), IpiState::Clear)?;
+        Ok(true)
     }
 }

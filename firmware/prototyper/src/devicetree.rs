@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 use alloc::{string::String, vec::Vec};
-use runtime::{Compatible, FdtNode};
+use runtime::{Compatible, Error, FdtNode, Result, node_is_enabled};
 
 /// One enabled node supplied by the shared discovery traversal.
 ///
@@ -51,9 +51,9 @@ pub(crate) fn select_from_node_once<T>(
     slot: &mut Option<NodeSelection<T>>,
     resource: T,
     source_path: &[&str],
-) -> runtime::Result<()> {
+) -> Result<()> {
     if slot.is_some() {
-        return Err(runtime::Error::InvalidArgs);
+        return Err(Error::InvalidArgs);
     }
     slot.replace(NodeSelection {
         resource,
@@ -94,20 +94,20 @@ pub(crate) fn is_cpu_node(node: FdtNode<'_, '_>) -> bool {
 pub(crate) fn try_for_each_enabled_node<'b, 'a, F>(
     root: FdtNode<'b, 'a>,
     visitor: &mut F,
-) -> runtime::Result<()>
+) -> Result<()>
 where
-    F: FnMut(EnabledNode<'b, 'a>, &[&str]) -> runtime::Result<()>,
+    F: FnMut(EnabledNode<'b, 'a>, &[&str]) -> Result<()>,
 {
     fn visit<'b, 'a, F>(
         node: FdtNode<'b, 'a>,
         parent: Option<FdtNode<'b, 'a>>,
         path: &mut Vec<&'a str>,
         visitor: &mut F,
-    ) -> runtime::Result<()>
+    ) -> Result<()>
     where
-        F: FnMut(EnabledNode<'b, 'a>, &[&str]) -> runtime::Result<()>,
+        F: FnMut(EnabledNode<'b, 'a>, &[&str]) -> Result<()>,
     {
-        if !runtime::node_is_enabled(node) {
+        if !node_is_enabled(node) {
             return Ok(());
         }
 

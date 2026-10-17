@@ -13,7 +13,7 @@ mod init;
 mod memory;
 mod redirect;
 
-pub use init::{InitError, init};
+pub use init::init;
 
 use csr::values::{Address, trap::Exception};
 

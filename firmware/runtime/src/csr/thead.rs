@@ -15,8 +15,8 @@ pub unsafe fn disable_maee() {
     if riscv::register::mvendorid::read().bits() != THEAD_VENDOR_ID {
         return;
     }
-    // SAFETY: The caller establishes Runtime's entry contract; this read has no side effects.
-    if unsafe { super::read::<ExtendedStatus>() }.is_ok() {
+    // Runtime entry recovers an unavailable mxstatus before any MAEE update.
+    if super::csrr!(ExtendedStatus).is_ok() {
         // SAFETY: The caller owns translation setup and the CSR probe succeeded.
         unsafe { clear_maee() };
     }

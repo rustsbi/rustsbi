@@ -91,8 +91,8 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
                 policy_entry(boot)
             }
 
-            /// Applies the linker's relative relocations before Rust memory
-            /// is initialized.
+            /// Applies the linker's relative relocations before Rust memory is
+            /// initialized.
             ///
             /// # Safety
             ///

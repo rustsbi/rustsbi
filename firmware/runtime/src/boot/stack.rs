@@ -1,8 +1,9 @@
 //! Two-stage stack setup for the enabled hart topology.
 //!
-//! Entry serializes boot candidates on one linker-owned stack. The selected
-//! boot hart keeps it; the other harts receive stacks immediately after the
-//! linked image. Entry releases them only after discovery has left Rust.
+//! Entry serializes boot candidates on one linker-owned stack.
+//! The selected boot hart keeps it; the other harts receive stacks immediately
+//! after the linked image.
+//! Entry releases them only after discovery has left Rust.
 
 use alloc::vec::Vec;
 use core::cell::UnsafeCell;
@@ -20,8 +21,9 @@ static FIRMWARE_END: Once<usize> = Once::new();
 
 /// Linker-owned storage used first for discovery, then by the boot hart.
 ///
-/// No safe method exposes its bytes. Entry serializes discovery and later
-/// gives this stack exclusively to the selected boot hart.
+/// No safe method exposes its bytes.
+/// Entry serializes discovery and later gives this stack exclusively to the
+/// selected boot hart.
 #[repr(C, align(128))]
 pub struct BootStack<const SIZE: usize>(UnsafeCell<MaybeUninit<[u8; SIZE]>>);
 
@@ -47,17 +49,20 @@ pub(crate) fn firmware_end() -> Option<usize> {
 
 /// Initializes the shared hart topology and its stacks before policy boot.
 ///
-/// The heap must already be initialized. `capacity` limits the enabled hart
-/// count, not the numerical values of hardware IDs.
+/// The heap must already be initialized.
+/// `capacity` limits the enabled hart count, not the numerical values of
+/// hardware IDs.
 ///
 /// # Safety
 ///
 /// Called once by the selected boot hart while it exclusively owns `boot_stack`
-/// and other harts wait without stacks. The loader must provide exclusive RAM
-/// after the linked image for the remaining stacks, including exclusion of the
-/// complete next-stage image and all other live loader objects. The checks here
-/// cover described RAM, reservations, the DTB, handoff and next-stage entry;
-/// the entry address alone cannot describe the entire next-stage image.
+/// and other harts wait without stacks.
+/// The loader must provide exclusive RAM after the linked image for the
+/// remaining stacks, including exclusion of the complete next-stage image and
+/// all other live loader objects.
+/// The checks here cover described RAM, reservations, the DTB, handoff and
+/// next-stage entry; the entry address alone cannot describe the entire
+/// next-stage image.
 /// Entry must return from this Rust call before releasing secondary harts.
 #[doc(hidden)]
 pub unsafe fn initialize_stacks<const SIZE: usize>(
@@ -140,8 +145,9 @@ pub unsafe fn initialize_stacks<const SIZE: usize>(
 ///
 /// # Safety
 ///
-/// Entry/exit helper only. The caller must be ready to discard its old call
-/// chain. Cold entry must wait until the bootstrap owner has left Rust.
+/// Entry/exit helper only.
+/// The caller must be ready to discard its old call chain.
+/// Cold entry must wait until the bootstrap owner has left Rust.
 #[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
 pub unsafe extern "C" fn locate_stack() {
     #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]

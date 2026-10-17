@@ -1,8 +1,27 @@
-//! CSR access and the Runtime's specific interrupt operations.
+//! Private optional-CSR instructions and boot configuration.
 
 mod access;
 pub mod thead;
-pub use access::{IllegalInstruction, read, swap, write};
+#[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+pub(crate) use access::unavailable;
+pub(crate) use access::{csrr, csrrw, csrw, instruction};
+
+/// Enables supervisor access to seed when the security CSR is available.
+pub fn enable_supervisor_seed() {
+    if !crate::boot::traps_ready() {
+        return;
+    }
+    if csrr!(csr::machine::SecurityConfiguration).is_ok() {
+        // SAFETY: The fixed SSEED bit permits supervisor seed access without
+        // changing M-mode. One CSRS preserves concurrent updates to other bits.
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+        unsafe {
+            core::arch::asm!("csrs {csr}, {mask}",
+            csr = const csr::machine::SecurityConfiguration::NUMBER,
+            mask = in(reg) 1usize << 9, options(nomem));
+        }
+    }
+}
 
 /// State-enable registers used to prepare a supervisor next stage.
 pub mod stateen {
@@ -31,14 +50,15 @@ pub mod stateen {
 
     /// Configures state access for the supervisor next stage on this hart.
     ///
-    /// An implementation without Smstateen needs no configuration. When
-    /// Smstateen is present, Runtime also clears every implemented lower-level
-    /// state-enable register as required before entering a fresh supervisor.
+    /// An implementation without Smstateen needs no configuration.
+    /// When Smstateen is present, Runtime also clears every implemented
+    /// lower-level state-enable register as required before entering a fresh
+    /// supervisor.
     /// `aia_enabled` exposes supervisor AIA and IMSIC state.
     pub fn configure_supervisor(aia_enabled: bool) {
         // SAFETY: Runtime entry is installed. State-enable reads have no
         // side effects, and this function runs in the M-mode boot context.
-        if unsafe { super::read::<machine::StateEnable0>() }.is_err() {
+        if super::csrr!(machine::StateEnable0).is_err() {
             return;
         }
 
@@ -55,14 +75,14 @@ pub mod stateen {
         write64::<MSTATEEN3, { MSTATEEN3 + 0x10 }>(STATEN);
 
         // SAFETY: Same boot context and side-effect-free bank probe.
-        if unsafe { super::read::<supervisor::StateEnable0>() }.is_ok() {
+        if super::csrr!(supervisor::StateEnable0).is_ok() {
             write::<SSTATEEN0>(0);
             write::<SSTATEEN1>(0);
             write::<SSTATEEN2>(0);
             write::<SSTATEEN3>(0);
         }
         // SAFETY: Same boot context and side-effect-free bank probe.
-        if unsafe { super::read::<hypervisor::StateEnable0>() }.is_ok() {
+        if super::csrr!(hypervisor::StateEnable0).is_ok() {
             write64::<HSTATEEN0, { HSTATEEN0 + 0x10 }>(0);
             write64::<HSTATEEN1, { HSTATEEN1 + 0x10 }>(0);
             write64::<HSTATEEN2, { HSTATEEN2 + 0x10 }>(0);
@@ -84,108 +104,5 @@ pub mod stateen {
         write::<CSR>(value as usize);
         #[cfg(target_pointer_width = "32")]
         write::<CSR_HIGH>((value >> 32) as usize);
-    }
-}
-
-/// Machine-interrupt enable bits used by the Runtime trap mechanism.
-pub mod mie {
-    use csr::machine;
-    /// Enables machine software interrupts on the current hart.
-    #[inline]
-    pub fn set_machine_software() {
-        // SAFETY: Runtime owns the installed machine software interrupt handler.
-        unsafe {
-            machine::InterruptEnable::modify(|_, value| {
-                value.write::<machine::MSIE>(machine::InterruptState::Enabled);
-            });
-        }
-    }
-
-    /// Enables machine timer interrupts on the current hart.
-    #[inline]
-    pub fn set_machine_timer() {
-        // SAFETY: Runtime owns the machine trap state on the current hart.
-        unsafe {
-            machine::InterruptEnable::modify(|_, value| {
-                value.write::<machine::MTIE>(machine::InterruptState::Enabled);
-            });
-        }
-    }
-
-    /// Disables machine timer interrupts on the current hart.
-    #[inline]
-    pub fn clear_machine_timer() {
-        // SAFETY: Runtime owns the machine trap state on the current hart.
-        unsafe {
-            machine::InterruptEnable::modify(|_, value| {
-                value.write::<machine::MTIE>(machine::InterruptState::Disabled);
-            });
-        }
-    }
-
-    /// Enables machine external interrupts on the current hart.
-    #[inline]
-    pub fn set_machine_external() {
-        // SAFETY: Runtime owns the machine trap state on the current hart.
-        unsafe {
-            machine::InterruptEnable::modify(|_, value| {
-                value.write::<machine::MEIE>(machine::InterruptState::Enabled);
-            });
-        }
-    }
-}
-
-/// Machine-interrupt pending bits used by the Runtime trap mechanism.
-pub mod mip {
-    use csr::machine;
-
-    // SEIP reads combine software state with the external interrupt signal.
-    // A separate read/write would latch that signal into software pending state.
-    // CSRRS/CSRRC update only the software state, as specified for mip.SEIP:
-    // https://docs.riscv.org/reference/isa/priv/machine.html#mip
-    #[inline]
-    fn write(mask: usize, pending: machine::PendingState) {
-        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-        // SAFETY: Callers select only Runtime-owned SSIP or STIP bits.
-        // Updating these pending bits preserves interrupt enables and SEIP.
-        unsafe {
-            match pending {
-                machine::PendingState::Pending => core::arch::asm!(
-                    "csrs {csr}, {mask}",
-                    csr = const machine::InterruptPending::NUMBER,
-                    mask = in(reg) mask,
-                    options(nostack),
-                ),
-                machine::PendingState::Clear => core::arch::asm!(
-                    "csrc {csr}, {mask}",
-                    csr = const machine::InterruptPending::NUMBER,
-                    mask = in(reg) mask,
-                    options(nostack),
-                ),
-            }
-        }
-        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-        {
-            let _ = (mask, pending);
-            unimplemented!("CSR access requires RISC-V");
-        }
-    }
-
-    /// Signals a supervisor software interrupt to the next-stage supervisor.
-    #[inline]
-    pub fn set_supervisor_software() {
-        write(machine::SSIP::MASK, machine::PendingState::Pending);
-    }
-
-    /// Signals a supervisor timer interrupt to the next-stage supervisor.
-    #[inline]
-    pub fn set_supervisor_timer() {
-        write(machine::STIP::MASK, machine::PendingState::Pending);
-    }
-
-    /// Clears the supervisor timer interrupt pending bit on the current hart.
-    #[inline]
-    pub fn clear_supervisor_timer() {
-        write(machine::STIP::MASK, machine::PendingState::Clear);
     }
 }

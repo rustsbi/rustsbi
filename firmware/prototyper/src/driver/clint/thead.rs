@@ -12,14 +12,17 @@
 //!   compare-safe split writes.
 //!
 //! T-Head exposes the 64-bit `mtimecmp` register as two 32-bit MMIO words;
-//! [`THeadTimer::set_mtimecmp`] prevents a transient early timer interrupt.
+//! [`TimerDevice::set_compare`] prevents a transient early timer interrupt.
 
 use alloc::boxed::Box;
 use core::mem::{align_of, size_of};
-
-use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
-
-use crate::driver::{IpiBackend, IpiError, IpiRequest, TimerBackend};
+use runtime::{
+    Error, Result,
+    hart::HartId,
+    ipi::{IpiDevice, IpiRequest},
+    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+    timer::TimerDevice,
+};
 
 // The ACLINT legacy mapping places MTIMECMP at offset 0x4000.
 const MTIMECMP_OFFSET: usize = 0x4000;
@@ -44,49 +47,30 @@ impl TimerRegister {
     }
 }
 
-#[repr(usize)]
-#[derive(Clone, Copy)]
-enum IpiRegister {
-    Msip = 0,
-}
-
-impl IpiRegister {
-    const fn offset(self) -> usize {
-        self as usize
-    }
-
-    fn offset_for_hart(self, hart_id: usize) -> Result<usize, IpiError> {
-        hart_id
-            .checked_mul(size_of::<u32>())
-            .and_then(|offset| self.offset().checked_add(offset))
-            .ok_or(IpiError::Failed)
-    }
-}
-
 pub(super) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
     hart_id_upper_bound: usize,
-) -> runtime::Result<(Box<dyn TimerBackend>, Box<dyn IpiBackend + Send + Sync>)> {
+) -> Result<(Box<dyn TimerDevice>, Box<dyn IpiDevice>)> {
     let msip_size_bytes = hart_id_upper_bound
         .checked_mul(size_of::<u32>())
-        .ok_or(runtime::Error::Overflow)?;
+        .ok_or(Error::Overflow)?;
     let mtimecmp_size_bytes = hart_id_upper_bound
         .checked_mul(size_of::<u64>())
-        .ok_or(runtime::Error::Overflow)?;
+        .ok_or(Error::Overflow)?;
     if msip_size_bytes > MTIMECMP_OFFSET {
-        return Err(runtime::Error::InvalidArgs);
+        return Err(Error::InvalidArgs);
     }
     let msip_registers = registers.subrange(0, msip_size_bytes)?;
     let mtimecmp_registers = registers.subrange(MTIMECMP_OFFSET, mtimecmp_size_bytes)?;
     if !msip_registers.has_aligned_bounds(align_of::<u32>())
         || !mtimecmp_registers.has_aligned_bounds(align_of::<u32>())
     {
-        return Err(runtime::Error::InvalidArgs);
+        return Err(Error::InvalidArgs);
     }
 
-    let msip_mmio = memory.acquire_mmio(msip_registers)?;
-    let mtimecmp_mmio = memory.acquire_mmio(mtimecmp_registers)?;
+    let msip_mmio = memory.acquire(msip_registers)?;
+    let mtimecmp_mmio = memory.acquire(mtimecmp_registers)?;
     Ok((
         Box::new(THeadTimer::new(mtimecmp_mmio)),
         Box::new(THeadIpi::new(msip_mmio)),
@@ -107,8 +91,12 @@ impl THeadTimer {
             .write(reg.offset_for_hart(hart_id), value)
             .expect("BUG: T-Head CLINT timer register escaped its MMIO window")
     }
+}
 
-    fn set_mtimecmp(&self, hart_id: usize, value: u64) {
+impl TimerDevice for THeadTimer {
+    #[inline(always)]
+    fn set_compare(&self, hart: HartId, value: u64) {
+        let hart_id = hart.as_usize();
         let low = value as u32;
         let high = (value >> u32::BITS) as u32;
 
@@ -118,13 +106,6 @@ impl THeadTimer {
         self.write(TimerRegister::MtimecmpLow, hart_id, u32::MAX);
         self.write(TimerRegister::MtimecmpHigh, hart_id, high);
         self.write(TimerRegister::MtimecmpLow, hart_id, low);
-    }
-}
-
-impl TimerBackend for THeadTimer {
-    #[inline(always)]
-    fn set_timer(&self, hart_id: usize, value: u64) {
-        self.set_mtimecmp(hart_id, value);
     }
 }
 
@@ -143,24 +124,29 @@ impl THeadIpi {
         Self { msip }
     }
 
-    fn write(&self, reg: IpiRegister, hart_id: usize, value: IpiState) -> Result<(), IpiError> {
+    fn write_msip(&self, hart_id: usize, value: IpiState) -> Result<()> {
+        let offset = hart_id
+            .checked_mul(size_of::<u32>())
+            .ok_or(Error::IoError)?;
         self.msip
-            .write(reg.offset_for_hart(hart_id)?, value as u32)
-            .map_err(|_| IpiError::Failed)
+            .write(offset, value as u32)
+            .map_err(|_| Error::IoError)
     }
 }
 
-impl IpiBackend for THeadIpi {
+impl IpiDevice for THeadIpi {
     #[inline(always)]
-    fn send_ipi(&self, req: IpiRequest) -> Result<(), IpiError> {
+    fn send(&self, req: IpiRequest) -> Result<()> {
         for hart_id in req.harts() {
-            self.write(IpiRegister::Msip, hart_id, IpiState::Pending)?;
+            self.write_msip(hart_id, IpiState::Pending)?;
         }
         Ok(())
     }
 
     #[inline(always)]
-    fn clear_ipi(&self, hart_id: usize) -> Result<(), IpiError> {
-        self.write(IpiRegister::Msip, hart_id, IpiState::Clear)
+    fn acknowledge(&self) -> Result<bool> {
+        let hart = HartId::current()?;
+        self.write_msip(hart.as_usize(), IpiState::Clear)?;
+        Ok(true)
     }
 }

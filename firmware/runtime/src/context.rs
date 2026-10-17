@@ -430,7 +430,7 @@ pub(crate) fn commit_pair(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use csr::machine::{InterruptState, SPIE};
+    use csr::machine::{Interrupt, SPIE};
 
     const GPRS_A: [usize; 31] = {
         let mut gprs = [0; 31];
@@ -450,7 +450,7 @@ mod tests {
     /// Interrupt state with distinct enabled sources, to observe fidelity.
     fn armed() -> (InterruptSet, StatusWriteValue) {
         let mut status = QUIET_STATUS;
-        status.write::<SPIE>(InterruptState::Enabled);
+        status.write::<SPIE>(Interrupt::Enabled);
         (InterruptSet::from(0b101), status)
     }
 

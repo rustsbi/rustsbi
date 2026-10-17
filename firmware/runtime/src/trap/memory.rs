@@ -10,6 +10,7 @@ use super::{Error, Fault, decode::ValueKind, frame::TrapInfo};
 
 macro_rules! access_byte {
     ($instruction:literal, $causes:expr, $address:expr, $data:expr, $status:expr) => {{
+        let access = || -> Result<usize, Error> {
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         {
             let mut data: usize = $data;
@@ -22,7 +23,7 @@ macro_rules! access_byte {
             // 4. Success and recovery both restore mstatus before returning to Rust.
             unsafe {
                 core::arch::asm!(
-                    "csrrci {saved_status}, {status_csr}, {mie_mask}",
+                    "csrrci {saved_status}, {status_csr}, 8", // Clear mstatus.MIE.
                     "not {access_status}, {access_mask}",
                     "and {access_status}, {saved_status}, {access_status}",
                     "or {access_status}, {access_status}, {requested_status}",
@@ -38,12 +39,12 @@ macro_rules! access_byte {
                     ".option pop",
                     crate::recovery::fault_site!(),
                     status_csr = const machine::Status::NUMBER,
-                    mie_mask = const machine::MIE::MASK,
                     causes = const $causes,
                     data = inout(reg) data,
                     address = in(reg) $address,
                     requested_status = in(reg) $status,
-                    access_mask = in(reg) ACCESS_MASK,
+                    // Replace MIE, MPP, MPRV, SUM, and MXR; preserve other fields.
+                    access_mask = in(reg) (1usize << 3) | (3 << 11) | (7 << 17),
                     saved_status = out(reg) _,
                     access_status = out(reg) _,
                     out("t2") cause,
@@ -64,19 +65,15 @@ macro_rules! access_byte {
             let _ = ($causes, $address, $data, $status);
             unavailable()
         }
+        };
+        access()
     }};
 }
 
 #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-fn unavailable() -> Result<usize, Error> {
-    panic!("lower-mode access requires RISC-V")
+fn unavailable() -> ! {
+    unimplemented!("lower-mode access requires RISC-V")
 }
-
-const ACCESS_MASK: usize = machine::MIE::MASK
-    | machine::MPP::MASK
-    | machine::MPRV::MASK
-    | machine::SUM::MASK
-    | machine::MXR::MASK;
 
 fn access_status(info: &TrapInfo, instruction: bool) -> Result<usize, Error> {
     let endianness = match info.origin() {
@@ -84,11 +81,7 @@ fn access_status(info: &TrapInfo, instruction: bool) -> Result<usize, Error> {
         machine::Privilege::Supervisor => {
             #[cfg(target_pointer_width = "32")]
             {
-                if info.status_high & machine::SBE::MASK == 0 {
-                    machine::Endianness::Little
-                } else {
-                    machine::Endianness::Big
-                }
+                info.status_high.read::<machine::SBE>()
             }
             #[cfg(target_pointer_width = "64")]
             {
@@ -102,9 +95,20 @@ fn access_status(info: &TrapInfo, instruction: bool) -> Result<usize, Error> {
     if info.virtualized() || (!instruction && endianness == machine::Endianness::Big) {
         return Err(Error::Unsupported);
     }
-    let saved =
-        usize::from(info.status) & (machine::MPP::MASK | machine::SUM::MASK | machine::MXR::MASK);
-    Ok(saved | machine::MPRV::MASK | if instruction { machine::MXR::MASK } else { 0 })
+    let privilege = match info.origin() {
+        machine::Privilege::User => machine::TargetPrivilege::User,
+        machine::Privilege::Supervisor => machine::TargetPrivilege::Supervisor,
+        _ => unreachable!("origin checked above"),
+    };
+    let mut status = machine::StatusWriteValue::for_return(privilege);
+    status.write::<machine::SUM>(info.status.read::<machine::SUM>());
+    status.write::<machine::MXR>(if instruction {
+        machine::ExecutableReadAccess::Enabled
+    } else {
+        info.status.read::<machine::MXR>()
+    });
+    status.write::<machine::MPRV>(machine::AccessPrivilege::Previous);
+    Ok(status.into())
 }
 
 /// Fetches up to four instruction bytes under the original S/U context.
@@ -196,6 +200,9 @@ mod tests {
         TrapInfo {
             epc: 0x1000,
             status: machine::StatusWriteValue::for_return(privilege).into(),
+            #[cfg(target_pointer_width = "32")]
+            status_high: machine::StatusHighReadValue::from_bits(0),
+            #[cfg(target_pointer_width = "64")]
             status_high: 0,
             has_hypervisor: false,
             cause: 0,
@@ -220,7 +227,7 @@ mod tests {
                 machine::TargetPrivilege::Supervisor => {
                     #[cfg(target_pointer_width = "32")]
                     {
-                        info.status_high = machine::SBE::MASK;
+                        info.status_high = machine::StatusHighReadValue::from_bits(1 << 4);
                     }
                     #[cfg(target_pointer_width = "64")]
                     status.write::<machine::SBE>(machine::Endianness::Big);

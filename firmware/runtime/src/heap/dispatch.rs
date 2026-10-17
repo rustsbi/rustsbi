@@ -44,8 +44,9 @@ impl<'a> HeapDispatch<'a> {
     /// Returns an allocation to the policy as its original slot.
     ///
     /// # Safety
-    /// `pointer` and `request` must identify a live allocation returned by
-    /// this dispatch. The caller transfers it back exactly once.
+    /// `pointer` and `request` must identify a live allocation returned by this
+    /// dispatch.
+    /// The caller transfers it back exactly once.
     pub(super) unsafe fn dealloc(&self, pointer: *mut u8, request: Layout) {
         let slot_layout = self
             .size_map
@@ -63,7 +64,8 @@ impl<'a> HeapDispatch<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::heap::{GlobalHeapAllocator, HeapAllocError, HeapSlot, HeapSlotList};
+    use crate::heap::{GlobalHeapAllocator, HeapSlot, HeapSlotList};
+    use crate::{Error, Result};
     use alloc::boxed::Box;
     use core::mem::MaybeUninit;
     use spin::Mutex;
@@ -91,8 +93,8 @@ mod tests {
     }
 
     impl GlobalHeapAllocator for OneSlot {
-        fn alloc(&self, _slot_layout: Layout) -> Result<HeapSlot<'static>, HeapAllocError> {
-            self.available.lock().take().ok_or(HeapAllocError)
+        fn alloc(&self, _slot_layout: Layout) -> Result<HeapSlot<'static>> {
+            self.available.lock().take().ok_or(Error::NoMemory)
         }
 
         fn dealloc(&self, slot: HeapSlot<'static>) {

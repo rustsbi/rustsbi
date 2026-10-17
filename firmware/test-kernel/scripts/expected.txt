@@ -6,6 +6,7 @@ Hello RustSBI!
 Platform HART Count           : {smp}
 Sbi `Base` test pass
 Sbi `TIME` test pass
+[timer] expired, rearmed, and cancelled deadlines pass
 Sbi `sPI` test pass
 Sbi `DBCN` test pass
 Sbi `DBCN` return contract test pass

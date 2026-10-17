@@ -6,6 +6,7 @@
 //!   `DynamicInfo` layout, magic value, versions, and boot-hart encoding.
 
 use core::ops::Range;
+use runtime::Result;
 
 use crate::fail;
 

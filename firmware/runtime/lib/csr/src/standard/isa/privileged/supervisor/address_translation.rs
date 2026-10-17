@@ -4,15 +4,17 @@ use crate::macros::csr;
 csr! {
     pub struct AddressSpace(usize);
 
-    /// Supervisor address translation and protection (`satp`).
+    /// Supervisor address translation and protection register (`satp`).
     ///
-    /// <https://docs.riscv.org/reference/isa/priv/supervisor.html#satp>
+    /// See <https://docs.riscv.org/reference/isa/priv/supervisor.html#satp>.
     AddressTranslation { 0x180, r: AddressSpace,
-        /// See <https://docs.riscv.org/reference/isa/priv/supervisor.html#satp>.
+        /// See
+        /// <https://docs.riscv.org/reference/isa/priv/supervisor.html#satp>.
         ///
         /// # Safety
         ///
-        /// The new mappings must preserve all live Rust pointers and executable code.
+        /// The new mappings must preserve all live Rust pointers and executable
+        /// code.
         unsafe w: AddressSpace
     }
 }

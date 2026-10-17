@@ -7,8 +7,10 @@
 //! [Arm CoreLink CCI-550 TRM]: https://documentation-service.arm.com/static/5e7dd450cbfe76649ba52b0c
 
 use bitflags::bitflags;
-
-use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
+use runtime::{
+    Result,
+    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+};
 
 bitflags! {
     struct Status: u32 {
@@ -58,11 +60,11 @@ impl<const N: usize> Cci550<N> {
         memory: &mut MemoryRegistry,
         status: DeviceRegisterRange,
         snoop_controls: [DeviceRegisterRange; N],
-    ) -> runtime::Result<Self> {
-        let status = StatusRegister(memory.acquire_mmio(status)?);
+    ) -> Result<Self> {
+        let status = StatusRegister(memory.acquire(status)?);
         let mut snoop_control = [const { None }; N];
         for (control, registers) in snoop_control.iter_mut().zip(snoop_controls) {
-            *control = Some(SnoopControlRegister(memory.acquire_mmio(registers)?));
+            *control = Some(SnoopControlRegister(memory.acquire(registers)?));
         }
         Ok(Self {
             status,

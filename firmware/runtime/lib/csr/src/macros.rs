@@ -1,5 +1,35 @@
 //! Register access and field codecs.
-//! Access declarations carry the safety contracts for generated hardware operations.
+//! Access declarations carry the safety contracts for generated hardware
+//! operations.
+//!
+//! # Register declarations
+//!
+//! Field-bearing declarations infer separate read snapshots and write values.
+//! Explicit value types use `r: Value` and `w: Value`.
+//! Register types identify CSRs; hardware operations are associated functions.
+//! Ordinary reads are safe; writes require their current-hart access contract.
+//!
+//! | Declaration | Generated operation | Safety contract |
+//! | --- | --- | --- |
+//! | `r: Value` | Safe CSR read | Unavailable or inaccessible hardware traps |
+//! | `w: Value` | Unsafe CSR write | The caller establishes current-hart access and coordinates updates |
+//! | `unsafe w: Value` | Ordinary CSR write | The caller establishes the documented requirements |
+//! | Dedicated method | Explicit instruction sequence | The method defines effects and caller obligations |
+//!
+//! Execution-environment writes use `unsafe w` with register-specific safety
+//! conditions.
+//! Operations with side effects or indirect effects need dedicated
+//! implementations.
+//! Use specification names such as `claim`, `set`, and `clear` for these
+//! operations.
+//! Document their affected state, instruction sequence, ordering, and caller
+//! obligations, with the applicable specification reference.
+//!
+//! Omit ordinary access declarations that could bypass a dedicated operation.
+//! For example, `InterruptPending { 0x344, r }` omits `w`, which suppresses
+//! `write` and `modify`.
+//! Keep register identities and pure field codecs independent of hardware
+//! access.
 
 macro_rules! csr {
     () => {};
@@ -28,21 +58,24 @@ macro_rules! csr {
         $crate::macros::csr!($($rest)*);
     };
     (@values [$($attr:tt)*] $read:ident, $write:ident) => {
-        $crate::macros::csr!(@word [$($attr)*] $read);
-        $crate::macros::csr!(@word [$($attr)*] $write);
-        $($attr)*
-        impl From<$write> for $read {
+        $crate::macros::csr!(@word [#[doc = "An immutable CSR read snapshot."] #[doc = ""] $($attr)*] $read);
+        $crate::macros::csr!(@word [#[doc = "A complete CSR write value."] #[doc = ""] $($attr)*] $write);
+        $($attr)* impl From<$write> for $read {
             fn from(value: $write) -> Self { Self(value.0) }
         }
-        $($attr)*
-        impl $read {
+        $($attr)* impl $read {
+            /// Decodes an in-memory snapshot without accessing hardware.
+            #[inline]
+            pub const fn from_bits(bits: usize) -> Self { Self(bits) }
+            /// Reads a field from this snapshot without accessing hardware.
             #[inline]
             pub fn read<F: $crate::value::ReadField<Self>>(self) -> F::Value { F::read(self) }
         }
-        $($attr)*
-        impl $write {
+        $($attr)* impl $write {
+            /// Reads a field from this local value without accessing hardware.
             #[inline]
             pub fn read<F: $crate::value::ReadField<$read>>(self) -> F::Value { F::read($read(self.0)) }
+            /// Edits this local value without accessing hardware.
             #[inline]
             pub fn write<F: $crate::value::WriteField<Self>>(&mut self, value: F::Value) {
                 F::write(self, value);
@@ -54,32 +87,31 @@ macro_rules! csr {
         #[repr(transparent)]
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         pub struct $value(pub(crate) usize);
-        $($attr)*
-        impl $crate::value::Value for $value {
+        $($attr)* impl $crate::value::Value for $value {
             const BITS: u32 = usize::BITS;
             fn from_bits(bits: usize) -> Self { Self(bits) }
             fn bits(self) -> usize { self.0 }
         }
-        $($attr)*
-        impl From<$value> for usize {
+        $($attr)* impl From<$value> for usize {
             fn from(value: $value) -> Self { value.0 }
         }
     };
     (@register [$($attr:tt)*] $name:ident, $number:literal) => {
-        $($attr)* pub enum $name {}
-        $($attr)* impl $name { pub const NUMBER: u16 = $number; }
+        $($attr)*
+        pub enum $name {}
+        $($attr)* impl $name {
+            pub const NUMBER: u16 = $number;
+        }
         $($attr)* const _: () = assert!($number < 0x1000, "CSR number must fit in 12 bits");
     };
     (@read [$($attr:tt)*] $name:ident, $read:ty) => {
-        $crate::macros::csr!(@read_value [$($attr)*] $name, $read);
         $($attr)* impl $name {
-            /// Reads the current hart's register.
-            ///
-            /// Unavailable access traps.
+            /// Reads this hart's register. Unavailable access traps.
             #[inline]
             pub fn read() -> $read {
                 const { assert!(<$read as $crate::value::Value>::BITS <= usize::BITS); }
-                // SAFETY: The declaration permits reads without caller obligations.
+                // SAFETY: This instruction observes the register without
+                // changing execution state; inaccessible hardware traps.
                 <$read as $crate::value::Value>::from_bits(unsafe {
                     $crate::value::read::<{ Self::NUMBER }>()
                 })
@@ -90,68 +122,53 @@ macro_rules! csr {
         $crate::macros::csr!(@read [$($attr)*] $name, $read);
     };
     (@access [$($attr:tt)*] $name:ident, $read:ident, $write:ident; r, $(#[$write_attr:meta])* unsafe w) => {
+        $crate::macros::csr!(@access [$($attr)*] $name, $read, $write;
+            r, $(#[$write_attr])* unsafe w: $write);
+    };
+    (@access [$($attr:tt)*] $name:ident, $read:ident, $write:ident; r, $(#[$write_attr:meta])* unsafe w: $complete:ty) => {
         $crate::macros::csr!(@read [$($attr)*] $name, $read);
-        $crate::macros::csr!(@write [$($attr)*] [$(#[$write_attr])*] $name, $write; [unsafe]);
-        $crate::macros::csr!(@modify [$($attr)*] $name, $read, $write);
-    };
-    (@scalar_write [$($attr:tt)*] $name:ident, $read:ty;) => {};
-    (@scalar_write [$($attr:tt)*] $name:ident, $read:ty; w: $write:ty) => {
-        $crate::macros::csr!(@write [$($attr)*] [] $name, $write; []);
-    };
-    (@scalar_write [$($attr:tt)*] $name:ident, $read:ty; $(#[$write_attr:meta])* unsafe w: $write:ty) => {
-        $crate::macros::csr!(@write [$($attr)*] [$(#[$write_attr])*] $name, $write; [unsafe]);
-    };
-    (@write [$($attr:tt)*] [$($method_attr:tt)*] $name:ident, $write:ty; [$($safety:tt)*]) => {
-        $crate::macros::csr!(@write_value [$($attr)*] $name, $write);
+        $crate::macros::csr!(@write [$($attr)*] [$(#[$write_attr])*] $name, $complete);
         $($attr)* impl $name {
-            /// Writes a complete value to the current hart's register.
-            $($method_attr)*
-            #[inline]
-            pub $($safety)* fn write(value: $write) {
-                // SAFETY: The declaration permits safe access or requires the
-                // caller to establish this operation's documented contract.
-                unsafe { $crate::value::write::<{ Self::NUMBER }>(
-                    <$write as $crate::value::Value>::bits(value)) }
-            }
-        }
-    };
-    (@read_value [$($attr:tt)*] $name:ident, $read:ty) => {
-        $($attr)* impl $crate::Readable for $name {
-            const NUMBER: u16 = Self::NUMBER;
-            type Value = $read;
-            #[inline]
-            fn decode(bits: usize) -> Self::Value {
-                <$read as $crate::value::Value>::from_bits(bits)
-            }
-        }
-    };
-    (@write_value [$($attr:tt)*] $name:ident, $write:ty) => {
-        $($attr)* const _: () = assert!($name::NUMBER & 0xc00 != 0xc00, "read-only CSR encoding");
-        $($attr)* impl $crate::Writeable for $name {
-            const NUMBER: u16 = Self::NUMBER;
-            type Value = $write;
-            #[inline]
-            fn encode(value: Self::Value) -> usize {
-                <$write as $crate::value::Value>::bits(value)
-            }
-        }
-    };
-    (@modify [$($attr:tt)*] $name:ident, $read:ty, $write:ty) => {
-        $($attr)* impl $name {
-            /// Updates the register through a non-atomic read/modify/write sequence.
+            /// Edits a snapshot and writes it back in one non-atomic sequence.
             ///
             /// # Safety
             ///
-            /// The edited value must satisfy the requirements of this register's
-            /// [write](Self::write) operation.
+            /// Execute on the intended hart in a permitted privilege mode.
+            /// Coordinate conflicting accesses and satisfy this register's
+            /// write requirements. Unavailable hardware requires a valid trap context.
             #[inline]
             pub unsafe fn modify(edit: impl FnOnce(&$read, &mut $write)) {
                 let read = Self::read();
                 let mut write = <$write as $crate::value::Value>::from_bits(
                     <$read as $crate::value::Value>::bits(read));
                 edit(&read, &mut write);
-                // SAFETY: The caller establishes Self::write's requirements.
-                unsafe { Self::write(write) }
+                // SAFETY: These fields belong to this register, and the
+                // caller establishes its hardware-write requirements.
+                unsafe { $crate::value::write::<{ Self::NUMBER }>(
+                    <$write as $crate::value::Value>::bits(write)) }
+            }
+        }
+    };
+    (@scalar_write [$($attr:tt)*] $name:ident, $read:ty;) => {};
+    (@scalar_write [$($attr:tt)*] $name:ident, $read:ty; w: $write:ty) => {
+        $crate::macros::csr!(@write [$($attr)*] [#[doc = ""] #[doc = "# Safety"]] $name, $write);
+    };
+    (@scalar_write [$($attr:tt)*] $name:ident, $read:ty; $(#[$write_attr:meta])* unsafe w: $write:ty) => {
+        $crate::macros::csr!(@write [$($attr)*] [$(#[$write_attr])*] $name, $write);
+    };
+    (@write [$($attr:tt)*] [$($method_attr:tt)*] $name:ident, $write:ty) => {
+        $($attr)* const _: () = assert!($name::NUMBER & 0xc00 != 0xc00, "read-only CSR encoding");
+        $($attr)* impl $name {
+            /// Writes a complete value to this hart's register.
+            $($method_attr)*
+            /// Execute on the intended hart in a permitted privilege mode.
+            /// Coordinate conflicting accesses. Unavailable hardware requires
+            /// a valid trap context.
+            #[inline]
+            pub unsafe fn write(value: $write) {
+                // SAFETY: The caller establishes access and write requirements.
+                unsafe { $crate::value::write::<{ Self::NUMBER }>(
+                    <$write as $crate::value::Value>::bits(value)) }
             }
         }
     };
@@ -160,14 +177,10 @@ macro_rules! csr {
         $($rest:tt)*
     ) => {
         $($attr)* $(#[$field_attr])* pub enum $field {}
-        $($attr)* $(#[$field_attr])* impl $field {
-            pub const MASK: usize = {
-                let last: u32 = $crate::macros::csr!(@last $first $(, $last)?);
-                assert!(last.checked_sub($first).is_some() && last < usize::BITS);
-                (usize::MAX >> (usize::BITS - 1 - last + $first)) << $first
-            };
-        }
-        $crate::macros::csr!(@codec [$($attr)* $(#[$field_attr])*] $read, $write, $field, $first; $($codec)*);
+        $($attr)* $(#[$field_attr])* const _: () = {
+            let _ = $crate::macros::csr!(@max [$first $(..= $last)?]);
+        };
+        $crate::macros::csr!(@codec [$($attr)* $(#[$field_attr])*] $read, $write, $field, [$first $(..= $last)?]; $($codec)*);
         $crate::macros::csr!(@fields [$($attr)*] $read, $write; $($rest)*);
     };
     (@fields [$($attr:tt)*] $read:ident, $write:ident; $($rest:tt)*) => {
@@ -175,13 +188,18 @@ macro_rules! csr {
     };
     (@last $first:literal, $last:literal) => { $last };
     (@last $first:literal) => { $first };
-    (@codec [$($attr:tt)*] $read:ident, $write:ident, $field:ident, $first:literal;
+    (@max [$first:literal $(..= $last:literal)?]) => {{
+        let last: u32 = $crate::macros::csr!(@last $first $(, $last)?);
+        assert!(last.checked_sub($first).is_some() && last < usize::BITS);
+        usize::MAX >> (usize::BITS - 1 - last + $first)
+    }};
+    (@codec [$($attr:tt)*] $read:ident, $write:ident, $field:ident, $bounds:tt;
         r: $value:ident { $($variant:ident = $encoding:literal),+ $(,)? } $(, $($rest:tt)*)?
     ) => {
         $($attr)* #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         pub enum $value { $($variant,)+ Unknown(usize) }
         $($attr)* const _: () = {
-            $(assert!(($field::MASK >> $first).checked_sub($encoding).is_some(), "field encoding exceeds its width");)+
+            $(assert!($crate::macros::csr!(@max $bounds).checked_sub($encoding).is_some(), "field encoding exceeds its width");)+
         };
         $($attr)* impl $crate::value::Value for $value {
             const BITS: u32 = usize::BITS;
@@ -192,15 +210,15 @@ macro_rules! csr {
                 match self { $(Self::$variant => $encoding,)+ Self::Unknown(raw) => raw }
             }
         }
-        $crate::macros::csr!(@codec [$($attr)*] $read, $write, $field, $first; r: $value $(, $($rest)*)?);
+        $crate::macros::csr!(@codec [$($attr)*] $read, $write, $field, $bounds; r: $value $(, $($rest)*)?);
     };
-    (@codec [$($attr:tt)*] $read:ident, $write:ident, $field:ident, $first:literal;
+    (@codec [$($attr:tt)*] $read:ident, $write:ident, $field:ident, $bounds:tt;
         $direction:ident: $value:ident { $($variant:ident = $encoding:literal),+ $(,)? } $(, $($rest:tt)*)?
     ) => {
         $($attr)* #[repr(usize)] #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         pub enum $value { $($variant = $encoding),+ }
         $($attr)* const _: () = {
-            $(assert!(($field::MASK >> $first).checked_sub($encoding).is_some(), "field encoding exceeds its width");)+
+            $(assert!($crate::macros::csr!(@max $bounds).checked_sub($encoding).is_some(), "field encoding exceeds its width");)+
         };
         $($attr)* impl $crate::value::Value for $value {
             const BITS: u32 = usize::BITS;
@@ -209,43 +227,45 @@ macro_rules! csr {
             }
             fn bits(self) -> usize { self as usize }
         }
-        $crate::macros::csr!(@exhaustive [$($attr)*] $field, $first; $direction; $($encoding),+);
-        $crate::macros::csr!(@codec [$($attr)*] $read, $write, $field, $first; $direction: $value $(, $($rest)*)?);
+        $crate::macros::csr!(@exhaustive [$($attr)*] $bounds; $direction; $($encoding),+);
+        $crate::macros::csr!(@codec [$($attr)*] $read, $write, $field, $bounds; $direction: $value $(, $($rest)*)?);
     };
-    (@exhaustive [$($attr:tt)*] $field:ident, $first:literal; rw; $($encoding:literal),+) => {
+    (@exhaustive [$($attr:tt)*] $bounds:tt; rw; $($encoding:literal),+) => {
         $($attr)* const _: () = {
             let encodings = [$($encoding),+];
-            assert!(encodings.len() == ($field::MASK >> $first) + 1, "rw enum must cover every read encoding; use separate r and w types");
+            assert!(encodings.len() == $crate::macros::csr!(@max $bounds) + 1, "rw enum must cover every read encoding; use separate r and w types");
         };
     };
-    (@exhaustive [$($attr:tt)*] $field:ident, $first:literal; w; $($encoding:literal),+) => {};
-    (@codec [$($attr:tt)*] $read:ident, $write:ident, $field:ident, $first:literal; rw: $value:ty) => {
-        $crate::macros::csr!(@codec [$($attr)*] $read, $write, $field, $first; r: $value, w: $value);
+    (@exhaustive [$($attr:tt)*] $bounds:tt; w; $($encoding:literal),+) => {};
+    (@codec [$($attr:tt)*] $read:ident, $write:ident, $field:ident, $bounds:tt; rw: $value:ty) => {
+        $crate::macros::csr!(@codec [$($attr)*] $read, $write, $field, $bounds; r: $value, w: $value);
     };
-    (@codec [$($attr:tt)*] $read:ident, $write:ident, $field:ident, $first:literal;
+    (@codec [$($attr:tt)*] $read:ident, $write:ident, $field:ident, $bounds:tt;
         $direction:ident: $value:ty, $($rest:tt)+
     ) => {
-        $crate::macros::csr!(@codec [$($attr)*] $read, $write, $field, $first; $direction: $value);
-        $crate::macros::csr!(@codec [$($attr)*] $read, $write, $field, $first; $($rest)+);
+        $crate::macros::csr!(@codec [$($attr)*] $read, $write, $field, $bounds; $direction: $value);
+        $crate::macros::csr!(@codec [$($attr)*] $read, $write, $field, $bounds; $($rest)+);
     };
-    (@codec [$($attr:tt)*] $read:ident, $write:ident, $field:ident, $first:literal;) => {};
-    (@codec [$($attr:tt)*] $read:ident, $write:ident, $field:ident, $first:literal; r: $value:ty) => {
+    (@codec [$($attr:tt)*] $read:ident, $write:ident, $field:ident, $bounds:tt;) => {};
+    (@codec [$($attr:tt)*] $read:ident, $write:ident, $field:ident, [$first:literal $(..= $last:literal)?]; r: $value:ty) => {
         $($attr)* impl $crate::value::ReadField<$read> for $field {
             type Value = $value;
             #[inline]
             fn read(register: $read) -> Self::Value {
-                <$value as $crate::value::Value>::from_bits((register.0 & Self::MASK) >> $first)
+                let max = const { $crate::macros::csr!(@max [$first $(..= $last)?]) };
+                <$value as $crate::value::Value>::from_bits((register.0 >> $first) & max)
             }
         }
     };
-    (@codec [$($attr:tt)*] $read:ident, $write:ident, $field:ident, $first:literal; w: $value:ty) => {
+    (@codec [$($attr:tt)*] $read:ident, $write:ident, $field:ident, [$first:literal $(..= $last:literal)?]; w: $value:ty) => {
         $($attr)* impl $crate::value::WriteField<$write> for $field {
             type Value = $value;
             #[inline]
             fn write(register: &mut $write, value: Self::Value) {
                 let bits = <$value as $crate::value::Value>::bits(value);
-                assert!(bits <= Self::MASK >> $first, "field value exceeds its declared width");
-                register.0 = (register.0 & !Self::MASK) | (bits << $first);
+                let max = const { $crate::macros::csr!(@max [$first $(..= $last)?]) };
+                assert!(bits <= max, "field value exceeds its declared width");
+                register.0 = (register.0 & !(max << $first)) | (bits << $first);
             }
         }
     };

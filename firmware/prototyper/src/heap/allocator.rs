@@ -3,7 +3,10 @@
 #![forbid(unsafe_code)]
 
 use core::alloc::Layout;
-use runtime::heap::{GlobalHeapAllocator, HeapAllocError, HeapSlot, HeapSlotList};
+use runtime::{
+    Error, Result,
+    heap::{GlobalHeapAllocator, HeapSlot, HeapSlotList},
+};
 use spin::Mutex;
 
 // First-fit placement scans the free list under one lock. With a single arena,
@@ -36,7 +39,7 @@ impl HeapAllocator {
 }
 
 impl GlobalHeapAllocator for HeapAllocator {
-    fn alloc(&self, slot_layout: Layout) -> Result<HeapSlot<'static>, HeapAllocError> {
+    fn alloc(&self, slot_layout: Layout) -> Result<HeapSlot<'static>> {
         let align_bytes = slot_layout.align().max(HeapSlotList::GRANULE);
         let size_bytes = slot_layout.size();
         assert!(size_bytes.is_multiple_of(HeapSlotList::GRANULE));
@@ -59,7 +62,7 @@ impl GlobalHeapAllocator for HeapAllocator {
                 }
                 fits
             })
-            .ok_or(HeapAllocError)?;
+            .ok_or(Error::NoMemory)?;
         let slot = if offset_bytes != 0 {
             let (prefix, slot) = slot.split_at(offset_bytes).expect("aligned interior split");
             free_slots.push(prefix).expect("aligned prefix");

@@ -1,9 +1,12 @@
 //! PLICSW uses an 8-by-8 source/target matrix.
 
 use core::mem::{align_of, size_of};
-
-use super::{IpiBackend, IpiError, IpiRequest};
-use runtime::memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion};
+use runtime::{
+    Error, Result,
+    hart::HartId,
+    ipi::{IpiDevice, IpiRequest},
+    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+};
 
 const MATRIX_WIDTH: usize = 8;
 const PENDING_OFFSET: usize = 0x1000;
@@ -24,16 +27,15 @@ pub(in crate::driver) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
     hart_id_upper_bound: usize,
-) -> runtime::Result<PlicSw> {
+) -> Result<PlicSw> {
     if hart_id_upper_bound == 0
         || hart_id_upper_bound > MATRIX_WIDTH
         || !registers.has_aligned_bounds(align_of::<u32>())
     {
-        return Err(runtime::Error::InvalidArgs);
+        return Err(Error::InvalidArgs);
     }
-    let registers = memory.acquire_mmio(
-        registers.subrange(0, CONTEXT_OFFSET + CONTEXT_STRIDE * hart_id_upper_bound)?,
-    )?;
+    let registers = memory
+        .acquire(registers.subrange(0, CONTEXT_OFFSET + CONTEXT_STRIDE * hart_id_upper_bound)?)?;
     for source in 1..=MATRIX_WIDTH * hart_id_upper_bound {
         registers.write(size_of::<u32>() * source, 1u32.to_le())?;
     }
@@ -51,18 +53,16 @@ pub(in crate::driver) fn bind(
     })
 }
 
-impl IpiBackend for PlicSw {
-    fn send_ipi(&self, request: IpiRequest) -> Result<(), IpiError> {
+impl IpiDevice for PlicSw {
+    fn send(&self, request: IpiRequest) -> Result<()> {
         riscv::asm::fence();
         for hart in request.harts() {
             if hart >= self.hart_id_upper_bound {
-                return Err(IpiError::Failed);
+                return Err(Error::IoError);
             }
-            let source = runtime::hart::HartId::current()
-                .expect("invalid current hart")
-                .as_usize();
+            let source = HartId::current().expect("invalid current hart").as_usize();
             if source >= self.hart_id_upper_bound {
-                return Err(IpiError::Failed);
+                return Err(Error::IoError);
             }
             let bit = MATRIX_WIDTH * source + hart;
             self.registers
@@ -70,29 +70,25 @@ impl IpiBackend for PlicSw {
                     PENDING_OFFSET + size_of::<u32>() * (bit / u32::BITS as usize),
                     (1u32 << (bit % u32::BITS as usize)).to_le(),
                 )
-                .map_err(|_| IpiError::Failed)?;
+                .map_err(|_| Error::IoError)?;
         }
         riscv::asm::fence();
         Ok(())
     }
 
-    fn clear_ipi(&self, hart: usize) -> Result<(), IpiError> {
-        if hart >= self.hart_id_upper_bound
-            || hart
-                != runtime::hart::HartId::current()
-                    .expect("invalid current hart")
-                    .as_usize()
-        {
-            return Err(IpiError::Failed);
+    fn acknowledge(&self) -> Result<bool> {
+        let hart = HartId::current()?.as_usize();
+        if hart >= self.hart_id_upper_bound {
+            return Err(Error::IoError);
         }
         let offset = CONTEXT_OFFSET + CONTEXT_STRIDE * hart + size_of::<u32>();
-        let source: u32 = self.registers.read(offset).map_err(|_| IpiError::Failed)?;
+        let source: u32 = self.registers.read(offset).map_err(|_| Error::IoError)?;
         if source != 0 {
             self.registers
                 .write(offset, source)
-                .map_err(|_| IpiError::Failed)?;
+                .map_err(|_| Error::IoError)?;
         }
         riscv::asm::fence();
-        Ok(())
+        Ok(true)
     }
 }

@@ -53,6 +53,9 @@ general_regs! {
 pub(super) struct TrapInfo {
     pub(super) epc: usize,
     pub(super) status: machine::StatusReadValue,
+    #[cfg(target_pointer_width = "32")]
+    pub(super) status_high: machine::StatusHighReadValue,
+    #[cfg(target_pointer_width = "64")]
     pub(super) status_high: usize,
     /// Whether entry saved the H extension's trap metadata.
     pub(super) has_hypervisor: bool,
@@ -70,6 +73,9 @@ pub(super) struct TrapFrame {
     pub(super) general: GeneralRegs,
     pub(super) epc: usize,
     pub(super) status: machine::StatusWriteValue,
+    #[cfg(target_pointer_width = "32")]
+    pub(super) status_high: machine::StatusHighWriteValue,
+    #[cfg(target_pointer_width = "64")]
     pub(super) status_high: usize,
 }
 
@@ -92,7 +98,7 @@ impl TrapInfo {
     pub(super) fn virtualized(&self) -> bool {
         #[cfg(target_pointer_width = "32")]
         {
-            self.status_high & machine::MPV::MASK != 0
+            self.status_high.read::<machine::MPV>() == machine::Virtualization::On
         }
         #[cfg(target_pointer_width = "64")]
         {
@@ -103,7 +109,7 @@ impl TrapInfo {
     pub(super) fn guest_address(&self) -> bool {
         #[cfg(target_pointer_width = "32")]
         {
-            self.status_high & machine::GVA::MASK != 0
+            self.status_high.read::<machine::GVA>() == machine::GuestAddress::GuestVirtual
         }
         #[cfg(target_pointer_width = "64")]
         {
@@ -116,7 +122,8 @@ impl TrapFrame {
     pub(super) fn leave_virtualization(&mut self) {
         #[cfg(target_pointer_width = "32")]
         {
-            self.status_high &= !machine::MPV::MASK;
+            self.status_high
+                .write::<machine::MPV>(machine::Virtualization::Off);
         }
         #[cfg(target_pointer_width = "64")]
         {

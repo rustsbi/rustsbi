@@ -3,7 +3,9 @@ use super::{frame::TrapFrame, init};
 use crate::{
     boot::NextStage,
     context::{self, ExecutionContext},
+    csr::csrr,
     hart::{self, HartEvent},
+    irq::LocalIrqDisabled,
 };
 use csr::{
     machine::{MPP, TargetPrivilege},
@@ -33,45 +35,31 @@ pub(super) fn sbi_ecall(frame: &mut TrapFrame) {
     }
 }
 
-fn deliver_event(frame: &mut TrapFrame) {
+fn deliver_event(frame: &mut TrapFrame, ipi: &crate::ipi::Ipi, irq: &LocalIrqDisabled) {
     let event = hart::take_local_event();
-    crate::ipi::handler()
-        .expect("IPI handler not published")
-        .deliver_current();
+    ipi.deliver_current(irq);
     match event {
         HartEvent::Start(next) => enter_next_stage(frame, next),
         HartEvent::Park => {
-            crate::csr::mie::set_machine_software();
-            if crate::irq::get().is_some() {
-                crate::csr::mie::set_machine_external();
-            }
+            ipi.prepare_wakeup(irq);
             riscv::asm::wfi();
         }
         HartEvent::None => {}
     }
 }
 
-pub(super) fn software_interrupt(frame: &mut TrapFrame) {
-    crate::ipi::get()
-        .expect("software interrupt without an IPI device")
-        .clear_current()
-        .expect("IPI backend could not clear the current hart");
-    deliver_event(frame);
+pub(super) fn software_interrupt(frame: &mut TrapFrame, irq: &LocalIrqDisabled) {
+    let ipi = crate::boot::ipi().expect("IPI service not published");
+    ipi.clear_current(irq)
+        .expect("IPI device could not clear the current hart");
+    deliver_event(frame, ipi, irq);
 }
 
-pub(super) fn external_interrupt(frame: &mut TrapFrame) {
-    if crate::irq::get().is_some_and(|controller| controller.claim_ipi()) {
-        deliver_event(frame);
-    }
-}
-
-pub(super) fn timer_interrupt() {
-    crate::csr::mie::clear_machine_timer();
-    if !crate::timer::has_sstc() {
-        if let Some(timer) = crate::timer::get() {
-            timer.acknowledge_current();
-        }
-        crate::csr::mip::set_supervisor_timer();
+pub(super) fn external_interrupt(frame: &mut TrapFrame, irq: &LocalIrqDisabled) {
+    if let Some(ipi) = crate::boot::ipi()
+        && ipi.claim_external(irq)
+    {
+        deliver_event(frame, ipi, irq);
     }
 }
 
@@ -102,12 +90,11 @@ fn enter_context(
         *slot = frame.general.read(id);
     }
     let outgoing = riscv::register::satp::read();
-    // SAFETY: Dispatch owns this hart's trap state, with MIE and MPRV clear
-    // and mscratch zero.
     // A supervisor context always has a `sie`; a failed read resumes the
     // incoming context with no interrupt sources rather than failing the
     // infallible ceremony.
-    let outgoing_sie = unsafe { crate::csr::read::<supervisor::InterruptEnable>() }
+    let outgoing_sie = csrr!(supervisor::InterruptEnable)
+        .map(InterruptSet::from)
         .unwrap_or(InterruptSet::empty());
     let outgoing_status = frame.status;
     suspend_into.save_outgoing(&x1_x31, frame.epc, outgoing, outgoing_sie, outgoing_status);

@@ -5,10 +5,13 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
+use runtime::{
+    Result, SpacemitK1Registers,
+    memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange},
+    soc::allwinner::v861::AllwinnerV861Soc,
+};
 
 use riscv_aia::Iid;
-use runtime::SpacemitK1Registers;
-use runtime::memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange};
 
 use crate::devicetree::{NodeSelection, select_from_node_once};
 use crate::driver;
@@ -138,19 +141,11 @@ impl InterruptDescriptions {
         self.machine_aplic.as_ref()
     }
 
-    pub(crate) fn set_clint(
-        &mut self,
-        value: ClintResource,
-        source_path: &[&str],
-    ) -> runtime::Result<()> {
+    pub(crate) fn set_clint(&mut self, value: ClintResource, source_path: &[&str]) -> Result<()> {
         select_from_node_once(&mut self.clint, value, source_path)
     }
 
-    pub(crate) fn set_imsic(
-        &mut self,
-        value: ImsicInfo,
-        source_path: &[&str],
-    ) -> runtime::Result<()> {
+    pub(crate) fn set_imsic(&mut self, value: ImsicInfo, source_path: &[&str]) -> Result<()> {
         select_from_node_once(&mut self.imsic, value, source_path)
     }
 
@@ -159,7 +154,7 @@ impl InterruptDescriptions {
         value: DeviceRegisterRange,
         source_path: &[&str],
         handoff: MachineAplicHandoff,
-    ) -> runtime::Result<()> {
+    ) -> Result<()> {
         select_from_node_once(&mut self.machine_aplic, value, source_path)?;
         self.machine_aplic_handoff = handoff;
         Ok(())
@@ -217,7 +212,7 @@ impl DeviceDescriptions {
 pub(crate) enum SocDescription {
     SpacemitK1(SpacemitK1Registers),
     V821(crate::platform::allwinner::v821::Description),
-    V861(runtime::soc::allwinner::v861::AllwinnerV861Soc),
+    V861(AllwinnerV861Soc),
 }
 
 /// Platform facts grouped by the policy that consumes them.
