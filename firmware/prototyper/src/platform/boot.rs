@@ -5,8 +5,9 @@
 use alloc::boxed::Box;
 use core::ops::Range;
 use runtime::{
-    Error, PlatformDescription, Result, boot, events,
-    hart::{self, HartId},
+    Error, PlatformDescription, Result, boot,
+    fwft::Fwft,
+    hart::{self, Hart, HartId, IsaExtensions},
     ipi::Ipi,
     memory::SupervisorMemory,
     timer::Timer,
@@ -150,16 +151,14 @@ fn initialize_platform(
 /// Sstc timer.
 /// Device construction performs no SBI feature-policy queries.
 fn select_imsic(board: &BoardInfo) -> Option<&ImsicInfo> {
-    use sbi::features::{self, Extension};
-
     let imsic = board.devices.interrupts.imsic()?.resource();
-    for hart in HartId::all().map(|hart| hart.as_usize()) {
-        if !features::hart_has_extension(hart, Extension::Smaia)
-            || !features::hart_has_extension(hart, Extension::Sstc)
+    for hart in Hart::all() {
+        if !hart.extensions().contains(IsaExtensions::SMAIA)
+            || !hart.extensions().contains(IsaExtensions::SSTC)
         {
             warn!(
                 "AIA: hart {} requires Smaia and Sstc; falling back to CLINT",
-                hart
+                hart.id().as_usize()
             );
             return None;
         }
@@ -187,8 +186,8 @@ fn publish_platform_services(
     let hart_wake = hart_wake.map(|device| HART_WAKE.call_once(|| device).as_ref());
     hart::install_wakeup(hart_wake);
     let ipi_delivery = ipi.as_ref().map(|device| device.delivery());
-    let sbi_ipi = sbi::ipi::SbiIpi::new(Ipi::new(ipi, sbi::ipi::deliver_current));
-    events::install(pmu.as_ref().map(|_| sbi::pmu::runtime_counters()));
+    let sbi_ipi = sbi::ipi::SbiIpi::new(Ipi::new(ipi, sbi::ipi::SbiIpi::deliver_current))
+        .expect("failed to construct SBI IPI records");
 
     state::publish_resources(board, supervisor_memory, console, ipi_delivery);
 
@@ -223,10 +222,10 @@ fn publish_sbi_dispatcher(
         .map(|device| sbi::console::SbiConsole::new(device, supervisor_memory));
     let cppc = Some(SbiCppc::new());
     let dbtr = Some(SbiDbtr::new(supervisor_memory));
-    let fwft = Some(SbiFwft);
+    let fwft = Some(SbiFwft::new(Fwft::new()).expect("failed to construct FWFT locks"));
     let ipi_available = ipi.ipi().delivery().is_some();
     let hsm = ipi_available.then(|| SbiHsm::new(hart_wake.is_some()));
-    let rfence = ipi_available.then_some(SbiRFence);
+    let rfence = ipi_available.then(|| SbiRFence::new().expect("failed to construct fence queues"));
     let susp = hsm.as_ref().map(|_| SbiSuspend);
     let mpxy = Some(sbi::mpxy::SbiMpxy::new(supervisor_memory));
     let sta = Some(sbi::sta::SbiSta::new(supervisor_memory));
@@ -248,8 +247,13 @@ fn publish_sbi_dispatcher(
         mpxy,
         vendor,
     });
-    boot::install_services(dispatcher.timer.timer(), dispatcher.ipi.ipi())
-        .expect("BUG: Runtime services registered more than once");
+    boot::install_services(boot::Services {
+        timer: dispatcher.timer.timer(),
+        ipi: dispatcher.ipi.ipi(),
+        pmu: dispatcher.pmu.as_ref().map(SbiPmu::pmu),
+        fwft: dispatcher.fwft.as_ref().map(SbiFwft::fwft),
+    })
+    .expect("BUG: Runtime services registered more than once");
 }
 
 /// Runs the SoC-specific per-hart setup for secondary harts.

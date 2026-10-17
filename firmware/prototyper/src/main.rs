@@ -17,20 +17,12 @@ mod riscv;
 mod sbi;
 
 use crate::firmware::BootInfo;
-use crate::sbi::features::{
-    check_next_stage_privilege, detect_hart_features, hart_mhpm_mask, hart_privileged_version,
-};
-use crate::sbi::hart_local;
-use ::riscv::register::mstatus::MPP;
-use runtime::{
-    boot, entry,
-    hart::{self, HartId},
-    ipi::IpiDelivery,
-    trap,
-};
+use csr::machine::TargetPrivilege;
+use runtime::{DeviceTreeHandoff, boot::NextStage, entry, hart::Hart, trap};
 
-#[entry]
-fn main(boot: BootInfo) {
+#[entry(initialize = firmware::initialize, stack_size = cfg::STACK_SIZE_PER_HART, link_start = cfg::SBI_LINK_START_ADDRESS)]
+fn main(hart_id: usize, device_tree: DeviceTreeHandoff, dynamic_info: usize) {
+    let boot = firmware::boot_info(hart_id, device_tree, dynamic_info);
     if boot.is_boot_hart() {
         boot_hart(boot);
     } else {
@@ -39,10 +31,6 @@ fn main(boot: BootInfo) {
 }
 
 fn boot_hart(mut boot: BootInfo) {
-    // Initialize this hart's policy storage before any user: platform
-    // discovery seeds secondary harts' features, and feature detection
-    // writes this hart's.
-    hart_local::init();
     let platform_description = boot
         .take_platform_description()
         .expect("BUG: boot hart entered without a validated Platform Description");
@@ -52,78 +40,83 @@ fn boot_hart(mut boot: BootInfo) {
     firmware::set_pmp(&firmware_ram);
     firmware::log_pmp_cfg(&firmware_ram);
 
-    let hart_id = HartId::current()
-        .expect("BUG: current hart is not in the boot topology")
-        .as_usize();
+    let hart = Hart::current().expect("current hart description");
+    let hart_id = hart.id().as_usize();
     info!("{:<30}: {}", "Boot HART ID", hart_id);
 
-    detect_hart_features();
-    log_hart_capabilities(hart_id);
+    let next_stage = boot.next_stage();
+    hart.initialize(next_stage.next_mode())
+        .expect("failed to initialize hart");
+    if matches!(
+        next_stage.next_mode(),
+        TargetPrivilege::Supervisor | TargetPrivilege::User
+    ) {
+        platform::mark_hart_privilege_checked(hart_id);
+    }
+    log_hart_capabilities(hart);
 
-    let mut next_stage = boot.next_stage();
-    check_next_stage_privilege(next_stage.next_mode);
-
-    next_stage.opaque = next_stage_fdt_address;
+    // SAFETY: The loader supplies an architectural entry. Platform setup
+    // produced an exclusive FDT handoff that remains live for the next stage.
+    let next_stage = unsafe {
+        NextStage::new(
+            next_stage.start_addr(),
+            next_stage_fdt_address,
+            next_stage.next_mode(),
+        )
+    };
     info!(
         "Redirecting hart {} to {:#016x} in {:?} mode.",
-        hart_id, next_stage.start_addr, next_stage.next_mode
+        hart_id,
+        next_stage.start_addr(),
+        next_stage.next_mode()
     );
-    hart::stage_boot_handoff(next_stage)
+    hart.stage_boot_handoff(next_stage)
         .expect("BUG: boot hart could not stage its initial handoff");
 
-    enable_supervisor_services();
+    let dispatcher = sbi::SBI_DISPATCHER
+        .get()
+        .expect("SBI dispatcher not initialized");
+    trap::init(dispatcher).expect("failed to publish SBI policy");
 }
 
 fn secondary_hart(boot: Option<&BootInfo>) {
     platform::wait_until_ready();
-    detect_hart_features();
 
     platform::initialize_secondary_hart();
     firmware::set_pmp(&platform::firmware_ram_range());
 
     // Hardware-reset harts have no SPL handoff; HSM starts them in S-mode.
-    let next_mode = boot.map_or(MPP::Supervisor, |boot| boot.next_stage().next_mode);
-    check_next_stage_privilege(next_mode);
-
-    enable_supervisor_services();
-}
-
-fn enable_supervisor_services() {
-    // Gate per-hart IMSIC setup on the device selected during platform
-    // initialization, not on AIA discovery alone.
+    let next_mode = boot.map_or(TargetPrivilege::Supervisor, |boot| {
+        boot.next_stage().next_mode()
+    });
+    let hart = Hart::current().expect("current hart description");
+    hart.initialize(next_mode)
+        .expect("failed to initialize hart");
     if matches!(
-        crate::platform::ipi_delivery(),
-        Some(IpiDelivery::Imsic { .. })
+        next_mode,
+        TargetPrivilege::Supervisor | TargetPrivilege::User
     ) {
-        driver::initialize_hart_imsic(
-            platform::board_info()
-                .devices
-                .interrupts
-                .imsic()
-                .map(|description| description.resource())
-                .expect("selected IMSIC has a description"),
-        );
+        platform::mark_hart_privilege_checked(hart.id().as_usize());
     }
-    sbi::features::configure_hart_environment();
-    // SAFETY: Runtime startup installed trap entry; this hart is still in
-    // M-mode with machine interrupts disabled and no lower-mode context.
-    unsafe { boot::configure_next_stage() };
     let dispatcher = sbi::SBI_DISPATCHER
         .get()
         .expect("SBI dispatcher not initialized");
-    // Publish the SBI policy after configuring the next-stage environment.
-    trap::init(dispatcher).expect("BUG: failed to activate Runtime trap handling");
+    trap::init(dispatcher).expect("failed to publish SBI policy");
 }
 
-fn log_hart_capabilities(hart_id: usize) {
+fn log_hart_capabilities(hart: &Hart) {
     info!(
         "{:<30}: {:?}",
         "Boot HART Privileged Version:",
-        hart_privileged_version(hart_id)
+        hart.privileged_version()
     );
-    info!(
-        "{:<30}: {:#08x}",
-        "Boot HART MHPM Mask:",
-        hart_mhpm_mask(hart_id)
-    );
+    if let Some(pmu) = sbi::pmu() {
+        let mask = pmu
+            .pmu()
+            .with_current(|counters| Ok(counters.implemented()))
+            .expect("initialized PMU counters");
+        info!("{:<30}: {:#08x}", "Boot HART MHPM Mask:", mask);
+    } else {
+        info!("{:<30}: not selected", "Boot HART MHPM Mask:");
+    }
 }

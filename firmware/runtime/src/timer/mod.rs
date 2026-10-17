@@ -6,13 +6,24 @@ mod time;
 
 use crate::{
     Error, Result,
-    csr::csrr,
     hart::HartLocal,
     irq::{self, LocalIrqDisabled},
+    recovery::{csrr, csrw},
 };
 use alloc::boxed::Box;
 use csr::{machine as registers, supervisor};
 use machine::{MachineTimer, MachineTimerState};
+#[cfg(target_pointer_width = "64")]
+use registers::{
+    EnvironmentConfig as Configuration, EnvironmentConfigReadValue as ConfigurationReadValue,
+    EnvironmentConfigWriteValue as ConfigurationWriteValue, STCE,
+};
+#[cfg(target_pointer_width = "32")]
+use registers::{
+    EnvironmentConfigHigh as Configuration,
+    EnvironmentConfigHighReadValue as ConfigurationReadValue,
+    EnvironmentConfigHighWriteValue as ConfigurationWriteValue, STCEH as STCE,
+};
 use spin::Once;
 
 pub use device::TimerDevice;
@@ -51,6 +62,8 @@ impl Timer {
     /// Creates a supervisor timer that owns the optional native device.
     /// Move it into permanent storage before registering it with Runtime.
     /// Runtime initializes each hart after configuring its supervisor environment.
+    /// Initialization probes Sstc and enables supervisor comparison when present;
+    /// otherwise it selects the native device.
     /// A platform without a native device may use Sstc alone.
     pub fn new(device: Option<Box<dyn TimerDevice>>) -> Self {
         Self {
@@ -128,7 +141,7 @@ impl Timer {
         if self.local.try_get_current().is_some() {
             return Ok(());
         }
-        if Self::sstc_available()? {
+        if Self::enable_sstc()? {
             self.local.try_init_current(Comparator::Sstc)?;
             return self.cancel_with(irq);
         }
@@ -141,29 +154,30 @@ impl Timer {
         self.cancel_with(irq)
     }
 
-    /// Detects supervisor comparison access after Runtime trap installation.
-    pub fn supports_sstc() -> bool {
-        crate::boot::traps_ready() && csrr!(supervisor::TimerCompare).is_ok()
-    }
-
-    fn sstc_available() -> Result<bool> {
-        #[cfg(target_pointer_width = "64")]
-        type Configuration = registers::EnvironmentConfiguration;
-        #[cfg(target_pointer_width = "32")]
-        type Configuration = registers::EnvironmentConfigurationHigh;
-        let enabled = csrr!(Configuration).is_ok_and(|config| {
-            #[cfg(target_pointer_width = "64")]
-            let config = registers::EnvironmentConfig::from(config);
-            #[cfg(target_pointer_width = "32")]
-            let config = registers::EnvironmentConfigHigh::from(config);
-            config.supervisor_timer_enabled()
-        });
-        if !enabled {
-            return Ok(false);
+    /// Initial setup owns STCE; M-mode can probe stimecmp before granting S-mode access.
+    fn enable_sstc() -> Result<bool> {
+        match csrr!(supervisor::TimerCompare) {
+            Ok(_) => {}
+            Err(Error::IllegalInstruction) => return Ok(false),
+            Err(error) => return Err(error),
         }
-        csrr!(supervisor::TimerCompare).map_err(|_| Error::NotSupported)?;
         #[cfg(target_pointer_width = "32")]
-        csrr!(supervisor::TimerCompareHigh).map_err(|_| Error::NotSupported)?;
+        csrr!(supervisor::TimerCompareHigh)?;
+
+        let current = csrr!(Configuration).map(ConfigurationReadValue::from_bits)?;
+        if !current.supervisor_timer_enabled() {
+            let mut value = ConfigurationWriteValue::from(current);
+            value.write::<STCE>(registers::FeatureState::Enabled);
+            // Initial hart setup excludes IRQs and has no lower-mode context.
+            // Preserve translation, FWFT, and other environment fields.
+            csrw!(Configuration, usize::from(value))?;
+            if !csrr!(Configuration)
+                .map(ConfigurationReadValue::from_bits)?
+                .supervisor_timer_enabled()
+            {
+                return Err(Error::NotSupported);
+            }
+        }
         Ok(true)
     }
 

@@ -1,7 +1,12 @@
 //! Trap installation and next-stage architectural context.
 #[cfg(target_pointer_width = "32")]
-use crate::csr::csrr;
+use crate::recovery::csrr;
 use crate::trap::entry;
+use crate::{
+    Error, Result,
+    hart::{Hart, HartLocal},
+    irq,
+};
 use csr::{
     machine, supervisor,
     values::{
@@ -10,6 +15,25 @@ use csr::{
         vector::{TargetVectorMode, VectorBase, VectorMode},
     },
 };
+
+static SETUP: HartLocal<spin::Mutex<SetupPhase>> = HartLocal::uninit();
+
+enum SetupPhase {
+    Initializing,
+    Configured,
+    Entered,
+    Failed,
+}
+
+impl SetupPhase {
+    fn require_initializing(&self) -> Result<()> {
+        match self {
+            Self::Initializing => Ok(()),
+            Self::Configured => Err(Error::AlreadyInitialized),
+            Self::Entered | Self::Failed => Err(Error::InvalidState),
+        }
+    }
+}
 
 /// Installs machine exception handling before platform feature probes.
 ///
@@ -47,6 +71,9 @@ pub unsafe extern "C" fn prepare_traps() {
             install(entry::trap_entry_hypervisor);
         }
     }
+    SETUP
+        .try_init_current(spin::Mutex::new(SetupPhase::Initializing))
+        .expect("Runtime startup must run once per hart");
 }
 
 /// Checks the Direct trap entry installed by controlled Runtime boot on this hart.
@@ -80,56 +107,90 @@ unsafe fn install(entry: unsafe extern "C" fn()) {
     }
 }
 
-/// Configures delegation and counter access before publishing the SBI policy.
+/// Configures the initial supervisor environment, delegation, and FWFT state.
 ///
-/// # Safety
+/// Runtime excludes local interrupts and requires its initial startup phase.
+/// Configuration succeeds once; repeat calls leave hardware and locks unchanged.
+/// A failed attempt prevents handoff and cannot be retried on this hart.
 ///
-/// Run on the current hart in M-mode with machine interrupts disabled, Runtime
-/// trap entry installed, and no active lower-mode execution.
-pub unsafe fn configure_next_stage() {
-    // SAFETY: The startup caller keeps MIE clear for this configuration.
-    let irq = unsafe { crate::irq::LocalIrqDisabled::assume_disabled() };
-    super::ipi()
-        .expect("IPI service not published")
-        .init_current(&irq)
-        .expect("could not initialize hart IPI state");
-    let timer = super::timer().expect("Timer service not published");
-    timer
-        .init_current(&irq)
-        .expect("could not initialize hart timer state");
-    // SAFETY: The caller owns this hart's next-stage configuration.
-    unsafe {
-        machine::InterruptDelegation::write(usize::MAX.into());
-        machine::ExceptionDelegation::write(ExceptionSet::except(&[
-            Exception::SupervisorEcall,
-            Exception::LoadMisaligned,
-            Exception::StoreMisaligned,
-            Exception::IllegalInstruction,
-            Exception::LoadAccess,
-            Exception::StoreAccess,
-        ]));
-        machine::CounterEnable::write(CounterSet::all());
-        supervisor::CounterEnable::write(CounterSet::all());
+/// # Errors
+/// Returns [`Error::NotReady`] without Runtime entry or with active `MPRV`.
+/// Returns [`Error::AlreadyInitialized`] after successful configuration, or
+/// [`Error::InvalidState`] after handoff or a failed configuration attempt.
+pub(crate) fn configure_next_stage(hart: &Hart) -> Result<()> {
+    with_setup(|phase| {
+        phase.require_initializing()?;
+        // A partial failure must not permit handoff or another initialization.
+        *phase = SetupPhase::Failed;
+        // SAFETY: Runtime established initial entry, excludes local IRQs, and
+        // has not handed off this hart. No lower-mode execution is active.
+        unsafe {
+            hart.configure_page_tables()?;
+            hart.configure_cache_blocks()?;
+            hart.configure_seed_access()?;
+            hart.initialize_state_enable()?;
+            let inhibit = crate::pmu::configure_initial()?;
+            if let Some(pmu) = super::pmu() {
+                pmu.init_current(inhibit)?;
+            }
+            let irq = crate::irq::LocalIrqDisabled::assume_disabled();
+            super::ipi().ok_or(Error::NotReady)?.init_current(&irq)?;
+            super::timer().ok_or(Error::NotReady)?.init_current(&irq)?;
+            if hart.supports_privilege(machine::TargetPrivilege::Supervisor) {
+                machine::InterruptDelegation::write(usize::MAX.into());
+                machine::ExceptionDelegation::write(ExceptionSet::except(&[
+                    Exception::SupervisorEcall,
+                    Exception::LoadMisaligned,
+                    Exception::StoreMisaligned,
+                    Exception::IllegalInstruction,
+                    Exception::LoadAccess,
+                    Exception::StoreAccess,
+                ]));
+                supervisor::CounterEnable::write(CounterSet::all());
+            }
+            if hart.supports_privilege(machine::TargetPrivilege::Supervisor)
+                || hart.supports_privilege(machine::TargetPrivilege::User)
+            {
+                machine::CounterEnable::write(CounterSet::all());
+            }
+            if let Some(fwft) = super::fwft() {
+                fwft.init_current(hart)?;
+            }
+        }
+        *phase = SetupPhase::Configured;
+        Ok(())
+    })
+}
+
+fn with_setup<T>(operation: impl FnOnce(&mut SetupPhase) -> Result<T>) -> Result<T> {
+    if !traps_ready() || usize::from(machine::Scratch::read()) != 0 {
+        return Err(Error::NotReady);
     }
+    irq::with_local_disabled(|_| {
+        let setup = SETUP.try_get_current().ok_or(Error::NotReady)?;
+        let mut phase = setup.try_lock().ok_or(Error::Busy)?;
+        operation(&mut phase)
+    })
+}
+
+pub(super) fn complete_setup() {
+    let mut phase = SETUP.get_current().lock();
+    assert!(
+        matches!(*phase, SetupPhase::Configured | SetupPhase::Entered),
+        "cannot hand off a hart without successful Runtime configuration"
+    );
+    *phase = SetupPhase::Entered;
 }
 
 pub(crate) fn set_return_mode(
     status: &mut machine::StatusWriteValue,
-    mode: riscv::register::mstatus::MPP,
+    mode: machine::TargetPrivilege,
 ) {
-    status.write::<machine::MPP>(privilege(mode));
+    status.write::<machine::MPP>(mode);
     status.write::<machine::MPIE>(machine::Interrupt::Enabled);
     status.write::<machine::SIE>(machine::Interrupt::Disabled);
     #[cfg(target_pointer_width = "64")]
     status.write::<machine::MPV>(machine::Virtualization::Off);
-}
-
-fn privilege(mode: riscv::register::mstatus::MPP) -> machine::TargetPrivilege {
-    match mode {
-        riscv::register::mstatus::MPP::User => machine::TargetPrivilege::User,
-        riscv::register::mstatus::MPP::Supervisor => machine::TargetPrivilege::Supervisor,
-        riscv::register::mstatus::MPP::Machine => machine::TargetPrivilege::Machine,
-    }
 }
 
 /// Prepares translation and interrupt state for a new supervisor stage.
@@ -143,8 +204,17 @@ pub(crate) unsafe fn prepare_supervisor() {
     // SAFETY: The caller is replacing the outgoing supervisor context;
     // clearing its translation and interrupt enables cannot invalidate M-mode state.
     unsafe {
-        supervisor::InterruptEnable::write(InterruptSet::empty());
-        supervisor::AddressTranslation::write(supervisor::AddressSpace::bare());
+        if Hart::current()
+            .expect("handoff hart")
+            .supports_privilege(machine::TargetPrivilege::Supervisor)
+        {
+            supervisor::InterruptEnable::write(InterruptSet::empty());
+            supervisor::AddressTranslation::write(supervisor::AddressSpace::bare());
+        }
+    }
+    if let Some(fwft) = super::fwft() {
+        fwft.restore_current()
+            .expect("could not restore committed firmware features before handoff");
     }
     // SAFETY: This function's caller keeps MIE clear throughout the handoff.
     let irq = unsafe { crate::irq::LocalIrqDisabled::assume_disabled() };
@@ -159,7 +229,7 @@ pub(crate) unsafe fn prepare_supervisor() {
 /// # Safety
 ///
 /// M-mode on the current hart, interrupts disabled, no live lower context.
-pub(super) unsafe fn stage_next_mode(start_addr: usize, next_mode: riscv::register::mstatus::MPP) {
+pub(super) unsafe fn stage_next_mode(start_addr: usize, next_mode: machine::TargetPrivilege) {
     // SAFETY: The boot caller owns the outgoing trap state.
     unsafe {
         prepare_supervisor();

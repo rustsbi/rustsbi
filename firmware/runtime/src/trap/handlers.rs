@@ -2,7 +2,7 @@
 use super::{frame::TrapFrame, init};
 use crate::{
     boot::NextStage,
-    hart::{self, HartEvent},
+    hart::{self, Hart, HartEvent},
     irq::LocalIrqDisabled,
 };
 
@@ -18,14 +18,27 @@ pub(super) fn sbi_ecall(frame: &mut TrapFrame) {
     regs.a1 = ret.value;
     frame.epc = frame.epc.wrapping_add(4);
 
-    if let Some(hart::ControlTransfer::NonRetentiveResume(next)) = hart::take_control_transfer(hart)
-    {
-        enter_next_stage(frame, next);
+    let current = Hart::get(hart).expect("dispatch hart");
+    match current.take_control_transfer() {
+        Some(hart::ControlTransfer::Stop) => {
+            // SAFETY: Machine trap dispatch keeps MIE clear through this wait.
+            let irq = unsafe { LocalIrqDisabled::assume_disabled() };
+            enter_next_stage(frame, current.wait_for_start(&irq));
+        }
+        Some(hart::ControlTransfer::NonRetentiveResume(next)) => {
+            if let Some(pmu) = crate::boot::pmu() {
+                pmu.reset_current()
+                    .expect("committed PMU resume reset failed");
+            }
+            init::policy(hart).on_nonretentive_resume();
+            enter_next_stage(frame, next);
+        }
+        None => {}
     }
 }
 
 fn deliver_event(frame: &mut TrapFrame, ipi: &crate::ipi::Ipi, irq: &LocalIrqDisabled) {
-    let event = hart::take_local_event();
+    let event = Hart::current().expect("dispatch hart").take_local_event();
     ipi.deliver_current(irq);
     match event {
         HartEvent::Start(next) => enter_next_stage(frame, next),
@@ -55,11 +68,11 @@ pub(super) fn external_interrupt(frame: &mut TrapFrame, irq: &LocalIrqDisabled) 
 fn enter_next_stage(frame: &mut TrapFrame, next: NextStage) {
     // SAFETY: Dispatch owns this hart's trap state, with MIE masked.
     unsafe { crate::boot::prepare_supervisor() };
-    crate::boot::set_return_mode(&mut frame.status, next.next_mode);
+    crate::boot::set_return_mode(&mut frame.status, next.next_mode());
     frame.leave_virtualization();
-    frame.epc = next.start_addr;
+    frame.epc = next.start_addr();
     frame.general = Default::default();
     frame.general.a0 = hart::current_hart().as_usize();
-    frame.general.a1 = next.opaque;
+    frame.general.a1 = next.opaque();
     riscv::asm::fence_i();
 }

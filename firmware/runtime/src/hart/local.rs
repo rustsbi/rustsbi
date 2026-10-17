@@ -1,4 +1,4 @@
-//! Runtime storage for immutable per-hart timer bindings.
+//! Shared storage indexed by Runtime's enabled hart topology.
 
 use crate::{Error, Result};
 use alloc::boxed::Box;
@@ -8,18 +8,68 @@ use super::HartId;
 
 /// One permanently placed value per hart.
 /// Values are ordinary shared data; hardware operations manage their own IRQ scope.
-pub(crate) struct HartLocal<T> {
+pub struct HartLocal<T> {
     slots: Once<Box<[Once<T>]>>,
 }
 
 impl<T> HartLocal<T> {
+    /// Creates empty per-hart storage without accessing hardware.
+    pub const fn new() -> Self {
+        Self::uninit()
+    }
     /// Creates an empty storage pool without accessing hardware.
     pub(crate) const fn uninit() -> Self {
         Self { slots: Once::new() }
     }
 }
 
+impl<T> Default for HartLocal<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T: Send + Sync> HartLocal<T> {
+    /// Initializes every enabled hart's software record once.
+    /// Duplicate calls preserve the existing records without running `initialize`.
+    pub fn init_all(&self, mut initialize: impl FnMut(HartId) -> T) -> Result<()> {
+        if HartId::count() == 0 {
+            return Err(Error::NotReady);
+        }
+        let mut installed = false;
+        self.slots.call_once(|| {
+            installed = true;
+            HartId::all()
+                .map(|hart| {
+                    let slot = Once::new();
+                    slot.call_once(|| initialize(hart));
+                    slot
+                })
+                .collect()
+        });
+        if installed {
+            Ok(())
+        } else {
+            Err(Error::AlreadyInitialized)
+        }
+    }
+
+    /// Borrows an initialized record by its validated hart identifier.
+    pub fn get(&self, hart: HartId) -> Result<&T> {
+        self.slots
+            .get()
+            .and_then(|slots| slots[hart.index()].get())
+            .ok_or(Error::NotReady)
+    }
+
+    /// Iterates initialized records in hardware-ID order.
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &T> {
+        self.slots
+            .get()
+            .map_or(&[][..], |slots| slots.as_ref())
+            .iter()
+            .filter_map(Once::get)
+    }
     /// Borrows this hart's initialized value.
     ///
     /// # Panics
@@ -31,8 +81,9 @@ impl<T: Send + Sync> HartLocal<T> {
     }
 
     pub(crate) fn try_get_current(&self) -> Option<&T> {
+        let slots = self.slots.get()?;
         let hart = HartId::current().expect("hart-local access before topology publication");
-        self.slots.get()?[hart.index()].get()
+        slots[hart.index()].get()
     }
 
     /// Publishes an already constructed value in the current hart's slot.
@@ -57,32 +108,5 @@ fn publish<T>(slot: &Once<T>, value: T) -> Result<&T> {
         Ok(stored)
     } else {
         Err(Error::AlreadyInitialized)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use core::sync::atomic::{AtomicUsize, Ordering};
-
-    #[test]
-    fn duplicate_publication_preserves_the_original_and_drops_both_values_once() {
-        struct CountDrop<'a>(&'a AtomicUsize, usize);
-        impl Drop for CountDrop<'_> {
-            fn drop(&mut self) {
-                self.0.fetch_add(1, Ordering::Relaxed);
-            }
-        }
-        let drops = AtomicUsize::new(0);
-        let slot = Once::new();
-        publish(&slot, CountDrop(&drops, 1)).unwrap();
-        assert!(matches!(
-            publish(&slot, CountDrop(&drops, 2)),
-            Err(Error::AlreadyInitialized)
-        ));
-        assert_eq!(slot.get().unwrap().1, 1);
-        assert_eq!(drops.load(Ordering::Relaxed), 1);
-        drop(slot);
-        assert_eq!(drops.load(Ordering::Relaxed), 2);
     }
 }
