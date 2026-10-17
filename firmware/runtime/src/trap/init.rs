@@ -11,7 +11,9 @@ use crate::hart::HartId;
 /// Firmware policy for supervisor SBI calls and observed lower-mode exceptions.
 pub trait TrapPolicy: RustSBI + Sync {
     /// Observes an exception before Runtime emulates or forwards it.
-    fn on_exception(&self, _exception: Exception) {}
+    fn on_exception(&self, exception: Exception) {
+        let _ = exception;
+    }
 
     /// Updates firmware policy before entering a committed non-retentive resume.
     fn on_nonretentive_resume(&self) {}
