@@ -5,7 +5,6 @@ mod routing;
 mod sifive;
 mod thead;
 
-use alloc::boxed::Box;
 use runtime::{
     Result,
     memory::{DeviceRegisterRange, MemoryRegistry},
@@ -14,28 +13,65 @@ use runtime::{
 pub(crate) use kind::ClintKind;
 pub(crate) use routing::{RoutedIpi, RoutedTimer};
 
-/// CLINT-local physical slots are not necessarily Runtime global hart IDs.
-pub(super) trait LocalTimer: Send + Sync {
-    fn set_compare_slot(&self, slot: usize, deadline: u64);
+/// Hardware-local timer variants; only RoutedTimer implements Runtime's TimerDevice.
+pub(super) enum ClintTimer {
+    SiFive(sifive::SiFiveTimer),
+    THead(thead::THeadTimer),
+}
+
+impl ClintTimer {
+    fn set_compare_slot(&self, slot: usize, deadline: u64) {
+        match self {
+            Self::SiFive(timer) => timer.set_compare_slot(slot, deadline),
+            Self::THead(timer) => timer.set_compare_slot(slot, deadline),
+        }
+    }
+
     fn read_time(&self) -> Option<u64> {
-        None
+        match self {
+            Self::SiFive(timer) => timer.read_time(),
+            Self::THead(_) => None,
+        }
     }
 }
 
-pub(super) trait LocalIpi: Send + Sync {
-    fn send_slot(&self, slot: usize) -> Result<()>;
-    fn clear_slot(&self, slot: usize) -> Result<()>;
+/// Hardware-local IPI variants; only RoutedIpi implements Runtime's IpiDevice.
+pub(super) enum ClintIpi {
+    SiFive(sifive::SiFiveIpi),
+    THead(thead::THeadIpi),
 }
 
-/// Bind register windows using the physical slot count, including disabled CPUs.
+impl ClintIpi {
+    fn send_slot(&self, slot: usize) -> Result<()> {
+        match self {
+            Self::SiFive(ipi) => ipi.send_slot(slot),
+            Self::THead(ipi) => ipi.send_slot(slot),
+        }
+    }
+
+    fn clear_slot(&self, slot: usize) -> Result<()> {
+        match self {
+            Self::SiFive(ipi) => ipi.clear_slot(slot),
+            Self::THead(ipi) => ipi.clear_slot(slot),
+        }
+    }
+}
+
+/// Bind one CLINT using physical slots (including disabled CPU references).
 pub(super) fn bind(
     registers: DeviceRegisterRange,
     kind: ClintKind,
     memory: &mut MemoryRegistry,
     slot_count: usize,
-) -> Result<(Box<dyn LocalTimer>, Box<dyn LocalIpi>)> {
+) -> Result<(ClintTimer, ClintIpi)> {
     match kind {
-        ClintKind::SiFive => sifive::bind(registers, memory, slot_count),
-        ClintKind::THead => thead::bind(registers, memory, slot_count),
+        ClintKind::SiFive => {
+            let (timer, ipi) = sifive::bind(registers, memory, slot_count)?;
+            Ok((ClintTimer::SiFive(timer), ClintIpi::SiFive(ipi)))
+        }
+        ClintKind::THead => {
+            let (timer, ipi) = thead::bind(registers, memory, slot_count)?;
+            Ok((ClintTimer::THead(timer), ClintIpi::THead(ipi)))
+        }
     }
 }

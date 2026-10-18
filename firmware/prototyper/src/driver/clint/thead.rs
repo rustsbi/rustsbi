@@ -14,8 +14,6 @@
 //! T-Head exposes the 64-bit `mtimecmp` register as two 32-bit MMIO words;
 //! [`TimerDevice::set_compare`] prevents a transient early timer interrupt.
 
-use super::{LocalIpi, LocalTimer};
-use alloc::boxed::Box;
 use core::mem::{align_of, size_of};
 use runtime::{
     Error, Result,
@@ -49,7 +47,7 @@ pub(super) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
     slot_count: usize,
-) -> Result<(Box<dyn LocalTimer>, Box<dyn LocalIpi>)> {
+) -> Result<(THeadTimer, THeadIpi)> {
     let msip_size_bytes = slot_count
         .checked_mul(size_of::<u32>())
         .ok_or(Error::Overflow)?;
@@ -69,13 +67,10 @@ pub(super) fn bind(
 
     let msip_mmio = memory.acquire(msip_registers)?;
     let mtimecmp_mmio = memory.acquire(mtimecmp_registers)?;
-    Ok((
-        Box::new(THeadTimer::new(mtimecmp_mmio)),
-        Box::new(THeadIpi::new(msip_mmio)),
-    ))
+    Ok((THeadTimer::new(mtimecmp_mmio), THeadIpi::new(msip_mmio)))
 }
 
-struct THeadTimer {
+pub(in crate::driver) struct THeadTimer {
     mtimecmp: MmioRegion,
 }
 
@@ -91,9 +86,9 @@ impl THeadTimer {
     }
 }
 
-impl LocalTimer for THeadTimer {
+impl THeadTimer {
     #[inline(always)]
-    fn set_compare_slot(&self, slot: usize, value: u64) {
+    pub(super) fn set_compare_slot(&self, slot: usize, value: u64) {
         let hart_id = slot;
         let low = value as u32;
         let high = (value >> u32::BITS) as u32;
@@ -113,7 +108,7 @@ enum IpiState {
     Pending = 1,
 }
 
-struct THeadIpi {
+pub(in crate::driver) struct THeadIpi {
     msip: MmioRegion,
 }
 
@@ -132,12 +127,12 @@ impl THeadIpi {
     }
 }
 
-impl LocalIpi for THeadIpi {
-    fn send_slot(&self, slot: usize) -> Result<()> {
+impl THeadIpi {
+    pub(super) fn send_slot(&self, slot: usize) -> Result<()> {
         self.write_msip(slot, IpiState::Pending)
     }
 
-    fn clear_slot(&self, slot: usize) -> Result<()> {
+    pub(super) fn clear_slot(&self, slot: usize) -> Result<()> {
         self.write_msip(slot, IpiState::Clear)
     }
 }

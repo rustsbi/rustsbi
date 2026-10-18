@@ -1,6 +1,6 @@
 //! Routes global hart IDs to each CLINT's physical register slots.
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::vec::Vec;
 use runtime::{
     Result,
     hart::HartId,
@@ -8,7 +8,7 @@ use runtime::{
     timer::TimerDevice,
 };
 
-use super::{LocalIpi, LocalTimer};
+use super::{ClintIpi, ClintTimer};
 
 fn target(routes: &[(usize, usize)], hart: HartId) -> (usize, usize) {
     // Device binding rejects any missing, duplicate or out-of-range route.
@@ -17,12 +17,12 @@ fn target(routes: &[(usize, usize)], hart: HartId) -> (usize, usize) {
 
 /// Owns per-controller timer resources and dispatches per-hart compare writes.
 pub(crate) struct RoutedTimer {
-    backends: Vec<Box<dyn LocalTimer>>,
+    backends: Vec<ClintTimer>,
     routes: Vec<(usize, usize)>,
 }
 
 impl RoutedTimer {
-    pub(crate) fn new(backends: Vec<Box<dyn LocalTimer>>, routes: Vec<(usize, usize)>) -> Self {
+    pub(crate) fn new(backends: Vec<ClintTimer>, routes: Vec<(usize, usize)>) -> Self {
         Self { backends, routes }
     }
 }
@@ -46,12 +46,12 @@ impl TimerDevice for RoutedTimer {
 
 /// Owns controller-local MSIP resources for all global SBI IPI targets.
 pub(crate) struct RoutedIpi {
-    backends: Vec<Box<dyn LocalIpi>>,
+    backends: Vec<ClintIpi>,
     routes: Vec<(usize, usize)>,
 }
 
 impl RoutedIpi {
-    pub(crate) fn new(backends: Vec<Box<dyn LocalIpi>>, routes: Vec<(usize, usize)>) -> Self {
+    pub(crate) fn new(backends: Vec<ClintIpi>, routes: Vec<(usize, usize)>) -> Self {
         Self { backends, routes }
     }
 }

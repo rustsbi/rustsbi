@@ -63,15 +63,35 @@ pub mod timer {
     }
 }
 
-pub trait LocalTimer: Send + Sync {
-    fn set_compare_slot(&self, slot: usize, deadline: u64);
+enum ClintTimer {
+    Mock(TimerMock),
+}
+impl ClintTimer {
+    fn set_compare_slot(&self, slot: usize, deadline: u64) {
+        match self {
+            Self::Mock(device) => device.set_compare_slot(slot, deadline),
+        }
+    }
     fn read_time(&self) -> Option<u64> {
-        None
+        match self {
+            Self::Mock(device) => Some(100 + device.device as u64),
+        }
     }
 }
-pub trait LocalIpi: Send + Sync {
-    fn send_slot(&self, slot: usize) -> Result<()>;
-    fn clear_slot(&self, slot: usize) -> Result<()>;
+enum ClintIpi {
+    Mock(IpiMock),
+}
+impl ClintIpi {
+    fn send_slot(&self, slot: usize) -> Result<()> {
+        match self {
+            Self::Mock(device) => device.send_slot(slot),
+        }
+    }
+    fn clear_slot(&self, slot: usize) -> Result<()> {
+        match self {
+            Self::Mock(device) => device.clear_slot(slot),
+        }
+    }
 }
 #[path = "../src/driver/clint/routing.rs"]
 mod routing;
@@ -84,19 +104,16 @@ struct TimerMock {
     device: usize,
     log: Arc<Mutex<Vec<(usize, usize, u64)>>>,
 }
-impl LocalTimer for TimerMock {
+impl TimerMock {
     fn set_compare_slot(&self, slot: usize, v: u64) {
         self.log.lock().unwrap().push((self.device, slot, v))
-    }
-    fn read_time(&self) -> Option<u64> {
-        Some(100 + self.device as u64)
     }
 }
 struct IpiMock {
     device: usize,
     log: Arc<Mutex<Vec<(usize, usize, bool)>>>,
 }
-impl LocalIpi for IpiMock {
+impl IpiMock {
     fn send_slot(&self, slot: usize) -> Result<()> {
         self.log.lock().unwrap().push((self.device, slot, true));
         Ok(())
@@ -113,10 +130,10 @@ fn timers(log: Arc<Mutex<Vec<(usize, usize, u64)>>>) -> RoutedTimer {
     RoutedTimer::new(
         (0..2)
             .map(|d| {
-                Box::new(TimerMock {
+                ClintTimer::Mock(TimerMock {
                     device: d,
                     log: log.clone(),
-                }) as Box<dyn LocalTimer>
+                })
             })
             .collect(),
         routes(),
@@ -126,10 +143,10 @@ fn ipis(log: Arc<Mutex<Vec<(usize, usize, bool)>>>) -> RoutedIpi {
     RoutedIpi::new(
         (0..2)
             .map(|d| {
-                Box::new(IpiMock {
+                ClintIpi::Mock(IpiMock {
                     device: d,
                     log: log.clone(),
-                }) as Box<dyn LocalIpi>
+                })
             })
             .collect(),
         routes(),

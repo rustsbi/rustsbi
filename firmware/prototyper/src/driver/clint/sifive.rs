@@ -5,8 +5,6 @@
 //! - Specification: [RISC-V ACLINT 1.0-rc4](https://github.com/riscvarchive/riscv-aclint/blob/4e570bfd3201f2c09e5afd290b5091526b0f099a/riscv-aclint.adoc) —
 //!   “Backward Compatibility With SiFive CLINT” and its offset table.
 
-use super::{LocalIpi, LocalTimer};
-use alloc::boxed::Box;
 use core::mem::{align_of, size_of};
 use runtime::{
     Error, Result,
@@ -41,7 +39,7 @@ pub(super) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
     slot_count: usize,
-) -> Result<(Box<dyn LocalTimer>, Box<dyn LocalIpi>)> {
+) -> Result<(SiFiveTimer, SiFiveIpi)> {
     let msip_size_bytes = slot_count
         .checked_mul(size_of::<u32>())
         .ok_or(Error::Overflow)?;
@@ -65,13 +63,10 @@ pub(super) fn bind(
 
     let ipi_mmio = memory.acquire(ipi_registers)?;
     let timer_mmio = memory.acquire(timer_registers)?;
-    Ok((
-        Box::new(SiFiveTimer::new(timer_mmio)),
-        Box::new(SiFiveIpi::new(ipi_mmio)),
-    ))
+    Ok((SiFiveTimer::new(timer_mmio), SiFiveIpi::new(ipi_mmio)))
 }
 
-struct SiFiveTimer {
+pub(in crate::driver) struct SiFiveTimer {
     registers: MmioRegion,
 }
 
@@ -112,9 +107,9 @@ impl SiFiveTimer {
     }
 }
 
-impl LocalTimer for SiFiveTimer {
+impl SiFiveTimer {
     #[inline(always)]
-    fn set_compare_slot(&self, slot: usize, value: u64) {
+    pub(super) fn set_compare_slot(&self, slot: usize, value: u64) {
         let offset = TimerRegister::mtimecmp_offset_for_hart(slot);
         #[cfg(target_pointer_width = "64")]
         self.registers
@@ -131,7 +126,7 @@ impl LocalTimer for SiFiveTimer {
     }
 
     #[inline(always)]
-    fn read_time(&self) -> Option<u64> {
+    pub(super) fn read_time(&self) -> Option<u64> {
         Some(self.read(TimerRegister::Mtime))
     }
 }
@@ -142,7 +137,7 @@ enum IpiState {
     Pending = 1,
 }
 
-struct SiFiveIpi {
+pub(in crate::driver) struct SiFiveIpi {
     registers: MmioRegion,
 }
 
@@ -161,12 +156,12 @@ impl SiFiveIpi {
     }
 }
 
-impl LocalIpi for SiFiveIpi {
-    fn send_slot(&self, slot: usize) -> Result<()> {
+impl SiFiveIpi {
+    pub(super) fn send_slot(&self, slot: usize) -> Result<()> {
         self.write_msip(slot, IpiState::Pending)
     }
 
-    fn clear_slot(&self, slot: usize) -> Result<()> {
+    pub(super) fn clear_slot(&self, slot: usize) -> Result<()> {
         self.write_msip(slot, IpiState::Clear)
     }
 }
