@@ -66,8 +66,18 @@ fn log_interrupt_controller(board: &BoardInfo) {
     let clints = board.devices.interrupts.clints();
     if clints.is_empty() {
         warn!("{:<30}: Not Available", "Platform IPI Device");
+    } else if clints.len() == 1 {
+        // Keep the existing single-CLINT banner stable for boot log consumers.
+        let clint = clints[0].resource();
+        info!(
+            "{:<30}: {} (Base Address: 0x{:x})",
+            "Platform IPI Extension",
+            clint.kind.name(),
+            clint.registers.start().as_usize()
+        );
     } else {
         for (index, description) in clints.iter().enumerate() {
+            let resource = description.resource();
             info!(
                 "{:<30}: {} (Base Address: 0x{:x}, harts: {:?})",
                 if index == 0 {
@@ -75,10 +85,9 @@ fn log_interrupt_controller(board: &BoardInfo) {
                 } else {
                     ""
                 },
-                description.resource().kind.name(),
-                description.resource().registers.start().as_usize(),
-                description
-                    .resource()
+                resource.kind.name(),
+                resource.registers.start().as_usize(),
+                resource
                     .active_harts
                     .iter()
                     .map(|slot| slot.hart_id)
