@@ -1,4 +1,4 @@
-﻿//! Legacy Extensions (EIDs #0x00 - #0x0F).
+//! Legacy Extensions (EIDs #0x00 - #0x0F).
 //!
 //! The legacy SBI extensions is deprecated in favor of the other extensions in the RISC-V SBI Specification.
 //! Developers should use new extensions instead of the deprecated legacy extensions listed below.
@@ -75,74 +75,126 @@ pub fn shutdown() -> ! {
     unreachable!()
 }
 
+macro_rules! riscv_only {
+    ($blk:block, $($var:ident),*) => {{
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+        $blk
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+        {
+            $(let _ = $var;)*
+            unimplemented!("unsupported architecture")
+        }
+    }};
+}
+
+/// Legacy SBI call function with 0 arguments.
 #[inline(always)]
 fn sbi_call_legacy_0(eid: usize) -> usize {
-    let error;
-    unsafe {
-        core::arch::asm!(
-            "ecall",
-            in("a7") eid,
-            lateout("a0") error,
-        );
+    riscv_only! {
+        {
+            let error;
+            unsafe {
+                core::arch::asm!(
+                    "ecall",
+                    in("a7") eid,
+                    lateout("a0") error,
+                );
+            }
+            error
+        },
+        eid
     }
-    error
 }
 
+/// Legacy SBI call function with 1 argument.
 #[inline(always)]
 fn sbi_call_legacy_1(eid: usize, arg0: usize) -> usize {
-    let error;
-    unsafe {
-        core::arch::asm!(
-            "ecall",
-            in("a7") eid,
-            inlateout("a0") arg0 => error,
-        );
+    riscv_only! {
+        {
+            let error;
+            unsafe {
+                core::arch::asm!(
+                    "ecall",
+                    in("a7") eid,
+                    inlateout("a0") arg0 => error,
+                );
+            }
+            error
+        },
+        eid,
+        arg0
     }
-    error
 }
 
+/// Legacy SBI call function with 2 arguments.
 #[cfg(target_pointer_width = "32")]
 #[inline(always)]
 fn sbi_call_legacy_2(eid: usize, arg0: usize, arg1: usize) -> usize {
-    let error;
-    unsafe {
-        core::arch::asm!(
-            "ecall",
-            in("a7") eid,
-            inlateout("a0") arg0 => error,
-            in("a1") arg1,
-        );
+    riscv_only! {
+        {
+            let error;
+            unsafe {
+                core::arch::asm!(
+                    "ecall",
+                    in("a7") eid,
+                    inlateout("a0") arg0 => error,
+                    in("a1") arg1,
+                );
+            }
+            error
+        },
+        eid,
+        arg0,
+        arg1
     }
-    error
 }
 
+/// Legacy SBI call function with 3 arguments.
 #[inline(always)]
 fn sbi_call_legacy_3(eid: usize, arg0: usize, arg1: usize, arg2: usize) -> usize {
-    let error;
-    unsafe {
-        core::arch::asm!(
-            "ecall",
-            in("a7") eid,
-            inlateout("a0") arg0 => error,
-            in("a1") arg1,
-            in("a2") arg2,
-        );
+    riscv_only! {
+        {
+            let error;
+            unsafe {
+                core::arch::asm!(
+                    "ecall",
+                    in("a7") eid,
+                    inlateout("a0") arg0 => error,
+                    in("a1") arg1,
+                    in("a2") arg2,
+                );
+            }
+            error
+        },
+        eid,
+        arg0,
+        arg1,
+        arg2
     }
-    error
 }
 
+/// Legacy SBI call function with 4 arguments.
 #[inline(always)]
 fn sbi_call_legacy_4(eid: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize) -> usize {
-    let error;
-    unsafe {
-        core::arch::asm!(
-            "ecall",
-            in("a7") eid,
-            inlateout("a0") arg0 => error,
-            in("a1") arg1,
-            in("a2") arg2,
-            in("a3") arg3,
-        );
+    riscv_only! {
+        {
+            let error;
+            unsafe {
+                core::arch::asm!(
+                    "ecall",
+                    in("a7") eid,
+                    inlateout("a0") arg0 => error,
+                    in("a1") arg1,
+                    in("a2") arg2,
+                    in("a3") arg3,
+                );
+            }
+            error
+        },
+        eid,
+        arg0,
+        arg1,
+        arg2,
+        arg3
     }
-    error
 }

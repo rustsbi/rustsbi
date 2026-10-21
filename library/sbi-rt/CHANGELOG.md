@@ -19,6 +19,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- docs: include legacy extensions in docs.rs and support non-RISC-V documentation builds with the `legacy` feature.
+
 ## [0.0.4] - 2026-05-13
 
 ### Added
