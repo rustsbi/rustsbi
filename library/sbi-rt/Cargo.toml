@@ -20,6 +20,7 @@ default-target = "riscv64imac-unknown-none-elf"
 targets = [
     "riscv32imac-unknown-none-elf", "riscv64imac-unknown-none-elf",
 ]
+features = ["legacy"]
 
 [dependencies]
 sbi-spec = { version = "0.0.10", path = "../sbi-spec" }
