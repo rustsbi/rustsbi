@@ -119,7 +119,6 @@ impl Kernel {
             .args([
                 "-O",
                 "binary",
-                "--binary-architecture=riscv64",
                 &kernel_path.to_string_lossy(),
                 &bin_path.to_string_lossy(),
             ])
