@@ -1,6 +1,8 @@
 //! Platform facts and SBI PMU discovery from the device tree.
 
+mod aclint;
 mod console;
+mod cpu_intc;
 mod harts;
 mod imsic;
 mod interrupts;

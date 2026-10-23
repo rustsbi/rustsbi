@@ -58,8 +58,8 @@ impl IpiRequest {
         }
     }
 
-    /// Iterates the validated hardware hart IDs.
-    pub fn harts(self) -> impl Iterator<Item = usize> {
+    /// Iterates the validated target hart IDs selected by this window.
+    pub fn target_hart_ids(self) -> impl Iterator<Item = usize> {
         crate::rustsbi::HartMask::from_mask_base(self.hart_mask, self.hart_mask_base).into_iter()
     }
 

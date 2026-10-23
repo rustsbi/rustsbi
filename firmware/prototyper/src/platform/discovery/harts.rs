@@ -7,9 +7,12 @@ use crate::devicetree::{is_cpu_node, u32_property};
 use crate::platform::info::BoardInfo;
 use crate::sbi::features::detect_extensions;
 
-use super::imsic::{self, CpuInterruptController};
+use super::cpu_intc::CpuInterruptController;
 
-/// Reads hart topology and features, retaining CPU interrupt wiring for IMSIC discovery.
+/// Reads hart topology and features.
+///
+/// Interrupt wiring is retained for every CPU node, including disabled CPUs,
+/// because devices such as ACLINT keep a physical slot for each wiring entry.
 pub(super) fn discover(
     board: &mut BoardInfo,
     platform: &PlatformView<'_>,
@@ -29,11 +32,12 @@ pub(super) fn discover(
     let mut controllers = Vec::new();
     for node in cpus.children().filter(|node| is_cpu_node(*node)) {
         let hart_id = PlatformView::hart_id(node)?;
+        let cpu_enabled = node_is_enabled(node);
         controllers.extend(
             node.children()
-                .filter_map(|child| imsic::cpu_interrupt_controller(child, hart_id)),
+                .filter_map(|child| CpuInterruptController::from_node(child, hart_id)),
         );
-        if !node_is_enabled(node) {
+        if !cpu_enabled {
             continue;
         }
         HartId::from_raw(hart_id).map_err(|_| Error::InvalidArgs)?;

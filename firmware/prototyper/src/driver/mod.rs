@@ -6,6 +6,7 @@
 
 #![forbid(unsafe_code)]
 
+mod aclint;
 mod aia;
 pub(crate) mod allwinner;
 mod cci;
@@ -85,6 +86,17 @@ fn bind_interrupts(
             Some(Box::new(plmt::bind(plmt, memory, hart_id_upper_bound)?)),
             Some(Box::new(plicsw::bind(plicsw, memory, hart_id_upper_bound)?)),
         ));
+    }
+    let aclint_timer = board.devices.interrupts.aclint_mtimer();
+    let aclint_ipi = board.devices.interrupts.aclint_mswi();
+    if aclint_timer.is_some() || aclint_ipi.is_some() {
+        let timer = aclint_timer
+            .map(|resource| aclint::bind_timer(resource, memory))
+            .transpose()?;
+        let ipi = aclint_ipi
+            .map(|resource| aclint::bind_ipi(resource, memory))
+            .transpose()?;
+        return Ok((timer, ipi));
     }
     let Some(description) = board.devices.interrupts.clint() else {
         return Ok((None, None));
