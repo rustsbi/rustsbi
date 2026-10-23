@@ -138,6 +138,7 @@ pub unsafe fn initialize_stacks<const SIZE: usize>(
     }
     FIRMWARE_END.call_once(|| end);
     crate::hart::publish(entries.into_boxed_slice());
+    platform.inspect(crate::hart::Hart::discover)?;
     Ok(())
 }
 

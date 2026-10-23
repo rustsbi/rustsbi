@@ -8,11 +8,12 @@
 #![forbid(unsafe_code)]
 
 use crate::driver::{ResetDevice, ResetError, ResetReason, ResetRequest, ResetType};
-use runtime::rustsbi::{self, SbiRet};
+use runtime::rustsbi;
+use rustsbi::SbiRet;
 
 /// SBI system-reset extension over a selected reset device.
 #[derive(Default)]
-pub struct SbiReset {
+pub(crate) struct SbiReset {
     device: ResetDevice,
 }
 
@@ -43,7 +44,7 @@ impl rustsbi::Reset for SbiReset {
 
 /// Validates both raw parameters before querying or invoking a reset backend.
 fn parse_request(reset_type: u32, reset_reason: u32) -> Option<ResetRequest> {
-    use runtime::rustsbi::spec::srst::{
+    use rustsbi::spec::srst::{
         RESET_REASON_NO_REASON, RESET_REASON_SYSTEM_FAILURE, RESET_TYPE_COLD_REBOOT,
         RESET_TYPE_SHUTDOWN, RESET_TYPE_WARM_REBOOT,
     };
@@ -66,8 +67,8 @@ fn parse_request(reset_type: u32, reset_reason: u32) -> Option<ResetRequest> {
 }
 
 #[allow(unused)]
-pub fn fail() -> ! {
-    use runtime::rustsbi::spec::srst::{
+pub(crate) fn fail() -> ! {
+    use rustsbi::spec::srst::{
         EID_SRST, RESET_REASON_SYSTEM_FAILURE, RESET_TYPE_SHUTDOWN, SYSTEM_RESET,
     };
 

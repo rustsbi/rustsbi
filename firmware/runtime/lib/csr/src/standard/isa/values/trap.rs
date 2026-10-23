@@ -189,6 +189,17 @@ impl From<TrapCause> for CauseValue {
 }
 
 impl ExceptionSet {
+    /// Updates one delegation choice in this local value.
+    pub fn set(&mut self, exception: Exception, delegated: bool) {
+        assert!(exception.code() < usize::BITS as usize);
+        let bit = 1usize << exception.code();
+        if delegated {
+            self.0 |= bit;
+        } else {
+            self.0 &= !bit;
+        }
+    }
+
     pub fn except(exceptions: &[Exception]) -> Self {
         let mut bits = usize::MAX;
         for exception in exceptions {

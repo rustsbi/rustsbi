@@ -1,16 +1,15 @@
 //! Instruction fetch and data access under the original S/U context.
 //! `MPRV` is active only around one byte access, never around Rust code.
 
-use csr::{
-    machine,
-    values::trap::{CauseValue, Exception, TrapCause},
-};
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+use csr::values::trap::{CauseValue, TrapCause};
+use csr::{machine, values::trap::Exception};
 
 use super::{Error, Fault, decode::ValueKind, frame::TrapInfo};
 
 macro_rules! access_byte {
     ($instruction:literal, $causes:expr, $address:expr, $data:expr, $status:expr) => {{
-        let access = || -> Result<usize, Error> {
+        let access_fn = || -> Result<usize, Error> {
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         {
             let mut data: usize = $data;
@@ -66,7 +65,7 @@ macro_rules! access_byte {
             unavailable()
         }
         };
-        access()
+        access_fn()
     }};
 }
 
@@ -75,7 +74,13 @@ fn unavailable() -> ! {
     unimplemented!("lower-mode access requires RISC-V")
 }
 
-fn access_status(info: &TrapInfo, instruction: bool) -> Result<usize, Error> {
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum AccessKind {
+    Instruction,
+    Data,
+}
+
+fn access_status(info: &TrapInfo, kind: AccessKind) -> Result<usize, Error> {
     let endianness = match info.origin() {
         machine::Privilege::User => info.status.read::<machine::UBE>(),
         machine::Privilege::Supervisor => {
@@ -92,7 +97,7 @@ fn access_status(info: &TrapInfo, instruction: bool) -> Result<usize, Error> {
     };
     // Instructions are always little-endian. Data emulation currently assembles
     // bytes in little-endian order, so big-endian data accesses must be forwarded.
-    if info.virtualized() || (!instruction && endianness == machine::Endianness::Big) {
+    if info.virtualized() || (kind == AccessKind::Data && endianness == machine::Endianness::Big) {
         return Err(Error::Unsupported);
     }
     let privilege = match info.origin() {
@@ -102,7 +107,7 @@ fn access_status(info: &TrapInfo, instruction: bool) -> Result<usize, Error> {
     };
     let mut status = machine::StatusWriteValue::for_return(privilege);
     status.write::<machine::SUM>(info.status.read::<machine::SUM>());
-    status.write::<machine::MXR>(if instruction {
+    status.write::<machine::MXR>(if kind == AccessKind::Instruction {
         machine::ExecutableReadAccess::Enabled
     } else {
         info.status.read::<machine::MXR>()
@@ -114,7 +119,7 @@ fn access_status(info: &TrapInfo, instruction: bool) -> Result<usize, Error> {
 /// Fetches up to four instruction bytes under the original S/U context.
 // Byte loads avoid introducing an alignment fault while inspecting the fault PC.
 pub(super) fn fetch(info: &TrapInfo) -> Result<(u32, usize), Error> {
-    let status = access_status(info, true)?;
+    let status = access_status(info, AccessKind::Instruction)?;
     let byte = |offset: usize| -> Result<u32, Error> {
         let address = info.epc.checked_add(offset).ok_or(Error::Fault(Fault {
             cause: Exception::InstructionAccess,
@@ -157,7 +162,7 @@ fn check_width(address: usize, kind: ValueKind) -> Result<(), Error> {
 
 pub(super) fn read(info: &TrapInfo, kind: ValueKind) -> Result<usize, Error> {
     check_width(info.tval, kind)?;
-    let status = access_status(info, false)?;
+    let status = access_status(info, AccessKind::Data)?;
     let mut value = 0;
     for offset in 0..kind.width() {
         let byte = access_byte!(
@@ -179,7 +184,7 @@ pub(super) fn read(info: &TrapInfo, kind: ValueKind) -> Result<usize, Error> {
 // Only misaligned exceptions reach here; access faults are forwarded directly.
 pub(super) fn write(info: &TrapInfo, value: usize, kind: ValueKind) -> Result<(), Error> {
     check_width(info.tval, kind)?;
-    let status = access_status(info, false)?;
+    let status = access_status(info, AccessKind::Data)?;
     for offset in 0..kind.width() {
         access_byte!(
             "sb {data}, 0({address})",
@@ -241,7 +246,7 @@ mod tests {
                 Err(Error::Unsupported)
             );
             // Instruction bytes remain little-endian under either data byte order.
-            assert!(access_status(&info, true).is_ok());
+            assert!(access_status(&info, AccessKind::Instruction).is_ok());
         }
     }
 }

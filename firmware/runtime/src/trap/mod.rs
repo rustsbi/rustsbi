@@ -13,9 +13,10 @@ mod init;
 mod memory;
 mod redirect;
 
-pub use init::init;
+pub use init::{TrapPolicy, init};
 
-use csr::values::{Address, trap::Exception};
+use csr::values::Address;
+pub use csr::values::trap::Exception;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Fault {

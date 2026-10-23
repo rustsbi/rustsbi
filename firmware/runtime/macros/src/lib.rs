@@ -2,11 +2,21 @@
 
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::ItemFn;
+use syn::{ItemFn, MetaNameValue, Token, parse::Parser, punctuated::Punctuated};
 
 /// Marks the firmware policy entry point.
 ///
-/// The policy receives the boot hart's validated device-tree handoff.
+/// Every entering hart invokes the policy with its hart ID, device-tree handoff,
+/// and loader information address after Runtime installs the local trap entry.
+///
+/// Supply `initialize`, `stack_size`, and `link_start` arguments.
+/// The unsafe initialization hook receives those three entry arguments and a
+/// static bootstrap-stack reference. It runs under the bootstrap lock before
+/// per-hart stacks exist, and must initialize Runtime stacks before returning
+/// a nonzero value for the selected boot hart. A zero return leaves boot pending.
+/// The consumer owns loader decoding, heap initialization, and policy records.
+///
+/// The linker must provide Runtime's firmware image and BSS boundary symbols.
 #[proc_macro_attribute]
 pub fn entry(
     attribute: proc_macro::TokenStream,
@@ -16,9 +26,30 @@ pub fn entry(
 }
 
 fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
-    if !attribute.is_empty() {
-        return quote! { compile_error!("`entry` does not accept arguments"); };
+    let Ok(options) = Punctuated::<MetaNameValue, Token![,]>::parse_terminated.parse2(attribute)
+    else {
+        return quote! { compile_error!("expected named entry arguments"); };
+    };
+    let (mut initialize_hook, mut stack_size, mut link_start) = (None, None, None);
+    for option in options {
+        let slot = if option.path.is_ident("initialize") {
+            &mut initialize_hook
+        } else if option.path.is_ident("stack_size") {
+            &mut stack_size
+        } else if option.path.is_ident("link_start") {
+            &mut link_start
+        } else {
+            return quote! { compile_error!("unknown entry argument"); };
+        };
+        if slot.replace(option.value).is_some() {
+            return quote! { compile_error!("duplicate entry argument"); };
+        }
     }
+    let (Some(initialize_hook), Some(stack_size), Some(link_start)) =
+        (initialize_hook, stack_size, link_start)
+    else {
+        return quote! { compile_error!("entry requires initialize, stack_size, and link_start"); };
+    };
     let Ok(policy) = syn::parse2::<ItemFn>(item) else {
         return quote! { compile_error!("`entry` can be applied only to a function"); };
     };
@@ -33,47 +64,26 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
             #[used]
             #[unsafe(link_section = ".bss.stack")]
             static BOOT_STACK: runtime::boot::BootStack<
-                { crate::cfg::STACK_SIZE_PER_HART },
+                { #stack_size },
             > = runtime::boot::BootStack::uninit();
 
             static BOOT_LOCK: ::core::sync::atomic::AtomicU32 = ::core::sync::atomic::AtomicU32::new(0);
             static BOOT_READY: ::core::sync::atomic::AtomicU32 = ::core::sync::atomic::AtomicU32::new(0);
-            static BOOT_INFO: spin::Mutex<Option<crate::firmware::BootInfo>> = spin::Mutex::new(None);
-            static BOOT_HART: spin::Once<usize> = spin::Once::new();
-
             // Called only under BOOT_LOCK, before any hart enters policy.
             extern "C" fn initialize(
                 hart_id: usize,
                 device_tree: runtime::DeviceTreeHandoff,
                 dynamic_info_address: usize,
             ) -> usize {
-                let boot = crate::firmware::BootInfo::decode(hart_id, device_tree, dynamic_info_address)
-                    .expect("firmware entry rejected the platform description");
-                if !boot.is_boot_hart() {
-                    return 0;
-                }
-                crate::heap::init();
-                // SAFETY: The loader's entry contract grants exclusive RAM
-                // for firmware and stacks. BOOT_LOCK serializes candidates;
-                // BOOT_READY remains clear until this Rust frame is retired.
-                unsafe {
-                    runtime::boot::initialize_stacks(
-                        &BOOT_STACK,
-                        crate::cfg::HART_CAPACITY,
-                        boot.platform_description(),
-                        boot.next_stage().start_addr,
-                        boot.dynamic_info_range().expect("invalid dynamic boot information range"),
-                    )
-                }.expect("firmware could not initialize its hart topology");
-                BOOT_HART.call_once(|| hart_id);
-                *BOOT_INFO.lock() = Some(boot);
-                1
+                // SAFETY: Startup owns the bootstrap stack under BOOT_LOCK,
+                // keeps MIE clear, and has not published BOOT_READY.
+                unsafe { #initialize_hook(hart_id, device_tree, dynamic_info_address, &BOOT_STACK) }
             }
 
-            /// Invokes firmware policy with the decoded boot handoff.
+            /// Invokes this hart's policy after installing Runtime's trap entry.
             #[doc(hidden)]
-            #[unsafe(export_name = "__rustsbi_prototyper_main")]
-            extern "C" fn __rustsbi_prototyper_main(
+            #[unsafe(export_name = "__rustsbi_runtime_main")]
+            extern "C" fn __rustsbi_runtime_main(
                 hart_id: usize,
                 device_tree: runtime::DeviceTreeHandoff,
                 dynamic_info_address: usize,
@@ -81,14 +91,8 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
                 // SAFETY: Startup has selected this hart's Runtime stack;
                 // machine interrupts are masked and mscratch is zero.
                 unsafe { runtime::boot::prepare_traps() };
-                // Use the hardware hart ID while retaining the loader's a1/a2 handoff.
-                let policy_entry: fn(crate::firmware::BootInfo) = #policy_name;
-                let boot = if BOOT_HART.get().copied() == Some(hart_id) {
-                    BOOT_INFO.lock().take().expect("boot handoff consumed once")
-                } else {
-                    crate::firmware::BootInfo::secondary(device_tree, dynamic_info_address)
-                };
-                policy_entry(boot)
+                let policy_entry: fn(usize, runtime::DeviceTreeHandoff, usize) = #policy_name;
+                policy_entry(hart_id, device_tree, dynamic_info_address)
             }
 
             /// Applies the linker's relative relocations before Rust memory is
@@ -104,7 +108,7 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
                 ::core::arch::naked_asm!(
                     #relocation,
                     R_RISCV_RELATIVE = const R_RISCV_RELATIVE,
-                    START_ADDRESS = const crate::cfg::SBI_LINK_START_ADDRESS,
+                    START_ADDRESS = const #link_start,
                     XLEN = const usize::BITS,
                 )
             }
@@ -126,6 +130,9 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
             ///   bytes of storage. Keep it valid until the next stage finishes
             ///   using it, outside firmware, stacks, the complete next-stage image,
             ///   and other live objects.
+            /// - An M-mode next-stage target must accept architectural entry with
+            ///   no Rust stack and only a0/a1 defined, establish its own calling
+            ///   context, and preserve all live firmware allocations and references.
             /// - Reserve RAM immediately after the linked image for all discovered
             ///   harts' stacks, without overlapping any other live objects.
             /// - Do not access Rust memory before relocation, BSS initialization,
@@ -134,18 +141,18 @@ fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
             #[unsafe(naked)]
             #[unsafe(link_section = ".text.entry")]
             #[unsafe(export_name = "_start")]
-            unsafe extern "C" fn __rustsbi_prototyper_start() -> ! {
+            unsafe extern "C" fn __rustsbi_runtime_start() -> ! {
                 ::core::arch::naked_asm!(
                     #start,
                     early_vector = sym runtime::boot::fail_stop,
                     relocation_update = sym relocation_update,
                     locate_stack = sym runtime::boot::locate_stack,
                     boot_stack = sym BOOT_STACK,
-                    stack_size = const crate::cfg::STACK_SIZE_PER_HART,
+                    stack_size = const #stack_size,
                     boot_lock = sym BOOT_LOCK,
                     boot_ready = sym BOOT_READY,
                     initialize = sym initialize,
-                    main = sym __rustsbi_prototyper_main,
+                    main = sym __rustsbi_runtime_main,
                     finish_boot = sym runtime::boot::finish_boot,
                     XLEN = const usize::BITS,
                 )

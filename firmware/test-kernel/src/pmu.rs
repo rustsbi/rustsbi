@@ -10,9 +10,12 @@ use sbi_spec::{
         CounterMask, HartMask, RET_ERR_ALREADY_STOPPED, RET_ERR_INVALID_PARAM,
         RET_ERR_NOT_SUPPORTED, SbiRet,
     },
-    pmu::firmware_event,
+    pmu::{
+        firmware_event,
+        flags::{ConfigFlags, StartFlags, StopFlags},
+    },
 };
-use sbi_testing::sbi::{self, ConfigFlagsParam, StartFlagsParam, StopFlagsParam};
+use sbi_testing::sbi;
 
 /// Runs the PMU checks in the order used by the expected-output script.
 pub(crate) fn test(smp: usize) {
@@ -22,7 +25,9 @@ pub(crate) fn test(smp: usize) {
     }
     report_counters();
     test_hardware_event_configuration();
+    test_reset_stopped_counters();
     test_hardware_cycles();
+    test_rejected_batch_preserves_cycle();
     test_access_fault_counters();
     test_firmware_ipi_counter(smp + 1);
 }
@@ -57,12 +62,17 @@ pub(crate) fn test_trap_counter(event: usize, trigger: impl FnOnce()) {
         trigger();
         return;
     }
-    let counter = configure_event(EventIdx::new_firmware_event(event).raw(), Flag::new(0b110));
+    let counter = configure_event(
+        EventIdx::new_firmware_event(event).raw(),
+        ConfigFlags::CLEAR_VALUE | ConfigFlags::AUTO_START,
+    );
     trigger();
     if let Some(counter) = counter {
         let value = sbi::pmu_counter_fw_read(counter.value);
-        let stopped =
-            sbi::pmu_counter_stop(CounterMask::from_mask_base(1, counter.value), Flag::new(1));
+        let stopped = sbi::pmu_counter_stop(
+            CounterMask::from_mask_base(1, counter.value),
+            StopFlags::RESET,
+        );
         assert!(stopped.is_ok());
         assert!(
             value.is_ok() && value.value > 0,
@@ -72,7 +82,7 @@ pub(crate) fn test_trap_counter(event: usize, trigger: impl FnOnce()) {
 }
 
 /// Find an available counter of the right type before exercising an event.
-fn configure_event(event: usize, flags: Flag) -> Option<SbiRet> {
+fn configure_event(event: usize, flags: ConfigFlags) -> Option<SbiRet> {
     let firmware = event >> 16 == 0xf;
     for idx in 0..sbi::pmu_num_counters() {
         let info = sbi::pmu_counter_get_info(idx);
@@ -87,7 +97,8 @@ fn configure_event(event: usize, flags: Flag) -> Option<SbiRet> {
         }
         // Fixed counters may already be running when the kernel boots.
         if !firmware && matches!(info.get_csr(), 0xc00 | 0xc02) {
-            let result = sbi::pmu_counter_stop(CounterMask::from_mask_base(1, idx), Flag::new(0));
+            let result =
+                sbi::pmu_counter_stop(CounterMask::from_mask_base(1, idx), StopFlags::empty());
             assert!(result.is_ok() || result.error == RET_ERR_ALREADY_STOPPED);
         }
         // A one-counter mask also works for indices beyond XLEN.
@@ -105,21 +116,49 @@ fn configure_event(event: usize, flags: Flag) -> Option<SbiRet> {
 }
 
 fn test_hardware_event_configuration() {
-    let flags = Flag::new(0b110);
+    let flags = ConfigFlags::CLEAR_VALUE | ConfigFlags::AUTO_START;
     for event in [0x2, 0x10019, 0x1001b, 0x10021, 0x3] {
         let Some(result) = configure_event(event, flags) else {
             continue;
         };
         assert!(
-            sbi::pmu_counter_stop(CounterMask::from_mask_base(1, result.value), Flag::new(1))
-                .is_ok()
+            sbi::pmu_counter_stop(
+                CounterMask::from_mask_base(1, result.value),
+                StopFlags::RESET
+            )
+            .is_ok()
+        );
+    }
+}
+
+fn test_reset_stopped_counters() {
+    for event in [
+        0x10019,
+        EventIdx::new_firmware_event(firmware_event::IPI_SENT).raw(),
+    ] {
+        let Some(configured) = configure_event(event, ConfigFlags::empty()) else {
+            continue;
+        };
+        let selected = CounterMask::from_mask_base(1, configured.value);
+        assert_eq!(
+            sbi::pmu_counter_stop(selected, StopFlags::RESET),
+            SbiRet::already_stopped()
+        );
+        assert_eq!(
+            sbi::pmu_counter_config_matching(selected, ConfigFlags::empty(), event, 0),
+            configured,
+            "RESET retained the binding of a stopped counter"
+        );
+        assert_eq!(
+            sbi::pmu_counter_stop(selected, StopFlags::RESET),
+            SbiRet::already_stopped()
         );
     }
 }
 
 fn test_hardware_cycles() {
     // `SBI_PMU_HW_CPU_CYCLES` event.
-    let Some(result) = configure_event(0x1, Flag::new(0b010)) else {
+    let Some(result) = configure_event(0x1, ConfigFlags::CLEAR_VALUE) else {
         return;
     };
     assert!(result.is_ok());
@@ -131,21 +170,38 @@ fn test_hardware_cycles() {
     assert!(!counter_info.is_firmware_counter());
     let cycle_counter_csr = counter_info.get_csr();
 
-    // Start with a non-zero value and verify the hardware counter advances.
+    // A nonzero upper word also checks RV32's split machine-counter write.
+    let initial = 0x1_0000_ffff;
     let start_result = sbi::pmu_counter_start(
         CounterMask::from_mask_base(0x1, cycle_counter_idx),
-        Flag::new(0x1),
-        0xffff,
+        StartFlags::INIT_VALUE,
+        initial,
     );
     assert!(start_result.is_ok());
     let cycle_num = read_hardware_counter(cycle_counter_csr);
-    assert!(cycle_num >= 0xffff);
+    assert!(cycle_num >= initial);
+    assert_eq!(
+        sbi::pmu_counter_start(
+            CounterMask::from_mask_base(1, cycle_counter_idx),
+            StartFlags::INIT_VALUE,
+            0,
+        ),
+        SbiRet::already_started()
+    );
+    assert!(read_hardware_counter(cycle_counter_csr) >= initial);
 
     let stop_result = sbi::pmu_counter_stop(
         CounterMask::from_mask_base(0x1, cycle_counter_idx),
-        Flag::new(0x0),
+        StopFlags::empty(),
     );
     assert!(stop_result.is_ok());
+    assert_eq!(
+        sbi::pmu_counter_stop(
+            CounterMask::from_mask_base(1, cycle_counter_idx),
+            StopFlags::empty(),
+        ),
+        SbiRet::already_stopped()
+    );
     let mut _sum = 0;
     for i in 0..1000 {
         _sum += i;
@@ -155,7 +211,7 @@ fn test_hardware_cycles() {
     // Restarting with update=0 must resume from the stopped value.
     let start_result = sbi::pmu_counter_start(
         CounterMask::from_mask_base(0x1, cycle_counter_idx),
-        Flag::new(0x0),
+        StartFlags::empty(),
         0,
     );
     assert!(start_result.is_ok());
@@ -167,11 +223,64 @@ fn test_hardware_cycles() {
     assert!(restart_cycle_num > stopped_cycle_num);
 }
 
+fn test_rejected_batch_preserves_cycle() {
+    let Some(cycle) = (0..sbi::pmu_num_counters()).find(|&index| {
+        let info = sbi::pmu_counter_get_info(index);
+        info.is_ok()
+            && !CounterInfo::new(info.value).is_firmware_counter()
+            && CounterInfo::new(info.value).get_csr() == 0xc00
+    }) else {
+        return;
+    };
+    let selected = CounterMask::from_mask_base(1, cycle);
+    let stopped = sbi::pmu_counter_stop(selected, StopFlags::empty());
+    assert!(stopped.is_ok() || stopped == SbiRet::already_stopped());
+
+    // A dense logical table has no internal gaps. Select its last firmware
+    // counter together with the first invalid index; this also fits RV32.
+    let last = sbi::pmu_num_counters() - 1;
+    assert!(CounterInfo::new(sbi::pmu_counter_get_info(last).value).is_firmware_counter());
+    let firmware = CounterMask::from_mask_base(1, last);
+    assert_eq!(
+        sbi::pmu_counter_start(firmware, StartFlags::empty(), 0),
+        SbiRet::invalid_param(),
+        "unbound firmware counter started before configuration"
+    );
+    let configured = sbi::pmu_counter_config_matching(
+        firmware,
+        ConfigFlags::empty(),
+        EventIdx::new_firmware_event(firmware_event::IPI_SENT).raw(),
+        0,
+    );
+    assert_eq!(configured, SbiRet::success(last));
+    assert_eq!(
+        sbi::pmu_counter_start(CounterMask::from_mask_base(3, last), StartFlags::empty(), 0),
+        SbiRet::invalid_param()
+    );
+    assert_eq!(
+        sbi::pmu_counter_start(firmware, StartFlags::empty(), 0),
+        SbiRet::success(0),
+        "invalid PMU batch started its earlier valid counter"
+    );
+    assert!(sbi::pmu_counter_stop(firmware, StopFlags::RESET).is_ok());
+    assert_eq!(
+        sbi::pmu_counter_start(
+            selected,
+            StartFlags::INIT_VALUE | StartFlags::INIT_SNAPSHOT,
+            0
+        ),
+        SbiRet::invalid_param()
+    );
+    assert!(sbi::pmu_counter_start(selected, StartFlags::empty(), 0).is_ok());
+    println!("[pmu] rejected batches preserve counter state");
+}
+
 fn test_access_fault_counters() {
     for event in [firmware_event::ACCESS_LOAD, firmware_event::ACCESS_STORE] {
-        let Some(result) =
-            configure_event(EventIdx::new_firmware_event(event).raw(), Flag::new(0b110))
-        else {
+        let Some(result) = configure_event(
+            EventIdx::new_firmware_event(event).raw(),
+            ConfigFlags::CLEAR_VALUE | ConfigFlags::AUTO_START,
+        ) else {
             return;
         };
         assert!(result.is_ok());
@@ -186,22 +295,28 @@ fn test_access_fault_counters() {
             );
         }
         assert!(
-            sbi::pmu_counter_stop(CounterMask::from_mask_base(1, result.value), Flag::new(0))
-                .is_ok()
+            sbi::pmu_counter_stop(
+                CounterMask::from_mask_base(1, result.value),
+                StopFlags::empty()
+            )
+            .is_ok()
         );
         crate::trap::access_fault(event == firmware_event::ACCESS_STORE);
         assert_eq!(sbi::pmu_counter_fw_read(result.value), SbiRet::success(2));
         assert!(
             sbi::pmu_counter_start(
                 CounterMask::from_mask_base(1, result.value),
-                Flag::new(0),
+                StartFlags::empty(),
                 0
             )
             .is_ok()
         );
         assert!(
-            sbi::pmu_counter_stop(CounterMask::from_mask_base(1, result.value), Flag::new(1))
-                .is_ok()
+            sbi::pmu_counter_stop(
+                CounterMask::from_mask_base(1, result.value),
+                StopFlags::RESET
+            )
+            .is_ok()
         );
     }
     println!("[pmu] access-fault counters pass");
@@ -211,7 +326,7 @@ fn test_firmware_ipi_counter(invalid_hart: usize) {
     // IPI_SENT is a firmware counter and starts at zero.
     let Some(result) = configure_event(
         EventIdx::new_firmware_event(firmware_event::IPI_SENT).raw(),
-        Flag::new(0b010),
+        ConfigFlags::CLEAR_VALUE,
     ) else {
         return;
     };
@@ -226,13 +341,25 @@ fn test_firmware_ipi_counter(invalid_hart: usize) {
     // Updating the counter while starting it sets the requested initial value.
     let start_result = sbi::pmu_counter_start(
         CounterMask::from_mask_base(0x1, ipi_counter_idx),
-        Flag::new(0x1),
+        StartFlags::INIT_VALUE,
         25,
     );
     assert!(start_result.is_ok());
     let ipi_num = sbi::pmu_counter_fw_read(ipi_counter_idx);
     assert!(ipi_num.is_ok());
     assert_eq!(ipi_num.value, 25);
+    assert_eq!(
+        sbi::pmu_counter_start(
+            CounterMask::from_mask_base(1, ipi_counter_idx),
+            StartFlags::INIT_VALUE,
+            99,
+        ),
+        SbiRet::already_started()
+    );
+    assert_eq!(
+        sbi::pmu_counter_fw_read(ipi_counter_idx),
+        SbiRet::success(25)
+    );
 
     // IPI_SENT counts send attempts, including rejected targets.
     let send_ipi_result = sbi::send_ipi(HartMask::from_mask_base(0x1, invalid_hart));
@@ -243,13 +370,13 @@ fn test_firmware_ipi_counter(invalid_hart: usize) {
 
     let stop_result = sbi::pmu_counter_stop(
         CounterMask::from_mask_base(0x1, ipi_counter_idx),
-        Flag::new(0x0),
+        StopFlags::empty(),
     );
     assert!(stop_result.is_ok());
     assert_eq!(
         sbi::pmu_counter_stop(
             CounterMask::from_mask_base(0x1, ipi_counter_idx),
-            Flag::new(0x0),
+            StopFlags::empty(),
         ),
         SbiRet::already_stopped()
     );
@@ -264,7 +391,7 @@ fn test_firmware_ipi_counter(invalid_hart: usize) {
     // Restart without updating the value, then observe the next rejected IPI.
     let start_result = sbi::pmu_counter_start(
         CounterMask::from_mask_base(0x1, ipi_counter_idx),
-        Flag::new(0x0),
+        StartFlags::empty(),
         0,
     );
     assert!(start_result.is_ok());
@@ -273,6 +400,54 @@ fn test_firmware_ipi_counter(invalid_hart: usize) {
     let ipi_num = sbi::pmu_counter_fw_read(ipi_counter_idx);
     assert!(ipi_num.is_ok());
     assert_eq!(ipi_num.value, 27);
+}
+
+/// Leaves a bound, running firmware counter across a non-retentive suspend.
+pub(crate) fn prepare_resume_counter() -> Option<usize> {
+    if sbi::probe_extension(sbi::Pmu).is_unavailable() {
+        return None;
+    }
+    let counter = configure_event(
+        EventIdx::new_firmware_event(firmware_event::IPI_SENT).raw(),
+        ConfigFlags::empty(),
+    )
+    .expect("selected PMU exposes firmware IPI counters")
+    .value;
+    assert_eq!(
+        sbi::pmu_counter_start(
+            CounterMask::from_mask_base(1, counter),
+            StartFlags::INIT_VALUE,
+            25
+        ),
+        SbiRet::success(0)
+    );
+    assert_eq!(sbi::pmu_counter_fw_read(counter), SbiRet::success(25));
+    Some(counter)
+}
+
+/// Checks Runtime reset both the binding and value before entering the resume stage.
+pub(crate) fn check_resume_counter(counter: usize) {
+    assert_eq!(sbi::pmu_counter_fw_read(counter), SbiRet::invalid_param());
+    let selected = CounterMask::from_mask_base(1, counter);
+    assert_eq!(
+        sbi::pmu_counter_config_matching(
+            selected,
+            ConfigFlags::empty(),
+            EventIdx::new_firmware_event(firmware_event::IPI_SENT).raw(),
+            0
+        ),
+        SbiRet::success(counter)
+    );
+    assert_eq!(sbi::pmu_counter_fw_read(counter), SbiRet::success(0));
+    assert_eq!(
+        sbi::pmu_counter_start(selected, StartFlags::empty(), 0),
+        SbiRet::success(0)
+    );
+    assert_eq!(
+        sbi::pmu_counter_stop(selected, StopFlags::RESET),
+        SbiRet::success(0)
+    );
+    println!("[pmu] non-retentive resume resets bindings and counts");
 }
 
 #[inline]
@@ -314,36 +489,6 @@ fn read_hardware_counter(csr_num: usize) -> u64 {
     }
 }
 
-/// The PMU flag parameter is shared by config, start, and stop calls.
-#[derive(Clone, Copy)]
-struct Flag {
-    inner: usize,
-}
-
-impl Flag {
-    const fn new(flag: usize) -> Self {
-        Self { inner: flag }
-    }
-}
-
-impl ConfigFlagsParam for Flag {
-    fn raw(&self) -> usize {
-        self.inner
-    }
-}
-
-impl StartFlagsParam for Flag {
-    fn raw(&self) -> usize {
-        self.inner
-    }
-}
-
-impl StopFlagsParam for Flag {
-    fn raw(&self) -> usize {
-        self.inner
-    }
-}
-
 /// Decodes the packed value returned by `pmu_counter_get_info`.
 struct CounterInfo {
     /// Bits [11:0] hold the CSR number, [17:12] the width, and the MSB marks a
@@ -351,7 +496,6 @@ struct CounterInfo {
     inner: usize,
 }
 
-#[allow(unused)]
 impl CounterInfo {
     const CSR_MASK: usize = 0xFFF;
     const WIDTH_MASK: usize = 0x3F << 12;
@@ -365,18 +509,8 @@ impl CounterInfo {
     }
 
     #[inline]
-    fn set_csr(&mut self, csr_num: u16) {
-        self.inner = (self.inner & !Self::CSR_MASK) | ((csr_num as usize) & Self::CSR_MASK);
-    }
-
-    #[inline]
     fn get_csr(&self) -> usize {
         self.inner & Self::CSR_MASK
-    }
-
-    #[inline]
-    fn set_width(&mut self, width: u8) {
-        self.inner = (self.inner & !Self::WIDTH_MASK) | (((width as usize) & 0x3F) << 12);
     }
 
     #[inline]
@@ -387,25 +521,6 @@ impl CounterInfo {
     #[inline]
     fn is_firmware_counter(&self) -> bool {
         self.inner & Self::FIRMWARE_FLAG != 0
-    }
-
-    #[inline]
-    const fn with_hardware_info(csr_num: u16, width: u8) -> Self {
-        Self {
-            inner: ((csr_num as usize) & Self::CSR_MASK) | (((width as usize) & 0x3F) << 12),
-        }
-    }
-
-    #[inline]
-    const fn with_firmware_info() -> Self {
-        Self {
-            inner: Self::FIRMWARE_FLAG,
-        }
-    }
-
-    #[inline]
-    const fn inner(self) -> usize {
-        self.inner
     }
 }
 

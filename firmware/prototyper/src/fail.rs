@@ -32,10 +32,10 @@ cfg_if::cfg_if! {
     if #[cfg(not(any(feature = "payload", feature = "jump")))] {
         use crate::firmware::dynamic;
         use crate::sbi::reset;
-        use riscv::register::mstatus;
+        use csr::machine::TargetPrivilege;
         /// Handles invalid dynamic information data by logging details and resetting.
         #[cold]
-        pub fn invalid_dynamic_data(err: dynamic::ValidationError) -> (mstatus::MPP, usize) {
+        pub fn invalid_dynamic_data(err: dynamic::ValidationError) -> (TargetPrivilege, usize) {
             error!("Invalid data in dynamic information:");
             if err.invalid_next_mode {
                 error!("* dynamic information contains invalid privilege mode");
