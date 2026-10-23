@@ -63,6 +63,27 @@ fn log_interrupt_controller(board: &BoardInfo) {
         );
         return;
     }
+    let aclint_mswi = board.devices.interrupts.aclint_mswi();
+    let aclint_mtimer = board.devices.interrupts.aclint_mtimer();
+    if aclint_mswi.is_some() || aclint_mtimer.is_some() {
+        match aclint_mswi {
+            Some(mswi) => info!(
+                "{:<30}: ACLINT MSWI (Base Address: 0x{:x})",
+                "Platform IPI Extension",
+                mswi.registers.start().as_usize()
+            ),
+            None => warn!("{:<30}: Not Available", "Platform IPI Device"),
+        }
+        match aclint_mtimer {
+            Some(mtimer) => info!(
+                "{:<30}: ACLINT MTIMER (Base Address: 0x{:x})",
+                "Platform Timer Extension",
+                mtimer.compare.start().as_usize()
+            ),
+            None => warn!("{:<30}: Not Available", "Platform Timer Device"),
+        }
+        return;
+    }
     match board.devices.interrupts.clint() {
         Some(description) => info!(
             "{:<30}: {} (Base Address: 0x{:x})",

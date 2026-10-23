@@ -56,7 +56,7 @@ pub(in crate::driver) fn bind(
 impl IpiDevice for PlicSw {
     fn send(&self, request: IpiRequest) -> Result<()> {
         riscv::asm::fence();
-        for hart in request.harts() {
+        for hart in request.target_hart_ids() {
             if hart >= self.hart_id_upper_bound {
                 return Err(Error::IoError);
             }

@@ -166,7 +166,7 @@ impl SiFiveIpi {
 impl IpiDevice for SiFiveIpi {
     #[inline(always)]
     fn send(&self, req: IpiRequest) -> Result<()> {
-        for hart_id in req.harts() {
+        for hart_id in req.target_hart_ids() {
             self.write_msip(hart_id, IpiState::Pending)?;
         }
         Ok(())

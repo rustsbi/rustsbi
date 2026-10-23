@@ -4,6 +4,7 @@ set -euo pipefail
 mode=${1:?missing mode}
 kernel=${2:?missing kernel}
 log_dir=${3:-qemu-logs}
+machine=${QEMU_MACHINE:-virt}
 
 # Single source for the verification patterns, shared with xtask
 # (`Kernel::expected_patterns` / `kernels::forbidden_patterns`).
@@ -14,13 +15,13 @@ mkdir -p "$log_dir"
 
 case "$kernel" in
   test)
-    smp=1
+    smp=${QEMU_BOOT_TEST_SMP:-1}
     attempts=${QEMU_BOOT_TEST_RETRIES:-2}
     timeout_secs=${QEMU_BOOT_TEST_TIMEOUT_SECS:-60}
     payload_bin="target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.bin"
     ;;
   bench)
-    smp=4
+    smp=${QEMU_BOOT_BENCH_SMP:-4}
     attempts=${QEMU_BOOT_BENCH_RETRIES:-4}
     timeout_secs=${QEMU_BOOT_BENCH_TIMEOUT_SECS:-90}
     payload_bin="target/riscv64imac-unknown-none-elf/release/rustsbi-bench-kernel.bin"
@@ -55,7 +56,7 @@ run_once() {
 
   set +e
   timeout "${timeout_secs}s" qemu-system-riscv64 \
-    -machine virt \
+    -machine "$machine" \
     -m 256M \
     -smp "$smp" \
     -nographic \
@@ -104,6 +105,10 @@ run_once() {
   grep -F 'Platform RFence Extension     : Available' "$log_file" || return 1
   grep -F 'Platform SUSP Extension       : Available' "$log_file" || return 1
   grep -F 'Platform PMU Extension        : Available' "$log_file" || return 1
+  if [[ "$machine" == *"aclint=on"* ]]; then
+    grep -F 'Platform IPI Extension        : ACLINT MSWI' "$log_file" || return 1
+    grep -F 'Platform Timer Extension      : ACLINT MTIMER' "$log_file" || return 1
+  fi
 
   # Boot-policy order guard: the boot-hart presentation sequence must
   # appear in phase order. A reorder or drop means the boot policy

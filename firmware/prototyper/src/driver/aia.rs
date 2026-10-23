@@ -58,7 +58,7 @@ impl ImsicIpi {
 impl IpiDevice for ImsicIpi {
     #[inline(always)]
     fn send(&self, req: IpiRequest) -> Result<()> {
-        for hart_id in req.harts() {
+        for hart_id in req.target_hart_ids() {
             let hart = HartId::from_raw(hart_id).map_err(|_| Error::IoError)?;
             let file = self.hart_files.get(hart.index()).ok_or(Error::IoError)?;
             file.write(Register::SetEipnumLe.offset(), self.ipi_iid.number() as u32)

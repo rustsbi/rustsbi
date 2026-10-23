@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 use alloc::{string::String, vec::Vec};
+use core::mem::size_of;
 use runtime::{Compatible, Error, FdtNode, Result, node_is_enabled};
 
 /// One enabled node supplied by the shared discovery traversal.
@@ -83,6 +84,17 @@ pub(crate) fn absolute_path(segments: &[&str]) -> String {
 pub(crate) fn u32_property(node: FdtNode<'_, '_>, name: &str) -> Option<u32> {
     let bytes = node.property(name)?.value;
     Some(u32::from_be_bytes(bytes.try_into().ok()?))
+}
+
+/// Decodes a property containing a list of big-endian 32-bit cells.
+pub(crate) fn u32_cells(node: FdtNode<'_, '_>, name: &str) -> Option<Vec<u32>> {
+    let bytes = node.property(name)?.value;
+    let mut cells = Vec::new();
+    let mut chunks = bytes.chunks_exact(size_of::<u32>());
+    for chunk in &mut chunks {
+        cells.push(u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+    }
+    chunks.remainder().is_empty().then_some(cells)
 }
 
 /// Returns whether the node is a CPU node under `/cpus`.
