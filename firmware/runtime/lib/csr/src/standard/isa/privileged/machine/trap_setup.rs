@@ -194,10 +194,8 @@ impl From<bool> for Virtualization {
 
 impl StatusWriteValue {
     /// Creates a return context with interrupts and optional state disabled.
-    pub fn for_return(privilege: TargetPrivilege) -> Self {
-        let mut value = Self(0);
-        value.write::<MPP>(privilege);
-        value
+    pub const fn for_return(privilege: TargetPrivilege) -> Self {
+        Self((privilege as usize) << 11) // MPP[11..=12]
     }
 }
 
