@@ -6,6 +6,7 @@ on:
     paths:
       - ".cargo/**"
       - ".github/scripts/prototyper-openruyi-boot.sh"
+      - ".github/scripts/prototyper-openruyi-server-workstation-boot.sh"
       - ".github/workflows/openruyi.yml"
       - "Cargo.lock"
       - "Cargo.toml"
@@ -15,10 +16,11 @@ on:
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
   push:
-    branches: ["main"]
+    branches: ["main", "ci/**"]
     paths:
       - ".cargo/**"
       - ".github/scripts/prototyper-openruyi-boot.sh"
+      - ".github/scripts/prototyper-openruyi-server-workstation-boot.sh"
       - ".github/workflows/openruyi.yml"
       - "Cargo.lock"
       - "Cargo.toml"
@@ -40,7 +42,7 @@ jobs:
     name: Boot openRuyi 2026.08 Zero
     # The rva23s64 CPU model requires the QEMU version from Ubuntu 26.04.
     runs-on: ubuntu-26.04
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -72,3 +74,97 @@ jobs:
         with:
           name: openruyi-log
           path: qemu-logs/prototyper-openruyi.log
+
+  openruyi-asset-seed:
+    name: Seed openRuyi 2026.09 assets (${{ matrix.edition }})
+    runs-on: ubuntu-26.04
+    timeout-minutes: 120
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        edition: [server, workstation-labwc, workstation-kde]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install aria2
+        run: |
+          apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30)
+          sudo timeout 15m apt-get "${apt_options[@]}" update --error-on=any
+          sudo timeout 15m apt-get "${apt_options[@]}" install -y --no-install-recommends aria2
+
+      - name: Restore openRuyi ${{ matrix.edition }} assets
+        id: cache
+        uses: actions/cache/restore@v5
+        with:
+          path: .cache/openruyi/2026.09
+          key: openruyi-2026.09-${{ matrix.edition }}-rva23-v1
+
+      - name: Download openRuyi ${{ matrix.edition }} assets
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: .github/scripts/prototyper-openruyi-server-workstation-boot.sh --prepare "${{ matrix.edition }}"
+
+      - name: Save openRuyi ${{ matrix.edition }} assets
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: .cache/openruyi/2026.09
+          key: openruyi-2026.09-${{ matrix.edition }}-rva23-v1
+
+  openruyi-server-workstation-boot:
+    name: Boot openRuyi 2026.09 ${{ matrix.edition }} (${{ matrix.boot-mode }})
+    # The rva23s64 CPU model requires the QEMU version from Ubuntu 26.04.
+    needs: openruyi-asset-seed
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        edition: [server, workstation-labwc, workstation-kde]
+        boot-mode: [sbi, u-boot, edk2]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install emulation dependencies
+        run: |
+          apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30)
+          sudo timeout 15m apt-get "${apt_options[@]}" update --error-on=any
+          sudo timeout 15m apt-get "${apt_options[@]}" install -y --no-install-recommends \
+            aria2 libarchive-tools mtools shellcheck \
+            qemu-system-riscv qemu-utils
+          qemu-system-riscv64 --version
+
+      - name: Check script syntax and offline failure handling
+        run: |
+          bash -n .github/scripts/prototyper-openruyi-server-workstation-boot.sh
+          shellcheck .github/scripts/prototyper-openruyi-server-workstation-boot.sh
+          .github/scripts/prototyper-openruyi-server-workstation-boot.sh --self-test
+
+      - name: Install cargo-binutils
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      - name: Restore openRuyi ${{ matrix.edition }} assets
+        uses: actions/cache/restore@v5
+        with:
+          path: .cache/openruyi/2026.09
+          key: openruyi-2026.09-${{ matrix.edition }}-rva23-v1
+
+      - name: Build RustSBI Prototyper
+        run: |
+          set -o pipefail
+          mkdir -p qemu-logs
+          cargo prototyper build 2>&1 | tee qemu-logs/prototyper-openruyi-build.log
+
+      - name: Boot openRuyi ${{ matrix.edition }} through ${{ matrix.boot-mode }}
+        run: .github/scripts/prototyper-openruyi-server-workstation-boot.sh "${{ matrix.edition }}" "${{ matrix.boot-mode }}"
+
+      - name: Upload serial log and build provenance
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: openruyi-${{ matrix.edition }}-${{ matrix.boot-mode }}-logs
+          path: qemu-logs/prototyper-openruyi-*.log
+          if-no-files-found: warn
