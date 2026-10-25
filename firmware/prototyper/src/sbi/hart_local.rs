@@ -50,7 +50,7 @@ impl HartLocal {
             rfence: RFenceCell::new(),
             ipi_type: CacheAligned(AtomicU8::new(0)),
             features: Mutex::new(HartFeatures::default()),
-            pmu_state: Mutex::new(PmuState::new(0)),
+            pmu_state: Mutex::new(PmuState::new(0, 0)),
         }
     }
 
@@ -81,7 +81,8 @@ impl HartLocal {
     /// Rebuilds PMU state after feature detection has populated the counter mask.
     pub(crate) fn init_pmu(&self) {
         let mhpm_mask = self.with_features(HartFeatures::mhpm_mask);
-        self.with_pmu(|pmu| *pmu = PmuState::new(mhpm_mask));
+        let mhpm_bits = self.with_features(HartFeatures::mhpm_bits);
+        self.with_pmu(|pmu| *pmu = PmuState::new(mhpm_mask, mhpm_bits));
     }
 
     #[inline]
