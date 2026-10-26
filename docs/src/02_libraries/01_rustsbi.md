@@ -2163,9 +2163,9 @@ pub trait Dbtr {
 }
 ```
 
-> `TriggerMask` 封装触发器位掩码和逻辑编号基值，通过 `rustsbi::spec::binary::TriggerMask` 导入。使用 `TriggerMask::from_mask_base(mask, base)` 构造时，`mask` 的第 `i` 位选中逻辑编号为 `base + i` 的触发器。
+> `TriggerMask` 封装触发器位掩码和逻辑编号基值，通过 `rustsbi::spec::binary::TriggerMask` 导入。使用 `TriggerMask::from_base_mask(base, mask)` 构造时，`mask` 的第 `i` 位选中逻辑编号为 `base + i` 的触发器；`into_base_mask()` 返回 `(base, mask)`。
 
-> 卸载、启用和禁用触发器的标准 SBI 调用按 `(trig_idx_base, trig_idx_mask)` 传参，与 `TriggerMask` 构造函数的顺序相反。派生宏的 DBTR 分派路径尚未转换这一顺序，使用这些操作时需在调用分派层校正；S 态调用方仍应遵循标准 ABI。
+> 卸载、启用和禁用触发器的标准 SBI 调用按 `(trig_idx_base, trig_idx_mask)` 传参，与 `TriggerMask::from_base_mask(base, mask)` 的参数顺序一致。
 
 读出、安装和更新触发器配置均使用 `set_shmem` 注册的共享内存。每条记录占 4 个 XLEN 位的字，按小端序存储，第 `i` 条记录的字节偏移为 `i * (XLEN / 2)`。记录布局如下。
 
