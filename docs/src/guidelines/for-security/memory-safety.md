@@ -9,13 +9,14 @@ use a numbered list:
 
 ```rust
 // SAFETY:
-// 1. We have exclusive access to both the current context
-//    and the next context (see above).
-// 2. The next context is valid (because it is either
-//    correctly initialized or written by a previous
-//    `context_switch`).
+// 1. access_status restricts effective privilege to the original S/U context.
+// 2. A nested trap sets MPP=Machine, so entry can use its stack under MPRV.
+// 3. Entry clears MPRV before Rust and preserves the saved mstatus operand.
+// 4. Success and recovery both restore mstatus before returning to Rust.
 unsafe {
-    context_switch(next_task_ctx_ptr, current_task_ctx_ptr);
+    core::arch::asm!(
+        // ...
+    )
 }
 ```
 
@@ -32,13 +33,24 @@ State exactly what the caller must guarantee —
 not implementation details or side effects.
 
 ```rust
-/// A marker trait for guard types that enforce the atomic mode.
+/// Reads an indirectly accessed machine-level interrupt-file register.
 ///
 /// # Safety
 ///
-/// The implementer must ensure that the atomic mode is maintained while
-/// the guard type is alive.
-pub unsafe trait InAtomicMode: core::fmt::Debug {}
+/// The current hart must implement Smaia, the caller must be permitted to access
+/// M-mode CSRs, and `reg_id` must select an implemented register for the current
+/// XLEN. Otherwise, the indirect CSR access may raise an illegal-instruction
+/// exception.
+#[inline]
+pub(super) unsafe fn read_ind(reg_id: usize) -> usize {
+    interrupt::free(|| unsafe {
+        let previous = miselect::read();
+        miselect::write(Miselect::from_bits(reg_id));
+        let value = mireg::read().bits();
+        miselect::write(previous);
+        value
+    })
+}
 ```
 
 ### Reason about safety at the module boundary (`module-boundary-safety`) {#module-boundary-safety}
@@ -54,19 +66,32 @@ is part of the safety argument.
 
 ```rust
 // Good — small, focused module limits the audit surface
-mod frame_allocator {
-    /// Invariant: `next` is always a valid frame index.
-    struct FrameAlloc {
-        next: usize,
-        // ...
-    }
+/// M-mode accessors for the machine-level interrupt file.
+mod machine {
+    use crate::register::{
+        mireg::{self, Mireg},
+        miselect::{self, Miselect},
+    };
+    use riscv::interrupt::machine as interrupt;
 
-    impl FrameAlloc {
-        pub fn alloc(&mut self) -> PhysAddr {
-            // SAFETY: `next` is always valid (see invariant above).
-            // Only code in this module can modify `next`.
-            unsafe { self.alloc_frame_unchecked(self.next) }
-        }
+    /// Reads an indirectly accessed machine-level interrupt-file register.
+    ///
+    /// # Safety
+    ///
+    /// The current hart must implement Smaia, the caller must be permitted to access
+    /// M-mode CSRs, and `reg_id` must select an implemented register for the current
+    /// XLEN. Otherwise, the indirect CSR access may raise an illegal-instruction
+    /// exception.
+    #[inline]
+    pub(super) unsafe fn read_ind(reg_id: usize) -> usize {
+        interrupt::free(|| unsafe {
+            let previous = miselect::read();
+            miselect::write(Miselect::from_bits(reg_id));
+            let value = mireg::read().bits();
+            miselect::write(previous);
+            value
+        })
     }
+    // ...
 }
 ```

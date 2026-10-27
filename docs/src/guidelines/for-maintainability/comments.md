@@ -28,12 +28,9 @@ Design-decision comments ("director's commentary")
 are the most valuable kind of comment.
 
 ```rust
-// We use a radix tree rather than a HashMap
-// because lookups must be O(log n) worst-case
-// for the page fault handler.
-// A HashMap gives O(1) amortized
-// but O(n) worst-case due to rehashing,
-// which is unacceptable on the page fault path.
+// Compressed accesses are forwarded until XLEN-dependent encodings are supported.
+// Floating-point accesses are forwarded because entry does not save those registers.
+// Encoding reference: https://github.com/riscv-software-src/opensbi/blob/master/lib/sbi/sbi_trap_ldst.c
 ```
 
 See also:
@@ -49,7 +46,8 @@ and avoids fragmented prose.
 
 ```rust
 // Good — complete sentence with punctuation.
-// SAFETY: The pointer is derived from a live allocation.
+// SAFETY: reading this CSR has no memory-safety preconditions. A caller
+// must still ensure that the current hart implements an IMSIC.
 
 // Bad — complete sentence without punctuation
 // SAFETY: The pointer is derived from a live allocation

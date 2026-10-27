@@ -18,8 +18,14 @@ to imply the wrong meaning, behavior, or side effects,
 it must be corrected immediately.
 
 ```rust
-// Good — clearly a count
-nr_deleted_watches: usize,
+// Good — clearly a count (`num_ids`) next to the collection it counts (`hart_files`)
+/// Machine-level IMSIC resources selected from the Platform Description.
+pub(crate) struct ImsicInfo {
+    pub(crate) layout: ImsicAddressLayout,
+    pub(crate) num_ids: u16,
+    pub(crate) ipi_iid: Iid,
+    pub(crate) hart_files: Vec<DeviceRegisterRange>,
+}
 // Bad — looks like a collection
 // rather than a numeric counter
 deleted_watches: usize
@@ -28,21 +34,34 @@ deleted_watches: usize
 Choose verbs that reflect the actual work being done.
 
 ```rust
-impl PciCommonDevice {
-    // Good — implies an MMIO read is involved
-    pub fn read_command(&self) -> Command { /* .. */ }
-    // Bad — looks like a plain field access
-    pub fn command(&self) -> Command { /* .. */ }
+// Good — implies an indirect CSR read is involved
+#[inline]
+pub(super) unsafe fn read_ind(reg_id: usize) -> usize {
+    interrupt::free(|| unsafe {
+        let previous = miselect::read();
+        miselect::write(Miselect::from_bits(reg_id));
+        let value = mireg::read().bits();
+        miselect::write(previous);
+        value
+    })
 }
+
+// Bad — looks like a plain field access
+pub fn command(&self) -> Command { /* .. */ }
 ```
 
 ```rust
-mod char_device {
-    // Good — implies an O(n) collection pass
-    pub fn collect_all() -> Vec<Arc<dyn Device>> { /* .. */ }
-    // Bad — sounds like an accessor returning a reference
-    pub fn get_all() -> Vec<Arc<dyn Device>> { /* .. */ }
+// Good — implies an O(n) collection pass over the device tree
+/// Reads hart topology and features, retaining CPU interrupt wiring for IMSIC discovery.
+pub(super) fn discover(
+    board: &mut BoardInfo,
+    platform: &PlatformView<'_>,
+) -> Result<Vec<CpuInterruptController>> {
+    // ...
 }
+
+// Bad — sounds like an accessor returning a reference
+pub fn get_all() -> Vec<Arc<dyn Device>> { /* .. */ }
 ```
 
 See also:
@@ -64,9 +83,14 @@ is acceptable when the context is unambiguous.
 
 ```rust
 // Good — reads as an assertion
-fn is_page_aligned(&self) -> bool { ... }
-fn has_permission(&self, perm: Permission) -> bool { ... }
-let can_read = mode.is_readable();
+#[inline]
+pub fn is_mem_overlap(&self, addr: usize, len: usize) -> bool {
+    let self_end = self.addr + self.len;
+    if let Some(target_end) = addr.checked_add(len) {
+        return addr < self_end && self.addr < target_end;
+    }
+    true
+}
 
 // Bad — verb suggests an action, not a query
 fn check_permission(&self, perm: Permission) -> bool { ... }
