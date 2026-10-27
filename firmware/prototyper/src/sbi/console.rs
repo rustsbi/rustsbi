@@ -53,8 +53,12 @@ impl SbiConsole {
             return Ok((start, 0));
         }
 
-        // This implementation cannot represent a physical address wider than
-        // the native word.
+        // The buffer base address is passed as two XLEN halves and may be
+        // wider than XLEN bits. An address above the native physical-address
+        // space cannot compose a registered supervisor-memory range. The DBCN
+        // write and read error tables assign INVALID_PARAM to buffers that do
+        // not satisfy the shared-memory address requirements, which is the
+        // DBCN-specific equivalent of the generic INVALID_ADDRESS.
         if buffer.phys_addr_hi() != 0 {
             return Err(SbiRet::invalid_param());
         }
