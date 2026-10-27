@@ -1,0 +1,105 @@
+name: openEuler RVSP
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-openeuler-rvsp.sh"
+      - ".github/workflows/openeuler-rvsp.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-openeuler-rvsp.sh"
+      - ".github/workflows/openeuler-rvsp.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # The server platform reference machine ships in QEMU master as
+  # `riscv-server-ref`; re-pin once a release (11.2+) carries it.
+  QEMU_COMMIT: d73149283205645625bfa9fe029cfb68e4c4a9ae
+
+permissions:
+  contents: read
+
+jobs:
+  openeuler-rvsp-boot:
+    name: Boot openEuler 25.09 on riscv-server-ref
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl xz-utils mtools qemu-utils
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      - name: Cache QEMU build
+        uses: actions/cache@v5
+        with:
+          path: .openeuler-rvsp/qemu
+          key: qemu-riscv64-${{ env.QEMU_COMMIT }}-v1
+
+      - name: Cache openEuler downloads
+        uses: actions/cache@v5
+        with:
+          path: .openeuler-rvsp/cache
+          key: openeuler-25.09-riscv64-rvsp-release-v1
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build
+
+      - name: Build QEMU with riscv-server-ref
+        run: |
+          if [ -x .openeuler-rvsp/qemu/build/qemu-system-riscv64 ]; then
+            .openeuler-rvsp/qemu/build/qemu-system-riscv64 --version
+            exit 0
+          fi
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ninja-build meson pkg-config \
+            libglib2.0-dev flex bison python3-venv
+          git clone --depth 1 --branch master \
+            https://github.com/qemu/qemu.git .openeuler-rvsp/qemu
+          git -C .openeuler-rvsp/qemu fetch --depth 1 origin "$QEMU_COMMIT"
+          git -C .openeuler-rvsp/qemu checkout "$QEMU_COMMIT"
+          cd .openeuler-rvsp/qemu
+          mkdir -p build && cd build
+          ../configure --target-list=riscv64-softmmu
+          ninja qemu-system-riscv64
+          ./qemu-system-riscv64 --version
+
+      - name: Boot openEuler on riscv-server-ref
+        run: |
+          export OPENEULER_RVSP_QEMU="$PWD/.openeuler-rvsp/qemu/build/qemu-system-riscv64"
+          export OPENEULER_RVSP_CACHE_DIR="$PWD/.openeuler-rvsp/cache"
+          export OPENEULER_RVSP_WORK_DIR="$PWD/.openeuler-rvsp/work"
+          export OPENEULER_RVSP_LOG_DIR="$PWD/qemu-logs"
+          bash .github/scripts/prototyper-openeuler-rvsp.sh
+
+      - name: Upload openEuler RVSP log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: openeuler-rvsp-log
+          path: qemu-logs/openeuler-rvsp.log
