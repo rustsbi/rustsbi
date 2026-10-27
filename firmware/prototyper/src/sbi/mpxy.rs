@@ -63,8 +63,17 @@ impl Mpxy for SbiMpxy {
             return SbiRet::success(0);
         }
 
-        if !start.is_aligned_to(SHARED_MEMORY_SIZE) || address_high != 0 {
+        // The MPXY shared-memory base address is passed as two XLEN halves and
+        // may be wider than XLEN bits. The alignment is decided by the lower
+        // XLEN bits, which `start` holds.
+        if !start.is_aligned_to(SHARED_MEMORY_SIZE) {
             return SbiRet::invalid_param();
+        }
+        // An address above the native physical-address space cannot compose a
+        // registered supervisor-memory range, so it is inaccessible rather
+        // than an invalid parameter.
+        if address_high != 0 {
+            return SbiRet::invalid_address();
         }
         let Ok(range) = PhysAddrRange::from_start_len(start, SHARED_MEMORY_SIZE) else {
             return SbiRet::invalid_address();
