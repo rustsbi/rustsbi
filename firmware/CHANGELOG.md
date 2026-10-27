@@ -145,3 +145,4 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Fixed
 - Probe PMU counters and skip unsupported events in test-kernel instead of assuming a fixed counter layout.
+- Fix PMU counter discovery, configuration matching, start and stop to map logical indices to CSR offsets directly instead of compressing sparse counter sets, keeping firmware counters after the highest hardware index.
