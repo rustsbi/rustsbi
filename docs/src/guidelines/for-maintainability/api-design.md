@@ -8,44 +8,53 @@ to make illegal states _unrepresentable_.
 Define newtypes to encode domain constraints.
 
 ```rust
-// Good — a `Nice` value is guaranteed to be valid
-pub struct Nice(NiceValue);
-type NiceValue = RangedI8<-20, 19>;
+// Good — an `Iid` value is guaranteed to be valid
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct Iid {
+    number: NonZeroU16,
+}
 
-// Bad — `i8` admits invalid values for nice levels
-pub type Nice = i8;
+// Bad — `u16` admits invalid values for interrupt identities
+pub type Iid = u16;
 ```
 
 Prefer enums over bare integers and boolean flags.
 
 ```rust
-// Good — access mode is constrained by the enum
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AccessMode {
-    O_RDONLY = 0,
-    O_WRONLY = 1,
-    O_RDWR = 2,
+// Good — a TVM's state is constrained by the enum
+/// Possible state of a TEE Virtual Machine (TVM).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(u32)]
+pub enum TvmState {
+    /// TVM has been created, but isn’t yet ready to run.
+    Initializing = 0,
+    /// TVM is in a runnable state, and can be executed.
+    Runnable = 1,
 }
 
-// Bad — `u8` admits invalid values
-pub type AccessMode = u8;
+// Bad — `u32` admits invalid values
+pub type TvmState = u32;
 ```
 
 Encode invariants in generic parameters where needed.
 
 ```rust
-impl IoMem<Sensitive> {
-    // Good — only unsafe code can write to sensitive MMIO
-    pub unsafe fn write_u32(&self, offset: usize, new_val: u32) { /* .. */ }
+/// Generic parameter `P` represents a hint of how this physical slice would be used.
+/// For example, `Physical<&[u8]>` represents an immutable reference to physical byte slice,
+/// while `Physical<&mut [u8]>` represents a mutable one.
+///
+/// An SBI implementation should load or store memory using both `phys_addr_lo` and
+/// `phys_addr_hi` combined as base address. A supervisor program (kernels etc.)
+/// should provide continuous physical memory, wrapping its reference using this structure
+/// before passing into SBI runtime.
+#[derive(Clone, Copy)]
+pub struct Physical<P> {
+    num_bytes: usize,
+    phys_addr_lo: usize,
+    phys_addr_hi: usize,
+    _marker: PhantomData<P>,
 }
-
-impl IoMem<Insensitive> {
-    // Good — safe code can write to insensitive MMIO
-    pub fn write_u32(&self, offset: usize, new_val: u32) { /* .. */ }
-}
-
-pub enum Sensitive {}
-pub enum Insensitive {}
 ```
 
 Asterinas uses this pattern widely,
@@ -64,10 +73,30 @@ for both performance and pattern-matching expressiveness.
 
 ```rust
 // Good — closed set modeled as an enum
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TermStatus {
-    Exited(u8),
-    Killed(SigNum),
+#[derive(Clone, Debug)]
+pub enum Case<'a> {
+    /// Can't proceed test for Hart state monitor extension does not exist.
+    NotExist,
+    /// Test begin.
+    Begin,
+    /// Test failed for hart started before test begin.
+    ///
+    /// The returned value includes which hart led to this test failure.
+    HartStartedBeforeTest(usize),
+    /// Test failed for no other harts are available to be tested.
+    NoStoppedHart,
+    /// Test process for begin test hart state monitor on one batch.
+    BatchBegin(&'a [usize]),
+    /// Test process for target hart to be tested has started.
+    HartStarted(usize),
+    // ...
+    /// Test failed for can't start target hart with [`SbiRet`] error.
+    HartStartFailed {
+        /// The target hart ID that has failed to start.
+        hartid: usize,
+        /// The `SbiRet` value for the failed hart start SBI call.
+        ret: SbiRet,
+    },
 }
 ```
 
@@ -82,11 +111,13 @@ should begin with a `//!` comment explaining:
 3. How it relates to neighboring modules
 
 ```rust
-//! Virtual memory area (VMA) management.
+//! Definitions shared by all RPMI messages.
 //!
-//! This module defines [`VmMapping`] and associated types,
-//! which represent contiguous regions of a process's virtual address space.
-//! VMAs are managed by the [`Vmar`] tree in the parent module.
+//! [`MessageHeader`](crate::message::MessageHeader) and
+//! [`EventHeader`](crate::message::EventHeader) store the specification's logical
+//! 32-bit words. They do not choose a byte order: that belongs to the RPMI
+//! transport. In particular, the shared-memory transport serializes its words
+//! in little-endian order.
 ```
 
 ### Default to the narrowest visibility (`narrow-visibility`) {#narrow-visibility}
@@ -97,11 +128,28 @@ only when an actual external consumer requires it.
 
 ```rust
 // Good — restricted to the parent module
-pub(super) static I8042_CONTROLLER:
-    Once<SpinLock<I8042Controller, LocalIrqDisabled>> = Once::new();
+pub(super) struct RegionAllocator<const MAX_LIVE_ALLOCATIONS: usize> {
+    region: Range<usize>,
+    allocations: [Range<usize>; MAX_LIVE_ALLOCATIONS],
+    allocation_count: usize,
+}
 
-pub(super) fn init() -> Result<(), I8042ControllerError> {
-    // ...
+impl<const MAX_LIVE_ALLOCATIONS: usize> RegionAllocator<MAX_LIVE_ALLOCATIONS> {
+    pub(super) fn new() -> Self {
+        Self {
+            region: 0..0,
+            allocations: [const { 0..0 }; MAX_LIVE_ALLOCATIONS],
+            allocation_count: 0,
+        }
+    }
+
+    pub(super) fn initialize(&mut self, start_addr: usize, end_addr: usize) -> Result<(), ()> {
+        if start_addr == 0 || start_addr >= end_addr || self.allocation_count != 0 {
+            return Err(());
+        }
+        self.region = start_addr..end_addr;
+        Ok(())
+    }
 }
 
 // Bad — unnecessarily wide
@@ -164,9 +212,17 @@ It serves two purposes:
 
 ```rust
 // Good — module-qualified function call
-use ostd::irq;
+use crate::fail;
 
-let guard = irq::disable_local();
+use riscv::register::mstatus;
+
+/// Derives the next-stage address and privilege mode from the `a2`
+/// `DynamicInfo`; prints and stops on invalid input.
+pub(crate) fn decode_next_stage(dynamic_info_address: usize) -> (mstatus::MPP, usize) {
+    let dynamic_info =
+        read_dynamic_info(dynamic_info_address).unwrap_or_else(fail::no_dynamic_info_available);
+    validate_next_stage(&dynamic_info).unwrap_or_else(fail::invalid_dynamic_data)
+}
 
 // Good — module-qualified static access
 use ostd::mm::kspace;
@@ -199,13 +255,13 @@ in member crates.
 ```toml
 # In the workspace root Cargo.toml
 [workspace.dependencies]
-ostd = { path = "ostd", version = "0.17.0" }
-bitflags = "2.6"
+fdt = "0.1.5"
+riscv = { version = "0.16.1", default-features = false }
 
 # In a member crate's Cargo.toml
 [dependencies]
-ostd.workspace = true
-bitflags.workspace = true
+fdt = { workspace = true }
+riscv = { workspace = true }
 ```
 
 ### Avoid boolean arguments (`no-bool-args`) {#no-bool-args}
@@ -221,8 +277,15 @@ fn read(&self, buf: &mut [u8]) -> Result<usize> { ... }
 fn read_nonblocking(&self, buf: &mut [u8]) -> Result<usize> { ... }
 
 // Good — typed enum
-enum ReadMode { Blocking, NonBlocking }
-fn read(&self, buf: &mut [u8], mode: ReadMode) -> Result<usize> { ... }
+#[repr(u32)]
+enum IpiState {
+    Clear = 0,
+    Pending = 1,
+}
+
+fn write_msip(&self, hart_id: usize, value: IpiState) -> Result<()> {
+    // ...
+}
 
 // Bad — boolean argument
 fn read(&self, buf: &mut [u8], blocking: bool) -> Result<usize> { ... }

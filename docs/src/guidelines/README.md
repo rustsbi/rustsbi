@@ -26,7 +26,10 @@ entries adapted from them to the RISC-V SBI firmware context,
 and new entries distilled from RustSBI's own contribution rules, CI requirements, and review history.
 
 This chapter currently carries only the **inherited** entries,
-copied verbatim from the Asterinas originals.
+whose prose is copied verbatim from the Asterinas originals.
+The good-side code examples have been replaced with verbatim snippets
+from this repository; the bad-side examples still follow the Asterinas
+originals and will be rewritten for the RISC-V SBI context.
 Adapted and new entries are being written and will follow.
 
 The Asterinas coding guidelines are dual-licensed under MPL-2.0 and Apache-2.0.
