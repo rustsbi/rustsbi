@@ -33,7 +33,7 @@ impl SbiHsm {
     /// Validates an enabled SBI hart ID against platform privilege policy.
     fn hart(&self, raw: usize) -> Result<&'static Hart, SbiRet> {
         let hart = HartId::from_raw(raw).map_err(|_| SbiRet::invalid_param())?;
-        if !(self.hardware_wakeup || crate::platform::hart_privilege_checked(raw)) {
+        if !(self.hardware_wakeup || crate::services::hart_privilege_checked(raw)) {
             return Err(SbiRet::invalid_param());
         }
         Hart::get(hart).map_err(Into::into)

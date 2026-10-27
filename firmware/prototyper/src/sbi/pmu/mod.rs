@@ -14,6 +14,19 @@ use event::HardwareEvents;
 use runtime::{FdtNode, Result, hart::HartLocal, pmu::Pmu};
 use spin::Mutex;
 
+type PmuFactory = fn() -> Result<SbiPmu>;
+
+/// Target-provided PMU fallback used when the device tree has no PMU node.
+static DEFAULT: Mutex<Option<PmuFactory>> = Mutex::new(None);
+
+pub(crate) fn set_default(factory: PmuFactory) {
+    *DEFAULT.lock() = Some(factory);
+}
+
+pub(crate) fn take_default() -> Result<Option<SbiPmu>> {
+    DEFAULT.lock().take().map(|factory| factory()).transpose()
+}
+
 /// The SBI PMU adapter owning event descriptions, logical records, and hardware control.
 pub(crate) struct SbiPmu {
     pmu: Pmu,

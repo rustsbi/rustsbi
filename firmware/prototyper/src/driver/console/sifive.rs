@@ -9,11 +9,14 @@ use alloc::boxed::Box;
 use bitflags::bitflags;
 use core::mem::size_of;
 use runtime::{
-    Result,
+    Error, PlatformView, Result,
     memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
 };
 
-use crate::driver::console::{DbcnBackend, DbcnError, acquire_registers};
+use crate::devicetree::EnabledNode;
+use crate::driver::console::{
+    Console, ConsoleDevice, ConsoleError, Description, Driver, acquire_registers,
+};
 
 /// Register offsets within the SiFive UART register map.
 #[repr(usize)]
@@ -46,14 +49,6 @@ bitflags! {
     }
 }
 
-pub(super) fn bind(
-    registers: DeviceRegisterRange,
-    memory: &mut MemoryRegistry,
-) -> Result<Box<dyn DbcnBackend + Send>> {
-    let registers = acquire_registers::<u32>(registers, SPAN, memory)?;
-    Ok(Box::new(UartSiFive::new(registers)))
-}
-
 struct FifoData(u32);
 
 impl FifoData {
@@ -72,72 +67,108 @@ impl FifoData {
     }
 }
 
-struct UartSiFive {
+fn read_reg(registers: &MmioRegion, reg: Register) -> u32 {
+    registers
+        .read(reg.offset())
+        .expect("BUG: SiFive UART register escaped its MMIO window")
+}
+
+fn write_reg(registers: &MmioRegion, reg: Register, value: u32) {
+    registers
+        .write(reg.offset(), value)
+        .expect("BUG: SiFive UART register escaped its MMIO window")
+}
+
+fn read_byte(registers: &MmioRegion) -> Option<u8> {
+    FifoData(read_reg(registers, Register::RxData)).received_byte()
+}
+
+fn tx_fifo_full(registers: &MmioRegion) -> bool {
+    FifoData(read_reg(registers, Register::TxData)).is_unavailable()
+}
+
+fn init(registers: &MmioRegion) {
+    write_reg(registers, Register::InterruptEnable, 0);
+    let receive_control =
+        Control::from_bits_retain(read_reg(registers, Register::RxControl)) | Control::ENABLE;
+    write_reg(registers, Register::RxControl, receive_control.bits());
+    let transmit_control =
+        Control::from_bits_retain(read_reg(registers, Register::TxControl)) | Control::ENABLE;
+    write_reg(registers, Register::TxControl, transmit_control.bits());
+}
+
+fn write(registers: &MmioRegion, src: &[u8]) -> Result<usize, ConsoleError> {
+    let mut count = 0;
+    for &byte in src {
+        if tx_fifo_full(registers) {
+            break;
+        }
+        write_reg(registers, Register::TxData, byte as u32);
+        count += 1;
+    }
+    Ok(count)
+}
+
+fn read(registers: &MmioRegion, dst: &mut [u8]) -> Result<usize, ConsoleError> {
+    let mut count = 0;
+    for byte in dst.iter_mut() {
+        match read_byte(registers) {
+            Some(received_byte) => {
+                *byte = received_byte;
+                count += 1;
+            }
+            None => break,
+        }
+    }
+    Ok(count)
+}
+
+struct SiFive {
     registers: MmioRegion,
 }
 
-impl UartSiFive {
-    /// Enables the transmit and receive channels in the acquired register
-    /// window, with interrupts disabled.
-    fn new(registers: MmioRegion) -> Self {
-        let uart = Self { registers };
-        uart.write_reg(Register::InterruptEnable, 0);
-        let receive_control =
-            Control::from_bits_retain(uart.read_reg(Register::RxControl)) | Control::ENABLE;
-        uart.write_reg(Register::RxControl, receive_control.bits());
-        let transmit_control =
-            Control::from_bits_retain(uart.read_reg(Register::TxControl)) | Control::ENABLE;
-        uart.write_reg(Register::TxControl, transmit_control.bits());
-        uart
+impl ConsoleDevice for SiFive {
+    fn write_slice(&mut self, src: &[u8]) -> Result<usize, ConsoleError> {
+        write(&self.registers, src)
     }
 
-    fn read_reg(&self, reg: Register) -> u32 {
-        self.registers
-            .read(reg.offset())
-            .expect("BUG: SiFive UART register escaped its MMIO window")
-    }
-
-    fn write_reg(&self, reg: Register, value: u32) {
-        self.registers
-            .write(reg.offset(), value)
-            .expect("BUG: SiFive UART register escaped its MMIO window")
-    }
-
-    /// Reads one received byte, or `None` when the receive FIFO is empty.
-    fn read_byte(&self) -> Option<u8> {
-        FifoData(self.read_reg(Register::RxData)).received_byte()
-    }
-
-    /// Reports whether the transmit FIFO is full.
-    fn tx_fifo_full(&self) -> bool {
-        FifoData(self.read_reg(Register::TxData)).is_unavailable()
+    fn read_slice(&mut self, dst: &mut [u8]) -> Result<usize, ConsoleError> {
+        read(&self.registers, dst)
     }
 }
 
-impl DbcnBackend for UartSiFive {
-    fn read_slice(&mut self, buf: &mut [u8]) -> Result<usize, DbcnError> {
-        let mut count = 0;
-        for byte in buf.iter_mut() {
-            match self.read_byte() {
-                Some(received_byte) => {
-                    *byte = received_byte;
-                    count += 1;
-                }
-                None => break,
-            }
-        }
-        Ok(count)
+fn bind(
+    registers: DeviceRegisterRange,
+    memory: &mut MemoryRegistry,
+) -> Result<Box<dyn ConsoleDevice>> {
+    let registers = acquire_registers::<u32>(registers, SPAN, memory)?;
+    init(&registers);
+    Ok(Box::new(SiFive { registers }))
+}
+
+/// Driver for SiFive UARTs.
+pub(super) struct SifiveUartDriver;
+
+pub(super) static UART: SifiveUartDriver = SifiveUartDriver;
+
+impl Driver<Console> for SifiveUartDriver {
+    fn compatibles(&self) -> &'static [&'static str] {
+        &["sifive,uart0"]
     }
 
-    fn write_slice(&mut self, buf: &[u8]) -> Result<usize, DbcnError> {
-        let mut count = 0;
-        for &byte in buf {
-            if self.tx_fifo_full() {
-                break;
-            }
-            self.write_reg(Register::TxData, byte as u32);
-            count += 1;
-        }
-        Ok(count)
+    fn parse<'a, 'tree>(
+        &self,
+        platform: &'a PlatformView<'tree>,
+        device: EnabledNode<'a, 'tree>,
+        _compatible: &str,
+    ) -> Result<Option<Description>> {
+        let registers = platform
+            .device_register(device.node())?
+            .ok_or(Error::InvalidArgs)?;
+        Ok(Some(Description::new(
+            "sifive_uart",
+            registers,
+            move |memory| bind(registers, memory),
+        )))
     }
 }

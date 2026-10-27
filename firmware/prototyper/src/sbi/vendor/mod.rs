@@ -1,40 +1,55 @@
 //! Vendor-specific SBI extension selection.
+//!
+//! The SBI layer owns only the dynamic [`VendorSBI`] interface; target code
+//! registers its extension set without exposing its concrete type here.
 
-pub(crate) mod allwinner;
+use alloc::boxed::Box;
+
+use spin::Mutex;
 
 use runtime::{
-    Result,
-    memory::{MemoryRegistry, SupervisorMemory},
-    rustsbi::{self, VendorSBI},
+    memory::SupervisorMemory,
+    rustsbi::{SbiRet, VendorSBI},
 };
 
-use crate::platform::allwinner::v821::V821;
-
-/// Vendor-extension devices selected for this platform.
-pub(crate) struct Extension {
-    v821: Option<allwinner::v821::Extension>,
+/// One target-provided vendor extension set.
+pub(crate) trait VendorExtension: Send {
+    fn take_vendor(&mut self, memory: &'static SupervisorMemory) -> Vendor;
 }
 
-impl Extension {
-    pub(crate) fn bind(v821: Option<V821>, memory: &mut MemoryRegistry) -> Result<Self> {
-        let v821 = v821
-            .map(|platform| allwinner::v821::Extension::bind(platform, memory))
-            .transpose()?;
-        Ok(Self { v821 })
-    }
-}
-
-/// Vendor-specific extension set selected for the current platform.
-#[derive(VendorSBI)]
-#[rustsbi(crate = rustsbi)]
-pub(crate) enum Vendor {
-    Allwinner(allwinner::v821::Extensions),
-}
+/// A registered vendor extension set.
+pub(crate) struct Vendor(Box<dyn VendorSBI + Send + Sync>);
 
 impl Vendor {
-    pub(crate) fn new(extension: Extension, memory: &'static SupervisorMemory) -> Option<Self> {
-        extension
-            .v821
-            .map(|extension| Self::Allwinner(extension.into_extensions(memory)))
+    pub(crate) fn new(extension: Box<dyn VendorSBI + Send + Sync>) -> Self {
+        Self(extension)
     }
+}
+
+impl VendorSBI for Vendor {
+    #[inline]
+    fn probe_extension(&self, extension: usize) -> usize {
+        self.0.probe_extension(extension)
+    }
+
+    #[inline]
+    fn handle_ecall(&self, extension: usize, function: usize, args: [usize; 6]) -> SbiRet {
+        self.0.handle_ecall(extension, function, args)
+    }
+}
+
+/// Vendor extension registered by the selected target.
+static EXTENSION: Mutex<Option<Box<dyn VendorExtension>>> = Mutex::new(None);
+
+/// Publishes the target's vendor extension for the SBI dispatcher.
+pub(crate) fn set_extension(extension: Box<dyn VendorExtension>) {
+    *EXTENSION.lock() = Some(extension);
+}
+
+/// Takes the registered vendor extension, if the target provided one.
+pub(crate) fn take_vendor(memory: &'static SupervisorMemory) -> Option<Vendor> {
+    EXTENSION
+        .lock()
+        .as_mut()
+        .map(|extension| extension.take_vendor(memory))
 }

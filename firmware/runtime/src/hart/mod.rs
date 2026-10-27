@@ -16,7 +16,7 @@ pub use descriptor::{Hart, PrivilegedVersion};
 pub use extensions::IsaExtensions;
 pub use state_enable::StateEnable;
 
-pub use wakeup::{HartWake, install_wakeup};
+pub use wakeup::{HartWake, install_wakeup, wakeup_installed};
 
 pub use local::HartLocal;
 pub use set::{HartSet, HartSetIter};

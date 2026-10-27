@@ -1,19 +1,37 @@
-//! System-reset firmware drivers.
+//! System-reset device class.
 //!
-//! [`Description`] discovers reset hardware and selects a registered
-//! reset driver without acquiring MMIO. Binding produces one [`ResetDevice`],
-//! which owns and serializes the selected backend for the SBI SRST adapter.
+//! Each enabled reset node is parsed by a class driver into a [`Description`];
+//! binding acquires the register windows and returns one [`ResetDevice`]. The
+//! syscon backend retains both poweroff and reboot actions. The SBI SRST adapter
+//! owns the selected device and applies the class-table priority.
 
-mod description;
-mod device;
-mod pmic_spacemit_p1;
-mod registry;
-mod sifive_test;
-mod sunxi_watchdog;
+mod allwinner;
+mod sifive;
+mod spacemit;
 mod syscon;
 
-pub(crate) use description::Description;
-pub(crate) use device::ResetDevice;
+use alloc::boxed::Box;
+use runtime::PlatformView;
+
+use crate::devicetree::u32_property;
+use crate::driver::device::{self, Class, Drivers};
+
+/// The reset class.
+pub(crate) struct Reset;
+
+impl Class for Reset {
+    type Device = Box<dyn ResetDevice>;
+}
+
+pub(crate) type Description = device::Description<Reset>;
+
+pub(crate) static DRIVERS: Drivers<Reset> = Drivers::new(&[
+    &sifive::TEST,
+    &spacemit::P1_PMIC,
+    &allwinner::WATCHDOG_V104,
+    &allwinner::WATCHDOG_V105,
+    &syscon::SYSCON,
+]);
 
 /// Parsed reset type accepted by the SRST driver layer.
 ///
@@ -46,8 +64,6 @@ pub(crate) enum ResetReason {
 }
 
 /// Fully parsed SRST request.
-///
-/// This is the unit consumed by the driver layer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ResetRequest {
     reset_type: ResetType,
@@ -71,28 +87,30 @@ impl ResetRequest {
     }
 }
 
-/// Low-level error category for an SRST backend.
-///
-/// # Semantics
-///
-/// - `InvalidParam` is intentionally absent.
-/// - Successful reset is intentionally absent too, because a successful
-///   SRST request does not return.
+/// Low-level error category for an SRST device.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ResetError {
-    /// The selected device cannot represent the requested operation.
+    /// The device cannot represent the requested operation.
     InvalidRequest,
     /// The reset failed for unspecified or unknown other reasons.
-    ///
-    /// Mapped to `SBI_ERR_FAILED`.
     Failed,
 }
 
-/// Behavior required of a selected reset backend.
+/// One reset device.
 ///
 /// Validation and execution share one call because a successful reset never
 /// returns; an unimplemented request must fail before any side effect.
-pub(in crate::driver) trait ResetBackend: Send {
+pub(crate) trait ResetDevice: Send {
+    /// Static selection priority; higher wins.
+    fn priority(&self) -> u32 {
+        0
+    }
+
     /// Attempts the requested reset.
     fn system_reset(&mut self, request: ResetRequest) -> ResetError;
+}
+
+pub(super) fn timebase_frequency_hz(platform: &PlatformView<'_>) -> Option<u32> {
+    let cpus = platform.find_enabled_node("/cpus")?;
+    u32_property(cpus, "timebase-frequency").filter(|frequency| *frequency != 0)
 }
