@@ -102,7 +102,6 @@ pub fn hart_mhpm_mask(hart_id: usize) -> u32 {
 }
 
 /// Records the extensions of one enabled hart during CPU discovery.
-#[cfg(not(feature = "nemu"))]
 pub fn detect_extensions(hart_id: usize, cpu: FdtNode<'_, '_>) {
     let mut extensions = [false; Extension::COUNT];
     if let Some(property) = cpu.property("riscv,isa-extensions") {
@@ -135,10 +134,6 @@ pub fn detect_extensions(hart_id: usize, cpu: FdtNode<'_, '_>) {
         local.with_features_mut(|features| features.extensions = extensions)
     });
 }
-
-/// NEMU supplies a fixed feature profile through [`init`].
-#[cfg(feature = "nemu")]
-pub fn detect_extensions(_hart_id: usize, _cpu: FdtNode<'_, '_>) {}
 
 fn detect_privileged_version() {
     let privileged_version = hart::detect_privileged_version();
@@ -177,28 +172,6 @@ pub fn detect_hart_features() {
     detect_privileged_version();
     detect_sstc();
     detect_mhpm_counters();
-}
-
-#[cfg(feature = "nemu")]
-pub fn init(cpus: FdtNode<'_, '_>) {
-    let hart_count = cpus
-        .children()
-        .filter(|node| crate::devicetree::is_cpu_node(*node))
-        .count();
-    for hart_id in 0..hart_count {
-        let mut hart_exts = [false; Extension::COUNT];
-        hart_exts[Extension::Sstc.index()] = true;
-        with_hart(hart_id, |local| {
-            local.with_features_mut(|features| {
-                *features = HartFeatures {
-                    extensions: hart_exts,
-                    privileged_version: PrivilegedVersion::Version1_12,
-                    mhpm_mask: 0,
-                    mhpm_bits: 0,
-                }
-            })
-        });
-    }
 }
 
 /// Checks that this hart supports the requested privilege mode.
