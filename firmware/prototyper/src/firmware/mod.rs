@@ -223,7 +223,14 @@ unsafe fn set_pmp_config(
 }
 
 /// Installs PMP entries isolating firmware memory from S-mode.
+///
+/// A hart without PMP entries keeps the machine memory map unprotected; the
+/// firmware still runs, only without isolation from the next stage.
 pub fn set_pmp(firmware_ram: &Range<usize>) {
+    if !runtime::csr::pmp_available() {
+        info!("PMP: not implemented; machine memory stays unprotected");
+        return;
+    }
     // SAFETY: M-mode PMP programming on this hart; the linker symbols and
     // memory bounds are asserted aligned below.
     unsafe {
@@ -264,26 +271,32 @@ pub fn set_pmp(firmware_ram: &Range<usize>) {
         if matches!(
             crate::platform::ipi_delivery(),
             Some(IpiDelivery::Imsic { .. })
-        ) && crate::platform::board_info().is_qemu_virt()
+        ) && crate::platform::board_info()
+            .devices
+            .interrupts
+            .machine_aplic()
+            .is_some()
             && let Some(imsic) = crate::platform::board_info().devices.interrupts.imsic()
         {
-            const QEMU_VIRT_CLINT_BASE: usize = 0x0200_0000;
-            const QEMU_VIRT_CLINT_SIZE: usize = 0x1_0000;
+            // Both QEMU AIA machines place their ACLINT at 0x0200_0000: the
+            // `virt` CLINT and the `riscv-server-ref` per-socket mtimer.
+            const QEMU_ACLINT_BASE: usize = 0x0200_0000;
+            const QEMU_ACLINT_SIZE: usize = 0x1_0000;
 
             let clint_start = crate::platform::board_info()
                 .devices
                 .interrupts
                 .clint()
                 .map(|description| description.resource().registers.start().as_usize())
-                .unwrap_or(QEMU_VIRT_CLINT_BASE);
-            let clint_end = clint_start + QEMU_VIRT_CLINT_SIZE;
+                .unwrap_or(QEMU_ACLINT_BASE);
+            let clint_end = clint_start + QEMU_ACLINT_SIZE;
             let aplic_registers = crate::platform::board_info()
                 .devices
                 .interrupts
                 .machine_aplic()
-                .expect("BUG: QEMU AIA setup requires a machine APLIC");
-            let aplic_start = aplic_registers.resource().start().as_usize();
-            let aplic_end = aplic_registers.resource().end().as_usize();
+                .expect("BUG: AIA interrupt hiding requires a machine APLIC");
+            let aplic_start = aplic_registers.resource().registers.start().as_usize();
+            let aplic_end = aplic_registers.resource().registers.end().as_usize();
             let machine_imsic_start = imsic.resource().layout.machine_base.as_usize();
             let machine_imsic_end = imsic
                 .resource()
@@ -402,6 +415,11 @@ impl fmt::Display for RangeWrapper {
 /// Logs the active PMP configuration.
 pub fn log_pmp_cfg(_firmware_ram: &Range<usize>) {
     use riscv::register::*;
+    if !runtime::csr::pmp_available() {
+        info!("PMP Configuration");
+        info!("PMP is not implemented on this platform");
+        return;
+    }
     let pmp_config = |index: usize| {
         #[cfg(target_pointer_width = "32")]
         if index >= 4 {

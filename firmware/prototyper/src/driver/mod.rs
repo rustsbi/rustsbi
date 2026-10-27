@@ -55,20 +55,28 @@ fn bind_interrupts(
     memory: &mut MemoryRegistry,
 ) -> Result<InterruptDevices> {
     if let Some(imsic) = selected_imsic {
-        let aplic_config = if board.is_qemu_virt() {
-            Some(crate::platform::qemu_aplic::QemuAplicConfig::new(
-                board
-                    .devices
-                    .interrupts
-                    .machine_aplic()
-                    .map(|description| *description.resource())
-                    .ok_or(Error::InvalidArgs)?,
+        // Any machine that delegates its M-APLIC domain to a supervisor child
+        // gets the delegation program below; both QEMU AIA machines (`virt`
+        // with `aia=aplic-imsic` and `riscv-server-ref`) describe it the same
+        // way through the device tree.
+        let aplic_config = match board
+            .devices
+            .interrupts
+            .machine_aplic()
+            .map(|selection| selection.resource())
+        {
+            Some(description) => Some(crate::platform::qemu_aplic::QemuAplicConfig::new(
+                description,
                 imsic.layout.machine_base,
                 imsic.layout.hart_index_bits,
-            )?)
-        } else {
-            warn!("AIA: skipping QEMU virt M-APLIC setup on '{}'", board.model);
-            None
+            )?),
+            None => {
+                warn!(
+                    "AIA: no delegated machine APLIC on '{}'; S-level keeps its own wiring",
+                    board.model
+                );
+                None
+            }
         };
         let ipi = aia::bind(imsic, aplic_config, memory)?;
         return Ok((None, Some(ipi)));

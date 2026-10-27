@@ -5,9 +5,11 @@
 
 use runtime::{Compatible, Error, FdtNode, PlatformView, Result, memory::DeviceRegisterRange};
 
-use crate::devicetree::EnabledNode;
+use crate::devicetree::{EnabledNode, find_phandle, u32_property};
 use crate::driver;
-use crate::platform::info::{BoardInfo, ClintResource, MachineAplicHandoff};
+use crate::platform::info::{
+    BoardInfo, ClintResource, MachineAplicDescription, MachineAplicHandoff,
+};
 use crate::platform::qemu_aplic;
 
 use super::imsic;
@@ -41,6 +43,7 @@ pub(super) fn discover_node(
     };
     controller.record(
         board,
+        platform,
         node,
         source_path,
         registers.as_deref(),
@@ -96,6 +99,7 @@ impl InterruptController {
     fn record(
         self,
         board: &mut BoardInfo,
+        platform: &PlatformView<'_>,
         node: FdtNode<'_, '_>,
         source_path: &[&str],
         registers: Option<&[DeviceRegisterRange]>,
@@ -134,11 +138,12 @@ impl InterruptController {
                 }
             }
             Self::MachineAplic(handoff) => {
-                board.devices.interrupts.set_machine_aplic(
-                    primary_register_range,
-                    source_path,
-                    handoff,
-                )?;
+                let description =
+                    machine_aplic_description(platform, node, primary_register_range)?;
+                board
+                    .devices
+                    .interrupts
+                    .set_machine_aplic(description, source_path, handoff)?;
             }
             Self::TheadPlic => {
                 if board.devices.interrupts.thead_plic.is_some() {
@@ -149,4 +154,37 @@ impl InterruptController {
         }
         Ok(())
     }
+}
+
+/// Collects the machine-domain APLIC facts from the device tree.
+///
+/// The delegation loop is bounded by the node's own `riscv,num-sources`, and
+/// the supervisor MSI target is resolved through the child APLIC named by
+/// `riscv,children`: its `msi-parent` names the supervisor-level IMSIC group
+/// whose first register range supplies the group base.
+fn machine_aplic_description(
+    platform: &PlatformView<'_>,
+    node: FdtNode<'_, '_>,
+    registers: DeviceRegisterRange,
+) -> Result<MachineAplicDescription> {
+    let num_sources = u32_property(node, "riscv,num-sources")
+        .filter(|sources| *sources > 0)
+        .and_then(|sources| usize::try_from(sources).ok())
+        .ok_or(Error::InvalidArgs)?;
+
+    let child_phandle = u32_property(node, "riscv,children").ok_or(Error::InvalidArgs)?;
+    let child = find_phandle(platform.root(), child_phandle).ok_or(Error::InvalidArgs)?;
+    let msi_phandle = u32_property(child, "msi-parent").ok_or(Error::InvalidArgs)?;
+    let supervisor_imsic = find_phandle(platform.root(), msi_phandle).ok_or(Error::InvalidArgs)?;
+    let supervisor_imsic_base = platform
+        .device_registers(supervisor_imsic)?
+        .and_then(|registers| registers.first().copied())
+        .map(|range| range.start())
+        .ok_or(Error::InvalidArgs)?;
+
+    Ok(MachineAplicDescription {
+        registers,
+        num_sources,
+        supervisor_imsic_base,
+    })
 }

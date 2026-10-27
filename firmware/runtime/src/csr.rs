@@ -23,6 +23,20 @@ pub fn enable_supervisor_seed() {
     }
 }
 
+/// Returns whether this hart implements any PMP entries.
+///
+/// PMP has no `misa` bit, so absence is probed by reading `pmpcfg0` behind
+/// the fault-recovery frame; a hart without PMP raises illegal-instruction
+/// and the probe reports the facility as absent. QEMU's `riscv-server-ref`
+/// CPU is one such implementation today.
+pub fn pmp_available() -> bool {
+    if !crate::boot::traps_ready() {
+        return false;
+    }
+    // pmpcfg0 (0x3a0); any implementation with PMP entries accepts the read.
+    instruction!("csrr {value}, {csr}", 0x3a0, 0usize).is_ok()
+}
+
 /// State-enable registers used to prepare a supervisor next stage.
 pub mod stateen {
     use core::arch::asm;

@@ -5,7 +5,7 @@ mod sifive;
 mod thead;
 
 use runtime::{
-    Result,
+    Error, Result,
     ipi::IpiDevice,
     memory::{DeviceRegisterRange, MemoryRegistry},
     timer::TimerDevice,
@@ -28,5 +28,9 @@ pub(super) fn bind(
     match kind {
         ClintKind::SiFive => sifive::bind(registers, memory, hart_id_upper_bound),
         ClintKind::THead => thead::bind(registers, memory, hart_id_upper_bound),
+        // An aclint-mtimer node carries no software-interrupt device, so the
+        // CLINT fallback has no IPI backend to offer; such platforms must use
+        // the IMSIC path.
+        ClintKind::AclintMtimer => Err(Error::NotSupported),
     }
 }
