@@ -1,6 +1,8 @@
-//! Allwinner platform policy.
+//! Allwinner platform support.
 //!
-//! V821 discovery and one-time boot-contract preparation live here; acquired
-//! devices and register sequencing remain in [`crate::driver::allwinner`].
+//! Each target directory owns its boot preparation, devices, and vendor
+//! extension: `v821/` and `v861/`.
 
 pub(crate) mod v821;
+
+pub(crate) mod v861;

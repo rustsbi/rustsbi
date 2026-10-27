@@ -6,15 +6,17 @@ extern crate alloc;
 #[macro_use]
 extern crate log;
 
+mod boot;
 mod cfg;
 mod devicetree;
 mod driver;
 mod fail;
 mod firmware;
 mod heap;
+mod info;
 mod platform;
-mod riscv;
 mod sbi;
+mod services;
 
 use crate::firmware::BootInfo;
 use csr::machine::TargetPrivilege;
@@ -34,9 +36,9 @@ fn boot_hart(mut boot: BootInfo) {
     let platform_description = boot
         .take_platform_description()
         .expect("BUG: boot hart entered without a validated Platform Description");
-    let next_stage_fdt_address = platform::init_board(platform_description);
+    let next_stage_fdt_address = boot::init_board(platform_description);
 
-    let firmware_ram = platform::firmware_ram_range();
+    let firmware_ram = boot::firmware_ram_range();
     firmware::set_pmp(&firmware_ram);
     firmware::log_pmp_cfg(&firmware_ram);
 
@@ -51,7 +53,7 @@ fn boot_hart(mut boot: BootInfo) {
         next_stage.next_mode(),
         TargetPrivilege::Supervisor | TargetPrivilege::User
     ) {
-        platform::mark_hart_privilege_checked(hart_id);
+        services::mark_hart_privilege_checked(hart_id);
     }
     log_hart_capabilities(hart);
 
@@ -80,10 +82,10 @@ fn boot_hart(mut boot: BootInfo) {
 }
 
 fn secondary_hart(boot: Option<&BootInfo>) {
-    platform::wait_until_ready();
+    boot::wait_until_ready();
 
-    platform::initialize_secondary_hart();
-    firmware::set_pmp(&platform::firmware_ram_range());
+    boot::initialize_secondary_hart();
+    firmware::set_pmp(&boot::firmware_ram_range());
 
     // Hardware-reset harts have no SPL handoff; HSM starts them in S-mode.
     let next_mode = boot.map_or(TargetPrivilege::Supervisor, |boot| {
@@ -96,7 +98,7 @@ fn secondary_hart(boot: Option<&BootInfo>) {
         next_mode,
         TargetPrivilege::Supervisor | TargetPrivilege::User
     ) {
-        platform::mark_hart_privilege_checked(hart.id().as_usize());
+        services::mark_hart_privilege_checked(hart.id().as_usize());
     }
     let dispatcher = sbi::SBI_DISPATCHER
         .get()

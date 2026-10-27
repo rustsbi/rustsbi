@@ -120,7 +120,7 @@ pub(super) fn target_requests(
     hart_mask: HartMask,
 ) -> Result<impl Iterator<Item = IpiRequest> + Clone, SbiRet> {
     let available = |hart: HartId| {
-        crate::platform::hart_privilege_checked(hart.as_usize())
+        crate::services::hart_privilege_checked(hart.as_usize())
             && Hart::get(hart).is_ok_and(Hart::can_receive_ipi)
     };
     let (mask, base) = hart_mask.into_inner();

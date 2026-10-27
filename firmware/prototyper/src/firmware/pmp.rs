@@ -71,25 +71,26 @@ pub(crate) fn set_pmp(firmware_ram: &Range<usize>) {
         assert_eq!(rodata_start & 0x3, 0);
         assert_eq!(rodata_end & 0x3, 0);
 
-        // Keep machine-level interrupt controllers inaccessible to S-mode
-        // only when the IMSIC device retained them for firmware use.
-        if matches!(
-            crate::platform::ipi_delivery(),
-            Some(IpiDelivery::Imsic { .. })
-        ) && crate::platform::board_info().is_qemu_virt()
-            && let Some(imsic) = crate::platform::board_info().devices.interrupts.imsic()
+        // This layout assumes QEMU's CLINT, APLIC, and IMSIC address order.
+        // Keep those controllers inaccessible when firmware retains IMSIC IPIs.
+        if crate::services::board_info().model == crate::driver::irqchip::aplic::QEMU_VIRT_MODEL
+            && matches!(
+                crate::services::ipi_delivery(),
+                Some(IpiDelivery::Imsic { .. })
+            )
+            && let Some(imsic) = crate::services::board_info().devices.interrupts.imsic()
         {
             const QEMU_VIRT_CLINT_BASE: usize = 0x0200_0000;
             const QEMU_VIRT_CLINT_SIZE: usize = 0x1_0000;
 
-            let clint_start = crate::platform::board_info()
+            let clint_start = crate::services::board_info()
                 .devices
                 .interrupts
                 .clint()
-                .map(|description| description.resource().registers.start().as_usize())
+                .map(|description| description.resource().start().as_usize())
                 .unwrap_or(QEMU_VIRT_CLINT_BASE);
             let clint_end = clint_start + QEMU_VIRT_CLINT_SIZE;
-            let aplic_registers = crate::platform::board_info()
+            let aplic_registers = crate::services::board_info()
                 .devices
                 .interrupts
                 .machine_aplic()
@@ -150,17 +151,17 @@ pub(crate) fn set_pmp(firmware_ram: &Range<usize>) {
         pmpaddr5::write(firmware_end >> 2);
         set_pmp_config(6, Range::TOR, Permission::RWX, false);
         pmpaddr6::write(firmware_ram.end >> 2);
-        if let Some(alias) = crate::platform::board_info()
+        if let Some(alias) = crate::services::board_info()
             .memory
             .noncacheable_alias_offset
         {
             assert!(alias.is_power_of_two() && alias >= firmware_ram.end as u64);
             let start = (firmware_start as u64)
                 .checked_add(alias)
-                .expect("BUG: V821 firmware alias start overflowed");
+                .expect("BUG: noncacheable alias start overflowed");
             let end = (firmware_end as u64)
                 .checked_add(alias)
-                .expect("BUG: V821 firmware alias end overflowed");
+                .expect("BUG: noncacheable alias end overflowed");
             assert!(end >> 2 <= usize::MAX as u64);
             // Deny the firmware alias before permitting the wider physical address space.
             set_pmp_config(7, Range::OFF, Permission::NONE, false);
@@ -253,7 +254,7 @@ pub(crate) fn log_pmp_cfg(_firmware_ram: &Range<usize>) {
     seq_macro::seq!(N in 0..8 {
         log_entry_fn(N, pastey::paste! { [<pmpaddr ~N>]::read() });
     });
-    if crate::platform::board_info()
+    if crate::services::board_info()
         .memory
         .noncacheable_alias_offset
         .is_some()

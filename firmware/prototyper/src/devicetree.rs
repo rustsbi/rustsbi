@@ -15,6 +15,14 @@ pub(crate) struct EnabledNode<'view, 'tree: 'view> {
 }
 
 impl<'view, 'tree> EnabledNode<'view, 'tree> {
+    pub(crate) fn new(node: FdtNode<'view, 'tree>, parent: Option<FdtNode<'view, 'tree>>) -> Self {
+        Self {
+            node,
+            parent,
+            compatible: node.compatible(),
+        }
+    }
+
     pub(crate) const fn node(self) -> FdtNode<'view, 'tree> {
         self.node
     }

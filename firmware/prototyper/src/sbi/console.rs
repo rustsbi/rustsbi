@@ -16,14 +16,14 @@ use runtime::{
 };
 use spin::Mutex;
 
-use crate::driver::{DbcnBackend, DbcnError};
+use crate::driver::{ConsoleDevice, ConsoleError};
 
 /// Bounds stack use and work performed while the console device lock is held.
 const MAX_TRANSFER_BYTES: usize = 256;
 
 /// SBI console service over a platform console device.
 pub(crate) struct SbiConsole {
-    device: &'static Mutex<Box<dyn DbcnBackend + Send>>,
+    device: &'static Mutex<Box<dyn ConsoleDevice>>,
     supervisor_memory: &'static SupervisorMemory,
 }
 
@@ -31,7 +31,7 @@ impl SbiConsole {
     /// Creates a new SBI console handle over the published console device.
     #[inline]
     pub(crate) fn new(
-        device: &'static Mutex<Box<dyn DbcnBackend + Send>>,
+        device: &'static Mutex<Box<dyn ConsoleDevice>>,
         supervisor_memory: &'static SupervisorMemory,
     ) -> Self {
         Self {
@@ -68,12 +68,12 @@ impl SbiConsole {
         Ok((start, len))
     }
 
-    pub(super) fn write_byte_blocking(&self, byte: u8) -> Result<(), DbcnError> {
+    pub(super) fn write_byte_blocking(&self, byte: u8) -> Result<(), ConsoleError> {
         loop {
             match self.device.lock().write_slice(&[byte])? {
                 0 => core::hint::spin_loop(),
                 1 => return Ok(()),
-                _ => return Err(DbcnError::Failed),
+                _ => return Err(ConsoleError::Failed),
             }
         }
     }
@@ -105,7 +105,7 @@ impl Console for SbiConsole {
         }
         let count = match self.device.lock().write_slice(&chunk[..chunk_len]) {
             Ok(count) => count,
-            Err(error) => return dbcn_error(error),
+            Err(error) => return console_error(error),
         };
         if count > chunk_len {
             return SbiRet::failed();
@@ -130,7 +130,7 @@ impl Console for SbiConsole {
         let chunk_len = len.min(chunk.len());
         let count = match self.device.lock().read_slice(&mut chunk[..chunk_len]) {
             Ok(count) => count,
-            Err(error) => return dbcn_error(error),
+            Err(error) => return console_error(error),
         };
         if count > chunk_len {
             return SbiRet::failed();
@@ -152,7 +152,7 @@ impl Console for SbiConsole {
     fn write_byte(&self, byte: u8) -> SbiRet {
         match self.write_byte_blocking(byte) {
             Ok(()) => SbiRet::success(0),
-            Err(error) => dbcn_error(error),
+            Err(error) => console_error(error),
         }
     }
 }
@@ -160,10 +160,10 @@ impl Console for SbiConsole {
 /// Maps backend denial and I/O errors from DBCN Tables 50-52.
 /// Physical-memory errors are handled at entry; unsupported EIDs/FIDs belong
 /// to the SBI dispatcher and are not backend errors.
-fn dbcn_error(error: DbcnError) -> SbiRet {
+fn console_error(error: ConsoleError) -> SbiRet {
     match error {
-        DbcnError::Denied => SbiRet::denied(),
-        DbcnError::Failed => SbiRet::failed(),
+        ConsoleError::Denied => SbiRet::denied(),
+        ConsoleError::Failed => SbiRet::failed(),
     }
 }
 
@@ -177,7 +177,7 @@ pub fn _print(args: fmt::Arguments) {
     use core::fmt::Write as _;
 
     struct ConsoleWriter<'a> {
-        device: &'a Mutex<Box<dyn DbcnBackend + Send>>,
+        device: &'a Mutex<Box<dyn ConsoleDevice>>,
     }
 
     impl fmt::Write for ConsoleWriter<'_> {
@@ -204,7 +204,7 @@ pub fn _print(args: fmt::Arguments) {
         }
     }
 
-    if let Some(device) = crate::platform::console_device() {
+    if let Some(device) = crate::services::console_device() {
         let _ = ConsoleWriter { device }.write_fmt(args);
     }
 }

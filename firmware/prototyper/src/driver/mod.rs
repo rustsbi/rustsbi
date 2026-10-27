@@ -6,30 +6,27 @@
 
 #![forbid(unsafe_code)]
 
-mod aia;
-pub(crate) mod allwinner;
-mod cci;
-mod clint;
+pub(crate) mod clint;
 mod console;
-mod plicsw;
-mod plmt;
+mod device;
+mod ipi;
+pub(crate) mod irqchip;
 mod reset;
+mod timer;
 
-use alloc::boxed::Box;
+use alloc::{boxed::Box, vec::Vec};
 use runtime::{
-    Error, Result, hart::HartId, ipi::IpiDevice, memory::MemoryRegistry, timer::TimerDevice,
+    PlatformView, Result,
+    ipi::IpiDevice,
+    memory::{DeviceRegisterRange, MemoryRegistry},
+    timer::TimerDevice,
 };
 
-use crate::platform::{BoardInfo, ClintResource, ImsicInfo};
+pub(crate) use device::DeviceSummary;
+pub(crate) use reset::{ResetDevice, ResetError, ResetReason, ResetRequest, ResetType};
 
-pub(crate) use reset::{
-    Description as ResetDescription, ResetDevice, ResetError, ResetReason, ResetRequest, ResetType,
-};
-
-pub(crate) use aia::{IMSIC_COMPATIBLES, IMSIC_FILE_SPAN};
-pub(crate) use cci::Cci550;
-pub(crate) use clint::ClintKind;
-pub(crate) use console::{ConsoleKind, DbcnBackend, DbcnError};
+pub(crate) use console::{ConsoleDevice, ConsoleError, ConsoleSummary};
+pub(crate) use irqchip::aia::{IMSIC_COMPATIBLES, IMSIC_FILE_SPAN, ImsicInfo};
 
 pub(crate) use runtime::hart::HartWake;
 
@@ -42,87 +39,109 @@ pub(crate) const THEAD_PLIC_COMPATIBLES: [&str; 2] =
 const THEAD_PLIC_CTRL_OFFSET: usize = 0x1f_fffc;
 const THEAD_PLIC_SUPERVISOR_ACCESS: u32 = 1 << 0;
 
+/// Discovery facts consumed by device binding.
+pub(crate) struct DeviceFacts<'a> {
+    pub(crate) thead_plic: Option<DeviceRegisterRange>,
+    pub(crate) machine_aplic: Option<DeviceRegisterRange>,
+    pub(crate) imsic: Option<&'a ImsicInfo>,
+}
+
 /// Platform devices constructed from the discovered hardware description.
 pub(crate) struct Devices {
     pub(crate) timer: Option<Box<dyn TimerDevice>>,
     pub(crate) ipi: Option<Box<dyn IpiDevice>>,
-    pub(crate) console: Option<Box<dyn DbcnBackend + Send>>,
-    pub(crate) reset: ResetDevice,
+    pub(crate) console: Option<Box<dyn ConsoleDevice>>,
+    pub(crate) console_summary: Option<ConsoleSummary>,
+    pub(crate) clint_summary: Option<DeviceSummary>,
+    pub(crate) reset: Vec<Box<dyn ResetDevice>>,
 }
 
-type InterruptDevices = (Option<Box<dyn TimerDevice>>, Option<Box<dyn IpiDevice>>);
+struct InterruptDevices {
+    timer: Option<Box<dyn TimerDevice>>,
+    ipi: Option<Box<dyn IpiDevice>>,
+    timer_summary: Option<DeviceSummary>,
+    ipi_summary: Option<DeviceSummary>,
+}
 
 fn bind_interrupts(
-    board: &BoardInfo,
-    selected_imsic: Option<&ImsicInfo>,
+    platform: &PlatformView<'_>,
+    facts: &DeviceFacts<'_>,
     memory: &mut MemoryRegistry,
 ) -> Result<InterruptDevices> {
-    if let Some(imsic) = selected_imsic {
-        let aplic_config = if board.is_qemu_virt() {
-            Some(crate::platform::qemu_aplic::QemuAplicConfig::new(
-                board
-                    .devices
-                    .interrupts
-                    .machine_aplic()
-                    .map(|description| *description.resource())
-                    .ok_or(Error::InvalidArgs)?,
-                imsic.layout.machine_base,
-                imsic.layout.hart_index_bits,
-            )?)
-        } else {
-            warn!("AIA: skipping QEMU virt M-APLIC setup on '{}'", board.model);
-            None
-        };
-        let ipi = aia::bind(imsic, aplic_config, memory)?;
-        return Ok((None, Some(ipi)));
+    if let Some(imsic) = facts.imsic {
+        let aplic_config = irqchip::aplic::config(platform, facts, imsic)?;
+        let ipi = irqchip::aia::bind(imsic, aplic_config, memory)?;
+        return Ok(InterruptDevices {
+            timer: None,
+            ipi: Some(ipi),
+            timer_summary: None,
+            ipi_summary: None,
+        });
     }
-    if let (Some(plmt), Some(plicsw)) = (
-        board.devices.interrupts.plmt,
-        board.devices.interrupts.plicsw,
-    ) {
-        let hart_id_upper_bound = HartId::all()
-            .last()
-            .and_then(|hart| hart.as_usize().checked_add(1))
-            .ok_or(Error::InvalidArgs)?;
-        return Ok((
-            Some(Box::new(plmt::bind(plmt, memory, hart_id_upper_bound)?)),
-            Some(Box::new(plicsw::bind(plicsw, memory, hart_id_upper_bound)?)),
-        ));
-    }
-    let Some(description) = board.devices.interrupts.clint() else {
-        return Ok((None, None));
+    let timer_description = timer::DRIVERS.select(platform, None)?;
+    let timer_summary = timer_description.as_ref().map(device::Description::summary);
+    let timer = match timer_description {
+        Some(description) => Some(description.bind(memory)?),
+        None => None,
     };
-    let ClintResource { registers, kind } = *description.resource();
-    let hart_id_upper_bound = HartId::all()
-        .last()
-        .and_then(|hart| hart.as_usize().checked_add(1))
-        .ok_or(Error::InvalidArgs)?;
-    let (timer, ipi) = clint::bind(registers, kind, memory, hart_id_upper_bound)?;
-    Ok((Some(timer), Some(ipi)))
+    let ipi_description = ipi::DRIVERS.select(platform, None)?;
+    let ipi_summary = ipi_description.as_ref().map(device::Description::summary);
+    let ipi = match ipi_description {
+        Some(description) => Some(description.bind(memory)?),
+        None => None,
+    };
+    Ok(InterruptDevices {
+        timer,
+        ipi,
+        timer_summary,
+        ipi_summary,
+    })
 }
 
 /// Binds all devices selected during platform discovery.
 pub(crate) fn bind_devices(
-    board: &BoardInfo,
-    selected_imsic: Option<&ImsicInfo>,
+    platform: &PlatformView<'_>,
+    facts: &DeviceFacts<'_>,
     memory: &mut MemoryRegistry,
 ) -> Result<Devices> {
-    if let Some(registers) = board.devices.interrupts.thead_plic {
+    if let Some(registers) = facts.thead_plic {
         // T-Head PLIC_CTRL bit 0 delegates access to S-mode.
         let control =
             memory.acquire(registers.subrange(THEAD_PLIC_CTRL_OFFSET, size_of::<u32>())?)?;
         control.write(0, THEAD_PLIC_SUPERVISOR_ACCESS)?;
     }
-    let (timer, ipi) = bind_interrupts(board, selected_imsic, memory)?;
-    let console = console::bind(board, memory)?;
-    let reset = board
-        .devices
-        .reset
-        .bind(board.timebase_frequency_hz, memory)?;
+    let InterruptDevices {
+        timer,
+        ipi,
+        timer_summary,
+        ipi_summary,
+    } = bind_interrupts(platform, facts, memory)?;
+    let clint_summary = match (timer_summary, ipi_summary) {
+        (Some(timer), Some(ipi)) if timer.registers == ipi.registers => Some(timer),
+        _ => None,
+    };
+    let console_description =
+        console::DRIVERS.select(platform, crate::boot::stdout_node(platform))?;
+    let console_summary = console_description
+        .as_ref()
+        .map(|description| ConsoleSummary {
+            name: description.name(),
+            registers: description.registers(),
+        });
+    let console = match console_description {
+        Some(description) => Some(description.bind(memory)?),
+        None => None,
+    };
+    let reset = reset::DRIVERS
+        .bind_first_by_driver(platform, memory)?
+        .into_iter()
+        .collect();
     Ok(Devices {
         timer,
         ipi,
         console,
+        console_summary,
+        clint_summary,
         reset,
     })
 }

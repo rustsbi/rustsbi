@@ -31,7 +31,7 @@ impl Susp for SbiSuspend {
         }
 
         // Check if all harts except the current hart are stopped
-        let hart_enable_map = if let Some(hart_enable_map) = crate::platform::enabled_harts() {
+        let hart_enable_map = if let Some(hart_enable_map) = crate::services::enabled_harts() {
             hart_enable_map
         } else {
             return SbiRet::failed();

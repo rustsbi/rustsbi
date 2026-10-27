@@ -7,38 +7,47 @@
 
 #![forbid(unsafe_code)]
 
+use alloc::{boxed::Box, vec::Vec};
+use spin::Mutex;
+
 use crate::driver::{ResetDevice, ResetError, ResetReason, ResetRequest, ResetType};
 use runtime::rustsbi;
 use rustsbi::SbiRet;
 
-/// SBI system-reset extension over a selected reset device.
+/// SBI system-reset extension over the bound reset devices.
 #[derive(Default)]
 pub(crate) struct SbiReset {
-    device: ResetDevice,
+    devices: Vec<Mutex<Box<dyn ResetDevice>>>,
 }
 
 impl SbiReset {
-    pub(crate) fn new(device: ResetDevice) -> Self {
-        Self { device }
+    pub(crate) fn new(mut devices: Vec<Box<dyn ResetDevice>>) -> Self {
+        devices.sort_by_key(|device| core::cmp::Reverse(device.priority()));
+        Self {
+            devices: devices.into_iter().map(Mutex::new).collect(),
+        }
     }
 }
 
 impl rustsbi::Reset for SbiReset {
     fn _rustsbi_probe(&self) -> usize {
-        usize::from(self.device.is_available())
+        usize::from(!self.devices.is_empty())
     }
 
     fn system_reset(&self, reset_type: u32, reset_reason: u32) -> SbiRet {
         let Some(request) = parse_request(reset_type, reset_reason) else {
             return SbiRet::invalid_param();
         };
-        let Some(error) = self.device.reset(request) else {
+        if self.devices.is_empty() {
             return SbiRet::not_supported();
-        };
-        match error {
-            ResetError::InvalidRequest => SbiRet::invalid_param(),
-            ResetError::Failed => SbiRet::failed(),
         }
+        for device in &self.devices {
+            match device.lock().system_reset(request) {
+                ResetError::InvalidRequest => continue,
+                ResetError::Failed => return SbiRet::failed(),
+            }
+        }
+        SbiRet::invalid_param()
     }
 }
 

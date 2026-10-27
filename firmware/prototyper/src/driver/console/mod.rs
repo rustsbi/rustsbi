@@ -1,17 +1,16 @@
-//! Byte-oriented console backends.
+//! Byte-oriented console devices.
 //!
 //! # References
 //!
 //! - Hardware manual: [Texas Instruments TL16C550D data sheet](https://www.ti.com/lit/ds/symlink/tl16c550d.pdf),
 //!   Programmable Baud Generator — the common 16550 divisor calculation.
 
-mod axi_lite;
-mod bl808;
-mod kind;
-mod pl011;
+mod arm;
+mod bouffalo;
+mod intel;
 mod sifive;
-mod uart16550;
-mod xscale;
+mod ti;
+mod xilinx;
 
 use alloc::boxed::Box;
 use core::mem::align_of;
@@ -20,11 +19,36 @@ use runtime::{
     memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion, MmioValue},
 };
 
-use crate::platform::BoardInfo;
+use super::device;
 
-pub(crate) use kind::ConsoleKind;
+pub(crate) use super::device::Driver;
 
-/// Low-level error category for one backend slice operation.
+/// The console class.
+pub(crate) struct Console;
+
+impl device::Class for Console {
+    type Device = Box<dyn ConsoleDevice>;
+}
+
+pub(crate) type Description = device::Description<Console>;
+
+/// Boot-report metadata retained after the console description is bound.
+pub(crate) struct ConsoleSummary {
+    pub(crate) name: &'static str,
+    pub(crate) registers: DeviceRegisterRange,
+}
+
+pub(crate) static DRIVERS: device::Drivers<Console> = device::Drivers::new(&[
+    &arm::PL011,
+    &ti::UART16550_U8,
+    &ti::UART16550_U32,
+    &xilinx::AXI_UART_LITE,
+    &bouffalo::BL808_UART,
+    &sifive::UART,
+    &intel::XSCALE_UART,
+]);
+
+/// Low-level error category for one console slice operation.
 ///
 /// These are the backend errors shared by all three DBCN functions in SBI v3.0,
 /// Section 12, Tables 50-52. Lack of progress is `Ok(0)`, not an error.
@@ -35,56 +59,24 @@ pub(crate) use kind::ConsoleKind;
 /// - `write_slice` / `read_slice` operate on one concrete contiguous slice only.
 ///   They are not identical to SBI `write` / `read`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DbcnError {
+pub enum ConsoleError {
     /// Console access is not allowed; mapped to `SBI_ERR_DENIED` (-4).
     #[allow(
         dead_code,
-        reason = "current UART backends do not restrict console access"
+        reason = "current UART drivers do not restrict console access"
     )]
     Denied,
     /// Backend I/O failure; mapped to `SBI_ERR_FAILED` (-1), not `SBI_ERR_IO`.
     Failed,
 }
 
-/// A backend that can serve as the byte-oriented data path of an SBI DBCN console.
-///
-/// Important:
-/// - This trait is intentionally not named `Uart`.
-/// - This trait is also intentionally not phrased in terms of SBI calls.
-/// - It models one backend operation on one contiguous slice.
-///
-/// Relationship with SBI DBCN:
-/// - SBI `write` may translate one physical memory range into 1..N slices, then
-///   call `write_slice` repeatedly.
-/// - SBI `read` may translate one physical memory range into 1..N slices, then
-///   call `read_slice` repeatedly.
-/// - SBI `write_byte` uses `write_slice(&[byte])`, retrying `Ok(0)` to preserve
-///   the SBI call's blocking semantics.
-pub trait DbcnBackend {
-    /// Try to write bytes from one contiguous source slice.
-    ///
-    /// Returns:
-    /// - `Ok(n)` where `0 <= n <= src.len()`, meaning exactly the first `n` bytes
-    ///   of `src` are accepted by the backend;
-    /// - `Err(DbcnError::Denied)` if writes are not allowed;
-    /// - `Err(DbcnError::Failed)` on backend I/O failure.
-    ///
-    /// This is a non-blocking slice operation. It is not the SBI `write` call itself.
-    fn write_slice(&mut self, src: &[u8]) -> Result<usize, DbcnError>;
+/// A console device: the byte-oriented data path of an SBI DBCN console.
+pub trait ConsoleDevice: Send {
+    /// Tries to write one contiguous slice.
+    fn write_slice(&mut self, src: &[u8]) -> Result<usize, ConsoleError>;
 
-    /// Try to read bytes into one contiguous destination slice.
-    ///
-    /// Returns:
-    /// - `Ok(n)` where `0 <= n <= dst.len()`, meaning exactly `n` bytes are consumed
-    ///   from the backend receive queue and written into the destination slice;
-    /// - `Err(DbcnError::Denied)` if reads are not allowed;
-    /// - `Err(DbcnError::Failed)` on backend I/O failure.
-    ///
-    /// This is a non-blocking slice operation. It is not the SBI `read` call itself.
-    ///
-    /// Note: this abstraction specifies the backend state transition and the
-    /// number of bytes read. It does not model the concrete contents of `dst` yet.
-    fn read_slice(&mut self, dst: &mut [u8]) -> Result<usize, DbcnError>;
+    /// Tries to read one contiguous slice.
+    fn read_slice(&mut self, dst: &mut [u8]) -> Result<usize, ConsoleError>;
 }
 
 pub(super) const BAUD_RATE: u32 = 115_200;
@@ -112,24 +104,4 @@ fn acquire_registers<T: MmioValue>(
         return Err(Error::InvalidArgs);
     }
     memory.acquire(registers)
-}
-
-/// Binds the console selected during platform discovery.
-pub(super) fn bind(
-    board: &BoardInfo,
-    memory: &mut MemoryRegistry,
-) -> Result<Option<Box<dyn DbcnBackend + Send>>> {
-    let Some(console) = board.devices.console.as_ref() else {
-        return Ok(None);
-    };
-    let device = match console.kind {
-        ConsoleKind::Uart16550U8 => uart16550::bind_u8(console.registers, memory)?,
-        ConsoleKind::Uart16550U32 => uart16550::bind_u32(console.registers, memory)?,
-        ConsoleKind::AxiLite => axi_lite::bind(console.registers, memory)?,
-        ConsoleKind::Bl808 => bl808::bind(console.registers, memory)?,
-        ConsoleKind::SiFive => sifive::bind(console.registers, memory)?,
-        ConsoleKind::Pl011 => pl011::bind(console.registers, console.clock_hz, memory)?,
-        ConsoleKind::XScale => xscale::bind(console.registers, console.clock_hz, memory)?,
-    };
-    Ok(Some(device))
 }

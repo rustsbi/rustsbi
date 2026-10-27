@@ -18,6 +18,11 @@ pub fn install_wakeup(device: Option<&'static dyn HartWake>) {
     WAKEUP.call_once(|| device);
 }
 
+/// Returns whether a hardware hart-wakeup device was installed.
+pub fn wakeup_installed() -> bool {
+    WAKEUP.get().is_some_and(|device| device.is_some())
+}
+
 pub(super) fn wake(hart: HartId) -> Result<()> {
     if let Some(device) = WAKEUP.get().copied().flatten()
         && device.wake(hart)?
