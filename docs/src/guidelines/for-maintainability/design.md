@@ -24,10 +24,33 @@ This applies at every scale:
 
 ```rust
 // Good — each function operates at one level of abstraction
-pub fn sys_connect(sockfd: i32, addr: Vaddr, len: u32) -> Result<()> {
-    let socket = get_socket(sockfd)?;
-    let remote_addr = parse_socket_addr(addr, len)?;
-    socket.connect(remote_addr)
+/// Dispatches the current hart's saved machine trap.
+///
+/// # Safety
+///
+/// 1. Enter through `entry` with a complete, matching trap record on the Runtime stack.
+/// 2. Keep `MIE` and `MPRV` clear and `mscratch` zero on entry.
+/// 3. Every optional CSR indicated by the record must exist on this hart.
+pub(super) unsafe extern "C" fn trap_dispatch(saved: &mut SavedTrap) {
+    let frame = &mut saved.frame;
+    let info = &saved.info;
+    match CauseValue::from(info.cause).cause() {
+        TrapCause::Interrupt(interrupt) => {
+            // SAFETY: Runtime entry keeps MIE clear throughout interrupt dispatch.
+            let irq = unsafe { crate::irq::LocalIrqDisabled::assume_disabled() };
+            match interrupt {
+                Interrupt::MachineSoftware => handlers::software_interrupt(frame, &irq),
+                Interrupt::MachineTimer => {
+                    crate::boot::timer()
+                        .expect("Timer service not published")
+                        .on_interrupt(&irq);
+                }
+                Interrupt::MachineExternal => handlers::external_interrupt(frame, &irq),
+                // ...
+            }
+        }
+        // ...
+    }
 }
 
 // Bad — mixes high-level logic with low-level details

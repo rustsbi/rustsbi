@@ -4,10 +4,12 @@
 
 Asterinas prefers kebab-case for crate names, which is unspecified in official Rust API Guidelines.
 
-```rust
+```toml
 // Good
 [package]
-name = "short-vis-path"
+name = "rustsbi-csr"
+description = "Typed RISC-V CSR access for RustSBI firmware"
+version = "0.0.0"
 
 // Bad
 [package]
@@ -21,10 +23,10 @@ Acronyms are title-cased per the Rust API Guidelines:
 
 ```rust
 // Good
-IoMemoryArea
-PciDeviceLocation
-Nvme
-Tcp
+SbiRet
+IpiRequest
+PmpConfig
+HartId
 
 // Bad
 IOMemoryArea
@@ -42,16 +44,13 @@ as if it were a data object misleads readers.
 
 ```rust
 // Good — clearly a callable
-let task_fn = self.func.take().unwrap();
-let thread_fn = move || {
-    let _ = oops::catch_panics_as_oops(task_fn);
-    current_thread!().exit();
+let read_time_fn = || {
+    timer
+        .read_time_low()
+        .map(|value| value as u32)
+        .ok_or(Error::NotEnoughResources)
 };
-
-let expired_fn = move |_guard: TimerGuard| {
-    ticks.fetch_add(1, Ordering::Relaxed);
-    pollee.notify(IoEvents::IN);
-};
+let start = read_time_fn()?;
 ```
 
 See also:
@@ -94,10 +93,9 @@ list the traits **alphabetically** as well.
 
 ```rust
 // Good — non-derive attributes sorted; derive is last with sorted traits
-#[cfg(feature = "alloc")]
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Pod)]
-pub struct Foo { ... }
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct PhysAddr(usize);
 
 // Bad — arbitrary ordering
 #[derive(Debug, Default, Clone, Copy, Pod)]
@@ -134,15 +132,13 @@ and makes it easier for subsequent committers
 to maintain the suppression.
 
 ```rust
-// Good — each method is individually marked
-trait SomeTrait {
-    #[expect(dead_code)]
-    fn foo();
-
-    #[expect(dead_code)]
-    fn bar();
-
-    fn baz();
+// Good — only the single function that triggers the lint is marked, with a reason
+#[expect(
+    clippy::result_large_err,
+    reason = "fixed-size reports preserve all failures without requiring a heap allocator"
+)]
+pub(super) fn test() -> TestResult {
+    // ...
 }
 
 // Bad — the entire trait is suppressed
@@ -181,16 +177,19 @@ Its grammatical form depends on what the item is:
   (e.g., `Vec` is "A contiguous growable array type").
 
 ```rust
-/// Returns the mapping's start address.
-pub fn map_to_addr(&self) -> Vaddr {
-    self.map_to_addr
+/// Returns the underlying interrupt identity number as `u16`.
+#[inline]
+pub const fn number(self) -> u16 {
+    self.number.get()
 }
 
-/// A policy for how [`FsPath::from_fd_at`] treats an empty `path_str`.
-pub enum EmptyPathStr { /* ... */ }
-
-/// A guard that releases a [`SpinLock`] when dropped.
-pub struct SpinLockGuard<'a, T> { /* ... */ }
+/// Iterator structure for `HartMask`.
+///
+/// It will iterate hart id from low to high.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct HartIds {
+    inner: UnvisitedMask,
+}
 ```
 
 ### Do not disclose implementation details in doc comments (`no-impl-in-docs`) {#no-impl-in-docs}
@@ -201,7 +200,10 @@ not _how it is implemented internally_.
 
 ```rust
 // Good — behavior-oriented
-/// Returns the number of active connections.
+/// RISC-V AIA Interrupt Identity (IID).
+///
+/// An IID is the encoded identity used by AIA/IMSIC to refer to an interrupt.
+/// Value `0` is reserved/invalid. Valid identities are in the range `1..=N`.
 
 // Bad — leaks implementation details
 /// Returns the length of the internal `HashMap`
