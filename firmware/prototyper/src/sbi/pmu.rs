@@ -20,7 +20,6 @@ use sbi_spec::pmu::shmem_size::SIZE;
 use sbi_spec::pmu::*;
 
 use crate::riscv::csr::*;
-use crate::sbi::features::hart_mhpm_mask;
 
 use super::features::{PrivilegedVersion, hart_privileged_version};
 use super::hart_local::{hart_local, with_current};
@@ -40,6 +39,8 @@ pub struct PmuState {
     fw_counter_state: usize,
     /// Values of firmware-managed counters.
     fw_counter: [u64; PMU_FIRMWARE_COUNTER_MAX],
+    /// Advertised hardware counters, one bit per CSR offset.
+    mhpm_mask: u32,
     hw_counters_num: usize,
     total_counters_num: usize,
 }
@@ -49,10 +50,11 @@ impl PmuState {
     pub fn new(mhpm_mask: u32) -> Self {
         // SBI PMU logical indices follow the CSR numbering: index N selects the
         // counter at CSR offset N (`cycle` is 0, `time` is 1, `instret` is 2,
-        // `mhpmcounterN` otherwise). Firmware counters start after the highest
-        // advertised hardware index, so a hole in the hardware range never
-        // collides with a firmware counter index.
-        let hw_counters_num = 32 - mhpm_mask.leading_zeros() as usize;
+        // `mhpmcounterN` otherwise). The hardware index range covers the fixed
+        // indices 0..=2 even when their counters are not advertised, so
+        // firmware counters start at or after index 3 and never collide with
+        // them; a hole in the hardware range likewise never collides.
+        let hw_counters_num = (32 - mhpm_mask.leading_zeros() as usize).max(3);
         let total_counters_num = hw_counters_num + PMU_FIRMWARE_COUNTER_MAX;
 
         let mut active_event =
@@ -65,6 +67,7 @@ impl PmuState {
             active_event,
             fw_counter_state: 0,
             fw_counter: [0; PMU_FIRMWARE_COUNTER_MAX],
+            mhpm_mask,
             hw_counters_num,
             total_counters_num,
         }
@@ -74,7 +77,9 @@ impl PmuState {
     ///
     /// Hardware counter indices are CSR offsets, so this boundary is one past
     /// the highest implemented CSR offset rather than the count of implemented
-    /// counters; indices inside the range whose feature bit is clear are holes.
+    /// counters, and never below 3 so the fixed indices 0..=2 stay on the
+    /// hardware side; indices inside the range whose feature bit is clear are
+    /// holes.
     #[inline(always)]
     pub fn get_hw_counter_num(&self) -> usize {
         self.hw_counters_num
@@ -84,6 +89,25 @@ impl PmuState {
     #[inline(always)]
     pub fn get_total_counters_num(&self) -> usize {
         self.total_counters_num
+    }
+
+    /// Returns the CSR offset of a hardware counter selected by its logical index.
+    ///
+    /// SBI PMU logical indices follow the CSR numbering, matching OpenSBI and
+    /// the device-tree `riscv,event-to-mhpmcounters` bitmap: index N selects
+    /// the counter at CSR offset N relative to `mcycle`. Returns `None` for
+    /// indices outside the 32-counter hardware range or whose feature bit is
+    /// clear in this hart's advertised counter mask.
+    #[inline]
+    fn hw_counter_offset(&self, counter_idx: usize) -> Option<u16> {
+        if counter_idx >= PMU_HARDWARE_COUNTER_MAX {
+            return None;
+        }
+        if (self.mhpm_mask >> counter_idx) & 1 == 1 {
+            Some(counter_idx as u16)
+        } else {
+            None
+        }
     }
 
     /// Gets the event index associated with a counter.
@@ -223,21 +247,24 @@ impl Pmu for SbiPmu {
         let hart_id = HartId::current()
             .expect("BUG: current hart exceeds Runtime capacity")
             .as_usize();
-        let hw_counters_num =
-            hart_local(hart_id).with_pmu(|pmu_state| pmu_state.get_hw_counter_num());
-        if counter_idx < hw_counters_num {
+        hart_local(hart_id).with_pmu(|pmu_state| {
             // `time` cannot be discovered, started or stopped through the PMU
-            // extension, and an index whose feature bit is clear names an
-            // unimplemented counter.
-            if counter_idx == 1 || hw_counter_offset(counter_idx).is_none() {
+            // extension, whatever the hardware/firmware index boundary is.
+            if counter_idx == 1 {
                 return SbiRet::invalid_param();
             }
-            return SbiRet::success(
-                CounterInfo::with_hardware_info(CSR_CYCLE + counter_idx as u16, 63).inner(),
-            );
-        }
+            if counter_idx < pmu_state.get_hw_counter_num() {
+                // An index whose feature bit is clear names an unimplemented counter.
+                if pmu_state.hw_counter_offset(counter_idx).is_none() {
+                    return SbiRet::invalid_param();
+                }
+                return SbiRet::success(
+                    CounterInfo::with_hardware_info(CSR_CYCLE + counter_idx as u16, 63).inner(),
+                );
+            }
 
-        SbiRet::success(CounterInfo::with_firmware_info().inner())
+            SbiRet::success(CounterInfo::with_firmware_info().inner())
+        })
     }
 
     /// Finds and configures a matching counter (SBI PMU function 2).
@@ -364,7 +391,7 @@ impl Pmu for SbiPmu {
                     let start_result = if counter_idx >= pmu_state.get_hw_counter_num() {
                         pmu_state.start_fw_counter(counter_idx, initial_value, is_update_value)
                     } else {
-                        match hw_counter_offset(counter_idx) {
+                        match pmu_state.hw_counter_offset(counter_idx) {
                             Some(mhpm_offset) => {
                                 start_hardware_counter(mhpm_offset, initial_value, is_update_value)
                             }
@@ -426,7 +453,7 @@ impl Pmu for SbiPmu {
                     let stop_result = if counter_idx >= pmu_state.get_hw_counter_num() {
                         pmu_state.stop_fw_counter(counter_idx, is_reset)
                     } else {
-                        let mhpm_offset = match hw_counter_offset(counter_idx) {
+                        let mhpm_offset = match pmu_state.hw_counter_offset(counter_idx) {
                             Some(offset) => offset,
                             None => return SbiRet::invalid_param(),
                         };
@@ -550,7 +577,7 @@ impl SbiPmu {
         // the device tree provides no programmable-counter mapping.
         let fixed_counter = CounterMask::new(counter_idx_base, counter_idx_mask).find(|&idx| {
             matches!(
-                (event_idx, hw_counter_offset(idx)),
+                (event_idx, pmu_state.hw_counter_offset(idx)),
                 (hardware_event::CPU_CYCLES, Some(0)) | (hardware_event::INSTRUCTIONS, Some(2))
             )
         });
@@ -581,11 +608,10 @@ impl SbiPmu {
             }
         }
         // mcycle, time, minstret cannot be used for other events.
+        let can_use_counter_mask = hw_counters_mask & pmu_state.mhpm_mask;
         let hart_id = HartId::current()
             .expect("BUG: current hart exceeds Runtime capacity")
             .as_usize();
-        let mhpm_mask = hart_mhpm_mask(hart_id);
-        let can_use_counter_mask = hw_counters_mask & mhpm_mask;
 
         // Find a counter that meets the conditions from a set of counters
         for counter_idx in CounterMask::new(counter_idx_base, counter_idx_mask) {
@@ -595,7 +621,7 @@ impl SbiPmu {
 
             // If the counter idx corresponding to the hardware counter index cannot be used by the event,
             // or has already been used, skip this counter idx
-            let mhpm_offset = match hw_counter_offset(counter_idx) {
+            let mhpm_offset = match pmu_state.hw_counter_offset(counter_idx) {
                 Some(offset) => offset,
                 None => continue,
             };
@@ -737,7 +763,7 @@ fn configure_counter(
             pmu_state.fw_counter_state |= 1 << firmware_event_idx;
         }
     } else {
-        let mhpm_offset = match hw_counter_offset(counter_idx) {
+        let mhpm_offset = match pmu_state.hw_counter_offset(counter_idx) {
             Some(offset) => offset,
             None => return Err(SbiRet::invalid_param()),
         };
@@ -749,27 +775,6 @@ fn configure_counter(
         }
     }
     Ok(())
-}
-
-/// Returns the CSR offset of a hardware counter selected by its logical index.
-///
-/// SBI PMU logical indices follow the CSR numbering, matching OpenSBI and the
-/// device-tree `riscv,event-to-mhpmcounters` bitmap: index N selects the
-/// counter at CSR offset N relative to `mcycle`. Returns `None` for indices
-/// outside the 32-counter hardware range or whose feature bit is clear.
-fn hw_counter_offset(counter_idx: usize) -> Option<u16> {
-    if counter_idx >= 32 {
-        return None;
-    }
-    let hart_id = HartId::current()
-        .expect("BUG: current hart exceeds Runtime capacity")
-        .as_usize();
-    let mhpm_mask = hart_mhpm_mask(hart_id);
-    if (mhpm_mask >> counter_idx) & 1 == 1 {
-        Some(counter_idx as u16)
-    } else {
-        None
-    }
 }
 
 /// Failure to start a performance counter.
