@@ -7,6 +7,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use runtime::{
     Result, SpacemitK1Registers,
+    hart::HartId,
     memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange},
     soc::allwinner::v861::AllwinnerV861Soc,
 };
@@ -15,6 +16,63 @@ use riscv_aia::Iid;
 
 use crate::devicetree::{NodeSelection, select_from_node_once};
 use crate::driver;
+
+/// Per-hart register indexing assigned by one ACLINT device.
+///
+/// The ACLINT specification gives each connected hart a device-local index
+/// starting at zero. That index need not equal the hardware hart ID, so it is
+/// stored by Runtime's compact hart index and translated only when accessing
+/// the device.
+#[derive(Clone)]
+pub(crate) struct HartIndexMap {
+    slots: Vec<Option<u32>>,
+    hart_count: usize,
+}
+
+impl HartIndexMap {
+    pub(crate) fn with_harts(hart_count: usize) -> Self {
+        Self {
+            slots: alloc::vec![None; HartId::count()],
+            hart_count,
+        }
+    }
+
+    pub(crate) fn insert(&mut self, hart: HartId, index: u32) -> bool {
+        let Some(slot) = self.slots.get_mut(hart.index()) else {
+            return false;
+        };
+        if slot.is_some() {
+            return false;
+        }
+        *slot = Some(index);
+        true
+    }
+
+    pub(crate) fn get(&self, hart: HartId) -> Option<u32> {
+        self.slots.get(hart.index()).copied().flatten()
+    }
+
+    pub(crate) fn covers_all_enabled(&self) -> bool {
+        HartId::all().all(|hart| self.get(hart).is_some())
+    }
+
+    pub(crate) const fn count(&self) -> usize {
+        self.hart_count
+    }
+}
+
+/// An ACLINT machine-level software interrupt device.
+pub(crate) struct AclintMswi {
+    pub(crate) registers: DeviceRegisterRange,
+    pub(crate) hart_indices: HartIndexMap,
+}
+
+/// An ACLINT machine-level timer device.
+pub(crate) struct AclintMtimer {
+    pub(crate) compare: DeviceRegisterRange,
+    pub(crate) time: Option<DeviceRegisterRange>,
+    pub(crate) hart_indices: HartIndexMap,
+}
 
 /// Address layout of the machine-level IMSIC interrupt files.
 pub(crate) struct ImsicAddressLayout {
@@ -126,6 +184,8 @@ pub(crate) struct InterruptDescriptions {
     pub(crate) thead_plic: Option<DeviceRegisterRange>,
     pub(crate) plmt: Option<DeviceRegisterRange>,
     pub(crate) plicsw: Option<DeviceRegisterRange>,
+    pub(crate) aclint_mswi: Option<AclintMswi>,
+    pub(crate) aclint_mtimer: Option<AclintMtimer>,
 }
 
 impl InterruptDescriptions {
@@ -139,6 +199,14 @@ impl InterruptDescriptions {
 
     pub(crate) fn machine_aplic(&self) -> Option<&NodeSelection<DeviceRegisterRange>> {
         self.machine_aplic.as_ref()
+    }
+
+    pub(crate) fn aclint_mswi(&self) -> Option<&AclintMswi> {
+        self.aclint_mswi.as_ref()
+    }
+
+    pub(crate) fn aclint_mtimer(&self) -> Option<&AclintMtimer> {
+        self.aclint_mtimer.as_ref()
     }
 
     pub(crate) fn set_clint(&mut self, value: ClintResource, source_path: &[&str]) -> Result<()> {
@@ -187,6 +255,8 @@ impl InterruptDescriptions {
             thead_plic: None,
             plmt: None,
             plicsw: None,
+            aclint_mswi: None,
+            aclint_mtimer: None,
         }
     }
 }

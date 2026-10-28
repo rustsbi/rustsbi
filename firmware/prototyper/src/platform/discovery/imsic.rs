@@ -13,15 +13,15 @@ use runtime::{
     Error, FdtNode, Result,
     hart::HartId,
     memory::{DeviceRegisterRange, PhysAddrRange},
-    node_is_enabled,
 };
 
 use riscv_aia::Iid;
 
-use crate::devicetree::u32_property;
+use crate::devicetree::{u32_cells, u32_property};
 use crate::driver;
 
 use super::super::info::{ImsicAddressLayout, ImsicInfo};
+use super::cpu_intc::CpuInterruptController;
 
 const MACHINE_EXTERNAL_INTERRUPT_ID: u32 = 11;
 const MIN_INTERRUPT_IDENTITIES: u32 = 63;
@@ -33,31 +33,9 @@ const MAX_GROUP_INDEX_SHIFT: u32 = 55;
 const DEFAULT_GROUP_INDEX_SHIFT: u32 = 24;
 const FIRMWARE_IPI_IDENTITY: u16 = 1;
 
-#[derive(Clone, Copy)]
-pub(super) struct CpuInterruptController {
-    phandle: u32,
-    hart_id: usize,
-}
-
 struct MachineInterruptFile {
     hart_id: usize,
     file_index: u32,
-}
-
-/// Associates CPU interrupt wiring with its parent, including disabled harts.
-pub(super) fn cpu_interrupt_controller(
-    node: FdtNode<'_, '_>,
-    hart_id: usize,
-) -> Option<CpuInterruptController> {
-    if node.name.split('@').next() != Some("interrupt-controller")
-        || !is_cpu_interrupt_controller(node)
-    {
-        return None;
-    }
-    Some(CpuInterruptController {
-        phandle: phandle(node)?,
-        hart_id,
-    })
 }
 
 pub(super) fn discover(
@@ -133,19 +111,6 @@ pub(super) fn discover(
     }))
 }
 
-fn is_cpu_interrupt_controller(node: FdtNode<'_, '_>) -> bool {
-    node_is_enabled(node)
-        && node.compatible().is_some_and(|compatibles| {
-            compatibles
-                .all()
-                .any(|device_id| device_id == "riscv,cpu-intc")
-        })
-}
-
-fn phandle(node: FdtNode<'_, '_>) -> Option<u32> {
-    u32_property(node, "phandle").or_else(|| u32_property(node, "linux,phandle"))
-}
-
 fn interrupt_identity_count(node: FdtNode<'_, '_>) -> Result<u16> {
     let num_ids = u32_property(node, "riscv,num-ids").ok_or(Error::InvalidArgs)?;
     if !(MIN_INTERRUPT_IDENTITIES..=MAX_INTERRUPT_IDENTITIES).contains(&num_ids) {
@@ -169,14 +134,17 @@ fn machine_interrupt_files(
         }
         let controller = controllers
             .iter()
-            .find(|controller| controller.phandle == phandle)
+            .find(|controller| controller.phandle() == phandle)
             .ok_or(Error::InvalidArgs)?;
-        if HartId::from_raw(controller.hart_id).is_err() {
+        if HartId::from_raw(controller.hart_id()).is_err() {
             continue;
+        }
+        if !controller.enabled() {
+            return Err(Error::InvalidArgs);
         }
         let file_index = u32::try_from(file_index).map_err(|_| Error::InvalidArgs)?;
         machine_files.push(MachineInterruptFile {
-            hart_id: controller.hart_id,
+            hart_id: controller.hart_id(),
             file_index,
         });
     }
@@ -184,16 +152,6 @@ fn machine_interrupt_files(
         return Err(Error::InvalidArgs);
     }
     Ok(machine_files)
-}
-
-fn u32_cells(node: FdtNode<'_, '_>, name: &str) -> Option<Vec<u32>> {
-    let bytes = node.property(name)?.value;
-    let mut cells = Vec::new();
-    let mut chunks = bytes.chunks_exact(size_of::<u32>());
-    for chunk in &mut chunks {
-        cells.push(u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
-    }
-    chunks.remainder().is_empty().then_some(cells)
 }
 
 fn validate_topology(
