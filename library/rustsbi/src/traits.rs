@@ -435,13 +435,13 @@ pub fn _rustsbi_dbtr<T: crate::Dbtr>(dbtr: &T, param: [usize; 6], function: usiz
         spec::dbtr::INSTALL_TRIGGERS => dbtr.install_triggers(param0),
         spec::dbtr::UPDATE_TRIGGERS => dbtr.update_triggers(param0),
         spec::dbtr::UNINSTALL_TRIGGERS => {
-            dbtr.uninstall_triggers(TriggerMask::from_mask_base(param0, param1))
+            dbtr.uninstall_triggers(TriggerMask::from_mask_base(param1, param0))
         }
         spec::dbtr::ENABLE_TRIGGERS => {
-            dbtr.enable_triggers(TriggerMask::from_mask_base(param0, param1))
+            dbtr.enable_triggers(TriggerMask::from_mask_base(param1, param0))
         }
         spec::dbtr::DISABLE_TRIGGERS => {
-            dbtr.disable_triggers(TriggerMask::from_mask_base(param0, param1))
+            dbtr.disable_triggers(TriggerMask::from_mask_base(param1, param0))
         }
         _ => SbiRet::not_supported(),
     }
