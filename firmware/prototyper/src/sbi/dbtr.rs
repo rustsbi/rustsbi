@@ -70,8 +70,17 @@ impl Dbtr for SbiDbtr {
             return SbiRet::not_supported();
         }
 
-        if !start.is_aligned_to(align_of::<usize>()) || address_high != 0 {
+        // The DBTR shared-memory base address is passed as two XLEN halves and
+        // may be wider than XLEN bits. The alignment is decided by the lower
+        // XLEN bits, which `start` holds.
+        if !start.is_aligned_to(align_of::<usize>()) {
             return SbiRet::invalid_param();
+        }
+        // An address above the native physical-address space cannot compose a
+        // registered supervisor-memory range, so it is inaccessible rather
+        // than an invalid parameter.
+        if address_high != 0 {
+            return SbiRet::invalid_address();
         }
 
         let Some(shared_memory_size) = trigger_count.checked_mul(4 * size_of::<usize>()) else {
