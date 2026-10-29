@@ -6,16 +6,14 @@ Each guideline is anchored by a stable `short-name`
 so that reviewers and review tools can cite it.
 
 The guidelines are organized by **persona**:
-five durable engineering roles,
+three durable engineering roles,
 each with its own checklist.
 A guideline belongs to the persona that is the natural owner of the failure it prevents.
 
 | Persona | Focus | Guidelines |
 |---|---|---|
 | Project maintainer | Is the code well-shaped and understandable? | [For Maintainability](for-maintainability/README.md) |
-| Kernel developer | Is it correct and efficient? | [For Development](for-development/README.md) |
-| Security expert | Is it safe and secure? | [For Security](for-security/README.md) |
-| Hardware expert | Is it correct against the hardware contract? | [For Hardware](for-hardware/README.md) |
+| Kernel developer | Is it correct, efficient, and consistent with the memory-safety and hardware contracts? | [For Development](for-development/README.md) |
 | Documentation writer | Are the user-facing docs well-written? | [For Documentation](for-documentation/README.md) |
 
 ## Sources and Status
