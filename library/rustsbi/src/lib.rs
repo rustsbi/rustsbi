@@ -1150,7 +1150,7 @@ pub use console::Console;
 pub use cppc::Cppc;
 pub use dbtr::Dbtr;
 pub use extension::{Extension, VendorSBI};
-pub use fwft::Fwft;
+pub use fwft::{Configuration, Feature, Fwft, Lock};
 pub use hsm::Hsm;
 pub use ipi::Ipi;
 pub use mpxy::Mpxy;

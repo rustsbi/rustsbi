@@ -1,17 +1,18 @@
 //! Initialization and scoped current-hart hardware access.
 
-use super::{Feature, Features, Fwft, State, Value};
+use super::{FWFEATURES, Feature, Features, FwFeatures, State, Value};
 use crate::{Error, Result, hart::Hart, irq};
 use csr::machine;
 use spin::Mutex;
 
-impl Fwft {
+impl FwFeatures {
     /// Initializes hardware defaults once during initial hart configuration.
-    pub(crate) fn init_current(&self, hart: &Hart) -> Result<()> {
-        if self.local.try_get_current().is_some() {
+    pub(crate) fn init_current(hart: &Hart) -> Result<()> {
+        if FWFEATURES.local.try_get_current().is_some() {
             return Err(Error::AlreadyInitialized);
         }
-        self.local
+        FWFEATURES
+            .local
             .try_init_current(Mutex::new(State::initialize(hart)?))?;
         Ok(())
     }
@@ -21,11 +22,8 @@ impl Fwft {
     /// and `Busy` on recursive access.
     /// The view cannot escape or move to another hart.
     /// The closure must not wait for local IRQs or locks held by an interrupted caller.
-    pub fn with_current<T>(
-        &self,
-        operation: impl FnOnce(&mut Features<'_>) -> Result<T>,
-    ) -> Result<T> {
-        let state = self.local.try_get_current().ok_or(Error::NotReady)?;
+    pub fn with_current<T>(operation: impl FnOnce(&mut Features<'_>) -> Result<T>) -> Result<T> {
+        let state = FWFEATURES.local.try_get_current().ok_or(Error::NotReady)?;
         if !crate::boot::traps_ready() || usize::from(machine::Scratch::read()) != 0 {
             return Err(Error::NotReady);
         }
@@ -39,8 +37,8 @@ impl Fwft {
     }
 
     /// Restores committed hardware values before handing off a fresh context.
-    pub(crate) fn restore_current(&self) -> Result<()> {
-        self.with_current(|features| features.state.restore())
+    pub(crate) fn restore_current() -> Result<()> {
+        Self::with_current(|features| features.state.restore())
     }
 }
 

@@ -151,9 +151,7 @@ pub(crate) fn configure_next_stage(hart: &Hart) -> Result<()> {
             {
                 machine::CounterEnable::write(CounterSet::all());
             }
-            if let Some(fwft) = super::fwft() {
-                fwft.init_current(hart)?;
-            }
+            crate::fwfeatures::FwFeatures::init_current(hart)?;
         }
         *phase = SetupPhase::Configured;
         Ok(())
@@ -207,10 +205,8 @@ pub(crate) unsafe fn prepare_supervisor() {
             supervisor::AddressTranslation::write(supervisor::AddressSpace::bare());
         }
     }
-    if let Some(fwft) = super::fwft() {
-        fwft.restore_current()
-            .expect("could not restore committed firmware features before handoff");
-    }
+    crate::fwfeatures::FwFeatures::restore_current()
+        .expect("could not restore committed firmware features before handoff");
     // SAFETY: This function's caller keeps MIE clear throughout the handoff.
     let irq = unsafe { crate::irq::LocalIrqDisabled::assume_disabled() };
     super::ipi()

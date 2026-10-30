@@ -2050,92 +2050,46 @@ fn hart_mask(&self) -> SbiRet;
 
 ### FWFT 固件特性扩展
 
-固件特性扩展允许特权态（S 态）系统软件查询和配置特定的硬件能力或 SBI 实现功能。每项特性由一个 32 位编号标识，并具有规定的取值范围和作用域。局部特性作用于当前 hart，全局特性作用于整个系统。
+固件特性扩展允许 S 态软件查询和配置硬件能力或 SBI 实现功能。每项特性有一个 32 位编号；局部特性作用于当前 hart，全局特性作用于整个系统。
 
-本扩展的特型描述如下。
+`Fwft` 使用 `sbi_spec::fwft` 中的类型。RustSBI 在调用实现前检查特性编号、标准布尔值和锁定标志，并将返回的错误转换为 SBI 返回码。
 
 ```rust
+use rustsbi::{Configuration, Feature, Lock};
+use rustsbi::spec::binary::Error;
+
 pub trait Fwft {
-    // Required methods
-    fn set(&self, feature_id: u32, value: usize, flags: usize) -> SbiRet;
-    fn get(&self, feature_id: u32) -> SbiRet;
+    fn set(&self, configuration: Configuration, lock: Lock) -> Result<(), Error>;
+    fn get(&self, feature: Feature) -> Result<Configuration, Error>;
 }
 ```
 
-标准特性编号由 `sbi_spec::fwft::feature_type` 模块提供。以下特性均为局部特性。
+标准特性由 `Feature::Standard(FeatureType)` 表示，平台专用特性由 `Feature::PlatformSpecific(u32)` 表示。标准特性均为局部特性：
 
-| 常量 | 值 | 说明 |
+| `FeatureType` | 编号 | 说明 |
 |:----|:---|:-----|
-| `MISALIGNED_EXC_DELEG` | 0 | 控制是否将非对齐访问异常委托给 S 态；0 为禁用，1 为启用 |
-| `LANDING_PAD` | 1 | 控制 S 态的着陆垫支持；0 为禁用，1 为启用 |
-| `SHADOW_STACK` | 2 | 控制 S 态的影子栈支持；0 为禁用，1 为启用 |
-| `DOUBLE_TRAP` | 3 | 控制双重陷阱支持；0 为禁用，1 为启用 |
-| `PTE_AD_HW_UPDATING` | 4 | 控制硬件是否更新 S 态页表项的 A/D 位；0 为禁用，1 为启用 |
-| `POINTER_MASKING_PMLEN` | 5 | 配置 S 态的指针屏蔽长度；0 为禁用，非零值指定受支持的 PMLEN |
+| `MisalignedExcDeleg` | 0 | 控制非对齐访问异常委托 |
+| `LandingPad` | 1 | 控制 S 态着陆垫支持 |
+| `ShadowStack` | 2 | 控制 S 态影子栈支持 |
+| `DoubleTrap` | 3 | 控制双重陷阱支持 |
+| `PteAdHwUpdating` | 4 | 控制硬件更新页表项 A/D 位 |
+| `PointerMaskingPmlen` | 5 | 配置 S 态指针屏蔽长度 |
 
-> 这些常量的类型为 `usize`，传给 `feature_id` 时应转换为 `u32`。特性编号的定义不代表平台一定实现对应功能。
-
-非保留型挂起期间，SBI 实现保存特性配置，并在恢复时还原。hart 重置使局部特性恢复默认值，系统重置使全局和局部特性均恢复默认值。
-
-FWFT 扩展具有以下的函数。
+特性编号的定义不代表平台一定实现该功能。非保留型挂起期间，SBI 实现保存特性配置，并在恢复时还原。hart 重置使局部特性恢复默认值，系统重置使全局和局部特性均恢复默认值。
 
 #### 设置固件特性
 
-```rust
-fn set(&self, feature_id: u32, value: usize, flags: usize) -> SbiRet;
-```
+`set` 的 `configuration` 包含特性和配置值，`lock` 指定是否在成功设置后锁定该特性。设置当前值应成功，即使特性已经锁定；锁定后尝试修改值应返回 `Error::DeniedLocked`。失败时原有配置值保持不变。
 
-根据 `value` 和 `flags` 设置指定的固件特性。将特性设置为其当前值也属于成功操作；设置失败时，原有配置值保持不变。
+`Lock::Lock` 请求锁定，`Lock::Unchanged` 保持已有锁定状态。局部特性的锁定持续到对应 hart 重置，全局特性的锁定持续到系统重置。标准布尔特性的值只接受 0 和 1；指针屏蔽长度是否受支持由实现检查。
 
-`flags` 的第 0 位为 `LOCK`，表示设置后锁定该特性的值。对于局部特性，锁定持续到对应 hart 重置；对于全局特性，锁定持续到系统重置。其它位均为保留位，必须为 0。
-
-> 可使用 `sbi_spec::fwft::flags::SetFlags::LOCK.bits()` 构造锁定标志。锁定会限制后续配置修改，固件实现应区分一般的访问拒绝与配置已锁定两种情况。
-
-本函数通过 `SbiRet::error` 报告结果，成功时建议返回 `SbiRet::success(0)`。
-
-函数传入 3 个参数：
-
-| 参数 | 说明 |
-|:----|:-----|
-| `feature_id` | 需要设置的固件特性编号 |
-| `value` | 新的配置值，必须满足该特性的取值要求 |
-| `flags` | 设置标志；0 表示普通设置，第 0 位为 1 表示设置后锁定 |
-
-函数可能返回以下内容或错误：
-
-| 返回值 | 说明 |
-|:----|:-----|
-| `SbiRet::success` | 特性设置成功 |
-| `SbiRet::not_supported` | 特性编号有效，但平台缺少所需的硬件或 SBI 实现支持 |
-| `SbiRet::invalid_param` | `value` 或 `flags` 无效 |
-| `SbiRet::denied` | SBI 实现拒绝设置，或特性编号为保留值、未实现的平台自定义值 |
-| `SbiRet::denied_locked` | 特性已锁定，禁止修改 |
-| `SbiRet::failed` | 设置过程中发生了未指定的错误 |
+返回 `Ok(())` 表示设置成功。实现可返回 `Error::NotSupported`、`Error::InvalidParam`、`Error::Denied`、`Error::DeniedLocked` 或 `Error::Failed`，分别表示不支持、参数无效、拒绝访问、配置锁定或其他失败。
 
 #### 获取固件特性
 
-```rust
-fn get(&self, feature_id: u32) -> SbiRet;
-```
+`get` 返回指定特性的 `Configuration`。返回的配置必须对应传入的特性；RustSBI 会拒绝不匹配的结果。配置不包含 `LOCK` 标志；配置值 0 的含义由特性定义。
 
-获取指定固件特性的配置值。成功时，`SbiRet::value` 为当前配置值；失败时，`SbiRet::value` 为 0。
-
-> `get` 返回配置值，不返回设置时使用的 `LOCK` 标志。配置值 0 的含义由特性定义，不能仅凭 `value` 是否为 0 判断调用是否成功。
-
-函数传入 1 个参数：
-
-| 参数 | 说明 |
-|:----|:-----|
-| `feature_id` | 需要查询的固件特性编号 |
-
-函数可能返回以下内容或错误：
-
-| 返回值 | 说明 |
-|:----|:-----|
-| `SbiRet::success` | 查询成功，返回特性的当前配置值 |
-| `SbiRet::not_supported` | 特性编号有效，但平台缺少所需的硬件或 SBI 实现支持 |
-| `SbiRet::denied` | 特性编号为保留值，或对应的平台自定义特性未实现 |
-| `SbiRet::failed` | 查询过程中发生了未指定的错误 |
+查询失败时可返回 `Error::NotSupported`、`Error::Denied` 或 `Error::Failed`。
 
 ### DBTR 调试触发器扩展
 

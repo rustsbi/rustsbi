@@ -387,8 +387,8 @@ mod tests {
     fn test_fwft() {
         use crate::fwft::*;
         const_assert_eq!(0x46574654, EID_FWFT);
-        const_assert_eq!(0, SET);
-        const_assert_eq!(1, GET);
+        const_assert_eq!(0, Fid::Set as usize);
+        const_assert_eq!(1, Fid::Get as usize);
     }
     // §19
     #[test]

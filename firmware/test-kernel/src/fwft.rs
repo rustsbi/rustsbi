@@ -6,12 +6,12 @@ use core::{
 };
 use sbi_spec::{
     binary::{HartMask, SbiRet},
-    fwft::feature_type,
+    fwft::FeatureType,
     hsm::hart_state,
 };
 use sbi_testing::sbi;
 
-const MISALIGNED: u32 = feature_type::MISALIGNED_EXC_DELEG as u32;
+const MISALIGNED: u32 = FeatureType::MisalignedExcDeleg.id();
 static PHASE: AtomicUsize = AtomicUsize::new(0);
 static RESUME_COUNTER: AtomicUsize = AtomicUsize::new(usize::MAX);
 
@@ -37,6 +37,11 @@ pub(crate) fn test(hart: usize, smp: usize, frequency: u64) {
             continue;
         }
         assert!(previous.is_ok(), "FWFT get {feature}: {previous:?}");
+        if feature == FeatureType::PteAdHwUpdating.id() {
+            // SBI v3 requires a zero reset value even though Svadu-only harts
+            // keep ADUE enabled and report this feature as not supported.
+            assert_eq!(previous, SbiRet::success(0), "FWFT PTE A/D reset must be 0");
+        }
         assert_eq!(
             sbi::fwft_set(feature, previous.value, 0),
             SbiRet::success(0)
@@ -50,7 +55,7 @@ pub(crate) fn test(hart: usize, smp: usize, frequency: u64) {
             SbiRet::invalid_param()
         );
         assert_eq!(sbi::fwft_get(feature), previous);
-        if feature == feature_type::POINTER_MASKING_PMLEN as u32 {
+        if feature == FeatureType::PointerMaskingPmlen.id() {
             for length in [0, 7, 16] {
                 let result = sbi::fwft_set(feature, length, 0);
                 if result.is_ok() {
@@ -67,7 +72,7 @@ pub(crate) fn test(hart: usize, smp: usize, frequency: u64) {
             println!("[fwft] pointer masking lengths pass");
         }
         // These transitions do not require a CFI-enabled test kernel.
-        if feature == MISALIGNED || feature == feature_type::PTE_AD_HW_UPDATING as u32 {
+        if feature == MISALIGNED || feature == FeatureType::PteAdHwUpdating.id() {
             assert_eq!(
                 sbi::fwft_set(feature, previous.value ^ 1, 0),
                 SbiRet::success(0)
@@ -77,7 +82,7 @@ pub(crate) fn test(hart: usize, smp: usize, frequency: u64) {
                 sbi::fwft_set(feature, previous.value, 0),
                 SbiRet::success(0)
             );
-            if feature == feature_type::PTE_AD_HW_UPDATING as u32 {
+            if feature == FeatureType::PteAdHwUpdating.id() {
                 println!("[fwft] PTE A/D switching pass");
             }
         }
@@ -120,6 +125,14 @@ pub(crate) fn test(hart: usize, smp: usize, frequency: u64) {
         SbiRet::success(0)
     );
     assert_eq!(sbi::fwft_get(MISALIGNED), previous);
+    assert_eq!(
+        sbi::fwft_set(MISALIGNED, previous.value, 0),
+        SbiRet::success(0)
+    );
+    assert_eq!(
+        sbi::fwft_set(MISALIGNED, previous.value, 1),
+        SbiRet::success(0)
+    );
     assert_eq!(
         sbi::fwft_set(MISALIGNED, previous.value ^ 1, 0),
         SbiRet::denied_locked()
@@ -196,5 +209,7 @@ extern "C" fn worker(_hart: usize, phase: usize) -> ! {
 
 fn check_retained_lock() {
     assert_eq!(sbi::fwft_get(MISALIGNED), SbiRet::success(1));
+    assert_eq!(sbi::fwft_set(MISALIGNED, 1, 0), SbiRet::success(0));
+    assert_eq!(sbi::fwft_set(MISALIGNED, 1, 1), SbiRet::success(0));
     assert_eq!(sbi::fwft_set(MISALIGNED, 0, 0), SbiRet::denied_locked());
 }

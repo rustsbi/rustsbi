@@ -2,110 +2,143 @@
 
 #![forbid(unsafe_code)]
 
+use core::sync::atomic::{AtomicBool, Ordering};
 use runtime::{
     Error, Result,
-    fwft::{Feature, Fwft, PointerMasking, Value},
+    fwfeatures::{
+        Feature as HardwareFeature, FeatureState as HardwareFeatureState, Features, FwFeatures,
+        PointerMasking, Value,
+    },
     hart::{HartId, HartLocal},
-    rustsbi::{self, SbiRet},
+    rustsbi::spec::binary::Error as SbiError,
+    rustsbi::{self, Configuration, Feature, Lock, spec::fwft::FeatureType},
 };
-use rustsbi::spec::fwft::{feature_type, flags::SetFlags};
-use spin::Mutex;
+
+/// Number of hardware features exposed through FWFT.
+const HARDWARE_FEATURE_COUNT: usize = 6;
 
 /// SBI Firmware Features extension.
-pub(crate) struct SbiFwft {
-    fwft: Fwft,
-    locks: HartLocal<Mutex<[bool; Feature::COUNT]>>,
+pub struct SbiFwft {
+    locked_features: HartLocal<FeatureLocks>,
 }
 
 impl SbiFwft {
-    pub(crate) fn new(fwft: Fwft) -> Result<Self> {
-        let locks = HartLocal::new();
-        locks.init_all(|_| Mutex::new([false; Feature::COUNT]))?;
-        Ok(Self { fwft, locks })
+    pub fn new() -> Result<Self> {
+        let locked_features = HartLocal::new();
+        locked_features.init_all(|_| FeatureLocks::new())?;
+        Ok(Self { locked_features })
     }
-    pub(crate) fn fwft(&self) -> &Fwft {
-        &self.fwft
+
+    fn apply(
+        &self,
+        features: &mut Features<'_>,
+        feature: HardwareFeature,
+        value: Value,
+        lock: Lock,
+    ) -> Result<()> {
+        let locks = self.locked_features.get(HartId::current()?)?;
+        if locks.is_locked(feature) && features.get(feature)? != value {
+            return Err(Error::Locked);
+        }
+        features.set(feature, value)?;
+        if lock == Lock::Lock {
+            locks.lock(feature);
+        }
+        Ok(())
     }
 }
 
 impl rustsbi::Fwft for SbiFwft {
-    fn set(&self, feature_id: u32, value: usize, flags: usize) -> SbiRet {
-        let result: Result<usize> = (|| {
-            let feature = Feature::try_from(FeatureId(feature_id))?;
-            let flags = SetFlags::from_bits(flags).ok_or(Error::InvalidArgs)?;
-            let value = Value::try_from(FeatureValue {
-                feature,
-                raw: value,
-            })?;
-            self.fwft.with_current(|features| {
-                let mut locks = self
-                    .locks
-                    .get(HartId::current()?)?
-                    .try_lock()
-                    .ok_or(Error::Busy)?;
-                let locked = &mut locks[feature as usize];
-                if *locked {
-                    return Err(Error::Locked);
-                }
-                features.set(feature, value)?;
-                *locked = flags.contains(SetFlags::LOCK);
-                Ok(())
-            })?;
-            Ok(0)
-        })();
-        result.map_or_else(Into::into, SbiRet::success)
+    fn set(&self, configuration: Configuration, lock: Lock) -> core::result::Result<(), SbiError> {
+        let (feature, value) = hardware_configuration(configuration)?;
+        FwFeatures::with_current(|features| self.apply(features, feature, value, lock))
+            .map_err(sbi_error)
     }
 
-    fn get(&self, feature_id: u32) -> SbiRet {
-        let result: Result<usize> = (|| {
-            let feature = Feature::try_from(FeatureId(feature_id))?;
-            let value = self.fwft.with_current(|features| features.get(feature))?;
-            Ok(match value {
-                Value::Enabled(enabled) => usize::from(enabled),
-                Value::PointerMasking(mode) => mode.pmlen(),
-            })
-        })();
-        result.map_or_else(Into::into, SbiRet::success)
+    fn get(&self, feature: Feature) -> core::result::Result<Configuration, SbiError> {
+        let hardware = hardware_feature(feature)?;
+        let value =
+            FwFeatures::with_current(|features| features.get(hardware)).map_err(sbi_error)?;
+        sbi_configuration(feature, value)
     }
 }
 
-struct FeatureId(u32);
-
-impl TryFrom<FeatureId> for Feature {
-    type Error = Error;
-
-    fn try_from(id: FeatureId) -> Result<Self> {
-        Ok(match id.0 as usize {
-            feature_type::MISALIGNED_EXC_DELEG => Feature::MisalignedDelegation,
-            feature_type::LANDING_PAD => Feature::LandingPad,
-            feature_type::SHADOW_STACK => Feature::ShadowStack,
-            feature_type::DOUBLE_TRAP => Feature::DoubleTrap,
-            feature_type::PTE_AD_HW_UPDATING => Feature::PteAdUpdating,
-            feature_type::POINTER_MASKING_PMLEN => Feature::PointerMasking,
-            _ => return Err(Error::AccessDenied),
-        })
-    }
+/// Accessed only while Runtime holds the current hart's feature transaction.
+/// Atomics provide interior mutability; the transaction orders the lock check,
+/// hardware update, and lock commit together.
+struct FeatureLocks {
+    locked: [AtomicBool; HARDWARE_FEATURE_COUNT],
 }
 
-struct FeatureValue {
-    feature: Feature,
-    raw: usize,
-}
-
-impl TryFrom<FeatureValue> for Value {
-    type Error = Error;
-
-    fn try_from(value: FeatureValue) -> Result<Self> {
-        if value.feature == Feature::PointerMasking {
-            PointerMasking::from_pmlen(value.raw)
-                .map(Value::PointerMasking)
-                .ok_or(Error::InvalidArgs)
-        } else {
-            match value.raw {
-                0 => Ok(Value::Enabled(false)),
-                1 => Ok(Value::Enabled(true)),
-                _ => Err(Error::InvalidArgs),
-            }
+impl FeatureLocks {
+    fn new() -> Self {
+        Self {
+            locked: [const { AtomicBool::new(false) }; HARDWARE_FEATURE_COUNT],
         }
+    }
+
+    fn is_locked(&self, feature: HardwareFeature) -> bool {
+        self.locked[feature.id() as usize].load(Ordering::Relaxed)
+    }
+
+    fn lock(&self, feature: HardwareFeature) {
+        self.locked[feature.id() as usize].store(true, Ordering::Relaxed);
+    }
+}
+
+fn hardware_feature(feature: Feature) -> core::result::Result<HardwareFeature, SbiError> {
+    Ok(match feature {
+        Feature::Standard(feature) => feature,
+        Feature::PlatformSpecific(_) => return Err(SbiError::Denied),
+    })
+}
+
+fn hardware_configuration(
+    configuration: Configuration,
+) -> core::result::Result<(HardwareFeature, Value), SbiError> {
+    let feature = hardware_feature(configuration.feature())?;
+    let value = if configuration.feature().is_boolean() {
+        Value::State(match configuration.value() {
+            0 => HardwareFeatureState::Disabled,
+            1 => HardwareFeatureState::Enabled,
+            _ => return Err(SbiError::InvalidParam),
+        })
+    } else if configuration.feature() == Feature::Standard(FeatureType::PointerMaskingPmlen) {
+        Value::PointerMasking(
+            PointerMasking::from_pmlen(configuration.value()).ok_or(SbiError::InvalidParam)?,
+        )
+    } else {
+        return Err(SbiError::Denied);
+    };
+    Ok((feature, value))
+}
+
+fn sbi_configuration(
+    feature: Feature,
+    value: Value,
+) -> core::result::Result<Configuration, SbiError> {
+    let raw = match value {
+        Value::State(_) if feature == Feature::Standard(FeatureType::PointerMaskingPmlen) => {
+            return Err(SbiError::Failed);
+        }
+        Value::State(HardwareFeatureState::Disabled) => 0,
+        Value::State(HardwareFeatureState::Enabled) => 1,
+        Value::PointerMasking(mode)
+            if feature == Feature::Standard(FeatureType::PointerMaskingPmlen) =>
+        {
+            mode.pmlen()
+        }
+        Value::PointerMasking(_) => return Err(SbiError::Failed),
+    };
+    Configuration::from_parts(feature, raw)
+}
+
+fn sbi_error(error: Error) -> SbiError {
+    match error {
+        Error::InvalidArgs => SbiError::InvalidParam,
+        Error::NotSupported => SbiError::NotSupported,
+        Error::AccessDenied => SbiError::Denied,
+        Error::Locked => SbiError::DeniedLocked,
+        _ => SbiError::Failed,
     }
 }

@@ -12,35 +12,25 @@ use crate::{hart::HartLocal, irq::LocalIrqDisabled};
 use spin::Mutex;
 use state::State;
 
-pub use csr::machine::PointerMasking;
+pub use csr::machine::{FeatureState, PointerMasking};
 pub use feature::{Feature, Value};
 
-/// Hardware feature configuration owned by the published SBI adapter.
-/// Runtime initializes the registered instance once per hart before lower-mode
-/// execution.
+/// Runtime-owned firmware feature configuration and hardware access.
+/// Runtime initializes each hart before lower-mode execution; callers access
+/// the current hart through [`Self::with_current`].
 /// Committed values survive HSM stop/start and suspend/resume.
-pub struct Fwft {
+pub struct FwFeatures {
+    /// Committed feature values for each hart, used to restore its hardware configuration.
     local: HartLocal<Mutex<State>>,
 }
+
+static FWFEATURES: FwFeatures = FwFeatures {
+    local: HartLocal::new(),
+};
 
 /// Current-hart feature access during one transaction with local IRQs disabled.
 /// The view cannot outlive the transaction or move to another hart.
 pub struct Features<'scope> {
     state: &'scope mut State,
     _irq: &'scope LocalIrqDisabled,
-}
-
-impl Default for Fwft {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Fwft {
-    /// Creates an unbound feature controller without accessing hardware.
-    pub const fn new() -> Self {
-        Self {
-            local: HartLocal::new(),
-        }
-    }
 }

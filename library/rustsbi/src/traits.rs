@@ -408,19 +408,53 @@ pub fn _rustsbi_sta<T: crate::Sta>(sta: &T, param: [usize; 6], function: usize) 
     }
 }
 
+#[inline(always)]
+fn decode_fwft_feature(feature: usize) -> Result<crate::fwft::Feature, spec::binary::Error> {
+    let feature_id = match u32::try_from(feature) {
+        Ok(feature_id) => feature_id,
+        Err(_) => return Err(spec::binary::Error::InvalidParam),
+    };
+    crate::fwft::Feature::from_id(feature_id)
+}
+
 #[doc(hidden)]
 #[inline(always)]
 pub fn _rustsbi_fwft<T: crate::Fwft>(fwft: &T, param: [usize; 6], function: usize) -> SbiRet {
+    let Some(function) = spec::fwft::Fid::from_usize(function) else {
+        return SbiRet::not_supported();
+    };
     match function {
-        spec::fwft::SET => match u32::try_from(param[0]) {
-            Ok(feature_id) => fwft.set(feature_id, param[1], param[2]),
-            _ => SbiRet::invalid_param(),
-        },
-        spec::fwft::GET => match u32::try_from(param[0]) {
-            Ok(feature_id) => fwft.get(feature_id),
-            _ => SbiRet::invalid_param(),
-        },
-        _ => SbiRet::not_supported(),
+        spec::fwft::Fid::Set => {
+            let feature = match decode_fwft_feature(param[0]) {
+                Ok(feature) => feature,
+                Err(error) => return error.into(),
+            };
+            let configuration = match crate::fwft::Configuration::from_parts(feature, param[1]) {
+                Ok(configuration) => configuration,
+                Err(error) => return error.into(),
+            };
+            let lock = match crate::fwft::Lock::from_flags(param[2]) {
+                Ok(lock) => lock,
+                Err(error) => return error.into(),
+            };
+            match fwft.set(configuration, lock) {
+                Ok(()) => SbiRet::success(0),
+                Err(error) => error.into(),
+            }
+        }
+        spec::fwft::Fid::Get => {
+            let feature = match decode_fwft_feature(param[0]) {
+                Ok(feature) => feature,
+                Err(error) => return error.into(),
+            };
+            match fwft.get(feature) {
+                Ok(configuration) if configuration.feature() == feature => {
+                    SbiRet::success(configuration.value())
+                }
+                Ok(_) => SbiRet::failed(),
+                Err(error) => error.into(),
+            }
+        }
     }
 }
 

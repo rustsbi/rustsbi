@@ -3,7 +3,7 @@
 use crate::binary::{sbi_call_1, sbi_call_3};
 use sbi_spec::{
     binary::SbiRet,
-    fwft::{EID_FWFT, GET, SET},
+    fwft::{EID_FWFT, Fid},
 };
 
 /// Set the configuration value of a specific firmware feature.
@@ -31,7 +31,7 @@ use sbi_spec::{
 #[inline]
 #[doc(alias = "sbi_fwft_set")]
 pub fn fwft_set(feature: u32, value: usize, flags: usize) -> SbiRet {
-    sbi_call_3(EID_FWFT, SET, feature as _, value, flags)
+    sbi_call_3(EID_FWFT, Fid::Set.as_usize(), feature as _, value, flags)
 }
 
 /// Get the configuration value of a specific firmware feature.
@@ -55,5 +55,5 @@ pub fn fwft_set(feature: u32, value: usize, flags: usize) -> SbiRet {
 #[inline]
 #[doc(alias = "sbi_fwft_get")]
 pub fn fwft_get(feature: u32) -> SbiRet {
-    sbi_call_1(EID_FWFT, GET, feature as _)
+    sbi_call_1(EID_FWFT, Fid::Get.as_usize(), feature as _)
 }
