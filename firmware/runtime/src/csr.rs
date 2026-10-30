@@ -1,10 +1,9 @@
 //! Private optional-CSR instructions and boot configuration.
 
-mod access;
 pub mod thead;
 #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-pub(crate) use access::unavailable;
-pub(crate) use access::{csrr, csrrw, csrw, instruction};
+pub(crate) use crate::recovery::unavailable;
+pub(crate) use crate::recovery::{csrr, csrrw, csrw};
 
 /// Enables supervisor access to seed when the security CSR is available.
 pub fn enable_supervisor_seed() {
