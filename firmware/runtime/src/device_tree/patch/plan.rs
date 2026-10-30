@@ -44,6 +44,20 @@ impl ValidationNode {
             size_cells: self.size_cells.unwrap_or(DEFAULT_SIZE_CELLS),
         }
     }
+
+    fn record_property(&mut self, name: &str, value: &[u8], parent: CellCounts) -> Result<()> {
+        let slot = match name {
+            "#address-cells" => &mut self.address_cells,
+            "#size-cells" => &mut self.size_cells,
+            "reg" => return validate_reg_length(value, parent),
+            _ => return Ok(()),
+        };
+        let value = single_cell(value)?;
+        if slot.replace(value).is_some() {
+            return Err(Error::InvalidArgs);
+        }
+        Ok(())
+    }
 }
 
 /// Offsets and format facts needed by the two supported next-stage edits.
@@ -276,25 +290,7 @@ pub(in crate::device_tree::patch) fn validate_structure(
                 } else {
                     nodes[depth - 2].cells()
                 };
-                let node = &mut nodes[depth - 1];
-                match name {
-                    "#address-cells" => {
-                        let value = single_cell(value)?;
-                        if node.address_cells.replace(value).is_some() {
-                            return Err(Error::InvalidArgs);
-                        }
-                    }
-                    "#size-cells" => {
-                        let value = single_cell(value)?;
-                        if node.size_cells.replace(value).is_some() {
-                            return Err(Error::InvalidArgs);
-                        }
-                    }
-                    "reg" => {
-                        validate_reg_length(value, parent_cells)?;
-                    }
-                    _ => {}
-                }
+                nodes[depth - 1].record_property(name, value, parent_cells)?;
             }
             END_NODE => {
                 depth = depth.checked_sub(1).ok_or(Error::InvalidArgs)?;
@@ -304,18 +300,20 @@ pub(in crate::device_tree::patch) fn validate_structure(
                 if !root_seen || depth != 0 {
                     return Err(Error::InvalidArgs);
                 }
-                let mut trailing = structure[offset..].chunks_exact(size_of::<u32>());
-                if trailing.any(|word| word != NOP.to_be_bytes())
-                    || !trailing.remainder().is_empty()
-                {
-                    return Err(Error::InvalidArgs);
-                }
-                return Ok(());
+                return validate_trailing_nops(&structure[offset..]);
             }
             _ => return Err(Error::InvalidArgs),
         }
     }
     Err(Error::InvalidArgs)
+}
+
+fn validate_trailing_nops(bytes: &[u8]) -> Result<()> {
+    let mut words = bytes.chunks_exact(size_of::<u32>());
+    if words.any(|word| word != NOP.to_be_bytes()) || !words.remainder().is_empty() {
+        return Err(Error::InvalidArgs);
+    }
+    Ok(())
 }
 
 fn validate_reg_length(value: &[u8], cells: CellCounts) -> Result<()> {
@@ -361,12 +359,7 @@ pub(in crate::device_tree::patch) fn plan_edits(
             END_NODE => planner.end_node(token_offset, offset)?,
             NOP => {}
             END => {
-                let mut trailing = structure[offset..].chunks_exact(size_of::<u32>());
-                if trailing.any(|word| word != NOP.to_be_bytes())
-                    || !trailing.remainder().is_empty()
-                {
-                    return Err(Error::InvalidArgs);
-                }
+                validate_trailing_nops(&structure[offset..])?;
                 return planner.finish();
             }
             _ => return Err(Error::InvalidArgs),
