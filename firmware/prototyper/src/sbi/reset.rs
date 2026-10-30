@@ -13,7 +13,7 @@ use rustsbi::SbiRet;
 
 /// SBI system-reset extension over a selected reset device.
 #[derive(Default)]
-pub(crate) struct SbiReset {
+pub struct SbiReset {
     device: ResetDevice,
 }
 
@@ -67,7 +67,7 @@ fn parse_request(reset_type: u32, reset_reason: u32) -> Option<ResetRequest> {
 }
 
 #[allow(unused)]
-pub(crate) fn fail() -> ! {
+pub fn fail() -> ! {
     use rustsbi::spec::srst::{
         EID_SRST, RESET_REASON_SYSTEM_FAILURE, RESET_TYPE_SHUTDOWN, SYSTEM_RESET,
     };
