@@ -1,6 +1,6 @@
 //! Pending remote fences and completion acknowledgements.
 
-use super::{Request, rfence_poll};
+use super::Request;
 use alloc::collections::VecDeque;
 use core::sync::atomic::AtomicU32;
 use runtime::hart::HartId;
@@ -21,10 +21,10 @@ impl<T> core::ops::Deref for CacheAligned<T> {
 
 /// Cell for managing remote fence operations between harts.
 pub(super) struct RFenceCell {
-    // Queue of fence operations with source hart ID
+    // Incoming requests and the source hart that must receive completion.
     queue: CacheAligned<Mutex<VecDeque<(Request, HartId)>>>,
-    // Counter for tracking pending synchronization operations
-    wait_sync_count: CacheAligned<AtomicU32>,
+    // Outgoing requests from this hart that have not completed yet.
+    pending_completions: CacheAligned<AtomicU32>,
 }
 
 impl RFenceCell {
@@ -32,7 +32,7 @@ impl RFenceCell {
     pub(super) fn new() -> Self {
         Self {
             queue: CacheAligned(Mutex::new(VecDeque::new())),
-            wait_sync_count: CacheAligned(AtomicU32::new(0)),
+            pending_completions: CacheAligned(AtomicU32::new(0)),
         }
     }
 
@@ -50,9 +50,7 @@ impl RFenceCell {
 
     /// Pushes a fence operation into the queue, or reports it full.
     ///
-    /// The retry policy on a full queue (drain via IPI) belongs to
-    /// the rfence layer, which is why this returns the error instead of
-    /// looping.
+    /// The caller services local work before retrying a full or locked queue.
     fn try_push(&self, item: (Request, HartId)) -> bool {
         // Give the caller a chance to service local work when a remote
         // queue is busy; spinning on its lock can block mutual progress.
@@ -65,6 +63,15 @@ impl RFenceCell {
         q.push_back(item);
         true
     }
+
+    fn complete_request(&self) {
+        use core::sync::atomic::Ordering;
+        let pending = self.pending_completions.fetch_sub(1, Ordering::Release);
+        assert_ne!(
+            pending, 0,
+            "RFENCE completion without an outstanding request"
+        );
+    }
 }
 
 // RFenceCell is Sync+Send: Mutex<VecDeque<T>> is Sync when T: Send, AtomicU32 is Sync.
@@ -76,31 +83,36 @@ pub(super) struct LocalRFenceCell<'a>(&'a RFenceCell);
 pub(super) struct RemoteRFenceCell<'a>(&'a RFenceCell);
 
 impl LocalRFenceCell<'_> {
-    /// Checks if all synchronization operations are complete.
-    pub(super) fn is_sync(&self) -> bool {
+    /// Checks whether every outgoing request has been acknowledged.
+    pub(super) fn all_completed(&self) -> bool {
         use core::sync::atomic::Ordering;
-        if self.0.wait_sync_count.load(Ordering::Relaxed) != 0 {
+        if self.0.pending_completions.load(Ordering::Relaxed) != 0 {
             return false;
         }
         core::sync::atomic::fence(Ordering::Acquire);
         true
     }
 
-    /// Increments the synchronization counter.
-    pub(super) fn add(&self) {
+    /// Records one outgoing request before publishing it to the target.
+    pub(super) fn expect_completion(&self) {
         use core::sync::atomic::Ordering;
-        self.0.wait_sync_count.fetch_add(1, Ordering::Relaxed);
+        self.0.pending_completions.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Removes a completion expectation after the queued request was cancelled.
+    pub(super) fn cancel_completion(&self) {
+        self.0.complete_request();
     }
 
     /// Gets the next fence operation from the queue.
-    pub(super) fn get(&self) -> Option<(Request, HartId)> {
+    pub(super) fn pop_request(&self) -> Option<(Request, HartId)> {
         self.0.queue.lock().pop_front()
     }
 }
 
 impl RemoteRFenceCell<'_> {
     /// Cancels this source's queued request after an IPI send failure.
-    pub(super) fn cancel(&self, source_hart: HartId) -> bool {
+    pub(super) fn cancel_request_from(&self, source_hart: HartId) -> bool {
         let mut queue = self.0.queue.lock();
         let Some(index) = queue.iter().position(|(_, source)| *source == source_hart) else {
             return false;
@@ -111,26 +123,12 @@ impl RemoteRFenceCell<'_> {
 
     /// Pushes a fence operation into the queue, or reports it full.
     #[inline]
-    pub(super) fn try_push(&self, item: (Request, HartId)) -> bool {
-        self.0.try_push(item)
+    pub(super) fn try_enqueue(&self, request: Request, source: HartId) -> bool {
+        self.0.try_push((request, source))
     }
 
-    /// Decrements the synchronization counter.
-    pub(super) fn sub(&self) {
-        use core::sync::atomic::Ordering;
-        self.0.wait_sync_count.fetch_sub(1, Ordering::Release);
-    }
-}
-
-impl RemoteRFenceCell<'_> {
-    /// Adds a fence operation to the queue from a remote hart.
-    pub(super) fn set(&self, ctx: Request) {
-        let hart_id = HartId::current().expect("BUG: current hart exceeds Runtime capacity");
-        loop {
-            if self.try_push((ctx, hart_id)) {
-                return;
-            }
-            rfence_poll();
-        }
+    /// Acknowledges one request after executing its fence.
+    pub(super) fn complete_request(&self) {
+        self.0.complete_request();
     }
 }

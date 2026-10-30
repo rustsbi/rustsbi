@@ -17,6 +17,10 @@ use super::{
 };
 use crate::utils::cargo_target_dir_in;
 
+// Exercise the firmware's architecture-independent IPI state on the host.
+#[path = "../../../firmware/prototyper/src/sbi/ipi/pending.rs"]
+mod ipi_pending;
+
 static NEXT_TEST_DIR: AtomicUsize = AtomicUsize::new(0);
 
 const VALID_CONFIG_TOML: &str = "link_start_address = 0x80000000\n\

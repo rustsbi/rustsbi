@@ -7,7 +7,6 @@ mod delivery;
 mod queue;
 mod range;
 
-pub(crate) use delivery::rfence_poll;
 use runtime::{Result, hart::HartLocal};
 
 use range::AddressRange;

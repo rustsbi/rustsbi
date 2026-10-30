@@ -130,7 +130,7 @@ pub(crate) fn configure_next_stage(hart: &Hart) -> Result<()> {
             let inhibit = crate::pmu::configure_initial()?;
             crate::pmu::Pmu::init_current(inhibit)?;
             let irq = crate::irq::LocalIrqDisabled::assume_disabled();
-            super::ipi().ok_or(Error::NotReady)?.init_current(&irq)?;
+            crate::ipi::get().ok_or(Error::NotReady)?.init_current(&irq)?;
             super::timer().ok_or(Error::NotReady)?.init_current(&irq)?;
             if hart.supports_privilege(machine::TargetPrivilege::Supervisor) {
                 machine::InterruptDelegation::write(usize::MAX.into());
@@ -207,7 +207,7 @@ pub(crate) unsafe fn prepare_supervisor() {
         .expect("could not restore committed firmware features before handoff");
     // SAFETY: This function's caller keeps MIE clear throughout the handoff.
     let irq = unsafe { crate::irq::LocalIrqDisabled::assume_disabled() };
-    super::ipi()
+    crate::ipi::get()
         .expect("IPI service not published")
         .prepare_wakeup(&irq);
 }

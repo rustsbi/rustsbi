@@ -1,14 +1,12 @@
 //! Runtime borrows from the permanently published SBI owners.
 
-use crate::{Error, Result, ipi::Ipi, timer::Timer};
+use crate::{Error, Result, timer::Timer};
 use spin::Once;
 
 /// Stable borrows registered after publishing the SBI dispatcher.
 pub struct Services {
     /// Supervisor timer owner.
     pub timer: &'static Timer,
-    /// Firmware IPI owner.
-    pub ipi: &'static Ipi,
 }
 
 static SERVICES: Once<Services> = Once::new();
@@ -33,7 +31,4 @@ pub(crate) fn timer() -> Option<&'static Timer> {
     SERVICES.get().map(|services| services.timer)
 }
 
-pub(crate) fn ipi() -> Option<&'static Ipi> {
-    SERVICES.get().map(|services| services.ipi)
-}
 

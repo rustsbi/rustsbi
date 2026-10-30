@@ -7,30 +7,23 @@
 
 #![forbid(unsafe_code)]
 
+mod pending;
+
 use super::pmu::{FirmwareEvent, SbiPmu};
 use alloc::vec::Vec;
-use bitflags::bitflags;
-use core::sync::atomic::{AtomicU8, Ordering};
+use pending::{IpiEvent, PendingIpis};
 use runtime::{
-    Result,
+    Error, Result,
     hart::{Hart, HartId, HartLocal},
     ipi::{Ipi, IpiRequest},
     rustsbi::{self, HartMask, SbiRet},
 };
 
-bitflags! {
-    #[derive(Clone, Copy)]
-    struct PendingIpis: u8 {
-        const SUPERVISOR = 1 << 0;
-        const FENCE = 1 << 1;
-    }
-}
-
 /// SBI IPI extension.
-/// Owns Runtime's IPI state; without a device, the extension probes unavailable.
-pub(crate) struct SbiIpi {
-    ipi: Ipi,
-    pending: HartLocal<AtomicU8>,
+/// Uses Runtime's IPI device; owns only SBI pending-event records.
+pub struct SbiIpi {
+    ipi: &'static Ipi,
+    pending: HartLocal<PendingIpis>,
 }
 
 impl rustsbi::Ipi for SbiIpi {
@@ -42,21 +35,13 @@ impl rustsbi::Ipi for SbiIpi {
     #[inline]
     fn send_ipi(&self, hart_mask: HartMask) -> SbiRet {
         SbiPmu::record_event(FirmwareEvent::IpiSent);
-        let requests = match target_requests(hart_mask) {
+        let requests = match resolve_ipi_targets(hart_mask) {
             Ok(requests) => requests,
             Err(error) => return error,
         };
 
-        for req in requests {
-            for hart_id in req.harts() {
-                let hart = HartId::from_raw(hart_id).expect("validated IPI target");
-                self.pending
-                    .get(hart)
-                    .expect("IPI target record")
-                    .fetch_or(PendingIpis::SUPERVISOR.bits(), Ordering::Release);
-            }
-            // Always signal: pending bits can remain after a failed send.
-            if self.ipi.send(req).is_err() {
+        for request in requests {
+            if self.send_supervisor_ipi(request).is_err() {
                 return SbiRet::failed();
             }
         }
@@ -66,95 +51,113 @@ impl rustsbi::Ipi for SbiIpi {
 }
 
 impl SbiIpi {
-    pub(crate) fn new(ipi: Ipi) -> Result<Self> {
+    pub(crate) fn new(ipi: &'static Ipi) -> Result<Self> {
         let pending = HartLocal::new();
-        pending.init_all(|_| AtomicU8::new(0))?;
+        pending.init_all(|_| PendingIpis::new())?;
+        ipi.register_pending(Self::handle_pending_ipis)?;
         Ok(Self { ipi, pending })
     }
 
-    pub(crate) fn ipi(&self) -> &Ipi {
-        &self.ipi
+    pub(crate) fn is_available(&self) -> bool {
+        self.ipi.delivery().is_some()
+    }
+
+    /// Records supervisor notifications before signaling their target window.
+    fn send_supervisor_ipi(&self, request: IpiRequest) -> Result<()> {
+        for hart in request.harts() {
+            self.pending.get(hart)?.insert(IpiEvent::Supervisor);
+        }
+        // Always signal: pending events can remain after a failed send.
+        self.ipi.send(request)
     }
 
     /// Publishes fence work before signaling the target hart.
-    pub(super) fn send_fence(&self, hart: HartId) -> Result<()> {
-        self.pending
-            .get(hart)?
-            .fetch_or(PendingIpis::FENCE.bits(), Ordering::Release);
-        self.ipi.send(IpiRequest::for_hart(hart))
+    pub(super) fn send_fence(&self, target_hart: HartId) -> Result<()> {
+        self.pending.get(target_hart)?.insert(IpiEvent::Fence);
+        self.ipi.send(IpiRequest::for_hart(target_hart))
     }
 
-    pub(super) fn fence_pending(&self) -> bool {
-        let hart = HartId::current().expect("current IPI hart");
-        PendingIpis::from_bits_retain(
-            self.pending
-                .get(hart)
-                .expect("IPI record")
-                .load(Ordering::Relaxed),
-        )
-        .contains(PendingIpis::FENCE)
-    }
-
-    /// Runtime calls this after acknowledging the local device interrupt.
-    pub(crate) fn deliver_current() -> bool {
-        let ipi = super::ipi().expect("published IPI adapter");
-        let hart = HartId::current().expect("current IPI hart");
-        let events = PendingIpis::from_bits_retain(
-            ipi.pending
-                .get(hart)
-                .expect("IPI record")
-                .swap(0, Ordering::Acquire),
-        );
-        let notify = events.contains(PendingIpis::SUPERVISOR);
-        if notify {
-            SbiPmu::record_event(FirmwareEvent::IpiReceived);
+    /// Handles all firmware IPI work after Runtime acknowledges the device.
+    ///
+    /// Returns whether a supervisor software interrupt must be raised.
+    pub(crate) fn handle_pending_ipis(hart: HartId) -> Result<bool> {
+        let dispatcher = super::SBI_DISPATCHER.get().ok_or(Error::NotReady)?;
+        let pending = dispatcher.ipi.pending.get(hart)?;
+        let mut notified = false;
+        while let Some(event) = pending.pop_pending() {
+            match event {
+                IpiEvent::Supervisor => {
+                    if !notified {
+                        SbiPmu::record_event(FirmwareEvent::IpiReceived);
+                    }
+                    notified = true;
+                }
+                IpiEvent::Fence => {
+                    dispatcher
+                        .rfence
+                        .as_ref()
+                        .ok_or(Error::NotReady)?
+                        .handle(hart);
+                }
+            }
         }
-        if events.contains(PendingIpis::FENCE) {
-            super::rfence().expect("published RFENCE adapter").handle();
-        }
-        notify
+        Ok(notified)
     }
 }
 
-pub(super) fn target_requests(
+/// Resolves an SBI hart mask into validated IPI target windows.
+///
+/// An ordinary mask produces at most one active window in a stack `Option`, so
+/// the common path does not allocate. Broadcast ignores the mask and expands
+/// all available harts into potentially several windows in a `Vec`.
+pub(super) fn resolve_ipi_targets(
     hart_mask: HartMask,
 ) -> Result<impl Iterator<Item = IpiRequest> + Clone, SbiRet> {
-    let available = |hart: HartId| {
-        crate::platform::hart_privilege_checked(hart.as_usize())
-            && Hart::get(hart).is_ok_and(Hart::can_receive_ipi)
-    };
     let (mask, base) = hart_mask.into_inner();
-    let mut single = None;
-    let mut requests: Vec<IpiRequest> = Vec::new();
-    if base == usize::MAX {
-        // Ignore mask and expand all available harts into ordinary windows.
-        for hart in HartId::all().filter(|hart| available(*hart)) {
-            let singleton = IpiRequest::for_hart(hart);
-            if !requests
-                .last_mut()
-                .is_some_and(|request| request.try_merge(singleton))
-            {
-                requests.push(singleton);
-            }
-        }
-    } else if mask != 0 {
-        // Validate platform assignment separately from transient HSM state.
-        // Stopped harts remain valid targets but need no supervisor IPI.
-        let mut active_mask = 0;
-        for bit in HartMask::from_mask_base(mask, 0) {
-            let hart_id = base.checked_add(bit).ok_or_else(SbiRet::invalid_param)?;
-            let hart = HartId::from_raw(hart_id).map_err(|_| SbiRet::invalid_param())?;
-            if available(hart) {
-                active_mask |= 1 << bit;
-            }
-        }
-        // An ordinary mask needs one window, without a heap allocation.
-        if active_mask != 0 {
-            single = Some(
-                IpiRequest::from_mask_base(active_mask, base)
-                    .map_err(|_| SbiRet::invalid_param())?,
-            );
+    let (mask_window, broadcast_windows) = if base == usize::MAX {
+        (None, broadcast_windows())
+    } else {
+        (ordinary_mask_window(mask, base)?, Vec::new())
+    };
+    Ok(mask_window.into_iter().chain(broadcast_windows))
+}
+
+/// Validates an ordinary mask and retains only harts that accept IPIs now.
+fn ordinary_mask_window(mask: usize, base: usize) -> Result<Option<IpiRequest>, SbiRet> {
+    let mut active_mask = 0;
+    for bit in HartMask::from_mask_base(mask, 0) {
+        let hart_id = base.checked_add(bit).ok_or_else(SbiRet::invalid_param)?;
+        let hart = HartId::from_raw(hart_id).map_err(|_| SbiRet::invalid_param())?;
+        // HartId validates topology membership. Harts outside supervisor
+        // execution, including stopped harts, need no supervisor IPI.
+        if ipi_target_available(hart) {
+            active_mask |= 1 << bit;
         }
     }
-    Ok(single.into_iter().chain(requests))
+    if active_mask == 0 {
+        return Ok(None);
+    }
+    IpiRequest::from_mask_base(active_mask, base)
+        .map(Some)
+        .map_err(|_| SbiRet::invalid_param())
+}
+
+/// Expands the broadcast form into merged windows for all available harts.
+fn broadcast_windows() -> Vec<IpiRequest> {
+    let mut windows: Vec<IpiRequest> = Vec::new();
+    for hart in HartId::all().filter(|hart| ipi_target_available(*hart)) {
+        let singleton = IpiRequest::for_hart(hart);
+        if !windows
+            .last_mut()
+            .is_some_and(|window| window.try_merge(singleton))
+        {
+            windows.push(singleton);
+        }
+    }
+    windows
+}
+
+fn ipi_target_available(hart: HartId) -> bool {
+    crate::platform::hart_privilege_checked(hart.as_usize())
+        && Hart::get(hart).is_ok_and(Hart::can_receive_ipi)
 }

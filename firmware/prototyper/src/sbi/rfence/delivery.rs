@@ -1,6 +1,6 @@
 //! Fence transport, completion, and local execution.
 
-use super::{Request, SbiRFence};
+use super::{Request, SbiRFence, queue::LocalRFenceCell};
 use crate::sbi::{
     self,
     pmu::{FirmwareEvent, SbiPmu},
@@ -16,81 +16,85 @@ use runtime::{
 
 impl SbiRFence {
     pub(super) fn send(&self, request: Request, hart_mask: HartMask) -> SbiRet {
-        let current = HartId::current().expect("current fence hart");
-        let local = self.harts.get(current).expect("local fence queue").local();
-        let targets = match sbi::ipi::target_requests(hart_mask) {
-            Ok(targets) => targets,
-            Err(error) => return error,
-        };
+        match self.send_request(request, hart_mask) {
+            Ok(()) => SbiRet::success(0),
+            Err(error) => error,
+        }
+    }
+
+    fn send_request(&self, request: Request, hart_mask: HartMask) -> Result<(), SbiRet> {
+        let current = HartId::current().map_err(SbiRet::from)?;
+        let local = self.harts.get(current).map_err(SbiRet::from)?.local();
+        debug_assert!(
+            local.all_completed(),
+            "RFENCE calls on one hart cannot overlap"
+        );
+        let targets = sbi::ipi::resolve_ipi_targets(hart_mask)?;
         #[cfg(feature = "hypervisor")]
         if request.is_guest()
-            && targets.clone().flat_map(IpiRequest::harts).any(|raw| {
-                !HartId::from_raw(raw)
-                    .and_then(Hart::get)
-                    .is_ok_and(Hart::has_hypervisor)
-            })
+            && targets
+                .clone()
+                .flat_map(IpiRequest::harts)
+                .any(|hart| !Hart::get(hart).is_ok_and(Hart::has_hypervisor))
         {
-            return SbiRet::not_supported();
+            return Err(SbiRet::not_supported());
         }
-        let ipi = sbi::ipi().expect("published IPI adapter");
-        let mut result = SbiRet::success(0);
+        let ipi = sbi::ipi().ok_or_else(SbiRet::failed)?;
+        let mut result = Ok(());
         for hart in targets.flat_map(IpiRequest::harts) {
-            let hart = HartId::from_raw(hart).expect("validated fence target");
             if hart == current {
                 execute(request);
                 continue;
             }
-            let remote = self.harts.get(hart).expect("remote fence queue").remote();
-            local.add();
-            remote.set(request);
+            // All records were initialized before this service was published.
+            let remote = self
+                .harts
+                .get(hart)
+                .expect("initialized RFENCE records")
+                .remote();
+            local.expect_completion();
+            while !remote.try_enqueue(request, current) {
+                self.handle_one(&local);
+                core::hint::spin_loop();
+            }
             if ipi.send_fence(hart).is_err() {
                 // A receiver that already dequeued owns the acknowledgement.
-                if remote.cancel(current) {
-                    self.harts.get(current).unwrap().remote().sub();
+                if remote.cancel_request_from(current) {
+                    local.cancel_completion();
                 }
-                result = SbiRet::failed();
+                result = Err(SbiRet::failed());
                 break;
             }
         }
-        while !local.is_sync() {
-            rfence_poll();
+        while !local.all_completed() {
+            self.handle_one(&local);
+            core::hint::spin_loop();
         }
         result
     }
 
     /// Drains local work after Runtime acknowledges an IPI.
-    pub(in crate::sbi) fn handle(&self) {
-        while self.handle_one() {}
+    pub(in crate::sbi) fn handle(&self, current: HartId) {
+        let local = self
+            .harts
+            .get(current)
+            .expect("initialized RFENCE records")
+            .local();
+        while self.handle_one(&local) {}
     }
 
-    fn handle_one(&self) -> bool {
-        let current = HartId::current().expect("current fence hart");
-        let local = self.harts.get(current).expect("local fence queue").local();
-        if let Some((request, source)) = local.get() {
-            execute(request);
-            self.harts
-                .get(source)
-                .expect("fence source queue")
-                .remote()
-                .sub();
-            true
-        } else {
-            false
-        }
-    }
-}
-
-/// Services requests while waiting outside the IPI handler.
-///
-/// Senders mark FENCE pending after enqueueing. A stale set bit only causes an
-/// unnecessary dequeue attempt. The IPI handler clears the bit before draining
-/// and therefore uses the unconditional handler.
-#[inline]
-pub(crate) fn rfence_poll() {
-    if sbi::ipi().is_some_and(|ipi| ipi.fence_pending()) {
-        sbi::rfence()
-            .expect("published RFENCE adapter")
-            .handle_one();
+    /// Services the queue directly so waiting never consumes supervisor IPI events.
+    fn handle_one(&self, local: &LocalRFenceCell<'_>) -> bool {
+        let Some((request, source)) = local.pop_request() else {
+            return false;
+        };
+        execute(request);
+        self.harts
+            .get(source)
+            .expect("initialized RFENCE records")
+            .remote()
+            .complete_request();
+        true
     }
 }
 

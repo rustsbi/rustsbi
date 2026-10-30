@@ -138,7 +138,7 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     timer::test(frequency);
     let console_result = console::test();
     pmu::test(smp);
-    rfence::test(hartid, smp);
+    rfence::test(hartid, smp, frequency);
     reset::test();
     misaligned::test();
     trap::test();

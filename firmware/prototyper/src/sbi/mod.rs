@@ -99,7 +99,7 @@ pub(crate) fn ipi() -> Option<&'static SbiIpi> {
     SBI_DISPATCHER
         .get()
         .map(|sbi| &sbi.ipi)
-        .filter(|sbi| sbi.ipi().delivery().is_some())
+        .filter(|sbi| sbi.is_available())
 }
 
 /// Returns the published timer for firmware counter reads.

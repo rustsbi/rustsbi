@@ -137,8 +137,8 @@ impl THeadIpi {
 impl IpiDevice for THeadIpi {
     #[inline(always)]
     fn send(&self, req: IpiRequest) -> Result<()> {
-        for hart_id in req.harts() {
-            self.write_msip(hart_id, IpiState::Pending)?;
+        for hart in req.harts() {
+            self.write_msip(hart.as_usize(), IpiState::Pending)?;
         }
         Ok(())
     }

@@ -186,7 +186,7 @@ impl Hart {
     /// Runtime then parks until a new start without returning to the old supervisor.
     pub fn stop(&self) -> Result<()> {
         self.require_current()?;
-        let ipi = crate::boot::ipi().ok_or(Error::IoError)?;
+        let ipi = crate::ipi::get().ok_or(Error::IoError)?;
         ipi.delivery().ok_or(Error::IoError)?;
         crate::irq::with_local_disabled(|irq| {
             self.state
@@ -212,7 +212,7 @@ impl Hart {
     /// Enters the platform suspend wait for the current hart.
     pub fn suspend(&self) -> Result<()> {
         self.require_current()?;
-        let ipi = crate::boot::ipi().ok_or(Error::IoError)?;
+        let ipi = crate::ipi::get().ok_or(Error::IoError)?;
         ipi.delivery().ok_or(Error::IoError)?;
         crate::irq::with_local_disabled(|irq| {
             self.state
@@ -225,7 +225,7 @@ impl Hart {
                 )
                 .map_err(|_| Error::InvalidState)?;
             ipi.clear_current(irq)?;
-            let notified = ipi.deliver_current(irq);
+            let notified = ipi.handle_current(irq);
             ipi.prepare_wakeup(irq);
             // An IPI consumed above has already become SSIP. It must still
             // wake this suspend call when the supervisor has disabled SSIE.
@@ -277,7 +277,7 @@ impl Hart {
                     Ordering::Relaxed,
                 )
                 .map_err(|_| Error::InvalidState)?;
-            let result = crate::boot::ipi()
+            let result = crate::ipi::get()
                 .ok_or(Error::IoError)
                 .and_then(|ipi| ipi.send(crate::ipi::IpiRequest::for_hart(self.id())));
             if result.is_ok() {
@@ -303,7 +303,7 @@ impl Hart {
 
     /// Waits on this hart's transport without discarding live Rust stack frames.
     pub(crate) fn wait_for_start(&self, irq: &LocalIrqDisabled) -> NextStage {
-        let ipi = crate::boot::ipi().expect("IPI service not published");
+        let ipi = crate::ipi::get().expect("IPI service not published");
         if self.state.state.load(Ordering::Acquire) == STATE_STOPPING {
             self.state.state.store(STATE_STOPPED, Ordering::Release);
         }
@@ -314,7 +314,7 @@ impl Hart {
                 riscv::asm::fence();
             }
             let event = self.take_local_event();
-            ipi.deliver_current(irq);
+            ipi.handle_current(irq);
             match event {
                 HartEvent::Start(stage) => return stage,
                 HartEvent::Park => {

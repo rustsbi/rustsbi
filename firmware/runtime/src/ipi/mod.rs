@@ -2,16 +2,30 @@
 
 mod delivery;
 mod imsic;
+
+pub use imsic::Iid;
 mod request;
 
-use crate::{Error, Result};
+use crate::{Error, Result, hart::HartId};
 use alloc::boxed::Box;
-use core::num::NonZeroU16;
+use spin::Once;
+
+static IPI: Once<Ipi> = Once::new();
+
+/// Creates and installs the firmware IPI device.
+pub fn init(device: Option<Box<dyn IpiDevice>>) -> &'static Ipi {
+    IPI.call_once(|| Ipi::from_device(device))
+}
+
+/// Returns the installed firmware IPI device.
+pub fn get() -> Option<&'static Ipi> {
+    IPI.get()
+}
 
 /// Firmware IPI send capability, issued during platform initialization.
 pub struct Ipi {
     device: Option<Box<dyn IpiDevice>>,
-    deliver_fn: fn() -> bool,
+    pending: Once<fn(HartId) -> Result<bool>>,
 }
 
 /// Hardware delivery path for the platform's firmware IPIs.
@@ -22,7 +36,7 @@ pub enum IpiDelivery {
     /// Machine external interrupts, claimed through the current hart's IMSIC.
     Imsic {
         /// The fixed firmware IPI interrupt identity.
-        iid: NonZeroU16,
+        iid: Iid,
         /// Number of interrupt identities described by the interrupt file.
         num_ids: u16,
     },
@@ -58,10 +72,30 @@ pub trait IpiDevice: Send + Sync {
 impl Ipi {
     /// Creates an IPI service that owns the optional device.
     /// Runtime clears each hart's pending source after publication.
-    /// The callback handles pending SBI work after acknowledgement, with MIE disabled.
-    /// Return `true` to request a supervisor software interrupt.
-    pub fn new(device: Option<Box<dyn IpiDevice>>, deliver_fn: fn() -> bool) -> Self {
-        Self { device, deliver_fn }
+    fn from_device(device: Option<Box<dyn IpiDevice>>) -> Self {
+        Self {
+            device,
+            pending: Once::new(),
+        }
+    }
+
+    /// Registers the consumer that processes pending firmware IPI work.
+    ///
+    /// The handler runs after device acknowledgement with machine interrupts
+    /// disabled. It returns whether a supervisor software interrupt is required.
+    /// A handler error prevents resuming lower-mode execution after incomplete
+    /// IPI work.
+    pub fn register_pending(&self, handler: fn(HartId) -> Result<bool>) -> Result<()> {
+        let mut installed = false;
+        self.pending.call_once(|| {
+            installed = true;
+            handler
+        });
+        if installed {
+            Ok(())
+        } else {
+            Err(Error::AlreadyInitialized)
+        }
     }
 
     /// Returns the selected delivery path, or `None` without a device.

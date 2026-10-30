@@ -36,7 +36,7 @@ pub(super) fn sbi_ecall(frame: &mut TrapFrame) {
 
 fn deliver_event(frame: &mut TrapFrame, ipi: &crate::ipi::Ipi, irq: &LocalIrqDisabled) {
     let event = Hart::current().expect("dispatch hart").take_local_event();
-    ipi.deliver_current(irq);
+    ipi.handle_current(irq);
     match event {
         HartEvent::Start(next) => enter_next_stage(frame, next),
         HartEvent::Park => {
@@ -48,14 +48,14 @@ fn deliver_event(frame: &mut TrapFrame, ipi: &crate::ipi::Ipi, irq: &LocalIrqDis
 }
 
 pub(super) fn software_interrupt(frame: &mut TrapFrame, irq: &LocalIrqDisabled) {
-    let ipi = crate::boot::ipi().expect("IPI service not published");
+    let ipi = crate::ipi::get().expect("IPI service not published");
     ipi.clear_current(irq)
         .expect("IPI device could not clear the current hart");
     deliver_event(frame, ipi, irq);
 }
 
 pub(super) fn external_interrupt(frame: &mut TrapFrame, irq: &LocalIrqDisabled) {
-    if let Some(ipi) = crate::boot::ipi()
+    if let Some(ipi) = crate::ipi::get()
         && ipi.claim_external(irq)
     {
         deliver_event(frame, ipi, irq);
