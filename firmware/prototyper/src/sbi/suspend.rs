@@ -7,10 +7,11 @@
 
 #![forbid(unsafe_code)]
 
-use csr::machine::{self, Privilege, Status};
 use runtime::{
-    hart::{Hart, HartId, HartState},
+    Result,
+    hart::{Hart, HartId, HartState, TargetPrivilege},
     rustsbi::{Hsm, SbiRet, Susp},
+    trap,
 };
 use sbi_spec::hsm::suspend_type::NON_RETENTIVE;
 
@@ -25,24 +26,16 @@ impl Susp for SbiSuspend {
             return SbiRet::invalid_param();
         }
 
-        let prev_mode = Status::read().read::<machine::MPP>();
-        if !matches!(prev_mode, Privilege::Supervisor | Privilege::User) {
+        let prev_mode = trap::previous_privilege();
+        if !matches!(
+            prev_mode,
+            Some(TargetPrivilege::Supervisor | TargetPrivilege::User)
+        ) {
             return SbiRet::failed();
         }
 
-        // Check if all harts except the current hart are stopped
-        let hart_enable_map = if let Some(hart_enable_map) = crate::platform::enabled_harts() {
-            hart_enable_map
-        } else {
-            return SbiRet::failed();
-        };
-        let current_hart = HartId::current().expect("BUG: unknown current hart");
-        for hart in hart_enable_map {
-            if hart != current_hart
-                && Hart::get(hart).expect("enabled hart").status() != HartState::Stopped
-            {
-                return SbiRet::denied();
-            }
+        if let Err(error) = check_other_harts_stopped() {
+            return error;
         }
 
         // TODO: The validity of `resume_addr` should be checked.
@@ -53,4 +46,16 @@ impl Susp for SbiSuspend {
             None => SbiRet::not_supported(),
         }
     }
+}
+
+fn check_other_harts_stopped() -> Result<(), SbiRet> {
+    let current = HartId::current().map_err(SbiRet::from)?;
+    let harts = crate::platform::enabled_harts().ok_or_else(SbiRet::failed)?;
+    for id in harts.filter(|id| *id != current) {
+        let hart = Hart::get(id).map_err(SbiRet::from)?;
+        if hart.status() != HartState::Stopped {
+            return Err(SbiRet::denied());
+        }
+    }
+    Ok(())
 }

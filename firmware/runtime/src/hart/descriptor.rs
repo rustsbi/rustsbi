@@ -2,7 +2,7 @@
 
 use super::state::HartStateCell;
 use super::{HartId, HartLocal, IsaExtensions, StateEnable};
-use crate::recovery::csrr;
+use crate::fault_recovery::csrr;
 use crate::{Error, PlatformView, Result, node_is_enabled};
 use alloc::vec::Vec;
 use csr::machine;
@@ -21,7 +21,7 @@ pub struct Hart {
 }
 
 struct HardwareFacts {
-    isa: machine::IsaValue,
+    isa: machine::Isa,
     privileged_version: PrivilegedVersion,
 }
 
@@ -117,15 +117,15 @@ impl Hart {
     pub fn has_hypervisor(&self) -> bool {
         self.hardware
             .get()
-            .is_some_and(|facts| facts.isa.has_hypervisor())
+            .is_some_and(|facts| facts.isa.has_extension('H'))
     }
 
     /// Returns privilege support observed on this hart during initialization.
     pub fn supports_privilege(&self, mode: TargetPrivilege) -> bool {
         mode == TargetPrivilege::Machine
             || self.hardware.get().is_some_and(|facts| match mode {
-                TargetPrivilege::Supervisor => facts.isa.has_supervisor(),
-                TargetPrivilege::User => facts.isa.has_user(),
+                TargetPrivilege::Supervisor => facts.isa.has_extension('S'),
+                TargetPrivilege::User => facts.isa.has_extension('U'),
                 TargetPrivilege::Machine => true,
             })
     }

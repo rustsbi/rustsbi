@@ -2,23 +2,17 @@
 
 use crate::{
     Error, Result,
+    fault_recovery::{csrr, csrw},
     hart::{Hart, IsaExtensions},
-    recovery::{csrr, csrw},
 };
-use csr::machine::{
-    self, EnvironmentConfig as EnvConfig, EnvironmentConfigReadValue as EnvConfigRead,
-    EnvironmentConfigWriteValue as EnvConfigWrite,
+use csr::{
+    Read, Write,
+    machine::{self, EnvironmentConfig as EnvConfig},
 };
 #[cfg(target_pointer_width = "64")]
-use machine::{
-    EnvironmentConfig as Upper, EnvironmentConfigReadValue as UpperReadValue,
-    EnvironmentConfigWriteValue as UpperValue, PBMTE,
-};
+use machine::{EnvironmentConfig as Upper, PBMTE};
 #[cfg(target_pointer_width = "32")]
-use machine::{
-    EnvironmentConfigHigh as Upper, EnvironmentConfigHighReadValue as UpperReadValue,
-    EnvironmentConfigHighWriteValue as UpperValue, PBMTEH as PBMTE,
-};
+use machine::{EnvironmentConfigHigh as Upper, PBMTEH as PBMTE};
 
 impl Hart {
     /// Enables standard page attributes before any lower-mode address space exists.
@@ -32,10 +26,10 @@ impl Hart {
             return Ok(());
         }
         // On RV32, probe the optional high CSR only for a reported high-half feature.
-        let mut value = UpperValue::from(csrr!(Upper).map(UpperReadValue::from_bits)?);
-        value.write::<PBMTE>(machine::FeatureState::Enabled);
+        let mut value = Upper::<Write>::from(csrr!(Upper).map(Upper::<Read>::from_bits)?);
+        value.write_field::<PBMTE>(machine::FeatureState::Enabled);
         csrw!(Upper, usize::from(value))?;
-        if csrr!(Upper).map(UpperReadValue::from_bits)?.read::<PBMTE>()
+        if csrr!(Upper).map(Upper::<Read>::from_bits)?.read_field::<PBMTE>()
             != machine::FeatureState::Enabled
         {
             return Err(Error::NotSupported);
@@ -46,7 +40,7 @@ impl Hart {
     /// Grants the cache-block operations reported for this hart.
     pub(crate) fn configure_cache_blocks(&self) -> Result<()> {
         let extensions = self.extensions();
-        let current = match csrr!(EnvConfig).map(EnvConfigRead::from_bits) {
+        let current = match csrr!(EnvConfig).map(EnvConfig::<Read>::from_bits) {
             Ok(value) => value,
             Err(Error::IllegalInstruction)
                 if !extensions.intersects(
@@ -59,19 +53,19 @@ impl Hart {
         };
         let management = extensions.contains(IsaExtensions::ZICBOM);
         let zero = extensions.contains(IsaExtensions::ZICBOZ);
-        let mut value = EnvConfigWrite::from(current);
-        value.write::<machine::CBIE>(if management {
+        let mut value = EnvConfig::<Write>::from(current);
+        value.write_field::<machine::CBIE>(if management {
             machine::CacheBlockInvalidateMode::Invalidate
         } else {
             machine::CacheBlockInvalidateMode::Disabled
         });
-        value.write::<machine::CBCFE>(management.into());
-        value.write::<machine::CBZE>(zero.into());
+        value.write_field::<machine::CBCFE>(management.into());
+        value.write_field::<machine::CBZE>(zero.into());
         csrw!(EnvConfig, usize::from(value))?;
-        let actual = csrr!(EnvConfig).map(EnvConfigRead::from_bits)?;
-        if actual.read::<machine::CBIE>() != value.read::<machine::CBIE>()
-            || actual.read::<machine::CBCFE>() != value.read::<machine::CBCFE>()
-            || actual.read::<machine::CBZE>() != value.read::<machine::CBZE>()
+        let actual = csrr!(EnvConfig).map(EnvConfig::<Read>::from_bits)?;
+        if actual.read_field::<machine::CBIE>() != value.read_field::<machine::CBIE>()
+            || actual.read_field::<machine::CBCFE>() != value.read_field::<machine::CBCFE>()
+            || actual.read_field::<machine::CBZE>() != value.read_field::<machine::CBZE>()
         {
             return Err(Error::NotSupported);
         }
@@ -85,10 +79,10 @@ impl Hart {
         }
         csrr!(machine::SecurityConfig)?;
         // SAFETY: Initial setup owns the seed grant and the CSR probe succeeded.
-        unsafe { machine::SecurityConfig::enable_supervisor_seed() };
+        unsafe { machine::SecurityConfig::set_bit::<machine::SSEED>() };
         if csrr!(machine::SecurityConfig)
-            .map(machine::SecurityConfigReadValue::from_bits)?
-            .read::<machine::SSEED>()
+            .map(machine::SecurityConfig::<Read>::from_bits)?
+            .read_field::<machine::SSEED>()
             != machine::FeatureState::Enabled
         {
             return Err(Error::NotSupported);

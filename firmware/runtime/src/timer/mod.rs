@@ -6,24 +6,17 @@ mod time;
 
 use crate::{
     Error, Result,
+    fault_recovery::{csrr, csrw},
     hart::HartLocal,
     irq::{self, LocalIrqDisabled},
-    recovery::{csrr, csrw},
 };
 use alloc::boxed::Box;
-use csr::{machine as registers, supervisor};
+use csr::{Read, Write, machine as registers, supervisor};
 use machine::{MachineTimer, MachineTimerState};
 #[cfg(target_pointer_width = "64")]
-use registers::{
-    EnvironmentConfig as Configuration, EnvironmentConfigReadValue as ConfigurationReadValue,
-    EnvironmentConfigWriteValue as ConfigurationWriteValue, STCE,
-};
+use registers::{EnvironmentConfig as Configuration, STCE};
 #[cfg(target_pointer_width = "32")]
-use registers::{
-    EnvironmentConfigHigh as Configuration,
-    EnvironmentConfigHighReadValue as ConfigurationReadValue,
-    EnvironmentConfigHighWriteValue as ConfigurationWriteValue, STCEH as STCE,
-};
+use registers::{EnvironmentConfigHigh as Configuration, STCEH as STCE};
 use spin::Once;
 
 pub use device::TimerDevice;
@@ -164,16 +157,17 @@ impl Timer {
         #[cfg(target_pointer_width = "32")]
         csrr!(supervisor::TimerCompareHigh)?;
 
-        let current = csrr!(Configuration).map(ConfigurationReadValue::from_bits)?;
-        if !current.supervisor_timer_enabled() {
-            let mut value = ConfigurationWriteValue::from(current);
-            value.write::<STCE>(registers::FeatureState::Enabled);
+        let current = csrr!(Configuration).map(Configuration::<Read>::from_bits)?;
+        if current.read_field::<STCE>() != registers::FeatureState::Enabled {
+            let mut value = Configuration::<Write>::from(current);
+            value.write_field::<STCE>(registers::FeatureState::Enabled);
             // Initial hart setup excludes IRQs and has no lower-mode context.
             // Preserve translation, FWFT, and other environment fields.
             csrw!(Configuration, usize::from(value))?;
-            if !csrr!(Configuration)
-                .map(ConfigurationReadValue::from_bits)?
-                .supervisor_timer_enabled()
+            if csrr!(Configuration)
+                .map(Configuration::<Read>::from_bits)?
+                .read_field::<STCE>()
+                != registers::FeatureState::Enabled
             {
                 return Err(Error::NotSupported);
             }

@@ -1,6 +1,6 @@
 //! Trap installation and next-stage architectural context.
 #[cfg(target_pointer_width = "32")]
-use crate::recovery::csrr;
+use crate::fault_recovery::csrr;
 use crate::trap::entry;
 use crate::{
     Error, Result,
@@ -8,7 +8,7 @@ use crate::{
     irq,
 };
 use csr::{
-    machine, supervisor,
+    Write, machine, supervisor,
     values::{
         counter::CounterSet,
         trap::{Exception, ExceptionSet, InterruptSet},
@@ -47,9 +47,9 @@ pub unsafe extern "C" fn prepare_traps() {
     unsafe {
         install(entry::trap_entry);
         machine::Status::modify(|_, status| {
-            status.write::<machine::MPRV>(machine::AccessPrivilege::Current);
+            status.write_field::<machine::MPRV>(machine::AccessPrivilege::Current);
             #[cfg(target_pointer_width = "64")]
-            status.write::<machine::MDT>(machine::DoubleTrapState::Clear);
+            status.write_field::<machine::MDT>(machine::DoubleTrapState::Clear);
         });
     }
     // Install the basic vector before probing so an absent mstatush can recover.
@@ -60,12 +60,12 @@ pub unsafe extern "C" fn prepare_traps() {
         // SAFETY: The probe confirmed mstatush; startup owns trap setup.
         unsafe {
             machine::StatusHigh::modify(|_, status| {
-                status.write::<machine::MDT>(machine::DoubleTrapState::Clear);
+                status.write_field::<machine::MDT>(machine::DoubleTrapState::Clear);
             });
             install(entry::trap_entry_high);
         }
     }
-    if machine::Isa::read().has_hypervisor() {
+    if machine::Isa::read().has_extension('H') {
         // SAFETY: H is present and startup owns trap setup.
         unsafe {
             install(entry::trap_entry_hypervisor);
@@ -79,14 +79,14 @@ pub unsafe extern "C" fn prepare_traps() {
 /// Checks the Direct trap entry installed by controlled Runtime boot on this hart.
 pub(crate) fn traps_ready() -> bool {
     let vector = machine::TrapVector::read();
-    let base = usize::from(vector.read::<machine::BASE>().address());
+    let base = usize::from(vector.read_field::<machine::BASE>().address());
     let entry_matches = base == entry::trap_entry as *const () as usize
         || base == entry::trap_entry_hypervisor as *const () as usize;
     #[cfg(target_pointer_width = "32")]
     let entry_matches = entry_matches || base == entry::trap_entry_high as *const () as usize;
-    vector.read::<machine::MODE>() == VectorMode::Direct
+    vector.read_field::<machine::MODE>() == VectorMode::Direct
         && entry_matches
-        && machine::Status::read().read::<machine::MPRV>() == machine::AccessPrivilege::Current
+        && machine::Status::read().read_field::<machine::MPRV>() == machine::AccessPrivilege::Current
 }
 
 /// Installs a machine trap vector for the current hart.
@@ -98,16 +98,14 @@ pub(crate) fn traps_ready() -> bool {
 /// Every optional CSR used by that entry must exist on this hart.
 unsafe fn install(entry: unsafe extern "C" fn()) {
     let base = VectorBase::new((entry as *const () as usize).into()).expect("aligned trap vector");
+    let mut vector = machine::TrapVector::<Write>::default();
+    vector.write_field::<machine::BASE>(base);
+    vector.write_field::<machine::MODE>(TargetVectorMode::Direct);
     // SAFETY: The caller supplies a Runtime trap entry.
-    unsafe {
-        machine::TrapVector::write(machine::TrapVectorWriteValue::new(
-            base,
-            TargetVectorMode::Direct,
-        ))
-    }
+    unsafe { machine::TrapVector::write(vector) }
 }
 
-/// Configures the initial supervisor environment, delegation, and FWFT state.
+/// Configures the initial supervisor environment, delegation, and firmware features.
 ///
 /// Runtime excludes local interrupts and requires its initial startup phase.
 /// Configuration succeeds once; repeat calls leave hardware and locks unchanged.
@@ -182,15 +180,12 @@ pub(super) fn complete_setup() {
     *phase = SetupPhase::Entered;
 }
 
-pub(crate) fn set_return_mode(
-    status: &mut machine::StatusWriteValue,
-    mode: machine::TargetPrivilege,
-) {
-    status.write::<machine::MPP>(mode);
-    status.write::<machine::MPIE>(machine::Interrupt::Enabled);
-    status.write::<machine::SIE>(machine::Interrupt::Disabled);
+pub(crate) fn set_return_mode(status: &mut machine::Status<Write>, mode: machine::TargetPrivilege) {
+    status.write_field::<machine::MPP>(mode);
+    status.write_field::<machine::MPIE>(machine::Interrupt::Enabled);
+    status.write_field::<machine::SIE>(machine::Interrupt::Disabled);
     #[cfg(target_pointer_width = "64")]
-    status.write::<machine::MPV>(machine::Virtualization::Off);
+    status.write_field::<machine::MPV>(machine::Virtualization::Off);
 }
 
 /// Prepares translation and interrupt state for a new supervisor stage.
@@ -241,7 +236,7 @@ pub(super) unsafe fn stage_next_mode(start_addr: usize, next_mode: machine::Targ
         // SAFETY: The probe succeeded; boot owns the outgoing trap state.
         unsafe {
             machine::StatusHigh::modify(|_, high| {
-                high.write::<machine::MPV>(machine::Virtualization::Off);
+                high.write_field::<machine::MPV>(machine::Virtualization::Off);
             });
         }
     }

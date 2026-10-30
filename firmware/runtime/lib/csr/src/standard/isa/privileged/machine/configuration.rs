@@ -1,5 +1,6 @@
 //! Machine configuration.
 use crate::macros::csr;
+use crate::{Read, Write};
 
 /// A legal RV64 supervisor pointer-masking mode.
 #[repr(usize)]
@@ -109,16 +110,22 @@ csr! {
 }
 
 impl SecurityConfig {
-    /// Grants S-mode access to `seed` with one CSRRS instruction.
+    /// Sets a security field with one CSRRS instruction.
     /// Other security and PMP lock fields retain their values.
     ///
     /// # Safety
-    /// Run on a hart with mseccfg during initial security-policy setup.
-    pub unsafe fn enable_supervisor_seed() {
-        let mut mask = SecurityConfigWriteValue(0);
-        mask.write::<SSEED>(FeatureState::Enabled);
+    ///
+    /// Execute in M-mode on a hart with `mseccfg`. The caller must satisfy the
+    /// selected field's security-policy requirements and coordinate other
+    /// firmware users of this register.
+    #[inline]
+    pub unsafe fn set_bit<
+        F: crate::value::WriteField<SecurityConfig<Write>, Value = FeatureState>,
+    >() {
+        let mut mask = SecurityConfig::<Write>::default();
+        mask.write_field::<F>(FeatureState::Enabled);
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-        // SAFETY: the caller owns this grant; CSRRS preserves unrelated locks.
+        // SAFETY: the caller owns this update; CSRRS preserves unrelated locks.
         unsafe {
             core::arch::asm!("csrs {csr}, {mask}", csr = const Self::NUMBER,
             mask = in(reg) usize::from(mask), options(nostack));
@@ -131,30 +138,15 @@ impl SecurityConfig {
     }
 }
 
-impl EnvironmentConfigReadValue {
-    /// Returns whether Sstc controls supervisor timer pending state on RV64.
-    #[cfg(target_pointer_width = "64")]
-    pub fn supervisor_timer_enabled(self) -> bool {
-        self.read::<STCE>() == FeatureState::Enabled
+impl From<EnvironmentConfig<Read>> for EnvironmentConfig<Write> {
+    fn from(value: EnvironmentConfig<Read>) -> Self {
+        Self::from_raw(value.0)
     }
 }
 
-impl EnvironmentConfigHighReadValue {
-    /// Returns whether Sstc controls supervisor timer pending state on RV32.
-    pub fn supervisor_timer_enabled(self) -> bool {
-        self.read::<STCEH>() == FeatureState::Enabled
-    }
-}
-
-impl From<EnvironmentConfigReadValue> for EnvironmentConfigWriteValue {
-    fn from(value: EnvironmentConfigReadValue) -> Self {
-        Self(value.0)
-    }
-}
-
-impl From<EnvironmentConfigHighReadValue> for EnvironmentConfigHighWriteValue {
-    fn from(value: EnvironmentConfigHighReadValue) -> Self {
-        Self(value.0)
+impl From<EnvironmentConfigHigh<Read>> for EnvironmentConfigHigh<Write> {
+    fn from(value: EnvironmentConfigHigh<Read>) -> Self {
+        Self::from_raw(value.0)
     }
 }
 
@@ -196,23 +188,23 @@ mod tests {
 
     #[test]
     fn low_fields_preserve_unrelated_bits_and_reserved_encodings() {
-        let original = EnvironmentConfigReadValue::from_bits((1 << 0) | (2 << 4));
-        let mut value = EnvironmentConfigWriteValue::from(original);
-        value.write::<LPE>(FeatureState::Enabled);
-        value.write::<SSE>(FeatureState::Enabled);
+        let original = EnvironmentConfig::<Read>::from_bits((1 << 0) | (2 << 4));
+        let mut value = EnvironmentConfig::<Write>::from(original);
+        value.write_field::<LPE>(FeatureState::Enabled);
+        value.write_field::<SSE>(FeatureState::Enabled);
         assert_eq!(
             usize::from(value),
             (1 << 0) | (2 << 4) | (1 << 2) | (1 << 3)
         );
-        assert_eq!(value.read::<CBIE>(), CacheBlockInvalidate::Unknown(2));
+        assert_eq!(value.read_field::<CBIE>(), CacheBlockInvalidate::Unknown(2));
     }
 
     #[test]
     fn rv32_high_fields_match_the_architectural_positions() {
-        let mut value = EnvironmentConfigHighWriteValue::from_bits(0);
-        value.write::<DTEH>(FeatureState::Enabled);
-        value.write::<ADUEH>(FeatureState::Enabled);
-        value.write::<STCEH>(FeatureState::Enabled);
+        let mut value = EnvironmentConfigHigh::<Write>::default();
+        value.write_field::<DTEH>(FeatureState::Enabled);
+        value.write_field::<ADUEH>(FeatureState::Enabled);
+        value.write_field::<STCEH>(FeatureState::Enabled);
         assert_eq!(usize::from(value), (1 << 27) | (1 << 29) | (1 << 31));
     }
 
@@ -231,11 +223,11 @@ mod tests {
     #[cfg(target_pointer_width = "64")]
     #[test]
     fn rv64_high_fields_and_pointer_masking_use_the_upper_word() {
-        let mut value = EnvironmentConfigWriteValue::from_bits(0);
-        value.write::<PMM>(PointerMasking::Bits7);
-        value.write::<DTE>(FeatureState::Enabled);
-        value.write::<ADUE>(FeatureState::Enabled);
-        value.write::<STCE>(FeatureState::Enabled);
+        let mut value = EnvironmentConfig::<Write>::default();
+        value.write_field::<PMM>(PointerMasking::Bits7);
+        value.write_field::<DTE>(FeatureState::Enabled);
+        value.write_field::<ADUE>(FeatureState::Enabled);
+        value.write_field::<STCE>(FeatureState::Enabled);
         assert_eq!(
             usize::from(value),
             (2 << 32) | (1 << 59) | (1 << 61) | (1 << 63)

@@ -3,7 +3,7 @@
 
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 use csr::values::trap::{CauseValue, TrapCause};
-use csr::{machine, values::trap::Exception};
+use csr::{Write, machine, values::trap::Exception};
 
 use super::{Error, Fault, decode::ValueKind, frame::TrapInfo};
 
@@ -36,7 +36,7 @@ macro_rules! access_byte {
                     "3:",
                     "csrw {status_csr}, {saved_status}",
                     ".option pop",
-                    crate::recovery::fault_site!(),
+                    crate::fault_recovery::fault_site!(),
                     status_csr = const machine::Status::NUMBER,
                     causes = const $causes,
                     data = inout(reg) data,
@@ -82,15 +82,15 @@ enum AccessKind {
 
 fn access_status(info: &TrapInfo, kind: AccessKind) -> Result<usize, Error> {
     let endianness = match info.origin() {
-        machine::Privilege::User => info.status.read::<machine::UBE>(),
+        machine::Privilege::User => info.status.read_field::<machine::UBE>(),
         machine::Privilege::Supervisor => {
             #[cfg(target_pointer_width = "32")]
             {
-                info.status_high.read::<machine::SBE>()
+                info.status_high.read_field::<machine::SBE>()
             }
             #[cfg(target_pointer_width = "64")]
             {
-                info.status.read::<machine::SBE>()
+                info.status.read_field::<machine::SBE>()
             }
         }
         _ => return Err(Error::Unsupported),
@@ -105,14 +105,15 @@ fn access_status(info: &TrapInfo, kind: AccessKind) -> Result<usize, Error> {
         machine::Privilege::Supervisor => machine::TargetPrivilege::Supervisor,
         _ => unreachable!("origin checked above"),
     };
-    let mut status = machine::StatusWriteValue::for_return(privilege);
-    status.write::<machine::SUM>(info.status.read::<machine::SUM>());
-    status.write::<machine::MXR>(if kind == AccessKind::Instruction {
+    let mut status = machine::Status::<Write>::default();
+    status.write_field::<machine::MPP>(privilege);
+    status.write_field::<machine::SUM>(info.status.read_field::<machine::SUM>());
+    status.write_field::<machine::MXR>(if kind == AccessKind::Instruction {
         machine::ExecutableReadAccess::Enabled
     } else {
-        info.status.read::<machine::MXR>()
+        info.status.read_field::<machine::MXR>()
     });
-    status.write::<machine::MPRV>(machine::AccessPrivilege::Previous);
+    status.write_field::<machine::MPRV>(machine::AccessPrivilege::Previous);
     Ok(status.into())
 }
 
@@ -120,36 +121,39 @@ fn access_status(info: &TrapInfo, kind: AccessKind) -> Result<usize, Error> {
 // Byte loads avoid introducing an alignment fault while inspecting the fault PC.
 pub(super) fn fetch(info: &TrapInfo) -> Result<(u32, usize), Error> {
     let status = access_status(info, AccessKind::Instruction)?;
-    let byte = |offset: usize| -> Result<u32, Error> {
-        let address = info.epc.checked_add(offset).ok_or(Error::Fault(Fault {
-            cause: Exception::InstructionAccess,
-            address: info.epc.into(),
-        }))?;
-        access_byte!(
-            "lbu {data}, 0({address})",
-            (1 << 5) | (1 << 13),
-            address,
-            0usize,
-            status
-        )
-        .map(|byte| byte as u32)
-        .map_err(|error| match error {
-            Error::Fault(mut fault) => {
-                fault.cause = match fault.cause {
-                    Exception::LoadAccess => Exception::InstructionAccess,
-                    Exception::LoadPage => Exception::InstructionPage,
-                    other => other,
-                };
-                Error::Fault(fault)
-            }
-            other => other,
-        })
-    };
-    let low = byte(0)? | (byte(1)? << 8);
+    let low = fetch_byte(info.epc, 0, status)? | (fetch_byte(info.epc, 1, status)? << 8);
     if low & 3 != 3 {
         return Ok((low, 2));
     }
-    Ok((low | (byte(2)? << 16) | (byte(3)? << 24), 4))
+    Ok((
+        low | (fetch_byte(info.epc, 2, status)? << 16) | (fetch_byte(info.epc, 3, status)? << 24),
+        4,
+    ))
+}
+
+fn fetch_byte(pc: usize, offset: usize, status: usize) -> Result<u32, Error> {
+    let address = pc.checked_add(offset).ok_or(Error::Fault(Fault {
+        cause: Exception::InstructionAccess,
+        address: pc.into(),
+    }))?;
+    match access_byte!(
+        "lbu {data}, 0({address})",
+        (1 << 5) | (1 << 13),
+        address,
+        0usize,
+        status
+    ) {
+        Ok(byte) => Ok(byte as u32),
+        Err(Error::Fault(mut fault)) => {
+            fault.cause = match fault.cause {
+                Exception::LoadAccess => Exception::InstructionAccess,
+                Exception::LoadPage => Exception::InstructionPage,
+                other => other,
+            };
+            Err(Error::Fault(fault))
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn check_width(address: usize, kind: ValueKind) -> Result<(), Error> {
@@ -200,13 +204,17 @@ pub(super) fn write(info: &TrapInfo, value: usize, kind: ValueKind) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_pointer_width = "32")]
+    use csr::Read;
 
     fn context(privilege: machine::TargetPrivilege) -> TrapInfo {
+        let mut status = machine::Status::<Write>::default();
+        status.write_field::<machine::MPP>(privilege);
         TrapInfo {
             epc: 0x1000,
-            status: machine::StatusWriteValue::for_return(privilege).into(),
+            status: status.into(),
             #[cfg(target_pointer_width = "32")]
-            status_high: machine::StatusHighReadValue::from_bits(0),
+            status_high: machine::StatusHigh::<Read>::from_bits(0),
             #[cfg(target_pointer_width = "64")]
             status_high: 0,
             has_hypervisor: false,
@@ -224,18 +232,19 @@ mod tests {
             machine::TargetPrivilege::Supervisor,
         ] {
             let mut info = context(privilege);
-            let mut status = machine::StatusWriteValue::for_return(privilege);
+            let mut status = machine::Status::<Write>::default();
+            status.write_field::<machine::MPP>(privilege);
             match privilege {
                 machine::TargetPrivilege::User => {
-                    status.write::<machine::UBE>(machine::Endianness::Big);
+                    status.write_field::<machine::UBE>(machine::Endianness::Big);
                 }
                 machine::TargetPrivilege::Supervisor => {
                     #[cfg(target_pointer_width = "32")]
                     {
-                        info.status_high = machine::StatusHighReadValue::from_bits(1 << 4);
+                        info.status_high = machine::StatusHigh::<Read>::from_bits(1 << 4);
                     }
                     #[cfg(target_pointer_width = "64")]
-                    status.write::<machine::SBE>(machine::Endianness::Big);
+                    status.write_field::<machine::SBE>(machine::Endianness::Big);
                 }
                 _ => unreachable!(),
             }

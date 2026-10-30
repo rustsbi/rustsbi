@@ -79,7 +79,7 @@ impl MachineTimerState {
         self.machine.device.set_compare(self.hart, deadline);
         if matches!(self.target, Target::Supervisor) {
             // SAFETY: This binding owns supervisor delivery on the current hart.
-            unsafe { machine::InterruptPending::clear::<machine::STIP>() };
+            unsafe { machine::InterruptPending::clear_bit::<machine::STIP>() };
         }
         self.set_enabled(machine::Interrupt::Enabled, irq);
     }
@@ -89,7 +89,7 @@ impl MachineTimerState {
         self.machine.device.set_compare(self.hart, u64::MAX);
         if matches!(self.target, Target::Supervisor) {
             // SAFETY: This binding owns supervisor delivery on the current hart.
-            unsafe { machine::InterruptPending::clear::<machine::STIP>() };
+            unsafe { machine::InterruptPending::clear_bit::<machine::STIP>() };
         }
     }
 
@@ -98,7 +98,7 @@ impl MachineTimerState {
         self.machine.device.acknowledge(self.hart);
         match self.target {
             // SAFETY: The current hart's fixed supervisor binding owns STIP.
-            Target::Supervisor => unsafe { machine::InterruptPending::set::<machine::STIP>() },
+            Target::Supervisor => unsafe { machine::InterruptPending::set_bit::<machine::STIP>() },
             Target::Machine(handler) => match handler.on_interrupt() {
                 Some(deadline) => self.set_deadline(deadline, irq),
                 None => self.cancel(irq),
@@ -110,7 +110,7 @@ impl MachineTimerState {
         // SAFETY: Timer operations and trap entry keep MIE clear. The native
         // binding is published before enabling this source for its fixed target.
         unsafe {
-            machine::InterruptEnable::modify(|_, value| value.write::<machine::MTIE>(state));
+            machine::InterruptEnable::modify(|_, value| value.write_field::<machine::MTIE>(state));
         }
     }
 }

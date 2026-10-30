@@ -20,7 +20,7 @@ fn with_vmid(vmid: usize, fence_fn: impl FnOnce()) {
     assert!(crate::boot::traps_ready());
     assert_eq!(usize::from(machine::Scratch::read()), 0);
     assert_eq!(
-        machine::Status::read().read::<machine::MPRV>(),
+        machine::Status::read().read_field::<machine::MPRV>(),
         machine::AccessPrivilege::Current
     );
     irq::with_local_disabled(|_| {

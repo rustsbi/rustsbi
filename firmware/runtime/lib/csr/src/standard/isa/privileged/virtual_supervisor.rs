@@ -63,24 +63,3 @@ csr! {
     /// See <https://docs.riscv.org/reference/isa/priv/hypervisor.html#vstval>.
     TrapValue { 0x243, r: TrapValueBits, w: TrapValueBits }
 }
-
-impl TrapVectorWriteValue {
-    /// Combines a base address and dispatch mode; hardware may require stricter alignment.
-    pub fn new(base: VectorBase, mode: TargetVectorMode) -> Self {
-        let mut value = Self(0);
-        value.write::<BASE>(base);
-        value.write::<MODE>(mode);
-        value
-    }
-}
-
-impl StatusWriteValue {
-    /// Creates guest trap-entry state with interrupts and optional state
-    /// disabled.
-    pub fn for_trap(previous: SupervisorPrivilege, interrupts: Interrupt) -> Self {
-        let mut value = Self(0);
-        value.write::<SPP>(previous);
-        value.write::<SPIE>(interrupts);
-        value
-    }
-}

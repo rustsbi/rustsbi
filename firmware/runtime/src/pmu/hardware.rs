@@ -1,9 +1,9 @@
 //! Physical PMU counter and event-selector instructions.
 
 use super::{Counters, HardwareCounter, HpmCounter};
-use crate::recovery::{csrr, csrw};
+use crate::fault_recovery::{csrr, csrw};
 use crate::{Error, Result};
-use csr::{machine, values::counter::CounterValue};
+use csr::{machine, values::counter::{CounterValue, InhibitedCounters}};
 use seq_macro::seq;
 
 pub(super) fn discover() -> Result<[u8; 32]> {
@@ -93,7 +93,7 @@ impl Counters<'_> {
         if self.state.inhibit {
             // SAFETY: Runtime holds the hardware lock and excludes local IRQs.
             unsafe {
-                csr::machine::CounterInhibit::initialize_programmable();
+                machine::CounterInhibit::write(InhibitedCounters::programmable());
             }
         }
     }

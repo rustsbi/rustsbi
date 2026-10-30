@@ -23,7 +23,7 @@ mod irq;
 pub mod machine_irq;
 pub mod memory;
 pub mod pmu;
-mod recovery;
+mod fault_recovery;
 pub mod soc;
 mod spacemit_k1;
 mod sunxi_rtc_v203;

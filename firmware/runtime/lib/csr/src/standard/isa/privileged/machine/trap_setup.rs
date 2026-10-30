@@ -1,5 +1,6 @@
 //! Machine trap setup.
 use crate::macros::csr;
+use crate::{Read, Write};
 use crate::values::{
     counter::CounterSet,
     trap::{ExceptionSet, InterruptSet},
@@ -7,8 +8,6 @@ use crate::values::{
 };
 
 csr! {
-    pub struct IsaValue(usize);
-
     /// Machine status register (`mstatus`).
     ///
     /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mstatus>.
@@ -49,14 +48,14 @@ csr! {
     /// Machine ISA register (`misa`).
     ///
     /// See <https://docs.riscv.org/reference/isa/priv/machine.html#misa>.
-    Isa { 0x301, r: IsaValue,
+    Isa { 0x301, r,
         /// See <https://docs.riscv.org/reference/isa/priv/machine.html#misa>.
         ///
         /// # Safety
         ///
         /// The selected extensions and instruction alignment must support all
         /// live code, register state, and interrupt handlers on this hart.
-        unsafe w: IsaValue
+        unsafe w
     }
     /// Machine exception delegation register (`medeleg`).
     ///
@@ -138,9 +137,9 @@ impl Status {
     /// Execute in M-mode on the intended hart. Satisfy this register's write
     /// requirements and permit interrupt reentry.
     #[inline]
-    pub unsafe fn set<F: crate::value::WriteField<StatusWriteValue, Value = Interrupt>>() {
-        let mut mask = StatusWriteValue(0);
-        mask.write::<F>(Interrupt::Enabled);
+    pub unsafe fn set_bit<F: crate::value::WriteField<Status<Write>, Value = Interrupt>>() {
+        let mut mask = Status::<Write>::from_raw(0);
+        mask.write_field::<F>(Interrupt::Enabled);
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         // SAFETY: The caller establishes current-hart access and write safety.
         unsafe {
@@ -166,10 +165,10 @@ impl Status {
     /// Execute in M-mode on the intended hart and satisfy this register's write
     /// requirements.
     #[inline]
-    pub unsafe fn clear<F: crate::value::WriteField<StatusWriteValue, Value = Interrupt>>()
-    -> StatusReadValue {
-        let mut mask = StatusWriteValue(0);
-        mask.write::<F>(Interrupt::Enabled);
+    pub unsafe fn clear_bit<F: crate::value::WriteField<Status<Write>, Value = Interrupt>>()
+    -> Status<Read> {
+        let mut mask = Status::<Write>::from_raw(0);
+        mask.write_field::<F>(Interrupt::Enabled);
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         {
             let previous: usize;
@@ -183,7 +182,7 @@ impl Status {
                     options(nostack),
                 );
             }
-            StatusReadValue(previous)
+            Status::<Read>::from_raw(previous)
         }
         #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
         {
@@ -199,49 +198,14 @@ impl From<bool> for Virtualization {
     }
 }
 
-impl StatusWriteValue {
-    /// Creates a return context with interrupts and optional state disabled.
-    pub fn for_return(privilege: TargetPrivilege) -> Self {
-        let mut value = Self(0);
-        value.write::<MPP>(privilege);
-        value
-    }
-}
-
-impl IsaValue {
+impl Isa {
     /// Reports an implemented base extension by its uppercase ISA letter.
+    ///
+    /// The architecture defines `misa` bits 0 through 25 as extensions A
+    /// through Z. See
+    /// <https://docs.riscv.org/reference/isa/priv/machine.html#misa>.
     pub const fn has_extension(self, extension: char) -> bool {
         let code = extension as u32;
         code >= 'A' as u32 && code <= 'Z' as u32 && self.0 & (1 << (code - 'A' as u32)) != 0
-    }
-
-    pub const fn has_hypervisor(self) -> bool {
-        self.0 & (1 << 7) != 0
-    }
-
-    pub const fn has_supervisor(self) -> bool {
-        self.0 & (1 << 18) != 0
-    }
-
-    pub const fn has_user(self) -> bool {
-        self.0 & (1 << 20) != 0
-    }
-}
-
-#[cfg(target_pointer_width = "32")]
-impl StatusHighWriteValue {
-    /// Creates a nonvirtual return context with big-endian accesses disabled.
-    pub const fn native() -> Self {
-        Self(0)
-    }
-}
-
-impl TrapVectorWriteValue {
-    /// Combines a base address and dispatch mode; hardware may require stricter alignment.
-    pub fn new(base: VectorBase, mode: TargetVectorMode) -> Self {
-        let mut value = Self(0);
-        value.write::<BASE>(base);
-        value.write::<MODE>(mode);
-        value
     }
 }

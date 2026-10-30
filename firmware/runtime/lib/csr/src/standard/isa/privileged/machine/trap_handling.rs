@@ -1,21 +1,20 @@
 //! Machine trap handling.
 use crate::macros::csr;
+use crate::{Write};
 use crate::values::{Address, TrapInstructionBits, TrapValueBits, trap::CauseValue};
 
 csr! {
-    pub struct ScratchValue(usize);
-
     /// Machine trap scratch register (`mscratch`).
     ///
     /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mscratch>.
-    Scratch { 0x340, r: ScratchValue,
+    Scratch { 0x340, r,
         /// See
         /// <https://docs.riscv.org/reference/isa/priv/machine.html#mscratch>.
         ///
         /// # Safety
         ///
         /// Preserve the active trap handler's scratch and stack protocol.
-        unsafe w: ScratchValue
+        unsafe w
     }
     /// Machine exception program counter (`mepc`).
     ///
@@ -40,7 +39,7 @@ csr! {
     /// Machine interrupt-pending register (`mip`).
     ///
     /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mip>.
-    /// Use `set` or `clear` to update software-controlled pending bits.
+    /// Use `set_bit` or `clear_bit` to update software-controlled pending bits.
     /// Generic whole-register writes and read/modify/write are unavailable.
     /// When `menvcfg.STCE` is set, `STIP` reflects `stimecmp` and is read-only.
     /// Clearing `STCE` restores software control of `STIP`.
@@ -71,11 +70,11 @@ impl InterruptPending {
     /// Execute in M-mode on the intended hart and coordinate pending-state
     /// changes with its interrupt-delivery owner.
     #[inline]
-    pub unsafe fn set<
-        F: crate::value::WriteField<InterruptPendingWriteValue, Value = PendingState>,
+    pub unsafe fn set_bit<
+        F: crate::value::WriteField<InterruptPending<Write>, Value = PendingState>,
     >() {
-        let mut mask = InterruptPendingWriteValue::cleared();
-        mask.write::<F>(PendingState::Pending);
+        let mut mask = InterruptPending::<Write>::default();
+        mask.write_field::<F>(PendingState::Pending);
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         // SAFETY: these instructions update software-controlled pending bits.
         // They preserve the distinction between software SEIP and its external signal.
@@ -106,11 +105,11 @@ impl InterruptPending {
     /// Execute in M-mode on the intended hart and coordinate pending-state
     /// changes with its interrupt-delivery owner.
     #[inline]
-    pub unsafe fn clear<
-        F: crate::value::WriteField<InterruptPendingWriteValue, Value = PendingState>,
+    pub unsafe fn clear_bit<
+        F: crate::value::WriteField<InterruptPending<Write>, Value = PendingState>,
     >() {
-        let mut mask = InterruptPendingWriteValue::cleared();
-        mask.write::<F>(PendingState::Pending);
+        let mut mask = InterruptPending::<Write>::default();
+        mask.write_field::<F>(PendingState::Pending);
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         // SAFETY: CSRRC changes only the software-controlled pending bits and
         // excludes the external SEIP signal from the update calculation.
@@ -130,14 +129,7 @@ impl InterruptPending {
     }
 }
 
-impl InterruptPendingWriteValue {
-    /// Creates a value with all software-writable pending bits clear.
-    pub const fn cleared() -> Self {
-        Self(0)
-    }
-}
-
-impl From<usize> for ScratchValue {
+impl From<usize> for Scratch {
     fn from(value: usize) -> Self {
         Self(value)
     }

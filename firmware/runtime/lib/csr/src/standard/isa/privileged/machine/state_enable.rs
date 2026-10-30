@@ -69,18 +69,3 @@ csr! {
         unsafe w: StateEnableSet
     }
 }
-
-impl StateEnable0WriteValue {
-    /// Closes every writable permission in the low word.
-    pub const fn closed() -> Self {
-        Self(0)
-    }
-}
-
-#[cfg(target_pointer_width = "32")]
-impl StateEnable0HighWriteValue {
-    /// Closes every writable permission in the high word.
-    pub const fn closed() -> Self {
-        Self(0)
-    }
-}

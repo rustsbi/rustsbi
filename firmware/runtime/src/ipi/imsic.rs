@@ -3,7 +3,7 @@
 use crate::{
     Error, Result,
     irq::LocalIrqDisabled,
-    recovery::{csrr, csrw},
+    fault_recovery::{csrr, csrw},
 };
 use core::num::NonZeroU16;
 use csr::aia::imsic::ImsicRegister;

@@ -35,77 +35,75 @@ pub(super) fn redirect_trap(
             virtual_supervisor::Cause::write(cause);
             virtual_supervisor::TrapValue::write(tval.into());
             virtual_supervisor::Status::modify(|read, status| {
-                status.write::<virtual_supervisor::SPIE>(read.read::<virtual_supervisor::SIE>());
-                status.write::<virtual_supervisor::SIE>(machine::Interrupt::Disabled);
-                status.write::<virtual_supervisor::SPP>(privilege);
+                status.write_field::<virtual_supervisor::SPIE>(read.read_field::<virtual_supervisor::SIE>());
+                status.write_field::<virtual_supervisor::SIE>(machine::Interrupt::Disabled);
+                status.write_field::<virtual_supervisor::SPP>(privilege);
             });
         }
         // Keep MPV set: mret enters the guest's virtual trap handler.
         frame
             .status
-            .write::<machine::MPP>(machine::TargetPrivilege::Supervisor);
+            .write_field::<machine::MPP>(machine::TargetPrivilege::Supervisor);
         frame.epc = virtual_supervisor::TrapVector::read()
-            .read::<virtual_supervisor::BASE>()
+            .read_field::<virtual_supervisor::BASE>()
             .address()
             .into();
+        return;
+    }
+    if info.has_hypervisor {
+        record_hypervisor_trap(info, privilege, secondary);
+    }
+    // SAFETY: The saved context is lower-mode. These writes reproduce
+    // hardware entry into the supervisor handler.
+    unsafe {
+        supervisor::ExceptionPc::write(info.epc.into());
+        supervisor::Cause::write(cause);
+        supervisor::TrapValue::write(tval.into());
+    }
+    frame
+        .status
+        .write_field::<machine::SPIE>(info.status.read_field::<machine::SIE>());
+    frame
+        .status
+        .write_field::<machine::SIE>(machine::Interrupt::Disabled);
+    frame.status.write_field::<machine::SPP>(privilege);
+    frame
+        .status
+        .write_field::<machine::MPP>(machine::TargetPrivilege::Supervisor);
+    frame.leave_virtualization();
+    frame.epc = supervisor::TrapVector::read()
+        .read_field::<supervisor::BASE>()
+        .address()
+        .into();
+}
+
+fn record_hypervisor_trap(
+    info: &TrapInfo,
+    privilege: machine::SupervisorPrivilege,
+    secondary: Option<Fault>,
+) {
+    let virtualized = info.virtualized();
+    let guest_address = if secondary.is_none() && info.guest_address() {
+        machine::GuestAddress::GuestVirtual
     } else {
-        if info.has_hypervisor {
-            // SAFETY: Reproduce HS trap-entry metadata from the immutable origin.
-            unsafe {
-                hypervisor::Status::modify(|_, status| {
-                    status.write::<hypervisor::SPV>(info.virtualized().into());
-                    if info.virtualized() {
-                        status.write::<hypervisor::SPVP>(privilege);
-                    }
-                    status.write::<hypervisor::GVA>(
-                        if secondary.is_none() && info.guest_address() {
-                            machine::GuestAddress::GuestVirtual
-                        } else {
-                            machine::GuestAddress::Other
-                        },
-                    );
-                });
+        machine::GuestAddress::Other
+    };
+    // Secondary faults here use one-stage S/U translation.
+    let (trap_value, instruction) = match secondary {
+        None => (info.tval2, info.instruction),
+        Some(_) => (0, 0),
+    };
+    // SAFETY: The caller checked H is present. Dispatch owns this hart's
+    // HS trap metadata and reproduces it from the immutable trap origin.
+    unsafe {
+        hypervisor::Status::modify(|_, status| {
+            status.write_field::<hypervisor::SPV>(virtualized.into());
+            if virtualized {
+                status.write_field::<hypervisor::SPVP>(privilege);
             }
-            // Secondary faults here use one-stage S/U translation.
-            // SAFETY: Dispatch owns this hart's HS trap metadata.
-            unsafe {
-                hypervisor::TrapValue::write(
-                    (if secondary.is_none() { info.tval2 } else { 0 }).into(),
-                )
-            };
-            // SAFETY: Dispatch owns this hart's HS trap metadata.
-            unsafe {
-                hypervisor::TrapInstruction::write(
-                    (if secondary.is_none() {
-                        info.instruction
-                    } else {
-                        0
-                    })
-                    .into(),
-                )
-            };
-        }
-        // SAFETY: The saved context is lower-mode. These writes reproduce
-        // hardware entry into the supervisor handler.
-        unsafe {
-            supervisor::ExceptionPc::write(info.epc.into());
-            supervisor::Cause::write(cause);
-            supervisor::TrapValue::write(tval.into());
-        }
-        frame
-            .status
-            .write::<machine::SPIE>(info.status.read::<machine::SIE>());
-        frame
-            .status
-            .write::<machine::SIE>(machine::Interrupt::Disabled);
-        frame.status.write::<machine::SPP>(privilege);
-        frame
-            .status
-            .write::<machine::MPP>(machine::TargetPrivilege::Supervisor);
-        frame.leave_virtualization();
-        frame.epc = supervisor::TrapVector::read()
-            .read::<supervisor::BASE>()
-            .address()
-            .into();
+            status.write_field::<hypervisor::GVA>(guest_address);
+        });
+        hypervisor::TrapValue::write(trap_value.into());
+        hypervisor::TrapInstruction::write(instruction.into());
     }
 }

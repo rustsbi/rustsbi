@@ -2,23 +2,18 @@
 
 use crate::{
     Error, Result,
+    fault_recovery::{csrr, csrw},
     hart::{Hart, HartId, IsaExtensions},
-    recovery::{csrr, csrw},
 };
 use bitflags::bitflags;
 use csr::machine::TargetPrivilege;
-use csr::{hypervisor, machine, supervisor, values::StateEnableSet};
+use csr::{Read, Write, hypervisor, machine, supervisor, values::StateEnableSet};
 #[cfg(target_pointer_width = "64")]
-use machine::{
-    AIA, CONTEXT, CSRIND, ENVCFG, IMSIC, SE0, StateEnable0 as Permissions,
-    StateEnable0ReadValue as PermissionsReadValue, StateEnable0WriteValue as PermissionsValue,
-};
+use machine::{AIA, CONTEXT, CSRIND, ENVCFG, IMSIC, SE0, StateEnable0 as Permissions};
 #[cfg(target_pointer_width = "32")]
 use machine::{
     AIAH as AIA, CONTEXTH as CONTEXT, CSRINDH as CSRIND, ENVCFGH as ENVCFG, IMSICH as IMSIC,
     SE0H as SE0, StateEnable0High as Permissions,
-    StateEnable0HighReadValue as PermissionsReadValue,
-    StateEnable0HighWriteValue as PermissionsValue,
 };
 
 bitflags! {
@@ -104,24 +99,24 @@ impl StateEnable {
         let aia = hart.extensions().contains(IsaExtensions::SSAIA);
 
         let indirect = aia || hart.extensions().contains(IsaExtensions::SSCSRIND);
-        let mut permissions = PermissionsValue::closed();
-        permissions.write::<SE0>(machine::FeatureState::Enabled);
-        permissions.write::<CONTEXT>(machine::FeatureState::Enabled);
-        permissions.write::<ENVCFG>(machine::FeatureState::Enabled);
-        permissions.write::<AIA>(aia.into());
+        let mut permissions = Permissions::<Write>::default();
+        permissions.write_field::<SE0>(machine::FeatureState::Enabled);
+        permissions.write_field::<CONTEXT>(machine::FeatureState::Enabled);
+        permissions.write_field::<ENVCFG>(machine::FeatureState::Enabled);
+        permissions.write_field::<AIA>(aia.into());
         // Supervisor IMSIC access is independent of the machine IPI transport.
         // Unimplemented state remains WARL zero on platforms without IMSIC.
-        permissions.write::<IMSIC>(aia.into());
-        permissions.write::<CSRIND>(indirect.into());
+        permissions.write_field::<IMSIC>(aia.into());
+        permissions.write_field::<CSRIND>(indirect.into());
         #[cfg(target_pointer_width = "32")]
         csrw!(
             machine::StateEnable0,
-            usize::from(machine::StateEnable0WriteValue::closed())
+            usize::from(machine::StateEnable0::<Write>::default())
         )?;
         csrw!(Permissions, usize::from(permissions))?;
-        let actual = csrr!(Permissions).map(PermissionsReadValue::from_bits)?;
-        if (aia && actual.read::<AIA>() != machine::FeatureState::Enabled)
-            || (indirect && actual.read::<CSRIND>() != machine::FeatureState::Enabled)
+        let actual = csrr!(Permissions).map(Permissions::<Read>::from_bits)?;
+        if (aia && actual.read_field::<AIA>() != machine::FeatureState::Enabled)
+            || (indirect && actual.read_field::<CSRIND>() != machine::FeatureState::Enabled)
         {
             return Err(Error::NotSupported);
         }
@@ -146,7 +141,7 @@ impl StateEnable {
 
     fn close_supervisor_access() -> Result<()> {
         seq_macro::seq!(N in 0..=3 {
-            csrw!(supervisor::StateEnable~N, usize::from(StateEnableSet::closed()))?;
+            csrw!(supervisor::StateEnable~N, usize::from(StateEnableSet::empty()))?;
         });
         // Read-only-one bits need not read back as numeric zero.
         Ok(())
@@ -154,7 +149,7 @@ impl StateEnable {
 
     fn close_hypervisor_access() -> Result<()> {
         seq_macro::seq!(N in 0..=3 {
-            csrw!(hypervisor::StateEnable~N, usize::from(StateEnableSet::closed()))?;
+            csrw!(hypervisor::StateEnable~N, usize::from(StateEnableSet::empty()))?;
         });
         #[cfg(target_pointer_width = "32")]
         {
@@ -163,7 +158,7 @@ impl StateEnable {
                 StateEnable3High as High3,
             };
             seq_macro::seq!(N in 0..=3 {
-                csrw!(High~N, usize::from(StateEnableSet::closed()))?;
+                csrw!(High~N, usize::from(StateEnableSet::empty()))?;
             });
         }
         Ok(())

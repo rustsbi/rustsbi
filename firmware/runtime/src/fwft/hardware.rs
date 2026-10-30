@@ -1,21 +1,18 @@
 //! CSR access and synchronization for the current hart's feature transaction.
 
 use super::{Feature, PointerMasking, Value};
-use crate::recovery::{csrr, csrw};
+use crate::fault_recovery::{csrr, csrw};
 use crate::{Error, Result};
-use csr::machine;
+use csr::{Read, Write, machine};
 use machine::{EnvironmentConfig as Low, FeatureState};
 
 #[cfg(target_pointer_width = "64")]
 use machine::{
-    ADUE, DTE, EnvironmentConfig as Upper, EnvironmentConfigReadValue as UpperReadValue,
-    EnvironmentConfigWriteValue as UpperValue,
+    ADUE, DTE, EnvironmentConfig as Upper,
 };
 #[cfg(target_pointer_width = "32")]
 use machine::{
     ADUEH as ADUE, DTEH as DTE, EnvironmentConfigHigh as Upper,
-    EnvironmentConfigHighReadValue as UpperReadValue,
-    EnvironmentConfigHighWriteValue as UpperValue,
 };
 
 pub(super) fn read(feature: Feature) -> Result<Value> {
@@ -35,21 +32,21 @@ pub(super) fn read(feature: Feature) -> Result<Value> {
         // SAFETY: the FWFT transaction owns these fixed, side-effect-free reads.
         Feature::LandingPad => {
             csrr!(Low)
-                .map(machine::EnvironmentConfigReadValue::from_bits)?
-                .read::<machine::LPE>()
+                .map(machine::EnvironmentConfig::<Read>::from_bits)?
+                .read_field::<machine::LPE>()
                 == FeatureState::Enabled
         }
         Feature::ShadowStack => {
             csrr!(Low)
-                .map(machine::EnvironmentConfigReadValue::from_bits)?
-                .read::<machine::SSE>()
+                .map(machine::EnvironmentConfig::<Read>::from_bits)?
+                .read_field::<machine::SSE>()
                 == FeatureState::Enabled
         }
         Feature::DoubleTrap => {
-            csrr!(Upper).map(UpperReadValue::from_bits)?.read::<DTE>() == FeatureState::Enabled
+            csrr!(Upper).map(Upper::<Read>::from_bits)?.read_field::<DTE>() == FeatureState::Enabled
         }
         Feature::PteAdUpdating => {
-            csrr!(Upper).map(UpperReadValue::from_bits)?.read::<ADUE>() == FeatureState::Enabled
+            csrr!(Upper).map(Upper::<Read>::from_bits)?.read_field::<ADUE>() == FeatureState::Enabled
         }
         Feature::PointerMasking => return read_pointer_masking().map(Value::PointerMasking),
     };
@@ -71,24 +68,24 @@ pub(super) fn write(feature: Feature, value: Value) -> Result<()> {
         }
         (Feature::LandingPad | Feature::ShadowStack, Value::Enabled(enabled)) => {
             // SAFETY: the IRQ-scoped transaction owns this configuration update.
-            let mut value = machine::EnvironmentConfigWriteValue::from(
-                csrr!(Low).map(machine::EnvironmentConfigReadValue::from_bits)?,
+            let mut value = machine::EnvironmentConfig::<Write>::from(
+                csrr!(Low).map(machine::EnvironmentConfig::<Read>::from_bits)?,
             );
             if feature == Feature::LandingPad {
-                value.write::<machine::LPE>(enabled.into());
+                value.write_field::<machine::LPE>(enabled.into());
             } else {
-                value.write::<machine::SSE>(enabled.into());
+                value.write_field::<machine::SSE>(enabled.into());
             }
             // SAFETY: unrelated fields and the active machine context are preserved.
             csrw!(Low, usize::from(value))
         }
         (Feature::DoubleTrap | Feature::PteAdUpdating, Value::Enabled(enabled)) => {
             // SAFETY: the IRQ-scoped transaction owns this configuration update.
-            let mut value = UpperValue::from(csrr!(Upper).map(UpperReadValue::from_bits)?);
+            let mut value = Upper::<Write>::from(csrr!(Upper).map(Upper::<Read>::from_bits)?);
             if feature == Feature::DoubleTrap {
-                value.write::<DTE>(enabled.into());
+                value.write_field::<DTE>(enabled.into());
             } else {
-                value.write::<ADUE>(enabled.into());
+                value.write_field::<ADUE>(enabled.into());
             }
             // SAFETY: only the selected lower-mode feature changes, with MPRV clear.
             csrw!(Upper, usize::from(value))?;
@@ -105,8 +102,8 @@ fn read_pointer_masking() -> Result<PointerMasking> {
     #[cfg(target_pointer_width = "64")]
     {
         // SAFETY: the Runtime entry contract holds; this read has no effects.
-        let value = csrr!(Low).map(machine::EnvironmentConfigReadValue::from_bits)?;
-        match value.read::<machine::PMM>() {
+        let value = csrr!(Low).map(machine::EnvironmentConfig::<Read>::from_bits)?;
+        match value.read_field::<machine::PMM>() {
             machine::PointerMaskingRead::Disabled => Ok(PointerMasking::Disabled),
             machine::PointerMaskingRead::Bits7 => Ok(PointerMasking::Bits7),
             machine::PointerMaskingRead::Bits16 => Ok(PointerMasking::Bits16),
@@ -121,10 +118,10 @@ fn write_pointer_masking(mode: PointerMasking) -> Result<()> {
     #[cfg(target_pointer_width = "64")]
     {
         // SAFETY: IRQ exclusion covers this field-preserving update.
-        let mut value = machine::EnvironmentConfigWriteValue::from(
-            csrr!(Low).map(machine::EnvironmentConfigReadValue::from_bits)?,
+        let mut value = machine::EnvironmentConfig::<Write>::from(
+            csrr!(Low).map(machine::EnvironmentConfig::<Read>::from_bits)?,
         );
-        value.write::<machine::PMM>(mode);
+        value.write_field::<machine::PMM>(mode);
         // SAFETY: only supervisor pointer masking changes, with no active
         // MPRV memory access or lower-mode instruction in this transaction.
         csrw!(Low, usize::from(value))
@@ -141,7 +138,7 @@ fn synchronize_translation() {
     // SAFETY: this M-mode configuration transaction owns translation changes.
     unsafe {
         core::arch::asm!("sfence.vma x0, x0", options(nostack));
-        if machine::Isa::read().has_hypervisor() {
+        if machine::Isa::read().has_extension('H') {
             core::arch::asm!(
                 ".option push",
                 ".option arch, +h",

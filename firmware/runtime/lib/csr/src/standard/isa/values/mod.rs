@@ -14,8 +14,8 @@ csr! {
 }
 
 impl StateEnableSet {
-    /// Requests zero for every writable state-enable bit in this word.
-    pub const fn closed() -> Self {
+    /// Selects no state-enable bits in this word.
+    pub const fn empty() -> Self {
         Self(0)
     }
 

@@ -1,7 +1,8 @@
 //! Hardware discovery and the scoped current-hart access contract.
 
 use super::{Counter, Counters, Pmu, hardware};
-use crate::{Error, Result, irq, recovery::csrr};
+use crate::{Error, Result, fault_recovery::csrr, irq};
+use csr::values::counter::InhibitedCounters;
 use spin::Mutex;
 
 impl Pmu {
@@ -51,7 +52,7 @@ pub(crate) fn configure_initial() -> Result<bool> {
     match csrr!(csr::machine::CounterInhibit) {
         Ok(_) => {
             // SAFETY: Boot owns the initial counters and excludes local IRQs.
-            unsafe { csr::machine::CounterInhibit::initialize_programmable() };
+            unsafe { csr::machine::CounterInhibit::write(InhibitedCounters::programmable()) };
             Ok(true)
         }
         Err(Error::IllegalInstruction) => Ok(false),

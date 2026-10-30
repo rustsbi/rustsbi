@@ -3,28 +3,21 @@
 //! Specification: <https://docs.riscv.org/reference/aia/v1.0/IMSIC.html>,
 //! section 2.1.9.
 use crate::macros::csr;
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-use crate::value::Value;
 use core::num::NonZeroU16;
 
 csr! {
-    /// Machine indirect register selector value.
-    pub struct MiselectValue(usize);
     /// Machine indirect register selector (`miselect`).
-    Miselect { 0x350, r: MiselectValue,
+    Miselect { 0x350, r,
         /// # Safety
         /// Serialize selection with every indirect-register access on this hart.
-        unsafe w: MiselectValue
+        unsafe w
     }
-
-    /// The value observed or claimed from the machine interrupt file.
-    pub struct MtopeiValue(usize);
 
     /// Machine top external interrupt CSR, available when an IMSIC is present.
     /// Ordinary reads observe the top interrupt without acknowledging it.
     /// Use `claim` to atomically read and acknowledge the reported interrupt.
     /// Generic writes and read/modify/write are unavailable.
-    Mtopei { 0x35c, r: MtopeiValue }
+    Mtopei { 0x35c, r }
 }
 
 /// Machine indirect register data CSR identity (`mireg`).
@@ -61,7 +54,7 @@ impl Mtopei {
     /// Execute in M-mode on a hart with an initialized machine IMSIC file.
     /// Coordinate claims with interrupt delivery on that hart.
     #[inline]
-    pub unsafe fn claim() -> MtopeiValue {
+    pub unsafe fn claim() -> Mtopei {
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         {
             let bits: usize;
@@ -75,14 +68,14 @@ impl Mtopei {
                     options(nostack),
                 );
             }
-            MtopeiValue::from_bits(bits)
+            Self(bits)
         }
         #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
         unimplemented!("CSR access requires RISC-V")
     }
 }
 
-impl MtopeiValue {
+impl Mtopei {
     /// Returns the reported identity; zero means no interrupt is available.
     #[inline]
     pub const fn iid(self) -> Option<NonZeroU16> {

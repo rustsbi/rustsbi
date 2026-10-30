@@ -1,9 +1,34 @@
 //! Existing architectural-time emulation and direct platform counter reads.
 
-use crate::recovery::csrr;
+use crate::fault_recovery::csrr;
 use csr::user;
 
 impl super::Timer {
+    /// Reads the architectural `time` counter for firmware timeouts.
+    ///
+    /// This operation does not require an initialized timer binding. On RV32,
+    /// the high word is reread to avoid returning a split, inconsistent value.
+    pub fn read_time_counter() -> u64 {
+        #[cfg(target_pointer_width = "64")]
+        {
+            usize::from(user::Time::read()) as u64
+        }
+        #[cfg(target_pointer_width = "32")]
+        {
+            loop {
+                let high = usize::from(user::TimeHigh::read()) as u64;
+                let low = usize::from(user::Time::read()) as u64;
+                if high == usize::from(user::TimeHigh::read()) as u64 {
+                    return (high << 32) | low;
+                }
+            }
+        }
+        #[cfg(not(any(target_pointer_width = "32", target_pointer_width = "64")))]
+        {
+            0
+        }
+    }
+
     /// Reads the direct platform counter without probing architectural time.
     /// Returns the full counter on RV64, or its lower word on RV32.
     pub fn read_time_low(&self) -> Option<usize> {

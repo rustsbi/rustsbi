@@ -1,6 +1,6 @@
 //! Saved integer context and immutable facts for one machine trap.
 
-use csr::machine;
+use csr::{Read, Write, machine};
 
 macro_rules! general_regs {
     ($($name:ident = $id:literal),* $(,)?) => {
@@ -52,9 +52,9 @@ general_regs! {
 #[derive(Debug)]
 pub(super) struct TrapInfo {
     pub(super) epc: usize,
-    pub(super) status: machine::StatusReadValue,
+    pub(super) status: machine::Status<Read>,
     #[cfg(target_pointer_width = "32")]
-    pub(super) status_high: machine::StatusHighReadValue,
+    pub(super) status_high: machine::StatusHigh<Read>,
     #[cfg(target_pointer_width = "64")]
     pub(super) status_high: usize,
     /// Whether entry saved the H extension's trap metadata.
@@ -72,9 +72,9 @@ pub(super) struct TrapInfo {
 pub(super) struct TrapFrame {
     pub(super) general: GeneralRegs,
     pub(super) epc: usize,
-    pub(super) status: machine::StatusWriteValue,
+    pub(super) status: machine::Status<Write>,
     #[cfg(target_pointer_width = "32")]
-    pub(super) status_high: machine::StatusHighWriteValue,
+    pub(super) status_high: machine::StatusHigh<Write>,
     #[cfg(target_pointer_width = "64")]
     pub(super) status_high: usize,
 }
@@ -92,28 +92,28 @@ pub(super) struct SavedTrap {
 
 impl TrapInfo {
     pub(super) fn origin(&self) -> machine::Privilege {
-        self.status.read::<machine::MPP>()
+        self.status.read_field::<machine::MPP>()
     }
 
     pub(super) fn virtualized(&self) -> bool {
         #[cfg(target_pointer_width = "32")]
         {
-            self.status_high.read::<machine::MPV>() == machine::Virtualization::On
+            self.status_high.read_field::<machine::MPV>() == machine::Virtualization::On
         }
         #[cfg(target_pointer_width = "64")]
         {
-            self.status.read::<machine::MPV>() == machine::Virtualization::On
+            self.status.read_field::<machine::MPV>() == machine::Virtualization::On
         }
     }
 
     pub(super) fn guest_address(&self) -> bool {
         #[cfg(target_pointer_width = "32")]
         {
-            self.status_high.read::<machine::GVA>() == machine::GuestAddress::GuestVirtual
+            self.status_high.read_field::<machine::GVA>() == machine::GuestAddress::GuestVirtual
         }
         #[cfg(target_pointer_width = "64")]
         {
-            self.status.read::<machine::GVA>() == machine::GuestAddress::GuestVirtual
+            self.status.read_field::<machine::GVA>() == machine::GuestAddress::GuestVirtual
         }
     }
 }
@@ -123,12 +123,12 @@ impl TrapFrame {
         #[cfg(target_pointer_width = "32")]
         {
             self.status_high
-                .write::<machine::MPV>(machine::Virtualization::Off);
+                .write_field::<machine::MPV>(machine::Virtualization::Off);
         }
         #[cfg(target_pointer_width = "64")]
         {
             self.status
-                .write::<machine::MPV>(machine::Virtualization::Off);
+                .write_field::<machine::MPV>(machine::Virtualization::Off);
         }
     }
 }
