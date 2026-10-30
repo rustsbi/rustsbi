@@ -11,7 +11,7 @@ use sbi_spec::{
         RET_ERR_NOT_SUPPORTED, SbiRet,
     },
     pmu::{
-        firmware_event,
+        FirmwareEvent,
         flags::{ConfigFlags, StartFlags, StopFlags},
     },
 };
@@ -25,7 +25,9 @@ pub(crate) fn test(smp: usize) {
     }
     report_counters();
     test_hardware_event_configuration();
-    test_reset_stopped_counters();
+    test_reset_stopped_counters(smp + 1);
+    test_stop_reset_partial_batch();
+    test_skip_match_validation(smp + 1);
     test_hardware_cycles();
     test_rejected_batch_preserves_cycle();
     test_access_fault_counters();
@@ -57,7 +59,7 @@ fn report_counters() {
 }
 
 /// Runs a real trap while its firmware event counter is active.
-pub(crate) fn test_trap_counter(event: usize, trigger: impl FnOnce()) {
+pub(crate) fn test_trap_counter(event: FirmwareEvent, trigger: impl FnOnce()) {
     if sbi::probe_extension(sbi::Pmu).is_unavailable() {
         trigger();
         return;
@@ -76,7 +78,7 @@ pub(crate) fn test_trap_counter(event: usize, trigger: impl FnOnce()) {
         assert!(stopped.is_ok());
         assert!(
             value.is_ok() && value.value > 0,
-            "PMU firmware trap event {event:#x} stayed zero after its exception"
+            "PMU firmware trap event {event:?} stayed zero after its exception"
         );
     }
 }
@@ -131,29 +133,198 @@ fn test_hardware_event_configuration() {
     }
 }
 
-fn test_reset_stopped_counters() {
+fn test_reset_stopped_counters(invalid_hart: usize) {
     for event in [
         0x10019,
-        EventIdx::new_firmware_event(firmware_event::IPI_SENT).raw(),
+        EventIdx::new_firmware_event(FirmwareEvent::IpiSent).raw(),
     ] {
         let Some(configured) = configure_event(event, ConfigFlags::empty()) else {
             continue;
         };
-        let selected = CounterMask::from_mask_base(1, configured.value);
+        let index = configured.value;
+        let selected = CounterMask::from_mask_base(1, index);
         assert_eq!(
             sbi::pmu_counter_stop(selected, StopFlags::RESET),
             SbiRet::already_stopped()
         );
+
+        let info = sbi::pmu_counter_get_info(index);
+        assert!(info.is_ok());
+        let info = CounterInfo::new(info.value);
+        if info.is_firmware_counter() {
+            // Starting without reconfiguring proves RESET kept the binding.
+            assert_eq!(
+                sbi::pmu_counter_start(selected, StartFlags::INIT_VALUE, 7),
+                SbiRet::success(0)
+            );
+            assert_eq!(
+                sbi::send_ipi(HartMask::from_mask_base(1, invalid_hart)),
+                SbiRet::invalid_param()
+            );
+            assert_eq!(sbi::pmu_counter_fw_read(index), SbiRet::success(8));
+        } else {
+            // A large initial value exposes an erroneous value clear below.
+            let initial: u64 = 1_000_000;
+            assert_eq!(
+                sbi::pmu_counter_start(selected, StartFlags::INIT_VALUE, initial),
+                SbiRet::success(0)
+            );
+            assert!(read_hardware_counter(info.get_csr()) >= initial);
+        }
+        assert!(sbi::pmu_counter_stop(selected, StopFlags::RESET).is_ok());
+    }
+    println!("[pmu] STOP+RESET retains bindings of already-stopped counters");
+}
+
+fn test_stop_reset_partial_batch() {
+    let count = sbi::pmu_num_counters();
+    if count < 2 {
+        return;
+    }
+    let stopped = count - 2;
+    let running = count - 1;
+    let stopped_info = sbi::pmu_counter_get_info(stopped);
+    let running_info = sbi::pmu_counter_get_info(running);
+    if stopped_info.is_err()
+        || running_info.is_err()
+        || !CounterInfo::new(stopped_info.value).is_firmware_counter()
+        || !CounterInfo::new(running_info.value).is_firmware_counter()
+    {
+        return;
+    }
+
+    let fw_event = EventIdx::new_firmware_event(FirmwareEvent::IpiSent).raw();
+    assert_eq!(
+        sbi::pmu_counter_config_matching(
+            CounterMask::from_mask_base(1, stopped),
+            ConfigFlags::empty(),
+            fw_event,
+            0,
+        ),
+        SbiRet::success(stopped)
+    );
+    assert_eq!(
+        sbi::pmu_counter_config_matching(
+            CounterMask::from_mask_base(1, running),
+            ConfigFlags::empty(),
+            EventIdx::new_firmware_event(FirmwareEvent::AccessLoad).raw(),
+            0,
+        ),
+        SbiRet::success(running)
+    );
+    assert_eq!(
+        sbi::pmu_counter_start(
+            CounterMask::from_mask_base(1, running),
+            StartFlags::INIT_VALUE,
+            5,
+        ),
+        SbiRet::success(0)
+    );
+
+    // The stopped member keeps its binding; the running member still resets.
+    assert_eq!(
+        sbi::pmu_counter_stop(CounterMask::from_mask_base(0b11, stopped), StopFlags::RESET,),
+        SbiRet::already_stopped()
+    );
+    assert_eq!(sbi::pmu_counter_fw_read(stopped), SbiRet::success(0));
+    assert_eq!(
+        sbi::pmu_counter_start(
+            CounterMask::from_mask_base(1, stopped),
+            StartFlags::empty(),
+            0,
+        ),
+        SbiRet::success(0),
+        "a stopped counter in the batch lost its binding"
+    );
+    assert_eq!(sbi::pmu_counter_fw_read(running), SbiRet::invalid_param());
+    assert_eq!(
+        sbi::pmu_counter_start(
+            CounterMask::from_mask_base(1, running),
+            StartFlags::empty(),
+            0,
+        ),
+        SbiRet::invalid_param(),
+        "a running counter in the batch kept its binding after RESET"
+    );
+    assert!(
+        sbi::pmu_counter_stop(CounterMask::from_mask_base(1, stopped), StopFlags::RESET).is_ok()
+    );
+    println!("[pmu] STOP+RESET preserves the stopped member of a batch");
+}
+
+fn test_skip_match_validation(invalid_hart: usize) {
+    // A firmware event sent to a selected hardware counter must not clear or
+    // bind that running counter.
+    if let Some(configured) = configure_event(0x10019, ConfigFlags::CLEAR_VALUE) {
+        let index = configured.value;
+        let info = sbi::pmu_counter_get_info(index);
+        assert!(info.is_ok());
+        let info = CounterInfo::new(info.value);
+        assert!(!info.is_firmware_counter());
+        let selected = CounterMask::from_mask_base(1, index);
+        let initial: u64 = 1_000_000;
         assert_eq!(
-            sbi::pmu_counter_config_matching(selected, ConfigFlags::empty(), event, 0),
-            configured,
-            "RESET retained the binding of a stopped counter"
+            sbi::pmu_counter_start(selected, StartFlags::INIT_VALUE, initial),
+            SbiRet::success(0)
+        );
+        assert!(read_hardware_counter(info.get_csr()) >= initial);
+
+        assert_eq!(
+            sbi::pmu_counter_config_matching(
+                selected,
+                ConfigFlags::SKIP_MATCH | ConfigFlags::CLEAR_VALUE,
+                EventIdx::new_firmware_event(FirmwareEvent::IpiSent).raw(),
+                0,
+            ),
+            SbiRet::not_supported(),
+            "SKIP_MATCH accepted a firmware event on a hardware counter"
+        );
+        assert!(
+            read_hardware_counter(info.get_csr()) >= initial,
+            "a rejected SKIP_MATCH cleared the hardware counter"
+        );
+        assert!(sbi::pmu_counter_stop(selected, StopFlags::RESET).is_ok());
+    }
+
+    // A hardware event sent to a selected firmware counter must not clear,
+    // reconfigure, or restart that running counter.
+    if let Some(configured) = configure_event(
+        EventIdx::new_firmware_event(FirmwareEvent::IpiSent).raw(),
+        ConfigFlags::CLEAR_VALUE,
+    ) {
+        let index = configured.value;
+        let selected = CounterMask::from_mask_base(1, index);
+        assert_eq!(
+            sbi::pmu_counter_start(selected, StartFlags::INIT_VALUE, 41),
+            SbiRet::success(0)
         );
         assert_eq!(
-            sbi::pmu_counter_stop(selected, StopFlags::RESET),
-            SbiRet::already_stopped()
+            sbi::send_ipi(HartMask::from_mask_base(1, invalid_hart)),
+            SbiRet::invalid_param()
+        );
+        assert_eq!(sbi::pmu_counter_fw_read(index), SbiRet::success(42));
+
+        assert_eq!(
+            sbi::pmu_counter_config_matching(
+                selected,
+                ConfigFlags::SKIP_MATCH | ConfigFlags::CLEAR_VALUE | ConfigFlags::AUTO_START,
+                0x1,
+                0,
+            ),
+            SbiRet::not_supported(),
+            "SKIP_MATCH accepted a hardware event on a firmware counter"
+        );
+        assert_eq!(
+            sbi::pmu_counter_fw_read(index),
+            SbiRet::success(42),
+            "a rejected SKIP_MATCH cleared the firmware counter"
+        );
+        assert!(
+            sbi::pmu_counter_stop(selected, StopFlags::RESET).is_ok(),
+            "a rejected SKIP_MATCH stopped the firmware counter"
         );
     }
+    println!("[pmu] SKIP_MATCH rejects firmware/hardware class mismatches");
 }
 
 fn test_hardware_cycles() {
@@ -249,7 +420,7 @@ fn test_rejected_batch_preserves_cycle() {
     let configured = sbi::pmu_counter_config_matching(
         firmware,
         ConfigFlags::empty(),
-        EventIdx::new_firmware_event(firmware_event::IPI_SENT).raw(),
+        EventIdx::new_firmware_event(FirmwareEvent::IpiSent).raw(),
         0,
     );
     assert_eq!(configured, SbiRet::success(last));
@@ -276,7 +447,7 @@ fn test_rejected_batch_preserves_cycle() {
 }
 
 fn test_access_fault_counters() {
-    for event in [firmware_event::ACCESS_LOAD, firmware_event::ACCESS_STORE] {
+    for event in [FirmwareEvent::AccessLoad, FirmwareEvent::AccessStore] {
         let Some(result) = configure_event(
             EventIdx::new_firmware_event(event).raw(),
             ConfigFlags::CLEAR_VALUE | ConfigFlags::AUTO_START,
@@ -288,7 +459,7 @@ fn test_access_fault_counters() {
         assert!(info.is_ok() && CounterInfo::new(info.value).is_firmware_counter());
         assert_eq!(sbi::pmu_counter_fw_read(result.value), SbiRet::success(0));
         for count in 1..=2 {
-            crate::trap::access_fault(event == firmware_event::ACCESS_STORE);
+            crate::trap::access_fault(event == FirmwareEvent::AccessStore);
             assert_eq!(
                 sbi::pmu_counter_fw_read(result.value),
                 SbiRet::success(count)
@@ -301,7 +472,7 @@ fn test_access_fault_counters() {
             )
             .is_ok()
         );
-        crate::trap::access_fault(event == firmware_event::ACCESS_STORE);
+        crate::trap::access_fault(event == FirmwareEvent::AccessStore);
         assert_eq!(sbi::pmu_counter_fw_read(result.value), SbiRet::success(2));
         assert!(
             sbi::pmu_counter_start(
@@ -325,7 +496,7 @@ fn test_access_fault_counters() {
 fn test_firmware_ipi_counter(invalid_hart: usize) {
     // IPI_SENT is a firmware counter and starts at zero.
     let Some(result) = configure_event(
-        EventIdx::new_firmware_event(firmware_event::IPI_SENT).raw(),
+        EventIdx::new_firmware_event(FirmwareEvent::IpiSent).raw(),
         ConfigFlags::CLEAR_VALUE,
     ) else {
         return;
@@ -408,7 +579,7 @@ pub(crate) fn prepare_resume_counter() -> Option<usize> {
         return None;
     }
     let counter = configure_event(
-        EventIdx::new_firmware_event(firmware_event::IPI_SENT).raw(),
+        EventIdx::new_firmware_event(FirmwareEvent::IpiSent).raw(),
         ConfigFlags::empty(),
     )
     .expect("selected PMU exposes firmware IPI counters")
@@ -433,7 +604,7 @@ pub(crate) fn check_resume_counter(counter: usize) {
         sbi::pmu_counter_config_matching(
             selected,
             ConfigFlags::empty(),
-            EventIdx::new_firmware_event(firmware_event::IPI_SENT).raw(),
+            EventIdx::new_firmware_event(FirmwareEvent::IpiSent).raw(),
             0
         ),
         SbiRet::success(counter)
@@ -529,9 +700,9 @@ struct EventIdx {
 }
 
 impl EventIdx {
-    const fn new_firmware_event(event_code: usize) -> Self {
+    const fn new_firmware_event(event: FirmwareEvent) -> Self {
         Self {
-            inner: 0xf << 16 | event_code,
+            inner: 0xf << 16 | event.code(),
         }
     }
 

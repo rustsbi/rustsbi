@@ -1,9 +1,12 @@
 //! Physical PMU counter and event-selector instructions.
 
-use super::{Counters, HardwareCounter, HpmCounter};
+use super::{Counters, HardwareCounter, HpmCounter, InhibitSupport};
 use crate::fault_recovery::{csrr, csrw};
 use crate::{Error, Result};
-use csr::{machine, values::counter::{CounterValue, InhibitedCounters}};
+use csr::{
+    machine,
+    values::counter::{CounterValue, InhibitedCounters},
+};
 use seq_macro::seq;
 
 pub(super) fn discover() -> Result<[u8; 32]> {
@@ -31,7 +34,7 @@ impl Counters<'_> {
     /// Returns accumulation state, or None when hardware lacks inhibit control.
     pub fn is_running(&self, counter: HardwareCounter) -> Result<Option<bool>> {
         self.check(counter)?;
-        if !self.state.inhibit {
+        if self.state.inhibit == InhibitSupport::Unavailable {
             return Ok(None);
         }
         // SAFETY: Runtime entry is installed; this read has no side effects.
@@ -51,7 +54,7 @@ impl Counters<'_> {
     /// Enables accumulation on a discovered counter.
     pub fn start(&self, counter: HardwareCounter) -> Result<()> {
         self.check(counter)?;
-        if self.state.inhibit {
+        if self.state.inhibit == InhibitSupport::Available {
             // SAFETY: this discovered counter is controlled in an IRQ scope.
             unsafe {
                 csr::machine::CounterInhibit::set(counter, false);
@@ -72,7 +75,7 @@ impl Counters<'_> {
     /// Hardware without inhibit control keeps its legacy accumulation behavior.
     pub fn stop(&self, counter: HardwareCounter) -> Result<()> {
         self.check(counter)?;
-        if self.state.inhibit {
+        if self.state.inhibit == InhibitSupport::Available {
             // SAFETY: this discovered counter is controlled in an IRQ scope.
             unsafe {
                 csr::machine::CounterInhibit::set(counter, true);
@@ -90,7 +93,7 @@ impl Counters<'_> {
     }
 
     pub(super) fn reset_programmable(&self) {
-        if self.state.inhibit {
+        if self.state.inhibit == InhibitSupport::Available {
             // SAFETY: Runtime holds the hardware lock and excludes local IRQs.
             unsafe {
                 machine::CounterInhibit::write(InhibitedCounters::programmable());

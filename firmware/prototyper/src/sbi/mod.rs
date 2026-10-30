@@ -34,7 +34,7 @@ use fwft::SbiFwft;
 use hsm::SbiHsm;
 use ipi::SbiIpi;
 use mpxy::SbiMpxy;
-use pmu::{FirmwareEvent, SbiPmu};
+use pmu::SbiPmu;
 use reset::SbiReset;
 use rfence::SbiRFence;
 use sta::SbiSta;
@@ -63,7 +63,7 @@ pub(crate) struct SbiDispatcher {
     #[rustsbi(fence)]
     pub(crate) rfence: Option<SbiRFence>,
     #[rustsbi(pmu)]
-    pub(crate) pmu: Option<SbiPmu>,
+    pub(crate) pmu: SbiPmu,
     #[rustsbi(sta)]
     pub(crate) sta: Option<SbiSta>,
     #[rustsbi(susp)]
@@ -76,14 +76,13 @@ pub(crate) struct SbiDispatcher {
 
 impl TrapPolicy for SbiDispatcher {
     fn on_nonretentive_resume(&self) {
-        if let Some(pmu) = &self.pmu {
-            pmu.reset_records()
-                .expect("could not reset PMU policy records");
-        }
+        self.pmu
+            .reset_current_hart_records()
+            .expect("could not reset PMU policy records");
     }
 
     fn on_exception(&self, exception: Exception) {
-        if let Ok(event) = FirmwareEvent::try_from(exception) {
+        if let Some(event) = pmu::from_exception(exception) {
             SbiPmu::record_event(event);
         }
     }
@@ -122,9 +121,12 @@ pub(crate) fn rfence() -> Option<&'static SbiRFence> {
     SBI_DISPATCHER.get().and_then(|sbi| sbi.rfence.as_ref())
 }
 
-/// Returns the pmu extension, if present.
-pub(crate) fn pmu() -> Option<&'static SbiPmu> {
-    SBI_DISPATCHER.get().and_then(|sbi| sbi.pmu.as_ref())
+/// Returns the published pmu extension.
+pub(crate) fn pmu() -> &'static SbiPmu {
+    SBI_DISPATCHER
+        .get()
+        .map(|sbi| &sbi.pmu)
+        .expect("SBI PMU is published before event accounting")
 }
 
 /// Returns the susp extension, if present.

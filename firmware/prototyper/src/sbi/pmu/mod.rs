@@ -7,39 +7,31 @@ mod counters;
 mod event;
 mod firmware;
 
-pub(crate) use firmware::FirmwareEvent;
+pub(crate) use firmware::{FirmwareEvent, from_exception};
 
 use counters::CounterTable;
 use event::HardwareEvents;
-use runtime::{FdtNode, Result, hart::HartLocal, pmu::Pmu};
+use runtime::{FdtNode, Result, hart::HartLocal};
 use spin::Mutex;
 
-/// The SBI PMU adapter owning event descriptions, logical records, and hardware control.
-pub(crate) struct SbiPmu {
-    pmu: Pmu,
+/// SBI event descriptions, logical counter records, and software counts.
+pub struct SbiPmu {
     events: HardwareEvents,
     counters: HartLocal<Mutex<Option<CounterTable>>>,
 }
 
 impl SbiPmu {
     pub(crate) fn new() -> Result<Self> {
-        let counters = HartLocal::new();
-        counters.init_all(|_| Mutex::new(None))?;
-        Ok(Self {
-            pmu: Pmu::new(),
-            events: HardwareEvents::default(),
-            counters,
-        })
+        Self::with_events(HardwareEvents::default())
     }
 
     pub(crate) fn from_node(node: FdtNode<'_, '_>) -> Result<Self> {
-        Ok(Self {
-            events: HardwareEvents::from_node(node)?,
-            ..Self::new()?
-        })
+        Self::with_events(HardwareEvents::from_node(node)?)
     }
 
-    pub(crate) fn pmu(&self) -> &Pmu {
-        &self.pmu
+    fn with_events(events: HardwareEvents) -> Result<Self> {
+        let counters = HartLocal::new();
+        counters.init_all(|_| Mutex::new(None))?;
+        Ok(Self { events, counters })
     }
 }

@@ -1,6 +1,7 @@
 //! Trap register preservation, counter permissions, and S/HS/VS forwarding.
 
 use core::arch::{asm, naked_asm};
+use sbi_spec::pmu::FirmwareEvent;
 
 const ILLEGAL_INSTRUCTION: usize = 2;
 
@@ -224,7 +225,7 @@ fn test_redirected_traps() {
 
         // Virt address zero has no backing device. Both faults must reach
         // Runtime and increment the corresponding firmware counter.
-        crate::pmu::test_trap_counter(sbi_spec::pmu::firmware_event::ACCESS_LOAD, || {
+        crate::pmu::test_trap_counter(FirmwareEvent::AccessLoad, || {
             core::ptr::write_volatile(&raw mut TRAP_CAUSE, 0);
             asm!(".option push", ".option norvc", "lw zero, 0(zero)", ".option pop",
                 out("t0") _, out("t1") _, out("t2") _);
@@ -234,7 +235,7 @@ fn test_redirected_traps() {
                 5
             );
         });
-        crate::pmu::test_trap_counter(sbi_spec::pmu::firmware_event::ACCESS_STORE, || {
+        crate::pmu::test_trap_counter(FirmwareEvent::AccessStore, || {
             core::ptr::write_volatile(&raw mut TRAP_CAUSE, 0);
             asm!(".option push", ".option norvc", "sw zero, 0(zero)", ".option pop",
                 out("t0") _, out("t1") _, out("t2") _);

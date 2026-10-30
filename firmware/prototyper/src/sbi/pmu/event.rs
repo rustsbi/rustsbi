@@ -5,7 +5,7 @@ use alloc::{collections::BTreeMap, vec::Vec};
 use core::ops::RangeInclusive;
 use runtime::pmu::HardwareCounter;
 use runtime::{Error, FdtNode, Result};
-use sbi_spec::pmu::{cache_event, cache_operation, event_type, firmware_event, hardware_event};
+use sbi_spec::pmu::{cache_event, cache_operation, event_type, hardware_event};
 
 /// An SBI event identifier whose type and code have been validated.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -18,14 +18,15 @@ impl TryFrom<usize> for Event {
         if raw >> 20 != 0 {
             return Err(Error::InvalidArgs);
         }
+        let kind = raw >> 16;
         let code = raw & 0xffff;
-        let valid = match raw >> 16 {
+        let valid = match kind {
             event_type::HARDWARE_GENERAL => (1..=hardware_event::REF_CPU_CYCLES).contains(&code),
             event_type::HARDWARE_CACHE => {
                 code >> 3 <= cache_event::NODE && (code >> 1) & 3 <= cache_operation::PREFETCH
             }
             event_type::HARDWARE_RAW | event_type::HARDWARE_RAW_V2 => code == 0,
-            event_type::FIRMWARE => code <= firmware_event::HFENCE_VVMA_ASID_RECEIVED,
+            event_type::FIRMWARE => code <= FirmwareEvent::HfenceVvmaAsidReceived as usize,
             _ => false,
         };
         valid.then_some(Self(raw as u32)).ok_or(Error::InvalidArgs)
@@ -39,6 +40,13 @@ impl From<FirmwareEvent> for Event {
 }
 
 impl Event {
+    pub(super) const CPU_CYCLES: Self = Self::hardware(hardware_event::CPU_CYCLES);
+    pub(super) const INSTRUCTIONS: Self = Self::hardware(hardware_event::INSTRUCTIONS);
+
+    const fn hardware(code: usize) -> Self {
+        Self((event_type::HARDWARE_GENERAL as u32) << 16 | code as u32)
+    }
+
     pub(super) fn is_firmware(self) -> bool {
         self.0 >> 16 == event_type::FIRMWARE as u32
     }
@@ -170,14 +178,15 @@ impl HardwareEvents {
 }
 
 fn rows<const COLUMNS: usize>(bytes: &[u8]) -> Result<impl Iterator<Item = [u32; COLUMNS]> + '_> {
-    let rows = bytes.chunks_exact(COLUMNS * size_of::<u32>());
-    if !rows.remainder().is_empty() {
+    let (words, remainder) = bytes.as_chunks::<{ size_of::<u32>() }>();
+    if !remainder.is_empty() {
         return Err(Error::InvalidArgs);
     }
-    Ok(rows.map(|row| {
-        core::array::from_fn(|column| {
-            let start = column * size_of::<u32>();
-            u32::from_be_bytes(row[start..start + 4].try_into().unwrap())
-        })
-    }))
+    let (rows, remainder) = words.as_chunks::<COLUMNS>();
+    if !remainder.is_empty() {
+        return Err(Error::InvalidArgs);
+    }
+    Ok(rows
+        .iter()
+        .map(|row| core::array::from_fn(|column| u32::from_be_bytes(row[column]))))
 }

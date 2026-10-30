@@ -47,7 +47,7 @@ fn try_init_board(platform_description: PlatformDescription) -> Result<usize, In
 fn initialize_platform(
     platform_description: PlatformDescription,
     mut board: Box<BoardInfo>,
-    pmu: Option<SbiPmu>,
+    pmu: SbiPmu,
 ) -> Result<usize, InitError> {
     let (supervisor_memory, mut memory) = platform_description
         .memory_resources()
@@ -170,7 +170,7 @@ fn publish_platform_services(
     supervisor_memory: SupervisorMemory,
     devices: driver::Devices,
     custom_extension: sbi::vendor::Extension,
-    pmu: Option<SbiPmu>,
+    pmu: SbiPmu,
     hart_wake: Option<Box<dyn HartWake>>,
     timer_service: SbiTimer,
 ) {
@@ -213,7 +213,7 @@ fn publish_sbi_dispatcher(
     timer: SbiTimer,
     reset: SbiReset,
     custom_extension: sbi::vendor::Extension,
-    pmu: Option<SbiPmu>,
+    pmu: SbiPmu,
     hart_wake: Option<&'static dyn HartWake>,
 ) {
     let supervisor_memory = state::supervisor_memory();
@@ -249,7 +249,6 @@ fn publish_sbi_dispatcher(
     boot::install_services(boot::Services {
         timer: dispatcher.timer.timer(),
         ipi: dispatcher.ipi.ipi(),
-        pmu: dispatcher.pmu.as_ref().map(SbiPmu::pmu),
     })
     .expect("BUG: Runtime services registered more than once");
 }

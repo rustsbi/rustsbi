@@ -15,7 +15,7 @@ use sbi_spec::{
 
 impl SbiPmuExtension for SbiPmu {
     fn _rustsbi_probe(&self) -> usize {
-        usize::from(self.pmu.is_available())
+        usize::from(runtime::pmu::Pmu::is_available())
     }
 
     fn num_counters(&self) -> usize {
@@ -36,60 +36,58 @@ impl SbiPmuExtension for SbiPmu {
         event: usize,
         data: u64,
     ) -> SbiRet {
-        let result = (|| {
-            let flags = ConfigFlags::from_bits(flags).ok_or(Error::InvalidArgs)?;
-            self.with_current(|hardware, counters| {
-                let selected = counters.select(first, offsets)?;
-                counters.configure(
-                    selected,
-                    flags,
-                    Event::try_from(event)?,
-                    data,
-                    &self.events,
-                    hardware,
-                )
-            })
-        })();
-        result.map_or_else(Into::into, SbiRet::success)
+        let Some(flags) = ConfigFlags::from_bits(flags) else {
+            return SbiRet::invalid_param();
+        };
+        self.with_current(|hardware, counters| {
+            let selected = counters.select(first, offsets)?;
+            counters.configure(
+                selected,
+                flags,
+                Event::try_from(event)?,
+                data,
+                &self.events,
+                hardware,
+            )
+        })
+        .map_or_else(Into::into, SbiRet::success)
     }
 
     fn counter_start(&self, first: usize, offsets: usize, flags: usize, initial: u64) -> SbiRet {
-        StartFlags::from_bits(flags)
-            .ok_or(Error::InvalidArgs)
-            .and_then(|flags| {
-                self.with_current(|hardware, counters| {
-                    let selected = counters.select(first, offsets)?;
-                    if flags.contains(StartFlags::INIT_VALUE)
-                        && (offsets.count_ones() != 1 || flags.contains(StartFlags::INIT_SNAPSHOT))
-                    {
-                        return Err(Error::InvalidArgs);
-                    }
-                    if flags.contains(StartFlags::INIT_SNAPSHOT) {
-                        return Err(Error::NoSharedMemory);
-                    }
-                    counters.start(
-                        selected,
-                        flags.contains(StartFlags::INIT_VALUE).then_some(initial),
-                        hardware,
-                    )
-                })
-            })
-            .map_or_else(Into::into, |()| SbiRet::success(0))
+        let Some(flags) = StartFlags::from_bits(flags) else {
+            return SbiRet::invalid_param();
+        };
+        self.with_current(|hardware, counters| {
+            let selected = counters.select(first, offsets)?;
+            if flags.contains(StartFlags::INIT_VALUE)
+                && (offsets.count_ones() != 1 || flags.contains(StartFlags::INIT_SNAPSHOT))
+            {
+                return Err(Error::InvalidArgs);
+            }
+            if flags.contains(StartFlags::INIT_SNAPSHOT) {
+                return Err(Error::NoSharedMemory);
+            }
+            counters.start(
+                selected,
+                flags.contains(StartFlags::INIT_VALUE).then_some(initial),
+                hardware,
+            )
+        })
+        .map_or_else(Into::into, |()| SbiRet::success(0))
     }
 
     fn counter_stop(&self, first: usize, offsets: usize, flags: usize) -> SbiRet {
-        StopFlags::from_bits(flags)
-            .ok_or(Error::InvalidArgs)
-            .and_then(|flags| {
-                self.with_current(|hardware, counters| {
-                    let selected = counters.select(first, offsets)?;
-                    if flags.contains(StopFlags::TAKE_SNAPSHOT) {
-                        return Err(Error::NoSharedMemory);
-                    }
-                    counters.stop(selected, flags, hardware)
-                })
-            })
-            .map_or_else(Into::into, |()| SbiRet::success(0))
+        let Some(flags) = StopFlags::from_bits(flags) else {
+            return SbiRet::invalid_param();
+        };
+        self.with_current(|hardware, counters| {
+            let selected = counters.select(first, offsets)?;
+            if flags.contains(StopFlags::TAKE_SNAPSHOT) {
+                return Err(Error::NoSharedMemory);
+            }
+            counters.stop(selected, flags, hardware)
+        })
+        .map_or_else(Into::into, |()| SbiRet::success(0))
     }
 
     fn counter_fw_read(&self, index: usize) -> SbiRet {

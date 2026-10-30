@@ -136,7 +136,14 @@ fn pmu_calls() {
             let ret = call(
                 pmu::EID_PMU,
                 pmu::COUNTER_CONFIG_MATCHING,
-                [index, 1, 0, 0xf0000 | pmu::firmware_event::SET_TIMER, 0, 0],
+                [
+                    index,
+                    1,
+                    0,
+                    0xf0000 | pmu::FirmwareEvent::SetTimer as usize,
+                    0,
+                    0,
+                ],
             );
             if ret.error == SbiRet::not_supported().error {
                 continue;
@@ -200,7 +207,14 @@ fn pmu_calls() {
             call(
                 pmu::EID_PMU,
                 pmu::COUNTER_CONFIG_MATCHING,
-                [index, 1, 0, 0xf0000 | pmu::firmware_event::SET_TIMER, 0, 0],
+                [
+                    index,
+                    1,
+                    0,
+                    0xf0000 | pmu::FirmwareEvent::SetTimer as usize,
+                    0,
+                    0,
+                ],
             )
         },
         |ret| {

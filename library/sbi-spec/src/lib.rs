@@ -241,29 +241,6 @@ mod tests {
         const_assert_eq!(0, cache_result::ACCESS);
         const_assert_eq!(1, cache_result::MISS);
 
-        const_assert_eq!(0, firmware_event::MISALIGNED_LOAD);
-        const_assert_eq!(1, firmware_event::MISALIGNED_STORE);
-        const_assert_eq!(2, firmware_event::ACCESS_LOAD);
-        const_assert_eq!(3, firmware_event::ACCESS_STORE);
-        const_assert_eq!(4, firmware_event::ILLEGAL_INSN);
-        const_assert_eq!(5, firmware_event::SET_TIMER);
-        const_assert_eq!(6, firmware_event::IPI_SENT);
-        const_assert_eq!(7, firmware_event::IPI_RECEIVED);
-        const_assert_eq!(8, firmware_event::FENCE_I_SENT);
-        const_assert_eq!(9, firmware_event::FENCE_I_RECEIVED);
-        const_assert_eq!(10, firmware_event::SFENCE_VMA_SENT);
-        const_assert_eq!(11, firmware_event::SFENCE_VMA_RECEIVED);
-        const_assert_eq!(12, firmware_event::SFENCE_VMA_ASID_SENT);
-        const_assert_eq!(13, firmware_event::SFENCE_VMA_ASID_RECEIVED);
-        const_assert_eq!(14, firmware_event::HFENCE_GVMA_SENT);
-        const_assert_eq!(15, firmware_event::HFENCE_GVMA_RECEIVED);
-        const_assert_eq!(16, firmware_event::HFENCE_GVMA_VMID_SENT);
-        const_assert_eq!(17, firmware_event::HFENCE_GVMA_VMID_RECEIVED);
-        const_assert_eq!(18, firmware_event::HFENCE_VVMA_SENT);
-        const_assert_eq!(19, firmware_event::HFENCE_VVMA_RECEIVED);
-        const_assert_eq!(20, firmware_event::HFENCE_VVMA_ASID_SENT);
-        const_assert_eq!(21, firmware_event::HFENCE_VVMA_ASID_RECEIVED);
-        const_assert_eq!(65535, firmware_event::PLATFORM);
 
         const_assert_eq!(4096, shmem_size::SIZE);
         const_assert_eq!(1, flags::ConfigFlags::SKIP_MATCH.bits());

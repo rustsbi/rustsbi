@@ -17,7 +17,7 @@ use runtime::{
 pub(super) fn discover_platform(
     board: &mut BoardInfo,
     platform: &PlatformView<'_>,
-) -> Result<Option<SbiPmu>> {
+) -> Result<SbiPmu> {
     let cpu_interrupt_controllers = harts::discover(board, platform)?;
     board.devices.console = console::discover(platform)?;
     let mut reset = crate::driver::ResetDescription::new();
@@ -50,8 +50,7 @@ pub(super) fn discover_platform(
     board.devices.reset = reset;
     board.soc = soc;
     match pmu_node {
-        Some(node) => SbiPmu::from_node(node).map(Some),
-        None if matches!(&board.soc, Some(SocDescription::V861(_))) => SbiPmu::new().map(Some),
-        None => Ok(None),
+        Some(node) => SbiPmu::from_node(node),
+        None => SbiPmu::new(),
     }
 }

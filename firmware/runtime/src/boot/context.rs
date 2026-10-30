@@ -128,9 +128,7 @@ pub(crate) fn configure_next_stage(hart: &Hart) -> Result<()> {
             hart.configure_seed_access()?;
             hart.initialize_state_enable()?;
             let inhibit = crate::pmu::configure_initial()?;
-            if let Some(pmu) = super::pmu() {
-                pmu.init_current(inhibit)?;
-            }
+            crate::pmu::Pmu::init_current(inhibit)?;
             let irq = crate::irq::LocalIrqDisabled::assume_disabled();
             super::ipi().ok_or(Error::NotReady)?.init_current(&irq)?;
             super::timer().ok_or(Error::NotReady)?.init_current(&irq)?;

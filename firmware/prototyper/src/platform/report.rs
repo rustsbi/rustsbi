@@ -94,7 +94,7 @@ fn log_sbi_extensions() {
     log_availability("Platform HSM Extension", crate::sbi::hsm().is_some());
     log_availability("Platform RFence Extension", crate::sbi::rfence().is_some());
     log_availability("Platform SUSP Extension", crate::sbi::susp().is_some());
-    log_availability("Platform PMU Extension", crate::sbi::pmu().is_some());
+    log_availability("Platform PMU Extension", true);
 }
 
 fn log_availability(name: &str, available: bool) {

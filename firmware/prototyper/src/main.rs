@@ -115,13 +115,7 @@ fn log_hart_capabilities(hart: &Hart) {
         "Boot HART Privileged Version:",
         hart.privileged_version()
     );
-    if let Some(pmu) = sbi::pmu() {
-        let mask = pmu
-            .pmu()
-            .with_current(|counters| Ok(counters.implemented()))
-            .expect("initialized PMU counters");
-        info!("{:<30}: {:#08x}", "Boot HART MHPM Mask:", mask);
-    } else {
-        info!("{:<30}: not selected", "Boot HART MHPM Mask:");
-    }
+    let mask = runtime::pmu::Pmu::with_current(|counters| Ok(counters.implemented()))
+        .expect("initialized PMU counters");
+    info!("{:<30}: {:#08x}", "Boot HART MHPM Mask:", mask);
 }

@@ -26,10 +26,7 @@ pub(super) fn sbi_ecall(frame: &mut TrapFrame) {
             enter_next_stage(frame, current.wait_for_start(&irq));
         }
         Some(hart::ControlTransfer::NonRetentiveResume(next)) => {
-            if let Some(pmu) = crate::boot::pmu() {
-                pmu.reset_current()
-                    .expect("committed PMU resume reset failed");
-            }
+            crate::pmu::Pmu::reset_current().expect("committed PMU resume reset failed");
             init::policy(hart).on_nonretentive_resume();
             enter_next_stage(frame, next);
         }

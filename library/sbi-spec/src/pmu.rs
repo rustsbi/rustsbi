@@ -5,6 +5,8 @@
 pub const EID_PMU: usize = crate::eid_from_str("PMU") as _;
 pub use fid::*;
 
+use crate::binary::Error;
+
 /// Declared in §11.11.
 mod fid {
     /// Function ID to get the number of counters, both hardware and firmware.
@@ -150,58 +152,109 @@ pub mod cache_result {
     pub const MISS: usize = 1;
 }
 
-/// Firmware Event Codes.
+/// Firmware event codes.
 ///
 /// Declared in §11.5.
-pub mod firmware_event {
+#[repr(u16)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum FirmwareEvent {
     /// Misaligned load trap event.
-    pub const MISALIGNED_LOAD: usize = 0;
+    MisalignedLoad = 0,
     /// Misaligned store trap event.
-    pub const MISALIGNED_STORE: usize = 1;
+    MisalignedStore = 1,
     /// Load access trap event.
-    pub const ACCESS_LOAD: usize = 2;
+    AccessLoad = 2,
     /// Store access trap event.
-    pub const ACCESS_STORE: usize = 3;
+    AccessStore = 3,
     /// Illegal instruction trap event.
-    pub const ILLEGAL_INSN: usize = 4;
+    IllegalInstruction = 4,
     /// Set timer event.
-    pub const SET_TIMER: usize = 5;
+    SetTimer = 5,
     /// Sent IPI to other HART event.
-    pub const IPI_SENT: usize = 6;
+    IpiSent = 6,
     /// Received IPI from other HART event.
-    pub const IPI_RECEIVED: usize = 7;
+    IpiReceived = 7,
     /// Sent FENCE.I request to other HART event.
-    pub const FENCE_I_SENT: usize = 8;
+    FenceISent = 8,
     /// Received FENCE.I request from other HART event.
-    pub const FENCE_I_RECEIVED: usize = 9;
+    FenceIReceived = 9,
     /// Sent SFENCE.VMA request to other HART event.
-    pub const SFENCE_VMA_SENT: usize = 10;
+    SfenceVmaSent = 10,
     /// Received SFENCE.VMA request from other HART event.
-    pub const SFENCE_VMA_RECEIVED: usize = 11;
+    SfenceVmaReceived = 11,
     /// Sent SFENCE.VMA with ASID request to other HART event.
-    pub const SFENCE_VMA_ASID_SENT: usize = 12;
+    SfenceVmaAsidSent = 12,
     /// Received SFENCE.VMA with ASID request from other HART event.
-    pub const SFENCE_VMA_ASID_RECEIVED: usize = 13;
+    SfenceVmaAsidReceived = 13,
     /// Sent HFENCE.GVMA request to other HART event.
-    pub const HFENCE_GVMA_SENT: usize = 14;
+    HfenceGvmaSent = 14,
     /// Received HFENCE.GVMA request from other HART event.
-    pub const HFENCE_GVMA_RECEIVED: usize = 15;
+    HfenceGvmaReceived = 15,
     /// Sent HFENCE.GVMA with VMID request to other HART event.
-    pub const HFENCE_GVMA_VMID_SENT: usize = 16;
+    HfenceGvmaVmidSent = 16,
     /// Received HFENCE.GVMA with VMID request from other HART event.
-    pub const HFENCE_GVMA_VMID_RECEIVED: usize = 17;
+    HfenceGvmaVmidReceived = 17,
     /// Sent HFENCE.VVMA request to other HART event.
-    pub const HFENCE_VVMA_SENT: usize = 18;
+    HfenceVvmaSent = 18,
     /// Received HFENCE.VVMA request from other HART event.
-    pub const HFENCE_VVMA_RECEIVED: usize = 19;
+    HfenceVvmaReceived = 19,
     /// Sent HFENCE.VVMA with ASID request to other HART event.
-    pub const HFENCE_VVMA_ASID_SENT: usize = 20;
+    HfenceVvmaAsidSent = 20,
     /// Received HFENCE.VVMA with ASID request from other HART event.
-    pub const HFENCE_VVMA_ASID_RECEIVED: usize = 21;
+    HfenceVvmaAsidReceived = 21,
     /// RISC-V platform specific firmware events.
     ///
     /// The `event_data` configuration (or parameter) contains the event encoding.
-    pub const PLATFORM: usize = 65535;
+    Platform = 65535,
+}
+
+impl FirmwareEvent {
+    /// Returns the 16-bit firmware event code.
+    #[inline]
+    pub const fn code(self) -> usize {
+        self as usize
+    }
+}
+
+impl From<FirmwareEvent> for usize {
+    #[inline]
+    fn from(event: FirmwareEvent) -> usize {
+        event.code()
+    }
+}
+
+impl TryFrom<usize> for FirmwareEvent {
+    type Error = Error;
+
+    #[inline]
+    fn try_from(code: usize) -> Result<Self, Error> {
+        match code {
+            0 => Ok(Self::MisalignedLoad),
+            1 => Ok(Self::MisalignedStore),
+            2 => Ok(Self::AccessLoad),
+            3 => Ok(Self::AccessStore),
+            4 => Ok(Self::IllegalInstruction),
+            5 => Ok(Self::SetTimer),
+            6 => Ok(Self::IpiSent),
+            7 => Ok(Self::IpiReceived),
+            8 => Ok(Self::FenceISent),
+            9 => Ok(Self::FenceIReceived),
+            10 => Ok(Self::SfenceVmaSent),
+            11 => Ok(Self::SfenceVmaReceived),
+            12 => Ok(Self::SfenceVmaAsidSent),
+            13 => Ok(Self::SfenceVmaAsidReceived),
+            14 => Ok(Self::HfenceGvmaSent),
+            15 => Ok(Self::HfenceGvmaReceived),
+            16 => Ok(Self::HfenceGvmaVmidSent),
+            17 => Ok(Self::HfenceGvmaVmidReceived),
+            18 => Ok(Self::HfenceVvmaSent),
+            19 => Ok(Self::HfenceVvmaReceived),
+            20 => Ok(Self::HfenceVvmaAsidSent),
+            21 => Ok(Self::HfenceVvmaAsidReceived),
+            65535 => Ok(Self::Platform),
+            _ => Err(Error::InvalidParam),
+        }
+    }
 }
 
 /// Size of shared memory on PMU extension set by supervisor software for current hart.

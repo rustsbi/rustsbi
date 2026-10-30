@@ -1,7 +1,7 @@
-//! Owned hardware performance-counter access.
+//! Runtime-owned hardware performance-counter access.
 //!
 //! SBI policy owns event mappings, logical counter indices, and software counts.
-//! Runtime initializes the published hardware owner and excludes local interrupts
+//! Runtime initializes each hart's counter access and excludes local interrupts
 //! across each scoped counter transaction.
 
 mod access;
@@ -13,7 +13,7 @@ use spin::Mutex;
 
 pub(crate) use access::configure_initial;
 
-/// Hardware counter control owned by the published SBI PMU adapter.
+/// Runtime-owned hardware counter control.
 pub struct Pmu {
     local: HartLocal<Mutex<Counter>>,
     hardware: Mutex<()>,
@@ -21,7 +21,13 @@ pub struct Pmu {
 
 struct Counter {
     widths: [u8; 32],
-    inhibit: bool,
+    inhibit: InhibitSupport,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(crate) enum InhibitSupport {
+    Unavailable,
+    Available,
 }
 
 /// Access to this hart's counters during one IRQ-excluded transaction.
@@ -31,24 +37,15 @@ pub struct Counters<'scope> {
     _irq: &'scope LocalIrqDisabled,
 }
 
-impl Default for Pmu {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+static PMU: Pmu = Pmu {
+    local: HartLocal::new(),
+    hardware: Mutex::new(()),
+};
 
 impl Pmu {
-    /// Creates an unbound hardware controller without accessing CSRs.
-    pub const fn new() -> Self {
-        Self {
-            local: HartLocal::new(),
-            hardware: Mutex::new(()),
-        }
-    }
-
     /// Returns whether Runtime initialized this hart's hardware binding.
-    pub fn is_available(&self) -> bool {
-        self.local.try_get_current().is_some()
+    pub fn is_available() -> bool {
+        PMU.local.try_get_current().is_some()
     }
 }
 

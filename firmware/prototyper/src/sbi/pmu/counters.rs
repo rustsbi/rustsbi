@@ -3,12 +3,9 @@
 use super::SbiPmu;
 use super::event::{Event, HardwareEvents};
 use runtime::hart::HartId;
-use runtime::pmu::{Counters as HardwareCounters, HardwareCounter};
+use runtime::pmu::{Counters as HardwareCounters, HardwareCounter, Pmu};
 use runtime::{Error, Result};
-use sbi_spec::pmu::{
-    flags::{ConfigFlags, StopFlags},
-    hardware_event,
-};
+use sbi_spec::pmu::flags::{ConfigFlags, StopFlags};
 
 const HARDWARE_COUNTERS: usize = 32;
 const FIRMWARE_COUNTERS: usize = 16;
@@ -18,23 +15,24 @@ impl SbiPmu {
         &self,
         operation: impl FnOnce(&HardwareCounters<'_>, &mut CounterTable) -> Result<T>,
     ) -> Result<T> {
-        self.pmu.with_current(|hardware| {
-            let mut local = self
+        Pmu::with_current(|hardware| {
+            let mut record = self
                 .counters
                 .get(HartId::current()?)?
                 .try_lock()
                 .ok_or(Error::Busy)?;
-            let counters = local.get_or_insert_with(|| CounterTable::new(hardware.implemented()));
+            let counters = record.get_or_insert_with(|| CounterTable::new(hardware.implemented()));
             operation(hardware, counters)
         })
     }
 
-    pub(crate) fn reset_records(&self) -> Result<()> {
-        *self
+    pub(crate) fn reset_current_hart_records(&self) -> Result<()> {
+        let mut record = self
             .counters
             .get(HartId::current()?)?
             .try_lock()
-            .ok_or(Error::Busy)? = None;
+            .ok_or(Error::Busy)?;
+        *record = None;
         Ok(())
     }
 }
@@ -42,6 +40,12 @@ impl SbiPmu {
 pub(super) struct CounterTable {
     counters: [Counter; HARDWARE_COUNTERS + FIRMWARE_COUNTERS],
     count: usize,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum CounterState {
+    Stopped,
+    Running,
 }
 
 #[derive(Clone, Copy)]
@@ -55,11 +59,25 @@ enum Counter {
     Firmware {
         event: Option<Event>,
         value: u64,
-        running: bool,
+        state: CounterState,
     },
 }
 
 impl Counter {
+    fn from_architectural(index: u16) -> Self {
+        match HardwareCounter::from_index(index) {
+            Some(counter) => Self::Hardware {
+                counter,
+                event: match counter {
+                    HardwareCounter::Cycle => Some(Event::CPU_CYCLES),
+                    HardwareCounter::InstructionsRetired => Some(Event::INSTRUCTIONS),
+                    HardwareCounter::Hpm(_) => None,
+                },
+            },
+            None => Self::Time,
+        }
+    }
+
     fn event(self) -> Option<Event> {
         match self {
             Self::Hardware { event, .. } | Self::Firmware { event, .. } => event,
@@ -67,10 +85,15 @@ impl Counter {
         }
     }
 
+    /// Time is enumerated as a hardware counter, matching OpenSBI's class split.
+    fn is_firmware(self) -> bool {
+        matches!(self, Self::Firmware { .. })
+    }
+
     fn is_running(self, hardware: &HardwareCounters<'_>) -> Result<bool> {
         match self {
             Self::Hardware { counter, .. } => Ok(hardware.is_running(counter)? == Some(true)),
-            Self::Firmware { running, .. } => Ok(running),
+            Self::Firmware { state, .. } => Ok(state == CounterState::Running),
             Self::Time => Err(Error::InvalidArgs),
         }
     }
@@ -82,14 +105,18 @@ pub(super) struct CounterSet {
     remaining: u64,
 }
 
+impl CounterSet {
+    fn first(self) -> Option<usize> {
+        let remaining = self.remaining;
+        (remaining != 0).then(|| remaining.trailing_zeros() as usize)
+    }
+}
+
 impl Iterator for CounterSet {
     type Item = usize;
 
     fn next(&mut self) -> Option<usize> {
-        if self.remaining == 0 {
-            return None;
-        }
-        let index = self.remaining.trailing_zeros() as usize;
+        let index = self.first()?;
         self.remaining &= self.remaining - 1;
         Some(index)
     }
@@ -105,28 +132,14 @@ impl CounterTable {
             if implemented & (1 << position) == 0 {
                 continue;
             }
-            table.counters[table.count] = match HardwareCounter::from_index(position) {
-                Some(counter) => Counter::Hardware {
-                    counter,
-                    event: match counter {
-                        HardwareCounter::Cycle => {
-                            Some(Event::try_from(hardware_event::CPU_CYCLES).unwrap())
-                        }
-                        HardwareCounter::InstructionsRetired => {
-                            Some(Event::try_from(hardware_event::INSTRUCTIONS).unwrap())
-                        }
-                        HardwareCounter::Hpm(_) => None,
-                    },
-                },
-                None => Counter::Time,
-            };
+            table.counters[table.count] = Counter::from_architectural(position);
             table.count += 1;
         }
         for counter in &mut table.counters[table.count..table.count + FIRMWARE_COUNTERS] {
             *counter = Counter::Firmware {
                 event: None,
                 value: 0,
-                running: false,
+                state: CounterState::Stopped,
             };
         }
         table.count += FIRMWARE_COUNTERS;
@@ -176,12 +189,18 @@ impl CounterTable {
     ) -> Result<usize> {
         let skip = flags.contains(ConfigFlags::SKIP_MATCH);
         let index = if skip {
-            selection.into_iter().next().unwrap()
+            selection.first().ok_or(Error::InvalidArgs)?
         } else {
             self.find(selection, event, data, events, hardware)?
         };
         let event = if skip {
-            self.counters[index].event().ok_or(Error::InvalidArgs)?
+            let counter = self.counters[index];
+            // Match OpenSBI: a selected counter of the other class cannot
+            // monitor this event. Reject before touching any counter state.
+            if counter.is_firmware() != event.is_firmware() {
+                return Err(Error::NotSupported);
+            }
+            counter.event().ok_or(Error::InvalidArgs)?
         } else {
             event
         };
@@ -209,13 +228,13 @@ impl CounterTable {
             Counter::Firmware {
                 event: binding,
                 value,
-                running,
+                state,
             } => {
                 if clear {
                     *value = 0;
                 }
                 if start {
-                    *running = true;
+                    *state = CounterState::Running;
                 }
                 *binding = Some(event);
             }
@@ -238,7 +257,7 @@ impl CounterTable {
             match self.counters[index] {
                 Counter::Firmware {
                     event: None,
-                    running: false,
+                    state: CounterState::Stopped,
                     ..
                 } if event.is_firmware() => return Ok(index),
                 Counter::Hardware {
@@ -248,11 +267,7 @@ impl CounterTable {
                     if event.fixed_counter() == Some(counter) {
                         fixed = Some(index);
                     }
-                    if matches!(counter, HardwareCounter::Hpm(_))
-                        && binding.is_none()
-                        && eligible & (1 << counter.index()) != 0
-                        && hardware.is_running(counter)? != Some(true)
-                    {
+                    if Self::can_monitor(counter, binding, eligible, hardware)? {
                         return Ok(index);
                     }
                 }
@@ -260,6 +275,22 @@ impl CounterTable {
             }
         }
         fixed.ok_or(Error::NotSupported)
+    }
+
+    /// Checks whether a free programmable counter can monitor this event now.
+    fn can_monitor(
+        counter: HardwareCounter,
+        binding: Option<Event>,
+        eligible: u32,
+        hardware: &HardwareCounters<'_>,
+    ) -> Result<bool> {
+        if !matches!(counter, HardwareCounter::Hpm(_)) || binding.is_some() {
+            return Ok(false);
+        }
+        if eligible & (1 << counter.index()) == 0 {
+            return Ok(false);
+        }
+        Ok(hardware.is_running(counter)? != Some(true))
     }
 
     pub(super) fn start(
@@ -285,11 +316,11 @@ impl CounterTable {
                     }
                     hardware.start(*counter)?;
                 }
-                Counter::Firmware { value, running, .. } => {
+                Counter::Firmware { value, state, .. } => {
                     if let Some(initial) = initial {
                         *value = initial;
                     }
-                    *running = true;
+                    *state = CounterState::Running;
                 }
                 Counter::Time => unreachable!("selection was validated"),
             }
@@ -310,10 +341,12 @@ impl CounterTable {
             match &mut self.counters[index] {
                 Counter::Hardware { counter, event } => {
                     if hardware.is_running(*counter)? == Some(false) {
+                        // A stopped counter keeps its binding even when RESET
+                        // is requested; other counters in the batch still stop.
                         already_stopped = true;
-                    } else {
-                        hardware.stop(*counter)?;
+                        continue;
                     }
+                    hardware.stop(*counter)?;
                     if reset {
                         if let HardwareCounter::Hpm(counter) = counter {
                             hardware.configure_event(*counter, 0)?;
@@ -321,11 +354,12 @@ impl CounterTable {
                         *event = None;
                     }
                 }
-                Counter::Firmware { event, running, .. } => {
-                    if !*running {
+                Counter::Firmware { event, state, .. } => {
+                    if *state == CounterState::Stopped {
                         already_stopped = true;
+                        continue;
                     }
-                    *running = false;
+                    *state = CounterState::Stopped;
                     if reset {
                         *event = None;
                     }
@@ -362,7 +396,7 @@ impl CounterTable {
             if let Counter::Firmware {
                 event: Some(event),
                 value,
-                running: true,
+                state: CounterState::Running,
             } = counter
                 && *event == observed
             {
