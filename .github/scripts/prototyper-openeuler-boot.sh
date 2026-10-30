@@ -14,7 +14,8 @@ readonly CODE_SHA256=58e96e55744516ed5debff8ed90eaface7b8a51a9466e7c0a687f4025ed
 readonly VARS_SHA256=ea8094e953b1215444bd001ee1cf22818f1f7f8abcb158e62180cbaa6c1f70af
 readonly UBOOT_PACKAGE=u-boot-qemu_2025.10-0ubuntu0.24.04.3_all.deb
 readonly UBOOT_SHA256=852a1f5d4a5d00a3a63f694a4bf46744f02737f5ffdea091666ee44d784f5eba
-readonly UBOOT_URL=https://security.ubuntu.com/ubuntu/pool/main/u/u-boot/$UBOOT_PACKAGE
+# Keep the pinned bootloader available after Ubuntu's rolling pool replaces it.
+readonly UBOOT_URL=https://snapshot.ubuntu.com/ubuntu/20261014T000000Z/pool/main/u/u-boot/$UBOOT_PACKAGE
 # Extract these files from the same SHA256-pinned guest disk's FAT boot partition.
 readonly BARE_ESP_OFFSET=1048576
 readonly BARE_KERNEL_NAME=vmlinuz-6.6.0-102.0.0.5.oe2509.riscv64
