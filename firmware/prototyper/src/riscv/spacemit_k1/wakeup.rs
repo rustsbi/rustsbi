@@ -47,11 +47,11 @@ impl HartWake for K1Wakeup {
         }
 
         // Order firmware state and the reset vector before the wake request.
-        riscv::asm::fence();
+        runtime::fence::fence();
         // Each caller writes its own register. Bits are wake requests,
         // cleared by hardware; writing zero has no effect, so never RMW.
         self.controls[caller / 4].write((caller % 4) * size_of::<u32>(), 1u32 << hart_id)?;
-        riscv::asm::fence();
+        runtime::fence::fence();
         Ok(true)
     }
 }

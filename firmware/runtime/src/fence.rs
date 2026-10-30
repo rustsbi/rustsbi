@@ -56,6 +56,12 @@ macro_rules! instruction {
     }};
 }
 
+/// Orders all prior memory and device accesses before later accesses
+/// (`fence iorw, iorw`).
+pub fn fence() {
+    riscv::asm::fence();
+}
+
 /// Invalidates the current hart's instruction cache.
 pub fn fence_i() {
     riscv::asm::fence_i();

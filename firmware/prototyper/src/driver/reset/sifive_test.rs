@@ -138,7 +138,7 @@ impl SifiveTestDevice {
             return ResetError::Failed;
         }
         loop {
-            riscv::asm::wfi();
+            runtime::hart::wait_for_interrupt();
         }
     }
 }

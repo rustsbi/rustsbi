@@ -174,20 +174,16 @@ impl P1Pmic {
 
     fn set_power_control(&self, control: PowerControl) -> bool {
         let register = Register::PowerControl2 as u8;
-        self.i2c
-            .read_register(self.address, register)
-            .is_some_and(|current| {
-                self.i2c.write_register(
-                    self.address,
-                    register,
-                    (PowerControl::from_bits_retain(current) | control).bits(),
-                )
-            })
+        let Some(current) = self.i2c.read_register(self.address, register) else {
+            return false;
+        };
+        let value = (PowerControl::from_bits_retain(current) | control).bits();
+        self.i2c.write_register(self.address, register, value)
     }
 
     fn park(&self) -> ! {
         loop {
-            riscv::asm::wfi();
+            runtime::hart::wait_for_interrupt();
         }
     }
 }

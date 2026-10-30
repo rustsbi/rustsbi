@@ -6,11 +6,9 @@
 //!   `DynamicInfo` layout, magic value, versions, and boot-hart encoding.
 
 use core::ops::Range;
-use runtime::Result;
+use runtime::{Result, hart::TargetPrivilege};
 
 use crate::fail;
-
-use csr::machine::TargetPrivilege;
 
 /// Derives the next-stage address and privilege mode from the `a2`
 /// `DynamicInfo`; prints and stops on invalid input.

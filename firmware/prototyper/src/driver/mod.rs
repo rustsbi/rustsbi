@@ -3,6 +3,12 @@
 //! [`bind_devices`] publishes the platform-wide device classes.
 //! Device-class discovery stays within each subsystem, while vendor-only
 //! devices remain in their vendor module.
+//!
+//! # References
+//!
+//! - Reference implementation: [OpenSBI v1.7 PLIC driver](https://github.com/riscv-software-src/opensbi/blob/v1.7/lib/utils/irqchip/plic.c#L95-L100) —
+//!   `plic_delegate()` writes bit 0 at offset `THEAD_PLIC_CTRL_REG` (`0x1ffffc`)
+//!   to delegate T-Head PLIC access to S-mode.
 
 #![forbid(unsafe_code)]
 
@@ -17,7 +23,11 @@ mod reset;
 
 use alloc::boxed::Box;
 use runtime::{
-    Error, Result, hart::HartId, ipi::IpiDevice, memory::MemoryRegistry, timer::TimerDevice,
+    Error, Result,
+    hart::HartId,
+    ipi::IpiDevice,
+    memory::MemoryRegistry,
+    timer::TimerDevice,
 };
 
 use crate::platform::{BoardInfo, ClintResource, ImsicInfo};
@@ -39,7 +49,9 @@ pub(crate) const SUNXI_PLICSW_COMPATIBLE: &str = "allwinner,sun300i-plicsw";
 pub(crate) const THEAD_PLIC_COMPATIBLES: [&str; 2] =
     ["thead,c900-plic", "allwinner,thead,c900-plic"];
 
+/// Byte offset of the T-Head PLIC control register from the PLIC base.
 const THEAD_PLIC_CTRL_OFFSET: usize = 0x1f_fffc;
+/// Control-register bit 0: delegate PLIC access to S-mode.
 const THEAD_PLIC_SUPERVISOR_ACCESS: u32 = 1 << 0;
 
 /// Platform devices constructed from the discovered hardware description.

@@ -1,4 +1,4 @@
-use csr::machine::TargetPrivilege;
+use runtime::hart::TargetPrivilege;
 
 use crate::cfg::JUMP_ADDRESS;
 

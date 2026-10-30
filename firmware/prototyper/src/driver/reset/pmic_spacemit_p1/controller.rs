@@ -26,13 +26,7 @@ enum Register {
     ResetCycle = 0x18,
 }
 
-impl Register {
-    const fn offset(self) -> usize {
-        self as usize
-    }
-}
-
-const REGISTER_SPAN: usize = Register::ResetCycle.offset() + size_of::<u32>();
+const REGISTER_SPAN: usize = Register::ResetCycle as usize + size_of::<u32>();
 
 bitflags! {
     #[derive(Clone, Copy)]
@@ -122,11 +116,11 @@ impl Timebase {
     }
 
     fn elapsed(self, start: u64, duration: Duration) -> bool {
-        riscv::register::time::read64().wrapping_sub(start) >= self.ticks_for(duration)
+        runtime::timer::Timer::read_time_counter().wrapping_sub(start) >= self.ticks_for(duration)
     }
 
     fn delay(self, duration: Duration) {
-        let start = riscv::register::time::read64();
+        let start = runtime::timer::Timer::read_time_counter();
         while !self.elapsed(start, duration) {
             core::hint::spin_loop();
         }
@@ -159,14 +153,14 @@ impl K1I2cController {
     #[inline]
     fn read(&self, register: Register) -> u32 {
         self.registers
-            .read(register.offset())
+            .read(register as usize)
             .expect("BUG: K1 I2C register escaped its MMIO window")
     }
 
     #[inline]
     fn write(&self, register: Register, value: u32) {
         self.registers
-            .write(register.offset(), value)
+            .write(register as usize, value)
             .expect("BUG: K1 I2C register escaped its MMIO window")
     }
 
@@ -186,7 +180,7 @@ impl K1I2cController {
     }
 
     fn wait_for_status(&self, mask: Status) -> Option<Status> {
-        let start = riscv::register::time::read64();
+        let start = runtime::timer::Timer::read_time_counter();
         loop {
             let status = Status::from_bits_retain(self.read(Register::Status));
             if status.intersects(STATUS_ERRORS | Status::ACK_NAK) {
@@ -221,7 +215,7 @@ impl K1I2cController {
         );
         self.clear_status(Status::from_bits_retain(self.read(Register::Status)));
 
-        let start = riscv::register::time::read64();
+        let start = runtime::timer::Timer::read_time_counter();
         loop {
             let status = Status::from_bits_retain(self.read(Register::Status));
             if !status.intersects(Status::UNIT_BUSY | Status::BUS_BUSY) {
@@ -283,12 +277,12 @@ impl K1I2cController {
         if !self.prepare_transfer() {
             return None;
         }
-        let value = (|| {
+        let value = 'transfer: {
             if !self.start(device, Direction::Write)
                 || !self.send_byte(register, false)
                 || !self.start(device, Direction::Read)
             {
-                return None;
+                break 'transfer None;
             }
             let control = (Control::from_bits_retain(self.read(Register::Control))
                 - TRANSFER_CONTROL)
@@ -296,13 +290,17 @@ impl K1I2cController {
                 | Control::STOP
                 | Control::TRANSFER_BYTE;
             self.write(Register::Control, control.bits());
-            let status = self.wait_for_status(Status::RX_FULL)?;
+            let Some(status) = self.wait_for_status(Status::RX_FULL) else {
+                break 'transfer None;
+            };
             let value = self.read(Register::DataBuffer) as u8;
-            if !status.contains(Status::MASTER_STOP_DETECTED) {
-                self.wait_for_status(Status::MASTER_STOP_DETECTED)?;
+            if !status.contains(Status::MASTER_STOP_DETECTED)
+                && self.wait_for_status(Status::MASTER_STOP_DETECTED).is_none()
+            {
+                break 'transfer None;
             }
             Some(value)
-        })();
+        };
         self.disable();
         value
     }

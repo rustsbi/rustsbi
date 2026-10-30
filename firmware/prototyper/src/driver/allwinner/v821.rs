@@ -79,10 +79,10 @@ pub(crate) fn release_boot0_isp_sram(
     const BOOT0_ISP_SRAM_RELEASED: u32 = 1 << 0;
 
     let registers = memory.acquire(soc.boot0_isp_sram_release()?)?;
-    riscv::asm::fence();
+    runtime::fence::fence();
     let flags = registers.read::<u32>(0)?;
     registers.write(0, flags | BOOT0_ISP_SRAM_RELEASED)?;
-    riscv::asm::fence();
+    runtime::fence::fence();
     Ok(())
 }
 
@@ -93,7 +93,7 @@ pub(crate) fn enable_plmt_clock(soc: AllwinnerV821Soc, memory: &mut MemoryRegist
     let registers = memory.acquire(soc.plmt_clock()?)?;
     let value = u32::from_le(registers.read::<u32>(0)?);
     registers.write(0, (value | CLOCK_ENABLE).to_le())?;
-    riscv::asm::fence();
+    runtime::fence::fence();
     Ok(())
 }
 
@@ -108,7 +108,7 @@ impl A27L2Cache {
         };
         let control = registers.read_u32(CacheRegister::Control)?;
         registers.write_u32(CacheRegister::Control, control | L2_CONTROL_INIT_MASK)?;
-        riscv::asm::fence();
+        runtime::fence::fence();
         Ok(Self {
             csr: soc.csr(),
             registers,
@@ -176,15 +176,17 @@ impl A27L2Cache {
 
         for address in (first..last).step_by(CACHE_LINE_SIZE) {
             let partial = address < start || end - address < CACHE_LINE_SIZE;
-            let (l1_operation, l2_command) = if operation == RangeOperation::WriteBack {
-                (L1Operation::WriteBack, L2Command::WriteBackRange)
-            } else if partial {
-                (
+            let (l1_operation, l2_command) = match (operation, partial) {
+                (RangeOperation::WriteBack, _) => {
+                    (L1Operation::WriteBack, L2Command::WriteBackRange)
+                }
+                (RangeOperation::Invalidate, true) => (
                     L1Operation::WriteBackAndInvalidate,
                     L2Command::WriteBackAndInvalidateRange,
-                )
-            } else {
-                (L1Operation::Invalidate, L2Command::InvalidateRange)
+                ),
+                (RangeOperation::Invalidate, false) => {
+                    (L1Operation::Invalidate, L2Command::InvalidateRange)
+                }
             };
             // The full cache-line span was checked against supervisor RAM;
             // partial lines retain surrounding dirty bytes by writeback.
@@ -198,7 +200,7 @@ impl A27L2Cache {
     }
 
     fn l2_command(&self, command: L2Command, timer: &Timer) -> Result<()> {
-        riscv::asm::fence();
+        runtime::fence::fence();
         self.registers
             .write_u32(CacheRegister::Command, command as u32)?;
         let read_time_fn = || {
@@ -211,7 +213,7 @@ impl A27L2Cache {
         loop {
             match self.registers.read_u32(CacheRegister::Status)? & STATUS_STATE_MASK {
                 0 => {
-                    riscv::asm::fence();
+                    runtime::fence::fence();
                     return Ok(());
                 }
                 STATUS_BUSY if read_time_fn()?.wrapping_sub(start) < COMMAND_TIMEOUT_TICKS => {}
@@ -243,9 +245,9 @@ impl UsbDmaBypass {
     /// Concurrent calls write the same idempotent value, so this operation
     /// needs no mutex; the fences remain ordered around each individual write.
     pub(crate) fn enable(&self) -> Result<()> {
-        riscv::asm::fence();
+        runtime::fence::fence();
         self.registers.write(0, 1u32)?;
-        riscv::asm::fence();
+        runtime::fence::fence();
         Ok(())
     }
 }

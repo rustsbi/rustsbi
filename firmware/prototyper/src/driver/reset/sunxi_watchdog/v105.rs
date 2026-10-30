@@ -108,27 +108,33 @@ impl V105Watchdog {
             return Err(Error::InvalidArgs);
         }
         let registers = memory.acquire(registers)?;
-        let reset_gate = gprcm
-            .map(|registers| {
-                let gate = registers.subrange(RESET_GATE_OFFSET, size_of::<u32>())?;
-                if !gate.start().is_aligned_to(align_of::<u32>()) {
-                    return Err(Error::InvalidArgs);
-                }
-                memory.acquire(gate)
-            })
-            .transpose()?;
+        let reset_gate = match gprcm {
+            Some(registers) => Some(Self::acquire_reset_gate(registers, memory)?),
+            None => None,
+        };
         Ok(Self {
             registers,
             reset_gate,
         })
     }
 
+    fn acquire_reset_gate(
+        registers: DeviceRegisterRange,
+        memory: &mut MemoryRegistry,
+    ) -> Result<MmioRegion> {
+        let gate = registers.subrange(RESET_GATE_OFFSET, size_of::<u32>())?;
+        if !gate.start().is_aligned_to(align_of::<u32>()) {
+            return Err(Error::InvalidArgs);
+        }
+        memory.acquire(gate)
+    }
+
     fn start_reset(&mut self) -> Result<()> {
-        riscv::asm::fence();
+        runtime::fence::fence();
         if let Some(gate) = &self.reset_gate {
             let value = u32::from_le(gate.read::<u32>(0)?) | RESET_GATE_ENABLE;
             gate.write(0, value.to_le())?;
-            riscv::asm::fence();
+            runtime::fence::fence();
         }
 
         // Retain MODE's writable low fields, clear enable, and replace the key.
@@ -136,14 +142,14 @@ impl V105Watchdog {
         let stopped = (mode & MODE_WRITABLE_BITS) | UPDATE_KEY;
         self.registers
             .write(Register::Mode as usize, stopped.to_le())?;
-        riscv::asm::fence();
+        runtime::fence::fence();
 
         // V105 has a dedicated immediate reset command; no timer is required.
         self.registers.write(
             Register::SoftwareReset as usize,
             (UPDATE_KEY | SOFTWARE_RESET_TRIGGER).to_le(),
         )?;
-        riscv::asm::fence();
+        runtime::fence::fence();
         Ok(())
     }
 }
@@ -160,7 +166,7 @@ impl ResetBackend for V105Watchdog {
             return ResetError::Failed;
         }
         loop {
-            riscv::asm::wfi();
+            runtime::hart::wait_for_interrupt();
         }
     }
 }

@@ -78,7 +78,7 @@ impl<const N: usize> Cci550<N> {
             control.enable_coherency();
             // Order the MMIO write before polling status; an atomic fence
             // only orders ordinary memory, not device I/O.
-            riscv::asm::fence();
+            runtime::fence::fence();
             while self.status.change_pending() {
                 core::hint::spin_loop();
             }

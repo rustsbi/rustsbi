@@ -124,19 +124,19 @@ impl V104Watchdog {
     fn write(&mut self, register: Register, value: u32) -> Result<()> {
         self.registers.write(register as usize, value.to_le())?;
         // Order each device write before the next register access or delay.
-        riscv::asm::fence();
+        runtime::fence::fence();
         Ok(())
     }
 
     fn start_reset(&mut self) -> Result<()> {
-        riscv::asm::fence();
+        runtime::fence::fence();
         // Stop an active watchdog before synchronizing its reset output.
         self.write(Register::Mode, UPDATE_KEY)?;
         // Clear CFG bit 0 before the delay, preserving its other fields.
         let config = self.read(Register::Config)?;
         self.write(Register::Config, (config & !CONFIG_ENABLE) | UPDATE_KEY)?;
-        let start = riscv::register::time::read64();
-        while riscv::register::time::read64().wrapping_sub(start) < self.delay_ticks {
+        let start = runtime::timer::Timer::read_time_counter();
+        while runtime::timer::Timer::read_time_counter().wrapping_sub(start) < self.delay_ticks {
             core::hint::spin_loop();
         }
 
@@ -161,7 +161,7 @@ impl ResetBackend for V104Watchdog {
         }
         // Reset is asynchronous. Park while the watchdog counts down.
         loop {
-            riscv::asm::wfi();
+            runtime::hart::wait_for_interrupt();
         }
     }
 }

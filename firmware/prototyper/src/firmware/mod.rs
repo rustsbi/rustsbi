@@ -23,6 +23,7 @@ cfg_if::cfg_if! {
 use runtime::{
     DeviceTreeHandoff, Error, PlatformDescription, Result,
     boot::NextStage,
+    hart::TargetPrivilege,
     memory::{PhysAddr, PhysAddrRange},
 };
 

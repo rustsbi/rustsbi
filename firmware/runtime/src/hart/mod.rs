@@ -32,6 +32,21 @@ pub(crate) fn current_hart() -> HartId {
     HartId::current().expect("BUG: current hart is not in the boot topology")
 }
 
+/// Waits for an interrupt on the current hart.
+///
+/// `wfi` is a hint: it may return immediately, including when no interrupt is
+/// pending. Callers recheck their condition after this function returns.
+pub fn wait_for_interrupt() {
+    riscv::asm::wfi();
+}
+
+/// Returns the JEDEC manufacturer ID from the current hart's `mvendorid`.
+///
+/// A hart that does not implement `mvendorid` reads zero.
+pub fn hardware_vendor_id() -> usize {
+    riscv::register::mvendorid::read().bits()
+}
+
 /// A validated RISC-V hart identifier.
 ///
 /// Hardware IDs may be sparse.

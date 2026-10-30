@@ -7,15 +7,12 @@ compile_error!("feature \"payload\" and feature \"jump\" cannot be enabled at th
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    use riscv::register::*;
     let hart_id = HartId::current()
         .map(|hart| hart.as_usize())
         .unwrap_or(usize::MAX);
     error!("Hart {} {info}", hart_id);
     error!("-----------------------------");
-    error!("mcause:  {:?}", mcause::read().cause());
-    error!("mepc:    {:#018x}", mepc::read());
-    error!("mtval:   {:#018x}", mtval::read());
+    runtime::trap::print_info(|line| error!("{line}"));
     error!("-----------------------------");
     error!("System shutdown scheduled due to RustSBI panic");
     loop {}
@@ -32,7 +29,7 @@ cfg_if::cfg_if! {
     if #[cfg(not(any(feature = "payload", feature = "jump")))] {
         use crate::firmware::dynamic;
         use crate::sbi::reset;
-        use csr::machine::TargetPrivilege;
+        use runtime::hart::TargetPrivilege;
         /// Handles invalid dynamic information data by logging details and resetting.
         #[cold]
         pub fn invalid_dynamic_data(err: dynamic::ValidationError) -> (TargetPrivilege, usize) {

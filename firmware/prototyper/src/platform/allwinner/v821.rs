@@ -8,7 +8,7 @@
 
 use runtime::{
     Error, PlatformView, Result,
-    hart::HartId,
+    hart::{HartId, hardware_vendor_id},
     memory::DeviceRegisterRange,
     soc::allwinner::v821::{AllwinnerV821Soc, NoncacheableAlias},
 };
@@ -81,7 +81,7 @@ impl Description {
         const ANDES_VENDOR_ID: usize = 0x31e;
         if hart.as_usize() != BOOT_HART
             || hart_count != 1
-            || riscv::register::mvendorid::read().bits() != ANDES_VENDOR_ID
+            || hardware_vendor_id() != ANDES_VENDOR_ID
         {
             return Err(Error::InvalidArgs);
         }
