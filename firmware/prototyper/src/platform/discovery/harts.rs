@@ -1,7 +1,7 @@
 //! Hart and model discovery.
 
 use alloc::{string::ToString, vec::Vec};
-use runtime::{Error, PlatformView, Result, hart::HartId};
+use runtime::{Error, PlatformView, Result};
 
 use crate::devicetree;
 use crate::platform::info::BoardInfo;
@@ -35,10 +35,6 @@ pub(super) fn discover(
             node.children()
                 .filter_map(|child| imsic::cpu_interrupt_controller(child, hart_id)),
         );
-        if !runtime::node_is_enabled(node) {
-            continue;
-        }
-        HartId::from_raw(hart_id).map_err(|_| Error::InvalidArgs)?;
     }
 
     Ok(controllers)
