@@ -61,7 +61,14 @@ csr! {
     /// Machine exception delegation register (`medeleg`).
     ///
     /// See <https://docs.riscv.org/reference/isa/priv/machine.html#medeleg>.
-    ExceptionDelegation { 0x302, r: ExceptionSet, w: ExceptionSet }
+    ExceptionDelegation { 0x302, r: ExceptionSet,
+        /// Updates exception routing.
+        ///
+        /// # Safety
+        ///
+        /// Preserve active trap handling and the execution context of live code.
+        unsafe w: ExceptionSet
+    }
     /// Machine interrupt delegation register (`mideleg`).
     ///
     /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mideleg>.
@@ -202,6 +209,12 @@ impl StatusWriteValue {
 }
 
 impl IsaValue {
+    /// Reports an implemented base extension by its uppercase ISA letter.
+    pub const fn has_extension(self, extension: char) -> bool {
+        let code = extension as u32;
+        code >= 'A' as u32 && code <= 'Z' as u32 && self.0 & (1 << (code - 'A' as u32)) != 0
+    }
+
     pub const fn has_hypervisor(self) -> bool {
         self.0 & (1 << 7) != 0
     }
