@@ -34,3 +34,28 @@ pub(crate) fn linker_image_bounds() -> Result<(usize, usize)> {
         () => Err(Error::NotEnoughResources),
     }
 }
+
+/// Returns the linked read-only data bounds of the firmware image.
+pub(crate) fn linker_rodata_bounds() -> Result<(usize, usize)> {
+    match () {
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+        () => {
+            let (start, end);
+            // SAFETY: `sbi_rodata_start` and `sbi_rodata_end` are addresses
+            // supplied by the firmware linker script. `lla` resolves those
+            // addresses without dereferencing them.
+            unsafe {
+                core::arch::asm!(
+                    "lla {start}, sbi_rodata_start",
+                    "lla {end}, sbi_rodata_end",
+                    start = out(reg) start,
+                    end = out(reg) end,
+                    options(nomem, nostack),
+                );
+            }
+            Ok((start, end))
+        }
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+        () => Err(Error::NotEnoughResources),
+    }
+}

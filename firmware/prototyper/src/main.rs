@@ -42,8 +42,9 @@ fn boot_hart(mut boot: BootInfo) {
     let next_stage_fdt_address = platform::init_board(platform_description);
 
     let firmware_ram = platform::firmware_ram_range();
-    firmware::set_pmp(&firmware_ram);
-    firmware::log_pmp_cfg(&firmware_ram);
+    let protection = firmware::protection(&firmware_ram);
+    firmware::set_pmp(&protection);
+    firmware::log_pmp_cfg(&protection);
 
     let hart = Hart::current().expect("current hart description");
     let hart_id = hart.id().as_usize();
@@ -88,7 +89,8 @@ fn secondary_hart(boot: Option<&BootInfo>) {
     platform::wait_until_ready();
 
     platform::initialize_secondary_hart();
-    firmware::set_pmp(&platform::firmware_ram_range());
+    let protection = firmware::protection(&platform::firmware_ram_range());
+    firmware::set_pmp(&protection);
 
     // Hardware-reset harts have no SPL handoff; HSM starts them in S-mode.
     let next_mode = boot.map_or(TargetPrivilege::Supervisor, |boot| {

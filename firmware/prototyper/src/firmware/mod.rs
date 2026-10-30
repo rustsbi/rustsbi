@@ -2,7 +2,7 @@ mod startup;
 pub(crate) use startup::{boot_info, initialize};
 
 mod pmp;
-pub(crate) use pmp::{log_pmp_cfg, set_pmp};
+pub use pmp::{log_pmp_cfg, protection, set_pmp};
 
 mod warm;
 pub(crate) use warm::warm_entry;
