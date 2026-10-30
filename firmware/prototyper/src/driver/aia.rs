@@ -6,15 +6,12 @@
 //!   sections 2.1.5 and 2.1.8 — IMSIC MMIO pages and interrupt-file setup.
 
 use alloc::boxed::Box;
-use core::num::NonZeroU16;
 use runtime::{
     Error, Result,
     hart::HartId,
-    ipi::{IpiDelivery, IpiDevice, IpiRequest},
+    ipi::{Iid, IpiDelivery, IpiDevice, IpiRequest},
     memory::{MemoryRegistry, MmioRegion},
 };
-
-use riscv_aia::Iid;
 
 use crate::platform::ImsicInfo;
 use crate::platform::qemu_aplic::QemuAplicConfig;
@@ -69,9 +66,7 @@ impl IpiDevice for ImsicIpi {
 
     #[inline(always)]
     fn delivery(&self) -> IpiDelivery {
-        IpiDelivery::Imsic {
-            iid: NonZeroU16::new(self.ipi_iid.number()).expect("validated IMSIC IPI identity"),
-        }
+        IpiDelivery::Imsic { iid: self.ipi_iid }
     }
 }
 

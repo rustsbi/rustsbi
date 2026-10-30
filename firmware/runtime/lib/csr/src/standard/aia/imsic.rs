@@ -1,4 +1,35 @@
-//! Machine interrupt-file indirect register identities.
+//! IMSIC interrupt identities and indirect registers.
+
+use core::num::NonZeroU16;
+
+/// A nonzero IMSIC interrupt identity in the architectural range `1..=2047`.
+///
+/// A particular interrupt file may implement fewer identities; its capacity
+/// must be checked separately.
+/// See <https://docs.riscv.org/reference/aia/v1.0/IMSIC.html>.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(transparent)]
+pub struct Iid(NonZeroU16);
+
+impl Iid {
+    /// Returns an interrupt identity if `number` is in `1..=2047`.
+    #[inline]
+    pub const fn new(number: u16) -> Option<Self> {
+        if number > 0x7ff {
+            return None;
+        }
+        match NonZeroU16::new(number) {
+            Some(number) => Some(Self(number)),
+            None => None,
+        }
+    }
+
+    /// Returns the interrupt identity number.
+    #[inline]
+    pub const fn number(self) -> u16 {
+        self.0.get()
+    }
+}
 
 /// An IMSIC indirect register, distinct from the `miselect` and `mireg` CSRs.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -14,8 +45,14 @@ pub enum ImsicRegister {
 }
 
 impl ImsicRegister {
-    /// Returns the architectural selector, rejecting absent bitmap indices.
-    /// RV64 implements only even-numbered pending and enable registers.
+    /// Returns the architectural selector for this register.
+    ///
+    /// Returns `None` for indices outside 0 through 63 and for odd indices on
+    /// RV64. A valid selector does not guarantee that the register exists on
+    /// the current hart.
+    ///
+    /// See <https://docs.riscv.org/reference/aia/v1.0/IMSIC.html>.
+    #[inline]
     pub const fn selector(self) -> Option<usize> {
         let (base, index) = match self {
             Self::Delivery => return Some(0x70),

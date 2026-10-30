@@ -12,11 +12,10 @@ use core::mem::size_of;
 use runtime::{
     Error, FdtNode, Result,
     hart::HartId,
+    ipi::Iid,
     memory::{DeviceRegisterRange, PhysAddrRange},
     node_is_enabled,
 };
-
-use riscv_aia::Iid;
 
 use crate::devicetree::u32_property;
 use crate::driver;

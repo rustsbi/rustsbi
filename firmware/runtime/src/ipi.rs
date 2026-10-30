@@ -2,7 +2,7 @@
 
 use crate::{Error, Result, hart::HartId, irq::LocalIrqDisabled};
 use alloc::boxed::Box;
-use core::num::NonZeroU16;
+pub use csr::aia::imsic::Iid;
 use csr::{aia::machine::Mtopei, machine};
 
 /// Firmware IPI send capability, issued during platform initialization.
@@ -19,7 +19,7 @@ pub enum IpiDelivery {
     /// Machine external interrupts, claimed through the current hart's IMSIC.
     Imsic {
         /// The fixed firmware IPI interrupt identity.
-        iid: NonZeroU16,
+        iid: Iid,
     },
 }
 
@@ -144,7 +144,7 @@ impl Ipi {
         }
     }
 
-    fn claim_imsic(&self, iid: NonZeroU16) -> bool {
+    fn claim_imsic(&self, iid: Iid) -> bool {
         // SAFETY: The selected IMSIC device establishes Mtopei support on this
         // hart. The instruction atomically claims the reported interrupt;
         // callers serialize the surrounding firmware IPI delivery sequence.
