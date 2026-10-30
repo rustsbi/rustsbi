@@ -7,17 +7,12 @@ should be placed directly before the function label
 and should not be indented.
 Prefer `.global` over `.globl` for clarity.
 
-```rust
-#[unsafe(naked)]
-pub(crate) unsafe extern "C" fn warm_entry() -> ! {
-    core::arch::naked_asm!(
-        ".balign 4",
-        "la a0, {initialize}",
-        "tail {entry}",
-        initialize = sym initialize,
-        entry = sym boot::k1_warm_entry,
-    )
-}
+```asm
+.balign 4
+.global foo
+foo:
+    mov rax, 1
+    ret
 ```
 
 ### Prefer `.balign` over `.align` (`asm-prefer-balign`) {#asm-prefer-balign}
