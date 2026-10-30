@@ -1,5 +1,7 @@
 //! Machine trap setup.
 use crate::macros::csr;
+use crate::value::WriteField;
+use crate::{Read, Write};
 use crate::values::{
     counter::CounterSet,
     trap::{ExceptionSet, InterruptSet},
@@ -7,8 +9,6 @@ use crate::values::{
 };
 
 csr! {
-    pub struct IsaValue(usize);
-
     /// Machine status register (`mstatus`).
     ///
     /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mstatus>.
@@ -40,23 +40,23 @@ csr! {
         #[cfg(target_pointer_width = "64")]
         SBE[36] { rw: Endianness }
         #[cfg(target_pointer_width = "64")]
-        GVA[38] { rw: GuestAddress { Other = 0, GuestVirtual = 1 } }
+        GVA[38] { rw: GuestAddress }
         #[cfg(target_pointer_width = "64")]
-        MPV[39] { rw: Virtualization { Off = 0, On = 1 } }
+        MPV[39] { rw: Virtualization }
         #[cfg(target_pointer_width = "64")]
-        MDT[42] { rw: DoubleTrapState { Clear = 0, Set = 1 } }
+        MDT[42] { rw: DoubleTrapState }
 
     /// Machine ISA register (`misa`).
     ///
     /// See <https://docs.riscv.org/reference/isa/priv/machine.html#misa>.
-    Isa { 0x301, r: IsaValue,
+    Isa { 0x301, r,
         /// See <https://docs.riscv.org/reference/isa/priv/machine.html#misa>.
         ///
         /// # Safety
         ///
         /// The selected extensions and instruction alignment must support all
         /// live code, register state, and interrupt handlers on this hart.
-        unsafe w: IsaValue
+        unsafe w
     }
     /// Machine exception delegation register (`medeleg`).
     ///
@@ -113,7 +113,6 @@ csr! {
     /// Upper half of machine status on RV32 (`mstatush`).
     ///
     /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mstatush>.
-    #[cfg(target_pointer_width = "32")]
     StatusHigh { 0x310, r,
         /// See
         /// <https://docs.riscv.org/reference/isa/priv/machine.html#mstatush>.
@@ -124,23 +123,23 @@ csr! {
         /// hart.
         unsafe w
     }
-        SBE[4] { rw: Endianness }
-        GVA[6] { rw: GuestAddress { Other = 0, GuestVirtual = 1 } }
-        MPV[7] { rw: Virtualization { Off = 0, On = 1 } }
-        MDT[10] { rw: DoubleTrapState { Clear = 0, Set = 1 } }
+        SBEH[4] { rw: Endianness }
+        GVAH[6] { rw: GuestAddress { Other = 0, GuestVirtual = 1 } }
+        MPVH[7] { rw: Virtualization { Off = 0, On = 1 } }
+        MDTH[10] { rw: DoubleTrapState { Clear = 0, Set = 1 } }
 }
 
 impl Status {
-    /// Sets an interrupt field with one CSRRS instruction.
+    /// Sets an interrupt field.
     ///
     /// # Safety
     ///
     /// Execute in M-mode on the intended hart. Satisfy this register's write
     /// requirements and permit interrupt reentry.
     #[inline]
-    pub unsafe fn set<F: crate::value::WriteField<StatusWriteValue, Value = Interrupt>>() {
-        let mut mask = StatusWriteValue(0);
-        mask.write::<F>(Interrupt::Enabled);
+    pub unsafe fn set_bit<F: WriteField<Status<Write>, Value = Interrupt>>() {
+        let mut mask = Status::<Write>::from_raw(0);
+        mask.set::<F>(Interrupt::Enabled);
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         // SAFETY: The caller establishes current-hart access and write safety.
         unsafe {
@@ -158,18 +157,16 @@ impl Status {
         }
     }
 
-    /// Atomically reads the register and clears an interrupt field with CSRRC.
-    /// Returns the snapshot before the field was cleared.
+    /// Atomically clears an interrupt field and returns the previous value.
     ///
     /// # Safety
     ///
     /// Execute in M-mode on the intended hart and satisfy this register's write
     /// requirements.
     #[inline]
-    pub unsafe fn clear<F: crate::value::WriteField<StatusWriteValue, Value = Interrupt>>()
-    -> StatusReadValue {
-        let mut mask = StatusWriteValue(0);
-        mask.write::<F>(Interrupt::Enabled);
+    pub unsafe fn clear_bit<F: WriteField<Status<Write>, Value = Interrupt>>() -> Status<Read> {
+        let mut mask = Status::<Write>::from_raw(0);
+        mask.set::<F>(Interrupt::Enabled);
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         {
             let previous: usize;
@@ -183,7 +180,7 @@ impl Status {
                     options(nostack),
                 );
             }
-            StatusReadValue(previous)
+            Status::<Read>::from_raw(previous)
         }
         #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
         {
@@ -194,54 +191,21 @@ impl Status {
 }
 
 impl From<bool> for Virtualization {
+    #[inline]
     fn from(virtualized: bool) -> Self {
         if virtualized { Self::On } else { Self::Off }
     }
 }
 
-impl StatusWriteValue {
-    /// Creates a return context with interrupts and optional state disabled.
-    pub fn for_return(privilege: TargetPrivilege) -> Self {
-        let mut value = Self(0);
-        value.write::<MPP>(privilege);
-        value
-    }
-}
-
-impl IsaValue {
-    /// Reports an implemented base extension by its uppercase ISA letter.
+impl Isa {
+    /// Reports whether `misa` advertises an extension by its uppercase letter.
+    ///
+    /// Returns `false` for characters outside `A` through `Z`.
+    /// A clear bit does not necessarily prove that an extension is absent.
+    /// See <https://docs.riscv.org/reference/isa/priv/machine.html#misa>.
+    #[inline]
     pub const fn has_extension(self, extension: char) -> bool {
         let code = extension as u32;
         code >= 'A' as u32 && code <= 'Z' as u32 && self.0 & (1 << (code - 'A' as u32)) != 0
-    }
-
-    pub const fn has_hypervisor(self) -> bool {
-        self.0 & (1 << 7) != 0
-    }
-
-    pub const fn has_supervisor(self) -> bool {
-        self.0 & (1 << 18) != 0
-    }
-
-    pub const fn has_user(self) -> bool {
-        self.0 & (1 << 20) != 0
-    }
-}
-
-#[cfg(target_pointer_width = "32")]
-impl StatusHighWriteValue {
-    /// Creates a nonvirtual return context with big-endian accesses disabled.
-    pub const fn native() -> Self {
-        Self(0)
-    }
-}
-
-impl TrapVectorWriteValue {
-    /// Combines a base address and dispatch mode; hardware may require stricter alignment.
-    pub fn new(base: VectorBase, mode: TargetVectorMode) -> Self {
-        let mut value = Self(0);
-        value.write::<BASE>(base);
-        value.write::<MODE>(mode);
-        value
     }
 }

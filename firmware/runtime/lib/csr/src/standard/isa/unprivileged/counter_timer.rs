@@ -10,6 +10,5 @@ csr! {
     /// Upper half of the architectural time counter on RV32 (`timeh`).
     ///
     /// See <https://docs.riscv.org/reference/isa/unpriv/counters.html>.
-    #[cfg(target_pointer_width = "32")]
     TimeHigh { 0xc81, r: CounterValue }
 }

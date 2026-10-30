@@ -59,23 +59,3 @@ csr! {
     /// <https://docs.riscv.org/reference/isa/priv/supervisor.html#scounteren>.
     CounterEnable { 0x106, r: CounterSet, w: CounterSet }
 }
-
-impl TrapVectorWriteValue {
-    /// Combines a base address and dispatch mode; hardware may require stricter alignment.
-    pub fn new(base: VectorBase, mode: TargetVectorMode) -> Self {
-        let mut value = Self(0);
-        value.write::<BASE>(base);
-        value.write::<MODE>(mode);
-        value
-    }
-}
-
-impl StatusWriteValue {
-    /// Creates trap-entry state with interrupts and optional state disabled.
-    pub fn for_trap(previous: SupervisorPrivilege, interrupts: Interrupt) -> Self {
-        let mut value = Self(0);
-        value.write::<SPP>(previous);
-        value.write::<SPIE>(interrupts);
-        value
-    }
-}

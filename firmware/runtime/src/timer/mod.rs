@@ -148,15 +148,19 @@ impl Timer {
 
     fn sstc_available() -> Result<bool> {
         #[cfg(target_pointer_width = "64")]
-        type Configuration = registers::EnvironmentConfiguration;
+        type Configuration = registers::EnvironmentConfig;
         #[cfg(target_pointer_width = "32")]
-        type Configuration = registers::EnvironmentConfigurationHigh;
+        type Configuration = registers::EnvironmentConfigHigh;
+        #[cfg(target_pointer_width = "64")]
+        type TimerEnable = registers::STCE;
+        #[cfg(target_pointer_width = "32")]
+        type TimerEnable = registers::STCEH;
         let enabled = csrr!(Configuration).is_ok_and(|config| {
             #[cfg(target_pointer_width = "64")]
-            let config = registers::EnvironmentConfigurationReadValue::from_bits(config);
+            let config = registers::EnvironmentConfig::from_bits(config);
             #[cfg(target_pointer_width = "32")]
-            let config = registers::EnvironmentConfigurationHighReadValue::from_bits(config);
-            config.supervisor_timer_enabled()
+            let config = registers::EnvironmentConfigHigh::from_bits(config);
+            config.get::<TimerEnable>() == registers::FeatureState::Enabled
         });
         if !enabled {
             return Ok(false);

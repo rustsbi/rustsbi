@@ -1,7 +1,11 @@
 //! Machine configuration.
 use crate::macros::csr;
+use crate::value::{Value, WriteField};
+use crate::{Read, Write};
 
 /// A legal RV64 supervisor pointer-masking mode.
+///
+/// See <https://docs.riscv.org/reference/isa/priv/zpm.html>.
 #[repr(usize)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PointerMasking {
@@ -11,6 +15,8 @@ pub enum PointerMasking {
 }
 
 /// A pointer-masking read encoding, including reserved values.
+///
+/// See <https://docs.riscv.org/reference/isa/priv/zpm.html>.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PointerMaskingRead {
     Disabled,
@@ -19,8 +25,9 @@ pub enum PointerMaskingRead {
     Unknown(usize),
 }
 
-impl crate::value::Value for PointerMasking {
+impl Value for PointerMasking {
     const BITS: u32 = 2;
+    #[inline]
     fn from_bits(bits: usize) -> Self {
         match bits {
             0 => Self::Disabled,
@@ -29,13 +36,15 @@ impl crate::value::Value for PointerMasking {
             _ => unreachable!("reserved pointer-masking write encoding"),
         }
     }
+    #[inline]
     fn bits(self) -> usize {
         self as usize
     }
 }
 
-impl crate::value::Value for PointerMaskingRead {
+impl Value for PointerMaskingRead {
     const BITS: u32 = 2;
+    #[inline]
     fn from_bits(bits: usize) -> Self {
         match bits {
             0 => Self::Disabled,
@@ -44,6 +53,7 @@ impl crate::value::Value for PointerMaskingRead {
             raw => Self::Unknown(raw),
         }
     }
+    #[inline]
     fn bits(self) -> usize {
         match self {
             Self::Disabled => 0,
@@ -58,7 +68,7 @@ csr! {
     /// Machine environment configuration register (`menvcfg`).
     ///
     /// See <https://docs.riscv.org/reference/isa/priv/machine.html#menvcfg>.
-    EnvironmentConfiguration { 0x30a, r,
+    EnvironmentConfig { 0x30a, r,
         /// See
         /// <https://docs.riscv.org/reference/isa/priv/machine.html#menvcfg>.
         ///
@@ -87,14 +97,14 @@ csr! {
         #[cfg(target_pointer_width = "64")]
         STCE[63] { rw: FeatureState }
     /// Upper half of `menvcfg` on RV32.
-    EnvironmentConfigurationHigh { 0x31a, r,
-        /// Preserves execution and translation invariants as for `menvcfg`.
+    EnvironmentConfigHigh { 0x31a, r,
+        /// Writes the upper half of the environment configuration.
         ///
         /// # Safety
         ///
         /// Access only on RV32. Preserve the lower-mode execution and translation
-        /// context, including active `MPRV` accesses.
-        /// Preserve Runtime's firmware-feature locks.
+        /// context, including active `MPRV` accesses, and coordinate conflicting
+        /// configuration changes.
         unsafe w
     }
         DTEH[27] { rw: FeatureState }
@@ -104,21 +114,29 @@ csr! {
     /// Machine security configuration register (`mseccfg`).
     ///
     /// See <https://docs.riscv.org/reference/isa/priv/machine.html#mseccfg>.
-    SecurityConfiguration { 0x747, r }
+    SecurityConfig { 0x747, r }
         SSEED[9] { rw: FeatureState }
 }
 
-impl SecurityConfiguration {
-    /// Grants S-mode access to `seed` with one CSRRS instruction.
-    /// Other security and PMP lock fields retain their values.
+impl SecurityConfig {
+    /// Sets a security field.
+    ///
+    /// This uses `CSRRS`, which reads and writes the register. Bits that read
+    /// differently from their underlying values can be changed by the update.
+    /// See <https://docs.riscv.org/reference/isa/unpriv/zicsr.html>.
     ///
     /// # Safety
-    /// Run on a hart with mseccfg during initial security-policy setup.
-    pub unsafe fn enable_supervisor_seed() {
-        let mut mask = SecurityConfigurationWriteValue(0);
-        mask.write::<SSEED>(FeatureState::Enabled);
+    ///
+    /// Execute in M-mode on a hart with `mseccfg`. The caller must satisfy the
+    /// selected field's security-policy requirements and coordinate other
+    /// firmware users of this register.
+    #[inline]
+    pub unsafe fn set_bit<F: WriteField<SecurityConfig<Write>, Value = FeatureState>>() {
+        let mut mask = SecurityConfig::<Write>::default();
+        mask.set::<F>(FeatureState::Enabled);
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-        // SAFETY: the caller owns this grant; CSRRS preserves unrelated locks.
+        // SAFETY: The caller coordinates this update and satisfies the
+        // selected field's security-policy requirements.
         unsafe {
             core::arch::asm!("csrs {csr}, {mask}", csr = const Self::NUMBER,
             mask = in(reg) usize::from(mask), options(nostack));
@@ -131,34 +149,22 @@ impl SecurityConfiguration {
     }
 }
 
-impl EnvironmentConfigurationReadValue {
-    /// Returns whether Sstc controls supervisor timer pending state on RV64.
-    #[cfg(target_pointer_width = "64")]
-    pub fn supervisor_timer_enabled(self) -> bool {
-        self.read::<STCE>() == FeatureState::Enabled
+impl From<EnvironmentConfig<Read>> for EnvironmentConfig<Write> {
+    #[inline]
+    fn from(value: EnvironmentConfig<Read>) -> Self {
+        Self::from_raw(value.0)
     }
 }
 
-impl EnvironmentConfigurationHighReadValue {
-    /// Returns whether Sstc controls supervisor timer pending state on RV32.
-    pub fn supervisor_timer_enabled(self) -> bool {
-        self.read::<STCEH>() == FeatureState::Enabled
-    }
-}
-
-impl From<EnvironmentConfigurationReadValue> for EnvironmentConfigurationWriteValue {
-    fn from(value: EnvironmentConfigurationReadValue) -> Self {
-        Self(value.0)
-    }
-}
-
-impl From<EnvironmentConfigurationHighReadValue> for EnvironmentConfigurationHighWriteValue {
-    fn from(value: EnvironmentConfigurationHighReadValue) -> Self {
-        Self(value.0)
+impl From<EnvironmentConfigHigh<Read>> for EnvironmentConfigHigh<Write> {
+    #[inline]
+    fn from(value: EnvironmentConfigHigh<Read>) -> Self {
+        Self::from_raw(value.0)
     }
 }
 
 impl From<bool> for FeatureState {
+    #[inline]
     fn from(enabled: bool) -> Self {
         if enabled {
             Self::Enabled
@@ -169,7 +175,8 @@ impl From<bool> for FeatureState {
 }
 
 impl PointerMasking {
-    /// Converts a requested masked pointer length to its legal CSR encoding.
+    /// Returns the mode for a supported masked pointer length, if any.
+    #[inline]
     pub const fn from_pmlen(length: usize) -> Option<Self> {
         match length {
             0 => Some(Self::Disabled),
@@ -180,6 +187,7 @@ impl PointerMasking {
     }
 
     /// Returns the masked pointer length, independently of its CSR encoding.
+    #[inline]
     pub const fn pmlen(self) -> usize {
         match self {
             Self::Disabled => 0,
@@ -188,4 +196,3 @@ impl PointerMasking {
         }
     }
 }
-

@@ -164,9 +164,9 @@ impl Ipi {
         // The caller's IRQ context excludes interrupt reentry during this update.
         unsafe {
             machine::InterruptEnable::modify(|_, value| {
-                value.write::<machine::MSIE>(machine::Interrupt::Enabled);
+                value.set::<machine::MSIE>(machine::Interrupt::Enabled);
                 if matches!(self.delivery(), Some(IpiDelivery::Imsic { .. })) {
-                    value.write::<machine::MEIE>(machine::Interrupt::Enabled);
+                    value.set::<machine::MEIE>(machine::Interrupt::Enabled);
                 }
             });
         }
@@ -176,7 +176,7 @@ impl Ipi {
         if self.device.is_some() && (self.deliver)() {
             // SAFETY: The fixed callback completed this hart's firmware work
             // under IRQ exclusion; Runtime owns supervisor IPI notification.
-            unsafe { machine::InterruptPending::set::<machine::SSIP>() };
+            unsafe { machine::InterruptPending::set_bit::<machine::SSIP>() };
         }
     }
 }
