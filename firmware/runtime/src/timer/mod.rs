@@ -153,9 +153,9 @@ impl Timer {
         type Configuration = registers::EnvironmentConfigurationHigh;
         let enabled = csrr!(Configuration).is_ok_and(|config| {
             #[cfg(target_pointer_width = "64")]
-            let config = registers::EnvironmentConfig::from(config);
+            let config = registers::EnvironmentConfigurationReadValue::from_bits(config);
             #[cfg(target_pointer_width = "32")]
-            let config = registers::EnvironmentConfigHigh::from(config);
+            let config = registers::EnvironmentConfigurationHighReadValue::from_bits(config);
             config.supervisor_timer_enabled()
         });
         if !enabled {
