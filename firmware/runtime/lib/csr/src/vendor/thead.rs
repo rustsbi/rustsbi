@@ -5,12 +5,12 @@ pub mod machine {
     use crate::macros::csr;
 
     csr! {
-        pub struct ExtendedStatusValue(usize);
-
         /// T-Head extended status register (`mxstatus`).
         ///
-        /// See
+        /// The XuanTie OpenC906 User Manual, section 15.1.7.1, describes this
+        /// register: <https://cs107e.github.io/readings/XuanTie-OpenC906-UserManual.pdf>.
+        /// OpenSBI identifies its C9xx CSR number as `0x7c0`:
         /// <https://github.com/riscv-software-src/opensbi/blob/master/platform/generic/include/thead/c9xx_encoding.h>.
-        ExtendedStatus { 0x7c0, r: ExtendedStatusValue }
+        ExtendedStatus { 0x7c0, r }
     }
 }

@@ -1,4 +1,7 @@
 //! Machine performance counters.
+//!
+//! See <https://docs.riscv.org/reference/isa/priv/machine.html#_hardware_performance_monitor>
+//! and <https://docs.riscv.org/reference/isa/priv/sscofpmf.html>.
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 use crate::value::Value;
 use crate::values::counter::CounterValue;
@@ -18,14 +21,12 @@ csr! {
         /// Own this hart's counter accounting and coordinate its users.
         unsafe w: CounterValue
     }
-    #[cfg(target_pointer_width = "32")]
     CycleCounterHigh { 0xb80, r: CounterValue,
         /// # Safety
         /// Coordinate both counter words and every user, including sibling
         /// harts when the implementation shares the cycle counter.
         unsafe w: CounterValue
     }
-    #[cfg(target_pointer_width = "32")]
     InstructionCounterHigh { 0xb82, r: CounterValue,
         /// # Safety
         /// Own this hart's counter accounting and coordinate both words.
@@ -46,12 +47,16 @@ macro_rules! counter_register {
                 $base + INDEX as u16
             };
 
-            /// Reads this hart's counter. Unavailable access traps.
+            /// Reads this hart's counter or event selector.
+            ///
+            /// Access to an unavailable or inaccessible register traps.
+            #[inline]
             pub fn read() -> CounterValue {
                 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
                 {
                     let bits: usize;
-                    // SAFETY: Counter reads observe hardware without changing it.
+                    // SAFETY: These registers can be read without changing
+                    // the execution environment. Inaccessible access traps.
                     unsafe {
                         core::arch::asm!("csrr {bits}, {csr}", bits = out(reg) bits,
                             csr = const Self::NUMBER, options(nostack));
@@ -62,15 +67,19 @@ macro_rules! counter_register {
                 unimplemented!("CSR access requires RISC-V")
             }
 
-            /// Writes this hart's counter. Unavailable access traps.
+            /// Writes this hart's counter or event selector.
+            ///
+            /// Access to an unavailable or inaccessible register traps.
             ///
             /// # Safety
             ///
             /// Execute on the intended hart in M-mode with a valid trap context.
-            /// Coordinate counter updates with its accounting owner.
+            /// Coordinate counter and event-selector updates with their users.
+            #[inline]
             pub unsafe fn write(value: CounterValue) {
                 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-                // SAFETY: Counter writes change accounting, not the execution environment.
+                // SAFETY: The caller coordinates the update with the users
+                // of this counter and its event selector.
                 unsafe {
                     core::arch::asm!("csrw {csr}, {bits}", csr = const Self::NUMBER,
                         bits = in(reg) usize::from(value), options(nostack));
@@ -91,7 +100,6 @@ counter_register!(
 );
 counter_register!(
     /// Upper word of a machine performance counter on RV32.
-    #[cfg(target_pointer_width = "32")]
     PerformanceCounterHigh, 0xb80
 );
 counter_register!(
@@ -100,6 +108,5 @@ counter_register!(
 );
 counter_register!(
     /// Optional upper event-selector word on RV32 (Sscofpmf).
-    #[cfg(target_pointer_width = "32")]
     PerformanceEventHigh, 0x720
 );

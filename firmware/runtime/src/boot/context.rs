@@ -23,9 +23,9 @@ pub unsafe extern "C" fn prepare_traps() {
     unsafe {
         install(entry::trap_entry);
         machine::Status::modify(|_, status| {
-            status.write::<machine::MPRV>(machine::AccessPrivilege::Current);
+            status.set::<machine::MPRV>(machine::AccessPrivilege::Current);
             #[cfg(target_pointer_width = "64")]
-            status.write::<machine::MDT>(machine::DoubleTrapState::Clear);
+            status.set::<machine::MDT>(machine::DoubleTrapState::Clear);
         });
     }
     // Install the basic vector before probing so an absent mstatush can recover.
@@ -36,12 +36,12 @@ pub unsafe extern "C" fn prepare_traps() {
         // SAFETY: The probe confirmed mstatush; startup owns trap setup.
         unsafe {
             machine::StatusHigh::modify(|_, status| {
-                status.write::<machine::MDT>(machine::DoubleTrapState::Clear);
+                status.set::<machine::MDTH>(machine::DoubleTrapState::Clear);
             });
             install(entry::trap_entry_high);
         }
     }
-    if machine::Isa::read().has_hypervisor() {
+    if machine::Isa::read().has_extension('H') {
         // SAFETY: H is present and startup owns trap setup.
         unsafe {
             install(entry::trap_entry_hypervisor);
@@ -52,14 +52,14 @@ pub unsafe extern "C" fn prepare_traps() {
 /// Checks the Direct trap entry installed by controlled Runtime boot on this hart.
 pub(crate) fn traps_ready() -> bool {
     let vector = machine::TrapVector::read();
-    let base = usize::from(vector.read::<machine::BASE>().address());
+    let base = usize::from(vector.get::<machine::BASE>().address());
     let entry_matches = base == entry::trap_entry as *const () as usize
         || base == entry::trap_entry_hypervisor as *const () as usize;
     #[cfg(target_pointer_width = "32")]
     let entry_matches = entry_matches || base == entry::trap_entry_high as *const () as usize;
-    vector.read::<machine::MODE>() == VectorMode::Direct
+    vector.get::<machine::MODE>() == VectorMode::Direct
         && entry_matches
-        && machine::Status::read().read::<machine::MPRV>() == machine::AccessPrivilege::Current
+        && machine::Status::read().get::<machine::MPRV>() == machine::AccessPrivilege::Current
 }
 
 /// Installs a machine trap vector for the current hart.
@@ -71,13 +71,11 @@ pub(crate) fn traps_ready() -> bool {
 /// Every optional CSR used by that entry must exist on this hart.
 unsafe fn install(entry: unsafe extern "C" fn()) {
     let base = VectorBase::new((entry as *const () as usize).into()).expect("aligned trap vector");
+    let mut vector = machine::TrapVector::<csr::Write>::default();
+    vector.set::<machine::BASE>(base);
+    vector.set::<machine::MODE>(TargetVectorMode::Direct);
     // SAFETY: The caller supplies a Runtime trap entry.
-    unsafe {
-        machine::TrapVector::write(machine::TrapVectorWriteValue::new(
-            base,
-            TargetVectorMode::Direct,
-        ))
-    }
+    unsafe { machine::TrapVector::write(vector) }
 }
 
 /// Configures delegation and counter access before publishing the SBI policy.
@@ -114,14 +112,14 @@ pub unsafe fn configure_next_stage() {
 }
 
 pub(crate) fn set_return_mode(
-    status: &mut machine::StatusWriteValue,
+    status: &mut machine::Status<csr::Write>,
     mode: riscv::register::mstatus::MPP,
 ) {
-    status.write::<machine::MPP>(privilege(mode));
-    status.write::<machine::MPIE>(machine::Interrupt::Enabled);
-    status.write::<machine::SIE>(machine::Interrupt::Disabled);
+    status.set::<machine::MPP>(privilege(mode));
+    status.set::<machine::MPIE>(machine::Interrupt::Enabled);
+    status.set::<machine::SIE>(machine::Interrupt::Disabled);
     #[cfg(target_pointer_width = "64")]
-    status.write::<machine::MPV>(machine::Virtualization::Off);
+    status.set::<machine::MPV>(machine::Virtualization::Off);
 }
 
 fn privilege(mode: riscv::register::mstatus::MPP) -> machine::TargetPrivilege {
@@ -171,7 +169,7 @@ pub(super) unsafe fn stage_next_mode(start_addr: usize, next_mode: riscv::regist
         // SAFETY: The probe succeeded; boot owns the outgoing trap state.
         unsafe {
             machine::StatusHigh::modify(|_, high| {
-                high.write::<machine::MPV>(machine::Virtualization::Off);
+                high.set::<machine::MPVH>(machine::Virtualization::Off);
             });
         }
     }

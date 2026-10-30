@@ -5,7 +5,7 @@ use csr::machine;
 
 /// Returns whether this hart reports the hypervisor extension in `misa`.
 pub fn has_hypervisor() -> bool {
-    machine::Isa::read().has_hypervisor()
+    machine::Isa::read().has_extension('H')
 }
 
 /// Checks support for the requested privilege mode.
@@ -14,8 +14,8 @@ pub fn supports_privilege(mode: riscv::register::mstatus::MPP) -> bool {
     use riscv::register::mstatus::MPP;
     match mode {
         MPP::Machine => true,
-        MPP::Supervisor => machine::Isa::read().has_supervisor(),
-        MPP::User => machine::Isa::read().has_user(),
+        MPP::Supervisor => machine::Isa::read().has_extension('S'),
+        MPP::User => machine::Isa::read().has_extension('U'),
     }
 }
 
@@ -42,7 +42,7 @@ pub fn detect_privileged_version() -> PrivilegedVersion {
         PrivilegedVersion::Unknown
     } else if csrr!(machine::CounterInhibit).is_err() {
         PrivilegedVersion::Version1_10
-    } else if csrr!(machine::EnvironmentConfiguration).is_err() {
+    } else if csrr!(machine::EnvironmentConfig).is_err() {
         PrivilegedVersion::Version1_11
     } else {
         PrivilegedVersion::Version1_12

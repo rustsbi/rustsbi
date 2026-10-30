@@ -1,6 +1,6 @@
 //! T-Head CSR operations used during per-hart startup.
 
-use csr::thead::machine::ExtendedStatus;
+use csr::vendor::thead::machine::ExtendedStatus;
 
 /// Disables non-standard page memory attributes on a T-Head hart.
 ///

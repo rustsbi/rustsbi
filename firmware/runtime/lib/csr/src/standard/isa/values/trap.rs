@@ -1,4 +1,11 @@
 //! Trap causes and delegation sets.
+//!
+//! See the machine-level specification for
+//! [`mcause`](https://docs.riscv.org/reference/isa/priv/machine.html#mcause),
+//! [`medeleg`](https://docs.riscv.org/reference/isa/priv/machine.html#medeleg),
+//! and [`mideleg`](https://docs.riscv.org/reference/isa/priv/machine.html#mideleg),
+//! and the [hypervisor specification](https://docs.riscv.org/reference/isa/priv/hypervisor.html#hedeleg)
+//! for guest-related causes and delegation.
 use crate::macros::csr;
 
 csr! {
@@ -107,24 +114,28 @@ impl CauseValue {
 }
 
 impl From<usize> for ExceptionSet {
+    #[inline]
     fn from(mask: usize) -> Self {
         Self(mask)
     }
 }
 
 impl From<usize> for InterruptSet {
+    #[inline]
     fn from(mask: usize) -> Self {
         Self(mask)
     }
 }
 
 impl From<usize> for CauseValue {
+    #[inline]
     fn from(bits: usize) -> Self {
         Self(bits)
     }
 }
 
 impl InterruptSet {
+    #[inline]
     pub const fn empty() -> Self {
         Self(0)
     }
@@ -161,6 +172,7 @@ impl Exception {
 }
 
 impl Interrupt {
+    #[inline]
     fn code(self) -> usize {
         match self {
             Self::SupervisorSoftware => 1,
@@ -177,6 +189,7 @@ impl Interrupt {
 }
 
 impl From<TrapCause> for CauseValue {
+    #[inline]
     fn from(cause: TrapCause) -> Self {
         let interrupt = 1usize << (usize::BITS - 1);
         let (flag, code) = match cause {
@@ -190,6 +203,7 @@ impl From<TrapCause> for CauseValue {
 
 impl ExceptionSet {
     /// Updates one delegation choice in this local value.
+    #[inline]
     pub fn set(&mut self, exception: Exception, delegated: bool) {
         assert!(exception.code() < usize::BITS as usize);
         let bit = 1usize << exception.code();
@@ -210,6 +224,7 @@ impl ExceptionSet {
         Self(bits)
     }
 
+    #[inline]
     pub fn contains(self, exception: Exception) -> bool {
         exception.code() < usize::BITS as usize && self.0 & (1usize << exception.code()) != 0
     }

@@ -20,6 +20,7 @@ csr! {
 }
 
 impl AddressSpace {
+    #[inline]
     pub const fn bare() -> Self {
         Self(0)
     }

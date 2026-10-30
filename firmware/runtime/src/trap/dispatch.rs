@@ -101,15 +101,17 @@ fn handle_lower_exception(
 /// Terminates this hart after an unhandled trap.
 #[cold]
 fn fatal(registers: &GeneralRegs, info: &TrapInfo) -> ! {
+    let mut vector = machine::TrapVector::<csr::Write>::default();
+    vector.set::<machine::BASE>(
+        VectorBase::new((crate::boot::fail_stop as *const () as usize).into())
+            .expect("aligned fail-stop vector"),
+    );
+    vector.set::<machine::MODE>(TargetVectorMode::Direct);
     // SAFETY:
     // 1. fail_stop needs no stack and never returns, including during panic reporting.
     // 2. Disabling machine interrupt sources preserves the current exclusion.
     unsafe {
-        machine::TrapVector::write(machine::TrapVectorWriteValue::new(
-            VectorBase::new((crate::boot::fail_stop as *const () as usize).into())
-                .expect("aligned fail-stop vector"),
-            TargetVectorMode::Direct,
-        ));
+        machine::TrapVector::write(vector);
         machine::InterruptEnable::write(csr::values::trap::InterruptSet::empty());
     }
     #[cfg(target_pointer_width = "32")]

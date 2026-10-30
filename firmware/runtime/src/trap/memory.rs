@@ -75,17 +75,23 @@ fn unavailable() -> ! {
     unimplemented!("lower-mode access requires RISC-V")
 }
 
+fn status_for_return(privilege: machine::TargetPrivilege) -> machine::Status<csr::Write> {
+    let mut status = machine::Status::<csr::Write>::default();
+    status.set::<machine::MPP>(privilege);
+    status
+}
+
 fn access_status(info: &TrapInfo, instruction: bool) -> Result<usize, Error> {
     let endianness = match info.origin() {
-        machine::Privilege::User => info.status.read::<machine::UBE>(),
+        machine::Privilege::User => info.status.get::<machine::UBE>(),
         machine::Privilege::Supervisor => {
             #[cfg(target_pointer_width = "32")]
             {
-                info.status_high.read::<machine::SBE>()
+                info.status_high.get::<machine::SBEH>()
             }
             #[cfg(target_pointer_width = "64")]
             {
-                info.status.read::<machine::SBE>()
+                info.status.get::<machine::SBE>()
             }
         }
         _ => return Err(Error::Unsupported),
@@ -100,14 +106,14 @@ fn access_status(info: &TrapInfo, instruction: bool) -> Result<usize, Error> {
         machine::Privilege::Supervisor => machine::TargetPrivilege::Supervisor,
         _ => unreachable!("origin checked above"),
     };
-    let mut status = machine::StatusWriteValue::for_return(privilege);
-    status.write::<machine::SUM>(info.status.read::<machine::SUM>());
-    status.write::<machine::MXR>(if instruction {
+    let mut status = status_for_return(privilege);
+    status.set::<machine::SUM>(info.status.get::<machine::SUM>());
+    status.set::<machine::MXR>(if instruction {
         machine::ExecutableReadAccess::Enabled
     } else {
-        info.status.read::<machine::MXR>()
+        info.status.get::<machine::MXR>()
     });
-    status.write::<machine::MPRV>(machine::AccessPrivilege::Previous);
+    status.set::<machine::MPRV>(machine::AccessPrivilege::Previous);
     Ok(status.into())
 }
 
@@ -199,9 +205,9 @@ mod tests {
     fn context(privilege: machine::TargetPrivilege) -> TrapInfo {
         TrapInfo {
             epc: 0x1000,
-            status: machine::StatusWriteValue::for_return(privilege).into(),
+            status: status_for_return(privilege).into(),
             #[cfg(target_pointer_width = "32")]
-            status_high: machine::StatusHighReadValue::from_bits(0),
+            status_high: machine::StatusHigh::from_bits(0),
             #[cfg(target_pointer_width = "64")]
             status_high: 0,
             has_hypervisor: false,
@@ -219,18 +225,18 @@ mod tests {
             machine::TargetPrivilege::Supervisor,
         ] {
             let mut info = context(privilege);
-            let mut status = machine::StatusWriteValue::for_return(privilege);
+            let mut status = status_for_return(privilege);
             match privilege {
                 machine::TargetPrivilege::User => {
-                    status.write::<machine::UBE>(machine::Endianness::Big);
+                    status.set::<machine::UBE>(machine::Endianness::Big);
                 }
                 machine::TargetPrivilege::Supervisor => {
                     #[cfg(target_pointer_width = "32")]
                     {
-                        info.status_high = machine::StatusHighReadValue::from_bits(1 << 4);
+                        info.status_high = machine::StatusHigh::from_bits(1 << 4);
                     }
                     #[cfg(target_pointer_width = "64")]
-                    status.write::<machine::SBE>(machine::Endianness::Big);
+                    status.set::<machine::SBE>(machine::Endianness::Big);
                 }
                 _ => unreachable!(),
             }

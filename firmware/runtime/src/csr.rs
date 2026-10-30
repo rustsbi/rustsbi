@@ -11,13 +11,13 @@ pub fn enable_supervisor_seed() {
     if !crate::boot::traps_ready() {
         return;
     }
-    if csrr!(csr::machine::SecurityConfiguration).is_ok() {
+    if csrr!(csr::machine::SecurityConfig).is_ok() {
         // SAFETY: The fixed SSEED bit permits supervisor seed access without
         // changing M-mode. One CSRS preserves concurrent updates to other bits.
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         unsafe {
             core::arch::asm!("csrs {csr}, {mask}",
-            csr = const csr::machine::SecurityConfiguration::NUMBER,
+            csr = const csr::machine::SecurityConfig::NUMBER,
             mask = in(reg) 1usize << 9, options(nomem));
         }
     }

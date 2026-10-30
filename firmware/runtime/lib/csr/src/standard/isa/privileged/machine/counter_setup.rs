@@ -10,23 +10,20 @@ csr! {
     ///
     /// See
     /// <https://docs.riscv.org/reference/isa/priv/machine.html#mcountinhibit>.
-    CounterInhibit { 0x320, r: InhibitedCounters }
+    CounterInhibit { 0x320, r: InhibitedCounters,
+        /// Writing a complete inhibit mask stops or resumes the selected
+        /// counters.
+        ///
+        /// # Safety
+        ///
+        /// Own counter initialization and coordinate every counter user,
+        /// including sibling harts when the implementation shares a counter.
+        unsafe w: InhibitedCounters
+    }
 }
 
 impl CounterInhibit {
-    /// Stops programmable counters during initial hart setup or PMU reset.
-    /// Clears CY and IR so cycle and instret continue running.
-    ///
-    /// # Safety
-    /// Own counter initialization and coordinate any shared cycle counter.
-    pub unsafe fn initialize_programmable() {
-        // SAFETY: the caller owns initialization; the typed mask excludes time.
-        unsafe {
-            crate::value::write::<{ Self::NUMBER }>(InhibitedCounters::programmable().bits());
-        }
-    }
-
-    /// Changes one inhibit bit with CSRRS/CSRRC, preserving other counters.
+    /// Changes the inhibit bit for a counter.
     ///
     /// # Safety
     /// The counter must exist. Coordinate other firmware users, including
@@ -34,7 +31,8 @@ impl CounterInhibit {
     pub unsafe fn set(counter: HardwareCounter, inhibited: bool) {
         let mask = InhibitedCounters::one(counter).bits();
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-        // SAFETY: the caller owns this counter; these instructions change one bit.
+        // SAFETY: The caller coordinates changes to this counter, including
+        // with sibling harts when counter control is shared.
         unsafe {
             if inhibited {
                 core::arch::asm!("csrs {csr}, {mask}", csr = const Self::NUMBER, mask = in(reg) mask, options(nostack));
