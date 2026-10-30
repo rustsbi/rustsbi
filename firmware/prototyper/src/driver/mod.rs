@@ -26,7 +26,7 @@ pub(crate) use reset::{
     Description as ResetDescription, ResetDevice, ResetError, ResetReason, ResetRequest, ResetType,
 };
 
-pub(crate) use aia::{IMSIC_COMPATIBLES, IMSIC_FILE_SPAN, initialize_hart_imsic};
+pub(crate) use aia::{IMSIC_COMPATIBLES, IMSIC_FILE_SPAN};
 pub(crate) use cci::Cci550;
 pub(crate) use clint::ClintKind;
 pub(crate) use console::{ConsoleKind, DbcnBackend, DbcnError};
@@ -38,6 +38,9 @@ pub(crate) const SUNXI_PLICSW_COMPATIBLE: &str = "allwinner,sun300i-plicsw";
 
 pub(crate) const THEAD_PLIC_COMPATIBLES: [&str; 2] =
     ["thead,c900-plic", "allwinner,thead,c900-plic"];
+
+const THEAD_PLIC_CTRL_OFFSET: usize = 0x1f_fffc;
+const THEAD_PLIC_SUPERVISOR_ACCESS: u32 = 1 << 0;
 
 /// Platform devices constructed from the discovered hardware description.
 pub(crate) struct Devices {
@@ -106,8 +109,9 @@ pub(crate) fn bind_devices(
 ) -> Result<Devices> {
     if let Some(registers) = board.devices.interrupts.thead_plic {
         // T-Head PLIC_CTRL bit 0 delegates access to S-mode.
-        let control = memory.acquire(registers.subrange(0x1ffffc, size_of::<u32>())?)?;
-        control.write(0, 1u32)?;
+        let control =
+            memory.acquire(registers.subrange(THEAD_PLIC_CTRL_OFFSET, size_of::<u32>())?)?;
+        control.write(0, THEAD_PLIC_SUPERVISOR_ACCESS)?;
     }
     let (timer, ipi) = bind_interrupts(board, selected_imsic, memory)?;
     let console = console::bind(board, memory)?;
