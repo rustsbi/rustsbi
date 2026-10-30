@@ -63,39 +63,80 @@ impl IsaExtensions {
     fn from_isa(isa: &str) -> Self {
         let mut parts = isa.split('_');
         let base = parts.next().unwrap_or_default();
-        Self::all()
-            .iter_names()
-            .filter(|(name, _)| {
-                if name.len() == 1 {
-                    base.get(4..)
-                        .unwrap_or_default()
-                        .as_bytes()
-                        .iter()
-                        .any(|byte| byte.eq_ignore_ascii_case(&name.as_bytes()[0]))
-                } else {
-                    parts.clone().any(|part| {
-                        let Some(prefix) = part.get(..name.len()) else {
-                            return false;
-                        };
-                        if !prefix.eq_ignore_ascii_case(name) {
-                            return false;
-                        }
-                        let version = &part[name.len()..];
-                        if version.is_empty() {
-                            return true;
-                        }
-                        let (major, minor) = version
-                            .split_once(['p', 'P'])
-                            .map_or((version, None), |(major, minor)| (major, Some(minor)));
-                        !major.is_empty()
-                            && major.bytes().all(|byte| byte.is_ascii_digit())
-                            && minor.is_none_or(|minor| {
-                                !minor.is_empty() && minor.bytes().all(|byte| byte.is_ascii_digit())
-                            })
-                    })
-                }
-            })
-            .map(|(_, flag)| flag)
-            .collect()
+        let letters = base.get(4..).unwrap_or_default().as_bytes();
+        let mut extensions = Self::empty();
+        for (name, flag) in Self::all().iter_names() {
+            let present = match name.as_bytes() {
+                [letter] => letters.iter().any(|byte| byte.eq_ignore_ascii_case(letter)),
+                _ => parts.clone().any(|part| matches_extension(part, name)),
+            };
+            if present {
+                extensions.insert(flag);
+            }
+        }
+        extensions
+    }
+}
+
+fn matches_extension(part: &str, name: &str) -> bool {
+    let Some((prefix, version)) = part.split_at_checked(name.len()) else {
+        return false;
+    };
+    prefix.eq_ignore_ascii_case(name) && valid_version(version)
+}
+
+fn valid_version(version: &str) -> bool {
+    match version.split_once(['p', 'P']) {
+        None => version.bytes().all(|byte| byte.is_ascii_digit()),
+        Some((major, minor)) => {
+            !major.is_empty()
+                && !minor.is_empty()
+                && major
+                    .bytes()
+                    .chain(minor.bytes())
+                    .all(|byte| byte.is_ascii_digit())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::IsaExtensions;
+
+    #[test]
+    fn recognizes_base_letters_and_versioned_extensions() {
+        assert_eq!(
+            IsaExtensions::from_isa("rv64imafdh_sstc1p0_svpbmt1_zicbom"),
+            IsaExtensions::H | IsaExtensions::SSTC | IsaExtensions::SVPBMT | IsaExtensions::ZICBOM
+        );
+        assert_eq!(
+            IsaExtensions::from_isa("RV32IH_SSTC1P0_ZICBOZ"),
+            IsaExtensions::H | IsaExtensions::SSTC | IsaExtensions::ZICBOZ
+        );
+    }
+
+    #[test]
+    fn rejects_prefix_matches_and_incomplete_versions() {
+        for isa in [
+            "rv64i_sstcextra",
+            "rv64i_sstcp0",
+            "rv64i_sstc1p",
+            "rv64i_sstc1p0p1",
+            "rv64i_sstc1x",
+            "rv64i_sstc-1",
+        ] {
+            assert!(IsaExtensions::from_isa(isa).is_empty(), "{isa}");
+        }
+    }
+
+    #[test]
+    fn handles_short_unknown_and_non_ascii_parts() {
+        for isa in ["", "rv", "rv64i__unknown_", "rv64i_ssté", "rv64i_sstc１"] {
+            assert!(IsaExtensions::from_isa(isa).is_empty(), "{isa}");
+        }
+        assert_eq!(
+            IsaExtensions::from_isa("rv64i_sstc_sstc"),
+            IsaExtensions::SSTC
+        );
     }
 }
