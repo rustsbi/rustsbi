@@ -236,7 +236,9 @@ fn publish_sbi_dispatcher(
     let hsm = ipi_available.then(|| SbiHsm::new(start_support, hart_wake));
     let rfence = ipi_available.then(|| SbiRFence::new().expect("failed to construct fence queues"));
     let susp = hsm.as_ref().map(|_| SbiSuspend);
-    let mpxy = Some(sbi::mpxy::SbiMpxy::new(supervisor_memory));
+    let mpxy = Some(
+        sbi::mpxy::SbiMpxy::new(supervisor_memory).expect("failed to initialize MPXY records"),
+    );
     let sta = Some(sbi::sta::SbiSta::new(supervisor_memory));
     let vendor = sbi::vendor::Vendor::new(custom_extension, supervisor_memory);
 

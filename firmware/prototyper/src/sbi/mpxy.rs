@@ -7,11 +7,11 @@
 
 #![forbid(unsafe_code)]
 
-use alloc::boxed::Box;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use runtime::{
-    hart::HartId,
+    Result,
+    hart::{HartId, HartLocal},
     memory::{PhysAddr, PhysAddrRange, SupervisorMemory},
     rustsbi::{Mpxy, SbiRet},
 };
@@ -25,24 +25,23 @@ const SHARED_MEMORY_SIZE: usize = 1usize << PAGE_SHIFT;
 
 /// Message Proxy extension with per-hart shared memory but no message channels.
 pub(crate) struct SbiMpxy {
-    shmem: Box<[AtomicUsize]>,
+    shmem: HartLocal<AtomicUsize>,
     supervisor_memory: &'static SupervisorMemory,
 }
 
 impl SbiMpxy {
-    pub(crate) fn new(supervisor_memory: &'static SupervisorMemory) -> Self {
-        Self {
-            shmem: HartId::all().map(|_| AtomicUsize::new(0)).collect(),
+    pub(crate) fn new(supervisor_memory: &'static SupervisorMemory) -> Result<Self> {
+        let shmem = HartLocal::new();
+        shmem.init_all(|_| AtomicUsize::new(0))?;
+        Ok(Self {
+            shmem,
             supervisor_memory,
-        }
+        })
     }
 
     #[inline]
-    fn current_shmem(&self) -> &AtomicUsize {
-        let hart_index = HartId::current()
-            .expect("BUG: current hart is not in the boot topology")
-            .index();
-        &self.shmem[hart_index]
+    fn current_shmem(&self) -> Result<&AtomicUsize> {
+        self.shmem.get(HartId::current()?)
     }
 }
 
@@ -55,11 +54,15 @@ impl Mpxy for SbiMpxy {
         if flags != 0 {
             return SbiRet::invalid_param();
         }
+        let shmem = match self.current_shmem() {
+            Ok(shmem) => shmem,
+            Err(error) => return error.into(),
+        };
 
         let start = PhysAddr::new(shared_memory.phys_addr_lo());
         let address_high = shared_memory.phys_addr_hi();
         if start.as_usize() == usize::MAX && address_high == usize::MAX {
-            self.current_shmem().store(0, Ordering::Release);
+            shmem.store(0, Ordering::Release);
             return SbiRet::success(0);
         }
 
@@ -73,13 +76,16 @@ impl Mpxy for SbiMpxy {
             return SbiRet::invalid_address();
         }
 
-        self.current_shmem()
-            .store(start.as_usize(), Ordering::Release);
+        shmem.store(start.as_usize(), Ordering::Release);
         SbiRet::success(0)
     }
 
     fn get_channel_ids(&self, _start_index: u32) -> SbiRet {
-        if self.current_shmem().load(Ordering::Acquire) == 0 {
+        let shmem = match self.current_shmem() {
+            Ok(shmem) => shmem,
+            Err(error) => return error.into(),
+        };
+        if shmem.load(Ordering::Acquire) == 0 {
             return SbiRet::no_shmem();
         }
         SbiRet::failed()
