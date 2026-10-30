@@ -8,6 +8,15 @@ use crate::value::Value;
 use core::num::NonZeroU16;
 
 csr! {
+    /// Machine indirect register selector value.
+    pub struct MiselectValue(usize);
+    /// Machine indirect register selector (`miselect`).
+    Miselect { 0x350, r: MiselectValue,
+        /// # Safety
+        /// Serialize selection with every indirect-register access on this hart.
+        unsafe w: MiselectValue
+    }
+
     /// The value observed or claimed from the machine interrupt file.
     pub struct MtopeiValue(usize);
 
@@ -16,6 +25,16 @@ csr! {
     /// Use `claim` to atomically read and acknowledge the reported interrupt.
     /// Generic writes and read/modify/write are unavailable.
     Mtopei { 0x35c, r: MtopeiValue }
+}
+
+/// Machine indirect register data CSR identity (`mireg`).
+/// Runtime groups selector/data operations under local IRQ exclusion.
+/// The selected register determines the access effects and ownership contract.
+pub enum Mireg {}
+
+impl Mireg {
+    /// Architectural CSR number of the machine indirect data register.
+    pub const NUMBER: u16 = 0x351;
 }
 
 impl Mtopei {
