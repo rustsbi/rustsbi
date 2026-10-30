@@ -140,9 +140,18 @@ impl BootInfo {
     /// Invalid `DynamicInfo` stops boot.
     pub(crate) fn next_stage(&self) -> NextStage {
         let (next_mode, start_address) = decode_next_stage(self.dynamic_info_address);
-        // SAFETY: Runtime's loader entry contract establishes the target's
-        // architectural calling convention and the incoming FDT's lifetime.
-        unsafe { NextStage::new(start_address, self.device_tree_address, next_mode) }
+        match next_mode {
+            TargetPrivilege::Supervisor => {
+                NextStage::supervisor(start_address, self.device_tree_address)
+            }
+            TargetPrivilege::User => NextStage::user(start_address, self.device_tree_address),
+            TargetPrivilege::Machine => {
+                // SAFETY: The loader-selected machine entry follows Runtime's
+                // architectural handoff contract, preserving firmware allocations
+                // and the incoming FDT while establishing its own calling context.
+                unsafe { NextStage::new(start_address, self.device_tree_address, next_mode) }
+            }
+        }
     }
 }
 

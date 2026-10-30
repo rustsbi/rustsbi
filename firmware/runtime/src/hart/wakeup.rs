@@ -1,25 +1,20 @@
 //! Optional hardware wakeup for harts that have not entered firmware.
 
 use crate::{Error, Result};
-use spin::Once;
 
 use super::HartId;
 
 /// A platform's hardware hart-release device.
 pub trait HartWake: Send + Sync {
-    /// Returns true if hardware wakeup was requested, or false to use an IPI.
-    fn wake(&self, hart: HartId) -> crate::Result<bool>;
+    /// Requests hardware wakeup.
+    ///
+    /// Returns `true` when the device issued the hardware wakeup request, and
+    /// `false` when the hart is already in firmware and needs an IPI.
+    fn wake(&self, hart: HartId) -> Result<bool>;
 }
 
-static WAKEUP: Once<Option<&'static dyn HartWake>> = Once::new();
-
-/// Publishes the optional hardware wakeup device before harts can be started.
-pub fn install_wakeup(device: Option<&'static dyn HartWake>) {
-    WAKEUP.call_once(|| device);
-}
-
-pub(super) fn wake(hart: HartId) -> Result<()> {
-    if let Some(device) = WAKEUP.get().copied().flatten()
+pub(super) fn wake(hart: HartId, device: Option<&dyn HartWake>) -> Result<()> {
+    if let Some(device) = device
         && device.wake(hart)?
     {
         return Ok(());

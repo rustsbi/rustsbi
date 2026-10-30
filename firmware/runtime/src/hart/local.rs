@@ -82,7 +82,7 @@ impl<T: Send + Sync> HartLocal<T> {
 
     pub(crate) fn try_get_current(&self) -> Option<&T> {
         let slots = self.slots.get()?;
-        let hart = HartId::current().expect("hart-local access before topology publication");
+        let hart = HartId::current().ok()?;
         slots[hart.index()].get()
     }
 

@@ -156,6 +156,15 @@ fn wake_suspended(hart: usize, frequency: u64) {
     wait(frequency, || {
         sbi::hart_get_status(hart) == SbiRet::success(hart_state::SUSPENDED)
     });
+    // A suspended hart must resume at its existing context, not accept a start.
+    assert_eq!(
+        sbi::hart_start(hart, entry as *const () as usize, 0),
+        SbiRet::failed()
+    );
+    assert_eq!(
+        sbi::hart_get_status(hart),
+        SbiRet::success(hart_state::SUSPENDED)
+    );
     assert_eq!(
         sbi::send_ipi(HartMask::from_mask_base(1, hart)),
         SbiRet::success(0)

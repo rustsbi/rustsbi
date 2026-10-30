@@ -6,13 +6,11 @@ use alloc::boxed::Box;
 use core::ops::Range;
 use runtime::{
     Error, PlatformDescription, Result, boot,
-    hart::{self, Hart, HartId, IsaExtensions},
+    hart::{Hart, HartId, IsaExtensions},
     ipi,
     memory::SupervisorMemory,
     timer::Timer,
 };
-
-use spin::Once;
 
 use super::{
     discovery,
@@ -24,8 +22,9 @@ use crate::{
     driver::{self, HartWake},
     riscv::spacemit_k1::{self, K1BootResources},
     sbi::{
-        self, SbiDispatcher, cppc::SbiCppc, dbtr::SbiDbtr, fwft::SbiFwft, hsm::SbiHsm, pmu::SbiPmu,
-        reset::SbiReset, rfence::SbiRFence, suspend::SbiSuspend, timer::SbiTimer,
+        self, SbiDispatcher, cppc::SbiCppc, dbtr::SbiDbtr, fwft::SbiFwft,
+        hsm::{HartStartSupport, SbiHsm}, pmu::SbiPmu, reset::SbiReset, rfence::SbiRFence,
+        suspend::SbiSuspend, timer::SbiTimer,
     },
 };
 
@@ -180,10 +179,11 @@ fn publish_platform_services(
         reset,
         ..
     } = devices;
-    // Publish hardware wakeup before constructing HSM policy.
-    static HART_WAKE: Once<Box<dyn HartWake>> = Once::new();
-    let hart_wake = hart_wake.map(|device| HART_WAKE.call_once(|| device).as_ref());
-    hart::install_wakeup(hart_wake);
+    let start_support = if hart_wake.is_some() {
+        HartStartSupport::IncludesResetHarts
+    } else {
+        HartStartSupport::InitializedHarts
+    };
     let ipi = ipi::init(ipi);
     let ipi_delivery = ipi.delivery();
     let sbi_ipi = sbi::ipi::SbiIpi::new(ipi).expect("failed to construct SBI IPI records");
@@ -200,6 +200,7 @@ fn publish_platform_services(
         reset,
         custom_extension,
         pmu,
+        start_support,
         hart_wake,
     );
 
@@ -214,7 +215,8 @@ fn publish_sbi_dispatcher(
     reset: SbiReset,
     custom_extension: sbi::vendor::Extension,
     pmu: SbiPmu,
-    hart_wake: Option<&'static dyn HartWake>,
+    start_support: HartStartSupport,
+    hart_wake: Option<Box<dyn HartWake>>,
 ) {
     let supervisor_memory = state::supervisor_memory();
     let console = state::console_device()
@@ -223,7 +225,7 @@ fn publish_sbi_dispatcher(
     let dbtr = Some(SbiDbtr::new(supervisor_memory));
     let fwft = Some(SbiFwft::new().expect("failed to construct FWFT locks"));
     let ipi_available = ipi.is_available();
-    let hsm = ipi_available.then(|| SbiHsm::new(hart_wake.is_some()));
+    let hsm = ipi_available.then(|| SbiHsm::new(start_support, hart_wake));
     let rfence = ipi_available.then(|| SbiRFence::new().expect("failed to construct fence queues"));
     let susp = hsm.as_ref().map(|_| SbiSuspend);
     let mpxy = Some(sbi::mpxy::SbiMpxy::new(supervisor_memory));

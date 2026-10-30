@@ -9,18 +9,106 @@ use super::{Hart, HartId};
 use crate::boot::NextStage;
 use crate::irq::LocalIrqDisabled;
 
-// State values are private Runtime facts, not SBI state IDs.
-const STATE_STARTED: u8 = 0;
-const STATE_STOPPED: u8 = 1;
-const STATE_START_PENDING: u8 = 2;
-const STATE_STOPPING: u8 = 3;
-const STATE_SUSPENDED: u8 = 4;
-const STATE_RESUME_PENDING: u8 = 6;
-const STATE_STARTING: u8 = u8::MAX;
+/// Complete Runtime hart lifecycle state, including private reservations.
+///
+/// These are internal Runtime facts, not SBI state IDs. [`Self::Starting`] is a
+/// reservation held while a stopped hart's handoff is staged and before
+/// [`Self::StartPending`] is published; it is never a public [`HartState`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LifecycleState {
+    /// The hart is executing normally.
+    Started,
+    /// The hart is parked outside lower privilege modes.
+    Stopped,
+    /// A start handoff is published and awaits the hart.
+    StartPending,
+    /// A stop is committed and awaits retirement of the policy call.
+    StopPending,
+    /// The hart is in a retentive platform suspend state.
+    Suspended,
+    /// A non-retentive resume is being prepared.
+    ResumePending,
+    /// The hart is reserved for a start or boot handoff before publication.
+    ///
+    /// This is an unpublished handoff state: the owning path writes the staged
+    /// entry while the reservation is held, then publishes [`Self::StartPending`].
+    Starting,
+}
+
+impl LifecycleState {
+    /// Encodes the state for the atomic word, preserving the former numeric values.
+    const fn to_u8(self) -> u8 {
+        match self {
+            Self::Started => 0,
+            Self::Stopped => 1,
+            Self::StartPending => 2,
+            Self::StopPending => 3,
+            Self::Suspended => 4,
+            Self::ResumePending => 6,
+            Self::Starting => u8::MAX,
+        }
+    }
+
+    /// Decodes an atomic word with a checked match; unencoded values are bugs.
+    fn from_u8(raw: u8) -> Self {
+        match raw {
+            0 => Self::Started,
+            1 => Self::Stopped,
+            2 => Self::StartPending,
+            3 => Self::StopPending,
+            4 => Self::Suspended,
+            6 => Self::ResumePending,
+            u8::MAX => Self::Starting,
+            _ => unreachable!("BUG: invalid Runtime hart state"),
+        }
+    }
+
+    /// Maps the internal state to its public lifecycle view.
+    const fn public(self) -> HartState {
+        match self {
+            Self::Started => HartState::Started,
+            Self::Stopped => HartState::Stopped,
+            Self::StartPending | Self::Starting => HartState::StartPending,
+            Self::StopPending => HartState::StopPending,
+            Self::Suspended => HartState::Suspended,
+            Self::ResumePending => HartState::ResumePending,
+        }
+    }
+}
+
+/// Hart lifecycle state stored atomically with checked enum conversion.
+struct AtomicLifecycleState(AtomicU8);
+
+impl AtomicLifecycleState {
+    const fn new(state: LifecycleState) -> Self {
+        Self(AtomicU8::new(state.to_u8()))
+    }
+
+    fn load(&self, order: Ordering) -> LifecycleState {
+        LifecycleState::from_u8(self.0.load(order))
+    }
+
+    fn store(&self, state: LifecycleState, order: Ordering) {
+        self.0.store(state.to_u8(), order);
+    }
+
+    fn compare_exchange(
+        &self,
+        current: LifecycleState,
+        new: LifecycleState,
+        success: Ordering,
+        failure: Ordering,
+    ) -> core::result::Result<LifecycleState, LifecycleState> {
+        self.0
+            .compare_exchange(current.to_u8(), new.to_u8(), success, failure)
+            .map(LifecycleState::from_u8)
+            .map_err(LifecycleState::from_u8)
+    }
+}
 
 #[repr(align(128))]
 pub(super) struct HartStateCell {
-    state: AtomicU8,
+    state: AtomicLifecycleState,
     stage: UnsafeCell<Option<NextStage>>,
     transfer: UnsafeCell<Option<ControlTransfer>>,
 }
@@ -28,7 +116,7 @@ pub(super) struct HartStateCell {
 impl HartStateCell {
     pub(super) const fn new() -> Self {
         Self {
-            state: AtomicU8::new(STATE_STOPPED),
+            state: AtomicLifecycleState::new(LifecycleState::Stopped),
             stage: UnsafeCell::new(None),
             transfer: UnsafeCell::new(None),
         }
@@ -68,10 +156,10 @@ pub(crate) enum HartEvent {
 
 /// Result of reserving a stopped hart for a start request.
 pub enum StartOutcome {
-    /// The request owns the start handoff.
+    /// The request acquired the start reservation; the hart may not have started yet.
     Accepted,
-    /// The hart was not stopped and could not be reserved.
-    AlreadyRunning,
+    /// The hart was not stopped, so the request did not acquire the reservation.
+    NotStopped(HartState),
 }
 
 /// A machine control transfer staged by a successful non-retentive resume.
@@ -90,8 +178,8 @@ impl Hart {
         if cell
             .state
             .compare_exchange(
-                STATE_STOPPED,
-                STATE_STARTING,
+                LifecycleState::Stopped,
+                LifecycleState::Starting,
                 Ordering::Acquire,
                 Ordering::Relaxed,
             )
@@ -99,34 +187,36 @@ impl Hart {
         {
             return Err(Error::Busy);
         }
-        // SAFETY: STARTING reserves the slot for this hart's boot path.
+        // SAFETY: Starting reserves the slot for this hart's boot path.
         unsafe { *cell.stage.get() = Some(stage) };
-        cell.state.store(STATE_START_PENDING, Ordering::Release);
+        cell.state
+            .store(LifecycleState::StartPending, Ordering::Release);
         Ok(())
     }
 
     /// Reserves and wakes a stopped hart, publishing its stage only after wake.
-    pub fn start(&self, stage: NextStage) -> Result<StartOutcome> {
+    pub fn start(
+        &self,
+        stage: NextStage,
+        wake: Option<&dyn super::HartWake>,
+    ) -> Result<StartOutcome> {
         let cell = &self.state;
-        if cell
-            .state
-            .compare_exchange(
-                STATE_STOPPED,
-                STATE_STARTING,
-                Ordering::Acquire,
-                Ordering::Relaxed,
-            )
-            .is_err()
-        {
-            return Ok(StartOutcome::AlreadyRunning);
+        if let Err(state) = cell.state.compare_exchange(
+            LifecycleState::Stopped,
+            LifecycleState::Starting,
+            Ordering::Acquire,
+            Ordering::Relaxed,
+        ) {
+            return Ok(StartOutcome::NotStopped(state.public()));
         }
-        if let Err(error) = super::wakeup::wake(self.id()) {
-            cell.state.store(STATE_STOPPED, Ordering::Release);
+        if let Err(error) = super::wakeup::wake(self.id(), wake) {
+            cell.state.store(LifecycleState::Stopped, Ordering::Release);
             return Err(error);
         }
-        // SAFETY: STARTING reserves the slot until the Release publication.
+        // SAFETY: Starting reserves the slot until the Release publication.
         unsafe { *cell.stage.get() = Some(stage) };
-        cell.state.store(STATE_START_PENDING, Ordering::Release);
+        cell.state
+            .store(LifecycleState::StartPending, Ordering::Release);
         Ok(StartOutcome::Accepted)
     }
 
@@ -136,12 +226,12 @@ impl Hart {
         let cell = &self.state;
         loop {
             match cell.state.load(Ordering::Acquire) {
-                STATE_START_PENDING => {
+                LifecycleState::StartPending => {
                     if cell
                         .state
                         .compare_exchange(
-                            STATE_START_PENDING,
-                            STATE_STARTED,
+                            LifecycleState::StartPending,
+                            LifecycleState::Started,
                             Ordering::AcqRel,
                             Ordering::Relaxed,
                         )
@@ -154,9 +244,12 @@ impl Hart {
                         return HartEvent::Start(stage);
                     }
                 }
-                STATE_STARTING => spin_loop(),
-                STATE_STOPPED => return HartEvent::Park,
-                _ => return HartEvent::None,
+                LifecycleState::Starting => spin_loop(),
+                LifecycleState::Stopped => return HartEvent::Park,
+                LifecycleState::Started
+                | LifecycleState::StopPending
+                | LifecycleState::Suspended
+                | LifecycleState::ResumePending => return HartEvent::None,
             }
         }
     }
@@ -164,15 +257,7 @@ impl Hart {
     /// Reads a hart's protocol-independent lifecycle state.
     #[inline]
     pub fn status(&self) -> HartState {
-        match self.state.state.load(Ordering::Acquire) {
-            STATE_STARTED => HartState::Started,
-            STATE_STOPPED => HartState::Stopped,
-            STATE_START_PENDING | STATE_STARTING => HartState::StartPending,
-            STATE_STOPPING => HartState::StopPending,
-            STATE_SUSPENDED => HartState::Suspended,
-            STATE_RESUME_PENDING => HartState::ResumePending,
-            _ => unreachable!("BUG: invalid Runtime hart state"),
-        }
+        self.state.state.load(Ordering::Acquire).public()
     }
 
     /// Returns whether the hart can receive ordinary firmware IPIs.
@@ -192,14 +277,16 @@ impl Hart {
             self.state
                 .state
                 .compare_exchange(
-                    STATE_STARTED,
-                    STATE_STOPPING,
+                    LifecycleState::Started,
+                    LifecycleState::StopPending,
                     Ordering::AcqRel,
                     Ordering::Relaxed,
                 )
                 .map_err(|_| Error::InvalidState)?;
             if let Err(error) = ipi.clear_current(irq) {
-                self.state.state.store(STATE_STARTED, Ordering::Release);
+                self.state
+                    .state
+                    .store(LifecycleState::Started, Ordering::Release);
                 return Err(error);
             }
             ipi.prepare_wakeup(irq);
@@ -218,8 +305,8 @@ impl Hart {
             self.state
                 .state
                 .compare_exchange(
-                    STATE_STARTED,
-                    STATE_SUSPENDED,
+                    LifecycleState::Started,
+                    LifecycleState::Suspended,
                     Ordering::AcqRel,
                     Ordering::Relaxed,
                 )
@@ -236,8 +323,8 @@ impl Hart {
         })
         .inspect_err(|_| {
             let _ = self.state.state.compare_exchange(
-                STATE_SUSPENDED,
-                STATE_STARTED,
+                LifecycleState::Suspended,
+                LifecycleState::Started,
                 Ordering::AcqRel,
                 Ordering::Relaxed,
             );
@@ -251,8 +338,8 @@ impl Hart {
         if cell
             .state
             .compare_exchange(
-                STATE_SUSPENDED,
-                STATE_STARTED,
+                LifecycleState::Suspended,
+                LifecycleState::Started,
                 Ordering::AcqRel,
                 Ordering::Relaxed,
             )
@@ -271,8 +358,8 @@ impl Hart {
             self.state
                 .state
                 .compare_exchange(
-                    STATE_SUSPENDED,
-                    STATE_RESUME_PENDING,
+                    LifecycleState::Suspended,
+                    LifecycleState::ResumePending,
                     Ordering::AcqRel,
                     Ordering::Relaxed,
                 )
@@ -286,7 +373,9 @@ impl Hart {
                     *self.state.transfer.get() = Some(ControlTransfer::NonRetentiveResume(stage))
                 };
             }
-            self.state.state.store(STATE_STARTED, Ordering::Release);
+            self.state
+                .state
+                .store(LifecycleState::Started, Ordering::Release);
             result
         })
     }
@@ -304,8 +393,10 @@ impl Hart {
     /// Waits on this hart's transport without discarding live Rust stack frames.
     pub(crate) fn wait_for_start(&self, irq: &LocalIrqDisabled) -> NextStage {
         let ipi = crate::ipi::get().expect("IPI service not published");
-        if self.state.state.load(Ordering::Acquire) == STATE_STOPPING {
-            self.state.state.store(STATE_STOPPED, Ordering::Release);
+        if self.state.state.load(Ordering::Acquire) == LifecycleState::StopPending {
+            self.state
+                .state
+                .store(LifecycleState::Stopped, Ordering::Release);
         }
         loop {
             if ipi.delivery().is_some() {
