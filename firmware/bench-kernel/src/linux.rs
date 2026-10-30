@@ -251,13 +251,13 @@ fn optional_calls() {
     if available(fwft::EID_FWFT) {
         // Read the existing value first; SET never changes the boot policy or
         // locks the feature. Linux uses SET for misaligned trap delegation.
-        let feature = fwft::feature_type::MISALIGNED_EXC_DELEG;
-        let ret = call(fwft::EID_FWFT, fwft::GET, [feature, 0, 0, 0, 0, 0]);
+        let feature = fwft::FeatureType::MisalignedExcDeleg.id() as usize;
+        let ret = call(fwft::EID_FWFT, fwft::Fid::Get.as_usize(), [feature, 0, 0, 0, 0, 0]);
         if ret.error == 0 {
             scalar(
                 "fwft_set_current",
                 fwft::EID_FWFT,
-                fwft::SET,
+                fwft::Fid::Set.as_usize(),
                 [feature, ret.value, 0, 0, 0, 0],
             );
         } else {
