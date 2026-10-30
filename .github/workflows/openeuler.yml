@@ -34,7 +34,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  QEMU_PACKAGE_VERSION: "1:10.2.1+ds-1ubuntu3.2"
 
 jobs:
   openeuler-boot:
@@ -53,10 +52,11 @@ jobs:
         run: |
           apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30)
           sudo timeout 5m apt-get "${apt_options[@]}" update --error-on=any
+          # Ubuntu 26.04 supplies QEMU through HWE packages; package revisions rotate.
           sudo timeout 5m apt-get "${apt_options[@]}" install -y --no-install-recommends \
             curl xz-utils shellcheck dpkg mtools \
-            "qemu-system-riscv=${QEMU_PACKAGE_VERSION}" \
-            "qemu-utils=${QEMU_PACKAGE_VERSION}"
+            qemu-system-riscv-hwe qemu-utils-hwe
+          dpkg-query -W qemu-system-riscv-hwe qemu-utils-hwe
           qemu-system-riscv64 --version
 
       - name: Check script syntax and offline failure handling
