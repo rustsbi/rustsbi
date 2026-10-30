@@ -16,19 +16,12 @@ A guideline belongs to the persona that is the natural owner of the failure it p
 | Kernel developer | Is it correct, efficient, and consistent with the memory-safety and hardware contracts? | [For Development](for-development/README.md) |
 | Documentation writer | Are the user-facing docs well-written? | [For Documentation](for-documentation/README.md) |
 
-## Sources and Status
+## Sources
 
 The guidelines come from three sources:
-entries inherited verbatim from the [Asterinas coding guidelines](https://asterinas.github.io/book/to-contribute/coding-guidelines/index.html),
-entries adapted from them to the RISC-V SBI firmware context,
-and new entries distilled from RustSBI's own contribution rules, CI requirements, and review history.
-
-This chapter currently carries only the **inherited** entries,
-whose prose is copied verbatim from the Asterinas originals.
-The good-side code examples have been replaced with verbatim snippets
-from this repository; the bad-side examples still follow the Asterinas
-originals and will be rewritten for the RISC-V SBI context.
-Adapted and new entries are being written and will follow.
+- entries inherited verbatim from the [Asterinas coding guidelines](https://asterinas.github.io/book/to-contribute/coding-guidelines/index.html),
+- entries adapted from them to the RISC-V SBI firmware context,
+- new entries distilled from RustSBI's own contribution rules, CI requirements, and review history.
 
 The Asterinas coding guidelines are dual-licensed under MPL-2.0 and Apache-2.0.
 Thanks to the Asterinas project.
