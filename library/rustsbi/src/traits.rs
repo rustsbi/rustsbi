@@ -489,56 +489,62 @@ pub fn _rustsbi_mpxy<T: crate::Mpxy>(mpxy: &T, param: [usize; 6], function: usiz
     match function {
         spec::mpxy::GET_SHMEM_SIZE => SbiRet::success(mpxy.get_shmem_size()),
         spec::mpxy::SET_SHMEM => mpxy.set_shmem(SharedPtr::new(param0, param1), param2),
-        spec::mpxy::GET_CHANNEL_IDS => match u32::try_from(param0) {
-            Ok(start_index) => mpxy.get_channel_ids(start_index),
-            _ => SbiRet::invalid_param(),
-        },
-        spec::mpxy::READ_ATTRIBUTE => match (
-            u32::try_from(param0),
-            u32::try_from(param1),
-            u32::try_from(param2),
-        ) {
-            (Ok(channel_id), Ok(base_attribute_id), Ok(attribute_count)) => mpxy.read_attributes(
+        spec::mpxy::GET_CHANNEL_IDS => {
+            let Ok(start_index) = u32::try_from(param0) else {
+                return SbiRet::invalid_param();
+            };
+            mpxy.get_channel_ids(start_index)
+        }
+        spec::mpxy::READ_ATTRIBUTE => {
+            let (Ok(channel_id), Ok(base_attribute_id), Ok(attribute_count)) = (
+                u32::try_from(param0),
+                u32::try_from(param1),
+                u32::try_from(param2),
+            ) else {
+                return SbiRet::invalid_param();
+            };
+            mpxy.read_attributes(
                 channel_id,
                 base_attribute_id,
                 attribute_count,
                 SharedPtr::new(param3, param4),
-            ),
-            _ => SbiRet::invalid_param(),
-        },
-        spec::mpxy::WRITE_ATTRIBUTE => match (
-            u32::try_from(param0),
-            u32::try_from(param1),
-            u32::try_from(param2),
-        ) {
-            (Ok(channel_id), Ok(base_attribute_id), Ok(attribute_count)) => mpxy.write_attributes(
+            )
+        }
+        spec::mpxy::WRITE_ATTRIBUTE => {
+            let (Ok(channel_id), Ok(base_attribute_id), Ok(attribute_count)) = (
+                u32::try_from(param0),
+                u32::try_from(param1),
+                u32::try_from(param2),
+            ) else {
+                return SbiRet::invalid_param();
+            };
+            mpxy.write_attributes(
                 channel_id,
                 base_attribute_id,
                 attribute_count,
                 SharedPtr::new(param3, param4),
-            ),
-            _ => SbiRet::invalid_param(),
-        },
+            )
+        }
         spec::mpxy::SEND_MESSAGE_WITH_RESPONSE => {
-            match (u32::try_from(param0), u32::try_from(param1)) {
-                (Ok(channel_id), Ok(message_id)) => {
-                    mpxy.send_message_with_response(channel_id, message_id, param2)
-                }
-                _ => SbiRet::invalid_param(),
-            }
+            let (Ok(channel_id), Ok(message_id)) = (u32::try_from(param0), u32::try_from(param1))
+            else {
+                return SbiRet::invalid_param();
+            };
+            mpxy.send_message_with_response(channel_id, message_id, param2)
         }
         spec::mpxy::SEND_MESSAGE_WITHOUT_RESPONSE => {
-            match (u32::try_from(param0), u32::try_from(param1)) {
-                (Ok(channel_id), Ok(message_id)) => {
-                    mpxy.send_message_without_response(channel_id, message_id, param2)
-                }
-                _ => SbiRet::invalid_param(),
-            }
+            let (Ok(channel_id), Ok(message_id)) = (u32::try_from(param0), u32::try_from(param1))
+            else {
+                return SbiRet::invalid_param();
+            };
+            mpxy.send_message_without_response(channel_id, message_id, param2)
         }
-        spec::mpxy::GET_NOTIFICATION_EVENTS => match u32::try_from(param0) {
-            Ok(channel_id) => mpxy.get_notification_events(channel_id),
-            _ => SbiRet::invalid_param(),
-        },
+        spec::mpxy::GET_NOTIFICATION_EVENTS => {
+            let Ok(channel_id) = u32::try_from(param0) else {
+                return SbiRet::invalid_param();
+            };
+            mpxy.get_notification_events(channel_id)
+        }
         _ => SbiRet::not_supported(),
     }
 }
@@ -639,53 +645,67 @@ pub fn _rustsbi_sse<T: crate::Sse>(sse: &T, param: [usize; 6], function: usize) 
     let [param0, param1, param2, param3, param4] =
         [param[0], param[1], param[2], param[3], param[4]];
     match function {
-        spec::sse::READ_ATTRS => match (
-            u32::try_from(param0),
-            u32::try_from(param1),
-            u32::try_from(param2),
-        ) {
-            (Ok(event_id), Ok(base_attr_id), Ok(attr_count)) => sse.read_attrs(
+        spec::sse::READ_ATTRS => {
+            let (Ok(event_id), Ok(base_attr_id), Ok(attr_count)) = (
+                u32::try_from(param0),
+                u32::try_from(param1),
+                u32::try_from(param2),
+            ) else {
+                return SbiRet::invalid_param();
+            };
+            sse.read_attrs(
                 event_id,
                 base_attr_id,
                 attr_count,
                 SharedPtr::new(param3, param4),
-            ),
-            _ => SbiRet::invalid_param(),
-        },
-        spec::sse::WRITE_ATTRS => match (
-            u32::try_from(param0),
-            u32::try_from(param1),
-            u32::try_from(param2),
-        ) {
-            (Ok(event_id), Ok(base_attr_id), Ok(attr_count)) => sse.write_attrs(
+            )
+        }
+        spec::sse::WRITE_ATTRS => {
+            let (Ok(event_id), Ok(base_attr_id), Ok(attr_count)) = (
+                u32::try_from(param0),
+                u32::try_from(param1),
+                u32::try_from(param2),
+            ) else {
+                return SbiRet::invalid_param();
+            };
+            sse.write_attrs(
                 event_id,
                 base_attr_id,
                 attr_count,
                 SharedPtr::new(param3, param4),
-            ),
-            _ => SbiRet::invalid_param(),
-        },
-        spec::sse::REGISTER => match u32::try_from(param0) {
-            Ok(event_id) => sse.register(event_id, param1, param2),
-            _ => SbiRet::invalid_param(),
-        },
-        spec::sse::UNREGISTER => match u32::try_from(param0) {
-            Ok(event_id) => sse.unregister(event_id),
-            _ => SbiRet::invalid_param(),
-        },
-        spec::sse::ENABLE => match u32::try_from(param0) {
-            Ok(event_id) => sse.enable(event_id),
-            _ => SbiRet::invalid_param(),
-        },
-        spec::sse::DISABLE => match u32::try_from(param0) {
-            Ok(event_id) => sse.disable(event_id),
-            _ => SbiRet::invalid_param(),
-        },
+            )
+        }
+        spec::sse::REGISTER => {
+            let Ok(event_id) = u32::try_from(param0) else {
+                return SbiRet::invalid_param();
+            };
+            sse.register(event_id, param1, param2)
+        }
+        spec::sse::UNREGISTER => {
+            let Ok(event_id) = u32::try_from(param0) else {
+                return SbiRet::invalid_param();
+            };
+            sse.unregister(event_id)
+        }
+        spec::sse::ENABLE => {
+            let Ok(event_id) = u32::try_from(param0) else {
+                return SbiRet::invalid_param();
+            };
+            sse.enable(event_id)
+        }
+        spec::sse::DISABLE => {
+            let Ok(event_id) = u32::try_from(param0) else {
+                return SbiRet::invalid_param();
+            };
+            sse.disable(event_id)
+        }
         spec::sse::COMPLETE => sse.complete(),
-        spec::sse::INJECT => match u32::try_from(param0) {
-            Ok(event_id) => sse.inject(event_id, param1),
-            _ => SbiRet::invalid_param(),
-        },
+        spec::sse::INJECT => {
+            let Ok(event_id) = u32::try_from(param0) else {
+                return SbiRet::invalid_param();
+            };
+            sse.inject(event_id, param1)
+        }
         spec::sse::HART_UNMASK => sse.hart_unmask(),
         spec::sse::HART_MASK => sse.hart_mask(),
         _ => SbiRet::not_supported(),
