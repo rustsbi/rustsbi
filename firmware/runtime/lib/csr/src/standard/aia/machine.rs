@@ -3,7 +3,7 @@
 //! Specification: <https://docs.riscv.org/reference/aia/v1.0/IMSIC.html>,
 //! section 2.1.9.
 use crate::macros::csr;
-use core::num::NonZeroU16;
+use super::imsic::Iid;
 
 csr! {
     /// Machine indirect register selector (`miselect`).
@@ -73,7 +73,24 @@ impl Mtopei {
 impl Mtopei {
     /// Returns the reported identity; zero means no interrupt is available.
     #[inline]
-    pub const fn iid(self) -> Option<NonZeroU16> {
-        NonZeroU16::new(((self.0 >> 16) & 0x7ff) as u16)
+    pub const fn iid(self) -> Option<Iid> {
+        Iid::new(((self.0 >> 16) & 0x7ff) as u16)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn interrupt_identity_bounds_and_claim_decoding() {
+        assert_eq!(Iid::new(0), None);
+        assert_eq!(Iid::new(2048), None);
+        assert_eq!(Mtopei(0).iid(), None);
+        for number in [1, 2047] {
+            let iid = Iid::new(number).unwrap();
+            assert_eq!(iid.number(), number);
+            assert_eq!(Mtopei((number as usize) << 16).iid(), Some(iid));
+        }
     }
 }

@@ -7,11 +7,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use runtime::{
     Result, SpacemitK1Registers,
+    ipi::Iid,
     memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange},
     soc::allwinner::v861::AllwinnerV861Soc,
 };
-
-use riscv_aia::Iid;
 
 use crate::devicetree::{NodeSelection, select_from_node_once};
 use crate::driver;
