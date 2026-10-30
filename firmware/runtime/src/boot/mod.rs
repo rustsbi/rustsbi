@@ -6,7 +6,6 @@
 
 mod context;
 mod environment;
-mod services;
 mod stack;
 mod stage;
 mod thead;
@@ -14,8 +13,6 @@ mod thead;
 pub(crate) use context::configure_next_stage;
 pub use context::prepare_traps;
 pub(crate) use context::{prepare_supervisor, set_return_mode, traps_ready};
-pub use services::{Services, install_services};
-pub(crate) use services::timer;
 pub use stage::NextStage;
 
 pub(crate) use stack::firmware_end;

@@ -6,8 +6,8 @@ use super::pmu::{FirmwareEvent, SbiPmu};
 use runtime::{rustsbi, timer::Timer};
 
 /// SBI TIME extension with permission to program the supervisor timer.
-pub(crate) struct SbiTimer {
-    timer: Timer,
+pub struct SbiTimer {
+    timer: &'static Timer,
 }
 
 impl rustsbi::Timer for SbiTimer {
@@ -24,11 +24,7 @@ impl rustsbi::Timer for SbiTimer {
 }
 
 impl SbiTimer {
-    pub(crate) const fn new(timer: Timer) -> Self {
+    pub(crate) const fn new(timer: &'static Timer) -> Self {
         Self { timer }
-    }
-
-    pub(crate) fn timer(&self) -> &Timer {
-        &self.timer
     }
 }

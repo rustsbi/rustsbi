@@ -131,7 +131,7 @@ pub(crate) fn configure_next_stage(hart: &Hart) -> Result<()> {
             crate::pmu::Pmu::init_current(inhibit)?;
             let irq = crate::irq::LocalIrqDisabled::assume_disabled();
             crate::ipi::get().ok_or(Error::NotReady)?.init_current(&irq)?;
-            super::timer().ok_or(Error::NotReady)?.init_current(&irq)?;
+            crate::timer::get().ok_or(Error::NotReady)?.init_current(&irq)?;
             if hart.supports_privilege(machine::TargetPrivilege::Supervisor) {
                 machine::InterruptDelegation::write(usize::MAX.into());
                 machine::ExceptionDelegation::write(ExceptionSet::except(&[

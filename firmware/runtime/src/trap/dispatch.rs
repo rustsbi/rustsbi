@@ -42,7 +42,7 @@ fn handle_interrupt(
     match interrupt {
         Interrupt::MachineSoftware => handlers::software_interrupt(frame, irq),
         Interrupt::MachineTimer => {
-            crate::boot::timer()
+            crate::timer::get()
                 .expect("Timer service not published")
                 .on_interrupt(irq);
         }

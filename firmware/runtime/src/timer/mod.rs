@@ -20,24 +20,22 @@ use registers::{EnvironmentConfigHigh as Configuration, STCEH as STCE};
 use spin::Once;
 
 pub use device::TimerDevice;
-pub use machine::TimerHandler;
 
-#[derive(Clone, Copy)]
-enum Target {
-    Supervisor,
-    Machine(&'static dyn TimerHandler),
+static TIMER: Once<Timer> = Once::new();
+
+/// Creates and installs the timer service.
+pub fn init(device: Option<Box<dyn TimerDevice>>) -> &'static Timer {
+    TIMER.call_once(|| Timer::from_device(device))
 }
 
-static FIRMWARE: Once<Timer> = Once::new();
+/// Returns the installed timer service.
+pub fn get() -> Option<&'static Timer> {
+    TIMER.get()
+}
 
 enum Comparator {
     Native(&'static MachineTimerState),
     Sstc,
-}
-
-enum NativeTimer {
-    Owned(MachineTimer),
-    Borrowed(&'static MachineTimer),
 }
 
 /// Timer operations with a fixed notification binding on each initialized hart.
@@ -47,52 +45,22 @@ enum NativeTimer {
 /// Deadline operations return [`Error::NotReady`] on an uninitialized hart.
 /// Hardware bindings remain reserved for the firmware lifetime.
 pub struct Timer {
-    machine: Option<NativeTimer>,
+    machine: Option<MachineTimer>,
     local: HartLocal<Comparator>,
 }
 
 impl Timer {
-    /// Creates a supervisor timer that owns the optional native device.
-    /// Move it into permanent storage before registering it with Runtime.
+    /// Creates the timer service that owns the optional native device.
+    /// Transfer it to Runtime with [`crate::timer::init`].
     /// Runtime initializes each hart after configuring its supervisor environment.
     /// Initialization probes Sstc and enables supervisor comparison when present;
     /// otherwise it selects the native device.
     /// A platform without a native device may use Sstc alone.
-    pub fn new(device: Option<Box<dyn TimerDevice>>) -> Self {
+    fn from_device(device: Option<Box<dyn TimerDevice>>) -> Self {
         Self {
-            machine: device.map(|device| NativeTimer::Owned(MachineTimer::new(device))),
+            machine: device.map(MachineTimer::new),
             local: HartLocal::uninit(),
         }
-    }
-
-    /// Acquires this hart's native comparator for a fixed firmware receiver.
-    /// Returns [`Error::Busy`] if the comparator already has an owner.
-    pub fn acquire(handler: &'static dyn TimerHandler) -> Result<&'static Self> {
-        irq::with_local_disabled(|irq| {
-            if !crate::boot::traps_ready() {
-                return Err(Error::NotReady);
-            }
-            let supervisor = crate::boot::timer().ok_or(Error::NotReady)?;
-            let machine = supervisor.machine().ok_or(Error::NotSupported)?;
-            let timer = FIRMWARE.call_once(|| Self {
-                machine: Some(NativeTimer::Borrowed(machine)),
-                local: HartLocal::uninit(),
-            });
-            if timer.local.try_get_current().is_some() {
-                return Err(Error::Busy);
-            }
-            let compare = machine.acquire(Target::Machine(handler))?;
-            timer
-                .local
-                .try_init_current(Comparator::Native(compare))
-                .map_err(|error| match error {
-                    Error::AlreadyInitialized => Error::Busy,
-                    other => other,
-                })?;
-            // Publish native state before programming the device.
-            timer.cancel_with(irq)?;
-            Ok(timer)
-        })
     }
 
     /// Returns whether this hart has an initialized timer binding.
@@ -142,7 +110,7 @@ impl Timer {
             // Platforms without native hardware or Sstc do not expose TIME.
             return Ok(());
         };
-        let compare = machine.acquire(Target::Supervisor)?;
+        let compare = machine.acquire()?;
         self.local.try_init_current(Comparator::Native(compare))?;
         self.cancel_with(irq)
     }
@@ -158,19 +126,20 @@ impl Timer {
         csrr!(supervisor::TimerCompareHigh)?;
 
         let current = csrr!(Configuration).map(Configuration::<Read>::from_bits)?;
-        if current.read_field::<STCE>() != registers::FeatureState::Enabled {
-            let mut value = Configuration::<Write>::from(current);
-            value.write_field::<STCE>(registers::FeatureState::Enabled);
-            // Initial hart setup excludes IRQs and has no lower-mode context.
-            // Preserve translation, FWFT, and other environment fields.
-            csrw!(Configuration, usize::from(value))?;
-            if csrr!(Configuration)
-                .map(Configuration::<Read>::from_bits)?
-                .read_field::<STCE>()
-                != registers::FeatureState::Enabled
-            {
-                return Err(Error::NotSupported);
-            }
+        if current.read_field::<STCE>() == registers::FeatureState::Enabled {
+            return Ok(true);
+        }
+        let mut value = Configuration::<Write>::from(current);
+        value.write_field::<STCE>(registers::FeatureState::Enabled);
+        // Initial hart setup excludes IRQs and has no lower-mode context.
+        // Preserve translation, firmware features, and other environment fields.
+        csrw!(Configuration, usize::from(value))?;
+        if csrr!(Configuration)
+            .map(Configuration::<Read>::from_bits)?
+            .read_field::<STCE>()
+            != registers::FeatureState::Enabled
+        {
+            return Err(Error::NotSupported);
         }
         Ok(true)
     }
@@ -182,10 +151,7 @@ impl Timer {
     }
 
     fn machine(&self) -> Option<&MachineTimer> {
-        self.machine.as_ref().map(|timer| match timer {
-            NativeTimer::Owned(machine) => machine,
-            NativeTimer::Borrowed(machine) => *machine,
-        })
+        self.machine.as_ref()
     }
 }
 

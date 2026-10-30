@@ -104,11 +104,7 @@ pub(crate) fn ipi() -> Option<&'static SbiIpi> {
 
 /// Returns the published timer for firmware counter reads.
 pub(crate) fn timer() -> &'static Timer {
-    SBI_DISPATCHER
-        .get()
-        .expect("SBI dispatcher not initialized")
-        .timer
-        .timer()
+    runtime::timer::get().expect("Runtime timer not initialized")
 }
 
 /// Returns the hsm extension, if present.
