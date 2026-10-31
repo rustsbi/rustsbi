@@ -25,7 +25,6 @@ pub mod timer;
 pub(crate) mod vendor;
 
 pub mod features;
-pub mod hart_local;
 pub mod logger;
 
 use console::SbiConsole;
@@ -81,7 +80,7 @@ pub struct SbiDispatcher {
 /// initialization releases the secondary harts.
 pub(crate) static SBI_DISPATCHER: Once<SbiDispatcher> = Once::new();
 
-/// Returns the ipi extension, if present.
+/// Returns the IPI extension, if present.
 pub(crate) fn ipi() -> Option<&'static SbiIpi> {
     SBI_DISPATCHER
         .get()
@@ -98,22 +97,22 @@ pub(crate) fn timer() -> &'static Timer {
         .timer()
 }
 
-/// Returns the hsm extension, if present.
+/// Returns the HSM extension, if present.
 pub(crate) fn hsm() -> Option<&'static SbiHsm> {
     SBI_DISPATCHER.get().and_then(|sbi| sbi.hsm.as_ref())
 }
 
-/// Returns the rfence extension, if present.
+/// Returns the RFENCE extension, if present.
 pub(crate) fn rfence() -> Option<&'static SbiRFence> {
     SBI_DISPATCHER.get().and_then(|sbi| sbi.rfence.as_ref())
 }
 
-/// Returns the pmu extension, if present.
+/// Returns the PMU extension, if present.
 pub(crate) fn pmu() -> Option<&'static SbiPmu> {
     SBI_DISPATCHER.get().and_then(|sbi| sbi.pmu.as_ref())
 }
 
-/// Returns the susp extension, if present.
+/// Returns the SUSP extension, if present.
 pub(crate) fn susp() -> Option<&'static SbiSuspend> {
     SBI_DISPATCHER.get().and_then(|sbi| sbi.susp.as_ref())
 }

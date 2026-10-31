@@ -18,7 +18,6 @@ mod sbi;
 
 use crate::firmware::BootInfo;
 use crate::sbi::features::{check_next_stage_privilege, counter_topology, detect_hart_features};
-use crate::sbi::hart_local;
 use ::riscv::register::mstatus::MPP;
 use runtime::{
     boot, entry,
@@ -37,12 +36,11 @@ fn main(boot: BootInfo) {
 }
 
 fn boot_hart(mut boot: BootInfo) {
-    // Initialize this hart's policy storage before any user: platform
-    // discovery seeds secondary harts' features, and feature detection
-    // writes this hart's.
+    // Publish the per-hart software records before platform discovery seeds
+    // features and before secondary harts use any SBI service.
     sbi::features::init();
     sbi::pmu::init();
-    hart_local::init();
+    sbi::rfence::init();
     let platform_description = boot
         .take_platform_description()
         .expect("BUG: boot hart entered without a validated Platform Description");
@@ -105,13 +103,14 @@ fn enable_supervisor_services() {
         );
     }
     sbi::features::configure_hart_environment();
-    // SAFETY: Runtime startup installed trap entry; this hart is still in
-    // M-mode with machine interrupts disabled and no lower-mode context.
+    // SAFETY:
+    // 1. Runtime startup installed trap entry.
+    // 2. This hart is still in M-mode with machine interrupts disabled and no
+    //    lower-mode context.
     unsafe { boot::configure_next_stage() };
     let dispatcher = sbi::SBI_DISPATCHER
         .get()
         .expect("SBI dispatcher not initialized");
-    // Publish the SBI policy after configuring the next-stage environment.
     trap::init(dispatcher).expect("BUG: failed to activate Runtime trap handling");
 }
 
