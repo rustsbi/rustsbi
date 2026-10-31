@@ -17,6 +17,7 @@ pub(crate) mod hsm;
 pub mod ipi;
 pub mod mpxy;
 pub mod pmu;
+mod pmu_index;
 pub mod reset;
 pub mod rfence;
 pub mod sta;

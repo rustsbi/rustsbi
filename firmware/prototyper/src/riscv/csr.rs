@@ -5,11 +5,10 @@ use core::arch::asm;
 pub const CSR_MHPMEVENT3: u16 = 0x323;
 pub const CSR_MHPMEVENT31: u16 = 0x33f;
 
-// Machine counters and the base of their read-only user shadows.
+// Machine counters.
 pub const CSR_MCYCLE: u16 = 0xb00;
 pub const CSR_MINSTRET: u16 = 0xb02;
 pub const CSR_MHPMCOUNTER3: u16 = 0xb03;
-pub const CSR_CYCLE: u16 = 0xc00;
 
 /// Machine environment configuration register (`menvcfg`) bit fields.
 pub mod menvcfg {

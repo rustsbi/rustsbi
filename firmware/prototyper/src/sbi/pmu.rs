@@ -1,5 +1,9 @@
 //! Performance monitoring.
 //!
+//! Hardware counter N is CSR offset N: 0 is `cycle`, 2 is `instret`, and N is
+//! `hpmcounterN`. Missing counters are invalid indices, not renumbered.
+//! Firmware counters follow the highest implemented hardware index.
+//!
 //! # References
 //!
 //! - Specification: [RISC-V SBI PMU extension](https://docs.riscv.org/reference/sbi/v3.0/ext-pmu.html) —
@@ -20,70 +24,74 @@ use sbi_spec::pmu::shmem_size::SIZE;
 use sbi_spec::pmu::*;
 
 use crate::riscv::csr::*;
-use crate::sbi::features::hart_mhpm_mask;
+use crate::sbi::features::{hart_mhpm_bits, hart_mhpm_mask};
 
 use super::features::{PrivilegedVersion, hart_privileged_version};
 use super::hart_local::{hart_local, with_current};
+use super::pmu_index::{CounterMap, FIRMWARE_COUNTER_MAX, HARDWARE_COUNTER_SLOTS};
 
-/// Maximum number of hardware performance counters supported.
-const PMU_HARDWARE_COUNTER_MAX: usize = 32;
-/// Maximum number of firmware-managed counters supported.
-const PMU_FIRMWARE_COUNTER_MAX: usize = 16;
 /// Marker value for inactive/invalid event indices.
 const PMU_EVENT_IDX_INVALID: usize = usize::MAX;
+/// Logical indices cover CSR offsets 0..=31 plus the firmware counters.
+const COUNTER_INDEX_CAPACITY: usize = HARDWARE_COUNTER_SLOTS + FIRMWARE_COUNTER_MAX;
 
 /// PMU state for hardware and firmware performance counters.
 #[repr(C)]
 pub struct PmuState {
-    active_event: [usize; PMU_HARDWARE_COUNTER_MAX + PMU_FIRMWARE_COUNTER_MAX],
-    /// Bitmap of active firmware counters, with one bit per counter.
+    active_event: [usize; COUNTER_INDEX_CAPACITY],
+    /// Bitmap of active firmware counters, with one bit per firmware slot.
     fw_counter_state: usize,
     /// Values of firmware-managed counters.
-    fw_counter: [u64; PMU_FIRMWARE_COUNTER_MAX],
-    hw_counters_num: usize,
-    total_counters_num: usize,
+    fw_counter: [u64; FIRMWARE_COUNTER_MAX],
+    /// Logical-index map for this hart. Index N is CSR offset N.
+    counters: CounterMap,
 }
 
 impl PmuState {
-    /// Creates a new PMU state with default configuration.
-    pub fn new(mhpm_mask: u32) -> Self {
-        let hw_counters_num = mhpm_mask.count_ones() as usize;
-        let total_counters_num = hw_counters_num + PMU_FIRMWARE_COUNTER_MAX;
-
-        let mut active_event =
-            [PMU_EVENT_IDX_INVALID; PMU_HARDWARE_COUNTER_MAX + PMU_FIRMWARE_COUNTER_MAX];
-        // Standard mappings for fixed counters
-        active_event[0] = hardware_event::CPU_CYCLES;
-        active_event[2] = hardware_event::INSTRUCTIONS;
+    /// Creates PMU state for the hart's implemented-counter bitmap.
+    ///
+    /// Logical index N is CSR offset N. Unimplemented counters stay invalid
+    /// instead of shifting later counters into their indices. Firmware
+    /// counters begin at [`CounterMap::hardware_span`].
+    pub fn new(mhpm_mask: u32, mhpm_bits: u32) -> Self {
+        let counters = CounterMap::new(mhpm_mask, mhpm_bits);
+        let mut active_event = [PMU_EVENT_IDX_INVALID; COUNTER_INDEX_CAPACITY];
+        // cycle and instret have architectural events. time is not a PMU counter.
+        if counters.hardware_info(0).is_some() {
+            active_event[0] = hardware_event::CPU_CYCLES;
+        }
+        if counters.hardware_info(2).is_some() {
+            active_event[2] = hardware_event::INSTRUCTIONS;
+        }
 
         Self {
             active_event,
             fw_counter_state: 0,
-            fw_counter: [0; PMU_FIRMWARE_COUNTER_MAX],
-            hw_counters_num,
-            total_counters_num,
+            fw_counter: [0; FIRMWARE_COUNTER_MAX],
+            counters,
         }
     }
 
-    /// Returns the number of hardware counters available.
-    #[inline(always)]
-    pub fn get_hw_counter_num(&self) -> usize {
-        self.hw_counters_num
-    }
-
-    /// Returns the total number of counters (hardware + firmware).
+    /// Returns the number of logical counter indices, including holes.
     #[inline(always)]
     pub fn get_total_counters_num(&self) -> usize {
-        self.total_counters_num
+        self.counters.num_counters()
     }
 
-    /// Gets the event index associated with a counter.
+    /// Returns the event bound to a counter, if the index is in range.
     #[inline]
     pub fn get_event_idx(&self, counter_idx: usize, firmware_event: bool) -> Option<EventIdx> {
-        if counter_idx >= self.total_counters_num {
+        if counter_idx >= self.counters.num_counters() {
             return None;
         }
-        if firmware_event && counter_idx < self.hw_counters_num {
+        if firmware_event && self.counters.firmware_slot(counter_idx).is_none() {
+            return None;
+        }
+        // Holes inside the hardware span have no event.
+        if !firmware_event
+            && counter_idx < self.counters.hardware_span()
+            && self.counters.hardware_info(counter_idx).is_none()
+        {
             return None;
         }
 
@@ -93,16 +101,11 @@ impl PmuState {
     /// Gets the value of a firmware counter.
     #[inline]
     pub fn get_fw_counter(&self, counter_idx: usize) -> Option<u64> {
-        if counter_idx < self.hw_counters_num || counter_idx >= self.total_counters_num {
-            return None;
-        }
-        let fw_idx = counter_idx - self.hw_counters_num;
-        // fw_idx is guaranteed to be within bounds (0..FIRMWARE_COUNTER_MAX)
-        // by the range check above.
+        let fw_idx = self.counters.firmware_slot(counter_idx)?;
         Some(self.fw_counter[fw_idx])
     }
 
-    /// start a firmware counter with a optional new value.
+    /// Starts a firmware counter, optionally replacing its value.
     #[inline]
     fn start_fw_counter(
         &mut self,
@@ -110,10 +113,9 @@ impl PmuState {
         initial_value: u64,
         is_update_value: bool,
     ) -> Result<(), StartCounterErr> {
-        if counter_idx < self.hw_counters_num || counter_idx >= self.total_counters_num {
+        let Some(fw_idx) = self.counters.firmware_slot(counter_idx) else {
             return Err(StartCounterErr::OffsetInvalid);
-        }
-        let fw_idx = counter_idx - self.hw_counters_num;
+        };
 
         if self.fw_counter_state & (1 << fw_idx) != 0 {
             return Err(StartCounterErr::AlreadyStart);
@@ -122,7 +124,7 @@ impl PmuState {
         if is_update_value {
             self.fw_counter[fw_idx] = initial_value;
         }
-        self.fw_counter_state |= 1 << fw_idx; // Mark as active
+        self.fw_counter_state |= 1 << fw_idx;
         Ok(())
     }
 
@@ -133,10 +135,9 @@ impl PmuState {
         counter_idx: usize,
         is_reset: bool,
     ) -> Result<(), StopCounterErr> {
-        if counter_idx < self.hw_counters_num || counter_idx >= self.total_counters_num {
+        let Some(fw_idx) = self.counters.firmware_slot(counter_idx) else {
             return Err(StopCounterErr::OffsetInvalid);
-        }
-        let fw_idx = counter_idx - self.hw_counters_num;
+        };
 
         if self.fw_counter_state & (1 << fw_idx) == 0 {
             return Err(StopCounterErr::AlreadyStop);
@@ -145,16 +146,15 @@ impl PmuState {
         if is_reset {
             self.active_event[counter_idx] = PMU_EVENT_IDX_INVALID;
         }
-        self.fw_counter_state &= !(1 << fw_idx); // Mark as stop
+        self.fw_counter_state &= !(1 << fw_idx);
         Ok(())
     }
 
     #[inline]
     pub fn is_firmware_event_start(&self, counter_idx: usize) -> bool {
-        if counter_idx < self.hw_counters_num || counter_idx >= self.total_counters_num {
+        let Some(fw_idx) = self.counters.firmware_slot(counter_idx) else {
             return false;
-        }
-        let fw_idx = counter_idx - self.hw_counters_num;
+        };
         self.fw_counter_state & (1 << fw_idx) != 0
     }
 }
@@ -205,42 +205,24 @@ impl Pmu for SbiPmu {
     }
 
     /// Returns a counter's CSR, encoded width, and type (SBI PMU function 1).
+    ///
+    /// Hardware index N is CSR offset N. An unimplemented offset, including
+    /// `time`, is invalid even when a later counter exists.
     #[inline]
     fn counter_get_info(&self, counter_idx: usize) -> SbiRet {
-        if counter_idx >= self.num_counters() {
-            return SbiRet::invalid_param();
-        }
-
         let hart_id = HartId::current()
             .expect("BUG: current hart exceeds Runtime capacity")
             .as_usize();
-        let hw_counters_num =
-            hart_local(hart_id).with_pmu(|pmu_state| pmu_state.get_hw_counter_num());
-        if counter_idx < hw_counters_num {
-            let mask = hart_mhpm_mask(hart_id);
-
-            // Set bits identify implemented counters in logical-index order.
-            let mut remaining_mask = mask;
-            let mut count = 0;
-
-            while remaining_mask != 0 {
-                if count == counter_idx {
-                    let offset = remaining_mask.trailing_zeros() as u16;
-                    // time cannot be started or stopped through the PMU extension.
-                    if offset == 1 {
-                        return SbiRet::invalid_param();
-                    }
-                    return SbiRet::success(
-                        CounterInfo::with_hardware_info(CSR_CYCLE + offset, 63).inner(),
-                    );
-                }
-                remaining_mask &= remaining_mask - 1;
-                count += 1;
-            }
-            return SbiRet::invalid_param();
+        let map = current_counter_map(hart_id);
+        if let Some(info) = map.hardware_info(counter_idx) {
+            return SbiRet::success(
+                CounterInfo::with_hardware_info(info.csr, info.width_minus_one).inner(),
+            );
         }
-
-        SbiRet::success(CounterInfo::with_firmware_info().inner())
+        if map.is_firmware(counter_idx) {
+            return SbiRet::success(CounterInfo::with_firmware_info().inner());
+        }
+        SbiRet::invalid_param()
     }
 
     /// Finds and configures a matching counter (SBI PMU function 2).
@@ -263,10 +245,10 @@ impl Pmu for SbiPmu {
 
         with_current(|local| {
             local.with_pmu(|pmu_state| {
-                if counter_idx_base >= pmu_state.total_counters_num
+                if counter_idx_base >= pmu_state.get_total_counters_num()
                     || counter_idx_mask == 0
                     || counter_idx_mask
-                        .checked_shr((pmu_state.total_counters_num - counter_idx_base) as u32)
+                        .checked_shr((pmu_state.get_total_counters_num() - counter_idx_base) as u32)
                         .unwrap_or(0)
                         != 0
                     || !event.check_event_type()
@@ -344,11 +326,12 @@ impl Pmu for SbiPmu {
         with_current(|local| {
             local.with_pmu(|pmu_state| {
                 let is_update_value = flags.contains(flags::StartFlags::INIT_VALUE);
+                let map = pmu_state.counters;
 
-                if counter_idx_base >= pmu_state.total_counters_num
+                if counter_idx_base >= pmu_state.get_total_counters_num()
                     || counter_idx_mask == 0
                     || counter_idx_mask
-                        .checked_shr((pmu_state.total_counters_num - counter_idx_base) as u32)
+                        .checked_shr((pmu_state.get_total_counters_num() - counter_idx_base) as u32)
                         .unwrap_or(0)
                         != 0
                 {
@@ -360,14 +343,15 @@ impl Pmu for SbiPmu {
                 }
 
                 for counter_idx in CounterMask::new(counter_idx_base, counter_idx_mask) {
-                    if counter_idx >= pmu_state.total_counters_num {
+                    if counter_idx >= pmu_state.get_total_counters_num() {
                         return SbiRet::invalid_param();
                     }
-
-                    let start_result = if counter_idx >= pmu_state.get_hw_counter_num() {
+                    let start_result = if map.is_firmware(counter_idx) {
                         pmu_state.start_fw_counter(counter_idx, initial_value, is_update_value)
                     } else {
-                        let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
+                        let Some(mhpm_offset) = map.hardware_offset(counter_idx) else {
+                            return SbiRet::invalid_param();
+                        };
                         start_hardware_counter(mhpm_offset, initial_value, is_update_value)
                     };
                     match start_result {
@@ -401,11 +385,12 @@ impl Pmu for SbiPmu {
         with_current(|local| {
             local.with_pmu(|pmu_state| {
                 let is_reset = flags.contains(flags::StopFlags::RESET);
+                let map = pmu_state.counters;
 
-                if counter_idx_base >= pmu_state.total_counters_num
+                if counter_idx_base >= pmu_state.get_total_counters_num()
                     || counter_idx_mask == 0
                     || counter_idx_mask
-                        .checked_shr((pmu_state.total_counters_num - counter_idx_base) as u32)
+                        .checked_shr((pmu_state.get_total_counters_num() - counter_idx_base) as u32)
                         .unwrap_or(0)
                         != 0
                 {
@@ -418,19 +403,17 @@ impl Pmu for SbiPmu {
 
                 let mut result = SbiRet::invalid_param();
                 for counter_idx in CounterMask::new(counter_idx_base, counter_idx_mask) {
-                    if counter_idx >= pmu_state.total_counters_num {
+                    if counter_idx >= pmu_state.get_total_counters_num() {
                         return SbiRet::invalid_param();
                     }
-
-                    let stop_result = if counter_idx >= pmu_state.get_hw_counter_num() {
+                    let stop_result = if map.is_firmware(counter_idx) {
                         pmu_state.stop_fw_counter(counter_idx, is_reset)
                     } else {
-                        let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
-                        // Keep stopping the other selected counters across the time hole.
-                        if mhpm_offset == 1 {
-                            continue;
-                        }
-                        // If RESET flag is set, mark the counter as inactive
+                        // time and unimplemented CSR offsets are not counters.
+                        let Some(mhpm_offset) = map.hardware_offset(counter_idx) else {
+                            return SbiRet::invalid_param();
+                        };
+                        // If RESET flag is set, mark the counter as inactive.
                         if is_reset {
                             pmu_state.active_event[counter_idx] = PMU_EVENT_IDX_INVALID;
                         }
@@ -518,10 +501,8 @@ impl SbiPmu {
         }
 
         for counter_idx in CounterMask::new(counter_idx_base, counter_idx_mask) {
-            // If counter idx is not a firmware counter index, skip this index
-            if counter_idx < pmu_state.get_hw_counter_num()
-                || counter_idx >= pmu_state.get_total_counters_num()
-            {
+            // Hardware indices, including holes, are not firmware counters.
+            if pmu_state.counters.firmware_slot(counter_idx).is_none() {
                 continue;
             }
             // If the firmware counter at this index is already occupied, skip this index
@@ -546,7 +527,7 @@ impl SbiPmu {
         // the device tree provides no programmable-counter mapping.
         let fixed_counter = CounterMask::new(counter_idx_base, counter_idx_mask).find(|&idx| {
             matches!(
-                (event_idx, get_mhpm_csr_offset(idx)),
+                (event_idx, pmu_state.counters.hardware_offset(idx)),
                 (hardware_event::CPU_CYCLES, Some(0)) | (hardware_event::INSTRUCTIONS, Some(2))
             )
         });
@@ -585,15 +566,13 @@ impl SbiPmu {
 
         // Find a counter that meets the conditions from a set of counters
         for counter_idx in CounterMask::new(counter_idx_base, counter_idx_mask) {
-            if counter_idx >= pmu_state.hw_counters_num {
+            // Index N addresses CSR offset N. Skip holes and firmware indices.
+            let Some(mhpm_offset) = pmu_state.counters.hardware_offset(counter_idx) else {
                 continue;
-            }
+            };
 
-            // If the counter idx corresponding to the hardware counter index cannot be used by the event,
-            // or has already been used, skip this counter idx
-            let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
-            // Find a unused counter
-            if (can_use_counter_mask >> mhpm_offset) & 0x1 == 0
+            // The device-tree bitmap uses the same CSR-offset numbering.
+            if (can_use_counter_mask >> mhpm_offset) & 1 == 0
                 || pmu_state.active_event[counter_idx] != PMU_EVENT_IDX_INVALID
             {
                 continue;
@@ -715,10 +694,9 @@ fn configure_counter(
     let auto_start = flags.contains(flags::ConfigFlags::AUTO_START);
     let clear_value = flags.contains(flags::ConfigFlags::CLEAR_VALUE);
     if event.is_firmware_event() {
-        let firmware_event_idx = counter_idx - pmu_state.hw_counters_num;
-        if firmware_event_idx >= PMU_FIRMWARE_COUNTER_MAX {
+        let Some(firmware_event_idx) = pmu_state.counters.firmware_slot(counter_idx) else {
             return Err(SbiRet::invalid_param());
-        }
+        };
         if clear_value {
             pmu_state.fw_counter[firmware_event_idx] = 0;
         }
@@ -726,7 +704,9 @@ fn configure_counter(
             pmu_state.fw_counter_state |= 1 << firmware_event_idx;
         }
     } else {
-        let mhpm_offset = get_mhpm_csr_offset(counter_idx).unwrap();
+        let Some(mhpm_offset) = pmu_state.counters.hardware_offset(counter_idx) else {
+            return Err(SbiRet::invalid_param());
+        };
         if clear_value {
             write_mhpmcounter(mhpm_offset, 0);
         }
@@ -737,22 +717,9 @@ fn configure_counter(
     Ok(())
 }
 
-/// Returns the counter's CSR offset relative to `mcycle`.
-fn get_mhpm_csr_offset(counter_idx: usize) -> Option<u16> {
-    let hart_id = HartId::current()
-        .expect("BUG: current hart exceeds Runtime capacity")
-        .as_usize();
-    let mhpm_mask = hart_mhpm_mask(hart_id);
-    let mut count = 0;
-    for offset in 0..32 {
-        if (mhpm_mask >> offset) & 1 == 1 {
-            if count == counter_idx {
-                return Some(offset as u16);
-            }
-            count += 1;
-        }
-    }
-    None
+/// Returns the current hart's logical-counter map.
+fn current_counter_map(hart_id: usize) -> CounterMap {
+    CounterMap::new(hart_mhpm_mask(hart_id), hart_mhpm_bits(hart_id))
 }
 
 /// Failure to start a performance counter.
@@ -1186,8 +1153,8 @@ pub fn pmu_firmware_counter_increment(firmware_event: usize) {
             if pmu_state.fw_counter_state == 0 {
                 return;
             }
-            let counter_idx_start = pmu_state.hw_counters_num;
-            for counter_idx in counter_idx_start..counter_idx_start + PMU_FIRMWARE_COUNTER_MAX {
+            let counter_idx_start = pmu_state.counters.hardware_span();
+            for counter_idx in counter_idx_start..counter_idx_start + FIRMWARE_COUNTER_MAX {
                 let fw_idx = counter_idx - counter_idx_start;
                 if pmu_state.active_event[counter_idx]
                     == EventIdx::from_firmware_event(firmware_event).raw()

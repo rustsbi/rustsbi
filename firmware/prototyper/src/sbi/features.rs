@@ -27,6 +27,10 @@ impl HartFeatures {
     pub const fn mhpm_mask(&self) -> u32 {
         self.mhpm_mask
     }
+
+    pub const fn mhpm_bits(&self) -> u32 {
+        self.mhpm_bits
+    }
 }
 
 pub use runtime::hart::PrivilegedVersion;
@@ -98,6 +102,13 @@ pub fn hart_privileged_version(hart_id: usize) -> PrivilegedVersion {
 pub fn hart_mhpm_mask(hart_id: usize) -> u32 {
     with_hart(hart_id, |local| {
         local.with_features(HartFeatures::mhpm_mask)
+    })
+}
+/// Gets the probed programmable-counter width for the given hart.
+#[inline]
+pub fn hart_mhpm_bits(hart_id: usize) -> u32 {
+    with_hart(hart_id, |local| {
+        local.with_features(HartFeatures::mhpm_bits)
     })
 }
 
