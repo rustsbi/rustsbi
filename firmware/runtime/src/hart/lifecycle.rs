@@ -186,21 +186,20 @@ pub fn stop_current() -> Result<core::convert::Infallible> {
     crate::irq::with_local_disabled(|irq| {
         ipi.clear_current(irq)?;
         ipi.prepare_wakeup(irq);
-        Ok(())
-    })?;
-    cell(current_hart())
-        .state
-        .store(STATE_STOPPED, Ordering::Release);
-    // SAFETY: M-mode interrupts remain disabled. Stop retires the current
-    // trap call chain, allowing the Runtime finisher to reuse the clean stack
-    // and wait for a new start without returning to the stopped supervisor.
-    unsafe {
-        core::arch::asm!(
-            "tail {finish}",
-            finish = sym crate::boot::finish_boot,
-            options(noreturn)
-        )
-    }
+        cell(current_hart())
+            .state
+            .store(STATE_STOPPED, Ordering::Release);
+        // SAFETY:
+        // 1. This scope keeps machine interrupts disabled until the handoff.
+        // 2. Stop retires the current call chain before reusing the hart stack.
+        unsafe {
+            core::arch::asm!(
+                "tail {finish}",
+                finish = sym crate::boot::finish_boot,
+                options(noreturn)
+            )
+        }
+    })
 }
 
 /// Enters the platform suspend wait for the current hart.
