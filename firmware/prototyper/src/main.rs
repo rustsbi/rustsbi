@@ -23,7 +23,6 @@ use runtime::{
     boot, entry,
     hart::{self, HartId},
     ipi::IpiDelivery,
-    trap,
 };
 
 #[entry]
@@ -108,10 +107,6 @@ fn enable_supervisor_services() {
     // 2. This hart is still in M-mode with machine interrupts disabled and no
     //    lower-mode context.
     unsafe { boot::configure_next_stage() };
-    let dispatcher = sbi::SBI_DISPATCHER
-        .get()
-        .expect("SBI dispatcher not initialized");
-    trap::init(dispatcher).expect("BUG: failed to activate Runtime trap handling");
 }
 
 fn log_hart_capabilities(hart: HartId) {

@@ -78,7 +78,7 @@ unsafe fn install(entry: unsafe extern "C" fn()) {
     unsafe { machine::TrapVector::write(vector) }
 }
 
-/// Configures delegation and counter access before publishing the SBI policy.
+/// Initializes hart-local services, delegation, and counter access for the next stage.
 ///
 /// # Safety
 ///
