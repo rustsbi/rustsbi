@@ -11,7 +11,7 @@
 extern crate alloc;
 
 pub mod boot;
-mod csr;
+pub mod csr;
 pub mod debug;
 mod device_tree;
 mod error;

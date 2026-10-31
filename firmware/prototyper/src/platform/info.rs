@@ -112,6 +112,17 @@ pub(crate) enum MachineAplicHandoff {
     Hide,
 }
 
+/// A machine-level APLIC that delegates its sources to a supervisor child.
+///
+/// Both facts come from the device tree: `riscv,num-sources` bounds the
+/// delegation loop, and the child's `msi-parent` chain identifies the
+/// supervisor-level IMSIC group receiving delegated MSIs.
+pub(crate) struct MachineAplicDescription {
+    pub(crate) registers: DeviceRegisterRange,
+    pub(crate) num_sources: usize,
+    pub(crate) supervisor_imsic_base: PhysAddr,
+}
+
 /// Interrupt-controller descriptions collected before device binding.
 ///
 /// CLINT, IMSIC, and machine APLIC retain their source paths because the
@@ -120,7 +131,7 @@ pub(crate) enum MachineAplicHandoff {
 pub(crate) struct InterruptDescriptions {
     clint: Option<NodeSelection<ClintResource>>,
     imsic: Option<NodeSelection<ImsicInfo>>,
-    machine_aplic: Option<NodeSelection<DeviceRegisterRange>>,
+    machine_aplic: Option<NodeSelection<MachineAplicDescription>>,
     machine_aplic_handoff: MachineAplicHandoff,
     pub(crate) thead_plic: Option<DeviceRegisterRange>,
     pub(crate) plmt: Option<DeviceRegisterRange>,
@@ -136,7 +147,7 @@ impl InterruptDescriptions {
         self.imsic.as_ref()
     }
 
-    pub(crate) fn machine_aplic(&self) -> Option<&NodeSelection<DeviceRegisterRange>> {
+    pub(crate) fn machine_aplic(&self) -> Option<&NodeSelection<MachineAplicDescription>> {
         self.machine_aplic.as_ref()
     }
 
@@ -150,7 +161,7 @@ impl InterruptDescriptions {
 
     pub(crate) fn set_machine_aplic(
         &mut self,
-        value: DeviceRegisterRange,
+        value: MachineAplicDescription,
         source_path: &[&str],
         handoff: MachineAplicHandoff,
     ) -> Result<()> {
@@ -232,9 +243,5 @@ impl BoardInfo {
             devices: DeviceDescriptions::empty(),
             soc: None,
         }
-    }
-
-    pub(crate) fn is_qemu_virt(&self) -> bool {
-        self.model == "riscv-virtio,qemu"
     }
 }

@@ -35,6 +35,7 @@ impl_mmio_value!(u64);
 ///
 /// Accesses are volatile and use native byte order. Hardware access faults are
 /// not recovered.
+#[derive(Clone, Copy)]
 pub struct MmioRegion {
     range: PhysAddrRange,
 }

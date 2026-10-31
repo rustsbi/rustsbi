@@ -3,7 +3,7 @@
 use core::mem::{align_of, size_of};
 use runtime::{
     Error, Result,
-    memory::{MemoryRegistry, MmioRegion},
+    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
 };
 
 use super::super::{ResetBackend, ResetError, ResetRequest, ResetType};
@@ -21,11 +21,15 @@ impl SysconReset {
         reboot: Option<ActionDescription>,
         memory: &mut MemoryRegistry,
     ) -> Result<Self> {
+        // The reboot and poweroff nodes commonly target the same syscon word
+        // (both at offset 0 of one provider, as on QEMU `riscv-server-ref`);
+        // one acquisition owns that word for both actions.
+        let mut acquired_word: Option<(DeviceRegisterRange, MmioRegion)> = None;
         let poweroff = poweroff
-            .map(|description| SysconAction::bind(description, memory))
+            .map(|description| SysconAction::bind(description, memory, &mut acquired_word))
             .transpose()?;
         let reboot = reboot
-            .map(|description| SysconAction::bind(description, memory))
+            .map(|description| SysconAction::bind(description, memory, &mut acquired_word))
             .transpose()?;
         Ok(Self { poweroff, reboot })
     }
@@ -55,14 +59,26 @@ struct SysconAction {
 }
 
 impl SysconAction {
-    fn bind(description: ActionDescription, memory: &mut MemoryRegistry) -> Result<Self> {
+    fn bind(
+        description: ActionDescription,
+        memory: &mut MemoryRegistry,
+        acquired_word: &mut Option<(DeviceRegisterRange, MmioRegion)>,
+    ) -> Result<Self> {
         let (registers, value, mask) = description.into_parts();
         let range = registers.subrange(0, size_of::<u32>())?;
         if !range.start().is_aligned_to(align_of::<u32>()) {
             return Err(Error::InvalidArgs);
         }
+        let registers = match *acquired_word {
+            Some((shared_range, region)) if shared_range == range => region,
+            _ => {
+                let region = memory.acquire(range)?;
+                *acquired_word = Some((range, region));
+                region
+            }
+        };
         Ok(Self {
-            registers: memory.acquire(range)?,
+            registers,
             value,
             mask,
         })

@@ -85,6 +85,21 @@ pub(crate) fn u32_property(node: FdtNode<'_, '_>, name: &str) -> Option<u32> {
     Some(u32::from_be_bytes(bytes.try_into().ok()?))
 }
 
+/// Finds the enabled node carrying `phandle` or `linux,phandle`, depth first.
+pub(crate) fn find_phandle<'view, 'tree>(
+    node: FdtNode<'view, 'tree>,
+    phandle: u32,
+) -> Option<FdtNode<'view, 'tree>> {
+    if node_is_enabled(node)
+        && (u32_property(node, "phandle") == Some(phandle)
+            || u32_property(node, "linux,phandle") == Some(phandle))
+    {
+        return Some(node);
+    }
+    node.children()
+        .find_map(|child| find_phandle(child, phandle))
+}
+
 /// Returns whether the node is a CPU node under `/cpus`.
 pub(crate) fn is_cpu_node(node: FdtNode<'_, '_>) -> bool {
     node.name.split('@').next() == Some("cpu")
