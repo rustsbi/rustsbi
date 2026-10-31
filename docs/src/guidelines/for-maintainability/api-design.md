@@ -61,10 +61,6 @@ Asterinas uses this pattern widely,
 for example with newtypes such as `CpuId`
 and `AlignedUsize<const N: u16>`.
 
-See also:
-PR [#2265](https://github.com/asterinas/asterinas/pull/2265#discussion_r2266214191)
-and [#2514](https://github.com/asterinas/asterinas/pull/2514).
-
 ### Prefer enum over trait objects for closed sets (`enum-over-dyn`) {#enum-over-dyn}
 
 When the set of variants is known and closed,
@@ -290,6 +286,3 @@ fn write_msip(&self, hart_id: usize, value: IpiState) -> Result<()> {
 // Bad — boolean argument
 fn read(&self, buf: &mut [u8], blocking: bool) -> Result<usize> { ... }
 ```
-
-See also:
-_Clean Code_, Chapter 3 "Flag Arguments".

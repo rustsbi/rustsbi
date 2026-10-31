@@ -15,6 +15,3 @@ and merge conflicts less noisy.
 As an exception,
 RFC documents that are mostly read-only
 can use regular paragraph wrapping.
-
-See also:
-[Semantic Line Breaks](https://sembr.org/).

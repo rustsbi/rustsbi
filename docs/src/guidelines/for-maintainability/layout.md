@@ -80,9 +80,6 @@ pub(crate) fn hart_privilege_checked(hart_id: usize) -> bool {
 }
 ```
 
-See also:
-PR [#2877](https://github.com/asterinas/asterinas/pull/2877#discussion_r2685861741).
-
 ### Introduce explaining variables (`explain-variables`) {#explain-variables}
 
 Break down complex expressions
@@ -120,8 +117,3 @@ pub fn alloc(&mut self) -> Result<u32, PmpError> {
 // Bad — reader must parse the whole expression
 debug_assert!(addr % PAGE_SIZE == 0 && addr < max_addr);
 ```
-
-See also:
-_The Art of Readable Code_, Chapter 8 "Breaking Down Giant Expressions";
-PR [#2083](https://github.com/asterinas/asterinas/pull/2083#discussion_r2512772091)
-and [#643](https://github.com/asterinas/asterinas/pull/643#discussion_r1497243812).
