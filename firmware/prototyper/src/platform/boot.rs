@@ -153,13 +153,13 @@ fn select_imsic(board: &BoardInfo) -> Option<&ImsicInfo> {
     use sbi::features::{self, Extension};
 
     let imsic = board.devices.interrupts.imsic()?.resource();
-    for hart in HartId::all().map(|hart| hart.as_usize()) {
-        if !features::hart_has_extension(hart, Extension::Smaia)
-            || !features::hart_has_extension(hart, Extension::Sstc)
+    for hart in HartId::all() {
+        if !features::has_extension(hart, Extension::Smaia)
+            || !features::has_extension(hart, Extension::Sstc)
         {
             warn!(
                 "AIA: hart {} requires Smaia and Sstc; falling back to CLINT",
-                hart
+                hart.as_usize()
             );
             return None;
         }

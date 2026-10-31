@@ -1,15 +1,15 @@
 use riscv::register::mstatus::MPP;
 use runtime::{
     FdtNode, boot,
-    hart::{self, HartId},
+    hart::{self, HartId, PerHart},
     ipi::IpiDelivery,
     timer::Timer,
 };
+use spin::{Mutex, Once};
 
 use crate::fail;
 use crate::platform::mark_hart_privilege_checked;
 use crate::riscv::csr::*;
-use crate::sbi::hart_local::{with_current, with_hart};
 
 #[derive(Default)]
 pub struct HartFeatures {
@@ -27,6 +27,65 @@ impl HartFeatures {
     pub const fn mhpm_mask(&self) -> u32 {
         self.mhpm_mask
     }
+}
+
+/// Per-hart feature records, published before platform discovery.
+static FEATURES: Once<PerHart<Mutex<HartFeatures>>> = Once::new();
+
+/// Creates one feature record per enabled hart on the boot hart.
+///
+/// The caller must run this after Runtime publishes the hart topology and
+/// before platform discovery seeds secondary harts' features.
+pub(crate) fn init() {
+    FEATURES.call_once(|| {
+        PerHart::new(|_| Mutex::new(HartFeatures::default()))
+            .expect("failed to initialize per-hart feature records")
+    });
+}
+
+fn features(hart: HartId) -> &'static Mutex<HartFeatures> {
+    FEATURES
+        .get()
+        .expect("BUG: hart feature state used before initialization")
+        .get(hart)
+}
+
+fn current_features() -> &'static Mutex<HartFeatures> {
+    features(HartId::current().expect("BUG: current hart is not in the boot topology"))
+}
+
+pub(crate) fn has_extension(hart: HartId, extension: Extension) -> bool {
+    features(hart).lock().extensions[extension.index()]
+}
+
+pub(crate) fn privileged_version(hart: HartId) -> PrivilegedVersion {
+    features(hart).lock().privileged_version()
+}
+
+pub(crate) fn mhpm_mask(hart: HartId) -> u32 {
+    features(hart).lock().mhpm_mask()
+}
+
+#[cfg(feature = "hypervisor")]
+pub(crate) fn hart_has_extension(hart_id: usize, extension: Extension) -> bool {
+    has_extension(
+        HartId::from_raw(hart_id).expect("BUG: unknown hart ID"),
+        extension,
+    )
+}
+
+pub(crate) fn hart_privileged_version(hart_id: usize) -> PrivilegedVersion {
+    privileged_version(HartId::from_raw(hart_id).expect("BUG: unknown hart ID"))
+}
+
+pub(crate) fn hart_mhpm_mask(hart_id: usize) -> u32 {
+    mhpm_mask(HartId::from_raw(hart_id).expect("BUG: unknown hart ID"))
+}
+
+/// Returns one hart's privileged version and counter mask.
+pub(crate) fn counter_topology(hart: HartId) -> (PrivilegedVersion, u32) {
+    let features = features(hart).lock();
+    (features.privileged_version(), features.mhpm_mask())
 }
 
 pub use runtime::hart::PrivilegedVersion;
@@ -50,7 +109,7 @@ impl Extension {
         match self {
             Self::Sstc => "sstc",
             Self::Hypervisor => "h",
-            Self::Smaia => "smaia", // TODO verify with DTB standard
+            Self::Smaia => "smaia", // TODO: Verify with the device-tree specification.
             Self::Svpbmt => "svpbmt",
             Self::Zkr => "zkr",
             Self::Zicbom => "zicbom",
@@ -77,32 +136,8 @@ impl Extension {
     }
 }
 
-/// Returns whether a specific extension is supported for the given hart.
-#[inline]
-pub fn hart_has_extension(hart_id: usize, extension: Extension) -> bool {
-    with_hart(hart_id, |local| {
-        local.with_features(|features| features.extensions[extension.index()])
-    })
-}
-
-/// Gets the privileged version for the given hart.
-#[inline]
-pub fn hart_privileged_version(hart_id: usize) -> PrivilegedVersion {
-    with_hart(hart_id, |local| {
-        local.with_features(HartFeatures::privileged_version)
-    })
-}
-
-/// Gets the MHPM mask for the given hart.
-#[inline]
-pub fn hart_mhpm_mask(hart_id: usize) -> u32 {
-    with_hart(hart_id, |local| {
-        local.with_features(HartFeatures::mhpm_mask)
-    })
-}
-
 /// Records the extensions of one enabled hart during CPU discovery.
-pub fn detect_extensions(hart_id: usize, cpu: FdtNode<'_, '_>) {
+pub fn detect_extensions(hart: HartId, cpu: FdtNode<'_, '_>) {
     let mut extensions = [false; Extension::COUNT];
     if let Some(property) = cpu.property("riscv,isa-extensions") {
         for name in property.value.split(|byte| *byte == 0) {
@@ -123,51 +158,45 @@ pub fn detect_extensions(hart_id: usize, cpu: FdtNode<'_, '_>) {
         }
     }
 
-    if hart_id
-        == HartId::current()
-            .expect("BUG: current hart exceeds Runtime capacity")
-            .as_usize()
-    {
+    if hart == HartId::current().expect("BUG: current hart exceeds Runtime capacity") {
         extensions[Extension::Hypervisor.index()] = hart::has_hypervisor();
     }
-    with_hart(hart_id, |local| {
-        local.with_features_mut(|features| features.extensions = extensions)
-    });
+    features(hart).lock().extensions = extensions;
 }
 
 fn detect_privileged_version() {
     let privileged_version = hart::detect_privileged_version();
-    with_current(|local| {
-        local.with_features_mut(|features| features.privileged_version = privileged_version)
-    });
+    current_features().lock().privileged_version = privileged_version;
 }
 
 /// Detects Sstc even when it is omitted from the device tree.
 fn detect_sstc() {
     let sstc = Timer::supports_sstc();
-    with_current(|local| {
-        local.with_features_mut(|features| features.extensions[Extension::Sstc.index()] = sstc)
-    });
+    current_features().lock().extensions[Extension::Sstc.index()] = sstc;
 }
 
 fn detect_mhpm_counters() {
-    // SAFETY: Startup owns these counters before the PMU is published.
+    // SAFETY:
+    // 1. This hart is in M-mode with a valid Runtime stack and trap entry;
+    //    `mscratch` is zero and `MPRV` is clear.
+    // 2. This hart exclusively owns its counters during startup and permits
+    //    the probe to modify them before enabling SBI services.
     let mhpm_mask = unsafe { hart::detect_performance_counters() };
 
-    with_current(|local| {
-        local.with_features_mut(|features| {
-            features.mhpm_mask = mhpm_mask;
-            // TODO: at present, the prototyper only supports 64-bit counters.
-            features.mhpm_bits = 64;
-        });
-        // The PMU state snapshots the counter topology; rebuild it now that
-        // the mask is known.
-        local.init_pmu();
+    {
+        let mut features = current_features().lock();
+        features.mhpm_mask = mhpm_mask;
+        // TODO: at present, the prototyper only supports 64-bit counters.
+        features.mhpm_bits = 64;
+    }
+    // The PMU state snapshots the counter topology; rebuild it now that
+    // the mask is known.
+    crate::sbi::hart_local::with_current(|local| {
+        local.with_pmu(|pmu| *pmu = crate::sbi::pmu::PmuState::new(mhpm_mask));
     });
 }
 
-/// Detects the current hart's privileged-architecture version, Sstc support and
-/// hardware counters after device-tree discovery.
+/// Detects the current hart's hardware features after device-tree discovery.
 pub fn detect_hart_features() {
     detect_privileged_version();
     detect_sstc();
@@ -200,27 +229,26 @@ pub fn check_next_stage_privilege(next_mode: MPP) {
     }
 }
 
-/// Configures the per-hart S-mode environment CSRs for supervisor hand-off
-/// (counter inhibits and environment features).
+/// Configures the current hart's environment for supervisor handoff.
 ///
 /// Runtime boot owns delegation, counter access and trap-vector setup.
 pub fn configure_hart_environment() {
-    let hart_id = HartId::current()
-        .expect("BUG: current hart exceeds Runtime capacity")
-        .as_usize();
+    let hart = HartId::current().expect("BUG: current hart exceeds Runtime capacity");
     // Standard Sv32 and Svpbmt page tables must not use T-Head MAEE.
-    if cfg!(target_pointer_width = "32") || hart_has_extension(hart_id, Extension::Svpbmt) {
-        // SAFETY: M-mode startup has installed Runtime entry, with mscratch zero,
-        // MPRV clear, and no lower-mode address space active on this hart.
+    if cfg!(target_pointer_width = "32") || has_extension(hart, Extension::Svpbmt) {
+        // SAFETY:
+        // 1. M-mode startup has installed Runtime trap entry, set `mscratch` to
+        //    zero, and cleared `MPRV`.
+        // 2. No lower-mode address space is active on this hart during startup.
         unsafe { boot::disable_thead_maee() };
     }
-    let hart_priv_version = hart_privileged_version(hart_id);
+    let hart_priv_version = privileged_version(hart);
     if hart_priv_version >= PrivilegedVersion::Version1_11 {
         mcountinhibit::write_raw(!0b111usize);
     }
     // Sstc provides STCE independently of the privileged-version heuristic.
     // Use the same per-hart result as the SBI timer and Runtime interrupt path.
-    if hart_has_extension(hart_id, Extension::Sstc) {
+    if has_extension(hart, Extension::Sstc) {
         menvcfg::set_bits(menvcfg::STCE);
     }
     if hart_priv_version >= PrivilegedVersion::Version1_12 {
@@ -228,7 +256,7 @@ pub fn configure_hart_environment() {
             (Extension::Zicbom, menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE),
             (Extension::Zicboz, menvcfg::CBZE),
         ] {
-            if hart_has_extension(hart_id, extension) {
+            if has_extension(hart, extension) {
                 menvcfg::set_bits(bits);
             } else {
                 menvcfg::clear_bits(bits);
@@ -236,17 +264,17 @@ pub fn configure_hart_environment() {
         }
         // Follow the device tree: C907 firmware also describes its RV32
         // page-memory-type extension as Svpbmt and requires PBMTE.
-        if hart_has_extension(hart_id, Extension::Svpbmt) {
+        if has_extension(hart, Extension::Svpbmt) {
             menvcfg::set_bits(menvcfg::PBMTE);
         }
         // The S-mode access to the Zkr `seed` CSR is gated under `mseccfg.SSEED`.
-        if hart_has_extension(hart_id, Extension::Zkr) {
+        if has_extension(hart, Extension::Zkr) {
             boot::enable_supervisor_seed();
         }
         let enable_aia = matches!(
             crate::platform::ipi_delivery(),
             Some(IpiDelivery::Imsic { .. })
-        ) && hart_has_extension(hart_id, Extension::Smaia);
+        ) && has_extension(hart, Extension::Smaia);
         boot::configure_state_access(enable_aia);
     }
 }

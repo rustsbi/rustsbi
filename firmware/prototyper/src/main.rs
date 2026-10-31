@@ -17,9 +17,7 @@ mod riscv;
 mod sbi;
 
 use crate::firmware::BootInfo;
-use crate::sbi::features::{
-    check_next_stage_privilege, detect_hart_features, hart_mhpm_mask, hart_privileged_version,
-};
+use crate::sbi::features::{check_next_stage_privilege, counter_topology, detect_hart_features};
 use crate::sbi::hart_local;
 use ::riscv::register::mstatus::MPP;
 use runtime::{
@@ -42,6 +40,7 @@ fn boot_hart(mut boot: BootInfo) {
     // Initialize this hart's policy storage before any user: platform
     // discovery seeds secondary harts' features, and feature detection
     // writes this hart's.
+    sbi::features::init();
     hart_local::init();
     let platform_description = boot
         .take_platform_description()
@@ -52,13 +51,11 @@ fn boot_hart(mut boot: BootInfo) {
     firmware::set_pmp(&firmware_ram);
     firmware::log_pmp_cfg(&firmware_ram);
 
-    let hart_id = HartId::current()
-        .expect("BUG: current hart is not in the boot topology")
-        .as_usize();
-    info!("{:<30}: {}", "Boot HART ID", hart_id);
+    let hart = HartId::current().expect("BUG: current hart is not in the boot topology");
+    info!("{:<30}: {}", "Boot HART ID", hart.as_usize());
 
     detect_hart_features();
-    log_hart_capabilities(hart_id);
+    log_hart_capabilities(hart);
 
     let mut next_stage = boot.next_stage();
     check_next_stage_privilege(next_stage.next_mode);
@@ -66,7 +63,9 @@ fn boot_hart(mut boot: BootInfo) {
     next_stage.opaque = next_stage_fdt_address;
     info!(
         "Redirecting hart {} to {:#016x} in {:?} mode.",
-        hart_id, next_stage.start_addr, next_stage.next_mode
+        hart.as_usize(),
+        next_stage.start_addr,
+        next_stage.next_mode
     );
     hart::stage_boot_handoff(next_stage)
         .expect("BUG: boot hart could not stage its initial handoff");
@@ -115,15 +114,11 @@ fn enable_supervisor_services() {
     trap::init(dispatcher).expect("BUG: failed to activate Runtime trap handling");
 }
 
-fn log_hart_capabilities(hart_id: usize) {
+fn log_hart_capabilities(hart: HartId) {
+    let (privileged_version, mhpm_mask) = counter_topology(hart);
     info!(
         "{:<30}: {:?}",
-        "Boot HART Privileged Version:",
-        hart_privileged_version(hart_id)
+        "Boot HART Privileged Version:", privileged_version
     );
-    info!(
-        "{:<30}: {:#08x}",
-        "Boot HART MHPM Mask:",
-        hart_mhpm_mask(hart_id)
-    );
+    info!("{:<30}: {:#08x}", "Boot HART MHPM Mask:", mhpm_mask);
 }
