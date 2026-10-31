@@ -67,6 +67,8 @@
     - [For Development](./guidelines/for-development/README.md)
         - [Memory Safety](./guidelines/for-development/memory-safety.md)
         - [Assembly Conventions](./guidelines/for-development/assembly-conventions.md)
+        - [CSR and Register Access](./guidelines/for-development/csr-access.md)
+        - [Startup and Handoff](./guidelines/for-development/startup-handoff.md)
     - [For Documentation](./guidelines/for-documentation/README.md)
         - [General Style](./guidelines/for-documentation/general-style.md)
         - [Crate Documentation](./guidelines/for-documentation/crate-docs.md)

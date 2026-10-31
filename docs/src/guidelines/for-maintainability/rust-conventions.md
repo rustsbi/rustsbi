@@ -29,10 +29,10 @@ PmpConfig
 HartId
 
 // Bad
-IOMemoryArea
-PCIDeviceLocation
-NVMe
-TCP
+SBIRet
+IPIRequest
+MMIORegion
+UART16550
 ```
 
 ### End closure variables with `_fn` (`closure-fn-suffix`) {#closure-fn-suffix}
