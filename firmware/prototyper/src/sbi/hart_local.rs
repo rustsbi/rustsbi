@@ -11,9 +11,8 @@
 use alloc::boxed::Box;
 use core::sync::atomic::AtomicU8;
 use runtime::hart::HartId;
-use spin::{Mutex, Once};
+use spin::Once;
 
-use super::pmu::PmuState;
 use super::rfence::queue::{LocalRFenceCell, RFenceCell, RemoteRFenceCell};
 
 /// Separates independently written hart state into 128-byte blocks.
@@ -37,8 +36,6 @@ pub struct HartLocal {
     pub rfence: RFenceCell,
     /// Type of inter-processor interrupt pending.
     pub ipi_type: CacheAligned<AtomicU8>,
-    /// PMU state.
-    pmu_state: Mutex<PmuState>,
 }
 
 impl HartLocal {
@@ -46,39 +43,9 @@ impl HartLocal {
         Self {
             rfence: RFenceCell::new(),
             ipi_type: CacheAligned(AtomicU8::new(0)),
-            pmu_state: Mutex::new(PmuState::new(0)),
         }
     }
 
-    /// Runs an update or read on this hart's PMU state.
-    pub(crate) fn with_pmu<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&mut PmuState) -> R,
-    {
-        f(&mut self.pmu_state.lock())
-    }
-
-    /// Rebuilds PMU state after feature detection has populated the counter mask.
-    pub(crate) fn init_pmu(&self) {
-        let hart = HartId::current().expect("BUG: current hart is not in the boot topology");
-        let mhpm_mask = super::features::mhpm_mask(hart);
-        self.with_pmu(|pmu| *pmu = PmuState::new(mhpm_mask));
-    }
-
-    #[inline]
-    fn pmu_state_reset(&self) {
-        use super::features::PrivilegedVersion;
-        // stop all hardware pmu event
-        let hart = HartId::current().expect("BUG: current hart is not in the boot topology");
-        let hart_priv_version = super::features::privileged_version(hart);
-        if hart_priv_version >= PrivilegedVersion::Version1_11 {
-            // The CSR wrapper owns the machine-mode write; this policy state
-            // only requests the reset of the current hart's counters.
-            crate::riscv::csr::mcountinhibit::write_raw(!0b111usize);
-        }
-        // reset hart pmu state
-        self.init_pmu();
-    }
 }
 
 static HART_LOCALS: Once<Box<[HartLocal]>> = Once::new();
@@ -101,17 +68,6 @@ fn slot(hart: HartId) -> &'static HartLocal {
         .expect("BUG: hart-local state used before initialization")[hart.index()]
 }
 
-/// Runs `f` with shared access to the current hart's state. Mutable policy
-/// fields are updated through their own locks, so this does not create an
-/// aliasing contract for callers.
-pub fn with_current<F, R>(f: F) -> R
-where
-    F: FnOnce(&HartLocal) -> R,
-{
-    let hart = HartId::current().expect("BUG: current hart is not in the boot topology");
-    f(slot(hart))
-}
-
 /// Gets the local fence context for the current hart.
 pub fn local_rfence() -> Option<LocalRFenceCell<'static>> {
     Some(slot(HartId::current().ok()?).rfence.local())
@@ -121,10 +77,4 @@ pub fn local_rfence() -> Option<LocalRFenceCell<'static>> {
 pub fn remote_rfence(hart_id: usize) -> Option<RemoteRFenceCell<'static>> {
     let hart = HartId::from_raw(hart_id).ok()?;
     Some(slot(hart).rfence.remote())
-}
-
-/// Resets the current hart's PMU state before a non-retentive resume.
-/// Pending IPIs and fence requests remain valid across suspend/resume.
-pub(crate) fn reset_current() {
-    with_current(HartLocal::pmu_state_reset);
 }

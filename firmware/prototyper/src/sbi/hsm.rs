@@ -25,7 +25,7 @@ pub(crate) struct SbiHsm {
 }
 
 impl SbiHsm {
-    /// Records whether the platform can release a hart from hardware reset.
+    /// Creates an HSM extension with the platform's hardware wakeup capability.
     pub(crate) fn new(hardware_wakeup: bool) -> Self {
         Self { hardware_wakeup }
     }
@@ -39,8 +39,7 @@ impl SbiHsm {
         Ok(hart)
     }
 
-    /// Implements the HSM suspend/resume transition described by the SBI HSM
-    /// extension.
+    /// Implements the SBI HSM suspend/resume transition.
     fn suspend(&self, suspend_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
         if !matches!(
             suspend_type,
@@ -71,7 +70,7 @@ impl SbiHsm {
 
         // The ticket reserves the current hart before policy state is reset;
         // a failed wake drops the reservation back to Suspended.
-        crate::sbi::hart_local::reset_current();
+        crate::sbi::pmu::reset_current();
         match ticket.commit() {
             Ok(()) => SbiRet::success(0),
             Err(_) => SbiRet::failed(),
@@ -107,7 +106,7 @@ impl Hsm for SbiHsm {
         }
     }
 
-    /// Gets the current state of a hart.
+    /// Returns the current state of a hart.
     #[inline]
     fn hart_get_status(&self, hartid: usize) -> SbiRet {
         let hart = match self.hart_id(hartid) {

@@ -74,14 +74,6 @@ pub(crate) fn hart_has_extension(hart_id: usize, extension: Extension) -> bool {
     )
 }
 
-pub(crate) fn hart_privileged_version(hart_id: usize) -> PrivilegedVersion {
-    privileged_version(HartId::from_raw(hart_id).expect("BUG: unknown hart ID"))
-}
-
-pub(crate) fn hart_mhpm_mask(hart_id: usize) -> u32 {
-    mhpm_mask(HartId::from_raw(hart_id).expect("BUG: unknown hart ID"))
-}
-
 /// Returns one hart's privileged version and counter mask.
 pub(crate) fn counter_topology(hart: HartId) -> (PrivilegedVersion, u32) {
     let features = features(hart).lock();
@@ -191,9 +183,7 @@ fn detect_mhpm_counters() {
     }
     // The PMU state snapshots the counter topology; rebuild it now that
     // the mask is known.
-    crate::sbi::hart_local::with_current(|local| {
-        local.with_pmu(|pmu| *pmu = crate::sbi::pmu::PmuState::new(mhpm_mask));
-    });
+    crate::sbi::pmu::init_current(mhpm_mask);
 }
 
 /// Detects the current hart's hardware features after device-tree discovery.

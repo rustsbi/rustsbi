@@ -41,6 +41,7 @@ fn boot_hart(mut boot: BootInfo) {
     // discovery seeds secondary harts' features, and feature detection
     // writes this hart's.
     sbi::features::init();
+    sbi::pmu::init();
     hart_local::init();
     let platform_description = boot
         .take_platform_description()
