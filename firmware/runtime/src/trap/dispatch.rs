@@ -30,7 +30,7 @@ pub(super) unsafe extern "C" fn trap_dispatch(saved: &mut SavedTrap) {
             match interrupt {
                 Interrupt::MachineSoftware => handlers::software_interrupt(frame, &irq),
                 Interrupt::MachineTimer => {
-                    crate::boot::timer()
+                    crate::timer::get()
                         .expect("Timer service not published")
                         .on_interrupt(&irq);
                 }

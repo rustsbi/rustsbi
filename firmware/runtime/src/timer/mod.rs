@@ -25,6 +25,28 @@ enum Target {
 }
 
 static FIRMWARE: Once<Timer> = Once::new();
+static TIMER: Once<Timer> = Once::new();
+
+/// Creates and installs the supervisor timer service.
+///
+/// Returns [`Error::AlreadyInitialized`] if a timer is already installed.
+pub fn init(device: Option<Box<dyn TimerDevice>>) -> Result<&'static Timer> {
+    let mut installed = false;
+    let timer = TIMER.call_once(|| {
+        installed = true;
+        Timer::new(device)
+    });
+    if installed {
+        Ok(timer)
+    } else {
+        Err(Error::AlreadyInitialized)
+    }
+}
+
+/// Returns the installed supervisor timer service.
+pub fn get() -> Option<&'static Timer> {
+    TIMER.get()
+}
 
 enum Comparator {
     Native(&'static MachineTimerState),
@@ -66,7 +88,7 @@ impl Timer {
             if !crate::boot::traps_ready() {
                 return Err(Error::NotReady);
             }
-            let supervisor = crate::boot::timer().ok_or(Error::NotReady)?;
+            let supervisor = get().ok_or(Error::NotReady)?;
             let machine = supervisor.machine().ok_or(Error::NotSupported)?;
             let timer = FIRMWARE.call_once(|| Self {
                 machine: Some(NativeTimer::Borrowed(machine)),

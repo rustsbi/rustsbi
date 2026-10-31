@@ -7,7 +7,7 @@ use super::HartId;
 
 /// A platform's hardware hart-release device.
 pub trait HartWake: Send + Sync {
-    /// Returns true if hardware wakeup was requested, or false to use an IPI.
+    /// Returns `true` if hardware wakeup was requested, or `false` to use an IPI.
     fn wake(&self, hart: HartId) -> crate::Result<bool>;
 }
 
@@ -24,7 +24,7 @@ pub(super) fn wake(hart: HartId) -> Result<()> {
     {
         return Ok(());
     }
-    crate::boot::ipi()
+    crate::ipi::get()
         .ok_or(Error::IoError)?
         .send(crate::ipi::IpiRequest::for_hart(hart))
 }
