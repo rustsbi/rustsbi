@@ -9,6 +9,7 @@ pub fn has_hypervisor() -> bool {
 }
 
 /// Checks support for the requested privilege mode.
+///
 /// M-mode is always supported; S/U support follows the bits reported by `misa`.
 pub fn supports_privilege(mode: riscv::register::mstatus::MPP) -> bool {
     use riscv::register::mstatus::MPP;
@@ -34,6 +35,8 @@ pub enum PrivilegedVersion {
 }
 
 /// Detects the current hart's version after Runtime trap installation.
+///
+/// Returns [`PrivilegedVersion::Unknown`] before the trap entry is installed.
 pub fn detect_privileged_version() -> PrivilegedVersion {
     if !crate::boot::traps_ready() {
         return PrivilegedVersion::Unknown;
@@ -53,8 +56,10 @@ pub fn detect_privileged_version() -> PrivilegedVersion {
 ///
 /// # Safety
 ///
-/// Run after Runtime entry installation, before publishing the PMU.
-/// Own the current hart's counters with MPRV clear and mscratch zero.
+/// Run in M-mode with a valid Runtime stack and Runtime trap entry installed.
+/// `MPRV` must be clear and `mscratch` must be zero.
+/// The caller must exclusively control the current hart's hardware counters
+/// and permit the probe to modify them.
 pub unsafe fn detect_performance_counters() -> u32 {
     crate::irq::with_local_disabled(|_| {
         // Preserve the existing convention for cycle, time, and instret.
