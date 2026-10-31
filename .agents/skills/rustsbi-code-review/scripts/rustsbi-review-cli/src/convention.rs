@@ -178,12 +178,44 @@ fn check_changelog(scope: &ScopeInfo) -> CheckResult {
     )
 }
 
+/// Every changed text file should end with a newline (EOF newline).
+fn check_eof_newline(scope: &ScopeInfo) -> CheckResult {
+    let start = Instant::now();
+    if scope.changed_paths.is_empty() {
+        return not_applicable("eof-newline", "no changed files");
+    }
+    let mut missing: Vec<String> = Vec::new();
+    for p in &scope.changed_paths {
+        // Deleted or unreadable paths are skipped; empty files are fine.
+        if let Ok(bytes) = std::fs::read(p) {
+            if !bytes.is_empty() && bytes.last() != Some(&b'\n') {
+                missing.push(p.clone());
+            }
+        }
+    }
+    let ms = start.elapsed().as_millis() as u64;
+    if !missing.is_empty() {
+        return CheckResult::new(
+            "eof-newline", Stage::Convention, Status::Fail, Gate::Advisory, ms,
+            "internal: EOF newline check",
+            &format!("{} file(s) missing a newline at end of file", missing.len()),
+        )
+        .with_output(&format!("Missing EOF newline: {}", missing.join(", ")));
+    }
+    CheckResult::new(
+        "eof-newline", Stage::Convention, Status::Pass, Gate::Advisory, ms,
+        "internal: EOF newline check",
+        &format!("{} file(s) checked", scope.changed_paths.len()),
+    )
+}
+
 pub fn run_convention(scope: &ScopeInfo) -> Vec<CheckResult> {
     vec![
         check_fmt(),
         check_whitespace(scope),
         check_dco(scope),
         check_changelog(scope),
+        check_eof_newline(scope),
     ]
 }
 
