@@ -3,11 +3,11 @@
 Ground truth for the backtest, one file per pull request.
 
 A case is the **real review feedback** that maintainers left on the PR.
-It is the positive test set: run the skill on \`pr/<N>\` and compare its comments with these.
+It is the positive test set: run the skill on `pr/<N>` and compare its comments with these.
 
 ## Format
 
-\`\`\`markdown
+```markdown
 ---
 pr: 412
 repo: rustsbi/rustsbi
@@ -16,13 +16,13 @@ head: 1c1b06900b276357a3326cb619ef40ec9acd1c05
 gt: 2
 ---
 
-### \`firmware/runtime/src/hart/context.rs\` line 88
+### `firmware/runtime/src/hart/context.rs` line 88
 
 > <the reviewer's comment, verbatim>
-\`\`\`
+```
 
-- \`gt\` — number of ground-truth comments in the file.
-- Each comment is a \`###\` heading of the form \`\`\`path\`\`\` line \`N\`\`, followed by a quote (\`>\`) per comment line.
+- `gt` — number of ground-truth comments in the file.
+- Each comment is a `###` heading of the form ```path``` line `N``, followed by a quote (`>`) per comment line.
 - Copy the text **verbatim**. Do not summarise, do not repair the line number, do not drop a comment
   because it looks uninteresting: any edit biases the measurement.
 - Record the `revision` the comments were written against (a SHA in the PR's commit list) and review with
@@ -51,9 +51,9 @@ Real review comments are of three kinds. Only the first is a fair test of the sk
 
 | class | meaning | counts? |
 |---|---|---|
-| \`code-derivable\` | decidable from the diff (a missing \`// SAFETY:\`, \`.align\` that should be \`.balign\`) | yes |
-| \`contextual\` | needs maintainer-only context ("the interface changes next week") | no |
-| \`process\` | workflow ("split this commit", "add CI") | no |
+| `code-derivable` | decidable from the diff (a missing `// SAFETY:`, `.align` that should be `.balign`) | yes |
+| `contextual` | needs maintainer-only context ("the interface changes next week") | no |
+| `process` | workflow ("split this commit", "add CI") | no |
 
-Record the class in a trailing tag on the quote line, e.g. \`> [code-derivable] ...\`,
-and let \`score.py\` ignore the other two.
+Record the class in a trailing tag on the quote line, e.g. `> [code-derivable] ...`,
+and let `score.py` ignore the other two.
