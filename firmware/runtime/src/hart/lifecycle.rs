@@ -35,8 +35,10 @@ impl HartStateCell {
     }
 }
 
-// SAFETY: state publication is atomic; staged values are only written while
-// a private reservation is held and are consumed by the owning hart.
+// SAFETY:
+// 1. State publication is atomic.
+// 2. Staged values are written only under a private reservation and consumed
+//    by the owning hart.
 unsafe impl Sync for HartStateCell {}
 
 static HART_STATES: Once<Box<[HartStateCell]>> = Once::new();
@@ -58,11 +60,11 @@ pub enum HartState {
 
 /// Work observed by the machine software/external interrupt transport.
 pub(crate) enum HartEvent {
-    /// Enter the staged lower-privilege execution stage.
+    /// A staged lower-privilege execution stage.
     Start(NextStage),
-    /// Park the current hart until another start arrives.
+    /// A request to park the current hart until another start arrives.
     Park,
-    /// Deliver ordinary platform software-interrupt work.
+    /// No start or park event is pending.
     None,
 }
 
@@ -76,7 +78,7 @@ pub enum StartOutcome {
 
 /// A machine control transfer staged by a successful non-retentive resume.
 pub(crate) enum ControlTransfer {
-    /// Enter the supplied lower-privilege stage from the ecall return path.
+    /// A lower-privilege stage entered from the ecall return path.
     NonRetentiveResume(NextStage),
 }
 
@@ -143,8 +145,9 @@ pub(crate) fn take_local_event() -> HartEvent {
                     )
                     .is_ok()
                 {
-                    // SAFETY: the AcqRel transition consumes the published
-                    // stage, and only this hart consumes its local stage.
+                    // SAFETY:
+                    // 1. The acquire-release transition consumes the published stage.
+                    // 2. Only this hart consumes its local stage.
                     let stage = unsafe { (*cell.stage.get()).take() }
                         .expect("BUG: start state without staged handoff");
                     return HartEvent::Start(stage);
@@ -181,31 +184,33 @@ pub fn can_receive_ipi(hart: HartId) -> bool {
 /// start request arrives, including across spurious WFI wakeups.
 /// Only failures return to the caller.
 pub fn stop_current() -> Result<core::convert::Infallible> {
-    let ipi = crate::boot::ipi().ok_or(Error::IoError)?;
+    let ipi = crate::ipi::get().ok_or(Error::IoError)?;
     ipi.delivery().ok_or(Error::IoError)?;
     crate::irq::with_local_disabled(|irq| {
         ipi.clear_current(irq)?;
         ipi.prepare_wakeup(irq);
-        Ok(())
-    })?;
-    cell(current_hart())
-        .state
-        .store(STATE_STOPPED, Ordering::Release);
-    // SAFETY: M-mode interrupts remain disabled. Stop retires the current
-    // trap call chain, allowing the Runtime finisher to reuse the clean stack
-    // and wait for a new start without returning to the stopped supervisor.
-    unsafe {
-        core::arch::asm!(
-            "tail {finish}",
-            finish = sym crate::boot::finish_boot,
-            options(noreturn)
-        )
-    }
+        if let Some(timer) = crate::timer::get() {
+            timer.cancel_events_on_stop(current_hart(), irq);
+        }
+        cell(current_hart())
+            .state
+            .store(STATE_STOPPED, Ordering::Release);
+        // SAFETY:
+        // 1. This scope keeps machine interrupts disabled until the handoff.
+        // 2. Stop retires the current call chain before reusing the hart stack.
+        unsafe {
+            core::arch::asm!(
+                "tail {finish}",
+                finish = sym crate::boot::finish_boot,
+                options(noreturn)
+            )
+        }
+    })
 }
 
 /// Enters the platform suspend wait for the current hart.
 pub fn suspend_current() -> Result<()> {
-    let ipi = crate::boot::ipi().ok_or(Error::IoError)?;
+    let ipi = crate::ipi::get().ok_or(Error::IoError)?;
     ipi.delivery().ok_or(Error::IoError)?;
     crate::irq::with_local_disabled(|irq| {
         ipi.clear_current(irq)?;
@@ -276,11 +281,12 @@ pub struct ResumeTicket {
 impl ResumeTicket {
     /// Wakes the hart and publishes its lower-privilege handoff.
     pub fn commit(mut self) -> Result<()> {
-        crate::boot::ipi()
+        crate::ipi::get()
             .ok_or(Error::IoError)?
             .send(crate::ipi::IpiRequest::for_hart(self.hart))?;
-        // SAFETY: the ticket owns the cell while it is ResumePending; this
-        // marker is consumed by the same hart's ecall return path.
+        // SAFETY:
+        // 1. The ticket owns the cell while it is resume-pending.
+        // 2. The same hart's ecall return path consumes the marker.
         unsafe {
             *self.cell.transfer.get() = Some(ControlTransfer::NonRetentiveResume(self.stage));
         }
@@ -301,7 +307,7 @@ impl Drop for ResumeTicket {
 /// Takes the one-shot machine control transfer marker for the dispatch hart.
 pub(crate) fn take_control_transfer(hart: HartId) -> Option<ControlTransfer> {
     assert_eq!(hart, current_hart());
-    // SAFETY: the identity belongs to the calling hart, which consumes only
+    // SAFETY: The identity belongs to the calling hart, which consumes only
     // its own marker in the M-mode ecall return path.
     unsafe { (*cell(hart).transfer.get()).take() }
 }

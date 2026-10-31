@@ -9,7 +9,7 @@ use crate::{
 pub(super) fn sbi_ecall(frame: &mut TrapFrame) {
     let regs = &mut frame.general;
     let hart = hart::current_hart();
-    let ret = init::policy(hart).handle_ecall(
+    let ret = init::policy().handle_ecall(
         regs.a7,
         regs.a6,
         [regs.a0, regs.a1, regs.a2, regs.a3, regs.a4, regs.a5],
@@ -38,14 +38,14 @@ fn deliver_event(frame: &mut TrapFrame, ipi: &crate::ipi::Ipi, irq: &LocalIrqDis
 }
 
 pub(super) fn software_interrupt(frame: &mut TrapFrame, irq: &LocalIrqDisabled) {
-    let ipi = crate::boot::ipi().expect("IPI service not published");
+    let ipi = crate::ipi::get().expect("IPI service not published");
     ipi.clear_current(irq)
         .expect("IPI device could not clear the current hart");
     deliver_event(frame, ipi, irq);
 }
 
 pub(super) fn external_interrupt(frame: &mut TrapFrame, irq: &LocalIrqDisabled) {
-    if let Some(ipi) = crate::boot::ipi()
+    if let Some(ipi) = crate::ipi::get()
         && ipi.claim_external(irq)
     {
         deliver_event(frame, ipi, irq);

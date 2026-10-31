@@ -28,12 +28,14 @@ pub unsafe extern "C" fn prepare_traps() {
             status.set::<machine::MDT>(machine::DoubleTrapState::Clear);
         });
     }
-    // Install the basic vector before probing so an absent mstatush can recover.
+    // Install the basic vector before probing so an absent `mstatush` can recover.
     #[cfg(target_pointer_width = "32")]
     let high = csrr!(machine::StatusHigh).ok();
     #[cfg(target_pointer_width = "32")]
     if high.is_some() {
-        // SAFETY: The probe confirmed mstatush; startup owns trap setup.
+        // SAFETY:
+        // 1. The probe confirmed that `mstatush` is available.
+        // 2. Startup owns this hart's trap setup.
         unsafe {
             machine::StatusHigh::modify(|_, status| {
                 status.set::<machine::MDTH>(machine::DoubleTrapState::Clear);
@@ -42,7 +44,9 @@ pub unsafe extern "C" fn prepare_traps() {
         }
     }
     if machine::Isa::read().has_extension('H') {
-        // SAFETY: H is present and startup owns trap setup.
+        // SAFETY:
+        // 1. The hypervisor extension is present.
+        // 2. Startup owns this hart's trap setup.
         unsafe {
             install(entry::trap_entry_hypervisor);
         }
@@ -78,7 +82,7 @@ unsafe fn install(entry: unsafe extern "C" fn()) {
     unsafe { machine::TrapVector::write(vector) }
 }
 
-/// Configures delegation and counter access before publishing the SBI policy.
+/// Initializes hart-local services, delegation, and counter access for the next stage.
 ///
 /// # Safety
 ///
@@ -87,11 +91,11 @@ unsafe fn install(entry: unsafe extern "C" fn()) {
 pub unsafe fn configure_next_stage() {
     // SAFETY: The startup caller keeps MIE clear for this configuration.
     let irq = unsafe { crate::irq::LocalIrqDisabled::assume_disabled() };
-    super::ipi()
+    crate::ipi::get()
         .expect("IPI service not published")
         .init_current(&irq)
         .expect("could not initialize hart IPI state");
-    let timer = super::timer().expect("Timer service not published");
+    let timer = crate::timer::get().expect("Timer service not published");
     timer
         .init_current(&irq)
         .expect("could not initialize hart timer state");
@@ -146,13 +150,14 @@ pub(crate) unsafe fn prepare_supervisor() {
     }
     // SAFETY: This function's caller keeps MIE clear throughout the handoff.
     let irq = unsafe { crate::irq::LocalIrqDisabled::assume_disabled() };
-    super::ipi()
+    crate::ipi::get()
         .expect("IPI service not published")
         .prepare_wakeup(&irq);
 }
 
 /// Programs the initial boot handoff in the current hart's CSRs.
-// Trap handoffs instead update the saved frame restored by entry.
+///
+/// Trap handoffs update the saved frame restored by trap entry instead.
 ///
 /// # Safety
 ///

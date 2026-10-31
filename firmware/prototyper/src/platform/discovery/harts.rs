@@ -9,7 +9,7 @@ use crate::sbi::features::detect_extensions;
 
 use super::imsic::{self, CpuInterruptController};
 
-/// Reads hart topology and features, retaining CPU interrupt wiring for IMSIC discovery.
+/// Reads hart features and CPU interrupt-controller wiring from the platform description.
 pub(super) fn discover(
     board: &mut BoardInfo,
     platform: &PlatformView<'_>,
@@ -36,8 +36,8 @@ pub(super) fn discover(
         if !node_is_enabled(node) {
             continue;
         }
-        HartId::from_raw(hart_id).map_err(|_| Error::InvalidArgs)?;
-        detect_extensions(hart_id, node);
+        let hart = HartId::from_raw(hart_id).map_err(|_| Error::InvalidArgs)?;
+        detect_extensions(hart, node);
     }
 
     Ok(controllers)

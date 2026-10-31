@@ -7,6 +7,7 @@ repository.workspace = true
 
 [dependencies]
 bitflags.workspace = true
+csr = { package = "rustsbi-csr", path = "../runtime/lib/csr" }
 log = "0.4"
 panic-halt = "1.0.0"
 riscv = { workspace = true }

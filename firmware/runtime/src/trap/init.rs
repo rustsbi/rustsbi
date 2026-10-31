@@ -1,31 +1,25 @@
-//! One SBI policy publication per hart.
+//! SBI policy publication.
 use crate::{Error, Result};
-use alloc::boxed::Box;
 
 use rustsbi::RustSBI;
 use spin::Once;
 
-use crate::hart::HartId;
-
 type Policy = &'static (dyn RustSBI + Sync);
-static POLICIES: Once<Box<[Once<Policy>]>> = Once::new();
 
-fn policies() -> &'static [Once<Policy>] {
-    POLICIES.call_once(|| HartId::all().map(|_| Once::new()).collect())
-}
+static POLICY: Once<Policy> = Once::new();
 
-pub(super) fn policy(hart: HartId) -> Policy {
-    *policies()[hart.index()]
+pub(super) fn policy() -> Policy {
+    *POLICY
         .get()
         .expect("SBI ecall before trap::init published its policy")
 }
 
-/// Publishes the current hart's SBI policy once.
+/// Publishes the SBI policy shared by all harts.
 ///
-/// Runtime startup installs the exception entry before policy initialization.
+/// Publish the policy before any hart handles an SBI call.
+/// Returns [`Error::AlreadyInitialized`] if a policy is already published.
 pub fn init<P: RustSBI + Sync + 'static>(policy: &'static P) -> Result<()> {
-    let hart = HartId::current()?;
-    publish(&policies()[hart.index()], policy)
+    publish(&POLICY, policy)
 }
 
 fn publish(slot: &Once<Policy>, policy: Policy) -> Result<()> {

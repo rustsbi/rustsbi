@@ -5,11 +5,11 @@
 use alloc::boxed::Box;
 use core::ops::Range;
 use runtime::{
-    Error, PlatformDescription, Result, boot, events,
+    Error, PlatformDescription, Result, events,
     hart::{self, HartId},
-    ipi::Ipi,
+    ipi,
     memory::SupervisorMemory,
-    timer::Timer,
+    timer, trap,
 };
 
 use spin::Once;
@@ -30,6 +30,7 @@ use crate::{
 };
 
 /// Discovers the platform, initializes its devices, and publishes its services.
+///
 /// Returns the device tree prepared for the next stage.
 pub fn init_board(platform_description: PlatformDescription) -> usize {
     try_init_board(platform_description).unwrap_or_else(|error| panic!("{error}"))
@@ -91,7 +92,7 @@ fn initialize_platform(
     let selected_imsic = select_imsic(&board);
     let mut devices = driver::bind_devices(&board, selected_imsic, &mut memory)
         .during("binding platform devices")?;
-    let timer = Timer::new(devices.timer.take());
+    let timer = timer::init(devices.timer.take()).expect("BUG: timer initialization failed");
     let timer_service = SbiTimer::new(timer);
     let custom_extension = sbi::vendor::Extension::bind(v821, &mut memory)
         .during("binding Allwinner custom-extension devices")?;
@@ -146,20 +147,18 @@ fn initialize_platform(
     Ok(next_stage_fdt_address)
 }
 
-/// Selects IMSIC only when every enabled hart can use its CSR interface and
-/// Sstc timer.
-/// Device construction performs no SBI feature-policy queries.
+/// Selects an IMSIC when every enabled hart advertises Smaia and Sstc.
 fn select_imsic(board: &BoardInfo) -> Option<&ImsicInfo> {
     use sbi::features::{self, Extension};
 
     let imsic = board.devices.interrupts.imsic()?.resource();
-    for hart in HartId::all().map(|hart| hart.as_usize()) {
-        if !features::hart_has_extension(hart, Extension::Smaia)
-            || !features::hart_has_extension(hart, Extension::Sstc)
+    for hart in HartId::all() {
+        if !features::has_extension(hart, Extension::Smaia)
+            || !features::has_extension(hart, Extension::Sstc)
         {
             warn!(
                 "AIA: hart {} requires Smaia and Sstc; falling back to CLINT",
-                hart
+                hart.as_usize()
             );
             return None;
         }
@@ -187,7 +186,10 @@ fn publish_platform_services(
     let hart_wake = hart_wake.map(|device| HART_WAKE.call_once(|| device).as_ref());
     hart::install_wakeup(hart_wake);
     let ipi_delivery = ipi.as_ref().map(|device| device.delivery());
-    let sbi_ipi = sbi::ipi::SbiIpi::new(Ipi::new(ipi, sbi::ipi::deliver_current));
+    let ipi = ipi::init(ipi, sbi::ipi::deliver_current)
+        .expect("BUG: Runtime IPI initialized more than once");
+    let sbi_ipi =
+        sbi::ipi::SbiIpi::new(ipi).expect("BUG: SBI IPI state requires a published hart topology");
     events::install(pmu.as_ref().map(|_| sbi::pmu::runtime_counters()));
 
     state::publish_resources(board, supervisor_memory, console, ipi_delivery);
@@ -248,8 +250,7 @@ fn publish_sbi_dispatcher(
         mpxy,
         vendor,
     });
-    boot::install_services(dispatcher.timer.timer(), dispatcher.ipi.ipi())
-        .expect("BUG: Runtime services registered more than once");
+    trap::init(dispatcher).expect("BUG: SBI policy registered more than once");
 }
 
 /// Runs the SoC-specific per-hart setup for secondary harts.

@@ -8,27 +8,59 @@
 #![forbid(unsafe_code)]
 
 use super::pmu::pmu_firmware_counter_increment;
-use crate::sbi::hart_local::hart_local;
 use crate::sbi::rfence;
 use alloc::vec::Vec;
-use core::sync::atomic::Ordering::{Acquire, Release};
+use core::sync::atomic::{
+    AtomicU8,
+    Ordering::{Acquire, Relaxed, Release},
+};
 use runtime::{
     Result,
-    hart::{self, HartId},
+    hart::{self, HartId, PerHart},
     ipi::{Ipi, IpiRequest},
     rustsbi::{self, HartMask, SbiRet},
 };
 use sbi_spec::pmu::firmware_event;
 
-/// IPI type for supervisor software interrupt.
+/// Pending event bit for a supervisor software interrupt.
 pub(crate) const IPI_TYPE_SSOFT: u8 = 1 << 0;
-/// IPI type for memory fence operations.
+/// Pending event bit for remote fence operations.
 pub(crate) const IPI_TYPE_FENCE: u8 = 1 << 1;
 
+/// IPI work posted by senders and consumed by the target hart.
+// Align records to reduce false sharing between harts. The fixed alignment is
+// a performance choice and does not guarantee cache-line isolation.
+#[repr(align(128))]
+struct PendingIpis {
+    events: AtomicU8,
+}
+
+impl PendingIpis {
+    const fn new() -> Self {
+        Self {
+            events: AtomicU8::new(0),
+        }
+    }
+
+    fn post(&self, events: u8) {
+        self.events.fetch_or(events, Release);
+    }
+
+    fn fence_pending(&self) -> bool {
+        self.events.load(Relaxed) & IPI_TYPE_FENCE != 0
+    }
+
+    fn take(&self) -> u8 {
+        self.events.swap(0, Acquire)
+    }
+}
+
 /// SBI IPI extension.
-/// Owns Runtime's IPI state; without a device, the extension probes unavailable.
+///
+/// The extension probes unavailable without an IPI device.
 pub struct SbiIpi {
-    ipi: Ipi,
+    ipi: &'static Ipi,
+    pending: PerHart<PendingIpis>,
 }
 
 impl rustsbi::Ipi for SbiIpi {
@@ -47,7 +79,8 @@ impl rustsbi::Ipi for SbiIpi {
 
         for req in requests {
             for hart_id in req.harts() {
-                set_ipi_type(hart_id, IPI_TYPE_SSOFT);
+                let hart = HartId::from_raw(hart_id).expect("BUG: unknown hart ID");
+                self.pending.get(hart).post(IPI_TYPE_SSOFT);
             }
             // Always signal: pending bits can remain after a failed send.
             if self.ipi.send(req).is_err() {
@@ -60,47 +93,47 @@ impl rustsbi::Ipi for SbiIpi {
 }
 
 impl SbiIpi {
-    pub(crate) fn new(ipi: Ipi) -> Self {
-        Self { ipi }
+    pub(crate) fn new(ipi: &'static Ipi) -> Result<Self> {
+        let pending = PerHart::new(|_| PendingIpis::new())?;
+        Ok(Self { ipi, pending })
     }
 
-    pub(crate) fn ipi(&self) -> &Ipi {
-        &self.ipi
+    pub(crate) fn ipi(&self) -> &'static Ipi {
+        self.ipi
     }
 
     /// Sends an IPI carrying a remote fence operation.
     pub fn send_fence_by_ipi(&self, hart_mask: HartMask, ctx: rfence::RFenceContext) -> SbiRet {
-        let current_hart = HartId::current()
-            .expect("BUG: current hart is not in the boot topology")
-            .as_usize();
+        let current_hart =
+            HartId::current().expect("BUG: current hart is not in the boot topology");
         let requests = match target_requests(hart_mask) {
             Ok(requests) => requests,
             Err(error) => return error,
         };
-        let local = rfence::local_rfence().unwrap();
+        let local = rfence::local_rfence_for(current_hart);
         let mut result = SbiRet::success(0);
 
         for hart_id in requests.flat_map(IpiRequest::harts) {
-            // Improve performance if the RFence request runs on the local host.
-            if hart_id == current_hart {
+            // Handle the local request without sending an IPI.
+            if hart_id == current_hart.as_usize() {
                 rfence::rfence_local_handler(ctx);
                 continue;
             }
 
-            let remote = rfence::remote_rfence(hart_id).unwrap();
+            let target =
+                HartId::from_raw(hart_id).expect("BUG: target hart is not in the boot topology");
+            let remote = rfence::remote_rfence_for(target);
             local.add();
             remote.set(ctx);
 
-            set_ipi_type(hart_id, IPI_TYPE_FENCE);
-            let send_result = HartId::from_raw(hart_id)
-                .and_then(|hart| self.ipi.send(IpiRequest::for_hart(hart)));
-            if send_result.is_ok() {
+            self.pending.get(target).post(IPI_TYPE_FENCE);
+            if self.ipi.send(IpiRequest::for_hart(target)).is_ok() {
                 continue;
             }
             // Cancel this source's queued request; a receiver that already
             // took it remains responsible for the acknowledgement.
-            if remote.cancel(current_hart) {
-                rfence::remote_rfence(current_hart).unwrap().sub();
+            if remote.cancel(current_hart.as_usize()) {
+                rfence::remote_rfence_for(current_hart).sub();
             }
             result = SbiRet::failed();
             break;
@@ -108,17 +141,30 @@ impl SbiIpi {
 
         // Complete previously submitted operations even if a later send failed.
         while !local.is_sync() {
-            rfence::rfence_poll();
+            rfence::rfence_poll_for(current_hart);
         }
 
         result
     }
+
+    /// Returns whether `hart` has a pending fence event.
+    pub(super) fn fence_pending(&self, hart: HartId) -> bool {
+        self.pending.get(hart).fence_pending()
+    }
 }
 
 /// Delivers SBI work after Runtime acknowledges the device interrupt.
+///
 /// Returns whether Runtime must notify the supervisor.
 pub(crate) fn deliver_current() -> bool {
-    let ipi_type = get_and_reset_ipi_type();
+    // The device clear/claim must precede the pending-event read.
+    crate::riscv::csr::fence::io_to_memory();
+    let hart = HartId::current().expect("BUG: current hart is not in the boot topology");
+    let ipi = &super::SBI_DISPATCHER
+        .get()
+        .expect("BUG: SBI dispatcher not initialized")
+        .ipi;
+    let ipi_type = ipi.pending.get(hart).take();
     let notify_supervisor = (ipi_type & IPI_TYPE_SSOFT) != 0;
     if notify_supervisor {
         pmu_firmware_counter_increment(firmware_event::IPI_RECEIVED);
@@ -127,21 +173,6 @@ pub(crate) fn deliver_current() -> bool {
         rfence::rfence_handler();
     }
     notify_supervisor
-}
-
-/// Marks `event_id` pending for `hart_id`, returning the previous set.
-pub fn set_ipi_type(hart_id: usize, event_id: u8) -> u8 {
-    hart_local(hart_id).ipi_type.fetch_or(event_id, Release)
-}
-
-/// Takes and clears the current hart's pending IPI types.
-pub fn get_and_reset_ipi_type() -> u8 {
-    // The device clear/claim must precede the pending-event read.
-    crate::riscv::csr::fence::io_to_memory();
-    let hart_id = HartId::current()
-        .expect("BUG: current hart is not in the boot topology")
-        .as_usize();
-    hart_local(hart_id).ipi_type.swap(0, Acquire)
 }
 
 fn target_requests(hart_mask: HartMask) -> Result<impl Iterator<Item = IpiRequest>, SbiRet> {
@@ -163,8 +194,8 @@ fn target_requests(hart_mask: HartMask) -> Result<impl Iterator<Item = IpiReques
             }
         }
     } else if mask != 0 {
-        // Validate platform assignment separately from transient HSM state.
-        // Stopped harts remain valid targets but need no supervisor IPI.
+        // A hart in the topology remains a valid target even when it is
+        // stopped or has not yet passed the platform privilege check.
         let mut active_mask = 0;
         for bit in HartMask::from_mask_base(mask, 0) {
             let hart_id = base.checked_add(bit).ok_or_else(SbiRet::invalid_param)?;

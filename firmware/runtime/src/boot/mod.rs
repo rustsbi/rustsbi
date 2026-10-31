@@ -5,7 +5,6 @@
 //! resumes.
 
 mod context;
-mod services;
 mod stack;
 
 pub use crate::csr::enable_supervisor_seed;
@@ -14,8 +13,6 @@ pub use crate::csr::thead::disable_maee as disable_thead_maee;
 
 pub use context::{configure_next_stage, prepare_traps};
 pub(crate) use context::{prepare_supervisor, set_return_mode, traps_ready};
-pub use services::install_services;
-pub(crate) use services::{ipi, timer};
 
 pub(crate) use stack::firmware_end;
 pub use stack::{BootStack, initialize_stacks, locate_stack};
@@ -162,7 +159,7 @@ fn finish_boot_rust() -> ! {
     // SAFETY: The boot finisher is entered with MIE clear and never enables it.
     let irq = unsafe { crate::irq::LocalIrqDisabled::assume_disabled() };
     let hart = hart::current_hart();
-    let ipi = ipi().expect("IPI service not published");
+    let ipi = crate::ipi::get().expect("IPI service not published");
     loop {
         // Acknowledge before observing the state. Clearing after observing
         // Stopped could erase a concurrent start's wakeup just before WFI.
