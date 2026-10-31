@@ -5,12 +5,11 @@
 use alloc::boxed::Box;
 use core::ops::Range;
 use runtime::{
-    Error, PlatformDescription, Result, boot, events,
+    Error, PlatformDescription, Result, events,
     hart::{self, HartId},
     ipi,
     memory::SupervisorMemory,
-    timer::Timer,
-    trap,
+    timer, trap,
 };
 
 use spin::Once;
@@ -31,6 +30,7 @@ use crate::{
 };
 
 /// Discovers the platform, initializes its devices, and publishes its services.
+///
 /// Returns the device tree prepared for the next stage.
 pub fn init_board(platform_description: PlatformDescription) -> usize {
     try_init_board(platform_description).unwrap_or_else(|error| panic!("{error}"))
@@ -92,7 +92,7 @@ fn initialize_platform(
     let selected_imsic = select_imsic(&board);
     let mut devices = driver::bind_devices(&board, selected_imsic, &mut memory)
         .during("binding platform devices")?;
-    let timer = Timer::new(devices.timer.take());
+    let timer = timer::init(devices.timer.take()).expect("BUG: timer initialization failed");
     let timer_service = SbiTimer::new(timer);
     let custom_extension = sbi::vendor::Extension::bind(v821, &mut memory)
         .during("binding Allwinner custom-extension devices")?;
@@ -147,9 +147,7 @@ fn initialize_platform(
     Ok(next_stage_fdt_address)
 }
 
-/// Selects IMSIC only when every enabled hart can use its CSR interface and
-/// Sstc timer.
-/// Device construction performs no SBI feature-policy queries.
+/// Selects an IMSIC when every enabled hart advertises Smaia and Sstc.
 fn select_imsic(board: &BoardInfo) -> Option<&ImsicInfo> {
     use sbi::features::{self, Extension};
 
@@ -252,8 +250,6 @@ fn publish_sbi_dispatcher(
         mpxy,
         vendor,
     });
-    boot::install_services(dispatcher.timer.timer(), dispatcher.ipi.ipi())
-        .expect("BUG: Runtime services registered more than once");
     trap::init(dispatcher).expect("BUG: SBI policy registered more than once");
 }
 

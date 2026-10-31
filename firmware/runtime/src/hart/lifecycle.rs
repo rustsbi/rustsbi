@@ -181,7 +181,7 @@ pub fn can_receive_ipi(hart: HartId) -> bool {
 /// start request arrives, including across spurious WFI wakeups.
 /// Only failures return to the caller.
 pub fn stop_current() -> Result<core::convert::Infallible> {
-    let ipi = crate::boot::ipi().ok_or(Error::IoError)?;
+    let ipi = crate::ipi::get().ok_or(Error::IoError)?;
     ipi.delivery().ok_or(Error::IoError)?;
     crate::irq::with_local_disabled(|irq| {
         ipi.clear_current(irq)?;
@@ -205,7 +205,7 @@ pub fn stop_current() -> Result<core::convert::Infallible> {
 
 /// Enters the platform suspend wait for the current hart.
 pub fn suspend_current() -> Result<()> {
-    let ipi = crate::boot::ipi().ok_or(Error::IoError)?;
+    let ipi = crate::ipi::get().ok_or(Error::IoError)?;
     ipi.delivery().ok_or(Error::IoError)?;
     crate::irq::with_local_disabled(|irq| {
         ipi.clear_current(irq)?;
@@ -276,7 +276,7 @@ pub struct ResumeTicket {
 impl ResumeTicket {
     /// Wakes the hart and publishes its lower-privilege handoff.
     pub fn commit(mut self) -> Result<()> {
-        crate::boot::ipi()
+        crate::ipi::get()
             .ok_or(Error::IoError)?
             .send(crate::ipi::IpiRequest::for_hart(self.hart))?;
         // SAFETY: the ticket owns the cell while it is ResumePending; this

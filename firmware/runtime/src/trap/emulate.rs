@@ -44,7 +44,7 @@ pub(super) fn emulate_time_read(frame: &mut TrapFrame, info: &TrapInfo) -> Resul
     {
         return Err(Error::Unsupported);
     }
-    let timer = crate::boot::timer().ok_or(Error::Unsupported)?;
+    let timer = crate::timer::get().ok_or(Error::Unsupported)?;
     let value = match op.csr {
         user::Time::NUMBER => timer.read_time(),
         #[cfg(target_pointer_width = "32")]
