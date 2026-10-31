@@ -23,7 +23,7 @@ on others a power of two.
 Use `.balign` for unambiguous byte-count alignment.
 
 ```rust
-# Good — unambiguous
+// Good — unambiguous
 unsafe extern "C" fn _boot_header() -> ! {
     naked_asm!(
         "j _start",
