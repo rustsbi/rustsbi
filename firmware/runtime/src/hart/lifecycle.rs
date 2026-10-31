@@ -186,6 +186,9 @@ pub fn stop_current() -> Result<core::convert::Infallible> {
     crate::irq::with_local_disabled(|irq| {
         ipi.clear_current(irq)?;
         ipi.prepare_wakeup(irq);
+        if let Some(timer) = crate::timer::get() {
+            timer.cancel_events_on_stop(current_hart(), irq);
+        }
         cell(current_hart())
             .state
             .store(STATE_STOPPED, Ordering::Release);
