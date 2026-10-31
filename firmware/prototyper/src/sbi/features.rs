@@ -66,14 +66,6 @@ pub(crate) fn mhpm_mask(hart: HartId) -> u32 {
     features(hart).lock().mhpm_mask()
 }
 
-#[cfg(feature = "hypervisor")]
-pub(crate) fn hart_has_extension(hart_id: usize, extension: Extension) -> bool {
-    has_extension(
-        HartId::from_raw(hart_id).expect("BUG: unknown hart ID"),
-        extension,
-    )
-}
-
 /// Returns one hart's privileged version and counter mask.
 pub(crate) fn counter_topology(hart: HartId) -> (PrivilegedVersion, u32) {
     let features = features(hart).lock();
