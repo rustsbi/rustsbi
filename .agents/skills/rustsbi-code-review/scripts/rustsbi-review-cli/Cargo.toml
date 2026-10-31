@@ -1,0 +1,22 @@
+[package]
+name = "rustsbi-review-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Rust script layer for the rustsbi-code-review skill: deterministic checks + LLM review orchestration"
+publish = false
+
+# Standalone: keep out of the repository's cargo workspace.
+[workspace]
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+regex = "1"
+glob = "0.3"
+sha2 = "0.10"
+wait-timeout = "0.2"
+
+[profile.release]
+strip = true
