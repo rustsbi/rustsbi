@@ -4,6 +4,32 @@ use crate::{Error, Result, hart::HartId, irq::LocalIrqDisabled};
 use alloc::boxed::Box;
 pub use csr::aia::imsic::Iid;
 use csr::{aia::machine::Mtopei, machine};
+use spin::Once;
+
+static IPI: Once<Ipi> = Once::new();
+
+/// Creates and publishes the firmware IPI service.
+///
+/// The callback runs after a device interrupt is acknowledged.
+/// Callers must publish the callback's state before sending IPIs or enabling delivery.
+/// Returns [`Error::AlreadyInitialized`] if a service has already been published.
+pub fn init(device: Option<Box<dyn IpiDevice>>, deliver: fn() -> bool) -> Result<&'static Ipi> {
+    let mut initialized = false;
+    let ipi = IPI.call_once(|| {
+        initialized = true;
+        Ipi::new(device, deliver)
+    });
+    if initialized {
+        Ok(ipi)
+    } else {
+        Err(Error::AlreadyInitialized)
+    }
+}
+
+/// Returns the published firmware IPI service.
+pub fn get() -> Option<&'static Ipi> {
+    IPI.get()
+}
 
 /// Firmware IPI send capability, issued during platform initialization.
 pub struct Ipi {
@@ -24,6 +50,7 @@ pub enum IpiDelivery {
 }
 
 /// A validated, ordinary hart-mask window for one device send operation.
+///
 /// SBI broadcast requests must first be expanded into ordinary windows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IpiRequest {
@@ -33,6 +60,7 @@ pub struct IpiRequest {
 
 impl IpiRequest {
     /// Validates every target against Runtime's published hart topology.
+    ///
     /// Returns an error for broadcast encoding, overflow, or an unknown hart.
     pub fn from_mask_base(hart_mask: usize, hart_mask_base: usize) -> Result<Self> {
         if hart_mask_base == usize::MAX {
@@ -74,14 +102,18 @@ impl IpiRequest {
 }
 
 /// Platform operations for firmware IPI delivery.
+///
 /// Calls may run concurrently on different harts.
 pub trait IpiDevice: Send + Sync {
     /// Sends machine IPIs to one validated target window.
+    ///
     /// On failure, some targets may already have been signaled.
     fn send(&self, request: IpiRequest) -> Result<()>;
 
     /// Acknowledges this hart's software-interrupt source through the device.
-    /// Returns whether it was a firmware IPI. Runtime claims IMSIC through CSR.
+    ///
+    /// Returns whether it was a firmware IPI.
+    /// Runtime claims IMSIC interrupts through the corresponding CSR.
     fn acknowledge(&self) -> Result<bool> {
         Err(Error::NotSupported)
     }
@@ -94,9 +126,10 @@ pub trait IpiDevice: Send + Sync {
 
 impl Ipi {
     /// Creates an IPI service that owns the optional device.
+    ///
     /// Runtime clears each hart's pending source after publication.
-    /// The callback handles pending SBI work after acknowledgement, with MIE disabled.
-    /// Return `true` to request a supervisor software interrupt.
+    /// The callback handles pending SBI work after acknowledgement, with `MIE` disabled.
+    /// The callback returns `true` to request a supervisor software interrupt.
     pub fn new(device: Option<Box<dyn IpiDevice>>, deliver: fn() -> bool) -> Self {
         Self { device, deliver }
     }
