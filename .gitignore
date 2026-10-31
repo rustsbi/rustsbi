@@ -18,9 +18,6 @@ qemu-logs/
 
 # scratch output from rustsbi-code-review runs
 .review-out/
-__pycache__/
-*.pyc
-.uv-cache/
 
 # local Claude Code skill link (junction into .agents/skills)
 .claude/

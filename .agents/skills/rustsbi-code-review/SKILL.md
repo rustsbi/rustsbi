@@ -68,31 +68,40 @@ Activation is path-based and deterministic; do not ask a model to triage it.
 
 ## Pipeline
 
-Three steps, in order. Scripts live in this skill's `scripts/` directory;
-invoke them by absolute path from the repository root.
+Three steps, in order. All tooling lives in one Rust binary,
+`scripts/rustsbi-review-cli` (one subcommand per stage); the former Python
+scripts under `scripts/*.py` and `scripts/checks/` remain only as a frozen
+reference and are not part of this path. External requirements: `git` (and
+`gh`, for backtest mode), plus a Rust toolchain — which any machine that can
+run the build/test checks already has.
+
 Shells do not persist, so re-derive `SKILL` in every command:
 
 ```sh
 SKILL="$(git rev-parse --show-toplevel)/.agents/skills/rustsbi-code-review"
 ```
 
-The scripts are Python 3, standard library only, plus `git` (and `gh`, for backtest mode).
-Resolve the interpreter in this order:
+Resolve the CLI binary (`RCR_CLI`) in every command. This chain is fully
+machine-checkable, needs no interpreter probing, and never asks the user:
 
-- `$RCR_PY`, when the caller sets it;
-- `python3`, then `python`, if either is on `PATH` and actually runs;
-- `uv run --no-project python`. If `uv` cannot write its cache (a read-only or sandboxed home),
-  keep the cache in the repo: `UV_CACHE_DIR="$PWD/.uv-cache" uv run --no-project python …`.
+```sh
+RCR_CLI="${RCR_CLI:-$SKILL/scripts/rustsbi-review-cli/target/release/rustsbi-review-cli}"
+[ -x "$RCR_CLI" ] || cargo build --release \
+  --manifest-path "$SKILL/scripts/rustsbi-review-cli/Cargo.toml" \
+  || { echo "rustsbi-review-cli build failed (is cargo on PATH?)" >&2; exit 1; }
+```
 
-A Windows `python` on `PATH` is often the Store stub, which prints nothing and exits non-zero;
-treat that as absent and fall through to `uv`.
+- `$RCR_CLI`, when the caller sets it, wins;
+- otherwise use the release binary inside the skill checkout, building it
+  first when missing (idempotent, incremental, ~10s cold);
+- on Windows the binary is `rustsbi-review-cli.exe` — append the suffix there.
 
 1. **Resolve the target.**
-   `"$RCR_PY" "$SKILL/scripts/resolve_target.py" --meta '<raw args>'` prints
+   `"$RCR_CLI" resolve-target --meta '<raw args>'` prints
    `mode=`, `base=`, `head=`, `branch=`, `date=`.
    The same call without `--meta` writes the canonical review input to `<output>.input.md`.
 2. **Review — combined by default, persona fan-out on request.**
-   `"$RCR_PY" "$SKILL/scripts/run_fanout.py" <output>.input.md <output>.comments.json`
+   `"$RCR_CLI" run-fanout <output>.input.md <output>.comments.json`
    runs **combined**: one pass, every activated persona index in the same context.
    Add `--mode persona` for one isolated pass per persona, each with only its own
    L1 index (selective exposure) but the same whole change, run in parallel.
@@ -106,7 +115,7 @@ treat that as absent and fall through to `uv`.
    eight separate comments for a single cross-cutting defect, which no reader can reassemble.
 
    For one persona, or a single-file target, call a pass directly:
-   `"$RCR_PY" "$SKILL/scripts/run_pass.py" <output>.input.md <output>.comments.json --persona development`
+   `"$RCR_CLI" run-pass <output>.input.md <output>.comments.json --persona development`
    composes the prompt in the fixed order
    (`pass_contract.md` → the activated personas' L1 `README.md` → the review input),
    hands it to a headless agent on **stdin** (a command line is capped near 32k characters),
@@ -121,16 +130,16 @@ treat that as absent and fall through to `uv`.
    **Cost is measured, not self-reported.** Each pass writes
    `<comments.json>.usage.json` from the agent CLI's own envelope
    (`input_tokens`, `output_tokens`, `cache_read_input_tokens`, `total_cost_usd`, API time),
-   and `run_fanout.py` sums the passes into one sidecar.
-   `"$RCR_PY" "$SKILL/scripts/usage.py" <path-or-glob>` prints the table with
+   and `run-fanout` sums the passes into one sidecar.
+   `"$RCR_CLI" usage <path-or-glob>` prints the table with
    values scaled to `k` / `M` and two decimals; the sidecar keeps raw integers.
    A pass costs roughly 25k input tokens before the review input is even counted
    (system prompt and tool schema), so measure before adding passes.
 3. **Assemble, then archive.**
-   `"$RCR_PY" "$SKILL/scripts/assemble_review.py" <meta> <comments.json> <output>`
+   `"$RCR_CLI" assemble <meta> <comments.json> <output>`
    groups by persona, sorts by file then line, drops exact duplicates,
    writes the frontmatter, and leaves a `<!-- SUMMARY -->` placeholder.
-   Then `"$RCR_PY" "$SKILL/scripts/archive_run.py" <output>` snapshots every file
+   Then `"$RCR_CLI" archive <output>` snapshots every file
    of this run into `<run-dir>/<YYYYMMDD-HHMMSS>/`. The files directly under the
    run directory stay as the overwritable **latest** copy, so they and the newest
    timestamped subdirectory are always identical; history accumulates in the stamps.
@@ -177,5 +186,6 @@ Leave the `<!-- SUMMARY -->` placeholder untouched.
 guidelines checkout, since a PR that old predates `docs/src/guidelines/` in its own tree.
 
 `cases/` holds the real review comments of a PR (the positive test set), and
-`score.py <case-file> <comments.json>` reports recall and precision against them.
-Neither is part of the pipeline above; they measure it.
+`score.py <case-file> <comments.json>` (still Python; scoring only, outside the
+pipeline) reports recall and precision against them. Neither is part of the
+pipeline above; they measure it.
