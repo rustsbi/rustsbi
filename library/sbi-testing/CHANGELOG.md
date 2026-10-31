@@ -21,6 +21,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Keep waiting for the supervisor timer after a machine interrupt wakes WFI.
+
 ## [0.0.3] - 2026-05-13
 
 ### Added
