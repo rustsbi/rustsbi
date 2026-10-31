@@ -9,7 +9,7 @@ use crate::{
 pub(super) fn sbi_ecall(frame: &mut TrapFrame) {
     let regs = &mut frame.general;
     let hart = hart::current_hart();
-    let ret = init::policy(hart).handle_ecall(
+    let ret = init::policy().handle_ecall(
         regs.a7,
         regs.a6,
         [regs.a0, regs.a1, regs.a2, regs.a3, regs.a4, regs.a5],

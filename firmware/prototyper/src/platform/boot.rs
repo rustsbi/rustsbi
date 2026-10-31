@@ -10,6 +10,7 @@ use runtime::{
     ipi::Ipi,
     memory::SupervisorMemory,
     timer::Timer,
+    trap,
 };
 
 use spin::Once;
@@ -251,6 +252,7 @@ fn publish_sbi_dispatcher(
     });
     boot::install_services(dispatcher.timer.timer(), dispatcher.ipi.ipi())
         .expect("BUG: Runtime services registered more than once");
+    trap::init(dispatcher).expect("BUG: SBI policy registered more than once");
 }
 
 /// Runs the SoC-specific per-hart setup for secondary harts.
