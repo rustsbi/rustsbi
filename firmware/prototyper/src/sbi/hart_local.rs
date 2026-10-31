@@ -13,7 +13,6 @@ use core::sync::atomic::AtomicU8;
 use runtime::hart::HartId;
 use spin::{Mutex, Once};
 
-use super::features::HartFeatures;
 use super::pmu::PmuState;
 use super::rfence::queue::{LocalRFenceCell, RFenceCell, RemoteRFenceCell};
 
@@ -38,8 +37,6 @@ pub struct HartLocal {
     pub rfence: RFenceCell,
     /// Type of inter-processor interrupt pending.
     pub ipi_type: CacheAligned<AtomicU8>,
-    /// Supported hart features.
-    features: Mutex<HartFeatures>,
     /// PMU state.
     pmu_state: Mutex<PmuState>,
 }
@@ -49,25 +46,8 @@ impl HartLocal {
         Self {
             rfence: RFenceCell::new(),
             ipi_type: CacheAligned(AtomicU8::new(0)),
-            features: Mutex::new(HartFeatures::default()),
             pmu_state: Mutex::new(PmuState::new(0)),
         }
-    }
-
-    /// Runs a read-only operation on this hart's detected features.
-    pub(crate) fn with_features<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&HartFeatures) -> R,
-    {
-        f(&self.features.lock())
-    }
-
-    /// Runs an update on this hart's detected features.
-    pub(crate) fn with_features_mut<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&mut HartFeatures) -> R,
-    {
-        f(&mut self.features.lock())
     }
 
     /// Runs an update or read on this hart's PMU state.
@@ -80,7 +60,8 @@ impl HartLocal {
 
     /// Rebuilds PMU state after feature detection has populated the counter mask.
     pub(crate) fn init_pmu(&self) {
-        let mhpm_mask = self.with_features(HartFeatures::mhpm_mask);
+        let hart = HartId::current().expect("BUG: current hart is not in the boot topology");
+        let mhpm_mask = super::features::mhpm_mask(hart);
         self.with_pmu(|pmu| *pmu = PmuState::new(mhpm_mask));
     }
 
@@ -88,7 +69,8 @@ impl HartLocal {
     fn pmu_state_reset(&self) {
         use super::features::PrivilegedVersion;
         // stop all hardware pmu event
-        let hart_priv_version = self.with_features(HartFeatures::privileged_version);
+        let hart = HartId::current().expect("BUG: current hart is not in the boot topology");
+        let hart_priv_version = super::features::privileged_version(hart);
         if hart_priv_version >= PrivilegedVersion::Version1_11 {
             // The CSR wrapper owns the machine-mode write; this policy state
             // only requests the reset of the current hart's counters.
@@ -128,14 +110,6 @@ where
 {
     let hart = HartId::current().expect("BUG: current hart is not in the boot topology");
     f(slot(hart))
-}
-
-/// Runs `f` with shared access to an arbitrary hart's state.
-pub fn with_hart<F, R>(hart_id: usize, f: F) -> R
-where
-    F: FnOnce(&HartLocal) -> R,
-{
-    f(hart_local(hart_id))
 }
 
 /// Gets the local fence context for the current hart.
