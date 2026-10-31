@@ -24,7 +24,6 @@ pub use lifecycle::{
     HartState, ResumeTicket, StartOutcome, begin_nonretentive_resume, can_receive_ipi,
     resume_current_retentive, stage_boot_handoff, start, status, stop_current, suspend_current,
 };
-pub(crate) use local::HartLocal;
 pub use local::PerHart;
 pub use set::{HartSet, HartSetIter};
 
