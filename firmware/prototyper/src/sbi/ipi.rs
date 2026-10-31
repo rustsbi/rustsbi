@@ -59,7 +59,7 @@ impl PendingIpis {
 ///
 /// The extension probes unavailable without an IPI device.
 pub struct SbiIpi {
-    ipi: Ipi,
+    ipi: &'static Ipi,
     pending: PerHart<PendingIpis>,
 }
 
@@ -93,13 +93,13 @@ impl rustsbi::Ipi for SbiIpi {
 }
 
 impl SbiIpi {
-    pub(crate) fn new(ipi: Ipi) -> Result<Self> {
+    pub(crate) fn new(ipi: &'static Ipi) -> Result<Self> {
         let pending = PerHart::new(|_| PendingIpis::new())?;
         Ok(Self { ipi, pending })
     }
 
-    pub(crate) fn ipi(&self) -> &Ipi {
-        &self.ipi
+    pub(crate) fn ipi(&self) -> &'static Ipi {
+        self.ipi
     }
 
     /// Sends an IPI carrying a remote fence operation.

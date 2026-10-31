@@ -7,7 +7,7 @@ use core::ops::Range;
 use runtime::{
     Error, PlatformDescription, Result, boot, events,
     hart::{self, HartId},
-    ipi::Ipi,
+    ipi,
     memory::SupervisorMemory,
     timer::Timer,
     trap,
@@ -188,8 +188,10 @@ fn publish_platform_services(
     let hart_wake = hart_wake.map(|device| HART_WAKE.call_once(|| device).as_ref());
     hart::install_wakeup(hart_wake);
     let ipi_delivery = ipi.as_ref().map(|device| device.delivery());
-    let sbi_ipi = sbi::ipi::SbiIpi::new(Ipi::new(ipi, sbi::ipi::deliver_current))
-        .expect("BUG: SBI IPI state requires a published hart topology");
+    let ipi = ipi::init(ipi, sbi::ipi::deliver_current)
+        .expect("BUG: Runtime IPI initialized more than once");
+    let sbi_ipi =
+        sbi::ipi::SbiIpi::new(ipi).expect("BUG: SBI IPI state requires a published hart topology");
     events::install(pmu.as_ref().map(|_| sbi::pmu::runtime_counters()));
 
     state::publish_resources(board, supervisor_memory, console, ipi_delivery);
