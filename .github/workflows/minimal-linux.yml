@@ -47,6 +47,7 @@ jobs:
           - sbi
           - u-boot
           - edk2
+          - hotplug
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -60,6 +61,7 @@ jobs:
             bison \
             build-essential \
             cpio \
+            device-tree-compiler \
             e2fsprogs \
             flex \
             gcc-riscv64-linux-gnu \

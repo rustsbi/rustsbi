@@ -19,6 +19,15 @@
 # II then loads Linux through the EFI stub. The initramfs verifies that
 # /sys/firmware/efi exists before it prints the success marker.
 #
+# A CPU-hotplug regression path is selected with `$0 hotplug` (issue #262):
+# the dynamic firmware boots a 2-CPU Linux whose initramfs cycles every
+# secondary CPU through sysfs offline/online (each offline calls SBI HSM
+# hart_stop and each online calls sbi_hart_start) while background sleepers
+# keep the CPUs entering and leaving deep idle. The device tree is patched
+# with an SBI non-retentive idle state so deep idle goes through SBI HSM
+# hart_suspend instead of plain WFI, crossing the stop/start path with the
+# suspend/resume path in the same firmware hart state machine.
+#
 # Linux and BusyBox are built from checksum-pinned release archives. Only the
 # build *products* are kept under CACHE_DIR, so the workflow restores a small
 # cache and skips compilation entirely on a hit; the archives themselves are
@@ -42,10 +51,10 @@ fi
 
 readonly BOOT_MODE="${1:-sbi}"
 case "$BOOT_MODE" in
-  sbi | u-boot | edk2) ;;
+  sbi | u-boot | edk2 | hotplug) ;;
   *)
     echo "Unknown boot mode: ${BOOT_MODE}" >&2
-    echo "Usage: $0 [sbi|u-boot|edk2]" >&2
+    echo "Usage: $0 [sbi|u-boot|edk2|hotplug]" >&2
     exit 2
     ;;
 esac
@@ -68,11 +77,16 @@ readonly EDK2_URL="https://github.com/tianocore/edk2.git"
 
 readonly CROSS_COMPILE="riscv64-linux-gnu-"
 readonly SMOKE_MARKER="RUSTSBI-SMOKE-OK"
+readonly HOTPLUG_MARKER="HOTPLUG-TEST-PASS"
+readonly HOTPLUG_FAILURE_MARKER="HOTPLUG-TEST-FAIL"
 
 # Text that means the boot already went wrong. A panic halts the machine while
 # QEMU stays alive, so without this the job would sit out the whole timeout and
-# then report only that the marker never appeared.
+# then report only that the marker never appeared. The hotplug path adds the
+# kernel's own restart-failure lines: on a hart_stop/hart_start regression the
+# sysfs online write fails or the CPU never reports in.
 readonly BOOT_FAILURE_PATTERN="Kernel panic|not syncing|Attempted to kill init"
+readonly HOTPLUG_FAILURE_PATTERN="${BOOT_FAILURE_PATTERN}|Unable to stop the cpu|arch_cpu_idle_dead|failed to come online|CPU.*failed to start|kernel BUG"
 
 readonly CACHE_DIR="${MINIMAL_LINUX_CACHE_DIR:-.cache/minimal-linux}"
 readonly WORK_DIR="${MINIMAL_LINUX_WORK_DIR:-.minimal-linux/work}"
@@ -88,6 +102,9 @@ if [[ "$BOOT_MODE" = u-boot ]]; then
 elif [[ "$BOOT_MODE" = edk2 ]]; then
   readonly RUSTSBI="${MINIMAL_LINUX_RUSTSBI_DYNAMIC_BIN:-target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.bin}"
   readonly BOOT_TIMEOUT_SECS="${MINIMAL_LINUX_BOOT_TIMEOUT_SECS:-240}"
+elif [[ "$BOOT_MODE" = hotplug ]]; then
+  readonly RUSTSBI="${MINIMAL_LINUX_RUSTSBI:-target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.elf}"
+  readonly BOOT_TIMEOUT_SECS="${MINIMAL_LINUX_BOOT_TIMEOUT_SECS:-240}"
 else
   readonly RUSTSBI="${MINIMAL_LINUX_RUSTSBI:-target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.elf}"
   readonly BOOT_TIMEOUT_SECS="${MINIMAL_LINUX_BOOT_TIMEOUT_SECS:-180}"
@@ -101,6 +118,10 @@ readonly EDK2_CACHE="${CACHE_DIR}/edk2-${EDK2_COMMIT}"
 readonly EDK2_CODE="${EDK2_CACHE}/RISCV_VIRT_CODE.fd"
 readonly EDK2_VARS_TEMPLATE="${EDK2_CACHE}/RISCV_VIRT_VARS.fd"
 readonly EDK2_VARS="${WORK_DIR}/RISCV_VIRT_VARS.fd"
+
+# CPU count for the hotplug path. Two CPUs match the issue #262 report and
+# keep the gate fast; anything but cpu0 is hotpluggable.
+readonly HOTPLUG_SMP=2
 
 # Populated by build_uboot; kept as mutable globals because the tree lives
 # under WORK_DIR and is rebuilt every run.
@@ -347,6 +368,238 @@ EOF
   (cd "$rootfs" && find . -print0 | cpio --null --create --format=newc --quiet | gzip -9) >"$INITRAMFS"
 }
 
+# Build the CPU-hotplug regression initramfs. The init cycles each secondary
+# CPU through sysfs offline/online (SBI HSM hart_stop/hart_start), pins work
+# to restarted CPUs to prove they compute, and crosses the cycles with deep
+# idle entry (SBI HSM hart_suspend with the patched DTB). Round counts are
+# small: this is a regression gate, not a stress soak.
+build_hotplug_initramfs() {
+  local rootfs="${WORK_DIR}/rootfs"
+
+  rm -rf "$rootfs"
+  mkdir -p "$rootfs" "$WORK_DIR"
+  cp -a "${BUSYBOX_INSTALL}/." "$rootfs/"
+  mkdir -p "$rootfs/proc" "$rootfs/sys" "$rootfs/dev"
+
+  cat >"$rootfs/init" <<'EOF'
+#!/bin/sh
+# CPU hotplug regression test for rustsbi/rustsbi issue #262.
+CPUDIR=/sys/devices/system/cpu
+TAG=HOTPLUG
+NPASS=0
+NFAIL=0
+
+pass() { echo "$TAG PASS: $1"; NPASS=$((NPASS + 1)); }
+fail() { echo "$TAG FAIL: $1"; NFAIL=$((NFAIL + 1)); }
+
+mount -t proc none /proc
+mount -t sysfs none /sys
+mount -t devtmpfs none /dev
+
+NP=$(nproc)
+echo "$TAG: nproc=$NP kernel=$(uname -r)"
+echo "$TAG: $(dmesg | grep 'SBI specification' | head -1)"
+dmesg | grep -q 'SBI HSM extension' || fail "SBI HSM extension not detected"
+
+# Round counts come from the kernel command line (hotplug.rounds=,
+# hotplug.xrounds=) so the workflow can tune the soak without a new initramfs.
+cmd_opt() {
+  v=$(sed -n "s/.*[[:space:]]$1=\([0-9]\+\).*/\1/p" /proc/cmdline)
+  echo "${v:-$2}"
+}
+ROUNDS=$(cmd_opt hotplug.rounds 6)
+XROUNDS=$(cmd_opt hotplug.xrounds 3)
+SETTLE=0.5
+
+online_count() {
+  n=1
+  for c in "$CPUDIR"/cpu[0-9]*; do
+    case "$c" in */cpu0) continue ;; esac
+    [ "$(cat "$c/online" 2>/dev/null)" = "1" ] && n=$((n + 1))
+  done
+  echo "$n"
+}
+
+# Test 1: the exact issue #262 reproduction, one CPU at a time. Each offline
+# makes the idling CPU call sbi_hart_stop(); the original bug BUG()s in
+# arch_cpu_idle_dead() right here.
+echo "$TAG: == test 1: per-CPU offline/online (issue #262 repro) =="
+i=1
+while [ "$i" -lt "$NP" ]; do
+  if echo 0 >"$CPUDIR/cpu$i/online" 2>/dev/null; then
+    sleep "$SETTLE"
+    [ "$(cat "$CPUDIR/cpu$i/online")" = "0" ] && pass "cpu$i offline" || fail "cpu$i offline state"
+  else
+    fail "cpu$i offline write"
+  fi
+  if echo 1 >"$CPUDIR/cpu$i/online" 2>/dev/null; then
+    sleep "$SETTLE"
+    [ "$(cat "$CPUDIR/cpu$i/online")" = "1" ] && pass "cpu$i online" || fail "cpu$i online state"
+  else
+    fail "cpu$i online write"
+  fi
+  i=$((i + 1))
+done
+
+# Test 2: repeated rounds of offlining every secondary CPU, then onlining
+# them all back. Each round is a full park/restart cycle for every secondary.
+echo "$TAG: == test 2: $ROUNDS rounds all-secondary offline/online =="
+r=1
+while [ "$r" -le "$ROUNDS" ]; do
+  i=1
+  while [ "$i" -lt "$NP" ]; do
+    echo 0 >"$CPUDIR/cpu$i/online" 2>/dev/null || fail "round $r: cpu$i offline write"
+    i=$((i + 1))
+  done
+  sleep "$SETTLE"
+  n=$(online_count)
+  [ "$n" = "1" ] || fail "round $r: expected 1 online CPU, have $n"
+  i=1
+  while [ "$i" -lt "$NP" ]; do
+    echo 1 >"$CPUDIR/cpu$i/online" 2>/dev/null || fail "round $r: cpu$i online write"
+    i=$((i + 1))
+  done
+  sleep "$SETTLE"
+  n=$(online_count)
+  [ "$n" = "$NP" ] || fail "round $r: expected $NP online CPUs, have $n"
+  r=$((r + 1))
+done
+[ "$NFAIL" = "0" ] && pass "$ROUNDS rounds all-secondary offline/online"
+
+# Test 3: a restarted CPU must actually compute. Pin a counting loop to each
+# secondary and require its user time to advance; with NO_HZ_IDLE /proc/stat
+# only moves under load, so a pinned busy loop is the reliable probe.
+echo "$TAG: == test 3: pinned compute liveness on each restarted CPU =="
+i=1
+while [ "$i" -lt "$NP" ]; do
+  before=$(awk -v c="cpu$i" '$1 == c {print $2 + $4}' /proc/stat)
+  taskset -c "$i" sh -c 'k=0; while [ "$k" -lt 20000 ]; do k=$((k + 1)); done'
+  after=$(awk -v c="cpu$i" '$1 == c {print $2 + $4}' /proc/stat)
+  [ -n "$before" ] && [ "$after" -gt "$before" ] && pass "cpu$i executes work" || fail "cpu$i did not advance user time ($before -> $after)"
+  i=$((i + 1))
+done
+
+# Test 4: hotplug crossed with deep idle. Sleeping background shells keep
+# every CPU entering and leaving its deepest idle state; the patched DTB
+# makes that state SBI HSM hart_suspend (non-retentive), crossing the
+# suspend path with the stop/start path in the same hart state machine.
+echo "$TAG: == test 4: hotplug during deep-idle activity =="
+for s in "$CPUDIR"/cpu1/cpuidle/state*/name; do
+  [ -f "$s" ] && echo "$TAG: cpuidle cpu1 state: $(cat "$s")"
+done
+j=0
+SLEEPER_PIDS=""
+while [ "$j" -lt $((NP * 3)) ]; do
+  (while :; do sleep 0.05; done) &
+  SLEEPER_PIDS="$SLEEPER_PIDS $!"
+  j=$((j + 1))
+done
+r=1
+while [ "$r" -le "$XROUNDS" ]; do
+  i=1
+  while [ "$i" -lt "$NP" ]; do
+    echo 0 >"$CPUDIR/cpu$i/online" 2>/dev/null || fail "idle x round $r: cpu$i offline write"
+    i=$((i + 1))
+  done
+  sleep "$SETTLE"
+  i=1
+  while [ "$i" -lt "$NP" ]; do
+    echo 1 >"$CPUDIR/cpu$i/online" 2>/dev/null || fail "idle x round $r: cpu$i online write"
+    i=$((i + 1))
+  done
+  sleep "$SETTLE"
+  n=$(online_count)
+  [ "$n" = "$NP" ] || fail "idle x round $r: expected $NP online CPUs, have $n"
+  r=$((r + 1))
+done
+[ "$NFAIL" = "0" ] && pass "$XROUNDS hotplug rounds during deep-idle activity"
+# Kill the sleepers by PID: "killall sh" could match this very script running
+# under busybox sh, ending the test early.
+for p in $SLEEPER_PIDS; do
+  kill "$p" 2>/dev/null
+done
+killall sleep 2>/dev/null
+wait 2>/dev/null
+
+# Final gate: the kernel log must stay clean of the original bug's signatures
+# (Unable to stop the cpu / arch_cpu_idle_dead BUG) and generic distress.
+if dmesg | grep -Eq 'Unable to stop the cpu|arch_cpu_idle_dead|kernel BUG|Kernel panic|Oops:'; then
+  dmesg | grep -E 'Unable to stop the cpu|arch_cpu_idle_dead|kernel BUG|Kernel panic|Oops:' | head -3 | sed "s/^/$TAG FAIL-SIG: /"
+  NFAIL=$((NFAIL + 1))
+else
+  pass "no BUG/panic/Oops signatures in kernel log"
+fi
+
+echo "$TAG: summary: pass=$NPASS fail=$NFAIL nproc_now=$(nproc)"
+if [ "$NFAIL" = "0" ] && [ "$(nproc)" = "$NP" ]; then
+  echo "HOTPLUG-TEST-PASS"
+else
+  echo "HOTPLUG-TEST-FAIL"
+fi
+
+sleep 1
+/sbin/poweroff -f
+EOF
+  chmod +x "$rootfs/init"
+
+  (cd "$rootfs" && find . -print0 | cpio --null --create --format=newc --quiet | gzip -9) >"$INITRAMFS"
+}
+
+# Dump QEMU's own device tree and patch in a single SBI non-retentive idle
+# state referenced by every CPU node. Without idle-states Linux's sbi-cpuidle
+# driver only knows plain WFI and never calls SBI HSM hart_suspend, which
+# would leave the crossing half of the hotplug regression uncovered.
+# riscv,sbi-suspend-param 0x80000000 is SBI_HSM_SUSP_NON_RET_BIT with the
+# default suspend function id, exactly what the prototyper accepts.
+prepare_hotplug_dtb() {
+  local dtb="${WORK_DIR}/hotplug-idle.dtb"
+  local dts="${WORK_DIR}/hotplug-idle.dts"
+
+  if [[ -s "$dtb" ]]; then
+    return
+  fi
+
+  qemu-system-riscv64 -machine virt,dumpdtb="$dts.dtb" -smp "$HOTPLUG_SMP" -m 1G -display none >/dev/null 2>&1
+  dtc -q -I dtb -O dts -o "$dts" "$dts.dtb"
+
+  # Insert the idle-states node just before the first cpu@ subnode, where all
+  # /cpus properties have been emitted, keeping the properties-before-
+  # subnodes order dtc requires.
+  awk '
+    /^\t\tcpu@[0-9a-f]+ \{$/ && !done {
+      print "\t\tidle-states {"
+      print "\t\t\tentry-method = \"riscv,sbi-standard-extension\";"
+      print "\t\t\tNONRET: nonret-default {"
+      print "\t\t\t\tcompatible = \"riscv,idle-state\";"
+      print "\t\t\t\triscv,sbi-suspend-param = <0x80000000>;"
+      print "\t\t\t\tlocal-timer-stop;"
+      print "\t\t\t\tentry-latency-us = <0x3e8>;"
+      print "\t\t\t\texit-latency-us = <0x2710>;"
+      print "\t\t\t\tmin-residency-us = <0x9c40>;"
+      print "\t\t\t};"
+      print "\t\t};"
+      print ""
+      done = 1
+    }
+    /^\t\t\tdevice_type = "cpu";$/ {
+      print
+      print "\t\t\tcpu-idle-states = <&NONRET>;"
+      next
+    }
+    { print }
+  ' "$dts" >"${dts}.patched"
+
+  local tagged
+  tagged=$(grep -c 'cpu-idle-states = <&NONRET>;' "${dts}.patched")
+  if [[ ! -s "$dts" ]] || [[ "$tagged" != "$HOTPLUG_SMP" ]]; then
+    echo "Failed to patch idle states into the QEMU device tree (tagged $tagged of $HOTPLUG_SMP cpu nodes)" >&2
+    return 1
+  fi
+
+  dtc -q -I dts -O dtb -o "$dtb" "${dts}.patched"
+  echo "Patched device tree with SBI non-retentive idle state for ${HOTPLUG_SMP} CPUs"
+}
+
 # Build a 1GiB GPT-partitioned disk image whose first (ext4) partition holds
 # the kernel image and the BusyBox root filesystem. The image is rebuilt every
 # run so edits to rcS cannot go stale in a cache.
@@ -462,6 +715,10 @@ check_prerequisites() {
     echo "Missing $RUSTSBI; run 'cargo prototyper build' first" >&2
     return 1
   }
+  if [[ "$BOOT_MODE" = hotplug ]] && ! command -v dtc >/dev/null; then
+    echo "hotplug mode requires dtc (device-tree-compiler) to patch idle states" >&2
+    return 1
+  fi
   qemu-system-riscv64 --version
 }
 
@@ -539,17 +796,35 @@ start_qemu_edk2() {
   QEMU_PID=$!
 }
 
+start_qemu_hotplug() {
+  mkdir -p "$LOG_DIR"
+  : >"$LOG_FILE"
+  qemu-system-riscv64 \
+    -machine virt \
+    -smp "$HOTPLUG_SMP" \
+    -m 1G \
+    -nographic \
+    -no-reboot \
+    -bios "$RUSTSBI" \
+    -kernel "$KERNEL_IMAGE" \
+    -initrd "$INITRAMFS" \
+    -dtb "${WORK_DIR}/hotplug-idle.dtb" \
+    -append "console=ttyS0 hotplug.rounds=6 hotplug.xrounds=3" \
+    >"$LOG_FILE" 2>&1 &
+  QEMU_PID=$!
+}
+
 userspace_is_ready() {
-  grep -Fq "$SMOKE_MARKER" "$LOG_FILE"
+  grep -Fq "${1:-$SMOKE_MARKER}" "$LOG_FILE"
 }
 
 boot_has_failed() {
-  grep -Eq "$BOOT_FAILURE_PATTERN" "$LOG_FILE"
+  grep -Eq "${1:-$BOOT_FAILURE_PATTERN}" "$LOG_FILE"
 }
 
 report_boot_failure() {
   echo "Linux failed to boot:" >&2
-  grep -E --max-count=5 "$BOOT_FAILURE_PATTERN" "$LOG_FILE" >&2 || true
+  grep -E --max-count=5 "${1:-$BOOT_FAILURE_PATTERN}" "$LOG_FILE" >&2 || true
   tail -n 120 "$LOG_FILE" || true
 }
 
@@ -565,20 +840,22 @@ report_early_exit() {
 }
 
 wait_for_userspace() {
+  local marker="${1:-$SMOKE_MARKER}"
+  local failure_pattern="${2:-$BOOT_FAILURE_PATTERN}"
   local elapsed
   for ((elapsed = 0; elapsed < BOOT_TIMEOUT_SECS; elapsed++)); do
     # The marker is checked first so a boot that succeeds just before a late
     # panic is still reported as the success it was.
-    if userspace_is_ready; then
+    if userspace_is_ready "$marker"; then
       return 0
     fi
-    if boot_has_failed; then
-      report_boot_failure
+    if boot_has_failed "$failure_pattern"; then
+      report_boot_failure "$failure_pattern"
       return 1
     fi
     if ! kill -0 "$QEMU_PID" 2>/dev/null; then
       # QEMU may have printed the marker and powered off since our last read.
-      if userspace_is_ready; then
+      if userspace_is_ready "$marker"; then
         return 0
       fi
       report_early_exit
@@ -588,11 +865,48 @@ wait_for_userspace() {
   done
 
   # Check once more after the final sleep, including the timeout boundary.
-  if userspace_is_ready; then
+  if userspace_is_ready "$marker"; then
     return 0
   fi
 
   echo "Linux did not reach userspace within ${BOOT_TIMEOUT_SECS}s" >&2
+  tail -n 120 "$LOG_FILE" || true
+  return 1
+}
+
+# The hotplug gate prints its own explicit failure verdict before powering
+# off, so a guest-side failure is distinguishable from a boot failure.
+wait_for_hotplug_verdict() {
+  local elapsed
+  for ((elapsed = 0; elapsed < BOOT_TIMEOUT_SECS; elapsed++)); do
+    if userspace_is_ready "$HOTPLUG_MARKER"; then
+      return 0
+    fi
+    if boot_has_failed "$HOTPLUG_FAILURE_PATTERN"; then
+      report_boot_failure "$HOTPLUG_FAILURE_PATTERN"
+      return 1
+    fi
+    if grep -Fq "$HOTPLUG_FAILURE_MARKER" "$LOG_FILE"; then
+      echo "CPU hotplug regression test failed:" >&2
+      grep -E --max-count=20 "HOTPLUG (FAIL|FAIL-SIG)" "$LOG_FILE" >&2 || true
+      tail -n 80 "$LOG_FILE" >&2 || true
+      return 1
+    fi
+    if ! kill -0 "$QEMU_PID" 2>/dev/null; then
+      if userspace_is_ready "$HOTPLUG_MARKER"; then
+        return 0
+      fi
+      report_early_exit
+      return 1
+    fi
+    sleep 1
+  done
+
+  if userspace_is_ready "$HOTPLUG_MARKER"; then
+    return 0
+  fi
+
+  echo "CPU hotplug test did not finish within ${BOOT_TIMEOUT_SECS}s" >&2
   tail -n 120 "$LOG_FILE" || true
   return 1
 }
@@ -603,6 +917,18 @@ main() {
   check_prerequisites
   prepare_kernel
   prepare_busybox
+
+  if [[ "$BOOT_MODE" = hotplug ]]; then
+    build_hotplug_initramfs
+    prepare_hotplug_dtb
+    start_qemu_hotplug
+    wait_for_hotplug_verdict
+
+    echo "RustSBI passed the CPU hotplug regression test (issue #262) on Linux ${KERNEL_VERSION}"
+    echo "QEMU log: ${LOG_FILE}"
+    return
+  fi
+
   case "$BOOT_MODE" in
     u-boot)
       make_rootfs_image
