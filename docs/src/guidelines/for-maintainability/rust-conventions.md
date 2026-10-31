@@ -53,10 +53,6 @@ let read_time_fn = || {
 let start = read_time_fn()?;
 ```
 
-See also:
-PR [#395](https://github.com/asterinas/asterinas/pull/395#discussion_r1402964415)
-and [#783](https://github.com/asterinas/asterinas/pull/783#discussion_r1593335375).
-
 ### Use `#[expect(dead_code)]` with restraint (`expect-dead-code`) {#expect-dead-code}
 
 In general, dead code should be avoided because
@@ -78,10 +74,6 @@ Dead code is acceptable only when all of these hold:
 For example, it is fine to add ABI constants
 that are unused because the corresponding feature
 is partially implemented.
-
-See also:
-[Rust Reference: Diagnostic attributes](https://doc.rust-lang.org/reference/attributes/diagnostics.html)
-and rustc [`unfulfilled_lint_expectations`](https://doc.rust-lang.org/rustc/lints/listing/warn-by-default.html#unfulfilled-lint-expectations).
 
 ### Sort attributes and derive traits alphabetically (`alphabetical-attrs`) {#alphabetical-attrs}
 
@@ -115,12 +107,6 @@ stay immediately after `#[derive(...)]`.
 Sorting the remaining attributes alphabetically
 eliminates hesitation over placement
 and reduces noise in diffs.
-
-See also:
-PR [#3080](https://github.com/asterinas/asterinas/pull/3080#discussion_r3031834321)
-(motivating discussion)
-and PR [#2898](https://github.com/asterinas/asterinas/pull/2898#discussion_r2763969731)
-(earlier ad-hoc ordering choice).
 
 ### Suppress lints at the narrowest scope (`narrow-lint-suppression`) {#narrow-lint-suppression}
 
@@ -158,11 +144,6 @@ enum SomeEnum {
     BAR_DEF,
 }
 ```
-
-See also:
-[Clippy `allow_attributes`](https://rust-lang.github.io/rust-clippy/master/#allow_attributes),
-[Clippy `allow_attributes_without_reason`](https://rust-lang.github.io/rust-clippy/master/#allow_attributes_without_reason),
-and rustc [`unfulfilled_lint_expectations`](https://doc.rust-lang.org/rustc/lints/listing/warn-by-default.html#unfulfilled-lint-expectations).
 
 ### Follow RFC 1574 summary line conventions (`rfc1574-summary`) {#rfc1574-summary}
 
