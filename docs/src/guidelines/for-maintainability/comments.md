@@ -12,11 +12,6 @@ first try to rewrite the code.
 Do not write good comments to compensate for bad code —
 rewrite it to be straightforward.
 
-See also:
-_The Art of Readable Code_, Chapter 6 "Knowing What to Comment";
-PR [#2265](https://github.com/asterinas/asterinas/pull/2265#discussion_r2266220943)
-and [#2050](https://github.com/asterinas/asterinas/pull/2050#discussion_r2224106025).
-
 ### Document design decisions (`design-decisions`) {#design-decisions}
 
 When the code makes a non-obvious choice —
@@ -32,10 +27,6 @@ are the most valuable kind of comment.
 // Floating-point accesses are forwarded because entry does not save those registers.
 // Encoding reference: https://github.com/riscv-software-src/opensbi/blob/master/lib/sbi/sbi_trap_ldst.c
 ```
-
-See also:
-PR [#2265](https://github.com/asterinas/asterinas/pull/2265#discussion_r2266220943)
-and [#2050](https://github.com/asterinas/asterinas/pull/2050#discussion_r2224106025).
 
 ### End sentence comments with punctuation (`comment-punctuation`) {#comment-punctuation}
 

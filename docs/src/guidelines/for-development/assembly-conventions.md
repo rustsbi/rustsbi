@@ -51,6 +51,3 @@ unsafe extern "C" fn _boot_header() -> ! {
 # Bad — architecture-dependent meaning
 .align 12
 ```
-
-See also:
-PR [#2368](https://github.com/asterinas/asterinas/pull/2368).

@@ -64,10 +64,6 @@ pub(super) fn discover(
 pub fn get_all() -> Vec<Arc<dyn Device>> { /* .. */ }
 ```
 
-See also:
-PR [#1488](https://github.com/asterinas/asterinas/pull/1488#discussion_r1825441287)
-and [#2964](https://github.com/asterinas/asterinas/pull/2964#discussion_r2789739882).
-
 ### Use assertion-style boolean names (`bool-names`) {#bool-names}
 
 Boolean variables and functions
@@ -97,6 +93,3 @@ fn check_permission(&self, perm: Permission) -> bool { ... }
 // Bad — negated name
 let is_not_empty = !buf.is_empty();
 ```
-
-See also:
-PR [#1488](https://github.com/asterinas/asterinas/pull/1488#discussion_r1841827039).

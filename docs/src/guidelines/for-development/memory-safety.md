@@ -20,10 +20,6 @@ unsafe {
 }
 ```
 
-See also:
-PR [#2958](https://github.com/asterinas/asterinas/pull/2958)
-and [#836](https://github.com/asterinas/asterinas/pull/836).
-
 ### Document safety conditions (`document-safety-conds`) {#document-safety-conds}
 
 All `unsafe` functions and traits

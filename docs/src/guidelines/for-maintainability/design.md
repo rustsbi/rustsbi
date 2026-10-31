@@ -64,10 +64,6 @@ pub fn sys_connect(sockfd: i32, addr: Vaddr, len: u32) -> Result<()> {
 }
 ```
 
-See also:
-_Clean Code_, Chapter 3 "Functions";
-PR [#639](https://github.com/asterinas/asterinas/pull/639#discussion_r1524629393).
-
 ### Hide details behind interfaces (`information-hiding`) {#information-hiding}
 
 Hide details behind well-defined interfaces.
@@ -77,11 +73,6 @@ Internal data structures, helper types,
 and bookkeeping fields should remain private,
 and implementation details should not leak
 through public APIs (including their documentation).
-
-See also:
-[`narrow-visibility`](rust-specific/crates-and-modules.md#narrow-visibility)
-for Rust-specific visibility rules;
-PR [#2951](https://github.com/asterinas/asterinas/pull/2951#discussion_r2786925410).
 
 ### Be open for extension, closed for modification (`open-closed`) {#open-closed}
 
