@@ -23,7 +23,7 @@ pub enum Error {
     /// A hardware device operation failed.
     IoError,
     /// An allocation request cannot be satisfied.
-    NoMemory,
+    Alloc,
     /// The operation requires a shared-memory area that has not been registered.
     NoSharedMemory,
     /// A recoverable hardware access raised an illegal-instruction exception.
@@ -51,7 +51,7 @@ impl fmt::Display for Error {
             Self::InvalidState => "invalid resource state",
             Self::NotSupported => "operation is not supported",
             Self::IoError => "device operation failed",
-            Self::NoMemory => "insufficient memory",
+            Self::Alloc => "allocation failed",
             Self::NoSharedMemory => "shared memory is not registered",
             Self::IllegalInstruction => "hardware access raised an illegal-instruction exception",
             Self::InvalidArgs => "invalid argument",
@@ -78,7 +78,7 @@ impl From<Error> for SbiRet {
             | Error::Busy
             | Error::InvalidState
             | Error::IoError
-            | Error::NoMemory
+            | Error::Alloc
             | Error::IllegalInstruction
             | Error::NotEnoughResources
             | Error::Overflow => Self::failed(),
