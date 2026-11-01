@@ -4,7 +4,7 @@
 //! validate event selection, then exercise hardware and firmware counters.
 //! Firmware-counter checks trigger access faults and attempt IPIs to invalid harts.
 
-use riscv::register::cycle;
+use csr::user;
 use sbi_spec::{
     binary::{
         CounterMask, HartMask, RET_ERR_ALREADY_STOPPED, RET_ERR_INVALID_PARAM,
@@ -277,41 +277,15 @@ fn test_firmware_ipi_counter(invalid_hart: usize) {
 
 #[inline]
 fn read_hardware_counter(csr_num: usize) -> u64 {
-    match csr_num {
-        0xc00 => cycle::read64(),
-        0xc01 => riscv::register::time::read64(),
-        0xc02 => riscv::register::instret::read64(),
-        0xc03 => riscv::register::hpmcounter3::read64(),
-        0xc04 => riscv::register::hpmcounter4::read64(),
-        0xc05 => riscv::register::hpmcounter5::read64(),
-        0xc06 => riscv::register::hpmcounter6::read64(),
-        0xc07 => riscv::register::hpmcounter7::read64(),
-        0xc08 => riscv::register::hpmcounter8::read64(),
-        0xc09 => riscv::register::hpmcounter9::read64(),
-        0xc0a => riscv::register::hpmcounter10::read64(),
-        0xc0b => riscv::register::hpmcounter11::read64(),
-        0xc0c => riscv::register::hpmcounter12::read64(),
-        0xc0d => riscv::register::hpmcounter13::read64(),
-        0xc0e => riscv::register::hpmcounter14::read64(),
-        0xc0f => riscv::register::hpmcounter15::read64(),
-        0xc10 => riscv::register::hpmcounter16::read64(),
-        0xc11 => riscv::register::hpmcounter17::read64(),
-        0xc12 => riscv::register::hpmcounter18::read64(),
-        0xc13 => riscv::register::hpmcounter19::read64(),
-        0xc14 => riscv::register::hpmcounter20::read64(),
-        0xc15 => riscv::register::hpmcounter21::read64(),
-        0xc16 => riscv::register::hpmcounter22::read64(),
-        0xc17 => riscv::register::hpmcounter23::read64(),
-        0xc18 => riscv::register::hpmcounter24::read64(),
-        0xc19 => riscv::register::hpmcounter25::read64(),
-        0xc1a => riscv::register::hpmcounter26::read64(),
-        0xc1b => riscv::register::hpmcounter27::read64(),
-        0xc1c => riscv::register::hpmcounter28::read64(),
-        0xc1d => riscv::register::hpmcounter29::read64(),
-        0xc1e => riscv::register::hpmcounter30::read64(),
-        0xc1f => riscv::register::hpmcounter31::read64(),
-        _ => panic!("unsupported hardware counter CSR {csr_num:#x}"),
-    }
+    seq_macro::seq!(N in 3..=31 {
+        match csr_num.checked_sub(0xc00) {
+            Some(0) => user::Cycle::read64(),
+            Some(1) => user::Time::read64(),
+            Some(2) => user::InstructionsRetired::read64(),
+            #( Some(N) => user::PerformanceCounter::<N>::read64(), )*
+            _ => panic!("unsupported hardware counter CSR {csr_num:#x}"),
+        }
+    })
 }
 
 /// The PMU flag parameter is shared by config, start, and stop calls.
