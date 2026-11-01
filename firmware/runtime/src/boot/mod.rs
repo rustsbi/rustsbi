@@ -27,7 +27,7 @@ pub struct NextStage {
     /// Opaque value passed to next stage.
     pub opaque: usize,
     /// Privilege mode for next stage.
-    pub next_mode: riscv::register::mstatus::MPP,
+    pub next_mode: csr::machine::TargetPrivilege,
 }
 
 /// Stops the current hart without accessing its stack.
@@ -166,7 +166,7 @@ fn finish_boot_rust() -> ! {
         if ipi.delivery().is_some() {
             ipi.clear_current(&irq)
                 .expect("BUG: could not clear the hart wake interrupt");
-            riscv::asm::fence();
+            crate::instruction::fence();
         }
         let event = hart::take_local_event();
         // A sender may have selected this hart before it stopped, or just
@@ -184,7 +184,7 @@ fn finish_boot_rust() -> ! {
             }
             HartEvent::Park => {
                 ipi.prepare_wakeup(&irq);
-                riscv::asm::wfi();
+                crate::instruction::wait_for_interrupt();
                 // A masked wake re-checks the cell instead of returning
                 // into the discarded boot context.
                 continue;

@@ -4,8 +4,6 @@
 //! Device-class discovery stays within each subsystem, while vendor-only
 //! devices remain in their vendor module.
 
-#![forbid(unsafe_code)]
-
 mod aia;
 pub(crate) mod allwinner;
 mod cci;

@@ -4,8 +4,8 @@
 //!
 //! - Specification: [RISC-V SBI RFENCE extension](https://docs.riscv.org/reference/sbi/v3.0/ext-rfence.html) —
 //!   hart-mask and address-range semantics for remote fences.
-
-#![forbid(unsafe_code)]
+//! - Specification: [RISC-V hypervisor extension](https://docs.riscv.org/reference/isa/priv/hypervisor.html) —
+//!   hypervisor fence instructions and their execution requirements.
 
 use runtime::{
     Result,
@@ -15,7 +15,7 @@ use runtime::{
 use sbi_spec::pmu::firmware_event;
 
 use crate::cfg::{PAGE_SIZE, TLB_FLUSH_LIMIT};
-use crate::riscv::csr::fence;
+use core::arch::asm;
 
 pub(super) mod queue;
 use super::pmu::pmu_firmware_counter_increment;
@@ -353,19 +353,22 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
         || (ctx.size == usize::MAX)
         || (ctx.size > TLB_FLUSH_LIMIT && ctx.size != usize::MAX);
 
+    // H-extension fences currently assume every target implements H; dispatch
+    // checks the requesting hart but does not check each remote target.
     match ctx.op {
         RFenceType::FenceI => {
             pmu_firmware_counter_increment(firmware_event::FENCE_I_RECEIVED);
-            riscv::asm::fence_i();
+            runtime::instruction::fence_i();
         }
         RFenceType::SFenceVma => {
             pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_RECEIVED);
             if full_flush {
-                fence::sfence_vma_all();
+                runtime::instruction::sfence_vma_all();
             } else {
                 for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                     let addr = ctx.start_addr.wrapping_add(offset);
-                    fence::sfence_vma_addr(addr);
+                    // SAFETY: M-mode executes the requested address-scoped fence.
+                    unsafe { asm!("sfence.vma {}, x0", in(reg) addr, options(nostack)) };
                 }
             }
         }
@@ -373,11 +376,12 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
             pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_ASID_RECEIVED);
             let asid = ctx.asid;
             if full_flush {
-                fence::sfence_vma_asid(asid);
+                // SAFETY: M-mode executes the requested ASID-scoped fence.
+                unsafe { asm!("sfence.vma x0, {}", in(reg) asid, options(nostack)) };
             } else {
                 for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                     let addr = ctx.start_addr.wrapping_add(offset);
-                    fence::sfence_vma_addr_asid(addr, asid);
+                    runtime::instruction::sfence_vma(asid, addr);
                 }
             }
         }
@@ -386,11 +390,17 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
             pmu_firmware_counter_increment(firmware_event::HFENCE_GVMA_VMID_RECEIVED);
             let vmid = ctx.vmid;
             if full_flush {
-                fence::hfence_gvma_vmid(vmid);
+                // SAFETY: The fence only synchronizes translations. If this
+                // hart does not implement H, the instruction traps.
+                unsafe { asm!("hfence.gvma x0, {}", in(reg) vmid, options(nostack)) };
             } else {
                 for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                     let addr = ctx.start_addr.wrapping_add(offset);
-                    fence::hfence_gvma_addr_vmid(addr, vmid);
+                    // SAFETY: The fence only synchronizes translations. If this
+                    // hart does not implement H, the instruction traps.
+                    unsafe {
+                        asm!("hfence.gvma {}, {}", in(reg) addr, in(reg) vmid, options(nostack))
+                    };
                 }
             }
         }
@@ -398,11 +408,15 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
         RFenceType::HFenceGvma => {
             pmu_firmware_counter_increment(firmware_event::HFENCE_GVMA_RECEIVED);
             if full_flush {
-                fence::hfence_gvma_all();
+                // SAFETY: The fence only synchronizes translations. If this
+                // hart does not implement H, the instruction traps.
+                unsafe { asm!("hfence.gvma x0, x0", options(nostack)) };
             } else {
                 for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                     let addr = ctx.start_addr.wrapping_add(offset);
-                    fence::hfence_gvma_addr(addr);
+                    // SAFETY: The fence only synchronizes translations. If this
+                    // hart does not implement H, the instruction traps.
+                    unsafe { asm!("hfence.gvma {}, x0", in(reg) addr, options(nostack)) };
                 }
             }
         }
@@ -411,11 +425,17 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
             pmu_firmware_counter_increment(firmware_event::HFENCE_VVMA_ASID_RECEIVED);
             let asid = ctx.asid;
             if full_flush {
-                fence::hfence_vvma_asid(asid);
+                // SAFETY: The fence only synchronizes translations. If this
+                // hart does not implement H, the instruction traps.
+                unsafe { asm!("hfence.vvma x0, {}", in(reg) asid, options(nostack)) };
             } else {
                 for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                     let addr = ctx.start_addr.wrapping_add(offset);
-                    fence::hfence_vvma_addr_asid(addr, asid);
+                    // SAFETY: The fence only synchronizes translations. If this
+                    // hart does not implement H, the instruction traps.
+                    unsafe {
+                        asm!("hfence.vvma {}, {}", in(reg) addr, in(reg) asid, options(nostack))
+                    };
                 }
             }
         }
@@ -423,11 +443,15 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
         RFenceType::HFenceVvma => {
             pmu_firmware_counter_increment(firmware_event::HFENCE_VVMA_RECEIVED);
             if full_flush {
-                fence::hfence_vvma_all();
+                // SAFETY: The fence only synchronizes translations. If this
+                // hart does not implement H, the instruction traps.
+                unsafe { asm!("hfence.vvma x0, x0", options(nostack)) };
             } else {
                 for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                     let addr = ctx.start_addr.wrapping_add(offset);
-                    fence::hfence_vvma_addr(addr);
+                    // SAFETY: The fence only synchronizes translations. If this
+                    // hart does not implement H, the instruction traps.
+                    unsafe { asm!("hfence.vvma {}, x0", in(reg) addr, options(nostack)) };
                 }
             }
         }

@@ -117,21 +117,13 @@ pub unsafe fn configure_next_stage() {
 
 pub(crate) fn set_return_mode(
     status: &mut machine::Status<csr::Write>,
-    mode: riscv::register::mstatus::MPP,
+    mode: machine::TargetPrivilege,
 ) {
-    status.set::<machine::MPP>(privilege(mode));
+    status.set::<machine::MPP>(mode);
     status.set::<machine::MPIE>(machine::Interrupt::Enabled);
     status.set::<machine::SIE>(machine::Interrupt::Disabled);
     #[cfg(target_pointer_width = "64")]
     status.set::<machine::MPV>(machine::Virtualization::Off);
-}
-
-fn privilege(mode: riscv::register::mstatus::MPP) -> machine::TargetPrivilege {
-    match mode {
-        riscv::register::mstatus::MPP::User => machine::TargetPrivilege::User,
-        riscv::register::mstatus::MPP::Supervisor => machine::TargetPrivilege::Supervisor,
-        riscv::register::mstatus::MPP::Machine => machine::TargetPrivilege::Machine,
-    }
 }
 
 /// Prepares translation and interrupt state for a new supervisor stage.
@@ -162,7 +154,7 @@ pub(crate) unsafe fn prepare_supervisor() {
 /// # Safety
 ///
 /// M-mode on the current hart, interrupts disabled, no live lower context.
-pub(super) unsafe fn stage_next_mode(start_addr: usize, next_mode: riscv::register::mstatus::MPP) {
+pub(super) unsafe fn stage_next_mode(start_addr: usize, next_mode: machine::TargetPrivilege) {
     // SAFETY: The boot caller owns the outgoing trap state.
     unsafe {
         prepare_supervisor();

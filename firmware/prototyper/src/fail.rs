@@ -7,15 +7,15 @@ compile_error!("feature \"payload\" and feature \"jump\" cannot be enabled at th
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    use riscv::register::*;
+    use csr::machine::{Cause, ExceptionPc, TrapValue};
     let hart_id = HartId::current()
         .map(|hart| hart.as_usize())
         .unwrap_or(usize::MAX);
     error!("Hart {} {info}", hart_id);
     error!("-----------------------------");
-    error!("mcause:  {:?}", mcause::read().cause());
-    error!("mepc:    {:#018x}", mepc::read());
-    error!("mtval:   {:#018x}", mtval::read());
+    error!("mcause:  {:?}", Cause::read());
+    error!("mepc:    {:#018x}", usize::from(ExceptionPc::read()));
+    error!("mtval:   {:#018x}", usize::from(TrapValue::read()));
     error!("-----------------------------");
     error!("System shutdown scheduled due to RustSBI panic");
     loop {}
@@ -32,10 +32,10 @@ cfg_if::cfg_if! {
     if #[cfg(not(any(feature = "payload", feature = "jump")))] {
         use crate::firmware::dynamic;
         use crate::sbi::reset;
-        use riscv::register::mstatus;
+        use csr::machine::TargetPrivilege;
         /// Handles invalid dynamic information data by logging details and resetting.
         #[cold]
-        pub fn invalid_dynamic_data(err: dynamic::ValidationError) -> (mstatus::MPP, usize) {
+        pub fn invalid_dynamic_data(err: dynamic::ValidationError) -> (TargetPrivilege, usize) {
             error!("Invalid data in dynamic information:");
             if err.invalid_next_mode {
                 error!("* dynamic information contains invalid privilege mode");

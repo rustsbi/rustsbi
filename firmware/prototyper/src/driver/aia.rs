@@ -6,6 +6,7 @@
 //!   sections 2.1.5 and 2.1.8 — IMSIC MMIO pages and interrupt-file setup.
 
 use alloc::boxed::Box;
+use csr::aia::{imsic::ImsicRegister, machine::Miselect};
 use runtime::{
     Error, Result,
     hart::HartId,
@@ -15,7 +16,6 @@ use runtime::{
 
 use crate::platform::ImsicInfo;
 use crate::platform::qemu_aplic::QemuAplicConfig;
-use crate::riscv::csr::imsic;
 
 /// FDT `compatible` strings identifying an IMSIC interrupt controller.
 pub(crate) const IMSIC_COMPATIBLES: [&str; 1] = ["riscv,imsics"];
@@ -97,6 +97,42 @@ pub(super) fn bind(
 /// Runtime enables machine externals at handoff.
 pub(crate) fn initialize_hart_imsic(imsic_info: &ImsicInfo) {
     let ipi_iid = usize::from(imsic_info.ipi_iid.number());
-    imsic::initialize_machine_file(usize::from(imsic_info.num_ids), ipi_iid);
+    let num_ids = usize::from(imsic_info.num_ids);
+
+    // SAFETY: The platform validated Smaia, the interrupt file, and all
+    // identity indices. This hart is initializing with interrupts disabled,
+    // so no other indirect register access can interrupt the sequence.
+    unsafe {
+        let previous_selector = Miselect::read();
+        let write = |register: ImsicRegister, value| {
+            register
+                .write_machine(value)
+                .expect("validated IMSIC register index")
+        };
+        write(ImsicRegister::Delivery, 1);
+        write(ImsicRegister::Threshold, 0);
+
+        let num_regs = num_ids.div_ceil(32);
+        for index in 0..num_regs {
+            // On RV64 only even-numbered EIP/EIE registers exist.
+            #[cfg(target_pointer_width = "64")]
+            if index % 2 == 1 {
+                continue;
+            }
+            write(ImsicRegister::Pending(index as u8), 0);
+            write(ImsicRegister::Enable(index as u8), 0);
+        }
+
+        #[cfg(target_pointer_width = "64")]
+        let eie_index = (ipi_iid / 64) * 2;
+        #[cfg(target_pointer_width = "32")]
+        let eie_index = ipi_iid / 32;
+        // The enable registers were cleared above.
+        write(
+            ImsicRegister::Enable(eie_index as u8),
+            1 << (ipi_iid % usize::BITS as usize),
+        );
+        Miselect::write(previous_selector);
+    }
     debug!("IMSIC: hart init done, firmware IPI IID={}", ipi_iid);
 }

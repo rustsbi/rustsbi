@@ -99,7 +99,7 @@ impl TimerDevice for Plmt {
         self.write_compare_word(Register::CompareLow, hart_id, u32::MAX);
         self.write_compare_word(Register::CompareHigh, hart_id, (value >> 32) as u32);
         self.write_compare_word(Register::CompareLow, hart_id, value as u32);
-        riscv::asm::fence();
+        runtime::instruction::fence();
     }
 
     // Masking MTIE prevents retrapping until the next deadline rearms delivery.

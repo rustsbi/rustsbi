@@ -44,7 +44,7 @@ impl C907ClockControl {
     fn enable(&self) -> Result<()> {
         let value = u32::from_le(self.0.read::<u32>(0)?);
         self.0.write(0, (value | CLOCK_CONTROL_ENABLE).to_le())?;
-        riscv::asm::fence();
+        runtime::instruction::fence();
         Ok(())
     }
 }
@@ -139,9 +139,9 @@ impl HartWake for V861HartRelease {
         let entry = crate::riscv::c907::reset_entry_address() as u64;
         self.reset_vectors[hart].program(entry)?;
         // Publish the reset vector and pending HSM request before power-on.
-        riscv::asm::fence();
+        runtime::instruction::fence();
         self.power_controls[hart].power_on()?;
-        riscv::asm::fence();
+        runtime::instruction::fence();
         Ok(true)
     }
 }

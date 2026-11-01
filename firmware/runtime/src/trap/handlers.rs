@@ -31,7 +31,7 @@ fn deliver_event(frame: &mut TrapFrame, ipi: &crate::ipi::Ipi, irq: &LocalIrqDis
         HartEvent::Start(next) => enter_next_stage(frame, next),
         HartEvent::Park => {
             ipi.prepare_wakeup(irq);
-            riscv::asm::wfi();
+            crate::instruction::wait_for_interrupt();
         }
         HartEvent::None => {}
     }
@@ -61,5 +61,5 @@ fn enter_next_stage(frame: &mut TrapFrame, next: NextStage) {
     frame.general = Default::default();
     frame.general.a0 = hart::current_hart().as_usize();
     frame.general.a1 = next.opaque;
-    riscv::asm::fence_i();
+    crate::instruction::fence_i();
 }

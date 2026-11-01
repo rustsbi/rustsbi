@@ -187,7 +187,7 @@ impl P1Pmic {
 
     fn park(&self) -> ! {
         loop {
-            riscv::asm::wfi();
+            runtime::instruction::wait_for_interrupt();
         }
     }
 }

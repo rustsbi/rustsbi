@@ -1,4 +1,4 @@
-use riscv::register::mstatus::MPP;
+use csr::machine::TargetPrivilege as MPP;
 use runtime::{
     FdtNode, boot,
     hart::{self, HartId, PerHart},
@@ -9,7 +9,10 @@ use spin::{Mutex, Once};
 
 use crate::fail;
 use crate::platform::mark_hart_privilege_checked;
-use crate::riscv::csr::*;
+use csr::{
+    machine::{self, CBCFE, CBIE, CBZE, CacheBlockInvalidateMode, FeatureState},
+    values::counter::InhibitedCounters,
+};
 
 #[derive(Default)]
 pub struct HartFeatures {
@@ -226,28 +229,48 @@ pub fn configure_hart_environment() {
     }
     let hart_priv_version = privileged_version(hart);
     if hart_priv_version >= PrivilegedVersion::Version1_11 {
-        mcountinhibit::write_raw(!0b111usize);
+        // SAFETY: Startup owns this hart's counter initialization. The PMU
+        // does not coordinate cycle-counter control shared with other harts.
+        unsafe { machine::CounterInhibit::write(InhibitedCounters::programmable()) };
     }
     // Sstc provides STCE independently of the privileged-version heuristic.
     // Use the same per-hart result as the SBI timer and Runtime interrupt path.
     if has_extension(hart, Extension::Sstc) {
-        menvcfg::set_bits(menvcfg::STCE);
+        #[cfg(target_pointer_width = "64")]
+        use csr::machine::{EnvironmentConfig as TimerConfig, STCE as TimerEnable};
+        #[cfg(target_pointer_width = "32")]
+        use csr::machine::{EnvironmentConfigHigh as TimerConfig, STCEH as TimerEnable};
+        // SAFETY: Startup configures this hart before lower-mode entry.
+        unsafe { TimerConfig::modify(|_, value| value.set::<TimerEnable>(FeatureState::Enabled)) };
     }
     if hart_priv_version >= PrivilegedVersion::Version1_12 {
-        for (extension, bits) in [
-            (Extension::Zicbom, menvcfg::CBIE_INVALIDATE | menvcfg::CBCFE),
-            (Extension::Zicboz, menvcfg::CBZE),
-        ] {
-            if has_extension(hart, extension) {
-                menvcfg::set_bits(bits);
-            } else {
-                menvcfg::clear_bits(bits);
-            }
+        let cache_management = has_extension(hart, Extension::Zicbom);
+        let cache_zero = has_extension(hart, Extension::Zicboz);
+        // SAFETY: Startup owns this hart's environment configuration.
+        unsafe {
+            machine::EnvironmentConfig::modify(|_, value| {
+                value.set::<CBIE>(if cache_management {
+                    CacheBlockInvalidateMode::Invalidate
+                } else {
+                    CacheBlockInvalidateMode::Disabled
+                });
+                value.set::<CBCFE>(FeatureState::from(cache_management));
+                value.set::<CBZE>(FeatureState::from(cache_zero));
+            });
         }
         // Follow the device tree: C907 firmware also describes its RV32
         // page-memory-type extension as Svpbmt and requires PBMTE.
         if has_extension(hart, Extension::Svpbmt) {
-            menvcfg::set_bits(menvcfg::PBMTE);
+            #[cfg(target_pointer_width = "64")]
+            use csr::machine::{EnvironmentConfig as MemoryConfig, PBMTE as MemoryTypeEnable};
+            #[cfg(target_pointer_width = "32")]
+            use csr::machine::{EnvironmentConfigHigh as MemoryConfig, PBMTEH as MemoryTypeEnable};
+            // SAFETY: Startup configures this hart before lower-mode entry.
+            unsafe {
+                MemoryConfig::modify(|_, value| {
+                    value.set::<MemoryTypeEnable>(FeatureState::Enabled)
+                })
+            };
         }
         // The S-mode access to the Zkr `seed` CSR is gated under `mseccfg.SSEED`.
         if has_extension(hart, Extension::Zkr) {

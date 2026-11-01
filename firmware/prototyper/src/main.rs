@@ -18,7 +18,7 @@ mod sbi;
 
 use crate::firmware::BootInfo;
 use crate::sbi::features::{check_next_stage_privilege, counter_topology, detect_hart_features};
-use ::riscv::register::mstatus::MPP;
+use csr::machine::TargetPrivilege as MPP;
 use runtime::{
     boot, entry,
     hart::{self, HartId},
