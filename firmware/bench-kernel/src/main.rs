@@ -11,6 +11,7 @@ mod linux;
 use core::arch::{asm, naked_asm};
 use core::mem::MaybeUninit;
 use core::sync::{atomic::AtomicBool, atomic::AtomicUsize, atomic::Ordering};
+use csr::user;
 use fdt::Fdt;
 use log::*;
 use sbi::SbiRet;
@@ -186,7 +187,7 @@ static READY_HART_COUNT: AtomicUsize = AtomicUsize::new(0);
 const SUSPENDED: SbiRet = SbiRet::success(hart_state::SUSPENDED);
 
 fn get_time() -> u64 {
-    riscv::register::time::read64()
+    user::Time::read64()
 }
 
 extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {

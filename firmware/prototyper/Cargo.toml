@@ -10,14 +10,11 @@ bitflags.workspace = true
 csr = { package = "rustsbi-csr", path = "../runtime/lib/csr" }
 log = "0.4"
 panic-halt = "1.0.0"
-riscv = { workspace = true }
 spin.workspace = true
 cfg-if = "1.0.0"
 sbi-spec = { version = "0.0.10", path = "../../library/sbi-spec" }
 static-toml = "1"
 seq-macro.workspace = true
-pastey = "0.1.0"
-riscv-aia = { version = "0.0.0", path = "../../library/riscv-aia" }
 runtime = { package = "rustsbi-firmware-runtime", version = "0.0.0", path = "../runtime" }
 
 [[bin]]
