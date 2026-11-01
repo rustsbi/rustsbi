@@ -122,11 +122,11 @@ impl Timebase {
     }
 
     fn elapsed(self, start: u64, duration: Duration) -> bool {
-        riscv::register::time::read64().wrapping_sub(start) >= self.ticks_for(duration)
+        csr::user::Time::read64().wrapping_sub(start) >= self.ticks_for(duration)
     }
 
     fn delay(self, duration: Duration) {
-        let start = riscv::register::time::read64();
+        let start = csr::user::Time::read64();
         while !self.elapsed(start, duration) {
             core::hint::spin_loop();
         }
@@ -186,7 +186,7 @@ impl K1I2cController {
     }
 
     fn wait_for_status(&self, mask: Status) -> Option<Status> {
-        let start = riscv::register::time::read64();
+        let start = csr::user::Time::read64();
         loop {
             let status = Status::from_bits_retain(self.read(Register::Status));
             if status.intersects(STATUS_ERRORS | Status::ACK_NAK) {
@@ -221,7 +221,7 @@ impl K1I2cController {
         );
         self.clear_status(Status::from_bits_retain(self.read(Register::Status)));
 
-        let start = riscv::register::time::read64();
+        let start = csr::user::Time::read64();
         loop {
             let status = Status::from_bits_retain(self.read(Register::Status));
             if !status.intersects(Status::UNIT_BUSY | Status::BUS_BUSY) {

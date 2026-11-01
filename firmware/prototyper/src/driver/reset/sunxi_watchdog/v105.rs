@@ -124,11 +124,11 @@ impl V105Watchdog {
     }
 
     fn start_reset(&mut self) -> Result<()> {
-        riscv::asm::fence();
+        runtime::instruction::fence();
         if let Some(gate) = &self.reset_gate {
             let value = u32::from_le(gate.read::<u32>(0)?) | RESET_GATE_ENABLE;
             gate.write(0, value.to_le())?;
-            riscv::asm::fence();
+            runtime::instruction::fence();
         }
 
         // Retain MODE's writable low fields, clear enable, and replace the key.
@@ -136,14 +136,14 @@ impl V105Watchdog {
         let stopped = (mode & MODE_WRITABLE_BITS) | UPDATE_KEY;
         self.registers
             .write(Register::Mode as usize, stopped.to_le())?;
-        riscv::asm::fence();
+        runtime::instruction::fence();
 
         // V105 has a dedicated immediate reset command; no timer is required.
         self.registers.write(
             Register::SoftwareReset as usize,
             (UPDATE_KEY | SOFTWARE_RESET_TRIGGER).to_le(),
         )?;
-        riscv::asm::fence();
+        runtime::instruction::fence();
         Ok(())
     }
 }
@@ -160,7 +160,7 @@ impl ResetBackend for V105Watchdog {
             return ResetError::Failed;
         }
         loop {
-            riscv::asm::wfi();
+            runtime::instruction::wait_for_interrupt();
         }
     }
 }

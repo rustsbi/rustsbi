@@ -6,6 +6,7 @@
 
 #![forbid(unsafe_code)]
 
+use csr::machine::{Identifier, VendorId};
 use runtime::{
     Error, PlatformView, Result,
     hart::HartId,
@@ -78,11 +79,8 @@ impl Description {
     pub(crate) fn prepare(self, hart_count: usize) -> Result<V821> {
         let hart = HartId::current().map_err(|_| Error::InvalidArgs)?;
         const BOOT_HART: usize = 0;
-        const ANDES_VENDOR_ID: usize = 0x31e;
-        if hart.as_usize() != BOOT_HART
-            || hart_count != 1
-            || riscv::register::mvendorid::read().bits() != ANDES_VENDOR_ID
-        {
+        const ANDES_VENDOR_ID: Identifier = Identifier::from_bits(0x31e);
+        if hart.as_usize() != BOOT_HART || hart_count != 1 || VendorId::read() != ANDES_VENDOR_ID {
             return Err(Error::InvalidArgs);
         }
         let noncacheable_alias = self.soc.csr().initialize_noncacheable_alias();

@@ -221,7 +221,7 @@ pub fn suspend_current() -> Result<()> {
     cell(current_hart())
         .state
         .store(STATE_SUSPENDED, Ordering::Release);
-    riscv::asm::wfi();
+    crate::instruction::wait_for_interrupt();
     Ok(())
 }
 

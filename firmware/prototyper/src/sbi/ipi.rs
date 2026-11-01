@@ -158,7 +158,7 @@ impl SbiIpi {
 /// Returns whether Runtime must notify the supervisor.
 pub(crate) fn deliver_current() -> bool {
     // The device clear/claim must precede the pending-event read.
-    crate::riscv::csr::fence::io_to_memory();
+    runtime::instruction::fence();
     let hart = HartId::current().expect("BUG: current hart is not in the boot topology");
     let ipi = &super::SBI_DISPATCHER
         .get()

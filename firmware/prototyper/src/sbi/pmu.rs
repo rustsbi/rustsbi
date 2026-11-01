@@ -5,10 +5,13 @@
 //! - Specification: [RISC-V SBI PMU extension](https://docs.riscv.org/reference/sbi/v3.0/ext-pmu.html) —
 //!   counter discovery, event configuration, and shared-memory operations.
 
-#![forbid(unsafe_code)]
-
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
+use csr::{
+    machine,
+    user::Cycle,
+    values::counter::{HardwareCounter, InhibitedCounters},
+};
 use runtime::{
     FdtNode, Result,
     events::{Exception, TrapCounters},
@@ -19,8 +22,6 @@ use sbi_spec::binary::SharedPtr;
 use sbi_spec::pmu::shmem_size::SIZE;
 use sbi_spec::pmu::*;
 use spin::{Mutex, Once};
-
-use crate::riscv::csr::*;
 
 use super::features::{PrivilegedVersion, counter_topology, mhpm_mask, privileged_version};
 
@@ -69,9 +70,9 @@ pub(crate) fn reset_current() {
     let hart = HartId::current().expect("BUG: current hart is not in the boot topology");
     let (privileged_version, mhpm_mask) = counter_topology(hart);
     if privileged_version >= PrivilegedVersion::Version1_11 {
-        // The CSR wrapper owns the machine-mode write; this policy state
-        // only requests the reset of the current hart's counters.
-        crate::riscv::csr::mcountinhibit::write_raw(!0b111usize);
+        // SAFETY: This hart owns its PMU state while resuming. The PMU does not
+        // coordinate cycle-counter control shared with other harts.
+        unsafe { machine::CounterInhibit::write(InhibitedCounters::programmable()) };
     }
     *state(hart).lock() = PmuState::new(mhpm_mask);
 }
@@ -267,7 +268,7 @@ impl Pmu for SbiPmu {
                         return SbiRet::invalid_param();
                     }
                     return SbiRet::success(
-                        CounterInfo::with_hardware_info(CSR_CYCLE + offset, 63).inner(),
+                        CounterInfo::with_hardware_info(Cycle::NUMBER + offset, 63).inner(),
                     );
                 }
                 remaining_mask &= remaining_mask - 1;
@@ -608,8 +609,10 @@ impl SbiPmu {
                 continue;
             }
             if privileged_version >= PrivilegedVersion::Version1_11 {
-                let inhibit = mcountinhibit::read();
-                if (inhibit & (1 << mhpm_offset)) == 0 {
+                let Some(counter) = HardwareCounter::from_index(mhpm_offset) else {
+                    continue;
+                };
+                if !machine::CounterInhibit::read().contains(counter) {
                     continue;
                 }
             }
@@ -747,75 +750,69 @@ fn get_mhpm_csr_offset(counter_idx: usize) -> Option<u16> {
     None
 }
 
+/// Writes a programmable event selector for this hart.
+fn write_mhpmevent(offset: u16, value: u64) {
+    seq_macro::seq!(N in 3..=31 {
+        match offset {
+            #( N => {
+                // SAFETY: The PMU owns the detected counter's event configuration.
+                unsafe { machine::PerformanceEvent::<N>::write((value as usize).into()) }
+            }, )*
+            _ => {}
+        }
+    });
+}
+
+/// Writes the selected counter, with the high word first on RV32.
+fn write_mhpmcounter(offset: u16, value: u64) {
+    // SAFETY: The PMU owns the selected counter on this hart. Shared cycle
+    // counters are not coordinated with other harts.
+    unsafe {
+        match offset {
+            0 => {
+                #[cfg(target_pointer_width = "32")]
+                machine::CycleCounterHigh::write(((value >> 32) as usize).into());
+                machine::CycleCounter::write((value as usize).into());
+            }
+            2 => {
+                #[cfg(target_pointer_width = "32")]
+                machine::InstructionCounterHigh::write(((value >> 32) as usize).into());
+                machine::InstructionCounter::write((value as usize).into());
+            }
+            _ => seq_macro::seq!(N in 3..=31 {
+                match offset {
+                    #( N => {
+                        #[cfg(target_pointer_width = "32")]
+                        machine::PerformanceCounterHigh::<N>::write(((value >> 32) as usize).into());
+                        machine::PerformanceCounter::<N>::write((value as usize).into());
+                    }, )*
+                    _ => {}
+                }
+            }),
+        }
+    }
+}
+
 /// Failure to start a performance counter.
 enum StartCounterErr {
     OffsetInvalid,
     AlreadyStart,
 }
 
-#[derive(Clone, Copy)]
-enum HardwareCounter {
-    Cycle,
-    Instret,
-    Hpm(u16),
-}
-
-impl HardwareCounter {
-    #[inline]
-    fn try_from_offset(mhpm_offset: u16) -> Option<Self> {
-        match mhpm_offset {
-            0 => Some(Self::Cycle),
-            2 => Some(Self::Instret),
-            3..=31 => Some(Self::Hpm(mhpm_offset)),
-            _ => None,
+fn set_counter_inhibited(counter: HardwareCounter, inhibited: bool) {
+    // SAFETY: The caller coordinates this hart's selected PMU counter. Shared
+    // cycle-counter control is not coordinated with other harts.
+    unsafe { machine::CounterInhibit::set(counter, inhibited) };
+    // Read the machine counter after changing its inhibit bit to support
+    // QEMU's lower-mode counter shadows.
+    match counter {
+        HardwareCounter::Cycle => {
+            let _ = machine::CycleCounter::read64();
         }
-    }
-
-    #[inline]
-    fn inhibit_mask(self) -> usize {
-        match self {
-            Self::Cycle => 1 << 0,
-            Self::Instret => 1 << 2,
-            Self::Hpm(offset) => 1 << offset,
+        HardwareCounter::InstructionsRetired => {
+            let _ = machine::InstructionCounter::read64();
         }
-    }
-
-    #[inline]
-    fn start(self) {
-        match self {
-            Self::Cycle => mcountinhibit::clear_cy(),
-            Self::Instret => mcountinhibit::clear_ir(),
-            Self::Hpm(offset) => mcountinhibit::clear_hpm(offset as usize),
-        }
-        self.sync_shadow();
-    }
-
-    #[inline]
-    fn stop(self) {
-        match self {
-            Self::Cycle => mcountinhibit::set_cy(),
-            Self::Instret => mcountinhibit::set_ir(),
-            Self::Hpm(offset) => mcountinhibit::set_hpm(offset as usize),
-        }
-        self.sync_shadow();
-    }
-
-    #[inline]
-    fn sync_shadow(self) {
-        match self {
-            Self::Cycle => {
-                // `cycle` is the S/U-mode shadow of `mcycle`. Force a machine-level
-                // read after toggling CY so the shadowed counter state is observed
-                // consistently on QEMU before returning to lower privilege modes.
-                let _ = riscv::register::mcycle::read64();
-            }
-            Self::Instret => {
-                // `instret` is the S/U-mode shadow of `minstret`; keep its shadow
-                // state in sync for the same reason as `cycle`.
-                let _ = riscv::register::minstret::read64();
-            }
-            Self::Hpm(_) => {}
-        }
+        HardwareCounter::Hpm(_) => {}
     }
 }
 
@@ -825,7 +822,7 @@ fn start_hardware_counter(
     new_value: u64,
     is_update_value: bool,
 ) -> Result<(), StartCounterErr> {
-    let Some(counter) = HardwareCounter::try_from_offset(mhpm_offset) else {
+    let Some(counter) = HardwareCounter::from_index(mhpm_offset) else {
         return Err(StartCounterErr::OffsetInvalid);
     };
 
@@ -838,7 +835,7 @@ fn start_hardware_counter(
     }
 
     // A zero inhibit bit means the counter is running.
-    if mcountinhibit::read() & counter.inhibit_mask() == 0 {
+    if !machine::CounterInhibit::read().contains(counter) {
         return Err(StartCounterErr::AlreadyStart);
     }
 
@@ -846,7 +843,7 @@ fn start_hardware_counter(
         write_mhpmcounter(mhpm_offset, new_value);
     }
 
-    counter.start();
+    set_counter_inhibited(counter, false);
     Ok(())
 }
 
@@ -858,7 +855,7 @@ enum StopCounterErr {
 
 /// Stops a hardware performance counter specified by the offset.
 fn stop_hardware_counter(mhpm_offset: u16, is_reset: bool) -> Result<(), StopCounterErr> {
-    let Some(counter) = HardwareCounter::try_from_offset(mhpm_offset) else {
+    let Some(counter) = HardwareCounter::from_index(mhpm_offset) else {
         return Err(StopCounterErr::OffsetInvalid);
     };
 
@@ -871,11 +868,11 @@ fn stop_hardware_counter(mhpm_offset: u16, is_reset: bool) -> Result<(), StopCou
         return Ok(());
     }
 
-    if mcountinhibit::read() & counter.inhibit_mask() != 0 {
+    if machine::CounterInhibit::read().contains(counter) {
         return Err(StopCounterErr::AlreadyStop);
     }
 
-    counter.stop();
+    set_counter_inhibited(counter, true);
     Ok(())
 }
 

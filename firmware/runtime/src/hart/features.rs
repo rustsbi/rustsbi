@@ -11,12 +11,11 @@ pub fn has_hypervisor() -> bool {
 /// Checks support for the requested privilege mode.
 ///
 /// M-mode is always supported; S/U support follows the bits reported by `misa`.
-pub fn supports_privilege(mode: riscv::register::mstatus::MPP) -> bool {
-    use riscv::register::mstatus::MPP;
+pub fn supports_privilege(mode: machine::TargetPrivilege) -> bool {
     match mode {
-        MPP::Machine => true,
-        MPP::Supervisor => machine::Isa::read().has_extension('S'),
-        MPP::User => machine::Isa::read().has_extension('U'),
+        machine::TargetPrivilege::Machine => true,
+        machine::TargetPrivilege::Supervisor => machine::Isa::read().has_extension('S'),
+        machine::TargetPrivilege::User => machine::Isa::read().has_extension('U'),
     }
 }
 

@@ -61,7 +61,7 @@ impl SbiHsm {
         let stage = NextStage {
             start_addr: resume_addr,
             opaque,
-            next_mode: riscv::register::mstatus::MPP::Supervisor,
+            next_mode: csr::machine::TargetPrivilege::Supervisor,
         };
         let ticket = match hart::begin_nonretentive_resume(stage) {
             Ok(ticket) => ticket,
@@ -88,7 +88,7 @@ impl Hsm for SbiHsm {
         let stage = NextStage {
             start_addr,
             opaque,
-            next_mode: riscv::register::mstatus::MPP::Supervisor,
+            next_mode: csr::machine::TargetPrivilege::Supervisor,
         };
         match hart::start(hart, stage) {
             Ok(hart::StartOutcome::Accepted) => SbiRet::success(0),

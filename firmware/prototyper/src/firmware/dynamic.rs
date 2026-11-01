@@ -10,11 +10,11 @@ use runtime::Result;
 
 use crate::fail;
 
-use riscv::register::mstatus;
+use csr::machine::TargetPrivilege;
 
 /// Derives the next-stage address and privilege mode from the `a2`
 /// `DynamicInfo`; prints and stops on invalid input.
-pub(crate) fn decode_next_stage(dynamic_info_address: usize) -> (mstatus::MPP, usize) {
+pub(crate) fn decode_next_stage(dynamic_info_address: usize) -> (TargetPrivilege, usize) {
     let dynamic_info =
         read_dynamic_info(dynamic_info_address).unwrap_or_else(fail::no_dynamic_info_available);
     validate_next_stage(&dynamic_info).unwrap_or_else(fail::invalid_dynamic_data)
@@ -91,7 +91,7 @@ pub struct ValidationError<'a> {
 /// Returns Result containing tuple of (MPP, next_addr) or error details.
 pub fn validate_next_stage(
     dynamic_info: &DynamicInfo,
-) -> Result<(mstatus::MPP, usize), ValidationError<'_>> {
+) -> Result<(TargetPrivilege, usize), ValidationError<'_>> {
     let mut error = ValidationError {
         invalid_next_mode: false,
         invalid_next_address: false,
@@ -117,11 +117,11 @@ pub fn validate_next_stage(
     }
 
     let next_mode = match dynamic_info.next_mode {
-        3 => mstatus::MPP::Machine,
-        1 => mstatus::MPP::Supervisor,
+        3 => TargetPrivilege::Machine,
+        1 => TargetPrivilege::Supervisor,
         // pattern `_` avoids `unreachable!`` which introduces panic handler.
         // pattern 0 and _
-        _ => mstatus::MPP::User,
+        _ => TargetPrivilege::User,
     };
 
     Ok((next_mode, dynamic_info.next_addr))
