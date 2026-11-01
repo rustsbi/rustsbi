@@ -15,3 +15,9 @@
 
 qemu-logs/
 /.openeuler-aia/
+
+# scratch output from rustsbi-code-review runs
+.review-out/
+
+# local Claude Code skill link (junction into .agents/skills)
+.claude/
