@@ -1,4 +1,5 @@
 ---
+# SPDX-License-Identifier: MPL-2.0
 name: rustsbi-code-review
 description: Review code against RustSBI's persona-keyed coding guidelines and write a Markdown review file. Use when asked to review a Git change (diff mode) or a set of target files (files mode), or to backtest the skill against a historical pull request.
 ---
