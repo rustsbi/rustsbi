@@ -19,6 +19,7 @@ pub mod events;
 pub mod fwft;
 pub mod hart;
 pub mod heap;
+pub mod instruction;
 pub mod ipi;
 mod irq;
 pub mod machine_irq;
