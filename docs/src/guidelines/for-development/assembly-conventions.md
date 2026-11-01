@@ -24,6 +24,7 @@ Use `.balign` for unambiguous byte-count alignment.
 
 ```rust
 // Good — unambiguous
+#[unsafe(naked)]
 unsafe extern "C" fn _boot_header() -> ! {
     naked_asm!(
         "j _start",
