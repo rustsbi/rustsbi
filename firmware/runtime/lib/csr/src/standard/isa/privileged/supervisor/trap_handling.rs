@@ -1,6 +1,7 @@
 //! Supervisor trap handling.
 use crate::macros::csr;
 use crate::values::{Address, TrapValueBits, trap::CauseValue};
+use super::super::machine::PendingState;
 
 csr! {
     /// Supervisor exception program counter (`sepc`).
@@ -24,4 +25,8 @@ csr! {
     ///
     /// See <https://docs.riscv.org/reference/isa/priv/supervisor.html#stval>.
     TrapValue { 0x143, r: TrapValueBits, w: TrapValueBits }
+    /// Supervisor interrupt pending register (`sip`).
+    /// See <https://docs.riscv.org/reference/isa/priv/supervisor.html#sip>.
+    InterruptPending { 0x144, r }
+        STIP[5] { r: PendingState }
 }

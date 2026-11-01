@@ -32,6 +32,8 @@ impl Iid {
 }
 
 /// An IMSIC indirect register, distinct from the `miselect` and `mireg` CSRs.
+///
+/// See <https://docs.riscv.org/reference/aia/v1.0/IMSIC.html>.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ImsicRegister {
     /// Interrupt delivery enable.
@@ -65,5 +67,29 @@ impl ImsicRegister {
         } else {
             Some(base + index as usize)
         }
+    }
+
+    /// Writes this register in the current hart's machine interrupt file.
+    ///
+    /// Returns `None` when the selector is invalid for the current XLEN.
+    /// Access to an unimplemented register can trap.
+    /// On success, `miselect` remains set to this register's selector.
+    ///
+    /// # Safety
+    ///
+    /// Execute in M-mode with an accessible machine interrupt file. The value
+    /// must be valid for the selected register. Serialize the selector and data
+    /// accesses with all other indirect accesses on this hart, including
+    /// interrupt handlers.
+    #[inline]
+    pub unsafe fn write_machine(self, value: usize) -> Option<()> {
+        let selector = self.selector()?;
+        // SAFETY: The caller establishes access, a valid value, and exclusive
+        // use of miselect for the selector and data writes.
+        unsafe {
+            crate::value::write::<{ super::machine::Miselect::NUMBER }>(selector);
+            crate::value::write::<{ super::machine::Mireg::NUMBER }>(value);
+        }
+        Some(())
     }
 }
