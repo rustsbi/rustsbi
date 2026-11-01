@@ -34,6 +34,31 @@ csr! {
     }
 }
 
+macro_rules! read_counter64 {
+    ($counter:ident, $high:ident) => {
+        impl $counter {
+            /// Reads a coherent 64-bit counter value.
+            pub fn read64() -> u64 {
+                #[cfg(target_pointer_width = "64")]
+                {
+                    usize::from(Self::read()) as u64
+                }
+                #[cfg(target_pointer_width = "32")]
+                loop {
+                    let high = usize::from($high::read());
+                    let low = usize::from(Self::read());
+                    if high == usize::from($high::read()) {
+                        return ((high as u64) << 32) | low as u64;
+                    }
+                }
+            }
+        }
+    };
+}
+
+read_counter64!(CycleCounter, CycleCounterHigh);
+read_counter64!(InstructionCounter, InstructionCounterHigh);
+
 macro_rules! counter_register {
     ($(#[$attr:meta])* $name:ident, $base:literal) => {
         $(#[$attr])*

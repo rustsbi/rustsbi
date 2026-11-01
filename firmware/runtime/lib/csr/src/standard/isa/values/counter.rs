@@ -19,6 +19,21 @@ impl From<usize> for CounterValue {
     }
 }
 
+/// Subtracts two counter words using wrapping arithmetic modulo 2^XLEN.
+///
+/// The operands should be readings of the same counter. The result cannot
+/// distinguish elapsed intervals that differ by a multiple of 2^XLEN.
+///
+/// See <https://docs.riscv.org/reference/isa/unpriv/counters.html>.
+impl core::ops::Sub for CounterValue {
+    type Output = usize;
+
+    #[inline]
+    fn sub(self, rhs: Self) -> Self::Output {
+        self.0.wrapping_sub(rhs.0)
+    }
+}
+
 /// Counter-enable bits for the three base counters and 29 performance counters.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -165,5 +180,16 @@ impl From<CounterSet> for u32 {
     #[inline]
     fn from(value: CounterSet) -> Self {
         value.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CounterValue;
+
+    #[test]
+    fn counter_difference_wraps_at_xlen() {
+        assert_eq!(CounterValue::from(12) - CounterValue::from(7), 5);
+        assert_eq!(CounterValue::from(0) - CounterValue::from(usize::MAX), 1);
     }
 }
