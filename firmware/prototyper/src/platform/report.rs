@@ -22,6 +22,7 @@ pub(super) fn log_platform_summary() {
     log_interrupt_controller(board);
     log_console(board);
     log_reset(board);
+    log_sbi_extensions();
     log_ram(board);
 }
 
@@ -87,6 +88,21 @@ fn log_console(board: &BoardInfo) {
 
 fn log_reset(board: &BoardInfo) {
     board.devices.reset.log_summary();
+}
+
+fn log_sbi_extensions() {
+    log_availability("Platform HSM Extension", crate::sbi::hsm().is_some());
+    log_availability("Platform RFence Extension", crate::sbi::rfence().is_some());
+    log_availability("Platform SUSP Extension", crate::sbi::susp().is_some());
+    log_availability("Platform PMU Extension", crate::sbi::pmu().is_some());
+}
+
+fn log_availability(name: &str, available: bool) {
+    if available {
+        info!("{name:<30}: Available");
+    } else {
+        warn!("{name:<30}: Not Available");
+    }
 }
 
 fn log_ram(board: &BoardInfo) {

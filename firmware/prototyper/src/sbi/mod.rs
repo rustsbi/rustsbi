@@ -90,6 +90,16 @@ pub(crate) fn hsm() -> Option<&'static SbiHsm> {
     SbiDispatcher::get().and_then(|sbi| sbi.hsm.as_ref())
 }
 
+/// Returns the RFence extension, if present.
+pub(crate) fn rfence() -> Option<&'static SbiRFence> {
+    SbiDispatcher::get().and_then(|sbi| sbi.rfence.as_ref())
+}
+
+/// Returns the SUSP extension, if present.
+pub(crate) fn susp() -> Option<&'static SbiSuspend> {
+    SbiDispatcher::get().and_then(|sbi| sbi.susp.as_ref())
+}
+
 /// Returns the PMU extension, if present.
 pub(crate) fn pmu() -> Option<&'static SbiPmu> {
     SbiDispatcher::get().and_then(|sbi| sbi.pmu.as_ref())
