@@ -1,19 +1,34 @@
 //! SBI and machine interrupt handlers selected by trap dispatch.
-use super::{frame::TrapFrame, init};
+use super::frame::TrapFrame;
+use crate::rustsbi::SbiRet;
 use crate::{
     boot::NextStage,
     hart::{self, HartEvent},
     irq::LocalIrqDisabled,
 };
 
+// The firmware supplies this symbol through `#[runtime::sbi_policy]`.
+// Both crates use the same Rust ABI and SBI types in the final firmware.
+unsafe extern "Rust" {
+    fn __rustsbi_runtime_handle_ecall(
+        extension: usize,
+        function: usize,
+        args: [usize; 6],
+    ) -> SbiRet;
+}
+
 pub(super) fn sbi_ecall(frame: &mut TrapFrame) {
     let regs = &mut frame.general;
     let hart = hart::current_hart();
-    let ret = init::policy().handle_ecall(
-        regs.a7,
-        regs.a6,
-        [regs.a0, regs.a1, regs.a2, regs.a3, regs.a4, regs.a5],
-    );
+    // SAFETY: The firmware's `sbi_policy` symbol has the declared ABI and
+    // handles ecalls only after its policy state has been initialized.
+    let ret = unsafe {
+        __rustsbi_runtime_handle_ecall(
+            regs.a7,
+            regs.a6,
+            [regs.a0, regs.a1, regs.a2, regs.a3, regs.a4, regs.a5],
+        )
+    };
     regs.a0 = ret.error;
     regs.a1 = ret.value;
     frame.epc = frame.epc.wrapping_add(4);

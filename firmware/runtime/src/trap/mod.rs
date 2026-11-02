@@ -9,11 +9,8 @@ mod emulate;
 pub(crate) mod entry;
 mod frame;
 mod handlers;
-mod init;
 mod memory;
 mod redirect;
-
-pub use init::init;
 
 use csr::values::{Address, trap::Exception};
 

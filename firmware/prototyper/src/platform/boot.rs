@@ -9,7 +9,7 @@ use runtime::{
     hart::{self, HartId},
     ipi,
     memory::SupervisorMemory,
-    timer, trap,
+    timer,
 };
 
 use spin::Once;
@@ -234,7 +234,7 @@ fn publish_sbi_dispatcher(
     let sta = Some(sbi::sta::SbiSta::new(supervisor_memory));
     let vendor = sbi::vendor::Vendor::new(custom_extension, supervisor_memory);
 
-    let dispatcher = sbi::SBI_DISPATCHER.call_once(|| SbiDispatcher {
+    let dispatcher: &'static SbiDispatcher = Box::leak(Box::new(SbiDispatcher {
         console,
         cppc,
         dbtr,
@@ -249,8 +249,10 @@ fn publish_sbi_dispatcher(
         sta,
         mpxy,
         vendor,
-    });
-    trap::init(dispatcher).expect("BUG: SBI policy registered more than once");
+    }));
+    dispatcher
+        .publish()
+        .expect("BUG: SBI policy publication failed");
 }
 
 /// Runs the SoC-specific per-hart setup for secondary harts.

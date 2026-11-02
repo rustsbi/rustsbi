@@ -160,8 +160,7 @@ pub(crate) fn deliver_current() -> bool {
     // The device clear/claim must precede the pending-event read.
     runtime::instruction::fence();
     let hart = HartId::current().expect("BUG: current hart is not in the boot topology");
-    let ipi = &super::SBI_DISPATCHER
-        .get()
+    let ipi = &super::SbiDispatcher::get()
         .expect("BUG: SBI dispatcher not initialized")
         .ipi;
     let ipi_type = ipi.pending.get(hart).take();

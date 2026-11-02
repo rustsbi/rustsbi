@@ -86,7 +86,7 @@ impl Ipi {
     /// Runtime clears each hart's pending source after publication.
     /// The callback handles pending SBI work after acknowledgement, with MIE disabled.
     /// Return `true` to request a supervisor software interrupt.
-    pub fn new(device: Option<Box<dyn IpiDevice>>, deliver_fn: fn() -> bool) -> Self {
+    fn new(device: Option<Box<dyn IpiDevice>>, deliver_fn: fn() -> bool) -> Self {
         Self { device, deliver_fn }
     }
 

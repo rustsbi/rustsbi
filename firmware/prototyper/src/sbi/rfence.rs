@@ -322,8 +322,7 @@ pub(crate) fn rfence_poll_for(hart: HartId) {
     // Senders set FENCE pending after enqueueing. Checking it avoids locking an
     // empty queue on each retry; a stale bit only causes an unnecessary attempt.
     // The IPI handler clears the bit before draining, so it cannot use this check.
-    if super::SBI_DISPATCHER
-        .get()
+    if super::SbiDispatcher::get()
         .expect("BUG: SBI dispatcher not initialized")
         .ipi
         .fence_pending(hart)
