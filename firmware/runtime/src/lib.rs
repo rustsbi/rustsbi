@@ -22,7 +22,6 @@ pub mod heap;
 pub mod instruction;
 pub mod ipi;
 mod irq;
-pub mod machine_irq;
 pub mod memory;
 mod recovery;
 pub mod soc;

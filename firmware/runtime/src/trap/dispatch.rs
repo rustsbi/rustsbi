@@ -35,14 +35,7 @@ pub(super) unsafe extern "C" fn trap_dispatch(saved: &mut SavedTrap) {
                         .on_interrupt(&irq);
                 }
                 Interrupt::MachineExternal => handlers::external_interrupt(frame, &irq),
-                _ => {
-                    let code = info.cause & !(1usize << (usize::BITS - 1));
-                    if !crate::machine_irq::get()
-                        .is_some_and(|policy| policy.handle_interrupt(code))
-                    {
-                        fatal(&frame.general, info);
-                    }
-                }
+                _ => fatal(&frame.general, info),
             }
         }
         TrapCause::Exception(exception) => {
