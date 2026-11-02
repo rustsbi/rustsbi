@@ -2,6 +2,9 @@
 # Boot a checksum-pinned Arch Linux RISC-V rootfs through RustSBI.
 set -euo pipefail
 
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+
 if (( $# != 1 )); then
   echo "Usage: $0 sbi|u-boot|edk2" >&2
   exit 2
@@ -20,8 +23,6 @@ readonly KERNEL_VERSION=6.15.9
 readonly KERNEL_URL="https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${KERNEL_VERSION}.tar.xz"
 readonly KERNEL_SHA256=e94f3af85492302f7a819441458f80bca0ad9912e5a4c83c699ff3c63c52957d
 readonly UBOOT_VERSION=2024.04
-readonly UBOOT_URL="https://github.com/u-boot/u-boot/archive/refs/tags/v${UBOOT_VERSION}.tar.gz"
-readonly UBOOT_SHA256=d6b57ce574a0a0504a5b6596644ceacb7f77bde9353779bcf2fde07c4b9a2b92
 readonly EDK2_COMMIT=6951dfe7d59d144a3a980bd7eda699db2d8554ac
 readonly EDK2_URL=https://github.com/tianocore/edk2.git
 readonly CROSS_COMPILE=riscv64-linux-gnu-
@@ -105,27 +106,12 @@ prepare_kernel() {
 }
 
 prepare_uboot() {
-  local tarball="${WORK_DIR}/u-boot-v${UBOOT_VERSION}.tar.gz"
-  local tree="${WORK_DIR}/u-boot-${UBOOT_VERSION}"
-  local rustsbi_abs
-  download_asset "$UBOOT_URL" "$tarball" "$UBOOT_SHA256"
-  rm -rf "$tree"
-  tar -xzf "$tarball" -C "$WORK_DIR"
-  rustsbi_abs=$(realpath "$RUSTSBI_FIT_BIN")
-  make -C "$tree" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
-    OPENSBI="$rustsbi_abs" qemu-riscv64_spl_defconfig
-  "$tree/scripts/config" --file "$tree/.config" --enable USE_BOOTCOMMAND
-  "$tree/scripts/config" --file "$tree/.config" --set-str BOOTCOMMAND \
-    'setenv fdt_high; virtio scan; sysboot virtio 0:2 any 0x84000000 /boot/extlinux/extlinux.conf'
-  make -C "$tree" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
-    OPENSBI="$rustsbi_abs" -j"$(nproc)"
+  # Keep compiled U-Boot independent of the current RustSBI FIT payload.
+  local tree="${WORK_DIR}/u-boot"
+  ci_uboot_build "$UBOOT_VERSION" spl archlinux-spl "$tree"
+  ci_uboot_fit "$tree" "$RUSTSBI_FIT_BIN"
   UBOOT_SPL="$tree/spl/u-boot-spl"
   UBOOT_ITB="$tree/u-boot.itb"
-  test -s "$UBOOT_SPL" && test -s "$UBOOT_ITB"
-  "$tree/tools/dumpimage" -T flat_dt -p 1 -o "$WORK_DIR/rustsbi-from-fit.bin" "$UBOOT_ITB" \
-    > "$WORK_DIR/fit-layout.log"
-  cmp "$rustsbi_abs" "$WORK_DIR/rustsbi-from-fit.bin"
-  echo "Verified u-boot.itb contains current-commit RustSBI"
 }
 
 prepare_edk2() {

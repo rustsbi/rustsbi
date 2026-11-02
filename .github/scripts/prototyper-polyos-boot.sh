@@ -23,6 +23,9 @@
 
 set -euo pipefail
 
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+
 if (( $# > 0 )); then
   echo "Usage: $0" >&2
   exit 2
@@ -33,8 +36,6 @@ readonly POLYOS_URL="https://polyos.iscas.ac.cn/downloads/polyos-mobile-${POLYOS
 readonly POLYOS_SHA256="e6a69fc0c55096062c3362d0abf2705ae7d1972064bfe7e5d340266bf69d4599"
 
 readonly UB_VERSION="2024.04"
-readonly UB_URL="https://github.com/u-boot/u-boot/archive/refs/tags/v${UB_VERSION}.tar.gz"
-readonly UB_SHA256="d6b57ce574a0a0504a5b6596644ceacb7f77bde9353779bcf2fde07c4b9a2b92"
 
 readonly CROSS_COMPILE="riscv64-linux-gnu-"
 
@@ -187,40 +188,12 @@ EOF
 # into the low reserved area instead, the same lever the Arch (#351) and
 # zCore boot jobs use for the same failure family.
 build_uboot() {
-  local tarball="${WORK_DIR}/u-boot-${UB_VERSION}.tar.gz"
-  local tree="${WORK_DIR}/u-boot-${UB_VERSION}"
-  local rustsbi_abs
-
-  # `make -C` runs inside the U-Boot tree, so OPENSBI must be an absolute
-  # path; a relative path would be resolved against the tree, not the repo.
-  rustsbi_abs="$(readlink -f "$RUSTSBI")"
-
-  mkdir -p "$WORK_DIR"
-  download_asset "$UB_URL" "$tarball" "$UB_SHA256"
-
-  rm -rf "$tree"
-  tar -xzf "$tarball" -C "$WORK_DIR"
-
-  make -C "$tree" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
-    OPENSBI="$rustsbi_abs" qemu-riscv64_spl_defconfig
-
-  "${tree}/scripts/config" --file "${tree}/.config" --enable USE_BOOTCOMMAND
-  "${tree}/scripts/config" --file "${tree}/.config" --set-str BOOTCOMMAND \
-    'setenv fdt_high 0x88000000; run distro_bootcmd'
-
-  make -C "$tree" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
-    OPENSBI="$rustsbi_abs" -j"$(nproc)"
-
-  UB_SPL="${tree}/spl/u-boot-spl"
-  UB_ITB="${tree}/u-boot.itb"
-  test -s "$UB_SPL" && test -s "$UB_ITB"
-
-  # The SPL FIT must carry the firmware built from the commit under test, not
-  # a stale object: dump the embedded image and compare it byte for byte.
-  "${tree}/tools/dumpimage" -T flat_dt -p 1 -o "${WORK_DIR}/rustsbi-from-fit.bin" "$UB_ITB" \
-    >"${WORK_DIR}/fit-layout.log"
-  cmp "$rustsbi_abs" "${WORK_DIR}/rustsbi-from-fit.bin"
-  echo "Verified u-boot.itb contains current-commit RustSBI" >&2
+  # Keep compiled U-Boot independent of the current RustSBI FIT payload.
+  local tree="${WORK_DIR}/u-boot"
+  ci_uboot_build "$UB_VERSION" spl polyos-spl "$tree"
+  ci_uboot_fit "$tree" "$RUSTSBI"
+  UB_SPL="$tree/spl/u-boot-spl"
+  UB_ITB="$tree/u-boot.itb"
 }
 
 check_prerequisites() {

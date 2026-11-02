@@ -2,6 +2,9 @@
 # RustSBI dynamic firmware -> Linux directly, U-Boot or EDK II -> openEuler.
 set -euo pipefail
 
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # Fixed mirror listed at https://www.openeuler.org/en/mirror/list/.
 # The central repo timed out after 1200s on a cold GitHub runner download.
@@ -12,10 +15,7 @@ readonly IMAGE_SHA256=5ba2eb5f0dac1594e8e041e36125fc6e5a2bd4547b4039258e5bd5139f
 # Fixed release firmware from the same directory, also used by the AIA test.
 readonly CODE_SHA256=58e96e55744516ed5debff8ed90eaface7b8a51a9466e7c0a687f4025ed5c600
 readonly VARS_SHA256=ea8094e953b1215444bd001ee1cf22818f1f7f8abcb158e62180cbaa6c1f70af
-readonly UBOOT_PACKAGE=u-boot-qemu_2025.10-0ubuntu0.24.04.3_all.deb
-readonly UBOOT_SHA256=852a1f5d4a5d00a3a63f694a4bf46744f02737f5ffdea091666ee44d784f5eba
-# Keep the pinned bootloader available after Ubuntu's rolling pool replaces it.
-readonly UBOOT_URL=https://snapshot.ubuntu.com/ubuntu/20261014T000000Z/pool/main/u/u-boot/$UBOOT_PACKAGE
+readonly UBOOT_VERSION=2025.10-0ubuntu0.24.04.3
 # Extract these files from the same SHA256-pinned guest disk's FAT boot partition.
 readonly BARE_ESP_OFFSET=1048576
 readonly BARE_KERNEL_NAME=vmlinuz-6.6.0-102.0.0.5.oe2509.riscv64
@@ -90,8 +90,6 @@ prepare_assets() {
   if [[ "$BOOT_MODE" = edk2 ]]; then
     download_asset "$BASE_URL/RISCV_VIRT_CODE.fd" "$CACHE_DIR/RISCV_VIRT_CODE.fd" "$CODE_SHA256"
     download_asset "$BASE_URL/RISCV_VIRT_VARS.fd" "$CACHE_DIR/RISCV_VIRT_VARS.fd" "$VARS_SHA256"
-  elif [[ "$BOOT_MODE" = u-boot ]]; then
-    download_asset "$UBOOT_URL" "$CACHE_DIR/$UBOOT_PACKAGE" "$UBOOT_SHA256"
   fi
   IMAGE_PATH="$RUN_DIR/$IMAGE_NAME"
   timeout --foreground 300 xz -dc "$CACHE_DIR/$IMAGE_NAME.xz" > "$IMAGE_PATH"
@@ -99,15 +97,7 @@ prepare_assets() {
   if [[ "$BOOT_MODE" = edk2 ]]; then
     cp "$CACHE_DIR/RISCV_VIRT_VARS.fd" "$RUN_DIR/RISCV_VIRT_VARS.fd"
   elif [[ "$BOOT_MODE" = u-boot ]]; then
-    mkdir -p "$RUN_DIR/uboot"
-    if command -v dpkg-deb >/dev/null 2>&1; then
-      dpkg-deb -x "$CACHE_DIR/$UBOOT_PACKAGE" "$RUN_DIR/uboot"
-    elif command -v ar >/dev/null 2>&1 && command -v bsdtar >/dev/null 2>&1; then
-      ar p "$CACHE_DIR/$UBOOT_PACKAGE" data.tar.zst | bsdtar -xf - -C "$RUN_DIR/uboot"
-    else
-      echo 'Need dpkg-deb or ar + bsdtar to extract U-Boot' >&2
-      return 1
-    fi
+    ci_uboot_package "$UBOOT_VERSION" "$RUN_DIR/uboot"
     UBOOT_ELF="$RUN_DIR/uboot/usr/lib/u-boot/qemu-riscv64_smode/uboot.elf"
     test -s "$UBOOT_ELF"
   else
@@ -262,7 +252,9 @@ main() {
   if [[ "$BOOT_MODE" = edk2 ]]; then
     sha256sum "$CACHE_DIR/$IMAGE_NAME.xz" "$CACHE_DIR/"*.fd >> "$LOG_DIR/prototyper-openeuler-metadata.log"
   elif [[ "$BOOT_MODE" = u-boot ]]; then
-    sha256sum "$CACHE_DIR/$IMAGE_NAME.xz" "$CACHE_DIR/$UBOOT_PACKAGE" "$UBOOT_ELF" >> "$LOG_DIR/prototyper-openeuler-metadata.log"
+    sha256sum "$CACHE_DIR/$IMAGE_NAME.xz" \
+      "$(ci_uboot_root)/packages/$UBOOT_VERSION/u-boot-qemu_${UBOOT_VERSION}_all.deb" \
+      "$UBOOT_ELF" >> "$LOG_DIR/prototyper-openeuler-metadata.log"
   else
     sha256sum "$CACHE_DIR/$IMAGE_NAME.xz" "$BARE_KERNEL" "$BARE_INITRD" >> "$LOG_DIR/prototyper-openeuler-metadata.log"
     printf 'Bare kernel cmdline: %s\nESP partition offset: %s\n' "$BARE_CMDLINE" "$BARE_ESP_OFFSET" >> "$LOG_DIR/prototyper-openeuler-metadata.log"

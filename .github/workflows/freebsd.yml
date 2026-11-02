@@ -7,6 +7,7 @@ on:
       - ".cargo/**"
       - ".github/scripts/prototyper-freebsd-boot.sh"
       - ".github/workflows/freebsd.yml"
+      - ".github/scripts/ci-uboot.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -20,6 +21,7 @@ on:
       - ".cargo/**"
       - ".github/scripts/prototyper-freebsd-boot.sh"
       - ".github/workflows/freebsd.yml"
+      - ".github/scripts/ci-uboot.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -70,6 +72,10 @@ jobs:
             xz-utils
           qemu-system-riscv64 --version
 
+          source .github/scripts/ci-uboot.sh
+          toolchain_id=$(ci_uboot_toolchain_id)
+          echo "CI_UBOOT_TOOLCHAIN_ID=$toolchain_id" >> "$GITHUB_ENV"
+
       - name: Install required cargo
         run: cargo install --locked cargo-binutils@0.4.0
 
@@ -88,12 +94,12 @@ jobs:
           path: .cache/freebsd/14.1/kernel.txz
           key: freebsd-riscv64-14.1-kernel-321e538f9078659d8852e9a1628febac013fc3167e22e782266039a4b54fd3b7
 
-      - name: Cache U-Boot source
+      - name: Cache U-Boot build
         if: matrix.boot-path == 'u-boot'
         uses: actions/cache@v5
         with:
-          path: .cache/u-boot/v2024.04
-          key: u-boot-25049ad560826f7dc1c4740883b0016014a59789
+          path: .cache/ci-uboot/builds/spl-2024.04
+          key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-spl-2024.04-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Build RustSBI Prototyper and boot FreeBSD
         run: |

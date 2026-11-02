@@ -35,6 +35,9 @@
 
 set -euo pipefail
 
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+
 if (( $# > 1 )); then
   echo "Usage: $0 [sbi|u-boot|edk2]" >&2
   exit 2
@@ -59,8 +62,6 @@ readonly BUSYBOX_URL="https://busybox.net/downloads/busybox-${BUSYBOX_VERSION}.t
 readonly BUSYBOX_SHA256="b8cc24c9574d809e7279c3be349795c5d5ceb6fdf19ca709f80cde50e47de314"
 
 readonly UB_VERSION="2024.04"
-readonly UB_URL="https://github.com/u-boot/u-boot/archive/refs/tags/v${UB_VERSION}.tar.gz"
-readonly UB_SHA256="d6b57ce574a0a0504a5b6596644ceacb7f77bde9353779bcf2fde07c4b9a2b92"
 
 readonly EDK2_VERSION="edk2-stable202505"
 readonly EDK2_COMMIT="6951dfe7d59d144a3a980bd7eda699db2d8554ac"
@@ -103,7 +104,7 @@ readonly EDK2_VARS_TEMPLATE="${EDK2_CACHE}/RISCV_VIRT_VARS.fd"
 readonly EDK2_VARS="${WORK_DIR}/RISCV_VIRT_VARS.fd"
 
 # Populated by build_uboot; kept as mutable globals because the tree lives
-# under WORK_DIR and is rebuilt every run.
+# under WORK_DIR; only the FIT is repacked every run.
 UB_SPL=""
 UB_ITB=""
 
@@ -412,39 +413,14 @@ EOF
 }
 
 # Build U-Boot with the RustSBI firmware embedded as the OpenSBI payload. The
-# build products are deliberately not cached: the SPL embeds the firmware, so
-# they must be rebuilt from the commit under test every run.
+# compiled products are shared; the FIT is repacked with the current RustSBI.
 build_uboot() {
-  local tarball="${WORK_DIR}/u-boot-${UB_VERSION}.tar.gz"
-  local tree="${WORK_DIR}/u-boot-${UB_VERSION}"
-  local rustsbi_abs
-
-  # `make -C` runs inside the U-Boot tree, so OPENSBI must be an absolute
-  # path; a relative path would be resolved against the tree, not the repo.
-  rustsbi_abs="$(readlink -f "$RUSTSBI")"
-
-  mkdir -p "$WORK_DIR"
-  download_asset "$UB_URL" "$tarball" "$UB_SHA256"
-
-  rm -rf "$tree"
-  tar -xzf "$tarball" -C "$WORK_DIR"
-
-  make -C "$tree" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
-    OPENSBI="$rustsbi_abs" qemu-riscv64_spl_defconfig
-
-  # Set the default boot command non-interactively, equivalent to the
-  # menuconfig step in the repository guide. The single quotes keep
-  # ${fdtcontroladdr} literal so U-Boot expands it at runtime.
-  "${tree}/scripts/config" --file "${tree}/.config" --enable USE_BOOTCOMMAND
-  # shellcheck disable=SC2016
-  "${tree}/scripts/config" --file "${tree}/.config" --set-str BOOTCOMMAND \
-    'ext4load virtio 0:1 84000000 Image; setenv bootargs root=/dev/vda1 rw console=ttyS0; booti 0x84000000 - ${fdtcontroladdr}'
-
-  make -C "$tree" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
-    OPENSBI="$rustsbi_abs" -j"$(nproc)"
-
-  UB_SPL="${tree}/spl/u-boot-spl"
-  UB_ITB="${tree}/u-boot.itb"
+  # Keep compiled U-Boot independent of the current RustSBI FIT payload.
+  local tree="${WORK_DIR}/u-boot"
+  ci_uboot_build "$UB_VERSION" spl minimal-linux-spl "$tree"
+  ci_uboot_fit "$tree" "$RUSTSBI"
+  UB_SPL="$tree/spl/u-boot-spl"
+  UB_ITB="$tree/u-boot.itb"
 }
 
 # Run a command with elevated privileges when running as a non-root user (CI

@@ -30,7 +30,7 @@
 # cached, so a warm run skips the container build entirely; the image digest and
 # the source commit are both checked before the build starts, and RustSBI is
 # rebuilt from the commit under test and is never cached. Because the u-boot
-# path embeds that firmware in the SPL, its U-Boot build is not cached either.
+# path embeds that firmware in a FIT, only the final FIT is repacked each run.
 #
 # Asterinas reads the `seed` CSR when the device tree advertises Zkr, and S-mode
 # access is gated in M-mode by `mseccfg.SSEED`. RustSBI sets that bit since the
@@ -50,6 +50,9 @@
 # mcopy from dosfstools and mtools.
 
 set -euo pipefail
+
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
 
 if (( $# > 1 )); then
   echo "Usage: $0 [sbi|u-boot]" >&2
@@ -79,8 +82,6 @@ readonly ASTERINAS_IMAGE_DIGEST="${ASTERINAS_IMAGE_DIGEST:-sha256:55732d279d1728
 readonly ASTERINAS_IMAGE_REF="${ASTERINAS_IMAGE}@${ASTERINAS_IMAGE_DIGEST}"
 
 readonly UB_VERSION="2024.04"
-readonly UB_URL="https://github.com/u-boot/u-boot/archive/refs/tags/v${UB_VERSION}.tar.gz"
-readonly UB_SHA256="d6b57ce574a0a0504a5b6596644ceacb7f77bde9353779bcf2fde07c4b9a2b92"
 readonly CROSS_COMPILE="riscv64-linux-gnu-"
 
 # The sbi path boots the dynamic firmware directly; the u-boot path embeds the
@@ -108,14 +109,14 @@ readonly KERNEL_ELF="${CACHE_DIR}/aster-nix-boot.elf"
 readonly INITRAMFS="${CACHE_DIR}/initramfs-boot.cpio.gz"
 readonly CMDLINE_FILE="${CACHE_DIR}/cmdline.txt"
 
-# U-Boot products. None of them are cached: the SPL embeds the firmware built
-# from the commit under test, and the uImage and disk image are derived from it.
+# Guest images are prepared per run. U-Boot compilation is cached separately
+# from the FIT containing the current RustSBI firmware.
 readonly ASTERINAS_KERNEL_BIN="${WORK_DIR}/asterinas-kernel.bin"
 readonly ASTERINAS_UIMAGE="${WORK_DIR}/asterinas.uimg"
 readonly BOOT_DISK="${WORK_DIR}/asterinas-boot.img"
 
 # Populated by build_uboot; kept as mutable globals because the tree lives
-# under WORK_DIR and is rebuilt every run.
+# under WORK_DIR; only the FIT is repacked every run.
 UB_TREE=""
 UB_SPL=""
 UB_ITB=""
@@ -314,58 +315,14 @@ cleanup() {
   stop_qemu
 }
 
-# Build U-Boot with the RustSBI firmware embedded as the OpenSBI payload. The
-# build products are deliberately not cached: the SPL embeds the firmware, so
-# they must be rebuilt from the commit under test every run.
+# Repack the shared U-Boot build with the current RustSBI.
 build_uboot() {
-  local tarball="${WORK_DIR}/u-boot-${UB_VERSION}.tar.gz"
-  local tree="${WORK_DIR}/u-boot-${UB_VERSION}"
-  local rustsbi_abs bootargs bootcmd
-
-  # `make -C` runs inside the U-Boot tree, so OPENSBI must be an absolute
-  # path; a relative path would be resolved against the tree, not the repo.
-  rustsbi_abs="$(readlink -f "$RUSTSBI")"
-
-  mkdir -p "$WORK_DIR"
-  download_asset "$UB_URL" "$tarball" "$UB_SHA256"
-
-  rm -rf "$tree"
-  tar -xzf "$tarball" -C "$WORK_DIR"
-
-  make -C "$tree" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
-    OPENSBI="$rustsbi_abs" qemu-riscv64_spl_defconfig
-
-  bootargs="$(<"$CMDLINE_FILE")"
-  # The command line is pasted into the boot command, parsed by U-Boot's hush
-  # and rewritten into .config by scripts/config (sed), so the two characters
-  # that would silently change either meaning are rejected instead.
-  if [[ "$bootargs" == *"&"* || "$bootargs" == *"'"* ]]; then
-    echo "Asterinas command line contains an ampersand or quote U-Boot cannot carry" >&2
-    return 1
-  fi
-
-  # Set the default boot command non-interactively, equivalent to the
-  # menuconfig step in the repository guide. The single quotes keep the command
-  # one hush word and the ${...} references for U-Boot to expand at runtime;
-  # `scripts/config` rewrites the value with sed, so it must not contain `&`.
-  bootcmd="load virtio 0 \${kernel_addr_r} asterinas.uimg; load virtio 0 \${ramdisk_addr_r} initramfs.cpio.gz; setenv rd_size \${filesize}; setenv bootargs '${bootargs}'; fdt addr \${fdtcontroladdr}; fdt move \${fdtcontroladdr} \${fdt_addr_r} 0x10000; bootm \${kernel_addr_r} \${ramdisk_addr_r}:\${rd_size} \${fdt_addr_r}"
-  "${tree}/scripts/config" --file "${tree}/.config" --enable USE_BOOTCOMMAND
-  "${tree}/scripts/config" --file "${tree}/.config" --set-str BOOTCOMMAND "$bootcmd"
-
-  make -C "$tree" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
-    OPENSBI="$rustsbi_abs" -j"$(nproc)"
-
+  local tree="${WORK_DIR}/u-boot"
+  ci_uboot_build 2024.04 spl asterinas-spl "$tree"
+  ci_uboot_fit "$tree" "$RUSTSBI"
   UB_TREE="$tree"
-  UB_SPL="${tree}/spl/u-boot-spl"
-  UB_ITB="${tree}/u-boot.itb"
-  test -s "$UB_SPL" && test -s "$UB_ITB"
-
-  # The SPL FIT must carry the firmware built from the commit under test, not a
-  # stale object: dump the embedded OpenSBI image and compare it byte for byte.
-  "${tree}/tools/dumpimage" -T flat_dt -p 1 -o "${WORK_DIR}/rustsbi-from-fit.bin" "$UB_ITB" \
-    >"${WORK_DIR}/fit-layout.log"
-  cmp "$rustsbi_abs" "${WORK_DIR}/rustsbi-from-fit.bin"
-  echo "Verified u-boot.itb contains current-commit RustSBI" >&2
+  UB_SPL="$tree/spl/u-boot-spl"
+  UB_ITB="$tree/u-boot.itb"
 }
 
 # Asterinas is a fixed-address ELF, not a Linux `Image`, so `booti` cannot load
@@ -417,6 +374,8 @@ make_boot_disk() {
   mkfs.vfat -F 32 "$BOOT_DISK" >/dev/null
   mcopy -i "$BOOT_DISK" "$ASTERINAS_UIMAGE" ::asterinas.uimg
   mcopy -i "$BOOT_DISK" "$INITRAMFS" ::initramfs.cpio.gz
+  printf 'bootargs=%s\n' "$(<"$CMDLINE_FILE")" >"$WORK_DIR/uboot.env"
+  mcopy -i "$BOOT_DISK" "$WORK_DIR/uboot.env" ::uboot.env
 }
 
 check_prerequisites() {

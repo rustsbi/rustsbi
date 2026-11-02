@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+
 # Boot upstream RT-Thread (qemu-virt64-riscv, S-mode) through RustSBI Prototyper
 # in QEMU. Two boot paths, selected by the first argument:
 #
@@ -56,8 +59,6 @@ readonly BOOT_FAILURE_PATTERN='panicked at|Unhandled exception|### ERROR ###|Sys
 
 # U-Boot, pinned like the RT-Thread checkout so the boot test is reproducible.
 readonly UB_VERSION="2024.04"
-readonly UB_URL="https://github.com/u-boot/u-boot/archive/refs/tags/v${UB_VERSION}.tar.gz"
-readonly UB_SHA256="d6b57ce574a0a0504a5b6596644ceacb7f77bde9353779bcf2fde07c4b9a2b92"
 readonly CROSS_COMPILE="riscv64-linux-gnu-"
 
 # The sbi path boots the dynamic firmware directly; the u-boot path embeds the
@@ -211,42 +212,16 @@ TOML
   test -s "$RUSTSBI_BIN"
 }
 
-# Build U-Boot with the RustSBI firmware embedded as its SBI firmware. Not
-# cached: the SPL embeds the firmware under test.
+# Reuse compiled U-Boot and package the current RustSBI firmware into its FIT.
 build_uboot() {
-  local tarball="${WORK_DIR}/u-boot-${UB_VERSION}.tar.gz"
-  local tree="${WORK_DIR}/u-boot-${UB_VERSION}"
-  local rustsbi_abs
-  rustsbi_abs="$(readlink -f "$RUSTSBI_BIN")"
-
-  mkdir -p "$WORK_DIR"
-  download_asset "$UB_URL" "$tarball" "$UB_SHA256"
-
-  rm -rf "$tree"
-  tar -xzf "$tarball" -C "$WORK_DIR"
-
-  make -C "$tree" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
-    OPENSBI="$rustsbi_abs" qemu-riscv64_spl_defconfig
-
-  # RT-Thread boots from a0 (hart id) and pokes MMIO devices directly, so it
-  # needs no device tree contents, but bootm still requires an FDT argument:
-  # move U-Boot's control FDT to fdt_addr_r and pass it as the third bootm
-  # operand (`-` leaves the ramdisk slot empty).
-  "${tree}/scripts/config" --file "${tree}/.config" --enable USE_BOOTCOMMAND
-  "${tree}/scripts/config" --file "${tree}/.config" --set-str BOOTCOMMAND \
-    "load virtio 0 \${kernel_addr_r} rtthread.uimg; fdt addr \${fdtcontroladdr}; fdt move \${fdtcontroladdr} \${fdt_addr_r} 0x10000; bootm \${kernel_addr_r} - \${fdt_addr_r}"
-
-  # The SPL has to fit the whole u-boot.itb (which embeds RustSBI) in its
-  # malloc pool before it can hand it to the next stage; bump the default 1MB
-  # so it no longer fails with "Could not get FIT buffer".
-  "${tree}/scripts/config" --file "${tree}/.config" --set-val SPL_SYS_MALLOC_SIZE 0x800000
-
-  make -C "$tree" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
-    OPENSBI="$rustsbi_abs" -j"$JOBS"
-
+  # Keep compiled U-Boot independent of the current RustSBI FIT payload.
+  # The SPL malloc pool must hold the whole FIT, including RustSBI.
+  local tree="${WORK_DIR}/u-boot"
+  ci_uboot_build "$UB_VERSION" spl rtt-spl "$tree"
+  ci_uboot_fit "$tree" "$RUSTSBI_BIN"
   UB_TREE="$tree"
-  UB_SPL="${tree}/spl/u-boot-spl"
-  UB_ITB="${tree}/u-boot.itb"
+  UB_SPL="$tree/spl/u-boot-spl"
+  UB_ITB="$tree/u-boot.itb"
 }
 
 # Wrap the raw RT-Thread binary in a legacy uImage telling `bootm` where to
