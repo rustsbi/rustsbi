@@ -34,7 +34,7 @@ impl core::ops::Sub for CounterValue {
     }
 }
 
-/// Counter-enable bits for the three base counters and 29 performance counters.
+/// A set of architectural counter indices, also used by counter-enable CSRs.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CounterSet(u32);

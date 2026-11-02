@@ -123,6 +123,7 @@ counter_register!(
     /// Machine performance counter indexed from 3 through 31.
     PerformanceCounter, 0xb00
 );
+
 counter_register!(
     /// Upper word of a machine performance counter on RV32.
     PerformanceCounterHigh, 0xb80

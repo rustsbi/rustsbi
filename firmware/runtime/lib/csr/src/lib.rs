@@ -36,6 +36,11 @@
 //! Inaccessible or unavailable hardware can trap.
 //! Runtime owns probing, recovery, privilege checks, and hart-local execution.
 //!
+//! [`detect!`] generates fallible read probes for selected registers.
+//! Each check executes a read-only CSR instruction and records an
+//! `.trap_fixup` entry; the firmware supplies trap recovery and the error
+//! value. The macro performs no readiness check.
+//!
 //! Writes and operations with side effects are unsafe.
 //! Their callers must establish current-hart access, coordinate conflicting
 //! operations, and preserve the register's documented execution requirements.

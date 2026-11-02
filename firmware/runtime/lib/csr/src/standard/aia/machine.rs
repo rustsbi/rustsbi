@@ -20,6 +20,13 @@ csr! {
     Mtopei { 0x35c, r }
 }
 
+impl From<usize> for Miselect {
+    #[inline]
+    fn from(selector: usize) -> Self {
+        Self(selector)
+    }
+}
+
 /// Machine indirect register data CSR identity (`mireg`).
 ///
 /// The value of `miselect` determines which register an access to `mireg`

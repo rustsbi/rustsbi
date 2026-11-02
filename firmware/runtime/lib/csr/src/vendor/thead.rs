@@ -3,6 +3,7 @@
 /// T-Head machine-level CSRs.
 pub mod machine {
     use crate::macros::csr;
+    use crate::machine::FeatureState;
 
     csr! {
         /// T-Head extended status register (`mxstatus`).
@@ -12,5 +13,10 @@ pub mod machine {
         /// OpenSBI identifies its C9xx CSR number as `0x7c0`:
         /// <https://github.com/riscv-software-src/opensbi/blob/master/platform/generic/include/thead/c9xx_encoding.h>.
         ExtendedStatus { 0x7c0, r }
+            /// Machine acceleration execution environment (`MAEE`).
+            ///
+            /// OpenSBI names this field `THEAD_MXSTATUS_MAEE`:
+            /// <https://github.com/riscv-software-src/opensbi/blob/master/platform/generic/include/thead/c9xx_encoding.h>.
+            MAEE[21] { rw: FeatureState }
     }
 }
