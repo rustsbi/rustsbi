@@ -15,6 +15,7 @@ use core::mem::{align_of, size_of};
 use runtime::{
     Error, PlatformView, Result,
     memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+    timer,
 };
 
 use crate::devicetree::EnabledNode;
@@ -135,8 +136,8 @@ impl V104Watchdog {
         // Clear CFG bit 0 before the delay, preserving its other fields.
         let config = self.read(Register::Config)?;
         self.write(Register::Config, (config & !CONFIG_ENABLE) | UPDATE_KEY)?;
-        let start = csr::user::Time::read64();
-        while csr::user::Time::read64().wrapping_sub(start) < self.delay_ticks {
+        let start = timer::now().ok_or(Error::NotSupported)?;
+        while timer::now().is_some_and(|now| now.wrapping_sub(start) < self.delay_ticks) {
             core::hint::spin_loop();
         }
 
