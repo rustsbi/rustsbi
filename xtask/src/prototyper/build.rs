@@ -149,10 +149,8 @@ fn convert_elf_to_binary(paths: &BuildPaths) -> Result<ExitStatus> {
     let elf_path = paths.artifact_dir.join(PACKAGE_NAME);
     let binary_path = paths.artifact_dir.join(format!("{PACKAGE_NAME}.bin"));
 
-    info!("Converting ELF to binary with rust-objcopy or llvm-objcopy");
-    elf_to_binary(&elf_path, &binary_path).with_context(|| {
-        "please install cargo-binutils with cmd: cargo install --locked cargo-binutils@0.4.0, or install llvm-objcopy"
-    })
+    info!("Converting ELF to binary");
+    elf_to_binary(&elf_path, &binary_path)
 }
 
 fn copy_mode_artifacts(spec: &BuildSpec, paths: &BuildPaths) -> Result<()> {

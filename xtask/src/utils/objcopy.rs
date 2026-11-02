@@ -7,8 +7,7 @@ use std::{
 
 use anyhow::{Context, Result};
 
-/// Convert an ELF file to a raw binary, preferring the Rust wrapper and
-/// falling back to LLVM only when the wrapper executable cannot be found.
+/// Convert an ELF to binary, using LLVM if rust-objcopy is missing.
 pub fn elf_to_binary(elf: &Path, binary: &Path) -> Result<ExitStatus> {
     elf_to_binary_with(
         OsStr::new("rust-objcopy"),
@@ -31,17 +30,34 @@ fn elf_to_binary_with(
         binary.as_os_str(),
     ];
     match Command::new(rust_objcopy).args(args).status() {
-        Ok(status) => Ok(status),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Command::new(llvm_objcopy)
-            .args(args)
-            .status()
-            .with_context(|| {
-                format!(
-                    "failed to execute llvm-objcopy (rust-objcopy was not found): '{}' -> '{}'",
-                    elf.display(),
-                    binary.display()
-                )
-            }),
+        Ok(status) => {
+            info!("Using rust-objcopy");
+            Ok(status)
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            match Command::new(llvm_objcopy).args(args).status() {
+                Ok(status) => {
+                    info!("Using llvm-objcopy");
+                    Ok(status)
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    Err(error).with_context(|| {
+                        format!(
+                            "neither rust-objcopy nor llvm-objcopy is available for '{}' -> '{}'; install cargo-binutils with `cargo install --locked cargo-binutils@0.4.0`, or install llvm-objcopy",
+                            elf.display(),
+                            binary.display()
+                        )
+                    })
+                }
+                Err(error) => Err(error).with_context(|| {
+                    format!(
+                        "failed to execute llvm-objcopy (rust-objcopy was not found): '{}' -> '{}'",
+                        elf.display(),
+                        binary.display()
+                    )
+                }),
+            }
+        }
         Err(error) => Err(error).with_context(|| {
             format!(
                 "failed to execute rust-objcopy: '{}' -> '{}'",
@@ -67,23 +83,6 @@ mod tests {
         permissions.set_mode(0o755);
         fs::set_permissions(&path, permissions).unwrap();
         path
-    }
-
-    #[test]
-    fn prefers_rust_objcopy_when_both_tools_are_available() {
-        let dir = tempdir().unwrap();
-        let rust = executable(dir.path(), "rust-objcopy", 0);
-        let llvm = executable(dir.path(), "llvm-objcopy", 24);
-
-        let status = elf_to_binary_with(
-            rust.as_os_str(),
-            llvm.as_os_str(),
-            Path::new("input.elf"),
-            Path::new("output.bin"),
-        )
-        .unwrap();
-
-        assert!(status.success());
     }
 
     #[test]
@@ -121,6 +120,26 @@ mod tests {
     }
 
     #[test]
+    fn does_not_show_install_hint_for_other_rust_spawn_errors() {
+        let dir = tempdir().unwrap();
+        let rust = dir.path().join("rust-objcopy");
+        fs::write(&rust, "not executable").unwrap();
+        let llvm = executable(dir.path(), "llvm-objcopy", 0);
+
+        let error = elf_to_binary_with(
+            rust.as_os_str(),
+            llvm.as_os_str(),
+            Path::new("input.elf"),
+            Path::new("output.bin"),
+        )
+        .unwrap_err();
+
+        let message = format!("{error:#}");
+        assert!(message.contains("failed to execute rust-objcopy"));
+        assert!(!message.contains("cargo install --locked cargo-binutils@0.4.0"));
+    }
+
+    #[test]
     fn reports_missing_llvm_tool_after_rust_tool_is_missing() {
         let dir = tempdir().unwrap();
         let missing_rust = dir.path().join("missing-rust-objcopy");
@@ -134,6 +153,8 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(format!("{error:#}").contains("failed to execute llvm-objcopy"));
+        let message = format!("{error:#}");
+        assert!(message.contains("neither rust-objcopy nor llvm-objcopy is available"));
+        assert!(message.contains("cargo install --locked cargo-binutils@0.4.0"));
     }
 }

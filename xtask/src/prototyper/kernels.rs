@@ -115,9 +115,7 @@ impl Kernel {
         info!("Converting {} kernel to binary format", self.command_name());
         let kernel_path = target_dir.join(self.package_name());
         let bin_path = target_dir.join(format!("{}.bin", self.package_name()));
-        let objcopy_status = elf_to_binary(&kernel_path, &bin_path).with_context(|| {
-            "please install cargo-binutils with cmd: cargo install --locked cargo-binutils@0.4.0, or install llvm-objcopy"
-        })?;
+        let objcopy_status = elf_to_binary(&kernel_path, &bin_path)?;
         if !objcopy_status.success() {
             bail!(
                 "objcopy failed to convert the {} kernel ELF to binary",
