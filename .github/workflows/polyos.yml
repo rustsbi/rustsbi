@@ -7,6 +7,7 @@ on:
       - ".cargo/**"
       - ".github/scripts/prototyper-polyos-boot.sh"
       - ".github/workflows/polyos.yml"
+      - ".github/scripts/ci-uboot.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -20,6 +21,7 @@ on:
       - ".cargo/**"
       - ".github/scripts/prototyper-polyos-boot.sh"
       - ".github/workflows/polyos.yml"
+      - ".github/scripts/ci-uboot.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -65,6 +67,10 @@ jobs:
             xz-utils
           qemu-system-riscv64 --version
 
+          source .github/scripts/ci-uboot.sh
+          toolchain_id=$(ci_uboot_toolchain_id)
+          echo "CI_UBOOT_TOOLCHAIN_ID=$toolchain_id" >> "$GITHUB_ENV"
+
       - name: Install required cargo
         run: cargo install --locked cargo-binutils@0.4.0
 
@@ -78,6 +84,12 @@ jobs:
             .cache/polyos/polyos-mobile-3.2-release.img.tar.xz
             .polyos/work/images
           key: polyos-mobile-3.2-release-v1
+
+      - name: Cache U-Boot build
+        uses: actions/cache@v5
+        with:
+          path: .cache/ci-uboot/builds/polyos-spl
+          key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-polyos-spl-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Build RustSBI Prototyper
         run: cargo prototyper build

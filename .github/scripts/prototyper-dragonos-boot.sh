@@ -8,6 +8,9 @@
 # See rustsbi/rustsbi#307 and #331 for the required coverage.
 set -euo pipefail
 
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+
 mode=${1:-sbi}
 case "$mode" in
   sbi|u-boot|edk2) ;;
@@ -23,8 +26,6 @@ fi
 readonly DRAGONOS_REV=40572b4554bee5b0a46fb0eff17fdff3a4d74b5e
 readonly STUB_REV=8515606674058ca81cd1c0b99453e326875c5c0d
 readonly DRAGONOS_IMAGE=dragonos/dragonos-dev@sha256:de57dc949325dc94379defe710d973ba6531c322770d95aa265dd26709b0780a
-readonly UBOOT_VERSION=2024.04
-readonly UBOOT_SHA256=d6b57ce574a0a0504a5b6596644ceacb7f77bde9353779bcf2fde07c4b9a2b92
 readonly EDK2_REV=6951dfe7d59d144a3a980bd7eda699db2d8554ac
 readonly BUSYBOX_VERSION=1.35.0
 readonly BUSYBOX_SHA256=faeeb244c35a348a334f4a59e44626ee870fb07b6884d68c10ae8bc19f83a694
@@ -115,23 +116,8 @@ prepare_busybox() {
 
 prepare_bootloader() {
   if [[ "$mode" == u-boot ]]; then
-    if [[ ! -s "$cache_dir/u-boot.bin" ]]; then
-      if [[ -n ${DRAGONOS_UBOOT_SOURCE_DIR:-} ]]; then
-        tree=$DRAGONOS_UBOOT_SOURCE_DIR
-        [[ $(git -C "$tree" rev-parse HEAD) == 25049ad560826f7dc1c4740883b0016014a59789 ]]
-      else
-        tarball="$work_dir/u-boot-${UBOOT_VERSION}.tar.gz"
-        download_asset "https://github.com/u-boot/u-boot/archive/refs/tags/v${UBOOT_VERSION}.tar.gz" \
-          "$tarball" "$UBOOT_SHA256"
-        tar -xzf "$tarball" -C "$work_dir"
-        tree="$work_dir/u-boot-${UBOOT_VERSION}"
-      fi
-      make -C "$tree" O="$work_dir/uboot-build" ARCH=riscv \
-        CROSS_COMPILE=riscv64-linux-gnu- qemu-riscv64_smode_defconfig
-      make -C "$tree" O="$work_dir/uboot-build" ARCH=riscv \
-        CROSS_COMPILE=riscv64-linux-gnu- -j"$(nproc)"
-      cp "$work_dir/uboot-build/u-boot.bin" "$cache_dir/u-boot.bin"
-    fi
+    ci_uboot_build 2024.04 smode smode-2024.04 "$work_dir/uboot-build"
+    cp "$work_dir/uboot-build/u-boot.bin" "$cache_dir/u-boot.bin"
   elif [[ "$mode" == edk2 ]]; then
     if [[ $(stat -c %s "$cache_dir/RISCV_VIRT_CODE.fd" 2>/dev/null || true) != 33554432 ||
           $(stat -c %s "$cache_dir/RISCV_VIRT_VARS.fd" 2>/dev/null || true) != 33554432 ]]; then

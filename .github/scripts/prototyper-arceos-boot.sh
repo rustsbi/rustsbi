@@ -9,6 +9,9 @@
 
 set -euo pipefail
 
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+
 if (( $# > 1 )); then
   echo "Usage: $0 [sbi|u-boot]" >&2
   exit 2
@@ -26,13 +29,11 @@ esac
 
 readonly ARCEOS_REPO="https://github.com/arceos-org/arceos"
 readonly ARCEOS_REV="8d2e6f97efc4a67359b99db5e519a55b7067b524"
-readonly UBOOT_REPO="https://github.com/u-boot/u-boot"
-readonly UBOOT_REV="25049ad560826f7dc1c4740883b0016014a59789"
 readonly CROSS_COMPILE="riscv64-linux-gnu-"
 
 # U-Boot is loaded where the kernel is linked to run; `booti` reads the payload
 # from UBOOT_PAYLOAD_ADDR.
-readonly UBOOT_PAYLOAD_ADDR="0x84000000"
+readonly UBOOT_PAYLOAD_ADDR="$CI_UBOOT_ARCEOS_PAYLOAD_ADDR"
 readonly UBOOT_LOAD_ADDR="0x80200000"
 
 readonly HELLO_MARKER="Hello, world!"
@@ -52,7 +53,6 @@ readonly ARCEOS_TREE="${WORK_DIR}/arceos"
 readonly ARCEOS_BIN="${CACHE_DIR}/helloworld.bin"
 readonly ARCEOS_IMAGE="${WORK_DIR}/helloworld.img"
 
-readonly UBOOT_TREE="${WORK_DIR}/u-boot"
 readonly UBOOT_BIN="${UBOOT_CACHE_DIR}/u-boot.bin"
 
 if [[ "$BOOT_MODE" = u-boot ]]; then
@@ -114,21 +114,7 @@ prepare_arceos() {
 # The S-mode defconfig ships no boot command, so one is baked in. The tree it
 # passes on is U-Boot's control tree, i.e. the one RustSBI patched for it.
 build_uboot() {
-  if [[ -s "$UBOOT_BIN" ]]; then
-    echo "Using cached U-Boot build" >&2
-    return
-  fi
-
-  mkdir -p "$UBOOT_CACHE_DIR" "$WORK_DIR"
-  clone_pinned "$UBOOT_REPO" "$UBOOT_REV" "$UBOOT_TREE"
-
-  make -C "$UBOOT_TREE" qemu-riscv64_smode_defconfig
-  "${UBOOT_TREE}/scripts/config" --file "${UBOOT_TREE}/.config" \
-    --enable CONFIG_USE_BOOTCOMMAND \
-    --set-str CONFIG_BOOTCOMMAND "booti ${UBOOT_PAYLOAD_ADDR} - \${fdtcontroladdr}"
-  make -C "$UBOOT_TREE" -j"$(nproc)" CROSS_COMPILE="$CROSS_COMPILE"
-
-  cp "${UBOOT_TREE}/u-boot.bin" "$UBOOT_BIN"
+  ci_uboot_build 2024.04 smode arceos-smode "$UBOOT_CACHE_DIR"
 }
 
 # `booti` needs the 64-byte RISC-V Linux Image header, whose text_offset puts

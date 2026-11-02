@@ -7,6 +7,7 @@ on:
       - ".cargo/**"
       - ".github/scripts/prototyper-archlinux-boot.sh"
       - ".github/workflows/archlinux.yml"
+      - ".github/scripts/ci-uboot.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -20,6 +21,7 @@ on:
       - ".cargo/**"
       - ".github/scripts/prototyper-archlinux-boot.sh"
       - ".github/workflows/archlinux.yml"
+      - ".github/scripts/ci-uboot.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -62,6 +64,10 @@ jobs:
             xz-utils zstd
           qemu-system-riscv64 --version
 
+          source .github/scripts/ci-uboot.sh
+          toolchain_id=$(ci_uboot_toolchain_id)
+          echo "CI_UBOOT_TOOLCHAIN_ID=$toolchain_id" >> "$GITHUB_ENV"
+
       - name: Install required cargo tool
         run: cargo install --locked cargo-binutils@0.4.0
 
@@ -79,6 +85,13 @@ jobs:
         with:
           path: .cache/archlinux/edk2-6951dfe7d59d144a3a980bd7eda699db2d8554ac
           key: archlinux-edk2-6951dfe7-v1
+
+      - name: Cache U-Boot build
+        if: matrix.boot-path == 'u-boot'
+        uses: actions/cache@v5
+        with:
+          path: .cache/ci-uboot/builds/archlinux-spl
+          key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-archlinux-spl-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Build RustSBI Prototyper
         run: cargo prototyper build

@@ -7,6 +7,7 @@ on:
       - ".cargo/**"
       - ".github/scripts/prototyper-openeuler-boot*.sh"
       - ".github/workflows/openeuler.yml"
+      - ".github/scripts/ci-uboot.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -20,6 +21,7 @@ on:
       - ".cargo/**"
       - ".github/scripts/prototyper-openeuler-boot*.sh"
       - ".github/workflows/openeuler.yml"
+      - ".github/scripts/ci-uboot.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -62,7 +64,7 @@ jobs:
       - name: Check script syntax and offline failure handling
         run: |
           bash -n .github/scripts/prototyper-openeuler-boot.sh
-          shellcheck .github/scripts/prototyper-openeuler-boot.sh
+          shellcheck -x .github/scripts/prototyper-openeuler-boot.sh
           .github/scripts/prototyper-openeuler-boot.sh --self-test
 
       - name: Install cargo-binutils
@@ -75,6 +77,13 @@ jobs:
         with:
           path: target/openeuler-boot/cache
           key: openeuler-25.09-5ba2eb5f-${{ matrix.boot-mode }}-u-boot-852a1f5d-v1
+
+      - name: Cache U-Boot build
+        if: matrix.boot-mode == 'u-boot'
+        uses: actions/cache@v5
+        with:
+          path: .cache/ci-uboot/packages/2025.10-0ubuntu0.24.04.3
+          key: uboot-package-2025.10-0ubuntu0.24.04.3-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Build current RustSBI Prototyper
         run: |

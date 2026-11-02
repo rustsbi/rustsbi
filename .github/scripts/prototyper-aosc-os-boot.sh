@@ -23,6 +23,9 @@
 # path additionally needs the U-Boot build toolchain (see aosc-os.yml).
 set -euo pipefail
 
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+
 if (( $# != 1 )) || [[ "$1" != sbi && "$1" != u-boot ]]; then
   echo "Usage: $0 <sbi|u-boot>" >&2
   exit 2
@@ -42,13 +45,10 @@ readonly RUSTSBI_DYNAMIC_BIN=target/riscv64gc-unknown-none-elf/release/rustsbi-p
 readonly RUSTSBI_FIT_BIN=target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin
 
 readonly UBOOT_VERSION=2024.04
-readonly UBOOT_URL="https://github.com/u-boot/u-boot/archive/refs/tags/v${UBOOT_VERSION}.tar.gz"
-readonly UBOOT_SHA256=d6b57ce574a0a0504a5b6596644ceacb7f77bde9353779bcf2fde07c4b9a2b92
 
 readonly CACHE_DIR="${AOSC_CACHE_DIR:-.cache/aosc-os}"
 readonly ROOTFS_ARCHIVE="${CACHE_DIR}/aosc-os_base_${AOSC_RELEASE}_riscv64.tar.xz"
 readonly CACHED_INITRAMFS="${CACHE_DIR}/initramfs-${AOSC_KERNEL_VERSION}.img"
-readonly UBOOT_ARCHIVE="${CACHE_DIR}/u-boot-v${UBOOT_VERSION}.tar.gz"
 WORK_DIR="$(realpath -m "${AOSC_WORK_DIR:-${RUNNER_TEMP:-/tmp}/rustsbi-aosc-os-${BOOT_MODE}}")"
 readonly WORK_DIR
 readonly LOG_DIR="${QEMU_LOG_DIR:-qemu-logs}"
@@ -289,31 +289,11 @@ adopt_existing_disk() {
   unmount_disk
 }
 
-# Build U-Boot with the firmware under test embedded as the SPL's OpenSBI
-# payload, the same way the other U-Boot boot tests in this repository do.
+# Repack the shared U-Boot build with the current RustSBI.
 prepare_uboot() {
-  local rustsbi_path tarball
-  rustsbi_path=$(realpath "$RUSTSBI_FIT_BIN")
-  tarball="${UBOOT_ARCHIVE}"
-  download_asset "$UBOOT_URL" "$tarball" "$UBOOT_SHA256"
-
-  rm -rf "$UBOOT_TREE"
-  tar -xzf "$tarball" -C "$WORK_DIR"
-  make -C "$UBOOT_TREE" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
-    OPENSBI="$rustsbi_path" qemu-riscv64_spl_defconfig
-  # U-Boot runs the distribution's own extlinux entry, which is how AOSC OS
-  # boots on U-Boot platforms; the distribution initramfs comes from the disk.
-  "$UBOOT_TREE/scripts/config" --file "$UBOOT_TREE/.config" --enable USE_BOOTCOMMAND
-  "$UBOOT_TREE/scripts/config" --file "$UBOOT_TREE/.config" --set-str BOOTCOMMAND \
-    'setenv fdt_high; virtio scan; sysboot virtio 0 any 0x84000000 /boot/extlinux/extlinux.conf'
-  make -C "$UBOOT_TREE" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
-    OPENSBI="$rustsbi_path" -j"$(nproc)"
-
-  test -s "$UBOOT_SPL" && test -s "$UBOOT_ITB"
-  "$UBOOT_TREE/tools/dumpimage" -T flat_dt -p 1 -o "${WORK_DIR}/rustsbi-from-fit.bin" \
-    "$UBOOT_ITB" >"${WORK_DIR}/fit-layout.log"
-  cmp "$rustsbi_path" "${WORK_DIR}/rustsbi-from-fit.bin"
-  echo "Verified u-boot.itb contains current-commit RustSBI"
+  local tree="$UBOOT_TREE"
+  ci_uboot_build 2024.04 spl aosc-os-spl "$tree"
+  ci_uboot_fit "$tree" "$RUSTSBI_FIT_BIN"
 }
 
 # Stage the kernel and the distribution initramfs on the root disk, together

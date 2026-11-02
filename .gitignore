@@ -14,4 +14,3 @@
 *.bin
 
 qemu-logs/
-/.openeuler-aia/
