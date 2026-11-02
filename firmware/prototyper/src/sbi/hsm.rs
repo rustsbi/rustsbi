@@ -100,6 +100,7 @@ impl Hsm for SbiHsm {
     /// Stops execution on the current hart.
     #[inline]
     fn hart_stop(&self) -> SbiRet {
+        super::timer().set_deadline(u64::MAX);
         match hart::stop_current() {
             Ok(never) => match never {},
             Err(_) => SbiRet::failed(),

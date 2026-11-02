@@ -95,10 +95,6 @@ pub unsafe fn configure_next_stage() {
         .expect("IPI service not published")
         .init_current(&irq)
         .expect("could not initialize hart IPI state");
-    let timer = crate::timer::get().expect("Timer service not published");
-    timer
-        .init_current(&irq)
-        .expect("could not initialize hart timer state");
     // SAFETY: The caller owns this hart's next-stage configuration.
     unsafe {
         machine::InterruptDelegation::write(usize::MAX.into());

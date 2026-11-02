@@ -92,8 +92,10 @@ fn initialize_platform(
     let selected_imsic = select_imsic(&board);
     let mut devices = driver::bind_devices(&board, selected_imsic, &mut memory)
         .during("binding platform devices")?;
-    let timer = timer::init(devices.timer.take()).expect("BUG: timer initialization failed");
-    let timer_service = SbiTimer::new(timer);
+    let timer = SbiTimer::new(devices.timer.take()).expect("BUG: timer initialization failed");
+    // Publish the platform time source as soon as its device is bound so later
+    // platform setup can use `timer::now()`.
+    timer::init(timer.device()).expect("BUG: time source initialization failed");
     let custom_extension = sbi::vendor::Extension::bind(v821, &mut memory)
         .during("binding Allwinner custom-extension devices")?;
     let k1_registers = match &board.soc {
@@ -142,7 +144,7 @@ fn initialize_platform(
         custom_extension,
         pmu,
         hart_wake,
-        timer_service,
+        timer,
     );
     Ok(next_stage_fdt_address)
 }
@@ -173,7 +175,7 @@ fn publish_platform_services(
     custom_extension: sbi::vendor::Extension,
     pmu: Option<SbiPmu>,
     hart_wake: Option<Box<dyn HartWake>>,
-    timer_service: SbiTimer,
+    timer: SbiTimer,
 ) {
     let driver::Devices {
         ipi,
@@ -198,14 +200,7 @@ fn publish_platform_services(
     info!("Hello RustSBI!");
 
     let reset = SbiReset::new(reset);
-    publish_sbi_dispatcher(
-        sbi_ipi,
-        timer_service,
-        reset,
-        custom_extension,
-        pmu,
-        hart_wake,
-    );
+    publish_sbi_dispatcher(sbi_ipi, timer, reset, custom_extension, pmu, hart_wake);
 
     state::mark_ready();
 

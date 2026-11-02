@@ -156,12 +156,6 @@ fn detect_privileged_version() {
     current_features().lock().privileged_version = privileged_version;
 }
 
-/// Detects Sstc even when it is omitted from the device tree.
-fn detect_sstc() {
-    let sstc = Timer::supports_sstc();
-    current_features().lock().extensions[Extension::Sstc.index()] = sstc;
-}
-
 fn detect_mhpm_counters() {
     // SAFETY:
     // 1. This hart is in M-mode with a valid Runtime stack and trap entry;
@@ -184,7 +178,6 @@ fn detect_mhpm_counters() {
 /// Detects the current hart's hardware features after device-tree discovery.
 pub fn detect_hart_features() {
     detect_privileged_version();
-    detect_sstc();
     detect_mhpm_counters();
 }
 
@@ -234,8 +227,8 @@ pub fn configure_hart_environment() {
         unsafe { machine::CounterInhibit::write(InhibitedCounters::programmable()) };
     }
     // Sstc provides STCE independently of the privileged-version heuristic.
-    // Use the same per-hart result as the SBI timer and Runtime interrupt path.
-    if has_extension(hart, Extension::Sstc) {
+    // Probe the counter directly so this matches the SBI timer's decision.
+    if matches!(Timer::detect(), Ok(Some(_))) {
         #[cfg(target_pointer_width = "64")]
         use csr::machine::{EnvironmentConfig as TimerConfig, STCE as TimerEnable};
         #[cfg(target_pointer_width = "32")]

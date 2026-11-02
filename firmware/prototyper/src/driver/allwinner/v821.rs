@@ -22,7 +22,7 @@ use runtime::{
     soc::allwinner::v821::{
         A27L2LineOperation as L1Operation, AllwinnerV821Soc, AndesStatusRegister, V821Csr,
     },
-    timer::Timer,
+    timer,
 };
 
 /// The A27L2 cache-maintenance MMIO device.
@@ -121,10 +121,10 @@ impl A27L2Cache {
     }
 
     /// Flushes the complete A27L2 cache.
-    pub(crate) fn flush_all(&self, timer: &Timer) -> Result<()> {
+    pub(crate) fn flush_all(&self) -> Result<()> {
         // Flush L1 before issuing the corresponding L2-wide operation.
         self.csr.write_back_and_invalidate_l1_all();
-        self.l2_command(L2Command::WriteBackAndInvalidateAll, timer)
+        self.l2_command(L2Command::WriteBackAndInvalidateAll)
     }
 
     pub(crate) fn write_back_range(
@@ -132,9 +132,8 @@ impl A27L2Cache {
         start: usize,
         length: usize,
         memory: &SupervisorMemory,
-        timer: &Timer,
     ) -> Result<()> {
-        self.maintain_range(start, length, RangeOperation::WriteBack, memory, timer)
+        self.maintain_range(start, length, RangeOperation::WriteBack, memory)
     }
 
     pub(crate) fn invalidate_range(
@@ -142,9 +141,8 @@ impl A27L2Cache {
         start: usize,
         length: usize,
         memory: &SupervisorMemory,
-        timer: &Timer,
     ) -> Result<()> {
-        self.maintain_range(start, length, RangeOperation::Invalidate, memory, timer)
+        self.maintain_range(start, length, RangeOperation::Invalidate, memory)
     }
 
     /// Performs one validated A27L2 cache-range operation.
@@ -154,7 +152,6 @@ impl A27L2Cache {
         length: usize,
         operation: RangeOperation,
         memory: &SupervisorMemory,
-        timer: &Timer,
     ) -> Result<()> {
         if length == 0 {
             return Ok(());
@@ -171,7 +168,7 @@ impl A27L2Cache {
         )?)?;
         // M-mode cache addresses are physical even when satp is enabled.
         if operation == RangeOperation::WriteBack && length >= LARGE_FLUSH_THRESHOLD {
-            return self.flush_all(timer);
+            return self.flush_all();
         }
 
         for address in (first..last).step_by(CACHE_LINE_SIZE) {
@@ -192,18 +189,17 @@ impl A27L2Cache {
             let line_address = u32::try_from(address).map_err(|_| Error::InvalidArgs)?;
             self.registers
                 .write_u32(CacheRegister::LineAddress, line_address)?;
-            self.l2_command(l2_command, timer)?;
+            self.l2_command(l2_command)?;
         }
         Ok(())
     }
 
-    fn l2_command(&self, command: L2Command, timer: &Timer) -> Result<()> {
+    fn l2_command(&self, command: L2Command) -> Result<()> {
         runtime::instruction::fence();
         self.registers
             .write_u32(CacheRegister::Command, command as u32)?;
         let read_time_fn = || {
-            timer
-                .read_time_low()
+            timer::now()
                 .map(|value| value as u32)
                 .ok_or(Error::NotEnoughResources)
         };

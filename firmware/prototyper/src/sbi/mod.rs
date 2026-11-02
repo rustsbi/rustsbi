@@ -3,10 +3,7 @@
 //! Platform boot selects the extension fields. Runtime calls the dispatcher
 //! through the original RustSBI trait and borrows its timer and IPI objects.
 
-use runtime::{
-    rustsbi::{self, RustSBI},
-    timer::Timer,
-};
+use runtime::rustsbi::{self, RustSBI};
 
 pub mod console;
 pub mod cppc;
@@ -81,12 +78,11 @@ pub(crate) fn ipi() -> Option<&'static SbiIpi> {
         .filter(|sbi| sbi.ipi().delivery().is_some())
 }
 
-/// Returns the published timer for firmware counter reads.
-pub(crate) fn timer() -> &'static Timer {
-    SbiDispatcher::get()
+/// Returns the published SBI timer policy.
+pub(crate) fn timer() -> &'static SbiTimer {
+    &SbiDispatcher::get()
         .expect("SBI dispatcher not initialized")
         .timer
-        .timer()
 }
 
 /// Returns the HSM extension, if present.

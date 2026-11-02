@@ -86,6 +86,9 @@ fn secondary_hart(boot: Option<&BootInfo>) {
 
 fn enable_supervisor_services() {
     sbi::features::configure_hart_environment();
+    // The supervisor owns its timer, so discard any firmware deadline before
+    // entry; otherwise a stale comparator could inject an early interrupt.
+    sbi::timer().set_deadline(u64::MAX);
     // SAFETY:
     // 1. Runtime startup installed trap entry.
     // 2. This hart is still in M-mode with machine interrupts disabled and no
