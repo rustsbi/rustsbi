@@ -12,10 +12,13 @@ use core::num::NonZeroU16;
 pub struct Iid(NonZeroU16);
 
 impl Iid {
+    /// Largest interrupt identity number defined by AIA.
+    pub const MAX_NUMBER: u16 = 0x7ff;
+
     /// Returns an interrupt identity if `number` is in `1..=2047`.
     #[inline]
     pub const fn new(number: u16) -> Option<Self> {
-        if number > 0x7ff {
+        if number > Self::MAX_NUMBER {
             return None;
         }
         match NonZeroU16::new(number) {

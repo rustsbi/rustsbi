@@ -27,8 +27,8 @@ impl Ipi {
         if !crate::boot::traps_ready() {
             return Err(Error::NotReady);
         }
-        if let Some(IpiDelivery::Imsic { iid, num_ids }) = self.delivery() {
-            imsic::initialize(num_ids, iid, irq)?;
+        if let Some(IpiDelivery::Imsic { iid, num_iids }) = self.delivery() {
+            imsic::initialize(num_iids, iid, irq)?;
         }
         self.clear_current(irq)
     }
@@ -46,6 +46,7 @@ impl Ipi {
         }
     }
 
+    #[inline]
     fn claim_imsic(&self, iid: Iid) -> bool {
         // SAFETY: The selected IMSIC device establishes Mtopei support on this
         // hart. The instruction atomically claims the reported interrupt;
@@ -53,6 +54,7 @@ impl Ipi {
         unsafe { Mtopei::claim() }.iid() == Some(iid)
     }
 
+    #[inline]
     pub(crate) fn claim_external(&self, _irq: &LocalIrqDisabled) -> bool {
         match self.delivery() {
             Some(IpiDelivery::Imsic { iid, .. }) => self.claim_imsic(iid),
