@@ -163,7 +163,7 @@ fn check_changelog(scope: &ScopeInfo) -> CheckResult {
         .map(|d| format!("{d}/CHANGELOG.md"))
         .collect();
 
-    let ms = 0; // covered by the git call above in the Python version; timing not meaningful here
+    let ms = 0; // timing is covered by the git call above; not meaningful here
     if !missing.is_empty() {
         return CheckResult::new(
             "changelog", Stage::Convention, Status::Fail, Gate::Advisory, ms,

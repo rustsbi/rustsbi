@@ -1,5 +1,5 @@
 //! archive subcommand — snapshot a run's artifacts into a timestamped
-//! subdirectory. Rust port of scripts/archive_run.py.
+//! subdirectory.
 //!
 //! The run's files stay in the run directory as the overwritable "latest"
 //! copy; the timestamped subdirectory preserves the history of each run.

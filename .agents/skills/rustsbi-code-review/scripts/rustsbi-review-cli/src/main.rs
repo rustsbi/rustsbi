@@ -1,14 +1,14 @@
 //! rustsbi-review-cli — the whole Rust script layer of the rustsbi-code-review
 //! skill: deterministic checks plus LLM review orchestration.
 //!
-//! Subcommands (one per former Python script):
-//!   checks          deterministic check pipeline        (checks/cli.py)
-//!   resolve-target  build the canonical review input    (resolve_target.py)
-//!   run-pass        spawn one review pass               (run_pass.py)
-//!   run-fanout      combined or persona fan-out         (run_fanout.py)
-//!   assemble        merge comments into the review file (assemble_review.py)
-//!   archive         snapshot a run into a stamp dir     (archive_run.py)
-//!   usage           token accounting report             (usage.py)
+//! Subcommands:
+//!   checks          deterministic check pipeline: scope -> convention -> build -> lint -> test -> report
+//!   resolve-target  build the canonical review input from a diff or file set
+//!   run-pass        spawn one review pass and collect its comments and token usage
+//!   run-fanout      combined or per-persona fan-out, merged and de-duplicated
+//!   assemble        merge a pass's comments into the review file
+//!   archive         snapshot a run into a timestamped subdirectory
+//!   usage           token accounting report over .usage.json sidecars
 
 mod archive;
 mod assemble;

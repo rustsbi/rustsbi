@@ -1,7 +1,6 @@
 //! checks subcommand — the deterministic check pipeline.
 //!
 //! Stages: scope -> convention -> build -> lint -> test -> report.
-//! Rust port of scripts/checks/cli.py.
 
 use crate::model::{CheckResult, Gate, Stage, Status};
 

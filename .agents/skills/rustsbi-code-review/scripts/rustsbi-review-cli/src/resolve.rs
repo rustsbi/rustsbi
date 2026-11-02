@@ -1,5 +1,4 @@
 //! resolve-target subcommand — build the canonical review input.
-//! Rust port of scripts/resolve_target.py.
 //!
 //!     rustsbi-review-cli resolve-target '<raw args>'          # -> <output>.input.md
 //!     rustsbi-review-cli resolve-target --meta '<raw args>'   # meta key=value lines
@@ -43,7 +42,7 @@ fn today() -> String {
     chrono::Local::now().format("%Y-%m-%d").to_string()
 }
 
-/// Run a command, dying on failure (Python resolve_target.run).
+/// Run a command, dying on failure.
 fn run_or_die(program: &str, args: &[&str]) -> String {
     match run_cmd(program, args, Duration::from_secs(600), &[]) {
         Ok(o) if o.success => o.stdout,
@@ -90,7 +89,7 @@ fn repo_slug() -> String {
 fn render_patch(files: &Value) -> String {
     let mut out = Vec::new();
     for f in files.as_array().into_iter().flatten() {
-        // Python .rstrip(NL): strip trailing newlines only.
+        // Strip trailing newline characters only.
         let body = f["patch"].as_str().unwrap_or("").trim_end_matches(|c| c == '\n' || c == '\r');
         if body.is_empty() {
             continue;

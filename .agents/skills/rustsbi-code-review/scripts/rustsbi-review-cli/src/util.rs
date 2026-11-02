@@ -94,7 +94,7 @@ impl CmdOutcome {
     }
 }
 
-/// Python-style first non-empty line, truncated to 200 chars.
+/// First non-empty line, truncated to 200 chars.
 pub fn first_line(text: &str) -> String {
     for line in text.lines() {
         let line = line.trim();

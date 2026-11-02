@@ -1,5 +1,4 @@
 //! run-fanout subcommand — run a review in one of two modes.
-//! Rust port of scripts/run_fanout.py.
 //!
 //! combined (default): one pass, every activated persona index in context.
 //! persona: one pass per persona (selective exposure), run in parallel.

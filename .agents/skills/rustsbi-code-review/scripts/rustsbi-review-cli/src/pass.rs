@@ -1,5 +1,4 @@
 //! run-pass subcommand — spawn one review pass and collect its comments and cost.
-//! Rust port of scripts/run_pass.py.
 //!
 //! Composes the pass prompt deterministically (pass_contract.md -> the
 //! activated personas' L1 index -> the review input) and hands it to a
@@ -15,8 +14,7 @@ fn noise_re() -> Regex {
     Regex::new(r"^\[claude-code:[^\]]*\]").unwrap()
 }
 
-/// Read a file with UTF-8 lossy decoding; die when it is missing (Python
-/// run_pass.read raises FileNotFoundError).
+/// Read a file with UTF-8 lossy decoding; die when it is missing.
 fn read_or_die(path: &std::path::Path) -> String {
     std::fs::read(path)
         .map(|b| String::from_utf8_lossy(&b).into_owned())
