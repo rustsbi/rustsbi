@@ -7,7 +7,6 @@ use runtime::{
     rustsbi::{self, RustSBI},
     timer::Timer,
 };
-use spin::Once;
 
 pub mod console;
 pub mod cppc;
@@ -41,6 +40,7 @@ use sta::SbiSta;
 use suspend::SbiSuspend;
 use timer::SbiTimer;
 
+#[runtime::sbi_policy]
 #[derive(RustSBI)]
 #[rustsbi(dynamic, crate = rustsbi)]
 pub struct SbiDispatcher {
@@ -74,24 +74,16 @@ pub struct SbiDispatcher {
     pub(crate) vendor: Option<vendor::Vendor>,
 }
 
-/// The SBI extension set, owned by the sbi layer.
-///
-/// Published once after all extension constructors run and before platform
-/// initialization releases the secondary harts.
-pub(crate) static SBI_DISPATCHER: Once<SbiDispatcher> = Once::new();
-
 /// Returns the IPI extension, if present.
 pub(crate) fn ipi() -> Option<&'static SbiIpi> {
-    SBI_DISPATCHER
-        .get()
+    SbiDispatcher::get()
         .map(|sbi| &sbi.ipi)
         .filter(|sbi| sbi.ipi().delivery().is_some())
 }
 
 /// Returns the published timer for firmware counter reads.
 pub(crate) fn timer() -> &'static Timer {
-    SBI_DISPATCHER
-        .get()
+    SbiDispatcher::get()
         .expect("SBI dispatcher not initialized")
         .timer
         .timer()
@@ -99,20 +91,10 @@ pub(crate) fn timer() -> &'static Timer {
 
 /// Returns the HSM extension, if present.
 pub(crate) fn hsm() -> Option<&'static SbiHsm> {
-    SBI_DISPATCHER.get().and_then(|sbi| sbi.hsm.as_ref())
-}
-
-/// Returns the RFENCE extension, if present.
-pub(crate) fn rfence() -> Option<&'static SbiRFence> {
-    SBI_DISPATCHER.get().and_then(|sbi| sbi.rfence.as_ref())
+    SbiDispatcher::get().and_then(|sbi| sbi.hsm.as_ref())
 }
 
 /// Returns the PMU extension, if present.
 pub(crate) fn pmu() -> Option<&'static SbiPmu> {
-    SBI_DISPATCHER.get().and_then(|sbi| sbi.pmu.as_ref())
-}
-
-/// Returns the SUSP extension, if present.
-pub(crate) fn susp() -> Option<&'static SbiSuspend> {
-    SBI_DISPATCHER.get().and_then(|sbi| sbi.susp.as_ref())
+    SbiDispatcher::get().and_then(|sbi| sbi.pmu.as_ref())
 }
