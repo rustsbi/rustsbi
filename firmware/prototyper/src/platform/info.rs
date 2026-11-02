@@ -62,7 +62,7 @@ impl ImsicAddressLayout {
 /// Machine-level IMSIC resources selected from the Platform Description.
 pub(crate) struct ImsicInfo {
     pub(crate) layout: ImsicAddressLayout,
-    pub(crate) num_ids: u16,
+    pub(crate) num_iids: u16,
     pub(crate) ipi_iid: Iid,
     pub(crate) hart_files: Vec<DeviceRegisterRange>,
 }

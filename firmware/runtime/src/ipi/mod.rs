@@ -7,6 +7,7 @@ mod request;
 use crate::{Error, Result};
 use alloc::boxed::Box;
 pub use csr::aia::imsic::Iid;
+pub use imsic::validate_iid_capacity;
 use spin::Once;
 
 static IPI: Once<Ipi> = Once::new();
@@ -49,8 +50,8 @@ pub enum IpiDelivery {
     Imsic {
         /// The fixed firmware IPI interrupt identity.
         iid: Iid,
-        /// Number of interrupt identities described by the interrupt file.
-        num_ids: u16,
+        /// Number of interrupt identities implemented by the interrupt file.
+        num_iids: u16,
     },
 }
 

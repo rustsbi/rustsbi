@@ -39,15 +39,15 @@ impl Register {
 /// hart's machine-level interrupt file.
 pub(super) struct ImsicIpi {
     ipi_iid: Iid,
-    num_ids: u16,
+    num_iids: u16,
     hart_files: Box<[MmioRegion]>,
 }
 
 impl ImsicIpi {
-    pub(super) fn new(ipi_iid: Iid, num_ids: u16, hart_files: Box<[MmioRegion]>) -> Self {
+    pub(super) fn new(ipi_iid: Iid, num_iids: u16, hart_files: Box<[MmioRegion]>) -> Self {
         Self {
             ipi_iid,
-            num_ids,
+            num_iids,
             hart_files,
         }
     }
@@ -69,7 +69,7 @@ impl IpiDevice for ImsicIpi {
     fn delivery(&self) -> IpiDelivery {
         IpiDelivery::Imsic {
             iid: self.ipi_iid,
-            num_ids: self.num_ids,
+            num_iids: self.num_iids,
         }
     }
 }
@@ -87,7 +87,11 @@ pub(super) fn bind(
         .iter()
         .map(|register_range| memory.acquire(*register_range))
         .collect();
-    let ipi = ImsicIpi::new(imsic.ipi_iid, imsic.num_ids, hart_files?.into_boxed_slice());
+    let ipi = ImsicIpi::new(
+        imsic.ipi_iid,
+        imsic.num_iids,
+        hart_files?.into_boxed_slice(),
+    );
 
     if let Some(aplic_config) = aplic_config {
         aplic_config.bind(memory)?;
