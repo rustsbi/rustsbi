@@ -328,4 +328,148 @@ macro_rules! csr {
     };
 }
 
+/// Declares fallible read probes for selected CSRs.
+///
+/// The invocation generates a local trait and one implementation for each
+/// selected register type.
+/// With the trait in scope, `Register::detect()` reads the register and returns
+/// the invocation's result type.
+/// Detection executes one read-only CSR instruction and emits an `.trap_fixup`
+/// record with the same layout, illegal-instruction cause, and `t2`/`t3`
+/// continuation protocol as Runtime recovery.
+/// A successful read returns `Ok(())`; a recovered illegal instruction returns
+/// the supplied error expression.
+/// Detection never writes the register.
+///
+/// The result type and error expression are caller-supplied, so this crate does
+/// not depend on Runtime's error type.
+/// The macro performs no readiness or privilege check.
+/// The generated method is unsafe because its caller must establish a
+/// compatible trap entry and recovery.
+///
+/// # Syntax
+///
+/// ```text
+/// detect! {
+///     <attributes> <visibility> trait <name> -> <result type> = <error expression>;
+///     <attributes> <register type>,
+///     ...
+/// }
+/// ```
+///
+/// Attributes on a register type, such as `#[cfg]`, also apply to its
+/// implementation.
+/// Additional register types can implement an existing trait with
+/// `detect! { impl Detect -> Result<(), E> = error; Register, ... }`.
+/// On targets other than RISC-V, executing the probe panics.
+///
+/// ```no_run
+/// use csr::machine;
+///
+/// csr::detect! {
+///     trait Detect -> Result<(), ()> = ();
+///     machine::CounterInhibit,
+/// }
+///
+/// csr::detect! {
+///     impl Detect -> Result<(), ()> = ();
+///     machine::CounterEnable,
+/// }
+///
+/// let result = unsafe { machine::CounterInhibit::detect() };
+/// let other = unsafe { machine::CounterEnable::detect() };
+/// # let _ = (result, other);
+/// ```
+#[macro_export]
+macro_rules! detect {
+    (
+        $(#[$trait_attr:meta])*
+        $visibility:vis trait $trait_name:ident -> $result:ty = $error:expr;
+        $(
+            $(#[$register_attr:meta])*
+            $register:ty
+        ),+ $(,)?
+    ) => {
+        $(#[$trait_attr])*
+        $visibility trait $trait_name {
+            /// Attempts to read this register on the current hart.
+            ///
+            /// Detection only reads the register.
+            ///
+            /// # Safety
+            ///
+            /// Execute on the intended hart in the intended privilege and
+            /// execution context. The register read must have no unwanted
+            /// side effects.
+            /// A compatible Runtime trap entry must be installed, and its
+            /// recovery must recognize the `.trap_fixup` record emitted by
+            /// this operation.
+            /// This operation performs no readiness check.
+            unsafe fn detect() -> $result;
+        }
+
+        $crate::detect! {
+            impl $trait_name -> $result = $error;
+            $($(#[$register_attr])* $register),+
+        }
+    };
+
+    (
+        impl $trait_name:ident -> $result:ty = $error:expr;
+        $(
+            $(#[$register_attr:meta])*
+            $register:ty
+        ),+ $(,)?
+    ) => {
+        $(
+            $(#[$register_attr])*
+            impl $trait_name for $register {
+                #[inline]
+                unsafe fn detect() -> $result {
+                    const { assert!(<$register>::NUMBER < 0x1000, "CSR number must fit in 12 bits"); }
+                    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+                    {
+                        let cause: usize;
+                        // SAFETY: The caller establishes current-hart access and
+                        // installs recovery for the emitted fault record. `t2`
+                        // and `t3` follow Runtime's continuation protocol.
+                        unsafe {
+                            core::arch::asm!(
+                                "li t2, 0",
+                                ".option push",
+                                ".option norvc",
+                                "2:",
+                                "csrr {value}, {csr}",
+                                "3:",
+                                ".option pop",
+                                // Keep this record identical to Runtime's
+                                // `FaultSite`: two signed word offsets and a
+                                // synchronous-cause mask, aligned to four bytes.
+                                concat!(
+                                    ".pushsection .trap_fixup, \"a\", @progbits\n",
+                                    ".balign 4\n",
+                                    ".long 2b - .\n",
+                                    ".long 3b - .\n",
+                                    ".long {causes}\n",
+                                    ".popsection\n",
+                                ),
+                                csr = const <$register>::NUMBER,
+                                causes = const 1u32 << 2,
+                                value = out(reg) _,
+                                out("t2") cause,
+                                out("t3") _,
+                            );
+                        }
+                        if cause == 0 { Ok(()) } else { Err($error) }
+                    }
+                    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+                    {
+                        unimplemented!("CSR detection requires RISC-V")
+                    }
+                }
+            }
+        )+
+    };
+}
+
 pub(crate) use csr;

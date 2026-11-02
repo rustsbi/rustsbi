@@ -29,6 +29,9 @@ macro_rules! read_64 {
     ($name:ident, $high:ident) => {
         impl $name {
             /// Reads a consistent 64-bit counter value on RV32 or RV64.
+            ///
+            /// This does not probe CSR availability. An inaccessible counter
+            /// traps; on RV32 both the low and high CSRs must be accessible.
             #[inline]
             pub fn read64() -> u64 {
                 #[cfg(target_pointer_width = "64")]
