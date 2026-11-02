@@ -22,26 +22,14 @@ impl IpiRequest {
 
     /// Creates a window containing one validated hart.
     pub fn for_hart(hart: HartId) -> Self {
-        let raw = hart.as_usize();
-        // Align the window so `try_merge` can combine harts in the same window.
-        let bit = raw % usize::BITS as usize;
         Self {
-            hart_mask: 1 << bit,
-            hart_mask_base: raw - bit,
+            hart_mask: 1,
+            hart_mask_base: hart.as_usize(),
         }
     }
 
     /// Iterates the validated hardware hart IDs.
     pub fn harts(self) -> impl Iterator<Item = usize> {
         HartMask::from_mask_base(self.hart_mask, self.hart_mask_base).into_iter()
-    }
-
-    /// Merges another window with the same base, retaining validated targets.
-    pub fn try_merge(&mut self, other: Self) -> bool {
-        if self.hart_mask_base != other.hart_mask_base {
-            return false;
-        }
-        self.hart_mask |= other.hart_mask;
-        true
     }
 }
