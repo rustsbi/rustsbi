@@ -3,6 +3,7 @@
 //! SBI HSM policy and ABI translation belong to the firmware.
 
 use crate::Result;
+mod detect;
 mod features;
 mod lifecycle;
 mod local;
