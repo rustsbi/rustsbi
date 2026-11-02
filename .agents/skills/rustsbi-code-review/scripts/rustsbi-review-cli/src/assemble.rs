@@ -1,5 +1,5 @@
 //! assemble subcommand — deterministic merge of one pass's comments into the
-//! review file. Rust port of scripts/assemble_review.py.
+//! review file.
 //!
 //! No judgement here: group by persona in a fixed order, sort by file then
 //! line, drop exact duplicates, write the frontmatter, leave the SUMMARY.

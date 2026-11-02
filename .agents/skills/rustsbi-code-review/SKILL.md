@@ -70,11 +70,9 @@ Activation is path-based and deterministic; do not ask a model to triage it.
 ## Pipeline
 
 Three steps, in order. All tooling lives in one Rust binary,
-`scripts/rustsbi-review-cli` (one subcommand per stage); the former Python
-scripts under `scripts/*.py` and `scripts/checks/` remain only as a frozen
-reference and are not part of this path. External requirements: `git` (and
-`gh`, for backtest mode), plus a Rust toolchain — which any machine that can
-run the build/test checks already has.
+`scripts/rustsbi-review-cli` (one subcommand per stage). External
+requirements: `git` (and `gh`, for backtest mode), plus a Rust toolchain —
+which any machine that can run the build/test checks already has.
 
 Shells do not persist, so re-derive `SKILL` in every command:
 

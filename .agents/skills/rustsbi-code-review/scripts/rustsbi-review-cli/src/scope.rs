@@ -1,7 +1,7 @@
 //! scope.rs — resolve the target and determine what to check.
 //!
-//! Parses the same raw argument string as resolve_target.py, extracts changed
-//! paths, maps them to cargo packages, and computes a cache fingerprint.
+//! Parses the raw argument string of resolve-target, extracts changed paths,
+//! maps them to cargo packages, and computes a cache fingerprint.
 
 use crate::gitutil::{git_ok, must_git};
 use crate::model::{Mode, ScopeInfo};

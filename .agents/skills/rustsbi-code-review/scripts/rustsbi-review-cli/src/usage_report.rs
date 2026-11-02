@@ -1,5 +1,4 @@
 //! usage subcommand — token accounting across review runs.
-//! Rust port of scripts/usage.py.
 //!
 //! Only tokens, never prices: the agent CLI's own envelope supplies them.
 //! The sidecar files keep raw integers; this report prints k/M scaled values.
