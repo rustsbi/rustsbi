@@ -184,13 +184,7 @@ fn target_requests(hart_mask: HartMask) -> Result<impl Iterator<Item = IpiReques
     if base == usize::MAX {
         // Ignore mask and expand all available harts into ordinary windows.
         for hart in HartId::all().filter(|hart| available(*hart)) {
-            let singleton = IpiRequest::for_hart(hart);
-            if !requests
-                .last_mut()
-                .is_some_and(|request| request.try_merge(singleton))
-            {
-                requests.push(singleton);
-            }
+            requests.push(IpiRequest::for_hart(hart));
         }
     } else if mask != 0 {
         // A hart in the topology remains a valid target even when it is
