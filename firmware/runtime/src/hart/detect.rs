@@ -11,9 +11,6 @@
 //! discovery, boot configuration, debug-trigger discovery, IMSIC setup, timer
 //! setup, and the early RV32 `mstatush` path.
 //! Registers whose reads have side effects are deliberately not declared.
-//!
-//! Hart feature probing follows the approach in
-//! [OpenSBI's `hart_detect_features`](https://github.com/riscv-software-src/opensbi/blob/master/lib/sbi/sbi_hart.c).
 
 use csr::{
     aia::machine::{Mireg, Miselect},
@@ -100,7 +97,8 @@ csr::detect! {
     hypervisor::StateEnable0,
     /// T-Head extended status register (`mxstatus`, CSR 0x7c0).
     ///
-    /// See <https://cs107e.github.io/readings/XuanTie-OpenC906-UserManual.pdf>.
+    /// See the Xuantie OpenC910 hardware source:
+    /// <https://github.com/XUANTIE-RV/openc910/blob/main/C910_RTL_FACTORY/gen_rtl/cp0/rtl/ct_cp0_iui.v#L615>.
     ExtendedStatus,
 }
 
