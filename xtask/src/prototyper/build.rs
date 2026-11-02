@@ -2,13 +2,13 @@ use std::{
     fs,
     io::ErrorKind,
     path::{Path, PathBuf},
-    process::{Command, ExitStatus},
+    process::ExitStatus,
 };
 
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 
-use crate::utils::{CmdOptional, cargo};
+use crate::utils::{CmdOptional, cargo, objcopy};
 
 use super::{
     PACKAGE_NAME,
@@ -103,7 +103,7 @@ pub(super) fn build_firmware(spec: &BuildSpec) -> Result<ExitStatus> {
 
     let exit_status = convert_elf_to_binary(&paths)?;
     if !exit_status.success() {
-        error!("rust-objcopy failed to convert the prototyper ELF to binary");
+        error!("objcopy failed to convert the prototyper ELF to binary");
         return Ok(exit_status);
     }
 
@@ -149,23 +149,8 @@ fn convert_elf_to_binary(paths: &BuildPaths) -> Result<ExitStatus> {
     let elf_path = paths.artifact_dir.join(PACKAGE_NAME);
     let binary_path = paths.artifact_dir.join(format!("{PACKAGE_NAME}.bin"));
 
-    info!("Converting ELF to binary with rust-objcopy");
-    Command::new("rust-objcopy")
-        .args([
-            "-O",
-            "binary",
-            &elf_path.to_string_lossy(),
-            &binary_path.to_string_lossy(),
-        ])
-        .status()
-        .with_context(|| {
-            format!(
-                "failed to execute rust-objcopy: '{}' -> '{}'; \
-                 please install cargo-binutils with cmd: cargo install --locked cargo-binutils@0.4.0",
-                elf_path.display(),
-                binary_path.display()
-            )
-        })
+    info!("Converting ELF to binary with rust-objcopy (llvm-objcopy fallback)");
+    objcopy::convert_elf_to_binary(&elf_path, &binary_path)
 }
 
 fn copy_mode_artifacts(spec: &BuildSpec, paths: &BuildPaths) -> Result<()> {
