@@ -10,22 +10,6 @@ use lazy_regex::{regex, Lazy, Regex};
 
 static STAMP_RE: &Lazy<Regex> = regex!(r"^\d{8}-\d{6}(-\d+)?$");
 
-fn copy_tree(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dst)?;
-    let mut entries: Vec<_> = std::fs::read_dir(src)?.collect::<Result<_, _>>()?;
-    entries.sort_by_key(|e| e.file_name());
-    for e in entries {
-        let from = e.path();
-        let to = dst.join(e.file_name());
-        if e.file_type()?.is_dir() {
-            copy_tree(&from, &to)?;
-        } else {
-            std::fs::copy(&from, &to)?;
-        }
-    }
-    Ok(())
-}
-
 pub fn archive_main(argv: &[String]) -> i32 {
     if argv.len() != 1 {
         eprintln!("usage: archive <output-file>");
@@ -64,7 +48,7 @@ pub fn archive_main(argv: &[String]) -> i32 {
         } else if path.is_dir() && !STAMP_RE.is_match(&e.file_name().to_string_lossy()) {
             // Auxiliary subdirectories of this run belong to the archive;
             // timestamped siblings do not.
-            copy_tree(&path, &dest.join(e.file_name()))
+            fs_extra::dir::copy(&path, &dest, &fs_extra::dir::CopyOptions::new())
                 .unwrap_or_else(|e2| die(&format!("error: copy tree {}: {}", path.display(), e2)));
             count += 1;
         }
