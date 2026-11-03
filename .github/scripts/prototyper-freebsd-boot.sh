@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+
 readonly FREEBSD_RELEASE="14.1"
 readonly FREEBSD_IMAGE="FreeBSD-${FREEBSD_RELEASE}-RELEASE-riscv-riscv64.raw"
 readonly FREEBSD_ARCHIVE="${FREEBSD_IMAGE}.xz"
@@ -9,9 +12,6 @@ readonly FREEBSD_SHA256="509b24437156e65e031ca12219a408460743f0f0e82368ce4afa83d
 readonly FREEBSD_KERNEL_BASE_URL="https://archive.freebsd.org/old-releases/riscv/riscv64/${FREEBSD_RELEASE}-RELEASE"
 readonly FREEBSD_KERNEL_ARCHIVE="kernel.txz"
 readonly FREEBSD_KERNEL_SHA256="321e538f9078659d8852e9a1628febac013fc3167e22e782266039a4b54fd3b7"
-readonly UBOOT_REPOSITORY="https://github.com/u-boot/u-boot.git"
-readonly UBOOT_VERSION="v2024.04"
-readonly UBOOT_COMMIT="25049ad560826f7dc1c4740883b0016014a59789"
 
 if (( $# > 1 )); then
   echo "Usage: $0 [sbi|u-boot]" >&2
@@ -32,7 +32,6 @@ readonly FREEBSD_ARCHIVE_PATH="${FREEBSD_CACHE_DIR}/${FREEBSD_ARCHIVE}"
 readonly FREEBSD_IMAGE_PATH="${FREEBSD_CACHE_DIR}/${FREEBSD_IMAGE}"
 readonly FREEBSD_KERNEL_ARCHIVE_PATH="${FREEBSD_CACHE_DIR}/${FREEBSD_KERNEL_ARCHIVE}"
 readonly FREEBSD_KERNEL_PATH="${FREEBSD_CACHE_DIR}/kernel"
-readonly UBOOT_CACHE_DIR="${UBOOT_CACHE_DIR:-.cache/u-boot/${UBOOT_VERSION}}"
 readonly UBOOT_BUILD_DIR="${UBOOT_BUILD_DIR:-target/u-boot-freebsd}"
 readonly RUSTSBI="${FREEBSD_RUSTSBI:-target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.bin}"
 readonly LOG_DIR="${QEMU_LOG_DIR:-qemu-logs}"
@@ -151,37 +150,9 @@ download_freebsd_kernel() {
   test -s "$FREEBSD_KERNEL_PATH"
 }
 
-prepare_u_boot_source() {
-  if [[ ! -d "${UBOOT_CACHE_DIR}/.git" ]]; then
-    if [[ -e "$UBOOT_CACHE_DIR" ]]; then
-      echo "U-Boot cache path exists but is not a Git repository: ${UBOOT_CACHE_DIR}" >&2
-      return 1
-    fi
-    mkdir -p "$(dirname "$UBOOT_CACHE_DIR")"
-    git clone --filter=blob:none --no-checkout "$UBOOT_REPOSITORY" "$UBOOT_CACHE_DIR"
-  fi
-
-  if ! git -C "$UBOOT_CACHE_DIR" cat-file -e "${UBOOT_COMMIT}^{commit}" 2>/dev/null; then
-    git -C "$UBOOT_CACHE_DIR" fetch --depth=1 origin "$UBOOT_COMMIT"
-  fi
-  git -C "$UBOOT_CACHE_DIR" checkout --detach --force "$UBOOT_COMMIT"
-  test "$(git -C "$UBOOT_CACHE_DIR" rev-parse HEAD)" = "$UBOOT_COMMIT"
-}
-
 build_u_boot() {
-  local rustsbi_path build_path
-  rustsbi_path=$(realpath "$RUSTSBI")
-  build_path=$(realpath -m "$UBOOT_BUILD_DIR")
-  test -s "$rustsbi_path"
-  mkdir -p "$build_path"
-
-  make -C "$UBOOT_CACHE_DIR" O="$build_path" \
-    ARCH=riscv CROSS_COMPILE=riscv64-linux-gnu- qemu-riscv64_spl_defconfig
-  make -C "$UBOOT_CACHE_DIR" O="$build_path" \
-    ARCH=riscv CROSS_COMPILE=riscv64-linux-gnu- OPENSBI="$rustsbi_path" \
-    -j"$(nproc)"
-  test -s "${build_path}/spl/u-boot-spl"
-  test -s "${build_path}/u-boot.itb"
+  ci_uboot_build 2024.04 spl spl-2024.04 "$UBOOT_BUILD_DIR"
+  ci_uboot_fit "$UBOOT_BUILD_DIR" "$RUSTSBI"
 }
 
 stop_qemu() {
@@ -346,7 +317,6 @@ main() {
   test -s "$RUSTSBI"
   qemu-system-riscv64 --version
   if [[ "$BOOT_MODE" = u-boot ]]; then
-    prepare_u_boot_source
     build_u_boot
     start_qemu
   else

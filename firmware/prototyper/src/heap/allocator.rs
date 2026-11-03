@@ -62,7 +62,7 @@ impl GlobalHeapAllocator for HeapAllocator {
                 }
                 fits
             })
-            .ok_or(Error::NoMemory)?;
+            .ok_or(Error::Alloc)?;
         let slot = if offset_bytes != 0 {
             let (prefix, slot) = slot.split_at(offset_bytes).expect("aligned interior split");
             free_slots.push(prefix).expect("aligned prefix");

@@ -49,6 +49,9 @@
 
 set -euo pipefail
 
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+
 if (( $# > 1 )); then
   echo "Usage: $0 [sbi|u-boot|edk2|check-iso|resolve-iso]" >&2
   exit 2
@@ -99,8 +102,6 @@ fi
 readonly ISO_SHA256
 
 readonly UB_VERSION="2024.04"
-readonly UB_URL="https://github.com/u-boot/u-boot/archive/refs/tags/v${UB_VERSION}.tar.gz"
-readonly UB_SHA256="d6b57ce574a0a0504a5b6596644ceacb7f77bde9353779bcf2fde07c4b9a2b92"
 
 readonly EDK2_VERSION="edk2-stable202505"
 readonly EDK2_COMMIT="6951dfe7d59d144a3a980bd7eda699db2d8554ac"
@@ -299,36 +300,9 @@ extract_kernel() {
 # kernel and initramfs from the FAT disk, which QEMU attaches first so that
 # U-Boot numbers it virtio 0. `booti` edits the tree it is given in place
 # (fdt_high is all ones), and editing U-Boot's own live control tree corrupts
-# U-Boot before it reaches the kernel, so hand over a copy at fdt_addr_r. The
-# single quotes keep the command line one hush word and keep the ${...}
-# variables for U-Boot to expand at runtime; `scripts/config` rewrites the
-# value with sed, so it must not contain `&`.
+# U-Boot before it reaches the kernel, so hand over a copy at fdt_addr_r.
 prepare_uboot() {
-  local tarball="${WORK_DIR}/u-boot-${UB_VERSION}.tar.gz"
-  local tree="${WORK_DIR}/u-boot-${UB_VERSION}"
-  local build="${WORK_DIR}/u-boot-build"
-
-  if [[ -s "$UB_BIN" ]]; then
-    echo "Using cached U-Boot ${UB_VERSION}" >&2
-    return
-  fi
-
-  mkdir -p "$WORK_DIR" "$UB_CACHE"
-  download_asset "$UB_URL" "$tarball" "$UB_SHA256"
-
-  rm -rf "$tree" "$build"
-  tar -xzf "$tarball" -C "$WORK_DIR"
-
-  make -C "$tree" O="$(realpath -m "$build")" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
-    qemu-riscv64_smode_defconfig
-  "${tree}/scripts/config" --file "${build}/.config" --enable USE_BOOTCOMMAND
-  # shellcheck disable=SC2016
-  "${tree}/scripts/config" --file "${build}/.config" --set-str BOOTCOMMAND \
-    "virtio scan; load virtio 0 \${kernel_addr_r} vmlinuz-linux; load virtio 0 \${ramdisk_addr_r} initramfs-linux.img; setenv bootargs '${KERNEL_CMDLINE}'; fdt move \${fdtcontroladdr} \${fdt_addr_r} 0x10000; booti \${kernel_addr_r} \${ramdisk_addr_r}:\${filesize} \${fdt_addr_r}"
-  make -C "$tree" O="$(realpath -m "$build")" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
-    -j"$(nproc)"
-
-  cp "${build}/u-boot.bin" "$UB_BIN"
+  ci_uboot_build 2024.04 smode eweos-smode "$UB_CACHE"
 }
 
 # A whole-disk FAT filesystem written with mtools, so building the disk needs
@@ -340,6 +314,8 @@ make_boot_disk() {
   mkfs.vfat -F 32 "$BOOT_DISK" >/dev/null
   mcopy -i "$BOOT_DISK" "$KERNEL_IMAGE" ::vmlinuz-linux
   mcopy -i "$BOOT_DISK" "$INITRAMFS" ::initramfs-linux.img
+  printf 'bootargs=%s\n' "$KERNEL_CMDLINE" >"$WORK_DIR/uboot.env"
+  mcopy -i "$BOOT_DISK" "$WORK_DIR/uboot.env" ::uboot.env
 }
 
 # Boot the ISO's own Limine executable through the UEFI removable-media path.

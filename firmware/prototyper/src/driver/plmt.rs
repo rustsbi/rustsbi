@@ -4,8 +4,9 @@ use runtime::{
     Error, Result,
     hart::HartId,
     memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
-    timer::TimerDevice,
 };
+
+use super::TimerDevice;
 
 #[repr(usize)]
 #[derive(Clone, Copy)]
@@ -76,22 +77,6 @@ impl TimerDevice for Plmt {
         }
     }
 
-    fn read_time_low(&self) -> Option<usize> {
-        #[cfg(target_pointer_width = "32")]
-        {
-            Some(self.read_word(Register::CounterLow) as usize)
-        }
-        #[cfg(target_pointer_width = "64")]
-        {
-            self.read_time().map(|value| value as usize)
-        }
-    }
-
-    #[cfg(target_pointer_width = "32")]
-    fn read_time_high(&self) -> Option<usize> {
-        Some(self.read_word(Register::CounterHigh) as usize)
-    }
-
     fn set_compare(&self, hart: HartId, value: u64) {
         let hart_id = hart.as_usize();
         assert!(hart_id < self.hart_id_upper_bound);
@@ -99,9 +84,6 @@ impl TimerDevice for Plmt {
         self.write_compare_word(Register::CompareLow, hart_id, u32::MAX);
         self.write_compare_word(Register::CompareHigh, hart_id, (value >> 32) as u32);
         self.write_compare_word(Register::CompareLow, hart_id, value as u32);
-        riscv::asm::fence();
+        runtime::instruction::fence();
     }
-
-    // Masking MTIE prevents retrapping until the next deadline rearms delivery.
-    fn acknowledge(&self, _: HartId) {}
 }

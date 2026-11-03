@@ -29,16 +29,3 @@ csr! {
     /// See <https://docs.riscv.org/reference/isa/priv/hypervisor.html#hedeleg>.
     ExceptionDelegation { 0x602, r: ExceptionSet, w: ExceptionSet }
 }
-
-impl StatusWriteValue {
-    /// Creates a guest return context using the hart's XLEN and little-endian
-    /// accesses.
-    pub fn for_guest(privilege: SupervisorPrivilege) -> Self {
-        let mut value = Self(0);
-        #[cfg(target_pointer_width = "64")]
-        value.write::<VSXL>(TargetXlen::X64);
-        value.write::<SPV>(Virtualization::On);
-        value.write::<SPVP>(privilege);
-        value
-    }
-}

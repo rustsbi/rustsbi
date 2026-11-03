@@ -7,6 +7,7 @@ on:
       - ".cargo/**"
       - ".github/scripts/prototyper-rtt-boot.sh"
       - ".github/workflows/rtt.yml"
+      - ".github/scripts/ci-uboot.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -20,6 +21,7 @@ on:
       - ".cargo/**"
       - ".github/scripts/prototyper-rtt-boot.sh"
       - ".github/workflows/rtt.yml"
+      - ".github/scripts/ci-uboot.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -60,6 +62,10 @@ jobs:
           qemu-system-riscv64 --version
           scons --version
 
+          source .github/scripts/ci-uboot.sh
+          toolchain_id=$(ci_uboot_toolchain_id)
+          echo "CI_UBOOT_TOOLCHAIN_ID=$toolchain_id" >> "$GITHUB_ENV"
+
       # Not the gcc-riscv64-unknown-elf package: it ships no C library and this
       # BSP links -lsupc++. RT-Thread's own CI points RTT_EXEC_PATH at this
       # newlib toolchain.
@@ -83,6 +89,13 @@ jobs:
           # with several commits still hits the pinned RT-Thread build.
           restore-keys: |
             rtt-${{ hashFiles('.github/scripts/prototyper-rtt-boot.sh') }}-
+
+      - name: Cache U-Boot build
+        if: matrix.boot-path == 'u-boot'
+        uses: actions/cache@v5
+        with:
+          path: .cache/ci-uboot/builds/rtt-spl
+          key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-rtt-spl-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Build RustSBI Prototyper
         run: cargo prototyper build

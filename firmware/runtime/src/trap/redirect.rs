@@ -35,17 +35,17 @@ pub(super) fn redirect_trap(
             virtual_supervisor::Cause::write(cause);
             virtual_supervisor::TrapValue::write(tval.into());
             virtual_supervisor::Status::modify(|read, status| {
-                status.write::<virtual_supervisor::SPIE>(read.read::<virtual_supervisor::SIE>());
-                status.write::<virtual_supervisor::SIE>(machine::Interrupt::Disabled);
-                status.write::<virtual_supervisor::SPP>(privilege);
+                status.set::<virtual_supervisor::SPIE>(read.get::<virtual_supervisor::SIE>());
+                status.set::<virtual_supervisor::SIE>(machine::Interrupt::Disabled);
+                status.set::<virtual_supervisor::SPP>(privilege);
             });
         }
         // Keep MPV set: mret enters the guest's virtual trap handler.
         frame
             .status
-            .write::<machine::MPP>(machine::TargetPrivilege::Supervisor);
+            .set::<machine::MPP>(machine::TargetPrivilege::Supervisor);
         frame.epc = virtual_supervisor::TrapVector::read()
-            .read::<virtual_supervisor::BASE>()
+            .get::<virtual_supervisor::BASE>()
             .address()
             .into();
     } else {
@@ -53,17 +53,15 @@ pub(super) fn redirect_trap(
             // SAFETY: Reproduce HS trap-entry metadata from the immutable origin.
             unsafe {
                 hypervisor::Status::modify(|_, status| {
-                    status.write::<hypervisor::SPV>(info.virtualized().into());
+                    status.set::<hypervisor::SPV>(info.virtualized().into());
                     if info.virtualized() {
-                        status.write::<hypervisor::SPVP>(privilege);
+                        status.set::<hypervisor::SPVP>(privilege);
                     }
-                    status.write::<hypervisor::GVA>(
-                        if secondary.is_none() && info.guest_address() {
-                            machine::GuestAddress::GuestVirtual
-                        } else {
-                            machine::GuestAddress::Other
-                        },
-                    );
+                    status.set::<hypervisor::GVA>(if secondary.is_none() && info.guest_address() {
+                        machine::GuestAddress::GuestVirtual
+                    } else {
+                        machine::GuestAddress::Other
+                    });
                 });
             }
             // Secondary faults here use one-stage S/U translation.
@@ -94,17 +92,17 @@ pub(super) fn redirect_trap(
         }
         frame
             .status
-            .write::<machine::SPIE>(info.status.read::<machine::SIE>());
+            .set::<machine::SPIE>(info.status.get::<machine::SIE>());
         frame
             .status
-            .write::<machine::SIE>(machine::Interrupt::Disabled);
-        frame.status.write::<machine::SPP>(privilege);
+            .set::<machine::SIE>(machine::Interrupt::Disabled);
+        frame.status.set::<machine::SPP>(privilege);
         frame
             .status
-            .write::<machine::MPP>(machine::TargetPrivilege::Supervisor);
+            .set::<machine::MPP>(machine::TargetPrivilege::Supervisor);
         frame.leave_virtualization();
         frame.epc = supervisor::TrapVector::read()
-            .read::<supervisor::BASE>()
+            .get::<supervisor::BASE>()
             .address()
             .into();
     }

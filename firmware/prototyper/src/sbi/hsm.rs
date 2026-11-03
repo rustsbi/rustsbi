@@ -25,7 +25,7 @@ pub(crate) struct SbiHsm {
 }
 
 impl SbiHsm {
-    /// Records whether the platform can release a hart from hardware reset.
+    /// Creates an HSM extension with the platform's hardware wakeup capability.
     pub(crate) fn new(hardware_wakeup: bool) -> Self {
         Self { hardware_wakeup }
     }
@@ -39,8 +39,7 @@ impl SbiHsm {
         Ok(hart)
     }
 
-    /// Implements the HSM suspend/resume transition described by the SBI HSM
-    /// extension.
+    /// Implements the SBI HSM suspend/resume transition.
     fn suspend(&self, suspend_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
         if !matches!(
             suspend_type,
@@ -62,7 +61,7 @@ impl SbiHsm {
         let stage = NextStage {
             start_addr: resume_addr,
             opaque,
-            next_mode: riscv::register::mstatus::MPP::Supervisor,
+            next_mode: csr::machine::TargetPrivilege::Supervisor,
         };
         let ticket = match hart::begin_nonretentive_resume(stage) {
             Ok(ticket) => ticket,
@@ -71,7 +70,7 @@ impl SbiHsm {
 
         // The ticket reserves the current hart before policy state is reset;
         // a failed wake drops the reservation back to Suspended.
-        crate::sbi::hart_local::reset_current();
+        crate::sbi::pmu::reset_current();
         match ticket.commit() {
             Ok(()) => SbiRet::success(0),
             Err(_) => SbiRet::failed(),
@@ -89,7 +88,7 @@ impl Hsm for SbiHsm {
         let stage = NextStage {
             start_addr,
             opaque,
-            next_mode: riscv::register::mstatus::MPP::Supervisor,
+            next_mode: csr::machine::TargetPrivilege::Supervisor,
         };
         match hart::start(hart, stage) {
             Ok(hart::StartOutcome::Accepted) => SbiRet::success(0),
@@ -101,13 +100,14 @@ impl Hsm for SbiHsm {
     /// Stops execution on the current hart.
     #[inline]
     fn hart_stop(&self) -> SbiRet {
+        super::timer().set_deadline(u64::MAX);
         match hart::stop_current() {
             Ok(never) => match never {},
             Err(_) => SbiRet::failed(),
         }
     }
 
-    /// Gets the current state of a hart.
+    /// Returns the current state of a hart.
     #[inline]
     fn hart_get_status(&self, hartid: usize) -> SbiRet {
         let hart = match self.hart_id(hartid) {

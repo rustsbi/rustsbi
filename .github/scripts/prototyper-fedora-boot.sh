@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+
 readonly FEDORA_RELEASE="44"
 readonly FEDORA_IMAGE="Fedora-Cloud-Base-Generic-44-20260604.0.riscv64.qcow2"
 readonly FEDORA_BASE_URL="https://dl.fedoraproject.org/pub/alt/risc-v/release/44/Cloud/riscv64/images"
 readonly FEDORA_SHA256="06852158be651467e3a696ce37cbade2dddb067d425689f4b5d6433b9589c27a"
 readonly FEDORA_ROOT_UUID="3ffbbe68-1f01-49a4-8454-bf0ce0d84f8f"
-readonly UBOOT_REPOSITORY="https://github.com/u-boot/u-boot.git"
-readonly UBOOT_VERSION="v2026.07"
-readonly UBOOT_COMMIT="ece349ade2973e220f524ce59e59711cc919263f"
 
 if (( $# > 1 )); then
   echo "Usage: $0 [sbi|u-boot]" >&2
@@ -26,7 +26,6 @@ esac
 
 readonly FEDORA_CACHE_DIR="${FEDORA_CACHE_DIR:-.cache/fedora/${FEDORA_RELEASE}}"
 readonly FEDORA_IMAGE_PATH="${FEDORA_CACHE_DIR}/${FEDORA_IMAGE}"
-readonly UBOOT_CACHE_DIR="${UBOOT_CACHE_DIR:-.cache/u-boot/${UBOOT_VERSION}}"
 readonly UBOOT_BUILD_DIR="${UBOOT_BUILD_DIR:-target/u-boot-fedora}"
 readonly RUSTSBI="target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.bin"
 readonly LOG_DIR="${QEMU_LOG_DIR:-qemu-logs}"
@@ -86,37 +85,9 @@ download_fedora_image() {
   verify_fedora_image
 }
 
-prepare_u_boot_source() {
-  if [[ ! -d "${UBOOT_CACHE_DIR}/.git" ]]; then
-    if [[ -e "$UBOOT_CACHE_DIR" ]]; then
-      echo "U-Boot cache path exists but is not a Git repository: ${UBOOT_CACHE_DIR}" >&2
-      return 1
-    fi
-    mkdir -p "$(dirname "$UBOOT_CACHE_DIR")"
-    git clone --filter=blob:none --no-checkout "$UBOOT_REPOSITORY" "$UBOOT_CACHE_DIR"
-  fi
-
-  if ! git -C "$UBOOT_CACHE_DIR" cat-file -e "${UBOOT_COMMIT}^{commit}" 2>/dev/null; then
-    git -C "$UBOOT_CACHE_DIR" fetch --depth=1 origin "$UBOOT_COMMIT"
-  fi
-  git -C "$UBOOT_CACHE_DIR" checkout --detach --force "$UBOOT_COMMIT"
-  test "$(git -C "$UBOOT_CACHE_DIR" rev-parse HEAD)" = "$UBOOT_COMMIT"
-}
-
 build_u_boot() {
-  local rustsbi_path build_path
-  rustsbi_path=$(realpath "$RUSTSBI")
-  build_path=$(realpath -m "$UBOOT_BUILD_DIR")
-  test -s "$rustsbi_path"
-  mkdir -p "$build_path"
-
-  make -C "$UBOOT_CACHE_DIR" O="$build_path" \
-    ARCH=riscv CROSS_COMPILE=riscv64-linux-gnu- qemu-riscv64_spl_defconfig
-  make -C "$UBOOT_CACHE_DIR" O="$build_path" \
-    ARCH=riscv CROSS_COMPILE=riscv64-linux-gnu- OPENSBI="$rustsbi_path" \
-    -j"$(nproc)"
-  test -s "${build_path}/spl/u-boot-spl"
-  test -s "${build_path}/u-boot.itb"
+  ci_uboot_build 2026.07 spl spl-2026.07 "$UBOOT_BUILD_DIR"
+  ci_uboot_fit "$UBOOT_BUILD_DIR" "$RUSTSBI"
 }
 
 stop_qemu() {
@@ -386,7 +357,6 @@ main() {
   test -s "$RUSTSBI"
   qemu-system-riscv64 --version
   if [[ "$BOOT_MODE" = u-boot ]]; then
-    prepare_u_boot_source
     build_u_boot
     start_qemu_u_boot
   else

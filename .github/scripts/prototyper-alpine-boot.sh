@@ -2,6 +2,9 @@
 # Boot the official Alpine live image through the current RustSBI build.
 set -euo pipefail
 
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+
 SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 readonly SCRIPT_PATH
 TEST_MODE=boot
@@ -34,8 +37,7 @@ readonly ALPINE_KERNEL=6.18.7-0-lts
 readonly ISO_NAME="alpine-standard-${ALPINE_VERSION}-riscv64.iso"
 readonly ISO_URL="https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/riscv64/${ISO_NAME}"
 readonly ISO_SHA256=3944efd920cdfb34d7f0b03b766ee549c6a82bac582315cfee55993490f2455f
-readonly UBOOT_DEB=u-boot-qemu_2025.10-0ubuntu0.24.04.2_all.deb
-readonly UBOOT_SHA256=2154e34e4c7037105e8448514faad296b2bbfb1cc460674e3d67cca42d402d9a
+readonly UBOOT_VERSION=2025.10-0ubuntu0.24.04.2
 readonly EDK2_DEB=qemu-efi-riscv64_2024.02-2ubuntu0.10_all.deb
 readonly EDK2_SHA256=4f2a7b3757906f60eeedca3181e8d83af6f45477ecc9f306f483cebf665ecdd4
 # Keep pinned bootloaders available after newer packages supersede them.
@@ -100,9 +102,8 @@ prepare_assets() {
     gzip -dc "$RUN_DIR/vmlinuz-lts" > "$RUN_DIR/Image"
   else
     if [[ "$BOOT_MODE" = u-boot ]]; then
-      package=$UBOOT_DEB
-      digest=$UBOOT_SHA256
-      url="$PACKAGE_MIRROR/pool/main/u/u-boot/$package"
+      ci_uboot_package "$UBOOT_VERSION" "$RUN_DIR/bootloader"
+      return
     else
       package=$EDK2_DEB
       digest=$EDK2_SHA256

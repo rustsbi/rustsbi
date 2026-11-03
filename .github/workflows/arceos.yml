@@ -7,6 +7,7 @@ on:
       - ".cargo/**"
       - ".github/scripts/prototyper-arceos-boot.sh"
       - ".github/workflows/arceos.yml"
+      - ".github/scripts/ci-uboot.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -20,6 +21,7 @@ on:
       - ".cargo/**"
       - ".github/scripts/prototyper-arceos-boot.sh"
       - ".github/workflows/arceos.yml"
+      - ".github/scripts/ci-uboot.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -63,6 +65,10 @@ jobs:
             qemu-system-misc
           qemu-system-riscv64 --version
 
+          source .github/scripts/ci-uboot.sh
+          toolchain_id=$(ci_uboot_toolchain_id)
+          echo "CI_UBOOT_TOOLCHAIN_ID=$toolchain_id" >> "$GITHUB_ENV"
+
       - name: Install required cargo
         run: cargo install --locked cargo-binutils@0.4.0
 
@@ -74,14 +80,12 @@ jobs:
           path: .cache/arceos
           key: arceos-8d2e6f97efc4-v1
 
-      # Only the u-boot path builds U-Boot. Keep it in a separate cache so
-      # another matrix entry cannot populate the shared key without the binary.
       - name: Cache U-Boot build
         if: matrix.boot-path == 'u-boot'
         uses: actions/cache@v5
         with:
-          path: .cache/uboot-smode
-          key: uboot-smode-25049ad56082-v1
+          path: .cache/ci-uboot/builds/arceos-smode
+          key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-arceos-smode-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Build RustSBI Prototyper
         run: |

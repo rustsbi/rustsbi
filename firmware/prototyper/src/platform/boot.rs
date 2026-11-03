@@ -5,11 +5,11 @@
 use alloc::boxed::Box;
 use core::ops::Range;
 use runtime::{
-    Error, PlatformDescription, Result, boot, events,
+    Error, PlatformDescription, Result, events,
     hart::{self, HartId},
-    ipi::Ipi,
+    ipi,
     memory::SupervisorMemory,
-    timer::Timer,
+    timer,
 };
 
 use spin::Once;
@@ -30,6 +30,7 @@ use crate::{
 };
 
 /// Discovers the platform, initializes its devices, and publishes its services.
+///
 /// Returns the device tree prepared for the next stage.
 pub fn init_board(platform_description: PlatformDescription) -> usize {
     try_init_board(platform_description).unwrap_or_else(|error| panic!("{error}"))
@@ -91,8 +92,10 @@ fn initialize_platform(
     let selected_imsic = select_imsic(&board);
     let mut devices = driver::bind_devices(&board, selected_imsic, &mut memory)
         .during("binding platform devices")?;
-    let timer = Timer::new(devices.timer.take());
-    let timer_service = SbiTimer::new(timer);
+    let timer = SbiTimer::new(devices.timer.take()).expect("BUG: timer initialization failed");
+    // Publish the platform time source as soon as its device is bound so later
+    // platform setup can use `timer::now()`.
+    timer::init(timer.device()).expect("BUG: time source initialization failed");
     let custom_extension = sbi::vendor::Extension::bind(v821, &mut memory)
         .during("binding Allwinner custom-extension devices")?;
     let k1_registers = match &board.soc {
@@ -141,25 +144,23 @@ fn initialize_platform(
         custom_extension,
         pmu,
         hart_wake,
-        timer_service,
+        timer,
     );
     Ok(next_stage_fdt_address)
 }
 
-/// Selects IMSIC only when every enabled hart can use its CSR interface and
-/// Sstc timer.
-/// Device construction performs no SBI feature-policy queries.
+/// Selects an IMSIC when every enabled hart advertises Smaia and Sstc.
 fn select_imsic(board: &BoardInfo) -> Option<&ImsicInfo> {
     use sbi::features::{self, Extension};
 
     let imsic = board.devices.interrupts.imsic()?.resource();
-    for hart in HartId::all().map(|hart| hart.as_usize()) {
-        if !features::hart_has_extension(hart, Extension::Smaia)
-            || !features::hart_has_extension(hart, Extension::Sstc)
+    for hart in HartId::all() {
+        if !features::has_extension(hart, Extension::Smaia)
+            || !features::has_extension(hart, Extension::Sstc)
         {
             warn!(
                 "AIA: hart {} requires Smaia and Sstc; falling back to CLINT",
-                hart
+                hart.as_usize()
             );
             return None;
         }
@@ -174,7 +175,7 @@ fn publish_platform_services(
     custom_extension: sbi::vendor::Extension,
     pmu: Option<SbiPmu>,
     hart_wake: Option<Box<dyn HartWake>>,
-    timer_service: SbiTimer,
+    timer: SbiTimer,
 ) {
     let driver::Devices {
         ipi,
@@ -187,7 +188,10 @@ fn publish_platform_services(
     let hart_wake = hart_wake.map(|device| HART_WAKE.call_once(|| device).as_ref());
     hart::install_wakeup(hart_wake);
     let ipi_delivery = ipi.as_ref().map(|device| device.delivery());
-    let sbi_ipi = sbi::ipi::SbiIpi::new(Ipi::new(ipi, sbi::ipi::deliver_current));
+    let ipi = ipi::init(ipi, sbi::ipi::deliver_current)
+        .expect("BUG: Runtime IPI initialized more than once");
+    let sbi_ipi =
+        sbi::ipi::SbiIpi::new(ipi).expect("BUG: SBI IPI state requires a published hart topology");
     events::install(pmu.as_ref().map(|_| sbi::pmu::runtime_counters()));
 
     state::publish_resources(board, supervisor_memory, console, ipi_delivery);
@@ -196,14 +200,7 @@ fn publish_platform_services(
     info!("Hello RustSBI!");
 
     let reset = SbiReset::new(reset);
-    publish_sbi_dispatcher(
-        sbi_ipi,
-        timer_service,
-        reset,
-        custom_extension,
-        pmu,
-        hart_wake,
-    );
+    publish_sbi_dispatcher(sbi_ipi, timer, reset, custom_extension, pmu, hart_wake);
 
     state::mark_ready();
 
@@ -232,7 +229,7 @@ fn publish_sbi_dispatcher(
     let sta = Some(sbi::sta::SbiSta::new(supervisor_memory));
     let vendor = sbi::vendor::Vendor::new(custom_extension, supervisor_memory);
 
-    let dispatcher = sbi::SBI_DISPATCHER.call_once(|| SbiDispatcher {
+    let dispatcher: &'static SbiDispatcher = Box::leak(Box::new(SbiDispatcher {
         console,
         cppc,
         dbtr,
@@ -247,9 +244,10 @@ fn publish_sbi_dispatcher(
         sta,
         mpxy,
         vendor,
-    });
-    boot::install_services(dispatcher.timer.timer(), dispatcher.ipi.ipi())
-        .expect("BUG: Runtime services registered more than once");
+    }));
+    dispatcher
+        .publish()
+        .expect("BUG: SBI policy publication failed");
 }
 
 /// Runs the SoC-specific per-hart setup for secondary harts.

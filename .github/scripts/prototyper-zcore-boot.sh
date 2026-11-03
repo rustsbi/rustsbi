@@ -19,7 +19,7 @@
 # whatever revision is current; both are seeded here from checksum-pinned
 # archives instead, so xtask finds them in place and never goes online for
 # them. Only the build products (the kernel binary and rootfs image) are
-# cached; RustSBI and U-Boot are rebuilt from the commit under test every run.
+# cached. U-Boot compilation is shared; RustSBI and its FIT are rebuilt each run.
 #
 # zCore's init process comes from ROOTPROC on the command line, with `?`
 # separating arguments. The command prints the kernel name and machine before
@@ -31,6 +31,9 @@
 # libssl-dev, bison, flex, dosfstools and mtools.
 
 set -euo pipefail
+
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
 
 if (( $# > 1 )); then
   echo "Usage: $0 [sbi|u-boot]" >&2
@@ -60,8 +63,6 @@ readonly BUSYBOX_URL="https://busybox.net/downloads/busybox-${BUSYBOX_VERSION}.t
 readonly BUSYBOX_SHA256="b8cc24c9574d809e7279c3be349795c5d5ceb6fdf19ca709f80cde50e47de314"
 
 readonly UB_VERSION="2024.04"
-readonly UB_URL="https://github.com/u-boot/u-boot/archive/refs/tags/v${UB_VERSION}.tar.gz"
-readonly UB_SHA256="d6b57ce574a0a0504a5b6596644ceacb7f77bde9353779bcf2fde07c4b9a2b92"
 
 readonly CROSS_COMPILE="riscv64-linux-gnu-"
 readonly SMOKE_MARKER="RUSTSBI-ZCORE-OK"
@@ -96,7 +97,7 @@ readonly ZCORE_UIMAGE="${WORK_DIR}/zcore.uimg"
 readonly DISK_IMAGE="${WORK_DIR}/zcore-boot.img"
 
 # Populated by build_uboot; kept as mutable globals because the tree lives
-# under WORK_DIR and is rebuilt every run.
+# under WORK_DIR; only the FIT is repacked every run.
 UB_TREE=""
 UB_SPL=""
 UB_ITB=""
@@ -190,42 +191,14 @@ prepare_zcore() {
   cp "${ZCORE_TREE}/zCore/riscv64.img" "$ZCORE_ROOTFS"
 }
 
-# Build U-Boot with the RustSBI firmware embedded as the OpenSBI payload. The
-# build products are deliberately not cached: the SPL embeds the firmware, so
-# they must be rebuilt from the commit under test every run.
+# Repack the shared U-Boot build with the current RustSBI.
 build_uboot() {
-  local tarball="${WORK_DIR}/u-boot-${UB_VERSION}.tar.gz"
-  local tree="${WORK_DIR}/u-boot-${UB_VERSION}"
-  local rustsbi_abs
-
-  # `make -C` runs inside the U-Boot tree, so OPENSBI must be an absolute
-  # path; a relative path would be resolved against the tree, not the repo.
-  rustsbi_abs="$(readlink -f "$RUSTSBI")"
-
-  mkdir -p "$WORK_DIR"
-  download_asset "$UB_URL" "$tarball" "$UB_SHA256"
-
-  rm -rf "$tree"
-  tar -xzf "$tarball" -C "$WORK_DIR"
-
-  make -C "$tree" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
-    OPENSBI="$rustsbi_abs" qemu-riscv64_spl_defconfig
-
-  # zCore faults on a device tree at the top of RAM, where U-Boot keeps its
-  # control tree, so move the tree to the standard fdt_addr_r first. The
-  # single quotes keep the command line one hush word; `scripts/config`
-  # rewrites the value with sed, so it must not contain `&`.
-  "${tree}/scripts/config" --file "${tree}/.config" --enable USE_BOOTCOMMAND
-  # shellcheck disable=SC2016
-  "${tree}/scripts/config" --file "${tree}/.config" --set-str BOOTCOMMAND \
-    "load virtio 0 \${kernel_addr_r} zcore.uimg; load virtio 0 \${ramdisk_addr_r} rootfs.img; setenv bootargs '${ZCORE_CMDLINE}'; fdt addr \${fdtcontroladdr}; fdt move \${fdtcontroladdr} \${fdt_addr_r} 0x10000; bootm \${kernel_addr_r} \${ramdisk_addr_r}:\${filesize} \${fdt_addr_r}"
-
-  make -C "$tree" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
-    OPENSBI="$rustsbi_abs" -j"$(nproc)"
-
+  local tree="${WORK_DIR}/u-boot"
+  ci_uboot_build "$UB_VERSION" spl zcore-spl "$tree"
+  ci_uboot_fit "$tree" "$RUSTSBI"
   UB_TREE="$tree"
-  UB_SPL="${tree}/spl/u-boot-spl"
-  UB_ITB="${tree}/u-boot.itb"
+  UB_SPL="$tree/spl/u-boot-spl"
+  UB_ITB="$tree/u-boot.itb"
 }
 
 # zCore is a raw binary linked to run at 0x80200000, so wrap it in a legacy
@@ -241,6 +214,8 @@ make_boot_disk() {
   mkfs.vfat -F 32 "$DISK_IMAGE" >/dev/null
   mcopy -i "$DISK_IMAGE" "$ZCORE_UIMAGE" ::zcore.uimg
   mcopy -i "$DISK_IMAGE" "$ZCORE_ROOTFS" ::rootfs.img
+  printf 'bootargs=%s\n' "$ZCORE_CMDLINE" >"$WORK_DIR/uboot.env"
+  mcopy -i "$DISK_IMAGE" "$WORK_DIR/uboot.env" ::uboot.env
 }
 
 check_prerequisites() {

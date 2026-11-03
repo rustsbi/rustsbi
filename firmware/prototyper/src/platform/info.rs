@@ -7,11 +7,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use runtime::{
     Result, SpacemitK1Registers,
+    ipi::Iid,
     memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange},
     soc::allwinner::v861::AllwinnerV861Soc,
 };
-
-use riscv_aia::Iid;
 
 use crate::devicetree::{NodeSelection, select_from_node_once};
 use crate::driver;
@@ -63,7 +62,7 @@ impl ImsicAddressLayout {
 /// Machine-level IMSIC resources selected from the Platform Description.
 pub(crate) struct ImsicInfo {
     pub(crate) layout: ImsicAddressLayout,
-    pub(crate) num_ids: u16,
+    pub(crate) num_iids: u16,
     pub(crate) ipi_iid: Iid,
     pub(crate) hart_files: Vec<DeviceRegisterRange>,
 }
