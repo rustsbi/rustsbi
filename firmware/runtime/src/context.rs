@@ -52,8 +52,9 @@
 //! A context retains the integer registers, the resume PC, the translation
 //! state (`satp` as [`AddressSpace`]), the supervisor interrupt-enable mask
 //! (`sie` as [`InterruptSet`]), and the machine return state (`mstatus` as
-//! [`Status<Write>`](Status), whose SIE/SPIE stack and privilege bits are
-//! the context's own). A resumed context therefore finds its interrupt
+//! [`Status<Write>`](Status), whose SIE/SPIE stack and SPP are the
+//! context's own; MPP is not retained and is set to Supervisor on every
+//! resume). A resumed context therefore finds its interrupt
 //! enables and trap-entry interrupt state exactly as it left them. The RV32
 //! `mstatush` image is not retained; its transfer-relevant bits are cleared
 //! on entry. Supervisor trap-programming state outside this list (`stvec`,
@@ -123,7 +124,7 @@ pub struct ContextSnapshot {
     /// The supervisor interrupt sources the context resumes with enabled.
     pub sie: InterruptSet,
     /// The machine return state the context resumes through, carrying its
-    /// own interrupt stack and privilege.
+    /// own interrupt stack and SPP. MPP is fixed to Supervisor on resume.
     pub status: Status<Write>,
 }
 
