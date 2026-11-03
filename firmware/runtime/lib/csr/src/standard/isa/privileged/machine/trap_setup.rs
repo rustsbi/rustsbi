@@ -190,13 +190,6 @@ impl Status {
     }
 }
 
-impl From<bool> for Virtualization {
-    #[inline]
-    fn from(virtualized: bool) -> Self {
-        if virtualized { Self::On } else { Self::Off }
-    }
-}
-
 impl Status<Write> {
     /// Creates a prepared value with every local bit clear.
     ///
@@ -204,6 +197,13 @@ impl Status<Write> {
     #[inline]
     pub const fn empty() -> Self {
         Self::from_raw(0)
+    }
+}
+
+impl From<bool> for Virtualization {
+    #[inline]
+    fn from(virtualized: bool) -> Self {
+        if virtualized { Self::On } else { Self::Off }
     }
 }
 
