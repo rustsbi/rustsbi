@@ -50,18 +50,17 @@
 //! # Retained state
 //!
 //! A context retains the integer registers, the resume PC, the translation
-//! state ([`Satp`]), the supervisor interrupt-enable mask
-//! ([`InterruptSet`]), and the machine return state ([`StatusWriteValue`],
-//! whose SIE/SPIE stack and privilege bits are the context's own). A
-//! resumed context therefore finds its interrupt enables and trap-entry
-//! interrupt state exactly as it left them. The RV32 `mstatush` image is
-//! not retained; its transfer-relevant bits are cleared on entry.
-//! Supervisor trap-programming
-//! state outside this list (`stvec`, `sscratch`, and similar) is monitor
-//! policy: contexts that differ in their expectations about it are
-//! switched by the monitor's own extension ceremony, adjacent to the
-//! transaction. Floating-point and vector registers follow the CoVE
-//! reference flow and are caller-owned.
+//! state (`satp` as [`AddressSpace`]), the supervisor interrupt-enable mask
+//! (`sie` as [`InterruptSet`]), and the machine return state (`mstatus` as
+//! [`Status<Write>`](Status), whose SIE/SPIE stack and privilege bits are
+//! the context's own). A resumed context therefore finds its interrupt
+//! enables and trap-entry interrupt state exactly as it left them. The RV32
+//! `mstatush` image is not retained; its transfer-relevant bits are cleared
+//! on entry. Supervisor trap-programming state outside this list (`stvec`,
+//! `sscratch`, and similar) is monitor policy: contexts that differ in their
+//! expectations about it are switched by the monitor's own extension
+//! ceremony, adjacent to the transaction. Floating-point and vector
+//! registers follow the CoVE reference flow and are caller-owned.
 //!
 //! # Fencing
 //!
@@ -83,21 +82,10 @@
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicU8, Ordering};
 
-/// The `satp` register value, re-exported so the public fields below name
-/// their type from this module.
-pub use riscv::register::satp::Satp;
-
-/// The supervisor interrupt-enable mask (`sie`), re-exported so the public
-/// fields below name their type from this module.
-pub use csr::values::trap::InterruptSet;
-
-/// The machine return-state image (`mstatus`), re-exported so the public
-/// fields below name their type from this module.
-pub use csr::machine::StatusWriteValue;
-
-/// The return-state privilege encoding, re-exported so callers can
-/// construct [`StatusWriteValue`] defaults.
-pub use csr::machine::TargetPrivilege;
+use csr::Write;
+use csr::machine::Status;
+use csr::supervisor::AddressSpace;
+use csr::values::trap::InterruptSet;
 
 /// Context state values; private Runtime facts transitioned only by the
 /// functions in this module.
@@ -131,12 +119,12 @@ pub struct ContextSnapshot {
     /// The resume address.
     pub pc: usize,
     /// The translation state the context resumes with.
-    pub satp: Satp,
+    pub satp: AddressSpace,
     /// The supervisor interrupt sources the context resumes with enabled.
     pub sie: InterruptSet,
     /// The machine return state the context resumes through, carrying its
     /// own interrupt stack and privilege.
-    pub status: StatusWriteValue,
+    pub status: Status<Write>,
 }
 
 /// A neutral, plain-data execution context exchanged by a retentive
@@ -171,9 +159,9 @@ struct ContextData {
     /// slot.
     x1_x31: [usize; 31],
     pc: usize,
-    satp: Satp,
+    satp: AddressSpace,
     sie: InterruptSet,
-    status: StatusWriteValue,
+    status: Status<Write>,
 }
 
 /// Failure while parking, filling, or staging a retentive transfer.
@@ -208,9 +196,9 @@ impl ExecutionContext {
             data: UnsafeCell::new(ContextData {
                 x1_x31: [0; 31],
                 pc: 0,
-                satp: Satp::from_bits(0),
+                satp: AddressSpace::bare(),
                 sie: InterruptSet::empty(),
-                status: StatusWriteValue::for_return(TargetPrivilege::Supervisor),
+                status: Status::<Write>::empty(),
             }),
             state: AtomicU8::new(context_state::EMPTY),
         }
@@ -262,9 +250,9 @@ impl ExecutionContext {
         &self,
         x1_x31: [usize; 31],
         pc: usize,
-        satp: Satp,
+        satp: AddressSpace,
         sie: InterruptSet,
-        status: StatusWriteValue,
+        status: Status<Write>,
     ) -> Result<(), TransferError> {
         let state = self.state.load(Ordering::Acquire);
         if state != context_state::EMPTY && state != context_state::SUSPENDED {
@@ -307,9 +295,9 @@ impl ExecutionContext {
         &self,
         x1_x31: &[usize; 31],
         pc: usize,
-        satp: Satp,
+        satp: AddressSpace,
         sie: InterruptSet,
-        status: StatusWriteValue,
+        status: Status<Write>,
     ) {
         // SAFETY: the staged suspend target is owned by this hart's
         // in-flight transaction; no other accessor may touch it.
@@ -322,7 +310,7 @@ impl ExecutionContext {
     }
 
     /// Returns the declared translation state to install.
-    pub(crate) fn satp(&self) -> Satp {
+    pub(crate) fn satp(&self) -> AddressSpace {
         // SAFETY: staged resume sources have no writer.
         unsafe { &*self.data.get() }.satp
     }
@@ -334,7 +322,7 @@ impl ExecutionContext {
     }
 
     /// Returns the declared machine return state to install.
-    pub(crate) fn status(&self) -> StatusWriteValue {
+    pub(crate) fn status(&self) -> Status<Write> {
         // SAFETY: staged resume sources have no writer.
         unsafe { &*self.data.get() }.status
     }
@@ -444,26 +432,39 @@ mod tests {
     };
 
     const QUIET_SIE: InterruptSet = InterruptSet::empty();
-    const QUIET_STATUS: StatusWriteValue =
-        StatusWriteValue::for_return(TargetPrivilege::Supervisor);
+    const QUIET_STATUS: Status<Write> = Status::<Write>::empty();
 
     /// Interrupt state with distinct enabled sources, to observe fidelity.
-    fn armed() -> (InterruptSet, StatusWriteValue) {
+    fn armed() -> (InterruptSet, Status<Write>) {
         let mut status = QUIET_STATUS;
-        status.write::<SPIE>(Interrupt::Enabled);
+        status.set::<SPIE>(Interrupt::Enabled);
         (InterruptSet::from(0b101), status)
     }
 
-    fn filled(pc: usize) -> ([usize; 31], usize, Satp, InterruptSet, StatusWriteValue) {
+    fn filled(
+        pc: usize,
+    ) -> (
+        [usize; 31],
+        usize,
+        AddressSpace,
+        InterruptSet,
+        Status<Write>,
+    ) {
         let (sie, status) = armed();
-        (GPRS_B, pc, Satp::from_bits(0x8000), sie, status)
+        (GPRS_B, pc, AddressSpace::from(0x8000), sie, status)
     }
 
     #[test]
     fn park_requires_empty_and_fill_requires_parkable_state() {
         static CTX: ExecutionContext = ExecutionContext::new();
-        CTX.fill(GPRS_A, 0x1000, Satp::from_bits(0), QUIET_SIE, QUIET_STATUS)
-            .unwrap();
+        CTX.fill(
+            GPRS_A,
+            0x1000,
+            AddressSpace::bare(),
+            QUIET_SIE,
+            QUIET_STATUS,
+        )
+        .unwrap();
         CTX.park().unwrap();
         assert_eq!(CTX.state(), ContextState::Suspended);
         assert_eq!(CTX.park(), Err(TransferError::InvalidState));
@@ -474,18 +475,24 @@ mod tests {
         static SUSPEND: ExecutionContext = ExecutionContext::new();
         static RESUME: ExecutionContext = ExecutionContext::new();
         RESUME
-            .fill(GPRS_B, 0x2000, Satp::from_bits(0), QUIET_SIE, QUIET_STATUS)
+            .fill(
+                GPRS_B,
+                0x2000,
+                AddressSpace::bare(),
+                QUIET_SIE,
+                QUIET_STATUS,
+            )
             .unwrap();
         RESUME.park().unwrap();
         stage_pair(&SUSPEND, &RESUME).unwrap();
         assert_eq!(SUSPEND.state(), ContextState::Staged);
         assert_eq!(RESUME.state(), ContextState::Staged);
         assert_eq!(
-            SUSPEND.fill(GPRS_A, 1, Satp::from_bits(0), QUIET_SIE, QUIET_STATUS),
+            SUSPEND.fill(GPRS_A, 1, AddressSpace::bare(), QUIET_SIE, QUIET_STATUS),
             Err(TransferError::InvalidState)
         );
         assert_eq!(
-            RESUME.fill(GPRS_B, 1, Satp::from_bits(0), QUIET_SIE, QUIET_STATUS),
+            RESUME.fill(GPRS_B, 1, AddressSpace::bare(), QUIET_SIE, QUIET_STATUS),
             Err(TransferError::InvalidState)
         );
         commit_pair(&SUSPEND, &RESUME);
@@ -493,10 +500,16 @@ mod tests {
         assert_eq!(RESUME.state(), ContextState::Active);
         // A suspended snapshot may be updated; an active context may not.
         SUSPEND
-            .fill(GPRS_A, 0x1001, Satp::from_bits(0), QUIET_SIE, QUIET_STATUS)
+            .fill(
+                GPRS_A,
+                0x1001,
+                AddressSpace::bare(),
+                QUIET_SIE,
+                QUIET_STATUS,
+            )
             .unwrap();
         assert_eq!(
-            RESUME.fill(GPRS_B, 1, Satp::from_bits(0), QUIET_SIE, QUIET_STATUS),
+            RESUME.fill(GPRS_B, 1, AddressSpace::bare(), QUIET_SIE, QUIET_STATUS),
             Err(TransferError::InvalidState)
         );
     }
@@ -504,8 +517,14 @@ mod tests {
     #[test]
     fn stage_rejects_same_context() {
         static CTX: ExecutionContext = ExecutionContext::new();
-        CTX.fill(GPRS_A, 0x1000, Satp::from_bits(0), QUIET_SIE, QUIET_STATUS)
-            .unwrap();
+        CTX.fill(
+            GPRS_A,
+            0x1000,
+            AddressSpace::bare(),
+            QUIET_SIE,
+            QUIET_STATUS,
+        )
+        .unwrap();
         CTX.park().unwrap();
         assert_eq!(stage_pair(&CTX, &CTX), Err(TransferError::SameContext));
     }
@@ -527,7 +546,13 @@ mod tests {
         static SECOND: ExecutionContext = ExecutionContext::new();
         static RESUME: ExecutionContext = ExecutionContext::new();
         RESUME
-            .fill(GPRS_B, 0x2000, Satp::from_bits(0), QUIET_SIE, QUIET_STATUS)
+            .fill(
+                GPRS_B,
+                0x2000,
+                AddressSpace::bare(),
+                QUIET_SIE,
+                QUIET_STATUS,
+            )
             .unwrap();
         RESUME.park().unwrap();
         stage_pair(&FIRST, &RESUME).unwrap();
@@ -546,10 +571,22 @@ mod tests {
         static SUSPEND: ExecutionContext = ExecutionContext::new();
         static RESUME: ExecutionContext = ExecutionContext::new();
         SUSPEND
-            .fill(GPRS_A, 0x1000, Satp::from_bits(0), QUIET_SIE, QUIET_STATUS)
+            .fill(
+                GPRS_A,
+                0x1000,
+                AddressSpace::bare(),
+                QUIET_SIE,
+                QUIET_STATUS,
+            )
             .unwrap();
         RESUME
-            .fill(GPRS_B, 0x2000, Satp::from_bits(0), QUIET_SIE, QUIET_STATUS)
+            .fill(
+                GPRS_B,
+                0x2000,
+                AddressSpace::bare(),
+                QUIET_SIE,
+                QUIET_STATUS,
+            )
             .unwrap();
         SUSPEND.park().unwrap();
         RESUME.park().unwrap();
@@ -570,11 +607,23 @@ mod tests {
         static SNAPSHOT: ExecutionContext = ExecutionContext::new();
         static FRESH: ExecutionContext = ExecutionContext::new();
         SNAPSHOT
-            .fill(GPRS_B, 0x2000, Satp::from_bits(0), QUIET_SIE, QUIET_STATUS)
+            .fill(
+                GPRS_B,
+                0x2000,
+                AddressSpace::bare(),
+                QUIET_SIE,
+                QUIET_STATUS,
+            )
             .unwrap();
         SNAPSHOT.park().unwrap();
         ACTIVE
-            .fill(GPRS_A, 0x1000, Satp::from_bits(0), QUIET_SIE, QUIET_STATUS)
+            .fill(
+                GPRS_A,
+                0x1000,
+                AddressSpace::bare(),
+                QUIET_SIE,
+                QUIET_STATUS,
+            )
             .unwrap();
         ACTIVE.park().unwrap();
         stage_pair(&FRESH, &SNAPSHOT).unwrap();
@@ -598,7 +647,7 @@ mod tests {
         HOST.fill(
             GPRS_A,
             0x80800000,
-            Satp::from_bits(0x8080_0000),
+            AddressSpace::from(0x8080_0000),
             QUIET_SIE,
             QUIET_STATUS,
         )
@@ -614,7 +663,7 @@ mod tests {
         HOST.save_outgoing(
             &outgoing,
             0x8080_0100,
-            Satp::from_bits(0x8080_0000),
+            AddressSpace::from(0x8080_0000),
             out_sie,
             out_status,
         );
@@ -630,7 +679,7 @@ mod tests {
 
         let snapshot = HOST.snapshot();
         assert_eq!(snapshot.pc, 0x8080_0100);
-        assert_eq!(snapshot.satp, Satp::from_bits(0x8080_0000));
+        assert_eq!(snapshot.satp, AddressSpace::from(0x8080_0000));
         assert_eq!(snapshot.x1_x31[0], 7);
         // The outgoing interrupt and return state is retained verbatim.
         assert_eq!(snapshot.sie, out_sie);

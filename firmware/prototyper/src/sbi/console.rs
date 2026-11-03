@@ -220,9 +220,9 @@ macro_rules! print {
 #[macro_export]
 #[allow(unused)]
 macro_rules! println {
-    () => ($crate::print!("\n\r"));
+    () => ($crate::print!("\n"));
     ($($arg:tt)*) => {{
         $crate::sbi::console::_print(core::format_args!($($arg)*));
-        $crate::sbi::console::_print(core::format_args!("\n\r"));
+        $crate::sbi::console::_print(core::format_args!("\n"));
     }}
 }

@@ -154,7 +154,6 @@ fn convert_elf_to_binary(paths: &BuildPaths) -> Result<ExitStatus> {
         .args([
             "-O",
             "binary",
-            "--binary-architecture=riscv64",
             &elf_path.to_string_lossy(),
             &binary_path.to_string_lossy(),
         ])

@@ -7,7 +7,7 @@
 
 #![forbid(unsafe_code)]
 
-use riscv::register::mstatus;
+use csr::machine::{MPP, Privilege, Status};
 use runtime::{
     hart::{self, HartId, HartState},
     rustsbi::{Hsm, SbiRet, Susp},
@@ -25,8 +25,8 @@ impl Susp for SbiSuspend {
             return SbiRet::invalid_param();
         }
 
-        let prev_mode = mstatus::read().mpp();
-        if prev_mode != mstatus::MPP::Supervisor && prev_mode != mstatus::MPP::User {
+        let prev_mode = Status::read().get::<MPP>();
+        if prev_mode != Privilege::Supervisor && prev_mode != Privilege::User {
             return SbiRet::failed();
         }
 

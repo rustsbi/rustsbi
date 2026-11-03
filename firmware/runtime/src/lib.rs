@@ -20,9 +20,9 @@ pub mod events;
 pub mod fwft;
 pub mod hart;
 pub mod heap;
+pub mod instruction;
 pub mod ipi;
 mod irq;
-pub mod machine_irq;
 pub mod memory;
 mod recovery;
 pub mod soc;
@@ -36,7 +36,7 @@ pub use error::{Error, Result};
 pub use device_tree::{DeviceTreeHandoff, PlatformDescription, PlatformView, node_is_enabled};
 /// Read-only Flattened Devicetree types used by firmware policy.
 pub use fdt::{Fdt, node::FdtNode, standard_nodes::Compatible};
-pub use macros::entry;
+pub use macros::{entry, sbi_policy};
 /// The original RustSBI library, re-exported under its own name.
 ///
 /// Firmware policy crates receive RustSBI transitively through this crate and

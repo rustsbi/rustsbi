@@ -10,13 +10,16 @@
 //! (e.g. kernels or hypervisors); it builds under non-RISC-V targets but for tests
 //! or `cargo fix` purposes only.
 #![no_std]
-#[cfg_attr(not(feature = "legacy"), deny(missing_docs))]
+#![deny(missing_docs)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 // §3
 mod binary;
 // §4
 mod base;
 // §5
 #[cfg(feature = "legacy")]
+#[cfg_attr(docsrs, doc(cfg(feature = "legacy")))]
 pub mod legacy;
 // §6
 mod time;

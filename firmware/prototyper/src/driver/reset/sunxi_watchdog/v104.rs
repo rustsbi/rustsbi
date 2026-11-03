@@ -15,6 +15,7 @@ use core::mem::{align_of, size_of};
 use runtime::{
     Error, PlatformView, Result,
     memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+    timer,
 };
 
 use crate::devicetree::EnabledNode;
@@ -124,19 +125,19 @@ impl V104Watchdog {
     fn write(&mut self, register: Register, value: u32) -> Result<()> {
         self.registers.write(register as usize, value.to_le())?;
         // Order each device write before the next register access or delay.
-        riscv::asm::fence();
+        runtime::instruction::fence();
         Ok(())
     }
 
     fn start_reset(&mut self) -> Result<()> {
-        riscv::asm::fence();
+        runtime::instruction::fence();
         // Stop an active watchdog before synchronizing its reset output.
         self.write(Register::Mode, UPDATE_KEY)?;
         // Clear CFG bit 0 before the delay, preserving its other fields.
         let config = self.read(Register::Config)?;
         self.write(Register::Config, (config & !CONFIG_ENABLE) | UPDATE_KEY)?;
-        let start = riscv::register::time::read64();
-        while riscv::register::time::read64().wrapping_sub(start) < self.delay_ticks {
+        let start = timer::now().ok_or(Error::NotSupported)?;
+        while timer::now().is_some_and(|now| now.wrapping_sub(start) < self.delay_ticks) {
             core::hint::spin_loop();
         }
 
@@ -161,7 +162,7 @@ impl ResetBackend for V104Watchdog {
         }
         // Reset is asynchronous. Park while the watchdog counts down.
         loop {
-            riscv::asm::wfi();
+            runtime::instruction::wait_for_interrupt();
         }
     }
 }

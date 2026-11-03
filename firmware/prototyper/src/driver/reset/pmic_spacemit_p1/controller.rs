@@ -13,6 +13,7 @@ use core::time::Duration;
 use runtime::{
     Error, Result,
     memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+    timer,
 };
 
 use super::I2cAddress;
@@ -122,11 +123,13 @@ impl Timebase {
     }
 
     fn elapsed(self, start: u64, duration: Duration) -> bool {
-        riscv::register::time::read64().wrapping_sub(start) >= self.ticks_for(duration)
+        timer::now().is_none_or(|now| now.wrapping_sub(start) >= self.ticks_for(duration))
     }
 
     fn delay(self, duration: Duration) {
-        let start = riscv::register::time::read64();
+        let Some(start) = timer::now() else {
+            return;
+        };
         while !self.elapsed(start, duration) {
             core::hint::spin_loop();
         }
@@ -186,7 +189,7 @@ impl K1I2cController {
     }
 
     fn wait_for_status(&self, mask: Status) -> Option<Status> {
-        let start = riscv::register::time::read64();
+        let start = timer::now()?;
         loop {
             let status = Status::from_bits_retain(self.read(Register::Status));
             if status.intersects(STATUS_ERRORS | Status::ACK_NAK) {
@@ -221,7 +224,9 @@ impl K1I2cController {
         );
         self.clear_status(Status::from_bits_retain(self.read(Register::Status)));
 
-        let start = riscv::register::time::read64();
+        let Some(start) = timer::now() else {
+            return false;
+        };
         loop {
             let status = Status::from_bits_retain(self.read(Register::Status));
             if !status.intersects(Status::UNIT_BUSY | Status::BUS_BUSY) {

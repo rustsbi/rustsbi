@@ -12,6 +12,3 @@ name = "csr"
 test = true
 doctest = true
 bench = false
-
-[dependencies]
-pastey = "0.2.3"

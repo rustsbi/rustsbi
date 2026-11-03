@@ -1,5 +1,6 @@
 //! Complete instruction emulation.
 //! Only successful operations advance the PC.
+
 use csr::{machine, supervisor, user, values::counter::Counter};
 
 use super::{
@@ -7,6 +8,7 @@ use super::{
     frame::{TrapFrame, TrapInfo},
     memory,
 };
+use crate::timer::now;
 
 pub(super) fn emulate_load(frame: &mut TrapFrame, info: &TrapInfo) -> Result<(), Error> {
     let (raw, len) = memory::fetch(info)?;
@@ -44,14 +46,16 @@ pub(super) fn emulate_time_read(frame: &mut TrapFrame, info: &TrapInfo) -> Resul
     {
         return Err(Error::Unsupported);
     }
-    let timer = crate::boot::timer().ok_or(Error::Unsupported)?;
+    let Some(ticks) = now() else {
+        return Err(Error::Unsupported);
+    };
     let value = match op.csr {
-        user::Time::NUMBER => timer.read_time(),
+        user::Time::NUMBER => ticks as usize,
         #[cfg(target_pointer_width = "32")]
-        user::TimeHigh::NUMBER => timer.read_time_high(),
+        user::TimeHigh::NUMBER => (ticks >> 32) as usize,
         _ => return Err(Error::Unsupported),
     };
-    frame.general.write(op.rd, value.ok_or(Error::Unsupported)?);
+    frame.general.write(op.rd, value);
     frame.epc = frame.epc.wrapping_add(len);
     Ok(())
 }

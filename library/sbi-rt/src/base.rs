@@ -171,6 +171,7 @@ impl Extension for isize {
 /// Information about an SBI extension.
 #[derive(Clone, Copy, Debug)]
 pub struct ExtensionInfo {
+    /// Raw extension ID value.
     pub raw: usize,
 }
 

@@ -1,5 +1,6 @@
 //! SBI and machine interrupt handlers selected by trap dispatch.
-use super::{frame::TrapFrame, init};
+use super::frame::TrapFrame;
+use crate::rustsbi::SbiRet;
 use crate::{
     boot::NextStage,
     context::{self, ExecutionContext},
@@ -13,14 +14,28 @@ use csr::{
     values::trap::InterruptSet,
 };
 
+// The firmware supplies this symbol through `#[runtime::sbi_policy]`.
+// Both crates use the same Rust ABI and SBI types in the final firmware.
+unsafe extern "Rust" {
+    fn __rustsbi_runtime_handle_ecall(
+        extension: usize,
+        function: usize,
+        args: [usize; 6],
+    ) -> SbiRet;
+}
+
 pub(super) fn sbi_ecall(frame: &mut TrapFrame) {
     let regs = &mut frame.general;
     let hart = hart::current_hart();
-    let ret = init::policy(hart).handle_ecall(
-        regs.a7,
-        regs.a6,
-        [regs.a0, regs.a1, regs.a2, regs.a3, regs.a4, regs.a5],
-    );
+    // SAFETY: The firmware's `sbi_policy` symbol has the declared ABI and
+    // handles ecalls only after its policy state has been initialized.
+    let ret = unsafe {
+        __rustsbi_runtime_handle_ecall(
+            regs.a7,
+            regs.a6,
+            [regs.a0, regs.a1, regs.a2, regs.a3, regs.a4, regs.a5],
+        )
+    };
     regs.a0 = ret.error;
     regs.a1 = ret.value;
     frame.epc = frame.epc.wrapping_add(4);
@@ -42,21 +57,21 @@ fn deliver_event(frame: &mut TrapFrame, ipi: &crate::ipi::Ipi, irq: &LocalIrqDis
         HartEvent::Start(next) => enter_next_stage(frame, next),
         HartEvent::Park => {
             ipi.prepare_wakeup(irq);
-            riscv::asm::wfi();
+            crate::instruction::wait_for_interrupt();
         }
         HartEvent::None => {}
     }
 }
 
 pub(super) fn software_interrupt(frame: &mut TrapFrame, irq: &LocalIrqDisabled) {
-    let ipi = crate::boot::ipi().expect("IPI service not published");
+    let ipi = crate::ipi::get().expect("IPI service not published");
     ipi.clear_current(irq)
         .expect("IPI device could not clear the current hart");
     deliver_event(frame, ipi, irq);
 }
 
 pub(super) fn external_interrupt(frame: &mut TrapFrame, irq: &LocalIrqDisabled) {
-    if let Some(ipi) = crate::boot::ipi()
+    if let Some(ipi) = crate::ipi::get()
         && ipi.claim_external(irq)
     {
         deliver_event(frame, ipi, irq);
@@ -74,7 +89,7 @@ fn enter_next_stage(frame: &mut TrapFrame, next: NextStage) {
     frame.general = Default::default();
     frame.general.a0 = hart::current_hart().as_usize();
     frame.general.a1 = next.opaque;
-    riscv::asm::fence_i();
+    crate::instruction::fence_i();
 }
 
 fn enter_context(
@@ -89,7 +104,7 @@ fn enter_context(
     for (slot, id) in x1_x31.iter_mut().zip(1u8..=31) {
         *slot = frame.general.read(id);
     }
-    let outgoing = riscv::register::satp::read();
+    let outgoing = supervisor::AddressTranslation::read();
     // A supervisor context always has a `sie`; a failed read resumes the
     // incoming context with no interrupt sources rather than failing the
     // infallible ceremony.
@@ -103,10 +118,10 @@ fn enter_context(
     unsafe { crate::boot::prepare_supervisor() };
     let incoming = resume_from.satp();
     // SAFETY: M-mode installs the staged transfer's declared satp.
-    unsafe { riscv::register::satp::write(incoming) };
+    unsafe { supervisor::AddressTranslation::write(incoming) };
     // Fence only on an actual address-space change, a reused ASID included.
     if incoming != outgoing {
-        riscv::asm::sfence_vma_all();
+        crate::instruction::sfence_vma_all();
     }
     // SAFETY: M-mode installs the staged transfer's declared interrupt
     // enables, replacing prepare_supervisor's clearing.
@@ -114,14 +129,14 @@ fn enter_context(
     frame.status = resume_from.status();
     // The staged return state is the context's own, but a transfer always
     // re-enters supervisor mode.
-    frame.status.write::<MPP>(TargetPrivilege::Supervisor);
+    frame.status.set::<MPP>(TargetPrivilege::Supervisor);
     frame.leave_virtualization();
     let entry_pc = resume_from.resume_into(&mut x1_x31);
     for (id, value) in x1_x31.iter().enumerate() {
         frame.general.write(id as u8 + 1, *value);
     }
     frame.epc = entry_pc;
-    riscv::asm::fence_i();
+    crate::instruction::fence_i();
     context::commit_pair(suspend_into, resume_from);
     hart::set_active_context(Some(resume_from));
 }
