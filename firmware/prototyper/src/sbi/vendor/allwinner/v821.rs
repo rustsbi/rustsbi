@@ -89,19 +89,9 @@ impl SbiExtension for Andes {
                 self.cache
                     .read_status(AndesStatusRegister::MachineMiscControl),
             ),
-            23 => sbi_result(self.cache.flush_all(crate::sbi::timer())),
-            27 => sbi_result(self.cache.write_back_range(
-                args[0],
-                args[1],
-                self.memory,
-                crate::sbi::timer(),
-            )),
-            28 => sbi_result(self.cache.invalidate_range(
-                args[0],
-                args[1],
-                self.memory,
-                crate::sbi::timer(),
-            )),
+            23 => sbi_result(self.cache.flush_all()),
+            27 => sbi_result(self.cache.write_back_range(args[0], args[1], self.memory)),
+            28 => sbi_result(self.cache.invalidate_range(args[0], args[1], self.memory)),
             _ => SbiRet::not_supported(),
         }
     }

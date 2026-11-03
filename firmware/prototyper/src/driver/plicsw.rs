@@ -46,7 +46,7 @@ pub(in crate::driver) fn bind(
         registers.write(enable_offset + size_of::<u32>(), enabled)?;
         registers.write(CONTEXT_OFFSET + CONTEXT_STRIDE * hart, 0u32)?;
     }
-    riscv::asm::fence();
+    runtime::instruction::fence();
     Ok(PlicSw {
         registers,
         hart_id_upper_bound,
@@ -55,7 +55,7 @@ pub(in crate::driver) fn bind(
 
 impl IpiDevice for PlicSw {
     fn send(&self, request: IpiRequest) -> Result<()> {
-        riscv::asm::fence();
+        runtime::instruction::fence();
         for hart in request.harts() {
             if hart >= self.hart_id_upper_bound {
                 return Err(Error::IoError);
@@ -72,7 +72,7 @@ impl IpiDevice for PlicSw {
                 )
                 .map_err(|_| Error::IoError)?;
         }
-        riscv::asm::fence();
+        runtime::instruction::fence();
         Ok(())
     }
 
@@ -88,7 +88,7 @@ impl IpiDevice for PlicSw {
                 .write(offset, source)
                 .map_err(|_| Error::IoError)?;
         }
-        riscv::asm::fence();
+        runtime::instruction::fence();
         Ok(true)
     }
 }

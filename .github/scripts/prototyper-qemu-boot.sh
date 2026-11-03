@@ -90,7 +90,10 @@ run_once() {
     pattern=${pattern#"${pattern%%[![:space:]]*}"}
     case "$pattern" in ''|'#'*) continue ;; esac
     ((expected_count += 1))
-    grep -Fq "$pattern" "$log_file" || return 1
+    grep -Fq "$pattern" "$log_file" || {
+      echo "[$mode/$kernel] missing expected pattern: $pattern" >&2
+      return 1
+    }
   done < <(sed "s/{smp}/$smp/g" "$expected_file")
   test "$expected_count" -gt 0 || {
     echo "[$mode/$kernel] no patterns in: $expected_file" >&2
@@ -100,10 +103,17 @@ run_once() {
   # Dispatcher-backed extension wiring: these lines render from the
   # published SBI_DISPATCHER (presence chains + Once publish). A missing
   # line means an extension was silently dropped during boot assembly.
-  grep -F 'Platform HSM Extension        : Available' "$log_file" || return 1
-  grep -F 'Platform RFence Extension     : Available' "$log_file" || return 1
-  grep -F 'Platform SUSP Extension       : Available' "$log_file" || return 1
-  grep -F 'Platform PMU Extension        : Available' "$log_file" || return 1
+  local banner
+  for banner in \
+    'Platform HSM Extension        : Available' \
+    'Platform RFence Extension     : Available' \
+    'Platform SUSP Extension       : Available' \
+    'Platform PMU Extension        : Available'; do
+    grep -Fq "$banner" "$log_file" || {
+      echo "[$mode/$kernel] missing extension banner: $banner" >&2
+      return 1
+    }
+  done
 
   # Boot-policy order guard: the boot-hart presentation sequence must
   # appear in phase order. A reorder or drop means the boot policy
@@ -115,7 +125,10 @@ run_once() {
          count++
          if ($0 !~ want[count]) fail = 1
        }
-       END { exit !(count == n && !fail) }' "$log_file" || return 1
+       END { exit !(count == n && !fail) }' "$log_file" || {
+    echo "[$mode/$kernel] boot-hart presentation order changed" >&2
+    return 1
+  }
 
   local forbidden_count=0
   while IFS= read -r pattern || [ -n "$pattern" ]; do
@@ -124,6 +137,7 @@ run_once() {
     case "$pattern" in ''|'#'*) continue ;; esac
     ((forbidden_count += 1))
     if grep -Fq "$pattern" "$log_file"; then
+      echo "[$mode/$kernel] forbidden pattern present: $pattern" >&2
       return 1
     fi
   done < "$forbidden_file"

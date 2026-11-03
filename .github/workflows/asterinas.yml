@@ -7,6 +7,7 @@ on:
       - ".cargo/**"
       - ".github/scripts/prototyper-asterinas-boot.sh"
       - ".github/workflows/asterinas.yml"
+      - ".github/scripts/ci-uboot.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -20,6 +21,7 @@ on:
       - ".cargo/**"
       - ".github/scripts/prototyper-asterinas-boot.sh"
       - ".github/workflows/asterinas.yml"
+      - ".github/scripts/ci-uboot.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -83,6 +85,10 @@ jobs:
           qemu-system-riscv64 --version
           docker --version
 
+          source .github/scripts/ci-uboot.sh
+          toolchain_id=$(ci_uboot_toolchain_id)
+          echo "CI_UBOOT_TOOLCHAIN_ID=$toolchain_id" >> "$GITHUB_ENV"
+
       - name: Install required cargo
         run: cargo install --locked cargo-binutils@0.4.0
 
@@ -95,6 +101,13 @@ jobs:
         with:
           path: .cache/asterinas
           key: asterinas-d924a963-kernel-dev-0.18.1-20260918-v1
+
+      - name: Cache U-Boot build
+        if: matrix.boot-path == 'u-boot'
+        uses: actions/cache@v5
+        with:
+          path: .cache/ci-uboot/builds/asterinas-spl
+          key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-asterinas-spl-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Build RustSBI Prototyper
         run: cargo prototyper build

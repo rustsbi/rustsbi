@@ -7,6 +7,7 @@ on:
       - ".cargo/**"
       - ".github/scripts/prototyper-dragonos-boot.sh"
       - ".github/workflows/dragonos.yml"
+      - ".github/scripts/ci-uboot.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -20,6 +21,7 @@ on:
       - ".cargo/**"
       - ".github/scripts/prototyper-dragonos-boot.sh"
       - ".github/workflows/dragonos.yml"
+      - ".github/scripts/ci-uboot.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -58,6 +60,10 @@ jobs:
             qemu-system-misc swig util-linux uuid-dev xz-utils
           qemu-system-riscv64 --version
 
+          source .github/scripts/ci-uboot.sh
+          toolchain_id=$(ci_uboot_toolchain_id)
+          echo "CI_UBOOT_TOOLCHAIN_ID=$toolchain_id" >> "$GITHUB_ENV"
+
       - name: Install required cargo
         run: cargo install --locked cargo-binutils@0.4.0
 
@@ -78,13 +84,6 @@ jobs:
           path: .cache/dragonos-bootloaders/busybox
           key: dragonos-busybox-1.35.0-musl-b3833579-v1
 
-      - name: Cache U-Boot S-mode binary
-        if: matrix.boot-path == 'u-boot'
-        uses: actions/cache@v5
-        with:
-          path: .cache/dragonos-bootloaders/u-boot.bin
-          key: dragonos-uboot-2024.04-smode-v2
-
       - name: Cache EDK II firmware volumes
         if: matrix.boot-path == 'edk2'
         uses: actions/cache@v5
@@ -93,6 +92,13 @@ jobs:
             .cache/dragonos-bootloaders/RISCV_VIRT_CODE.fd
             .cache/dragonos-bootloaders/RISCV_VIRT_VARS.fd
           key: dragonos-edk2-6951dfe7-v2
+
+      - name: Cache U-Boot build
+        if: matrix.boot-path == 'u-boot'
+        uses: actions/cache@v5
+        with:
+          path: .cache/ci-uboot/builds/smode-2024.04
+          key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-smode-2024.04-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Build RustSBI Prototyper
         run: cargo prototyper build

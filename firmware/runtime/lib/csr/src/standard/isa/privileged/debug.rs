@@ -1,4 +1,6 @@
 //! Debug and trace registers used to discover Sdtrig triggers.
+//!
+//! See <https://docs.riscv.org/reference/debug/Sdtrig.html>.
 use crate::macros::csr;
 
 csr! {
@@ -26,6 +28,7 @@ csr! {
 }
 
 impl From<usize> for TriggerIndex {
+    #[inline]
     fn from(index: usize) -> Self {
         Self(index)
     }

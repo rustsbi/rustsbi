@@ -4,6 +4,7 @@ use core::{
     arch::{asm, naked_asm},
     sync::atomic::{AtomicUsize, Ordering},
 };
+use csr::user;
 use sbi_spec::{base, binary::SbiRet, dbcn, fwft, hsm, pmu, rfnc, spi as ipi, sta};
 
 const SAMPLES: usize = 9;
@@ -298,7 +299,7 @@ fn console_calls() {
 }
 
 fn wait(mut done: impl FnMut() -> bool) {
-    let start = riscv::register::time::read();
+    let start = user::Time::read();
     while !done() {
         assert_eq!(
             ERROR.load(Ordering::Acquire),
@@ -306,8 +307,7 @@ fn wait(mut done: impl FnMut() -> bool) {
             "secondary hart SBI failure"
         );
         assert!(
-            riscv::register::time::read().wrapping_sub(start)
-                < TIMEOUT_TICKS.load(Ordering::Relaxed),
+            user::Time::read() - start < TIMEOUT_TICKS.load(Ordering::Relaxed),
             "Linux workload timeout"
         );
         core::hint::spin_loop();
@@ -422,7 +422,7 @@ fn send_and_ack(hart: usize) -> SbiRet {
 /// a wake-latency sample: recover the worker with an IPI and report the gap.
 fn suspend_supported(hart: usize, kind: usize, name: &str) -> bool {
     COMMAND.store(kind, Ordering::Release);
-    let start = riscv::register::time::read();
+    let start = user::Time::read();
     let last_status = loop {
         let state = checked(call(
             hsm::EID_HSM,
@@ -435,8 +435,7 @@ fn suspend_supported(hart: usize, kind: usize, name: &str) -> bool {
             return true;
         }
         if ERROR.load(Ordering::Acquire) != 0
-            || riscv::register::time::read().wrapping_sub(start)
-                >= TIMEOUT_TICKS.load(Ordering::Relaxed)
+            || user::Time::read() - start >= TIMEOUT_TICKS.load(Ordering::Relaxed)
         {
             break state;
         }
@@ -444,13 +443,12 @@ fn suspend_supported(hart: usize, kind: usize, name: &str) -> bool {
     };
     // Do not reuse a worker/stack until it has returned from suspend. A
     // recovery failure still aborts the run instead of hiding a stuck hart.
-    let recovery_start = riscv::register::time::read();
+    let recovery_start = user::Time::read();
     let expected_ack = ACK.load(Ordering::Acquire).wrapping_add(1);
     checked(call(ipi::EID_SPI, ipi::SEND_IPI, [1, hart, 0, 0, 0, 0]));
     while COMMAND.load(Ordering::Acquire) != READY || ACK.load(Ordering::Acquire) != expected_ack {
         assert!(
-            riscv::register::time::read().wrapping_sub(recovery_start)
-                < TIMEOUT_TICKS.load(Ordering::Relaxed),
+            user::Time::read() - recovery_start < TIMEOUT_TICKS.load(Ordering::Relaxed),
             "suspend recovery timeout on hart {hart}"
         );
         core::hint::spin_loop();
@@ -512,7 +510,7 @@ pub(super) fn run(hart: usize, smp: usize, frequency: u32) -> bool {
         scalar(name, base::EID_BASE, fid, [0; 6]);
     }
     // Unlike time_set in the compatibility suite, use a finite deadline.
-    let deadline = riscv::register::time::read64() + u64::from(frequency) * 60;
+    let deadline = user::Time::read64() + u64::from(frequency) * 60;
     let high = if usize::BITS == 32 {
         (deadline >> 32) as usize
     } else {

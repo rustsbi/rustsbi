@@ -71,7 +71,7 @@ pub fn fail() -> ! {
         EID_SRST, RESET_REASON_SYSTEM_FAILURE, RESET_TYPE_SHUTDOWN, SYSTEM_RESET,
     };
 
-    if let Some(dispatcher) = super::SBI_DISPATCHER.get() {
+    if let Some(dispatcher) = super::SbiDispatcher::get() {
         let ret = rustsbi::RustSBI::handle_ecall(
             dispatcher,
             EID_SRST,

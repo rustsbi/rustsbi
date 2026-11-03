@@ -12,11 +12,10 @@ use core::mem::size_of;
 use runtime::{
     Error, FdtNode, Result,
     hart::HartId,
+    ipi::Iid,
     memory::{DeviceRegisterRange, PhysAddrRange},
     node_is_enabled,
 };
-
-use riscv_aia::Iid;
 
 use crate::devicetree::u32_property;
 use crate::driver;
@@ -24,8 +23,6 @@ use crate::driver;
 use super::super::info::{ImsicAddressLayout, ImsicInfo};
 
 const MACHINE_EXTERNAL_INTERRUPT_ID: u32 = 11;
-const MIN_INTERRUPT_IDENTITIES: u32 = 63;
-const MAX_INTERRUPT_IDENTITIES: u32 = 2047;
 const MAX_GUEST_INDEX_BITS: u32 = 7;
 const MAX_HART_INDEX_BITS: u32 = 15;
 const MAX_GROUP_INDEX_BITS: u32 = 7;
@@ -74,7 +71,7 @@ pub(super) fn discover(
     }
 
     let machine_base = first_register_range.start();
-    let num_ids = interrupt_identity_count(node)?;
+    let num_iids = interrupt_identity_count(node)?;
     let machine_files = machine_interrupt_files(node, cpu_interrupt_controllers)?;
     if machine_files.is_empty() {
         debug!(
@@ -113,9 +110,7 @@ pub(super) fn discover(
 
     let ipi_iid =
         Iid::new(FIRMWARE_IPI_IDENTITY).expect("BUG: firmware IPI identity must be nonzero");
-    if ipi_iid.number() >= num_ids {
-        return Err(Error::InvalidArgs);
-    }
+    runtime::ipi::validate_iid_capacity(num_iids, ipi_iid).map_err(|_| Error::InvalidArgs)?;
 
     let layout = ImsicAddressLayout::new(
         machine_base,
@@ -127,7 +122,7 @@ pub(super) fn discover(
 
     Ok(Some(ImsicInfo {
         layout,
-        num_ids,
+        num_iids,
         ipi_iid,
         hart_files,
     }))
@@ -147,11 +142,9 @@ fn phandle(node: FdtNode<'_, '_>) -> Option<u32> {
 }
 
 fn interrupt_identity_count(node: FdtNode<'_, '_>) -> Result<u16> {
-    let num_ids = u32_property(node, "riscv,num-ids").ok_or(Error::InvalidArgs)?;
-    if !(MIN_INTERRUPT_IDENTITIES..=MAX_INTERRUPT_IDENTITIES).contains(&num_ids) {
-        return Err(Error::InvalidArgs);
-    }
-    Ok(num_ids as u16)
+    u32_property(node, "riscv,num-ids")
+        .and_then(|num_iids| u16::try_from(num_iids).ok())
+        .ok_or(Error::InvalidArgs)
 }
 
 fn machine_interrupt_files(

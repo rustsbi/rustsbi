@@ -6,6 +6,7 @@ pub mod configuration;
 pub mod state_enable;
 pub mod counter_timer;
 pub mod counter_setup;
+pub mod pmp;
 
 pub use information::*;
 pub use trap_setup::*;
@@ -14,4 +15,5 @@ pub use configuration::*;
 pub use state_enable::*;
 pub use counter_timer::*;
 pub use counter_setup::*;
+pub use pmp::*;
 pub use super::debug::{TriggerData, TriggerData1, TriggerIndex, TriggerSelect};

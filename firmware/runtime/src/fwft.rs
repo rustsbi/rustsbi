@@ -55,18 +55,18 @@ fn set_misaligned_delegation(enabled: bool) {
 }
 
 fn has_s_mode() -> bool {
-    machine::Isa::read().has_supervisor()
+    machine::Isa::read().has_extension('S')
 }
 
 fn menvcfg_read() -> Option<usize> {
     // SAFETY: Runtime entry is installed; menvcfg reads have no side effects.
-    csrr!(machine::EnvironmentConfiguration).ok()
+    csrr!(machine::EnvironmentConfig).ok()
 }
 
 fn menvcfg_write(value: usize) -> bool {
     // SAFETY: Callers change only the requested lower-mode feature bits,
     // preserving the M-mode execution and translation context.
-    csrw!(machine::EnvironmentConfiguration, value).is_ok()
+    csrw!(machine::EnvironmentConfig, value).is_ok()
 }
 
 fn menvcfg_bit(feature_id: usize) -> Option<usize> {
