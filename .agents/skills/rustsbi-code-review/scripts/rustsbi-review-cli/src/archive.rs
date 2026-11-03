@@ -6,11 +6,9 @@
 //! Nothing is deleted: older stamps accumulate.
 
 use crate::util::die;
-use regex::Regex;
+use lazy_regex::{regex, Lazy, Regex};
 
-fn stamp_re() -> Regex {
-    Regex::new(r"^\d{8}-\d{6}(-\d+)?$").unwrap()
-}
+static STAMP_RE: &Lazy<Regex> = regex!(r"^\d{8}-\d{6}(-\d+)?$");
 
 fn copy_tree(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dst)?;
@@ -63,7 +61,7 @@ pub fn archive_main(argv: &[String]) -> i32 {
             std::fs::copy(&path, dest.join(e.file_name()))
                 .unwrap_or_else(|e2| die(&format!("error: copy {}: {}", path.display(), e2)));
             count += 1;
-        } else if path.is_dir() && !stamp_re().is_match(&e.file_name().to_string_lossy()) {
+        } else if path.is_dir() && !STAMP_RE.is_match(&e.file_name().to_string_lossy()) {
             // Auxiliary subdirectories of this run belong to the archive;
             // timestamped siblings do not.
             copy_tree(&path, &dest.join(e.file_name()))
