@@ -187,13 +187,12 @@ fn publish_platform_services(
     static HART_WAKE: Once<Box<dyn HartWake>> = Once::new();
     let hart_wake = hart_wake.map(|device| HART_WAKE.call_once(|| device).as_ref());
     hart::install_wakeup(hart_wake);
-    let ipi_delivery = ipi.as_ref().map(|device| device.delivery());
     let ipi = ipi::init(ipi).expect("BUG: Runtime IPI initialized more than once");
     let sbi_ipi =
         sbi::ipi::SbiIpi::new(ipi).expect("BUG: SBI IPI state requires a published hart topology");
     events::install(pmu.as_ref().map(|_| sbi::pmu::runtime_counters()));
 
-    state::publish_resources(board, supervisor_memory, console, ipi_delivery);
+    state::publish_resources(board, supervisor_memory, console);
 
     sbi::logger::Logger::init().expect("BUG: firmware logger initialized more than once");
     info!("Hello RustSBI!");

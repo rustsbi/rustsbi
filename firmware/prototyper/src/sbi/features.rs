@@ -2,11 +2,12 @@ use csr::machine::TargetPrivilege as MPP;
 use runtime::{
     FdtNode, boot,
     hart::{self, HartId, PerHart},
-    ipi::IpiDelivery,
+    ipi,
     timer::Timer,
 };
 use spin::{Mutex, Once};
 
+use super::pmu;
 use crate::fail;
 use crate::platform::mark_hart_privilege_checked;
 use csr::{
@@ -172,7 +173,7 @@ fn detect_mhpm_counters() {
     }
     // The PMU state snapshots the counter topology; rebuild it now that
     // the mask is known.
-    crate::sbi::pmu::init_current(mhpm_mask);
+    pmu::init_current(mhpm_mask);
 }
 
 /// Detects the current hart's hardware features after device-tree discovery.
@@ -269,10 +270,8 @@ pub fn configure_hart_environment() {
         if has_extension(hart, Extension::Zkr) {
             boot::enable_supervisor_seed();
         }
-        let enable_aia = matches!(
-            crate::platform::ipi_delivery(),
-            Some(IpiDelivery::Imsic { .. })
-        ) && has_extension(hart, Extension::Smaia);
+        let enable_aia = ipi::get().is_some_and(|ipi| ipi.is_external())
+            && has_extension(hart, Extension::Smaia);
         boot::configure_state_access(enable_aia);
     }
 }
