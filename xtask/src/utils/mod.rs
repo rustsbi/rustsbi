@@ -1,4 +1,5 @@
 pub mod cargo;
+pub(crate) mod objcopy;
 
 use std::{
     env,
