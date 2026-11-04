@@ -3,17 +3,17 @@ set -euo pipefail
 
 # shellcheck source=.github/scripts/ci-uboot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+# shellcheck source=.github/scripts/ci-edk2.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-edk2.sh"
 
 # Boot the pinned Ubuntu image through the RustSBI build at the current checkout.
 readonly UBUNTU_VERSION=24.04.5
 readonly UBUNTU_IMAGE="ubuntu-${UBUNTU_VERSION}-preinstalled-server-riscv64.img"
 readonly UBUNTU_SHA256=1cbd4b187f33356107daa637a5588d8f8a1744c7a012189e9c5e6d0b177825c4
 readonly UBUNTU_URL="https://cdimage.ubuntu.com/releases/24.04/release/${UBUNTU_IMAGE}.xz"
-readonly UBOOT_VERSION=2025.10-0ubuntu0.24.04.2
-readonly EDK2_DEB=qemu-efi-riscv64_2024.02-2ubuntu0.9_all.deb
-readonly EDK2_SHA256=40258b466ee56ea1e65a2990076e072488bc447430777c0ff120731a35477d18
-# Keep pinned bootloaders available after newer packages supersede them.
-readonly PACKAGE_MIRROR="${UBUNTU_PACKAGE_MIRROR:-https://snapshot.ubuntu.com/ubuntu/20261005T100000Z}"
+readonly UBOOT_VERSION=2026.07
+readonly UBOOT_PROFILE=smode-2026.07
+readonly EDK2_BANNER='RISC-V EDK2 firmware version 2.7'
 
 if (( $# != 1 )) || [[ "$1" != u-boot && "$1" != edk2 ]]; then
   echo "Usage: $0 <u-boot|edk2>" >&2
@@ -66,26 +66,11 @@ download_image() {
 }
 
 prepare_bootloader() {
-  local package sha path url
   if [[ "$BOOT_MODE" = u-boot ]]; then
-    ci_uboot_package "$UBOOT_VERSION" "$BUILD_DIR/$BOOT_MODE"
-    return
+    ci_uboot_build "$UBOOT_VERSION" smode "$UBOOT_PROFILE" "$BUILD_DIR/u-boot"
   else
-    package=$EDK2_DEB
-    sha=$EDK2_SHA256
-    url="${PACKAGE_MIRROR}/pool/universe/e/edk2/${package}"
+    ci_edk2_prepare "$BUILD_DIR/edk2"
   fi
-  path="${CACHE_DIR}/packages/${package}"
-  mkdir -p "${CACHE_DIR}/packages" "$BUILD_DIR/$BOOT_MODE"
-  if [[ ! -f "$path" ]] || ! printf '%s  %s\n' "$sha" "$path" | sha256sum -c --status; then
-    DOWNLOAD_TEMP=$(mktemp "${path}.part.XXXXXX")
-    curl --fail --location --retry 3 --retry-all-errors \
-      --connect-timeout 30 --max-time 300 --output "$DOWNLOAD_TEMP" "$url"
-    mv "$DOWNLOAD_TEMP" "$path"
-    DOWNLOAD_TEMP=""
-  fi
-  printf '%s  %s\n' "$sha" "$path" | sha256sum -c
-  dpkg-deb -x "$path" "$BUILD_DIR/$BOOT_MODE"
 }
 
 prepare_guest() {
@@ -132,12 +117,10 @@ start_qemu() {
   )
   if [[ "$BOOT_MODE" = u-boot ]]; then
     args+=(-machine "virt,acpi=off"
-      -kernel "$(realpath "$BUILD_DIR/u-boot/usr/lib/u-boot/qemu-riscv64_smode/uboot.elf")")
+      -kernel "$(realpath "$BUILD_DIR/u-boot/uboot.elf")")
   else
-    local fv_path
-    fv_path="$(realpath "$BUILD_DIR/edk2")/usr/share/qemu-efi-riscv64"
-    cp "$fv_path/RISCV_VIRT_CODE.fd" "$RUN_DIR/RISCV_VIRT_CODE.fd"
-    cp "$fv_path/RISCV_VIRT_VARS.fd" "$RUN_DIR/RISCV_VIRT_VARS.fd"
+    cp "$BUILD_DIR/edk2/RISCV_VIRT_CODE.fd" "$RUN_DIR/RISCV_VIRT_CODE.fd"
+    cp "$BUILD_DIR/edk2/RISCV_VIRT_VARS.fd" "$RUN_DIR/RISCV_VIRT_VARS.fd"
     args+=(-machine "virt,pflash0=pflash0,pflash1=pflash1,acpi=off"
       -blockdev "node-name=pflash0,driver=file,read-only=on,filename=$RUN_DIR/RISCV_VIRT_CODE.fd"
       -blockdev "node-name=pflash1,driver=file,filename=$RUN_DIR/RISCV_VIRT_VARS.fd")
@@ -149,9 +132,9 @@ start_qemu() {
 wait_for_ubuntu() {
   local second qemu_exit bootloader_banner
   if [[ "$BOOT_MODE" = u-boot ]]; then
-    bootloader_banner='U-Boot 2025.10-0ubuntu0.24.04.2'
+    bootloader_banner="U-Boot ${UBOOT_VERSION}"
   else
-    bootloader_banner='RISC-V EDK2 firmware version 2024.02-2ubuntu0.9'
+    bootloader_banner="$EDK2_BANNER"
   fi
   for ((second = 0; second < BOOT_TIMEOUT_SECS; second++)); do
     if grep -Fq RUSTSBI-UBUNTU-SMOKE-FAIL "$LOG_FILE"; then

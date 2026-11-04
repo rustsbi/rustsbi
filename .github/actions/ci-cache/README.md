@@ -11,7 +11,11 @@ runs and pull requests.
 - Key caches by the inputs that affect the product, not by the run or commit.
   Avoid `github.sha` and matrix dimensions unless the cached bytes differ.
 - When jobs in one pull-request workflow must exchange generated files, use a
-  short-lived artifact. Do not create a PR-scoped cache for that handoff.
+  short-lived artifact as an optimization. Do not create a PR-scoped cache for
+  that handoff, and let consumers retain their direct download fallback.
 - Cache only the final reusable product. For example, cache a completed binary
   rather than its source and object tree, and omit downloaded inputs that can
   be fetched again.
+- Build pinned U-Boot and EDK II through the shared CI scripts and cache their
+  final products. Avoid distro packages whose repositories can disappear even
+  when their version remains pinned.
