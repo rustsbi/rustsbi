@@ -8,8 +8,7 @@
 #![forbid(unsafe_code)]
 
 use super::pmu::pmu_firmware_counter_increment;
-use crate::sbi::rfence;
-use alloc::vec::Vec;
+use crate::{platform::hart_privilege_checked, sbi::rfence};
 use core::sync::atomic::{
     AtomicU8,
     Ordering::{Acquire, Relaxed, Release},
@@ -72,18 +71,15 @@ impl rustsbi::Ipi for SbiIpi {
     #[inline]
     fn send_ipi(&self, hart_mask: HartMask) -> SbiRet {
         pmu_firmware_counter_increment(firmware_event::IPI_SENT);
-        let requests = match target_requests(hart_mask) {
-            Ok(requests) => requests,
+        let targets = match target_harts(hart_mask) {
+            Ok(targets) => targets,
             Err(error) => return error,
         };
 
-        for req in requests {
-            for hart_id in req.harts() {
-                let hart = HartId::from_raw(hart_id).expect("BUG: unknown hart ID");
-                self.pending.get(hart).post(IPI_TYPE_SSOFT);
-            }
+        for hart in targets {
+            self.pending.get(hart).post(IPI_TYPE_SSOFT);
             // Always signal: pending bits can remain after a failed send.
-            if self.ipi.send(req).is_err() {
+            if self.ipi.send(IpiRequest::for_hart(hart)).is_err() {
                 return SbiRet::failed();
             }
         }
@@ -106,22 +102,20 @@ impl SbiIpi {
     pub fn send_fence_by_ipi(&self, hart_mask: HartMask, ctx: rfence::RFenceContext) -> SbiRet {
         let current_hart =
             HartId::current().expect("BUG: current hart is not in the boot topology");
-        let requests = match target_requests(hart_mask) {
-            Ok(requests) => requests,
+        let targets = match target_harts(hart_mask) {
+            Ok(targets) => targets,
             Err(error) => return error,
         };
         let local = rfence::local_rfence_for(current_hart);
         let mut result = SbiRet::success(0);
 
-        for hart_id in requests.flat_map(IpiRequest::harts) {
+        for target in targets {
             // Handle the local request without sending an IPI.
-            if hart_id == current_hart.as_usize() {
+            if target == current_hart {
                 rfence::rfence_local_handler(ctx);
                 continue;
             }
 
-            let target =
-                HartId::from_raw(hart_id).expect("BUG: target hart is not in the boot topology");
             let remote = rfence::remote_rfence_for(target);
             local.add();
             remote.set(ctx);
@@ -174,36 +168,24 @@ pub(crate) fn deliver_current() -> bool {
     notify_supervisor
 }
 
-fn target_requests(hart_mask: HartMask) -> Result<impl Iterator<Item = IpiRequest>, SbiRet> {
-    let available = |hart: HartId| {
-        crate::platform::hart_privilege_checked(hart.as_usize()) && hart::can_receive_ipi(hart)
-    };
+/// Validates the mask before yielding any target.
+///
+/// Stopped harts remain valid but are skipped.
+/// Availability is checked as each hart is visited and can change concurrently
+/// with hart lifecycle calls.
+pub(super) fn target_harts(hart_mask: HartMask) -> Result<impl Iterator<Item = HartId>, SbiRet> {
     let (mask, base) = hart_mask.into_inner();
-    let mut single = None;
-    let mut requests: Vec<IpiRequest> = Vec::new();
-    if base == usize::MAX {
-        // Ignore mask and expand all available harts into ordinary windows.
-        for hart in HartId::all().filter(|hart| available(*hart)) {
-            requests.push(IpiRequest::for_hart(hart));
-        }
-    } else if mask != 0 {
-        // A hart in the topology remains a valid target even when it is
-        // stopped or has not yet passed the platform privilege check.
-        let mut active_mask = 0;
+    if base != HartMask::IGNORE_MASK {
+        // Reject an invalid mask before sending to any target.
         for bit in HartMask::from_mask_base(mask, 0) {
-            let hart_id = base.checked_add(bit).ok_or_else(SbiRet::invalid_param)?;
-            let hart = HartId::from_raw(hart_id).map_err(|_| SbiRet::invalid_param())?;
-            if available(hart) {
-                active_mask |= 1 << bit;
-            }
-        }
-        // An ordinary mask needs one window, without a heap allocation.
-        if active_mask != 0 {
-            single = Some(
-                IpiRequest::from_mask_base(active_mask, base)
-                    .map_err(|_| SbiRet::invalid_param())?,
-            );
+            let raw = base.checked_add(bit).ok_or_else(SbiRet::invalid_param)?;
+            HartId::from_raw(raw).map_err(|_| SbiRet::invalid_param())?;
         }
     }
-    Ok(single.into_iter().chain(requests))
+
+    Ok(HartId::all().filter(move |hart| {
+        hart_mask.has_bit(hart.as_usize())
+            && hart_privilege_checked(hart.as_usize())
+            && hart::can_receive_ipi(*hart)
+    }))
 }
