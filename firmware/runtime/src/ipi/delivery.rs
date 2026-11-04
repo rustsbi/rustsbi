@@ -1,10 +1,26 @@
 //! IPI publication, acknowledgement, and local interrupt delivery.
 
-use super::{Iid, Ipi, IpiDelivery, IpiRequest, imsic};
-use crate::{Error, Result, irq::LocalIrqDisabled};
+use super::{Iid, Ipi, IpiDelivery, IpiEvent, IpiRequest, imsic};
+use crate::{Error, Result, hart::HartId, irq::LocalIrqDisabled};
 use csr::{aia::machine::Mtopei, machine};
 
 impl Ipi {
+    /// Sends a firmware event to the target harts.
+    pub fn send_event(
+        &self,
+        event: IpiEvent,
+        targets: impl IntoIterator<Item = HartId>,
+    ) -> Result<()> {
+        if self.handler(event).is_none() {
+            return Err(Error::NotReady);
+        }
+        for hart in targets {
+            self.post(hart, event);
+            self.send(IpiRequest::for_hart(hart))?;
+        }
+        Ok(())
+    }
+
     /// Publishes pending memory writes before sending one target window.
     pub fn send(&self, request: IpiRequest) -> Result<()> {
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
@@ -76,11 +92,9 @@ impl Ipi {
         }
     }
 
-    pub(crate) fn deliver_current(&self, _irq: &LocalIrqDisabled) {
-        if self.device.is_some() && (self.deliver_fn)() {
-            // SAFETY: The fixed callback completed this hart's firmware work
-            // under IRQ exclusion; Runtime owns supervisor IPI notification.
-            unsafe { machine::InterruptPending::set_bit::<machine::SSIP>() };
+    pub(crate) fn deliver_current(&self, irq: &LocalIrqDisabled) {
+        if self.device.is_some() {
+            self.process_pending(irq);
         }
     }
 }

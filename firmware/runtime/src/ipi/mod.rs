@@ -1,12 +1,18 @@
 //! Firmware IPI device ownership and interrupt delivery.
 
 mod delivery;
+mod event;
 mod imsic;
 mod request;
 
-use crate::{Error, Result};
+use crate::{
+    Error, Result,
+    hart::{HartId, PerHart},
+};
 use alloc::boxed::Box;
+use core::sync::atomic::AtomicUsize;
 pub use csr::aia::imsic::Iid;
+pub use event::IpiEvent;
 pub use imsic::validate_iid_capacity;
 use spin::Once;
 
@@ -14,15 +20,14 @@ static IPI: Once<Ipi> = Once::new();
 
 /// Creates and publishes the firmware IPI service.
 ///
-/// The callback runs after a device interrupt is acknowledged. Callers must
-/// publish the callback's state before sending IPIs or enabling delivery.
 /// Returns [`Error::AlreadyInitialized`] if a service has already been published.
-pub fn init(device: Option<Box<dyn IpiDevice>>, deliver: fn() -> bool) -> Result<&'static Ipi> {
+pub fn init(device: Option<Box<dyn IpiDevice>>) -> Result<&'static Ipi> {
     let mut initialized = false;
-    let ipi = IPI.call_once(|| {
+    let ipi = IPI.try_call_once(|| {
+        let ipi = Ipi::new(device)?;
         initialized = true;
-        Ipi::new(device, deliver)
-    });
+        Ok(ipi)
+    })?;
     if initialized {
         Ok(ipi)
     } else {
@@ -38,7 +43,8 @@ pub fn get() -> Option<&'static Ipi> {
 /// Firmware IPI send capability, issued during platform initialization.
 pub struct Ipi {
     device: Option<Box<dyn IpiDevice>>,
-    deliver_fn: fn() -> bool,
+    pending: PerHart<AtomicUsize>,
+    handlers: [Once<fn(HartId)>; event::EVENT_COUNT],
 }
 
 /// Hardware delivery path for the platform's firmware IPIs.
@@ -83,14 +89,6 @@ pub trait IpiDevice: Send + Sync {
 }
 
 impl Ipi {
-    /// Creates an IPI service that owns the optional device.
-    /// Runtime clears each hart's pending source after publication.
-    /// The callback handles pending SBI work after acknowledgement, with MIE disabled.
-    /// Return `true` to request a supervisor software interrupt.
-    fn new(device: Option<Box<dyn IpiDevice>>, deliver_fn: fn() -> bool) -> Self {
-        Self { device, deliver_fn }
-    }
-
     /// Returns the selected delivery path, or `None` without a device.
     pub fn delivery(&self) -> Option<IpiDelivery> {
         self.device.as_ref().map(|device| device.delivery())
