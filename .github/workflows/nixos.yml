@@ -31,6 +31,11 @@ on:
       - "firmware/runtime/**"
   workflow_dispatch:
 
+concurrency:
+  # Cancel superseded PR attempts, but keep push and manual runs independent.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -41,9 +46,9 @@ jobs:
   nixos-boot:
     name: Boot NixOS unstable (smp=${{ matrix.smp }})
     runs-on: ubuntu-24.04
-    # The first run after a flake.lock bump builds the riscv64 NixOS closure
-    # through Nix; with the binary caches warm it stays well below this limit.
-    timeout-minutes: 90
+    # A cold build after a flake.lock bump can take hours when a substituter is
+    # unavailable. Keep the job within GitHub's six-hour limit.
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
@@ -78,6 +83,7 @@ jobs:
 
       - name: Build NixOS boot assets
         if: steps.assets.outputs.cache-hit != 'true'
+        timeout-minutes: 330
         env:
           NIX_CONFIG: "experimental-features = nix-command flakes"
         run: |
