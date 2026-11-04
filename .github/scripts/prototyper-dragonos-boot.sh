@@ -10,6 +10,8 @@ set -euo pipefail
 
 # shellcheck source=.github/scripts/ci-uboot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+# shellcheck source=.github/scripts/ci-edk2.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-edk2.sh"
 
 mode=${1:-sbi}
 case "$mode" in
@@ -26,7 +28,6 @@ fi
 readonly DRAGONOS_REV=40572b4554bee5b0a46fb0eff17fdff3a4d74b5e
 readonly STUB_REV=8515606674058ca81cd1c0b99453e326875c5c0d
 readonly DRAGONOS_IMAGE=dragonos/dragonos-dev@sha256:de57dc949325dc94379defe710d973ba6531c322770d95aa265dd26709b0780a
-readonly EDK2_REV=6951dfe7d59d144a3a980bd7eda699db2d8554ac
 readonly BUSYBOX_VERSION=1.35.0
 readonly BUSYBOX_SHA256=faeeb244c35a348a334f4a59e44626ee870fb07b6884d68c10ae8bc19f83a694
 readonly MUSL_URL=https://github.com/DragonOS-Community/musl-cross-make/releases/download/9.4.0-231114/riscv64-linux-musl-cross-gcc-9.4.0.tar.xz
@@ -119,37 +120,7 @@ prepare_bootloader() {
     ci_uboot_build 2024.04 smode smode-2024.04 "$work_dir/uboot-build"
     cp "$work_dir/uboot-build/u-boot.bin" "$cache_dir/u-boot.bin"
   elif [[ "$mode" == edk2 ]]; then
-    if [[ $(stat -c %s "$cache_dir/RISCV_VIRT_CODE.fd" 2>/dev/null || true) != 33554432 ||
-          $(stat -c %s "$cache_dir/RISCV_VIRT_VARS.fd" 2>/dev/null || true) != 33554432 ]]; then
-      tree="$work_dir/edk2"
-      if [[ ! -d "$tree/.git" ]]; then
-        git init --quiet "$tree"
-        git -C "$tree" remote add origin https://github.com/tianocore/edk2.git
-      fi
-      timeout "$download_timeout" git -C "$tree" fetch --quiet --depth=1 origin "$EDK2_REV"
-      git -C "$tree" checkout --detach "$EDK2_REV"
-      [[ $(git -C "$tree" rev-parse HEAD) == "$EDK2_REV" ]]
-      timeout "$download_timeout" git -C "$tree" submodule update --init --depth=1
-      (
-        cd "$work_dir"
-        export WORKSPACE="$PWD" PACKAGES_PATH="$tree" EDK_TOOLS_PATH="$tree/BaseTools"
-        export GCC5_RISCV64_PREFIX=riscv64-linux-gnu-
-        set +u
-        # shellcheck disable=SC1090
-        source "$tree/edksetup.sh" --reconfig
-        set -u
-        make -C "$tree/BaseTools" -j"$(nproc)"
-        set +u
-        # shellcheck disable=SC1090
-        source "$tree/edksetup.sh" BaseTools
-        set -u
-        build -a RISCV64 -b RELEASE -p OvmfPkg/RiscVVirt/RiscVVirtQemu.dsc -t GCC5
-      )
-      fv="$work_dir/Build/RiscVVirtQemu/RELEASE_GCC5/FV"
-      cp "$fv/RISCV_VIRT_CODE.fd" "$cache_dir/RISCV_VIRT_CODE.fd"
-      cp "$fv/RISCV_VIRT_VARS.fd" "$cache_dir/RISCV_VIRT_VARS.fd"
-      truncate -s 32M "$cache_dir/RISCV_VIRT_CODE.fd" "$cache_dir/RISCV_VIRT_VARS.fd"
-    fi
+    ci_edk2_prepare "$run_dir" "$download_timeout"
   fi
 }
 
@@ -196,10 +167,9 @@ start_qemu() {
     sbi) args+=(-kernel "$cache_dir/dragonos-kernel.bin" -append "$bootargs") ;;
     u-boot) args+=(-kernel "$cache_dir/u-boot.bin") ;;
     edk2)
-      cp "$cache_dir/RISCV_VIRT_VARS.fd" "$run_dir/VARS.fd"
       args[1]=virt,pflash0=pflash0,pflash1=pflash1,acpi=off
-      args+=(-blockdev "node-name=pflash0,driver=file,read-only=on,filename=$cache_dir/RISCV_VIRT_CODE.fd"
-        -blockdev "node-name=pflash1,driver=file,filename=$run_dir/VARS.fd"
+      args+=(-blockdev "node-name=pflash0,driver=file,read-only=on,filename=$run_dir/RISCV_VIRT_CODE.fd"
+        -blockdev "node-name=pflash1,driver=file,filename=$run_dir/RISCV_VIRT_VARS.fd"
         -kernel "$cache_dir/bootriscv64.efi")
       # This DragonStub does not parse EFI LoadOptions; pass bootargs in FDT.
       timeout 20 qemu-system-riscv64 "${args[@]}" \
