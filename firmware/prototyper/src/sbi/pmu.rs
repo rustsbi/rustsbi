@@ -226,6 +226,10 @@ impl TrapCounters for RuntimeTrapCounters {
         };
         pmu_firmware_counter_increment(event);
     }
+
+    fn record_supervisor_ipi(&self) {
+        pmu_firmware_counter_increment(firmware_event::IPI_RECEIVED);
+    }
 }
 
 /// Returns the firmware PMU counter sink for Runtime trap events.
