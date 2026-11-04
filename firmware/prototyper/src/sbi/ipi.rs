@@ -11,7 +11,7 @@ use super::pmu::pmu_firmware_counter_increment;
 use crate::{platform::hart_privilege_checked, sbi::rfence};
 use core::sync::atomic::{
     AtomicU8,
-    Ordering::{Acquire, Relaxed, Release},
+    Ordering::{Acquire, Release},
 };
 use runtime::{
     Result,
@@ -43,10 +43,6 @@ impl PendingIpis {
 
     fn post(&self, events: u8) {
         self.events.fetch_or(events, Release);
-    }
-
-    fn fence_pending(&self) -> bool {
-        self.events.load(Relaxed) & IPI_TYPE_FENCE != 0
     }
 
     fn take(&self) -> u8 {
@@ -98,52 +94,9 @@ impl SbiIpi {
         self.ipi
     }
 
-    /// Sends an IPI carrying a remote fence operation.
-    pub fn send_fence_by_ipi(&self, hart_mask: HartMask, ctx: rfence::RFenceContext) -> SbiRet {
-        let current_hart =
-            HartId::current().expect("BUG: current hart is not in the boot topology");
-        let targets = match target_harts(hart_mask) {
-            Ok(targets) => targets,
-            Err(error) => return error,
-        };
-        let local = rfence::local_rfence_for(current_hart);
-        let mut result = SbiRet::success(0);
-
-        for target in targets {
-            // Handle the local request without sending an IPI.
-            if target == current_hart {
-                rfence::rfence_local_handler(ctx);
-                continue;
-            }
-
-            let remote = rfence::remote_rfence_for(target);
-            local.add();
-            remote.set(ctx);
-
-            self.pending.get(target).post(IPI_TYPE_FENCE);
-            if self.ipi.send(IpiRequest::for_hart(target)).is_ok() {
-                continue;
-            }
-            // Cancel this source's queued request; a receiver that already
-            // took it remains responsible for the acknowledgement.
-            if remote.cancel(current_hart.as_usize()) {
-                rfence::remote_rfence_for(current_hart).sub();
-            }
-            result = SbiRet::failed();
-            break;
-        }
-
-        // Complete previously submitted operations even if a later send failed.
-        while !local.is_sync() {
-            rfence::rfence_poll_for(current_hart);
-        }
-
-        result
-    }
-
-    /// Returns whether `hart` has a pending fence event.
-    pub(super) fn fence_pending(&self, hart: HartId) -> bool {
-        self.pending.get(hart).fence_pending()
+    pub(super) fn send_fence(&self, hart: HartId) -> Result<()> {
+        self.pending.get(hart).post(IPI_TYPE_FENCE);
+        self.ipi.send(IpiRequest::for_hart(hart))
     }
 }
 
