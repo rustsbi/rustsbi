@@ -10,6 +10,7 @@
 use runtime::{
     Result,
     hart::HartId,
+    ipi::{Ipi, IpiEvent},
     rustsbi::{Fence, HartMask, SbiRet},
 };
 use sbi_spec::pmu::firmware_event;
@@ -117,6 +118,13 @@ impl RemoteRFenceCell<'_> {
 /// Implementation of RISC-V remote fence operations.
 pub(crate) struct SbiRFence;
 
+impl SbiRFence {
+    pub(crate) fn new(ipi: &'static Ipi) -> Result<Self> {
+        ipi.register(IpiEvent::Rfence, rfence_handler)?;
+        Ok(Self)
+    }
+}
+
 /// Validates the address range for fence operations.
 #[inline(always)]
 fn validate_address_range(start_addr: usize, size: usize) -> Result<usize, SbiRet> {
@@ -153,7 +161,7 @@ fn remote_fence_process(rfence_ctx: RFenceContext, hart_mask: HartMask) -> SbiRe
         local.add();
         remote.set(rfence_ctx);
 
-        if ipi.send_fence(target).is_ok() {
+        if ipi.ipi().send_event(IpiEvent::Rfence, [target]).is_ok() {
             continue;
         }
         // A receiver that already took the request remains responsible for
@@ -484,8 +492,6 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
 
 /// Processes all pending remote fence operations on the current hart.
 #[inline]
-pub fn rfence_handler() {
-    let hart =
-        HartId::current().expect("rfence_single_handler called with no local rfence context");
+fn rfence_handler(hart: HartId) {
     while rfence_single_handler_for(hart) {}
 }

@@ -8,57 +8,34 @@
 #![forbid(unsafe_code)]
 
 use super::pmu::pmu_firmware_counter_increment;
-use crate::{platform::hart_privilege_checked, sbi::rfence};
-use core::sync::atomic::{
-    AtomicU8,
-    Ordering::{Acquire, Release},
-};
+use crate::platform::hart_privilege_checked;
 use runtime::{
     Result,
-    hart::{self, HartId, PerHart},
-    ipi::{Ipi, IpiRequest},
-    rustsbi::{self, HartMask, SbiRet},
+    hart::{self, HartId},
+    ipi::{Ipi as RuntimeIpi, IpiEvent},
+    rustsbi::{HartMask, Ipi, SbiRet},
 };
+
 use sbi_spec::pmu::firmware_event;
-
-/// Pending event bit for a supervisor software interrupt.
-pub(crate) const IPI_TYPE_SSOFT: u8 = 1 << 0;
-/// Pending event bit for remote fence operations.
-pub(crate) const IPI_TYPE_FENCE: u8 = 1 << 1;
-
-/// IPI work posted by senders and consumed by the target hart.
-// Align records to reduce false sharing between harts. The fixed alignment is
-// a performance choice and does not guarantee cache-line isolation.
-#[repr(align(128))]
-struct PendingIpis {
-    events: AtomicU8,
-}
-
-impl PendingIpis {
-    const fn new() -> Self {
-        Self {
-            events: AtomicU8::new(0),
-        }
-    }
-
-    fn post(&self, events: u8) {
-        self.events.fetch_or(events, Release);
-    }
-
-    fn take(&self) -> u8 {
-        self.events.swap(0, Acquire)
-    }
-}
 
 /// SBI IPI extension.
 ///
-/// The extension probes unavailable without an IPI device.
+/// The platform publishes this extension only after Runtime initializes IPI.
 pub struct SbiIpi {
-    ipi: &'static Ipi,
-    pending: PerHart<PendingIpis>,
+    ipi: &'static RuntimeIpi,
 }
 
-impl rustsbi::Ipi for SbiIpi {
+impl SbiIpi {
+    pub(crate) fn new(ipi: &'static RuntimeIpi) -> Result<Self> {
+        Ok(Self { ipi })
+    }
+
+    pub(crate) fn ipi(&self) -> &'static RuntimeIpi {
+        self.ipi
+    }
+}
+
+impl Ipi for SbiIpi {
     fn _rustsbi_probe(&self) -> usize {
         usize::from(self.ipi.delivery().is_some())
     }
@@ -72,53 +49,10 @@ impl rustsbi::Ipi for SbiIpi {
             Err(error) => return error,
         };
 
-        for hart in targets {
-            self.pending.get(hart).post(IPI_TYPE_SSOFT);
-            // Always signal: pending bits can remain after a failed send.
-            if self.ipi.send(IpiRequest::for_hart(hart)).is_err() {
-                return SbiRet::failed();
-            }
-        }
-
-        SbiRet::success(0)
-    }
-}
-
-impl SbiIpi {
-    pub(crate) fn new(ipi: &'static Ipi) -> Result<Self> {
-        let pending = PerHart::new(|_| PendingIpis::new())?;
-        Ok(Self { ipi, pending })
-    }
-
-    pub(crate) fn ipi(&self) -> &'static Ipi {
         self.ipi
+            .send_event(IpiEvent::Supervisor, targets)
+            .map_or(SbiRet::failed(), |_| SbiRet::success(0))
     }
-
-    pub(super) fn send_fence(&self, hart: HartId) -> Result<()> {
-        self.pending.get(hart).post(IPI_TYPE_FENCE);
-        self.ipi.send(IpiRequest::for_hart(hart))
-    }
-}
-
-/// Delivers SBI work after Runtime acknowledges the device interrupt.
-///
-/// Returns whether Runtime must notify the supervisor.
-pub(crate) fn deliver_current() -> bool {
-    // The device clear/claim must precede the pending-event read.
-    runtime::instruction::fence();
-    let hart = HartId::current().expect("BUG: current hart is not in the boot topology");
-    let ipi = &super::SbiDispatcher::get()
-        .expect("BUG: SBI dispatcher not initialized")
-        .ipi;
-    let ipi_type = ipi.pending.get(hart).take();
-    let notify_supervisor = (ipi_type & IPI_TYPE_SSOFT) != 0;
-    if notify_supervisor {
-        pmu_firmware_counter_increment(firmware_event::IPI_RECEIVED);
-    }
-    if (ipi_type & IPI_TYPE_FENCE) != 0 {
-        rfence::rfence_handler();
-    }
-    notify_supervisor
 }
 
 /// Validates the mask before yielding any target.
