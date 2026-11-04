@@ -1,0 +1,35 @@
+name: Save CI cache
+description: Save a cache only on the default branch
+
+inputs:
+  path:
+    description: Files and directories to cache
+    required: true
+  key:
+    description: Exact cache key
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # GitHub exposes caches written by the default branch to pull requests, but
+    # not caches written by one pull request to another. Keeping every write on
+    # main lets all PRs share one cache set instead of evicting each other.
+    #
+    # This lookup handles matrix jobs racing to populate the same key. It also
+    # avoids relying on actions/cache's post hook inside a composite action.
+    - name: Check whether the exact cache already exists
+      id: lookup
+      if: github.ref == 'refs/heads/main'
+      uses: actions/cache/restore@v5
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+        lookup-only: true
+
+    - name: Save cache
+      if: github.ref == 'refs/heads/main' && steps.lookup.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v5
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}

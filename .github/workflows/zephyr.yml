@@ -62,7 +62,7 @@ jobs:
       # manifest lists. Bump the revision after changing ZEPHYR_COMMIT in the
       # boot script.
       - name: Cache Zephyr workspace
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/zephyr/zephyrproject
           key: zephyr-workspace-6607bdd711f-v1
@@ -71,7 +71,7 @@ jobs:
       # Bump the revision after changing SDK_VERSION or SDK_TOOLCHAIN in the
       # boot script.
       - name: Cache Zephyr SDK
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/zephyr/zephyr-sdk
           key: zephyr-sdk-1.0.1-riscv64-v1
@@ -84,6 +84,18 @@ jobs:
 
       - name: Boot Zephyr
         run: .github/scripts/prototyper-zephyr-boot.sh
+
+      - name: Save Zephyr workspace
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/zephyr/zephyrproject
+          key: zephyr-workspace-6607bdd711f-v1
+
+      - name: Save Zephyr SDK
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/zephyr/zephyr-sdk
+          key: zephyr-sdk-1.0.1-riscv64-v1
 
       - name: Upload Zephyr log
         if: always()

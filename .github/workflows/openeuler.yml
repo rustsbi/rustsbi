@@ -73,14 +73,14 @@ jobs:
       # Only digest-verified archives and release firmware are cached. Each run
       # extracts a fresh base disk and uses a disposable qcow2 overlay and VARS.
       - name: Cache openEuler downloads
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: target/openeuler-boot/cache
           key: openeuler-25.09-5ba2eb5f-${{ matrix.boot-mode }}-u-boot-852a1f5d-v1
 
       - name: Cache U-Boot build
         if: matrix.boot-mode == 'u-boot'
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/ci-uboot/packages/2025.10-0ubuntu0.24.04.3
           key: uboot-package-2025.10-0ubuntu0.24.04.3-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
@@ -93,6 +93,19 @@ jobs:
 
       - name: Boot openEuler through ${{ matrix.boot-mode }}
         run: .github/scripts/prototyper-openeuler-boot.sh ${{ matrix.boot-mode }}
+
+      - name: Save openEuler downloads
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: target/openeuler-boot/cache
+          key: openeuler-25.09-5ba2eb5f-${{ matrix.boot-mode }}-u-boot-852a1f5d-v1
+
+      - name: Save U-Boot build
+        if: matrix.boot-mode == 'u-boot'
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/ci-uboot/packages/2025.10-0ubuntu0.24.04.3
+          key: uboot-package-2025.10-0ubuntu0.24.04.3-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Upload serial log and build provenance
         if: always()

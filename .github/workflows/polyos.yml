@@ -78,7 +78,7 @@ jobs:
       # images are what the boot actually needs. Bump the trailing revision
       # after editing the extraction recipe in the script.
       - name: Cache PolyOS images
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: |
             .cache/polyos/polyos-mobile-3.2-release.img.tar.xz
@@ -86,7 +86,7 @@ jobs:
           key: polyos-mobile-3.2-release-v1
 
       - name: Cache U-Boot build
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/ci-uboot/builds/polyos-spl
           key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-polyos-spl-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
@@ -96,6 +96,20 @@ jobs:
 
       - name: Boot PolyOS
         run: .github/scripts/prototyper-polyos-boot.sh
+
+      - name: Save PolyOS images
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: |
+            .cache/polyos/polyos-mobile-3.2-release.img.tar.xz
+            .polyos/work/images
+          key: polyos-mobile-3.2-release-v1
+
+      - name: Save U-Boot build
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/ci-uboot/builds/polyos-spl
+          key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-polyos-spl-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Upload PolyOS log
         if: always()

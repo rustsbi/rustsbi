@@ -89,14 +89,14 @@ jobs:
       # pinned version does. Bump the trailing revision after editing the
       # build recipe in the script.
       - name: Cache NuttX build
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/nuttx/nuttx-63208908-c78e4d6
           key: nuttx-63208908-c78e4d6-v1
 
       - name: Cache U-Boot build
         if: matrix.boot-path == 'u-boot'
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/ci-uboot/builds/nuttx-smode
           key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-nuttx-smode-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
@@ -106,6 +106,19 @@ jobs:
 
       - name: Boot NuttX
         run: .github/scripts/prototyper-nuttx-boot.sh "${{ matrix.boot-path }}"
+
+      - name: Save NuttX build
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/nuttx/nuttx-63208908-c78e4d6
+          key: nuttx-63208908-c78e4d6-v1
+
+      - name: Save U-Boot build
+        if: matrix.boot-path == 'u-boot'
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/ci-uboot/builds/nuttx-smode
+          key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-nuttx-smode-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Upload NuttX log
         if: always()

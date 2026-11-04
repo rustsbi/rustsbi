@@ -57,7 +57,7 @@ jobs:
         run: cargo install --locked cargo-binutils@0.4.0
 
       - name: Cache openRuyi Zero boot assets
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/openruyi/2026.08
           key: openruyi-zero-2026.08-rva23
@@ -67,6 +67,12 @@ jobs:
 
       - name: Boot openRuyi Zero
         run: .github/scripts/prototyper-openruyi-boot.sh
+
+      - name: Save openRuyi Zero boot assets
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/openruyi/2026.08
+          key: openruyi-zero-2026.08-rva23
 
       - name: Upload openRuyi log
         if: always()
@@ -96,7 +102,7 @@ jobs:
 
       - name: Restore openRuyi ${{ matrix.edition }} assets
         id: cache
-        uses: actions/cache/restore@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/openruyi/2026.09
           key: openruyi-2026.09-${{ matrix.edition }}-rva23-v1
@@ -107,10 +113,21 @@ jobs:
 
       - name: Save openRuyi ${{ matrix.edition }} assets
         if: steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
+        uses: ./.github/actions/ci-cache-save
         with:
           path: .cache/openruyi/2026.09
           key: openruyi-2026.09-${{ matrix.edition }}-rva23-v1
+
+      # Pull requests cannot write shared caches. Pass the prepared assets to
+      # the boot matrix through a short-lived artifact instead; on main the
+      # wrapper above also warms the cache for subsequent pull requests.
+      - name: Share prepared openRuyi ${{ matrix.edition }} assets
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: openruyi-2026.09-${{ matrix.edition }}-assets
+          path: .cache/openruyi/2026.09
+          retention-days: 1
 
   openruyi-server-workstation-boot:
     name: Boot openRuyi 2026.09 ${{ matrix.edition }} (${{ matrix.boot-mode }})
@@ -147,10 +164,18 @@ jobs:
         run: cargo install --locked cargo-binutils@0.4.0
 
       - name: Restore openRuyi ${{ matrix.edition }} assets
-        uses: actions/cache/restore@v5
+        id: cache
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/openruyi/2026.09
           key: openruyi-2026.09-${{ matrix.edition }}-rva23-v1
+
+      - name: Download prepared openRuyi ${{ matrix.edition }} assets
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/download-artifact@v7
+        with:
+          name: openruyi-2026.09-${{ matrix.edition }}-assets
+          path: .cache/openruyi/2026.09
 
       - name: Build RustSBI Prototyper
         run: |

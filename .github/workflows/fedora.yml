@@ -69,14 +69,14 @@ jobs:
         run: cargo install --locked cargo-binutils@0.4.0
 
       - name: Cache Fedora image
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/fedora/44
           key: fedora-cloud-riscv64-44-20260604.0
 
       - name: Cache U-Boot build
         if: matrix.boot-path == 'u-boot'
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/ci-uboot/builds/spl-2026.07
           key: uboot-build-ubuntu-26.04-${{ runner.arch }}-2026.07-spl-2026.07-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
@@ -85,6 +85,19 @@ jobs:
         run: |
           cargo prototyper build
           .github/scripts/prototyper-fedora-boot.sh "${{ matrix.boot-path }}"
+
+      - name: Save Fedora image
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/fedora/44
+          key: fedora-cloud-riscv64-44-20260604.0
+
+      - name: Save U-Boot build
+        if: matrix.boot-path == 'u-boot'
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/ci-uboot/builds/spl-2026.07
+          key: uboot-build-ubuntu-26.04-${{ runner.arch }}-2026.07-spl-2026.07-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Upload Fedora serial log
         if: always()

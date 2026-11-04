@@ -1,0 +1,35 @@
+name: Cache maintenance
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/scripts/cleanup-nonmain-caches.sh"
+      - ".github/workflows/cache-maintenance.yml"
+  schedule:
+    # Leave the previous cache pool enough time to become active; this also
+    # removes private entries created before main-only writes were deployed.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: cache-maintenance
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Keep only main caches
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Delete non-main cache entries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/cleanup-nonmain-caches.sh

@@ -69,14 +69,14 @@ jobs:
         run: cargo install --locked cargo-binutils@0.4.0
 
       - name: Cache Debian image
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/debian/13
           key: debian-13-nocloud-riscv64-20260914-2601
 
       - name: Cache U-Boot build
         if: matrix.boot-path == 'u-boot'
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/ci-uboot/builds/spl-2026.07
           key: uboot-build-ubuntu-26.04-${{ runner.arch }}-2026.07-spl-2026.07-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
@@ -85,6 +85,19 @@ jobs:
         run: |
           cargo prototyper build
           .github/scripts/prototyper-debian-boot.sh "${{ matrix.boot-path }}"
+
+      - name: Save Debian image
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/debian/13
+          key: debian-13-nocloud-riscv64-20260914-2601
+
+      - name: Save U-Boot build
+        if: matrix.boot-path == 'u-boot'
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/ci-uboot/builds/spl-2026.07
+          key: uboot-build-ubuntu-26.04-${{ runner.arch }}-2026.07-spl-2026.07-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Upload Debian serial log
         if: always()

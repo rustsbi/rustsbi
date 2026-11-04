@@ -81,18 +81,14 @@ jobs:
         run: cargo install --locked cargo-binutils@0.4.0
 
       - name: Cache RT-Thread build
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/rtt
-          key: rtt-${{ hashFiles('.github/scripts/prototyper-rtt-boot.sh') }}-${{ github.sha }}
-          # Fall back to the newest cache for the same script so a pull request
-          # with several commits still hits the pinned RT-Thread build.
-          restore-keys: |
-            rtt-${{ hashFiles('.github/scripts/prototyper-rtt-boot.sh') }}-
+          key: rtt-${{ hashFiles('.github/scripts/prototyper-rtt-boot.sh') }}-v1
 
       - name: Cache U-Boot build
         if: matrix.boot-path == 'u-boot'
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/ci-uboot/builds/rtt-spl
           key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-rtt-spl-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
@@ -102,6 +98,19 @@ jobs:
 
       - name: Boot RT-Thread
         run: .github/scripts/prototyper-rtt-boot.sh "${{ matrix.boot-path }}"
+
+      - name: Save RT-Thread build
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/rtt
+          key: rtt-${{ hashFiles('.github/scripts/prototyper-rtt-boot.sh') }}-v1
+
+      - name: Save U-Boot build
+        if: matrix.boot-path == 'u-boot'
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/ci-uboot/builds/rtt-spl
+          key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-rtt-spl-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Upload RT-Thread log
         if: always()

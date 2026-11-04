@@ -80,7 +80,7 @@ jobs:
         run: cargo install --locked cargo-binutils@0.4.0
 
       - name: Cache FreeBSD VM image
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: |
             .cache/freebsd/14.1/FreeBSD-14.1-RELEASE-riscv-riscv64.raw
@@ -89,14 +89,14 @@ jobs:
 
       - name: Cache FreeBSD kernel archive
         if: matrix.boot-path == 'sbi'
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/freebsd/14.1/kernel.txz
           key: freebsd-riscv64-14.1-kernel-321e538f9078659d8852e9a1628febac013fc3167e22e782266039a4b54fd3b7
 
       - name: Cache U-Boot build
         if: matrix.boot-path == 'u-boot'
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/ci-uboot/builds/spl-2024.04
           key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-spl-2024.04-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
@@ -105,6 +105,28 @@ jobs:
         run: |
           cargo prototyper build
           .github/scripts/prototyper-freebsd-boot.sh "${{ matrix.boot-path }}"
+
+      - name: Save FreeBSD VM image
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: |
+            .cache/freebsd/14.1/FreeBSD-14.1-RELEASE-riscv-riscv64.raw
+            .cache/freebsd/14.1/FreeBSD-14.1-RELEASE-riscv-riscv64.raw.xz
+          key: freebsd-riscv64-14.1-509b24437156e65e031ca12219a408460743f0f0e82368ce4afa83dddbb4806e
+
+      - name: Save FreeBSD kernel archive
+        if: matrix.boot-path == 'sbi'
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/freebsd/14.1/kernel.txz
+          key: freebsd-riscv64-14.1-kernel-321e538f9078659d8852e9a1628febac013fc3167e22e782266039a4b54fd3b7
+
+      - name: Save U-Boot build
+        if: matrix.boot-path == 'u-boot'
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/ci-uboot/builds/spl-2024.04
+          key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-spl-2024.04-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Upload FreeBSD serial log
         if: always()

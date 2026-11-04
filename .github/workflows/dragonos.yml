@@ -76,7 +76,7 @@ jobs:
       # the bare kernel image and the EFI payload containing that same kernel.
       # Bump the cache revision whenever the corresponding build recipe changes.
       - name: Cache DragonOS kernel and EFI payload
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: |
             .cache/dragonos-bootloaders/bootriscv64.efi
@@ -84,21 +84,21 @@ jobs:
           key: dragonos-40572b45-stub-85156066-v3
 
       - name: Cache BusyBox userspace
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/dragonos-bootloaders/busybox
           key: dragonos-busybox-1.35.0-musl-b3833579-v1
 
       - name: Cache EDK II build
         if: matrix.boot-path == 'edk2'
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/ci-edk2/${{ env.CI_EDK2_BUILD_ID }}
           key: edk2-build-ubuntu-24.04-${{ runner.arch }}-${{ env.CI_EDK2_BUILD_ID }}
 
       - name: Cache U-Boot build
         if: matrix.boot-path == 'u-boot'
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/ci-uboot/builds/smode-2024.04
           key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-smode-2024.04-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
@@ -108,6 +108,36 @@ jobs:
 
       - name: Boot and exercise DragonOS userspace
         run: .github/scripts/prototyper-dragonos-boot.sh "${{ matrix.boot-path }}"
+
+      - name: Save DragonOS kernel and EFI payload
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: |
+            .cache/dragonos-bootloaders/bootriscv64.efi
+            .cache/dragonos-bootloaders/dragonos-kernel.bin
+          key: dragonos-40572b45-stub-85156066-v3
+
+      - name: Save BusyBox userspace
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/dragonos-bootloaders/busybox
+          key: dragonos-busybox-1.35.0-musl-b3833579-v1
+
+      - name: Save EDK II firmware volumes
+        if: matrix.boot-path == 'edk2'
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: |
+            .cache/dragonos-bootloaders/RISCV_VIRT_CODE.fd
+            .cache/dragonos-bootloaders/RISCV_VIRT_VARS.fd
+          key: dragonos-edk2-6951dfe7-v2
+
+      - name: Save U-Boot build
+        if: matrix.boot-path == 'u-boot'
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/ci-uboot/builds/smode-2024.04
+          key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-smode-2024.04-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Upload serial logs
         if: always()
