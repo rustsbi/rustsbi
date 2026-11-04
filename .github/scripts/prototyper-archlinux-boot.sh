@@ -4,6 +4,8 @@ set -euo pipefail
 
 # shellcheck source=.github/scripts/ci-uboot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+# shellcheck source=.github/scripts/ci-edk2.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-edk2.sh"
 
 if (( $# != 1 )); then
   echo "Usage: $0 sbi|u-boot|edk2" >&2
@@ -23,8 +25,6 @@ readonly KERNEL_VERSION=6.15.9
 readonly KERNEL_URL="https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${KERNEL_VERSION}.tar.xz"
 readonly KERNEL_SHA256=e94f3af85492302f7a819441458f80bca0ad9912e5a4c83c699ff3c63c52957d
 readonly UBOOT_VERSION=2024.04
-readonly EDK2_COMMIT=6951dfe7d59d144a3a980bd7eda699db2d8554ac
-readonly EDK2_URL=https://github.com/tianocore/edk2.git
 readonly CROSS_COMPILE=riscv64-linux-gnu-
 
 readonly CACHE_DIR="${ARCHLINUX_CACHE_DIR:-.cache/archlinux}"
@@ -35,9 +35,6 @@ readonly LOG_DIR="${QEMU_LOG_DIR:-qemu-logs}"
 readonly LOG_FILE="${LOG_DIR}/prototyper-archlinux-${BOOT_MODE}.log"
 readonly ARCH_ARCHIVE="${CACHE_DIR}/archriscv-${ARCH_VERSION}.tar.zst"
 readonly KERNEL_IMAGE="${CACHE_DIR}/linux-${KERNEL_VERSION}-Image"
-readonly EDK2_CACHE="${CACHE_DIR}/edk2-${EDK2_COMMIT}"
-readonly EDK2_CODE="${EDK2_CACHE}/RISCV_VIRT_CODE.fd"
-readonly EDK2_VARS_TEMPLATE="${EDK2_CACHE}/RISCV_VIRT_VARS.fd"
 readonly DISK_IMAGE="${WORK_DIR}/archlinux.qcow2"
 readonly ROOTFS_MOUNT="${WORK_DIR}/mnt"
 readonly BOOT_TIMEOUT_SECS="${ARCHLINUX_BOOT_TIMEOUT_SECS:-600}"
@@ -112,47 +109,6 @@ prepare_uboot() {
   ci_uboot_fit "$tree" "$RUSTSBI_FIT_BIN"
   UBOOT_SPL="$tree/spl/u-boot-spl"
   UBOOT_ITB="$tree/u-boot.itb"
-}
-
-prepare_edk2() {
-  local workspace="${WORK_DIR}/edk2-workspace"
-  local source="${workspace}/edk2"
-  local output="${workspace}/Build/RiscVVirtQemu/RELEASE_GCC5/FV"
-  local head
-  if [[ $(stat -c %s "$EDK2_CODE" 2>/dev/null || true) == 33554432 &&
-        $(stat -c %s "$EDK2_VARS_TEMPLATE" 2>/dev/null || true) == 33554432 ]]; then
-    echo "Using cached EDK II $EDK2_COMMIT"
-    return
-  fi
-  rm -rf "$workspace" "$EDK2_CACHE"
-  mkdir -p "$workspace" "$EDK2_CACHE"
-  git init --quiet "$source"
-  git -C "$source" remote add origin "$EDK2_URL"
-  git -C "$source" fetch --quiet --depth=1 origin "$EDK2_COMMIT"
-  git -C "$source" checkout --quiet --detach FETCH_HEAD
-  head=$(git -C "$source" rev-parse HEAD)
-  test "$head" = "$EDK2_COMMIT"
-  git -C "$source" submodule update --init --depth=1
-  (
-    cd "$workspace"
-    export WORKSPACE="$PWD"
-    export PACKAGES_PATH="$source"
-    export EDK_TOOLS_PATH="${source}/BaseTools"
-    export GCC5_RISCV64_PREFIX="$CROSS_COMPILE"
-    set +u
-    # shellcheck disable=SC1091
-    source "$source/edksetup.sh" --reconfig
-    set -u
-    make -C "$source/BaseTools" -j"$(nproc)"
-    set +u
-    # shellcheck disable=SC1091
-    source "$source/edksetup.sh" BaseTools
-    set -u
-    build -a RISCV64 -b RELEASE -p OvmfPkg/RiscVVirt/RiscVVirtQemu.dsc -t GCC5
-  )
-  cp "$output/RISCV_VIRT_CODE.fd" "$EDK2_CODE"
-  cp "$output/RISCV_VIRT_VARS.fd" "$EDK2_VARS_TEMPLATE"
-  truncate -s 32M "$EDK2_CODE" "$EDK2_VARS_TEMPLATE"
 }
 
 release_disk() {
@@ -309,10 +265,9 @@ start_qemu() {
       -device virtio-blk-device,drive=hd0 \
       </dev/null > "$LOG_FILE" 2>&1 &
   else
-    cp "$EDK2_VARS_TEMPLATE" "$WORK_DIR/RISCV_VIRT_VARS.fd"
     qemu-system-riscv64 -machine virt,pflash0=pflash0,pflash1=pflash1,acpi=off \
       -smp 1 -m 4G -nographic -no-reboot -bios "$RUSTSBI_DYNAMIC_BIN" \
-      -blockdev "node-name=pflash0,driver=file,read-only=on,filename=${EDK2_CODE}" \
+      -blockdev "node-name=pflash0,driver=file,read-only=on,filename=${WORK_DIR}/RISCV_VIRT_CODE.fd" \
       -blockdev "node-name=pflash1,driver=file,filename=${WORK_DIR}/RISCV_VIRT_VARS.fd" \
       -drive "file=${DISK_IMAGE},format=qcow2,id=hd0,if=none" \
       -device virtio-blk-device,drive=hd0 \
@@ -394,7 +349,7 @@ main() {
     test -s "$RUSTSBI_FIT_BIN"
     prepare_uboot
   elif [[ "$BOOT_MODE" = edk2 ]]; then
-    prepare_edk2
+    ci_edk2_prepare "$WORK_DIR"
   fi
   start_qemu
   wait_for_userspace

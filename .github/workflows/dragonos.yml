@@ -8,6 +8,7 @@ on:
       - ".github/scripts/prototyper-dragonos-boot.sh"
       - ".github/workflows/dragonos.yml"
       - ".github/scripts/ci-uboot.sh"
+      - ".github/scripts/ci-edk2.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -22,6 +23,7 @@ on:
       - ".github/scripts/prototyper-dragonos-boot.sh"
       - ".github/workflows/dragonos.yml"
       - ".github/scripts/ci-uboot.sh"
+      - ".github/scripts/ci-edk2.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -63,6 +65,9 @@ jobs:
           source .github/scripts/ci-uboot.sh
           toolchain_id=$(ci_uboot_toolchain_id)
           echo "CI_UBOOT_TOOLCHAIN_ID=$toolchain_id" >> "$GITHUB_ENV"
+          source .github/scripts/ci-edk2.sh
+          edk2_id=$(ci_edk2_build_id)
+          echo "CI_EDK2_BUILD_ID=$edk2_id" >> "$GITHUB_ENV"
 
       - name: Install required cargo
         run: cargo install --locked cargo-binutils@0.4.0
@@ -84,14 +89,12 @@ jobs:
           path: .cache/dragonos-bootloaders/busybox
           key: dragonos-busybox-1.35.0-musl-b3833579-v1
 
-      - name: Cache EDK II firmware volumes
+      - name: Cache EDK II build
         if: matrix.boot-path == 'edk2'
         uses: actions/cache@v5
         with:
-          path: |
-            .cache/dragonos-bootloaders/RISCV_VIRT_CODE.fd
-            .cache/dragonos-bootloaders/RISCV_VIRT_VARS.fd
-          key: dragonos-edk2-6951dfe7-v2
+          path: .cache/ci-edk2/${{ env.CI_EDK2_BUILD_ID }}
+          key: edk2-build-ubuntu-24.04-${{ runner.arch }}-${{ env.CI_EDK2_BUILD_ID }}
 
       - name: Cache U-Boot build
         if: matrix.boot-path == 'u-boot'
