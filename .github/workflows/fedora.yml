@@ -68,12 +68,6 @@ jobs:
       - name: Install required cargo
         run: cargo install --locked cargo-binutils@0.4.0
 
-      - name: Cache Fedora image
-        uses: ./.github/actions/ci-cache
-        with:
-          path: .cache/fedora/44
-          key: fedora-cloud-riscv64-44-20260604.0
-
       - name: Cache U-Boot build
         if: matrix.boot-path == 'u-boot'
         uses: ./.github/actions/ci-cache
@@ -85,12 +79,6 @@ jobs:
         run: |
           cargo prototyper build
           .github/scripts/prototyper-fedora-boot.sh "${{ matrix.boot-path }}"
-
-      - name: Save Fedora image
-        uses: ./.github/actions/ci-cache-save
-        with:
-          path: .cache/fedora/44
-          key: fedora-cloud-riscv64-44-20260604.0
 
       - name: Save U-Boot build
         if: matrix.boot-path == 'u-boot'

@@ -60,36 +60,10 @@ jobs:
       - name: Install cargo-binutils
         run: cargo install --locked cargo-binutils@0.4.0
 
-      - name: Cache Ubuntu image
-        uses: ./.github/actions/ci-cache
-        with:
-          path: target/ubuntu-boot/cache/24.04.5/*.xz
-          key: ubuntu-24.04.5-riscv64-1cbd4b187f333561
-
-      - name: Cache U-Boot build
-        if: matrix.boot-path == 'u-boot'
-        uses: ./.github/actions/ci-cache
-        with:
-          path: .cache/ci-uboot/packages/2025.10-0ubuntu0.24.04.2
-          key: uboot-package-2025.10-0ubuntu0.24.04.2-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
-
       - name: Build RustSBI Prototyper and boot Ubuntu
         run: |
           cargo prototyper build
           .github/scripts/prototyper-ubuntu-boot.sh "${{ matrix.boot-path }}"
-
-      - name: Save Ubuntu image
-        uses: ./.github/actions/ci-cache-save
-        with:
-          path: target/ubuntu-boot/cache/24.04.5/*.xz
-          key: ubuntu-24.04.5-riscv64-1cbd4b187f333561
-
-      - name: Save U-Boot build
-        if: matrix.boot-path == 'u-boot'
-        uses: ./.github/actions/ci-cache-save
-        with:
-          path: .cache/ci-uboot/packages/2025.10-0ubuntu0.24.04.2
-          key: uboot-package-2025.10-0ubuntu0.24.04.2-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Upload Ubuntu serial log
         if: always()

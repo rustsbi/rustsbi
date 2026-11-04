@@ -83,8 +83,10 @@ jobs:
       - name: Cache RT-Thread build
         uses: ./.github/actions/ci-cache
         with:
-          path: .cache/rtt
-          key: rtt-${{ hashFiles('.github/scripts/prototyper-rtt-boot.sh') }}-v1
+          path: |
+            .cache/rtt/rtthread.bin
+            .cache/rtt/rtthread.bin.sha256
+          key: rtt-${{ hashFiles('.github/scripts/prototyper-rtt-boot.sh') }}-elf-10.2.0-2020.12.8-v2
 
       - name: Cache U-Boot build
         if: matrix.boot-path == 'u-boot'
@@ -102,8 +104,10 @@ jobs:
       - name: Save RT-Thread build
         uses: ./.github/actions/ci-cache-save
         with:
-          path: .cache/rtt
-          key: rtt-${{ hashFiles('.github/scripts/prototyper-rtt-boot.sh') }}-v1
+          path: |
+            .cache/rtt/rtthread.bin
+            .cache/rtt/rtthread.bin.sha256
+          key: rtt-${{ hashFiles('.github/scripts/prototyper-rtt-boot.sh') }}-elf-10.2.0-2020.12.8-v2
 
       - name: Save U-Boot build
         if: matrix.boot-path == 'u-boot'

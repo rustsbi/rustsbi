@@ -65,39 +65,11 @@ jobs:
       - name: Check serial acceptance and failure handling
         run: .github/scripts/prototyper-alpine-boot.sh --self-test
 
-      # Cache only digest-verified downloads. Firmware and extracted guest
-      # assets are rebuilt or prepared from the current checkout every run.
-      - name: Cache Alpine and bootloader downloads
-        uses: ./.github/actions/ci-cache
-        with:
-          path: target/alpine-boot/cache
-          key: alpine-3.23.3-uboot-2025.10-0ubuntu0.24.04.2-edk2-2024.02-2ubuntu0.10-${{ matrix.boot-path }}-v1
-
-      - name: Cache U-Boot build
-        if: matrix.boot-path == 'u-boot'
-        uses: ./.github/actions/ci-cache
-        with:
-          path: .cache/ci-uboot/packages/2025.10-0ubuntu0.24.04.2
-          key: uboot-package-2025.10-0ubuntu0.24.04.2-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
-
       - name: Build RustSBI Prototyper
         run: cargo prototyper build
 
       - name: Boot Alpine Linux
         run: .github/scripts/prototyper-alpine-boot.sh "${{ matrix.boot-path }}"
-
-      - name: Save Alpine and bootloader downloads
-        uses: ./.github/actions/ci-cache-save
-        with:
-          path: target/alpine-boot/cache
-          key: alpine-3.23.3-uboot-2025.10-0ubuntu0.24.04.2-edk2-2024.02-2ubuntu0.10-${{ matrix.boot-path }}-v1
-
-      - name: Save U-Boot build
-        if: matrix.boot-path == 'u-boot'
-        uses: ./.github/actions/ci-cache-save
-        with:
-          path: .cache/ci-uboot/packages/2025.10-0ubuntu0.24.04.2
-          key: uboot-package-2025.10-0ubuntu0.24.04.2-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Upload Alpine serial log
         if: always()

@@ -52,12 +52,6 @@ jobs:
       - name: Install required cargo
         run: cargo install --locked cargo-binutils@0.4.0
 
-      - name: Cache openEuler downloads
-        uses: ./.github/actions/ci-cache
-        with:
-          path: .openeuler-aia/cache
-          key: openeuler-25.09-riscv64-aia-release-v1
-
       - name: Build RustSBI Prototyper
         run: cargo prototyper build
 
@@ -85,12 +79,6 @@ jobs:
               qemu-system-riscv64 --version
               .github/scripts/prototyper-openeuler-aia.sh
             '
-
-      - name: Save openEuler downloads
-        uses: ./.github/actions/ci-cache-save
-        with:
-          path: .openeuler-aia/cache
-          key: openeuler-25.09-riscv64-aia-release-v1
 
       - name: Upload openEuler AIA log
         if: always()

@@ -40,6 +40,8 @@ esac
 readonly RTT_SRC="${CACHE_DIR}/rt-thread-${RTT_VERSION}"
 readonly RTT_BSP="${RTT_SRC}/bsp/qemu-virt64-riscv"
 readonly RTT_BIN="${RTT_BSP}/rtthread.bin"
+readonly RTT_CACHE_BIN="${CACHE_DIR}/rtthread.bin"
+readonly RTT_CACHE_SHA256="${CACHE_DIR}/rtthread.bin.sha256"
 readonly BIOS_BIN="target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-payload.bin"
 readonly DYNAMIC_ELF="target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.elf"
 readonly LOG_FILE="${LOG_DIR}/prototyper-rtt-${BOOT_MODE}.log"
@@ -183,6 +185,28 @@ build_rtthread() {
   test -s "$RTT_BIN"
 }
 
+# Keep only the completed binary in Actions cache. Caching the full source and
+# object tree costs about 1 GiB while `scons` would still run on every job.
+prepare_rtthread() {
+  local actual expected
+  if [[ -s "$RTT_CACHE_BIN" && -s "$RTT_CACHE_SHA256" ]]; then
+    expected=$(<"$RTT_CACHE_SHA256")
+    actual=$(sha256sum "$RTT_CACHE_BIN")
+    actual=${actual%% *}
+    if [[ "$actual" = "$expected" ]]; then
+      mkdir -p "$(dirname "$RTT_BIN")"
+      cp "$RTT_CACHE_BIN" "$RTT_BIN"
+      echo "Using cached RT-Thread binary" >&2
+      return
+    fi
+  fi
+
+  checkout_rtthread
+  build_rtthread
+  cp "$RTT_BIN" "$RTT_CACHE_BIN"
+  sha256sum "$RTT_CACHE_BIN" | cut -d ' ' -f 1 >"$RTT_CACHE_SHA256"
+}
+
 # Rebuild the dynamic firmware linked at the address where the U-Boot SPL
 # loads its SBI firmware (CONFIG_SPL_OPENSBI_LOAD_ADDR, 0x80100000 on the
 # qemu-riscv64_spl board). The default dynamic build links at 0x80000000 and
@@ -300,8 +324,7 @@ wait_for_rtthread() {
 
 main() {
   check_prerequisites
-  checkout_rtthread
-  build_rtthread
+  prepare_rtthread
   case "$BOOT_MODE" in
     u-boot)
       build_sbi_firmware

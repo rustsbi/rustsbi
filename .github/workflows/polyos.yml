@@ -74,17 +74,6 @@ jobs:
       - name: Install required cargo
         run: cargo install --locked cargo-binutils@0.4.0
 
-      # The PolyOS archive is an immutable versioned download; the extracted
-      # images are what the boot actually needs. Bump the trailing revision
-      # after editing the extraction recipe in the script.
-      - name: Cache PolyOS images
-        uses: ./.github/actions/ci-cache
-        with:
-          path: |
-            .cache/polyos/polyos-mobile-3.2-release.img.tar.xz
-            .polyos/work/images
-          key: polyos-mobile-3.2-release-v1
-
       - name: Cache U-Boot build
         uses: ./.github/actions/ci-cache
         with:
@@ -96,14 +85,6 @@ jobs:
 
       - name: Boot PolyOS
         run: .github/scripts/prototyper-polyos-boot.sh
-
-      - name: Save PolyOS images
-        uses: ./.github/actions/ci-cache-save
-        with:
-          path: |
-            .cache/polyos/polyos-mobile-3.2-release.img.tar.xz
-            .polyos/work/images
-          key: polyos-mobile-3.2-release-v1
 
       - name: Save U-Boot build
         uses: ./.github/actions/ci-cache-save

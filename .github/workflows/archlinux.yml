@@ -76,13 +76,11 @@ jobs:
       - name: Install required cargo tool
         run: cargo install --locked cargo-binutils@0.4.0
 
-      - name: Cache Arch rootfs and Linux Image
+      - name: Cache built Arch Linux Image
         uses: ./.github/actions/ci-cache
         with:
-          path: |
-            .cache/archlinux/archriscv-2026-08-27.tar.zst
-            .cache/archlinux/linux-6.15.9-Image
-          key: archlinux-rootfs-2026-08-27-linux-6.15.9-v1
+          path: .cache/archlinux/linux-6.15.9-Image
+          key: archlinux-linux-6.15.9-v1
 
       - name: Cache EDK II build
         if: matrix.boot-path == 'edk2'
@@ -104,13 +102,11 @@ jobs:
       - name: Boot Arch Linux
         run: .github/scripts/prototyper-archlinux-boot.sh "${{ matrix.boot-path }}"
 
-      - name: Save Arch rootfs and Linux Image
+      - name: Save built Arch Linux Image
         uses: ./.github/actions/ci-cache-save
         with:
-          path: |
-            .cache/archlinux/archriscv-2026-08-27.tar.zst
-            .cache/archlinux/linux-6.15.9-Image
-          key: archlinux-rootfs-2026-08-27-linux-6.15.9-v1
+          path: .cache/archlinux/linux-6.15.9-Image
+          key: archlinux-linux-6.15.9-v1
 
       - name: Save EDK II firmware
         if: matrix.boot-path == 'edk2'

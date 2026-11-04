@@ -112,16 +112,9 @@ jobs:
           path: .cache/eweos/qemu-10.2.2
           key: eweos-qemu-10.2.2-${{ runner.os }}-v1
 
-      # Use the checksum resolved by this boot job for its cache and checks.
-      - name: Cache eweOS live ISO
-        uses: ./.github/actions/ci-cache
-        with:
-          path: .cache/eweos/eweos-riscv64-liveimage-standard.iso
-          key: eweos-riscv64-standard-${{ steps.iso.outputs.sha256 }}
-
-      # Check a restored ISO before anything else uses it. A cache miss passes
-      # here and the boot step downloads and verifies the image.
-      - name: Check cached eweOS ISO
+      # Validate an ISO already present in the workspace, then let the boot
+      # step download and verify the pinned release when it is absent.
+      - name: Check existing eweOS ISO
         run: .github/scripts/prototyper-eweos-boot.sh check-iso
 
       - name: Cache EDK II build
@@ -149,12 +142,6 @@ jobs:
         with:
           path: .cache/eweos/qemu-10.2.2
           key: eweos-qemu-10.2.2-${{ runner.os }}-v1
-
-      - name: Save eweOS live ISO
-        uses: ./.github/actions/ci-cache-save
-        with:
-          path: .cache/eweos/eweos-riscv64-liveimage-standard.iso
-          key: eweos-riscv64-standard-${{ steps.iso.outputs.sha256 }}
 
       - name: Save EDK II build
         if: matrix.boot-path == 'edk2'

@@ -81,12 +81,6 @@ jobs:
       - name: Install required cargo
         run: cargo install --locked cargo-binutils@0.4.0
 
-      - name: Cache OpenWrt image
-        uses: ./.github/actions/ci-cache
-        with:
-          path: .cache/openwrt/25.12.5
-          key: openwrt-25.12.5-sifive-unleashed-ext4
-
       - name: Cache U-Boot build
         if: matrix.boot-path == 'u-boot'
         uses: ./.github/actions/ci-cache
@@ -99,12 +93,6 @@ jobs:
 
       - name: Boot OpenWrt
         run: .github/scripts/prototyper-openwrt-boot.sh "${{ matrix.boot-path }}"
-
-      - name: Save OpenWrt image
-        uses: ./.github/actions/ci-cache-save
-        with:
-          path: .cache/openwrt/25.12.5
-          key: openwrt-25.12.5-sifive-unleashed-ext4
 
       - name: Save U-Boot build
         if: matrix.boot-path == 'u-boot'
