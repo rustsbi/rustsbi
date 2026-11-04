@@ -8,7 +8,7 @@ use csr::machine;
 /// This context cannot be transferred to another hart or retained after
 /// its Runtime interrupt exclusion scope ends.
 /// It does not provide remote mutual exclusion.
-pub(crate) struct LocalIrqDisabled {
+pub struct LocalIrqDisabled {
     _local: PhantomData<*mut ()>,
 }
 
