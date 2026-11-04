@@ -35,7 +35,9 @@ ci_edk2_build() (
   set +u
   # shellcheck disable=SC1091
   source "$PACKAGES_PATH/edksetup.sh" --reconfig
-  make -C "$EDK_TOOLS_PATH" -j"$(nproc)"
+  # Newer host GCC versions promote legacy BaseTools warnings to errors.
+  make -C "$EDK_TOOLS_PATH" -j"$(nproc)" \
+    EXTRA_OPTFLAGS="-Wno-error=discarded-qualifiers"
   # shellcheck disable=SC1091
   source "$PACKAGES_PATH/edksetup.sh" BaseTools
   set -u
@@ -54,6 +56,7 @@ ci_edk2_prepare() (
   set -euo pipefail
   local guest_dir build_id cache
   guest_dir=$(realpath "$1")
+  mkdir -p "$guest_dir"
   build_id=${CI_EDK2_BUILD_ID:-$(ci_edk2_build_id)}
   cache=".cache/ci-edk2/$build_id"
   mkdir -p "$cache"

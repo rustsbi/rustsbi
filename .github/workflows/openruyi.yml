@@ -142,7 +142,7 @@ jobs:
       - name: Check script syntax and offline failure handling
         run: |
           bash -n .github/scripts/prototyper-openruyi-server-workstation-boot.sh
-          shellcheck .github/scripts/prototyper-openruyi-server-workstation-boot.sh
+          shellcheck -x .github/scripts/prototyper-openruyi-server-workstation-boot.sh
           .github/scripts/prototyper-openruyi-server-workstation-boot.sh --self-test
 
       - name: Install cargo-binutils

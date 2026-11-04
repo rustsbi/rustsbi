@@ -168,7 +168,7 @@ check_serial() {
       # Direct Linux boot must not be accepted through a U-Boot/EDK II trace.
       if (boot_mode == "sbi" && (/^U-Boot / || /RISC-V EDK2 firmware/ || /GNU GRUB *version/ || /^Booting: Label: virtio/)) fatal=1
       if (stage == 1 && boot_mode == "edk2" && /^RISC-V EDK2 firmware version 2\.7$/) stage=2
-      if (stage == 1 && boot_mode == "u-boot" && /^U-Boot 2026\.07 /) stage=2
+      if (stage == 1 && boot_mode == "u-boot" && /^U-Boot 2026\.07/) stage=2
       if (stage == 2 && boot_mode == "u-boot" && /^Booting: Label: virtio 0 /) efi=1
       if (stage == 2 && boot_mode == "u-boot" && efi && /GNU GRUB *version 2\.12/) grub=1
       if (stage == 2 && /^Loading Linux 6\.6\.0-102\.0\.0\.5\.oe2509\.riscv64 /) loading=1
@@ -295,7 +295,7 @@ run_self_tests() (
     if [[ "$variant" = edk2-only ]]; then
       printf 'RISC-V EDK2 firmware version 2.7\n'
     elif [[ "$variant" != missing-uboot ]]; then
-      printf '%s (Oct 01 2026 - 20:02:47 +0000)\n' "$UBOOT_BANNER"
+      printf '%s-gece349ade297 (Oct 01 2026 - 20:02:47 +0000)\n' "$UBOOT_BANNER"
     fi
     if [[ "$variant" = grub-before-efi ]]; then
       printf 'GNU GRUB  version 2.12\n'
