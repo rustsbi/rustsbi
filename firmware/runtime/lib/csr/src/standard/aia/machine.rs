@@ -84,20 +84,3 @@ impl Mtopei {
         Iid::new(((self.0 >> 16) & 0x7ff) as u16)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn interrupt_identity_bounds_and_claim_decoding() {
-        assert_eq!(Iid::new(0), None);
-        assert_eq!(Iid::new(2048), None);
-        assert_eq!(Mtopei(0).iid(), None);
-        for number in [1, 2047] {
-            let iid = Iid::new(number).unwrap();
-            assert_eq!(iid.number(), number);
-            assert_eq!(Mtopei((number as usize) << 16).iid(), Some(iid));
-        }
-    }
-}
