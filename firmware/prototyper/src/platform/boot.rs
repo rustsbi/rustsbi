@@ -15,6 +15,7 @@ use runtime::{
 use spin::Once;
 
 use super::{
+    allwinner::v821::V821,
     discovery,
     error::{InitError, ResultContext},
     info::{BoardInfo, SocDescription},
@@ -72,9 +73,7 @@ fn initialize_platform(
     }
     .transpose()
     .during("preparing V821 platform resources")?;
-    board.memory.noncacheable_alias_offset = v821
-        .as_ref()
-        .map(crate::platform::allwinner::v821::V821::noncacheable_alias_offset);
+    board.memory.noncacheable_alias_offset = v821.as_ref().map(V821::noncacheable_alias_offset);
 
     if let Some(v821) = v821.as_ref() {
         driver::allwinner::v821::release_boot0_isp_sram(v821.soc(), &mut memory)
@@ -163,7 +162,7 @@ fn publish_platform_services(
     timer: SbiTimer,
 ) {
     let driver::Devices {
-        ipi,
+        ipi: ipi_device,
         console,
         reset,
         ..
@@ -172,9 +171,10 @@ fn publish_platform_services(
     static HART_WAKE: Once<Box<dyn HartWake>> = Once::new();
     let hart_wake = hart_wake.map(|device| HART_WAKE.call_once(|| device).as_ref());
     hart::install_wakeup(hart_wake);
-    let ipi = ipi::init(ipi).expect("BUG: Runtime IPI initialized more than once");
-    let sbi_ipi =
-        sbi::ipi::SbiIpi::new(ipi).expect("BUG: SBI IPI state requires a published hart topology");
+    let sbi_ipi = ipi_device.map(|device| {
+        ipi::init(device).expect("BUG: IPI initialization requires a published hart topology");
+        sbi::ipi::SbiIpi
+    });
     events::install(pmu.as_ref().map(|_| sbi::pmu::runtime_counters()));
 
     state::publish_resources(board, supervisor_memory, console);
@@ -191,7 +191,7 @@ fn publish_platform_services(
 }
 
 fn publish_sbi_dispatcher(
-    ipi: sbi::ipi::SbiIpi,
+    ipi: Option<sbi::ipi::SbiIpi>,
     timer: SbiTimer,
     reset: SbiReset,
     custom_extension: sbi::vendor::Extension,
@@ -204,10 +204,10 @@ fn publish_sbi_dispatcher(
     let cppc = Some(SbiCppc::new());
     let dbtr = Some(SbiDbtr::new(supervisor_memory));
     let fwft = Some(SbiFwft);
-    let ipi_available = ipi.ipi().delivery().is_some();
+    let ipi_available = ipi.is_some();
     let hsm = ipi_available.then(|| SbiHsm::new(hart_wake.is_some()));
-    let rfence = ipi_available
-        .then(|| SbiRFence::new(ipi.ipi()).expect("BUG: RFENCE event registration failed"));
+    let rfence =
+        ipi_available.then(|| SbiRFence::new().expect("BUG: RFENCE IPI event registration failed"));
     let susp = hsm.as_ref().map(|_| SbiSuspend);
     let mpxy = Some(sbi::mpxy::SbiMpxy::new(supervisor_memory));
     let sta = Some(sbi::sta::SbiSta::new(supervisor_memory));

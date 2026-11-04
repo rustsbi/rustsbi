@@ -125,7 +125,6 @@ pub(super) fn discover(
 
     Ok(Some(ImsicInfo {
         layout,
-        num_iids,
         ipi_iid,
         hart_files,
     }))

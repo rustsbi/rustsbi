@@ -50,7 +50,7 @@ pub struct SbiDispatcher {
     #[rustsbi(fwft)]
     pub(crate) fwft: Option<SbiFwft>,
     #[rustsbi(ipi)]
-    pub(crate) ipi: SbiIpi,
+    pub(crate) ipi: Option<SbiIpi>,
     #[rustsbi(timer)]
     pub(crate) timer: SbiTimer,
     #[rustsbi(hsm)]
@@ -69,13 +69,6 @@ pub struct SbiDispatcher {
     pub(crate) mpxy: Option<SbiMpxy>,
     #[rustsbi(vendor)]
     pub(crate) vendor: Option<vendor::Vendor>,
-}
-
-/// Returns the IPI extension, if present.
-pub(crate) fn ipi() -> Option<&'static SbiIpi> {
-    SbiDispatcher::get()
-        .map(|sbi| &sbi.ipi)
-        .filter(|sbi| sbi.ipi().delivery().is_some())
 }
 
 /// Returns the published SBI timer policy.

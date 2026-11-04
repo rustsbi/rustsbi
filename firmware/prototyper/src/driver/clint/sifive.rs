@@ -10,7 +10,7 @@ use core::mem::{align_of, size_of};
 use runtime::{
     Error, Result,
     hart::HartId,
-    ipi::{IpiDevice, IpiRequest},
+    ipi::{Acknowledge, IpiDevice, Software},
     memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
     timer::TimerDevice,
 };
@@ -43,7 +43,7 @@ pub(super) fn bind(
     registers: DeviceRegisterRange,
     memory: &mut MemoryRegistry,
     hart_id_upper_bound: usize,
-) -> Result<(Box<dyn TimerDevice>, Box<dyn IpiDevice>)> {
+) -> Result<(Box<dyn TimerDevice>, Box<dyn IpiDevice<Software>>)> {
     let msip_size_bytes = hart_id_upper_bound
         .checked_mul(size_of::<u32>())
         .ok_or(Error::Overflow)?;
@@ -174,8 +174,9 @@ impl SiFiveIpi {
         Self { registers }
     }
 
-    fn write_msip(&self, hart_id: usize, value: IpiState) -> Result<()> {
-        let offset = hart_id
+    fn write_msip(&self, hart: HartId, value: IpiState) -> Result<()> {
+        let offset = hart
+            .as_usize()
             .checked_mul(size_of::<u32>())
             .ok_or(Error::IoError)?;
         self.registers
@@ -184,19 +185,18 @@ impl SiFiveIpi {
     }
 }
 
-impl IpiDevice for SiFiveIpi {
+impl IpiDevice<Software> for SiFiveIpi {
     #[inline(always)]
-    fn send(&self, req: IpiRequest) -> Result<()> {
-        for hart_id in req.harts() {
-            self.write_msip(hart_id, IpiState::Pending)?;
-        }
-        Ok(())
+    fn send_ipi(&self, hart: HartId) -> Result<()> {
+        self.write_msip(hart, IpiState::Pending)
     }
+}
 
+impl Acknowledge<Software> for SiFiveIpi {
     #[inline(always)]
-    fn acknowledge(&self) -> Result<bool> {
+    fn acknowledge(&self, _context: &()) -> Result<bool> {
         let hart = HartId::current()?;
-        self.write_msip(hart.as_usize(), IpiState::Clear)?;
+        self.write_msip(hart, IpiState::Clear)?;
         Ok(true)
     }
 }

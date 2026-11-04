@@ -6,7 +6,7 @@ mod thead;
 
 use runtime::{
     Result,
-    ipi::IpiDevice,
+    ipi::{IpiDevice, Software},
     memory::{DeviceRegisterRange, MemoryRegistry},
     timer::TimerDevice,
 };
@@ -24,7 +24,7 @@ pub(super) fn bind(
     kind: ClintKind,
     memory: &mut MemoryRegistry,
     hart_id_upper_bound: usize,
-) -> Result<(Box<dyn TimerDevice>, Box<dyn IpiDevice>)> {
+) -> Result<(Box<dyn TimerDevice>, Box<dyn IpiDevice<Software>>)> {
     match kind {
         ClintKind::SiFive => sifive::bind(registers, memory, hart_id_upper_bound),
         ClintKind::THead => thead::bind(registers, memory, hart_id_upper_bound),

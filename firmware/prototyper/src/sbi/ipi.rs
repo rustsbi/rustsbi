@@ -12,7 +12,7 @@ use crate::platform::hart_privilege_checked;
 use runtime::{
     Result,
     hart::{self, HartId},
-    ipi::{Ipi as RuntimeIpi, IpiEvent},
+    ipi::{self, IpiEvent},
     rustsbi::{HartMask, Ipi, SbiRet},
 };
 
@@ -21,25 +21,9 @@ use sbi_spec::pmu::firmware_event;
 /// SBI IPI extension.
 ///
 /// The platform publishes this extension only after Runtime initializes IPI.
-pub struct SbiIpi {
-    ipi: &'static RuntimeIpi,
-}
-
-impl SbiIpi {
-    pub(crate) fn new(ipi: &'static RuntimeIpi) -> Result<Self> {
-        Ok(Self { ipi })
-    }
-
-    pub(crate) fn ipi(&self) -> &'static RuntimeIpi {
-        self.ipi
-    }
-}
+pub struct SbiIpi;
 
 impl Ipi for SbiIpi {
-    fn _rustsbi_probe(&self) -> usize {
-        usize::from(self.ipi.delivery().is_some())
-    }
-
     /// Sends IPIs to the specified harts.
     #[inline]
     fn send_ipi(&self, hart_mask: HartMask) -> SbiRet {
@@ -49,8 +33,10 @@ impl Ipi for SbiIpi {
             Err(error) => return error,
         };
 
-        self.ipi
-            .send_event(IpiEvent::Supervisor, targets)
+        let Some(ipi) = ipi::get() else {
+            return SbiRet::failed();
+        };
+        ipi.send(IpiEvent::Supervisor, targets)
             .map_or(SbiRet::failed(), |_| SbiRet::success(0))
     }
 }

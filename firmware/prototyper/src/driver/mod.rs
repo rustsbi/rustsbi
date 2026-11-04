@@ -15,10 +15,14 @@ mod reset;
 
 use alloc::boxed::Box;
 use runtime::{
-    Error, Result, hart::HartId, ipi::IpiDevice, memory::MemoryRegistry, timer::TimerDevice,
+    Error, Result,
+    hart::HartId,
+    ipi::{Device, IpiDevice, Software},
+    memory::MemoryRegistry,
+    timer::TimerDevice,
 };
 
-use crate::platform::{BoardInfo, ClintResource, ImsicInfo};
+use crate::platform::{BoardInfo, ClintResource, ImsicInfo, qemu_aplic::QemuAplicConfig};
 
 pub(crate) use reset::{
     Description as ResetDescription, ResetDevice, ResetError, ResetReason, ResetRequest, ResetType,
@@ -40,12 +44,13 @@ pub(crate) const THEAD_PLIC_COMPATIBLES: [&str; 2] =
 /// Platform devices constructed from the discovered hardware description.
 pub(crate) struct Devices {
     pub(crate) timer: Option<Box<dyn TimerDevice>>,
-    pub(crate) ipi: Option<Box<dyn IpiDevice>>,
+    pub(crate) ipi: Option<Device>,
     pub(crate) console: Option<Box<dyn DbcnBackend + Send>>,
     pub(crate) reset: ResetDevice,
 }
 
-type InterruptDevices = (Option<Box<dyn TimerDevice>>, Option<Box<dyn IpiDevice>>);
+/// Timer and the platform's IPI device, when discovery selects them.
+type InterruptDevices = (Option<Box<dyn TimerDevice>>, Option<Device>);
 
 fn bind_interrupts(
     board: &BoardInfo,
@@ -54,7 +59,7 @@ fn bind_interrupts(
 ) -> Result<InterruptDevices> {
     if let Some(imsic) = selected_imsic {
         let aplic_config = if board.is_qemu_virt() {
-            Some(crate::platform::qemu_aplic::QemuAplicConfig::new(
+            Some(QemuAplicConfig::new(
                 board
                     .devices
                     .interrupts
@@ -69,17 +74,19 @@ fn bind_interrupts(
             None
         };
         let timer = bind_timer(board, memory)?;
-        let ipi = aia::bind(imsic, aplic_config, memory)?;
-        return Ok((timer, Some(ipi)));
+        let device = aia::bind(imsic, aplic_config, memory)?;
+        return Ok((timer, Some(Device::External(device))));
     }
     if let (Some(plmt), Some(plicsw)) = (
         board.devices.interrupts.plmt,
         board.devices.interrupts.plicsw,
     ) {
         let hart_id_upper_bound = hart_id_upper_bound()?;
+        let device: Box<dyn IpiDevice<Software>> =
+            Box::new(plicsw::bind(plicsw, memory, hart_id_upper_bound)?);
         return Ok((
             Some(Box::new(plmt::bind(plmt, memory, hart_id_upper_bound)?)),
-            Some(Box::new(plicsw::bind(plicsw, memory, hart_id_upper_bound)?)),
+            Some(Device::Software(device)),
         ));
     }
     let Some(description) = board.devices.interrupts.clint() else {
@@ -88,7 +95,7 @@ fn bind_interrupts(
     let ClintResource { registers, kind } = *description.resource();
     let hart_id_upper_bound = hart_id_upper_bound()?;
     let (timer, ipi) = clint::bind(registers, kind, memory, hart_id_upper_bound)?;
-    Ok((Some(timer), Some(ipi)))
+    Ok((Some(timer), Some(Device::Software(ipi))))
 }
 
 /// Binds a machine timer without selecting a software-interrupt device.
