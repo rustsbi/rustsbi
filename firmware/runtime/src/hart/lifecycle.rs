@@ -1,6 +1,7 @@
 //! Hart start, stop, and suspend state transitions.
 
-use crate::{Error, Result};
+use crate::boot::finish_boot;
+use crate::{Error, Result, instruction, ipi, irq};
 use alloc::boxed::Box;
 use core::cell::UnsafeCell;
 use core::hint::spin_loop;
@@ -180,15 +181,16 @@ pub fn can_receive_ipi(hart: HartId) -> bool {
 }
 
 /// Stops the current hart.
+///
 /// Success discards its supervisor context and parks in M-mode until a new
 /// start request arrives, including across spurious WFI wakeups.
 /// Only failures return to the caller.
+/// Returns [`Error::IoError`] if the firmware IPI device is unavailable.
 pub fn stop_current() -> Result<core::convert::Infallible> {
-    let ipi = crate::ipi::get().ok_or(Error::IoError)?;
-    ipi.delivery().ok_or(Error::IoError)?;
-    crate::irq::with_local_disabled(|irq| {
-        ipi.clear_current(irq)?;
-        ipi.prepare_wakeup(irq);
+    irq::with_local_disabled(|irq| {
+        let ipi = ipi::get().ok_or(Error::IoError)?;
+        ipi.acknowledge(irq)?;
+        ipi.enable_interrupt(irq);
         cell(current_hart())
             .state
             .store(STATE_STOPPED, Ordering::Release);
@@ -198,7 +200,7 @@ pub fn stop_current() -> Result<core::convert::Infallible> {
         unsafe {
             core::arch::asm!(
                 "tail {finish}",
-                finish = sym crate::boot::finish_boot,
+                finish = sym finish_boot,
                 options(noreturn)
             )
         }
@@ -206,19 +208,20 @@ pub fn stop_current() -> Result<core::convert::Infallible> {
 }
 
 /// Enters the platform suspend wait for the current hart.
+///
+/// Returns [`Error::IoError`] if the firmware IPI device is unavailable.
 pub fn suspend_current() -> Result<()> {
-    let ipi = crate::ipi::get().ok_or(Error::IoError)?;
-    ipi.delivery().ok_or(Error::IoError)?;
-    crate::irq::with_local_disabled(|irq| {
-        ipi.clear_current(irq)?;
-        ipi.deliver_current(irq);
-        ipi.prepare_wakeup(irq);
+    irq::with_local_disabled(|irq| {
+        let ipi = ipi::get().ok_or(Error::IoError)?;
+        ipi.acknowledge(irq)?;
+        ipi.process_pending(irq);
+        ipi.enable_interrupt(irq);
         Ok(())
     })?;
     cell(current_hart())
         .state
         .store(STATE_SUSPENDED, Ordering::Release);
-    crate::instruction::wait_for_interrupt();
+    instruction::wait_for_interrupt();
     Ok(())
 }
 
@@ -278,9 +281,9 @@ pub struct ResumeTicket {
 impl ResumeTicket {
     /// Wakes the hart and publishes its lower-privilege handoff.
     pub fn commit(mut self) -> Result<()> {
-        crate::ipi::get()
+        ipi::get()
             .ok_or(Error::IoError)?
-            .send(crate::ipi::IpiRequest::for_hart(self.hart))?;
+            .send_hardware_ipi(self.hart)?;
         // SAFETY:
         // 1. The ticket owns the cell while it is resume-pending.
         // 2. The same hart's ecall return path consumes the marker.
