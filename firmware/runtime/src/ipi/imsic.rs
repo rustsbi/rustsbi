@@ -1,13 +1,50 @@
 //! Machine IMSIC interrupt-file operations under local IRQ exclusion.
 
-use crate::{Error, Result, boot, hart::Detect, irq::LocalIrqDisabled};
+use crate::{
+    Error, Result, boot,
+    hart::Detect,
+    irq::{self, LocalIrqDisabled},
+};
 use csr::aia::imsic::{Iid, ImsicRegister};
 use csr::aia::machine::{Mireg, Miselect, Mtopei};
 use csr::machine;
+use spin::Once;
 
-struct Imsic {
+/// Runtime's CSR-side configuration for the machine IMSIC.
+///
+/// Runtime retains the instance and does not expose a constructor or handle.
+pub struct Imsic {
     iid: Iid,
     num_iids: u16,
+}
+
+static IMSIC: Once<Imsic> = Once::new();
+
+/// Detects and publishes the machine IMSIC selected by the platform.
+///
+/// The platform must call this before publishing an IPI service backed by IMSIC.
+/// A second initialization returns [`Error::AlreadyInitialized`].
+/// Returns [`Error::NotReady`] if Runtime is not ready for a current-hart probe.
+/// Returns [`Error::NotSupported`] if `mtopei` cannot be read on this hart.
+///
+/// `num_iids` must be in `63..=2047` and one less than a multiple of 64;
+/// `iid` must not exceed that capacity.
+/// Before successful initialization, invalid values return [`Error::InvalidArgs`].
+/// See <https://docs.riscv.org/reference/aia/v1.0/IMSIC.html>.
+pub fn init(iid: Iid, num_iids: u16) -> Result<()> {
+    let config = ((MIN_IID_COUNT..=MAX_IID_COUNT).contains(&num_iids)
+        && num_iids % IID_COUNT_GROUP == IID_COUNT_GROUP - 1
+        && iid.number() <= num_iids)
+        .then_some(Imsic { iid, num_iids })
+        .ok_or(Error::InvalidArgs);
+    let mut initialized = false;
+    IMSIC.try_call_once(|| {
+        let imsic = config?;
+        irq::with_local_disabled(Imsic::detect)?;
+        initialized = true;
+        Ok(imsic)
+    })?;
+    initialized.then_some(()).ok_or(Error::AlreadyInitialized)
 }
 
 /// Validates the identity capacity and the selected firmware identity.

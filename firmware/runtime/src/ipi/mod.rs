@@ -2,7 +2,7 @@
 
 mod delivery;
 mod event;
-mod imsic;
+pub mod imsic;
 mod request;
 
 use crate::{
