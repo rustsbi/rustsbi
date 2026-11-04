@@ -18,7 +18,7 @@ use crate::cfg::{PAGE_SIZE, TLB_FLUSH_LIMIT};
 use core::arch::asm;
 
 pub(super) mod queue;
-use super::pmu::pmu_firmware_counter_increment;
+use super::{ipi::target_harts, pmu::pmu_firmware_counter_increment};
 use queue::{LocalRFenceCell, RemoteRFenceCell};
 
 /// Context information for a remote fence operation.
@@ -134,9 +134,43 @@ fn validate_address_range(start_addr: usize, size: usize) -> Result<usize, SbiRe
 
 /// Processes a remote fence operation by sending IPI to target harts.
 fn remote_fence_process(rfence_ctx: RFenceContext, hart_mask: HartMask) -> SbiRet {
-    crate::sbi::ipi()
-        .unwrap()
-        .send_fence_by_ipi(hart_mask, rfence_ctx)
+    let current_hart = HartId::current().expect("BUG: current hart is not in the boot topology");
+    let targets = match target_harts(hart_mask) {
+        Ok(targets) => targets,
+        Err(error) => return error,
+    };
+    let local = local_rfence_for(current_hart);
+    let mut result = SbiRet::success(0);
+    let ipi = super::ipi().expect("BUG: RFENCE requires an IPI device");
+
+    for target in targets {
+        if target == current_hart {
+            rfence_local_handler(rfence_ctx);
+            continue;
+        }
+
+        let remote = remote_rfence_for(target);
+        local.add();
+        remote.set(rfence_ctx);
+
+        if ipi.send_fence(target).is_ok() {
+            continue;
+        }
+        // A receiver that already took the request remains responsible for
+        // its acknowledgement.
+        if remote.cancel(current_hart.as_usize()) {
+            remote_rfence_for(current_hart).sub();
+        }
+        result = SbiRet::failed();
+        break;
+    }
+
+    // Complete previously submitted operations even if a later send failed.
+    while !local.is_sync() {
+        rfence_poll_for(current_hart);
+    }
+
+    result
 }
 
 #[cfg(feature = "hypervisor")]
@@ -316,19 +350,10 @@ impl Fence for SbiRFence {
     }
 }
 
-/// Services requests while waiting outside the IPI handler.
+/// Services one queued request while waiting outside the IPI handler.
 #[inline]
 pub(crate) fn rfence_poll_for(hart: HartId) {
-    // Senders set FENCE pending after enqueueing. Checking it avoids locking an
-    // empty queue on each retry; a stale bit only causes an unnecessary attempt.
-    // The IPI handler clears the bit before draining, so it cannot use this check.
-    if super::SbiDispatcher::get()
-        .expect("BUG: SBI dispatcher not initialized")
-        .ipi
-        .fence_pending(hart)
-    {
-        rfence_single_handler_for(hart);
-    }
+    rfence_single_handler_for(hart);
 }
 
 /// Handles one fence operation queued for `hart`, returning whether one was dequeued.
