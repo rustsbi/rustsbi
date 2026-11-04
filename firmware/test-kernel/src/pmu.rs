@@ -4,6 +4,7 @@
 //! validate event selection, then exercise hardware and firmware counters.
 //! Firmware-counter checks trigger access faults and attempt IPIs to invalid harts.
 
+use crate::trap;
 use csr::user;
 use sbi_spec::{
     binary::{
@@ -179,7 +180,7 @@ fn test_access_fault_counters() {
         assert!(info.is_ok() && CounterInfo::new(info.value).is_firmware_counter());
         assert_eq!(sbi::pmu_counter_fw_read(result.value), SbiRet::success(0));
         for count in 1..=2 {
-            crate::trap::access_fault(event == firmware_event::ACCESS_STORE);
+            trap::access_fault(event == firmware_event::ACCESS_STORE);
             assert_eq!(
                 sbi::pmu_counter_fw_read(result.value),
                 SbiRet::success(count)
@@ -189,7 +190,7 @@ fn test_access_fault_counters() {
             sbi::pmu_counter_stop(CounterMask::from_mask_base(1, result.value), Flag::new(0))
                 .is_ok()
         );
-        crate::trap::access_fault(event == firmware_event::ACCESS_STORE);
+        trap::access_fault(event == firmware_event::ACCESS_STORE);
         assert_eq!(sbi::pmu_counter_fw_read(result.value), SbiRet::success(2));
         assert!(
             sbi::pmu_counter_start(
