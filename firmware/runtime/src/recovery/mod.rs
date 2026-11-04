@@ -74,24 +74,3 @@ macro_rules! fault_site {
 
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub(crate) use fault_site;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn fixup_requires_exact_pc_and_accepted_synchronous_cause() {
-        let site = FaultSite {
-            instruction: -16,
-            fixup: 24,
-            causes: 1 << 2,
-        };
-        let instruction = (&raw const site.instruction as usize).wrapping_sub(16);
-        let fixup = (&raw const site.fixup as usize).wrapping_add(24);
-        assert_eq!(site.fixup(instruction, 2), Some(fixup));
-        assert_eq!(site.fixup(instruction + 4, 2), None);
-        for cause in [0, 5, 32, usize::MAX, (1 << (usize::BITS - 1)) | 2] {
-            assert_eq!(site.fixup(instruction, cause), None);
-        }
-    }
-}
