@@ -61,6 +61,10 @@ pub(super) fn initialize(num_iids: u16, iid: Iid, irq: &LocalIrqDisabled) -> Res
     Imsic { iid, num_iids }.init_hart(irq)
 }
 
+pub(super) fn get() -> Option<&'static Imsic> {
+    IMSIC.get()
+}
+
 const MIN_IID_COUNT: u16 = 63;
 const MAX_IID_COUNT: u16 = Iid::MAX_NUMBER;
 /// IMSIC files implement a count one less than a multiple of 64.

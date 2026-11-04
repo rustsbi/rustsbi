@@ -3,6 +3,7 @@
 mod delivery;
 mod event;
 pub mod imsic;
+mod mode;
 mod request;
 
 use crate::{
@@ -13,7 +14,9 @@ use alloc::boxed::Box;
 use core::sync::atomic::AtomicUsize;
 pub use csr::aia::imsic::Iid;
 pub use event::IpiEvent;
+use imsic::Imsic;
 pub use imsic::validate_iid_capacity;
+pub(crate) use mode::InterruptMode;
 use spin::Once;
 
 static IPI: Once<Ipi> = Once::new();
@@ -67,6 +70,26 @@ pub enum IpiDelivery {
 pub struct IpiRequest {
     hart_mask: usize,
     hart_mask_base: usize,
+}
+
+/// Firmware IPIs delivered as machine software interrupts.
+pub enum Software {}
+
+/// Firmware IPIs delivered as machine external interrupts through an IMSIC.
+pub enum External {}
+
+/// Acknowledgement of the current hart's firmware IPI source.
+///
+/// [`Software`] devices use an empty `()` context.
+/// [`External`] acknowledgement requires Runtime's privately held machine IMSIC.
+pub trait Acknowledge<M: InterruptMode> {
+    /// Acknowledges this hart's source before pending events are observed.
+    ///
+    /// Software devices return `true` after clearing their dedicated source.
+    /// External devices return whether the claimed identity is the firmware IPI.
+    /// Runtime invokes this in M-mode after initializing this hart's IPI state,
+    /// with local machine interrupts disabled.
+    fn acknowledge(&self, context: &M::Context) -> Result<bool>;
 }
 
 /// Platform operations for firmware IPI delivery.
