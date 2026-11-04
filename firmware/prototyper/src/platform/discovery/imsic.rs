@@ -12,7 +12,7 @@ use core::mem::size_of;
 use runtime::{
     Error, FdtNode, Result,
     hart::HartId,
-    ipi::Iid,
+    ipi::{self, Iid},
     memory::{DeviceRegisterRange, PhysAddrRange},
     node_is_enabled,
 };
@@ -110,8 +110,11 @@ pub(super) fn discover(
 
     let ipi_iid =
         Iid::new(FIRMWARE_IPI_IDENTITY).expect("BUG: firmware IPI identity must be nonzero");
-    runtime::ipi::validate_iid_capacity(num_iids, ipi_iid).map_err(|_| Error::InvalidArgs)?;
-
+    match ipi::imsic::init(ipi_iid, num_iids) {
+        Ok(()) => {}
+        Err(Error::NotSupported) => return Ok(None),
+        Err(error) => return Err(error),
+    }
     let layout = ImsicAddressLayout::new(
         machine_base,
         hart_index_bits,
