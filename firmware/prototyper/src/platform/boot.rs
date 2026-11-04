@@ -17,7 +17,7 @@ use spin::Once;
 use super::{
     discovery,
     error::{InitError, ResultContext},
-    info::{BoardInfo, ImsicInfo, SocDescription},
+    info::{BoardInfo, SocDescription},
     report, state,
 };
 use crate::{
@@ -89,7 +89,11 @@ fn initialize_platform(
             .during("enabling the V821 PLMT clock")?;
     }
 
-    let selected_imsic = select_imsic(&board);
+    let selected_imsic = board
+        .devices
+        .interrupts
+        .imsic()
+        .map(|description| description.resource());
     let mut devices = driver::bind_devices(&board, selected_imsic, &mut memory)
         .during("binding platform devices")?;
     let timer = SbiTimer::new(devices.timer.take()).expect("BUG: timer initialization failed");
@@ -147,25 +151,6 @@ fn initialize_platform(
         timer,
     );
     Ok(next_stage_fdt_address)
-}
-
-/// Selects an IMSIC when every enabled hart advertises Smaia and Sstc.
-fn select_imsic(board: &BoardInfo) -> Option<&ImsicInfo> {
-    use sbi::features::{self, Extension};
-
-    let imsic = board.devices.interrupts.imsic()?.resource();
-    for hart in HartId::all() {
-        if !features::has_extension(hart, Extension::Smaia)
-            || !features::has_extension(hart, Extension::Sstc)
-        {
-            warn!(
-                "AIA: hart {} requires Smaia and Sstc; falling back to CLINT",
-                hart.as_usize()
-            );
-            return None;
-        }
-    }
-    Some(imsic)
 }
 
 fn publish_platform_services(
