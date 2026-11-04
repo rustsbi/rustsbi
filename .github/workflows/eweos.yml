@@ -147,8 +147,8 @@ jobs:
         if: matrix.boot-path == 'edk2'
         uses: ./.github/actions/ci-cache-save
         with:
-          path: .cache/eweos/edk2-6951dfe7d59d144a3a980bd7eda699db2d8554ac
-          key: eweos-edk2-6951dfe7-v1
+          path: .cache/ci-edk2/${{ env.CI_EDK2_BUILD_ID }}
+          key: edk2-build-ubuntu-24.04-${{ runner.arch }}-${{ env.CI_EDK2_BUILD_ID }}
 
       - name: Save U-Boot build
         if: matrix.boot-path == 'u-boot'

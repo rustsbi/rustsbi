@@ -127,10 +127,8 @@ jobs:
         if: matrix.boot-path == 'edk2'
         uses: ./.github/actions/ci-cache-save
         with:
-          path: |
-            .cache/dragonos-bootloaders/RISCV_VIRT_CODE.fd
-            .cache/dragonos-bootloaders/RISCV_VIRT_VARS.fd
-          key: dragonos-edk2-6951dfe7-v2
+          path: .cache/ci-edk2/${{ env.CI_EDK2_BUILD_ID }}
+          key: edk2-build-ubuntu-24.04-${{ runner.arch }}-${{ env.CI_EDK2_BUILD_ID }}
 
       - name: Save U-Boot build
         if: matrix.boot-path == 'u-boot'
