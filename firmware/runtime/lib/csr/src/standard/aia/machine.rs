@@ -29,9 +29,8 @@ impl From<usize> for Miselect {
 
 /// Machine indirect register data CSR identity (`mireg`).
 ///
-/// The value of `miselect` determines which register an access to `mireg`
-/// addresses. This type exposes the CSR number only; it does not perform or
-/// synchronize indirect accesses.
+/// The value of `miselect` determines which register an access to `mireg` addresses.
+/// The caller must synchronize selection and indirect accesses.
 ///
 /// See <https://docs.riscv.org/reference/aia/v1.0/IMSIC.html>.
 pub enum Mireg {}
@@ -39,6 +38,21 @@ pub enum Mireg {}
 impl Mireg {
     /// Architectural CSR number of the machine indirect data register.
     pub const NUMBER: u16 = 0x351;
+
+    /// Writes the selected machine indirect register.
+    ///
+    /// # Safety
+    ///
+    /// Execute in M-mode with a valid `miselect` value and coordinate the
+    /// selector and indirect access on this hart.
+    /// Satisfy the selected register's write requirements and preserve the
+    /// execution, memory, interrupt, and trap-handler invariants it affects.
+    #[inline]
+    pub unsafe fn write(value: usize) {
+        // SAFETY: The caller coordinates access and satisfies the selected
+        // register's write requirements.
+        unsafe { crate::value::write::<{ Self::NUMBER }>(value) };
+    }
 }
 
 impl Mtopei {
