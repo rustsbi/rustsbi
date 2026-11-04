@@ -330,22 +330,10 @@ macro_rules! csr {
 
 /// Declares fallible read probes for selected CSRs.
 ///
-/// The invocation generates a local trait and one implementation for each
-/// selected register type.
-/// With the trait in scope, `Register::detect()` reads the register and returns
-/// the invocation's result type.
-/// Detection executes one read-only CSR instruction and emits an `.trap_fixup`
-/// record with the same layout, illegal-instruction cause, and `t2`/`t3`
-/// continuation protocol as Runtime recovery.
-/// A successful read returns `Ok(())`; a recovered illegal instruction returns
-/// the supplied error expression.
-/// Detection never writes the register.
-///
-/// The result type and error expression are caller-supplied, so this crate does
-/// not depend on Runtime's error type.
-/// The macro performs no readiness or privilege check.
-/// The generated method is unsafe because its caller must establish a
-/// compatible trap entry and recovery.
+/// Generates a trait and implementations whose `detect()` method reads the register.
+/// A recovered illegal instruction returns the supplied error.
+/// The caller must establish a compatible trap entry and recovery;
+/// the probe does not check readiness or privilege.
 ///
 /// # Syntax
 ///
@@ -357,11 +345,9 @@ macro_rules! csr {
 /// }
 /// ```
 ///
-/// Attributes on a register type, such as `#[cfg]`, also apply to its
-/// implementation.
-/// Additional register types can implement an existing trait with
-/// `detect! { impl Detect -> Result<(), E> = error; Register, ... }`.
-/// On targets other than RISC-V, executing the probe panics.
+/// Register attributes also apply to the generated implementations.
+/// Additional registers can implement an existing trait with the `impl` form below.
+/// Executing a probe on a non-RISC-V target panics.
 ///
 /// ```no_run
 /// use csr::machine;
@@ -394,13 +380,11 @@ macro_rules! detect {
         $visibility trait $trait_name {
             /// Attempts to read this register on the current hart.
             ///
-            /// Detection only reads the register.
-            ///
             /// # Safety
             ///
             /// Execute on the intended hart in the intended privilege and
-            /// execution context. The register read must have no unwanted
-            /// side effects.
+            /// execution context.
+            /// The register read must have no unwanted side effects.
             /// A compatible Runtime trap entry must be installed, and its
             /// recovery must recognize the `.trap_fixup` record emitted by
             /// this operation.

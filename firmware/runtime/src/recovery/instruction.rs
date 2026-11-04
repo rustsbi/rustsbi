@@ -1,8 +1,9 @@
 //! Private instructions for Runtime's concrete optional-hardware operations.
 
-// Callers establish Runtime entry, M-mode, mscratch=0 and MPRV=0, and
-// coordinate the selected register's effects. Each fault site covers only
-// its own instruction; recovery does not emulate the register.
+// Callers establish Runtime entry in M-mode, with `mscratch` and `MPRV` clear,
+// and coordinate the selected register's effects.
+// Each fault site covers only its own instruction; recovery does not emulate
+// the register.
 macro_rules! instruction {
     ($instruction:literal, $number:expr, $value:expr) => {{
         let instruction_fn = || -> $crate::Result<usize> {
@@ -11,8 +12,8 @@ macro_rules! instruction {
         {
             let mut value: usize = $value;
             let cause: usize;
-            // SAFETY: This private call site establishes the entry and
-            // register-specific requirements described above.
+            // SAFETY: Callers establish the entry and register-specific
+            // requirements described above.
             unsafe {
                 core::arch::asm!(
                     "li t2, 0",
