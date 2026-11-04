@@ -55,17 +55,12 @@ pub(super) fn bind(
     let msip_size_bytes = hart_id_upper_bound
         .checked_mul(size_of::<u32>())
         .ok_or(Error::Overflow)?;
-    let mtimecmp_size_bytes = hart_id_upper_bound
-        .checked_mul(size_of::<u64>())
-        .ok_or(Error::Overflow)?;
     if msip_size_bytes > MTIMECMP_OFFSET {
         return Err(Error::InvalidArgs);
     }
     let msip_registers = registers.subrange(0, msip_size_bytes)?;
-    let mtimecmp_registers = registers.subrange(MTIMECMP_OFFSET, mtimecmp_size_bytes)?;
-    if !msip_registers.has_aligned_bounds(align_of::<u32>())
-        || !mtimecmp_registers.has_aligned_bounds(align_of::<u32>())
-    {
+    let mtimecmp_registers = timer_registers(registers, hart_id_upper_bound)?;
+    if !msip_registers.has_aligned_bounds(align_of::<u32>()) {
         return Err(Error::InvalidArgs);
     }
 
@@ -75,6 +70,29 @@ pub(super) fn bind(
         Box::new(THeadTimer::new(mtimecmp_mmio)),
         Box::new(THeadIpi::new(msip_mmio)),
     ))
+}
+
+pub(super) fn bind_timer(
+    registers: DeviceRegisterRange,
+    memory: &mut MemoryRegistry,
+    hart_id_upper_bound: usize,
+) -> Result<Box<dyn TimerDevice>> {
+    let registers = timer_registers(registers, hart_id_upper_bound)?;
+    Ok(Box::new(THeadTimer::new(memory.acquire(registers)?)))
+}
+
+fn timer_registers(
+    registers: DeviceRegisterRange,
+    hart_id_upper_bound: usize,
+) -> Result<DeviceRegisterRange> {
+    let size = hart_id_upper_bound
+        .checked_mul(size_of::<u64>())
+        .ok_or(Error::Overflow)?;
+    let registers = registers.subrange(MTIMECMP_OFFSET, size)?;
+    if !registers.has_aligned_bounds(align_of::<u32>()) {
+        return Err(Error::InvalidArgs);
+    }
+    Ok(registers)
 }
 
 struct THeadTimer {

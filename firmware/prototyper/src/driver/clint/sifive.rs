@@ -47,21 +47,12 @@ pub(super) fn bind(
     let msip_size_bytes = hart_id_upper_bound
         .checked_mul(size_of::<u32>())
         .ok_or(Error::Overflow)?;
-    let mtimecmp_size_bytes = hart_id_upper_bound
-        .checked_mul(size_of::<u64>())
-        .ok_or(Error::Overflow)?;
-    if msip_size_bytes > MTIMECMP_OFFSET || mtimecmp_size_bytes > MTIME_WINDOW_OFFSET {
+    if msip_size_bytes > MTIMECMP_OFFSET {
         return Err(Error::InvalidArgs);
     }
-    let timer_window_size_bytes = TimerRegister::Mtime
-        .offset()
-        .checked_add(size_of::<u64>())
-        .ok_or(Error::Overflow)?;
     let ipi_registers = registers.subrange(0, msip_size_bytes)?;
-    let timer_registers = registers.subrange(MTIMECMP_OFFSET, timer_window_size_bytes)?;
-    if !ipi_registers.has_aligned_bounds(align_of::<u32>())
-        || !timer_registers.has_aligned_bounds(align_of::<u64>())
-    {
+    let timer_registers = timer_registers(registers, hart_id_upper_bound)?;
+    if !ipi_registers.has_aligned_bounds(align_of::<u32>()) {
         return Err(Error::InvalidArgs);
     }
 
@@ -71,6 +62,36 @@ pub(super) fn bind(
         Box::new(SiFiveTimer::new(timer_mmio)),
         Box::new(SiFiveIpi::new(ipi_mmio)),
     ))
+}
+
+pub(super) fn bind_timer(
+    registers: DeviceRegisterRange,
+    memory: &mut MemoryRegistry,
+    hart_id_upper_bound: usize,
+) -> Result<Box<dyn TimerDevice>> {
+    let registers = timer_registers(registers, hart_id_upper_bound)?;
+    Ok(Box::new(SiFiveTimer::new(memory.acquire(registers)?)))
+}
+
+fn timer_registers(
+    registers: DeviceRegisterRange,
+    hart_id_upper_bound: usize,
+) -> Result<DeviceRegisterRange> {
+    let mtimecmp_size = hart_id_upper_bound
+        .checked_mul(size_of::<u64>())
+        .ok_or(Error::Overflow)?;
+    if mtimecmp_size == 0 || mtimecmp_size > MTIME_WINDOW_OFFSET {
+        return Err(Error::InvalidArgs);
+    }
+    let window_size = TimerRegister::Mtime
+        .offset()
+        .checked_add(size_of::<u64>())
+        .ok_or(Error::Overflow)?;
+    let registers = registers.subrange(MTIMECMP_OFFSET, window_size)?;
+    if !registers.has_aligned_bounds(align_of::<u64>()) {
+        return Err(Error::InvalidArgs);
+    }
+    Ok(registers)
 }
 
 struct SiFiveTimer {
