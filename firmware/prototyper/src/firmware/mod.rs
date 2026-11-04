@@ -18,11 +18,13 @@ use core::{arch::asm, fmt, ops::Range};
 use runtime::{
     DeviceTreeHandoff, Error, PlatformDescription, Result,
     boot::NextStage,
-    ipi::IpiDelivery,
+    ipi,
     memory::{PhysAddr, PhysAddrRange, locate_firmware_image},
 };
 
 use csr::machine::{PmpAddress, PmpConfiguration, PmpEntry, PmpPermission, PmpRange};
+
+use crate::{cfg, platform};
 
 /// Boot information decoded from the previous-stage register envelope (a1/a2).
 pub(crate) struct BootInfo {
@@ -51,19 +53,20 @@ impl BootInfo {
         }
         let entry_device_tree_address = device_tree.address().as_usize();
         let source_device_tree_address = resolve_device_tree_address(entry_device_tree_address);
-        let destination = match crate::cfg::FDT_HANDOFF {
+        let destination = match cfg::FDT_HANDOFF {
             Some((address, capacity)) => PhysAddrRange::from_start_len(
                 PhysAddr::new(usize::try_from(address).map_err(|_| Error::Overflow)?),
                 usize::try_from(capacity).map_err(|_| Error::Overflow)?,
             )?,
-            // SAFETY: without an explicit destination, entry requires an incoming
+            // SAFETY: Without an explicit destination, entry requires an incoming
             // FDT with exclusive writable storage for totalsize + 1024 bytes.
             None => unsafe { device_tree.incoming_destination()? },
         };
-        // SAFETY: entry guarantees a readable, stable source (linked with `fdt`)
-        // and exclusive writable destination storage until handoff. The latter
-        // remains live until the next stage finishes using it. BOOT_LOCK serializes
-        // candidate claims until the boot owner is selected.
+        // SAFETY:
+        // 1. Entry guarantees a readable, stable source (linked with `fdt`).
+        // 2. The destination is exclusively writable and remains live until
+        //    the next stage finishes using it.
+        // 3. `BOOT_LOCK` serializes candidate claims until the boot owner is selected.
         let platform =
             unsafe { device_tree.claim(PhysAddr::new(source_device_tree_address), destination)? };
         let is_boot_hart = if designated_hart.is_some() {
@@ -220,9 +223,10 @@ unsafe fn set_pmp_config(index: usize, range: PmpRange, permission: PmpPermissio
 
 /// Installs PMP entries isolating firmware memory from S-mode.
 pub fn set_pmp(firmware_ram: &Range<usize>) {
-    // SAFETY: Startup owns this hart's PMP state in M-mode before lower-mode
-    // entry. The firmware requires the platform to implement the PMP entries
-    // and encodings used below. Linker and RAM bounds are checked below.
+    // SAFETY:
+    // 1. Startup owns this hart's PMP state in M-mode before lower-mode entry.
+    // 2. The platform implements the PMP entries and encodings used below.
+    // 3. Linker and RAM bounds are checked below.
     // PMP updates here are not synchronized with address-translation caches.
     unsafe {
         // [0..firmware_ram.start] RWX
@@ -260,23 +264,21 @@ pub fn set_pmp(firmware_ram: &Range<usize>) {
 
         // Keep machine-level interrupt controllers inaccessible to S-mode
         // only when the IMSIC device retained them for firmware use.
-        if matches!(
-            crate::platform::ipi_delivery(),
-            Some(IpiDelivery::Imsic { .. })
-        ) && crate::platform::board_info().is_qemu_virt()
-            && let Some(imsic) = crate::platform::board_info().devices.interrupts.imsic()
+        if ipi::get().is_some_and(|ipi| ipi.is_external())
+            && platform::board_info().is_qemu_virt()
+            && let Some(imsic) = platform::board_info().devices.interrupts.imsic()
         {
             const QEMU_VIRT_CLINT_BASE: usize = 0x0200_0000;
             const QEMU_VIRT_CLINT_SIZE: usize = 0x1_0000;
 
-            let clint_start = crate::platform::board_info()
+            let clint_start = platform::board_info()
                 .devices
                 .interrupts
                 .clint()
                 .map(|description| description.resource().registers.start().as_usize())
                 .unwrap_or(QEMU_VIRT_CLINT_BASE);
             let clint_end = clint_start + QEMU_VIRT_CLINT_SIZE;
-            let aplic_registers = crate::platform::board_info()
+            let aplic_registers = platform::board_info()
                 .devices
                 .interrupts
                 .machine_aplic()
@@ -333,14 +335,11 @@ pub fn set_pmp(firmware_ram: &Range<usize>) {
         PmpAddress::<3>::write(firmware_rodata_start_address >> 2);
         set_pmp_config(4, PmpRange::Tor, PmpPermission::None, false);
         PmpAddress::<4>::write(firmware_rodata_end_address >> 2);
-        set_pmp_config(5, PmpRange::Tor, PmpPermission::Rw, false); // FIXME: should be `R`; `RW` temporarily allows S-mode DTB modification
+        set_pmp_config(5, PmpRange::Tor, PmpPermission::Rw, false); // FIXME: should be `R`; `RW` temporarily allows S-mode DTB modification.
         PmpAddress::<5>::write(firmware_end_address >> 2);
         set_pmp_config(6, PmpRange::Tor, PmpPermission::Rwx, false);
         PmpAddress::<6>::write(firmware_ram.end >> 2);
-        if let Some(alias) = crate::platform::board_info()
-            .memory
-            .noncacheable_alias_offset
-        {
+        if let Some(alias) = platform::board_info().memory.noncacheable_alias_offset {
             assert!(alias.is_power_of_two() && alias >= firmware_ram.end as u64);
             let start = (firmware_start_address as u64)
                 .checked_add(alias)
@@ -439,7 +438,7 @@ pub fn log_pmp_cfg(_firmware_ram: &Range<usize>) {
     seq_macro::seq!(N in 0..8 {
         log_entry(N, PmpAddress::<N>::read());
     });
-    if crate::platform::board_info()
+    if platform::board_info()
         .memory
         .noncacheable_alias_offset
         .is_some()

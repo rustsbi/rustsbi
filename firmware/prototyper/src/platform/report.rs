@@ -3,12 +3,13 @@
 use alloc::vec::Vec;
 use runtime::{
     hart::HartId,
-    ipi::IpiDelivery,
+    ipi,
     rustsbi::{LOGO, VERSION},
 };
 
 use super::info::BoardInfo;
 use super::state::board_info;
+use crate::sbi;
 
 pub(super) fn log_platform_summary() {
     let board = board_info();
@@ -34,10 +35,8 @@ fn log_harts() {
 }
 
 fn log_interrupt_controller(board: &BoardInfo) {
-    if matches!(
-        crate::platform::ipi_delivery(),
-        Some(IpiDelivery::Imsic { .. })
-    ) && let Some(imsic) = board.devices.interrupts.imsic()
+    if ipi::get().is_some_and(|ipi| ipi.is_external())
+        && let Some(imsic) = board.devices.interrupts.imsic()
     {
         info!(
             "{:<30}: IMSIC (M-level Base Address: 0x{:x})",
@@ -91,10 +90,10 @@ fn log_reset(board: &BoardInfo) {
 }
 
 fn log_sbi_extensions() {
-    log_availability("Platform HSM Extension", crate::sbi::hsm().is_some());
-    log_availability("Platform RFence Extension", crate::sbi::rfence().is_some());
-    log_availability("Platform SUSP Extension", crate::sbi::susp().is_some());
-    log_availability("Platform PMU Extension", crate::sbi::pmu().is_some());
+    log_availability("Platform HSM Extension", sbi::hsm().is_some());
+    log_availability("Platform RFence Extension", sbi::rfence().is_some());
+    log_availability("Platform SUSP Extension", sbi::susp().is_some());
+    log_availability("Platform PMU Extension", sbi::pmu().is_some());
 }
 
 fn log_availability(name: &str, available: bool) {

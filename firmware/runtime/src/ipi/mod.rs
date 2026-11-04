@@ -89,6 +89,11 @@ pub trait IpiDevice: Send + Sync {
 }
 
 impl Ipi {
+    /// Returns whether this device delivers through machine external interrupts.
+    pub fn is_external(&self) -> bool {
+        matches!(self.delivery(), Some(IpiDelivery::Imsic { .. }))
+    }
+
     /// Returns the selected delivery path, or `None` without a device.
     pub fn delivery(&self) -> Option<IpiDelivery> {
         self.device.as_ref().map(|device| device.delivery())

@@ -3,7 +3,7 @@
 use alloc::boxed::Box;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use runtime::{hart::HartId, ipi::IpiDelivery, memory::SupervisorMemory};
+use runtime::{hart::HartId, memory::SupervisorMemory};
 use spin::{Mutex, Once};
 
 use crate::driver::DbcnBackend;
@@ -18,7 +18,6 @@ struct Platform {
     supervisor_memory: SupervisorMemory,
     console: Option<Mutex<Box<dyn DbcnBackend + Send>>>,
     privilege_checked: Box<[AtomicBool]>,
-    ipi_delivery: Option<IpiDelivery>,
 }
 
 /// Publishes resources constructed by the boot hart.
@@ -26,13 +25,11 @@ pub(super) fn publish_resources(
     board: Box<BoardInfo>,
     supervisor_memory: SupervisorMemory,
     console: Option<Box<dyn DbcnBackend + Send>>,
-    ipi_delivery: Option<IpiDelivery>,
 ) {
     PLATFORM.call_once(|| Platform {
         board,
         supervisor_memory,
         console: console.map(Mutex::new),
-        ipi_delivery,
         privilege_checked: HartId::all().map(|_| AtomicBool::new(false)).collect(),
     });
 }
@@ -90,8 +87,4 @@ pub(crate) fn hart_privilege_checked(hart_id: usize) -> bool {
 pub(crate) fn mark_hart_privilege_checked(hart_id: usize) {
     let hart = HartId::from_raw(hart_id).expect("BUG: unknown hart ID");
     platform().privilege_checked[hart.index()].store(true, Ordering::Release);
-}
-
-pub(crate) fn ipi_delivery() -> Option<IpiDelivery> {
-    platform().ipi_delivery
 }
