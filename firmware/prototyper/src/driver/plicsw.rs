@@ -4,7 +4,7 @@ use core::mem::{align_of, size_of};
 use runtime::{
     Error, Result,
     hart::HartId,
-    ipi::{IpiDevice, IpiRequest},
+    ipi::{Acknowledge, IpiDevice, Software},
     memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
 };
 
@@ -53,30 +53,28 @@ pub(in crate::driver) fn bind(
     })
 }
 
-impl IpiDevice for PlicSw {
-    fn send(&self, request: IpiRequest) -> Result<()> {
-        runtime::instruction::fence();
-        for hart in request.harts() {
-            if hart >= self.hart_id_upper_bound {
-                return Err(Error::IoError);
-            }
-            let source = HartId::current().expect("invalid current hart").as_usize();
-            if source >= self.hart_id_upper_bound {
-                return Err(Error::IoError);
-            }
-            let bit = MATRIX_WIDTH * source + hart;
-            self.registers
-                .write(
-                    PENDING_OFFSET + size_of::<u32>() * (bit / u32::BITS as usize),
-                    (1u32 << (bit % u32::BITS as usize)).to_le(),
-                )
-                .map_err(|_| Error::IoError)?;
+impl IpiDevice<Software> for PlicSw {
+    fn send_ipi(&self, hart: HartId) -> Result<()> {
+        let source = HartId::current()?.as_usize();
+        let target = hart.as_usize();
+        if source >= self.hart_id_upper_bound || target >= self.hart_id_upper_bound {
+            return Err(Error::IoError);
         }
+        let bit = MATRIX_WIDTH * source + target;
+        runtime::instruction::fence();
+        self.registers
+            .write(
+                PENDING_OFFSET + size_of::<u32>() * (bit / u32::BITS as usize),
+                (1u32 << (bit % u32::BITS as usize)).to_le(),
+            )
+            .map_err(|_| Error::IoError)?;
         runtime::instruction::fence();
         Ok(())
     }
+}
 
-    fn acknowledge(&self) -> Result<bool> {
+impl Acknowledge<Software> for PlicSw {
+    fn acknowledge(&self, _context: &()) -> Result<bool> {
         let hart = HartId::current()?.as_usize();
         if hart >= self.hart_id_upper_bound {
             return Err(Error::IoError);

@@ -1,83 +1,81 @@
-//! IPI publication, acknowledgement, and local interrupt delivery.
+//! Firmware IPI interrupt protocol.
+//!
+//! Sending publishes an event before signalling its target.
+//! Receiving acknowledges the hardware source before processing pending events.
+//! Hart wakeup can also signal the hardware without an IPI event.
+//!
+//! A parked hart clears its source before reading its event,
+//! because clearing after observing a stopped hart could erase a concurrent
+//! start's only wakeup.
+//!
+//! The memory-ordering instructions are defined by the RISC-V ISA:
+//! <https://docs.riscv.org/reference/isa/unpriv/rv32.html>.
 
-use super::{
-    External, Iid, InterruptMode, Ipi, IpiDelivery, IpiEvent, IpiRequest, Software, imsic,
-};
-use crate::{Error, Result, hart::HartId, irq::LocalIrqDisabled};
-use csr::aia::machine::Mtopei;
+use super::{Device, External, InterruptMode, Ipi, IpiEvent, Software};
+use crate::{Error, Result, boot, hart::HartId, irq::LocalIrqDisabled};
 
 impl Ipi {
     /// Sends a firmware event to the target harts.
-    pub fn send_event(
-        &self,
-        event: IpiEvent,
-        targets: impl IntoIterator<Item = HartId>,
-    ) -> Result<()> {
+    ///
+    /// Returns [`Error::NotReady`] if the event has no registered handler.
+    /// Each target's event is published before the hardware is signalled.
+    /// If a signal fails, later targets are not processed and the failed target's
+    /// event may remain pending.
+    /// A later IPI may deliver that event.
+    pub fn send(&self, event: IpiEvent, targets: impl IntoIterator<Item = HartId>) -> Result<()> {
         if self.handler(event).is_none() {
             return Err(Error::NotReady);
         }
         for hart in targets {
             self.post(hart, event);
+            // Signal even when an event was already pending: an earlier
+            // device write may have failed.
             self.send_hardware_ipi(hart)?;
         }
         Ok(())
     }
 
-    /// Publishes pending memory writes before sending one target window.
-    pub fn send(&self, request: IpiRequest) -> Result<()> {
+    pub(crate) fn send_hardware_ipi(&self, hart: HartId) -> Result<()> {
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         {
-            let device = self.device.as_deref().ok_or(Error::IoError)?;
-            // SAFETY: Order published hart work before device notification.
+            // SAFETY: The fence only orders memory writes before device output.
             unsafe {
                 core::arch::asm!("fence w, o", options(nostack));
             }
-            device.send(request)
+            match &self.device {
+                Device::Software(device) => device.send_ipi(hart),
+                Device::External(device) => device.send_ipi(hart),
+            }
         }
         #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
         {
-            let _ = request;
+            let _ = hart;
             unimplemented!("IPI delivery requires RISC-V")
         }
     }
 
-    pub(crate) fn send_hardware_ipi(&self, hart: HartId) -> Result<()> {
-        self.send(IpiRequest::for_hart(hart))
+    pub(crate) fn acknowledge(&self, irq: &LocalIrqDisabled) -> Result<bool> {
+        match &self.device {
+            Device::Software(device) => device.acknowledge(Software::context(irq)?),
+            Device::External(device) => device.acknowledge(External::context(irq)?),
+        }
     }
 
     pub(crate) fn init_hart(&self, irq: &LocalIrqDisabled) -> Result<()> {
-        if !crate::boot::traps_ready() {
+        if !boot::traps_ready() {
             return Err(Error::NotReady);
         }
-        if let Some(IpiDelivery::Imsic { iid, num_iids }) = self.delivery() {
-            imsic::initialize(num_iids, iid, irq)?;
+        match &self.device {
+            Device::Software(_) => Software::init_hart(irq)?,
+            Device::External(_) => External::init_hart(irq)?,
         }
         self.acknowledge(irq).map(|_| ())
     }
 
-    pub(crate) fn acknowledge(&self, _irq: &LocalIrqDisabled) -> Result<bool> {
-        match self.device.as_deref() {
-            Some(device) => match device.delivery() {
-                IpiDelivery::Software => device.acknowledge(),
-                IpiDelivery::Imsic { iid, .. } => Ok(self.claim_imsic(iid)),
-            },
-            None => Ok(false),
-        }
-    }
-
-    #[inline]
-    fn claim_imsic(&self, iid: Iid) -> bool {
-        // SAFETY: The selected IMSIC device establishes Mtopei support on this
-        // hart. The instruction atomically claims the reported interrupt;
-        // callers serialize the surrounding firmware IPI delivery sequence.
-        unsafe { Mtopei::claim() }.iid() == Some(iid)
-    }
-
     pub(crate) fn enable_interrupt(&self, irq: &LocalIrqDisabled) {
-        match self.delivery() {
-            Some(IpiDelivery::Software) => Software::enable_interrupt(irq),
-            Some(IpiDelivery::Imsic { .. }) => External::enable_interrupt(irq),
-            None => {}
+        match &self.device {
+            Device::Software(_) => Software::enable_interrupt(irq),
+            Device::External(_) => External::enable_interrupt(irq),
         }
     }
 }

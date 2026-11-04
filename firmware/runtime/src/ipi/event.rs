@@ -1,13 +1,12 @@
 //! Registration and dispatch of firmware IPI events.
 
-use super::{Ipi, IpiDevice};
+use super::{Device, Ipi};
 use crate::{
     Error, Result, events,
     hart::{self, HartId, PerHart},
     instruction,
     irq::LocalIrqDisabled,
 };
-use alloc::boxed::Box;
 use core::sync::atomic::{
     AtomicUsize,
     Ordering::{Acquire, Release},
@@ -47,7 +46,7 @@ fn handle_supervisor(_hart: HartId) {
 }
 
 impl Ipi {
-    pub(super) fn new(device: Option<Box<dyn IpiDevice>>) -> Result<Self> {
+    pub(super) fn new(device: Device) -> Result<Self> {
         let ipi = Self {
             device,
             pending: PerHart::new(|_| AtomicUsize::new(0))?,

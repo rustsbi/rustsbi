@@ -8,9 +8,9 @@
 //!   hypervisor fence instructions and their execution requirements.
 
 use runtime::{
-    Result,
+    Error, Result,
     hart::HartId,
-    ipi::{Ipi, IpiEvent},
+    ipi::{self, IpiEvent},
     rustsbi::{Fence, HartMask, SbiRet},
 };
 use sbi_spec::pmu::firmware_event;
@@ -119,8 +119,10 @@ impl RemoteRFenceCell<'_> {
 pub(crate) struct SbiRFence;
 
 impl SbiRFence {
-    pub(crate) fn new(ipi: &'static Ipi) -> Result<Self> {
-        ipi.register(IpiEvent::Rfence, rfence_handler)?;
+    pub(crate) fn new() -> Result<Self> {
+        ipi::get()
+            .ok_or(Error::NotReady)?
+            .register(IpiEvent::Rfence, rfence_handler)?;
         Ok(Self)
     }
 }
@@ -149,7 +151,6 @@ fn remote_fence_process(rfence_ctx: RFenceContext, hart_mask: HartMask) -> SbiRe
     };
     let local = local_rfence_for(current_hart);
     let mut result = SbiRet::success(0);
-    let ipi = super::ipi().expect("BUG: RFENCE requires an IPI device");
 
     for target in targets {
         if target == current_hart {
@@ -161,7 +162,7 @@ fn remote_fence_process(rfence_ctx: RFenceContext, hart_mask: HartMask) -> SbiRe
         local.add();
         remote.set(rfence_ctx);
 
-        if ipi.ipi().send_event(IpiEvent::Rfence, [target]).is_ok() {
+        if ipi::get().is_some_and(|ipi| ipi.send(IpiEvent::Rfence, [target]).is_ok()) {
             continue;
         }
         // A receiver that already took the request remains responsible for

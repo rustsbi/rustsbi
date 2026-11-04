@@ -1,4 +1,8 @@
-//! IMSIC IPI device and per-hart interrupt-file initialization.
+//! IMSIC interrupt files and the firmware's message sender.
+//!
+//! Runtime owns claiming and the CSR side of the IMSIC; this module only maps
+//! the interrupt files described by the device tree and posts messages into
+//! them.
 //!
 //! # References
 //!
@@ -9,7 +13,7 @@ use alloc::boxed::Box;
 use runtime::{
     Error, Result,
     hart::HartId,
-    ipi::{Iid, IpiDelivery, IpiDevice, IpiRequest},
+    ipi::{External, Iid, IpiDevice},
     memory::{MemoryRegistry, MmioRegion},
 };
 
@@ -23,79 +27,47 @@ pub(crate) const IMSIC_COMPATIBLES: [&str; 1] = ["riscv,imsics"];
 const IMSIC_FILE_PAGE_SHIFT: u32 = 12;
 pub(crate) const IMSIC_FILE_SPAN: usize = 1usize << IMSIC_FILE_PAGE_SHIFT;
 
-#[repr(usize)]
-#[derive(Clone, Copy)]
-enum Register {
-    SetEipnumLe = 0x0000,
-}
-
-impl Register {
-    const fn offset(self) -> usize {
-        self as usize
-    }
-}
-
-/// IMSIC-backed IPI device delivering software interrupts as MSIs to each
-/// hart's machine-level interrupt file.
-pub(super) struct ImsicIpi {
-    ipi_iid: Iid,
-    num_iids: u16,
-    hart_files: Box<[MmioRegion]>,
-}
-
-impl ImsicIpi {
-    pub(super) fn new(ipi_iid: Iid, num_iids: u16, hart_files: Box<[MmioRegion]>) -> Self {
-        Self {
-            ipi_iid,
-            num_iids,
-            hart_files,
-        }
-    }
-}
-
-impl IpiDevice for ImsicIpi {
-    #[inline(always)]
-    fn send(&self, req: IpiRequest) -> Result<()> {
-        for hart_id in req.harts() {
-            let hart = HartId::from_raw(hart_id).map_err(|_| Error::IoError)?;
-            let file = self.hart_files.get(hart.index()).ok_or(Error::IoError)?;
-            file.write(Register::SetEipnumLe.offset(), self.ipi_iid.number() as u32)
-                .map_err(|_| Error::IoError)?;
-        }
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn delivery(&self) -> IpiDelivery {
-        IpiDelivery::Imsic {
-            iid: self.ipi_iid,
-            num_iids: self.num_iids,
-        }
-    }
-}
+/// AIA 1.0 places `seteipnum_le` at offset zero of every interrupt file.
+const SET_EIPNUM_LE: usize = 0x0;
 
 /// Binds the selected AIA interrupt devices to their MMIO windows.
 pub(super) fn bind(
     imsic: &ImsicInfo,
     aplic_config: Option<QemuAplicConfig>,
     memory: &mut MemoryRegistry,
-) -> Result<Box<dyn IpiDevice>> {
-    // No fallback is permitted after the first MMIO window is issued. All
-    // hardware capability checks above therefore precede initialization.
-    let hart_files: Result<alloc::vec::Vec<_>> = imsic
+) -> Result<Box<dyn IpiDevice<External>>> {
+    // IMSIC capability is checked during discovery; after an MMIO window is
+    // acquired, a binding failure cannot fall back to another IPI device.
+    let hart_files: Result<Box<[_]>> = imsic
         .hart_files
         .iter()
         .map(|register_range| memory.acquire(*register_range))
-        .collect();
-    let ipi = ImsicIpi::new(
-        imsic.ipi_iid,
-        imsic.num_iids,
-        hart_files?.into_boxed_slice(),
-    );
+        .collect::<Result<alloc::vec::Vec<_>>>()
+        .map(alloc::vec::Vec::into_boxed_slice);
 
     if let Some(aplic_config) = aplic_config {
         aplic_config.bind(memory)?;
     }
 
-    Ok(Box::new(ipi))
+    Ok(Box::new(ImsicIpi {
+        files: hart_files?,
+        iid: imsic.ipi_iid,
+    }))
+}
+
+/// A firmware IPI sender backed by IMSIC interrupt files.
+struct ImsicIpi {
+    files: Box<[MmioRegion]>,
+    iid: Iid,
+}
+
+impl IpiDevice<External> for ImsicIpi {
+    fn send_ipi(&self, hart: HartId) -> Result<()> {
+        let identity = u32::from(self.iid.number());
+        self.files
+            .get(hart.index())
+            .ok_or(Error::IoError)?
+            .write(SET_EIPNUM_LE, identity)
+            .map_err(|_| Error::IoError)
+    }
 }

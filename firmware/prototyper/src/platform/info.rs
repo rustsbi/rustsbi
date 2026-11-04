@@ -12,6 +12,7 @@ use runtime::{
     soc::allwinner::v861::AllwinnerV861Soc,
 };
 
+use super::allwinner::v821::Description as V821Description;
 use crate::devicetree::{NodeSelection, select_from_node_once};
 use crate::driver;
 
@@ -62,7 +63,6 @@ impl ImsicAddressLayout {
 /// Machine-level IMSIC resources selected from the Platform Description.
 pub(crate) struct ImsicInfo {
     pub(crate) layout: ImsicAddressLayout,
-    pub(crate) num_iids: u16,
     pub(crate) ipi_iid: Iid,
     pub(crate) hart_files: Vec<DeviceRegisterRange>,
 }
@@ -210,7 +210,7 @@ impl DeviceDescriptions {
 /// A supported root-level SoC description selected during discovery.
 pub(crate) enum SocDescription {
     SpacemitK1(SpacemitK1Registers),
-    V821(crate::platform::allwinner::v821::Description),
+    V821(V821Description),
     V861(AllwinnerV861Soc),
 }
 

@@ -47,20 +47,6 @@ pub fn init(iid: Iid, num_iids: u16) -> Result<()> {
     initialized.then_some(()).ok_or(Error::AlreadyInitialized)
 }
 
-/// Validates the identity capacity and the selected firmware identity.
-pub fn validate_iid_capacity(num_iids: u16, iid: Iid) -> Result<()> {
-    ((MIN_IID_COUNT..=MAX_IID_COUNT).contains(&num_iids)
-        && num_iids % IID_COUNT_GROUP == IID_COUNT_GROUP - 1
-        && iid.number() <= num_iids)
-        .then_some(())
-        .ok_or(Error::InvalidArgs)
-}
-
-pub(super) fn initialize(num_iids: u16, iid: Iid, irq: &LocalIrqDisabled) -> Result<()> {
-    validate_iid_capacity(num_iids, iid)?;
-    Imsic { iid, num_iids }.init_hart(irq)
-}
-
 pub(super) fn get() -> Option<&'static Imsic> {
     IMSIC.get()
 }
@@ -136,5 +122,12 @@ impl Imsic {
             }
         }
         Ok(())
+    }
+
+    pub(super) fn claim(&self, _irq: &LocalIrqDisabled) -> bool {
+        // SAFETY:
+        // 1. This hart's IMSIC is initialized before claims.
+        // 2. The IRQ context serializes claims on this hart.
+        unsafe { Mtopei::claim() }.iid() == Some(self.iid)
     }
 }
