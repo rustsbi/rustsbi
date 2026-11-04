@@ -68,17 +68,15 @@ fn bind_interrupts(
             warn!("AIA: skipping QEMU virt M-APLIC setup on '{}'", board.model);
             None
         };
+        let timer = bind_timer(board, memory)?;
         let ipi = aia::bind(imsic, aplic_config, memory)?;
-        return Ok((None, Some(ipi)));
+        return Ok((timer, Some(ipi)));
     }
     if let (Some(plmt), Some(plicsw)) = (
         board.devices.interrupts.plmt,
         board.devices.interrupts.plicsw,
     ) {
-        let hart_id_upper_bound = HartId::all()
-            .last()
-            .and_then(|hart| hart.as_usize().checked_add(1))
-            .ok_or(Error::InvalidArgs)?;
+        let hart_id_upper_bound = hart_id_upper_bound()?;
         return Ok((
             Some(Box::new(plmt::bind(plmt, memory, hart_id_upper_bound)?)),
             Some(Box::new(plicsw::bind(plicsw, memory, hart_id_upper_bound)?)),
@@ -88,12 +86,39 @@ fn bind_interrupts(
         return Ok((None, None));
     };
     let ClintResource { registers, kind } = *description.resource();
-    let hart_id_upper_bound = HartId::all()
-        .last()
-        .and_then(|hart| hart.as_usize().checked_add(1))
-        .ok_or(Error::InvalidArgs)?;
+    let hart_id_upper_bound = hart_id_upper_bound()?;
     let (timer, ipi) = clint::bind(registers, kind, memory, hart_id_upper_bound)?;
     Ok((Some(timer), Some(ipi)))
+}
+
+/// Binds a machine timer without selecting a software-interrupt device.
+fn bind_timer(
+    board: &BoardInfo,
+    memory: &mut MemoryRegistry,
+) -> Result<Option<Box<dyn TimerDevice>>> {
+    let hart_id_upper_bound = hart_id_upper_bound()?;
+    if let (Some(plmt), Some(_)) = (
+        board.devices.interrupts.plmt,
+        board.devices.interrupts.plicsw,
+    ) {
+        return Ok(Some(Box::new(plmt::bind(
+            plmt,
+            memory,
+            hart_id_upper_bound,
+        )?)));
+    }
+    let Some(description) = board.devices.interrupts.clint() else {
+        return Ok(None);
+    };
+    let ClintResource { registers, kind } = *description.resource();
+    clint::bind_timer(registers, kind, memory, hart_id_upper_bound).map(Some)
+}
+
+fn hart_id_upper_bound() -> Result<usize> {
+    HartId::all()
+        .last()
+        .and_then(|hart| hart.as_usize().checked_add(1))
+        .ok_or(Error::InvalidArgs)
 }
 
 /// Binds all devices selected during platform discovery.

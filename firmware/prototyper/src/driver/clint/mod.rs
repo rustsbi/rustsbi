@@ -30,3 +30,16 @@ pub(super) fn bind(
         ClintKind::THead => thead::bind(registers, memory, hart_id_upper_bound),
     }
 }
+
+/// Binds the CLINT timer independently of its software-interrupt device.
+pub(super) fn bind_timer(
+    registers: DeviceRegisterRange,
+    kind: ClintKind,
+    memory: &mut MemoryRegistry,
+    hart_id_upper_bound: usize,
+) -> Result<Box<dyn TimerDevice>> {
+    match kind {
+        ClintKind::SiFive => sifive::bind_timer(registers, memory, hart_id_upper_bound),
+        ClintKind::THead => thead::bind_timer(registers, memory, hart_id_upper_bound),
+    }
+}
