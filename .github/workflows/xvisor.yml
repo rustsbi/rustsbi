@@ -78,7 +78,7 @@ jobs:
       # commit or release does. Bump the trailing revision after editing the
       # build recipe in the script.
       - name: Cache Xvisor build
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/xvisor
           key: xvisor-e700f46-linux-6.1.1-busybox-1.33.1-v1
@@ -90,6 +90,12 @@ jobs:
 
       - name: Boot Xvisor
         run: .github/scripts/prototyper-xvisor-boot.sh
+
+      - name: Save Xvisor build
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/xvisor
+          key: xvisor-e700f46-linux-6.1.1-busybox-1.33.1-v1
 
       - name: Upload Xvisor log
         if: always()

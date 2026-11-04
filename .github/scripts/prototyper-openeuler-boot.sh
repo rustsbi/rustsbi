@@ -15,7 +15,9 @@ readonly IMAGE_SHA256=5ba2eb5f0dac1594e8e041e36125fc6e5a2bd4547b4039258e5bd5139f
 # Fixed release firmware from the same directory, also used by the AIA test.
 readonly CODE_SHA256=58e96e55744516ed5debff8ed90eaface7b8a51a9466e7c0a687f4025ed5c600
 readonly VARS_SHA256=ea8094e953b1215444bd001ee1cf22818f1f7f8abcb158e62180cbaa6c1f70af
-readonly UBOOT_VERSION=2025.10-0ubuntu0.24.04.3
+readonly UBOOT_VERSION=2026.07
+readonly UBOOT_PROFILE=smode-2026.07
+readonly UBOOT_BANNER="U-Boot ${UBOOT_VERSION}"
 # Extract these files from the same SHA256-pinned guest disk's FAT boot partition.
 readonly BARE_ESP_OFFSET=1048576
 readonly BARE_KERNEL_NAME=vmlinuz-6.6.0-102.0.0.5.oe2509.riscv64
@@ -97,8 +99,8 @@ prepare_assets() {
   if [[ "$BOOT_MODE" = edk2 ]]; then
     cp "$CACHE_DIR/RISCV_VIRT_VARS.fd" "$RUN_DIR/RISCV_VIRT_VARS.fd"
   elif [[ "$BOOT_MODE" = u-boot ]]; then
-    ci_uboot_package "$UBOOT_VERSION" "$RUN_DIR/uboot"
-    UBOOT_ELF="$RUN_DIR/uboot/usr/lib/u-boot/qemu-riscv64_smode/uboot.elf"
+    ci_uboot_build "$UBOOT_VERSION" smode "$UBOOT_PROFILE" "$RUN_DIR/uboot"
+    UBOOT_ELF="$RUN_DIR/uboot/uboot.elf"
     test -s "$UBOOT_ELF"
   else
     # Work only from the verified disk, without mounting it or modifying the guest.
@@ -166,7 +168,7 @@ check_serial() {
       # Direct Linux boot must not be accepted through a U-Boot/EDK II trace.
       if (boot_mode == "sbi" && (/^U-Boot / || /RISC-V EDK2 firmware/ || /GNU GRUB *version/ || /^Booting: Label: virtio/)) fatal=1
       if (stage == 1 && boot_mode == "edk2" && /^RISC-V EDK2 firmware version 2\.7$/) stage=2
-      if (stage == 1 && boot_mode == "u-boot" && /^U-Boot 2025\.10-0ubuntu0\.24\.04\.3 /) stage=2
+      if (stage == 1 && boot_mode == "u-boot" && /^U-Boot 2026\.07/) stage=2
       if (stage == 2 && boot_mode == "u-boot" && /^Booting: Label: virtio 0 /) efi=1
       if (stage == 2 && boot_mode == "u-boot" && efi && /GNU GRUB *version 2\.12/) grub=1
       if (stage == 2 && /^Loading Linux 6\.6\.0-102\.0\.0\.5\.oe2509\.riscv64 /) loading=1
@@ -252,9 +254,8 @@ main() {
   if [[ "$BOOT_MODE" = edk2 ]]; then
     sha256sum "$CACHE_DIR/$IMAGE_NAME.xz" "$CACHE_DIR/"*.fd >> "$LOG_DIR/prototyper-openeuler-metadata.log"
   elif [[ "$BOOT_MODE" = u-boot ]]; then
-    sha256sum "$CACHE_DIR/$IMAGE_NAME.xz" \
-      "$(ci_uboot_root)/packages/$UBOOT_VERSION/u-boot-qemu_${UBOOT_VERSION}_all.deb" \
-      "$UBOOT_ELF" >> "$LOG_DIR/prototyper-openeuler-metadata.log"
+    sha256sum "$CACHE_DIR/$IMAGE_NAME.xz" "$UBOOT_ELF" \
+      >> "$LOG_DIR/prototyper-openeuler-metadata.log"
   else
     sha256sum "$CACHE_DIR/$IMAGE_NAME.xz" "$BARE_KERNEL" "$BARE_INITRD" >> "$LOG_DIR/prototyper-openeuler-metadata.log"
     printf 'Bare kernel cmdline: %s\nESP partition offset: %s\n' "$BARE_CMDLINE" "$BARE_ESP_OFFSET" >> "$LOG_DIR/prototyper-openeuler-metadata.log"
@@ -294,7 +295,7 @@ run_self_tests() (
     if [[ "$variant" = edk2-only ]]; then
       printf 'RISC-V EDK2 firmware version 2.7\n'
     elif [[ "$variant" != missing-uboot ]]; then
-      printf 'U-Boot 2025.10-0ubuntu0.24.04.3 (Oct 01 2026 - 20:02:47 +0000)\n'
+      printf '%s-gece349ade297 (Oct 01 2026 - 20:02:47 +0000)\n' "$UBOOT_BANNER"
     fi
     if [[ "$variant" = grub-before-efi ]]; then
       printf 'GNU GRUB  version 2.12\n'
@@ -345,7 +346,7 @@ run_self_tests() (
     if [[ "$variant" = edk2-injection ]]; then
       printf 'RISC-V EDK2 firmware version 2.7\n'
     elif [[ "$variant" = uboot-injection ]]; then
-      printf 'U-Boot 2025.10-0ubuntu0.24.04.3\n'
+      printf '%s\n' "$UBOOT_BANNER"
     fi
     [[ "$variant" = missing-linux-task || "$variant" = early-linux-task ]] ||
       printf '[    0.795178][    T1] syscon-poweroff poweroff: pm_power_off already claimed\n'

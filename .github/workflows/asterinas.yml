@@ -97,14 +97,14 @@ jobs:
       # initramfs are cached; bump the trailing revision after editing the build
       # recipe in the script.
       - name: Cache Asterinas boot products
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/asterinas
           key: asterinas-d924a963-kernel-dev-0.18.1-20260918-v1
 
       - name: Cache U-Boot build
         if: matrix.boot-path == 'u-boot'
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/ci-uboot/builds/asterinas-spl
           key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-asterinas-spl-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
@@ -114,6 +114,19 @@ jobs:
 
       - name: Boot Asterinas
         run: .github/scripts/prototyper-asterinas-boot.sh "${{ matrix.boot-path }}"
+
+      - name: Save Asterinas boot products
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/asterinas
+          key: asterinas-d924a963-kernel-dev-0.18.1-20260918-v1
+
+      - name: Save U-Boot build
+        if: matrix.boot-path == 'u-boot'
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/ci-uboot/builds/asterinas-spl
+          key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-asterinas-spl-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Upload Asterinas log
         if: always()

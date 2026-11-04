@@ -8,6 +8,8 @@ on:
       - ".github/scripts/prototyper-openruyi-boot.sh"
       - ".github/scripts/prototyper-openruyi-server-workstation-boot.sh"
       - ".github/workflows/openruyi.yml"
+      - ".github/scripts/ci-uboot.sh"
+      - ".github/scripts/ci-edk2.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -22,6 +24,8 @@ on:
       - ".github/scripts/prototyper-openruyi-boot.sh"
       - ".github/scripts/prototyper-openruyi-server-workstation-boot.sh"
       - ".github/workflows/openruyi.yml"
+      - ".github/scripts/ci-uboot.sh"
+      - ".github/scripts/ci-edk2.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -56,12 +60,6 @@ jobs:
       - name: Install required cargo
         run: cargo install --locked cargo-binutils@0.4.0
 
-      - name: Cache openRuyi Zero boot assets
-        uses: actions/cache@v5
-        with:
-          path: .cache/openruyi/2026.08
-          key: openruyi-zero-2026.08-rva23
-
       - name: Build RustSBI Prototyper
         run: cargo prototyper build
 
@@ -94,23 +92,18 @@ jobs:
           sudo timeout 15m apt-get "${apt_options[@]}" update --error-on=any
           sudo timeout 15m apt-get "${apt_options[@]}" install -y --no-install-recommends aria2
 
-      - name: Restore openRuyi ${{ matrix.edition }} assets
-        id: cache
-        uses: actions/cache/restore@v5
-        with:
-          path: .cache/openruyi/2026.09
-          key: openruyi-2026.09-${{ matrix.edition }}-rva23-v1
-
       - name: Download openRuyi ${{ matrix.edition }} assets
-        if: steps.cache.outputs.cache-hit != 'true'
         run: .github/scripts/prototyper-openruyi-server-workstation-boot.sh --prepare "${{ matrix.edition }}"
 
-      - name: Save openRuyi ${{ matrix.edition }} assets
-        if: steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
+      # These large, official release images are downloaded every run. Pass
+      # them within this workflow through a short-lived artifact rather than
+      # putting hundreds of megabytes of third-party downloads in cache.
+      - name: Share prepared openRuyi ${{ matrix.edition }} assets
+        uses: actions/upload-artifact@v7
         with:
+          name: openruyi-2026.09-${{ matrix.edition }}-assets
           path: .cache/openruyi/2026.09
-          key: openruyi-2026.09-${{ matrix.edition }}-rva23-v1
+          retention-days: 1
 
   openruyi-server-workstation-boot:
     name: Boot openRuyi 2026.09 ${{ matrix.edition }} (${{ matrix.boot-mode }})
@@ -133,24 +126,50 @@ jobs:
           apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30)
           sudo timeout 15m apt-get "${apt_options[@]}" update --error-on=any
           sudo timeout 15m apt-get "${apt_options[@]}" install -y --no-install-recommends \
-            aria2 libarchive-tools mtools shellcheck \
-            qemu-system-riscv qemu-utils
+            acpica-tools aria2 bc bison build-essential device-tree-compiler \
+            flex gcc-riscv64-linux-gnu git libarchive-tools libgnutls28-dev \
+            libssl-dev make mtools nasm python3 python3-dev python3-setuptools \
+            qemu-system-riscv qemu-utils shellcheck swig uuid-dev zlib1g-dev
           qemu-system-riscv64 --version
+
+          source .github/scripts/ci-uboot.sh
+          toolchain_id=$(ci_uboot_toolchain_id)
+          echo "CI_UBOOT_TOOLCHAIN_ID=$toolchain_id" >> "$GITHUB_ENV"
+          source .github/scripts/ci-edk2.sh
+          edk2_id=$(ci_edk2_build_id)
+          echo "CI_EDK2_BUILD_ID=$edk2_id" >> "$GITHUB_ENV"
 
       - name: Check script syntax and offline failure handling
         run: |
           bash -n .github/scripts/prototyper-openruyi-server-workstation-boot.sh
-          shellcheck .github/scripts/prototyper-openruyi-server-workstation-boot.sh
+          shellcheck -x .github/scripts/prototyper-openruyi-server-workstation-boot.sh
           .github/scripts/prototyper-openruyi-server-workstation-boot.sh --self-test
 
       - name: Install cargo-binutils
         run: cargo install --locked cargo-binutils@0.4.0
 
-      - name: Restore openRuyi ${{ matrix.edition }} assets
-        uses: actions/cache/restore@v5
+      - name: Cache EDK II build
+        if: matrix.boot-mode == 'edk2'
+        uses: ./.github/actions/ci-cache
         with:
+          path: .cache/ci-edk2/${{ env.CI_EDK2_BUILD_ID }}
+          key: edk2-build-ubuntu-26.04-${{ runner.arch }}-${{ env.CI_EDK2_BUILD_ID }}
+
+      - name: Cache U-Boot build
+        if: matrix.boot-mode == 'u-boot'
+        uses: ./.github/actions/ci-cache
+        with:
+          path: .cache/ci-uboot/builds/smode-2026.07
+          key: uboot-build-ubuntu-26.04-${{ runner.arch }}-2026.07-smode-2026.07-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
+
+      # The seed is an optimization. On a seed failure the boot script checks
+      # the artifact and falls back to downloading the pinned image itself.
+      - name: Download prepared openRuyi ${{ matrix.edition }} assets
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: openruyi-2026.09-${{ matrix.edition }}-assets
           path: .cache/openruyi/2026.09
-          key: openruyi-2026.09-${{ matrix.edition }}-rva23-v1
 
       - name: Build RustSBI Prototyper
         run: |
@@ -160,6 +179,20 @@ jobs:
 
       - name: Boot openRuyi ${{ matrix.edition }} through ${{ matrix.boot-mode }}
         run: .github/scripts/prototyper-openruyi-server-workstation-boot.sh "${{ matrix.edition }}" "${{ matrix.boot-mode }}"
+
+      - name: Save EDK II build
+        if: matrix.boot-mode == 'edk2'
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/ci-edk2/${{ env.CI_EDK2_BUILD_ID }}
+          key: edk2-build-ubuntu-26.04-${{ runner.arch }}-${{ env.CI_EDK2_BUILD_ID }}
+
+      - name: Save U-Boot build
+        if: matrix.boot-mode == 'u-boot'
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/ci-uboot/builds/smode-2026.07
+          key: uboot-build-ubuntu-26.04-${{ runner.arch }}-2026.07-smode-2026.07-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Upload serial log and build provenance
         if: always()

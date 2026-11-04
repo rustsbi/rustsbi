@@ -58,24 +58,6 @@ jobs:
             qemu-system-misc
           qemu-system-riscv64 --version
 
-      # The Zephyr workspace holds a pinned checkout plus every module the
-      # manifest lists. Bump the revision after changing ZEPHYR_COMMIT in the
-      # boot script.
-      - name: Cache Zephyr workspace
-        uses: actions/cache@v5
-        with:
-          path: .cache/zephyr/zephyrproject
-          key: zephyr-workspace-6607bdd711f-v1
-
-      # The SDK is assembled from pinned, digest-verified release assets.
-      # Bump the revision after changing SDK_VERSION or SDK_TOOLCHAIN in the
-      # boot script.
-      - name: Cache Zephyr SDK
-        uses: actions/cache@v5
-        with:
-          path: .cache/zephyr/zephyr-sdk
-          key: zephyr-sdk-1.0.1-riscv64-v1
-
       - name: Install required cargo
         run: cargo install --locked cargo-binutils@0.4.0
 

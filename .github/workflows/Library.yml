@@ -21,6 +21,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Rustfmt Check
         uses: actions-rust-lang/rustfmt@v1
 
@@ -34,6 +36,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build (no default features)
         run: |
           cargo build --locked -p rustsbi --target ${{ matrix.TARGET }} --verbose
@@ -54,6 +58,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run tests (no default features)
         run: |
           cargo test --locked -p rustsbi --verbose
@@ -69,6 +75,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run tests
         run: cargo test --locked -p riscv-aia --verbose
 
@@ -79,6 +87,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run tests
         run: cargo test --locked -p sbi-spec --verbose
 
@@ -89,6 +99,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run tests
         run: cargo test --locked -p rpmi --verbose
 
@@ -99,6 +111,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run tests
         run: cargo test --locked -p penglai --verbose
 
@@ -112,6 +126,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build
         run: |
           cargo build --locked --target ${{ matrix.TARGET }} --verbose -p sbi-rt
@@ -123,6 +139,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run tests
         run: cargo test --locked -p sbi-rt --verbose
 
@@ -136,6 +154,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build (no default features)
         run: |
           cargo build --locked --target ${{ matrix.TARGET }} --verbose -p sbi-testing
@@ -167,6 +187,7 @@ jobs:
       - name: Install Rust ${{ steps.rust.outputs.version }}
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
           toolchain: ${{ steps.rust.outputs.version }}
           target: riscv32imac-unknown-none-elf,riscv64imac-unknown-none-elf
           rustflags: ""

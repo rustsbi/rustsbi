@@ -4,6 +4,8 @@ set -euo pipefail
 
 # shellcheck source=.github/scripts/ci-uboot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+# shellcheck source=.github/scripts/ci-edk2.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-edk2.sh"
 
 SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 readonly SCRIPT_PATH
@@ -37,11 +39,9 @@ readonly ALPINE_KERNEL=6.18.7-0-lts
 readonly ISO_NAME="alpine-standard-${ALPINE_VERSION}-riscv64.iso"
 readonly ISO_URL="https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/riscv64/${ISO_NAME}"
 readonly ISO_SHA256=3944efd920cdfb34d7f0b03b766ee549c6a82bac582315cfee55993490f2455f
-readonly UBOOT_VERSION=2025.10-0ubuntu0.24.04.2
-readonly EDK2_DEB=qemu-efi-riscv64_2024.02-2ubuntu0.10_all.deb
-readonly EDK2_SHA256=4f2a7b3757906f60eeedca3181e8d83af6f45477ecc9f306f483cebf665ecdd4
-# Keep pinned bootloaders available after newer packages supersede them.
-readonly PACKAGE_MIRROR=https://snapshot.ubuntu.com/ubuntu/20261006T100000Z
+readonly UBOOT_VERSION=2026.07
+readonly UBOOT_PROFILE=smode-2026.07
+readonly EDK2_BANNER='RISC-V EDK2 firmware version 2.7'
 readonly CACHE_DIR="${ALPINE_CACHE_DIR:-target/alpine-boot/cache}"
 readonly WORK_BASE="${ALPINE_WORK_DIR:-target/alpine-boot/work}"
 readonly LOG_DIR="${QEMU_LOG_DIR:-qemu-logs}"
@@ -93,24 +93,16 @@ download_asset() {
 }
 
 prepare_assets() {
-  local package digest url
   download_asset "$ISO_URL" "$CACHE_DIR/$ISO_NAME" "$ISO_SHA256"
   if [[ "$BOOT_MODE" = sbi ]]; then
     xorriso -osirrox on -indev "$CACHE_DIR/$ISO_NAME" \
       -extract /boot/vmlinuz-lts "$RUN_DIR/vmlinuz-lts" \
       -extract /boot/initramfs-lts "$RUN_DIR/initramfs-lts"
     gzip -dc "$RUN_DIR/vmlinuz-lts" > "$RUN_DIR/Image"
+  elif [[ "$BOOT_MODE" = u-boot ]]; then
+    ci_uboot_build "$UBOOT_VERSION" smode "$UBOOT_PROFILE" "$RUN_DIR/bootloader"
   else
-    if [[ "$BOOT_MODE" = u-boot ]]; then
-      ci_uboot_package "$UBOOT_VERSION" "$RUN_DIR/bootloader"
-      return
-    else
-      package=$EDK2_DEB
-      digest=$EDK2_SHA256
-      url="$PACKAGE_MIRROR/pool/universe/e/edk2/$package"
-    fi
-    download_asset "$url" "$CACHE_DIR/$package" "$digest"
-    dpkg-deb -x "$CACHE_DIR/$package" "$RUN_DIR/bootloader"
+    ci_edk2_prepare "$RUN_DIR/bootloader"
   fi
 }
 
@@ -130,13 +122,13 @@ start_qemu() {
       ;;
     u-boot)
       args+=(-machine 'virt,acpi=off'
-        -kernel "$RUN_DIR/bootloader/usr/lib/u-boot/qemu-riscv64_smode/uboot.elf")
+        -kernel "$RUN_DIR/bootloader/uboot.elf")
       ;;
     edk2)
       # Each run gets fresh UEFI variables; the CODE volume remains read-only.
       args+=(-machine 'virt,pflash0=pflash0,pflash1=pflash1,acpi=off'
-        -blockdev "node-name=pflash0,driver=file,read-only=on,filename=$RUN_DIR/bootloader/usr/share/qemu-efi-riscv64/RISCV_VIRT_CODE.fd"
-        -blockdev "node-name=pflash1,driver=file,filename=$RUN_DIR/bootloader/usr/share/qemu-efi-riscv64/RISCV_VIRT_VARS.fd")
+        -blockdev "node-name=pflash0,driver=file,read-only=on,filename=$RUN_DIR/bootloader/RISCV_VIRT_CODE.fd"
+        -blockdev "node-name=pflash1,driver=file,filename=$RUN_DIR/bootloader/RISCV_VIRT_VARS.fd")
       ;;
   esac
   {
@@ -158,11 +150,11 @@ check_boot_markers() {
     grep -Fq 'Welcome to Alpine Linux 3.23' "$LOG_FILE" || return 1
   case "$BOOT_MODE" in
     u-boot)
-      grep -Fq 'U-Boot 2025.10-0ubuntu0.24.04.2' "$LOG_FILE" &&
+      grep -Fq "U-Boot ${UBOOT_VERSION}" "$LOG_FILE" &&
         grep -Fq "Booting \`Linux lts'" "$LOG_FILE"
       ;;
     edk2)
-      grep -Fq 'RISC-V EDK2 firmware version 2024.02-2ubuntu0.10' "$LOG_FILE" &&
+      grep -Fq "$EDK2_BANNER" "$LOG_FILE" &&
         grep -Fq "Booting \`Linux lts'" "$LOG_FILE"
       ;;
   esac
