@@ -42,7 +42,8 @@ pub(crate) fn find_fixup(pc: usize, cause: usize) -> Option<usize> {
         }
         let start = &raw const __trap_fixup_start;
         let bytes = (&raw const __trap_fixup_end as usize) - start as usize;
-        // SAFETY: The linker collects aligned, immutable FaultSite records.
+        // SAFETY: The linker collects aligned, initialized `FaultSite` records
+        // into one immutable section between these symbols.
         let sites = unsafe { core::slice::from_raw_parts(start, bytes / size_of::<FaultSite>()) };
         sites.iter().find_map(|site| site.fixup(pc, cause))
     }
@@ -56,8 +57,9 @@ pub(crate) fn find_fixup(pc: usize, cause: usize) -> Option<usize> {
 /// Emits a relocatable fault record for assembly labels `2` and `3`.
 ///
 /// Label `2` marks the faulting instruction; label `3` marks its continuation.
-/// Both precede this macro. The enclosing assembly supplies `{causes}` and
-/// follows this module's `t2`/`t3` output protocol.
+/// Both precede this macro.
+/// The enclosing assembly supplies `{causes}` and follows this module's
+/// `t2`/`t3` output protocol.
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 macro_rules! fault_site {
     () => {
