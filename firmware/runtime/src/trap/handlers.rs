@@ -2,8 +2,10 @@
 use super::frame::TrapFrame;
 use crate::rustsbi::SbiRet;
 use crate::{
-    boot::NextStage,
+    boot::{self, NextStage},
     hart::{self, HartEvent},
+    instruction,
+    ipi::{self, Ipi},
     irq::LocalIrqDisabled,
 };
 
@@ -39,42 +41,53 @@ pub(super) fn sbi_ecall(frame: &mut TrapFrame) {
     }
 }
 
-fn deliver_event(frame: &mut TrapFrame, ipi: &crate::ipi::Ipi, irq: &LocalIrqDisabled) {
+fn deliver_event(frame: &mut TrapFrame, ipi: Option<&Ipi>, irq: &LocalIrqDisabled) {
     let event = hart::take_local_event();
-    ipi.deliver_current(irq);
+    if let Some(ipi) = ipi {
+        ipi.process_pending(irq);
+    }
     match event {
         HartEvent::Start(next) => enter_next_stage(frame, next),
         HartEvent::Park => {
-            ipi.prepare_wakeup(irq);
-            crate::instruction::wait_for_interrupt();
+            if let Some(ipi) = ipi {
+                ipi.enable_interrupt(irq);
+            }
+            instruction::wait_for_interrupt();
         }
         HartEvent::None => {}
     }
 }
 
 pub(super) fn software_interrupt(frame: &mut TrapFrame, irq: &LocalIrqDisabled) {
-    let ipi = crate::ipi::get().expect("IPI service not published");
-    ipi.clear_current(irq)
-        .expect("IPI device could not clear the current hart");
+    let ipi = ipi::get()
+        .filter(|ipi| !ipi.is_external())
+        .and_then(|device| {
+            let acknowledged = device
+                .acknowledge(irq)
+                .expect("IPI device could not acknowledge the current hart");
+            acknowledged.then_some(device)
+        });
     deliver_event(frame, ipi, irq);
 }
 
 pub(super) fn external_interrupt(frame: &mut TrapFrame, irq: &LocalIrqDisabled) {
-    if let Some(ipi) = crate::ipi::get()
-        && ipi.claim_external(irq)
+    if let Some(device) = ipi::get().filter(|ipi| ipi.is_external())
+        && device
+            .acknowledge(irq)
+            .expect("IPI device could not acknowledge the current hart")
     {
-        deliver_event(frame, ipi, irq);
+        deliver_event(frame, Some(device), irq);
     }
 }
 
 fn enter_next_stage(frame: &mut TrapFrame, next: NextStage) {
     // SAFETY: Dispatch owns this hart's trap state, with MIE masked.
-    unsafe { crate::boot::prepare_supervisor() };
-    crate::boot::set_return_mode(&mut frame.status, next.next_mode);
+    unsafe { boot::prepare_supervisor() };
+    boot::set_return_mode(&mut frame.status, next.next_mode);
     frame.leave_virtualization();
     frame.epc = next.start_addr;
     frame.general = Default::default();
     frame.general.a0 = hart::current_hart().as_usize();
     frame.general.a1 = next.opaque;
-    crate::instruction::fence_i();
+    instruction::fence_i();
 }

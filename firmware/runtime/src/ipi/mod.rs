@@ -40,7 +40,7 @@ pub fn init(device: Option<Box<dyn IpiDevice>>) -> Result<&'static Ipi> {
 
 /// Returns the published firmware IPI service.
 pub fn get() -> Option<&'static Ipi> {
-    IPI.get()
+    IPI.get().filter(|ipi| ipi.device.is_some())
 }
 
 /// Firmware IPI send capability, issued during platform initialization.

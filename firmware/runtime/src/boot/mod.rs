@@ -17,7 +17,13 @@ pub(crate) use context::{prepare_supervisor, set_return_mode, traps_ready};
 pub(crate) use stack::firmware_end;
 pub use stack::{BootStack, initialize_stacks, locate_stack};
 
-use crate::hart::{self, HartEvent};
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+use crate::SpacemitK1Registers;
+use crate::{
+    hart::{self, HartEvent},
+    instruction, ipi,
+    irq::LocalIrqDisabled,
+};
 
 /// Information needed to boot into the next execution stage.
 #[derive(Clone, Copy, Debug)]
@@ -49,8 +55,9 @@ pub unsafe extern "C" fn fail_stop() {
 ///
 /// # Safety
 ///
-/// Assembly entry on a K1 hart only. The boot hart must have published the
-/// platform and enabled cluster coherency before releasing this hart.
+/// Enter only through a K1 hart's reset path.
+/// The boot hart must have published the platform and enabled cluster
+/// coherency before releasing this hart.
 /// `initialize` performs per-hart platform setup and publishes SBI policy.
 #[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
 pub unsafe extern "C" fn k1_warm_entry(initialize: extern "C" fn()) -> ! {
@@ -69,7 +76,7 @@ pub unsafe extern "C" fn k1_warm_entry(initialize: extern "C" fn()) -> ! {
         "jalr s0",
         "tail {finish}",
         fail = sym fail_stop,
-        prepare = sym crate::SpacemitK1Registers::prepare_warm_hart,
+        prepare = sym SpacemitK1Registers::prepare_warm_hart,
         locate = sym locate_stack,
         prepare_traps = sym prepare_traps,
         finish = sym finish_boot,
@@ -157,21 +164,23 @@ pub unsafe extern "C" fn finish_boot() -> ! {
 /// Enters a staged next stage or waits for a hart-start event.
 fn finish_boot_rust() -> ! {
     // SAFETY: The boot finisher is entered with MIE clear and never enables it.
-    let irq = unsafe { crate::irq::LocalIrqDisabled::assume_disabled() };
+    let irq = unsafe { LocalIrqDisabled::assume_disabled() };
     let hart = hart::current_hart();
-    let ipi = crate::ipi::get().expect("IPI service not published");
+    let ipi = ipi::get();
     loop {
         // Acknowledge before observing the state. Clearing after observing
         // Stopped could erase a concurrent start's wakeup just before WFI.
-        if ipi.delivery().is_some() {
-            ipi.clear_current(&irq)
-                .expect("BUG: could not clear the hart wake interrupt");
-            crate::instruction::fence();
+        if let Some(ipi) = ipi {
+            ipi.acknowledge(&irq)
+                .expect("BUG: could not acknowledge the hart wake interrupt");
+            instruction::fence();
         }
         let event = hart::take_local_event();
         // A sender may have selected this hart before it stopped, or just
         // after STARTED became visible. Complete its work before handoff/WFI.
-        ipi.deliver_current(&irq);
+        if let Some(ipi) = ipi {
+            ipi.process_pending(&irq);
+        }
         match event {
             HartEvent::Start(next_stage) => {
                 // SAFETY: The boot finisher owns the outgoing context in
@@ -183,8 +192,10 @@ fn finish_boot_rust() -> ! {
                 unsafe { enter_stage(hart_id, next_stage.opaque) }
             }
             HartEvent::Park => {
-                ipi.prepare_wakeup(&irq);
-                crate::instruction::wait_for_interrupt();
+                if let Some(ipi) = ipi {
+                    ipi.enable_interrupt(&irq);
+                }
+                instruction::wait_for_interrupt();
                 // A masked wake re-checks the cell instead of returning
                 // into the discarded boot context.
                 continue;

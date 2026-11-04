@@ -1,8 +1,10 @@
 //! IPI publication, acknowledgement, and local interrupt delivery.
 
-use super::{Iid, Ipi, IpiDelivery, IpiEvent, IpiRequest, imsic};
+use super::{
+    External, Iid, InterruptMode, Ipi, IpiDelivery, IpiEvent, IpiRequest, Software, imsic,
+};
 use crate::{Error, Result, hart::HartId, irq::LocalIrqDisabled};
-use csr::{aia::machine::Mtopei, machine};
+use csr::aia::machine::Mtopei;
 
 impl Ipi {
     /// Sends a firmware event to the target harts.
@@ -16,7 +18,7 @@ impl Ipi {
         }
         for hart in targets {
             self.post(hart, event);
-            self.send(IpiRequest::for_hart(hart))?;
+            self.send_hardware_ipi(hart)?;
         }
         Ok(())
     }
@@ -39,26 +41,27 @@ impl Ipi {
         }
     }
 
-    pub(crate) fn init_current(&self, irq: &LocalIrqDisabled) -> Result<()> {
+    pub(crate) fn send_hardware_ipi(&self, hart: HartId) -> Result<()> {
+        self.send(IpiRequest::for_hart(hart))
+    }
+
+    pub(crate) fn init_hart(&self, irq: &LocalIrqDisabled) -> Result<()> {
         if !crate::boot::traps_ready() {
             return Err(Error::NotReady);
         }
         if let Some(IpiDelivery::Imsic { iid, num_iids }) = self.delivery() {
             imsic::initialize(num_iids, iid, irq)?;
         }
-        self.clear_current(irq)
+        self.acknowledge(irq).map(|_| ())
     }
 
-    pub(crate) fn clear_current(&self, _irq: &LocalIrqDisabled) -> Result<()> {
+    pub(crate) fn acknowledge(&self, _irq: &LocalIrqDisabled) -> Result<bool> {
         match self.device.as_deref() {
             Some(device) => match device.delivery() {
-                IpiDelivery::Software => device.acknowledge().map(|_| ()),
-                IpiDelivery::Imsic { iid, .. } => {
-                    self.claim_imsic(iid);
-                    Ok(())
-                }
+                IpiDelivery::Software => device.acknowledge(),
+                IpiDelivery::Imsic { iid, .. } => Ok(self.claim_imsic(iid)),
             },
-            None => Ok(()),
+            None => Ok(false),
         }
     }
 
@@ -70,31 +73,11 @@ impl Ipi {
         unsafe { Mtopei::claim() }.iid() == Some(iid)
     }
 
-    #[inline]
-    pub(crate) fn claim_external(&self, _irq: &LocalIrqDisabled) -> bool {
+    pub(crate) fn enable_interrupt(&self, irq: &LocalIrqDisabled) {
         match self.delivery() {
-            Some(IpiDelivery::Imsic { iid, .. }) => self.claim_imsic(iid),
-            _ => false,
-        }
-    }
-
-    /// Enables hart wake sources without changing MIE or timer delivery.
-    pub(crate) fn prepare_wakeup(&self, _irq: &LocalIrqDisabled) {
-        // SAFETY: Boot installed Runtime entry before configuring wake sources.
-        // The caller's IRQ context excludes interrupt reentry during this update.
-        unsafe {
-            machine::InterruptEnable::modify(|_, value| {
-                value.set::<machine::MSIE>(machine::Interrupt::Enabled);
-                if matches!(self.delivery(), Some(IpiDelivery::Imsic { .. })) {
-                    value.set::<machine::MEIE>(machine::Interrupt::Enabled);
-                }
-            });
-        }
-    }
-
-    pub(crate) fn deliver_current(&self, irq: &LocalIrqDisabled) {
-        if self.device.is_some() {
-            self.process_pending(irq);
+            Some(IpiDelivery::Software) => Software::enable_interrupt(irq),
+            Some(IpiDelivery::Imsic { .. }) => External::enable_interrupt(irq),
+            None => {}
         }
     }
 }

@@ -1,7 +1,7 @@
 //! Trap installation and next-stage architectural context.
 #[cfg(target_pointer_width = "32")]
 use crate::csr::csrr;
-use crate::trap::entry;
+use crate::{ipi, irq::LocalIrqDisabled, trap::entry};
 use csr::{
     machine, supervisor,
     values::{
@@ -90,11 +90,11 @@ unsafe fn install(entry: unsafe extern "C" fn()) {
 /// trap entry installed, and no active lower-mode execution.
 pub unsafe fn configure_next_stage() {
     // SAFETY: The startup caller keeps MIE clear for this configuration.
-    let irq = unsafe { crate::irq::LocalIrqDisabled::assume_disabled() };
-    crate::ipi::get()
-        .expect("IPI service not published")
-        .init_current(&irq)
-        .expect("could not initialize hart IPI state");
+    let irq = unsafe { LocalIrqDisabled::assume_disabled() };
+    if let Some(ipi) = ipi::get() {
+        ipi.init_hart(&irq)
+            .expect("could not initialize hart IPI state");
+    }
     // SAFETY: The caller owns this hart's next-stage configuration.
     unsafe {
         machine::InterruptDelegation::write(usize::MAX.into());
@@ -137,10 +137,10 @@ pub(crate) unsafe fn prepare_supervisor() {
         supervisor::AddressTranslation::write(supervisor::AddressSpace::bare());
     }
     // SAFETY: This function's caller keeps MIE clear throughout the handoff.
-    let irq = unsafe { crate::irq::LocalIrqDisabled::assume_disabled() };
-    crate::ipi::get()
-        .expect("IPI service not published")
-        .prepare_wakeup(&irq);
+    let irq = unsafe { LocalIrqDisabled::assume_disabled() };
+    if let Some(ipi) = ipi::get() {
+        ipi.enable_interrupt(&irq);
+    }
 }
 
 /// Programs the initial boot handoff in the current hart's CSRs.
