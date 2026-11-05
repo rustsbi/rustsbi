@@ -27,17 +27,14 @@ impl ResetVectorRegisters {
         Ok(Self([cluster0, cluster1]))
     }
 
-    pub(super) fn set_reset_vector(&self, address: u64) {
+    pub(super) fn set_reset_vector(&self, address: u64) -> Result<()> {
         for registers in &self.0 {
-            registers
-                .write(Register::AddressLow as usize, address as u32)
-                .expect("BUG: K1 reset-vector low register escaped its MMIO window");
-            registers
-                .write(
-                    Register::AddressHigh as usize,
-                    (address >> u32::BITS) as u32,
-                )
-                .expect("BUG: K1 reset-vector high register escaped its MMIO window");
+            registers.write(Register::AddressLow as usize, address as u32)?;
+            registers.write(
+                Register::AddressHigh as usize,
+                (address >> u32::BITS) as u32,
+            )?;
         }
+        Ok(())
     }
 }

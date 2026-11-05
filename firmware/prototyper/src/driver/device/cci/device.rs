@@ -32,13 +32,8 @@ struct StatusRegister(MmioRegion);
 
 impl StatusRegister {
     /// Returns whether a coherency change is still pending.
-    fn change_pending(&self) -> bool {
-        Status::from_bits_retain(
-            self.0
-                .read(0)
-                .expect("BUG: CCI-550 status register escaped its MMIO window"),
-        )
-        .contains(Status::CHANGE_PENDING)
+    fn change_pending(&self) -> Result<bool> {
+        Ok(Status::from_bits_retain(self.0.read(0)?).contains(Status::CHANGE_PENDING))
     }
 }
 
@@ -47,13 +42,11 @@ struct SnoopControlRegister(MmioRegion);
 
 impl SnoopControlRegister {
     /// Enables snoops and DVM messages on this slave interface.
-    fn enable_coherency(&self) {
-        self.0
-            .write(
-                0,
-                (SnoopControl::ENABLE_SNOOPS | SnoopControl::ENABLE_DVM_MESSAGES).bits(),
-            )
-            .expect("BUG: CCI-550 snoop-control register escaped its MMIO window");
+    fn enable_coherency(&self) -> Result<()> {
+        self.0.write(
+            0,
+            (SnoopControl::ENABLE_SNOOPS | SnoopControl::ENABLE_DVM_MESSAGES).bits(),
+        )
     }
 }
 
@@ -67,26 +60,27 @@ impl<const N: usize> Cci550<N> {
     /// Acquires the described register windows and constructs the controller.
     pub(crate) fn init(description: Desc<N>, memory: &mut MemoryRegistry) -> Result<Self> {
         let status = StatusRegister(memory.acquire(description.status)?);
-        let mut snoop_control = [const { None }; N];
-        for (control, registers) in snoop_control.iter_mut().zip(description.snoop_controls) {
-            *control = Some(SnoopControlRegister(memory.acquire(registers)?));
-        }
+        let snoop_control = core::array::try_from_fn(|index| {
+            memory
+                .acquire(description.snoop_controls[index])
+                .map(SnoopControlRegister)
+        })?;
         Ok(Self {
             status,
-            snoop_control: snoop_control
-                .map(|control| control.expect("BUG: CCI-550 interface window was not acquired")),
+            snoop_control,
         })
     }
 
     /// Enables coherency on every selected interface and waits for each change to clear.
-    pub(crate) fn enable_coherency(&self) {
+    pub(crate) fn enable_coherency(&self) -> Result<()> {
         for control in &self.snoop_control {
-            control.enable_coherency();
+            control.enable_coherency()?;
             // Order the preceding MMIO write before the status poll.
             runtime::instruction::fence();
-            while self.status.change_pending() {
+            while self.status.change_pending()? {
                 core::hint::spin_loop();
             }
         }
+        Ok(())
     }
 }
