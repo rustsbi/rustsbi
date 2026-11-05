@@ -29,7 +29,7 @@ pub fn init_platform(platform_description: PlatformDescription) -> usize {
 }
 
 fn try_init_platform(platform_description: PlatformDescription) -> Result<usize> {
-    let (timebase_frequency_hz, cpu_interrupt_controllers) =
+    let timebase_frequency_hz =
         platform_description.inspect(|platform| harts::describe(&platform))?;
     let model = platform_description.inspect(|platform| {
         Ok(platform
@@ -72,10 +72,9 @@ fn try_init_platform(platform_description: PlatformDescription) -> Result<usize>
         interrupts::init(
             &platform,
             &model,
-            &cpu_interrupt_controllers,
+            v821.as_ref(),
             &mut memory,
             &mut hidden_node_paths,
-            |memory| v821::prepare_plmt(v821.as_ref(), memory),
         )
     })?;
     if let Some(description) = reset_description {
