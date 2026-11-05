@@ -14,6 +14,7 @@ mod handoff;
 mod info;
 mod report;
 mod state;
+pub(crate) mod spacemit_k1;
 
 pub(crate) mod qemu_aplic;
 

@@ -17,11 +17,12 @@ use super::{
     discovery,
     error::{InitError, ResultContext},
     info::{BoardInfo, SocDescription},
-    report, state,
+    report,
+    spacemit_k1::{self, K1BootResources},
+    state,
 };
 use crate::{
     driver::{self, HartWake},
-    riscv::spacemit_k1::{self, K1BootResources},
     sbi::{
         self, SbiDispatcher, cppc::SbiCppc, dbtr::SbiDbtr, fwft::SbiFwft, hsm::SbiHsm, pmu::SbiPmu,
         reset::SbiReset, rfence::SbiRFence, suspend::SbiSuspend, timer::SbiTimer,
