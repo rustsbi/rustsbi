@@ -1,21 +1,44 @@
 //! Devicetree description of one syscon reset action.
 
+use alloc::boxed::Box;
 use core::mem::{align_of, size_of};
 
-use runtime::{Error, FdtNode, PlatformView, Result, memory::RegRange, node_is_enabled};
+use runtime::{
+    Error, FdtNode, PlatformView, Result,
+    memory::{MemoryRegistry, RegRange},
+    node_is_enabled,
+};
 
-use super::super::registry;
+use super::{
+    super::{ResetDevice, primary_registers},
+    device::SysconReset,
+};
+use crate::driver::Description;
 
-/// One validated syscon action that has not acquired its MMIO word yet.
-#[derive(Clone, Copy, Debug)]
-pub(super) struct ActionDescription {
-    registers: RegRange,
-    value: u32,
-    mask: u32,
-    priority: u32,
+/// Selected reset actions before their MMIO registers are acquired.
+pub(crate) struct Desc {
+    pub(super) poweroff: Option<ActionDesc>,
+    pub(super) reboot: Option<ActionDesc>,
 }
 
-impl ActionDescription {
+impl Description for Desc {
+    type Device = Box<dyn ResetDevice>;
+
+    fn init(self: Box<Self>, memory: &mut MemoryRegistry) -> Result<Self::Device> {
+        Ok(Box::new(SysconReset::init(*self, memory)?))
+    }
+}
+
+/// One validated syscon action whose MMIO word has not been acquired yet.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ActionDesc {
+    pub(super) registers: RegRange,
+    pub(super) value: u32,
+    pub(super) mask: u32,
+    pub(super) priority: u32,
+}
+
+impl ActionDesc {
     pub(super) fn from_node<'tree>(
         platform: &PlatformView<'tree>,
         node: FdtNode<'_, 'tree>,
@@ -34,7 +57,7 @@ impl ActionDescription {
             Self::read_u32(node, "mask")?,
         )?;
         let registers =
-            registry::primary_registers(platform, provider)?.subrange(offset, size_of::<u32>())?;
+            primary_registers(platform, provider)?.subrange(offset, size_of::<u32>())?;
         if !registers.start().is_aligned_to(align_of::<u32>()) {
             return Err(Error::InvalidArgs);
         }
@@ -42,19 +65,14 @@ impl ActionDescription {
             registers,
             value,
             mask,
+            // The syscon reboot binding defaults `priority` to 192.
             priority: Self::read_u32(node, "priority")?.unwrap_or(192),
         })
     }
 
-    pub(super) const fn priority(self) -> u32 {
-        self.priority
-    }
-
-    pub(super) const fn into_parts(self) -> (RegRange, u32, u32) {
-        (self.registers, self.value, self.mask)
-    }
-
     fn value_and_mask(value: Option<u32>, mask: Option<u32>) -> Result<(u32, u32)> {
+        // If only one of `value` and `mask` is present,
+        // use it as the value for a full-word write.
         match (value, mask) {
             (Some(value), Some(mask)) => Ok((value, mask)),
             (Some(value), None) | (None, Some(value)) => Ok((value, u32::MAX)),
@@ -63,6 +81,7 @@ impl ActionDescription {
     }
 
     fn read_u32(node: FdtNode<'_, '_>, name: &str) -> Result<Option<u32>> {
+        // Devicetree cells are big-endian regardless of CPU endianness.
         node.property(name)
             .map(|property| {
                 let bytes = property.value.try_into().map_err(|_| Error::InvalidArgs)?;
@@ -76,13 +95,12 @@ impl ActionDescription {
         node: FdtNode<'view, 'tree>,
         parent: Option<FdtNode<'view, 'tree>>,
     ) -> Result<FdtNode<'view, 'tree>> {
-        if let Some(phandle) = Self::read_u32(node, "regmap")? {
-            if phandle == 0 || phandle == u32::MAX {
-                return Err(Error::InvalidArgs);
-            }
-            Self::find_phandle(root, phandle)?.ok_or(Error::InvalidArgs)
-        } else {
-            parent.ok_or(Error::InvalidArgs)
+        // Without `regmap`, the binding uses the parent node
+        // as the syscon provider.
+        match Self::read_u32(node, "regmap")? {
+            Some(0 | u32::MAX) => Err(Error::InvalidArgs),
+            Some(phandle) => Self::find_phandle(root, phandle)?.ok_or(Error::InvalidArgs),
+            None => parent.ok_or(Error::InvalidArgs),
         }
     }
 
@@ -110,6 +128,7 @@ impl ActionDescription {
         let is_syscon = node
             .compatible()
             .is_some_and(|values| values.all().any(|value| value == "syscon"));
+        // The driver supports only 32-bit little-endian syscon registers.
         if !node_is_enabled(node)
             || !is_syscon
             || Self::read_u32(node, "reg-io-width")?.is_some_and(|width| width != 4)

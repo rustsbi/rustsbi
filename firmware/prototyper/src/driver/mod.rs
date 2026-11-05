@@ -23,9 +23,7 @@ use runtime::{
 
 use crate::platform::{BoardInfo, ClintResource, ImsicInfo, qemu_aplic::QemuAplicConfig};
 
-pub(crate) use reset::{
-    Description as ResetDescription, ResetDevice, ResetError, ResetReason, ResetRequest, ResetType,
-};
+pub(crate) use reset::{Desc as ResetDesc, describe as describe_reset};
 
 pub(crate) use aia::{IMSIC_COMPATIBLES, IMSIC_FILE_SPAN};
 pub(crate) use cci::Cci550;
@@ -44,7 +42,6 @@ pub(crate) const THEAD_PLIC_COMPATIBLES: [&str; 2] =
 pub(crate) struct Devices {
     pub(crate) timer: Option<Box<dyn TimerDevice>>,
     pub(crate) ipi: Option<Ipi>,
-    pub(crate) reset: ResetDevice,
 }
 
 /// Timer and the platform's IPI device, when discovery selects them.
@@ -138,9 +135,5 @@ pub(crate) fn bind_devices(
         control.write(0, 1u32)?;
     }
     let (timer, ipi) = bind_interrupts(board, selected_imsic, memory)?;
-    let reset = board
-        .devices
-        .reset
-        .bind(board.timebase_frequency_hz, memory)?;
-    Ok(Devices { timer, ipi, reset })
+    Ok(Devices { timer, ipi })
 }

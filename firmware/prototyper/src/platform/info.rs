@@ -185,14 +185,12 @@ impl InterruptDescriptions {
 
 /// Unbound descriptions for the platform-wide device classes.
 pub(crate) struct DeviceDescriptions {
-    pub(crate) reset: driver::ResetDescription,
     pub(crate) interrupts: InterruptDescriptions,
 }
 
 impl DeviceDescriptions {
     fn empty() -> Self {
         Self {
-            reset: driver::ResetDescription::empty(),
             interrupts: InterruptDescriptions::empty(),
         }
     }

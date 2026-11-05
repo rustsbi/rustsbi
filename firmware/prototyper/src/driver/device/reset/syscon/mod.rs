@@ -1,8 +1,6 @@
 //! Syscon poweroff and reboot driver.
 //!
-//! This module is the reset-driver adapter. Devicetree parsing stays in
-//! [`description`], while acquired MMIO and command execution stay in
-//! [`device`].
+//! Each action uses a syscon provider and applies a masked register update.
 //!
 //! # References
 //!
@@ -16,38 +14,19 @@ mod device;
 
 use runtime::{PlatformView, Result};
 
-use crate::devicetree::EnabledNode;
+use crate::devicetree::try_for_each_enabled_node;
 
-use super::ResetBackend;
-use super::registry::{BindResources, ResetDriver};
-use description::ActionDescription;
-use device::SysconReset;
+use description::ActionDesc;
+pub(super) use description::Desc;
 
 const POWEROFF_COMPATIBLE: &str = "syscon-poweroff";
 const REBOOT_COMPATIBLE: &str = "syscon-reboot";
 
-/// Matches syscon reset nodes and retains their unbound descriptions.
-#[derive(Default)]
-pub(in crate::driver::device::reset) struct SysconDriver {
-    poweroff: Option<ActionDescription>,
-    reboot: Option<ActionDescription>,
-}
-
-impl SysconDriver {
-    fn consider(selected: &mut Option<ActionDescription>, candidate: ActionDescription) {
-        // Prefer the highest priority for this action; keep the first tie.
-        if selected.is_none_or(|current| candidate.priority() > current.priority()) {
-            *selected = Some(candidate);
-        }
-    }
-}
-
-impl ResetDriver for SysconDriver {
-    fn probe(
-        &mut self,
-        platform: &PlatformView<'_>,
-        discovered: EnabledNode<'_, '_>,
-    ) -> Result<()> {
+/// Discovers the highest-priority poweroff and reboot actions.
+pub(super) fn describe(platform: &PlatformView<'_>) -> Result<Option<Desc>> {
+    let mut poweroff = None;
+    let mut reboot = None;
+    try_for_each_enabled_node(platform.root(), &mut |discovered, _| {
         let Some(compatibles) = discovered.compatible() else {
             return Ok(());
         };
@@ -57,44 +36,25 @@ impl ResetDriver for SysconDriver {
             .all()
             .any(|compatible| compatible == POWEROFF_COMPATIBLE)
         {
-            Self::consider(
-                &mut self.poweroff,
-                ActionDescription::from_node(platform, node, parent)?,
+            consider(
+                &mut poweroff,
+                ActionDesc::from_node(platform, node, parent)?,
             );
         }
         if compatibles
             .all()
             .any(|compatible| compatible == REBOOT_COMPATIBLE)
         {
-            Self::consider(
-                &mut self.reboot,
-                ActionDescription::from_node(platform, node, parent)?,
-            );
+            consider(&mut reboot, ActionDesc::from_node(platform, node, parent)?);
         }
         Ok(())
-    }
+    })?;
+    Ok((poweroff.is_some() || reboot.is_some()).then_some(Desc { poweroff, reboot }))
+}
 
-    fn has_device(&self) -> bool {
-        self.poweroff.is_some() || self.reboot.is_some()
-    }
-
-    fn bind(
-        &self,
-        resources: &mut BindResources<'_>,
-    ) -> Result<alloc::boxed::Box<dyn ResetBackend>> {
-        Ok(alloc::boxed::Box::new(SysconReset::bind(
-            self.poweroff,
-            self.reboot,
-            resources.memory(),
-        )?))
-    }
-
-    fn log_summary(&self) {
-        info!(
-            "{:<30}: Available (syscon: poweroff={}, reboot={})",
-            "Platform Reset Extension",
-            self.poweroff.is_some(),
-            self.reboot.is_some(),
-        );
+fn consider(selected: &mut Option<ActionDesc>, candidate: ActionDesc) {
+    // Prefer the highest priority for this action; keep the first tie.
+    if selected.is_none_or(|current| candidate.priority > current.priority) {
+        *selected = Some(candidate);
     }
 }

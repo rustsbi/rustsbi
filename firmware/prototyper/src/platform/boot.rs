@@ -9,7 +9,7 @@ use runtime::{
     hart::{self, HartId},
     ipi,
     memory::SupervisorMemory,
-    timer,
+    reset, timer,
 };
 
 use super::{
@@ -37,16 +37,17 @@ pub fn init_board(platform_description: PlatformDescription) -> usize {
 
 fn try_init_board(platform_description: PlatformDescription) -> Result<usize, InitError> {
     let mut board = Box::new(BoardInfo::empty());
-    let (pmu, console) = platform_description
+    let (pmu, console, reset) = platform_description
         .inspect(|platform| {
             Ok((
                 discovery::discover_platform(&mut board, &platform)?,
                 driver::select_console(&platform)?,
+                driver::describe_reset(&platform, board.timebase_frequency_hz)?,
             ))
         })
         .during("reading the platform description")?;
 
-    initialize_platform(platform_description, board, pmu, console)
+    initialize_platform(platform_description, board, pmu, console, reset)
 }
 
 fn initialize_platform(
@@ -54,6 +55,7 @@ fn initialize_platform(
     mut board: Box<BoardInfo>,
     pmu: Option<SbiPmu>,
     console_description: Option<driver::ConsoleDesc>,
+    reset_description: Option<driver::ResetDesc>,
 ) -> Result<usize, InitError> {
     let (supervisor_memory, mut memory) = platform_description
         .memory_resources()
@@ -63,6 +65,10 @@ fn initialize_platform(
             .init(&mut memory)
             .during("initializing the console")?;
         console::init(device).during("registering the console")?;
+    }
+    if let Some(description) = reset_description {
+        let device = description.init(&mut memory).during("initializing reset")?;
+        reset::init(device).during("registering reset")?;
     }
     board.memory.ram_ranges = memory.ram_ranges().collect();
     let firmware_image_range = memory.firmware_image_range();
@@ -173,7 +179,6 @@ fn publish_platform_services(
 ) {
     let driver::Devices {
         ipi: ipi_device,
-        reset,
         ..
     } = devices;
     // Publish hardware wakeup before constructing HSM policy.
@@ -190,7 +195,7 @@ fn publish_platform_services(
     sbi::logger::Logger::init().expect("BUG: firmware logger initialized more than once");
     info!("Hello RustSBI!");
 
-    let reset = SbiReset::new(reset);
+    let reset = SbiReset;
     publish_sbi_dispatcher(
         sbi_ipi,
         timer,

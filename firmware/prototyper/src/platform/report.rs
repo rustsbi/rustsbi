@@ -21,7 +21,6 @@ pub(super) fn log_platform_summary() {
 
     log_harts();
     log_interrupt_controller(board);
-    log_reset(board);
     log_sbi_extensions();
     log_ram(board);
 }
@@ -70,10 +69,6 @@ fn log_interrupt_controller(board: &BoardInfo) {
         ),
         None => warn!("{:<30}: Not Available", "Platform IPI Device"),
     }
-}
-
-fn log_reset(board: &BoardInfo) {
-    board.devices.reset.log_summary();
 }
 
 fn log_sbi_extensions() {
