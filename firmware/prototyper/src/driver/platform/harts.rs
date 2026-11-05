@@ -13,13 +13,14 @@ pub(super) fn describe(platform: &PlatformView<'_>) -> Result<Option<u32>> {
     let timebase_frequency_hz =
         u32_property(cpus, "timebase-frequency").filter(|frequency| *frequency != 0);
 
+    let current_hart = HartId::current()?;
     for node in cpus.children().filter(|node| is_cpu_node(*node)) {
         let hart_id = PlatformView::hart_id(node)?;
         if !node_is_enabled(node) {
             continue;
         }
         let hart = HartId::from_raw(hart_id).map_err(|_| Error::InvalidArgs)?;
-        install_extensions(hart, parse_extensions(node));
+        install_extensions(hart, current_hart, parse_extensions(node));
     }
 
     Ok(timebase_frequency_hz)

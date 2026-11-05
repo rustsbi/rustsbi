@@ -21,6 +21,7 @@ use crate::{
 };
 use runtime::{
     PlatformView, Result,
+    hart::HartId,
     soc::allwinner::{v821::AllwinnerV821Soc, v861::AllwinnerV861Soc},
 };
 
@@ -51,7 +52,7 @@ fn describe_pmu(platform: &PlatformView<'_>) -> Result<Option<SbiPmu>> {
         .map(|_| SbiPmu::default()))
 }
 
-/// Performs platform-specific setup on a secondary hart.
-pub(crate) fn initialize_secondary_hart() {
-    spacemit_k1::initialize_secondary_hart();
+/// Performs platform-specific setup on the current secondary hart.
+pub(crate) fn initialize_secondary_hart(hart: HartId) {
+    spacemit_k1::initialize_secondary_hart(hart);
 }

@@ -24,11 +24,7 @@ static READY: AtomicBool = AtomicBool::new(false);
 /// Discovers the platform, initializes its devices, and publishes its services.
 ///
 /// Returns the device tree prepared for the next stage.
-pub fn init_platform(platform_description: PlatformDescription) -> usize {
-    try_init_platform(platform_description).expect("platform initialization failed")
-}
-
-fn try_init_platform(platform_description: PlatformDescription) -> Result<usize> {
+pub fn init_platform(platform_description: PlatformDescription) -> Result<usize> {
     let timebase_frequency_hz =
         platform_description.inspect(|platform| harts::describe(&platform))?;
     let model = platform_description.inspect(|platform| {
@@ -94,7 +90,7 @@ fn try_init_platform(platform_description: PlatformDescription) -> Result<usize>
     firmware::init_pmp(firmware_ram_range, noncacheable_alias_offset, irq_mmio);
     let hardware_wakeup = hart_wake.is_some();
     hart::install_wakeup(hart_wake);
-    sbi::init(supervisor_memory, custom_extension, pmu, hardware_wakeup);
+    sbi::init(supervisor_memory, custom_extension, pmu, hardware_wakeup)?;
     // The release pairs with `wait_until_ready` so secondary harts observe
     // all initialized services before proceeding.
     READY.store(true, Ordering::Release);

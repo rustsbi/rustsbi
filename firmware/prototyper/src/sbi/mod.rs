@@ -4,7 +4,9 @@
 
 use alloc::boxed::Box;
 use runtime::rustsbi::{self, RustSBI};
-use runtime::{console as runtime_console, events, ipi as runtime_ipi, memory::SupervisorMemory};
+use runtime::{
+    Result, console as runtime_console, events, ipi as runtime_ipi, memory::SupervisorMemory,
+};
 use spin::Once;
 
 pub mod console;
@@ -80,7 +82,7 @@ pub(crate) fn init(
     custom_extension: vendor::Extension,
     pmu: Option<SbiPmu>,
     hardware_wakeup: bool,
-) {
+) -> Result<()> {
     static SUPERVISOR_MEMORY: Once<SupervisorMemory> = Once::new();
     let supervisor_memory = SUPERVISOR_MEMORY.call_once(|| supervisor_memory);
     let ipi = runtime_ipi::get().map(|_| SbiIpi);
@@ -97,8 +99,7 @@ pub(crate) fn init(
         ipi,
         timer: SbiTimer,
         reset: SbiReset,
-        rfence: ipi_available
-            .then(|| SbiRFence::new().expect("BUG: RFENCE IPI event registration failed")),
+        rfence: ipi_available.then(SbiRFence::new).transpose()?,
         susp: hsm.as_ref().map(|_| SbiSuspend),
         hsm,
         pmu,
@@ -106,9 +107,7 @@ pub(crate) fn init(
         mpxy: Some(SbiMpxy::new(supervisor_memory)),
         vendor: vendor::Vendor::new(custom_extension, supervisor_memory),
     }));
-    dispatcher
-        .publish()
-        .expect("BUG: SBI policy publication failed");
+    dispatcher.publish()
 }
 
 /// Returns the HSM extension, if present.

@@ -19,5 +19,8 @@ pub(crate) unsafe extern "C" fn warm_entry() -> ! {
 }
 
 extern "C" fn initialize() {
-    crate::secondary_hart(None);
+    if let Err(error) = crate::secondary_hart(None) {
+        error!("Failed to initialize the hart: {error}");
+        crate::fail::stop();
+    }
 }

@@ -50,27 +50,23 @@ pub(crate) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Box
     )?;
 
     HART_REGISTERS.call_once(|| registers);
-    initialize_hart(registers);
+    initialize_hart(registers, HartId::current()?);
     reset_vectors.set_reset_vector(warm_entry as *const () as usize as u64)?;
     cci.enable_coherency()?;
     Ok(Box::new(wakeup))
 }
 
-/// Performs the K1 per-hart L2 and machine-feature setup.
-fn initialize_hart(registers: SpacemitK1Registers) {
-    registers.enable_hart_l2(
-        HartId::current()
-            .expect("BUG: current hart exceeds Runtime capacity")
-            .as_usize(),
-    );
+/// Performs the K1 L2 and machine-feature setup for the current hart.
+fn initialize_hart(registers: SpacemitK1Registers, hart: HartId) {
+    registers.enable_hart_l2(hart.as_usize());
     registers.enable_machine_features();
 }
 
 static HART_REGISTERS: Once<SpacemitK1Registers> = Once::new();
 
 /// Runs K1's per-hart setup when this platform provides its registers.
-pub(crate) fn initialize_secondary_hart() {
+pub(crate) fn initialize_secondary_hart(hart: HartId) {
     if let Some(registers) = HART_REGISTERS.get() {
-        initialize_hart(*registers);
+        initialize_hart(*registers, hart);
     }
 }

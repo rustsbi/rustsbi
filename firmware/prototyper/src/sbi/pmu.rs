@@ -58,8 +58,8 @@ fn current_state() -> &'static Mutex<PmuState> {
 }
 
 /// Rebuilds the current hart's PMU state using the detected counter mask.
-pub(crate) fn init_current(mhpm_mask: u32) {
-    let hart = HartId::current().expect("BUG: current hart is not in the boot topology");
+/// `hart` must identify the current hart.
+pub(crate) fn init_current(hart: HartId, mhpm_mask: u32) {
     *state(hart).lock() = PmuState::new(mhpm_mask);
 }
 
