@@ -14,7 +14,7 @@
 use core::mem::{align_of, size_of};
 use runtime::{
     Error, PlatformView, Result,
-    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+    memory::{RegRange, MemoryRegistry, MmioRegion},
 };
 
 use crate::devicetree::EnabledNode;
@@ -40,8 +40,8 @@ const COMPATIBLE: &str = "allwinner,wdt-v105";
 /// Devicetree description for the Sunxi V105 watchdog and its optional RTC gate.
 #[derive(Default)]
 pub(in crate::driver::reset) struct V105Driver {
-    registers: Option<DeviceRegisterRange>,
-    reset_gate: Option<DeviceRegisterRange>,
+    registers: Option<RegRange>,
+    reset_gate: Option<RegRange>,
 }
 
 impl ResetDriver for V105Driver {
@@ -99,8 +99,8 @@ struct V105Watchdog {
 
 impl V105Watchdog {
     fn bind(
-        registers: DeviceRegisterRange,
-        gprcm: Option<DeviceRegisterRange>,
+        registers: RegRange,
+        gprcm: Option<RegRange>,
         memory: &mut MemoryRegistry,
     ) -> Result<Self> {
         let registers = registers.subrange(0, REGISTER_SPAN)?;

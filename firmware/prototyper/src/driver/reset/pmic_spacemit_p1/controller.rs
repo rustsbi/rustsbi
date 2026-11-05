@@ -12,7 +12,7 @@ use core::mem::{align_of, size_of};
 use core::time::Duration;
 use runtime::{
     Error, Result,
-    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+    memory::{RegRange, MemoryRegistry, MmioRegion},
     timer,
 };
 
@@ -143,7 +143,7 @@ pub(super) struct K1I2cController {
 
 impl K1I2cController {
     pub(super) fn bind(
-        registers: DeviceRegisterRange,
+        registers: RegRange,
         timebase_frequency_hz: Option<u32>,
         memory: &mut MemoryRegistry,
     ) -> Result<Self> {

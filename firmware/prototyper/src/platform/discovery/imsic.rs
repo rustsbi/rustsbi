@@ -13,7 +13,7 @@ use runtime::{
     Error, FdtNode, Result,
     hart::HartId,
     ipi::{self, Iid},
-    memory::{DeviceRegisterRange, PhysAddrRange},
+    memory::{RegRange, PhysAddrRange},
     node_is_enabled,
 };
 
@@ -59,7 +59,7 @@ pub(super) fn cpu_interrupt_controller(
 
 pub(super) fn discover(
     node: FdtNode<'_, '_>,
-    register_ranges: &[DeviceRegisterRange],
+    register_ranges: &[RegRange],
     cpu_interrupt_controllers: &[CpuInterruptController],
 ) -> Result<Option<ImsicInfo>> {
     let first_register_range = register_ranges.first().ok_or(Error::InvalidArgs)?;
@@ -226,10 +226,10 @@ fn validate_topology(
 
 fn map_hart_files(
     layout: &ImsicAddressLayout,
-    register_ranges: &[DeviceRegisterRange],
+    register_ranges: &[RegRange],
     machine_files: &[MachineInterruptFile],
     group_index_bits: u32,
-) -> Result<Vec<DeviceRegisterRange>> {
+) -> Result<Vec<RegRange>> {
     let topology_bits = layout.hart_index_bits + group_index_bits;
     let max_file_count = 1u64 << topology_bits;
     let hart_index_mask = low_bit_mask(layout.hart_index_bits);

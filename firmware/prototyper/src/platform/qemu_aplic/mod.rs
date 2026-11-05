@@ -13,7 +13,7 @@ mod registers;
 
 use runtime::{
     FdtNode, Result,
-    memory::{DeviceRegisterRange, MemoryRegistry, PhysAddr},
+    memory::{RegRange, MemoryRegistry, PhysAddr},
 };
 
 use registers::{AplicRegisters, EncodedMsiAddress};
@@ -24,7 +24,7 @@ const APLIC_COMPATIBLE: &str = "riscv,aplic";
 
 /// QEMU `virt` M-APLIC resources awaiting Runtime binding.
 pub(crate) struct QemuAplicConfig {
-    registers: DeviceRegisterRange,
+    registers: RegRange,
     machine_msi: EncodedMsiAddress,
     supervisor_msi: EncodedMsiAddress,
 }
@@ -32,7 +32,7 @@ pub(crate) struct QemuAplicConfig {
 impl QemuAplicConfig {
     /// Builds the QEMU `virt` M-APLIC setup discovered in the Platform Description.
     pub(crate) fn new(
-        registers: DeviceRegisterRange,
+        registers: RegRange,
         machine_imsic_base: PhysAddr,
         hart_index_bits: u32,
     ) -> Result<Self> {

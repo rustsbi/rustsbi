@@ -17,9 +17,9 @@ pub struct PhysAddrRange {
 /// Unlike [`PhysAddrRange`], this value carries permission to request an
 /// [`super::MmioRegion`] from the [`super::MemoryRegistry`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct DeviceRegisterRange(PhysAddrRange);
+pub struct RegRange(PhysAddrRange);
 
-impl DeviceRegisterRange {
+impl RegRange {
     pub(crate) const fn from_description(range: PhysAddrRange) -> Self {
         Self(range)
     }

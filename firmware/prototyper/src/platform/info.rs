@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use runtime::{
     Result, SpacemitK1Registers,
     ipi::Iid,
-    memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange},
+    memory::{RegRange, PhysAddr, PhysAddrRange},
     soc::allwinner::v861::AllwinnerV861Soc,
 };
 
@@ -64,12 +64,12 @@ impl ImsicAddressLayout {
 pub(crate) struct ImsicInfo {
     pub(crate) layout: ImsicAddressLayout,
     pub(crate) ipi_iid: Iid,
-    pub(crate) hart_files: Vec<DeviceRegisterRange>,
+    pub(crate) hart_files: Vec<RegRange>,
 }
 
 /// Console resources selected from the device tree.
 pub(crate) struct ConsoleInfo {
-    pub(crate) registers: DeviceRegisterRange,
+    pub(crate) registers: RegRange,
     pub(crate) kind: driver::ConsoleKind,
     pub(crate) clock_hz: Option<u32>,
 }
@@ -100,7 +100,7 @@ impl MemoryInfo {
 
 /// The CLINT register range and driver-specific interpretation.
 pub(crate) struct ClintResource {
-    pub(crate) registers: DeviceRegisterRange,
+    pub(crate) registers: RegRange,
     pub(crate) kind: driver::ClintKind,
 }
 
@@ -120,11 +120,11 @@ pub(crate) enum MachineAplicHandoff {
 pub(crate) struct InterruptDescriptions {
     clint: Option<NodeSelection<ClintResource>>,
     imsic: Option<NodeSelection<ImsicInfo>>,
-    machine_aplic: Option<NodeSelection<DeviceRegisterRange>>,
+    machine_aplic: Option<NodeSelection<RegRange>>,
     machine_aplic_handoff: MachineAplicHandoff,
-    pub(crate) thead_plic: Option<DeviceRegisterRange>,
-    pub(crate) plmt: Option<DeviceRegisterRange>,
-    pub(crate) plicsw: Option<DeviceRegisterRange>,
+    pub(crate) thead_plic: Option<RegRange>,
+    pub(crate) plmt: Option<RegRange>,
+    pub(crate) plicsw: Option<RegRange>,
 }
 
 impl InterruptDescriptions {
@@ -136,7 +136,7 @@ impl InterruptDescriptions {
         self.imsic.as_ref()
     }
 
-    pub(crate) fn machine_aplic(&self) -> Option<&NodeSelection<DeviceRegisterRange>> {
+    pub(crate) fn machine_aplic(&self) -> Option<&NodeSelection<RegRange>> {
         self.machine_aplic.as_ref()
     }
 
@@ -150,7 +150,7 @@ impl InterruptDescriptions {
 
     pub(crate) fn set_machine_aplic(
         &mut self,
-        value: DeviceRegisterRange,
+        value: RegRange,
         source_path: &[&str],
         handoff: MachineAplicHandoff,
     ) -> Result<()> {

@@ -3,7 +3,7 @@
 use runtime::{
     Error, Result,
     hart::HartId,
-    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+    memory::{RegRange, MemoryRegistry, MmioRegion},
 };
 
 use super::TimerDevice;
@@ -26,7 +26,7 @@ pub(super) struct Plmt {
 
 /// Binds the timer registers below the exclusive raw hart ID upper bound.
 pub(super) fn bind(
-    registers: DeviceRegisterRange,
+    registers: RegRange,
     memory: &mut MemoryRegistry,
     hart_id_upper_bound: usize,
 ) -> Result<Plmt> {

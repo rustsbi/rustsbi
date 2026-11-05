@@ -8,7 +8,7 @@
 use core::mem::{align_of, size_of};
 use runtime::{
     Error, PlatformView, Result,
-    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+    memory::{RegRange, MemoryRegistry, MmioRegion},
 };
 
 use crate::devicetree::EnabledNode;
@@ -34,7 +34,7 @@ const COMPATIBLES: [&str; 1] = ["sifive,test0"];
 /// Devicetree description for the SiFive test finisher.
 #[derive(Default)]
 pub(in crate::driver::reset) struct SifiveTestDriver {
-    registers: Option<DeviceRegisterRange>,
+    registers: Option<RegRange>,
 }
 
 impl ResetDriver for SifiveTestDriver {
@@ -118,7 +118,7 @@ struct SifiveTestDevice {
 }
 
 impl SifiveTestDevice {
-    fn bind(registers: DeviceRegisterRange, memory: &mut MemoryRegistry) -> Result<Self> {
+    fn bind(registers: RegRange, memory: &mut MemoryRegistry) -> Result<Self> {
         let registers = registers.subrange(0, SPAN)?;
         if !registers.start().is_aligned_to(align_of::<u32>()) {
             return Err(Error::InvalidArgs);

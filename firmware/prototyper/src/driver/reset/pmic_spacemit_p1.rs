@@ -10,7 +10,7 @@ mod controller;
 use bitflags::bitflags;
 use runtime::{
     Error, PlatformView, Result,
-    memory::{DeviceRegisterRange, MemoryRegistry},
+    memory::{RegRange, MemoryRegistry},
 };
 
 use crate::devicetree::EnabledNode;
@@ -75,7 +75,7 @@ const I2C_COMPATIBLES: [&str; 2] = ["spacemit,k1-i2c", "ky,i2c"];
 /// Devicetree description for the PMIC and its I2C controller.
 #[derive(Clone, Copy)]
 struct P1PmicDescription {
-    controller: DeviceRegisterRange,
+    controller: RegRange,
     address: I2cAddress,
 }
 
@@ -161,7 +161,7 @@ impl ResetDriver for P1PmicDriver {
 
 impl P1Pmic {
     fn bind(
-        registers: DeviceRegisterRange,
+        registers: RegRange,
         address: I2cAddress,
         timebase_frequency_hz: Option<u32>,
         memory: &mut MemoryRegistry,

@@ -2,14 +2,14 @@
 
 use fdt::node::FdtNode;
 
-use crate::memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange};
+use crate::memory::{RegRange, PhysAddr, PhysAddrRange};
 use crate::{Error, Result, node_is_enabled};
 
 /// Decodes the absolute GPRCM address and size independently of parent cells.
 pub(crate) fn gprcm_registers(
     node: FdtNode<'_, '_>,
     fdt_storage: PhysAddrRange,
-) -> Result<Option<DeviceRegisterRange>> {
+) -> Result<Option<RegRange>> {
     if !node_is_enabled(node)
         || !node
             .compatible()
@@ -28,7 +28,7 @@ pub(crate) fn gprcm_registers(
     }
     let (start, len) = decode_gprcm(bytes)?;
     PhysAddrRange::from_start_len(PhysAddr::new(start), len)
-        .map(DeviceRegisterRange::from_description)
+        .map(RegRange::from_description)
         .map(Some)
 }
 

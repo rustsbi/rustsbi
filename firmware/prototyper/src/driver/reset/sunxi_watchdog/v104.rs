@@ -14,7 +14,7 @@
 use core::mem::{align_of, size_of};
 use runtime::{
     Error, PlatformView, Result,
-    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+    memory::{RegRange, MemoryRegistry, MmioRegion},
     timer,
 };
 
@@ -40,7 +40,7 @@ const COMPATIBLES: [&str; 2] = ["allwinner,sun20i-d1-wdt", "allwinner,wdt-v104"]
 /// Devicetree description for the Sunxi V104 watchdog.
 #[derive(Default)]
 pub(in crate::driver::reset) struct V104Driver {
-    registers: Option<DeviceRegisterRange>,
+    registers: Option<RegRange>,
 }
 
 impl ResetDriver for V104Driver {
@@ -98,7 +98,7 @@ struct V104Watchdog {
 
 impl V104Watchdog {
     fn bind(
-        registers: DeviceRegisterRange,
+        registers: RegRange,
         timebase_frequency_hz: Option<u32>,
         memory: &mut MemoryRegistry,
     ) -> Result<Self> {

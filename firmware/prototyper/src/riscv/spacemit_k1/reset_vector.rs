@@ -5,7 +5,7 @@
 
 use runtime::{
     Result,
-    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+    memory::{RegRange, MemoryRegistry, MmioRegion},
 };
 
 #[repr(usize)]
@@ -19,7 +19,7 @@ pub(super) struct ResetVectorRegisters([MmioRegion; 2]);
 impl ResetVectorRegisters {
     pub(super) fn acquire(
         memory: &mut MemoryRegistry,
-        [cluster0, cluster1]: [DeviceRegisterRange; 2],
+        [cluster0, cluster1]: [RegRange; 2],
     ) -> Result<Self> {
         let cluster0 = memory.acquire(cluster0)?;
         let cluster1 = memory.acquire(cluster1)?;
