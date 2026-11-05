@@ -53,6 +53,8 @@ impl ValidationNode {
             _ => return Ok(()),
         };
         let value = single_cell(value)?;
+        // A node may declare each cell count at most once; a duplicate would
+        // leave the effective count ambiguous.
         if slot.replace(value).is_some() {
             return Err(Error::InvalidArgs);
         }
@@ -241,8 +243,9 @@ fn single_cell(value: &[u8]) -> Result<u32> {
     read_u32(value, 0)
 }
 
-/// Validates structure tokens without heap allocation. This runs at the boot
-/// trust seam, before the firmware heap is initialized.
+/// Validates structure tokens without heap allocation.
+///
+/// This runs before the firmware heap is initialized.
 pub(in crate::device_tree::patch) fn validate_structure(
     structure: &[u8],
     strings: &[u8],
