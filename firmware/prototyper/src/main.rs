@@ -21,6 +21,7 @@ use csr::machine::TargetPrivilege as MPP;
 use runtime::{
     boot, entry,
     hart::{self, HartId},
+    timer,
 };
 
 #[entry]
@@ -41,11 +42,10 @@ fn boot_hart(mut boot: BootInfo) {
     let platform_description = boot
         .take_platform_description()
         .expect("BUG: boot hart entered without a validated Platform Description");
-    let next_stage_fdt_address = platform::init_board(platform_description);
+    let next_stage_fdt_address = platform::init_platform(platform_description);
 
-    let firmware_ram = platform::firmware_ram_range();
-    firmware::set_pmp(&firmware_ram);
-    firmware::log_pmp_cfg(&firmware_ram);
+    firmware::set_pmp();
+    firmware::log_pmp_cfg();
 
     let hart = HartId::current().expect("BUG: current hart is not in the boot topology");
     info!("{:<30}: {}", "Boot HART ID", hart.as_usize());
@@ -74,7 +74,7 @@ fn secondary_hart(boot: Option<&BootInfo>) {
     detect_hart_features();
 
     platform::initialize_secondary_hart();
-    firmware::set_pmp(&platform::firmware_ram_range());
+    firmware::set_pmp();
 
     // Hardware-reset harts have no SPL handoff; HSM starts them in S-mode.
     let next_mode = boot.map_or(MPP::Supervisor, |boot| boot.next_stage().next_mode);
@@ -87,7 +87,9 @@ fn enable_supervisor_services() {
     sbi::features::configure_hart_environment();
     // The supervisor owns its timer, so discard any firmware deadline before
     // entry; otherwise a stale comparator could inject an early interrupt.
-    sbi::timer().set_deadline(u64::MAX);
+    if let Some(timer) = timer::get() {
+        timer.set_deadline(u64::MAX);
+    }
     // SAFETY:
     // 1. Runtime startup installed trap entry.
     // 2. This hart is still in M-mode with machine interrupts disabled and no

@@ -4,7 +4,7 @@ use runtime::SpacemitK1Registers;
 
 /// K1 system registers collected from the platform description.
 pub(crate) struct Desc {
-    pub(crate) registers: SpacemitK1Registers,
+    pub(super) registers: SpacemitK1Registers,
 }
 
 impl Desc {

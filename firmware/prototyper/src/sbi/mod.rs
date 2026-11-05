@@ -1,9 +1,11 @@
 //! SBI extension implementations and the platform's published dispatcher.
 //!
-//! Platform boot selects the extension fields. Runtime calls the dispatcher
-//! through the original RustSBI trait and borrows its timer and IPI objects.
+//! Runtime calls the dispatcher through the original RustSBI trait.
 
+use alloc::boxed::Box;
 use runtime::rustsbi::{self, RustSBI};
+use runtime::{console as runtime_console, events, ipi as runtime_ipi, memory::SupervisorMemory};
+use spin::Once;
 
 pub mod console;
 pub mod cppc;
@@ -37,6 +39,7 @@ use sta::SbiSta;
 use suspend::SbiSuspend;
 use timer::SbiTimer;
 
+/// The SBI extensions provided by the firmware.
 #[runtime::sbi_policy]
 #[derive(RustSBI)]
 #[rustsbi(dynamic, crate = rustsbi)]
@@ -71,26 +74,49 @@ pub struct SbiDispatcher {
     pub(crate) vendor: Option<vendor::Vendor>,
 }
 
-/// Returns the published SBI timer policy.
-pub(crate) fn timer() -> &'static SbiTimer {
-    &SbiDispatcher::get()
-        .expect("SBI dispatcher not initialized")
-        .timer
+/// Publishes the SBI services after their Runtime devices are initialized.
+pub(crate) fn init(
+    supervisor_memory: SupervisorMemory,
+    custom_extension: vendor::Extension,
+    pmu: Option<SbiPmu>,
+    hardware_wakeup: bool,
+) {
+    static SUPERVISOR_MEMORY: Once<SupervisorMemory> = Once::new();
+    let supervisor_memory = SUPERVISOR_MEMORY.call_once(|| supervisor_memory);
+    let ipi = runtime_ipi::get().map(|_| SbiIpi);
+    events::install(pmu.as_ref().map(|_| pmu::runtime_counters()));
+
+    logger::Logger::init().expect("BUG: firmware logger initialized more than once");
+    info!("Hello RustSBI!");
+
+    let console = runtime_console::get().map(|_| SbiConsole::new(supervisor_memory));
+    let ipi_available = ipi.is_some();
+    let hsm = ipi_available.then(|| SbiHsm::new(hardware_wakeup));
+    let dispatcher: &'static SbiDispatcher = Box::leak(Box::new(SbiDispatcher {
+        console,
+        cppc: Some(SbiCppc::new()),
+        dbtr: Some(SbiDbtr::new(supervisor_memory)),
+        fwft: Some(SbiFwft),
+        ipi,
+        timer: SbiTimer,
+        reset: SbiReset,
+        rfence: ipi_available
+            .then(|| SbiRFence::new().expect("BUG: RFENCE IPI event registration failed")),
+        susp: hsm.as_ref().map(|_| SbiSuspend),
+        hsm,
+        pmu,
+        sta: Some(SbiSta::new(supervisor_memory)),
+        mpxy: Some(SbiMpxy::new(supervisor_memory)),
+        vendor: vendor::Vendor::new(custom_extension, supervisor_memory),
+    }));
+    dispatcher
+        .publish()
+        .expect("BUG: SBI policy publication failed");
 }
 
 /// Returns the HSM extension, if present.
 pub(crate) fn hsm() -> Option<&'static SbiHsm> {
     SbiDispatcher::get().and_then(|sbi| sbi.hsm.as_ref())
-}
-
-/// Returns the RFence extension, if present.
-pub(crate) fn rfence() -> Option<&'static SbiRFence> {
-    SbiDispatcher::get().and_then(|sbi| sbi.rfence.as_ref())
-}
-
-/// Returns the SUSP extension, if present.
-pub(crate) fn susp() -> Option<&'static SbiSuspend> {
-    SbiDispatcher::get().and_then(|sbi| sbi.susp.as_ref())
 }
 
 /// Returns the PMU extension, if present.

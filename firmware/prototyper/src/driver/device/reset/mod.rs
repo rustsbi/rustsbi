@@ -12,7 +12,7 @@ mod syscon;
 use runtime::{Error, FdtNode, PlatformView, Result, memory::RegRange};
 
 pub(crate) use runtime::reset::{ResetDevice, ResetReason, ResetRequest, ResetType};
-pub(crate) use selection::{Desc, describe};
+pub(crate) use selection::describe;
 
 /// Stores `value` in `slot` and rejects a second match.
 ///

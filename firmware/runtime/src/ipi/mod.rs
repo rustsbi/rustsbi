@@ -38,11 +38,6 @@ enum Device {
 }
 
 impl Ipi {
-    /// Returns whether this service uses machine external interrupts.
-    pub fn is_external(&self) -> bool {
-        matches!(&self.device, Device::External { .. })
-    }
-
     /// Constructs an IPI service using a machine software interrupt device.
     ///
     /// Returns [`Error::NotReady`] if the hart topology is not published.

@@ -14,26 +14,55 @@ cfg_if::cfg_if! {
     }
 }
 
-use core::{arch::asm, fmt, ops::Range};
+use core::{arch::asm, fmt};
 use runtime::{
     DeviceTreeHandoff, Error, PlatformDescription, Result,
     boot::NextStage,
-    ipi,
-    memory::{PhysAddr, PhysAddrRange, locate_firmware_image},
+    memory::{PhysAddr, PhysAddrRange, RegRange, locate_firmware_image},
 };
+use spin::Once;
 
 use csr::machine::{PmpAddress, PmpConfiguration, PmpEntry, PmpPermission, PmpRange};
 
-use crate::{cfg, platform};
+use crate::cfg;
 
-/// Boot information decoded from the previous-stage register envelope (a1/a2).
+/// Machine interrupt-controller MMIO ranges used by the PMP layout.
+pub(crate) struct IrqMmio {
+    pub(crate) clint_start: usize,
+    pub(crate) aplic: RegRange,
+    pub(crate) imsic_start: usize,
+    pub(crate) imsic_end: usize,
+}
+
+struct PmpLayout {
+    firmware_ram: PhysAddrRange,
+    noncacheable_alias_offset: Option<u64>,
+    irq_mmio: Option<IrqMmio>,
+}
+
+static PMP: Once<PmpLayout> = Once::new();
+
+pub(crate) fn init_pmp(
+    firmware_ram: PhysAddrRange,
+    noncacheable_alias_offset: Option<u64>,
+    irq_mmio: Option<IrqMmio>,
+) {
+    PMP.call_once(|| PmpLayout {
+        firmware_ram,
+        noncacheable_alias_offset,
+        irq_mmio,
+    });
+}
+
+/// Boot information decoded from the previous-stage register envelope (`a1`/`a2`).
 pub(crate) struct BootInfo {
     /// The unmodified device-tree address received in `a1`.
     device_tree_address: usize,
     is_boot_hart: bool,
     platform_description: Option<PlatformDescription>,
-    /// The `a2` `DynamicInfo` address, kept for the deferred `next_stage()`
-    /// decode.
+    /// The `DynamicInfo` address received in `a2`.
+    ///
+    /// Used to decode the next-stage handoff.
     dynamic_info_address: usize,
 }
 
@@ -222,12 +251,21 @@ unsafe fn set_pmp_config(index: usize, range: PmpRange, permission: PmpPermissio
 }
 
 /// Installs PMP entries isolating firmware memory from S-mode.
-pub fn set_pmp(firmware_ram: &Range<usize>) {
+pub fn set_pmp() {
+    let pmp = PMP
+        .get()
+        .expect("BUG: PMP layout used before initialization");
+    let range = pmp.firmware_ram;
+    let firmware_ram = range.start().as_usize()..range.end().as_usize();
+    // FIXME: These PMP updates do not synchronize address-translation caches
+    // as required when page-based virtual memory is implemented.
+    // See RISC-V Privileged Architecture, Section 3.7.2:
+    // <https://docs.riscv.org/reference/isa/v20240411/_attachments/riscv-privileged.pdf>.
     // SAFETY:
     // 1. Startup owns this hart's PMP state in M-mode before lower-mode entry.
     // 2. The platform implements the PMP entries and encodings used below.
-    // 3. Linker and RAM bounds are checked below.
-    // PMP updates here are not synchronized with address-translation caches.
+    // 3. Platform initialization selected a RAM bank containing the firmware.
+    //    Section addresses come from the linker and are checked for alignment.
     unsafe {
         // [0..firmware_ram.start] RWX
         // [firmware_ram.start..firmware_start] RWX
@@ -264,35 +302,14 @@ pub fn set_pmp(firmware_ram: &Range<usize>) {
 
         // Keep machine-level interrupt controllers inaccessible to S-mode
         // only when the IMSIC device retained them for firmware use.
-        if ipi::get().is_some_and(|ipi| ipi.is_external())
-            && platform::board_info().is_qemu_virt()
-            && let Some(imsic) = platform::board_info().devices.interrupts.imsic()
-        {
-            const QEMU_VIRT_CLINT_BASE: usize = 0x0200_0000;
+        if let Some(irq_mmio) = &pmp.irq_mmio {
             const QEMU_VIRT_CLINT_SIZE: usize = 0x1_0000;
-
-            let clint_start = platform::board_info()
-                .devices
-                .interrupts
-                .clint()
-                .map(|description| description.resource().registers.start().as_usize())
-                .unwrap_or(QEMU_VIRT_CLINT_BASE);
+            let clint_start = irq_mmio.clint_start;
             let clint_end = clint_start + QEMU_VIRT_CLINT_SIZE;
-            let aplic_registers = platform::board_info()
-                .devices
-                .interrupts
-                .machine_aplic()
-                .expect("BUG: QEMU AIA setup requires a machine APLIC");
-            let aplic_start = aplic_registers.resource().start().as_usize();
-            let aplic_end = aplic_registers.resource().end().as_usize();
-            let machine_imsic_start = imsic.resource().layout.machine_base.as_usize();
-            let machine_imsic_end = imsic
-                .resource()
-                .hart_files
-                .iter()
-                .map(|range| range.end().as_usize())
-                .max()
-                .expect("BUG: every enabled hart requires an IMSIC file");
+            let aplic_start = irq_mmio.aplic.start().as_usize();
+            let aplic_end = irq_mmio.aplic.end().as_usize();
+            let machine_imsic_start = irq_mmio.imsic_start;
+            let machine_imsic_end = irq_mmio.imsic_end;
 
             set_pmp_config(0, PmpRange::Off, PmpPermission::None, false);
             PmpAddress::<0>::write(0);
@@ -339,7 +356,7 @@ pub fn set_pmp(firmware_ram: &Range<usize>) {
         PmpAddress::<5>::write(firmware_end_address >> 2);
         set_pmp_config(6, PmpRange::Tor, PmpPermission::Rwx, false);
         PmpAddress::<6>::write(firmware_ram.end >> 2);
-        if let Some(alias) = platform::board_info().memory.noncacheable_alias_offset {
+        if let Some(alias) = pmp.noncacheable_alias_offset {
             assert!(alias.is_power_of_two() && alias >= firmware_ram.end as u64);
             let start = (firmware_start_address as u64)
                 .checked_add(alias)
@@ -363,11 +380,11 @@ pub fn set_pmp(firmware_ram: &Range<usize>) {
     }
 }
 
-/// Formats a PMP permission for logs.
+/// A PMP permission formatter for logs.
 #[repr(transparent)]
 struct PermissionWrapper(pub PmpPermission);
 
-/// Formats a PMP range encoding for logs.
+/// A PMP range formatter for logs.
 #[repr(transparent)]
 struct RangeWrapper(pub PmpRange);
 
@@ -398,7 +415,7 @@ impl fmt::Display for RangeWrapper {
 }
 
 /// Logs the active PMP configuration.
-pub fn log_pmp_cfg(_firmware_ram: &Range<usize>) {
+pub fn log_pmp_cfg() {
     let pmp_config = |index: usize| {
         #[cfg(target_pointer_width = "32")]
         if index >= 4 {
@@ -438,8 +455,9 @@ pub fn log_pmp_cfg(_firmware_ram: &Range<usize>) {
     seq_macro::seq!(N in 0..8 {
         log_entry(N, PmpAddress::<N>::read());
     });
-    if platform::board_info()
-        .memory
+    if PMP
+        .get()
+        .expect("BUG: PMP layout used before initialization")
         .noncacheable_alias_offset
         .is_some()
     {

@@ -1,97 +1,25 @@
 //! Startup log for the discovered platform.
 
-use alloc::vec::Vec;
 use runtime::{
     hart::HartId,
-    ipi,
+    memory::PhysAddrRange,
     rustsbi::{LOGO, VERSION},
 };
 
-use super::info::BoardInfo;
-use super::state::board_info;
-use crate::sbi;
-
-pub(super) fn log_platform_summary() {
-    let board = board_info();
-
+pub(super) fn log_platform_summary(
+    model: &str,
+    timebase_frequency_hz: Option<u32>,
+    ram_ranges: impl Iterator<Item = PhysAddrRange>,
+) {
     info!("RustSBI version {}", VERSION);
     LOGO.lines().for_each(|line| info!("{}", line));
     info!("Initializing RustSBI machine-mode environment.");
-    info!("{:<30}: {}", "Platform Name", board.model);
-
-    log_harts();
-    log_interrupt_controller(board);
-    log_sbi_extensions();
-    log_ram(board);
-}
-
-fn log_harts() {
+    info!("{:<30}: {}", "Platform Name", model);
+    if let Some(frequency) = timebase_frequency_hz {
+        info!("{:<30}: {} Hz", "Platform Timebase Frequency", frequency);
+    }
     info!("{:<30}: {}", "Platform HART Count", HartId::count());
-
-    let enabled_harts: Vec<_> = HartId::all().map(|hart| hart.as_usize()).collect();
-    info!("{:<30}: {:?}", "Enabled HARTs", enabled_harts);
-}
-
-fn log_interrupt_controller(board: &BoardInfo) {
-    if ipi::get().is_some_and(|ipi| ipi.is_external())
-        && let Some(imsic) = board.devices.interrupts.imsic()
-    {
-        info!(
-            "{:<30}: IMSIC (M-level Base Address: 0x{:x})",
-            "Platform IPI Extension",
-            imsic.resource().layout.machine_base.as_usize()
-        );
-        return;
-    }
-
-    if let (Some(plmt), Some(plicsw)) = (
-        board.devices.interrupts.plmt,
-        board.devices.interrupts.plicsw,
-    ) {
-        info!(
-            "{:<30}: Sunxi PLICSW (Base Address: 0x{:x})",
-            "Platform IPI Extension",
-            plicsw.start().as_usize()
-        );
-        info!(
-            "{:<30}: Andes PLMT (Base Address: 0x{:x})",
-            "Platform Timer Extension",
-            plmt.start().as_usize()
-        );
-        return;
-    }
-    match board.devices.interrupts.clint() {
-        Some(description) => info!(
-            "{:<30}: {} (Base Address: 0x{:x})",
-            "Platform IPI Extension",
-            description.resource().kind.name(),
-            description.resource().registers.start().as_usize()
-        ),
-        None => warn!("{:<30}: Not Available", "Platform IPI Device"),
-    }
-}
-
-fn log_sbi_extensions() {
-    log_availability("Platform HSM Extension", sbi::hsm().is_some());
-    log_availability("Platform RFence Extension", sbi::rfence().is_some());
-    log_availability("Platform SUSP Extension", sbi::susp().is_some());
-    log_availability("Platform PMU Extension", sbi::pmu().is_some());
-}
-
-fn log_availability(name: &str, available: bool) {
-    if available {
-        info!("{name:<30}: Available");
-    } else {
-        warn!("{name:<30}: Not Available");
-    }
-}
-
-fn log_ram(board: &BoardInfo) {
-    if board.memory.ram_ranges.is_empty() {
-        warn!("{:<30}: Not Available", "Platform RAM");
-        return;
-    }
-    for (index, range) in board.memory.ram_ranges.iter().enumerate() {
+    for (index, range) in ram_ranges.enumerate() {
         info!(
             "{:<30}: 0x{:x} - 0x{:x}",
             if index == 0 { "Platform RAM" } else { "" },

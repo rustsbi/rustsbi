@@ -1,30 +1,21 @@
-//! Hart and model discovery.
+//! Parsing hart and timebase information.
 
-use alloc::{string::ToString, vec::Vec};
+use alloc::vec::Vec;
 use runtime::{Error, PlatformView, Result, hart::HartId, node_is_enabled};
 
 use crate::devicetree::{is_cpu_node, u32_property};
-use crate::platform::info::BoardInfo;
+use crate::driver::device::imsic::{self, CpuInterruptController};
 use crate::sbi::features::{install_extensions, parse_extensions};
 
-use super::imsic::{self, CpuInterruptController};
-
-/// Reads hart features and CPU interrupt-controller wiring from the platform description.
-pub(super) fn discover(
-    board: &mut BoardInfo,
+/// Reads the timebase, installs hart features, and returns CPU interrupt-controller wiring.
+pub(super) fn describe(
     platform: &PlatformView<'_>,
-) -> Result<Vec<CpuInterruptController>> {
-    let root = platform.root();
+) -> Result<(Option<u32>, Vec<CpuInterruptController>)> {
     let cpus = platform
         .find_enabled_node("/cpus")
         .ok_or(Error::InvalidArgs)?;
-    board.timebase_frequency_hz =
+    let timebase_frequency_hz =
         u32_property(cpus, "timebase-frequency").filter(|frequency| *frequency != 0);
-    board.model = root
-        .property("model")
-        .and_then(|property| property.as_str())
-        .unwrap_or("<unspecified>")
-        .to_string();
 
     let mut controllers = Vec::new();
     for node in cpus.children().filter(|node| is_cpu_node(*node)) {
@@ -40,5 +31,5 @@ pub(super) fn discover(
         install_extensions(hart, parse_extensions(node));
     }
 
-    Ok(controllers)
+    Ok((timebase_frequency_hz, controllers))
 }
