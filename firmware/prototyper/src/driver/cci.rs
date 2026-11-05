@@ -9,7 +9,7 @@
 use bitflags::bitflags;
 use runtime::{
     Result,
-    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+    memory::{RegRange, MemoryRegistry, MmioRegion},
 };
 
 bitflags! {
@@ -58,8 +58,8 @@ pub(crate) struct Cci550<const N: usize> {
 impl<const N: usize> Cci550<N> {
     pub(crate) fn acquire(
         memory: &mut MemoryRegistry,
-        status: DeviceRegisterRange,
-        snoop_controls: [DeviceRegisterRange; N],
+        status: RegRange,
+        snoop_controls: [RegRange; N],
     ) -> Result<Self> {
         let status = StatusRegister(memory.acquire(status)?);
         let mut snoop_control = [const { None }; N];

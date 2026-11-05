@@ -3,7 +3,7 @@
 //! This pass records unbound interrupt descriptions in [`BoardInfo`]. Driver
 //! selection and MMIO ownership remain in [`crate::driver`].
 
-use runtime::{Compatible, Error, FdtNode, PlatformView, Result, memory::DeviceRegisterRange};
+use runtime::{Compatible, Error, FdtNode, PlatformView, Result, memory::RegRange};
 
 use crate::devicetree::EnabledNode;
 use crate::driver;
@@ -98,8 +98,8 @@ impl InterruptController {
         board: &mut BoardInfo,
         node: FdtNode<'_, '_>,
         source_path: &[&str],
-        registers: Option<&[DeviceRegisterRange]>,
-        primary_register_range: DeviceRegisterRange,
+        registers: Option<&[RegRange]>,
+        primary_register_range: RegRange,
         cpu_interrupt_controllers: &[imsic::CpuInterruptController],
     ) -> Result<()> {
         match self {

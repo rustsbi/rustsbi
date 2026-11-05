@@ -10,7 +10,7 @@ use bitflags::bitflags;
 use core::mem::size_of;
 use runtime::{
     Result,
-    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+    memory::{RegRange, MemoryRegistry, MmioRegion},
 };
 
 use crate::driver::console::{DbcnBackend, DbcnError, acquire_registers};
@@ -39,7 +39,7 @@ bitflags! {
 }
 
 pub(super) fn bind_u8(
-    registers: DeviceRegisterRange,
+    registers: RegRange,
     memory: &mut MemoryRegistry,
 ) -> Result<Box<dyn DbcnBackend + Send>> {
     let registers = acquire_registers::<u8>(registers, U8_SPAN, memory)?;
@@ -47,7 +47,7 @@ pub(super) fn bind_u8(
 }
 
 pub(super) fn bind_u32(
-    registers: DeviceRegisterRange,
+    registers: RegRange,
     memory: &mut MemoryRegistry,
 ) -> Result<Box<dyn DbcnBackend + Send>> {
     let registers = acquire_registers::<u32>(registers, U32_SPAN, memory)?;

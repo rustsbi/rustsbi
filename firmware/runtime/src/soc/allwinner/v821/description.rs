@@ -10,7 +10,7 @@ use core::mem::size_of;
 use fdt::node::FdtNode;
 
 use crate::Result;
-use crate::memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange};
+use crate::memory::{RegRange, PhysAddr, PhysAddrRange};
 use crate::soc::Soc;
 
 const V821_COMPATIBLE: &str = "allwinner,v821";
@@ -40,17 +40,17 @@ impl Soc for AllwinnerV821Soc {
 
 impl AllwinnerV821Soc {
     /// PRCM system private word used to release boot0's ISP SRAM.
-    pub fn boot0_isp_sram_release(self) -> Result<DeviceRegisterRange> {
+    pub fn boot0_isp_sram_release(self) -> Result<RegRange> {
         PhysAddrRange::from_start_len(PhysAddr::new(PRCM_SYSTEM_PRIVATE0), size_of::<u32>())
-            .map(DeviceRegisterRange::from_description)
+            .map(RegRange::from_description)
     }
 
     /// PLMT timer clock gate in the V821 CCU register map.
-    pub fn plmt_clock(self) -> Result<DeviceRegisterRange> {
+    pub fn plmt_clock(self) -> Result<RegRange> {
         PhysAddrRange::from_start_len(
             PhysAddr::new(CCU_BASE + PLMT_CLOCK_CONTROL_OFFSET),
             size_of::<u32>(),
         )
-        .map(DeviceRegisterRange::from_description)
+        .map(RegRange::from_description)
     }
 }

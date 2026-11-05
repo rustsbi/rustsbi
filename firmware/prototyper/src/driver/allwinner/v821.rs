@@ -17,7 +17,7 @@
 use runtime::{
     Error, Result,
     memory::{
-        DeviceRegisterRange, MemoryRegistry, MmioRegion, PhysAddr, PhysAddrRange, SupervisorMemory,
+        RegRange, MemoryRegistry, MmioRegion, PhysAddr, PhysAddrRange, SupervisorMemory,
     },
     soc::allwinner::v821::{
         A27L2LineOperation as L1Operation, AllwinnerV821Soc, AndesStatusRegister, V821Csr,
@@ -100,7 +100,7 @@ pub(crate) fn enable_plmt_clock(soc: AllwinnerV821Soc, memory: &mut MemoryRegist
 impl A27L2Cache {
     pub(crate) fn bind(
         soc: AllwinnerV821Soc,
-        registers: DeviceRegisterRange,
+        registers: RegRange,
         memory: &mut MemoryRegistry,
     ) -> Result<Self> {
         let registers = CacheRegisters {
@@ -226,7 +226,7 @@ enum RangeOperation {
 
 impl UsbDmaBypass {
     pub(crate) fn bind(
-        registers: DeviceRegisterRange,
+        registers: RegRange,
         memory: &mut MemoryRegistry,
     ) -> Result<Self> {
         Ok(Self {

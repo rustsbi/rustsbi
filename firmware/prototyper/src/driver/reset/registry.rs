@@ -8,7 +8,7 @@ use alloc::{boxed::Box, vec, vec::Vec};
 
 use runtime::{
     Error, FdtNode, PlatformView, Result,
-    memory::{DeviceRegisterRange, MemoryRegistry},
+    memory::{RegRange, MemoryRegistry},
 };
 
 use crate::devicetree::EnabledNode;
@@ -120,6 +120,6 @@ pub(super) fn set_once<T>(slot: &mut Option<T>, value: T) -> Result<()> {
 pub(super) fn primary_registers(
     platform: &PlatformView<'_>,
     node: FdtNode<'_, '_>,
-) -> Result<DeviceRegisterRange> {
+) -> Result<RegRange> {
     platform.device_register(node)?.ok_or(Error::InvalidArgs)
 }

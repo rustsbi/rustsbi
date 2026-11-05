@@ -20,7 +20,7 @@ use runtime::{
     Error, Result,
     hart::HartId,
     ipi::{Acknowledge, IpiDevice, Software},
-    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+    memory::{RegRange, MemoryRegistry, MmioRegion},
     timer::TimerDevice,
 };
 
@@ -48,7 +48,7 @@ impl TimerRegister {
 }
 
 pub(super) fn bind(
-    registers: DeviceRegisterRange,
+    registers: RegRange,
     memory: &mut MemoryRegistry,
     hart_id_upper_bound: usize,
 ) -> Result<(Box<dyn TimerDevice>, Box<dyn IpiDevice<Software>>)> {
@@ -73,7 +73,7 @@ pub(super) fn bind(
 }
 
 pub(super) fn bind_timer(
-    registers: DeviceRegisterRange,
+    registers: RegRange,
     memory: &mut MemoryRegistry,
     hart_id_upper_bound: usize,
 ) -> Result<Box<dyn TimerDevice>> {
@@ -82,9 +82,9 @@ pub(super) fn bind_timer(
 }
 
 fn timer_registers(
-    registers: DeviceRegisterRange,
+    registers: RegRange,
     hart_id_upper_bound: usize,
-) -> Result<DeviceRegisterRange> {
+) -> Result<RegRange> {
     let size = hart_id_upper_bound
         .checked_mul(size_of::<u64>())
         .ok_or(Error::Overflow)?;

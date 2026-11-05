@@ -11,7 +11,7 @@ use fdt::{Fdt, node::FdtNode};
 use spin::Once;
 
 use crate::memory::{
-    DeviceRegisterRange, MemoryRegistry, PhysAddr, PhysAddrRange, SupervisorMemory,
+    RegRange, MemoryRegistry, PhysAddr, PhysAddrRange, SupervisorMemory,
     locate_firmware_image,
 };
 use crate::spacemit_k1::SpacemitK1Registers;
@@ -205,7 +205,7 @@ impl<'tree> PlatformView<'tree> {
     pub fn device_registers(
         &self,
         node: FdtNode<'_, 'tree>,
-    ) -> Result<Option<Vec<DeviceRegisterRange>>> {
+    ) -> Result<Option<Vec<RegRange>>> {
         if !node_is_enabled(node) {
             return Ok(None);
         }
@@ -228,7 +228,7 @@ impl<'tree> PlatformView<'tree> {
                 PhysAddr::new(register.starting_address as usize),
                 register.size.ok_or(Error::InvalidArgs)?,
             )?;
-            ranges.push(DeviceRegisterRange::from_description(range));
+            ranges.push(RegRange::from_description(range));
         }
         Ok((!ranges.is_empty()).then_some(ranges))
     }
@@ -246,7 +246,7 @@ impl<'tree> PlatformView<'tree> {
         &self,
         node: FdtNode<'_, 'tree>,
         name: &str,
-    ) -> Result<Option<DeviceRegisterRange>> {
+    ) -> Result<Option<RegRange>> {
         if !node_is_enabled(node) {
             return Ok(None);
         }
@@ -288,7 +288,7 @@ impl<'tree> PlatformView<'tree> {
     /// Most device drivers consume only the primary `reg` entry. Callers such
     /// as IMSIC discovery use [`Self::device_registers`] when they need the
     /// complete layout.
-    pub fn device_register(&self, node: FdtNode<'_, 'tree>) -> Result<Option<DeviceRegisterRange>> {
+    pub fn device_register(&self, node: FdtNode<'_, 'tree>) -> Result<Option<RegRange>> {
         if !node_is_enabled(node) {
             return Ok(None);
         }
@@ -310,7 +310,7 @@ impl<'tree> PlatformView<'tree> {
             PhysAddr::new(register.starting_address as usize),
             register.size.ok_or(Error::InvalidArgs)?,
         )?;
-        Ok(Some(DeviceRegisterRange::from_description(range)))
+        Ok(Some(RegRange::from_description(range)))
     }
 
     /// Returns K1 fixed-register capabilities when this description identifies K1.
@@ -328,7 +328,7 @@ impl<'tree> PlatformView<'tree> {
     pub fn sunxi_rtc_v203_gprcm(
         &self,
         node: FdtNode<'_, 'tree>,
-    ) -> Result<Option<DeviceRegisterRange>> {
+    ) -> Result<Option<RegRange>> {
         crate::sunxi_rtc_v203::gprcm_registers(node, self.fdt_storage)
     }
 }

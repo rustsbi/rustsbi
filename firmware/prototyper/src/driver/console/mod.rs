@@ -17,7 +17,7 @@ use alloc::boxed::Box;
 use core::mem::align_of;
 use runtime::{
     Error, Result,
-    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion, MmioValue},
+    memory::{RegRange, MemoryRegistry, MmioRegion, MmioValue},
 };
 
 use crate::platform::BoardInfo;
@@ -103,7 +103,7 @@ pub(crate) fn uart_divisor(clock_hz: u32) -> Option<u16> {
 }
 
 fn acquire_registers<T: MmioValue>(
-    registers: DeviceRegisterRange,
+    registers: RegRange,
     span: usize,
     memory: &mut MemoryRegistry,
 ) -> Result<MmioRegion> {

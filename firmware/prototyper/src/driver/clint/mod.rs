@@ -7,7 +7,7 @@ mod thead;
 use runtime::{
     Result,
     ipi::{IpiDevice, Software},
-    memory::{DeviceRegisterRange, MemoryRegistry},
+    memory::{RegRange, MemoryRegistry},
     timer::TimerDevice,
 };
 
@@ -20,7 +20,7 @@ pub(crate) use kind::ClintKind;
 /// `hart_id_upper_bound` is the exclusive raw hart ID bound used to size
 /// directly indexed register windows, including gaps between enabled IDs.
 pub(super) fn bind(
-    registers: DeviceRegisterRange,
+    registers: RegRange,
     kind: ClintKind,
     memory: &mut MemoryRegistry,
     hart_id_upper_bound: usize,
@@ -33,7 +33,7 @@ pub(super) fn bind(
 
 /// Binds the CLINT timer independently of its software-interrupt device.
 pub(super) fn bind_timer(
-    registers: DeviceRegisterRange,
+    registers: RegRange,
     kind: ClintKind,
     memory: &mut MemoryRegistry,
     hart_id_upper_bound: usize,

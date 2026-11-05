@@ -9,7 +9,7 @@ use core::mem::size_of;
 
 use fdt::node::FdtNode;
 
-use crate::memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange};
+use crate::memory::{RegRange, PhysAddr, PhysAddrRange};
 use crate::soc::Soc;
 use crate::{Error, Result};
 
@@ -54,7 +54,7 @@ impl Soc for AllwinnerV861Soc {
 
 impl AllwinnerV861Soc {
     /// CCU bus-gate/reset word controlling access to the C907 configuration block.
-    pub fn c907_clock_control(self) -> Result<DeviceRegisterRange> {
+    pub fn c907_clock_control(self) -> Result<RegRange> {
         range(
             CCU_BASE + C907_CONFIG_BUS_GATE_RESET_OFFSET,
             size_of::<u32>(),
@@ -71,7 +71,7 @@ impl AllwinnerV861Soc {
     ///
     /// Returns [`Error::InvalidArgs`] when `hart` is outside the C907
     /// hart range.
-    pub fn hart_reset_vector(self, hart: usize) -> Result<DeviceRegisterRange> {
+    pub fn hart_reset_vector(self, hart: usize) -> Result<RegRange> {
         if hart >= C907_HART_COUNT {
             return Err(Error::InvalidArgs);
         }
@@ -89,7 +89,7 @@ impl AllwinnerV861Soc {
     ///
     /// Returns [`Error::InvalidArgs`] when `hart` is outside the C907
     /// hart range.
-    pub fn hart_power_control(self, hart: usize) -> Result<DeviceRegisterRange> {
+    pub fn hart_power_control(self, hart: usize) -> Result<RegRange> {
         if hart >= C907_HART_COUNT {
             return Err(Error::InvalidArgs);
         }
@@ -100,7 +100,7 @@ impl AllwinnerV861Soc {
     }
 }
 
-fn range(start: usize, len: usize) -> Result<DeviceRegisterRange> {
+fn range(start: usize, len: usize) -> Result<RegRange> {
     PhysAddrRange::from_start_len(PhysAddr::new(start), len)
-        .map(DeviceRegisterRange::from_description)
+        .map(RegRange::from_description)
 }

@@ -10,7 +10,7 @@ use csr::machine::{Identifier, VendorId};
 use runtime::{
     Error, PlatformView, Result,
     hart::HartId,
-    memory::DeviceRegisterRange,
+    memory::RegRange,
     soc::allwinner::v821::{AllwinnerV821Soc, NoncacheableAlias},
 };
 
@@ -24,15 +24,15 @@ const USB_DMA_BYPASS_SIZE: usize = 4;
 /// V821 resources collected from the Platform Description before binding.
 pub(crate) struct Description {
     soc: AllwinnerV821Soc,
-    cache: Option<DeviceRegisterRange>,
-    usb_dma_bypass: Option<DeviceRegisterRange>,
+    cache: Option<RegRange>,
+    usb_dma_bypass: Option<RegRange>,
 }
 
 /// Prepared descriptions of devices used only by V821 custom SBI extensions.
 pub(crate) struct ExtensionDeviceDescription {
     soc: AllwinnerV821Soc,
-    cache: DeviceRegisterRange,
-    usb_dma_bypass: Option<DeviceRegisterRange>,
+    cache: RegRange,
+    usb_dma_bypass: Option<RegRange>,
 }
 
 impl Description {
@@ -125,8 +125,8 @@ impl ExtensionDeviceDescription {
         self,
     ) -> (
         AllwinnerV821Soc,
-        DeviceRegisterRange,
-        Option<DeviceRegisterRange>,
+        RegRange,
+        Option<RegRange>,
     ) {
         (self.soc, self.cache, self.usb_dma_bypass)
     }

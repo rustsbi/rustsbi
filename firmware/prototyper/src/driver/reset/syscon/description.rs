@@ -2,14 +2,14 @@
 
 use core::mem::{align_of, size_of};
 
-use runtime::{Error, FdtNode, PlatformView, Result, memory::DeviceRegisterRange, node_is_enabled};
+use runtime::{Error, FdtNode, PlatformView, Result, memory::RegRange, node_is_enabled};
 
 use super::super::registry;
 
 /// One validated syscon action that has not acquired its MMIO word yet.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct ActionDescription {
-    registers: DeviceRegisterRange,
+    registers: RegRange,
     value: u32,
     mask: u32,
     priority: u32,
@@ -50,7 +50,7 @@ impl ActionDescription {
         self.priority
     }
 
-    pub(super) const fn into_parts(self) -> (DeviceRegisterRange, u32, u32) {
+    pub(super) const fn into_parts(self) -> (RegRange, u32, u32) {
         (self.registers, self.value, self.mask)
     }
 

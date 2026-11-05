@@ -5,7 +5,7 @@ use runtime::{
     Error, Result,
     hart::HartId,
     ipi::{Acknowledge, IpiDevice, Software},
-    memory::{DeviceRegisterRange, MemoryRegistry, MmioRegion},
+    memory::{RegRange, MemoryRegistry, MmioRegion},
 };
 
 const MATRIX_WIDTH: usize = 8;
@@ -24,7 +24,7 @@ pub(in crate::driver) struct PlicSw {
 }
 
 pub(in crate::driver) fn bind(
-    registers: DeviceRegisterRange,
+    registers: RegRange,
     memory: &mut MemoryRegistry,
     hart_id_upper_bound: usize,
 ) -> Result<PlicSw> {

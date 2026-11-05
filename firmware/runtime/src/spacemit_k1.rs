@@ -9,7 +9,7 @@ use core::mem::size_of;
 
 use fdt::node::FdtNode;
 
-use crate::memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange};
+use crate::memory::{RegRange, PhysAddr, PhysAddrRange};
 use crate::{Error, Result};
 
 const SPACEMIT_K1_COMPATIBLE: &str = "spacemit,k1x";
@@ -64,11 +64,11 @@ enum CciRegister {
 /// K1 system-register ranges authorized by the Platform Description.
 #[derive(Clone, Copy)]
 pub struct SpacemitK1Registers {
-    reset_vectors: [DeviceRegisterRange; 2],
-    cci_status: DeviceRegisterRange,
-    cci_snoop_controls: [DeviceRegisterRange; 2],
-    core_status: DeviceRegisterRange,
-    wakeup_controls: [DeviceRegisterRange; 2],
+    reset_vectors: [RegRange; 2],
+    cci_status: RegRange,
+    cci_snoop_controls: [RegRange; 2],
+    core_status: RegRange,
+    wakeup_controls: [RegRange; 2],
 }
 
 impl SpacemitK1Registers {
@@ -135,27 +135,27 @@ impl SpacemitK1Registers {
     }
 
     /// Returns the two cluster reset-vector register ranges.
-    pub const fn reset_vectors(self) -> [DeviceRegisterRange; 2] {
+    pub const fn reset_vectors(self) -> [RegRange; 2] {
         self.reset_vectors
     }
 
     /// Returns the CCI status-register range.
-    pub const fn cci_status(self) -> DeviceRegisterRange {
+    pub const fn cci_status(self) -> RegRange {
         self.cci_status
     }
 
     /// Returns the two cluster CCI snoop-control ranges.
-    pub const fn cci_snoop_controls(self) -> [DeviceRegisterRange; 2] {
+    pub const fn cci_snoop_controls(self) -> [RegRange; 2] {
         self.cci_snoop_controls
     }
 
     /// Returns PMU_CORE_STATUS (K1 User Manual, section 9.9.4.9.3).
-    pub const fn core_status(self) -> DeviceRegisterRange {
+    pub const fn core_status(self) -> RegRange {
         self.core_status
     }
 
     /// Returns the per-caller wakeup registers (K1 User Manual, section 9.9.4.9.12).
-    pub const fn wakeup_controls(self) -> [DeviceRegisterRange; 2] {
+    pub const fn wakeup_controls(self) -> [RegRange; 2] {
         self.wakeup_controls
     }
 
@@ -194,7 +194,7 @@ fn set_csr<const CSR: u16>(bits: usize) {
     }
 }
 
-fn cci_snoop_control_range(interface_index: usize) -> Result<DeviceRegisterRange> {
+fn cci_snoop_control_range(interface_index: usize) -> Result<RegRange> {
     let offset = K1_CCI_INTERFACE_STRIDE
         .checked_mul(interface_index)
         .and_then(|offset| K1_CCI_FIRST_INTERFACE_OFFSET.checked_add(offset))
@@ -206,6 +206,6 @@ fn cci_snoop_control_range(interface_index: usize) -> Result<DeviceRegisterRange
     )
 }
 
-fn fixed_register_range(start: PhysAddr, len: usize) -> Result<DeviceRegisterRange> {
-    PhysAddrRange::from_start_len(start, len).map(DeviceRegisterRange::from_description)
+fn fixed_register_range(start: PhysAddr, len: usize) -> Result<RegRange> {
+    PhysAddrRange::from_start_len(start, len).map(RegRange::from_description)
 }
