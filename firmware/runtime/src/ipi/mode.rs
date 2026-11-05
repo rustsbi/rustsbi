@@ -1,23 +1,15 @@
 //! Runtime interrupt operations selected by an IPI's mode.
-//!
-//! Context lookup stays private so platform callbacks cannot obtain an IMSIC.
 
-use super::{External, Imsic, Software, imsic};
-use crate::{Error, Result, irq::LocalIrqDisabled};
+use super::{External, Imsic, Software};
+use crate::irq::LocalIrqDisabled;
 use csr::machine;
 
-/// Per-mode contexts, initialization, and interrupt enables.
+/// Per-mode contexts and interrupt enables.
 pub trait InterruptMode: Sized + 'static {
     type Context;
 
     const SOFTWARE_ENABLE: machine::Interrupt;
     const EXTERNAL_ENABLE: machine::Interrupt;
-
-    fn context(irq: &LocalIrqDisabled) -> Result<&Self::Context>;
-
-    fn init_hart(_irq: &LocalIrqDisabled) -> Result<()> {
-        Ok(())
-    }
 
     fn enable_interrupt(_irq: &LocalIrqDisabled) {
         // SAFETY:
@@ -37,10 +29,6 @@ impl InterruptMode for Software {
 
     const SOFTWARE_ENABLE: machine::Interrupt = machine::Interrupt::Enabled;
     const EXTERNAL_ENABLE: machine::Interrupt = machine::Interrupt::Disabled;
-
-    fn context(_irq: &LocalIrqDisabled) -> Result<&Self::Context> {
-        Ok(&())
-    }
 }
 
 impl InterruptMode for External {
@@ -48,12 +36,4 @@ impl InterruptMode for External {
 
     const SOFTWARE_ENABLE: machine::Interrupt = machine::Interrupt::Disabled;
     const EXTERNAL_ENABLE: machine::Interrupt = machine::Interrupt::Enabled;
-
-    fn init_hart(irq: &LocalIrqDisabled) -> Result<()> {
-        imsic::get().ok_or(Error::NotReady)?.init_hart(irq)
-    }
-
-    fn context(_irq: &LocalIrqDisabled) -> Result<&Self::Context> {
-        imsic::get().ok_or(Error::NotReady)
-    }
 }

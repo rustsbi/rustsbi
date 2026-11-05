@@ -29,37 +29,61 @@ pub struct Ipi {
     handlers: [Once<fn(HartId)>; event::EVENT_COUNT],
 }
 
-/// A platform's firmware IPI sender.
-pub enum Device {
-    /// A machine software interrupt device.
+enum Device {
     Software(Box<dyn IpiDevice<Software>>),
-    /// A machine external interrupt device backed by an IMSIC.
-    External(Box<dyn IpiDevice<External>>),
+    External {
+        device: Box<dyn IpiDevice<External>>,
+        imsic: &'static Imsic,
+    },
 }
 
 impl Ipi {
-    /// Returns whether this device delivers through machine external interrupts.
+    /// Returns whether this service uses machine external interrupts.
     pub fn is_external(&self) -> bool {
-        matches!(&self.device, Device::External(_))
+        matches!(&self.device, Device::External { .. })
     }
+
+    /// Constructs an IPI service using a machine software interrupt device.
+    ///
+    /// Returns [`Error::NotReady`] if the hart topology is not published.
+    pub fn software(device: Box<dyn IpiDevice<Software>>) -> Result<Self> {
+        Self::new(Device::Software(device))
+    }
+
+    /// Constructs an IPI service using a machine external interrupt device.
+    ///
+    /// Returns [`Error::NotReady`] if the hart topology or Runtime's IMSIC is
+    /// not published.
+    pub fn external(device: Box<dyn IpiDevice<External>>) -> Result<Self> {
+        let imsic = imsic::get().ok_or(Error::NotReady)?;
+        Self::new(Device::External { device, imsic })
+    }
+}
+
+/// Configures supervisor state access for the selected IPI delivery mode.
+///
+/// Call after registering the platform IPI, if one exists,
+/// so the selected mode is visible.
+/// AIA state access is enabled only when `smaia` is exposed
+/// and the registered IPI uses machine external interrupts.
+pub fn configure_state_access(smaia: bool) {
+    let enable_aia = smaia
+        && matches!(
+            IPI.get().map(|ipi| &ipi.device),
+            Some(Device::External { .. })
+        );
+    crate::csr::stateen::configure_supervisor(enable_aia);
 }
 
 /// Registers the platform's single firmware IPI object.
 ///
-/// The hart topology must already be published.
-/// External delivery requires [`imsic::init`] first.
-/// The first registration returns [`Error::NotReady`] if either requirement is unmet.
 /// A second registration returns [`Error::AlreadyInitialized`].
-pub fn init(device: Device) -> Result<()> {
+pub fn init(ipi: Ipi) -> Result<()> {
     let mut initialized = false;
-    IPI.try_call_once(|| {
-        if matches!(&device, Device::External(_)) && imsic::get().is_none() {
-            return Err(Error::NotReady);
-        }
-        let ipi = Ipi::new(device)?;
+    IPI.call_once(|| {
         initialized = true;
-        Ok(ipi)
-    })?;
+        ipi
+    });
     if initialized {
         Ok(())
     } else {
@@ -69,7 +93,7 @@ pub fn init(device: Device) -> Result<()> {
 
 /// Returns the registered firmware IPI object.
 ///
-/// Returns `None` before registration or when there is no IPI device.
+/// Returns `None` before registration.
 pub fn get() -> Option<&'static Ipi> {
     IPI.get()
 }

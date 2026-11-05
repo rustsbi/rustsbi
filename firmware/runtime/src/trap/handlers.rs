@@ -8,6 +8,7 @@ use crate::{
     ipi::{self, Ipi},
     irq::LocalIrqDisabled,
 };
+use csr::values::trap::Interrupt;
 
 // The firmware supplies this symbol through `#[runtime::sbi_policy]`.
 // Both crates use the same Rust ABI and SBI types in the final firmware.
@@ -59,21 +60,19 @@ fn deliver_event(frame: &mut TrapFrame, ipi: Option<&Ipi>, irq: &LocalIrqDisable
 }
 
 pub(super) fn software_interrupt(frame: &mut TrapFrame, irq: &LocalIrqDisabled) {
-    let ipi = ipi::get()
-        .filter(|ipi| !ipi.is_external())
-        .and_then(|device| {
-            let acknowledged = device
-                .acknowledge(irq)
-                .expect("IPI device could not acknowledge the current hart");
-            acknowledged.then_some(device)
-        });
+    let ipi = ipi::get().and_then(|device| {
+        let acknowledged = device
+            .acknowledge_source(Interrupt::MachineSoftware, irq)
+            .expect("IPI device could not acknowledge the current hart");
+        acknowledged.then_some(device)
+    });
     deliver_event(frame, ipi, irq);
 }
 
 pub(super) fn external_interrupt(frame: &mut TrapFrame, irq: &LocalIrqDisabled) {
-    if let Some(device) = ipi::get().filter(|ipi| ipi.is_external())
+    if let Some(device) = ipi::get()
         && device
-            .acknowledge(irq)
+            .acknowledge_source(Interrupt::MachineExternal, irq)
             .expect("IPI device could not acknowledge the current hart")
     {
         deliver_event(frame, Some(device), irq);
