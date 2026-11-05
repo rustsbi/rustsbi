@@ -1,42 +1,29 @@
-//! V821 boot handshake, A27L2 cache, and USB firmware drivers.
-//!
-//! Both devices are selected by the same V821 root capability.
-//! They stay outside the platform-wide device set because only the V821 custom
-//! SBI extensions consume them.
+//! V821 A27L2 cache driver.
 //!
 //! # References
 //!
 //! - Vendor implementation: [V821 SPL cache support](https://github.com/sam-yangjj/tina-v821-v1.3-brandy/blob/34809037526678ccda1720cb4b4ec7ee32272c38/brandy-2.0/spl/arch/riscv/cpu/ads_rv32/mmu.c)
 //!   — A27L2 MMIO layout, command encodings, cache-line size, and initialization
 //!   bits.
-//! - Vendor register definitions: [V821 USB controller](https://github.com/sam-yangjj/tina-v821-v1.3-bsp/blob/4f82c3bed72342d306e1b14755f9618a6ca7a504/drivers/usb/sunxi_usb/include/sunxi_usb_bsp.h)
-//!   — DMA word-address bypass register offset.
 
 #![forbid(unsafe_code)]
 
 use runtime::{
     Error, Result,
-    memory::{
-        RegRange, MemoryRegistry, MmioRegion, PhysAddr, PhysAddrRange, SupervisorMemory,
-    },
-    soc::allwinner::v821::{
-        A27L2LineOperation as L1Operation, AllwinnerV821Soc, AndesStatusRegister, V821Csr,
-    },
+    memory::{MemoryRegistry, MmioRegion, PhysAddr, PhysAddrRange, SupervisorMemory},
+    soc::allwinner::v821::{A27L2LineOperation as L1Operation, AndesStatusRegister, V821Csr},
     timer,
 };
 
+use super::description::Desc;
+
 /// The A27L2 cache-maintenance MMIO device.
 ///
-/// V821 preparation requires exactly one enabled hart, so its CSR/MMIO command
-/// sequence needs no inter-hart mutex.
+/// V821 preparation requires exactly one enabled hart,
+/// so its CSR/MMIO command sequence needs no inter-hart mutex.
 pub(crate) struct A27L2Cache {
     csr: V821Csr,
     registers: CacheRegisters,
-}
-
-/// The USB controller's DMA word-address bypass register.
-pub(crate) struct UsbDmaBypass {
-    registers: MmioRegion,
 }
 
 #[derive(Clone, Copy)]
@@ -63,7 +50,7 @@ impl CacheRegister {
     }
 }
 
-/// BSP-required A27L2 control bits set during firmware binding.
+/// BSP-required A27L2 control bits set during firmware initialization.
 const L2_CONTROL_INIT_MASK: u32 = (1 << 13) | (1 << 10) | 1;
 const CACHE_LINE_SIZE: usize = 64;
 const LARGE_FLUSH_THRESHOLD: usize = 128 * 1024;
@@ -71,46 +58,16 @@ const COMMAND_TIMEOUT_TICKS: u32 = 4_000_000;
 const STATUS_STATE_MASK: u32 = 0xf;
 const STATUS_BUSY: u32 = 1;
 
-/// Lets the RTOS ISP driver reclaim boot0's SRAM after firmware moves to DRAM.
-pub(crate) fn release_boot0_isp_sram(
-    soc: AllwinnerV821Soc,
-    memory: &mut MemoryRegistry,
-) -> Result<()> {
-    const BOOT0_ISP_SRAM_RELEASED: u32 = 1 << 0;
-
-    let registers = memory.acquire(soc.boot0_isp_sram_release()?)?;
-    runtime::instruction::fence();
-    let flags = registers.read::<u32>(0)?;
-    registers.write(0, flags | BOOT0_ISP_SRAM_RELEASED)?;
-    runtime::instruction::fence();
-    Ok(())
-}
-
-/// Enables the V821 CCU gate required by the PLMT timer.
-pub(crate) fn enable_plmt_clock(soc: AllwinnerV821Soc, memory: &mut MemoryRegistry) -> Result<()> {
-    const CLOCK_ENABLE: u32 = 1 << 31;
-
-    let registers = memory.acquire(soc.plmt_clock()?)?;
-    let value = u32::from_le(registers.read::<u32>(0)?);
-    registers.write(0, (value | CLOCK_ENABLE).to_le())?;
-    runtime::instruction::fence();
-    Ok(())
-}
-
 impl A27L2Cache {
-    pub(crate) fn bind(
-        soc: AllwinnerV821Soc,
-        registers: RegRange,
-        memory: &mut MemoryRegistry,
-    ) -> Result<Self> {
+    pub(crate) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
         let registers = CacheRegisters {
-            mmio: memory.acquire(registers)?,
+            mmio: memory.acquire(description.registers)?,
         };
         let control = registers.read_u32(CacheRegister::Control)?;
         registers.write_u32(CacheRegister::Control, control | L2_CONTROL_INIT_MASK)?;
         runtime::instruction::fence();
         Ok(Self {
-            csr: soc.csr(),
+            csr: description.soc.csr(),
             registers,
         })
     }
@@ -173,15 +130,17 @@ impl A27L2Cache {
 
         for address in (first..last).step_by(CACHE_LINE_SIZE) {
             let partial = address < start || end - address < CACHE_LINE_SIZE;
-            let (l1_operation, l2_command) = if operation == RangeOperation::WriteBack {
-                (L1Operation::WriteBack, L2Command::WriteBackRange)
-            } else if partial {
-                (
+            let (l1_operation, l2_command) = match (operation, partial) {
+                (RangeOperation::WriteBack, _) => {
+                    (L1Operation::WriteBack, L2Command::WriteBackRange)
+                }
+                (RangeOperation::Invalidate, true) => (
                     L1Operation::WriteBackAndInvalidate,
                     L2Command::WriteBackAndInvalidateRange,
-                )
-            } else {
-                (L1Operation::Invalidate, L2Command::InvalidateRange)
+                ),
+                (RangeOperation::Invalidate, false) => {
+                    (L1Operation::Invalidate, L2Command::InvalidateRange)
+                }
             };
             // The full cache-line span was checked against supervisor RAM;
             // partial lines retain surrounding dirty bytes by writeback.
@@ -222,28 +181,6 @@ impl A27L2Cache {
 enum RangeOperation {
     WriteBack,
     Invalidate,
-}
-
-impl UsbDmaBypass {
-    pub(crate) fn bind(
-        registers: RegRange,
-        memory: &mut MemoryRegistry,
-    ) -> Result<Self> {
-        Ok(Self {
-            registers: memory.acquire(registers)?,
-        })
-    }
-
-    /// Enables DMA word-address bypass after the supervisor enables USB clocks.
-    ///
-    /// Concurrent calls write the same idempotent value, so this operation
-    /// needs no mutex; the fences remain ordered around each individual write.
-    pub(crate) fn enable(&self) -> Result<()> {
-        runtime::instruction::fence();
-        self.registers.write(0, 1u32)?;
-        runtime::instruction::fence();
-        Ok(())
-    }
 }
 
 struct CacheRegisters {

@@ -3,12 +3,12 @@
 pub(crate) mod allwinner;
 
 use runtime::{
-    Result,
+    PlatformView, Result,
     memory::{MemoryRegistry, SupervisorMemory},
     rustsbi::{self, VendorSBI},
 };
 
-use crate::platform::allwinner::v821::V821;
+use crate::driver::platform::allwinner::v821::V821;
 
 /// Vendor-extension devices selected for this platform.
 pub(crate) struct Extension {
@@ -16,9 +16,13 @@ pub(crate) struct Extension {
 }
 
 impl Extension {
-    pub(crate) fn bind(v821: Option<V821>, memory: &mut MemoryRegistry) -> Result<Self> {
+    pub(crate) fn init(
+        v821: Option<V821>,
+        platform: &PlatformView<'_>,
+        memory: &mut MemoryRegistry,
+    ) -> Result<Self> {
         let v821 = v821
-            .map(|platform| allwinner::v821::Extension::bind(platform, memory))
+            .map(|v821| allwinner::v821::Extension::init(v821, platform, memory))
             .transpose()?;
         Ok(Self { v821 })
     }

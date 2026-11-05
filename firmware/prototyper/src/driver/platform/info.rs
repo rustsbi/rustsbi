@@ -12,7 +12,7 @@ use runtime::{
     soc::allwinner::v861::AllwinnerV861Soc,
 };
 
-use super::allwinner::v821::Description as V821Description;
+use super::allwinner::v821::Desc as V821Description;
 use crate::devicetree::{NodeSelection, select_from_node_once};
 use crate::driver;
 

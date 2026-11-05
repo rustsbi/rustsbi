@@ -4,7 +4,6 @@
 //! Device-class discovery stays within each subsystem, while vendor-only
 //! devices remain in their vendor module.
 
-pub(crate) mod allwinner;
 mod description;
 mod device;
 mod matching;
