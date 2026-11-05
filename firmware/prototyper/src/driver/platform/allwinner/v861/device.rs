@@ -1,9 +1,9 @@
 //! V861 C907 hart-release firmware driver.
 //!
 //! [`V861HartRelease`] implements the generic [`HartWake`] service with V861
-//! reset-vector, clock, and power-control registers. It preserves the loader's
-//! remaining C907 cache policy and restores that policy before a reset hart
-//! enters the generic secondary-hart path.
+//! reset-vector, clock, and power-control registers.
+//! It preserves the loader's remaining C907 cache policy and restores it
+//! before a reset hart enters the generic secondary-hart path.
 //!
 //! # References
 //!
@@ -12,13 +12,15 @@
 //! - Reference implementation: [D1 cache save and restore](https://github.com/riscv-software-src/opensbi/blob/3593a5facc4c6938b90429a6973ba9ee21fc5899/platform/generic/allwinner/sun20i-d1.c)
 //!   — C907 cache-policy preservation across reset.
 
-use crate::driver::HartWake;
 use runtime::{
     Error, Result,
-    hart::HartId,
+    hart::{HartId, HartWake},
     memory::{MemoryRegistry, MmioRegion},
     soc::allwinner::v861::{AllwinnerV861Soc, C907_HART_COUNT, C907CacheState},
 };
+
+use super::{c907, description::Desc};
+use crate::{sbi::features::hart_privilege_checked, secondary_hart};
 
 const CLOCK_CONTROL_ENABLE: u32 = 0x0001_0001;
 const RESET_VECTOR_MODE_MASK: u32 = 0x3 << 8;
@@ -29,7 +31,7 @@ const POWER_CLAMP_RELEASE: u32 = 3 << 3;
 const POWER_SWITCH_ON: u32 = 0x11;
 
 /// V861's concrete implementation of the firmware hart-release service.
-pub(crate) struct V861HartRelease {
+pub(super) struct V861HartRelease {
     reset_vectors: [HartResetVector; C907_HART_COUNT],
     power_controls: [HartPowerControl; C907_HART_COUNT],
 }
@@ -37,7 +39,7 @@ pub(crate) struct V861HartRelease {
 struct C907ClockControl(MmioRegion);
 
 impl C907ClockControl {
-    fn bind(soc: AllwinnerV861Soc, memory: &mut MemoryRegistry) -> Result<Self> {
+    fn acquire(soc: AllwinnerV861Soc, memory: &mut MemoryRegistry) -> Result<Self> {
         Ok(Self(memory.acquire(soc.c907_clock_control()?)?))
     }
 
@@ -59,7 +61,7 @@ enum ResetVectorRegister {
 }
 
 impl HartResetVector {
-    fn bind(soc: AllwinnerV861Soc, hart: usize, memory: &mut MemoryRegistry) -> Result<Self> {
+    fn acquire(soc: AllwinnerV861Soc, hart: usize, memory: &mut MemoryRegistry) -> Result<Self> {
         Ok(Self(memory.acquire(soc.hart_reset_vector(hart)?)?))
     }
 
@@ -93,7 +95,7 @@ enum PowerRegister {
 }
 
 impl HartPowerControl {
-    fn bind(soc: AllwinnerV861Soc, hart: usize, memory: &mut MemoryRegistry) -> Result<Self> {
+    fn acquire(soc: AllwinnerV861Soc, hart: usize, memory: &mut MemoryRegistry) -> Result<Self> {
         Ok(Self(memory.acquire(soc.hart_power_control(hart)?)?))
     }
 
@@ -108,20 +110,22 @@ impl HartPowerControl {
 static CACHE_STATE: spin::Once<C907CacheState> = spin::Once::new();
 
 impl V861HartRelease {
-    pub(crate) fn bind(soc: AllwinnerV861Soc, memory: &mut MemoryRegistry) -> Result<Self> {
-        C907ClockControl::bind(soc, memory)?.enable()?;
+    pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+        let soc = description.soc;
+        C907ClockControl::acquire(soc, memory)?.enable()?;
         let release = Self {
             reset_vectors: [
-                HartResetVector::bind(soc, 0, memory)?,
-                HartResetVector::bind(soc, 1, memory)?,
+                HartResetVector::acquire(soc, 0, memory)?,
+                HartResetVector::acquire(soc, 1, memory)?,
             ],
             power_controls: [
-                HartPowerControl::bind(soc, 0, memory)?,
-                HartPowerControl::bind(soc, 1, memory)?,
+                HartPowerControl::acquire(soc, 0, memory)?,
+                HartPowerControl::acquire(soc, 1, memory)?,
             ],
         };
-        // boot0 leaves these C907 controls disabled. Runtime enables only the
-        // firmware-owned bits and captures the loader policy for reset harts.
+        // boot0 leaves these C907 controls disabled.
+        // Runtime enables only the firmware-owned bits and captures the loader
+        // policy for reset harts.
         CACHE_STATE.call_once(|| soc.initialize_c907_cache());
         Ok(release)
     }
@@ -129,27 +133,27 @@ impl V861HartRelease {
 
 impl HartWake for V861HartRelease {
     fn wake(&self, hart: HartId) -> Result<bool> {
-        if crate::sbi::features::hart_privilege_checked(hart) {
-            return Ok(false);
-        }
-        let hart = hart.as_usize();
-        if hart >= C907_HART_COUNT {
+        let hart_index = hart.as_usize();
+        if hart_index >= C907_HART_COUNT {
             return Err(Error::InvalidArgs);
         }
-        let entry = crate::riscv::c907::reset_entry_address() as u64;
-        self.reset_vectors[hart].program(entry)?;
+        if hart_privilege_checked(hart) {
+            return Ok(false);
+        }
+        let entry = c907::reset_entry_address() as u64;
+        self.reset_vectors[hart_index].program(entry)?;
         // Publish the reset vector and pending HSM request before power-on.
         runtime::instruction::fence();
-        self.power_controls[hart].power_on()?;
+        self.power_controls[hart_index].power_on()?;
         runtime::instruction::fence();
         Ok(true)
     }
 }
 
-pub(crate) extern "C" fn initialize_secondary() {
+pub(super) extern "C" fn initialize_secondary() {
     CACHE_STATE
         .get()
         .expect("BUG: boot cache policy must be published before hart power-on")
         .restore();
-    crate::secondary_hart(None);
+    secondary_hart(None);
 }
