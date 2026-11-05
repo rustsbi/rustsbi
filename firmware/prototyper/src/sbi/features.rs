@@ -3,7 +3,7 @@ use runtime::{
     FdtNode, boot,
     hart::{self, HartId, PerHart},
     ipi,
-    timer::Timer,
+    timer,
 };
 use spin::{Mutex, Once};
 
@@ -229,7 +229,7 @@ pub fn configure_hart_environment() {
     }
     // Sstc provides STCE independently of the privileged-version heuristic.
     // Probe the counter directly so this matches the SBI timer's decision.
-    if matches!(Timer::detect(), Ok(Some(_))) {
+    if timer::init_hart().expect("BUG: current hart timer initialization failed") {
         #[cfg(target_pointer_width = "64")]
         use csr::machine::{EnvironmentConfig as TimerConfig, STCE as TimerEnable};
         #[cfg(target_pointer_width = "32")]

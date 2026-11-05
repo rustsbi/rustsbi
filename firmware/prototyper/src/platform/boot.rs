@@ -93,10 +93,10 @@ fn initialize_platform(
         .map(|description| description.resource());
     let mut devices = driver::bind_devices(&board, selected_imsic, &mut memory)
         .during("binding platform devices")?;
-    let timer = SbiTimer::new(devices.timer.take()).expect("BUG: timer initialization failed");
     // Publish the platform time source as soon as its device is bound so later
     // platform setup can use `timer::now()`.
-    timer::init(timer.device()).expect("BUG: time source initialization failed");
+    timer::init(devices.timer.take()).expect("BUG: time source initialization failed");
+    let timer = SbiTimer;
     let custom_extension = sbi::vendor::Extension::bind(v821, &mut memory)
         .during("binding Allwinner custom-extension devices")?;
     let k1_registers = match &board.soc {
