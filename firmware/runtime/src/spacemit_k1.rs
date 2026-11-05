@@ -9,7 +9,7 @@ use core::mem::size_of;
 
 use fdt::node::FdtNode;
 
-use crate::memory::{RegRange, PhysAddr, PhysAddrRange};
+use crate::memory::{PhysAddr, RegRange};
 use crate::{Error, Result};
 
 const SPACEMIT_K1_COMPATIBLE: &str = "spacemit,k1x";
@@ -111,10 +111,10 @@ impl SpacemitK1Registers {
 
         let reset_vector_span = ResetVectorRegister::AddressHigh as usize + size_of::<u32>();
         let reset_vectors = [
-            fixed_register_range(K1_RESET_VECTOR_BASES[0], reset_vector_span)?,
-            fixed_register_range(K1_RESET_VECTOR_BASES[1], reset_vector_span)?,
+            RegRange::from_start_len(K1_RESET_VECTOR_BASES[0], reset_vector_span)?,
+            RegRange::from_start_len(K1_RESET_VECTOR_BASES[1], reset_vector_span)?,
         ];
-        let cci_status = fixed_register_range(
+        let cci_status = RegRange::from_start_len(
             K1_CCI_BASE
                 .checked_add(CciRegister::Status as usize)
                 .ok_or(Error::Overflow)?,
@@ -126,10 +126,10 @@ impl SpacemitK1Registers {
             reset_vectors,
             cci_status,
             cci_snoop_controls,
-            core_status: fixed_register_range(K1_CORE_STATUS, size_of::<u32>())?,
+            core_status: RegRange::from_start_len(K1_CORE_STATUS, size_of::<u32>())?,
             wakeup_controls: [
-                fixed_register_range(K1_WAKEUP_BASES[0], 4 * size_of::<u32>())?,
-                fixed_register_range(K1_WAKEUP_BASES[1], 4 * size_of::<u32>())?,
+                RegRange::from_start_len(K1_WAKEUP_BASES[0], 4 * size_of::<u32>())?,
+                RegRange::from_start_len(K1_WAKEUP_BASES[1], 4 * size_of::<u32>())?,
             ],
         }))
     }
@@ -149,12 +149,12 @@ impl SpacemitK1Registers {
         self.cci_snoop_controls
     }
 
-    /// Returns PMU_CORE_STATUS (K1 User Manual, section 9.9.4.9.3).
+    /// Returns the `PMU_CORE_STATUS` register range (K1 User Manual, section 9.9.4.9.3).
     pub const fn core_status(self) -> RegRange {
         self.core_status
     }
 
-    /// Returns the per-caller wakeup registers (K1 User Manual, section 9.9.4.9.12).
+    /// Returns the per-caller wakeup register ranges (K1 User Manual, section 9.9.4.9.12).
     pub const fn wakeup_controls(self) -> [RegRange; 2] {
         self.wakeup_controls
     }
@@ -175,10 +175,9 @@ impl SpacemitK1Registers {
 fn set_csr<const CSR: u16>(bits: usize) {
     match () {
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+        // SAFETY: The K1 capability identifies these implementation-defined
+        // CSRs. Firmware invokes these methods in M-mode on the current hart.
         () => unsafe {
-            // SAFETY: `SpacemitK1Registers` is created only after the Platform
-            // Description identifies a K1. These implementation-defined CSRs affect
-            // only machine features of the current hart.
             core::arch::asm!(
                 "csrs {csr}, {bits}",
                 csr = const CSR,
@@ -200,12 +199,8 @@ fn cci_snoop_control_range(interface_index: usize) -> Result<RegRange> {
         .and_then(|offset| K1_CCI_FIRST_INTERFACE_OFFSET.checked_add(offset))
         .and_then(|offset| offset.checked_add(CciRegister::SnoopControl as usize))
         .ok_or(Error::Overflow)?;
-    fixed_register_range(
+    RegRange::from_start_len(
         K1_CCI_BASE.checked_add(offset).ok_or(Error::Overflow)?,
         size_of::<u32>(),
     )
-}
-
-fn fixed_register_range(start: PhysAddr, len: usize) -> Result<RegRange> {
-    PhysAddrRange::from_start_len(start, len).map(RegRange::from_description)
 }

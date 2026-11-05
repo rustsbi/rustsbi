@@ -2,9 +2,7 @@
 
 use alloc::vec::Vec;
 
-use super::{
-    RegRange, MmioRegion, PhysAddrRange, SupervisorMemory, image::locate_firmware_image,
-};
+use super::{MmioRegion, PhysAddrRange, RegRange, SupervisorMemory, image::locate_firmware_image};
 use crate::{Error, Result};
 
 /// Tracks the physical resources issued by Runtime.
@@ -180,7 +178,7 @@ mod tests {
     }
 
     fn registers(start: usize, len: usize) -> RegRange {
-        RegRange::from_description(range(start, len))
+        RegRange::from_start_len(PhysAddr::new(start), len).unwrap()
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 use fdt::node::FdtNode;
 
-use crate::memory::{RegRange, PhysAddr, PhysAddrRange};
+use crate::memory::{PhysAddr, PhysAddrRange, RegRange};
 use crate::{Error, Result, node_is_enabled};
 
 /// Decodes the absolute GPRCM address and size independently of parent cells.
@@ -27,9 +27,7 @@ pub(crate) fn gprcm_registers(
         return Err(Error::AccessDenied);
     }
     let (start, len) = decode_gprcm(bytes)?;
-    PhysAddrRange::from_start_len(PhysAddr::new(start), len)
-        .map(RegRange::from_description)
-        .map(Some)
+    RegRange::from_start_len(PhysAddr::new(start), len).map(Some)
 }
 
 // The vendor RTC binding fixes this encoding independently of parent cell counts.
