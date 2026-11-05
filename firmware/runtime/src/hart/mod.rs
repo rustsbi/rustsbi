@@ -2,7 +2,7 @@
 //!
 //! SBI HSM policy and ABI translation belong to the firmware.
 
-use crate::Result;
+use crate::{Error, Result};
 mod detect;
 mod features;
 mod lifecycle;
@@ -77,5 +77,16 @@ impl HartId {
     /// Iterates over enabled harts in ascending hardware-ID order.
     pub fn all() -> impl DoubleEndedIterator<Item = Self> + ExactSizeIterator {
         topology::all()
+    }
+
+    /// Returns the exclusive upper bound of the enabled hardware IDs.
+    ///
+    /// Returns [`Error::InvalidArgs`] if there are no enabled harts or the
+    /// largest ID has no representable exclusive bound.
+    pub fn upper_bound() -> Result<usize> {
+        Self::all()
+            .last()
+            .and_then(|hart| hart.raw.checked_add(1))
+            .ok_or(Error::InvalidArgs)
     }
 }
