@@ -73,8 +73,8 @@ impl V104Watchdog {
         // preserving the other `CFG` fields.
         let config = self.read(Register::Config)?;
         self.write(Register::Config, (config & !CONFIG_ENABLE) | UPDATE_KEY)?;
-        let start = timer::now().ok_or(Error::NotSupported)?;
-        while timer::now().is_some_and(|now| now.wrapping_sub(start) < self.delay_ticks) {
+        let start = timer::now()?.ok_or(Error::NotSupported)?;
+        while timer::now()?.is_some_and(|now| now.wrapping_sub(start) < self.delay_ticks) {
             core::hint::spin_loop();
         }
 

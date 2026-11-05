@@ -89,6 +89,7 @@ fn handle_lower_exception(
         let secondary = match error {
             Error::Fault(fault) => Some(fault),
             Error::Unsupported => None,
+            Error::Runtime(error) => fatal(&frame.general, info, Some(error)),
         };
         redirect::redirect_trap(frame, info, privilege, secondary);
     }

@@ -46,43 +46,40 @@ impl Plmt {
     }
 
     #[inline(always)]
-    fn read_word(&self, register: Register) -> u32 {
-        match self.registers.read::<u32>(register as usize) {
-            Ok(value) => u32::from_le(value),
-            Err(error) => panic!("PLMT read outside acquired window: {error:?}"),
-        }
+    fn read_word(&self, register: Register) -> Result<u32> {
+        self.registers
+            .read::<u32>(register as usize)
+            .map(u32::from_le)
     }
 
     #[inline(always)]
-    fn write_compare_word(&self, register: Register, hart: HartId, value: u32) {
-        self.registers
-            .write(
-                register as usize + COMPARE_STRIDE * hart.as_usize(),
-                value.to_le(),
-            )
-            .expect("PLMT write outside acquired window");
+    fn write_compare_word(&self, register: Register, hart: HartId, value: u32) -> Result<()> {
+        // Initialization checked the window through the highest enabled hart.
+        let offset = hart.as_usize() * COMPARE_STRIDE + register as usize;
+        self.registers.write(offset, value.to_le())
     }
 }
 
 impl TimerDevice for Plmt {
     /// Reads `MTIME` with a consistent high/low snapshot.
-    fn read_time(&self) -> Option<u64> {
+    fn read_time(&self) -> Result<Option<u64>> {
         loop {
-            let high = self.read_word(Register::CounterHigh);
-            let low = self.read_word(Register::CounterLow);
+            let high = self.read_word(Register::CounterHigh)?;
+            let low = self.read_word(Register::CounterLow)?;
             // Re-read the high word to detect a carry between the two halves.
-            if high == self.read_word(Register::CounterHigh) {
-                return Some((u64::from(high) << 32) | u64::from(low));
+            if high == self.read_word(Register::CounterHigh)? {
+                return Ok(Some((u64::from(high) << 32) | u64::from(low)));
             }
         }
     }
 
-    fn set_compare(&self, hart: HartId, value: u64) {
+    fn set_compare(&self, hart: HartId, value: u64) -> Result<()> {
         // Raise the low word first to prevent an early interrupt while the
         // high and low halves of the new compare value are installed.
-        self.write_compare_word(Register::CompareLow, hart, u32::MAX);
-        self.write_compare_word(Register::CompareHigh, hart, (value >> 32) as u32);
-        self.write_compare_word(Register::CompareLow, hart, value as u32);
+        self.write_compare_word(Register::CompareLow, hart, u32::MAX)?;
+        self.write_compare_word(Register::CompareHigh, hart, (value >> 32) as u32)?;
+        self.write_compare_word(Register::CompareLow, hart, value as u32)?;
         runtime::instruction::fence();
+        Ok(())
     }
 }

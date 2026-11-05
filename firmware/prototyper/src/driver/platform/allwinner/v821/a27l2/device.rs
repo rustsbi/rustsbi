@@ -158,7 +158,7 @@ impl A27L2Cache {
         self.registers
             .write_u32(CacheRegister::Command, command as u32)?;
         let read_time_fn = || {
-            timer::now()
+            timer::now()?
                 .map(|value| value as u32)
                 .ok_or(Error::NotEnoughResources)
         };

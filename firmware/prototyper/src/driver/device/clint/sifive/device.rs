@@ -33,6 +33,7 @@ impl TimerRegister {
     }
 
     fn mtimecmp_offset_for_hart(hart: HartId) -> usize {
+        // Initialization checked the window through the highest enabled hart.
         Self::Mtimecmp.offset() + hart.as_usize() * size_of::<u64>()
     }
 }
@@ -51,10 +52,7 @@ impl SiFiveTimer {
         if mtimecmp_size > MTIME_WINDOW_OFFSET {
             return Err(Error::InvalidArgs);
         }
-        let window_size = TimerRegister::Mtime
-            .offset()
-            .checked_add(size_of::<u64>())
-            .ok_or(Error::Overflow)?;
+        let window_size = TimerRegister::Mtime.offset() + size_of::<u64>();
         let registers = description
             .registers
             .subrange(MTIMECMP_OFFSET, window_size)?;
@@ -67,60 +65,52 @@ impl SiFiveTimer {
     }
 
     /// Reads a 64-bit timer register, retrying the high word on RV32.
-    fn read(&self, reg: TimerRegister) -> u64 {
+    fn read(&self, reg: TimerRegister) -> Result<u64> {
         #[cfg(target_pointer_width = "64")]
-        return self
-            .registers
-            .read(reg.offset())
-            .expect("BUG: SiFive CLINT timer register escaped its MMIO window");
+        return self.registers.read(reg.offset());
 
         #[cfg(target_pointer_width = "32")]
         loop {
-            let high = self.read_word(reg.offset() + 4);
-            let low = self.read_word(reg.offset());
+            let high = self.read_word(reg.offset() + 4)?;
+            let low = self.read_word(reg.offset())?;
             // Re-read the high word to detect a carry between the two halves.
-            if high == self.read_word(reg.offset() + 4) {
-                return (u64::from(high) << 32) | u64::from(low);
+            if high == self.read_word(reg.offset() + 4)? {
+                return Ok((u64::from(high) << 32) | u64::from(low));
             }
         }
     }
 
     #[cfg(target_pointer_width = "32")]
-    fn read_word(&self, offset: usize) -> u32 {
-        self.registers
-            .read(offset)
-            .expect("BUG: SiFive CLINT timer register escaped its MMIO window")
+    fn read_word(&self, offset: usize) -> Result<u32> {
+        self.registers.read(offset)
     }
 
     #[cfg(target_pointer_width = "32")]
-    fn write_word(&self, offset: usize, value: u32) {
-        self.registers
-            .write(offset, value)
-            .expect("BUG: SiFive CLINT timer register escaped its MMIO window")
+    fn write_word(&self, offset: usize, value: u32) -> Result<()> {
+        self.registers.write(offset, value)
     }
 }
 
 impl TimerDevice for SiFiveTimer {
     #[inline(always)]
-    fn set_compare(&self, hart: HartId, value: u64) {
+    fn set_compare(&self, hart: HartId, value: u64) -> Result<()> {
         let offset = TimerRegister::mtimecmp_offset_for_hart(hart);
         #[cfg(target_pointer_width = "64")]
-        self.registers
-            .write(offset, value)
-            .expect("BUG: SiFive CLINT timer register escaped its MMIO window");
+        self.registers.write(offset, value)?;
 
         #[cfg(target_pointer_width = "32")]
         {
             // Raise the low word first to prevent an early interrupt while the
             // high and low halves of the new compare value are installed.
-            self.write_word(offset, u32::MAX);
-            self.write_word(offset + 4, (value >> 32) as u32);
-            self.write_word(offset, value as u32);
+            self.write_word(offset, u32::MAX)?;
+            self.write_word(offset + 4, (value >> 32) as u32)?;
+            self.write_word(offset, value as u32)?;
         }
+        Ok(())
     }
 
     #[inline(always)]
-    fn read_time(&self) -> Option<u64> {
-        Some(self.read(TimerRegister::Mtime))
+    fn read_time(&self) -> Result<Option<u64>> {
+        self.read(TimerRegister::Mtime).map(Some)
     }
 }
