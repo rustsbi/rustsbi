@@ -86,59 +86,59 @@ impl Device {
         let uart = Self {
             registers: memory.acquire(registers)?,
         };
-        uart.configure(divisor);
+        uart.configure(divisor)?;
         Ok(uart)
     }
 
-    fn configure(&self, divisor: Option<u16>) {
+    fn configure(&self, divisor: Option<u16>) -> Result<()> {
         // Clear DLAB before accessing IER.
         // Firmware may inherit any prior UART state.
-        self.write_reg(Register::LineControl, LineControl::WORD_LENGTH_8.bits());
+        self.write_reg(Register::LineControl, LineControl::WORD_LENGTH_8.bits())?;
         self.write_reg(
             Register::InterruptEnableOrDivisorHigh,
             InterruptEnable::UART_UNIT_ENABLE.bits(),
-        );
+        )?;
 
         if let Some(divisor) = divisor {
-            self.program_baud(divisor);
+            self.program_baud(divisor)?;
         }
 
         self.write_reg(
             Register::FifoControlOrInterruptId,
             (FifoControl::FIFO_ENABLE | FifoControl::RX_FIFO_RESET | FifoControl::TX_FIFO_RESET)
                 .bits(),
-        );
+        )?;
         self.write_reg(
             Register::InterruptEnableOrDivisorHigh,
             InterruptEnable::UART_UNIT_ENABLE.bits(),
-        );
+        )?;
+        Ok(())
     }
 
-    fn program_baud(&self, divisor: u16) {
+    fn program_baud(&self, divisor: u16) -> Result<()> {
         let [low, high] = divisor.to_le_bytes();
         self.write_reg(
             Register::LineControl,
             (LineControl::DIVISOR_LATCH_ACCESS | LineControl::WORD_LENGTH_8).bits(),
-        );
-        self.write_reg(Register::DataOrDivisorLow, u32::from(low));
-        self.write_reg(Register::InterruptEnableOrDivisorHigh, u32::from(high));
-        self.write_reg(Register::LineControl, LineControl::WORD_LENGTH_8.bits());
+        )?;
+        self.write_reg(Register::DataOrDivisorLow, u32::from(low))?;
+        self.write_reg(Register::InterruptEnableOrDivisorHigh, u32::from(high))?;
+        self.write_reg(Register::LineControl, LineControl::WORD_LENGTH_8.bits())?;
+        Ok(())
     }
 
-    fn read_reg(&self, reg: Register) -> u32 {
-        self.registers
-            .read(reg.offset())
-            .expect("BUG: XScale UART register escaped its MMIO window")
+    fn read_reg(&self, reg: Register) -> Result<u32> {
+        self.registers.read(reg.offset())
     }
 
-    fn write_reg(&self, reg: Register, value: u32) {
-        self.registers
-            .write(reg.offset(), value)
-            .expect("BUG: XScale UART register escaped its MMIO window")
+    fn write_reg(&self, reg: Register, value: u32) -> Result<()> {
+        self.registers.write(reg.offset(), value)
     }
 
-    fn line_status(&self) -> LineStatus {
-        LineStatus::from_bits_retain(self.read_reg(Register::LineStatus))
+    fn line_status(&self) -> Result<LineStatus> {
+        Ok(LineStatus::from_bits_retain(
+            self.read_reg(Register::LineStatus)?,
+        ))
     }
 }
 
@@ -146,10 +146,10 @@ impl ConsoleDevice for Device {
     fn read_slice(&mut self, buf: &mut [u8]) -> Result<usize> {
         let mut count = 0;
         for byte in buf.iter_mut() {
-            if !self.line_status().contains(LineStatus::DATA_READY) {
+            if !self.line_status()?.contains(LineStatus::DATA_READY) {
                 break;
             }
-            *byte = self.read_reg(Register::DataOrDivisorLow) as u8;
+            *byte = self.read_reg(Register::DataOrDivisorLow)? as u8;
             count += 1;
         }
         Ok(count)
@@ -159,12 +159,12 @@ impl ConsoleDevice for Device {
         let mut count = 0;
         for &byte in buf {
             if !self
-                .line_status()
+                .line_status()?
                 .contains(LineStatus::TX_HOLDING_REGISTER_EMPTY)
             {
                 break;
             }
-            self.write_reg(Register::DataOrDivisorLow, byte as u32);
+            self.write_reg(Register::DataOrDivisorLow, byte as u32)?;
             count += 1;
         }
         Ok(count)

@@ -57,48 +57,42 @@ impl Device {
         })
     }
 
-    fn fifo_counts(&self) -> FifoCounts {
-        FifoCounts(
-            self.registers
-                .read(Register::FifoConfig1.offset())
-                .expect("BUG: BL808 FIFO configuration register escaped its MMIO window"),
-        )
+    fn fifo_counts(&self) -> Result<FifoCounts> {
+        Ok(FifoCounts(
+            self.registers.read(Register::FifoConfig1.offset())?,
+        ))
     }
 
-    fn read_u8(&self, reg: Register) -> u8 {
-        self.registers
-            .read(reg.offset())
-            .expect("BUG: BL808 UART register escaped its MMIO window")
+    fn read_u8(&self, reg: Register) -> Result<u8> {
+        self.registers.read(reg.offset())
     }
 
-    fn write_u8(&self, reg: Register, value: u8) {
-        self.registers
-            .write(reg.offset(), value)
-            .expect("BUG: BL808 UART register escaped its MMIO window")
+    fn write_u8(&self, reg: Register, value: u8) -> Result<()> {
+        self.registers.write(reg.offset(), value)
     }
 }
 
 impl ConsoleDevice for Device {
     fn read_slice(&mut self, buf: &mut [u8]) -> Result<usize> {
-        let available_count = self.fifo_counts().rx_available_count();
+        let available_count = self.fifo_counts()?.rx_available_count();
         if available_count == 0 {
             return Ok(0);
         }
         let len = core::cmp::min(available_count, buf.len());
-        buf.iter_mut()
-            .take(len)
-            .for_each(|byte| *byte = self.read_u8(Register::RxData));
+        for byte in buf.iter_mut().take(len) {
+            *byte = self.read_u8(Register::RxData)?;
+        }
         Ok(len)
     }
 
     fn write_slice(&mut self, buf: &[u8]) -> Result<usize> {
         let mut count = 0;
         for &byte in buf {
-            if self.fifo_counts().tx_available_count() == 0 {
+            if self.fifo_counts()?.tx_available_count() == 0 {
                 break;
             }
             count += 1;
-            self.write_u8(Register::TxData, byte);
+            self.write_u8(Register::TxData, byte)?;
         }
         Ok(count)
     }
