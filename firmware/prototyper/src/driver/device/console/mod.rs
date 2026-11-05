@@ -115,7 +115,7 @@ fn acquire_registers<T: MmioValue>(
 }
 
 /// Binds the console selected during platform discovery.
-pub(super) fn bind(
+pub(in crate::driver) fn bind(
     board: &BoardInfo,
     memory: &mut MemoryRegistry,
 ) -> Result<Option<Box<dyn DbcnBackend + Send>>> {

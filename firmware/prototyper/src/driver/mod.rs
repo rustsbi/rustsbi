@@ -8,12 +8,13 @@ mod aia;
 pub(crate) mod allwinner;
 mod cci;
 mod clint;
-mod console;
+mod device;
 mod plicsw;
 mod plmt;
 mod reset;
 
 use alloc::boxed::Box;
+use device::console;
 use runtime::{
     Error, Result,
     hart::HartId,
