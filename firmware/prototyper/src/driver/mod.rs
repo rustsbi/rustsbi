@@ -12,7 +12,7 @@ pub(crate) mod platform;
 
 use alloc::boxed::Box;
 pub(crate) use description::Description;
-use device::{aia, cci, clint, console, plicsw, plmt, reset};
+use device::{aia, clint, console, plicsw, plmt, reset};
 pub(crate) use matching::match_desc;
 use runtime::{
     Error, Result,
@@ -27,7 +27,6 @@ use crate::platform::{BoardInfo, ClintResource, ImsicInfo, qemu_aplic::QemuAplic
 pub(crate) use reset::{Desc as ResetDesc, describe as describe_reset};
 
 pub(crate) use aia::{IMSIC_COMPATIBLES, IMSIC_FILE_SPAN};
-pub(crate) use cci::Cci550;
 pub(crate) use clint::ClintKind;
 pub(crate) use console::{ConsoleDesc, select as select_console};
 

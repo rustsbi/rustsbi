@@ -18,7 +18,7 @@ use super::{
     error::{InitError, ResultContext},
     info::{BoardInfo, SocDescription},
     report,
-    spacemit_k1::{self, K1BootResources},
+    spacemit_k1,
     state,
 };
 use crate::{
@@ -122,8 +122,8 @@ fn initialize_platform(
         Some(SocDescription::SpacemitK1(registers)) => Some(*registers),
         _ => None,
     };
-    let k1_resources = k1_registers
-        .map(|registers| K1BootResources::acquire(&mut memory, registers))
+    let k1_wake = k1_registers
+        .map(|registers| spacemit_k1::init(spacemit_k1::Desc::new(registers), &mut memory))
         .transpose()
         .during("acquiring SpacemiT K1 resources")?;
     let v861_wake = match &board.soc {
@@ -150,11 +150,7 @@ fn initialize_platform(
             .as_usize()
     };
 
-    let hart_wake = k1_resources
-        .map(|resources| {
-            Box::new(spacemit_k1::initialize_boot_hart(resources)) as Box<dyn HartWake>
-        })
-        .or(v861_wake);
+    let hart_wake = k1_wake.or(v861_wake);
 
     publish_platform_services(
         board,
@@ -255,9 +251,7 @@ fn publish_sbi_dispatcher(
 
 /// Runs the SoC-specific per-hart setup for secondary harts.
 pub fn initialize_secondary_hart() {
-    if let Some(SocDescription::SpacemitK1(platform)) = &state::board_info().soc {
-        spacemit_k1::initialize_hart(*platform);
-    }
+    spacemit_k1::initialize_secondary_hart();
 }
 
 /// Spins until the boot hart has finished platform initialization.
