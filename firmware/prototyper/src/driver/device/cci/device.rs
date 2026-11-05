@@ -9,23 +9,29 @@
 use bitflags::bitflags;
 use runtime::{
     Result,
-    memory::{RegRange, MemoryRegistry, MmioRegion},
+    memory::{MemoryRegistry, MmioRegion},
 };
 
+use super::description::Desc;
+
 bitflags! {
+    /// Status bits for the CCI-550 status register.
     struct Status: u32 {
         const CHANGE_PENDING = 1 << 0;
     }
 
+    /// Bits that enable CCI-550 snooping and DVM messages.
     struct SnoopControl: u32 {
         const ENABLE_SNOOPS = 1 << 0;
         const ENABLE_DVM_MESSAGES = 1 << 1;
     }
 }
 
+/// An acquired CCI-550 status-register window.
 struct StatusRegister(MmioRegion);
 
 impl StatusRegister {
+    /// Returns whether a coherency change is still pending.
     fn change_pending(&self) -> bool {
         Status::from_bits_retain(
             self.0
@@ -36,9 +42,11 @@ impl StatusRegister {
     }
 }
 
+/// An acquired CCI-550 snoop-control window.
 struct SnoopControlRegister(MmioRegion);
 
 impl SnoopControlRegister {
+    /// Enables snoops and DVM messages on this slave interface.
     fn enable_coherency(&self) {
         self.0
             .write(
@@ -56,14 +64,11 @@ pub(crate) struct Cci550<const N: usize> {
 }
 
 impl<const N: usize> Cci550<N> {
-    pub(crate) fn acquire(
-        memory: &mut MemoryRegistry,
-        status: RegRange,
-        snoop_controls: [RegRange; N],
-    ) -> Result<Self> {
-        let status = StatusRegister(memory.acquire(status)?);
+    /// Acquires the described register windows and constructs the controller.
+    pub(crate) fn init(description: Desc<N>, memory: &mut MemoryRegistry) -> Result<Self> {
+        let status = StatusRegister(memory.acquire(description.status)?);
         let mut snoop_control = [const { None }; N];
-        for (control, registers) in snoop_control.iter_mut().zip(snoop_controls) {
+        for (control, registers) in snoop_control.iter_mut().zip(description.snoop_controls) {
             *control = Some(SnoopControlRegister(memory.acquire(registers)?));
         }
         Ok(Self {
@@ -73,11 +78,11 @@ impl<const N: usize> Cci550<N> {
         })
     }
 
+    /// Enables coherency on every selected interface and waits for each change to clear.
     pub(crate) fn enable_coherency(&self) {
         for control in &self.snoop_control {
             control.enable_coherency();
-            // Order the MMIO write before polling status; an atomic fence
-            // only orders ordinary memory, not device I/O.
+            // Order the preceding MMIO write before the status poll.
             runtime::instruction::fence();
             while self.status.change_pending() {
                 core::hint::spin_loop();

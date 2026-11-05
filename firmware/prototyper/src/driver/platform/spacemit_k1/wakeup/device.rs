@@ -1,32 +1,29 @@
 //! K1 PMU secondary-hart wakeup.
 //!
-//! K1 User Manual sections 9.9.4.9.3 and 9.9.4.9.12 define CORE_STATUS
-//! and the per-caller wakeup registers. The sequence follows the vendor
-//! [OpenSBI implementation].
+//! K1 User Manual sections 9.9.4.9.3 and 9.9.4.9.12 define `CORE_STATUS`
+//! and the per-caller wakeup registers.
+//! The sequence follows the vendor [OpenSBI implementation].
 //!
 //! [OpenSBI implementation]: https://github.com/spacemit-com/opensbi/blob/fc02b891b17b8bdc1273a39f80aa374cd99ba9a2/lib/utils/psci/spacemit/plat/k1x/underly_implement.c
 
 use runtime::{
-    Error, Result, SpacemitK1Registers,
-    hart::HartId,
+    Error, Result,
+    hart::{HartId, HartWake},
     memory::{MemoryRegistry, MmioRegion},
 };
 
-use crate::driver::HartWake;
+use super::description::Desc;
 
-pub(super) struct K1Wakeup {
+pub(crate) struct K1Wakeup {
     status: MmioRegion,
     controls: [MmioRegion; 2],
 }
 
 impl K1Wakeup {
-    pub(super) fn acquire(
-        memory: &mut MemoryRegistry,
-        registers: SpacemitK1Registers,
-    ) -> Result<Self> {
-        let [cluster0, cluster1] = registers.wakeup_controls();
+    pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+        let [cluster0, cluster1] = description.controls;
         Ok(Self {
-            status: memory.acquire(registers.core_status())?,
+            status: memory.acquire(description.status)?,
             controls: [memory.acquire(cluster0)?, memory.acquire(cluster1)?],
         })
     }
@@ -48,8 +45,9 @@ impl HartWake for K1Wakeup {
 
         // Order firmware state and the reset vector before the wake request.
         runtime::instruction::fence();
-        // Each caller writes its own register. Bits are wake requests,
-        // cleared by hardware; writing zero has no effect, so never RMW.
+        // Each caller writes its own register.
+        // Hardware clears wake-request bits, and writing zero has no effect,
+        // so a read-modify-write would be incorrect.
         self.controls[caller / 4].write((caller % 4) * size_of::<u32>(), 1u32 << hart_id)?;
         runtime::instruction::fence();
         Ok(true)

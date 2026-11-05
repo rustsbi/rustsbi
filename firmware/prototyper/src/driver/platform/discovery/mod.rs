@@ -22,8 +22,8 @@ pub(super) fn discover_platform(
         Some(SocDescription::V821(
             crate::platform::allwinner::v821::Description::new(v821),
         ))
-    } else if let Some(k1) = platform.spacemit_k1_registers()? {
-        Some(SocDescription::SpacemitK1(k1))
+    } else if let Some(k1) = crate::platform::spacemit_k1::describe(platform)? {
+        Some(SocDescription::SpacemitK1(k1.registers))
     } else {
         crate::platform::allwinner::v861::describe(platform)?
             .map(|description| SocDescription::V861(description.soc))

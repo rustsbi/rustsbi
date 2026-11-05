@@ -1,11 +1,12 @@
-//! Compatibility reference: K1 reset-vector registers from the pinned
-//! [OpenSBI K1 platform header].
+//! SpacemiT K1 reset-vector registers.
+//!
+//! The pinned [OpenSBI K1 platform header] defines the register layout.
 //!
 //! [OpenSBI K1 platform header]: https://github.com/riscv-software-src/opensbi/blob/35511bc6ee1c9c17b6a89b44c52e2044bb51b979/platform/generic/include/spacemit/k1.h
 
 use runtime::{
     Result,
-    memory::{RegRange, MemoryRegistry, MmioRegion},
+    memory::{MemoryRegistry, MmioRegion, RegRange},
 };
 
 #[repr(usize)]
