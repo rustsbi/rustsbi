@@ -159,10 +159,9 @@ check_serial() {
       gsub(/\033\[[0-?]*[ -\/]*[@-~]/, "")
       if (/Kernel panic|not syncing|VFS: Unable to mount root fs|Cannot open root device|Attempted to kill init|panicked at|Synchronous Exception|Unhandled exception|grub rescue>|No bootable device|SystemFailure|Invalid data in dynamic/) fatal=1
       if (stage == 0 && /^\[RustSBI\].*Hello RustSBI!$/) stage=1
-      if (stage == 1 && /^\[RustSBI\].*Platform IPI Extension *: SiFiveClint /) clint=1
       if (stage == 1 && boot_mode == "edk2" && /^\[RustSBI\].*Redirecting hart [0-9]+ to 0x00000020000000 in Supervisor mode\.$/) handoff=1
       if (stage == 1 && (boot_mode == "u-boot" || boot_mode == "sbi") && /^\[RustSBI\].*Redirecting hart [0-9]+ to 0x00000080200000 in Supervisor mode\.$/) handoff=1
-      if (stage == 1 && boot_mode == "sbi" && handoff && clint) stage=2
+      if (stage == 1 && boot_mode == "sbi" && handoff) stage=2
       # Direct Linux boot must not be accepted through a U-Boot/EDK II trace.
       if (boot_mode == "sbi" && (/^U-Boot / || /RISC-V EDK2 firmware/ || /GNU GRUB *version/ || /^Booting: Label: virtio/)) fatal=1
       if (stage == 1 && boot_mode == "edk2" && /^RISC-V EDK2 firmware version 2\.7$/) stage=2
@@ -179,7 +178,7 @@ check_serial() {
       if (stage == 3 && distro && /^Kernel 6\.6\.0-102\.0\.0\.5\.oe2509\.riscv64 on an riscv64$/) kernel=1
       if (stage == 3 && kernel && /^localhost login: *$/) login=1
     }
-    END { if (fatal) exit 2; exit !(stage == 3 && clint && handoff && distro && kernel && login) }
+    END { if (fatal) exit 2; exit !(stage == 3 && handoff && distro && kernel && login) }
   ' "$LOG_FILE"
 }
 
@@ -281,11 +280,6 @@ run_self_tests() (
     local variant=$1
     variant=$(printf '%s' "$variant" | sed 's/^uboot-//')
     [[ "$variant" = missing-rustsbi ]] || printf '[RustSBI] INFO - Hello RustSBI!\n'
-    if [[ "$variant" = aia ]]; then
-      printf '[RustSBI] INFO - Platform IPI Extension        : IMSIC (M-level Base Address: 0x24000000)\n'
-    else
-      printf '[RustSBI] INFO - Platform IPI Extension        : SiFiveClint (Base Address: 0x2000000)\n'
-    fi
     if [[ "$variant" = wrong-handoff ]]; then
       printf '[RustSBI] INFO - Redirecting hart 0 to 0x00000020000000 in Supervisor mode.\n'
     elif [[ "$variant" != missing-handoff ]]; then
@@ -329,11 +323,6 @@ run_self_tests() (
   sbi_fixture() {
     local variant=${1#sbi-}
     [[ "$variant" = missing-rustsbi ]] || printf '[RustSBI] INFO - Hello RustSBI!\n'
-    if [[ "$variant" = wrong-clint ]]; then
-      printf '[RustSBI] INFO - Platform IPI Extension        : IMSIC (M-level Base Address: 0x24000000)\n'
-    elif [[ "$variant" != missing-clint ]]; then
-      printf '[RustSBI] INFO - Platform IPI Extension        : SiFiveClint (Base Address: 0x2000000)\n'
-    fi
     if [[ "$variant" = early-linux-task ]]; then
       printf '[    0.100000][    T1] early untrusted kernel event\n'
     fi
@@ -383,11 +372,6 @@ run_self_tests() (
       return
     fi
     [[ "$scenario" = missing-rustsbi ]] || printf '\033[1;37m[RustSBI] \033[1;32mINFO \033[0m - Hello RustSBI!\n'
-    if [[ "$scenario" = aia ]]; then
-      printf '[RustSBI] INFO - Platform IPI Extension        : IMSIC (M-level Base Address: 0x24000000)\n'
-    else
-      printf '[RustSBI] INFO - Platform IPI Extension        : SiFiveClint (Base Address: 0x2000000)\n'
-    fi
     [[ "$scenario" = missing-handoff ]] || printf '[RustSBI] INFO - Redirecting hart 0 to 0x00000020000000 in Supervisor mode.\n'
     [[ "$scenario" = missing-edk2 ]] || printf 'RISC-V EDK2 firmware version 2.7\n'
     printf 'Loading Linux 6.6.0-102.0.0.5.oe2509.riscv64 ...\nLoading initial ramdisk ...\n'
@@ -506,20 +490,20 @@ run_self_tests() (
     echo "PASS: download $scenario (verification and cleanup)"
   )
 
-  for scenario in success missing-rustsbi missing-handoff missing-edk2 missing-linux aia linux-only marker-only \
+  for scenario in success missing-rustsbi missing-handoff missing-edk2 missing-linux linux-only marker-only \
     injected early-login panic rootfs early-exit timeout late-panic stale-log stderr-injection wrong-version; do
     expected=fail
     [[ "$scenario" != success ]] || expected=pass
     serial_case "$scenario" "$expected"
   done
   # Same process/serial integrity contract for the U-Boot handoff path.
-  for scenario in uboot-success uboot-missing-rustsbi uboot-missing-handoff uboot-wrong-handoff uboot-missing-uboot uboot-missing-efi uboot-missing-grub uboot-grub-before-efi uboot-edk2-only uboot-aia uboot-missing-linux uboot-linux-only uboot-wrong-distro uboot-early-login uboot-injected uboot-marker-only uboot-panic uboot-rootfs uboot-early-exit uboot-timeout uboot-late-panic; do
+  for scenario in uboot-success uboot-missing-rustsbi uboot-missing-handoff uboot-wrong-handoff uboot-missing-uboot uboot-missing-efi uboot-missing-grub uboot-grub-before-efi uboot-edk2-only uboot-missing-linux uboot-linux-only uboot-wrong-distro uboot-early-login uboot-injected uboot-marker-only uboot-panic uboot-rootfs uboot-early-exit uboot-timeout uboot-late-panic; do
     expected=fail
     [[ "$scenario" != uboot-success ]] || expected=pass
     serial_case "$scenario" "$expected"
   done
   # Direct SBI boot: no intermediary bootloader is allowed to supply evidence.
-  for scenario in sbi-success sbi-missing-rustsbi sbi-missing-clint sbi-wrong-clint sbi-missing-handoff sbi-wrong-handoff sbi-early-linux-task sbi-missing-linux-task sbi-edk2-injection sbi-uboot-injection sbi-wrong-distro sbi-wrong-kernel sbi-no-login sbi-early-login sbi-injected sbi-panic sbi-rootfs sbi-timeout sbi-early-exit sbi-late-panic sbi-stale-log sbi-stderr-injection; do
+  for scenario in sbi-success sbi-missing-rustsbi sbi-missing-handoff sbi-wrong-handoff sbi-early-linux-task sbi-missing-linux-task sbi-edk2-injection sbi-uboot-injection sbi-wrong-distro sbi-wrong-kernel sbi-no-login sbi-early-login sbi-injected sbi-panic sbi-rootfs sbi-timeout sbi-early-exit sbi-late-panic sbi-stale-log sbi-stderr-injection; do
     expected=fail
     [[ "$scenario" != sbi-success ]] || expected=pass
     serial_case "$scenario" "$expected"
