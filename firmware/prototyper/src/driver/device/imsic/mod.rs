@@ -14,14 +14,9 @@ mod parse;
 use runtime::{Error, FdtNode, PlatformView, Result};
 
 pub(crate) use description::{AddressLayout, Desc, IMSIC_COMPATIBLES, IMSIC_FILE_SPAN};
-pub(crate) use parse::{CpuInterruptController, cpu_interrupt_controller};
 
 /// Parses one IMSIC node after resolving its register ranges.
-pub(crate) fn describe(
-    platform: &PlatformView<'_>,
-    node: FdtNode<'_, '_>,
-    cpu_interrupt_controllers: &[CpuInterruptController],
-) -> Result<Option<Desc>> {
+pub(crate) fn describe(platform: &PlatformView<'_>, node: FdtNode<'_, '_>) -> Result<Option<Desc>> {
     let registers = platform.device_registers(node)?.ok_or(Error::InvalidArgs)?;
-    parse::describe(node, &registers, cpu_interrupt_controllers)
+    parse::describe(platform, node, &registers)
 }

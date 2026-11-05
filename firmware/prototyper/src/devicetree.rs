@@ -38,12 +38,15 @@ pub(crate) struct NodeSelection<T> {
 }
 
 impl<T> NodeSelection<T> {
-    pub(crate) fn resource(&self) -> &T {
-        &self.resource
+    pub(crate) fn new(resource: T, source_path: String) -> Self {
+        Self {
+            resource,
+            source_path,
+        }
     }
 
-    pub(crate) fn source_path(&self) -> &str {
-        &self.source_path
+    pub(crate) fn resource(&self) -> &T {
+        &self.resource
     }
 
     /// Returns the resource and the device-tree path that described it.
@@ -60,10 +63,7 @@ pub(crate) fn select_from_node_once<T>(
     if slot.is_some() {
         return Err(Error::InvalidArgs);
     }
-    slot.replace(NodeSelection {
-        resource,
-        source_path: absolute_path(source_path),
-    });
+    slot.replace(NodeSelection::new(resource, absolute_path(source_path)));
     Ok(())
 }
 

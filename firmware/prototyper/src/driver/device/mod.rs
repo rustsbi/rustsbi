@@ -4,6 +4,7 @@ pub(crate) mod cci;
 pub(crate) mod clint;
 pub(crate) mod console;
 pub(crate) mod imsic;
+pub(crate) mod interrupts;
 pub(crate) mod plicsw;
 pub(crate) mod plmt;
 pub(crate) mod reset;

@@ -9,7 +9,7 @@
 use alloc::vec::Vec;
 use core::mem::size_of;
 use runtime::{
-    Error, FdtNode, Result,
+    Error, FdtNode, PlatformView, Result,
     hart::HartId,
     ipi::Iid,
     memory::{PhysAddrRange, RegRange},
@@ -17,7 +17,7 @@ use runtime::{
 };
 
 use super::{AddressLayout, Desc, IMSIC_FILE_SPAN};
-use crate::devicetree::u32_property;
+use crate::devicetree::{is_cpu_node, u32_property};
 
 const MACHINE_EXTERNAL_INTERRUPT_ID: u32 = 11;
 const MAX_GUEST_INDEX_BITS: u32 = 7;
@@ -29,7 +29,7 @@ const FIRMWARE_IPI_IDENTITY: u16 = 1;
 
 /// A CPU interrupt-controller phandle and its owning hart.
 #[derive(Clone, Copy)]
-pub(crate) struct CpuInterruptController {
+struct CpuInterruptController {
     phandle: u32,
     hart_id: usize,
 }
@@ -43,7 +43,7 @@ struct MachineInterruptFile {
 /// Associates an enabled CPU interrupt-controller node with its owning hart.
 ///
 /// The caller supplies the hart ID, including for CPU nodes that are disabled.
-pub(crate) fn cpu_interrupt_controller(
+fn cpu_interrupt_controller(
     node: FdtNode<'_, '_>,
     hart_id: usize,
 ) -> Option<CpuInterruptController> {
@@ -60,9 +60,9 @@ pub(crate) fn cpu_interrupt_controller(
 
 /// Parses one machine IMSIC node into a description.
 pub(super) fn describe(
+    platform: &PlatformView<'_>,
     node: FdtNode<'_, '_>,
     register_ranges: &[RegRange],
-    cpu_interrupt_controllers: &[CpuInterruptController],
 ) -> Result<Option<Desc>> {
     let first_register_range = register_ranges.first().ok_or(Error::InvalidArgs)?;
     if register_ranges
@@ -74,7 +74,8 @@ pub(super) fn describe(
 
     let machine_base = first_register_range.start();
     let num_iids = interrupt_identity_count(node)?;
-    let machine_files = machine_interrupt_files(node, cpu_interrupt_controllers)?;
+    let controllers = cpu_interrupt_controllers(platform)?;
+    let machine_files = machine_interrupt_files(node, &controllers)?;
     if machine_files.is_empty() {
         debug!(
             "IMSIC: node at 0x{:x} is not wired to MachineExternal, skipping",
@@ -126,6 +127,22 @@ pub(super) fn describe(
         num_iids,
         hart_files,
     }))
+}
+
+fn cpu_interrupt_controllers(platform: &PlatformView<'_>) -> Result<Vec<CpuInterruptController>> {
+    let cpus = platform
+        .find_enabled_node("/cpus")
+        .ok_or(Error::InvalidArgs)?;
+    let mut controllers = Vec::new();
+    for cpu in cpus.children().filter(|node| is_cpu_node(*node)) {
+        let hart_id = PlatformView::hart_id(cpu)?;
+        // Disabled CPUs still occupy positions in `interrupts-extended`.
+        controllers.extend(
+            cpu.children()
+                .filter_map(|node| cpu_interrupt_controller(node, hart_id)),
+        );
+    }
+    Ok(controllers)
 }
 
 /// Returns whether a node is an enabled `riscv,cpu-intc` controller.

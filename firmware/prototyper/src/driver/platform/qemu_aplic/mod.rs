@@ -11,7 +11,7 @@
 mod registers;
 
 use runtime::{
-    Error, FdtNode, Result,
+    Error, Result,
     memory::{MemoryRegistry, PhysAddr, RegRange},
 };
 
@@ -20,7 +20,6 @@ use registers::{AplicRegisters, EncodedMsiAddress};
 
 const SUPERVISOR_IMSIC_BASE: PhysAddr = PhysAddr::new(0x2800_0000);
 const INTERRUPT_SOURCE_COUNT: usize = 96;
-const APLIC_COMPATIBLE: &str = "riscv,aplic";
 
 /// Acquires and configures QEMU `virt`'s M-APLIC register block.
 pub(crate) fn init(
@@ -32,11 +31,8 @@ pub(crate) fn init(
     let machine_msi = EncodedMsiAddress::machine(machine_imsic_base, hart_index_bits)?;
     let supervisor_msi = EncodedMsiAddress::supervisor(SUPERVISOR_IMSIC_BASE, hart_index_bits)?;
     let registers = memory.acquire(registers)?;
-    let msi_configuration_locked = AplicRegisters::new(registers).configure_and_delegate_sources(
-        machine_msi,
-        supervisor_msi,
-        INTERRUPT_SOURCE_COUNT,
-    )?;
+    let msi_configuration_locked = AplicRegisters::new(registers)
+        .configure_and_delegate_sources(machine_msi, supervisor_msi)?;
     if msi_configuration_locked {
         warn!("AIA: M-level APLIC MSI configuration is locked");
     }
@@ -64,18 +60,4 @@ pub(super) fn init_for_imsic(
         imsic_start: imsic_base.as_usize(),
         imsic_end: imsic_end.ok_or(Error::InvalidArgs)?,
     }))
-}
-
-/// Returns whether an APLIC node describes a machine-level domain.
-pub(crate) fn is_machine_domain(node: FdtNode<'_, '_>, compatible: &str) -> bool {
-    compatible == APLIC_COMPATIBLE && node.property("riscv,children").is_some()
-}
-
-/// Returns whether the machine-level APLIC domain is delegated.
-///
-/// A delegated domain must be hidden from the next stage when firmware keeps IMSIC IPIs.
-pub(crate) fn is_delegated_machine_domain(node: FdtNode<'_, '_>, compatible: &str) -> bool {
-    is_machine_domain(node, compatible)
-        && (node.property("riscv,delegate").is_some()
-            || node.property("riscv,delegation").is_some())
 }
