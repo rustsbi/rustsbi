@@ -16,7 +16,7 @@ pub(crate) use matching::match_desc;
 use runtime::{
     Error, Result,
     hart::HartId,
-    ipi::{Ipi, IpiDevice, Software},
+    ipi::Ipi,
     memory::MemoryRegistry,
     timer::TimerDevice,
 };
@@ -31,8 +31,8 @@ pub(crate) use console::{ConsoleDesc, select as select_console};
 
 pub(crate) use runtime::hart::HartWake;
 
-pub(crate) const PLMT_COMPATIBLE: &str = "andestech,plmt0";
-pub(crate) const SUNXI_PLICSW_COMPATIBLE: &str = "allwinner,sun300i-plicsw";
+pub(crate) use plicsw::COMPATIBLE as SUNXI_PLICSW_COMPATIBLE;
+pub(crate) use plmt::COMPATIBLE as PLMT_COMPATIBLE;
 
 pub(crate) const THEAD_PLIC_COMPATIBLES: [&str; 2] =
     ["thead,c900-plic", "allwinner,thead,c900-plic"];
@@ -75,11 +75,9 @@ fn bind_interrupts(
         board.devices.interrupts.plmt,
         board.devices.interrupts.plicsw,
     ) {
-        let hart_id_upper_bound = hart_id_upper_bound()?;
-        let device: Box<dyn IpiDevice<Software>> =
-            Box::new(plicsw::bind(plicsw, memory, hart_id_upper_bound)?);
+        let device = Box::new(plicsw::Desc { registers: plicsw }).init(memory)?;
         return Ok((
-            Some(Box::new(plmt::bind(plmt, memory, hart_id_upper_bound)?)),
+            Some(Box::new(plmt::Desc { registers: plmt }).init(memory)?),
             Some(Ipi::software(device)?),
         ));
     }
@@ -102,11 +100,7 @@ fn bind_timer(
         board.devices.interrupts.plmt,
         board.devices.interrupts.plicsw,
     ) {
-        return Ok(Some(Box::new(plmt::bind(
-            plmt,
-            memory,
-            hart_id_upper_bound,
-        )?)));
+        return Box::new(plmt::Desc { registers: plmt }).init(memory).map(Some);
     }
     let Some(description) = board.devices.interrupts.clint() else {
         return Ok(None);
