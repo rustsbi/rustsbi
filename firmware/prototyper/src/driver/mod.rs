@@ -4,16 +4,11 @@
 //! Device-class discovery stays within each subsystem, while vendor-only
 //! devices remain in their vendor module.
 
-mod aia;
 pub(crate) mod allwinner;
-mod cci;
-mod clint;
 mod device;
-mod plicsw;
-mod plmt;
 
 use alloc::boxed::Box;
-use device::{console, reset};
+use device::{aia, cci, clint, console, plicsw, plmt, reset};
 use runtime::{
     Error, Result,
     hart::HartId,
