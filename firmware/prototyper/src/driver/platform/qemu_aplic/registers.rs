@@ -1,9 +1,9 @@
-//! Specification: [RISC-V AIA 1.0], sections 4.5.2–4.5.4 and 4.5.11,
-//! defines this register layout.
+//! QEMU APLIC register layout and MSI address encoding.
 //!
-//! QEMU 10.1 reads the hart-index width from the supervisor MSI address
-//! register when routing supervisor interrupts, so that compatibility field is
-//! repeated below. See QEMU's [APLIC implementation].
+//! [RISC-V AIA 1.0], sections 4.5.2–4.5.4 and 4.5.11, defines the register layout.
+//! QEMU 10.1 reads the hart-index width from the supervisor MSI address register
+//! when routing supervisor interrupts, so that compatibility field is repeated.
+//! See QEMU's [APLIC implementation].
 //!
 //! [RISC-V AIA 1.0]: https://docs.riscv.org/reference/aia/_attachments/riscv-interrupts.pdf
 //! [APLIC implementation]: https://github.com/qemu/qemu/blob/v10.1.0/hw/intc/riscv_aplic.c
@@ -34,8 +34,9 @@ impl EncodedMsiAddress {
     }
 
     pub(super) fn supervisor(base: PhysAddr, hart_index_bits: u32) -> Result<Self> {
-        // AIA defines LHXW in mmsiaddrcfgh. QEMU 10.1 instead takes it from
-        // smsiaddrcfgh for an S-level domain, so repeat it for that emulator.
+        // AIA defines LHXW in `mmsiaddrcfgh`.
+        // QEMU 10.1 instead takes it from `smsiaddrcfgh` for an S-level domain,
+        // so repeat it for that emulator.
         Self::encode(base, hart_index_bits)
     }
 
@@ -140,8 +141,9 @@ impl AplicRegisters {
             )?;
         }
 
-        // The M domain delivers nothing itself after all sources move to its
-        // S-level child, so both domaincfg.IE and domaincfg.DM remain clear.
+        // The M domain does not deliver interrupts itself when its sources are
+        // delegated to its S-level child, so `domaincfg.IE` and `domaincfg.DM`
+        // remain clear.
         self.write(Register::DomainConfig, 0)?;
 
         let enable_words = (num_sources + 1).div_ceil(u32::BITS as usize);

@@ -2,264 +2,107 @@
 
 //! One-time platform discovery, resource acquisition, and publication.
 
-use alloc::boxed::Box;
-use core::ops::Range;
-use runtime::{
-    Error, PlatformDescription, Result, console, events,
-    hart,
-    ipi,
-    memory::SupervisorMemory,
-    reset, timer,
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    vec::Vec,
+};
+use core::sync::atomic::{AtomicBool, Ordering};
+use runtime::{Error, PlatformDescription, Result, console, hart, reset};
+
+use super::{allwinner::v821, describe_pmu, harts, interrupts, report, wakeup};
+use crate::{
+    driver::{
+        Description as _,
+        device::{console as console_driver, reset as reset_driver},
+    },
+    firmware, sbi,
 };
 
-use super::{
-    allwinner::{v821, v821::V821, v861},
-    discovery,
-    error::{InitError, ResultContext},
-    info::{BoardInfo, SocDescription},
-    report,
-    spacemit_k1,
-    state,
-};
-use crate::{
-    driver::{self, Description as _, HartWake},
-    sbi::{
-        self, SbiDispatcher, cppc::SbiCppc, dbtr::SbiDbtr, fwft::SbiFwft, hsm::SbiHsm, pmu::SbiPmu,
-        reset::SbiReset, rfence::SbiRFence, suspend::SbiSuspend, timer::SbiTimer,
-    },
-};
+static READY: AtomicBool = AtomicBool::new(false);
 
 /// Discovers the platform, initializes its devices, and publishes its services.
 ///
 /// Returns the device tree prepared for the next stage.
-pub fn init_board(platform_description: PlatformDescription) -> usize {
-    try_init_board(platform_description).unwrap_or_else(|error| panic!("{error}"))
+pub fn init_platform(platform_description: PlatformDescription) -> usize {
+    try_init_platform(platform_description).expect("platform initialization failed")
 }
 
-fn try_init_board(platform_description: PlatformDescription) -> Result<usize, InitError> {
-    let mut board = Box::new(BoardInfo::empty());
-    let (pmu, console, reset) = platform_description
-        .inspect(|platform| {
-            Ok((
-                discovery::discover_platform(&mut board, &platform)?,
-                driver::select_console(&platform)?,
-                driver::describe_reset(&platform, board.timebase_frequency_hz)?,
-            ))
+fn try_init_platform(platform_description: PlatformDescription) -> Result<usize> {
+    let (timebase_frequency_hz, cpu_interrupt_controllers) =
+        platform_description.inspect(|platform| harts::describe(&platform))?;
+    let model = platform_description.inspect(|platform| {
+        Ok(platform
+            .root()
+            .property("model")
+            .and_then(|property| property.as_str())
+            .unwrap_or("<unspecified>")
+            .to_string())
+    })?;
+
+    let console_description =
+        platform_description.inspect(|platform| console_driver::select(&platform))?;
+    let v821_description = platform_description.inspect(|platform| v821::describe(&platform))?;
+    let reset_description = platform_description
+        .inspect(|platform| reset_driver::describe(&platform, timebase_frequency_hz))?;
+    let pmu = platform_description.inspect(|platform| describe_pmu(&platform))?;
+
+    let (supervisor_memory, mut memory) = platform_description.memory_resources()?;
+    let firmware_image_range = memory.firmware_image_range();
+    let firmware_ram_range = memory
+        .ram_ranges()
+        .find(|ram| {
+            ram.start() <= firmware_image_range.start() && firmware_image_range.end() <= ram.end()
         })
-        .during("reading the platform description")?;
+        .ok_or(Error::InvalidArgs)?;
 
-    initialize_platform(platform_description, board, pmu, console, reset)
-}
+    let v821 = v821_description
+        .map(|description| Box::new(description).init(&mut memory))
+        .transpose()?;
+    let noncacheable_alias_offset = v821.as_ref().map(v821::V821::noncacheable_alias_offset);
 
-fn initialize_platform(
-    platform_description: PlatformDescription,
-    mut board: Box<BoardInfo>,
-    pmu: Option<SbiPmu>,
-    console_description: Option<driver::ConsoleDesc>,
-    reset_description: Option<driver::ResetDesc>,
-) -> Result<usize, InitError> {
-    let (supervisor_memory, mut memory) = platform_description
-        .memory_resources()
-        .during("deriving Runtime memory resources")?;
+    let mut hidden_node_paths: Vec<String> = Vec::new();
+    let irq_mmio = platform_description.inspect(|platform| {
+        interrupts::init(
+            &platform,
+            &model,
+            &cpu_interrupt_controllers,
+            &mut memory,
+            &mut hidden_node_paths,
+            |memory| v821::prepare_plmt(v821.as_ref(), memory),
+        )
+    })?;
     if let Some(description) = console_description {
-        let device = description
-            .init(&mut memory)
-            .during("initializing the console")?;
-        console::init(device).during("registering the console")?;
+        console::init(description.init(&mut memory)?)?;
     }
     if let Some(description) = reset_description {
-        let device = description.init(&mut memory).during("initializing reset")?;
-        reset::init(device).during("registering reset")?;
+        reset::init(description.init(&mut memory)?)?;
     }
-    board.memory.ram_ranges = memory.ram_ranges().collect();
-    let firmware_image_range = memory.firmware_image_range();
-    board.memory.firmware_ram_range = Some(
-        board
-            .memory
-            .ram_range_containing(firmware_image_range)
-            .ok_or(Error::InvalidArgs)
-            .during("locating the firmware RAM bank")?,
-    );
-
-    let v821 = match board.soc.take() {
-        Some(SocDescription::V821(description)) => Some(Box::new(description).init(&mut memory)),
-        soc => {
-            board.soc = soc;
-            None
-        }
-    }
-    .transpose()
-    .during("preparing V821 platform resources")?;
-    board.memory.noncacheable_alias_offset = v821.as_ref().map(V821::noncacheable_alias_offset);
-
-    if board.devices.interrupts.plmt.is_some()
-        && board.devices.interrupts.plicsw.is_some()
-        && let Some(v821) = v821.as_ref()
-    {
-        v821::prepare_plmt(Some(v821), &mut memory)
-            .during("enabling the V821 PLMT clock")?;
-    }
-
-    let selected_imsic = board
-        .devices
-        .interrupts
-        .imsic()
-        .map(|description| description.resource());
-    let mut devices = driver::bind_devices(&board, selected_imsic, &mut memory)
-        .during("binding platform devices")?;
-    // Publish the platform time source as soon as its device is bound so later
-    // platform setup can use `timer::now()`.
-    timer::init(devices.timer.take()).expect("BUG: time source initialization failed");
-    let timer = SbiTimer;
     let custom_extension = platform_description
-        .inspect(|platform| sbi::vendor::Extension::init(v821, &platform, &mut memory))
-        .during("binding Allwinner custom-extension devices")?;
-    let k1_registers = match &board.soc {
-        Some(SocDescription::SpacemitK1(registers)) => Some(*registers),
-        _ => None,
-    };
-    let k1_wake = k1_registers
-        .map(|registers| spacemit_k1::init(spacemit_k1::Desc::new(registers), &mut memory))
-        .transpose()
-        .during("acquiring SpacemiT K1 resources")?;
-    let v861_wake = match &board.soc {
-        Some(SocDescription::V861(soc)) => {
-            Some(Box::new(v861::Desc { soc: *soc }).init(&mut memory))
-        }
-        _ => None,
-    }
-    .transpose()
-    .during("initializing V861 C907 resources")?;
+        .inspect(|platform| sbi::vendor::Extension::init(v821, &platform, &mut memory))?;
+    let hart_wake =
+        platform_description.inspect(|platform| wakeup::init(&platform, &mut memory))?;
 
     let next_stage_fdt_address = {
-        let hidden_node_paths = if selected_imsic.is_some() {
-            board
-                .devices
-                .interrupts
-                .aia_handoff_paths()
-                .collect::<alloc::vec::Vec<_>>()
-        } else {
-            alloc::vec::Vec::new()
-        };
-        super::handoff::prepare_device_tree(&memory, &hidden_node_paths, platform_description)
-            .during("preparing the next-stage platform description")?
+        let hidden_node_paths: Vec<&str> = hidden_node_paths.iter().map(String::as_str).collect();
+        super::handoff::prepare_device_tree(&memory, &hidden_node_paths, platform_description)?
             .as_usize()
     };
 
-    let hart_wake = k1_wake.or(v861_wake);
-
-    publish_platform_services(
-        board,
-        supervisor_memory,
-        devices,
-        custom_extension,
-        pmu,
-        hart_wake,
-        timer,
-    );
-    Ok(next_stage_fdt_address)
-}
-
-fn publish_platform_services(
-    board: Box<BoardInfo>,
-    supervisor_memory: SupervisorMemory,
-    devices: driver::Devices,
-    custom_extension: sbi::vendor::Extension,
-    pmu: Option<SbiPmu>,
-    hart_wake: Option<Box<dyn HartWake>>,
-    timer: SbiTimer,
-) {
-    let driver::Devices {
-        ipi: ipi_device,
-        ..
-    } = devices;
-    // Publish hardware wakeup before constructing HSM policy.
+    firmware::init_pmp(firmware_ram_range, noncacheable_alias_offset, irq_mmio);
     let hardware_wakeup = hart_wake.is_some();
     hart::install_wakeup(hart_wake);
-    let sbi_ipi = ipi_device.map(|device| {
-        ipi::init(device).expect("BUG: IPI initialization requires a published hart topology");
-        sbi::ipi::SbiIpi
-    });
-    events::install(pmu.as_ref().map(|_| sbi::pmu::runtime_counters()));
-
-    state::publish_resources(board, supervisor_memory);
-
-    sbi::logger::Logger::init().expect("BUG: firmware logger initialized more than once");
-    info!("Hello RustSBI!");
-
-    let reset = SbiReset;
-    publish_sbi_dispatcher(
-        sbi_ipi,
-        timer,
-        reset,
-        custom_extension,
-        pmu,
-        hardware_wakeup,
-    );
-
-    state::mark_ready();
-
-    report::log_platform_summary();
-}
-
-fn publish_sbi_dispatcher(
-    ipi: Option<sbi::ipi::SbiIpi>,
-    timer: SbiTimer,
-    reset: SbiReset,
-    custom_extension: sbi::vendor::Extension,
-    pmu: Option<SbiPmu>,
-    hardware_wakeup: bool,
-) {
-    let supervisor_memory = state::supervisor_memory();
-    let console = console::get().map(|_| sbi::console::SbiConsole::new(supervisor_memory));
-    let cppc = Some(SbiCppc::new());
-    let dbtr = Some(SbiDbtr::new(supervisor_memory));
-    let fwft = Some(SbiFwft);
-    let ipi_available = ipi.is_some();
-    let hsm = ipi_available.then(|| SbiHsm::new(hardware_wakeup));
-    let rfence =
-        ipi_available.then(|| SbiRFence::new().expect("BUG: RFENCE IPI event registration failed"));
-    let susp = hsm.as_ref().map(|_| SbiSuspend);
-    let mpxy = Some(sbi::mpxy::SbiMpxy::new(supervisor_memory));
-    let sta = Some(sbi::sta::SbiSta::new(supervisor_memory));
-    let vendor = sbi::vendor::Vendor::new(custom_extension, supervisor_memory);
-
-    let dispatcher: &'static SbiDispatcher = Box::leak(Box::new(SbiDispatcher {
-        console,
-        cppc,
-        dbtr,
-        fwft,
-        ipi,
-        timer,
-        hsm,
-        reset,
-        rfence,
-        susp,
-        pmu,
-        sta,
-        mpxy,
-        vendor,
-    }));
-    dispatcher
-        .publish()
-        .expect("BUG: SBI policy publication failed");
-}
-
-/// Runs the SoC-specific per-hart setup for secondary harts.
-pub fn initialize_secondary_hart() {
-    spacemit_k1::initialize_secondary_hart();
+    sbi::init(supervisor_memory, custom_extension, pmu, hardware_wakeup);
+    // The release pairs with `wait_until_ready` so secondary harts observe
+    // all initialized services before proceeding.
+    READY.store(true, Ordering::Release);
+    report::log_platform_summary(&model, timebase_frequency_hz, memory.ram_ranges());
+    Ok(next_stage_fdt_address)
 }
 
 /// Spins until the boot hart has finished platform initialization.
 pub fn wait_until_ready() {
-    state::wait_until_ready()
-}
-
-/// Returns the RAM bank containing the linked firmware image.
-pub fn firmware_ram_range() -> Range<usize> {
-    let range = state::board_info()
-        .memory
-        .firmware_ram_range
-        .expect("BUG: firmware RAM bank missing after platform initialization");
-    range.start().as_usize()..range.end().as_usize()
+    while !READY.load(Ordering::Acquire) {
+        core::hint::spin_loop();
+    }
 }

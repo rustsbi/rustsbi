@@ -45,6 +45,11 @@ impl<T> NodeSelection<T> {
     pub(crate) fn source_path(&self) -> &str {
         &self.source_path
     }
+
+    /// Returns the resource and the device-tree path that described it.
+    pub(crate) fn into_parts(self) -> (T, String) {
+        (self.resource, self.source_path)
+    }
 }
 
 pub(crate) fn select_from_node_once<T>(

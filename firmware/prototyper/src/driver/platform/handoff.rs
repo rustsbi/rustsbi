@@ -1,7 +1,7 @@
 //! Policy for the platform description passed to the next stage.
 //!
-//! Discovery records selected resources; this module decides which memory and
-//! nodes must be hidden after firmware has selected and bound its devices.
+//! Selected devices determine which memory and nodes must be hidden from the
+//! next stage.
 
 use runtime::{
     PlatformDescription, Result,

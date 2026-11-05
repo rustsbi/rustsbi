@@ -1,8 +1,7 @@
 //! Discovery of machine-level IMSIC interrupt files.
 //!
-//! Specification: [RISC-V AIA 1.0], section 3.6, defines address layout and
-//! interrupt-file semantics. Devicetree binding: the pinned [IMSIC binding]
-//! defines property bounds and defaults.
+//! [RISC-V AIA 1.0], section 3.6, defines address layout and interrupt-file semantics.
+//! The pinned [IMSIC binding] defines property bounds and defaults.
 //!
 //! [RISC-V AIA 1.0]: https://docs.riscv.org/reference/aia/_attachments/riscv-interrupts.pdf
 //! [IMSIC binding]: https://github.com/torvalds/linux/blob/a500db7819c50db59e55f1b4fa1c3baa5a2616f3/Documentation/devicetree/bindings/interrupt-controller/riscv%2Cimsics.yaml
@@ -12,15 +11,13 @@ use core::mem::size_of;
 use runtime::{
     Error, FdtNode, Result,
     hart::HartId,
-    ipi::{self, Iid},
-    memory::{RegRange, PhysAddrRange},
+    ipi::Iid,
+    memory::{PhysAddrRange, RegRange},
     node_is_enabled,
 };
 
+use super::{AddressLayout, Desc, IMSIC_FILE_SPAN};
 use crate::devicetree::u32_property;
-use crate::driver;
-
-use super::super::info::{ImsicAddressLayout, ImsicInfo};
 
 const MACHINE_EXTERNAL_INTERRUPT_ID: u32 = 11;
 const MAX_GUEST_INDEX_BITS: u32 = 7;
@@ -30,19 +27,23 @@ const MAX_GROUP_INDEX_SHIFT: u32 = 55;
 const DEFAULT_GROUP_INDEX_SHIFT: u32 = 24;
 const FIRMWARE_IPI_IDENTITY: u16 = 1;
 
+/// A CPU interrupt-controller phandle and its owning hart.
 #[derive(Clone, Copy)]
-pub(super) struct CpuInterruptController {
+pub(crate) struct CpuInterruptController {
     phandle: u32,
     hart_id: usize,
 }
 
+/// A machine-external interrupt file selected from `interrupts-extended`.
 struct MachineInterruptFile {
     hart_id: usize,
     file_index: u32,
 }
 
-/// Associates CPU interrupt wiring with its parent, including disabled harts.
-pub(super) fn cpu_interrupt_controller(
+/// Associates an enabled CPU interrupt-controller node with its owning hart.
+///
+/// The caller supplies the hart ID, including for CPU nodes that are disabled.
+pub(crate) fn cpu_interrupt_controller(
     node: FdtNode<'_, '_>,
     hart_id: usize,
 ) -> Option<CpuInterruptController> {
@@ -57,15 +58,16 @@ pub(super) fn cpu_interrupt_controller(
     })
 }
 
-pub(super) fn discover(
+/// Parses one machine IMSIC node into a description.
+pub(super) fn describe(
     node: FdtNode<'_, '_>,
     register_ranges: &[RegRange],
     cpu_interrupt_controllers: &[CpuInterruptController],
-) -> Result<Option<ImsicInfo>> {
+) -> Result<Option<Desc>> {
     let first_register_range = register_ranges.first().ok_or(Error::InvalidArgs)?;
     if register_ranges
         .iter()
-        .any(|range| !range.has_aligned_bounds(driver::IMSIC_FILE_SPAN))
+        .any(|range| !range.has_aligned_bounds(IMSIC_FILE_SPAN))
     {
         return Err(Error::InvalidArgs);
     }
@@ -81,8 +83,8 @@ pub(super) fn discover(
         return Ok(None);
     }
 
-    // Disabled CPUs still occupy physical interrupt-file slots. Only software
-    // storage is compacted; the address layout uses the complete wiring list.
+    // Derive the default hart-index width from every `interrupts-extended`
+    // entry: disabled CPUs may still own physical interrupt-file slots.
     let file_count = node
         .property("interrupts-extended")
         .ok_or(Error::InvalidArgs)?
@@ -99,7 +101,7 @@ pub(super) fn discover(
     let group_index_shift =
         u32_property(node, "riscv,group-index-shift").unwrap_or(DEFAULT_GROUP_INDEX_SHIFT);
     let guest_index_bits = u32_property(node, "riscv,guest-index-bits").unwrap_or(0);
-    let file_page_shift = driver::IMSIC_FILE_SPAN.trailing_zeros();
+    let file_page_shift = IMSIC_FILE_SPAN.trailing_zeros();
     validate_topology(
         guest_index_bits,
         hart_index_bits,
@@ -110,12 +112,7 @@ pub(super) fn discover(
 
     let ipi_iid =
         Iid::new(FIRMWARE_IPI_IDENTITY).expect("BUG: firmware IPI identity must be nonzero");
-    match ipi::imsic::init(ipi_iid, num_iids) {
-        Ok(()) => {}
-        Err(Error::NotSupported) => return Ok(None),
-        Err(error) => return Err(error),
-    }
-    let layout = ImsicAddressLayout::new(
+    let layout = AddressLayout::new(
         machine_base,
         hart_index_bits,
         group_index_shift,
@@ -123,13 +120,15 @@ pub(super) fn discover(
     );
     let hart_files = map_hart_files(&layout, register_ranges, &machine_files, group_index_bits)?;
 
-    Ok(Some(ImsicInfo {
+    Ok(Some(Desc {
         layout,
         ipi_iid,
+        num_iids,
         hart_files,
     }))
 }
 
+/// Returns whether a node is an enabled `riscv,cpu-intc` controller.
 fn is_cpu_interrupt_controller(node: FdtNode<'_, '_>) -> bool {
     node_is_enabled(node)
         && node.compatible().is_some_and(|compatibles| {
@@ -139,16 +138,19 @@ fn is_cpu_interrupt_controller(node: FdtNode<'_, '_>) -> bool {
         })
 }
 
+/// Returns the node's `phandle`, falling back to `linux,phandle`.
 fn phandle(node: FdtNode<'_, '_>) -> Option<u32> {
     u32_property(node, "phandle").or_else(|| u32_property(node, "linux,phandle"))
 }
 
+/// Reads the identity count from `riscv,num-ids` as a `u16`.
 fn interrupt_identity_count(node: FdtNode<'_, '_>) -> Result<u16> {
     u32_property(node, "riscv,num-ids")
         .and_then(|num_iids| u16::try_from(num_iids).ok())
         .ok_or(Error::InvalidArgs)
 }
 
+/// Collects `interrupts-extended` entries that route Machine External interrupts.
 fn machine_interrupt_files(
     node: FdtNode<'_, '_>,
     controllers: &[CpuInterruptController],
@@ -181,6 +183,7 @@ fn machine_interrupt_files(
     Ok(machine_files)
 }
 
+/// Reads a property as big-endian 32-bit cells.
 fn u32_cells(node: FdtNode<'_, '_>, name: &str) -> Option<Vec<u32>> {
     let bytes = node.property(name)?.value;
     let mut cells = Vec::new();
@@ -191,6 +194,7 @@ fn u32_cells(node: FdtNode<'_, '_>, name: &str) -> Option<Vec<u32>> {
     chunks.remainder().is_empty().then_some(cells)
 }
 
+/// Validates the IMSIC index widths and their bit-field placement.
 fn validate_topology(
     guest_index_bits: u32,
     hart_index_bits: u32,
@@ -224,8 +228,9 @@ fn validate_topology(
     Ok(())
 }
 
+/// Maps machine interrupt files into the register ranges that contain them.
 fn map_hart_files(
-    layout: &ImsicAddressLayout,
+    layout: &AddressLayout,
     register_ranges: &[RegRange],
     machine_files: &[MachineInterruptFile],
     group_index_bits: u32,
@@ -248,14 +253,14 @@ fn map_hart_files(
         let address = layout
             .machine_file_address(hart_index, group_index)
             .ok_or(Error::Overflow)?;
-        let file = PhysAddrRange::from_start_len(address, driver::IMSIC_FILE_SPAN)?;
+        let file = PhysAddrRange::from_start_len(address, IMSIC_FILE_SPAN)?;
         let register_range = register_ranges
             .iter()
             .copied()
             .find(|register_range| register_range.contains(file))
             .ok_or(Error::InvalidArgs)?;
         let offset = file.start().as_usize() - register_range.start().as_usize();
-        hart_files[hart.index()] = Some(register_range.subrange(offset, driver::IMSIC_FILE_SPAN)?);
+        hart_files[hart.index()] = Some(register_range.subrange(offset, IMSIC_FILE_SPAN)?);
     }
 
     hart_files
@@ -264,6 +269,7 @@ fn map_hart_files(
         .collect()
 }
 
+/// Returns a mask with the low `bits` bits set.
 const fn low_bit_mask(bits: u32) -> u32 {
     if bits == 0 { 0 } else { (1u32 << bits) - 1 }
 }
