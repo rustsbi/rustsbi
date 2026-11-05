@@ -18,6 +18,7 @@ pub(crate) struct Desc {
 impl Description for Desc {
     type Device = A27L2Cache;
 
+    #[inline]
     fn init(self: Box<Self>, memory: &mut MemoryRegistry) -> Result<Self::Device> {
         A27L2Cache::init(*self, memory)
     }
