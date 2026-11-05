@@ -16,7 +16,7 @@ use sbi_spec::hsm::suspend_type::NON_RETENTIVE;
 
 const SUSPEND_TO_RAM: u32 = 0x0;
 
-/// Implementation of SBI System Suspend Extension extension.
+/// SBI System Suspend extension.
 pub(crate) struct SbiSuspend;
 
 impl Susp for SbiSuspend {
@@ -30,14 +30,9 @@ impl Susp for SbiSuspend {
             return SbiRet::failed();
         }
 
-        // Check if all harts except the current hart are stopped
-        let hart_enable_map = if let Some(hart_enable_map) = crate::platform::enabled_harts() {
-            hart_enable_map
-        } else {
-            return SbiRet::failed();
-        };
+        // SBI system suspend requires all other harts to be stopped.
         let current_hart = HartId::current().expect("BUG: unknown current hart");
-        for hart in hart_enable_map {
+        for hart in super::features::enabled_harts() {
             if hart != current_hart && hart::status(hart) != HartState::Stopped {
                 return SbiRet::denied();
             }

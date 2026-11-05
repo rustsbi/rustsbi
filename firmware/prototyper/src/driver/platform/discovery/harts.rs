@@ -5,7 +5,7 @@ use runtime::{Error, PlatformView, Result, hart::HartId, node_is_enabled};
 
 use crate::devicetree::{is_cpu_node, u32_property};
 use crate::platform::info::BoardInfo;
-use crate::sbi::features::detect_extensions;
+use crate::sbi::features::{install_extensions, parse_extensions};
 
 use super::imsic::{self, CpuInterruptController};
 
@@ -37,7 +37,7 @@ pub(super) fn discover(
             continue;
         }
         let hart = HartId::from_raw(hart_id).map_err(|_| Error::InvalidArgs)?;
-        detect_extensions(hart, node);
+        install_extensions(hart, parse_extensions(node));
     }
 
     Ok(controllers)

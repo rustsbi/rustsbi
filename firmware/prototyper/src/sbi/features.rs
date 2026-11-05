@@ -2,25 +2,25 @@ use csr::machine::TargetPrivilege as MPP;
 use runtime::{
     FdtNode, boot,
     hart::{self, HartId, PerHart},
-    ipi,
     timer,
 };
 use spin::{Mutex, Once};
 
 use super::pmu;
 use crate::fail;
-use crate::platform::mark_hart_privilege_checked;
 use csr::{
     machine::{self, CBCFE, CBIE, CBZE, CacheBlockInvalidateMode, FeatureState},
     values::counter::InhibitedCounters,
 };
 
+/// SBI-related features and privilege state for one hart.
 #[derive(Default)]
 pub struct HartFeatures {
     extensions: [bool; Extension::COUNT],
     privileged_version: PrivilegedVersion,
     mhpm_mask: u32,
     mhpm_bits: u32,
+    privilege_checked: bool,
 }
 
 impl HartFeatures {
@@ -38,8 +38,8 @@ static FEATURES: Once<PerHart<Mutex<HartFeatures>>> = Once::new();
 
 /// Creates one feature record per enabled hart on the boot hart.
 ///
-/// The caller must run this after Runtime publishes the hart topology and
-/// before platform discovery seeds secondary harts' features.
+/// The caller must run this after Runtime publishes the hart topology
+/// and before platform discovery seeds secondary harts' features.
 pub(crate) fn init() {
     FEATURES.call_once(|| {
         PerHart::new(|_| Mutex::new(HartFeatures::default()))
@@ -68,6 +68,14 @@ pub(crate) fn privileged_version(hart: HartId) -> PrivilegedVersion {
 
 pub(crate) fn mhpm_mask(hart: HartId) -> u32 {
     features(hart).lock().mhpm_mask()
+}
+
+pub(crate) fn hart_privilege_checked(hart: HartId) -> bool {
+    features(hart).lock().privilege_checked
+}
+
+pub(crate) fn enabled_harts() -> impl Iterator<Item = HartId> {
+    HartId::all().filter(|hart| hart_privilege_checked(*hart))
 }
 
 /// Returns one hart's privileged version and counter mask.
@@ -124,8 +132,8 @@ impl Extension {
     }
 }
 
-/// Records the extensions of one enabled hart during CPU discovery.
-pub fn detect_extensions(hart: HartId, cpu: FdtNode<'_, '_>) {
+/// Parses the extensions reported for one CPU node.
+pub(crate) fn parse_extensions(cpu: FdtNode<'_, '_>) -> [bool; Extension::COUNT] {
     let mut extensions = [false; Extension::COUNT];
     if let Some(property) = cpu.property("riscv,isa-extensions") {
         for name in property.value.split(|byte| *byte == 0) {
@@ -146,6 +154,11 @@ pub fn detect_extensions(hart: HartId, cpu: FdtNode<'_, '_>) {
         }
     }
 
+    extensions
+}
+
+/// Installs the extensions parsed from one enabled CPU node.
+pub(crate) fn install_extensions(hart: HartId, mut extensions: [bool; Extension::COUNT]) {
     if hart == HartId::current().expect("BUG: current hart exceeds Runtime capacity") {
         extensions[Extension::Hypervisor.index()] = hart::has_hypervisor();
     }
@@ -186,23 +199,21 @@ pub fn detect_hart_features() {
 ///
 /// Reports an error and stops the hart if it does not.
 pub fn check_next_stage_privilege(next_mode: MPP) {
-    let hart_id = HartId::current()
-        .expect("BUG: current hart exceeds Runtime capacity")
-        .as_usize();
+    let hart = HartId::current().expect("BUG: current hart exceeds Runtime capacity");
     match next_mode {
         MPP::Supervisor => {
             if !hart::supports_privilege(MPP::Supervisor) {
-                error!("Hart {} does not support Supervisor mode", hart_id);
+                error!("Hart {} does not support Supervisor mode", hart.as_usize());
                 fail::stop();
             }
-            mark_hart_privilege_checked(hart_id);
+            features(hart).lock().privilege_checked = true;
         }
         MPP::User => {
             if !hart::supports_privilege(MPP::User) {
-                error!("Hart {} does not support User mode", hart_id);
+                error!("Hart {} does not support User mode", hart.as_usize());
                 fail::stop();
             }
-            mark_hart_privilege_checked(hart_id);
+            features(hart).lock().privilege_checked = true;
         }
         _ => {}
     }
@@ -228,7 +239,7 @@ pub fn configure_hart_environment() {
         unsafe { machine::CounterInhibit::write(InhibitedCounters::programmable()) };
     }
     // Sstc provides STCE independently of the privileged-version heuristic.
-    // Probe the counter directly so this matches the SBI timer's decision.
+    // Use Runtime's comparison-register probe to match the timer's decision.
     if timer::init_hart().expect("BUG: current hart timer initialization failed") {
         #[cfg(target_pointer_width = "64")]
         use csr::machine::{EnvironmentConfig as TimerConfig, STCE as TimerEnable};
@@ -270,8 +281,6 @@ pub fn configure_hart_environment() {
         if has_extension(hart, Extension::Zkr) {
             boot::enable_supervisor_seed();
         }
-        let enable_aia = ipi::get().is_some_and(|ipi| ipi.is_external())
-            && has_extension(hart, Extension::Smaia);
-        boot::configure_state_access(enable_aia);
+        boot::configure_state_access(has_extension(hart, Extension::Smaia));
     }
 }

@@ -7,8 +7,8 @@
 
 #![forbid(unsafe_code)]
 
+use super::features::hart_privilege_checked;
 use super::pmu::pmu_firmware_counter_increment;
-use crate::platform::hart_privilege_checked;
 use runtime::{
     Result,
     hart::{self, HartId},
@@ -44,8 +44,8 @@ impl Ipi for SbiIpi {
 /// Validates the mask before yielding any target.
 ///
 /// Stopped harts remain valid but are skipped.
-/// Availability is checked as each hart is visited and can change concurrently
-/// with hart lifecycle calls.
+/// Availability is checked as each hart is visited
+/// and can change concurrently with hart lifecycle calls.
 pub(super) fn target_harts(hart_mask: HartMask) -> Result<impl Iterator<Item = HartId>, SbiRet> {
     let (mask, base) = hart_mask.into_inner();
     if base != HartMask::IGNORE_MASK {
@@ -58,7 +58,7 @@ pub(super) fn target_harts(hart_mask: HartMask) -> Result<impl Iterator<Item = H
 
     Ok(HartId::all().filter(move |hart| {
         hart_mask.has_bit(hart.as_usize())
-            && hart_privilege_checked(hart.as_usize())
+            && hart_privilege_checked(*hart)
             && hart::can_receive_ipi(*hart)
     }))
 }
