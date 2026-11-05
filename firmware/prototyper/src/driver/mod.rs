@@ -5,10 +5,14 @@
 //! devices remain in their vendor module.
 
 pub(crate) mod allwinner;
+mod description;
 mod device;
+mod matching;
 
 use alloc::boxed::Box;
+pub(crate) use description::Description;
 use device::{aia, cci, clint, console, plicsw, plmt, reset};
+pub(crate) use matching::match_desc;
 use runtime::{
     Error, Result,
     hart::HartId,
@@ -26,7 +30,7 @@ pub(crate) use reset::{
 pub(crate) use aia::{IMSIC_COMPATIBLES, IMSIC_FILE_SPAN};
 pub(crate) use cci::Cci550;
 pub(crate) use clint::ClintKind;
-pub(crate) use console::{ConsoleKind, DbcnBackend, DbcnError};
+pub(crate) use console::{ConsoleDesc, select as select_console};
 
 pub(crate) use runtime::hart::HartWake;
 
@@ -40,7 +44,6 @@ pub(crate) const THEAD_PLIC_COMPATIBLES: [&str; 2] =
 pub(crate) struct Devices {
     pub(crate) timer: Option<Box<dyn TimerDevice>>,
     pub(crate) ipi: Option<Ipi>,
-    pub(crate) console: Option<Box<dyn DbcnBackend + Send>>,
     pub(crate) reset: ResetDevice,
 }
 
@@ -135,15 +138,9 @@ pub(crate) fn bind_devices(
         control.write(0, 1u32)?;
     }
     let (timer, ipi) = bind_interrupts(board, selected_imsic, memory)?;
-    let console = console::bind(board, memory)?;
     let reset = board
         .devices
         .reset
         .bind(board.timebase_frequency_hz, memory)?;
-    Ok(Devices {
-        timer,
-        ipi,
-        console,
-        reset,
-    })
+    Ok(Devices { timer, ipi, reset })
 }

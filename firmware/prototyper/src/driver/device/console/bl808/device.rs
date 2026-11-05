@@ -1,19 +1,15 @@
-//! Bouffalo Lab BL808 UART.
-//!
-//! # References
-//!
-//! - Hardware manual: [BL808 Reference Manual v1.3](https://github.com/bouffalolab/bl_docs/blob/665e7daa84b498a767e656f458f26aca3be4fd45/BL808_RM/en/BL808_RM_en_1.3.pdf),
-//!   UART chapter — register layout and FIFO count fields.
+//! Bouffalo Lab BL808 UART hardware device.
 
-use alloc::boxed::Box;
 use core::mem::size_of;
 use runtime::{
     Result,
-    memory::{RegRange, MemoryRegistry, MmioRegion},
+    console::ConsoleDevice,
+    memory::{MemoryRegistry, MmioRegion},
 };
 
-use crate::driver::console::{DbcnBackend, DbcnError, acquire_registers};
+use super::description::Desc;
 
+/// BL808 UART register offsets.
 #[repr(usize)]
 #[derive(Clone, Copy)]
 enum Register {
@@ -28,16 +24,10 @@ impl Register {
     }
 }
 
-const SPAN: usize = Register::RxData.offset() + size_of::<u32>();
+/// Minimum BL808 UART register-window size required by this driver.
+pub(super) const SPAN: usize = Register::RxData.offset() + size_of::<u32>();
 
-pub(super) fn bind(
-    registers: RegRange,
-    memory: &mut MemoryRegistry,
-) -> Result<Box<dyn DbcnBackend + Send>> {
-    let registers = acquire_registers::<u32>(registers, SPAN, memory)?;
-    Ok(Box::new(UartBl808::new(registers)))
-}
-
+/// Encoded transmit and receive FIFO counts from the FIFO configuration register.
 struct FifoCounts(u32);
 
 impl FifoCounts {
@@ -53,13 +43,18 @@ impl FifoCounts {
     }
 }
 
-struct UartBl808 {
+/// A BL808 UART bound to an acquired register window.
+pub(super) struct Device {
     registers: MmioRegion,
 }
 
-impl UartBl808 {
-    fn new(registers: MmioRegion) -> Self {
-        Self { registers }
+impl Device {
+    /// Acquires the BL808 UART register window.
+    pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+        let Desc { registers } = description;
+        Ok(Self {
+            registers: memory.acquire(registers)?,
+        })
     }
 
     fn fifo_counts(&self) -> FifoCounts {
@@ -83,8 +78,8 @@ impl UartBl808 {
     }
 }
 
-impl DbcnBackend for UartBl808 {
-    fn read_slice(&mut self, buf: &mut [u8]) -> Result<usize, DbcnError> {
+impl ConsoleDevice for Device {
+    fn read_slice(&mut self, buf: &mut [u8]) -> Result<usize> {
         let available_count = self.fifo_counts().rx_available_count();
         if available_count == 0 {
             return Ok(0);
@@ -96,7 +91,7 @@ impl DbcnBackend for UartBl808 {
         Ok(len)
     }
 
-    fn write_slice(&mut self, buf: &[u8]) -> Result<usize, DbcnError> {
+    fn write_slice(&mut self, buf: &[u8]) -> Result<usize> {
         let mut count = 0;
         for &byte in buf {
             if self.fifo_counts().tx_available_count() == 0 {

@@ -1,25 +1,22 @@
-//! Arm PrimeCell UART (PL011).
-//!
-//! # References
-//!
-//! - Hardware manual: [Arm DDI 0183G, *PrimeCell UART (PL011) Technical Reference Manual*](https://developer.arm.com/documentation/ddi0183/g/),
-//!   Programmer's Model — register layout, fields, and baud-rate divisors.
+//! Arm PL011 UART hardware device.
 
-use alloc::boxed::Box;
 use bitflags::bitflags;
 use core::mem::size_of;
 use runtime::{
     Error, Result,
-    memory::{RegRange, MemoryRegistry, MmioRegion},
+    console::ConsoleDevice,
+    memory::{MemoryRegistry, MmioRegion},
 };
 
-use crate::driver::console::{BAUD_RATE, DbcnBackend, DbcnError, acquire_registers};
+use super::description::Desc;
 
-// PL011 derives Baud16 from UARTCLK / 16 and stores the fractional divisor in
-// sixty-fourths.
+const BAUD_RATE: u32 = 115_200;
+// PL011 derives Baud16 from UARTCLK / 16.
+// The fractional divisor is stored in sixty-fourths.
 const CLOCK_OVERSAMPLING: u32 = 16;
 const FRACTIONAL_SCALE: u32 = 64;
 
+/// PL011 register offsets.
 #[repr(usize)]
 #[derive(Clone, Copy)]
 enum Register {
@@ -38,14 +35,17 @@ impl Register {
     }
 }
 
-const SPAN: usize = Register::Control.offset() + size_of::<u32>();
+/// Minimum PL011 register-window size required by this driver.
+pub(super) const SPAN: usize = Register::Control.offset() + size_of::<u32>();
 
 bitflags! {
+    /// PL011 flag bits used for FIFO readiness.
     struct Flags: u32 {
         const RX_FIFO_EMPTY = 1 << 4;
         const TX_FIFO_FULL = 1 << 5;
     }
 
+    /// PL011 receive error bits reported with data.
     struct DataStatus: u32 {
         const FRAMING_ERROR = 1 << 8;
         const PARITY_ERROR = 1 << 9;
@@ -53,11 +53,13 @@ bitflags! {
         const OVERRUN_ERROR = 1 << 11;
     }
 
+    /// PL011 line-control fields for 8-bit words and the FIFO.
     struct LineControl: u32 {
         const FIFO_ENABLE = 1 << 4;
         const WORD_LENGTH_8 = 0b11 << 5;
     }
 
+    /// PL011 UART and signal-enable bits.
     struct Control: u32 {
         const UART_ENABLE = 1 << 0;
         const TX_ENABLE = 1 << 8;
@@ -65,54 +67,52 @@ bitflags! {
     }
 }
 
-pub(super) fn bind(
-    registers: RegRange,
-    clock_hz: Option<u32>,
-    memory: &mut MemoryRegistry,
-) -> Result<Box<dyn DbcnBackend + Send>> {
-    let clock_hz = clock_hz.ok_or(Error::InvalidArgs)?;
-    let divisors = BaudDivisors::from_clock_hz(clock_hz).ok_or(Error::InvalidArgs)?;
-    let registers = acquire_registers::<u32>(registers, SPAN, memory)?;
-    Ok(Box::new(UartPl011::new(registers, divisors)))
-}
-
+/// Integer and fractional PL011 baud divisors.
 struct BaudDivisors {
     integer: u16,
     fractional: u8,
 }
 
 impl BaudDivisors {
+    /// Returns the divisors for `clock_hz`, rounded to the nearest fractional step.
     fn from_clock_hz(clock_hz: u32) -> Option<Self> {
-        let denominator = BAUD_RATE.checked_mul(CLOCK_OVERSAMPLING)?;
+        let denominator = BAUD_RATE * CLOCK_OVERSAMPLING;
         let mut integer = clock_hz / denominator;
         let remainder = clock_hz % denominator;
-        let mut fractional = remainder
-            .checked_mul(FRACTIONAL_SCALE)?
-            .checked_add(denominator / 2)?
-            / denominator;
+        let mut fractional = (remainder * FRACTIONAL_SCALE + denominator / 2) / denominator;
 
         if fractional == FRACTIONAL_SCALE {
-            integer = integer.checked_add(1)?;
+            integer += 1;
             fractional = 0;
         }
-        if !(1..=u16::MAX as u32).contains(&integer) || fractional >= FRACTIONAL_SCALE {
+        let integer = u16::try_from(integer).ok()?;
+        if integer == 0 {
             return None;
         }
         Some(Self {
-            integer: integer as u16,
+            integer,
             fractional: fractional as u8,
         })
     }
 }
 
-struct UartPl011 {
+/// An Arm PL011 UART bound to an acquired register window.
+pub(super) struct Device {
     registers: MmioRegion,
 }
 
-impl UartPl011 {
+impl Device {
     /// Configures 115200 baud and 8N1 using validated divisors.
-    fn new(registers: MmioRegion, divisors: BaudDivisors) -> Self {
-        let uart = Self { registers };
+    pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+        let Desc {
+            registers,
+            clock_hz,
+        } = description;
+        let clock_hz = clock_hz.ok_or(Error::InvalidArgs)?;
+        let divisors = BaudDivisors::from_clock_hz(clock_hz).ok_or(Error::InvalidArgs)?;
+        let uart = Self {
+            registers: memory.acquire(registers)?,
+        };
         uart.write_reg(Register::StatusClear, 0);
         uart.write_reg(Register::Control, 0);
         uart.write_reg(Register::IntBaud, u32::from(divisors.integer));
@@ -125,7 +125,7 @@ impl UartPl011 {
             Register::Control,
             (Control::UART_ENABLE | Control::TX_ENABLE | Control::RX_ENABLE).bits(),
         );
-        uart
+        Ok(uart)
     }
 
     fn read_reg(&self, reg: Register) -> u32 {
@@ -144,21 +144,21 @@ impl UartPl011 {
         Flags::from_bits_retain(self.read_reg(Register::Flags))
     }
 
-    fn read_byte(&self) -> Result<Option<u8>, DbcnError> {
+    fn read_byte(&self) -> Result<Option<u8>> {
         if self.flags().contains(Flags::RX_FIFO_EMPTY) {
             return Ok(None);
         }
         let data_register = self.read_reg(Register::Data);
         let errors = DataStatus::from_bits_truncate(data_register);
         if !errors.is_empty() {
-            return Err(DbcnError::Failed);
+            return Err(Error::IoError);
         }
         Ok(Some(data_register as u8))
     }
 }
 
-impl DbcnBackend for UartPl011 {
-    fn read_slice(&mut self, buf: &mut [u8]) -> Result<usize, DbcnError> {
+impl ConsoleDevice for Device {
+    fn read_slice(&mut self, buf: &mut [u8]) -> Result<usize> {
         let mut count = 0;
         for byte in buf.iter_mut() {
             let Some(received_byte) = self.read_byte()? else {
@@ -170,7 +170,7 @@ impl DbcnBackend for UartPl011 {
         Ok(count)
     }
 
-    fn write_slice(&mut self, buf: &[u8]) -> Result<usize, DbcnError> {
+    fn write_slice(&mut self, buf: &[u8]) -> Result<usize> {
         let mut count = 0;
         for &byte in buf {
             if self.flags().contains(Flags::TX_FIFO_FULL) {

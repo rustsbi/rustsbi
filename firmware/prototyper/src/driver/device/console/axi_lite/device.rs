@@ -1,19 +1,14 @@
-//! Xilinx AXI UART Lite.
-//!
-//! # References
-//!
-//! - Hardware manual: [AMD PG142, *AXI UART Lite v2.0 Product Guide*](https://docs.amd.com/v/u/en-US/pg142-axi-uartlite) —
-//!   register layout and status/control fields.
+//! Xilinx AXI UART Lite hardware device.
 
-use alloc::boxed::Box;
 use bitflags::bitflags;
 use core::mem::size_of;
 use runtime::{
     Result,
-    memory::{RegRange, MemoryRegistry, MmioRegion},
+    console::ConsoleDevice,
+    memory::{MemoryRegistry, MmioRegion},
 };
 
-use crate::driver::console::{DbcnBackend, DbcnError, acquire_registers};
+use super::description::Desc;
 
 /// Register offsets within the UART Lite register map.
 #[repr(usize)]
@@ -34,30 +29,29 @@ impl Register {
     }
 }
 
-const SPAN: usize = Register::Status.offset() + size_of::<u32>();
+/// Minimum UART Lite register-window size required by this driver.
+pub(super) const SPAN: usize = Register::Status.offset() + size_of::<u32>();
 
 bitflags! {
+    /// Status bits for the UART Lite receive and transmit FIFOs.
     struct Status: u32 {
         const RX_VALID = 1 << 0;
         const TX_FULL = 1 << 3;
     }
 }
 
-pub(super) fn bind(
-    registers: RegRange,
-    memory: &mut MemoryRegistry,
-) -> Result<Box<dyn DbcnBackend + Send>> {
-    let registers = acquire_registers::<u32>(registers, SPAN, memory)?;
-    Ok(Box::new(UartAxiLite::new(registers)))
-}
-
-struct UartAxiLite {
+/// An AXI UART Lite bound to an acquired register window.
+pub(super) struct Device {
     registers: MmioRegion,
 }
 
-impl UartAxiLite {
-    fn new(registers: MmioRegion) -> Self {
-        Self { registers }
+impl Device {
+    /// Acquires the UART Lite register window.
+    pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+        let Desc { registers } = description;
+        Ok(Self {
+            registers: memory.acquire(registers)?,
+        })
     }
 
     fn read_reg(&self, reg: Register) -> u32 {
@@ -77,8 +71,8 @@ impl UartAxiLite {
     }
 }
 
-impl DbcnBackend for UartAxiLite {
-    fn read_slice(&mut self, buf: &mut [u8]) -> Result<usize, DbcnError> {
+impl ConsoleDevice for Device {
+    fn read_slice(&mut self, buf: &mut [u8]) -> Result<usize> {
         let mut count = 0;
         for byte in buf.iter_mut() {
             if !self.status().contains(Status::RX_VALID) {
@@ -90,7 +84,7 @@ impl DbcnBackend for UartAxiLite {
         Ok(count)
     }
 
-    fn write_slice(&mut self, buf: &[u8]) -> Result<usize, DbcnError> {
+    fn write_slice(&mut self, buf: &[u8]) -> Result<usize> {
         let mut count = 0;
         for &byte in buf {
             if self.status().contains(Status::TX_FULL) {
