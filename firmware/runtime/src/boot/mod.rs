@@ -8,8 +8,8 @@ mod context;
 mod stack;
 
 pub use crate::csr::enable_supervisor_seed;
-pub use crate::csr::stateen::configure_supervisor as configure_state_access;
 pub use crate::csr::thead::disable_maee as disable_thead_maee;
+pub use crate::ipi::configure_state_access;
 
 pub use context::{configure_next_stage, prepare_traps};
 pub(crate) use context::{prepare_supervisor, set_return_mode, traps_ready};

@@ -12,7 +12,8 @@
 //! <https://docs.riscv.org/reference/isa/unpriv/rv32.html>.
 
 use super::{Device, External, InterruptMode, Ipi, IpiEvent, Software};
-use crate::{Error, Result, boot, hart::HartId, irq::LocalIrqDisabled};
+use crate::{Error, Result, hart::HartId, irq::LocalIrqDisabled};
+use csr::values::trap::Interrupt;
 
 impl Ipi {
     /// Sends a firmware event to the target harts.
@@ -44,7 +45,7 @@ impl Ipi {
             }
             match &self.device {
                 Device::Software(device) => device.send_ipi(hart),
-                Device::External(device) => device.send_ipi(hart),
+                Device::External { device, .. } => device.send_ipi(hart),
             }
         }
         #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
@@ -54,20 +55,33 @@ impl Ipi {
         }
     }
 
-    pub(crate) fn acknowledge(&self, irq: &LocalIrqDisabled) -> Result<bool> {
+    pub(crate) fn acknowledge(&self, _irq: &LocalIrqDisabled) -> Result<bool> {
         match &self.device {
-            Device::Software(device) => device.acknowledge(Software::context(irq)?),
-            Device::External(device) => device.acknowledge(External::context(irq)?),
+            Device::Software(device) => device.acknowledge(&()),
+            Device::External { device, imsic } => device.acknowledge(imsic),
         }
     }
 
-    pub(crate) fn init_hart(&self, irq: &LocalIrqDisabled) -> Result<()> {
-        if !boot::traps_ready() {
-            return Err(Error::NotReady);
+    /// Acknowledges `source` only when it belongs to the selected device.
+    ///
+    /// A source for the other delivery mode is left pending and reported as
+    /// not acknowledged.
+    pub(crate) fn acknowledge_source(
+        &self,
+        source: Interrupt,
+        irq: &LocalIrqDisabled,
+    ) -> Result<bool> {
+        match (&self.device, source) {
+            (Device::Software(_), Interrupt::MachineSoftware)
+            | (Device::External { .. }, Interrupt::MachineExternal) => self.acknowledge(irq),
+            _ => Ok(false),
         }
-        match &self.device {
-            Device::Software(_) => Software::init_hart(irq)?,
-            Device::External(_) => External::init_hart(irq)?,
+    }
+
+    /// Initializes this hart's IPI state after Runtime installs its trap entry.
+    pub(crate) fn init_hart(&self, irq: &LocalIrqDisabled) -> Result<()> {
+        if let Device::External { imsic, .. } = &self.device {
+            imsic.init_hart(irq)?;
         }
         self.acknowledge(irq).map(|_| ())
     }
@@ -75,7 +89,7 @@ impl Ipi {
     pub(crate) fn enable_interrupt(&self, irq: &LocalIrqDisabled) {
         match &self.device {
             Device::Software(_) => Software::enable_interrupt(irq),
-            Device::External(_) => External::enable_interrupt(irq),
+            Device::External { .. } => External::enable_interrupt(irq),
         }
     }
 }
