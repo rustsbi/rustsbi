@@ -24,4 +24,5 @@ struct Fault {
 enum Error {
     Unsupported,
     Fault(Fault),
+    Runtime(crate::Error),
 }

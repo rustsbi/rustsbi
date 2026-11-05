@@ -236,16 +236,7 @@ pub fn configure_hart_environment(hart: HartId) -> Result<()> {
         // does not coordinate cycle-counter control shared with other harts.
         unsafe { machine::CounterInhibit::write(InhibitedCounters::programmable()) };
     }
-    // Sstc provides STCE independently of the privileged-version heuristic.
-    // Use Runtime's comparison-register probe to match the timer's decision.
-    if timer::init_hart()? {
-        #[cfg(target_pointer_width = "64")]
-        use csr::machine::{EnvironmentConfig as TimerConfig, STCE as TimerEnable};
-        #[cfg(target_pointer_width = "32")]
-        use csr::machine::{EnvironmentConfigHigh as TimerConfig, STCEH as TimerEnable};
-        // SAFETY: Startup configures this hart before lower-mode entry.
-        unsafe { TimerConfig::modify(|_, value| value.set::<TimerEnable>(FeatureState::Enabled)) };
-    }
+    timer::init_hart()?;
     if hart_priv_version >= PrivilegedVersion::Version1_12 {
         let cache_management = has_extension(hart, Extension::Zicbom);
         let cache_zero = has_extension(hart, Extension::Zicboz);

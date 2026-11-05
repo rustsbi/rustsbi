@@ -126,12 +126,12 @@ impl Timebase {
     }
 
     fn elapsed(self, start: u64, duration: Duration) -> Result<bool> {
-        let now = timer::now().ok_or(Error::IoError)?;
+        let now = timer::now()?.ok_or(Error::IoError)?;
         Ok(now.wrapping_sub(start) >= self.ticks_for(duration))
     }
 
     fn delay(self, duration: Duration) -> Result<()> {
-        let start = timer::now().ok_or(Error::IoError)?;
+        let start = timer::now()?.ok_or(Error::IoError)?;
         while !self.elapsed(start, duration)? {
             core::hint::spin_loop();
         }
@@ -195,7 +195,7 @@ impl K1I2cController {
     /// A bus error, NACK, or timeout resets the controller and reports a
     /// transaction failure. MMIO access errors are propagated unchanged.
     fn wait_for_status(&self, mask: Status) -> Result<Status> {
-        let start = timer::now().ok_or(Error::IoError)?;
+        let start = timer::now()?.ok_or(Error::IoError)?;
         loop {
             let status = Status::from_bits_retain(self.read(Register::Status)?);
             if status.intersects(STATUS_ERRORS | Status::ACK_NAK) {
@@ -234,7 +234,7 @@ impl K1I2cController {
 
         // A previous transfer may still own the bus; wait for both the unit
         // and the bus to report idle.
-        let start = timer::now().ok_or(Error::IoError)?;
+        let start = timer::now()?.ok_or(Error::IoError)?;
         loop {
             let status = Status::from_bits_retain(self.read(Register::Status)?);
             if !status.intersects(Status::UNIT_BUSY | Status::BUS_BUSY) {

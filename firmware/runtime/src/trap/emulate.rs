@@ -46,7 +46,7 @@ pub(super) fn emulate_time_read(frame: &mut TrapFrame, info: &TrapInfo) -> Resul
     {
         return Err(Error::Unsupported);
     }
-    let Some(ticks) = now() else {
+    let Some(ticks) = now().map_err(Error::Runtime)? else {
         return Err(Error::Unsupported);
     };
     let value = match op.csr {

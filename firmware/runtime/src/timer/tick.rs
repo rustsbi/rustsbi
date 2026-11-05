@@ -31,10 +31,13 @@ impl Tick {
         })
     }
 
-    fn read(&self) -> Option<u64> {
+    fn read(&self) -> Result<Option<u64>> {
         match self {
-            Self::Csr => Some(user::Time::read64()),
-            Self::Device => super::TIMER.get()?.device.as_ref()?.read_time(),
+            Self::Csr => Ok(Some(user::Time::read64())),
+            Self::Device => match &super::TIMER.get().ok_or(Error::NotReady)?.device {
+                Some(device) => device.read_time(),
+                None => Ok(None),
+            },
         }
     }
 }
@@ -47,6 +50,6 @@ pub(super) fn init(tick: Tick) {
 }
 
 /// Reads the selected counter if it is available.
-pub(super) fn now() -> Option<u64> {
-    TICK.get().and_then(Tick::read)
+pub(super) fn now() -> Result<Option<u64>> {
+    TICK.get().ok_or(Error::NotReady)?.read()
 }

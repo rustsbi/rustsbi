@@ -41,6 +41,7 @@ impl TimerRegister {
     }
 
     fn offset_for_hart(self, hart: HartId) -> usize {
+        // Initialization checked the window through the highest enabled hart.
         hart.as_usize() * size_of::<u64>() + self.offset()
     }
 }
@@ -65,24 +66,22 @@ impl THeadTimer {
         })
     }
 
-    fn write(&self, reg: TimerRegister, hart: HartId, value: u32) {
-        self.mtimecmp
-            .write(reg.offset_for_hart(hart), value)
-            .expect("BUG: T-Head CLINT timer register escaped its MMIO window")
+    fn write(&self, reg: TimerRegister, hart: HartId, value: u32) -> Result<()> {
+        self.mtimecmp.write(reg.offset_for_hart(hart), value)
     }
 }
 
 impl TimerDevice for THeadTimer {
     #[inline(always)]
-    fn set_compare(&self, hart: HartId, value: u64) {
+    fn set_compare(&self, hart: HartId, value: u64) -> Result<()> {
         let low = value as u32;
         let high = (value >> u32::BITS) as u32;
 
         // Avoid a transient earlier deadline while replacing the two halves.
         // Raise the temporary compare value first, then install the final high
         // and low words in the order used by OpenSBI's 32-bit MTIMER accessor.
-        self.write(TimerRegister::MtimecmpLow, hart, u32::MAX);
-        self.write(TimerRegister::MtimecmpHigh, hart, high);
-        self.write(TimerRegister::MtimecmpLow, hart, low);
+        self.write(TimerRegister::MtimecmpLow, hart, u32::MAX)?;
+        self.write(TimerRegister::MtimecmpHigh, hart, high)?;
+        self.write(TimerRegister::MtimecmpLow, hart, low)
     }
 }

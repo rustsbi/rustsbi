@@ -90,8 +90,8 @@ fn enable_supervisor_services(hart: HartId) -> Result<()> {
     sbi::features::configure_hart_environment(hart)?;
     // The supervisor owns its timer, so discard any firmware deadline before
     // entry; otherwise a stale comparator could inject an early interrupt.
-    if let Some(timer) = timer::get() {
-        timer.set_deadline(u64::MAX);
+    if let Some(timer) = timer::get()? {
+        timer.set_deadline(u64::MAX)?;
     }
     // SAFETY:
     // 1. Runtime startup installed trap entry.
