@@ -7,6 +7,7 @@ use runtime::{Compatible, Error, FdtNode, PlatformView, Result, memory::RegRange
 
 use crate::devicetree::EnabledNode;
 use crate::driver;
+use crate::driver::device::{plicsw, plmt};
 use crate::platform::info::{BoardInfo, ClintResource, MachineAplicHandoff};
 use crate::platform::qemu_aplic;
 
@@ -34,6 +35,8 @@ pub(super) fn discover_node(
             let primary = registers.first().copied().ok_or(Error::InvalidArgs)?;
             (Some(registers), primary)
         }
+        InterruptController::Plmt => (None, plmt::describe(platform, node)?.registers),
+        InterruptController::Plicsw => (None, plicsw::describe(platform, node)?.registers),
         _ => (
             None,
             platform.device_register(node)?.ok_or(Error::InvalidArgs)?,
