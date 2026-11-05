@@ -11,8 +11,7 @@ use fdt::{Fdt, node::FdtNode};
 use spin::Once;
 
 use crate::memory::{
-    RegRange, MemoryRegistry, PhysAddr, PhysAddrRange, SupervisorMemory,
-    locate_firmware_image,
+    MemoryRegistry, PhysAddr, PhysAddrRange, RegRange, SupervisorMemory, locate_firmware_image,
 };
 use crate::spacemit_k1::SpacemitK1Registers;
 use crate::{Error, Result};
@@ -202,10 +201,18 @@ impl<'tree> PlatformView<'tree> {
     }
 
     /// Returns the register ranges of an enabled node from this description.
-    pub fn device_registers(
+    pub fn device_registers(&self, node: FdtNode<'_, 'tree>) -> Result<Option<Vec<RegRange>>> {
+        let Some(registers) = self.registers(node)? else {
+            return Ok(None);
+        };
+        let ranges: Vec<_> = registers.collect::<Result<_>>()?;
+        Ok((!ranges.is_empty()).then_some(ranges))
+    }
+
+    fn registers(
         &self,
         node: FdtNode<'_, 'tree>,
-    ) -> Result<Option<Vec<RegRange>>> {
+    ) -> Result<Option<impl Iterator<Item = Result<RegRange>> + 'tree>> {
         if !node_is_enabled(node) {
             return Ok(None);
         }
@@ -220,28 +227,23 @@ impl<'tree> PlatformView<'tree> {
         if !self.fdt_storage.contains(encoded) {
             return Err(Error::AccessDenied);
         }
-
-        let registers = node.reg().ok_or(Error::InvalidArgs)?;
-        let mut ranges = Vec::new();
-        for register in registers {
-            let range = PhysAddrRange::from_start_len(
+        let registers = node.reg().ok_or(Error::InvalidArgs)?.map(|register| {
+            RegRange::from_start_len(
                 PhysAddr::new(register.starting_address as usize),
                 register.size.ok_or(Error::InvalidArgs)?,
-            )?;
-            ranges.push(RegRange::from_description(range));
-        }
-        Ok((!ranges.is_empty()).then_some(ranges))
+            )
+        });
+        Ok(Some(registers))
     }
 
     /// Returns the `reg` entry named by the node's `reg-names` property.
     ///
     /// Returns `Ok(None)` when the node is disabled or carries no `reg-names`
-    /// property; callers use that to apply a legacy positional fallback of
-    /// their own. When `reg-names` is present, the requested name must exist
-    /// and must have a corresponding `reg` entry: a node that names its
-    /// resources has declared their meaning, so an absent name is an error
-    /// rather than a cue to guess an index. A `reg-names` value that is not
-    /// NUL-terminated is rejected as malformed.
+    /// property, allowing callers to apply their own positional fallback.
+    /// When `reg-names` is present, the requested name must exist and have a
+    /// corresponding `reg` entry.
+    /// An absent name is an error rather than a cue to guess an index.
+    /// A `reg-names` value that is not NUL-terminated is rejected as malformed.
     pub fn device_register_by_name(
         &self,
         node: FdtNode<'_, 'tree>,
@@ -285,32 +287,14 @@ impl<'tree> PlatformView<'tree> {
 
     /// Returns the first register range of an enabled node.
     ///
-    /// Most device drivers consume only the primary `reg` entry. Callers such
-    /// as IMSIC discovery use [`Self::device_registers`] when they need the
-    /// complete layout.
+    /// Most device drivers consume only the primary `reg` entry.
+    /// Callers such as IMSIC discovery use [`Self::device_registers`]
+    /// when they need the complete layout.
     pub fn device_register(&self, node: FdtNode<'_, 'tree>) -> Result<Option<RegRange>> {
-        if !node_is_enabled(node) {
-            return Ok(None);
-        }
-        let Some(property) = node.property("reg") else {
+        let Some(mut registers) = self.registers(node)? else {
             return Ok(None);
         };
-
-        let encoded = PhysAddrRange::from_start_len(
-            PhysAddr::new(property.value.as_ptr() as usize),
-            property.value.len(),
-        )?;
-        if !self.fdt_storage.contains(encoded) {
-            return Err(Error::AccessDenied);
-        }
-
-        let mut registers = node.reg().ok_or(Error::InvalidArgs)?;
-        let register = registers.next().ok_or(Error::InvalidArgs)?;
-        let range = PhysAddrRange::from_start_len(
-            PhysAddr::new(register.starting_address as usize),
-            register.size.ok_or(Error::InvalidArgs)?,
-        )?;
-        Ok(Some(RegRange::from_description(range)))
+        registers.next().ok_or(Error::InvalidArgs)?.map(Some)
     }
 
     /// Returns K1 fixed-register capabilities when this description identifies K1.
@@ -324,11 +308,9 @@ impl<'tree> PlatformView<'tree> {
     }
 
     /// Returns the RTC V203 GPRCM window from the BSP's fixed four-cell property.
+    ///
     /// Unlike `reg`, `gprcm_reg` contains an absolute 64-bit address and size.
-    pub fn sunxi_rtc_v203_gprcm(
-        &self,
-        node: FdtNode<'_, 'tree>,
-    ) -> Result<Option<RegRange>> {
+    pub fn sunxi_rtc_v203_gprcm(&self, node: FdtNode<'_, 'tree>) -> Result<Option<RegRange>> {
         crate::sunxi_rtc_v203::gprcm_registers(node, self.fdt_storage)
     }
 }

@@ -20,8 +20,8 @@ pub struct PhysAddrRange {
 pub struct RegRange(PhysAddrRange);
 
 impl RegRange {
-    pub(crate) const fn from_description(range: PhysAddrRange) -> Self {
-        Self(range)
+    pub(crate) fn from_start_len(start: PhysAddr, len: usize) -> Result<Self> {
+        PhysAddrRange::from_start_len(start, len).map(Self)
     }
 
     /// Returns the first address in the register range.

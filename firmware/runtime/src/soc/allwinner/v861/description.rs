@@ -9,7 +9,7 @@ use core::mem::size_of;
 
 use fdt::node::FdtNode;
 
-use crate::memory::{RegRange, PhysAddr, PhysAddrRange};
+use crate::memory::{PhysAddr, RegRange};
 use crate::soc::Soc;
 use crate::{Error, Result};
 
@@ -33,10 +33,9 @@ const RESET_ENTRY_LOW_OFFSET: usize = 0x100;
 const CORE_CONFIG_OFFSET: usize = 0x108;
 const RESET_VECTOR_SPAN: usize = CORE_CONFIG_OFFSET - RESET_ENTRY_LOW_OFFSET + size_of::<u32>();
 
-/// A V861 root-compatible capability.
+/// A capability selected by a V861-compatible device-tree root.
 ///
-/// The type carries no MMIO state. It authorizes callers to derive the fixed
-/// C907 register windows and use the V861-specific custom CSRs.
+/// It provides access to fixed C907 register windows and V861-specific CSRs.
 #[derive(Clone, Copy)]
 pub struct AllwinnerV861Soc {
     _private: (),
@@ -53,19 +52,19 @@ impl Soc for AllwinnerV861Soc {
 }
 
 impl AllwinnerV861Soc {
-    /// CCU bus-gate/reset word controlling access to the C907 configuration block.
+    /// Returns the CCU gate/reset register for the C907 configuration block.
     pub fn c907_clock_control(self) -> Result<RegRange> {
-        range(
-            CCU_BASE + C907_CONFIG_BUS_GATE_RESET_OFFSET,
+        RegRange::from_start_len(
+            PhysAddr::new(CCU_BASE + C907_CONFIG_BUS_GATE_RESET_OFFSET),
             size_of::<u32>(),
         )
     }
 
-    /// Per-hart C907 reset-entry and execution-mode register window.
+    /// Returns the C907 reset-entry and execution-mode register window for `hart`.
     ///
     /// The window contains the reset-entry low word, reset-entry high word,
-    /// and core-configuration word. Consecutive harts are separated by the
-    /// V861 RISCV_CFG stride.
+    /// and core-configuration word.
+    /// Consecutive harts are separated by the V861 `RISCV_CFG` stride.
     ///
     /// # Errors
     ///
@@ -75,13 +74,15 @@ impl AllwinnerV861Soc {
         if hart >= C907_HART_COUNT {
             return Err(Error::InvalidArgs);
         }
-        range(
-            RISCV_CONFIG_BASE + RESET_ENTRY_LOW_OFFSET + RISCV_CONFIG_HART_STRIDE * hart,
+        RegRange::from_start_len(
+            PhysAddr::new(
+                RISCV_CONFIG_BASE + RESET_ENTRY_LOW_OFFSET + RISCV_CONFIG_HART_STRIDE * hart,
+            ),
             RESET_VECTOR_SPAN,
         )
     }
 
-    /// Per-hart PMC software-mode control window used to power on a C907.
+    /// Returns the PMC software-mode control window used to power on `hart`.
     ///
     /// The two words select the power-clamp mode and power-switch mode.
     ///
@@ -93,14 +94,9 @@ impl AllwinnerV861Soc {
         if hart >= C907_HART_COUNT {
             return Err(Error::InvalidArgs);
         }
-        range(
-            PMC_BASE + PMC_HART_STRIDE * hart + SOFTWARE_MODE_CONTROL_0_OFFSET,
+        RegRange::from_start_len(
+            PhysAddr::new(PMC_BASE + PMC_HART_STRIDE * hart + SOFTWARE_MODE_CONTROL_0_OFFSET),
             POWER_CONTROL_SPAN,
         )
     }
-}
-
-fn range(start: usize, len: usize) -> Result<RegRange> {
-    PhysAddrRange::from_start_len(PhysAddr::new(start), len)
-        .map(RegRange::from_description)
 }
