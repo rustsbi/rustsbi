@@ -1,4 +1,5 @@
 #![feature(alloc_error_handler)]
+#![feature(array_try_from_fn)]
 #![no_std]
 #![no_main]
 
