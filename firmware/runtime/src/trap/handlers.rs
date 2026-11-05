@@ -59,24 +59,28 @@ fn deliver_event(frame: &mut TrapFrame, ipi: Option<&Ipi>, irq: &LocalIrqDisable
     }
 }
 
-pub(super) fn software_interrupt(frame: &mut TrapFrame, irq: &LocalIrqDisabled) {
-    let ipi = ipi::get().and_then(|device| {
-        let acknowledged = device
-            .acknowledge_source(Interrupt::MachineSoftware, irq)
-            .expect("IPI device could not acknowledge the current hart");
-        acknowledged.then_some(device)
-    });
+pub(super) fn software_interrupt(
+    frame: &mut TrapFrame,
+    irq: &LocalIrqDisabled,
+) -> crate::Result<()> {
+    let ipi = match ipi::get() {
+        Some(device) if device.acknowledge_source(Interrupt::MachineSoftware, irq)? => Some(device),
+        _ => None,
+    };
     deliver_event(frame, ipi, irq);
+    Ok(())
 }
 
-pub(super) fn external_interrupt(frame: &mut TrapFrame, irq: &LocalIrqDisabled) {
+pub(super) fn external_interrupt(
+    frame: &mut TrapFrame,
+    irq: &LocalIrqDisabled,
+) -> crate::Result<()> {
     if let Some(device) = ipi::get()
-        && device
-            .acknowledge_source(Interrupt::MachineExternal, irq)
-            .expect("IPI device could not acknowledge the current hart")
+        && device.acknowledge_source(Interrupt::MachineExternal, irq)?
     {
         deliver_event(frame, Some(device), irq);
     }
+    Ok(())
 }
 
 fn enter_next_stage(frame: &mut TrapFrame, next: NextStage) {
