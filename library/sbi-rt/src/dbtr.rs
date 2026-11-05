@@ -199,7 +199,7 @@ pub fn debug_update_triggers(trig_count: usize) -> SbiRet {
 #[doc(alias = "sbi_debug_uninstall_triggers")]
 #[inline]
 pub fn debug_uninstall_triggers(triggers: TriggerMask) -> SbiRet {
-    let (trig_idx_mask, trig_idx_base) = triggers.into_inner();
+    let (trig_idx_base, trig_idx_mask) = triggers.into_base_mask();
     sbi_call_2(EID_DBTR, UNINSTALL_TRIGGERS, trig_idx_base, trig_idx_mask)
 }
 
@@ -222,7 +222,7 @@ pub fn debug_uninstall_triggers(triggers: TriggerMask) -> SbiRet {
 #[doc(alias = "sbi_debug_enable_triggers")]
 #[inline]
 pub fn debug_enable_triggers(triggers: TriggerMask) -> SbiRet {
-    let (trig_idx_mask, trig_idx_base) = triggers.into_inner();
+    let (trig_idx_base, trig_idx_mask) = triggers.into_base_mask();
     sbi_call_2(EID_DBTR, ENABLE_TRIGGERS, trig_idx_base, trig_idx_mask)
 }
 
@@ -244,6 +244,6 @@ pub fn debug_enable_triggers(triggers: TriggerMask) -> SbiRet {
 #[doc(alias = "sbi_debug_disable_triggers")]
 #[inline]
 pub fn debug_disable_triggers(triggers: TriggerMask) -> SbiRet {
-    let (trig_idx_mask, trig_idx_base) = triggers.into_inner();
+    let (trig_idx_base, trig_idx_mask) = triggers.into_base_mask();
     sbi_call_2(EID_DBTR, DISABLE_TRIGGERS, trig_idx_base, trig_idx_mask)
 }
