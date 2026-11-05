@@ -12,8 +12,6 @@ use runtime::{
     timer,
 };
 
-use spin::Once;
-
 use super::{
     allwinner::v821::V821,
     discovery,
@@ -168,8 +166,7 @@ fn publish_platform_services(
         ..
     } = devices;
     // Publish hardware wakeup before constructing HSM policy.
-    static HART_WAKE: Once<Box<dyn HartWake>> = Once::new();
-    let hart_wake = hart_wake.map(|device| HART_WAKE.call_once(|| device).as_ref());
+    let hardware_wakeup = hart_wake.is_some();
     hart::install_wakeup(hart_wake);
     let sbi_ipi = ipi_device.map(|device| {
         ipi::init(device).expect("BUG: IPI initialization requires a published hart topology");
@@ -183,7 +180,7 @@ fn publish_platform_services(
     info!("Hello RustSBI!");
 
     let reset = SbiReset::new(reset);
-    publish_sbi_dispatcher(sbi_ipi, timer, reset, custom_extension, pmu, hart_wake);
+    publish_sbi_dispatcher(sbi_ipi, timer, reset, custom_extension, pmu, hardware_wakeup);
 
     state::mark_ready();
 
@@ -196,7 +193,7 @@ fn publish_sbi_dispatcher(
     reset: SbiReset,
     custom_extension: sbi::vendor::Extension,
     pmu: Option<SbiPmu>,
-    hart_wake: Option<&'static dyn HartWake>,
+    hardware_wakeup: bool,
 ) {
     let supervisor_memory = state::supervisor_memory();
     let console = state::console_device()
@@ -205,7 +202,7 @@ fn publish_sbi_dispatcher(
     let dbtr = Some(SbiDbtr::new(supervisor_memory));
     let fwft = Some(SbiFwft);
     let ipi_available = ipi.is_some();
-    let hsm = ipi_available.then(|| SbiHsm::new(hart_wake.is_some()));
+    let hsm = ipi_available.then(|| SbiHsm::new(hardware_wakeup));
     let rfence =
         ipi_available.then(|| SbiRFence::new().expect("BUG: RFENCE IPI event registration failed"));
     let susp = hsm.as_ref().map(|_| SbiSuspend);
