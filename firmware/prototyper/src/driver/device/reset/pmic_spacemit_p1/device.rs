@@ -53,18 +53,15 @@ impl P1Pmic {
         })
     }
 
-    fn set_power_control(&self, control: PowerControl) -> bool {
+    fn set_power_control(&self, control: PowerControl) -> Result<()> {
         // Preserve unrelated power-control bits instead of overwriting them.
         let register = Register::PowerControl2 as u8;
-        self.i2c
-            .read_register(self.address, register)
-            .is_some_and(|current| {
-                self.i2c.write_register(
-                    self.address,
-                    register,
-                    (PowerControl::from_bits_retain(current) | control).bits(),
-                )
-            })
+        let current = self.i2c.read_register(self.address, register)?;
+        self.i2c.write_register(
+            self.address,
+            register,
+            (PowerControl::from_bits_retain(current) | control).bits(),
+        )
     }
 
     fn park(&self) -> ! {
@@ -79,9 +76,9 @@ impl ResetDevice for P1Pmic {
         let Some(control) = PowerControl::for_request(request) else {
             return Err(Error::InvalidArgs);
         };
-        if !self.set_power_control(control) {
-            error!("P1 PMIC: power-control transaction failed");
-            return Err(Error::IoError);
+        if let Err(error) = self.set_power_control(control) {
+            error!("P1 PMIC: power-control transaction failed: {error}");
+            return Err(error);
         }
         self.park()
     }
