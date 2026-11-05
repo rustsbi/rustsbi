@@ -96,6 +96,8 @@ impl HartMask<usize> {
     }
 
     /// Returns [HartIds] of self.
+    ///
+    /// Mask bits whose offsets overflow the hart ID when added to the base are skipped.
     #[inline]
     pub const fn iter(&self) -> HartIds {
         HartIds {
@@ -115,6 +117,19 @@ impl IntoIterator for HartMask {
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
+    }
+}
+
+/// Returns the mask bits whose offsets can be added to `base` without overflow.
+#[inline]
+const fn valid_hart_mask(base: usize) -> usize {
+    let max_bit = usize::MAX - base;
+    // Every mask offset fits; this also avoids shifting by the full integer width.
+    if max_bit >= usize::BITS as usize - 1 {
+        usize::MAX
+    } else {
+        // Only the low max_bit + 1 offsets produce representable hart IDs.
+        (1usize << (max_bit + 1)) - 1
     }
 }
 
@@ -140,10 +155,16 @@ impl Iterator for HartIds {
         match &mut self.inner {
             UnvisitedMask::MaskBase(0, _base) => None,
             UnvisitedMask::MaskBase(unvisited_mask, base) => {
-                let low_bit = unvisited_mask.trailing_zeros();
-                let hart_id = usize::try_from(low_bit).unwrap() + *base;
-                *unvisited_mask &= !(1usize << low_bit);
-                Some(hart_id)
+                while *unvisited_mask != 0 {
+                    let low_bit = unvisited_mask.trailing_zeros();
+                    // Clear visited bits so an overflowing hart ID is skipped permanently.
+                    *unvisited_mask &= !(1usize << low_bit);
+                    if let Some(hart_id) = base.checked_add(low_bit as usize) {
+                        return Some(hart_id);
+                    }
+                    // Overflowing offsets cannot produce a usize hart ID; keep scanning.
+                }
+                None
             }
             UnvisitedMask::Range(start, end) => {
                 assert!(start <= end);
@@ -161,8 +182,10 @@ impl Iterator for HartIds {
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         match self.inner {
-            UnvisitedMask::MaskBase(unvisited_mask, _base) => {
-                let exact_popcnt = usize::try_from(unvisited_mask.count_ones()).unwrap();
+            UnvisitedMask::MaskBase(unvisited_mask, base) => {
+                // Match the bits that next() and next_back() can actually yield.
+                let exact_popcnt =
+                    usize::try_from((unvisited_mask & valid_hart_mask(base)).count_ones()).unwrap();
                 (exact_popcnt, Some(exact_popcnt))
             }
             UnvisitedMask::Range(start, end) => {
@@ -209,10 +232,16 @@ impl DoubleEndedIterator for HartIds {
         match &mut self.inner {
             UnvisitedMask::MaskBase(0, _base) => None,
             UnvisitedMask::MaskBase(unvisited_mask, base) => {
-                let high_bit = unvisited_mask.leading_zeros();
-                let hart_id = usize::try_from(usize::BITS - high_bit - 1).unwrap() + *base;
-                *unvisited_mask &= !(1usize << (usize::BITS - high_bit - 1));
-                Some(hart_id)
+                while *unvisited_mask != 0 {
+                    let high_bit = usize::BITS - unvisited_mask.leading_zeros() - 1;
+                    // Clear visited bits so an overflowing hart ID is skipped permanently.
+                    *unvisited_mask &= !(1usize << high_bit);
+                    if let Some(hart_id) = base.checked_add(high_bit as usize) {
+                        return Some(hart_id);
+                    }
+                    // Overflowing offsets cannot produce a usize hart ID; keep scanning.
+                }
+                None
             }
             UnvisitedMask::Range(start, end) => {
                 assert!(start <= end);
@@ -275,6 +304,74 @@ mod tests {
         assert!(mask.has_bit(1));
         assert!(mask.remove(1).is_ok());
         assert!(!mask.has_bit(1));
+    }
+
+    #[test]
+    fn hart_ids_iterator_skips_overflowing_hart_ids() {
+        let mask = HartMask::from_mask_base(0b1011 | (1usize << (usize::BITS - 1)), usize::MAX - 1);
+
+        assert_eq!(mask.iter().size_hint(), (2, Some(2)));
+        assert_eq!(mask.iter().len(), 2);
+        assert_eq!(mask.iter().count(), 2);
+        assert_eq!(mask.iter().min(), Some(usize::MAX - 1));
+        assert_eq!(mask.iter().max(), Some(usize::MAX));
+        assert_eq!(mask.iter().last(), Some(usize::MAX));
+        assert!(mask.iter().eq([usize::MAX - 1, usize::MAX]));
+
+        let mut iter = mask.iter();
+        assert_eq!(iter.next(), Some(usize::MAX - 1));
+        assert_eq!(iter.size_hint(), (1, Some(1)));
+        assert_eq!(iter.count(), 1);
+        assert_eq!(iter.next_back(), Some(usize::MAX));
+        assert_eq!(iter.size_hint(), (0, Some(0)));
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.next_back(), None);
+
+        let mut iter = mask.iter().rev();
+        assert_eq!(iter.next(), Some(usize::MAX));
+        assert_eq!(iter.next(), Some(usize::MAX - 1));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn hart_ids_iterator_with_only_overflowing_bits_is_empty() {
+        let mask = HartMask::from_mask_base(0b100usize, usize::MAX - 1);
+
+        // Regression for #470: this used to panic in debug and wrap to hart 0 in release.
+        assert_eq!(mask.iter().next(), None);
+        assert_eq!(mask.iter().size_hint(), (0, Some(0)));
+        assert_eq!(mask.iter().len(), 0);
+        assert_eq!(mask.iter().count(), 0);
+        assert_eq!(mask.iter().min(), None);
+        assert_eq!(mask.iter().max(), None);
+        assert_eq!(mask.iter().last(), None);
+
+        let mut iter = mask.iter();
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.next_back(), None);
+        assert_eq!(iter.size_hint(), (0, Some(0)));
+
+        let mut iter = mask.iter();
+        assert_eq!(iter.next_back(), None);
+        assert_eq!(iter.next_back(), None);
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.size_hint(), (0, Some(0)));
+    }
+
+    #[test]
+    fn hart_ids_iterator_accepts_highest_representable_hart_id() {
+        let base = usize::MAX - (usize::BITS as usize - 1);
+        let mask = HartMask::from_mask_base(usize::MAX, base);
+
+        assert_eq!(mask.iter().count(), usize::BITS as usize);
+        assert_eq!(mask.iter().max(), Some(usize::MAX));
+        assert_eq!(mask.iter().next_back(), Some(usize::MAX));
+
+        let mask = HartMask::from_mask_base(usize::MAX, base + 1);
+        assert_eq!(mask.iter().count(), usize::BITS as usize - 1);
+        assert_eq!(mask.iter().min(), Some(base + 1));
+        assert_eq!(mask.iter().max(), Some(usize::MAX));
     }
 
     #[test]
