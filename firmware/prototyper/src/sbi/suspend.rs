@@ -31,7 +31,9 @@ impl Susp for SbiSuspend {
         }
 
         // SBI system suspend requires all other harts to be stopped.
-        let current_hart = HartId::current().expect("BUG: unknown current hart");
+        let Ok(current_hart) = HartId::current() else {
+            return SbiRet::failed();
+        };
         for hart in super::features::enabled_harts() {
             if hart != current_hart && hart::status(hart) != HartState::Stopped {
                 return SbiRet::denied();
