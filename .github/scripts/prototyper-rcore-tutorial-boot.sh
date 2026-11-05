@@ -14,7 +14,7 @@ chapter_markers() {
   local ch=$1
   markers=(
     'Hello RustSBI!'
-    'SiFiveClint (Base Address: 0x2000000)'
+    'Platform Name                 : riscv-virtio,qemu'
     'Redirecting hart 0 to 0x00000080200000 in Supervisor mode.'
   )
   case "$ch" in
@@ -66,7 +66,7 @@ self_test() {
     (( cases += 1 ))
     local -a invalid=(
       "${good/Hello RustSBI!/Unknown firmware}"
-      "${good/SiFiveClint (Base Address: 0x2000000)/IMSIC only}"
+      "${good/Platform Name                 : riscv-virtio,qemu/Platform Name : other}"
       "${good/Supervisor mode./Machine mode.}"
       "$(printf '%s\n' "$good" | sed '$s/.*/MISSING_END/')"
       "$good"$'\nPanicked at src/trap/mod.rs:151'
