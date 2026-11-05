@@ -7,7 +7,7 @@ use runtime::{Compatible, Error, FdtNode, PlatformView, Result, memory::RegRange
 
 use crate::devicetree::EnabledNode;
 use crate::driver;
-use crate::driver::device::{plicsw, plmt};
+use crate::driver::device::{clint, plicsw, plmt};
 use crate::platform::info::{BoardInfo, ClintResource, MachineAplicHandoff};
 use crate::platform::qemu_aplic;
 
@@ -37,6 +37,7 @@ pub(super) fn discover_node(
         }
         InterruptController::Plmt => (None, plmt::describe(platform, node)?.registers),
         InterruptController::Plicsw => (None, plicsw::describe(platform, node)?.registers),
+        InterruptController::Clint(_) => (None, clint::describe(platform, node)?.ipi.registers),
         _ => (
             None,
             platform.device_register(node)?.ok_or(Error::InvalidArgs)?,
@@ -78,8 +79,8 @@ impl InterruptController {
             Some(Self::Plmt)
         } else if compatible == driver::SUNXI_PLICSW_COMPATIBLE {
             Some(Self::Plicsw)
-        } else if let Some(kind) = driver::ClintKind::from_fdt(compatible) {
-            Some(Self::Clint(kind))
+        } else if clint::supports(compatible) {
+            driver::ClintKind::from_fdt(compatible).map(Self::Clint)
         } else if driver::IMSIC_COMPATIBLES.contains(&compatible) {
             Some(Self::Imsic)
         } else if qemu_aplic::is_machine_domain(node, compatible) {

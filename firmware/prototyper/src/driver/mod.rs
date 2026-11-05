@@ -15,7 +15,6 @@ use device::{aia, clint, console, plicsw, plmt, reset};
 pub(crate) use matching::match_desc;
 use runtime::{
     Error, Result,
-    hart::HartId,
     ipi::Ipi,
     memory::MemoryRegistry,
     timer::TimerDevice,
@@ -85,8 +84,9 @@ fn bind_interrupts(
         return Ok((None, None));
     };
     let ClintResource { registers, kind } = *description.resource();
-    let hart_id_upper_bound = hart_id_upper_bound()?;
-    let (timer, ipi) = clint::bind(registers, kind, memory, hart_id_upper_bound)?;
+    let description = clint::from_kind(registers, kind);
+    let ipi = Box::new(description.ipi).init(memory)?;
+    let timer = description.timer.init(memory)?;
     Ok((Some(timer), Some(Ipi::software(ipi)?)))
 }
 
@@ -95,7 +95,6 @@ fn bind_timer(
     board: &BoardInfo,
     memory: &mut MemoryRegistry,
 ) -> Result<Option<Box<dyn TimerDevice>>> {
-    let hart_id_upper_bound = hart_id_upper_bound()?;
     if let (Some(plmt), Some(_)) = (
         board.devices.interrupts.plmt,
         board.devices.interrupts.plicsw,
@@ -106,14 +105,7 @@ fn bind_timer(
         return Ok(None);
     };
     let ClintResource { registers, kind } = *description.resource();
-    clint::bind_timer(registers, kind, memory, hart_id_upper_bound).map(Some)
-}
-
-fn hart_id_upper_bound() -> Result<usize> {
-    HartId::all()
-        .last()
-        .and_then(|hart| hart.as_usize().checked_add(1))
-        .ok_or(Error::InvalidArgs)
+    clint::from_kind(registers, kind).timer.init(memory).map(Some)
 }
 
 /// Binds all devices selected during platform discovery.
