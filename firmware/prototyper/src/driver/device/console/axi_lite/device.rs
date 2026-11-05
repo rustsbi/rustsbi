@@ -54,20 +54,16 @@ impl Device {
         })
     }
 
-    fn read_reg(&self, reg: Register) -> u32 {
-        self.registers
-            .read(reg.offset())
-            .expect("BUG: UART Lite register escaped its MMIO window")
+    fn read_reg(&self, reg: Register) -> Result<u32> {
+        self.registers.read(reg.offset())
     }
 
-    fn write_reg(&self, reg: Register, value: u32) {
-        self.registers
-            .write(reg.offset(), value)
-            .expect("BUG: UART Lite register escaped its MMIO window")
+    fn write_reg(&self, reg: Register, value: u32) -> Result<()> {
+        self.registers.write(reg.offset(), value)
     }
 
-    fn status(&self) -> Status {
-        Status::from_bits_retain(self.read_reg(Register::Status))
+    fn status(&self) -> Result<Status> {
+        Ok(Status::from_bits_retain(self.read_reg(Register::Status)?))
     }
 }
 
@@ -75,10 +71,10 @@ impl ConsoleDevice for Device {
     fn read_slice(&mut self, buf: &mut [u8]) -> Result<usize> {
         let mut count = 0;
         for byte in buf.iter_mut() {
-            if !self.status().contains(Status::RX_VALID) {
+            if !self.status()?.contains(Status::RX_VALID) {
                 break;
             }
-            *byte = self.read_reg(Register::Rx) as u8;
+            *byte = self.read_reg(Register::Rx)? as u8;
             count += 1;
         }
         Ok(count)
@@ -87,10 +83,10 @@ impl ConsoleDevice for Device {
     fn write_slice(&mut self, buf: &[u8]) -> Result<usize> {
         let mut count = 0;
         for &byte in buf {
-            if self.status().contains(Status::TX_FULL) {
+            if self.status()?.contains(Status::TX_FULL) {
                 break;
             }
-            self.write_reg(Register::Tx, byte as u32);
+            self.write_reg(Register::Tx, byte as u32)?;
             count += 1;
         }
         Ok(count)

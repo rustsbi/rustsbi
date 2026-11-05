@@ -39,24 +39,20 @@ bitflags! {
 
 /// Byte-wise access to a 16550 register map.
 pub(super) trait RegisterAccess: Send {
-    fn read(&self, register: Register) -> u8;
-    fn write(&self, register: Register, value: u8);
+    fn read(&self, register: Register) -> Result<u8>;
+    fn write(&self, register: Register, value: u8) -> Result<()>;
 }
 
 /// Byte-spaced 16550 register access.
 pub(super) struct U8RegisterAccess(MmioRegion);
 
 impl RegisterAccess for U8RegisterAccess {
-    fn read(&self, register: Register) -> u8 {
-        self.0
-            .read(register.index())
-            .expect("BUG: 16550 u8 register escaped its MMIO window")
+    fn read(&self, register: Register) -> Result<u8> {
+        self.0.read(register.index())
     }
 
-    fn write(&self, register: Register, value: u8) {
-        self.0
-            .write(register.index(), value)
-            .expect("BUG: 16550 u8 register escaped its MMIO window")
+    fn write(&self, register: Register, value: u8) -> Result<()> {
+        self.0.write(register.index(), value)
     }
 }
 
@@ -64,16 +60,15 @@ impl RegisterAccess for U8RegisterAccess {
 pub(super) struct U32RegisterAccess(MmioRegion);
 
 impl RegisterAccess for U32RegisterAccess {
-    fn read(&self, register: Register) -> u8 {
+    fn read(&self, register: Register) -> Result<u8> {
         self.0
             .read::<u32>(register.index() * size_of::<u32>())
-            .expect("BUG: 16550 u32 register escaped its MMIO window") as u8
+            .map(|value| value as u8)
     }
 
-    fn write(&self, register: Register, value: u8) {
+    fn write(&self, register: Register, value: u8) -> Result<()> {
         self.0
             .write(register.index() * size_of::<u32>(), u32::from(value))
-            .expect("BUG: 16550 u32 register escaped its MMIO window")
     }
 }
 
@@ -103,8 +98,10 @@ impl Device<U32RegisterAccess> {
 }
 
 impl<Access: RegisterAccess> Device<Access> {
-    fn line_status(&self) -> LineStatus {
-        LineStatus::from_bits_retain(self.registers.read(Register::LineStatus))
+    fn line_status(&self) -> Result<LineStatus> {
+        Ok(LineStatus::from_bits_retain(
+            self.registers.read(Register::LineStatus)?,
+        ))
     }
 }
 
@@ -112,10 +109,10 @@ impl<Access: RegisterAccess> ConsoleDevice for Device<Access> {
     fn read_slice(&mut self, buf: &mut [u8]) -> Result<usize> {
         let mut count = 0;
         for byte in buf.iter_mut() {
-            if !self.line_status().contains(LineStatus::DATA_READY) {
+            if !self.line_status()?.contains(LineStatus::DATA_READY) {
                 break;
             }
-            *byte = self.registers.read(Register::Data);
+            *byte = self.registers.read(Register::Data)?;
             count += 1;
         }
         Ok(count)
@@ -125,12 +122,12 @@ impl<Access: RegisterAccess> ConsoleDevice for Device<Access> {
         let mut count = 0;
         for &byte in buf {
             if !self
-                .line_status()
+                .line_status()?
                 .contains(LineStatus::TX_HOLDING_REGISTER_EMPTY)
             {
                 break;
             }
-            self.registers.write(Register::Data, byte);
+            self.registers.write(Register::Data, byte)?;
             count += 1;
         }
         Ok(count)
