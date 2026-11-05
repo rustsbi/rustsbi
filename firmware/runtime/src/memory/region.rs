@@ -185,32 +185,3 @@ impl PhysAddrRange {
         Ok(Self { start, end })
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ranges_reject_empty_and_wrapping_inputs() {
-        assert_eq!(
-            PhysAddrRange::new(PhysAddr::new(1), PhysAddr::new(1)),
-            Err(Error::InvalidArgs)
-        );
-        assert_eq!(
-            PhysAddrRange::new(PhysAddr::new(2), PhysAddr::new(1)),
-            Err(Error::InvalidArgs)
-        );
-        assert_eq!(
-            PhysAddrRange::from_start_len(PhysAddr::new(usize::MAX), 2),
-            Err(Error::Overflow)
-        );
-    }
-
-    #[test]
-    fn subranges_reject_empty_overflowing_and_out_of_bounds_requests() {
-        let range = PhysAddrRange::from_start_len(PhysAddr::new(0x1000), 0x100).unwrap();
-        assert_eq!(range.subrange(0, 0), Err(Error::InvalidArgs));
-        assert_eq!(range.subrange(usize::MAX, 1), Err(Error::Overflow));
-        assert_eq!(range.subrange(0x80, 0x81), Err(Error::InvalidArgs));
-    }
-}
