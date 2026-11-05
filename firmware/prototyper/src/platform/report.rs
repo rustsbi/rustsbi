@@ -21,7 +21,6 @@ pub(super) fn log_platform_summary() {
 
     log_harts();
     log_interrupt_controller(board);
-    log_console(board);
     log_reset(board);
     log_sbi_extensions();
     log_ram(board);
@@ -70,18 +69,6 @@ fn log_interrupt_controller(board: &BoardInfo) {
             description.resource().registers.start().as_usize()
         ),
         None => warn!("{:<30}: Not Available", "Platform IPI Device"),
-    }
-}
-
-fn log_console(board: &BoardInfo) {
-    match board.devices.console.as_ref() {
-        Some(console) => info!(
-            "{:<30}: {} (Base Address: 0x{:x})",
-            "Platform Console Extension",
-            console.kind.name(),
-            console.registers.start().as_usize()
-        ),
-        None => warn!("{:<30}: Not Available", "Platform Console Device"),
     }
 }
 

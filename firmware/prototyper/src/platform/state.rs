@@ -4,9 +4,7 @@ use alloc::boxed::Box;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use runtime::{hart::HartId, memory::SupervisorMemory};
-use spin::{Mutex, Once};
-
-use crate::driver::DbcnBackend;
+use spin::Once;
 
 use super::info::BoardInfo;
 
@@ -16,20 +14,14 @@ static READY: AtomicBool = AtomicBool::new(false);
 struct Platform {
     board: Box<BoardInfo>,
     supervisor_memory: SupervisorMemory,
-    console: Option<Mutex<Box<dyn DbcnBackend + Send>>>,
     privilege_checked: Box<[AtomicBool]>,
 }
 
 /// Publishes resources constructed by the boot hart.
-pub(super) fn publish_resources(
-    board: Box<BoardInfo>,
-    supervisor_memory: SupervisorMemory,
-    console: Option<Box<dyn DbcnBackend + Send>>,
-) {
+pub(super) fn publish_resources(board: Box<BoardInfo>, supervisor_memory: SupervisorMemory) {
     PLATFORM.call_once(|| Platform {
         board,
         supervisor_memory,
-        console: console.map(Mutex::new),
         privilege_checked: HartId::all().map(|_| AtomicBool::new(false)).collect(),
     });
 }
@@ -57,12 +49,6 @@ pub(crate) fn board_info() -> &'static BoardInfo {
 
 pub(crate) fn supervisor_memory() -> &'static SupervisorMemory {
     &platform().supervisor_memory
-}
-
-pub(crate) fn console_device() -> Option<&'static Mutex<Box<dyn DbcnBackend + Send>>> {
-    PLATFORM
-        .get()
-        .and_then(|platform| platform.console.as_ref())
 }
 
 /// Returns DT-enabled harts that have passed their privilege-mode check.

@@ -5,7 +5,7 @@
 use alloc::boxed::Box;
 use core::ops::Range;
 use runtime::{
-    Error, PlatformDescription, Result, events,
+    Error, PlatformDescription, Result, console, events,
     hart::{self, HartId},
     ipi,
     memory::SupervisorMemory,
@@ -37,21 +37,33 @@ pub fn init_board(platform_description: PlatformDescription) -> usize {
 
 fn try_init_board(platform_description: PlatformDescription) -> Result<usize, InitError> {
     let mut board = Box::new(BoardInfo::empty());
-    let pmu = platform_description
-        .inspect(|platform| discovery::discover_platform(&mut board, &platform))
+    let (pmu, console) = platform_description
+        .inspect(|platform| {
+            Ok((
+                discovery::discover_platform(&mut board, &platform)?,
+                driver::select_console(&platform)?,
+            ))
+        })
         .during("reading the platform description")?;
 
-    initialize_platform(platform_description, board, pmu)
+    initialize_platform(platform_description, board, pmu, console)
 }
 
 fn initialize_platform(
     platform_description: PlatformDescription,
     mut board: Box<BoardInfo>,
     pmu: Option<SbiPmu>,
+    console_description: Option<driver::ConsoleDesc>,
 ) -> Result<usize, InitError> {
     let (supervisor_memory, mut memory) = platform_description
         .memory_resources()
         .during("deriving Runtime memory resources")?;
+    if let Some(description) = console_description {
+        let device = description
+            .init(&mut memory)
+            .during("initializing the console")?;
+        console::init(device).during("registering the console")?;
+    }
     board.memory.ram_ranges = memory.ram_ranges().collect();
     let firmware_image_range = memory.firmware_image_range();
     board.memory.firmware_ram_range = Some(
@@ -161,7 +173,6 @@ fn publish_platform_services(
 ) {
     let driver::Devices {
         ipi: ipi_device,
-        console,
         reset,
         ..
     } = devices;
@@ -174,13 +185,20 @@ fn publish_platform_services(
     });
     events::install(pmu.as_ref().map(|_| sbi::pmu::runtime_counters()));
 
-    state::publish_resources(board, supervisor_memory, console);
+    state::publish_resources(board, supervisor_memory);
 
     sbi::logger::Logger::init().expect("BUG: firmware logger initialized more than once");
     info!("Hello RustSBI!");
 
     let reset = SbiReset::new(reset);
-    publish_sbi_dispatcher(sbi_ipi, timer, reset, custom_extension, pmu, hardware_wakeup);
+    publish_sbi_dispatcher(
+        sbi_ipi,
+        timer,
+        reset,
+        custom_extension,
+        pmu,
+        hardware_wakeup,
+    );
 
     state::mark_ready();
 
@@ -196,8 +214,7 @@ fn publish_sbi_dispatcher(
     hardware_wakeup: bool,
 ) {
     let supervisor_memory = state::supervisor_memory();
-    let console = state::console_device()
-        .map(|device| sbi::console::SbiConsole::new(device, supervisor_memory));
+    let console = console::get().map(|_| sbi::console::SbiConsole::new(supervisor_memory));
     let cppc = Some(SbiCppc::new());
     let dbtr = Some(SbiDbtr::new(supervisor_memory));
     let fwft = Some(SbiFwft);

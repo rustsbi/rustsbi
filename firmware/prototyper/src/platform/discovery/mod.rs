@@ -1,6 +1,5 @@
 //! Platform facts and SBI PMU discovery from the device tree.
 
-mod console;
 mod harts;
 mod imsic;
 mod interrupts;
@@ -19,7 +18,6 @@ pub(super) fn discover_platform(
     platform: &PlatformView<'_>,
 ) -> Result<Option<SbiPmu>> {
     let cpu_interrupt_controllers = harts::discover(board, platform)?;
-    board.devices.console = console::discover(platform)?;
     let mut reset = crate::driver::ResetDescription::new();
     let mut soc = if let Some(v821) = platform.soc::<AllwinnerV821Soc>()? {
         Some(SocDescription::V821(

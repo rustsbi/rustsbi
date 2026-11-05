@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use runtime::{
     Result, SpacemitK1Registers,
     ipi::Iid,
-    memory::{RegRange, PhysAddr, PhysAddrRange},
+    memory::{PhysAddr, PhysAddrRange, RegRange},
     soc::allwinner::v861::AllwinnerV861Soc,
 };
 
@@ -65,13 +65,6 @@ pub(crate) struct ImsicInfo {
     pub(crate) layout: ImsicAddressLayout,
     pub(crate) ipi_iid: Iid,
     pub(crate) hart_files: Vec<RegRange>,
-}
-
-/// Console resources selected from the device tree.
-pub(crate) struct ConsoleInfo {
-    pub(crate) registers: RegRange,
-    pub(crate) kind: driver::ConsoleKind,
-    pub(crate) clock_hz: Option<u32>,
 }
 
 /// Memory layout retained for firmware policy and platform reporting.
@@ -192,7 +185,6 @@ impl InterruptDescriptions {
 
 /// Unbound descriptions for the platform-wide device classes.
 pub(crate) struct DeviceDescriptions {
-    pub(crate) console: Option<ConsoleInfo>,
     pub(crate) reset: driver::ResetDescription,
     pub(crate) interrupts: InterruptDescriptions,
 }
@@ -200,7 +192,6 @@ pub(crate) struct DeviceDescriptions {
 impl DeviceDescriptions {
     fn empty() -> Self {
         Self {
-            console: None,
             reset: driver::ResetDescription::empty(),
             interrupts: InterruptDescriptions::empty(),
         }
