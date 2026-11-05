@@ -19,7 +19,7 @@ pub(crate) use kind::ClintKind;
 ///
 /// `hart_id_upper_bound` is the exclusive raw hart ID bound used to size
 /// directly indexed register windows, including gaps between enabled IDs.
-pub(super) fn bind(
+pub(in crate::driver) fn bind(
     registers: RegRange,
     kind: ClintKind,
     memory: &mut MemoryRegistry,
@@ -32,7 +32,7 @@ pub(super) fn bind(
 }
 
 /// Binds the CLINT timer independently of its software-interrupt device.
-pub(super) fn bind_timer(
+pub(in crate::driver) fn bind_timer(
     registers: RegRange,
     kind: ClintKind,
     memory: &mut MemoryRegistry,

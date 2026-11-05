@@ -31,7 +31,7 @@ pub(crate) const IMSIC_FILE_SPAN: usize = 1usize << IMSIC_FILE_PAGE_SHIFT;
 const SET_EIPNUM_LE: usize = 0x0;
 
 /// Binds the selected AIA interrupt devices to their MMIO windows.
-pub(super) fn bind(
+pub(in crate::driver) fn bind(
     imsic: &ImsicInfo,
     aplic_config: Option<QemuAplicConfig>,
     memory: &mut MemoryRegistry,

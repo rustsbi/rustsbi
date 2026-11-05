@@ -6,7 +6,7 @@ use runtime::{
     memory::{RegRange, MemoryRegistry, MmioRegion},
 };
 
-use super::TimerDevice;
+use runtime::timer::TimerDevice;
 
 #[repr(usize)]
 #[derive(Clone, Copy)]
@@ -19,13 +19,13 @@ enum Register {
 
 const COMPARE_STRIDE: usize = 8;
 
-pub(super) struct Plmt {
+pub(in crate::driver) struct Plmt {
     registers: MmioRegion,
     hart_id_upper_bound: usize,
 }
 
 /// Binds the timer registers below the exclusive raw hart ID upper bound.
-pub(super) fn bind(
+pub(in crate::driver) fn bind(
     registers: RegRange,
     memory: &mut MemoryRegistry,
     hart_id_upper_bound: usize,
