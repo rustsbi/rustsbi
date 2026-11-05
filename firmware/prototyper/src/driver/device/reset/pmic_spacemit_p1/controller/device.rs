@@ -12,11 +12,12 @@ use core::mem::{align_of, size_of};
 use core::time::Duration;
 use runtime::{
     Error, Result,
-    memory::{RegRange, MemoryRegistry, MmioRegion},
+    memory::{MemoryRegistry, MmioRegion},
     timer,
 };
 
-use super::I2cAddress;
+use super::super::description::I2cAddress;
+use super::description::Desc;
 
 #[repr(usize)]
 #[derive(Clone, Copy)]
@@ -102,10 +103,12 @@ enum Direction {
     Read = 1,
 }
 
+// Reset and transfer timings follow the OpenSBI reference above.
 const CONTROLLER_RESET_DELAY: Duration = Duration::from_micros(10);
 const TRANSFER_TIMEOUT: Duration = Duration::from_micros(1_000);
 const NANOSECONDS_PER_SECOND: u64 = 1_000_000_000;
 
+/// A timer frequency used to convert durations to ticks and measure timeouts.
 #[derive(Clone, Copy)]
 struct Timebase(u64);
 
@@ -123,6 +126,8 @@ impl Timebase {
     }
 
     fn elapsed(self, start: u64, duration: Duration) -> bool {
+        // Without a timer, consider the interval elapsed so waiting callers
+        // stop instead of spinning forever.
         timer::now().is_none_or(|now| now.wrapping_sub(start) >= self.ticks_for(duration))
     }
 
@@ -136,20 +141,21 @@ impl Timebase {
     }
 }
 
-pub(super) struct K1I2cController {
+/// A K1 I2C controller bound to its MMIO window and timebase.
+pub(in super::super) struct K1I2cController {
     registers: MmioRegion,
     timebase: Timebase,
 }
 
 impl K1I2cController {
-    pub(super) fn bind(
-        registers: RegRange,
-        timebase_frequency_hz: Option<u32>,
-        memory: &mut MemoryRegistry,
-    ) -> Result<Self> {
-        let timebase = Timebase::new(timebase_frequency_hz.ok_or(Error::InvalidArgs)?)
-            .ok_or(Error::InvalidArgs)?;
-        let registers = registers.subrange(0, REGISTER_SPAN)?;
+    pub(in super::super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+        let timebase = Timebase::new(
+            description
+                .timebase_frequency_hz
+                .ok_or(Error::InvalidArgs)?,
+        )
+        .ok_or(Error::InvalidArgs)?;
+        let registers = description.registers.subrange(0, REGISTER_SPAN)?;
         if !registers.start().is_aligned_to(align_of::<u32>()) {
             return Err(Error::InvalidArgs);
         }
@@ -174,6 +180,8 @@ impl K1I2cController {
     }
 
     fn reset(&self) {
+        // Disable, reset, then enable the controller.
+        // It requires `CONTROLLER_RESET_DELAY` after the first two phases.
         self.write(Register::Control, Control::empty().bits());
         self.timebase.delay(CONTROLLER_RESET_DELAY);
         self.write(Register::Control, Control::UNIT_RESET.bits());
@@ -224,6 +232,8 @@ impl K1I2cController {
         );
         self.clear_status(Status::from_bits_retain(self.read(Register::Status)));
 
+        // A previous transfer may still own the bus; wait for both the unit
+        // and the bus to report idle.
         let Some(start) = timer::now() else {
             return false;
         };
@@ -246,6 +256,8 @@ impl K1I2cController {
     }
 
     fn start(&self, device: I2cAddress, direction: Direction) -> bool {
+        // The data buffer carries the 7-bit address in bits 7:1 and the
+        // direction in bit 0.
         let address = (device.get() << 1) | direction as u8;
         self.write(Register::DataBuffer, u32::from(address));
         let control = Control::from_bits_retain(self.read(Register::Control)) - TRANSFER_CONTROL;
@@ -273,7 +285,15 @@ impl K1I2cController {
         .is_some()
     }
 
-    pub(super) fn write_register(&self, device: I2cAddress, register: u8, value: u8) -> bool {
+    /// Writes one byte to a device register.
+    ///
+    /// Returns `false` if the controller cannot complete the transaction.
+    pub(in super::super) fn write_register(
+        &self,
+        device: I2cAddress,
+        register: u8,
+        value: u8,
+    ) -> bool {
         if !self.prepare_transfer() {
             return false;
         }
@@ -284,7 +304,10 @@ impl K1I2cController {
         result
     }
 
-    pub(super) fn read_register(&self, device: I2cAddress, register: u8) -> Option<u8> {
+    /// Reads one byte from a device register.
+    ///
+    /// Returns `None` if the controller cannot complete the transaction.
+    pub(in super::super) fn read_register(&self, device: I2cAddress, register: u8) -> Option<u8> {
         if !self.prepare_transfer() {
             return None;
         }

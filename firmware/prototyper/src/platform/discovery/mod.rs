@@ -18,7 +18,6 @@ pub(super) fn discover_platform(
     platform: &PlatformView<'_>,
 ) -> Result<Option<SbiPmu>> {
     let cpu_interrupt_controllers = harts::discover(board, platform)?;
-    let mut reset = crate::driver::ResetDescription::new();
     let mut soc = if let Some(v821) = platform.soc::<AllwinnerV821Soc>()? {
         Some(SocDescription::V821(
             crate::platform::allwinner::v821::Description::new(v821),
@@ -39,13 +38,11 @@ pub(super) fn discover_platform(
         {
             pmu_node = Some(node.node());
         }
-        reset.probe(platform, node)?;
         if let Some(SocDescription::V821(v821)) = &mut soc {
             v821.probe(platform, node)?;
         }
         interrupts::discover_node(board, platform, node, path, &cpu_interrupt_controllers)
     })?;
-    board.devices.reset = reset;
     board.soc = soc;
     let pmu = pmu_node.and_then(pmu::from_node).or_else(|| {
         matches!(&board.soc, Some(SocDescription::V861(_))).then_some(SbiPmu::default())
