@@ -16,6 +16,7 @@ use runtime::{
     boot::NextStage,
     hart::{self, HartId, HartState},
     rustsbi::{Hsm, SbiRet},
+    timer,
 };
 use sbi_spec::hsm::{hart_state, suspend_type};
 
@@ -33,7 +34,7 @@ impl SbiHsm {
     /// Validates an enabled SBI hart ID against platform privilege policy.
     fn hart_id(&self, raw: usize) -> Result<HartId, SbiRet> {
         let hart = HartId::from_raw(raw).map_err(|_| SbiRet::invalid_param())?;
-        if !(self.hardware_wakeup || crate::platform::hart_privilege_checked(raw)) {
+        if !(self.hardware_wakeup || super::features::hart_privilege_checked(hart)) {
             return Err(SbiRet::invalid_param());
         }
         Ok(hart)
@@ -100,7 +101,9 @@ impl Hsm for SbiHsm {
     /// Stops execution on the current hart.
     #[inline]
     fn hart_stop(&self) -> SbiRet {
-        super::timer().set_deadline(u64::MAX);
+        if let Some(timer) = timer::get() {
+            timer.set_deadline(u64::MAX);
+        }
         match hart::stop_current() {
             Ok(never) => match never {},
             Err(_) => SbiRet::failed(),

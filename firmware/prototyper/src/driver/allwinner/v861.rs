@@ -129,12 +129,12 @@ impl V861HartRelease {
 
 impl HartWake for V861HartRelease {
     fn wake(&self, hart: HartId) -> Result<bool> {
+        if crate::sbi::features::hart_privilege_checked(hart) {
+            return Ok(false);
+        }
         let hart = hart.as_usize();
         if hart >= C907_HART_COUNT {
             return Err(Error::InvalidArgs);
-        }
-        if crate::platform::hart_privilege_checked(hart) {
-            return Ok(false);
         }
         let entry = crate::riscv::c907::reset_entry_address() as u64;
         self.reset_vectors[hart].program(entry)?;
