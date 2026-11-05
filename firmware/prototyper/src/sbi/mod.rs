@@ -86,9 +86,6 @@ pub(crate) fn init(
     let ipi = runtime_ipi::get().map(|_| SbiIpi);
     events::install(pmu.as_ref().map(|_| pmu::runtime_counters()));
 
-    logger::Logger::init().expect("BUG: firmware logger initialized more than once");
-    info!("Hello RustSBI!");
-
     let console = runtime_console::get().map(|_| SbiConsole::new(supervisor_memory));
     let ipi_available = ipi.is_some();
     let hsm = ipi_available.then(|| SbiHsm::new(hardware_wakeup));

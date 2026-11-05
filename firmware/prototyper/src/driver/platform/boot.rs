@@ -61,6 +61,12 @@ fn try_init_platform(platform_description: PlatformDescription) -> Result<usize>
         .transpose()?;
     let noncacheable_alias_offset = v821.as_ref().map(v821::V821::noncacheable_alias_offset);
 
+    if let Some(description) = console_description {
+        console::init(description.init(&mut memory)?)?;
+    }
+    sbi::logger::Logger::init().map_err(|_| Error::AlreadyInitialized)?;
+    info!("Hello RustSBI!");
+
     let mut hidden_node_paths: Vec<String> = Vec::new();
     let irq_mmio = platform_description.inspect(|platform| {
         interrupts::init(
@@ -72,9 +78,6 @@ fn try_init_platform(platform_description: PlatformDescription) -> Result<usize>
             |memory| v821::prepare_plmt(v821.as_ref(), memory),
         )
     })?;
-    if let Some(description) = console_description {
-        console::init(description.init(&mut memory)?)?;
-    }
     if let Some(description) = reset_description {
         reset::init(description.init(&mut memory)?)?;
     }
