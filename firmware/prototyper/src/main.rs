@@ -12,10 +12,10 @@ mod driver;
 mod fail;
 mod firmware;
 mod heap;
-mod platform;
 mod riscv;
 mod sbi;
 
+use crate::driver::platform;
 use crate::firmware::BootInfo;
 use crate::sbi::features::{check_next_stage_privilege, counter_topology, detect_hart_features};
 use csr::machine::TargetPrivilege as MPP;

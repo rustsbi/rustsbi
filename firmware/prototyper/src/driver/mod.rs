@@ -8,6 +8,7 @@ pub(crate) mod allwinner;
 mod description;
 mod device;
 mod matching;
+pub(crate) mod platform;
 
 use alloc::boxed::Box;
 pub(crate) use description::Description;
