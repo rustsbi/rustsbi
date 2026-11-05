@@ -100,21 +100,6 @@ run_once() {
     return 1
   }
 
-  # Dispatcher-backed extension wiring: these lines render from the
-  # published SBI_DISPATCHER (presence chains + Once publish). A missing
-  # line means an extension was silently dropped during boot assembly.
-  local banner
-  for banner in \
-    'Platform HSM Extension        : Available' \
-    'Platform RFence Extension     : Available' \
-    'Platform SUSP Extension       : Available' \
-    'Platform PMU Extension        : Available'; do
-    grep -Fq "$banner" "$log_file" || {
-      echo "[$mode/$kernel] missing extension banner: $banner" >&2
-      return 1
-    }
-  done
-
   # Boot-policy order guard: the boot-hart presentation sequence must
   # appear in phase order. A reorder or drop means the boot policy
   # changed even when every substring grep stays green.

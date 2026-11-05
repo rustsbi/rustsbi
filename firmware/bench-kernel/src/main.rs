@@ -193,6 +193,13 @@ fn get_time() -> u64 {
 extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     rcore_console::init_console(&Console);
     rcore_console::set_log_level(option_env!("LOG"));
+    println!(
+        "SBI probes: HSM={} RFNC={} SUSP={} PMU={}",
+        sbi::probe_extension(sbi::Hsm).is_available(),
+        sbi::probe_extension(sbi::Fence).is_available(),
+        sbi::probe_extension(sbi::Suspend).is_available(),
+        sbi::probe_extension(sbi::Pmu).is_available(),
+    );
     // SAFETY: the SBI next-stage ABI supplies a readable FDT at `dtb_pa`.
     let fdt = unsafe { Fdt::from_ptr(dtb_pa as *const u8) }.unwrap();
     let cpus = fdt.find_node("/cpus").expect("/cpus");

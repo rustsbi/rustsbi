@@ -109,6 +109,13 @@ unsafe extern "C" fn _start(hartid: usize, device_tree_paddr: usize) -> ! {
 extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     let platform::BoardInfo { smp, frequency } = platform::initialize(dtb_pa);
     print_banner(hartid, smp, frequency, dtb_pa);
+    println!(
+        "SBI probes: HSM={} RFNC={} SUSP={} PMU={}",
+        sbi::probe_extension(sbi::Hsm).is_available(),
+        sbi::probe_extension(sbi::Fence).is_available(),
+        sbi::probe_extension(sbi::Suspend).is_available(),
+        sbi::probe_extension(sbi::Pmu).is_available(),
+    );
 
     let test_result = sbi_testing::Testing {
         hartid,

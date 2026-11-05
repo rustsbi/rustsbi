@@ -4,10 +4,12 @@
 # `.github/scripts/prototyper-qemu-boot.sh`.
 Hello RustSBI!
 Platform HART Count           : {smp}
+SBI probes: HSM=true RFNC=true SUSP=true PMU=true
 Sbi `Base` test pass
 Sbi `TIME` test pass
 [timer] expired, rearmed, and cancelled deadlines pass
 Sbi `sPI` test pass
+Sbi `RFNC` test pass
 Sbi `DBCN` test pass
 Sbi `DBCN` return contract test pass
 DBCN rejected non-zero upper-half write
