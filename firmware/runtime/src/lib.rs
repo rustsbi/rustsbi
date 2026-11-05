@@ -25,6 +25,7 @@ pub mod ipi;
 mod irq;
 pub mod memory;
 mod recovery;
+pub mod reset;
 pub mod soc;
 mod spacemit_k1;
 mod sunxi_rtc_v203;
