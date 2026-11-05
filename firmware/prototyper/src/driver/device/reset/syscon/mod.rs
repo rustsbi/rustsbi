@@ -28,7 +28,7 @@ const REBOOT_COMPATIBLE: &str = "syscon-reboot";
 
 /// Matches syscon reset nodes and retains their unbound descriptions.
 #[derive(Default)]
-pub(in crate::driver::reset) struct SysconDriver {
+pub(in crate::driver::device::reset) struct SysconDriver {
     poweroff: Option<ActionDescription>,
     reboot: Option<ActionDescription>,
 }

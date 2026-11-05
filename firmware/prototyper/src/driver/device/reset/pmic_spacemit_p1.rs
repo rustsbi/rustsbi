@@ -80,7 +80,7 @@ struct P1PmicDescription {
 }
 
 #[derive(Default)]
-pub(in crate::driver::reset) struct P1PmicDriver {
+pub(in crate::driver::device::reset) struct P1PmicDriver {
     description: Option<P1PmicDescription>,
 }
 

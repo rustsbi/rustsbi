@@ -11,10 +11,9 @@ mod clint;
 mod device;
 mod plicsw;
 mod plmt;
-mod reset;
 
 use alloc::boxed::Box;
-use device::console;
+use device::{console, reset};
 use runtime::{
     Error, Result,
     hart::HartId,

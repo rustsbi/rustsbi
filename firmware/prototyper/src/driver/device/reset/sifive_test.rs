@@ -33,7 +33,7 @@ const COMPATIBLES: [&str; 1] = ["sifive,test0"];
 
 /// Devicetree description for the SiFive test finisher.
 #[derive(Default)]
-pub(in crate::driver::reset) struct SifiveTestDriver {
+pub(in crate::driver::device::reset) struct SifiveTestDriver {
     registers: Option<RegRange>,
 }
 

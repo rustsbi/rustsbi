@@ -39,7 +39,7 @@ const COMPATIBLE: &str = "allwinner,wdt-v105";
 
 /// Devicetree description for the Sunxi V105 watchdog and its optional RTC gate.
 #[derive(Default)]
-pub(in crate::driver::reset) struct V105Driver {
+pub(in crate::driver::device::reset) struct V105Driver {
     registers: Option<RegRange>,
     reset_gate: Option<RegRange>,
 }

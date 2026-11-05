@@ -39,7 +39,7 @@ const COMPATIBLES: [&str; 2] = ["allwinner,sun20i-d1-wdt", "allwinner,wdt-v104"]
 
 /// Devicetree description for the Sunxi V104 watchdog.
 #[derive(Default)]
-pub(in crate::driver::reset) struct V104Driver {
+pub(in crate::driver::device::reset) struct V104Driver {
     registers: Option<RegRange>,
 }
 
