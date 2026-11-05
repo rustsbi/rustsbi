@@ -19,6 +19,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
+- binary: skip `HartMask` iterator bits whose hart IDs overflow `usize`, keeping iteration counts exact.
+
 ## [0.0.9] - 2026-05-13
 
 ### Added
