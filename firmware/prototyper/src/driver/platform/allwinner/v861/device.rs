@@ -151,9 +151,12 @@ impl HartWake for V861HartRelease {
 }
 
 pub(super) extern "C" fn initialize_secondary() {
-    CACHE_STATE
-        .get()
-        .expect("BUG: boot cache policy must be published before hart power-on")
-        .restore();
-    secondary_hart(None);
+    let result = CACHE_STATE.get().ok_or(Error::NotReady).and_then(|cache| {
+        cache.restore();
+        secondary_hart(None)
+    });
+    if let Err(error) = result {
+        error!("Failed to initialize the hart: {error}");
+        crate::fail::stop();
+    }
 }

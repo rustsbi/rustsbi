@@ -1,13 +1,12 @@
 use csr::machine::TargetPrivilege as MPP;
 use runtime::{
-    FdtNode, boot,
+    Error, FdtNode, Result, boot,
     hart::{self, HartId, PerHart},
     timer,
 };
 use spin::{Mutex, Once};
 
 use super::pmu;
-use crate::fail;
 use csr::{
     machine::{self, CBCFE, CBIE, CBZE, CacheBlockInvalidateMode, FeatureState},
     values::counter::InhibitedCounters,
@@ -40,11 +39,9 @@ static FEATURES: Once<PerHart<Mutex<HartFeatures>>> = Once::new();
 ///
 /// The caller must run this after Runtime publishes the hart topology
 /// and before platform discovery seeds secondary harts' features.
-pub(crate) fn init() {
-    FEATURES.call_once(|| {
-        PerHart::new(|_| Mutex::new(HartFeatures::default()))
-            .expect("failed to initialize per-hart feature records")
-    });
+pub(crate) fn init() -> Result<()> {
+    FEATURES.try_call_once(|| PerHart::new(|_| Mutex::new(HartFeatures::default())))?;
+    Ok(())
 }
 
 fn features(hart: HartId) -> &'static Mutex<HartFeatures> {
@@ -52,10 +49,6 @@ fn features(hart: HartId) -> &'static Mutex<HartFeatures> {
         .get()
         .expect("BUG: hart feature state used before initialization")
         .get(hart)
-}
-
-fn current_features() -> &'static Mutex<HartFeatures> {
-    features(HartId::current().expect("BUG: current hart is not in the boot topology"))
 }
 
 pub(crate) fn has_extension(hart: HartId, extension: Extension) -> bool {
@@ -158,19 +151,24 @@ pub(crate) fn parse_extensions(cpu: FdtNode<'_, '_>) -> [bool; Extension::COUNT]
 }
 
 /// Installs the extensions parsed from one enabled CPU node.
-pub(crate) fn install_extensions(hart: HartId, mut extensions: [bool; Extension::COUNT]) {
-    if hart == HartId::current().expect("BUG: current hart exceeds Runtime capacity") {
+/// `current_hart` identifies the hart performing discovery.
+pub(crate) fn install_extensions(
+    hart: HartId,
+    current_hart: HartId,
+    mut extensions: [bool; Extension::COUNT],
+) {
+    if hart == current_hart {
         extensions[Extension::Hypervisor.index()] = hart::has_hypervisor();
     }
     features(hart).lock().extensions = extensions;
 }
 
-fn detect_privileged_version() {
+fn detect_privileged_version(hart: HartId) {
     let privileged_version = hart::detect_privileged_version();
-    current_features().lock().privileged_version = privileged_version;
+    features(hart).lock().privileged_version = privileged_version;
 }
 
-fn detect_mhpm_counters() {
+fn detect_mhpm_counters(hart: HartId) {
     // SAFETY:
     // 1. This hart is in M-mode with a valid Runtime stack and trap entry;
     //    `mscratch` is zero and `MPRV` is clear.
@@ -179,51 +177,51 @@ fn detect_mhpm_counters() {
     let mhpm_mask = unsafe { hart::detect_performance_counters() };
 
     {
-        let mut features = current_features().lock();
+        let mut features = features(hart).lock();
         features.mhpm_mask = mhpm_mask;
         // TODO: at present, the prototyper only supports 64-bit counters.
         features.mhpm_bits = 64;
     }
     // The PMU state snapshots the counter topology; rebuild it now that
     // the mask is known.
-    pmu::init_current(mhpm_mask);
+    pmu::init_current(hart, mhpm_mask);
 }
 
 /// Detects the current hart's hardware features after device-tree discovery.
-pub fn detect_hart_features() {
-    detect_privileged_version();
-    detect_mhpm_counters();
+/// `hart` must identify the current hart.
+pub fn detect_hart_features(hart: HartId) {
+    detect_privileged_version(hart);
+    detect_mhpm_counters(hart);
 }
 
 /// Checks that this hart supports the requested privilege mode.
 ///
-/// Reports an error and stops the hart if it does not.
-pub fn check_next_stage_privilege(next_mode: MPP) {
-    let hart = HartId::current().expect("BUG: current hart exceeds Runtime capacity");
+/// `hart` must identify the current hart.
+/// Returns an error if the hart does not support the requested privilege mode.
+pub fn check_next_stage_privilege(hart: HartId, next_mode: MPP) -> Result<()> {
     match next_mode {
         MPP::Supervisor => {
             if !hart::supports_privilege(MPP::Supervisor) {
-                error!("Hart {} does not support Supervisor mode", hart.as_usize());
-                fail::stop();
+                return Err(Error::NotSupported);
             }
             features(hart).lock().privilege_checked = true;
         }
         MPP::User => {
             if !hart::supports_privilege(MPP::User) {
-                error!("Hart {} does not support User mode", hart.as_usize());
-                fail::stop();
+                return Err(Error::NotSupported);
             }
             features(hart).lock().privilege_checked = true;
         }
         _ => {}
     }
+    Ok(())
 }
 
 /// Configures the current hart's environment for supervisor handoff.
 ///
+/// `hart` must identify the current hart.
 /// Runtime boot owns delegation, counter access and trap-vector setup.
-pub fn configure_hart_environment() {
-    let hart = HartId::current().expect("BUG: current hart exceeds Runtime capacity");
+pub fn configure_hart_environment(hart: HartId) -> Result<()> {
     // Standard Sv32 and Svpbmt page tables must not use T-Head MAEE.
     if cfg!(target_pointer_width = "32") || has_extension(hart, Extension::Svpbmt) {
         // SAFETY:
@@ -240,7 +238,7 @@ pub fn configure_hart_environment() {
     }
     // Sstc provides STCE independently of the privileged-version heuristic.
     // Use Runtime's comparison-register probe to match the timer's decision.
-    if timer::init_hart().expect("BUG: current hart timer initialization failed") {
+    if timer::init_hart()? {
         #[cfg(target_pointer_width = "64")]
         use csr::machine::{EnvironmentConfig as TimerConfig, STCE as TimerEnable};
         #[cfg(target_pointer_width = "32")]
@@ -283,4 +281,5 @@ pub fn configure_hart_environment() {
         }
         boot::configure_state_access(has_extension(hart, Extension::Smaia));
     }
+    Ok(())
 }
