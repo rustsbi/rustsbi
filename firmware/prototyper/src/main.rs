@@ -12,7 +12,6 @@ mod driver;
 mod fail;
 mod firmware;
 mod heap;
-mod riscv;
 mod sbi;
 
 use crate::driver::platform;

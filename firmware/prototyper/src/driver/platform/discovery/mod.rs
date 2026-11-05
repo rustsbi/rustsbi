@@ -9,7 +9,7 @@ use crate::devicetree::try_for_each_enabled_node;
 use crate::sbi::pmu::{self, SbiPmu};
 use runtime::{
     PlatformView, Result,
-    soc::allwinner::{v821::AllwinnerV821Soc, v861::AllwinnerV861Soc},
+    soc::allwinner::v821::AllwinnerV821Soc,
 };
 
 /// Reads the platform facts and PMU mappings consumed by driver and SBI initialization.
@@ -25,9 +25,8 @@ pub(super) fn discover_platform(
     } else if let Some(k1) = platform.spacemit_k1_registers()? {
         Some(SocDescription::SpacemitK1(k1))
     } else {
-        platform
-            .soc::<AllwinnerV861Soc>()?
-            .map(SocDescription::V861)
+        crate::platform::allwinner::v861::describe(platform)?
+            .map(|description| SocDescription::V861(description.soc))
     };
     let mut pmu_node = None;
     try_for_each_enabled_node(platform.root(), &mut |node, path| {

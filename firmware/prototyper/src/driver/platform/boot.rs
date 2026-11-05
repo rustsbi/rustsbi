@@ -13,7 +13,7 @@ use runtime::{
 };
 
 use super::{
-    allwinner::v821::V821,
+    allwinner::{v821::V821, v861},
     discovery,
     error::{InitError, ResultContext},
     info::{BoardInfo, SocDescription},
@@ -22,7 +22,7 @@ use super::{
     state,
 };
 use crate::{
-    driver::{self, HartWake},
+    driver::{self, Description as _, HartWake},
     sbi::{
         self, SbiDispatcher, cppc::SbiCppc, dbtr::SbiDbtr, fwft::SbiFwft, hsm::SbiHsm, pmu::SbiPmu,
         reset::SbiReset, rfence::SbiRFence, suspend::SbiSuspend, timer::SbiTimer,
@@ -127,10 +127,9 @@ fn initialize_platform(
         .transpose()
         .during("acquiring SpacemiT K1 resources")?;
     let v861_wake = match &board.soc {
-        Some(SocDescription::V861(soc)) => Some(driver::allwinner::v861::V861HartRelease::bind(
-            *soc,
-            &mut memory,
-        )),
+        Some(SocDescription::V861(soc)) => {
+            Some(Box::new(v861::Desc { soc: *soc }).init(&mut memory))
+        }
         _ => None,
     }
     .transpose()
@@ -155,7 +154,7 @@ fn initialize_platform(
         .map(|resources| {
             Box::new(spacemit_k1::initialize_boot_hart(resources)) as Box<dyn HartWake>
         })
-        .or_else(|| v861_wake.map(|wake| Box::new(wake) as Box<dyn HartWake>));
+        .or(v861_wake);
 
     publish_platform_services(
         board,

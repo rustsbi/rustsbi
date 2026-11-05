@@ -4,3 +4,4 @@
 //! devices and register sequencing remain in [`crate::driver::allwinner`].
 
 pub(crate) mod v821;
+pub(crate) mod v861;
