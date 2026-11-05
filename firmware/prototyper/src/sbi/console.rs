@@ -18,6 +18,15 @@ use runtime::{
 /// Maximum number of bytes per console operation.
 const MAX_TRANSFER_BYTES: usize = 256;
 
+/// Maps device errors to the errors supported by SBI DBCN.
+#[inline]
+fn console_error(error: Error) -> SbiRet {
+    match error {
+        Error::AccessDenied => SbiRet::denied(),
+        _ => SbiRet::failed(),
+    }
+}
+
 /// SBI console service over a platform console device.
 pub(crate) struct SbiConsole {
     supervisor_memory: &'static SupervisorMemory,
@@ -64,7 +73,7 @@ impl SbiConsole {
     pub(super) fn write_byte_blocking(&self, byte: u8) -> Result<()> {
         loop {
             let written = console::get()
-                .expect("BUG: SBI console used without a registered device")
+                .ok_or(Error::NotReady)?
                 .write_slice(&[byte])?;
             match written {
                 0 => core::hint::spin_loop(),
@@ -99,12 +108,13 @@ impl SbiConsoleDevice for SbiConsole {
         {
             return SbiRet::invalid_param();
         }
-        let result = console::get()
-            .expect("BUG: SBI console used without a registered device")
-            .write_slice(&chunk[..chunk_len]);
+        let Some(mut console) = console::get() else {
+            return SbiRet::failed();
+        };
+        let result = console.write_slice(&chunk[..chunk_len]);
         let count = match result {
             Ok(count) => count,
-            Err(error) => return error.into(),
+            Err(error) => return console_error(error),
         };
         if count > chunk_len {
             return SbiRet::failed();
@@ -127,12 +137,13 @@ impl SbiConsoleDevice for SbiConsole {
         // and reports the partial result directly.
         let mut chunk = [0; MAX_TRANSFER_BYTES];
         let chunk_len = len.min(chunk.len());
-        let result = console::get()
-            .expect("BUG: SBI console used without a registered device")
-            .read_slice(&mut chunk[..chunk_len]);
+        let Some(mut console) = console::get() else {
+            return SbiRet::failed();
+        };
+        let result = console.read_slice(&mut chunk[..chunk_len]);
         let count = match result {
             Ok(count) => count,
-            Err(error) => return error.into(),
+            Err(error) => return console_error(error),
         };
         if count > chunk_len {
             return SbiRet::failed();
@@ -154,7 +165,7 @@ impl SbiConsoleDevice for SbiConsole {
     fn write_byte(&self, byte: u8) -> SbiRet {
         match self.write_byte_blocking(byte) {
             Ok(()) => SbiRet::success(0),
-            Err(error) => error.into(),
+            Err(error) => console_error(error),
         }
     }
 }
