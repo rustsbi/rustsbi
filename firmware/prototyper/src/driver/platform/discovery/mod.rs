@@ -7,10 +7,7 @@ mod interrupts;
 use super::info::{BoardInfo, SocDescription};
 use crate::devicetree::try_for_each_enabled_node;
 use crate::sbi::pmu::{self, SbiPmu};
-use runtime::{
-    PlatformView, Result,
-    soc::allwinner::v821::AllwinnerV821Soc,
-};
+use runtime::{PlatformView, Result};
 
 /// Reads the platform facts and PMU mappings consumed by driver and SBI initialization.
 pub(super) fn discover_platform(
@@ -18,10 +15,8 @@ pub(super) fn discover_platform(
     platform: &PlatformView<'_>,
 ) -> Result<Option<SbiPmu>> {
     let cpu_interrupt_controllers = harts::discover(board, platform)?;
-    let mut soc = if let Some(v821) = platform.soc::<AllwinnerV821Soc>()? {
-        Some(SocDescription::V821(
-            crate::platform::allwinner::v821::Description::new(v821),
-        ))
+    let soc = if let Some(v821) = crate::platform::allwinner::v821::describe(platform)? {
+        Some(SocDescription::V821(v821))
     } else if let Some(k1) = crate::platform::spacemit_k1::describe(platform)? {
         Some(SocDescription::SpacemitK1(k1.registers))
     } else {
@@ -36,9 +31,6 @@ pub(super) fn discover_platform(
                 .is_some_and(|values| values.all().any(|value| value == "riscv,pmu"))
         {
             pmu_node = Some(node.node());
-        }
-        if let Some(SocDescription::V821(v821)) = &mut soc {
-            v821.probe(platform, node)?;
         }
         interrupts::discover_node(board, platform, node, path, &cpu_interrupt_controllers)
     })?;

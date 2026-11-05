@@ -6,14 +6,14 @@ use alloc::boxed::Box;
 use core::ops::Range;
 use runtime::{
     Error, PlatformDescription, Result, console, events,
-    hart::{self, HartId},
+    hart,
     ipi,
     memory::SupervisorMemory,
     reset, timer,
 };
 
 use super::{
-    allwinner::{v821::V821, v861},
+    allwinner::{v821, v821::V821, v861},
     discovery,
     error::{InitError, ResultContext},
     info::{BoardInfo, SocDescription},
@@ -82,7 +82,7 @@ fn initialize_platform(
     );
 
     let v821 = match board.soc.take() {
-        Some(SocDescription::V821(description)) => Some(description.prepare(HartId::count())),
+        Some(SocDescription::V821(description)) => Some(Box::new(description).init(&mut memory)),
         soc => {
             board.soc = soc;
             None
@@ -92,16 +92,11 @@ fn initialize_platform(
     .during("preparing V821 platform resources")?;
     board.memory.noncacheable_alias_offset = v821.as_ref().map(V821::noncacheable_alias_offset);
 
-    if let Some(v821) = v821.as_ref() {
-        driver::allwinner::v821::release_boot0_isp_sram(v821.soc(), &mut memory)
-            .during("releasing V821 boot0 ISP SRAM")?;
-    }
-
     if board.devices.interrupts.plmt.is_some()
         && board.devices.interrupts.plicsw.is_some()
         && let Some(v821) = v821.as_ref()
     {
-        driver::allwinner::v821::enable_plmt_clock(v821.soc(), &mut memory)
+        v821::prepare_plmt(Some(v821), &mut memory)
             .during("enabling the V821 PLMT clock")?;
     }
 
@@ -116,7 +111,8 @@ fn initialize_platform(
     // platform setup can use `timer::now()`.
     timer::init(devices.timer.take()).expect("BUG: time source initialization failed");
     let timer = SbiTimer;
-    let custom_extension = sbi::vendor::Extension::bind(v821, &mut memory)
+    let custom_extension = platform_description
+        .inspect(|platform| sbi::vendor::Extension::init(v821, &platform, &mut memory))
         .during("binding Allwinner custom-extension devices")?;
     let k1_registers = match &board.soc {
         Some(SocDescription::SpacemitK1(registers)) => Some(*registers),
