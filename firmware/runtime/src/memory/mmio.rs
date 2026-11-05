@@ -33,8 +33,8 @@ impl_mmio_value!(u64);
 
 /// A bounded MMIO register window.
 ///
-/// Accesses are volatile and use native byte order. Hardware access faults are
-/// not recovered.
+/// Accesses are volatile and use native byte order.
+/// Hardware access faults are not recovered.
 pub struct MmioRegion {
     range: PhysAddrRange,
 }
@@ -44,13 +44,18 @@ impl MmioRegion {
         Self { range }
     }
 
+    /// Returns the physical-address range authorized by this window.
+    #[inline]
+    pub const fn range(&self) -> PhysAddrRange {
+        self.range
+    }
+
     /// Reads a value at byte offset `offset`.
     #[inline(always)]
     pub fn read<T: MmioValue>(&self, offset: usize) -> Result<T> {
         let address = self.checked_address::<T>(offset)?;
         // SAFETY: `MmioValue` is sealed to integers, and `checked_address`
-        // checked the
-        // complete access and its alignment within this registered window.
+        // checked the complete access and its alignment within this registered window.
         Ok(unsafe { (address as *const T).read_volatile() })
     }
 
@@ -58,8 +63,7 @@ impl MmioRegion {
     pub fn write<T: MmioValue>(&self, offset: usize, value: T) -> Result<()> {
         let address = self.checked_address::<T>(offset)?;
         // SAFETY: `MmioValue` is sealed to integers, and `checked_address`
-        // checked the
-        // complete access and its alignment within this registered window.
+        // checked the complete access and its alignment within this registered window.
         unsafe { (address as *mut T).write_volatile(value) };
         Ok(())
     }
