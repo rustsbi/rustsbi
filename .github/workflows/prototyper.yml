@@ -139,6 +139,16 @@ jobs:
         shell: bash
         run: .github/scripts/prototyper-qemu-boot.sh dynamic test
 
+      - name: Run dynamic ACLINT test-kernel boot
+        if: always()
+        id: dynamic_aclint_test
+        continue-on-error: true
+        shell: bash
+        env:
+          QEMU_MACHINE: virt,aclint=on
+          QEMU_BOOT_TEST_SMP: "4"
+        run: .github/scripts/prototyper-qemu-boot.sh dynamic test
+
       - name: Run jump test-kernel boot
         if: always()
         id: jump_test
@@ -172,6 +182,7 @@ jobs:
         run: |
           test "${{ steps.payload_test.outcome }}" = "success"
           test "${{ steps.dynamic_test.outcome }}" = "success"
+          test "${{ steps.dynamic_aclint_test.outcome }}" = "success"
           test "${{ steps.jump_test.outcome }}" = "success"
           test "${{ steps.payload_bench.outcome }}" = "success"
           test "${{ steps.dynamic_bench.outcome }}" = "success"

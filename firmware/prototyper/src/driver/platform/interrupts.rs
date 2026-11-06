@@ -1,4 +1,4 @@
-//! Selection and initialization of the platform's timer and IPI devices.
+//! Selection and initialization of the platform's timer, IPI, and irqchip devices.
 
 use alloc::{boxed::Box, string::String, vec::Vec};
 use runtime::{
@@ -10,10 +10,12 @@ use runtime::{
 
 use super::{allwinner::v821, qemu_aplic};
 use crate::{
-    devicetree::NodeSelection,
     driver::{
         Description as _,
-        device::{clint, interrupts, interrupts::Selection, plicsw, thead_plic},
+        device::{
+            interrupts, interrupts::IpiSelection, interrupts::IrqchipSelection,
+            interrupts::TimerSelection, mswi, plicsw, thead_plic,
+        },
     },
     firmware::IrqMmio,
 };
@@ -31,48 +33,54 @@ pub(super) fn init(
 ) -> Result<Option<IrqMmio>> {
     let mut selected = interrupts::describe(platform)?;
 
-    if selected.plmt.is_some() && selected.plicsw.is_some() {
+    if selected.timer.plmt.is_some() && selected.ipi.plicsw.is_some() {
         v821::prepare_plmt(v821, memory)?;
     }
-    if let Some(registers) = selected.thead_plic {
+    if let Some(registers) = selected.irqchip.thead_plic {
         thead_plic::init(registers, memory)?;
     }
 
-    let clint = init_timer(&mut selected, memory)?;
-    init_ipi(&mut selected, clint, model, memory, hidden_node_paths)
+    init_timer(&mut selected.timer, &mut selected.ipi, memory)?;
+    init_ipi(
+        &mut selected.ipi,
+        &mut selected.irqchip,
+        model,
+        memory,
+        hidden_node_paths,
+    )
 }
 
-/// Initializes the preferred PLMT timer pair or falls back to the CLINT timer.
-///
-/// Returns the CLINT IPI description and its source path for IPI selection.
+/// Initializes the preferred PLMT, ACLINT, or CLINT timer.
 fn init_timer(
-    selected: &mut Selection,
+    selected: &mut TimerSelection,
+    ipi: &mut IpiSelection,
     memory: &mut MemoryRegistry,
-) -> Result<Option<NodeSelection<clint::ipi::Desc>>> {
-    let (clint, clint_timer) = match selected.clint.take() {
-        Some(node) => {
-            let (clint, path) = node.into_parts();
-            let clint::Desc { ipi, timer } = clint;
-            (Some(NodeSelection::new(ipi, path)), Some(timer))
-        }
-        None => (None, None),
-    };
-
-    // PLMT and PLICSW are initialized only as a pair; otherwise the CLINT
-    // timer is the fallback.
-    if let (Some(plmt), Some(_)) = (selected.plmt.take(), selected.plicsw.as_ref()) {
+) -> Result<()> {
+    // PLMT and PLICSW are initialized only as a pair.
+    if let (Some(plmt), Some(_)) = (selected.plmt.take(), ipi.plicsw.as_ref()) {
         timer::init(Some(Box::new(plmt).init(memory)?))?;
+    } else if let Some(node) = selected.aclint.take() {
+        let (mtimer, _) = node.into_parts();
+        timer::init(Some(Box::new(mtimer).init(memory)?))?;
+        info!("{:<30}: {}", "Platform Timer Extension", "ACLINT MTIMER");
     } else {
-        selected.plicsw = None;
-        timer::init(clint_timer.map(|timer| timer.init(memory)).transpose()?)?;
+        ipi.plicsw = None;
+        timer::init(
+            selected
+                .clint
+                .take()
+                .map(|timer| timer.into_parts().0)
+                .map(|timer| Box::new(timer).init(memory))
+                .transpose()?,
+        )?;
     }
-    Ok(clint)
+    Ok(())
 }
 
 /// Registers IMSIC when available, or falls back to a software IPI device.
 fn init_ipi(
-    selected: &mut Selection,
-    clint: Option<NodeSelection<clint::ipi::Desc>>,
+    selected: &mut IpiSelection,
+    irqchip: &mut IrqchipSelection,
     model: &str,
     memory: &mut MemoryRegistry,
     hidden_node_paths: &mut Vec<String>,
@@ -91,20 +99,23 @@ fn init_ipi(
             Ok(device) => {
                 let irq_mmio = qemu_aplic::init_for_imsic(
                     model,
-                    selected.machine_aplic.as_ref().map(|node| *node.resource()),
-                    clint.as_ref().map(|clint| clint.resource().registers),
+                    irqchip.machine_aplic.as_ref().map(|node| *node.resource()),
+                    selected
+                        .clint
+                        .as_ref()
+                        .map(|clint| clint.resource().registers),
                     machine_base,
                     hart_index_bits,
                     imsic_end,
                     memory,
                 )?;
                 ipi::init(Ipi::external(device)?)?;
-                if let Some(clint) = clint {
+                if let Some(clint) = selected.clint.take() {
                     hidden_node_paths.push(clint.into_parts().1);
                 }
                 hidden_node_paths.push(imsic_path);
-                if selected.machine_aplic_delegated
-                    && let Some(aplic) = selected.machine_aplic.take()
+                if irqchip.machine_aplic_delegated
+                    && let Some(aplic) = irqchip.machine_aplic.take()
                 {
                     hidden_node_paths.push(aplic.into_parts().1);
                 }
@@ -115,19 +126,30 @@ fn init_ipi(
         }
     }
 
-    init_software_ipi(selected.plicsw.take(), clint.as_ref(), memory)?;
+    init_software_ipi(
+        selected.plicsw.take(),
+        selected.aclint.take().map(|node| node.into_parts().0),
+        selected.clint.take().map(|node| node.into_parts().0),
+        memory,
+    )?;
     Ok(None)
 }
 
-/// Registers a software IPI device from PLICSW or CLINT, if available.
+/// Registers a software IPI device from PLICSW, ACLINT MSWI, or CLINT.
 fn init_software_ipi(
     plicsw: Option<plicsw::Desc>,
-    clint: Option<&NodeSelection<clint::ipi::Desc>>,
+    aclint_mswi: Option<mswi::Desc>,
+    clint: Option<mswi::Desc>,
     memory: &mut MemoryRegistry,
 ) -> Result<()> {
-    match (plicsw, clint) {
-        (Some(plicsw), _) => ipi::init(Ipi::software(Box::new(plicsw).init(memory)?)?),
-        (None, Some(clint)) => ipi::init(Ipi::software(Box::new(*clint.resource()).init(memory)?)?),
-        (None, None) => Ok(()),
+    match (plicsw, aclint_mswi, clint) {
+        (Some(plicsw), _, _) => ipi::init(Ipi::software(Box::new(plicsw).init(memory)?)?),
+        (None, Some(mswi), _) => {
+            ipi::init(Ipi::software(Box::new(mswi).init(memory)?)?)?;
+            info!("{:<30}: {}", "Platform IPI Extension", "ACLINT MSWI");
+            Ok(())
+        }
+        (None, None, Some(clint)) => ipi::init(Ipi::software(Box::new(clint).init(memory)?)?),
+        (None, None, None) => Ok(()),
     }
 }

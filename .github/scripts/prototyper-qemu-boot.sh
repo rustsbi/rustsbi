@@ -4,6 +4,9 @@ set -euo pipefail
 mode=${1:?missing mode}
 kernel=${2:?missing kernel}
 log_dir=${3:-qemu-logs}
+machine=${QEMU_MACHINE:-virt}
+target_dir=${CARGO_TARGET_DIR:-target}
+machine_slug=${machine//[^[:alnum:]_.-]/_}
 
 # Single source for the verification patterns, shared with xtask
 # (`Kernel::expected_patterns` / `kernels::forbidden_patterns`).
@@ -14,16 +17,16 @@ mkdir -p "$log_dir"
 
 case "$kernel" in
   test)
-    smp=1
+    smp=${QEMU_BOOT_TEST_SMP:-1}
     attempts=${QEMU_BOOT_TEST_RETRIES:-2}
     timeout_secs=${QEMU_BOOT_TEST_TIMEOUT_SECS:-60}
-    payload_bin="target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.bin"
+    payload_bin="$target_dir/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.bin"
     ;;
   bench)
-    smp=4
+    smp=${QEMU_BOOT_BENCH_SMP:-4}
     attempts=${QEMU_BOOT_BENCH_RETRIES:-4}
     timeout_secs=${QEMU_BOOT_BENCH_TIMEOUT_SECS:-90}
-    payload_bin="target/riscv64imac-unknown-none-elf/release/rustsbi-bench-kernel.bin"
+    payload_bin="$target_dir/riscv64imac-unknown-none-elf/release/rustsbi-bench-kernel.bin"
     ;;
   *)
     echo "unknown kernel: $kernel" >&2
@@ -35,11 +38,11 @@ esac
 # themselves; this script covers the dynamic and jump firmware modes.
 case "$mode" in
   dynamic)
-    bios="target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.elf"
+    bios="$target_dir/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-dynamic.elf"
     extra_args=(-kernel "$payload_bin")
     ;;
   jump)
-    bios="target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-jump.elf"
+    bios="$target_dir/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-jump.elf"
     extra_args=(-device "loader,file=$payload_bin,addr=0x80200000")
     ;;
   *)
@@ -48,14 +51,14 @@ case "$mode" in
     ;;
 esac
 
-log_file="$log_dir/prototyper-${mode}-${kernel}.log"
+log_file="$log_dir/prototyper-${mode}-${kernel}-${machine_slug}.log"
 
 run_once() {
   local attempt=$1
 
   set +e
   timeout "${timeout_secs}s" qemu-system-riscv64 \
-    -machine virt \
+    -machine "$machine" \
     -m 256M \
     -smp "$smp" \
     -nographic \
@@ -99,6 +102,14 @@ run_once() {
     echo "[$mode/$kernel] no patterns in: $expected_file" >&2
     return 1
   }
+
+  if [[ "$machine" == *"aclint=on"* ]]; then
+    grep -F 'Platform Timer Extension      : ACLINT MTIMER' "$log_file" || return 1
+    # IMSIC takes priority over MSWI when both are present.
+    if [[ "$machine" != *"aia="* ]]; then
+      grep -F 'Platform IPI Extension        : ACLINT MSWI' "$log_file" || return 1
+    fi
+  fi
 
   # Boot-policy order guard: the boot-hart presentation sequence must
   # appear in phase order. A reorder or drop means the boot policy
