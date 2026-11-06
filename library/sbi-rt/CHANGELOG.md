@@ -16,6 +16,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Declare Rust 1.88 as the minimum supported Rust version through workspace metadata.
 - deps: update `sbi-spec` to version 0.0.10.
 - pmu: rename flag parameter traits to `ConfigFlagsParam`, `StartFlagsParam` and `StopFlagsParam`.
+- dbtr: use the base-first `TriggerMask` API for uninstall, enable, and disable calls.
 
 ### Fixed
 
