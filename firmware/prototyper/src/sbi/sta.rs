@@ -40,9 +40,18 @@ impl Sta for SbiSta {
             return SbiRet::success(0);
         }
 
-        // STA requires a 64-byte aligned native physical address.
-        if !start.is_aligned_to(SHMEM_SIZE) || address_high != 0 {
+        // STA requires a 64-byte aligned shared memory base address. The
+        // alignment is decided by the lower XLEN bits, which `start` holds.
+        if !start.is_aligned_to(SHMEM_SIZE) {
             return SbiRet::invalid_param();
+        }
+
+        // The base address is passed as two XLEN halves and may be wider than
+        // XLEN bits. An address above the native physical-address space cannot
+        // compose a registered supervisor-memory range, so it is inaccessible
+        // rather than an invalid parameter.
+        if address_high != 0 {
+            return SbiRet::invalid_address();
         }
 
         // STA transfers the shared area to firmware for initialization.

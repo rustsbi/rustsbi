@@ -145,3 +145,4 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Fixed
 - Probe PMU counters and skip unsupported events in test-kernel instead of assuming a fixed counter layout.
+- Report shared-memory base addresses above the native physical-address space as inaccessible in STA, DBTR and MPXY instead of invalid parameters, so RV32 supervisors are no longer blocked from using the upper address half as specified.
