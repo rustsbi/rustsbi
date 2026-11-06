@@ -1,7 +1,8 @@
 #![forbid(unsafe_code)]
 
 use alloc::{string::String, vec::Vec};
-use runtime::{Compatible, Error, FdtNode, Result, node_is_enabled};
+use core::mem::size_of;
+use runtime::{Compatible, Error, FdtNode, PlatformView, Result, hart::HartId, node_is_enabled};
 
 /// One enabled node supplied by the shared discovery traversal.
 ///
@@ -90,9 +91,94 @@ pub(crate) fn u32_property(node: FdtNode<'_, '_>, name: &str) -> Option<u32> {
     Some(u32::from_be_bytes(bytes.try_into().ok()?))
 }
 
+/// Decodes a property containing a list of big-endian 32-bit cells.
+pub(crate) fn u32_cells(node: FdtNode<'_, '_>, name: &str) -> Option<Vec<u32>> {
+    let bytes = node.property(name)?.value;
+    let mut cells = Vec::new();
+    let mut chunks = bytes.chunks_exact(size_of::<u32>());
+    for chunk in &mut chunks {
+        cells.push(u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+    }
+    chunks.remainder().is_empty().then_some(cells)
+}
+
+/// One resolved pair from a node's `interrupts-extended` property.
+///
+/// `slot` retains the pair's original position, which ACLINT devices use as
+/// their device-local register index. `hart` is `None` for disabled CPUs.
+pub(crate) struct CpuInterruptSource {
+    pub(crate) hart: Option<HartId>,
+    pub(crate) controller_enabled: bool,
+    pub(crate) interrupt_id: u32,
+    pub(crate) slot: u32,
+}
+
+/// Resolves each `interrupts-extended` phandle to its CPU and hart position.
+pub(crate) fn resolve_interrupts_extended(
+    platform: &PlatformView<'_>,
+    node: FdtNode<'_, '_>,
+) -> Result<Vec<CpuInterruptSource>> {
+    let cells = u32_cells(node, "interrupts-extended").ok_or(Error::InvalidArgs)?;
+    if cells.is_empty() || !cells.len().is_multiple_of(2) {
+        return Err(Error::InvalidArgs);
+    }
+    let controllers = cpu_interrupt_controllers(platform)?;
+    cells
+        .chunks_exact(2)
+        .enumerate()
+        .map(|(slot, interrupt)| {
+            let controller = controllers
+                .iter()
+                .find(|controller| controller.phandle == interrupt[0])
+                .ok_or(Error::InvalidArgs)?;
+            Ok(CpuInterruptSource {
+                hart: HartId::from_raw(controller.hart_id).ok(),
+                controller_enabled: controller.enabled,
+                interrupt_id: interrupt[1],
+                slot: u32::try_from(slot).map_err(|_| Error::InvalidArgs)?,
+            })
+        })
+        .collect()
+}
+
 /// Returns whether the node is a CPU node under `/cpus`.
 pub(crate) fn is_cpu_node(node: FdtNode<'_, '_>) -> bool {
     node.name.split('@').next() == Some("cpu")
+}
+
+struct CpuInterruptController {
+    phandle: u32,
+    hart_id: usize,
+    enabled: bool,
+}
+
+fn cpu_interrupt_controllers(platform: &PlatformView<'_>) -> Result<Vec<CpuInterruptController>> {
+    let cpus = platform
+        .find_enabled_node("/cpus")
+        .ok_or(Error::InvalidArgs)?;
+    let mut controllers = Vec::new();
+    for cpu in cpus.children().filter(|node| is_cpu_node(*node)) {
+        let hart_id = PlatformView::hart_id(cpu)?;
+        controllers.extend(cpu.children().filter_map(|node| {
+            if node.name.split('@').next() != Some("interrupt-controller")
+                || !node.compatible().is_some_and(|compatibles| {
+                    compatibles
+                        .all()
+                        .any(|device_id| device_id == "riscv,cpu-intc")
+                })
+            {
+                return None;
+            }
+            let phandle =
+                u32_property(node, "phandle").or_else(|| u32_property(node, "linux,phandle"))?;
+            Some(CpuInterruptController {
+                phandle,
+                hart_id,
+                enabled: node_is_enabled(node),
+            })
+        }));
+    }
+    Ok(controllers)
 }
 
 /// Tries to visit enabled nodes depth first, retaining each node's parent.
