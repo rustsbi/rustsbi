@@ -1,6 +1,6 @@
 //! Advanced Platform-level Interrupt Controller (APLIC) peripheral.
 
-use volatile_register::{RW, WO};
+use volatile_register::{RO, RW, WO};
 
 /// Advanced Platform-level Interrupt Controller (APLIC) register block.
 #[repr(C)]
@@ -496,9 +496,188 @@ impl IntTarget {
     }
 }
 
+/// Interrupt delivery control (IDC) structure.
+#[repr(C)]
+pub struct Idc {
+    /// 0x00 - Interrupt delivery enable.
+    pub idelivery: RW<InterruptDelivery>,
+    /// 0x04 - Interrupt force.
+    pub iforce: RW<InterruptForce>,
+    /// 0x08 - Interrupt enable threshold.
+    pub ithreshold: RW<InterruptThreshold>,
+    _padding_0x0c: [u8; 0x0C],
+    /// 0x18 - Top interrupt.
+    pub topi: RO<TopInterrupt>,
+    /// 0x1C - Claim top interrupt.
+    pub claimi: RO<ClaimInterrupt>,
+}
+
+impl Idc {
+    #[inline]
+    pub const fn size() -> usize {
+        0x20
+    }
+}
+
+impl Aplic {
+    pub const IDC_OFFSET: usize = 0x4000;
+
+    /// Access the Interrupt Delivery Control register block for a hart context.
+    ///
+    /// # Preconditions
+    ///
+    /// * The caller's `Aplic` mapping must cover at least `IDC_OFFSET + 0x20 * 1024`
+    ///   (`0xC000`) bytes. The IDC array lies *outside* the [`Aplic`] struct itself
+    ///   (`size_of::<Aplic>() == 0x4000`), so mapping only `size_of::<Aplic>()`
+    ///   bytes and calling this method yields a `&Idc` into unmapped memory.
+    /// * The domain must be in direct delivery mode (`domaincfg`.DM = 0): in
+    ///   MSI delivery mode (DM = 1) the IDC registers are not used and the IDC
+    ///   array may be absent from the address map.
+    /// * `hart_index` must be less than the number of implemented hart contexts,
+    ///   which may be smaller than the architectural maximum.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `hart_index >= 1024` (the architectural maximum).
+    #[inline]
+    pub fn idc(&self, hart_index: usize) -> &Idc {
+        assert!(hart_index < 1024, "Hart index out of range: 0..=1023");
+        unsafe {
+            &*((self as *const Self as *const u8).add(Self::IDC_OFFSET + hart_index * Idc::size())
+                as *const Idc)
+        }
+    }
+}
+
+/// Interrupt delivery enable register (`idelivery`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[doc(alias = "idelivery")]
+#[repr(transparent)]
+pub struct InterruptDelivery(u32);
+
+impl InterruptDelivery {
+    pub const DISABLED: Self = Self(0);
+
+    pub const ENABLED: Self = Self(1);
+
+    #[inline]
+    pub const fn set_delivery_enable(self, enable: bool) -> Self {
+        if enable {
+            Self::ENABLED
+        } else {
+            Self::DISABLED
+        }
+    }
+
+    #[inline]
+    pub const fn delivery_enable(self) -> bool {
+        self.0 == Self::ENABLED.0
+    }
+}
+
+/// Interrupt force register (`iforce`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[doc(alias = "iforce")]
+#[repr(transparent)]
+pub struct InterruptForce(u32);
+
+impl InterruptForce {
+    pub const NOT_FORCED: Self = Self(0);
+
+    pub const FORCED: Self = Self(1);
+
+    #[inline]
+    pub const fn set_force(self, force: bool) -> Self {
+        if force {
+            Self::FORCED
+        } else {
+            Self::NOT_FORCED
+        }
+    }
+
+    #[inline]
+    pub const fn force(self) -> bool {
+        self.0 == Self::FORCED.0
+    }
+}
+
+/// Interrupt enable threshold register (`ithreshold`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[doc(alias = "ithreshold")]
+#[repr(transparent)]
+pub struct InterruptThreshold(u32);
+
+impl InterruptThreshold {
+    #[inline]
+    pub const fn set_threshold(self, threshold: u8) -> Self {
+        Self(threshold as u32)
+    }
+
+    #[inline]
+    pub const fn threshold(self) -> u8 {
+        self.0 as u8
+    }
+}
+
+/// Top interrupt register (`topi`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[doc(alias = "topi")]
+#[repr(transparent)]
+pub struct TopInterrupt(u32);
+
+impl TopInterrupt {
+    const INTERRUPT_IDENTITY: u32 = 0x3FF << 16;
+    const INTERRUPT_PRIORITY: u32 = 0xFF;
+
+    pub const NONE: Self = Self(0);
+
+    #[inline]
+    pub const fn interrupt_identity(self) -> u16 {
+        ((self.0 & Self::INTERRUPT_IDENTITY) >> 16) as u16
+    }
+
+    #[inline]
+    pub const fn priority(self) -> u8 {
+        (self.0 & Self::INTERRUPT_PRIORITY) as u8
+    }
+
+    #[inline]
+    pub const fn is_pending(self) -> bool {
+        self.0 != 0
+    }
+}
+
+/// Claim top interrupt register (`claimi`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[doc(alias = "claimi")]
+#[repr(transparent)]
+pub struct ClaimInterrupt(u32);
+
+impl ClaimInterrupt {
+    const INTERRUPT_IDENTITY: u32 = 0x3FF << 16;
+    const INTERRUPT_PRIORITY: u32 = 0xFF;
+
+    pub const NONE: Self = Self(0);
+
+    #[inline]
+    pub const fn interrupt_identity(self) -> u16 {
+        ((self.0 & Self::INTERRUPT_IDENTITY) >> 16) as u16
+    }
+
+    #[inline]
+    pub const fn priority(self) -> u8 {
+        (self.0 & Self::INTERRUPT_PRIORITY) as u8
+    }
+
+    #[inline]
+    pub const fn is_pending(self) -> bool {
+        self.0 != 0
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::Aplic;
+    use super::{Aplic, Idc};
     use memoffset::{offset_of, span_of};
 
     #[test]
@@ -523,6 +702,17 @@ mod tests {
         assert_eq!(offset_of!(Aplic, setipnum_be), 0x2004);
         assert_eq!(offset_of!(Aplic, genmsi), 0x3000);
         assert_eq!(span_of!(Aplic, target), 0x3004..0x4000);
+    }
+
+    #[test]
+    fn struct_idc_offset() {
+        assert_eq!(size_of::<Idc>(), 0x20);
+
+        assert_eq!(offset_of!(Idc, idelivery), 0x00);
+        assert_eq!(offset_of!(Idc, iforce), 0x04);
+        assert_eq!(offset_of!(Idc, ithreshold), 0x08);
+        assert_eq!(offset_of!(Idc, topi), 0x18);
+        assert_eq!(offset_of!(Idc, claimi), 0x1C);
     }
 }
 
@@ -935,5 +1125,147 @@ mod int_target_tests {
 
         let target = target.set_iprio(255);
         assert_eq!(target.iprio(), 255);
+    }
+}
+
+#[cfg(test)]
+mod interrupt_delivery_tests {
+    use super::InterruptDelivery;
+
+    #[test]
+    fn test_interrupt_delivery_enable() {
+        let delivery = InterruptDelivery::DISABLED;
+        assert!(!delivery.delivery_enable());
+
+        let delivery = delivery.set_delivery_enable(true);
+        assert!(delivery.delivery_enable());
+        assert_eq!(delivery, InterruptDelivery::ENABLED);
+
+        let delivery = delivery.set_delivery_enable(false);
+        assert!(!delivery.delivery_enable());
+        assert_eq!(delivery, InterruptDelivery::DISABLED);
+    }
+}
+
+#[cfg(test)]
+mod interrupt_force_tests {
+    use super::InterruptForce;
+
+    #[test]
+    fn test_interrupt_force() {
+        let force = InterruptForce::NOT_FORCED;
+        assert!(!force.force());
+
+        let force = force.set_force(true);
+        assert!(force.force());
+        assert_eq!(force, InterruptForce::FORCED);
+
+        let force = force.set_force(false);
+        assert!(!force.force());
+        assert_eq!(force, InterruptForce::NOT_FORCED);
+    }
+}
+
+#[cfg(test)]
+mod interrupt_threshold_tests {
+    use super::InterruptThreshold;
+
+    #[test]
+    fn test_interrupt_threshold() {
+        let threshold = InterruptThreshold(0x0000_0000);
+        assert_eq!(threshold.threshold(), 0);
+
+        let threshold = threshold.set_threshold(0);
+        assert_eq!(threshold.threshold(), 0);
+
+        let threshold = threshold.set_threshold(255);
+        assert_eq!(threshold.threshold(), 255);
+    }
+}
+
+#[cfg(test)]
+mod top_interrupt_tests {
+    use super::TopInterrupt;
+
+    #[test]
+    fn test_top_interrupt_fields() {
+        // identity = 0x123, priority = 0x45
+        let bits: u32 = (0x123 << 16) | 0x45;
+        let topi = TopInterrupt(bits);
+        assert_eq!(topi.interrupt_identity(), 0x123);
+        assert_eq!(topi.priority(), 0x45);
+        assert!(topi.is_pending());
+    }
+
+    #[test]
+    fn test_top_interrupt_none() {
+        let topi = TopInterrupt::NONE;
+        assert_eq!(topi.interrupt_identity(), 0);
+        assert_eq!(topi.priority(), 0);
+        assert!(!topi.is_pending());
+    }
+
+    #[test]
+    fn test_top_interrupt_reserved_bits_ignored() {
+        // Bits outside 25:16 and 7:0 are reserved and read as zero.
+        let bits: u32 = (0x123 << 16) | 0x45 | 0xF000_0000 | 0x0000_3F00;
+        let topi = TopInterrupt(bits);
+        assert_eq!(topi.interrupt_identity(), 0x123);
+        assert_eq!(topi.priority(), 0x45);
+    }
+}
+
+#[cfg(test)]
+mod claim_interrupt_tests {
+    use super::ClaimInterrupt;
+
+    #[test]
+    fn test_claim_interrupt_fields() {
+        // identity = 0x2AB, priority = 0x1
+        let bits: u32 = (0x2AB << 16) | 0x1;
+        let claimi = ClaimInterrupt(bits);
+        assert_eq!(claimi.interrupt_identity(), 0x2AB);
+        assert_eq!(claimi.priority(), 0x1);
+        assert!(claimi.is_pending());
+    }
+
+    #[test]
+    fn test_claim_interrupt_none() {
+        let claimi = ClaimInterrupt::NONE;
+        assert_eq!(claimi.interrupt_identity(), 0);
+        assert_eq!(claimi.priority(), 0);
+        assert!(!claimi.is_pending());
+    }
+}
+
+#[cfg(test)]
+mod idc_accessor_tests {
+    use super::{Aplic, Idc, InterruptDelivery};
+
+    #[test]
+    fn test_aplic_idc_accessor_offset() {
+        let mut region = [0u32; (0x4000 + 0x20 * 4) / 4];
+        let aplic = unsafe { &mut *(region.as_mut_ptr() as *mut Aplic) };
+        let base = aplic as *const Aplic as usize;
+
+        for (hart_index, expected_offset) in
+            [(0usize, 0x4000usize), (1, 0x4020), (2, 0x4040), (3, 0x4060)]
+        {
+            let idc = aplic.idc(hart_index);
+            assert_eq!(idc as *const Idc as usize - base, expected_offset);
+        }
+    }
+
+    #[test]
+    fn test_aplic_idc_accessor_reference() {
+        let mut region = [0u32; (0x4000 + 0x20) / 4];
+        let aplic = unsafe { &mut *(region.as_mut_ptr() as *mut Aplic) };
+        let idc = aplic.idc(0);
+
+        unsafe {
+            idc.idelivery.write(InterruptDelivery::ENABLED);
+            let idelivery_ptr = &idc.idelivery as *const _ as *const u32;
+            assert_eq!(idelivery_ptr.read_volatile(), 1);
+        }
     }
 }
