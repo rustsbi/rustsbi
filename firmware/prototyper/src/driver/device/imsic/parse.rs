@@ -13,11 +13,10 @@ use runtime::{
     hart::HartId,
     ipi::Iid,
     memory::{PhysAddrRange, RegRange},
-    node_is_enabled,
 };
 
 use super::{AddressLayout, Desc, IMSIC_FILE_SPAN};
-use crate::devicetree::{is_cpu_node, u32_property};
+use crate::devicetree::{CpuInterruptSource, resolve_interrupts_extended, u32_property};
 
 const MACHINE_EXTERNAL_INTERRUPT_ID: u32 = 11;
 const MAX_GUEST_INDEX_BITS: u32 = 7;
@@ -27,35 +26,10 @@ const MAX_GROUP_INDEX_SHIFT: u32 = 55;
 const DEFAULT_GROUP_INDEX_SHIFT: u32 = 24;
 const FIRMWARE_IPI_IDENTITY: u16 = 1;
 
-/// A CPU interrupt-controller phandle and its owning hart.
-#[derive(Clone, Copy)]
-struct CpuInterruptController {
-    phandle: u32,
-    hart_id: usize,
-}
-
 /// A machine-external interrupt file selected from `interrupts-extended`.
 struct MachineInterruptFile {
     hart_id: usize,
     file_index: u32,
-}
-
-/// Associates an enabled CPU interrupt-controller node with its owning hart.
-///
-/// The caller supplies the hart ID, including for CPU nodes that are disabled.
-fn cpu_interrupt_controller(
-    node: FdtNode<'_, '_>,
-    hart_id: usize,
-) -> Option<CpuInterruptController> {
-    if node.name.split('@').next() != Some("interrupt-controller")
-        || !is_cpu_interrupt_controller(node)
-    {
-        return None;
-    }
-    Some(CpuInterruptController {
-        phandle: phandle(node)?,
-        hart_id,
-    })
 }
 
 /// Parses one machine IMSIC node into a description.
@@ -74,8 +48,8 @@ pub(super) fn describe(
 
     let machine_base = first_register_range.start();
     let num_iids = interrupt_identity_count(node)?;
-    let controllers = cpu_interrupt_controllers(platform)?;
-    let machine_files = machine_interrupt_files(node, &controllers)?;
+    let sources = resolve_interrupts_extended(platform, node)?;
+    let machine_files = machine_interrupt_files(&sources)?;
     if machine_files.is_empty() {
         debug!(
             "IMSIC: node at 0x{:x} is not wired to MachineExternal, skipping",
@@ -129,37 +103,6 @@ pub(super) fn describe(
     }))
 }
 
-fn cpu_interrupt_controllers(platform: &PlatformView<'_>) -> Result<Vec<CpuInterruptController>> {
-    let cpus = platform
-        .find_enabled_node("/cpus")
-        .ok_or(Error::InvalidArgs)?;
-    let mut controllers = Vec::new();
-    for cpu in cpus.children().filter(|node| is_cpu_node(*node)) {
-        let hart_id = PlatformView::hart_id(cpu)?;
-        // Disabled CPUs still occupy positions in `interrupts-extended`.
-        controllers.extend(
-            cpu.children()
-                .filter_map(|node| cpu_interrupt_controller(node, hart_id)),
-        );
-    }
-    Ok(controllers)
-}
-
-/// Returns whether a node is an enabled `riscv,cpu-intc` controller.
-fn is_cpu_interrupt_controller(node: FdtNode<'_, '_>) -> bool {
-    node_is_enabled(node)
-        && node.compatible().is_some_and(|compatibles| {
-            compatibles
-                .all()
-                .any(|device_id| device_id == "riscv,cpu-intc")
-        })
-}
-
-/// Returns the node's `phandle`, falling back to `linux,phandle`.
-fn phandle(node: FdtNode<'_, '_>) -> Option<u32> {
-    u32_property(node, "phandle").or_else(|| u32_property(node, "linux,phandle"))
-}
-
 /// Reads the identity count from `riscv,num-ids` as a `u16`.
 fn interrupt_identity_count(node: FdtNode<'_, '_>) -> Result<u16> {
     u32_property(node, "riscv,num-ids")
@@ -168,47 +111,25 @@ fn interrupt_identity_count(node: FdtNode<'_, '_>) -> Result<u16> {
 }
 
 /// Collects `interrupts-extended` entries that route Machine External interrupts.
-fn machine_interrupt_files(
-    node: FdtNode<'_, '_>,
-    controllers: &[CpuInterruptController],
-) -> Result<Vec<MachineInterruptFile>> {
-    let cells = u32_cells(node, "interrupts-extended").ok_or(Error::InvalidArgs)?;
-    let mut interrupts = cells.chunks_exact(2);
+fn machine_interrupt_files(sources: &[CpuInterruptSource]) -> Result<Vec<MachineInterruptFile>> {
     let mut machine_files = Vec::new();
 
-    for (file_index, interrupt) in interrupts.by_ref().enumerate() {
-        let phandle = interrupt[0];
-        if interrupt[1] != MACHINE_EXTERNAL_INTERRUPT_ID {
+    for source in sources {
+        if source.interrupt_id != MACHINE_EXTERNAL_INTERRUPT_ID {
             continue;
         }
-        let controller = controllers
-            .iter()
-            .find(|controller| controller.phandle == phandle)
-            .ok_or(Error::InvalidArgs)?;
-        if HartId::from_raw(controller.hart_id).is_err() {
+        let Some(hart) = source.hart else {
             continue;
+        };
+        if !source.controller_enabled {
+            return Err(Error::InvalidArgs);
         }
-        let file_index = u32::try_from(file_index).map_err(|_| Error::InvalidArgs)?;
         machine_files.push(MachineInterruptFile {
-            hart_id: controller.hart_id,
-            file_index,
+            hart_id: hart.as_usize(),
+            file_index: source.slot,
         });
     }
-    if !interrupts.remainder().is_empty() {
-        return Err(Error::InvalidArgs);
-    }
     Ok(machine_files)
-}
-
-/// Reads a property as big-endian 32-bit cells.
-fn u32_cells(node: FdtNode<'_, '_>, name: &str) -> Option<Vec<u32>> {
-    let bytes = node.property(name)?.value;
-    let mut cells = Vec::new();
-    let mut chunks = bytes.chunks_exact(size_of::<u32>());
-    for chunk in &mut chunks {
-        cells.push(u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
-    }
-    chunks.remainder().is_empty().then_some(cells)
 }
 
 /// Validates the IMSIC index widths and their bit-field placement.

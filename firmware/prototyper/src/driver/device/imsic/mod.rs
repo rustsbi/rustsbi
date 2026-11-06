@@ -16,7 +16,7 @@ use runtime::{Error, FdtNode, PlatformView, Result};
 pub(crate) use description::{AddressLayout, Desc, IMSIC_COMPATIBLES, IMSIC_FILE_SPAN};
 
 /// Parses one IMSIC node after resolving its register ranges.
-pub(crate) fn describe(platform: &PlatformView<'_>, node: FdtNode<'_, '_>) -> Result<Option<Desc>> {
+pub(super) fn describe(platform: &PlatformView<'_>, node: FdtNode<'_, '_>) -> Result<Option<Desc>> {
     let registers = platform.device_registers(node)?.ok_or(Error::InvalidArgs)?;
     parse::describe(platform, node, &registers)
 }
