@@ -59,10 +59,6 @@ pub(crate) fn privileged_version(hart: HartId) -> PrivilegedVersion {
     features(hart).lock().privileged_version()
 }
 
-pub(crate) fn mhpm_mask(hart: HartId) -> u32 {
-    features(hart).lock().mhpm_mask()
-}
-
 pub(crate) fn hart_privilege_checked(hart: HartId) -> bool {
     features(hart).lock().privilege_checked
 }
