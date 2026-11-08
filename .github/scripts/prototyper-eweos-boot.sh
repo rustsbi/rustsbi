@@ -49,6 +49,11 @@
 
 set -euo pipefail
 
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+# shellcheck source=.github/scripts/ci-edk2.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-edk2.sh"
+
 if (( $# > 1 )); then
   echo "Usage: $0 [sbi|u-boot|edk2|check-iso|resolve-iso]" >&2
   exit 2
@@ -99,12 +104,6 @@ fi
 readonly ISO_SHA256
 
 readonly UB_VERSION="2024.04"
-readonly UB_URL="https://github.com/u-boot/u-boot/archive/refs/tags/v${UB_VERSION}.tar.gz"
-readonly UB_SHA256="d6b57ce574a0a0504a5b6596644ceacb7f77bde9353779bcf2fde07c4b9a2b92"
-
-readonly EDK2_VERSION="edk2-stable202505"
-readonly EDK2_COMMIT="6951dfe7d59d144a3a980bd7eda699db2d8554ac"
-readonly EDK2_URL="https://github.com/tianocore/edk2.git"
 
 readonly QEMU_VERSION="10.2.2"
 readonly QEMU_URL="https://download.qemu.org/qemu-${QEMU_VERSION}.tar.xz"
@@ -173,11 +172,6 @@ readonly UB_BIN="${UB_CACHE}/u-boot.bin"
 
 readonly QEMU_PREFIX="${CACHE_DIR}/qemu-${QEMU_VERSION}"
 readonly QEMU="${EWEOS_QEMU:-${QEMU_PREFIX}/bin/qemu-system-riscv64}"
-
-readonly EDK2_CACHE="${CACHE_DIR}/edk2-${EDK2_COMMIT}"
-readonly EDK2_CODE="${EDK2_CACHE}/RISCV_VIRT_CODE.fd"
-readonly EDK2_VARS_TEMPLATE="${EDK2_CACHE}/RISCV_VIRT_VARS.fd"
-readonly EDK2_VARS="${WORK_DIR}/RISCV_VIRT_VARS.fd"
 
 readonly DOWNLOAD_CONNECT_TIMEOUT_SECS="${EWEOS_DOWNLOAD_CONNECT_TIMEOUT_SECS:-30}"
 readonly DOWNLOAD_TIMEOUT_SECS="${EWEOS_DOWNLOAD_TIMEOUT_SECS:-1800}"
@@ -299,36 +293,9 @@ extract_kernel() {
 # kernel and initramfs from the FAT disk, which QEMU attaches first so that
 # U-Boot numbers it virtio 0. `booti` edits the tree it is given in place
 # (fdt_high is all ones), and editing U-Boot's own live control tree corrupts
-# U-Boot before it reaches the kernel, so hand over a copy at fdt_addr_r. The
-# single quotes keep the command line one hush word and keep the ${...}
-# variables for U-Boot to expand at runtime; `scripts/config` rewrites the
-# value with sed, so it must not contain `&`.
+# U-Boot before it reaches the kernel, so hand over a copy at fdt_addr_r.
 prepare_uboot() {
-  local tarball="${WORK_DIR}/u-boot-${UB_VERSION}.tar.gz"
-  local tree="${WORK_DIR}/u-boot-${UB_VERSION}"
-  local build="${WORK_DIR}/u-boot-build"
-
-  if [[ -s "$UB_BIN" ]]; then
-    echo "Using cached U-Boot ${UB_VERSION}" >&2
-    return
-  fi
-
-  mkdir -p "$WORK_DIR" "$UB_CACHE"
-  download_asset "$UB_URL" "$tarball" "$UB_SHA256"
-
-  rm -rf "$tree" "$build"
-  tar -xzf "$tarball" -C "$WORK_DIR"
-
-  make -C "$tree" O="$(realpath -m "$build")" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
-    qemu-riscv64_smode_defconfig
-  "${tree}/scripts/config" --file "${build}/.config" --enable USE_BOOTCOMMAND
-  # shellcheck disable=SC2016
-  "${tree}/scripts/config" --file "${build}/.config" --set-str BOOTCOMMAND \
-    "virtio scan; load virtio 0 \${kernel_addr_r} vmlinuz-linux; load virtio 0 \${ramdisk_addr_r} initramfs-linux.img; setenv bootargs '${KERNEL_CMDLINE}'; fdt move \${fdtcontroladdr} \${fdt_addr_r} 0x10000; booti \${kernel_addr_r} \${ramdisk_addr_r}:\${filesize} \${fdt_addr_r}"
-  make -C "$tree" O="$(realpath -m "$build")" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
-    -j"$(nproc)"
-
-  cp "${build}/u-boot.bin" "$UB_BIN"
+  ci_uboot_build 2024.04 smode eweos-smode "$UB_CACHE"
 }
 
 # A whole-disk FAT filesystem written with mtools, so building the disk needs
@@ -340,6 +307,8 @@ make_boot_disk() {
   mkfs.vfat -F 32 "$BOOT_DISK" >/dev/null
   mcopy -i "$BOOT_DISK" "$KERNEL_IMAGE" ::vmlinuz-linux
   mcopy -i "$BOOT_DISK" "$INITRAMFS" ::initramfs-linux.img
+  printf 'bootargs=%s\n' "$KERNEL_CMDLINE" >"$WORK_DIR/uboot.env"
+  mcopy -i "$BOOT_DISK" "$WORK_DIR/uboot.env" ::uboot.env
 }
 
 # Boot the ISO's own Limine executable through the UEFI removable-media path.
@@ -369,68 +338,6 @@ EOF
   mcopy -i "$BOOT_DISK" "${root}/limine.conf" ::limine.conf
   mcopy -i "$BOOT_DISK" "$KERNEL_IMAGE" ::vmlinuz-linux
   mcopy -i "$BOOT_DISK" "$INITRAMFS" ::initramfs-linux.img
-}
-
-# Build EDK II's RISC-V QEMU payload from an exact commit. The firmware volumes
-# are the only EDK II products cached; the writable variables volume is copied
-# for every boot so one run cannot contaminate the next cache restore.
-prepare_edk2() {
-  local workspace
-  workspace="$(realpath -m "${WORK_DIR}/edk2-workspace")"
-  local source="${workspace}/edk2"
-  local output="${workspace}/Build/RiscVVirtQemu/RELEASE_GCC5/FV"
-  local head
-
-  if [[ $(stat -c %s "$EDK2_CODE" 2>/dev/null || true) == 33554432 &&
-        $(stat -c %s "$EDK2_VARS_TEMPLATE" 2>/dev/null || true) == 33554432 ]]; then
-    echo "Using cached EDK II ${EDK2_VERSION} firmware" >&2
-    return
-  fi
-
-  rm -rf "$workspace" "$EDK2_CACHE"
-  mkdir -p "$workspace" "$EDK2_CACHE"
-
-  git init --quiet "$source"
-  git -C "$source" remote add origin "$EDK2_URL"
-  git -C "$source" fetch --quiet --depth=1 origin "$EDK2_COMMIT"
-  git -C "$source" checkout --quiet --detach FETCH_HEAD
-  head=$(git -C "$source" rev-parse HEAD)
-  if [[ "$head" != "$EDK2_COMMIT" ]]; then
-    echo "EDK II checkout mismatch: expected ${EDK2_COMMIT}, got ${head}" >&2
-    return 1
-  fi
-  # EDK II's top-level submodules contain every source used by this platform.
-  # Their own nested development/test submodules are not build inputs.
-  git -C "$source" submodule update --init --depth=1
-
-  (
-    cd "$workspace"
-    export WORKSPACE="$PWD"
-    export PACKAGES_PATH="$source"
-    export EDK_TOOLS_PATH="${source}/BaseTools"
-    export GCC5_RISCV64_PREFIX="$CROSS_COMPILE"
-
-    # edksetup and BaseTools deliberately communicate through environment
-    # variables, so keep these commands in one subshell. edksetup also probes
-    # optional unset variables, which is incompatible with this script's
-    # `set -u`; disable nounset only while sourcing that upstream script.
-    set +u
-    # shellcheck disable=SC1091
-    source "${source}/edksetup.sh" --reconfig
-    set -u
-    make -C "${source}/BaseTools" -j"$(nproc)"
-    set +u
-    # shellcheck disable=SC1091
-    source "${source}/edksetup.sh" BaseTools
-    set -u
-    build -a RISCV64 -b RELEASE \
-      -p OvmfPkg/RiscVVirt/RiscVVirtQemu.dsc \
-      -t GCC5
-  )
-
-  cp "${output}/RISCV_VIRT_CODE.fd" "$EDK2_CODE"
-  cp "${output}/RISCV_VIRT_VARS.fd" "$EDK2_VARS_TEMPLATE"
-  truncate -s 32M "$EDK2_CODE" "$EDK2_VARS_TEMPLATE"
 }
 
 check_prerequisites() {
@@ -468,11 +375,10 @@ start_qemu() {
       )
       ;;
     edk2)
-      cp "$EDK2_VARS_TEMPLATE" "$EDK2_VARS"
       machine=(-machine "virt,pflash0=pflash0,pflash1=pflash1,acpi=off")
       boot=(
-        -blockdev "node-name=pflash0,driver=file,read-only=on,filename=${EDK2_CODE}"
-        -blockdev "node-name=pflash1,driver=file,filename=${EDK2_VARS}"
+        -blockdev "node-name=pflash0,driver=file,read-only=on,filename=${WORK_DIR}/RISCV_VIRT_CODE.fd"
+        -blockdev "node-name=pflash1,driver=file,filename=${WORK_DIR}/RISCV_VIRT_VARS.fd"
       )
       disks=(
         -blockdev "node-name=boot,driver=file,read-only=on,filename=${BOOT_DISK}"
@@ -576,7 +482,7 @@ main() {
       make_boot_disk
       ;;
     edk2)
-      prepare_edk2
+      ci_edk2_prepare "$WORK_DIR"
       make_limine_disk
       ;;
     sbi) ;;

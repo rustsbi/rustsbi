@@ -1,4 +1,5 @@
 #![feature(alloc_error_handler)]
+#![feature(array_try_from_fn)]
 #![no_std]
 #![no_main]
 
@@ -12,118 +13,99 @@ mod driver;
 mod fail;
 mod firmware;
 mod heap;
-mod platform;
-mod riscv;
 mod sbi;
 
+use crate::driver::platform;
 use crate::firmware::BootInfo;
-use crate::sbi::features::{
-    check_next_stage_privilege, detect_hart_features, hart_mhpm_mask, hart_privileged_version,
-};
-use crate::sbi::hart_local;
-use ::riscv::register::mstatus::MPP;
+use crate::sbi::features::{check_next_stage_privilege, counter_topology, detect_hart_features};
+use csr::machine::TargetPrivilege as MPP;
 use runtime::{
-    boot, entry,
+    Error, Result, boot, entry,
     hart::{self, HartId},
-    ipi::IpiDelivery,
-    trap,
+    timer,
 };
 
 #[entry]
 fn main(boot: BootInfo) {
-    if boot.is_boot_hart() {
-        boot_hart(boot);
+    let result = if boot.is_boot_hart() {
+        boot_hart(boot)
     } else {
-        secondary_hart(Some(&boot));
+        secondary_hart(Some(&boot))
+    };
+    if let Err(error) = result {
+        error!("Failed to initialize the hart: {error}");
+        fail::stop();
     }
 }
 
-fn boot_hart(mut boot: BootInfo) {
-    // Initialize this hart's policy storage before any user: platform
-    // discovery seeds secondary harts' features, and feature detection
-    // writes this hart's.
-    hart_local::init();
-    let platform_description = boot
-        .take_platform_description()
-        .expect("BUG: boot hart entered without a validated Platform Description");
-    let next_stage_fdt_address = platform::init_board(platform_description);
+fn boot_hart(mut boot: BootInfo) -> Result<()> {
+    // Publish the per-hart software records before platform discovery seeds
+    // features and before secondary harts use any SBI service.
+    sbi::features::init()?;
+    sbi::pmu::init();
+    sbi::rfence::init();
+    let platform_description = boot.take_platform_description().ok_or(Error::NotReady)?;
+    let next_stage_fdt_address = platform::init_platform(platform_description)?;
 
-    let firmware_ram = platform::firmware_ram_range();
-    firmware::set_pmp(&firmware_ram);
-    firmware::log_pmp_cfg(&firmware_ram);
+    firmware::set_pmp();
+    firmware::log_pmp_cfg();
 
-    let hart_id = HartId::current()
-        .expect("BUG: current hart is not in the boot topology")
-        .as_usize();
-    info!("{:<30}: {}", "Boot HART ID", hart_id);
+    let hart = HartId::current()?;
+    info!("{:<30}: {}", "Boot HART ID", hart.as_usize());
 
-    detect_hart_features();
-    log_hart_capabilities(hart_id);
+    detect_hart_features(hart);
+    log_hart_capabilities(hart);
 
     let mut next_stage = boot.next_stage();
-    check_next_stage_privilege(next_stage.next_mode);
+    check_next_stage_privilege(hart, next_stage.next_mode)?;
 
     next_stage.opaque = next_stage_fdt_address;
     info!(
         "Redirecting hart {} to {:#016x} in {:?} mode.",
-        hart_id, next_stage.start_addr, next_stage.next_mode
+        hart.as_usize(),
+        next_stage.start_addr,
+        next_stage.next_mode
     );
-    hart::stage_boot_handoff(next_stage)
-        .expect("BUG: boot hart could not stage its initial handoff");
+    hart::stage_boot_handoff(next_stage)?;
 
-    enable_supervisor_services();
+    enable_supervisor_services(hart)
 }
 
-fn secondary_hart(boot: Option<&BootInfo>) {
+fn secondary_hart(boot: Option<&BootInfo>) -> Result<()> {
     platform::wait_until_ready();
-    detect_hart_features();
+    let hart = HartId::current()?;
+    detect_hart_features(hart);
 
-    platform::initialize_secondary_hart();
-    firmware::set_pmp(&platform::firmware_ram_range());
+    platform::initialize_secondary_hart(hart);
+    firmware::set_pmp();
 
     // Hardware-reset harts have no SPL handoff; HSM starts them in S-mode.
     let next_mode = boot.map_or(MPP::Supervisor, |boot| boot.next_stage().next_mode);
-    check_next_stage_privilege(next_mode);
+    check_next_stage_privilege(hart, next_mode)?;
 
-    enable_supervisor_services();
+    enable_supervisor_services(hart)
 }
 
-fn enable_supervisor_services() {
-    // Gate per-hart IMSIC setup on the device selected during platform
-    // initialization, not on AIA discovery alone.
-    if matches!(
-        crate::platform::ipi_delivery(),
-        Some(IpiDelivery::Imsic { .. })
-    ) {
-        driver::initialize_hart_imsic(
-            platform::board_info()
-                .devices
-                .interrupts
-                .imsic()
-                .map(|description| description.resource())
-                .expect("selected IMSIC has a description"),
-        );
+fn enable_supervisor_services(hart: HartId) -> Result<()> {
+    sbi::features::configure_hart_environment(hart)?;
+    // The supervisor owns its timer, so discard any firmware deadline before
+    // entry; otherwise a stale comparator could inject an early interrupt.
+    if let Some(timer) = timer::get()? {
+        timer.set_deadline(u64::MAX)?;
     }
-    sbi::features::configure_hart_environment();
-    // SAFETY: Runtime startup installed trap entry; this hart is still in
-    // M-mode with machine interrupts disabled and no lower-mode context.
+    // SAFETY:
+    // 1. Runtime startup installed trap entry.
+    // 2. This hart is still in M-mode with machine interrupts disabled and no
+    //    lower-mode context.
     unsafe { boot::configure_next_stage() };
-    let dispatcher = sbi::SBI_DISPATCHER
-        .get()
-        .expect("SBI dispatcher not initialized");
-    // Publish the SBI policy after configuring the next-stage environment.
-    trap::init(dispatcher).expect("BUG: failed to activate Runtime trap handling");
+    Ok(())
 }
 
-fn log_hart_capabilities(hart_id: usize) {
+fn log_hart_capabilities(hart: HartId) {
+    let (privileged_version, mhpm_mask) = counter_topology(hart);
     info!(
         "{:<30}: {:?}",
-        "Boot HART Privileged Version:",
-        hart_privileged_version(hart_id)
+        "Boot HART Privileged Version:", privileged_version
     );
-    info!(
-        "{:<30}: {:#08x}",
-        "Boot HART MHPM Mask:",
-        hart_mhpm_mask(hart_id)
-    );
+    info!("{:<30}: {:#08x}", "Boot HART MHPM Mask:", mhpm_mask);
 }

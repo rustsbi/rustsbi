@@ -2,6 +2,9 @@
 # RustSBI dynamic firmware -> Linux directly, U-Boot or EDK II -> openEuler.
 set -euo pipefail
 
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # Fixed mirror listed at https://www.openeuler.org/en/mirror/list/.
 # The central repo timed out after 1200s on a cold GitHub runner download.
@@ -12,9 +15,7 @@ readonly IMAGE_SHA256=5ba2eb5f0dac1594e8e041e36125fc6e5a2bd4547b4039258e5bd5139f
 # Fixed release firmware from the same directory, also used by the AIA test.
 readonly CODE_SHA256=58e96e55744516ed5debff8ed90eaface7b8a51a9466e7c0a687f4025ed5c600
 readonly VARS_SHA256=ea8094e953b1215444bd001ee1cf22818f1f7f8abcb158e62180cbaa6c1f70af
-readonly UBOOT_PACKAGE=u-boot-qemu_2025.10-0ubuntu0.24.04.3_all.deb
-readonly UBOOT_SHA256=852a1f5d4a5d00a3a63f694a4bf46744f02737f5ffdea091666ee44d784f5eba
-readonly UBOOT_URL=https://security.ubuntu.com/ubuntu/pool/main/u/u-boot/$UBOOT_PACKAGE
+readonly UBOOT_VERSION=2025.10-0ubuntu0.24.04.3
 # Extract these files from the same SHA256-pinned guest disk's FAT boot partition.
 readonly BARE_ESP_OFFSET=1048576
 readonly BARE_KERNEL_NAME=vmlinuz-6.6.0-102.0.0.5.oe2509.riscv64
@@ -89,8 +90,6 @@ prepare_assets() {
   if [[ "$BOOT_MODE" = edk2 ]]; then
     download_asset "$BASE_URL/RISCV_VIRT_CODE.fd" "$CACHE_DIR/RISCV_VIRT_CODE.fd" "$CODE_SHA256"
     download_asset "$BASE_URL/RISCV_VIRT_VARS.fd" "$CACHE_DIR/RISCV_VIRT_VARS.fd" "$VARS_SHA256"
-  elif [[ "$BOOT_MODE" = u-boot ]]; then
-    download_asset "$UBOOT_URL" "$CACHE_DIR/$UBOOT_PACKAGE" "$UBOOT_SHA256"
   fi
   IMAGE_PATH="$RUN_DIR/$IMAGE_NAME"
   timeout --foreground 300 xz -dc "$CACHE_DIR/$IMAGE_NAME.xz" > "$IMAGE_PATH"
@@ -98,15 +97,7 @@ prepare_assets() {
   if [[ "$BOOT_MODE" = edk2 ]]; then
     cp "$CACHE_DIR/RISCV_VIRT_VARS.fd" "$RUN_DIR/RISCV_VIRT_VARS.fd"
   elif [[ "$BOOT_MODE" = u-boot ]]; then
-    mkdir -p "$RUN_DIR/uboot"
-    if command -v dpkg-deb >/dev/null 2>&1; then
-      dpkg-deb -x "$CACHE_DIR/$UBOOT_PACKAGE" "$RUN_DIR/uboot"
-    elif command -v ar >/dev/null 2>&1 && command -v bsdtar >/dev/null 2>&1; then
-      ar p "$CACHE_DIR/$UBOOT_PACKAGE" data.tar.zst | bsdtar -xf - -C "$RUN_DIR/uboot"
-    else
-      echo 'Need dpkg-deb or ar + bsdtar to extract U-Boot' >&2
-      return 1
-    fi
+    ci_uboot_package "$UBOOT_VERSION" "$RUN_DIR/uboot"
     UBOOT_ELF="$RUN_DIR/uboot/usr/lib/u-boot/qemu-riscv64_smode/uboot.elf"
     test -s "$UBOOT_ELF"
   else
@@ -168,10 +159,9 @@ check_serial() {
       gsub(/\033\[[0-?]*[ -\/]*[@-~]/, "")
       if (/Kernel panic|not syncing|VFS: Unable to mount root fs|Cannot open root device|Attempted to kill init|panicked at|Synchronous Exception|Unhandled exception|grub rescue>|No bootable device|SystemFailure|Invalid data in dynamic/) fatal=1
       if (stage == 0 && /^\[RustSBI\].*Hello RustSBI!$/) stage=1
-      if (stage == 1 && /^\[RustSBI\].*Platform IPI Extension *: SiFiveClint /) clint=1
       if (stage == 1 && boot_mode == "edk2" && /^\[RustSBI\].*Redirecting hart [0-9]+ to 0x00000020000000 in Supervisor mode\.$/) handoff=1
       if (stage == 1 && (boot_mode == "u-boot" || boot_mode == "sbi") && /^\[RustSBI\].*Redirecting hart [0-9]+ to 0x00000080200000 in Supervisor mode\.$/) handoff=1
-      if (stage == 1 && boot_mode == "sbi" && handoff && clint) stage=2
+      if (stage == 1 && boot_mode == "sbi" && handoff) stage=2
       # Direct Linux boot must not be accepted through a U-Boot/EDK II trace.
       if (boot_mode == "sbi" && (/^U-Boot / || /RISC-V EDK2 firmware/ || /GNU GRUB *version/ || /^Booting: Label: virtio/)) fatal=1
       if (stage == 1 && boot_mode == "edk2" && /^RISC-V EDK2 firmware version 2\.7$/) stage=2
@@ -188,7 +178,7 @@ check_serial() {
       if (stage == 3 && distro && /^Kernel 6\.6\.0-102\.0\.0\.5\.oe2509\.riscv64 on an riscv64$/) kernel=1
       if (stage == 3 && kernel && /^localhost login: *$/) login=1
     }
-    END { if (fatal) exit 2; exit !(stage == 3 && clint && handoff && distro && kernel && login) }
+    END { if (fatal) exit 2; exit !(stage == 3 && handoff && distro && kernel && login) }
   ' "$LOG_FILE"
 }
 
@@ -261,7 +251,9 @@ main() {
   if [[ "$BOOT_MODE" = edk2 ]]; then
     sha256sum "$CACHE_DIR/$IMAGE_NAME.xz" "$CACHE_DIR/"*.fd >> "$LOG_DIR/prototyper-openeuler-metadata.log"
   elif [[ "$BOOT_MODE" = u-boot ]]; then
-    sha256sum "$CACHE_DIR/$IMAGE_NAME.xz" "$CACHE_DIR/$UBOOT_PACKAGE" "$UBOOT_ELF" >> "$LOG_DIR/prototyper-openeuler-metadata.log"
+    sha256sum "$CACHE_DIR/$IMAGE_NAME.xz" \
+      "$(ci_uboot_root)/packages/$UBOOT_VERSION/u-boot-qemu_${UBOOT_VERSION}_all.deb" \
+      "$UBOOT_ELF" >> "$LOG_DIR/prototyper-openeuler-metadata.log"
   else
     sha256sum "$CACHE_DIR/$IMAGE_NAME.xz" "$BARE_KERNEL" "$BARE_INITRD" >> "$LOG_DIR/prototyper-openeuler-metadata.log"
     printf 'Bare kernel cmdline: %s\nESP partition offset: %s\n' "$BARE_CMDLINE" "$BARE_ESP_OFFSET" >> "$LOG_DIR/prototyper-openeuler-metadata.log"
@@ -288,11 +280,6 @@ run_self_tests() (
     local variant=$1
     variant=$(printf '%s' "$variant" | sed 's/^uboot-//')
     [[ "$variant" = missing-rustsbi ]] || printf '[RustSBI] INFO - Hello RustSBI!\n'
-    if [[ "$variant" = aia ]]; then
-      printf '[RustSBI] INFO - Platform IPI Extension        : IMSIC (M-level Base Address: 0x24000000)\n'
-    else
-      printf '[RustSBI] INFO - Platform IPI Extension        : SiFiveClint (Base Address: 0x2000000)\n'
-    fi
     if [[ "$variant" = wrong-handoff ]]; then
       printf '[RustSBI] INFO - Redirecting hart 0 to 0x00000020000000 in Supervisor mode.\n'
     elif [[ "$variant" != missing-handoff ]]; then
@@ -336,11 +323,6 @@ run_self_tests() (
   sbi_fixture() {
     local variant=${1#sbi-}
     [[ "$variant" = missing-rustsbi ]] || printf '[RustSBI] INFO - Hello RustSBI!\n'
-    if [[ "$variant" = wrong-clint ]]; then
-      printf '[RustSBI] INFO - Platform IPI Extension        : IMSIC (M-level Base Address: 0x24000000)\n'
-    elif [[ "$variant" != missing-clint ]]; then
-      printf '[RustSBI] INFO - Platform IPI Extension        : SiFiveClint (Base Address: 0x2000000)\n'
-    fi
     if [[ "$variant" = early-linux-task ]]; then
       printf '[    0.100000][    T1] early untrusted kernel event\n'
     fi
@@ -390,11 +372,6 @@ run_self_tests() (
       return
     fi
     [[ "$scenario" = missing-rustsbi ]] || printf '\033[1;37m[RustSBI] \033[1;32mINFO \033[0m - Hello RustSBI!\n'
-    if [[ "$scenario" = aia ]]; then
-      printf '[RustSBI] INFO - Platform IPI Extension        : IMSIC (M-level Base Address: 0x24000000)\n'
-    else
-      printf '[RustSBI] INFO - Platform IPI Extension        : SiFiveClint (Base Address: 0x2000000)\n'
-    fi
     [[ "$scenario" = missing-handoff ]] || printf '[RustSBI] INFO - Redirecting hart 0 to 0x00000020000000 in Supervisor mode.\n'
     [[ "$scenario" = missing-edk2 ]] || printf 'RISC-V EDK2 firmware version 2.7\n'
     printf 'Loading Linux 6.6.0-102.0.0.5.oe2509.riscv64 ...\nLoading initial ramdisk ...\n'
@@ -513,20 +490,20 @@ run_self_tests() (
     echo "PASS: download $scenario (verification and cleanup)"
   )
 
-  for scenario in success missing-rustsbi missing-handoff missing-edk2 missing-linux aia linux-only marker-only \
+  for scenario in success missing-rustsbi missing-handoff missing-edk2 missing-linux linux-only marker-only \
     injected early-login panic rootfs early-exit timeout late-panic stale-log stderr-injection wrong-version; do
     expected=fail
     [[ "$scenario" != success ]] || expected=pass
     serial_case "$scenario" "$expected"
   done
   # Same process/serial integrity contract for the U-Boot handoff path.
-  for scenario in uboot-success uboot-missing-rustsbi uboot-missing-handoff uboot-wrong-handoff uboot-missing-uboot uboot-missing-efi uboot-missing-grub uboot-grub-before-efi uboot-edk2-only uboot-aia uboot-missing-linux uboot-linux-only uboot-wrong-distro uboot-early-login uboot-injected uboot-marker-only uboot-panic uboot-rootfs uboot-early-exit uboot-timeout uboot-late-panic; do
+  for scenario in uboot-success uboot-missing-rustsbi uboot-missing-handoff uboot-wrong-handoff uboot-missing-uboot uboot-missing-efi uboot-missing-grub uboot-grub-before-efi uboot-edk2-only uboot-missing-linux uboot-linux-only uboot-wrong-distro uboot-early-login uboot-injected uboot-marker-only uboot-panic uboot-rootfs uboot-early-exit uboot-timeout uboot-late-panic; do
     expected=fail
     [[ "$scenario" != uboot-success ]] || expected=pass
     serial_case "$scenario" "$expected"
   done
   # Direct SBI boot: no intermediary bootloader is allowed to supply evidence.
-  for scenario in sbi-success sbi-missing-rustsbi sbi-missing-clint sbi-wrong-clint sbi-missing-handoff sbi-wrong-handoff sbi-early-linux-task sbi-missing-linux-task sbi-edk2-injection sbi-uboot-injection sbi-wrong-distro sbi-wrong-kernel sbi-no-login sbi-early-login sbi-injected sbi-panic sbi-rootfs sbi-timeout sbi-early-exit sbi-late-panic sbi-stale-log sbi-stderr-injection; do
+  for scenario in sbi-success sbi-missing-rustsbi sbi-missing-handoff sbi-wrong-handoff sbi-early-linux-task sbi-missing-linux-task sbi-edk2-injection sbi-uboot-injection sbi-wrong-distro sbi-wrong-kernel sbi-no-login sbi-early-login sbi-injected sbi-panic sbi-rootfs sbi-timeout sbi-early-exit sbi-late-panic sbi-stale-log sbi-stderr-injection; do
     expected=fail
     [[ "$scenario" != sbi-success ]] || expected=pass
     serial_case "$scenario" "$expected"

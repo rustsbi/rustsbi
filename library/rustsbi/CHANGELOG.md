@@ -26,6 +26,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - Align `Console` and `Reset` documentation with SBI v3.0.
+- Fix DBTR FID 5–7 dispatch to interpret `a0` as the trigger base and `a1` as the trigger mask.
 - lib: update `riscv` dependency to 0.16.1 to fix RUSTSEC-2024-0436.
 - lib: update dependency version of `rustsbi` to 0.4.1
 

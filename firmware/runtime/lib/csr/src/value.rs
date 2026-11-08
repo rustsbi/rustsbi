@@ -1,4 +1,17 @@
 //! Conversion between a declared CSR value and its instruction operand.
+//!
+//! CSR instruction semantics are defined by
+//! <https://docs.riscv.org/reference/isa/unpriv/zicsr.html>.
+
+/// A marker for a register value obtained by reading or decoding bits.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Read {}
+
+/// A marker for a register value prepared for a write.
+///
+/// This marker does not grant permission to access hardware.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Write {}
 
 pub(crate) trait Value: Copy {
     const BITS: u32;
@@ -9,13 +22,13 @@ pub(crate) trait Value: Copy {
 /// A typed field readable from a register snapshot.
 pub trait ReadField<R> {
     type Value;
-    fn read(register: R) -> Self::Value;
+    fn get(register: R) -> Self::Value;
 }
 
 /// A typed field writable in a local register value.
 pub trait WriteField<R> {
     type Value;
-    fn write(register: &mut R, value: Self::Value);
+    fn set(register: &mut R, value: Self::Value);
 }
 
 /// Reads the selected CSR's instruction operand.
@@ -62,7 +75,7 @@ pub(crate) unsafe fn write<const CSR: u16>(bits: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::Value;
+    use super::{Read, Value, Write};
     use crate::{
         machine,
         values::{
@@ -73,37 +86,31 @@ mod tests {
     };
 
     #[test]
-    fn unknown_read_encoding_survives_other_field_edits() {
+    fn unknown_read_encoding_survives_field_decoding() {
         let bits = (2 << 11) | (1 << 25);
-        let read = machine::StatusReadValue::from_bits(bits);
-        assert_eq!(read.read::<machine::MPP>(), machine::Privilege::Unknown(2));
-        let mut write = machine::StatusWriteValue::from_bits(bits);
-        write.write::<machine::MIE>(machine::Interrupt::Enabled);
-        assert_eq!(usize::from(write), bits | (1 << 3));
+        let read = machine::Status::<Read>::from_bits(bits);
+        assert_eq!(read.get::<machine::MPP>(), machine::Privilege::Unknown(2));
         assert_eq!(read.bits(), bits);
-    }
-
-    #[test]
-    fn independent_write_value_has_typed_privilege() {
-        let value = machine::StatusWriteValue::for_return(machine::TargetPrivilege::Supervisor);
-        assert_eq!(value.read::<machine::MPP>(), machine::Privilege::Supervisor);
-        assert_eq!(value.read::<machine::MIE>(), machine::Interrupt::Disabled);
     }
 
     #[test]
     fn vector_addresses_require_alignment_and_keep_reserved_read_modes() {
         assert!(VectorBase::new(Address::from(0x1002)).is_none());
         let base = VectorBase::new(Address::from(0x1000)).unwrap();
-        let value = machine::TrapVectorWriteValue::new(base, TargetVectorMode::Vectored);
+        let mut value = machine::TrapVector::<Write>::default();
+        value.set::<machine::BASE>(base);
+        value.set::<machine::MODE>(TargetVectorMode::Vectored);
         assert_eq!(usize::from(value), 0x1001);
-        let read = machine::TrapVectorReadValue::from_bits(0x1003);
-        assert_eq!(read.read::<machine::MODE>(), VectorMode::Unknown(3));
-        assert_eq!(usize::from(read.read::<machine::BASE>().address()), 0x1000);
+        let read = machine::TrapVector::<Read>::from_bits(0x1003);
+        assert_eq!(read.get::<machine::MODE>(), VectorMode::Unknown(3));
+        assert_eq!(usize::from(read.get::<machine::BASE>().address()), 0x1000);
         let top = VectorBase::new(Address::from(usize::MAX & !3)).unwrap();
-        let value = machine::TrapVectorWriteValue::new(top, TargetVectorMode::Vectored);
+        let mut value = machine::TrapVector::<Write>::default();
+        value.set::<machine::BASE>(top);
+        value.set::<machine::MODE>(TargetVectorMode::Vectored);
         assert_eq!(usize::from(value), usize::MAX & !2);
         assert_eq!(
-            usize::from(value.read::<machine::BASE>().address()),
+            usize::from(value.get::<machine::BASE>().address()),
             usize::MAX & !3
         );
     }

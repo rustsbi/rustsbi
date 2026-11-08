@@ -1,0 +1,40 @@
+//! SpacemiT K1 reset-vector registers.
+//!
+//! The pinned [OpenSBI K1 platform header] defines the register layout.
+//!
+//! [OpenSBI K1 platform header]: https://github.com/riscv-software-src/opensbi/blob/35511bc6ee1c9c17b6a89b44c52e2044bb51b979/platform/generic/include/spacemit/k1.h
+
+use runtime::{
+    Result,
+    memory::{MemoryRegistry, MmioRegion, RegRange},
+};
+
+#[repr(usize)]
+enum Register {
+    AddressLow = 0x00,
+    AddressHigh = 0x04,
+}
+
+pub(super) struct ResetVectorRegisters([MmioRegion; 2]);
+
+impl ResetVectorRegisters {
+    pub(super) fn acquire(
+        memory: &mut MemoryRegistry,
+        [cluster0, cluster1]: [RegRange; 2],
+    ) -> Result<Self> {
+        let cluster0 = memory.acquire(cluster0)?;
+        let cluster1 = memory.acquire(cluster1)?;
+        Ok(Self([cluster0, cluster1]))
+    }
+
+    pub(super) fn set_reset_vector(&self, address: u64) -> Result<()> {
+        for registers in &self.0 {
+            registers.write(Register::AddressLow as usize, address as u32)?;
+            registers.write(
+                Register::AddressHigh as usize,
+                (address >> u32::BITS) as u32,
+            )?;
+        }
+        Ok(())
+    }
+}

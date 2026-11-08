@@ -2,13 +2,16 @@
 //!
 //! SBI HSM policy and ABI translation belong to the firmware.
 
-use crate::Result;
+use crate::{Error, Result};
+mod detect;
 mod features;
 mod lifecycle;
 mod local;
 mod set;
 mod topology;
 mod wakeup;
+
+pub(crate) use detect::Detect;
 
 pub use features::{
     PrivilegedVersion, detect_performance_counters, detect_privileged_version, has_hypervisor,
@@ -24,7 +27,7 @@ pub use lifecycle::{
     HartState, ResumeTicket, StartOutcome, begin_nonretentive_resume, can_receive_ipi,
     resume_current_retentive, stage_boot_handoff, start, status, stop_current, suspend_current,
 };
-pub(crate) use local::HartLocal;
+pub use local::PerHart;
 pub use set::{HartSet, HartSetIter};
 
 pub(crate) use topology::{HART_TABLE, HartEntry, publish};
@@ -74,5 +77,16 @@ impl HartId {
     /// Iterates over enabled harts in ascending hardware-ID order.
     pub fn all() -> impl DoubleEndedIterator<Item = Self> + ExactSizeIterator {
         topology::all()
+    }
+
+    /// Returns the exclusive upper bound of the enabled hardware IDs.
+    ///
+    /// Returns [`Error::InvalidArgs`] if there are no enabled harts or the
+    /// largest ID has no representable exclusive bound.
+    pub fn upper_bound() -> Result<usize> {
+        Self::all()
+            .last()
+            .and_then(|hart| hart.raw.checked_add(1))
+            .ok_or(Error::InvalidArgs)
     }
 }

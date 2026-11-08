@@ -1,11 +1,11 @@
 //! SBI extension implementations and the platform's published dispatcher.
 //!
-//! Platform boot selects the extension fields. Runtime calls the dispatcher
-//! through the original RustSBI trait and borrows its timer and IPI objects.
+//! Runtime calls the dispatcher through the original RustSBI trait.
 
+use alloc::boxed::Box;
+use runtime::rustsbi::{self, RustSBI};
 use runtime::{
-    rustsbi::{self, RustSBI},
-    timer::Timer,
+    Result, console as runtime_console, events, ipi as runtime_ipi, memory::SupervisorMemory,
 };
 use spin::Once;
 
@@ -25,7 +25,6 @@ pub mod timer;
 pub(crate) mod vendor;
 
 pub mod features;
-pub mod hart_local;
 pub mod logger;
 
 use console::SbiConsole;
@@ -42,6 +41,8 @@ use sta::SbiSta;
 use suspend::SbiSuspend;
 use timer::SbiTimer;
 
+/// The SBI extensions provided by the firmware.
+#[runtime::sbi_policy]
 #[derive(RustSBI)]
 #[rustsbi(dynamic, crate = rustsbi)]
 pub struct SbiDispatcher {
@@ -54,7 +55,7 @@ pub struct SbiDispatcher {
     #[rustsbi(fwft)]
     pub(crate) fwft: Option<SbiFwft>,
     #[rustsbi(ipi)]
-    pub(crate) ipi: SbiIpi,
+    pub(crate) ipi: Option<SbiIpi>,
     #[rustsbi(timer)]
     pub(crate) timer: SbiTimer,
     #[rustsbi(hsm)]
@@ -75,45 +76,46 @@ pub struct SbiDispatcher {
     pub(crate) vendor: Option<vendor::Vendor>,
 }
 
-/// The SBI extension set, owned by the sbi layer.
-///
-/// Published once after all extension constructors run and before platform
-/// initialization releases the secondary harts.
-pub(crate) static SBI_DISPATCHER: Once<SbiDispatcher> = Once::new();
+/// Publishes the SBI services after their Runtime devices are initialized.
+pub(crate) fn init(
+    supervisor_memory: SupervisorMemory,
+    custom_extension: vendor::Extension,
+    pmu: Option<SbiPmu>,
+    hardware_wakeup: bool,
+) -> Result<()> {
+    static SUPERVISOR_MEMORY: Once<SupervisorMemory> = Once::new();
+    let supervisor_memory = SUPERVISOR_MEMORY.call_once(|| supervisor_memory);
+    let ipi = runtime_ipi::get().map(|_| SbiIpi);
+    events::install(pmu.as_ref().map(|_| pmu::runtime_counters()));
 
-/// Returns the ipi extension, if present.
-pub(crate) fn ipi() -> Option<&'static SbiIpi> {
-    SBI_DISPATCHER
-        .get()
-        .map(|sbi| &sbi.ipi)
-        .filter(|sbi| sbi.ipi().delivery().is_some())
+    let console = runtime_console::get().map(|_| SbiConsole::new(supervisor_memory));
+    let ipi_available = ipi.is_some();
+    let hsm = ipi_available.then(|| SbiHsm::new(hardware_wakeup));
+    let dispatcher: &'static SbiDispatcher = Box::leak(Box::new(SbiDispatcher {
+        console,
+        cppc: Some(SbiCppc::new()),
+        dbtr: Some(SbiDbtr::new(supervisor_memory)),
+        fwft: Some(SbiFwft),
+        ipi,
+        timer: SbiTimer,
+        reset: SbiReset,
+        rfence: ipi_available.then(SbiRFence::new).transpose()?,
+        susp: hsm.as_ref().map(|_| SbiSuspend),
+        hsm,
+        pmu,
+        sta: Some(SbiSta::new(supervisor_memory)),
+        mpxy: Some(SbiMpxy::new(supervisor_memory)),
+        vendor: vendor::Vendor::new(custom_extension, supervisor_memory),
+    }));
+    dispatcher.publish()
 }
 
-/// Returns the published timer for firmware counter reads.
-pub(crate) fn timer() -> &'static Timer {
-    SBI_DISPATCHER
-        .get()
-        .expect("SBI dispatcher not initialized")
-        .timer
-        .timer()
-}
-
-/// Returns the hsm extension, if present.
+/// Returns the HSM extension, if present.
 pub(crate) fn hsm() -> Option<&'static SbiHsm> {
-    SBI_DISPATCHER.get().and_then(|sbi| sbi.hsm.as_ref())
+    SbiDispatcher::get().and_then(|sbi| sbi.hsm.as_ref())
 }
 
-/// Returns the rfence extension, if present.
-pub(crate) fn rfence() -> Option<&'static SbiRFence> {
-    SBI_DISPATCHER.get().and_then(|sbi| sbi.rfence.as_ref())
-}
-
-/// Returns the pmu extension, if present.
+/// Returns the PMU extension, if present.
 pub(crate) fn pmu() -> Option<&'static SbiPmu> {
-    SBI_DISPATCHER.get().and_then(|sbi| sbi.pmu.as_ref())
-}
-
-/// Returns the susp extension, if present.
-pub(crate) fn susp() -> Option<&'static SbiSuspend> {
-    SBI_DISPATCHER.get().and_then(|sbi| sbi.susp.as_ref())
+    SbiDispatcher::get().and_then(|sbi| sbi.pmu.as_ref())
 }

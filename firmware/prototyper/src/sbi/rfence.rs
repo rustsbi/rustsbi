@@ -4,21 +4,22 @@
 //!
 //! - Specification: [RISC-V SBI RFENCE extension](https://docs.riscv.org/reference/sbi/v3.0/ext-rfence.html) —
 //!   hart-mask and address-range semantics for remote fences.
-
-#![forbid(unsafe_code)]
+//! - Specification: [RISC-V hypervisor extension](https://docs.riscv.org/reference/isa/priv/hypervisor.html) —
+//!   hypervisor fence instructions and their execution requirements.
 
 use runtime::{
-    Result,
+    Error, Result,
     hart::HartId,
+    ipi::{self, IpiEvent},
     rustsbi::{Fence, HartMask, SbiRet},
 };
 use sbi_spec::pmu::firmware_event;
 
 use crate::cfg::{PAGE_SIZE, TLB_FLUSH_LIMIT};
-use crate::riscv::csr::fence;
+use core::arch::asm;
 
 pub(super) mod queue;
-use super::pmu::pmu_firmware_counter_increment;
+use super::{ipi::target_harts, pmu::pmu_firmware_counter_increment};
 use queue::{LocalRFenceCell, RemoteRFenceCell};
 
 /// Context information for a remote fence operation.
@@ -48,36 +49,52 @@ pub enum RFenceType {
     /// Supervisor fence for virtual memory with ASID.
     SFenceVmaAsid,
     #[cfg(feature = "hypervisor")]
-    /// Hypervisor fence for guest virtual memory with VMID.
+    /// Hypervisor fence for guest physical memory with a VMID.
     HFenceGvmaVmid,
     #[cfg(feature = "hypervisor")]
-    /// Hypervisor fence for guest virtual memory.
+    /// Hypervisor fence for guest physical memory.
     HFenceGvma,
     #[cfg(feature = "hypervisor")]
-    /// Hypervisor fence for guest virtual memory with ASID.
+    /// Hypervisor fence for guest virtual memory with an ASID.
     HFenceVvmaAsid,
     #[cfg(feature = "hypervisor")]
     /// Hypervisor fence for guest virtual memory.
     HFenceVvma,
 }
 
-/// Gets the local fence context for the current hart.
-pub(crate) use super::hart_local::local_rfence;
-/// Gets the remote fence context for a specific hart.
-pub(crate) use super::hart_local::remote_rfence;
+/// Creates one fence queue and synchronization counter per enabled hart.
+///
+/// The caller must run this after Runtime publishes the hart topology and
+/// before any hart enqueues or services a remote fence.
+pub(crate) fn init() {
+    queue::init();
+}
+
+/// Returns a local view of the fence state for a validated hart.
+pub(crate) fn local_rfence_for(hart: HartId) -> LocalRFenceCell<'static> {
+    queue::rfence_cell(hart).local()
+}
+
+/// Returns a remote view of the fence state for a validated hart.
+pub(crate) fn remote_rfence_for(hart: HartId) -> RemoteRFenceCell<'static> {
+    queue::rfence_cell(hart).remote()
+}
+
+/// Returns a remote view of the fence state for an enabled hart.
+pub(crate) fn remote_rfence(hart_id: usize) -> Option<RemoteRFenceCell<'static>> {
+    Some(remote_rfence_for(HartId::from_raw(hart_id).ok()?))
+}
 
 #[allow(unused)]
 impl LocalRFenceCell<'_> {
-    /// Adds a fence operation to the queue, retrying if full.
+    /// Adds a fence operation to the queue, retrying while it is full or busy.
     pub fn set(&self, ctx: RFenceContext) {
-        let hart_id = HartId::current()
-            .expect("BUG: current hart exceeds Runtime capacity")
-            .as_usize();
+        let hart = HartId::current().expect("BUG: current hart exceeds Runtime capacity");
         loop {
-            if self.try_push((ctx, hart_id)) {
+            if self.try_push((ctx, hart.as_usize())) {
                 break;
             }
-            rfence_poll();
+            rfence_poll_for(hart);
         }
     }
 }
@@ -85,15 +102,15 @@ impl LocalRFenceCell<'_> {
 #[allow(unused)]
 impl RemoteRFenceCell<'_> {
     /// Adds a fence operation to the queue from a remote hart.
+    ///
+    /// Retries while the queue is full or busy.
     pub fn set(&self, ctx: RFenceContext) {
-        let hart_id = HartId::current()
-            .expect("BUG: current hart exceeds Runtime capacity")
-            .as_usize();
+        let hart = HartId::current().expect("BUG: current hart exceeds Runtime capacity");
         loop {
-            if self.try_push((ctx, hart_id)) {
+            if self.try_push((ctx, hart.as_usize())) {
                 return;
             }
-            rfence_poll();
+            rfence_poll_for(hart);
         }
     }
 }
@@ -101,7 +118,16 @@ impl RemoteRFenceCell<'_> {
 /// Implementation of RISC-V remote fence operations.
 pub(crate) struct SbiRFence;
 
-/// Validates address range for fence operations
+impl SbiRFence {
+    pub(crate) fn new() -> Result<Self> {
+        ipi::get()
+            .ok_or(Error::NotReady)?
+            .register(IpiEvent::Rfence, rfence_handler)?;
+        Ok(Self)
+    }
+}
+
+/// Validates the address range for fence operations.
 #[inline(always)]
 fn validate_address_range(start_addr: usize, size: usize) -> Result<usize, SbiRet> {
     if !((start_addr == 0 && size == 0) || size == usize::MAX) && start_addr & (PAGE_SIZE - 1) != 0
@@ -118,21 +144,52 @@ fn validate_address_range(start_addr: usize, size: usize) -> Result<usize, SbiRe
 
 /// Processes a remote fence operation by sending IPI to target harts.
 fn remote_fence_process(rfence_ctx: RFenceContext, hart_mask: HartMask) -> SbiRet {
-    crate::sbi::ipi()
-        .unwrap()
-        .send_fence_by_ipi(hart_mask, rfence_ctx)
+    let current_hart = HartId::current().expect("BUG: current hart is not in the boot topology");
+    let targets = match target_harts(hart_mask) {
+        Ok(targets) => targets,
+        Err(error) => return error,
+    };
+    let local = local_rfence_for(current_hart);
+    let mut result = SbiRet::success(0);
+
+    for target in targets {
+        if target == current_hart {
+            rfence_local_handler(rfence_ctx);
+            continue;
+        }
+
+        let remote = remote_rfence_for(target);
+        local.add();
+        remote.set(rfence_ctx);
+
+        if ipi::get().is_some_and(|ipi| ipi.send(IpiEvent::Rfence, [target]).is_ok()) {
+            continue;
+        }
+        // A receiver that already took the request remains responsible for
+        // its acknowledgement.
+        if remote.cancel(current_hart.as_usize()) {
+            remote_rfence_for(current_hart).sub();
+        }
+        result = SbiRet::failed();
+        break;
+    }
+
+    // Complete previously submitted operations even if a later send failed.
+    while !local.is_sync() {
+        rfence_poll_for(current_hart);
+    }
+
+    result
 }
 
 #[cfg(feature = "hypervisor")]
 fn supports_hypervisor_extension() -> bool {
-    let hart_id = HartId::current()
-        .expect("BUG: current hart exceeds Runtime capacity")
-        .as_usize();
-    super::features::hart_has_extension(hart_id, super::features::Extension::Hypervisor)
+    let hart = HartId::current().expect("BUG: current hart exceeds Runtime capacity");
+    super::features::has_extension(hart, super::features::Extension::Hypervisor)
 }
 
 impl Fence for SbiRFence {
-    /// Remote instruction fence for specified harts.
+    /// Executes an instruction fence on the specified harts.
     fn remote_fence_i(&self, hart_mask: HartMask) -> SbiRet {
         pmu_firmware_counter_increment(firmware_event::FENCE_I_SENT);
         remote_fence_process(
@@ -147,7 +204,7 @@ impl Fence for SbiRFence {
         )
     }
 
-    /// Remote supervisor fence for virtual memory on specified harts.
+    /// Executes a supervisor virtual-memory fence on the specified harts.
     fn remote_sfence_vma(&self, hart_mask: HartMask, start_addr: usize, size: usize) -> SbiRet {
         pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_SENT);
         let flush_size = match validate_address_range(start_addr, size) {
@@ -167,7 +224,7 @@ impl Fence for SbiRFence {
         )
     }
 
-    /// Remote supervisor fence for virtual memory with ASID on specified harts.
+    /// Executes a supervisor virtual-memory fence for an ASID on the specified harts.
     fn remote_sfence_vma_asid(
         &self,
         hart_mask: HartMask,
@@ -302,34 +359,16 @@ impl Fence for SbiRFence {
     }
 }
 
-/// Services requests while waiting outside the IPI handler.
-///
-/// Senders mark FENCE pending after enqueueing. Checking the existing bit
-/// avoids locking an empty queue on each synchronization retry. A stale set
-/// bit only causes an unnecessary dequeue attempt. The IPI handler clears
-/// this bit before draining, so it must use the unconditional handler below.
+/// Services one queued request while waiting outside the IPI handler.
 #[inline]
-pub(crate) fn rfence_poll() {
-    use super::hart_local::hart_local;
-    use super::ipi::IPI_TYPE_FENCE;
-    use core::sync::atomic::Ordering;
-
-    let pending = hart_local(HartId::current().expect("BUG: invalid hart ID").as_usize())
-        .ipi_type
-        .load(Ordering::Relaxed);
-    if pending & IPI_TYPE_FENCE != 0 {
-        rfence_single_handler();
-    }
+pub(crate) fn rfence_poll_for(hart: HartId) {
+    rfence_single_handler_for(hart);
 }
 
-/// Handles one remote fence operation, returning whether one was dequeued.
+/// Handles one fence operation queued for `hart`, returning whether one was dequeued.
 #[inline]
-fn rfence_single_handler() -> bool {
-    let local_rf = match local_rfence() {
-        Some(lr) => lr,
-        // TODO: Or return an error, depending on expected invariants
-        None => panic!("rfence_single_handler called with no local rfence context"),
-    };
+fn rfence_single_handler_for(hart: HartId) -> bool {
+    let local_rf = local_rfence_for(hart);
 
     if let Some((ctx, source_hart_id)) = local_rf.get() {
         rfence_local_handler(ctx);
@@ -341,27 +380,28 @@ fn rfence_single_handler() -> bool {
 }
 
 /// Executes a fence on this hart and records its received PMU event.
-///
-/// This function improves performance if RFence is runned on the local hart.
 #[inline]
 pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
     let full_flush = (ctx.start_addr == 0 && ctx.size == 0)
         || (ctx.size == usize::MAX)
         || (ctx.size > TLB_FLUSH_LIMIT && ctx.size != usize::MAX);
 
+    // H-extension fences currently assume every target implements H; dispatch
+    // checks the requesting hart but does not check each remote target.
     match ctx.op {
         RFenceType::FenceI => {
             pmu_firmware_counter_increment(firmware_event::FENCE_I_RECEIVED);
-            riscv::asm::fence_i();
+            runtime::instruction::fence_i();
         }
         RFenceType::SFenceVma => {
             pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_RECEIVED);
             if full_flush {
-                fence::sfence_vma_all();
+                runtime::instruction::sfence_vma_all();
             } else {
                 for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                     let addr = ctx.start_addr.wrapping_add(offset);
-                    fence::sfence_vma_addr(addr);
+                    // SAFETY: M-mode executes the requested address-scoped fence.
+                    unsafe { asm!("sfence.vma {}, x0", in(reg) addr, options(nostack)) };
                 }
             }
         }
@@ -369,11 +409,12 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
             pmu_firmware_counter_increment(firmware_event::SFENCE_VMA_ASID_RECEIVED);
             let asid = ctx.asid;
             if full_flush {
-                fence::sfence_vma_asid(asid);
+                // SAFETY: M-mode executes the requested ASID-scoped fence.
+                unsafe { asm!("sfence.vma x0, {}", in(reg) asid, options(nostack)) };
             } else {
                 for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                     let addr = ctx.start_addr.wrapping_add(offset);
-                    fence::sfence_vma_addr_asid(addr, asid);
+                    runtime::instruction::sfence_vma(asid, addr);
                 }
             }
         }
@@ -382,11 +423,17 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
             pmu_firmware_counter_increment(firmware_event::HFENCE_GVMA_VMID_RECEIVED);
             let vmid = ctx.vmid;
             if full_flush {
-                fence::hfence_gvma_vmid(vmid);
+                // SAFETY: The fence only synchronizes translations. If this
+                // hart does not implement H, the instruction traps.
+                unsafe { asm!("hfence.gvma x0, {}", in(reg) vmid, options(nostack)) };
             } else {
                 for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                     let addr = ctx.start_addr.wrapping_add(offset);
-                    fence::hfence_gvma_addr_vmid(addr, vmid);
+                    // SAFETY: The fence only synchronizes translations. If this
+                    // hart does not implement H, the instruction traps.
+                    unsafe {
+                        asm!("hfence.gvma {}, {}", in(reg) addr, in(reg) vmid, options(nostack))
+                    };
                 }
             }
         }
@@ -394,11 +441,15 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
         RFenceType::HFenceGvma => {
             pmu_firmware_counter_increment(firmware_event::HFENCE_GVMA_RECEIVED);
             if full_flush {
-                fence::hfence_gvma_all();
+                // SAFETY: The fence only synchronizes translations. If this
+                // hart does not implement H, the instruction traps.
+                unsafe { asm!("hfence.gvma x0, x0", options(nostack)) };
             } else {
                 for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                     let addr = ctx.start_addr.wrapping_add(offset);
-                    fence::hfence_gvma_addr(addr);
+                    // SAFETY: The fence only synchronizes translations. If this
+                    // hart does not implement H, the instruction traps.
+                    unsafe { asm!("hfence.gvma {}, x0", in(reg) addr, options(nostack)) };
                 }
             }
         }
@@ -407,11 +458,17 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
             pmu_firmware_counter_increment(firmware_event::HFENCE_VVMA_ASID_RECEIVED);
             let asid = ctx.asid;
             if full_flush {
-                fence::hfence_vvma_asid(asid);
+                // SAFETY: The fence only synchronizes translations. If this
+                // hart does not implement H, the instruction traps.
+                unsafe { asm!("hfence.vvma x0, {}", in(reg) asid, options(nostack)) };
             } else {
                 for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                     let addr = ctx.start_addr.wrapping_add(offset);
-                    fence::hfence_vvma_addr_asid(addr, asid);
+                    // SAFETY: The fence only synchronizes translations. If this
+                    // hart does not implement H, the instruction traps.
+                    unsafe {
+                        asm!("hfence.vvma {}, {}", in(reg) addr, in(reg) asid, options(nostack))
+                    };
                 }
             }
         }
@@ -419,19 +476,23 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
         RFenceType::HFenceVvma => {
             pmu_firmware_counter_increment(firmware_event::HFENCE_VVMA_RECEIVED);
             if full_flush {
-                fence::hfence_vvma_all();
+                // SAFETY: The fence only synchronizes translations. If this
+                // hart does not implement H, the instruction traps.
+                unsafe { asm!("hfence.vvma x0, x0", options(nostack)) };
             } else {
                 for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                     let addr = ctx.start_addr.wrapping_add(offset);
-                    fence::hfence_vvma_addr(addr);
+                    // SAFETY: The fence only synchronizes translations. If this
+                    // hart does not implement H, the instruction traps.
+                    unsafe { asm!("hfence.vvma {}, x0", in(reg) addr, options(nostack)) };
                 }
             }
         }
     }
 }
 
-/// Process all pending remote fence operations on the current hart.
+/// Processes all pending remote fence operations on the current hart.
 #[inline]
-pub fn rfence_handler() {
-    while rfence_single_handler() {}
+fn rfence_handler(hart: HartId) {
+    while rfence_single_handler_for(hart) {}
 }

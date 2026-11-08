@@ -94,7 +94,7 @@ mod tests {
 
     impl GlobalHeapAllocator for OneSlot {
         fn alloc(&self, _slot_layout: Layout) -> Result<HeapSlot<'static>> {
-            self.available.lock().take().ok_or(Error::NoMemory)
+            self.available.lock().take().ok_or(Error::Alloc)
         }
 
         fn dealloc(&self, slot: HeapSlot<'static>) {

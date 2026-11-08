@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use crate::utils::{cargo, cargo_target_dir, workspace_root};
+use crate::utils::{cargo, cargo_target_dir, objcopy, workspace_root};
 use anyhow::{Context, Result, bail};
 use clap::Args;
 
@@ -115,25 +115,11 @@ impl Kernel {
         info!("Converting {} kernel to binary format", self.command_name());
         let kernel_path = target_dir.join(self.package_name());
         let bin_path = target_dir.join(format!("{}.bin", self.package_name()));
-        let objcopy_status = Command::new("rust-objcopy")
-            .args([
-                "-O",
-                "binary",
-                &kernel_path.to_string_lossy(),
-                &bin_path.to_string_lossy(),
-            ])
-            .status()
-            .with_context(|| {
-                format!(
-                    "failed to execute rust-objcopy: '{}' -> '{}'; \
-                     please install cargo-binutils with cmd: cargo install --locked cargo-binutils@0.4.0",
-                    kernel_path.display(),
-                    bin_path.display()
-                )
-            })?;
+        let (objcopy_tool, objcopy_status) =
+            objcopy::convert_elf_to_binary(&kernel_path, &bin_path)?;
         if !objcopy_status.success() {
             bail!(
-                "rust-objcopy failed to convert the {} kernel ELF to binary",
+                "{objcopy_tool} failed to convert the {} kernel ELF to binary",
                 self.command_name()
             );
         }

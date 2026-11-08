@@ -16,8 +16,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Declare Rust 1.88 as the minimum supported Rust version through workspace metadata.
 - pmu: rename `CounterCfgFlags`, `CounterStartFlags`, and `CounterStopFlags` to `ConfigFlags`,
   `StartFlags`, and `StopFlags`; retain deprecated aliases for source compatibility.
+- binary: use base-first argument order for `TriggerMask` construction and extraction, matching
+  the DBTR SBI argument order.
 
 ### Fixed
+
+- binary: skip `HartMask` iterator bits whose hart IDs overflow `usize`, keeping iteration counts exact.
 
 ## [0.0.9] - 2026-05-13
 

@@ -12,7 +12,7 @@
 #           0x80200000) on a small FAT disk that U-Boot loads it from.
 #
 # NuttX and NuttX-apps are checked out at exact commits; U-Boot is built from
-# a pinned release tarball whose digest is verified on every download, with
+# an exact upstream commit managed by ci-uboot.sh, with
 # the boot command compiled in so no console interaction is needed.
 #
 # The success condition is the NSH prompt appearing and the built-in hello
@@ -32,6 +32,9 @@
 # dosfstools and mtools.
 
 set -euo pipefail
+
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
 
 if (( $# > 1 )); then
   echo "Usage: $0 [sbi|u-boot]" >&2
@@ -55,11 +58,8 @@ readonly APPS_COMMIT="c78e4d69eadf15376b05877db36bd2f63dc3b8a6"
 readonly APPS_URL="https://github.com/apache/nuttx-apps.git"
 
 readonly UB_VERSION="2024.04"
-readonly UB_URL="https://github.com/u-boot/u-boot/archive/refs/tags/v${UB_VERSION}.tar.gz"
-readonly UB_SHA256="d6b57ce574a0a0504a5b6596644ceacb7f77bde9353779bcf2fde07c4b9a2b92"
 
 readonly NUTTX_CROSS_COMPILE="riscv64-unknown-elf-"
-readonly UB_CROSS_COMPILE="riscv64-linux-gnu-"
 
 # NSH answers the hello example with this line; seeing it means interactive
 # userspace works, not merely that the kernel started.
@@ -196,36 +196,9 @@ download_asset() {
 # uImage from the FAT disk, which QEMU attaches first so that U-Boot numbers
 # it virtio 0. RustSBI's patched device tree outgrows the slot U-Boot keeps
 # for it, so `bootm` is handed a copy at fdt_addr_r, U-Boot's designated free
-# FDT address, with an explicit 64 KiB length bound. The single quotes keep
-# the command one hush word and keep the ${...} variables for U-Boot to
-# expand at runtime; `scripts/config` rewrites the value with sed, so it
-# must not contain `&`.
+# FDT address, with an explicit 64 KiB length bound.
 prepare_uboot() {
-  local tarball="${WORK_DIR}/u-boot-${UB_VERSION}.tar.gz"
-  local tree="${WORK_DIR}/u-boot-${UB_VERSION}"
-  local build="${WORK_DIR}/u-boot-build"
-
-  if [[ -s "$UB_BIN" ]]; then
-    echo "Using cached U-Boot ${UB_VERSION}" >&2
-    return
-  fi
-
-  mkdir -p "$WORK_DIR" "$UB_CACHE"
-  download_asset "$UB_URL" "$tarball" "$UB_SHA256"
-
-  rm -rf "$tree" "$build"
-  tar -xzf "$tarball" -C "$WORK_DIR"
-
-  make -C "$tree" O="$(realpath -m "$build")" ARCH=riscv CROSS_COMPILE="$UB_CROSS_COMPILE" \
-    qemu-riscv64_smode_defconfig
-  "${tree}/scripts/config" --file "${build}/.config" --enable USE_BOOTCOMMAND
-  # shellcheck disable=SC2016
-  "${tree}/scripts/config" --file "${build}/.config" --set-str BOOTCOMMAND \
-    'virtio scan; load virtio 0 ${kernel_addr_r} nuttx.uimg; fdt move ${fdtcontroladdr} ${fdt_addr_r} 0x10000; bootm ${kernel_addr_r} - ${fdt_addr_r}'
-  make -C "$tree" O="$(realpath -m "$build")" ARCH=riscv CROSS_COMPILE="$UB_CROSS_COMPILE" \
-    -j"$(nproc)"
-
-  cp "${build}/u-boot.bin" "$UB_BIN"
+  ci_uboot_build 2024.04 smode nuttx-smode "$UB_CACHE"
 }
 
 # U-Boot's bootm boots legacy uImages, so wrap the flat NuttX binary with

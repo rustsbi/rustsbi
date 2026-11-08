@@ -7,44 +7,46 @@
 
 #![forbid(unsafe_code)]
 
-use alloc::boxed::Box;
 use core::fmt;
 use runtime::{
-    Result,
+    Error, Result, console,
     memory::{PhysAddr, PhysAddrRange, SupervisorMemory},
-    rustsbi::{Console, Physical, SbiRet},
+    rustsbi::{Console as SbiConsoleDevice, Physical, SbiRet},
 };
-use spin::Mutex;
 
-use crate::driver::{DbcnBackend, DbcnError};
-
-/// Bounds stack use and work performed while the console device lock is held.
+// Bound stack use and work performed while the console device lock is held.
+/// Maximum number of bytes per console operation.
 const MAX_TRANSFER_BYTES: usize = 256;
+
+/// Maps device errors to the errors supported by SBI DBCN.
+#[inline]
+fn console_error(error: Error) -> SbiRet {
+    match error {
+        Error::AccessDenied => SbiRet::denied(),
+        _ => SbiRet::failed(),
+    }
+}
 
 /// SBI console service over a platform console device.
 pub(crate) struct SbiConsole {
-    device: &'static Mutex<Box<dyn DbcnBackend + Send>>,
     supervisor_memory: &'static SupervisorMemory,
 }
 
 impl SbiConsole {
-    /// Creates a new SBI console handle over the published console device.
+    /// Creates an SBI console service for the supervisor memory.
+    ///
+    /// The Runtime console device must already be registered.
     #[inline]
-    pub(crate) fn new(
-        device: &'static Mutex<Box<dyn DbcnBackend + Send>>,
-        supervisor_memory: &'static SupervisorMemory,
-    ) -> Self {
-        Self {
-            device,
-            supervisor_memory,
-        }
+    pub(crate) fn new(supervisor_memory: &'static SupervisorMemory) -> Self {
+        Self { supervisor_memory }
     }
 
     // Console transfers require the complete buffer to belong to registered
-    // supervisor memory. A zero-length transfer does not inspect its address.
-    // SBI v3.0 DBCN Tables 50-51 assign INVALID_PARAM to buffers that do not
-    // satisfy Section 3.2. This differs from Section 3.2's generic
-    // INVALID_ADDRESS/FAILED guidance; this adapter follows the DBCN tables.
+    // supervisor memory; a zero-length transfer does not inspect its address.
+    // SBI v3.0 DBCN tables 50–51 assign `SBI_ERR_INVALID_PARAM` to buffers
+    // that do not satisfy Section 3.2.
+    // This differs from Section 3.2's generic `SBI_ERR_INVALID_ADDRESS` and
+    // `SBI_ERR_FAILED` guidance; this adapter follows the DBCN tables.
     #[inline]
     fn validate_buffer<P>(&self, buffer: &Physical<P>) -> Result<(PhysAddr, usize), SbiRet> {
         let start = PhysAddr::new(buffer.phys_addr_lo());
@@ -68,18 +70,21 @@ impl SbiConsole {
         Ok((start, len))
     }
 
-    pub(super) fn write_byte_blocking(&self, byte: u8) -> Result<(), DbcnError> {
+    pub(super) fn write_byte_blocking(&self, byte: u8) -> Result<()> {
         loop {
-            match self.device.lock().write_slice(&[byte])? {
+            let written = console::get()
+                .ok_or(Error::NotReady)?
+                .write_slice(&[byte])?;
+            match written {
                 0 => core::hint::spin_loop(),
                 1 => return Ok(()),
-                _ => return Err(DbcnError::Failed),
+                _ => return Err(Error::IoError),
             }
         }
     }
 }
 
-impl Console for SbiConsole {
+impl SbiConsoleDevice for SbiConsole {
     /// Writes bytes from the physical buffer described by `buffer`.
     #[inline]
     fn write(&self, buffer: Physical<&[u8]>) -> SbiRet {
@@ -103,9 +108,13 @@ impl Console for SbiConsole {
         {
             return SbiRet::invalid_param();
         }
-        let count = match self.device.lock().write_slice(&chunk[..chunk_len]) {
+        let Some(mut console) = console::get() else {
+            return SbiRet::failed();
+        };
+        let result = console.write_slice(&chunk[..chunk_len]);
+        let count = match result {
             Ok(count) => count,
-            Err(error) => return dbcn_error(error),
+            Err(error) => return console_error(error),
         };
         if count > chunk_len {
             return SbiRet::failed();
@@ -128,9 +137,13 @@ impl Console for SbiConsole {
         // and reports the partial result directly.
         let mut chunk = [0; MAX_TRANSFER_BYTES];
         let chunk_len = len.min(chunk.len());
-        let count = match self.device.lock().read_slice(&mut chunk[..chunk_len]) {
+        let Some(mut console) = console::get() else {
+            return SbiRet::failed();
+        };
+        let result = console.read_slice(&mut chunk[..chunk_len]);
+        let count = match result {
             Ok(count) => count,
-            Err(error) => return dbcn_error(error),
+            Err(error) => return console_error(error),
         };
         if count > chunk_len {
             return SbiRet::failed();
@@ -152,43 +165,31 @@ impl Console for SbiConsole {
     fn write_byte(&self, byte: u8) -> SbiRet {
         match self.write_byte_blocking(byte) {
             Ok(()) => SbiRet::success(0),
-            Err(error) => dbcn_error(error),
+            Err(error) => console_error(error),
         }
-    }
-}
-
-/// Maps backend denial and I/O errors from DBCN Tables 50-52.
-/// Physical-memory errors are handled at entry; unsupported EIDs/FIDs belong
-/// to the SBI dispatcher and are not backend errors.
-fn dbcn_error(error: DbcnError) -> SbiRet {
-    match error {
-        DbcnError::Denied => SbiRet::denied(),
-        DbcnError::Failed => SbiRet::failed(),
     }
 }
 
 /// Prints formatted arguments to the console device, if one is present.
 ///
-/// Used by the `print!` and `println!` macros. Retries until all bytes
-/// have been written, spinning whenever a write returns zero.
+/// Used by the `print!` and `println!` macros.
+/// Retries until all bytes have been written,
+/// spinning whenever a write returns zero.
 /// Does nothing if no console device has been initialized.
 /// Stops on backend errors without recursively logging through the failed device.
 pub fn _print(args: fmt::Arguments) {
     use core::fmt::Write as _;
 
-    struct ConsoleWriter<'a> {
-        device: &'a Mutex<Box<dyn DbcnBackend + Send>>,
-    }
+    struct ConsoleWriter;
 
-    impl fmt::Write for ConsoleWriter<'_> {
+    impl fmt::Write for ConsoleWriter {
         #[inline]
         fn write_str(&mut self, s: &str) -> fmt::Result {
             let bytes = s.as_bytes();
             let mut written = 0;
             while written < bytes.len() {
-                let n = self
-                    .device
-                    .lock()
+                let n = console::get()
+                    .ok_or(fmt::Error)?
                     .write_slice(&bytes[written..])
                     .map_err(|_| fmt::Error)?;
                 if n > bytes.len() - written {
@@ -204,9 +205,10 @@ pub fn _print(args: fmt::Arguments) {
         }
     }
 
-    if let Some(device) = crate::platform::console_device() {
-        let _ = ConsoleWriter { device }.write_fmt(args);
+    if console::get().is_none() {
+        return;
     }
+    let _ = ConsoleWriter.write_fmt(args);
 }
 
 #[macro_export]

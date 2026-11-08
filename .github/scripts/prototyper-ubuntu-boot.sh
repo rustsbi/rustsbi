@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+
 # Boot the pinned Ubuntu image through the RustSBI build at the current checkout.
 readonly UBUNTU_VERSION=24.04.5
 readonly UBUNTU_IMAGE="ubuntu-${UBUNTU_VERSION}-preinstalled-server-riscv64.img"
 readonly UBUNTU_SHA256=1cbd4b187f33356107daa637a5588d8f8a1744c7a012189e9c5e6d0b177825c4
 readonly UBUNTU_URL="https://cdimage.ubuntu.com/releases/24.04/release/${UBUNTU_IMAGE}.xz"
-readonly UBOOT_DEB=u-boot-qemu_2025.10-0ubuntu0.24.04.2_all.deb
-readonly UBOOT_SHA256=2154e34e4c7037105e8448514faad296b2bbfb1cc460674e3d67cca42d402d9a
+readonly UBOOT_VERSION=2025.10-0ubuntu0.24.04.2
 readonly EDK2_DEB=qemu-efi-riscv64_2024.02-2ubuntu0.9_all.deb
 readonly EDK2_SHA256=40258b466ee56ea1e65a2990076e072488bc447430777c0ff120731a35477d18
 # Keep pinned bootloaders available after newer packages supersede them.
@@ -66,9 +68,8 @@ download_image() {
 prepare_bootloader() {
   local package sha path url
   if [[ "$BOOT_MODE" = u-boot ]]; then
-    package=$UBOOT_DEB
-    sha=$UBOOT_SHA256
-    url="${PACKAGE_MIRROR}/pool/main/u/u-boot/${package}"
+    ci_uboot_package "$UBOOT_VERSION" "$BUILD_DIR/$BOOT_MODE"
+    return
   else
     package=$EDK2_DEB
     sha=$EDK2_SHA256

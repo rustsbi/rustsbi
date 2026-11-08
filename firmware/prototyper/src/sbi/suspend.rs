@@ -7,7 +7,7 @@
 
 #![forbid(unsafe_code)]
 
-use riscv::register::mstatus;
+use csr::machine::{MPP, Privilege, Status};
 use runtime::{
     hart::{self, HartId, HartState},
     rustsbi::{Hsm, SbiRet, Susp},
@@ -16,7 +16,7 @@ use sbi_spec::hsm::suspend_type::NON_RETENTIVE;
 
 const SUSPEND_TO_RAM: u32 = 0x0;
 
-/// Implementation of SBI System Suspend Extension extension.
+/// SBI System Suspend extension.
 pub(crate) struct SbiSuspend;
 
 impl Susp for SbiSuspend {
@@ -25,19 +25,16 @@ impl Susp for SbiSuspend {
             return SbiRet::invalid_param();
         }
 
-        let prev_mode = mstatus::read().mpp();
-        if prev_mode != mstatus::MPP::Supervisor && prev_mode != mstatus::MPP::User {
+        let prev_mode = Status::read().get::<MPP>();
+        if prev_mode != Privilege::Supervisor && prev_mode != Privilege::User {
             return SbiRet::failed();
         }
 
-        // Check if all harts except the current hart are stopped
-        let hart_enable_map = if let Some(hart_enable_map) = crate::platform::enabled_harts() {
-            hart_enable_map
-        } else {
+        // SBI system suspend requires all other harts to be stopped.
+        let Ok(current_hart) = HartId::current() else {
             return SbiRet::failed();
         };
-        let current_hart = HartId::current().expect("BUG: unknown current hart");
-        for hart in hart_enable_map {
+        for hart in super::features::enabled_harts() {
             if hart != current_hart && hart::status(hart) != HartState::Stopped {
                 return SbiRet::denied();
             }

@@ -12,35 +12,35 @@ use riscv::{
 /// Timer programmer extension test cases.
 #[derive(Clone, Debug)]
 pub enum Case {
-    /// Can't proceed test for Timer extension does not exist.
+    /// The timer extension is unavailable.
     NotExist,
-    /// Test begin.
+    /// The test has begun.
     Begin,
-    /// Test process for time interval overhead between two reads.
+    /// Two successive time counter readings.
     Interval {
         /// The time counter value for the first read.
         begin: u64,
         /// The time counter value for the second read.
         end: u64,
     },
-    /// Test failed for can't read `time` register.
+    /// The `time` register could not be read.
     ReadFailed,
-    /// Test failed for time counter has decreased during period of two reads.
+    /// The time counter did not increase between two reads.
     TimeDecreased {
         /// The time counter value for the first read.
         a: u64,
         /// The time counter value for the second read.
         b: u64,
     },
-    /// Test process for timer has been set.
+    /// The supervisor timer interrupt was received.
     SetTimer,
-    /// Test failed for unexpected trap during timer test.
+    /// An unexpected trap occurred during the timer test.
     UnexpectedTrap(Trap<usize, usize>),
-    /// All test cases on timer extension has passed.
+    /// The timer test passed.
     Pass,
 }
 
-/// Test timer extension.
+/// Tests the timer extension.
 pub fn test(delay: u64, mut f: impl FnMut(Case)) {
     if sbi::probe_extension(sbi::Timer).is_unavailable() {
         f(Case::NotExist);
@@ -50,6 +50,8 @@ pub fn test(delay: u64, mut f: impl FnMut(Case)) {
     let begin: usize;
     let end: usize;
     let mut ok = 0xffusize;
+    // SAFETY: The test runs in supervisor mode and sets an aligned trap
+    // vector to the continuation before probing the time CSR.
     unsafe {
         core::arch::asm!(
             "   la   {stvec}, 2f
@@ -66,7 +68,7 @@ pub fn test(delay: u64, mut f: impl FnMut(Case)) {
             ok    = inlateout(reg) ok,
         );
     }
-    // TODO: support RV32 where there are time and timeh registers.
+    // TODO: Support RV32, where the time counter spans `time` and `timeh`.
     let begin: u64 = begin as u64;
     let end: u64 = end as u64;
     if ok != 0 {
@@ -79,13 +81,23 @@ pub fn test(delay: u64, mut f: impl FnMut(Case)) {
     }
     f(Case::Interval { begin, end });
 
+    // WFI may resume for an interrupt handled in M-mode without an S-mode trap.
+    fn wait_for_timer() -> ! {
+        loop {
+            riscv::asm::wfi();
+        }
+    }
+
     let mut stack = [0usize; 32];
     let mut thread = Thread::new(
-        riscv::asm::wfi as *const () as _,
+        wait_for_timer as *const () as _,
         stack.as_mut_ptr_range().end as _,
     );
 
     sbi::set_timer(time::read64() + delay);
+    // SAFETY:
+    // 1. The supervisor timer is programmed before its interrupt is enabled.
+    // 2. The thread owns its stack and installs a trap entry for returning to this test.
     unsafe {
         sie::set_stimer();
         thread.execute();

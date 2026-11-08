@@ -1,7 +1,6 @@
 //! Allwinner V821 vendor SBI extensions.
 //!
-//! Device ownership remains in the firmware drivers; this module translates
-//! SBI function IDs into typed operations.
+//! The extensions provide cache maintenance and optional USB DMA bypass.
 //!
 //! # References
 //!
@@ -10,10 +9,13 @@
 //! - Vendor caller: [V821 U-Boot A27L2 cache support](https://github.com/sam-yangjj/tina-v821-v1.3-brandy/blob/34809037526678ccda1720cb4b4ec7ee32272c38/brandy-2.0/u-boot-2018/arch/riscv/cpu/A27L2/cache.c)
 //!   — physical start/length range arguments used by the cache calls.
 
-use crate::driver::allwinner::v821::{A27L2Cache, UsbDmaBypass};
-use crate::platform::allwinner::v821::V821;
+use crate::driver::platform::allwinner::v821::{
+    V821,
+    a27l2::{self, A27L2Cache},
+    usb_dma_bypass::{self, UsbDmaBypass},
+};
 use runtime::{
-    Error, Result,
+    Error, PlatformView, Result,
     memory::{MemoryRegistry, SupervisorMemory},
     rustsbi::{self, Extension as SbiExtension, SbiRet, VendorSBI},
     soc::allwinner::v821::AndesStatusRegister,
@@ -31,12 +33,21 @@ pub(in crate::sbi::vendor) struct Extension {
 }
 
 impl Extension {
-    pub(in crate::sbi::vendor) fn bind(v821: V821, memory: &mut MemoryRegistry) -> Result<Self> {
-        let (soc, cache, usb_dma_bypass) = v821.into_extension_devices()?.into_parts();
+    /// Discovers and initializes the devices owned by the V821 extension.
+    ///
+    /// The timer service must be initialized before cache maintenance,
+    /// because those operations wait on `timer::now()`.
+    pub(in crate::sbi::vendor) fn init(
+        v821: V821,
+        platform: &PlatformView<'_>,
+        memory: &mut MemoryRegistry,
+    ) -> Result<Self> {
+        let cache = a27l2::describe(platform, v821.soc())?.ok_or(Error::InvalidArgs)?;
+        let usb_dma_bypass = usb_dma_bypass::describe(platform)?;
         Ok(Self {
-            cache: A27L2Cache::bind(soc, cache, memory)?,
+            cache: A27L2Cache::init(cache, memory)?,
             usb_dma_bypass: usb_dma_bypass
-                .map(|registers| UsbDmaBypass::bind(registers, memory))
+                .map(|description| UsbDmaBypass::init(description, memory))
                 .transpose()?,
         })
     }
@@ -89,19 +100,9 @@ impl SbiExtension for Andes {
                 self.cache
                     .read_status(AndesStatusRegister::MachineMiscControl),
             ),
-            23 => sbi_result(self.cache.flush_all(crate::sbi::timer())),
-            27 => sbi_result(self.cache.write_back_range(
-                args[0],
-                args[1],
-                self.memory,
-                crate::sbi::timer(),
-            )),
-            28 => sbi_result(self.cache.invalidate_range(
-                args[0],
-                args[1],
-                self.memory,
-                crate::sbi::timer(),
-            )),
+            23 => sbi_result(self.cache.flush_all()),
+            27 => sbi_result(self.cache.write_back_range(args[0], args[1], self.memory)),
+            28 => sbi_result(self.cache.invalidate_range(args[0], args[1], self.memory)),
             _ => SbiRet::not_supported(),
         }
     }

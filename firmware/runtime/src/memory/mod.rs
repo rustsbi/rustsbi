@@ -20,6 +20,6 @@ pub use image::locate_firmware_image;
 pub use address::PhysAddr;
 pub use handoff::HandoffBuffer;
 pub use mmio::{MmioRegion, MmioValue};
-pub use region::{DeviceRegisterRange, PhysAddrRange};
+pub use region::{PhysAddrRange, RegRange};
 pub use registry::MemoryRegistry;
 pub use supervisor::SupervisorMemory;

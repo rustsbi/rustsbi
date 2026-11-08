@@ -2,6 +2,9 @@
 # Boot the official Alpine live image through the current RustSBI build.
 set -euo pipefail
 
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+
 SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 readonly SCRIPT_PATH
 TEST_MODE=boot
@@ -34,12 +37,12 @@ readonly ALPINE_KERNEL=6.18.7-0-lts
 readonly ISO_NAME="alpine-standard-${ALPINE_VERSION}-riscv64.iso"
 readonly ISO_URL="https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/riscv64/${ISO_NAME}"
 readonly ISO_SHA256=3944efd920cdfb34d7f0b03b766ee549c6a82bac582315cfee55993490f2455f
-readonly UBOOT_DEB=u-boot-qemu_2025.10-0ubuntu0.24.04.2_all.deb
-readonly UBOOT_SHA256=2154e34e4c7037105e8448514faad296b2bbfb1cc460674e3d67cca42d402d9a
+readonly UBOOT_VERSION=2025.10-0ubuntu0.24.04.2
 readonly EDK2_DEB=qemu-efi-riscv64_2024.02-2ubuntu0.10_all.deb
 readonly EDK2_SHA256=4f2a7b3757906f60eeedca3181e8d83af6f45477ecc9f306f483cebf665ecdd4
-# Keep pinned bootloaders available after newer packages supersede them.
-readonly PACKAGE_MIRROR=https://snapshot.ubuntu.com/ubuntu/20261006T100000Z
+readonly EDK2_ARCHIVE=https://archive.ubuntu.com/ubuntu/pool/universe/e/edk2
+# Keep the pinned package available after a newer version supersedes it.
+readonly EDK2_SNAPSHOT=https://snapshot.ubuntu.com/ubuntu/20261006T100000Z/pool/universe/e/edk2
 readonly CACHE_DIR="${ALPINE_CACHE_DIR:-target/alpine-boot/cache}"
 readonly WORK_BASE="${ALPINE_WORK_DIR:-target/alpine-boot/work}"
 readonly LOG_DIR="${QEMU_LOG_DIR:-qemu-logs}"
@@ -73,44 +76,48 @@ verify_sha256() {
 }
 
 download_asset() {
-  local url=$1 destination=$2 digest=$3
+  local destination=$1 digest=$2 url
+  shift 2
   if [[ -f "$destination" ]] && verify_sha256 "$digest" "$destination"; then
     echo "Using verified $(basename "$destination")"
     return
   fi
   DOWNLOAD_TEMP=$(mktemp "${destination}.part.XXXXXX")
-  curl --fail --location --connect-timeout 30 --max-time "$DOWNLOAD_TIMEOUT_SECS" \
-    --retry 3 --retry-all-errors --retry-max-time "$DOWNLOAD_TIMEOUT_SECS" \
-    --output "$DOWNLOAD_TEMP" "$url"
-  if ! verify_sha256 "$digest" "$DOWNLOAD_TEMP"; then
-    echo "SHA-256 mismatch: $url" >&2
-    return 1
-  fi
-  mv "$DOWNLOAD_TEMP" "$destination"
-  DOWNLOAD_TEMP=""
+  for url in "$@"; do
+    if curl --fail --location --connect-timeout 30 --max-time "$DOWNLOAD_TIMEOUT_SECS" \
+      --retry 3 --retry-all-errors --retry-max-time "$DOWNLOAD_TIMEOUT_SECS" \
+      --output "$DOWNLOAD_TEMP" "$url"; then
+      if verify_sha256 "$digest" "$DOWNLOAD_TEMP"; then
+        mv "$DOWNLOAD_TEMP" "$destination"
+        DOWNLOAD_TEMP=""
+        return
+      fi
+      echo "SHA-256 mismatch: $url" >&2
+    else
+      echo "Download failed: $url" >&2
+    fi
+  done
+  return 1
 }
 
 prepare_assets() {
-  local package digest url
-  download_asset "$ISO_URL" "$CACHE_DIR/$ISO_NAME" "$ISO_SHA256"
-  if [[ "$BOOT_MODE" = sbi ]]; then
-    xorriso -osirrox on -indev "$CACHE_DIR/$ISO_NAME" \
-      -extract /boot/vmlinuz-lts "$RUN_DIR/vmlinuz-lts" \
-      -extract /boot/initramfs-lts "$RUN_DIR/initramfs-lts"
-    gzip -dc "$RUN_DIR/vmlinuz-lts" > "$RUN_DIR/Image"
-  else
-    if [[ "$BOOT_MODE" = u-boot ]]; then
-      package=$UBOOT_DEB
-      digest=$UBOOT_SHA256
-      url="$PACKAGE_MIRROR/pool/main/u/u-boot/$package"
-    else
-      package=$EDK2_DEB
-      digest=$EDK2_SHA256
-      url="$PACKAGE_MIRROR/pool/universe/e/edk2/$package"
-    fi
-    download_asset "$url" "$CACHE_DIR/$package" "$digest"
-    dpkg-deb -x "$CACHE_DIR/$package" "$RUN_DIR/bootloader"
-  fi
+  download_asset "$CACHE_DIR/$ISO_NAME" "$ISO_SHA256" "$ISO_URL"
+  case "$BOOT_MODE" in
+    sbi)
+      xorriso -osirrox on -indev "$CACHE_DIR/$ISO_NAME" \
+        -extract /boot/vmlinuz-lts "$RUN_DIR/vmlinuz-lts" \
+        -extract /boot/initramfs-lts "$RUN_DIR/initramfs-lts"
+      gzip -dc "$RUN_DIR/vmlinuz-lts" > "$RUN_DIR/Image"
+      ;;
+    u-boot)
+      ci_uboot_package "$UBOOT_VERSION" "$RUN_DIR/bootloader"
+      ;;
+    edk2)
+      download_asset "$CACHE_DIR/$EDK2_DEB" "$EDK2_SHA256" \
+        "$EDK2_ARCHIVE/$EDK2_DEB" "$EDK2_SNAPSHOT/$EDK2_DEB"
+      dpkg-deb -x "$CACHE_DIR/$EDK2_DEB" "$RUN_DIR/bootloader"
+      ;;
+  esac
 }
 
 start_qemu() {

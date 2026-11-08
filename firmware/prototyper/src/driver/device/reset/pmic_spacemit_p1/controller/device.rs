@@ -1,0 +1,340 @@
+//! SpacemiT K1 I2C controller transport.
+//!
+//! # References
+//!
+//! - Reference implementation: [Linux K1 I2C driver](https://github.com/torvalds/linux/blob/a500db7819c50db59e55f1b4fa1c3baa5a2616f3/drivers/i2c/busses/i2c-k1.c)
+//!   — register layout and status-driven PIO sequence.
+//! - Firmware implementation: [OpenSBI SpacemiT I2C driver](https://github.com/riscv-software-src/opensbi/blob/35511bc6ee1c9c17b6a89b44c52e2044bb51b979/lib/utils/i2c/fdt_i2c_spacemit.c)
+//!   — controller reset delays and transfer timeout.
+
+use bitflags::bitflags;
+use core::mem::{align_of, size_of};
+use core::time::Duration;
+use runtime::{
+    Error, Result,
+    memory::{MemoryRegistry, MmioRegion},
+    timer,
+};
+
+use super::super::description::I2cAddress;
+use super::description::Desc;
+
+#[repr(usize)]
+#[derive(Clone, Copy)]
+enum Register {
+    Control = 0x00,
+    Status = 0x04,
+    DataBuffer = 0x0c,
+    ResetCycle = 0x18,
+}
+
+impl Register {
+    const fn offset(self) -> usize {
+        self as usize
+    }
+}
+
+const REGISTER_SPAN: usize = Register::ResetCycle.offset() + size_of::<u32>();
+
+bitflags! {
+    #[derive(Clone, Copy)]
+    struct Control: u32 {
+        const START = 1 << 0;
+        const STOP = 1 << 1;
+        const ACK_NAK = 1 << 2;
+        const TRANSFER_BYTE = 1 << 3;
+        const UNIT_RESET = 1 << 10;
+        const SCL_ENABLE = 1 << 13;
+        const UNIT_ENABLE = 1 << 14;
+        const GENERAL_CALL_DISABLE = 1 << 21;
+        const MASTER_STOP_DETECT_ENABLE = 1 << 26;
+    }
+
+    #[derive(Clone, Copy)]
+    struct Status: u32 {
+        const ACK_NAK = 1 << 14;
+        const UNIT_BUSY = 1 << 15;
+        const BUS_BUSY = 1 << 16;
+        const ARBITRATION_LOSS = 1 << 18;
+        const TX_EMPTY = 1 << 19;
+        const RX_FULL = 1 << 20;
+        const GENERAL_CALL_ADDRESS_DETECTED = 1 << 21;
+        const BUS_ERROR = 1 << 22;
+        const SLAVE_ADDRESS_DETECTED = 1 << 23;
+        const SLAVE_STOP_DETECTED = 1 << 24;
+        const MASTER_STOP_DETECTED = 1 << 26;
+        const TRANSACTION_DONE = 1 << 27;
+        const TX_FIFO_EMPTY = 1 << 28;
+        const RX_FIFO_HALF_FULL = 1 << 29;
+        const RX_FIFO_FULL = 1 << 30;
+        const RX_OVERRUN = 1 << 31;
+    }
+
+    #[derive(Clone, Copy)]
+    struct ResetCycle: u32 {
+        const SDA_GLITCH_FILTER_BYPASS = 1 << 7;
+    }
+}
+
+const TRANSFER_CONTROL: Control = Control::START
+    .union(Control::STOP)
+    .union(Control::ACK_NAK)
+    .union(Control::TRANSFER_BYTE);
+const STATUS_ERRORS: Status = Status::BUS_ERROR
+    .union(Status::RX_OVERRUN)
+    .union(Status::ARBITRATION_LOSS);
+const CLEARABLE_STATUS: Status = Status::ARBITRATION_LOSS
+    .union(Status::TX_EMPTY)
+    .union(Status::RX_FULL)
+    .union(Status::GENERAL_CALL_ADDRESS_DETECTED)
+    .union(Status::BUS_ERROR)
+    .union(Status::SLAVE_ADDRESS_DETECTED)
+    .union(Status::SLAVE_STOP_DETECTED)
+    .union(Status::MASTER_STOP_DETECTED)
+    .union(Status::TRANSACTION_DONE)
+    .union(Status::TX_FIFO_EMPTY)
+    .union(Status::RX_FIFO_HALF_FULL)
+    .union(Status::RX_FIFO_FULL)
+    .union(Status::RX_OVERRUN);
+
+#[repr(u8)]
+enum Direction {
+    Write = 0,
+    Read = 1,
+}
+
+// Reset and transfer timings follow the OpenSBI reference above.
+const CONTROLLER_RESET_DELAY: Duration = Duration::from_micros(10);
+const TRANSFER_TIMEOUT: Duration = Duration::from_micros(1_000);
+const NANOSECONDS_PER_SECOND: u64 = 1_000_000_000;
+
+/// A timer frequency used to convert durations to ticks and measure timeouts.
+#[derive(Clone, Copy)]
+struct Timebase(u64);
+
+impl Timebase {
+    fn new(frequency_hz: u32) -> Option<Self> {
+        (frequency_hz != 0).then_some(Self(u64::from(frequency_hz)))
+    }
+
+    fn ticks_for(self, duration: Duration) -> u64 {
+        let whole_seconds = duration.as_secs().saturating_mul(self.0);
+        let fractional = u64::from(duration.subsec_nanos())
+            .saturating_mul(self.0)
+            .div_ceil(NANOSECONDS_PER_SECOND);
+        whole_seconds.saturating_add(fractional)
+    }
+
+    fn elapsed(self, start: u64, duration: Duration) -> Result<bool> {
+        let now = timer::now()?.ok_or(Error::IoError)?;
+        Ok(now.wrapping_sub(start) >= self.ticks_for(duration))
+    }
+
+    fn delay(self, duration: Duration) -> Result<()> {
+        let start = timer::now()?.ok_or(Error::IoError)?;
+        while !self.elapsed(start, duration)? {
+            core::hint::spin_loop();
+        }
+        Ok(())
+    }
+}
+
+/// A K1 I2C controller bound to its MMIO window and timebase.
+pub(in super::super) struct K1I2cController {
+    registers: MmioRegion,
+    timebase: Timebase,
+}
+
+impl K1I2cController {
+    pub(in super::super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+        let timebase = Timebase::new(
+            description
+                .timebase_frequency_hz
+                .ok_or(Error::InvalidArgs)?,
+        )
+        .ok_or(Error::InvalidArgs)?;
+        let registers = description.registers.subrange(0, REGISTER_SPAN)?;
+        if !registers.start().is_aligned_to(align_of::<u32>()) {
+            return Err(Error::InvalidArgs);
+        }
+        Ok(Self {
+            registers: memory.acquire(registers)?,
+            timebase,
+        })
+    }
+
+    #[inline]
+    fn read(&self, register: Register) -> Result<u32> {
+        self.registers.read(register.offset())
+    }
+
+    #[inline]
+    fn write(&self, register: Register, value: u32) -> Result<()> {
+        self.registers.write(register.offset(), value)
+    }
+
+    fn reset(&self) -> Result<()> {
+        // Disable, reset, then enable the controller.
+        // It requires `CONTROLLER_RESET_DELAY` after the first two phases.
+        self.write(Register::Control, Control::empty().bits())?;
+        self.timebase.delay(CONTROLLER_RESET_DELAY)?;
+        self.write(Register::Control, Control::UNIT_RESET.bits())?;
+        self.timebase.delay(CONTROLLER_RESET_DELAY)?;
+        self.write(
+            Register::Control,
+            (Control::UNIT_ENABLE | Control::SCL_ENABLE).bits(),
+        )
+    }
+
+    fn clear_status(&self, status: Status) -> Result<()> {
+        self.write(Register::Status, (status & CLEARABLE_STATUS).bits())
+    }
+
+    /// Waits until `mask` appears in the status register.
+    ///
+    /// A bus error, NACK, or timeout resets the controller and reports a
+    /// transaction failure. MMIO access errors are propagated unchanged.
+    fn wait_for_status(&self, mask: Status) -> Result<Status> {
+        let start = timer::now()?.ok_or(Error::IoError)?;
+        loop {
+            let status = Status::from_bits_retain(self.read(Register::Status)?);
+            if status.intersects(STATUS_ERRORS | Status::ACK_NAK) {
+                // Keep the transaction failure as the primary error even if
+                // cleanup also fails.
+                let _ = self.clear_status(status);
+                let _ = self.reset();
+                return Err(Error::IoError);
+            }
+            if status.intersects(mask) {
+                self.clear_status(status)?;
+                return Ok(status);
+            }
+            if self.timebase.elapsed(start, TRANSFER_TIMEOUT)? {
+                let _ = self.reset();
+                return Err(Error::IoError);
+            }
+            core::hint::spin_loop();
+        }
+    }
+
+    fn prepare_transfer(&self) -> Result<()> {
+        self.reset()?;
+        let reset_cycle = ResetCycle::from_bits_retain(self.read(Register::ResetCycle)?)
+            | ResetCycle::SDA_GLITCH_FILTER_BYPASS;
+        self.write(Register::ResetCycle, reset_cycle.bits())?;
+        self.write(
+            Register::Control,
+            (Control::GENERAL_CALL_DISABLE
+                | Control::SCL_ENABLE
+                | Control::MASTER_STOP_DETECT_ENABLE
+                | Control::UNIT_ENABLE)
+                .bits(),
+        )?;
+        self.clear_status(Status::from_bits_retain(self.read(Register::Status)?))?;
+
+        // A previous transfer may still own the bus; wait for both the unit
+        // and the bus to report idle.
+        let start = timer::now()?.ok_or(Error::IoError)?;
+        loop {
+            let status = Status::from_bits_retain(self.read(Register::Status)?);
+            if !status.intersects(Status::UNIT_BUSY | Status::BUS_BUSY) {
+                return Ok(());
+            }
+            if self.timebase.elapsed(start, TRANSFER_TIMEOUT)? {
+                let _ = self.reset();
+                return Err(Error::IoError);
+            }
+            core::hint::spin_loop();
+        }
+    }
+
+    fn disable(&self) -> Result<()> {
+        let control = Control::from_bits_retain(self.read(Register::Control)?);
+        self.write(Register::Control, (control - Control::UNIT_ENABLE).bits())
+    }
+
+    /// Disables the controller after a transaction, letting the transaction's
+    /// own error take precedence over a cleanup error.
+    fn finish_transaction<T>(&self, result: Result<T>) -> Result<T> {
+        let cleanup = self.disable();
+        match result {
+            Err(error) => Err(error),
+            Ok(value) => cleanup.map(|()| value),
+        }
+    }
+
+    fn start(&self, device: I2cAddress, direction: Direction) -> Result<()> {
+        // The data buffer carries the 7-bit address in bits 7:1 and the
+        // direction in bit 0.
+        let address = (device.get() << 1) | direction as u8;
+        self.write(Register::DataBuffer, u32::from(address))?;
+        let control = Control::from_bits_retain(self.read(Register::Control)?) - TRANSFER_CONTROL;
+        self.write(
+            Register::Control,
+            (control | Control::START | Control::TRANSFER_BYTE).bits(),
+        )?;
+        self.wait_for_status(Status::TX_EMPTY).map(|_| ())
+    }
+
+    fn send_byte(&self, value: u8, stop: bool) -> Result<()> {
+        self.write(Register::DataBuffer, u32::from(value))?;
+        let mut control = (Control::from_bits_retain(self.read(Register::Control)?)
+            - TRANSFER_CONTROL)
+            | Control::TRANSFER_BYTE;
+        if stop {
+            control |= Control::STOP;
+        }
+        self.write(Register::Control, control.bits())?;
+        self.wait_for_status(if stop {
+            Status::MASTER_STOP_DETECTED
+        } else {
+            Status::TX_EMPTY
+        })
+        .map(|_| ())
+    }
+
+    /// Writes one byte to a device register.
+    ///
+    /// A transaction failure is reported as [`Error::IoError`]; MMIO access
+    /// errors are propagated unchanged.
+    pub(in super::super) fn write_register(
+        &self,
+        device: I2cAddress,
+        register: u8,
+        value: u8,
+    ) -> Result<()> {
+        self.prepare_transfer()?;
+        let result = (|| {
+            self.start(device, Direction::Write)?;
+            self.send_byte(register, false)?;
+            self.send_byte(value, true)
+        })();
+        self.finish_transaction(result)
+    }
+
+    /// Reads one byte from a device register.
+    ///
+    /// A transaction failure is reported as [`Error::IoError`]; MMIO access
+    /// errors are propagated unchanged.
+    pub(in super::super) fn read_register(&self, device: I2cAddress, register: u8) -> Result<u8> {
+        self.prepare_transfer()?;
+        let result = (|| {
+            self.start(device, Direction::Write)?;
+            self.send_byte(register, false)?;
+            self.start(device, Direction::Read)?;
+            let control = (Control::from_bits_retain(self.read(Register::Control)?)
+                - TRANSFER_CONTROL)
+                | Control::ACK_NAK
+                | Control::STOP
+                | Control::TRANSFER_BYTE;
+            self.write(Register::Control, control.bits())?;
+            let status = self.wait_for_status(Status::RX_FULL)?;
+            let value = self.read(Register::DataBuffer)? as u8;
+            if !status.contains(Status::MASTER_STOP_DETECTED) {
+                self.wait_for_status(Status::MASTER_STOP_DETECTED)?;
+            }
+            Ok(value)
+        })();
+        self.finish_transaction(result)
+    }
+}

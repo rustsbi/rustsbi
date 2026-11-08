@@ -1,2 +1,3 @@
-//! Vendor-specific CSRs.
+//! Vendor-specific CSR definitions.
+
 pub mod thead;

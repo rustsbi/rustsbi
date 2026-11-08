@@ -1,19 +1,37 @@
 //! SBI and machine interrupt handlers selected by trap dispatch.
-use super::{frame::TrapFrame, init};
+use super::frame::TrapFrame;
+use crate::rustsbi::SbiRet;
 use crate::{
-    boot::NextStage,
+    boot::{self, NextStage},
     hart::{self, HartEvent},
+    instruction,
+    ipi::{self, Ipi},
     irq::LocalIrqDisabled,
 };
+use csr::values::trap::Interrupt;
+
+// The firmware supplies this symbol through `#[runtime::sbi_policy]`.
+// Both crates use the same Rust ABI and SBI types in the final firmware.
+unsafe extern "Rust" {
+    fn __rustsbi_runtime_handle_ecall(
+        extension: usize,
+        function: usize,
+        args: [usize; 6],
+    ) -> SbiRet;
+}
 
 pub(super) fn sbi_ecall(frame: &mut TrapFrame) {
     let regs = &mut frame.general;
     let hart = hart::current_hart();
-    let ret = init::policy(hart).handle_ecall(
-        regs.a7,
-        regs.a6,
-        [regs.a0, regs.a1, regs.a2, regs.a3, regs.a4, regs.a5],
-    );
+    // SAFETY: The firmware's `sbi_policy` symbol has the declared ABI and
+    // handles ecalls only after its policy state has been initialized.
+    let ret = unsafe {
+        __rustsbi_runtime_handle_ecall(
+            regs.a7,
+            regs.a6,
+            [regs.a0, regs.a1, regs.a2, regs.a3, regs.a4, regs.a5],
+        )
+    };
     regs.a0 = ret.error;
     regs.a1 = ret.value;
     frame.epc = frame.epc.wrapping_add(4);
@@ -24,42 +42,55 @@ pub(super) fn sbi_ecall(frame: &mut TrapFrame) {
     }
 }
 
-fn deliver_event(frame: &mut TrapFrame, ipi: &crate::ipi::Ipi, irq: &LocalIrqDisabled) {
+fn deliver_event(frame: &mut TrapFrame, ipi: Option<&Ipi>, irq: &LocalIrqDisabled) {
     let event = hart::take_local_event();
-    ipi.deliver_current(irq);
+    if let Some(ipi) = ipi {
+        ipi.process_pending(irq);
+    }
     match event {
         HartEvent::Start(next) => enter_next_stage(frame, next),
         HartEvent::Park => {
-            ipi.prepare_wakeup(irq);
-            riscv::asm::wfi();
+            if let Some(ipi) = ipi {
+                ipi.enable_interrupt(irq);
+            }
+            instruction::wait_for_interrupt();
         }
         HartEvent::None => {}
     }
 }
 
-pub(super) fn software_interrupt(frame: &mut TrapFrame, irq: &LocalIrqDisabled) {
-    let ipi = crate::boot::ipi().expect("IPI service not published");
-    ipi.clear_current(irq)
-        .expect("IPI device could not clear the current hart");
+pub(super) fn software_interrupt(
+    frame: &mut TrapFrame,
+    irq: &LocalIrqDisabled,
+) -> crate::Result<()> {
+    let ipi = match ipi::get() {
+        Some(device) if device.acknowledge_source(Interrupt::MachineSoftware, irq)? => Some(device),
+        _ => None,
+    };
     deliver_event(frame, ipi, irq);
+    Ok(())
 }
 
-pub(super) fn external_interrupt(frame: &mut TrapFrame, irq: &LocalIrqDisabled) {
-    if let Some(ipi) = crate::boot::ipi()
-        && ipi.claim_external(irq)
+pub(super) fn external_interrupt(
+    frame: &mut TrapFrame,
+    irq: &LocalIrqDisabled,
+) -> crate::Result<()> {
+    if let Some(device) = ipi::get()
+        && device.acknowledge_source(Interrupt::MachineExternal, irq)?
     {
-        deliver_event(frame, ipi, irq);
+        deliver_event(frame, Some(device), irq);
     }
+    Ok(())
 }
 
 fn enter_next_stage(frame: &mut TrapFrame, next: NextStage) {
     // SAFETY: Dispatch owns this hart's trap state, with MIE masked.
-    unsafe { crate::boot::prepare_supervisor() };
-    crate::boot::set_return_mode(&mut frame.status, next.next_mode);
+    unsafe { boot::prepare_supervisor() };
+    boot::set_return_mode(&mut frame.status, next.next_mode);
     frame.leave_virtualization();
     frame.epc = next.start_addr;
     frame.general = Default::default();
     frame.general.a0 = hart::current_hart().as_usize();
     frame.general.a1 = next.opaque;
-    riscv::asm::fence_i();
+    instruction::fence_i();
 }

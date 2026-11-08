@@ -35,6 +35,11 @@
 
 set -euo pipefail
 
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+# shellcheck source=.github/scripts/ci-edk2.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-edk2.sh"
+
 if (( $# > 1 )); then
   echo "Usage: $0 [sbi|u-boot|edk2]" >&2
   exit 2
@@ -59,12 +64,6 @@ readonly BUSYBOX_URL="https://busybox.net/downloads/busybox-${BUSYBOX_VERSION}.t
 readonly BUSYBOX_SHA256="b8cc24c9574d809e7279c3be349795c5d5ceb6fdf19ca709f80cde50e47de314"
 
 readonly UB_VERSION="2024.04"
-readonly UB_URL="https://github.com/u-boot/u-boot/archive/refs/tags/v${UB_VERSION}.tar.gz"
-readonly UB_SHA256="d6b57ce574a0a0504a5b6596644ceacb7f77bde9353779bcf2fde07c4b9a2b92"
-
-readonly EDK2_VERSION="edk2-stable202505"
-readonly EDK2_COMMIT="6951dfe7d59d144a3a980bd7eda699db2d8554ac"
-readonly EDK2_URL="https://github.com/tianocore/edk2.git"
 
 readonly CROSS_COMPILE="riscv64-linux-gnu-"
 readonly SMOKE_MARKER="RUSTSBI-SMOKE-OK"
@@ -97,13 +96,8 @@ readonly KERNEL_IMAGE="${CACHE_DIR}/linux-${KERNEL_VERSION}-Image"
 readonly BUSYBOX_INSTALL="${CACHE_DIR}/busybox-${BUSYBOX_VERSION}-install"
 readonly INITRAMFS="${WORK_DIR}/initramfs.cpio.gz"
 readonly DISK_IMAGE="${WORK_DIR}/linux-rootfs.img"
-readonly EDK2_CACHE="${CACHE_DIR}/edk2-${EDK2_COMMIT}"
-readonly EDK2_CODE="${EDK2_CACHE}/RISCV_VIRT_CODE.fd"
-readonly EDK2_VARS_TEMPLATE="${EDK2_CACHE}/RISCV_VIRT_VARS.fd"
-readonly EDK2_VARS="${WORK_DIR}/RISCV_VIRT_VARS.fd"
-
 # Populated by build_uboot; kept as mutable globals because the tree lives
-# under WORK_DIR and is rebuilt every run.
+# under WORK_DIR; only the FIT is repacked every run.
 UB_SPL=""
 UB_ITB=""
 
@@ -199,69 +193,6 @@ prepare_kernel() {
   make -C "$tree" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" -j"$(nproc)" Image
 
   cp "${tree}/arch/riscv/boot/Image" "$KERNEL_IMAGE"
-}
-
-# Build EDK II's RISC-V QEMU payload from an exact commit. The firmware volumes
-# are the only EDK II products cached; the writable variables volume is copied
-# for every boot so one run cannot contaminate the next cache restore.
-prepare_edk2() {
-  local workspace
-  workspace="$(realpath -m "${WORK_DIR}/edk2-workspace")"
-  local source="${workspace}/edk2"
-  local output="${workspace}/Build/RiscVVirtQemu/RELEASE_GCC5/FV"
-  local head
-
-  if [[ $(stat -c %s "$EDK2_CODE" 2>/dev/null || true) == 33554432 &&
-        $(stat -c %s "$EDK2_VARS_TEMPLATE" 2>/dev/null || true) == 33554432 ]]; then
-    echo "Using cached EDK II ${EDK2_VERSION} firmware" >&2
-    return
-  fi
-
-  rm -rf "$workspace" "$EDK2_CACHE"
-  mkdir -p "$workspace" "$EDK2_CACHE"
-
-  git init --quiet "$source"
-  git -C "$source" remote add origin "$EDK2_URL"
-  git -C "$source" fetch --quiet --depth=1 origin "$EDK2_COMMIT"
-  git -C "$source" checkout --quiet --detach FETCH_HEAD
-  head=$(git -C "$source" rev-parse HEAD)
-  if [[ "$head" != "$EDK2_COMMIT" ]]; then
-    echo "EDK II checkout mismatch: expected ${EDK2_COMMIT}, got ${head}" >&2
-    return 1
-  fi
-  # EDK II's top-level submodules contain every source used by this platform.
-  # Their own nested development/test submodules are not build inputs, so do
-  # not recursively clone those unrelated repositories into a CI smoke test.
-  git -C "$source" submodule update --init --depth=1
-
-  (
-    cd "$workspace"
-    export WORKSPACE="$PWD"
-    export PACKAGES_PATH="$source"
-    export EDK_TOOLS_PATH="${source}/BaseTools"
-    export GCC5_RISCV64_PREFIX="$CROSS_COMPILE"
-
-    # edksetup and BaseTools deliberately communicate through environment
-    # variables, so keep these commands in one subshell. edksetup also probes
-    # optional unset variables, which is incompatible with this script's
-    # `set -u`; disable nounset only while sourcing that upstream script.
-    set +u
-    # shellcheck disable=SC1091
-    source "${source}/edksetup.sh" --reconfig
-    set -u
-    make -C "${source}/BaseTools" -j"$(nproc)"
-    set +u
-    # shellcheck disable=SC1091
-    source "${source}/edksetup.sh" BaseTools
-    set -u
-    build -a RISCV64 -b RELEASE \
-      -p OvmfPkg/RiscVVirt/RiscVVirtQemu.dsc \
-      -t GCC5
-  )
-
-  cp "${output}/RISCV_VIRT_CODE.fd" "$EDK2_CODE"
-  cp "${output}/RISCV_VIRT_VARS.fd" "$EDK2_VARS_TEMPLATE"
-  truncate -s 32M "$EDK2_CODE" "$EDK2_VARS_TEMPLATE"
 }
 
 # BusyBox is linked statically because the initramfs carries no shared
@@ -412,39 +343,14 @@ EOF
 }
 
 # Build U-Boot with the RustSBI firmware embedded as the OpenSBI payload. The
-# build products are deliberately not cached: the SPL embeds the firmware, so
-# they must be rebuilt from the commit under test every run.
+# compiled products are shared; the FIT is repacked with the current RustSBI.
 build_uboot() {
-  local tarball="${WORK_DIR}/u-boot-${UB_VERSION}.tar.gz"
-  local tree="${WORK_DIR}/u-boot-${UB_VERSION}"
-  local rustsbi_abs
-
-  # `make -C` runs inside the U-Boot tree, so OPENSBI must be an absolute
-  # path; a relative path would be resolved against the tree, not the repo.
-  rustsbi_abs="$(readlink -f "$RUSTSBI")"
-
-  mkdir -p "$WORK_DIR"
-  download_asset "$UB_URL" "$tarball" "$UB_SHA256"
-
-  rm -rf "$tree"
-  tar -xzf "$tarball" -C "$WORK_DIR"
-
-  make -C "$tree" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
-    OPENSBI="$rustsbi_abs" qemu-riscv64_spl_defconfig
-
-  # Set the default boot command non-interactively, equivalent to the
-  # menuconfig step in the repository guide. The single quotes keep
-  # ${fdtcontroladdr} literal so U-Boot expands it at runtime.
-  "${tree}/scripts/config" --file "${tree}/.config" --enable USE_BOOTCOMMAND
-  # shellcheck disable=SC2016
-  "${tree}/scripts/config" --file "${tree}/.config" --set-str BOOTCOMMAND \
-    'ext4load virtio 0:1 84000000 Image; setenv bootargs root=/dev/vda1 rw console=ttyS0; booti 0x84000000 - ${fdtcontroladdr}'
-
-  make -C "$tree" ARCH=riscv CROSS_COMPILE="$CROSS_COMPILE" \
-    OPENSBI="$rustsbi_abs" -j"$(nproc)"
-
-  UB_SPL="${tree}/spl/u-boot-spl"
-  UB_ITB="${tree}/u-boot.itb"
+  # Keep compiled U-Boot independent of the current RustSBI FIT payload.
+  local tree="${WORK_DIR}/u-boot"
+  ci_uboot_build "$UB_VERSION" spl minimal-linux-spl "$tree"
+  ci_uboot_fit "$tree" "$RUSTSBI"
+  UB_SPL="$tree/spl/u-boot-spl"
+  UB_ITB="$tree/u-boot.itb"
 }
 
 # Run a command with elevated privileges when running as a non-root user (CI
@@ -522,7 +428,6 @@ start_qemu_uboot() {
 start_qemu_edk2() {
   mkdir -p "$LOG_DIR"
   : >"$LOG_FILE"
-  cp "$EDK2_VARS_TEMPLATE" "$EDK2_VARS"
   qemu-system-riscv64 \
     -machine virt,pflash0=pflash0,pflash1=pflash1,acpi=off \
     -smp 1 \
@@ -530,8 +435,8 @@ start_qemu_edk2() {
     -nographic \
     -no-reboot \
     -bios "$RUSTSBI" \
-    -blockdev "node-name=pflash0,driver=file,read-only=on,filename=${EDK2_CODE}" \
-    -blockdev "node-name=pflash1,driver=file,filename=${EDK2_VARS}" \
+    -blockdev "node-name=pflash0,driver=file,read-only=on,filename=${WORK_DIR}/RISCV_VIRT_CODE.fd" \
+    -blockdev "node-name=pflash1,driver=file,filename=${WORK_DIR}/RISCV_VIRT_VARS.fd" \
     -kernel "$KERNEL_IMAGE" \
     -initrd "$INITRAMFS" \
     -append "console=ttyS0 earlycon=uart8250,mmio,0x10000000 rdinit=/init" \
@@ -611,7 +516,7 @@ main() {
       ;;
     edk2)
       build_initramfs
-      prepare_edk2
+      ci_edk2_prepare "$WORK_DIR"
       start_qemu_edk2
       ;;
     sbi)

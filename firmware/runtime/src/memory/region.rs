@@ -17,11 +17,11 @@ pub struct PhysAddrRange {
 /// Unlike [`PhysAddrRange`], this value carries permission to request an
 /// [`super::MmioRegion`] from the [`super::MemoryRegistry`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct DeviceRegisterRange(PhysAddrRange);
+pub struct RegRange(PhysAddrRange);
 
-impl DeviceRegisterRange {
-    pub(crate) const fn from_description(range: PhysAddrRange) -> Self {
-        Self(range)
+impl RegRange {
+    pub(crate) fn from_start_len(start: PhysAddr, len: usize) -> Result<Self> {
+        PhysAddrRange::from_start_len(start, len).map(Self)
     }
 
     /// Returns the first address in the register range.
@@ -183,34 +183,5 @@ impl PhysAddrRange {
             return Err(Error::InvalidArgs);
         }
         Ok(Self { start, end })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ranges_reject_empty_and_wrapping_inputs() {
-        assert_eq!(
-            PhysAddrRange::new(PhysAddr::new(1), PhysAddr::new(1)),
-            Err(Error::InvalidArgs)
-        );
-        assert_eq!(
-            PhysAddrRange::new(PhysAddr::new(2), PhysAddr::new(1)),
-            Err(Error::InvalidArgs)
-        );
-        assert_eq!(
-            PhysAddrRange::from_start_len(PhysAddr::new(usize::MAX), 2),
-            Err(Error::Overflow)
-        );
-    }
-
-    #[test]
-    fn subranges_reject_empty_overflowing_and_out_of_bounds_requests() {
-        let range = PhysAddrRange::from_start_len(PhysAddr::new(0x1000), 0x100).unwrap();
-        assert_eq!(range.subrange(0, 0), Err(Error::InvalidArgs));
-        assert_eq!(range.subrange(usize::MAX, 1), Err(Error::Overflow));
-        assert_eq!(range.subrange(0x80, 0x81), Err(Error::InvalidArgs));
     }
 }

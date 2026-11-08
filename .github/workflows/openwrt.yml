@@ -7,6 +7,7 @@ on:
       - ".cargo/**"
       - ".github/scripts/prototyper-openwrt-boot.sh"
       - ".github/workflows/openwrt.yml"
+      - ".github/scripts/ci-uboot.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -20,6 +21,7 @@ on:
       - ".cargo/**"
       - ".github/scripts/prototyper-openwrt-boot.sh"
       - ".github/workflows/openwrt.yml"
+      - ".github/scripts/ci-uboot.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -72,6 +74,10 @@ jobs:
             util-linux
           qemu-system-riscv64 --version
 
+          source .github/scripts/ci-uboot.sh
+          toolchain_id=$(ci_uboot_toolchain_id)
+          echo "CI_UBOOT_TOOLCHAIN_ID=$toolchain_id" >> "$GITHUB_ENV"
+
       - name: Install required cargo
         run: cargo install --locked cargo-binutils@0.4.0
 
@@ -81,12 +87,12 @@ jobs:
           path: .cache/openwrt/25.12.5
           key: openwrt-25.12.5-sifive-unleashed-ext4
 
-      - name: Cache U-Boot source
+      - name: Cache U-Boot build
         if: matrix.boot-path == 'u-boot'
         uses: actions/cache@v5
         with:
-          path: .cache/u-boot/v2026.07
-          key: u-boot-ece349ade2973e220f524ce59e59711cc919263f
+          path: .cache/ci-uboot/builds/spl-2026.07
+          key: uboot-build-ubuntu-26.04-${{ runner.arch }}-2026.07-spl-2026.07-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Build RustSBI Prototyper
         run: cargo prototyper build

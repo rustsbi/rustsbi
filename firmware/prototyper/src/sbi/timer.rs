@@ -1,35 +1,31 @@
-//! SBI TIME policy over Runtime's supervisor timer.
+//! SBI supervisor timer.
 
-#![forbid(unsafe_code)]
-
-use super::pmu::pmu_firmware_counter_increment;
-use runtime::{rustsbi, timer::Timer};
+use runtime::{Error, rustsbi, timer};
 use sbi_spec::pmu::firmware_event;
 
-/// SBI TIME extension with permission to program the supervisor timer.
-pub struct SbiTimer {
-    timer: Timer,
-}
+use super::pmu::pmu_firmware_counter_increment;
+
+/// SBI TIME backed by Runtime's timer.
+pub struct SbiTimer;
 
 impl rustsbi::Timer for SbiTimer {
     fn _rustsbi_probe(&self) -> usize {
-        usize::from(self.timer.is_available())
+        match timer::get() {
+            Ok(timer) => usize::from(timer.is_some()),
+            Err(error) => {
+                error!("SBI timer probe failed: {error}");
+                crate::fail::stop();
+            }
+        }
     }
 
     fn set_timer(&self, deadline: u64) {
         pmu_firmware_counter_increment(firmware_event::SET_TIMER);
-        self.timer
-            .set_deadline(deadline)
-            .expect("supervisor timer not initialized on this hart");
-    }
-}
-
-impl SbiTimer {
-    pub(crate) const fn new(timer: Timer) -> Self {
-        Self { timer }
-    }
-
-    pub(crate) fn timer(&self) -> &Timer {
-        &self.timer
+        if let Err(error) =
+            timer::get().and_then(|timer| timer.ok_or(Error::NotSupported)?.set_deadline(deadline))
+        {
+            error!("SBI timer request failed: {error}");
+            crate::fail::stop();
+        }
     }
 }

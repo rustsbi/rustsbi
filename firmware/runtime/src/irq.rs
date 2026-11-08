@@ -8,7 +8,7 @@ use csr::machine;
 /// This context cannot be transferred to another hart or retained after
 /// its Runtime interrupt exclusion scope ends.
 /// It does not provide remote mutual exclusion.
-pub(crate) struct LocalIrqDisabled {
+pub struct LocalIrqDisabled {
     _local: PhantomData<*mut ()>,
 }
 
@@ -38,15 +38,15 @@ pub(crate) fn with_local_disabled<R>(f: impl FnOnce(&LocalIrqDisabled) -> R) -> 
         fn drop(&mut self) {
             if self.previous == machine::Interrupt::Enabled {
                 // SAFETY: This scope masked MIE and is ending on the same hart.
-                unsafe { machine::Status::set::<machine::MIE>() };
+                unsafe { machine::Status::set_bit::<machine::MIE>() };
             }
         }
     }
-    let previous = machine::Status::read().read::<machine::MIE>();
+    let previous = machine::Status::read().get::<machine::MIE>();
     if previous == machine::Interrupt::Enabled {
         // SAFETY: M-mode interrupt entry restores the interrupted MIE state.
         // Mask before invoking f; already-disabled callers need no CSR write.
-        unsafe { machine::Status::clear::<machine::MIE>() };
+        unsafe { machine::Status::clear_bit::<machine::MIE>() };
     }
     let restore = Restore { previous };
     let result = f(&LocalIrqDisabled {

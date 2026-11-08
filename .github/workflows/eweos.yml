@@ -7,6 +7,8 @@ on:
       - ".cargo/**"
       - ".github/scripts/prototyper-eweos-boot.sh"
       - ".github/workflows/eweos.yml"
+      - ".github/scripts/ci-uboot.sh"
+      - ".github/scripts/ci-edk2.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -20,6 +22,8 @@ on:
       - ".cargo/**"
       - ".github/scripts/prototyper-eweos-boot.sh"
       - ".github/workflows/eweos.yml"
+      - ".github/scripts/ci-uboot.sh"
+      - ".github/scripts/ci-edk2.sh"
       - "Cargo.lock"
       - "Cargo.toml"
       - "rust-toolchain.toml"
@@ -89,6 +93,13 @@ jobs:
             uuid-dev \
             zlib1g-dev
 
+          source .github/scripts/ci-uboot.sh
+          toolchain_id=$(ci_uboot_toolchain_id)
+          echo "CI_UBOOT_TOOLCHAIN_ID=$toolchain_id" >> "$GITHUB_ENV"
+          source .github/scripts/ci-edk2.sh
+          edk2_id=$(ci_edk2_build_id)
+          echo "CI_EDK2_BUILD_ID=$edk2_id" >> "$GITHUB_ENV"
+
       - name: Install required cargo
         run: cargo install --locked cargo-binutils@0.4.0
 
@@ -113,23 +124,19 @@ jobs:
       - name: Check cached eweOS ISO
         run: .github/scripts/prototyper-eweos-boot.sh check-iso
 
-      # U-Boot runs in S-mode and does not embed the firmware, so its build
-      # is cached. The boot command is compiled in from the script, so the key
-      # follows the script.
-      - name: Cache U-Boot build
-        if: matrix.boot-path == 'u-boot'
-        uses: actions/cache@v5
-        with:
-          path: .cache/eweos/u-boot-2024.04-smode
-          key: eweos-u-boot-2024.04-smode-${{ hashFiles('.github/scripts/prototyper-eweos-boot.sh') }}
-
-      # EDK II is checked out by exact commit in the script.
       - name: Cache EDK II build
         if: matrix.boot-path == 'edk2'
         uses: actions/cache@v5
         with:
-          path: .cache/eweos/edk2-6951dfe7d59d144a3a980bd7eda699db2d8554ac
-          key: eweos-edk2-6951dfe7-v1
+          path: .cache/ci-edk2/${{ env.CI_EDK2_BUILD_ID }}
+          key: edk2-build-ubuntu-24.04-${{ runner.arch }}-${{ env.CI_EDK2_BUILD_ID }}
+
+      - name: Cache U-Boot build
+        if: matrix.boot-path == 'u-boot'
+        uses: actions/cache@v5
+        with:
+          path: .cache/ci-uboot/builds/eweos-smode
+          key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-eweos-smode-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Build RustSBI Prototyper
         run: cargo prototyper build

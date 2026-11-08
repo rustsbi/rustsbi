@@ -2,9 +2,7 @@
 
 use alloc::vec::Vec;
 
-use super::{
-    DeviceRegisterRange, MmioRegion, PhysAddrRange, SupervisorMemory, image::locate_firmware_image,
-};
+use super::{MmioRegion, PhysAddrRange, RegRange, SupervisorMemory, image::locate_firmware_image};
 use crate::{Error, Result};
 
 /// Tracks the physical resources issued by Runtime.
@@ -84,7 +82,7 @@ impl MemoryRegistry {
     ///
     /// The range must not overlap a window acquired earlier from this registry.
     /// A successful acquisition is recorded for all later checks.
-    pub fn acquire(&mut self, registers: DeviceRegisterRange) -> Result<MmioRegion> {
+    pub fn acquire(&mut self, registers: RegRange) -> Result<MmioRegion> {
         let range = registers.physical_range();
         if self
             .ram_ranges
@@ -179,8 +177,8 @@ mod tests {
         PhysAddrRange::from_start_len(PhysAddr::new(start), len).unwrap()
     }
 
-    fn registers(start: usize, len: usize) -> DeviceRegisterRange {
-        DeviceRegisterRange::from_description(range(start, len))
+    fn registers(start: usize, len: usize) -> RegRange {
+        RegRange::from_start_len(PhysAddr::new(start), len).unwrap()
     }
 
     #[test]

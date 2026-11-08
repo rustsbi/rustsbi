@@ -1,8 +1,9 @@
 //! Machine trap classification and selection of the handling path.
+use crate::{boot, events, irq::LocalIrqDisabled, recovery, timer};
 use csr::{
-    machine,
+    Write, machine,
     values::{
-        trap::{CauseValue, Exception, Interrupt, TrapCause},
+        trap::{CauseValue, Exception, Interrupt, InterruptSet, TrapCause},
         vector::{TargetVectorMode, VectorBase},
     },
 };
@@ -26,30 +27,25 @@ pub(super) unsafe extern "C" fn trap_dispatch(saved: &mut SavedTrap) {
     match CauseValue::from(info.cause).cause() {
         TrapCause::Interrupt(interrupt) => {
             // SAFETY: Runtime entry keeps MIE clear throughout interrupt dispatch.
-            let irq = unsafe { crate::irq::LocalIrqDisabled::assume_disabled() };
-            match interrupt {
+            let irq = unsafe { LocalIrqDisabled::assume_disabled() };
+            let result = match interrupt {
                 Interrupt::MachineSoftware => handlers::software_interrupt(frame, &irq),
                 Interrupt::MachineTimer => {
-                    crate::boot::timer()
-                        .expect("Timer service not published")
-                        .on_interrupt(&irq);
+                    timer::on_interrupt(&irq);
+                    Ok(())
                 }
                 Interrupt::MachineExternal => handlers::external_interrupt(frame, &irq),
-                _ => {
-                    let code = info.cause & !(1usize << (usize::BITS - 1));
-                    if !crate::machine_irq::get()
-                        .is_some_and(|policy| policy.handle_interrupt(code))
-                    {
-                        fatal(&frame.general, info);
-                    }
-                }
+                _ => fatal(&frame.general, info, None),
+            };
+            if let Err(error) = result {
+                fatal(&frame.general, info, Some(error));
             }
         }
         TrapCause::Exception(exception) => {
             let privilege = match info.origin() {
                 machine::Privilege::Machine => {
-                    let Some(pc) = crate::recovery::find_fixup(info.epc, info.cause) else {
-                        fatal(&frame.general, info);
+                    let Some(pc) = recovery::find_fixup(info.epc, info.cause) else {
+                        fatal(&frame.general, info, None);
                     };
                     frame.general.t2 = info.cause;
                     frame.general.t3 = info.tval;
@@ -58,7 +54,7 @@ pub(super) unsafe extern "C" fn trap_dispatch(saved: &mut SavedTrap) {
                 }
                 machine::Privilege::User => machine::SupervisorPrivilege::User,
                 machine::Privilege::Supervisor => machine::SupervisorPrivilege::Supervisor,
-                machine::Privilege::Unknown(_) => fatal(&frame.general, info),
+                machine::Privilege::Unknown(_) => fatal(&frame.general, info, None),
             };
             handle_lower_exception(frame, info, exception, privilege);
         }
@@ -71,7 +67,7 @@ fn handle_lower_exception(
     exception: Exception,
     privilege: machine::SupervisorPrivilege,
 ) {
-    if let Some(counters) = crate::events::get() {
+    if let Some(counters) = events::get() {
         counters.record(exception);
     }
     // Guests always forward to HS or VS; their ecalls never invoke machine SBI.
@@ -93,6 +89,7 @@ fn handle_lower_exception(
         let secondary = match error {
             Error::Fault(fault) => Some(fault),
             Error::Unsupported => None,
+            Error::Runtime(error) => fatal(&frame.general, info, Some(error)),
         };
         redirect::redirect_trap(frame, info, privilege, secondary);
     }
@@ -100,24 +97,26 @@ fn handle_lower_exception(
 
 /// Terminates this hart after an unhandled trap.
 #[cold]
-fn fatal(registers: &GeneralRegs, info: &TrapInfo) -> ! {
+fn fatal(registers: &GeneralRegs, info: &TrapInfo, error: Option<crate::Error>) -> ! {
+    let mut vector = machine::TrapVector::<Write>::default();
+    vector.set::<machine::BASE>(
+        VectorBase::new((boot::fail_stop as *const () as usize).into())
+            .expect("aligned fail-stop vector"),
+    );
+    vector.set::<machine::MODE>(TargetVectorMode::Direct);
     // SAFETY:
     // 1. fail_stop needs no stack and never returns, including during panic reporting.
     // 2. Disabling machine interrupt sources preserves the current exclusion.
     unsafe {
-        machine::TrapVector::write(machine::TrapVectorWriteValue::new(
-            VectorBase::new((crate::boot::fail_stop as *const () as usize).into())
-                .expect("aligned fail-stop vector"),
-            TargetVectorMode::Direct,
-        ));
-        machine::InterruptEnable::write(csr::values::trap::InterruptSet::empty());
+        machine::TrapVector::write(vector);
+        machine::InterruptEnable::write(InterruptSet::empty());
     }
     #[cfg(target_pointer_width = "32")]
     let status_high = usize::from(info.status_high);
     #[cfg(target_pointer_width = "64")]
     let status_high = info.status_high;
     panic!(
-        "unhandled machine trap: pc={:#x}, status={:#x}, status_high={:#x}, cause={:#x}, tval={:#x}, tval2={:#x}, instruction={:#x}\n{:#x?}",
+        "unhandled machine trap: pc={:#x}, status={:#x}, status_high={:#x}, cause={:#x}, tval={:#x}, tval2={:#x}, instruction={:#x}, error={error:?}\n{:#x?}",
         info.epc,
         usize::from(info.status),
         status_high,

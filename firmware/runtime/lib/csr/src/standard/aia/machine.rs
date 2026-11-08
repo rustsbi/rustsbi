@@ -3,36 +3,64 @@
 //! Specification: <https://docs.riscv.org/reference/aia/v1.0/IMSIC.html>,
 //! section 2.1.9.
 use crate::macros::csr;
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-use crate::value::Value;
-use core::num::NonZeroU16;
+use super::imsic::Iid;
 
 csr! {
-    /// The value observed or claimed from the machine interrupt file.
-    pub struct MtopeiValue(usize);
+    /// Machine indirect register selector (`miselect`).
+    Miselect { 0x350, r,
+        /// # Safety
+        /// Serialize selection with every indirect-register access on this hart.
+        unsafe w
+    }
 
     /// Machine top external interrupt CSR, available when an IMSIC is present.
     /// Ordinary reads observe the top interrupt without acknowledging it.
     /// Use `claim` to atomically read and acknowledge the reported interrupt.
     /// Generic writes and read/modify/write are unavailable.
-    Mtopei { 0x35c, r: MtopeiValue }
+    Mtopei { 0x35c, r }
+}
+
+impl From<usize> for Miselect {
+    #[inline]
+    fn from(selector: usize) -> Self {
+        Self(selector)
+    }
+}
+
+/// Machine indirect register data CSR identity (`mireg`).
+///
+/// The value of `miselect` determines which register an access to `mireg` addresses.
+/// The caller must synchronize selection and indirect accesses.
+///
+/// See <https://docs.riscv.org/reference/aia/v1.0/IMSIC.html>.
+pub enum Mireg {}
+
+impl Mireg {
+    /// Architectural CSR number of the machine indirect data register.
+    pub const NUMBER: u16 = 0x351;
+
+    /// Writes the selected machine indirect register.
+    ///
+    /// # Safety
+    ///
+    /// Execute in M-mode with a valid `miselect` value and coordinate the
+    /// selector and indirect access on this hart.
+    /// Satisfy the selected register's write requirements and preserve the
+    /// execution, memory, interrupt, and trap-handler invariants it affects.
+    #[inline]
+    pub unsafe fn write(value: usize) {
+        // SAFETY: The caller coordinates access and satisfies the selected
+        // register's write requirements.
+        unsafe { crate::value::write::<{ Self::NUMBER }>(value) };
+    }
 }
 
 impl Mtopei {
     /// Claims and returns the current hart's top machine external interrupt.
     ///
-    /// Executes one `csrrw rd, mtopei, x0`.
-    /// It reads the top identity and clears that identity's pending bit atomically.
+    /// The returned identity and the acknowledged pending interrupt refer to
+    /// the same interrupt. A zero identity means no interrupt was available.
     /// A later arrival can make that interrupt pending again.
-    /// A zero identity means no interrupt was available.
-    /// An ordinary read followed by a separate write cannot provide this
-    /// guarantee.
-    ///
-    /// Use only on a hart with a machine IMSIC file. Coordinate claims with
-    /// interrupt-file initialization and delivery.
-    /// Inaccessible hardware traps.
-    /// Concurrent claim paths can consume each other's interrupts; the device's
-    /// delivery policy must coordinate those paths.
     ///
     /// See
     /// <https://docs.riscv.org/reference/aia/v1.0/IMSIC.html#2-1-9-top-external-interrupt-csrs-mtopei-stopei-vstopei>.
@@ -42,12 +70,12 @@ impl Mtopei {
     /// Execute in M-mode on a hart with an initialized machine IMSIC file.
     /// Coordinate claims with interrupt delivery on that hart.
     #[inline]
-    pub unsafe fn claim() -> MtopeiValue {
+    pub unsafe fn claim() -> Mtopei {
         #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
         {
             let bits: usize;
-            // SAFETY: the fixed atomic claim only acknowledges the interrupt
-            // it reports; it changes no execution-environment configuration.
+            // SAFETY: The caller ensures that the machine interrupt file is
+            // initialized and coordinates interrupt claims on this hart.
             unsafe {
                 core::arch::asm!(
                     "csrrw {bits}, {csr}, zero",
@@ -56,17 +84,17 @@ impl Mtopei {
                     options(nostack),
                 );
             }
-            MtopeiValue::from_bits(bits)
+            Self(bits)
         }
         #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
         unimplemented!("CSR access requires RISC-V")
     }
 }
 
-impl MtopeiValue {
+impl Mtopei {
     /// Returns the reported identity; zero means no interrupt is available.
     #[inline]
-    pub const fn iid(self) -> Option<NonZeroU16> {
-        NonZeroU16::new(((self.0 >> 16) & 0x7ff) as u16)
+    pub const fn iid(self) -> Option<Iid> {
+        Iid::new(((self.0 >> 16) & 0x7ff) as u16)
     }
 }

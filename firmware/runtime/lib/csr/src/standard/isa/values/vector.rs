@@ -1,4 +1,7 @@
 //! Trap vector modes and aligned entry addresses.
+//!
+//! See [`mtvec`](https://docs.riscv.org/reference/isa/priv/machine.html#mtvec)
+//! and [`stvec`](https://docs.riscv.org/reference/isa/priv/supervisor.html#stvec).
 use super::Address;
 use crate::value::Value;
 
@@ -24,6 +27,7 @@ pub enum TargetVectorMode {
 
 impl Value for VectorMode {
     const BITS: u32 = 2;
+    #[inline]
     fn from_bits(bits: usize) -> Self {
         match bits {
             0 => Self::Direct,
@@ -31,6 +35,7 @@ impl Value for VectorMode {
             raw => Self::Unknown(raw),
         }
     }
+    #[inline]
     fn bits(self) -> usize {
         match self {
             Self::Direct => 0,
@@ -42,6 +47,7 @@ impl Value for VectorMode {
 
 impl Value for TargetVectorMode {
     const BITS: u32 = 2;
+    #[inline]
     fn from_bits(bits: usize) -> Self {
         match bits {
             0 => Self::Direct,
@@ -49,6 +55,7 @@ impl Value for TargetVectorMode {
             _ => unreachable!(),
         }
     }
+    #[inline]
     fn bits(self) -> usize {
         match self {
             Self::Direct => 0,
@@ -64,6 +71,7 @@ pub struct VectorBase(usize);
 
 impl VectorBase {
     /// Checks four-byte alignment; vectored mode may require stricter hardware alignment.
+    #[inline]
     pub const fn new(address: Address) -> Option<Self> {
         if address.0 & 3 == 0 {
             Some(Self(address.0))
@@ -72,6 +80,7 @@ impl VectorBase {
         }
     }
     /// Returns the byte address before BASE-field encoding.
+    #[inline]
     pub const fn address(self) -> Address {
         Address(self.0)
     }
@@ -79,9 +88,11 @@ impl VectorBase {
 
 impl Value for VectorBase {
     const BITS: u32 = usize::BITS - 2;
+    #[inline]
     fn from_bits(bits: usize) -> Self {
         Self(bits << 2)
     }
+    #[inline]
     fn bits(self) -> usize {
         self.0 >> 2
     }

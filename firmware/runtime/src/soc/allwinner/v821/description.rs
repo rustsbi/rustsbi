@@ -10,7 +10,7 @@ use core::mem::size_of;
 use fdt::node::FdtNode;
 
 use crate::Result;
-use crate::memory::{DeviceRegisterRange, PhysAddr, PhysAddrRange};
+use crate::memory::{PhysAddr, RegRange};
 use crate::soc::Soc;
 
 const V821_COMPATIBLE: &str = "allwinner,v821";
@@ -18,11 +18,9 @@ const CCU_BASE: usize = 0x4200_1000;
 const PLMT_CLOCK_CONTROL_OFFSET: usize = 0x10;
 const PRCM_SYSTEM_PRIVATE0: usize = 0x4a00_0200;
 
-/// A V821 root-compatible capability.
+/// A capability selected by a V821-compatible device-tree root.
 ///
-/// This type contains no register state. It proves that Platform Description
-/// selected V821 and authorizes callers to derive its fixed resources and
-/// custom-CSR interface.
+/// It provides access to fixed V821 resources and custom CSRs.
 #[derive(Clone, Copy)]
 pub struct AllwinnerV821Soc {
     _private: (),
@@ -39,18 +37,16 @@ impl Soc for AllwinnerV821Soc {
 }
 
 impl AllwinnerV821Soc {
-    /// PRCM system private word used to release boot0's ISP SRAM.
-    pub fn boot0_isp_sram_release(self) -> Result<DeviceRegisterRange> {
-        PhysAddrRange::from_start_len(PhysAddr::new(PRCM_SYSTEM_PRIVATE0), size_of::<u32>())
-            .map(DeviceRegisterRange::from_description)
+    /// Returns the PRCM system private word used to release boot0's ISP SRAM.
+    pub fn boot0_isp_sram_release(self) -> Result<RegRange> {
+        RegRange::from_start_len(PhysAddr::new(PRCM_SYSTEM_PRIVATE0), size_of::<u32>())
     }
 
-    /// PLMT timer clock gate in the V821 CCU register map.
-    pub fn plmt_clock(self) -> Result<DeviceRegisterRange> {
-        PhysAddrRange::from_start_len(
+    /// Returns the PLMT timer clock gate in the V821 CCU register map.
+    pub fn plmt_clock(self) -> Result<RegRange> {
+        RegRange::from_start_len(
             PhysAddr::new(CCU_BASE + PLMT_CLOCK_CONTROL_OFFSET),
             size_of::<u32>(),
         )
-        .map(DeviceRegisterRange::from_description)
     }
 }

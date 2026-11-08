@@ -7,41 +7,38 @@
 
 #![forbid(unsafe_code)]
 
-use crate::driver::{ResetDevice, ResetError, ResetReason, ResetRequest, ResetType};
-use runtime::rustsbi::{self, SbiRet};
+use crate::fail::stop;
+use runtime::{
+    Error,
+    reset::{self, ResetReason, ResetRequest, ResetType},
+    rustsbi::{self, SbiRet},
+};
 
 /// SBI system-reset extension over a selected reset device.
 #[derive(Default)]
-pub struct SbiReset {
-    device: ResetDevice,
-}
-
-impl SbiReset {
-    pub(crate) fn new(device: ResetDevice) -> Self {
-        Self { device }
-    }
-}
+pub struct SbiReset;
 
 impl rustsbi::Reset for SbiReset {
     fn _rustsbi_probe(&self) -> usize {
-        usize::from(self.device.is_available())
+        usize::from(reset::get().is_some())
     }
 
     fn system_reset(&self, reset_type: u32, reset_reason: u32) -> SbiRet {
         let Some(request) = parse_request(reset_type, reset_reason) else {
             return SbiRet::invalid_param();
         };
-        let Some(error) = self.device.reset(request) else {
+        let Some(reset) = reset::get() else {
             return SbiRet::not_supported();
         };
-        match error {
-            ResetError::InvalidRequest => SbiRet::invalid_param(),
-            ResetError::Failed => SbiRet::failed(),
+        match reset.reset(request) {
+            Ok(never) => match never {},
+            Err(Error::InvalidArgs) => SbiRet::invalid_param(),
+            Err(_) => SbiRet::failed(),
         }
     }
 }
 
-/// Validates both raw parameters before querying or invoking a reset backend.
+/// Parses and validates the raw SBI reset parameters.
 fn parse_request(reset_type: u32, reset_reason: u32) -> Option<ResetRequest> {
     use runtime::rustsbi::spec::srst::{
         RESET_REASON_NO_REASON, RESET_REASON_SYSTEM_FAILURE, RESET_TYPE_COLD_REBOOT,
@@ -71,7 +68,7 @@ pub fn fail() -> ! {
         EID_SRST, RESET_REASON_SYSTEM_FAILURE, RESET_TYPE_SHUTDOWN, SYSTEM_RESET,
     };
 
-    if let Some(dispatcher) = super::SBI_DISPATCHER.get() {
+    if let Some(dispatcher) = super::SbiDispatcher::get() {
         let ret = rustsbi::RustSBI::handle_ecall(
             dispatcher,
             EID_SRST,
@@ -87,5 +84,5 @@ pub fn fail() -> ! {
         );
         error!("System failure reset returned: {ret:?}");
     }
-    crate::fail::stop()
+    stop()
 }
