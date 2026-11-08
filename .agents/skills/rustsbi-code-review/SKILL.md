@@ -120,7 +120,15 @@ RCR_CLI="${RCR_CLI:-$SKILL/scripts/rustsbi-review-cli/target/release/rustsbi-rev
    hands it to a headless agent on **stdin** (a command line is capped near 32k characters),
    and validates the JSON array that comes back.
 
-   It drives `claude -p --allowedTools Read,Write --permission-mode acceptEdits` by default;
+   Agent choice: `--agent claude` (default), `--agent codex` (drives
+`codex exec --json -s read-only --skip-git-repo-check`, usage from
+`turn.completed` events; requires the Responses-wire provider in
+`~/.codex/config.toml`), or `--agent dsh` (drives `dsh --profile headless
+--json`, usage from `step_end` events; set `RCR_DSH_BIN` when `dsh` is not
+on PATH, defaults the cc-switch gateway via `DEEPSEEK_BASE_URL` /
+`DEEPSEEK_API_KEY` when unset, and needs the gateway `maxTokens` cap baked
+into the headless profile's `cordis.patch.yml`).
+It drives `claude -p --allowedTools Read,Write --permission-mode acceptEdits` by default;
    set `RCR_AGENT_CMD` for a different agent, and pass `--persona NAME` to narrow activation.
 
    Grant the pass Read/Write explicitly. An agent spawned with tools denied cannot return its
