@@ -100,7 +100,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: .cache/asterinas
-          key: asterinas-d924a963-kernel-dev-0.18.1-20260918-v1
+          key: asterinas-6da091ce-kernel-dev-0.19.0-20261012-v1
 
       - name: Cache U-Boot build
         if: matrix.boot-path == 'u-boot'
