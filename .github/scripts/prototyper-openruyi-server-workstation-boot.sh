@@ -8,12 +8,17 @@
 #        $0 --self-test
 #
 # Requires the rva23s64 CPU model (QEMU 10.1+, Ubuntu 26.04 ships 10.2),
-# `cargo prototyper build` output, aria2, bsdtar, mtools, qemu-img,
-# qemu-system-riscv64 and dpkg-deb. OPENRUYI_CACHE_DIR, OPENRUYI_QEMU,
+# `cargo prototyper build` output, aria2, bsdtar, mtools, qemu-img and
+# qemu-system-riscv64. OPENRUYI_CACHE_DIR, OPENRUYI_QEMU,
 # OPENRUYI_RUSTSBI, QEMU_LOG_DIR and the various *_TIMEOUT_SECS override
 # the defaults.
 
 set -euo pipefail
+
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+# shellcheck source=.github/scripts/ci-edk2.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-edk2.sh"
 
 readonly RELEASE="2026.09"
 readonly BASE_URL="https://releases.openruyi.cn/creek/${RELEASE}/rva23"
@@ -25,16 +30,10 @@ readonly LABWC_SHA256="35b6cc6882469836578e398f544b913d38788bae206445d033ee4b343
 readonly KDE_NAME="openRuyi-${RELEASE}-Workstation-kde-dvd.iso"
 readonly KDE_SHA256="76fbedf02cd4eca60a5e00d9e60244b24c6f84dca0e56faba05421f4cfa20d63"
 
-readonly EDK2_CODE_NAME="RISCV_VIRT_CODE.fd"
-readonly EDK2_CODE_SHA256="4dc955ecb8fa727e3989e8f40c1b846bffc38cd2830601a97eaa620807480c01"
-readonly EDK2_VARS_NAME="RISCV_VIRT_VARS.fd"
-readonly EDK2_VARS_SHA256="ea8094e953b1215444bd001ee1cf22818f1f7f8abcb158e62180cbaa6c1f70af"
-
-readonly UBOOT_DEB="u-boot-qemu_2025.10-0ubuntu0.24.04.4_all.deb"
-readonly UBOOT_SHA256="997cd55ca82e64163595249d1b8117732e6ad4c22a67634e605286cc61508c27"
-readonly UBOOT_URL="https://snapshot.ubuntu.com/ubuntu/20261023T000000Z/pool/main/u/u-boot/${UBOOT_DEB}"
-readonly UBOOT_BANNER="U-Boot 2025.10-0ubuntu0.24.04.4"
-readonly UBOOT_ELF_SUBPATH="usr/lib/u-boot/qemu-riscv64_smode/uboot.elf"
+readonly UBOOT_VERSION=2026.07
+readonly UBOOT_PROFILE=smode-2026.07
+readonly UBOOT_BANNER="U-Boot ${UBOOT_VERSION}"
+readonly EDK2_BANNER='RISC-V EDK2 firmware version 2.7'
 
 readonly KERNEL_NAME="7.2.6-1.0_555.1.or"
 readonly KERNEL_SHA256="0240645c2f35ea22cf57ea9aaea8481747dfff62e32ac0fe85eeb3767c9968bc"
@@ -195,20 +194,13 @@ prepare_assets() {
 
   case "$BOOT_MODE" in
     u-boot)
-      UBOOT_ELF_PATH="${mode_run_dir}/uboot.elf"
-      if [[ ! -s "$UBOOT_ELF_PATH" ]]; then
-        local deb="${CACHE_DIR}/${UBOOT_DEB}"
-        download_asset "$UBOOT_URL" "$deb" "$UBOOT_SHA256"
-        dpkg-deb -x "$deb" "$mode_run_dir"
-        cp "${mode_run_dir}/${UBOOT_ELF_SUBPATH}" "$UBOOT_ELF_PATH"
-      fi
+      ci_uboot_build "$UBOOT_VERSION" smode "$UBOOT_PROFILE" "${mode_run_dir}/uboot"
+      UBOOT_ELF_PATH="${mode_run_dir}/uboot/uboot.elf"
       test -s "$UBOOT_ELF_PATH"
       ;;
     edk2)
-      download_asset "${BASE_URL}/${EDK2_CODE_NAME}" "${CACHE_DIR}/${EDK2_CODE_NAME}" "$EDK2_CODE_SHA256"
-      download_asset "${BASE_URL}/${EDK2_VARS_NAME}" "${CACHE_DIR}/${EDK2_VARS_NAME}" "$EDK2_VARS_SHA256"
-      EDK2_VARS_RUN_PATH="${mode_run_dir}/RISCV_VIRT_VARS.fd"
-      cp "${CACHE_DIR}/${EDK2_VARS_NAME}" "$EDK2_VARS_RUN_PATH"
+      ci_edk2_prepare "${mode_run_dir}/edk2"
+      EDK2_VARS_RUN_PATH="${mode_run_dir}/edk2/RISCV_VIRT_VARS.fd"
       ;;
     sbi)
       KERNEL_PATH="${mode_run_dir}/linux"
@@ -283,7 +275,7 @@ start_qemu() {
     edk2)
       machine=(-machine 'virt,pflash0=pflash0,pflash1=pflash1,acpi=off')
       boot=(
-        -blockdev "node-name=pflash0,driver=file,read-only=on,filename=$(realpath "${CACHE_DIR}/${EDK2_CODE_NAME}")"
+        -blockdev "node-name=pflash0,driver=file,read-only=on,filename=$(realpath "${WORK_DIR}/${EDITION}-${BOOT_MODE}/edk2/RISCV_VIRT_CODE.fd")"
         -blockdev "node-name=pflash1,driver=file,filename=$(realpath "$EDK2_VARS_RUN_PATH")"
       )
       ;;
@@ -344,7 +336,7 @@ userspace_is_ready() {
 
   case "$BOOT_MODE" in
     u-boot) markers+=("${UBOOT_BANNER}" 'Booting: Label: virtio' 'GNU GRUB  version 2\.14') ;;
-    edk2) markers+=('GNU GRUB  version 2\.14') ;;
+    edk2) markers+=("$EDK2_BANNER" 'GNU GRUB  version 2\.14') ;;
     sbi)
       if grep -aqE 'U-Boot 20|GNU GRUB|RISC-V EDK2' "$LOG_FILE"; then
         return 1
@@ -409,9 +401,6 @@ prepare_downloads() {
   mkdir -p "$CACHE_DIR"
   download_asset "${BASE_URL}/$(edition_image_name)" \
     "${CACHE_DIR}/$(edition_image_name)" "$(edition_image_sha256)"
-  download_asset "$UBOOT_URL" "${CACHE_DIR}/${UBOOT_DEB}" "$UBOOT_SHA256"
-  download_asset "${BASE_URL}/${EDK2_CODE_NAME}" "${CACHE_DIR}/${EDK2_CODE_NAME}" "$EDK2_CODE_SHA256"
-  download_asset "${BASE_URL}/${EDK2_VARS_NAME}" "${CACHE_DIR}/${EDK2_VARS_NAME}" "$EDK2_VARS_SHA256"
 }
 
 main() {
@@ -460,8 +449,8 @@ run_self_tests() (
           printf '%sRedirecting hart 0 to 0x00000080200000 in Supervisor mode.\n' "$ansi"
         fi
       fi
-      if [[ "$variant" = edk2-injection ]]; then
-        printf 'RISC-V EDK2 firmware version 2.7\n'
+      if [[ "$mode" = edk2 || "$variant" = edk2-injection ]]; then
+        printf '%s\n' "$EDK2_BANNER"
       fi
       if [[ "$mode" = u-boot && "$variant" != missing-uboot ]]; then
         printf '%s (Oct 07 2026 - 20:58:59 +0000)\n' "$UBOOT_BANNER"
@@ -471,7 +460,7 @@ run_self_tests() (
         [[ "$variant" = missing-grub ]] || printf 'GNU GRUB  version 2.14\n'
       fi
       if [[ "$variant" = uboot-injection ]]; then
-        printf 'U-Boot 2025.10-0ubuntu0.24.04.4\n'
+        printf '%s\n' "$UBOOT_BANNER"
       fi
       if [[ "$edition" = server ]]; then
         printf '[    0.000000][    T0] Linux version 7.2.6-1.0_555.1.or (abuild@obsworker) #1 SMP\n'

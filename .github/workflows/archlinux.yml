@@ -76,24 +76,22 @@ jobs:
       - name: Install required cargo tool
         run: cargo install --locked cargo-binutils@0.4.0
 
-      - name: Cache Arch rootfs and Linux Image
-        uses: actions/cache@v5
+      - name: Cache built Arch Linux Image
+        uses: ./.github/actions/ci-cache
         with:
-          path: |
-            .cache/archlinux/archriscv-2026-08-27.tar.zst
-            .cache/archlinux/linux-6.15.9-Image
-          key: archlinux-rootfs-2026-08-27-linux-6.15.9-v1
+          path: .cache/archlinux/linux-6.15.9-Image
+          key: archlinux-linux-6.15.9-v1
 
       - name: Cache EDK II build
         if: matrix.boot-path == 'edk2'
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/ci-edk2/${{ env.CI_EDK2_BUILD_ID }}
           key: edk2-build-ubuntu-24.04-${{ runner.arch }}-${{ env.CI_EDK2_BUILD_ID }}
 
       - name: Cache U-Boot build
         if: matrix.boot-path == 'u-boot'
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/ci-uboot/builds/archlinux-spl
           key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-archlinux-spl-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
@@ -103,6 +101,26 @@ jobs:
 
       - name: Boot Arch Linux
         run: .github/scripts/prototyper-archlinux-boot.sh "${{ matrix.boot-path }}"
+
+      - name: Save built Arch Linux Image
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/archlinux/linux-6.15.9-Image
+          key: archlinux-linux-6.15.9-v1
+
+      - name: Save EDK II build
+        if: matrix.boot-path == 'edk2'
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/ci-edk2/${{ env.CI_EDK2_BUILD_ID }}
+          key: edk2-build-ubuntu-24.04-${{ runner.arch }}-${{ env.CI_EDK2_BUILD_ID }}
+
+      - name: Save U-Boot build
+        if: matrix.boot-path == 'u-boot'
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/ci-uboot/builds/archlinux-spl
+          key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-archlinux-spl-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Upload Arch Linux serial log
         if: always()

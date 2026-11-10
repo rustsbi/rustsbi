@@ -1,0 +1,30 @@
+name: Restore CI cache
+description: Restore a cache on every ref
+
+inputs:
+  path:
+    description: Files and directories to restore and cache
+    required: true
+  key:
+    description: Exact cache key
+    required: true
+  restore-keys:
+    description: Prefixes used when the exact key is absent
+    required: false
+    default: ""
+
+outputs:
+  cache-hit:
+    description: Whether the exact key was restored
+    value: ${{ steps.restore.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Restore cache
+      id: restore
+      uses: actions/cache/restore@v5
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+        restore-keys: ${{ inputs.restore-keys }}

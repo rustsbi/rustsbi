@@ -75,14 +75,14 @@ jobs:
       # The payload is a pinned revision, so the key changes only when the pin
       # does; bump the trailing revision after editing its build recipe.
       - name: Cache ArceOS build
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/arceos
           key: arceos-8d2e6f97efc4-v1
 
       - name: Cache U-Boot build
         if: matrix.boot-path == 'u-boot'
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/ci-uboot/builds/arceos-smode
           key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-arceos-smode-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
@@ -94,6 +94,19 @@ jobs:
 
       - name: Boot ArceOS
         run: .github/scripts/prototyper-arceos-boot.sh "${{ matrix.boot-path }}"
+
+      - name: Save ArceOS build
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/arceos
+          key: arceos-8d2e6f97efc4-v1
+
+      - name: Save U-Boot build
+        if: matrix.boot-path == 'u-boot'
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/ci-uboot/builds/arceos-smode
+          key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-arceos-smode-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Upload ArceOS log
         if: always()
