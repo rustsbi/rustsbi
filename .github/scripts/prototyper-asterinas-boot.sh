@@ -69,16 +69,16 @@ case "$BOOT_MODE" in
     ;;
 esac
 
-# Asterinas is pinned to v0.18.1. Bump both the commit and the image together,
+# Asterinas is pinned to v0.19.0. Bump both the commit and the image together,
 # then refresh the cache key in .github/workflows/asterinas.yml.
 readonly ASTERINAS_URL="${ASTERINAS_URL:-https://github.com/asterinas/asterinas.git}"
-readonly ASTERINAS_COMMIT="${ASTERINAS_COMMIT:-d924a9635a66c7c3bb43e563eaafa2c61d6ee9d5}"
+readonly ASTERINAS_COMMIT="${ASTERINAS_COMMIT:-6da091ce419013c8cb0a982c992de274e3e26132}"
 
 # The development image carries the riscv64 cross toolchain, cargo-osdk's build
 # inputs and Nix. Pull it through the registry manifest digest rather than the
 # tag, so a re-pushed tag cannot silently change the guest under test.
-readonly ASTERINAS_IMAGE="${ASTERINAS_IMAGE:-asterinas/kernel-dev:0.18.1-20260918}"
-readonly ASTERINAS_IMAGE_DIGEST="${ASTERINAS_IMAGE_DIGEST:-sha256:55732d279d17280ecf730b6f92527b28b15540f7417fd0ada62f239d3828dfce}"
+readonly ASTERINAS_IMAGE="${ASTERINAS_IMAGE:-asterinas/kernel-dev:0.19.0-20261012}"
+readonly ASTERINAS_IMAGE_DIGEST="${ASTERINAS_IMAGE_DIGEST:-sha256:97d370e2260fec73f59d9ee02a128edb84141789248e4c1c4b18f05da8bf4e51}"
 readonly ASTERINAS_IMAGE_REF="${ASTERINAS_IMAGE}@${ASTERINAS_IMAGE_DIGEST}"
 
 readonly UB_VERSION="2024.04"
