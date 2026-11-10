@@ -70,16 +70,26 @@ fn render_comment(c: &Value) -> String {
         out.push(String::new());
     }
     let gist = c["rule_gist"].as_str().unwrap_or("").trim();
-    let mut header = format!("{} ({})", grounding_tag(c["grounding"].as_str()),
-                             c["severity"].as_str().unwrap_or("minor"));
+    let mut header = format!(
+        "{} ({})",
+        grounding_tag(c["grounding"].as_str()),
+        c["severity"].as_str().unwrap_or("minor")
+    );
     if !gist.is_empty() {
         // The gist may itself contain backticks, so it is emphasised rather
         // than wrapped in a code span, which would not nest.
         header += &format!(" — *{}*", gist);
     }
-    out.push(format!("{}: {}", header, c["problem"].as_str().unwrap_or("").trim()));
+    out.push(format!(
+        "{}: {}",
+        header,
+        c["problem"].as_str().unwrap_or("").trim()
+    ));
     out.push(String::new());
-    out.push(format!("**Fix.** {}", c["fix"].as_str().unwrap_or("").trim()));
+    out.push(format!(
+        "**Fix.** {}",
+        c["fix"].as_str().unwrap_or("").trim()
+    ));
     out.push(String::new());
     out.join("\n")
 }
@@ -100,7 +110,11 @@ pub fn assemble_main(argv: &[String]) -> i32 {
         .to_string();
     if raw.starts_with(FENCE) {
         // Strip the surrounding code fence the agent may have added.
-        raw = raw.splitn(2, '\n').nth(1).unwrap_or("").to_string();
+        raw = raw
+            .split_once('\n')
+            .map(|(_, body)| body)
+            .unwrap_or("")
+            .to_string();
         if let Some(pos) = raw.rfind(FENCE) {
             raw.truncate(pos);
         }
@@ -108,12 +122,15 @@ pub fn assemble_main(argv: &[String]) -> i32 {
     let parsed: Value = if raw.trim().is_empty() {
         Value::Array(vec![])
     } else {
-        serde_json::from_str(&raw)
-            .unwrap_or_else(|e| die(&format!("error: invalid JSON: {}", e)))
+        serde_json::from_str(&raw).unwrap_or_else(|e| die(&format!("error: invalid JSON: {}", e)))
     };
     let comments: Vec<Value> = match parsed {
         Value::Array(a) => a,
-        Value::Object(o) => o.get("comments").and_then(Value::as_array).cloned().unwrap_or_default(),
+        Value::Object(o) => o
+            .get("comments")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
         _ => Vec::new(),
     };
 
@@ -125,7 +142,12 @@ pub fn assemble_main(argv: &[String]) -> i32 {
             }
         }
     }
-    lines.extend(["---".to_string(), String::new(), "<!-- SUMMARY -->".to_string(), String::new()]);
+    lines.extend([
+        "---".to_string(),
+        String::new(),
+        "<!-- SUMMARY -->".to_string(),
+        String::new(),
+    ]);
 
     let mut kept = 0;
     for (persona, section) in ORDER {
@@ -136,11 +158,13 @@ pub fn assemble_main(argv: &[String]) -> i32 {
         // Drop exact duplicates on (file, line, grounding, problem).
         let mut seen: Vec<String> = Vec::new();
         group.retain(|c| {
-            let key = format!("[file={},line={},grounding={},problem={}]",
+            let key = format!(
+                "[file={},line={},grounding={},problem={}]",
                 c.get("file").cloned().unwrap_or(Value::Null),
                 c.get("line").cloned().unwrap_or(Value::Null),
                 c.get("grounding").cloned().unwrap_or(Value::Null),
-                c.get("problem").cloned().unwrap_or(Value::Null));
+                c.get("problem").cloned().unwrap_or(Value::Null)
+            );
             if seen.contains(&key) {
                 false
             } else {
@@ -171,7 +195,12 @@ pub fn assemble_main(argv: &[String]) -> i32 {
     }
     std::fs::write(out_path, lines.join("\n") + "\n")
         .unwrap_or_else(|e| die(&format!("error: write {}: {}", out_path, e)));
-    println!("{}: {} comments ({} in, {} dropped as duplicates)",
-        out_path, kept, total_in, total_in - kept);
+    println!(
+        "{}: {} comments ({} in, {} dropped as duplicates)",
+        out_path,
+        kept,
+        total_in,
+        total_in - kept
+    );
     0
 }

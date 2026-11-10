@@ -173,7 +173,12 @@ pub fn cargo_bin_env() -> Vec<(String, String)> {
             let sep = if cfg!(windows) { ";" } else { ":" };
             vec![(
                 "PATH".to_string(),
-                format!("{}{}{}", bin.to_string_lossy(), sep, std::env::var("PATH").unwrap_or_default()),
+                format!(
+                    "{}{}{}",
+                    bin.to_string_lossy(),
+                    sep,
+                    std::env::var("PATH").unwrap_or_default()
+                ),
             )]
         }
         None => Vec::new(),

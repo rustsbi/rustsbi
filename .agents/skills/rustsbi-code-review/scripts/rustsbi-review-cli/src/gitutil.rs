@@ -29,7 +29,10 @@ pub fn git_env() -> Vec<(String, String)> {
     }
     env.push(("GIT_DIR".to_string(), gitdir));
     if let Ok(cwd) = std::env::current_dir() {
-        env.push(("GIT_WORK_TREE".to_string(), cwd.to_string_lossy().into_owned()));
+        env.push((
+            "GIT_WORK_TREE".to_string(),
+            cwd.to_string_lossy().into_owned(),
+        ));
     }
     env
 }
@@ -53,7 +56,8 @@ pub fn git(args: &[&str]) -> Result<CmdOutcome> {
 
 /// Run git and die with a clear message on failure.
 pub fn must_git(args: &[&str]) -> CmdOutcome {
-    git(args).unwrap_or_else(|e| crate::util::die(&format!("error: git {} failed: {e}", args.join(" "))))
+    git(args)
+        .unwrap_or_else(|e| crate::util::die(&format!("error: git {} failed: {e}", args.join(" "))))
 }
 
 /// Run git, returning trimmed stdout on success, dying otherwise.

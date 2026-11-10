@@ -36,9 +36,17 @@ pub fn determine_verdict(results: &[CheckResult]) -> Verdict {
         };
     }
     if results.iter().any(|r| r.status == Status::Fail) {
-        return Verdict { review_allowed: true, overall: "failed", blocking_reason: String::new() };
+        return Verdict {
+            review_allowed: true,
+            overall: "failed",
+            blocking_reason: String::new(),
+        };
     }
-    Verdict { review_allowed: true, overall: "passed", blocking_reason: String::new() }
+    Verdict {
+        review_allowed: true,
+        overall: "passed",
+        blocking_reason: String::new(),
+    }
 }
 
 fn time_cell(ms: u64) -> String {
@@ -66,7 +74,12 @@ fn gate_str(gate: Gate) -> &'static str {
     }
 }
 
-fn render_md(scope: &ScopeInfo, results: &[CheckResult], verdict: &Verdict, total_ms: u64) -> String {
+fn render_md(
+    scope: &ScopeInfo,
+    results: &[CheckResult],
+    verdict: &Verdict,
+    total_ms: u64,
+) -> String {
     let mut l: Vec<String> = vec![
         "# Deterministic Checks Report".into(),
         String::new(),
@@ -84,9 +97,15 @@ fn render_md(scope: &ScopeInfo, results: &[CheckResult], verdict: &Verdict, tota
         l.push(format!("- **head**: `{}`", scope.head));
     }
     if !scope.affected_packages.is_empty() {
-        l.push(format!("- **packages**: `{}`", scope.affected_packages.join(", ")));
+        l.push(format!(
+            "- **packages**: `{}`",
+            scope.affected_packages.join(", ")
+        ));
     }
-    l.push(format!("- **total_time**: {:.1}s", total_ms as f64 / 1000.0));
+    l.push(format!(
+        "- **total_time**: {:.1}s",
+        total_ms as f64 / 1000.0
+    ));
     l.push(String::new());
 
     l.push("## Results".into());
@@ -132,7 +151,11 @@ fn render_md(scope: &ScopeInfo, results: &[CheckResult], verdict: &Verdict, tota
 }
 
 /// Write <output>.checks.json and <output>.checks.md.
-pub fn write_report(output_path: &str, scope: &ScopeInfo, results: &[CheckResult]) -> Result<ReportOutcome> {
+pub fn write_report(
+    output_path: &str,
+    scope: &ScopeInfo,
+    results: &[CheckResult],
+) -> Result<ReportOutcome> {
     let verdict = determine_verdict(results);
     let total_ms: u64 = results.iter().map(|r| r.duration_ms).sum();
 
@@ -165,5 +188,9 @@ pub fn write_report(output_path: &str, scope: &ScopeInfo, results: &[CheckResult
     let md = render_md(scope, results, &verdict, total_ms);
     std::fs::write(&md_path, md + "\n")?;
 
-    Ok(ReportOutcome { json_path, md_path, verdict })
+    Ok(ReportOutcome {
+        json_path,
+        md_path,
+        verdict,
+    })
 }

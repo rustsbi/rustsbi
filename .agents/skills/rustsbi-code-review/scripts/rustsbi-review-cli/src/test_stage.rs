@@ -22,17 +22,38 @@ fn check_test(pkg: &str, features: &str, lib_only: bool) -> CheckResult {
     let cmd_str = args.join(" ");
     let out = must_run(args[0], &args[1..], Duration::from_secs(600));
 
-    let id = format!("test-{pkg}{}", if features.is_empty() { "" } else { "-features" });
+    let id = format!(
+        "test-{pkg}{}",
+        if features.is_empty() { "" } else { "-features" }
+    );
     if out.success {
-        let passed = out.stdout.lines().filter(|l| l.contains("test result: ok")).count();
+        let passed = out
+            .stdout
+            .lines()
+            .filter(|l| l.contains("test result: ok"))
+            .count();
         return CheckResult::new(
-            &id, Stage::Test, Status::Pass, Gate::Advisory, out.duration_ms, &cmd_str,
+            &id,
+            Stage::Test,
+            Status::Pass,
+            Gate::Advisory,
+            out.duration_ms,
+            &cmd_str,
             &format!("{passed} test suite(s) passed"),
         );
     }
-    let output = if out.stderr.is_empty() { &out.stdout } else { &out.stderr };
+    let output = if out.stderr.is_empty() {
+        &out.stdout
+    } else {
+        &out.stderr
+    };
     CheckResult::new(
-        &id, Stage::Test, out.status(), Gate::Advisory, out.duration_ms, &cmd_str,
+        &id,
+        Stage::Test,
+        out.status(),
+        Gate::Advisory,
+        out.duration_ms,
+        &cmd_str,
         &first_line(output),
     )
     .with_output(output)
@@ -41,12 +62,24 @@ fn check_test(pkg: &str, features: &str, lib_only: bool) -> CheckResult {
 pub fn run_test(scope: &ScopeInfo) -> Vec<CheckResult> {
     if !scope.skipped_reason.is_empty() {
         return vec![CheckResult::new(
-            "test", Stage::Test, Status::Skip, Gate::Advisory, 0, "", &scope.skipped_reason,
+            "test",
+            Stage::Test,
+            Status::Skip,
+            Gate::Advisory,
+            0,
+            "",
+            &scope.skipped_reason,
         )];
     }
     if scope.affected_packages.is_empty() {
         return vec![CheckResult::new(
-            "test", Stage::Test, Status::Skip, Gate::Advisory, 0, "", "no affected packages",
+            "test",
+            Stage::Test,
+            Status::Skip,
+            Gate::Advisory,
+            0,
+            "",
+            "no affected packages",
         )];
     }
 

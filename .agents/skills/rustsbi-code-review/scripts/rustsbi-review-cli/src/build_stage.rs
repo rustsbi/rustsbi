@@ -51,7 +51,13 @@ fn make_id(verb: &str, pkg: &str, target: Option<&str>, features: &str) -> Strin
 }
 
 /// One `cargo <verb> --locked -p <pkg> [--target T] [--features F]` run.
-fn run_cargo(verb: &str, pkg: &str, target: Option<&str>, features: &str, gate: Gate) -> CheckResult {
+fn run_cargo(
+    verb: &str,
+    pkg: &str,
+    target: Option<&str>,
+    features: &str,
+    gate: Gate,
+) -> CheckResult {
     let mut args: Vec<String> = vec![
         "cargo".into(),
         verb.into(),
@@ -73,28 +79,61 @@ fn run_cargo(verb: &str, pkg: &str, target: Option<&str>, features: &str, gate: 
     let out = crate::util::must_run(refs[0], &refs[1..], Duration::from_secs(600));
     let id = make_id(verb, pkg, target, features);
     if out.success {
-        return CheckResult::new(&id, Stage::Build, Status::Pass, gate, out.duration_ms, &cmd_str, "ok");
+        return CheckResult::new(
+            &id,
+            Stage::Build,
+            Status::Pass,
+            gate,
+            out.duration_ms,
+            &cmd_str,
+            "ok",
+        );
     }
-    let is_env = ENV_ERROR_HINTS.iter().any(|h| out.stderr.to_lowercase().contains(*h));
+    let is_env = ENV_ERROR_HINTS
+        .iter()
+        .any(|h| out.stderr.to_lowercase().contains(*h));
     let status = match out.status() {
         Status::Fail if is_env => Status::Error,
         s => s,
     };
-    let output = if out.stderr.is_empty() { &out.stdout } else { &out.stderr };
-    CheckResult::new(&id, Stage::Build, status, gate, out.duration_ms, &cmd_str, &first_line(output))
-        .with_output(output)
+    let output = if out.stderr.is_empty() {
+        &out.stdout
+    } else {
+        &out.stderr
+    };
+    CheckResult::new(
+        &id,
+        Stage::Build,
+        status,
+        gate,
+        out.duration_ms,
+        &cmd_str,
+        &first_line(output),
+    )
+    .with_output(output)
 }
 
 pub fn run_build(scope: &ScopeInfo) -> Vec<CheckResult> {
     if !scope.skipped_reason.is_empty() {
         return vec![CheckResult::new(
-            "build", Stage::Build, Status::Skip, Gate::Compile, 0, "", &scope.skipped_reason,
+            "build",
+            Stage::Build,
+            Status::Skip,
+            Gate::Compile,
+            0,
+            "",
+            &scope.skipped_reason,
         )];
     }
     if scope.affected_packages.is_empty() {
         // Docs-only or metadata-only change.
         return vec![CheckResult::new(
-            "build", Stage::Build, Status::Skip, Gate::Compile, 0, "",
+            "build",
+            Stage::Build,
+            Status::Skip,
+            Gate::Compile,
+            0,
+            "",
             "no affected packages (docs/metadata only)",
         )];
     }
@@ -125,14 +164,32 @@ pub fn run_build(scope: &ScopeInfo) -> Vec<CheckResult> {
     // rustsbi: feature matrix builds.
     if scope.affected_packages.iter().any(|p| p == "rustsbi") {
         for feats in RUSTSBI_FEATURES {
-            results.push(run_cargo("build", "rustsbi", Some(RV64), feats, Gate::Compile));
-            results.push(run_cargo("build", "rustsbi", Some(RV32), feats, Gate::Compile));
+            results.push(run_cargo(
+                "build",
+                "rustsbi",
+                Some(RV64),
+                feats,
+                Gate::Compile,
+            ));
+            results.push(run_cargo(
+                "build",
+                "rustsbi",
+                Some(RV32),
+                feats,
+                Gate::Compile,
+            ));
         }
     }
 
     // sbi-testing: log feature build.
     if scope.affected_packages.iter().any(|p| p == "sbi-testing") {
-        results.push(run_cargo("build", "sbi-testing", Some(RV64), "log", Gate::Compile));
+        results.push(run_cargo(
+            "build",
+            "sbi-testing",
+            Some(RV64),
+            "log",
+            Gate::Compile,
+        ));
     }
 
     // Firmware packages: need cargo-binutils.
@@ -144,31 +201,58 @@ pub fn run_build(scope: &ScopeInfo) -> Vec<CheckResult> {
     if !fw.is_empty() {
         if find_tool("rust-objcopy").is_none() {
             results.push(CheckResult::new(
-                "build-firmware", Stage::Build, Status::Skip, Gate::Compile, 0, "",
+                "build-firmware",
+                Stage::Build,
+                Status::Skip,
+                Gate::Compile,
+                0,
+                "",
                 "cargo-binutils not installed; skipping firmware build",
             ));
         } else {
             // The prototyper generates its config before firmware builds.
             if fw.iter().any(|p| p.as_str() == "rustsbi-prototyper") {
                 let out = run_cmd(
-                    "cargo", &["prototyper", "build"],
+                    "cargo",
+                    &["prototyper", "build"],
                     Duration::from_secs(900),
                     &cargo_bin_env(),
                 )
                 .unwrap_or_else(|e| die(&format!("error: {e}")));
-                let status = if out.success { Status::Pass } else { Status::Fail };
-                let output = if out.stderr.is_empty() { &out.stdout } else { &out.stderr };
-                let message = if out.success { "ok".to_string() } else { first_line(output) };
+                let status = if out.success {
+                    Status::Pass
+                } else {
+                    Status::Fail
+                };
+                let output = if out.stderr.is_empty() {
+                    &out.stdout
+                } else {
+                    &out.stderr
+                };
+                let message = if out.success {
+                    "ok".to_string()
+                } else {
+                    first_line(output)
+                };
                 results.push(
                     CheckResult::new(
-                        "prototyper-build", Stage::Build, status, Gate::Compile,
-                        out.duration_ms, "cargo prototyper build", &message,
+                        "prototyper-build",
+                        Stage::Build,
+                        status,
+                        Gate::Compile,
+                        out.duration_ms,
+                        "cargo prototyper build",
+                        &message,
                     )
                     .with_output(output),
                 );
             }
             for pkg in fw {
-                let target = if pkg.as_str() == "rustsbi-prototyper" { RV64GC } else { RV64 };
+                let target = if pkg.as_str() == "rustsbi-prototyper" {
+                    RV64GC
+                } else {
+                    RV64
+                };
                 results.push(run_cargo("check", pkg, Some(target), "", Gate::Compile));
             }
         }
@@ -176,4 +260,3 @@ pub fn run_build(scope: &ScopeInfo) -> Vec<CheckResult> {
 
     results
 }
-

@@ -47,7 +47,11 @@ fn is_pr_ref(s: &str) -> bool {
         .strip_prefix("pr/")
         .or_else(|| s.strip_prefix("pull/"))
         .unwrap_or("");
-    !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit())
+    let number = rest
+        .split_once('@')
+        .map(|(number, _)| number)
+        .unwrap_or(rest);
+    !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// (package name, package dir relative to the repo root) from cargo metadata.
@@ -95,9 +99,12 @@ fn cargo_metadata() -> Vec<(String, String)> {
 
 /// Map changed paths to cargo package names.
 /// Returns (affected package names, check-everything flag).
-pub fn map_paths_to_packages(changed: &[String], packages: &[(String, String)]) -> (Vec<String>, bool) {
+pub fn map_paths_to_packages(
+    changed: &[String],
+    packages: &[(String, String)],
+) -> (Vec<String>, bool) {
     fn basename(p: &str) -> &str {
-        p.rsplit(|c| c == '/' || c == '\\').next().unwrap_or(p)
+        p.rsplit(['/', '\\']).next().unwrap_or(p)
     }
     for p in changed {
         if WORKSPACE_FILES.contains(&basename(p)) || WORKSPACE_FILES.contains(&p.as_str()) {
@@ -134,7 +141,13 @@ fn compute_fingerprint(scope: &ScopeInfo) -> String {
     h.update(scope.affected_packages.join(","));
     for tool in ["rustc", "cargo"] {
         let v = run_cmd(tool, &["--version"], Duration::from_secs(10), &[])
-            .map(|o| if o.success { o.stdout.trim().to_string() } else { String::new() })
+            .map(|o| {
+                if o.success {
+                    o.stdout.trim().to_string()
+                } else {
+                    String::new()
+                }
+            })
             .unwrap_or_default();
         h.update(v);
     }
@@ -170,7 +183,10 @@ pub fn run_scope(raw_args: &str) -> ScopeInfo {
             .filter(|l| !l.is_empty())
             .map(str::to_string)
             .collect();
-        let dirty = !must_git(&["status", "--porcelain"]).stdout.trim().is_empty();
+        let dirty = !must_git(&["status", "--porcelain"])
+            .stdout
+            .trim()
+            .is_empty();
 
         let packages = cargo_metadata();
         let (affected, all_packages) = map_paths_to_packages(&changed, &packages);
@@ -203,5 +219,20 @@ pub fn run_scope(raw_args: &str) -> ScopeInfo {
         scope
     } else {
         die(&format!("error: unknown mode: {mode}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pinned_pr_checks_skip_without_reading_the_working_tree() {
+        for target in ["pr/220", "pr/220@354248d", "pull/220@354248d"] {
+            let scope = run_scope(&format!("diff {target} review.md"));
+            assert!(scope.mode == Mode::Pr);
+            assert!(!scope.skipped_reason.is_empty());
+        }
+        assert!(!is_pr_ref("upstream/main"));
     }
 }

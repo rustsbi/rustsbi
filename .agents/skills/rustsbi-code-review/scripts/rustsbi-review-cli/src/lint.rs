@@ -27,12 +27,28 @@ fn check_clippy(pkg: &str, target: Option<&str>) -> CheckResult {
 
     let id = format!("clippy-{pkg}");
     let result = |status: Status, msg: String| {
-        CheckResult::new(&id, Stage::Lint, status, Gate::Advisory, out.duration_ms, &cmd_str, &msg)
+        CheckResult::new(
+            &id,
+            Stage::Lint,
+            status,
+            Gate::Advisory,
+            out.duration_ms,
+            &cmd_str,
+            &msg,
+        )
     };
 
     if !out.success && combined.to_lowercase().contains("error") {
-        let output = if out.stderr.is_empty() { &out.stdout } else { &out.stderr };
-        let status = if out.timed_out { Status::Timeout } else { Status::Error };
+        let output = if out.stderr.is_empty() {
+            &out.stdout
+        } else {
+            &out.stderr
+        };
+        let status = if out.timed_out {
+            Status::Timeout
+        } else {
+            Status::Error
+        };
         return result(status, first_line(output)).with_output(output);
     }
     if !warnings.is_empty() {
@@ -46,19 +62,40 @@ fn check_clippy(pkg: &str, target: Option<&str>) -> CheckResult {
 fn check_typos() -> CheckResult {
     if find_tool("typos").is_none() {
         return CheckResult::new(
-            "typos", Stage::Lint, Status::Skip, Gate::Advisory, 0, "", "typos not installed",
+            "typos",
+            Stage::Lint,
+            Status::Skip,
+            Gate::Advisory,
+            0,
+            "",
+            "typos not installed",
         );
     }
     let out = must_run("typos", &[], Duration::from_secs(120));
     if out.success {
         return CheckResult::new(
-            "typos", Stage::Lint, Status::Pass, Gate::Advisory, out.duration_ms, "typos", "ok",
+            "typos",
+            Stage::Lint,
+            Status::Pass,
+            Gate::Advisory,
+            out.duration_ms,
+            "typos",
+            "ok",
         );
     }
-    let output = if out.stdout.is_empty() { &out.stderr } else { &out.stdout };
+    let output = if out.stdout.is_empty() {
+        &out.stderr
+    } else {
+        &out.stdout
+    };
     CheckResult::new(
-        "typos", Stage::Lint, Status::Fail, Gate::Advisory, out.duration_ms,
-        "typos", &first_line(output),
+        "typos",
+        Stage::Lint,
+        Status::Fail,
+        Gate::Advisory,
+        out.duration_ms,
+        "typos",
+        &first_line(output),
     )
     .with_output(output)
 }
@@ -66,12 +103,24 @@ fn check_typos() -> CheckResult {
 pub fn run_lint(scope: &ScopeInfo) -> Vec<CheckResult> {
     if !scope.skipped_reason.is_empty() {
         return vec![CheckResult::new(
-            "lint", Stage::Lint, Status::Skip, Gate::Advisory, 0, "", &scope.skipped_reason,
+            "lint",
+            Stage::Lint,
+            Status::Skip,
+            Gate::Advisory,
+            0,
+            "",
+            &scope.skipped_reason,
         )];
     }
     if scope.affected_packages.is_empty() {
         return vec![CheckResult::new(
-            "lint", Stage::Lint, Status::Skip, Gate::Advisory, 0, "", "no affected packages",
+            "lint",
+            Stage::Lint,
+            Status::Skip,
+            Gate::Advisory,
+            0,
+            "",
+            "no affected packages",
         )];
     }
 

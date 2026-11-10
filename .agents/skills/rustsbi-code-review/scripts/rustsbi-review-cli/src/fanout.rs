@@ -17,14 +17,24 @@ struct PassOutcome {
     code: Option<i32>,
 }
 
-fn spawn_pass(src: &str, dest: &str, personas: &[String]) -> std::thread::JoinHandle<PassOutcome> {
+fn spawn_pass(
+    src: &str,
+    dest: &str,
+    personas: &[String],
+    checks: &str,
+) -> std::thread::JoinHandle<PassOutcome> {
     let src = src.to_string();
     let dest = dest.to_string();
     let personas = personas.to_vec();
+    let checks = checks.to_string();
     std::thread::spawn(move || {
         let exe = std::env::current_exe().unwrap_or_else(|_| "rustsbi-review-cli".into());
         let mut cmd = std::process::Command::new(&exe);
-        cmd.arg("run-pass").arg(&src).arg(&dest);
+        cmd.arg("run-pass")
+            .arg(&src)
+            .arg(&dest)
+            .arg("--checks")
+            .arg(&checks);
         for p in &personas {
             cmd.arg("--persona").arg(p);
         }
@@ -49,12 +59,20 @@ fn spawn_pass(src: &str, dest: &str, personas: &[String]) -> std::thread::JoinHa
 }
 
 pub fn fanout_main(argv: &[String]) -> i32 {
+    let mut checks_path = None;
     let mut mode = "combined".to_string();
     let mut personas: Vec<String> = Vec::new();
     let mut rest: Vec<String> = Vec::new();
     let mut i = 0;
     while i < argv.len() {
-        if argv[i] == "--mode" {
+        if argv[i] == "--checks" {
+            checks_path = Some(
+                argv.get(i + 1)
+                    .unwrap_or_else(|| die("error: --checks requires a report path"))
+                    .clone(),
+            );
+            i += 2;
+        } else if argv[i] == "--mode" {
             mode = argv[i + 1].clone();
             i += 2;
         } else if argv[i] == "--persona" {
@@ -66,12 +84,16 @@ pub fn fanout_main(argv: &[String]) -> i32 {
         }
     }
     if rest.len() != 2 {
-        die("usage: run-fanout <review-input> <comments.json> [--mode combined|persona] [--persona NAME ...]");
+        die("usage: run-fanout <review-input> <comments.json> --checks <checks.json> [--mode combined|persona] [--persona NAME ...]");
     }
     if mode != "combined" && mode != "persona" {
         die("error: --mode must be combined or persona");
     }
     let (src, out) = (&rest[0], &rest[1]);
+    let checks_path = checks_path
+        .unwrap_or_else(|| die("error: run checks first and pass --checks <checks.json>"));
+    crate::checks::read_for_review(&checks_path)
+        .unwrap_or_else(|error| die(&format!("error: {error:#}")));
     let personas: Vec<String> = if personas.is_empty() {
         DEFAULT.iter().map(|s| s.to_string()).collect()
     } else {
@@ -92,7 +114,7 @@ pub fn fanout_main(argv: &[String]) -> i32 {
 
     let handles: Vec<_> = jobs
         .iter()
-        .map(|(_, dest, ps)| spawn_pass(src, dest, ps))
+        .map(|(_, dest, ps)| spawn_pass(src, dest, ps, &checks_path))
         .collect();
 
     let mut merged: Vec<Value> = Vec::new();
@@ -106,11 +128,24 @@ pub fn fanout_main(argv: &[String]) -> i32 {
     });
 
     for ((name, _dest, _), h) in jobs.iter().zip(handles) {
-        let o = h.join().unwrap_or_else(|_| die("error: run-pass thread panicked"));
+        let o = h
+            .join()
+            .unwrap_or_else(|_| die("error: run-pass thread panicked"));
         let ok = o.code == Some(0) && std::path::Path::new(&o.dest).exists();
         if !ok {
-            let msg = if !o.stderr.trim().is_empty() { o.stderr.trim() } else { o.stdout.trim() };
-            let tail: String = msg.chars().rev().take(300).collect::<Vec<_>>().into_iter().rev().collect();
+            let msg = if !o.stderr.trim().is_empty() {
+                o.stderr.trim()
+            } else {
+                o.stdout.trim()
+            };
+            let tail: String = msg
+                .chars()
+                .rev()
+                .take(300)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
             failed.push((name.clone(), tail));
             continue;
         }
@@ -132,7 +167,12 @@ pub fn fanout_main(argv: &[String]) -> i32 {
                     "duration_api_ms": u.get("duration_api_ms").cloned().unwrap_or(Value::Null),
                     "num_turns": u.get("num_turns").cloned().unwrap_or(Value::Null),
                 }));
-                for k in ["cache_creation_input_tokens", "cache_read_input_tokens", "input_tokens", "output_tokens"] {
+                for k in [
+                    "cache_creation_input_tokens",
+                    "cache_read_input_tokens",
+                    "input_tokens",
+                    "output_tokens",
+                ] {
                     let add = u["usage"].get(k).and_then(Value::as_i64).unwrap_or(0);
                     if let Some(cur) = totals.get_mut(k).and_then(|v| v.as_i64()) {
                         totals[k] = json!(cur + add);
@@ -152,30 +192,48 @@ pub fn fanout_main(argv: &[String]) -> i32 {
     for c in &merged {
         let problem = c["problem"].as_str().unwrap_or("");
         let head: String = problem.chars().take(80).collect();
-        let key = (c.get("file").cloned().unwrap_or(Value::Null),
-                   c.get("line").cloned().unwrap_or(Value::Null),
-                   c.get("grounding").cloned().unwrap_or(Value::Null),
-                   head);
+        let key = (
+            c.get("file").cloned().unwrap_or(Value::Null),
+            c.get("line").cloned().unwrap_or(Value::Null),
+            c.get("grounding").cloned().unwrap_or(Value::Null),
+            head,
+        );
         if !seen.contains(&key) {
             seen.push(key);
             unique.push(c.clone());
         }
     }
 
-    std::fs::write(&out, serde_json::to_string_pretty(&Value::Array(unique.clone())).unwrap() + "\n")
-        .unwrap_or_else(|e| die(&format!("error: write {}: {}", out, e)));
+    std::fs::write(
+        out,
+        serde_json::to_string_pretty(&Value::Array(unique.clone())).unwrap() + "\n",
+    )
+    .unwrap_or_else(|e| die(&format!("error: write {}: {}", out, e)));
 
     if !passes.is_empty() {
         let sidecar = json!({"mode": mode, "passes": passes, "totals": totals});
-        std::fs::write(format!("{}.usage.json", out), serde_json::to_string_pretty(&sidecar).unwrap() + "\n")
-            .unwrap_or_else(|e| die(&format!("error: write usage: {}", e)));
-        println!("tokens: cache_wr={} cache_rd={} plain_rd={} write={}",
-            totals["cache_creation_input_tokens"], totals["cache_read_input_tokens"],
-            totals["input_tokens"], totals["output_tokens"]);
+        std::fs::write(
+            format!("{}.usage.json", out),
+            serde_json::to_string_pretty(&sidecar).unwrap() + "\n",
+        )
+        .unwrap_or_else(|e| die(&format!("error: write usage: {}", e)));
+        println!(
+            "tokens: cache_wr={} cache_rd={} plain_rd={} write={}",
+            totals["cache_creation_input_tokens"],
+            totals["cache_read_input_tokens"],
+            totals["input_tokens"],
+            totals["output_tokens"]
+        );
     }
 
-    println!("{}: {} comments from {} pass(es), mode={} ({} duplicates merged)",
-        out, unique.len(), jobs.len(), mode, merged.len() - unique.len());
+    println!(
+        "{}: {} comments from {} pass(es), mode={} ({} duplicates merged)",
+        out,
+        unique.len(),
+        jobs.len(),
+        mode,
+        merged.len() - unique.len()
+    );
     if !failed.is_empty() {
         return 1;
     }

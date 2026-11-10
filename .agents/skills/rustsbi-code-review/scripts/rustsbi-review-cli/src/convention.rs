@@ -18,28 +18,58 @@ const CHANGELOG_DIRS: [&str; 5] = [
 ];
 
 fn not_applicable(id: &str, why: &str) -> CheckResult {
-    CheckResult::new(id, Stage::Convention, Status::Skip, Gate::Advisory, 0, "", why)
+    CheckResult::new(
+        id,
+        Stage::Convention,
+        Status::Skip,
+        Gate::Advisory,
+        0,
+        "",
+        why,
+    )
 }
 
 /// cargo fmt --all -- --check
 fn check_fmt() -> CheckResult {
-    let out = must_run("cargo", &["fmt", "--all", "--", "--check"], Duration::from_secs(120));
+    let out = must_run(
+        "cargo",
+        &["fmt", "--all", "--", "--check"],
+        Duration::from_secs(120),
+    );
     if out.success {
         return CheckResult::new(
-            "fmt", Stage::Convention, Status::Pass, Gate::Advisory, out.duration_ms,
-            "cargo fmt --all -- --check", "ok",
+            "fmt",
+            Stage::Convention,
+            Status::Pass,
+            Gate::Advisory,
+            out.duration_ms,
+            "cargo fmt --all -- --check",
+            "ok",
         );
     }
-    let diffs = out.stdout.lines().filter(|l| l.starts_with("Diff in ")).count();
-    let output = if out.stdout.is_empty() { &out.stderr } else { &out.stdout };
+    let diffs = out
+        .stdout
+        .lines()
+        .filter(|l| l.starts_with("Diff in "))
+        .count();
+    let output = if out.stdout.is_empty() {
+        &out.stderr
+    } else {
+        &out.stdout
+    };
     let msg = if diffs > 0 {
         format!("{diffs} file(s) need formatting")
     } else {
         first_line(output)
     };
     CheckResult::new(
-        "fmt", Stage::Convention, Status::Fail, Gate::Advisory, out.duration_ms,
-        "cargo fmt --all -- --check", &msg,
+        "fmt",
+        Stage::Convention,
+        Status::Fail,
+        Gate::Advisory,
+        out.duration_ms,
+        "cargo fmt --all -- --check",
+        &msg,
     )
     .with_output(output)
 }
@@ -53,8 +83,13 @@ fn check_whitespace(scope: &ScopeInfo) -> CheckResult {
     let out = must_git(&["diff", "--check", &format!("{mb}..HEAD")]);
     if out.success {
         return CheckResult::new(
-            "whitespace", Stage::Convention, Status::Pass, Gate::Advisory, out.duration_ms,
-            "git diff --check", "ok",
+            "whitespace",
+            Stage::Convention,
+            Status::Pass,
+            Gate::Advisory,
+            out.duration_ms,
+            "git diff --check",
+            "ok",
         );
     }
     let errors = out
@@ -68,8 +103,13 @@ fn check_whitespace(scope: &ScopeInfo) -> CheckResult {
         first_line(&out.stderr)
     };
     CheckResult::new(
-        "whitespace", Stage::Convention, Status::Fail, Gate::Advisory, out.duration_ms,
-        "git diff --check", &msg,
+        "whitespace",
+        Stage::Convention,
+        Status::Fail,
+        Gate::Advisory,
+        out.duration_ms,
+        "git diff --check",
+        &msg,
     )
     .with_output(&out.stdout)
 }
@@ -91,11 +131,15 @@ fn check_dco(scope: &ScopeInfo) -> CheckResult {
     let mut failed: Vec<String> = Vec::new();
     for c in &commits {
         // Skip merge commits.
-        if git_ok(&["show", "-s", "--format=%P", c]).split_whitespace().count() > 1 {
+        if git_ok(&["show", "-s", "--format=%P", c])
+            .split_whitespace()
+            .count()
+            > 1
+        {
             continue;
         }
         let ids = git_ok(&["show", "-s", "--format=%an%x00%ae%x00%cn%x00%ce", c]);
-        let parts: Vec<&str> = ids.trim_end_matches(|c| c == '\n' || c == '\r').split('\0').collect();
+        let parts: Vec<&str> = ids.trim_end_matches(['\n', '\r']).split('\0').collect();
         if parts.len() < 4 {
             failed.push(format!("{} (no identity)", &c[..c.len().min(7)]));
             continue;
@@ -112,7 +156,10 @@ fn check_dco(scope: &ScopeInfo) -> CheckResult {
             let val = val.trim();
             match (val.find('<'), val.rfind('>')) {
                 (Some(lt), Some(gt)) if lt < gt => {
-                    let s = (val[..lt].trim().to_lowercase(), val[lt + 1..gt].trim().to_lowercase());
+                    let s = (
+                        val[..lt].trim().to_lowercase(),
+                        val[lt + 1..gt].trim().to_lowercase(),
+                    );
                     s == author || s == committer
                 }
                 _ => false,
@@ -126,14 +173,26 @@ fn check_dco(scope: &ScopeInfo) -> CheckResult {
     let ms = start.elapsed().as_millis() as u64;
     if !failed.is_empty() {
         return CheckResult::new(
-            "dco", Stage::Convention, Status::Fail, Gate::Advisory, ms,
+            "dco",
+            Stage::Convention,
+            Status::Fail,
+            Gate::Advisory,
+            ms,
             "internal: DCO check",
-            &format!("{} of {} commit(s) missing valid Signed-off-by", failed.len(), commits.len()),
+            &format!(
+                "{} of {} commit(s) missing valid Signed-off-by",
+                failed.len(),
+                commits.len()
+            ),
         )
         .with_output(&format!("Missing sign-off: {}", failed.join(", ")));
     }
     CheckResult::new(
-        "dco", Stage::Convention, Status::Pass, Gate::Advisory, ms,
+        "dco",
+        Stage::Convention,
+        Status::Pass,
+        Gate::Advisory,
+        ms,
         "internal: DCO check",
         &format!("{} commit(s) verified", commits.len()),
     )
@@ -166,15 +225,24 @@ fn check_changelog(scope: &ScopeInfo) -> CheckResult {
     let ms = 0; // timing is covered by the git call above; not meaningful here
     if !missing.is_empty() {
         return CheckResult::new(
-            "changelog", Stage::Convention, Status::Fail, Gate::Advisory, ms,
+            "changelog",
+            Stage::Convention,
+            Status::Fail,
+            Gate::Advisory,
+            ms,
             "internal: changelog check",
             &format!("{} changelog(s) not updated", missing.len()),
         )
         .with_output(&format!("Missing: {}", missing.join(", ")));
     }
     CheckResult::new(
-        "changelog", Stage::Convention, Status::Pass, Gate::Advisory, ms,
-        "internal: changelog check", "ok",
+        "changelog",
+        Stage::Convention,
+        Status::Pass,
+        Gate::Advisory,
+        ms,
+        "internal: changelog check",
+        "ok",
     )
 }
 
@@ -196,14 +264,22 @@ fn check_eof_newline(scope: &ScopeInfo) -> CheckResult {
     let ms = start.elapsed().as_millis() as u64;
     if !missing.is_empty() {
         return CheckResult::new(
-            "eof-newline", Stage::Convention, Status::Fail, Gate::Advisory, ms,
+            "eof-newline",
+            Stage::Convention,
+            Status::Fail,
+            Gate::Advisory,
+            ms,
             "internal: EOF newline check",
             &format!("{} file(s) missing a newline at end of file", missing.len()),
         )
         .with_output(&format!("Missing EOF newline: {}", missing.join(", ")));
     }
     CheckResult::new(
-        "eof-newline", Stage::Convention, Status::Pass, Gate::Advisory, ms,
+        "eof-newline",
+        Stage::Convention,
+        Status::Pass,
+        Gate::Advisory,
+        ms,
         "internal: EOF newline check",
         &format!("{} file(s) checked", scope.changed_paths.len()),
     )
@@ -218,4 +294,3 @@ pub fn run_convention(scope: &ScopeInfo) -> Vec<CheckResult> {
         check_eof_newline(scope),
     ]
 }
-

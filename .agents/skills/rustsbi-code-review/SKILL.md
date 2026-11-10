@@ -69,7 +69,7 @@ Activation is path-based and deterministic; do not ask a model to triage it.
 
 ## Pipeline
 
-Three steps, in order. All tooling lives in one Rust binary,
+Four steps, in order. All tooling lives in one Rust binary,
 `scripts/rustsbi-review-cli` (one subcommand per stage). External
 requirements: `git` (and `gh`, for backtest mode), plus a Rust toolchain —
 which any machine that can run the build/test checks already has.
@@ -95,12 +95,26 @@ RCR_CLI="${RCR_CLI:-$SKILL/scripts/rustsbi-review-cli/target/release/rustsbi-rev
   first when missing (idempotent, incremental, ~10s cold);
 - on Windows the binary is `rustsbi-review-cli.exe` — append the suffix there.
 
-1. **Resolve the target.**
+1. **Run the deterministic gate.**
+   `"$RCR_CLI" checks '<raw args>' <output>` writes `<output>.checks.json`
+   and `<output>.checks.md`.
+   Exit 0 permits review, exit 1 blocks it on a compile failure or timeout,
+   and exit 2 means the checks could not complete. On either nonzero exit,
+   report the failure and stop before starting a model pass.
+   Advisory findings remain in the report and do not block review.
+   Historical `pr/N[@rev]` targets produce an explicit skipped-checks report.
+
+   **Checks only:** when the user requests only deterministic checks, stop
+   after this step and report the exit code, verdict, and report paths.
+   Do not load guideline indexes, resolve review input, start model passes,
+   assemble a review, or archive it.
+2. **Resolve the target.**
    `"$RCR_CLI" resolve-target --meta '<raw args>'` prints
    `mode=`, `base=`, `head=`, `branch=`, `date=`.
+   Save this metadata as `<output>.meta` for assembly and archiving.
    The same call without `--meta` writes the canonical review input to `<output>.input.md`.
-2. **Review — combined by default, persona fan-out on request.**
-   `"$RCR_CLI" run-fanout <output>.input.md <output>.comments.json`
+3. **Review — combined by default, persona fan-out on request.**
+   `"$RCR_CLI" run-fanout <output>.input.md <output>.comments.json --checks <output>.checks.json`
    runs **combined**: one pass, every activated persona index in the same context.
    Add `--mode persona` for one isolated pass per persona, each with only its own
    L1 index (selective exposure) but the same whole change, run in parallel.
@@ -114,11 +128,14 @@ RCR_CLI="${RCR_CLI:-$SKILL/scripts/rustsbi-review-cli/target/release/rustsbi-rev
    eight separate comments for a single cross-cutting defect, which no reader can reassemble.
 
    For one persona, or a single-file target, call a pass directly:
-   `"$RCR_CLI" run-pass <output>.input.md <output>.comments.json --persona development`
+   `"$RCR_CLI" run-pass <output>.input.md <output>.comments.json --checks <output>.checks.json --persona development`
    composes the prompt in the fixed order
-   (`pass_contract.md` → the activated personas' L1 `README.md` → the review input),
+   (`pass_contract.md` → the activated personas' L1 `README.md` → checks report → review input),
    hands it to a headless agent on **stdin** (a command line is capped near 32k characters),
    and validates the JSON array that comes back.
+   Both review commands require a checks report with `review_allowed: true`
+   before starting an agent. The report enters every pass's prompt so the
+   reviewer can use the results without duplicating deterministic findings.
 
    Agent choice: `--agent claude` (default), `--agent codex` (drives
 `codex exec --json -s read-only --skip-git-repo-check`, usage from
@@ -142,17 +159,18 @@ It drives `claude -p --allowedTools Read,Write --permission-mode acceptEdits` by
    values scaled to `k` / `M` and two decimals; the sidecar keeps raw integers.
    A pass costs roughly 25k input tokens before the review input is even counted
    (system prompt and tool schema), so measure before adding passes.
-3. **Assemble, then archive.**
-   `"$RCR_CLI" assemble <meta> <comments.json> <output>`
+4. **Assemble, then archive.**
+   `"$RCR_CLI" assemble <output>.meta <output>.comments.json <output>`
    groups by persona, sorts by file then line, drops exact duplicates,
    writes the frontmatter, and leaves a `<!-- SUMMARY -->` placeholder.
-   Then `"$RCR_CLI" archive <output>` snapshots every file
-   of this run into `<run-dir>/<YYYYMMDD-HHMMSS>/`. The files directly under the
-   run directory stay as the overwritable **latest** copy, so they and the newest
-   timestamped subdirectory are always identical; history accumulates in the stamps.
+   Then `"$RCR_CLI" archive <output>` snapshots the report and its existing
+   `<output>.meta`, `.input.md`, `.checks.json`, `.checks.md`, `.comments.json`,
+   and comment usage/per-pass sidecars into `<run-dir>/<YYYYMMDD-HHMMSS>/`.
+   Other files and directories in the output's parent are excluded.
+   The original artifacts stay in place; history accumulates in the stamps.
 
 Do not spawn a pass by re-running this skill:
-a pass is a reviewer whose input is the prompt from step 2, not another orchestration.
+a pass is a reviewer whose input is the prompt from step 3, not another orchestration.
 
 ## Output format
 

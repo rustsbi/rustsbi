@@ -14,6 +14,12 @@ one subcommand per pipeline stage.
 | `archive` | snapshot a run into a timestamped subdirectory |
 | `usage` | token accounting table over `.usage.json` sidecars |
 
+Run `checks '<raw args>' <output>` before review. A compile failure blocks
+review; advisory findings remain available to the model. `run-pass` and
+`run-fanout` require `--checks <output>.checks.json`, validate its verdict,
+and include its results in each review prompt. For checks-only requests,
+run `checks` and return its exit code and report paths without a model pass.
+
 ## Build
 
 ```sh
@@ -23,6 +29,11 @@ cargo build --release
 
 Any machine that can run the pipeline already has a Rust toolchain (the
 check stages invoke cargo), so this adds no new prerequisite.
+
+The `Skills` workflow discovers Cargo workspaces under `.agents/skills/`
+and runs rustfmt, Clippy, builds, and tests for each one. Keep a CLI's
+workspace inside its skill directory and commit its `Cargo.lock`.
+Workspace members are checked together; new skill CLIs need no workflow entry.
 
 ## Environment
 

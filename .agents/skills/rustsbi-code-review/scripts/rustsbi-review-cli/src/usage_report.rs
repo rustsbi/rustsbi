@@ -55,7 +55,10 @@ fn load(pattern: &str) -> Vec<(String, Value)> {
         .into_iter()
         .filter(|p| p.ends_with(".usage.json"))
         .filter_map(|p| {
-            std::fs::read_to_string(&p).ok().and_then(|s| serde_json::from_str(&s).ok()).map(|v| (p, v))
+            std::fs::read_to_string(&p)
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .map(|v| (p, v))
         })
         .collect()
 }
@@ -84,8 +87,15 @@ pub fn usage_main(argv: &[String]) -> i32 {
                     });
                 }
             } else {
-                let personas = u.get("personas").and_then(Value::as_array)
-                    .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(","))
+                let personas = u
+                    .get("personas")
+                    .and_then(Value::as_array)
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str())
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    })
                     .filter(|s| !s.is_empty())
                     .unwrap_or_else(|| "-".to_string());
                 rows.push(Row {
@@ -102,14 +112,31 @@ pub fn usage_main(argv: &[String]) -> i32 {
         return 1;
     }
 
-    println!("{:<34} {:<8} {:<18} {:>10} {:>10} {:>10} {:>11} {:>9}",
-        "run", "mode", "persona", "cache_wr", "cache_rd", "plain_rd", "total_read", "write");
+    println!(
+        "{:<34} {:<8} {:<18} {:>10} {:>10} {:>10} {:>11} {:>9}",
+        "run", "mode", "persona", "cache_wr", "cache_rd", "plain_rd", "total_read", "write"
+    );
     for r in &rows {
-        let tail: String = r.path.chars().rev().take(34).collect::<Vec<_>>().into_iter().rev().collect();
-        println!("{:<34} {:<8} {:<18} {:>10} {:>10} {:>10} {:>11} {:>9}",
-            tail, r.mode, r.persona,
-            human(r.c.cache_write), human(r.c.cache_read), human(r.c.plain_read),
-            human(r.c.total_read), human(r.c.write));
+        let tail: String = r
+            .path
+            .chars()
+            .rev()
+            .take(34)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        println!(
+            "{:<34} {:<8} {:<18} {:>10} {:>10} {:>10} {:>11} {:>9}",
+            tail,
+            r.mode,
+            r.persona,
+            human(r.c.cache_write),
+            human(r.c.cache_read),
+            human(r.c.plain_read),
+            human(r.c.total_read),
+            human(r.c.write)
+        );
     }
     let mut agg: BTreeMap<&str, i64> = BTreeMap::new();
     for r in &rows {
@@ -119,9 +146,16 @@ pub fn usage_main(argv: &[String]) -> i32 {
         *agg.entry("total_read").or_default() += r.c.total_read;
         *agg.entry("write").or_default() += r.c.write;
     }
-    println!("{:<34} {:<8} {:<18} {:>10} {:>10} {:>10} {:>11} {:>9}",
-        format!("TOTAL ({} passes)", rows.len()), "", "",
-        human(agg["cache_write"]), human(agg["cache_read"]), human(agg["plain_read"]),
-        human(agg["total_read"]), human(agg["write"]));
+    println!(
+        "{:<34} {:<8} {:<18} {:>10} {:>10} {:>10} {:>11} {:>9}",
+        format!("TOTAL ({} passes)", rows.len()),
+        "",
+        "",
+        human(agg["cache_write"]),
+        human(agg["cache_read"]),
+        human(agg["plain_read"]),
+        human(agg["total_read"]),
+        human(agg["write"])
+    );
     0
 }

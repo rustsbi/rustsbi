@@ -26,7 +26,12 @@ fn rev_re() -> Regex {
 }
 
 fn lang_for(path: &str) -> &'static str {
-    match path.rsplit('.').next().map(str::to_ascii_lowercase).as_deref() {
+    match path
+        .rsplit('.')
+        .next()
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
         Some("rs") => "rust",
         Some("md") => "markdown",
         Some("py") => "python",
@@ -47,7 +52,11 @@ fn run_or_die(program: &str, args: &[&str]) -> String {
     match run_cmd(program, args, Duration::from_secs(600), &[]) {
         Ok(o) if o.success => o.stdout,
         Ok(o) => {
-            let err = if o.stderr.trim().is_empty() { o.stdout.trim() } else { o.stderr.trim() };
+            let err = if o.stderr.trim().is_empty() {
+                o.stdout.trim()
+            } else {
+                o.stderr.trim()
+            };
             die(&format!("error: {} {}\n{}", program, args.join(" "), err))
         }
         Err(e) => die(&format!("error: {} {}: {}", program, args.join(" "), e)),
@@ -80,9 +89,19 @@ fn repo_slug() -> String {
     if let Ok(r) = std::env::var("RCR_REPO") {
         return r;
     }
-    run_or_die("gh", &["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"])
-        .trim()
-        .to_string()
+    run_or_die(
+        "gh",
+        &[
+            "repo",
+            "view",
+            "--json",
+            "nameWithOwner",
+            "-q",
+            ".nameWithOwner",
+        ],
+    )
+    .trim()
+    .to_string()
 }
 
 /// Rebuild a git-style patch from the compare API's per-file patches.
@@ -90,11 +109,18 @@ fn render_patch(files: &Value) -> String {
     let mut out = Vec::new();
     for f in files.as_array().into_iter().flatten() {
         // Strip trailing newline characters only.
-        let body = f["patch"].as_str().unwrap_or("").trim_end_matches(|c| c == '\n' || c == '\r');
+        let body = f["patch"]
+            .as_str()
+            .unwrap_or("")
+            .trim_end_matches(['\n', '\r']);
         if body.is_empty() {
             continue;
         }
-        out.push(format!("diff --git a/{} b/{}", f["filename"].as_str().unwrap_or(""), f["filename"].as_str().unwrap_or("")));
+        out.push(format!(
+            "diff --git a/{} b/{}",
+            f["filename"].as_str().unwrap_or(""),
+            f["filename"].as_str().unwrap_or("")
+        ));
         out.push(body.to_string());
     }
     out.join("\n")
@@ -102,10 +128,18 @@ fn render_patch(files: &Value) -> String {
 
 fn render_pr(num: &str, rev: Option<&str>) -> (String, Vec<String>) {
     let repo = repo_slug();
-    let info: Value = serde_json::from_str(&run_or_die("gh", &[
-        "pr", "view", num, "--repo", &repo, "--json",
-        "number,title,baseRefName,baseRefOid,headRefOid,headRefName,commits",
-    ]))
+    let info: Value = serde_json::from_str(&run_or_die(
+        "gh",
+        &[
+            "pr",
+            "view",
+            num,
+            "--repo",
+            &repo,
+            "--json",
+            "number,title,baseRefName,baseRefOid,headRefOid,headRefName,commits",
+        ],
+    ))
     .unwrap_or_else(|e| die(&format!("error: gh pr view: {e}")));
 
     let (commits, patch, head, source): (Value, String, String, String);
@@ -115,9 +149,10 @@ fn render_pr(num: &str, rev: Option<&str>) -> (String, Vec<String>) {
             die(&format!("error: unusable revision: {rev}"));
         }
         let base = info["baseRefOid"].as_str().unwrap_or("");
-        let cmp_data: Value = serde_json::from_str(&run_or_die("gh", &[
-            "api", &format!("repos/{}/compare/{}...{}", repo, base, rev),
-        ]))
+        let cmp_data: Value = serde_json::from_str(&run_or_die(
+            "gh",
+            &["api", &format!("repos/{}/compare/{}...{}", repo, base, rev)],
+        ))
         .unwrap_or_else(|e| die(&format!("error: gh api compare: {e}")));
         let mut list = Vec::new();
         for c in cmp_data["commits"].as_array().into_iter().flatten() {
@@ -125,7 +160,11 @@ fn render_pr(num: &str, rev: Option<&str>) -> (String, Vec<String>) {
             let mut lines = msg.split('\n');
             let headline = lines.next().unwrap_or("").to_string();
             let body = lines.collect::<Vec<_>>().join("\n").trim().to_string();
-            list.push(json_commit(c["sha"].as_str().unwrap_or(""), &headline, &body));
+            list.push(json_commit(
+                c["sha"].as_str().unwrap_or(""),
+                &headline,
+                &body,
+            ));
         }
         commits = Value::Array(list);
         patch = render_patch(&cmp_data["files"]);
@@ -134,7 +173,12 @@ fn render_pr(num: &str, rev: Option<&str>) -> (String, Vec<String>) {
     } else {
         commits = info["commits"].clone();
         patch = run_or_die("gh", &["pr", "diff", num, "--repo", &repo]);
-        head = info["headRefOid"].as_str().unwrap_or("").chars().take(7).collect();
+        head = info["headRefOid"]
+            .as_str()
+            .unwrap_or("")
+            .chars()
+            .take(7)
+            .collect();
         source = format!("pr/{}", num);
     }
 
@@ -144,7 +188,16 @@ fn render_pr(num: &str, rev: Option<&str>) -> (String, Vec<String>) {
         "mode: diff".to_string(),
         format!("source: {}", source),
         format!("title: {}", info["title"].as_str().unwrap_or("").trim()),
-        format!("base: {} ({})", info["baseRefName"].as_str().unwrap_or(""), info["baseRefOid"].as_str().unwrap_or("").chars().take(8).collect::<String>()),
+        format!(
+            "base: {} ({})",
+            info["baseRefName"].as_str().unwrap_or(""),
+            info["baseRefOid"]
+                .as_str()
+                .unwrap_or("")
+                .chars()
+                .take(8)
+                .collect::<String>()
+        ),
         format!("head: {}", head),
         format!("branch: {}", info["headRefName"].as_str().unwrap_or("")),
         String::new(),
@@ -152,8 +205,22 @@ fn render_pr(num: &str, rev: Option<&str>) -> (String, Vec<String>) {
         String::new(),
     ];
     for c in commits.as_array().into_iter().flatten() {
-        lines.push(format!("### commit {}", c["oid"].as_str().unwrap_or("").chars().take(7).collect::<String>()));
-        lines.push(c["messageHeadline"].as_str().unwrap_or("").trim().to_string());
+        lines.push(format!(
+            "### commit {}",
+            c["oid"]
+                .as_str()
+                .unwrap_or("")
+                .chars()
+                .take(7)
+                .collect::<String>()
+        ));
+        lines.push(
+            c["messageHeadline"]
+                .as_str()
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+        );
         let body = c["messageBody"].as_str().unwrap_or("").trim();
         if !body.is_empty() {
             lines.push(String::new());
@@ -164,7 +231,7 @@ fn render_pr(num: &str, rev: Option<&str>) -> (String, Vec<String>) {
     lines.push("## Diff".to_string());
     lines.push(String::new());
     lines.push(format!("{}diff", FENCE));
-    lines.push(patch.trim_end_matches(|c| c == '\n' || c == '\r').to_string());
+    lines.push(patch.trim_end_matches(['\n', '\r']).to_string());
     lines.push(FENCE.to_string());
     lines.push(String::new());
 
@@ -187,11 +254,22 @@ fn json_commit(oid: &str, headline: &str, body: &str) -> Value {
 }
 
 fn render_git(base: &str) -> (String, Vec<String>) {
-    let head = must_git(&["rev-parse", "--short", "HEAD"]).stdout.trim().to_string();
-    let branch = must_git(&["rev-parse", "--abbrev-ref", "HEAD"]).stdout.trim().to_string();
-    let mb = must_git(&["merge-base", base, "HEAD"]).stdout.trim().to_string();
+    let head = must_git(&["rev-parse", "--short", "HEAD"])
+        .stdout
+        .trim()
+        .to_string();
+    let branch = must_git(&["rev-parse", "--abbrev-ref", "HEAD"])
+        .stdout
+        .trim()
+        .to_string();
+    let mb = must_git(&["merge-base", base, "HEAD"])
+        .stdout
+        .trim()
+        .to_string();
     let log = must_git(&[
-        "log", "-p", "--reverse",
+        "log",
+        "-p",
+        "--reverse",
         "--format=### commit %h%n%s%n%b",
         &format!("{}..HEAD", mb),
     ])
@@ -200,12 +278,16 @@ fn render_git(base: &str) -> (String, Vec<String>) {
         "# REVIEW INPUT".to_string(),
         String::new(),
         "mode: diff".to_string(),
-        format!("base: {} ({})", base, mb.chars().take(8).collect::<String>()),
+        format!(
+            "base: {} ({})",
+            base,
+            mb.chars().take(8).collect::<String>()
+        ),
         format!("head: {}", head),
         format!("branch: {}", branch),
         String::new(),
         format!("{}diff", FENCE),
-        log.trim_end_matches(|c| c == '\n' || c == '\r').to_string(),
+        log.trim_end_matches(['\n', '\r']).to_string(),
         FENCE.to_string(),
         String::new(),
     ];
@@ -250,12 +332,23 @@ fn render_files(targets: &[String]) -> (String, Vec<String>) {
         }
         let mut label = path.clone();
         if let Some(rs) = &ranges {
-            let parts: Vec<String> = rs.iter().map(|(a, b)| {
-                if a == b { format!("{}", a) } else { format!("{}-{}", a, b) }
-            }).collect();
+            let parts: Vec<String> = rs
+                .iter()
+                .map(|(a, b)| {
+                    if a == b {
+                        format!("{}", a)
+                    } else {
+                        format!("{}-{}", a, b)
+                    }
+                })
+                .collect();
             label += &format!(":{}", parts.join(","));
         }
-        let lang = if path.contains('.') { lang_for(&path) } else { "" };
+        let lang = if path.contains('.') {
+            lang_for(&path)
+        } else {
+            ""
+        };
         out.push(format!("## `{}`", label));
         out.push(String::new());
         out.push(format!("{}{}", FENCE, lang));
