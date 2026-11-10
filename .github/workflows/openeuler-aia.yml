@@ -52,11 +52,21 @@ jobs:
       - name: Install required cargo
         run: cargo install --locked cargo-binutils@0.4.0
 
-      - name: Cache openEuler downloads
-        uses: actions/cache@v5
+      # Share the same verified image and release firmware cache as the
+      # standard openEuler boot workflow.
+      - name: Cache openEuler guest image
+        uses: ./.github/actions/ci-cache
         with:
-          path: .openeuler-aia/cache
-          key: openeuler-25.09-riscv64-aia-release-v1
+          path: target/openeuler-boot/cache/openEuler-25.09-riscv64.qcow2.xz
+          key: openeuler-25.09-image-5ba2eb5f-v2
+
+      - name: Cache openEuler EDK II release firmware
+        uses: ./.github/actions/ci-cache
+        with:
+          path: |
+            target/openeuler-boot/cache/RISCV_VIRT_CODE.fd
+            target/openeuler-boot/cache/RISCV_VIRT_VARS.fd
+          key: openeuler-25.09-release-fds-58e96e55-ea8094e9-v2
 
       - name: Build RustSBI Prototyper
         run: cargo prototyper build
@@ -66,7 +76,7 @@ jobs:
           docker run --rm \
             -v "$PWD:/work" \
             -w /work \
-            -e OPENEULER_AIA_CACHE_DIR=/work/.openeuler-aia/cache \
+            -e OPENEULER_AIA_CACHE_DIR=/work/target/openeuler-boot/cache \
             -e OPENEULER_AIA_WORK_DIR=/work/.openeuler-aia/work \
             -e OPENEULER_AIA_LOG_DIR=/work/qemu-logs \
             ubuntu:26.04 \
@@ -85,6 +95,20 @@ jobs:
               qemu-system-riscv64 --version
               .github/scripts/prototyper-openeuler-aia.sh
             '
+
+      - name: Save openEuler guest image
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: target/openeuler-boot/cache/openEuler-25.09-riscv64.qcow2.xz
+          key: openeuler-25.09-image-5ba2eb5f-v2
+
+      - name: Save openEuler EDK II release firmware
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: |
+            target/openeuler-boot/cache/RISCV_VIRT_CODE.fd
+            target/openeuler-boot/cache/RISCV_VIRT_VARS.fd
+          key: openeuler-25.09-release-fds-58e96e55-ea8094e9-v2
 
       - name: Upload openEuler AIA log
         if: always()

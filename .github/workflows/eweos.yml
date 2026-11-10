@@ -107,33 +107,26 @@ jobs:
       # stalls this boot at random; see the script header. Bump the trailing
       # revision after changing the configure flags in the script.
       - name: Cache QEMU build
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/eweos/qemu-10.2.2
           key: eweos-qemu-10.2.2-${{ runner.os }}-v1
 
-      # Use the checksum resolved by this boot job for its cache and checks.
-      - name: Cache eweOS live ISO
-        uses: actions/cache@v5
-        with:
-          path: .cache/eweos/eweos-riscv64-liveimage-standard.iso
-          key: eweos-riscv64-standard-${{ steps.iso.outputs.sha256 }}
-
-      # Check a restored ISO before anything else uses it. A cache miss passes
-      # here and the boot step downloads and verifies the image.
-      - name: Check cached eweOS ISO
+      # Validate an ISO already present in the workspace, then let the boot
+      # step download and verify the pinned release when it is absent.
+      - name: Check existing eweOS ISO
         run: .github/scripts/prototyper-eweos-boot.sh check-iso
 
       - name: Cache EDK II build
         if: matrix.boot-path == 'edk2'
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/ci-edk2/${{ env.CI_EDK2_BUILD_ID }}
           key: edk2-build-ubuntu-24.04-${{ runner.arch }}-${{ env.CI_EDK2_BUILD_ID }}
 
       - name: Cache U-Boot build
         if: matrix.boot-path == 'u-boot'
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/ci-uboot/builds/eweos-smode
           key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-eweos-smode-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
@@ -143,6 +136,26 @@ jobs:
 
       - name: Boot eweOS
         run: .github/scripts/prototyper-eweos-boot.sh "${{ matrix.boot-path }}"
+
+      - name: Save QEMU build
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/eweos/qemu-10.2.2
+          key: eweos-qemu-10.2.2-${{ runner.os }}-v1
+
+      - name: Save EDK II build
+        if: matrix.boot-path == 'edk2'
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/ci-edk2/${{ env.CI_EDK2_BUILD_ID }}
+          key: edk2-build-ubuntu-24.04-${{ runner.arch }}-${{ env.CI_EDK2_BUILD_ID }}
+
+      - name: Save U-Boot build
+        if: matrix.boot-path == 'u-boot'
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/ci-uboot/builds/eweos-smode
+          key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-eweos-smode-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Upload eweOS log
         if: always()

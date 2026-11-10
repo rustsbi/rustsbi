@@ -83,14 +83,14 @@ jobs:
       # checksum-pinned. Bump the trailing revision after editing the build
       # recipe in the script.
       - name: Cache zCore build
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/zcore
           key: zcore-8de51f4ee053bcaaf435897febf648bcb4d45479-busybox-1.36.1-v1
 
       - name: Cache U-Boot build
         if: matrix.boot-path == 'u-boot'
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/ci-uboot/builds/zcore-spl
           key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-zcore-spl-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
@@ -100,6 +100,19 @@ jobs:
 
       - name: Boot zCore
         run: .github/scripts/prototyper-zcore-boot.sh "${{ matrix.boot-path }}"
+
+      - name: Save zCore build
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/zcore
+          key: zcore-8de51f4ee053bcaaf435897febf648bcb4d45479-busybox-1.36.1-v1
+
+      - name: Save U-Boot build
+        if: matrix.boot-path == 'u-boot'
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/ci-uboot/builds/zcore-spl
+          key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-zcore-spl-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
 
       - name: Upload zCore log
         if: always()

@@ -70,7 +70,7 @@ jobs:
         run: cargo install --locked cargo-binutils@0.4.0
 
       - name: Cache Linux and BusyBox builds
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: |
             target/prototyper-bao/cache/linux-6.12.110-bao-Image
@@ -79,6 +79,14 @@ jobs:
 
       - name: Boot Linux under Bao
         run: .github/scripts/prototyper-bao-boot.sh
+
+      - name: Save Linux and BusyBox builds
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: |
+            target/prototyper-bao/cache/linux-6.12.110-bao-Image
+            target/prototyper-bao/cache/busybox-1.36.1-install
+          key: bao-linux-6.12.110-busybox-1.36.1-${{ hashFiles('.github/bao/init', '.github/scripts/prototyper-bao-boot.sh') }}
 
       - name: Upload QEMU logs
         if: always()

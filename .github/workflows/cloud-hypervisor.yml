@@ -91,13 +91,13 @@ jobs:
           echo "value=${fingerprint%% *}" >>"$GITHUB_OUTPUT"
 
       - name: Cache QEMU build
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/qemu-10.2.2
           key: cloud-hypervisor-qemu-10.2.2-${{ runner.os }}-v1
 
       - name: Cache Linux, BusyBox, and Cloud Hypervisor builds
-        uses: actions/cache@v5
+        uses: ./.github/actions/ci-cache
         with:
           path: .cache/cloud-hypervisor
           key: cloud-hypervisor-v53.0-linux-46b5aab6-busybox-1.36.1-${{ hashFiles('.github/scripts/prototyper-cloud-hypervisor-boot.sh') }}-${{ steps.cache-fingerprint.outputs.value }}
@@ -107,6 +107,18 @@ jobs:
 
       - name: Boot Linux through KVM and Cloud Hypervisor
         run: .github/scripts/prototyper-cloud-hypervisor-boot.sh
+
+      - name: Save QEMU build
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/qemu-10.2.2
+          key: cloud-hypervisor-qemu-10.2.2-${{ runner.os }}-v1
+
+      - name: Save Linux, BusyBox, and Cloud Hypervisor builds
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: .cache/cloud-hypervisor
+          key: cloud-hypervisor-v53.0-linux-46b5aab6-busybox-1.36.1-${{ hashFiles('.github/scripts/prototyper-cloud-hypervisor-boot.sh') }}-${{ steps.cache-fingerprint.outputs.value }}
 
       - name: Upload Cloud Hypervisor boot log
         if: always()
