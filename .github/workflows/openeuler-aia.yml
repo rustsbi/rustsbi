@@ -115,4 +115,6 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: openeuler-aia-log
-          path: qemu-logs/openeuler-aia.log
+          path: |
+            qemu-logs/openeuler-aia.log
+            qemu-logs/openeuler-aia-aplic.trace
