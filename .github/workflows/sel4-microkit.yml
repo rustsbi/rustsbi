@@ -1,0 +1,72 @@
+name: seL4 Microkit
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-sel4-microkit-boot.sh"
+      - ".github/workflows/sel4-microkit.yml"
+      - ".github/sel4-microkit/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-sel4-microkit-boot.sh"
+      - ".github/workflows/sel4-microkit.yml"
+      - ".github/sel4-microkit/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  microkit-boot:
+    name: Boot Microkit PD via RustSBI
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang \
+            lld \
+            qemu-system-riscv
+          qemu-system-riscv64 --version
+          clang --version
+          cargo install --locked cargo-binutils@0.4.0
+
+      - name: Build RustSBI Prototyper host tools
+        run: cargo prototyper build
+
+      - name: Boot Microkit through RustSBI
+        run: bash .github/scripts/prototyper-sel4-microkit-boot.sh
+
+      - name: Upload QEMU log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: prototyper-sel4-microkit-log
+          path: qemu-logs/prototyper-sel4-microkit.log
+          if-no-files-found: ignore

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<system>
+    <!-- qemu virt RISC-V UART0: 0x10000000, 4KiB -->
+    <memory_region name="uart0" size="0x1000" phys_addr="0x10000000" />
+
+    <protection_domain name="hello">
+        <program_image path="hello.elf" />
+        <map mr="uart0" vaddr="0x10000000" perms="rw" cached="false" />
+    </protection_domain>
+</system>
