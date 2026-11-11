@@ -1,0 +1,17 @@
+[package]
+name = "rustsbi-commit-cli"
+version = "0.1.0"
+edition = "2024"
+license = "MulanPSL-2.0"
+publish = false
+
+[workspace]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"
