@@ -175,8 +175,6 @@ regardless of what its ancestors happen to allow:
 * `pub(crate)`, `pub(super)`, `pub(in super::super)`, and `pub(in crate::a)`
   mean "this item must never escape the named scope",
   even when an enclosing private module already restricts it further.
-  If the `path` part of a `pub(in path)` modifier is long,
-  apply [`short-vis-path`](#short-vis-path).
 
 One exception is struct fields and union fields:
 a `pub` field of a visibility-restricted struct or union is acceptable,
