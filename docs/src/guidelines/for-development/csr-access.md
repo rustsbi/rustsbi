@@ -87,7 +87,7 @@ and the value the hardware discards is not promoted to a parameter.
 
 ```rust
 // Good — the claim is the API; the discarded operand is not a parameter
-pub fn claim(iid: Iid) -> Option<Iid> { /* single csrrw, see below */ }
+pub fn claim() -> Option<Iid> { /* single csrrw, see below */ }
 ```
 
 ```rust

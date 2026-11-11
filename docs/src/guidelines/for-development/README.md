@@ -13,6 +13,19 @@ and consistency with the hardware contract (assembly conventions, CSR and SBI sp
 
 ## Index
 
+**[SBI and Firmware Contracts](sbi-specific.md)**
+
+- [`hsm-stop-lifecycle`](sbi-specific.md#hsm-stop-lifecycle): Stop harts without returning
+- [`sbi-argument-order`](sbi-specific.md#sbi-argument-order): Map each SBI argument explicitly
+- [`sbi-error-codes`](sbi-specific.md#sbi-error-codes): Return the specified errors
+- [`shmem-disable-value`](sbi-specific.md#shmem-disable-value): Preserve the disable encoding
+- [`atomic-csr-claim`](sbi-specific.md#atomic-csr-claim): Claim device interrupts atomically
+- [`naked-call-abi`](sbi-specific.md#naked-call-abi): Preserve the naked call ABI
+- [`translation-fence`](sbi-specific.md#translation-fence): Fence ADUE changes
+- [`firmware-build-spec`](sbi-specific.md#firmware-build-spec): Reject incompatible firmware inputs
+- [`run-firmware-tests`](sbi-specific.md#run-firmware-tests): Run kernels in test and bench commands
+- [`measure-hot-paths`](sbi-specific.md#measure-hot-paths): Request trap-handler inlining benchmarks
+
 **[Memory Safety](memory-safety.md)**
 
 - [`justify-unsafe-use`](memory-safety.md#justify-unsafe-use): Justify every use of `unsafe`
