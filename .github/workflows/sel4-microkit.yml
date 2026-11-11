@@ -6,6 +6,7 @@ on:
     paths:
       - ".cargo/**"
       - ".github/scripts/prototyper-sel4-microkit-boot.sh"
+      - ".github/scripts/ci-uboot.sh"
       - ".github/workflows/sel4-microkit.yml"
       - ".github/sel4-microkit/**"
       - "Cargo.lock"
@@ -20,6 +21,7 @@ on:
     paths:
       - ".cargo/**"
       - ".github/scripts/prototyper-sel4-microkit-boot.sh"
+      - ".github/scripts/ci-uboot.sh"
       - ".github/workflows/sel4-microkit.yml"
       - ".github/sel4-microkit/**"
       - "Cargo.lock"
@@ -39,9 +41,16 @@ permissions:
 
 jobs:
   microkit-boot:
-    name: Boot Microkit PD via RustSBI
-    runs-on: ubuntu-26.04
-    timeout-minutes: 30
+    name: Boot Microkit via RustSBI (${{ matrix.boot-path }})
+    runs-on: ubuntu-24.04
+    # The u-boot path may build U-Boot from source on a cold cache.
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        boot-path:
+          - direct
+          - u-boot
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -50,23 +59,48 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
+            bison \
+            build-essential \
             clang \
+            dosfstools \
+            flex \
+            gcc-riscv64-linux-gnu \
+            libssl-dev \
             lld \
-            qemu-system-riscv
+            mtools \
+            python3 \
+            python3-dev \
+            python3-setuptools \
+            qemu-system-misc \
+            swig
           qemu-system-riscv64 --version
           clang --version
           cargo install --locked cargo-binutils@0.4.0
 
+          # Key the U-Boot build cache on the host compiler that builds it.
+          source .github/scripts/ci-uboot.sh
+          toolchain_id=$(ci_uboot_toolchain_id)
+          echo "CI_UBOOT_TOOLCHAIN_ID=$toolchain_id" >> "$GITHUB_ENV"
+
       - name: Build RustSBI Prototyper host tools
         run: cargo prototyper build
 
+      # The U-Boot build is shared across runs, but the FIT containing the
+      # current RustSBI is repacked on every boot.
+      - name: Cache U-Boot build
+        if: matrix.boot-path == 'u-boot'
+        uses: actions/cache@v5
+        with:
+          path: .cache/ci-uboot/builds/sel4-spl
+          key: uboot-build-ubuntu-24.04-${{ runner.arch }}-2024.04-sel4-spl-${{ env.CI_UBOOT_TOOLCHAIN_ID }}-${{ hashFiles('.github/scripts/ci-uboot.sh') }}
+
       - name: Boot Microkit through RustSBI
-        run: bash .github/scripts/prototyper-sel4-microkit-boot.sh
+        run: bash .github/scripts/prototyper-sel4-microkit-boot.sh "${{ matrix.boot-path }}"
 
       - name: Upload QEMU log
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: prototyper-sel4-microkit-log
-          path: qemu-logs/prototyper-sel4-microkit.log
+          name: prototyper-sel4-microkit-log-${{ matrix.boot-path }}
+          path: qemu-logs/prototyper-sel4-microkit-${{ matrix.boot-path }}.log
           if-no-files-found: ignore

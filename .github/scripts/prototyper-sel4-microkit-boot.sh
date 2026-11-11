@@ -1,19 +1,58 @@
 #!/usr/bin/env bash
 # Boot a seL4 Microkit protection domain through the RustSBI Prototyper in QEMU.
 #
-# Boot chain (verified end to end):
-#   QEMU virt -> RustSBI jump firmware (M-mode)
-#     -> Microkit loader at 0x90000000 (S-mode)
-#     -> seL4 kernel at 0x80200000 -> Monitor -> hello PD (UART output)
+# Two boot paths are covered, selected by the first argument:
+#
+#   direct  QEMU virt -> RustSBI jump firmware (M-mode)
+#             -> Microkit loader at 0x90000000 (S-mode)
+#             -> seL4 kernel at 0x80200000 -> Monitor -> hello PD (UART output).
+#           The loader is placed at its link address with `-device loader`; no
+#           bootloader is involved.
+#
+#   u-boot  QEMU virt -> u-boot-spl (M-mode, RustSBI Prototyper embedded as
+#             its OpenSBI payload in a FIT) -> RustSBI -> u-boot.itb at
+#             0x80200000 -> U-Boot proper (S-mode) -> FAT virtio disk: load
+#             loader.uimg; bootm -> Microkit loader at 0x90000000 -> seL4 kernel
+#             at 0x80200000 -> hello PD (UART output).
+#           On RISC-V only `bootm` jumps to the next stage with a0=hart ID and
+#           a1=device tree, which is what the Microkit loader expects. `bootelf`
+#           and `go` pass argc/argv instead and would corrupt the loader's
+#           entry, so the loader is packaged as a uImage whose header carries
+#           its 0x90000000 load/entry address.
 #
 # The Microkit RISC-V loader links at 0x90000000 (the RISC-V uImage
-# convention), so the firmware must be built with a config that jumps there
-# instead of the default OpenSBI fw_jump address 0x80200000.
+# convention), so on the direct path the firmware must be built with a config
+# that jumps there instead of the default OpenSBI fw_jump address 0x80200000.
+# The u-boot path uses the standard `cargo prototyper build` firmware at the
+# default jump address, which is U-Boot's TEXT_BASE, and U-Boot starts the
+# loader itself.
 #
 # Expects the repository to be the working directory and the firmware to be
 # built already: cargo prototyper build produces target/ artifacts, but the
-# jump firmware needs a custom config, so this script builds it.
+# direct path's jump firmware needs a custom config, so this script builds
+# that one. The u-boot path needs the U-Boot build toolchain (bison,
+# build-essential, flex, gcc-riscv64-linux-gnu, libssl-dev, python3-dev,
+# python3-setuptools, swig), with mkfs.vfat from dosfstools and mcopy from
+# mtools for the boot disk.
 set -euo pipefail
+
+# shellcheck source=.github/scripts/ci-uboot.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
+
+if (( $# > 1 )); then
+  echo "Usage: $0 [direct|u-boot]" >&2
+  exit 2
+fi
+
+readonly BOOT_MODE="${1:-direct}"
+case "$BOOT_MODE" in
+  direct | u-boot) ;;
+  *)
+    echo "Unknown boot path: ${BOOT_MODE}" >&2
+    echo "Usage: $0 [direct|u-boot]" >&2
+    exit 2
+    ;;
+esac
 
 # Pinned Microkit SDK. The sha256 is verified on every run so a corrupted or
 # substituted download fails the job instead of silently changing the guest.
@@ -32,15 +71,35 @@ readonly WORK_DIR="target/sel4-microkit/work"
 readonly FIRMWARE_BIN="target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper-jump.bin"
 readonly LOADER_IMG="${WORK_DIR}/loader.img"
 readonly LOG_DIR="${QEMU_LOG_DIR:-qemu-logs}"
-readonly LOG_FILE="${LOG_DIR}/prototyper-sel4-microkit.log"
+readonly LOG_FILE="${LOG_DIR}/prototyper-sel4-microkit-${BOOT_MODE}.log"
 readonly BOOT_TIMEOUT_SECS="${MICROKIT_BOOT_TIMEOUT_SECS:-120}"
+
+# The u-boot path embeds the firmware `cargo prototyper build` produces at the
+# default jump address 0x80200000 (U-Boot's TEXT_BASE) as the OpenSBI payload of
+# U-Boot's SPL. The 0x90000000 jump firmware above belongs to the direct path
+# only.
+readonly RUSTSBI="${SEL4_RUSTSBI_BIN:-target/riscv64gc-unknown-none-elf/release/rustsbi-prototyper.bin}"
+readonly UB_VERSION="2024.04"
+readonly LOADER_UIMAGE="${WORK_DIR}/loader.uimg"
+readonly BOOT_DISK="${WORK_DIR}/sel4-boot.img"
+
+# Populated by build_uboot; kept as mutable globals because the tree lives
+# under WORK_DIR and only the FIT is repacked every run.
+UB_SPL=""
+UB_ITB=""
 
 # The marker is printed by the hello PD through its mapped 16550 UART.
 readonly SUCCESS_MARKER='[hello] Microkit PD started'
+# The u-boot path must also prove that U-Boot ran and started the loader instead
+# of Microkit being reached by another route.
+UB_SUCCESS_MARKERS=("U-Boot ${UB_VERSION}" "Starting kernel ...")
+readonly UB_SUCCESS_MARKERS
 # A panic or VM fault halts the system while QEMU stays alive, so without
 # these a boot failure would sit out the whole timeout. `faulting PD` is the
 # Monitor's wording for a VM fault in a protection domain.
 readonly BOOT_FAILURE_PATTERN='MON\|ERROR|faulting PD|Bootstrapping failed|unhandled machine trap|Kernel panic|SBI panic'
+# U-Boot's own image and device tree failures, as reported by bootm.
+readonly UB_BOOT_FAILURE_PATTERN="Wrong Image Format|Bad Linux RISCV Image magic|Ramdisk image is corrupt|Could not find a valid device tree|FDT creation failed|Failed to reserve memory for fdt"
 
 fetch_sdk() {
   local tarball="${WORK_DIR}/microkit-sdk-${MICROKIT_VERSION}.tar.gz"
@@ -98,6 +157,7 @@ build_firmware() {
 build_pd() {
   local board="${SDK_DIR}/board/${BOARD}/${BOARD_CONFIG}"
   local elf="${WORK_DIR}/hello.elf"
+  local image_type output
 
   mkdir -p "$WORK_DIR"
 
@@ -115,27 +175,70 @@ build_pd() {
     -fuse-ld=lld -nostdlib -Wl,-z,notext \
     "${WORK_DIR}/hello.o" "${board}/lib/libmicrokit.a" -o "$elf"
 
-  # `--image-type` takes binary|elf|uimage (not raw), and the tool only
-  # accepts long `--output`/`--report` options.
+  # The direct path wants the raw loader binary; the u-boot path wants a
+  # uImage whose header carries the 0x90000000 load/entry address, because
+  # only `bootm` gives the loader the hart ID and device tree registers
+  # (a0/a1) it expects. `--image-type` takes binary|elf|uimage (not raw), and
+  # the tool only accepts long `--output`/`--report` options.
+  if [[ "$BOOT_MODE" = u-boot ]]; then
+    image_type=uimage
+    output=$LOADER_UIMAGE
+  else
+    image_type=binary
+    output=$LOADER_IMG
+  fi
+
   "${SDK_DIR}/bin/microkit" \
     --board "$BOARD" --config "$BOARD_CONFIG" --search-path "$WORK_DIR" \
-    --image-type binary --output "$LOADER_IMG" --report "${WORK_DIR}/report.txt" \
+    --image-type "$image_type" --output "$output" --report "${WORK_DIR}/report.txt" \
     "${PD_DIR}/hello.system"
 
-  test -s "$LOADER_IMG"
+  test -s "$output"
+}
+
+# Repack the shared U-Boot build with the current RustSBI.
+build_uboot() {
+  local tree="${WORK_DIR}/u-boot"
+  ci_uboot_build 2024.04 spl sel4-spl "$tree"
+  ci_uboot_fit "$tree" "$RUSTSBI"
+  UB_SPL="$tree/spl/u-boot-spl"
+  UB_ITB="$tree/u-boot.itb"
+}
+
+# A whole-disk FAT filesystem written with mtools, so building the boot disk
+# needs neither root nor loop devices. The loader uImage carries its own load
+# address, so no uboot.env or initramfs entries are needed.
+make_boot_disk() {
+  rm -f "$BOOT_DISK"
+  truncate -s 64M "$BOOT_DISK"
+  mkfs.vfat -F 32 "$BOOT_DISK" >/dev/null
+  mcopy -i "$BOOT_DISK" "$LOADER_UIMAGE" ::loader.uimg
 }
 
 boot_microkit() {
   mkdir -p "$LOG_DIR"
   local status=0
 
-  # The loader image is a raw binary placed at its link address with
-  # `-device loader`; `-kernel` would only work for uImage headers.
-  timeout "${BOOT_TIMEOUT_SECS}s" qemu-system-riscv64 \
-    -machine virt -nographic -m 2G -smp 1 -no-reboot \
-    -bios "$FIRMWARE_BIN" \
-    -device "loader,file=${LOADER_IMG},addr=${LOADER_ADDR},force-raw=on" \
-    >"$LOG_FILE" 2>&1 || status=$?
+  if [[ "$BOOT_MODE" = u-boot ]]; then
+    # u-boot-spl is given as `-bios`; the FIT is placed at U-Boot's TEXT_BASE
+    # (0x80200000) where the SPL's OpenSBI payload jumps. The boot disk is a
+    # virtio block device the SPL-embedded U-Boot proper scans for loader.uimg.
+    timeout "${BOOT_TIMEOUT_SECS}s" qemu-system-riscv64 \
+      -machine virt -nographic -m 2G -smp 1 -no-reboot \
+      -bios "$UB_SPL" \
+      -device loader,file="$UB_ITB",addr=0x80200000 \
+      -blockdev driver=file,filename="$BOOT_DISK",node-name=hd0 \
+      -device virtio-blk-device,drive=hd0 \
+      >"$LOG_FILE" 2>&1 || status=$?
+  else
+    # The loader image is a raw binary placed at its link address with
+    # `-device loader`; `-kernel` would only work for uImage headers.
+    timeout "${BOOT_TIMEOUT_SECS}s" qemu-system-riscv64 \
+      -machine virt -nographic -m 2G -smp 1 -no-reboot \
+      -bios "$FIRMWARE_BIN" \
+      -device "loader,file=${LOADER_IMG},addr=${LOADER_ADDR},force-raw=on" \
+      >"$LOG_FILE" 2>&1 || status=$?
+  fi
 
   if (( status != 0 )) && (( status != 124 )); then
     echo "QEMU exited with status $status; last 120 log lines:" >&2
@@ -149,16 +252,45 @@ boot_microkit() {
     exit 1
   fi
 
+  if [[ "$BOOT_MODE" = u-boot ]]; then
+    local marker
+    for marker in "${UB_SUCCESS_MARKERS[@]}"; do
+      if ! grep -Fq -- "$marker" "$LOG_FILE"; then
+        echo "missing expected output: $marker" >&2
+        tail -n 120 "$LOG_FILE" >&2
+        exit 1
+      fi
+    done
+  fi
+
   if grep -Eq -- "$BOOT_FAILURE_PATTERN" "$LOG_FILE"; then
     echo "forbidden output in boot log" >&2
     tail -n 120 "$LOG_FILE" >&2
     exit 1
   fi
 
-  echo "RustSBI -> Microkit loader -> seL4 -> hello PD boot passed; log: $LOG_FILE"
+  if [[ "$BOOT_MODE" = u-boot ]] && grep -Eq -- "$UB_BOOT_FAILURE_PATTERN" "$LOG_FILE"; then
+    echo "forbidden U-Boot output in boot log" >&2
+    tail -n 120 "$LOG_FILE" >&2
+    exit 1
+  fi
+
+  echo "RustSBI -> Microkit loader -> seL4 -> hello PD boot passed (${BOOT_MODE}); log: $LOG_FILE"
 }
 
 fetch_sdk
-build_firmware
-build_pd
+if [[ "$BOOT_MODE" = u-boot ]]; then
+  # `cargo prototyper build` is run by the workflow; the standard flattened
+  # firmware it produces is the SPL's OpenSBI payload on this path.
+  test -s "$RUSTSBI" || {
+    echo "Missing $RUSTSBI; run 'cargo prototyper build' first" >&2
+    exit 1
+  }
+  build_pd
+  build_uboot
+  make_boot_disk
+else
+  build_firmware
+  build_pd
+fi
 boot_microkit
