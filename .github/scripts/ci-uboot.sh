@@ -109,6 +109,13 @@ ci_uboot_build() (
         'fdt addr ${fdtcontroladdr}' 'fdt move ${fdtcontroladdr} ${fdt_addr_r} 0x10000'
         'bootm ${kernel_addr_r} - ${fdt_addr_r}')
       options+=(--set-val SPL_SYS_MALLOC_SIZE 0x800000) ;;
+    sel4-spl)
+      # On RISC-V only bootm jumps with hart ID in a0 and the device tree in
+      # a1, which is what the Microkit loader expects; bootelf/go would pass
+      # argc/argv instead.
+      commands=('virtio scan' 'load virtio 0 ${kernel_addr_r} loader.uimg'
+        'fdt addr ${fdtcontroladdr}' 'fdt move ${fdtcontroladdr} ${fdt_addr_r} 0x10000'
+        'bootm ${kernel_addr_r} - ${fdt_addr_r}') ;;
     zcore-spl)
       commands=('load virtio 0 ${kernel_addr_r} zcore.uimg'
         'load virtio 0 ${ramdisk_addr_r} rootfs.img'
