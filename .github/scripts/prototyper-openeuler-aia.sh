@@ -85,7 +85,10 @@ code_abs=$(realpath "$code_fd")
 vars_copy="$work_dir/RISCV_VIRT_VARS-ci.fd"
 overlay="$work_dir/openeuler-aia-overlay.qcow2"
 log_file="$log_dir/openeuler-aia.log"
+raw_trace_file="$log_dir/openeuler-aia-mmio.trace"
 trace_file="$log_dir/openeuler-aia-aplic.trace"
+aplic_trace_marker="addr 0xc001bc0 value 0x24000 size 4 name 'riscv.aplic'"
+: > "$raw_trace_file"
 : > "$trace_file"
 
 cp "$vars_fd" "$vars_copy"
@@ -104,7 +107,7 @@ timeout --foreground "${timeout_secs}s" qemu-system-riscv64 \
     -smp "$smp" \
     -m "${memory_gib}G" \
     -bios "$rustsbi" \
-    -trace "enable=riscv_aplic_write,file=$trace_file" \
+    -trace "enable=memory_region_ops_write,file=$raw_trace_file" \
     -blockdev node-name=pflash0,driver=file,read-only=on,filename="$code_abs" \
     -blockdev node-name=pflash1,driver=file,filename="$vars_copy" \
     -drive file="$overlay",format=qcow2,id=hd0,if=none \
@@ -151,9 +154,12 @@ trap - EXIT
 # Show QEMU startup errors before the boot-marker checks can fail.
 tail -n 160 "$log_file"
 
-# The machine APLIC's MSI-address write occurs only after firmware selects
-# and initializes the machine IMSIC on QEMU's AIA platform.
-grep -F "riscv_aplic_write offset: 0x1bc0, size: 4, value: 0x24000" "$trace_file"
+# QEMU has no APLIC-specific trace event. The generic MMIO trace must contain
+# RustSBI's machine APLIC MSI-address write before the guest can boot.
+if ! grep -F "$aplic_trace_marker" "$raw_trace_file" >"$trace_file"; then
+    echo "AIA: RustSBI did not program QEMU's machine APLIC" >&2
+    exit 1
+fi
 grep -F "automatically in 0s" "$log_file"
 grep -F "Loading Linux" "$log_file"
 grep -F "Loading initial ramdisk" "$log_file"
