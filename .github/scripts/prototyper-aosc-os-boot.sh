@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # Boot the AOSC OS container rootfs with its packaged kernel and RustSBI.
-# A small initramfs loads virtio and starts AOSC's systemd. Both SBI and U-Boot
-# use this same disk and initramfs; U-Boot reads them through extlinux.
+# A small initramfs loads virtio and starts AOSC's systemd. All boot paths use
+# this same disk and initramfs; U-Boot reads them through extlinux, while EDK II
+# receives the kernel and initramfs from QEMU and starts the EFI stub.
 set -euo pipefail
 
+# shellcheck source=.github/scripts/ci-edk2.sh
+source "$(dirname "${BASH_SOURCE[0]}")/ci-edk2.sh"
 # shellcheck source=.github/scripts/ci-uboot.sh
 source "$(dirname "${BASH_SOURCE[0]}")/ci-uboot.sh"
 
-if (( $# != 1 )) || [[ "$1" != sbi && "$1" != u-boot ]]; then
-  echo "Usage: $0 <sbi|u-boot>" >&2
+if (( $# != 1 )) || [[ "$1" != sbi && "$1" != u-boot && "$1" != edk2 ]]; then
+  echo "Usage: $0 <sbi|u-boot|edk2>" >&2
   exit 2
 fi
 readonly BOOT_MODE=$1
@@ -85,6 +88,11 @@ cleanup() {
 }
 
 install_smoke_test() {
+  local efi_check='test ! -d /sys/firmware/efi'
+  if [[ "$BOOT_MODE" = edk2 ]]; then
+    efi_check='test -d /sys/firmware/efi'
+  fi
+
   cat > "${WORK_DIR}/smoke.sh" <<EOF
 #!/bin/bash
 set -euo pipefail
@@ -93,6 +101,7 @@ test "\$ID" = aosc
 test "\$(uname -m)" = riscv64
 test "\$(uname -r)" = "${KERNEL_VERSION}"
 test "\$(cat /proc/1/comm)" = systemd
+${efi_check}
 uname -a
 cat /etc/os-release
 echo "${SMOKE_MARKER} \$PRETTY_NAME \$(uname -m)"
@@ -256,6 +265,16 @@ start_qemu() {
   if [[ "$BOOT_MODE" = u-boot ]]; then
     boot_args=(-bios "${UBOOT_TREE}/spl/u-boot-spl"
       -device "loader,file=${UBOOT_TREE}/u-boot.itb,addr=0x80200000")
+  elif [[ "$BOOT_MODE" = edk2 ]]; then
+    boot_args=(
+      -machine "virt,pflash0=pflash0,pflash1=pflash1,acpi=off"
+      -bios "$RUSTSBI_DYNAMIC_BIN"
+      -blockdev "node-name=pflash0,driver=file,read-only=on,filename=${WORK_DIR}/RISCV_VIRT_CODE.fd"
+      -blockdev "node-name=pflash1,driver=file,filename=${WORK_DIR}/RISCV_VIRT_VARS.fd"
+      -kernel "$KERNEL_IMAGE"
+      -initrd "$INITRAMFS_IMAGE"
+      -append "$KERNEL_CMDLINE"
+    )
   else
     boot_args=(-bios "$RUSTSBI_DYNAMIC_BIN" -kernel "$KERNEL_IMAGE"
       -initrd "$INITRAMFS_IMAGE" -append "$KERNEL_CMDLINE")
@@ -281,6 +300,8 @@ wait_for_boot() {
       if [[ "$BOOT_MODE" = u-boot ]]; then
         grep -Fq "U-Boot ${UBOOT_VERSION}" "$LOG_FILE" || return 1
         grep -Fq 'Starting kernel ...' "$LOG_FILE" || return 1
+      elif [[ "$BOOT_MODE" = edk2 ]]; then
+        grep -Fq 'RISC-V EDK2 firmware version' "$LOG_FILE" || return 1
       fi
       return 0
     fi
@@ -309,6 +330,8 @@ main() {
     test -s "$RUSTSBI_FIT_BIN"
     ci_uboot_build "$UBOOT_VERSION" spl aosc-os-spl "$UBOOT_TREE"
     ci_uboot_fit "$UBOOT_TREE" "$RUSTSBI_FIT_BIN"
+  elif [[ "$BOOT_MODE" = edk2 ]]; then
+    ci_edk2_prepare "$WORK_DIR"
   fi
   prepare_root_disk
   echo "Booting AOSC OS ${AOSC_RELEASE} (${BOOT_MODE})"
