@@ -1,4 +1,4 @@
-name: NuttX
+name: Compat / RTOS / NuttX
 
 on:
   pull_request:
@@ -15,6 +15,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   push:
     branches: ["main"]
     paths:
@@ -29,6 +30,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   workflow_dispatch:
 
 env:
@@ -83,7 +85,7 @@ jobs:
           echo "CI_UBOOT_TOOLCHAIN_ID=$toolchain_id" >> "$GITHUB_ENV"
 
       - name: Install required cargo
-        run: cargo install --locked cargo-binutils@0.4.0
+        uses: ./.github/actions/setup-cargo-binutils
 
       # Both inputs are immutable commits, so the key only changes when a
       # pinned version does. Bump the trailing revision after editing the

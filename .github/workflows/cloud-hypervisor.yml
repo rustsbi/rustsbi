@@ -1,4 +1,4 @@
-name: Cloud Hypervisor
+name: Compat / Hypervisors / Cloud Hypervisor
 
 on:
   pull_request:

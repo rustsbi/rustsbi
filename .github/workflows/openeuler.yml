@@ -1,4 +1,4 @@
-name: openEuler
+name: Compat / Linux / openEuler
 
 on:
   pull_request:
@@ -15,6 +15,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   push:
     branches: ["main", "ci/**"]
     paths:
@@ -29,6 +30,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   workflow_dispatch:
 
 permissions:
@@ -75,7 +77,7 @@ jobs:
           .github/scripts/prototyper-openeuler-boot.sh --self-test
 
       - name: Install cargo-binutils
-        run: cargo install --locked cargo-binutils@0.4.0
+        uses: ./.github/actions/setup-cargo-binutils
 
       # The pinned mirror has timed out repeatedly, so keep the verified image
       # and release firmware on main rather than depending on it for every PR.

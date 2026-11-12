@@ -1,4 +1,4 @@
-name: Minimal Linux RV32
+name: Compat / Linux / Minimal Linux RV32
 
 on:
   pull_request:
@@ -14,6 +14,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   push:
     branches: ["main"]
     paths:
@@ -27,6 +28,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   workflow_dispatch:
 
 env:
@@ -75,7 +77,7 @@ jobs:
           qemu-system-riscv32 --version
 
       - name: Install required cargo
-        run: cargo install --locked cargo-binutils@0.4.0
+        uses: ./.github/actions/setup-cargo-binutils
 
       # The pinned release toolchain is downloaded every run. Cache only the
       # kernel and BusyBox products built from that toolchain.

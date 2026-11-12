@@ -1,4 +1,4 @@
-name: RTEMS
+name: Compat / RTOS / RTEMS
 
 on:
   pull_request:
@@ -14,6 +14,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   push:
     branches: ["main"]
     paths:
@@ -27,10 +28,11 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: RTEMS-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -59,7 +61,7 @@ jobs:
           qemu-system-riscv64 --version
 
       - name: Install required cargo
-        run: cargo install --locked cargo-binutils@0.4.0
+        uses: ./.github/actions/setup-cargo-binutils
 
       - name: Boot RTEMS
         run: .github/scripts/prototyper-rtems-boot.sh

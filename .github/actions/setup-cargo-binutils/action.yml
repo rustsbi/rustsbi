@@ -1,0 +1,8 @@
+name: Set up cargo-binutils
+description: Install the cargo-binutils version used by the firmware boot tests.
+runs:
+  using: composite
+  steps:
+    # Match the implicit Linux run-step shell used by the original workflows.
+    - shell: bash -e {0}
+      run: cargo install --locked cargo-binutils@0.4.0

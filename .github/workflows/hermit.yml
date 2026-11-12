@@ -1,4 +1,4 @@
-name: Hermit
+name: Compat / Kernel / Hermit
 
 on:
   pull_request:
@@ -15,6 +15,7 @@ on:
       - "firmware/macros/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   push:
     branches: ["main"]
     paths:
@@ -29,6 +30,7 @@ on:
       - "firmware/macros/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   workflow_dispatch:
 
 env:
@@ -54,7 +56,7 @@ jobs:
           qemu-system-riscv64 --version
 
       - name: Install required cargo
-        run: cargo install --locked cargo-binutils@0.4.0
+        uses: ./.github/actions/setup-cargo-binutils
 
       - name: Build RustSBI Prototyper
         run: cargo prototyper build

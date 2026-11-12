@@ -1,4 +1,4 @@
-name: NixOS
+name: Compat / Linux / NixOS
 
 on:
   pull_request:
@@ -15,6 +15,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   push:
     branches: ["main"]
     paths:
@@ -29,11 +30,12 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   workflow_dispatch:
 
 concurrency:
   # Cancel superseded PR attempts, but keep push and manual runs independent.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  group: NixOS-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 env:
@@ -64,7 +66,7 @@ jobs:
           qemu-system-riscv64 --version
 
       - name: Install required cargo
-        run: cargo install --locked cargo-binutils@0.4.0
+        uses: ./.github/actions/setup-cargo-binutils
 
       # The boot assets are a pure function of the pinned NixOS inputs, so the
       # cache key covers every file that can change them. On a hit the job

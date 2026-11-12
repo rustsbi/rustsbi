@@ -1,4 +1,4 @@
-name: seL4 Microkit
+name: Compat / Kernel / seL4 Microkit
 
 on:
   pull_request:

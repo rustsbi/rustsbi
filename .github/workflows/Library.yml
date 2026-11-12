@@ -1,4 +1,4 @@
-name: Library
+name: CI / Library
 
 on:
   push:

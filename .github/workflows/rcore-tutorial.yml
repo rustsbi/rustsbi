@@ -1,4 +1,4 @@
-name: rCore-Tutorial
+name: Compat / Kernel / rCore-Tutorial
 
 on:
   pull_request:
