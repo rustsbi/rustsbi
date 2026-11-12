@@ -1,4 +1,4 @@
-name: openEuler AIA
+name: Compat / Linux / openEuler AIA
 
 on:
   pull_request:
@@ -14,6 +14,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   push:
     branches: ["main"]
     paths:
@@ -27,6 +28,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   workflow_dispatch:
 
 env:
@@ -50,7 +52,7 @@ jobs:
           sudo apt-get install -y curl xz-utils zstd
 
       - name: Install required cargo
-        run: cargo install --locked cargo-binutils@0.4.0
+        uses: ./.github/actions/setup-cargo-binutils
 
       # Share the same verified image and release firmware cache as the
       # standard openEuler boot workflow.

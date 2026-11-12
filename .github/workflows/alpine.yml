@@ -1,4 +1,4 @@
-name: Alpine Linux
+name: Compat / Linux / Alpine Linux
 
 on:
   pull_request:
@@ -16,6 +16,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   push:
     branches: ["main", "ci/**"]
     paths:
@@ -31,6 +32,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   workflow_dispatch:
 
 permissions:
@@ -72,7 +74,7 @@ jobs:
           echo "CI_EDK2_BUILD_ID=$edk2_id" >> "$GITHUB_ENV"
 
       - name: Install required cargo
-        run: cargo install --locked cargo-binutils@0.4.0
+        uses: ./.github/actions/setup-cargo-binutils
 
       - name: Check serial acceptance and failure handling
         run: .github/scripts/prototyper-alpine-boot.sh --self-test

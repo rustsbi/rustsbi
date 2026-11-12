@@ -1,4 +1,4 @@
-name: openRuyi
+name: Compat / Linux / openRuyi
 
 on:
   pull_request:
@@ -17,6 +17,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   push:
     branches: ["main", "ci/**"]
     paths:
@@ -33,6 +34,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   workflow_dispatch:
 
 env:
@@ -58,7 +60,7 @@ jobs:
           qemu-system-riscv64 --version
 
       - name: Install required cargo
-        run: cargo install --locked cargo-binutils@0.4.0
+        uses: ./.github/actions/setup-cargo-binutils
 
       - name: Cache openRuyi Zero assets
         uses: ./.github/actions/ci-cache
@@ -172,7 +174,7 @@ jobs:
           .github/scripts/prototyper-openruyi-server-workstation-boot.sh --self-test
 
       - name: Install cargo-binutils
-        run: cargo install --locked cargo-binutils@0.4.0
+        uses: ./.github/actions/setup-cargo-binutils
 
       - name: Cache EDK II build
         if: matrix.boot-mode == 'edk2'

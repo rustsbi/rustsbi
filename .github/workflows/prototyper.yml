@@ -1,4 +1,4 @@
-name: Prototyper
+name: CI / Firmware
 
 on:
   pull_request:
@@ -109,7 +109,7 @@ jobs:
           qemu-system-riscv64 --version
 
       - name: Install required cargo
-        run: cargo install --locked cargo-binutils@0.4.0
+        uses: ./.github/actions/setup-cargo-binutils
 
       - name: Build QEMU boot artifacts
         shell: bash

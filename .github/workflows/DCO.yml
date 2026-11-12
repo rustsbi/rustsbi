@@ -1,4 +1,4 @@
-name: DCO
+name: CI / Contribution / DCO
 
 on:
   push:

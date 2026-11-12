@@ -1,4 +1,4 @@
-name: Minimal Linux
+name: Compat / Linux / Minimal Linux
 
 on:
   pull_request:
@@ -16,6 +16,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   push:
     branches: ["main"]
     paths:
@@ -31,6 +32,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   workflow_dispatch:
 
 env:
@@ -90,7 +92,7 @@ jobs:
           echo "CI_EDK2_BUILD_ID=$edk2_id" >> "$GITHUB_ENV"
 
       - name: Install required cargo
-        run: cargo install --locked cargo-binutils@0.4.0
+        uses: ./.github/actions/setup-cargo-binutils
 
       # Both inputs are immutable releases, so the key only changes when a
       # pinned version does. Bump the trailing revision after editing the

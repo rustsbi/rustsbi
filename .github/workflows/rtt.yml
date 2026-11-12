@@ -1,4 +1,4 @@
-name: RT-Thread
+name: Compat / RTOS / RT-Thread
 
 on:
   pull_request:
@@ -15,6 +15,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   push:
     branches: ["main"]
     paths:
@@ -29,6 +30,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   workflow_dispatch:
 
 env:
@@ -78,7 +80,7 @@ jobs:
           echo "RTT_EXEC_PATH=/opt/${toolchain}/bin" >> "$GITHUB_ENV"
 
       - name: Install required cargo
-        run: cargo install --locked cargo-binutils@0.4.0
+        uses: ./.github/actions/setup-cargo-binutils
 
       - name: Cache RT-Thread build
         uses: ./.github/actions/ci-cache

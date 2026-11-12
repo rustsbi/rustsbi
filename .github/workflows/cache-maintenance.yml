@@ -1,4 +1,4 @@
-name: Cache maintenance
+name: CI / Environment / Cache maintenance
 
 on:
   push:

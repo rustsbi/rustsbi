@@ -1,4 +1,4 @@
-name: Miralis
+name: Compat / Hypervisors / Miralis
 
 on:
   pull_request:

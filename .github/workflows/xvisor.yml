@@ -1,4 +1,4 @@
-name: Xvisor
+name: Compat / Hypervisors / Xvisor
 
 on:
   pull_request:
@@ -13,6 +13,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   push:
     branches: ["main"]
     paths:
@@ -26,6 +27,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   workflow_dispatch:
 
 env:
@@ -71,7 +73,7 @@ jobs:
           riscv64-linux-gnu-gcc --version | head -1
 
       - name: Install required cargo
-        run: cargo install --locked cargo-binutils@0.4.0
+        uses: ./.github/actions/setup-cargo-binutils
 
       # Only the built Xvisor, guest firmware and guest disk are cached, and
       # only against immutable pins, so the key changes whenever a pinned

@@ -1,4 +1,4 @@
-name: Salus
+name: Compat / Hypervisors / Salus
 
 on:
   pull_request:
@@ -15,6 +15,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   push:
     branches: ["main"]
     paths:
@@ -29,6 +30,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   workflow_dispatch:
 
 permissions:
@@ -81,7 +83,7 @@ jobs:
           key: salus-products-${{ runner.os }}-${{ runner.arch }}-${{ steps.recipe.outputs.sha }}
 
       - name: Install Rust build tool
-        run: cargo install --locked cargo-binutils@0.4.0
+        uses: ./.github/actions/setup-cargo-binutils
 
       - name: Boot Linux userspace and Tellus confidential guest
         run: bash .github/scripts/prototyper-salus-boot.sh

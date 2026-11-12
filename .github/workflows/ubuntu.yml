@@ -1,4 +1,4 @@
-name: Ubuntu
+name: Compat / Linux / Ubuntu
 
 on:
   pull_request:
@@ -16,6 +16,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   push:
     branches: ["main"]
     paths:
@@ -31,6 +32,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   workflow_dispatch:
 
 env:
@@ -71,7 +73,7 @@ jobs:
           echo "CI_EDK2_BUILD_ID=$edk2_id" >> "$GITHUB_ENV"
 
       - name: Install cargo-binutils
-        run: cargo install --locked cargo-binutils@0.4.0
+        uses: ./.github/actions/setup-cargo-binutils
 
       - name: Cache EDK II build
         if: matrix.boot-path == 'edk2'

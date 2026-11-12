@@ -1,4 +1,4 @@
-name: Bao Hypervisor
+name: Compat / Hypervisors / Bao Hypervisor
 
 on:
   pull_request:
@@ -15,6 +15,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   push:
     branches: ["main"]
     paths:
@@ -29,6 +30,7 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
+      - ".github/actions/setup-cargo-binutils/action.yml"
   workflow_dispatch:
 
 env:
@@ -67,7 +69,7 @@ jobs:
           qemu-system-riscv64 --version
 
       - name: Install cargo-binutils
-        run: cargo install --locked cargo-binutils@0.4.0
+        uses: ./.github/actions/setup-cargo-binutils
 
       - name: Cache Linux and BusyBox builds
         uses: ./.github/actions/ci-cache
