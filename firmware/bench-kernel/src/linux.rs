@@ -266,15 +266,29 @@ fn optional_calls() {
     println!("LINUX_SKIP pmu_event_info reason=requires-event-array-fixture");
 }
 
+/// Console message copy in `.bss`, outside the embedded payload image.
+static mut WRITE_MESSAGE: [u8; 16] = [0; 16];
+
 fn console_calls() {
     if !available(dbcn::EID_DBCN) {
         println!("LINUX_SKIP dbcn_io reason=extension-unavailable");
         return;
     }
+    // Copy the message into `.bss` storage first: payload builds exclude the
+    // embedded kernel image from supervisor memory, so buffer arguments must
+    // point into writable supervisor RAM rather than image storage.
+    let message = (&raw const WRITE_MESSAGE).cast::<u8>() as usize;
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            b"linux-sbi-test!\r\n".as_ptr(),
+            (&raw mut WRITE_MESSAGE).cast::<u8>(),
+            16,
+        );
+    }
     // Short batches bound UART time and log volume. DBCN is nonblocking: sum
     // actual bytes accepted/read instead of assuming a full transfer per call.
     for (name, fid, address) in [
-        ("dbcn_write_16", 0, b"linux-sbi-test!\r\n".as_ptr() as usize),
+        ("dbcn_write_16", 0, message),
         ("dbcn_read_16", 1, core::ptr::addr_of_mut!(SHARED) as usize),
     ] {
         let mut bytes = 0usize;
