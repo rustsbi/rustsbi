@@ -95,6 +95,9 @@ pub fn claim() -> Option<Iid> { /* single csrrw, see below */ }
 mtopei::write(Mtopei::from_bits(...));
 ```
 
+See [Claim device interrupts atomically](sbi-specific.md#atomic-csr-claim)
+for the AIA claim instruction.
+
 ### Complete device handshakes in a single instruction (`single-instruction-handshake`) {#single-instruction-handshake}
 
 For registers shared with a device (e.g. `*topei` with the IMSIC),
@@ -116,3 +119,6 @@ mtopei::write(v.with_iid(0));
 
 This is the instruction-level analogue of the atomicity requirement
 in memory-safety: no torn handshakes with hardware.
+
+See [Claim device interrupts atomically](sbi-specific.md#atomic-csr-claim)
+for the single-instruction read-and-claim operation on `*topei`.

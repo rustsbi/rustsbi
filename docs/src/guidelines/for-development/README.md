@@ -24,7 +24,7 @@ and consistency with the hardware contract (assembly conventions, CSR and SBI sp
 - [`translation-fence`](sbi-specific.md#translation-fence): Fence ADUE changes
 - [`firmware-build-spec`](sbi-specific.md#firmware-build-spec): Reject incompatible firmware inputs
 - [`run-firmware-tests`](sbi-specific.md#run-firmware-tests): Run kernels in test and bench commands
-- [`measure-hot-paths`](sbi-specific.md#measure-hot-paths): Request trap-handler inlining benchmarks
+- [`measure-hot-paths`](sbi-specific.md#measure-hot-paths): Measure changes to hot paths
 
 **[Memory Safety](memory-safety.md)**
 
