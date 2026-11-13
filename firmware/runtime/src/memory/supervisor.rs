@@ -6,6 +6,14 @@ use spin::Mutex;
 use super::{PhysAddr, PhysAddrRange};
 use crate::{Error, Result};
 
+/// Serializes supervisor-memory byte transfers across every handle.
+///
+/// [`PlatformDescription::memory_resources()`](crate::PlatformDescription::memory_resources)
+/// derives a fresh handle on each call, so per-handle locks would not
+/// exclude transfers issued through different handles over the same RAM.
+/// One static lock keeps every transfer mutually exclusive.
+static TRANSFER_LOCK: Mutex<()> = Mutex::new(());
+
 /// Bounded access to registered supervisor RAM.
 ///
 /// This represents physical RAM that firmware may access on behalf of
@@ -13,7 +21,7 @@ use crate::{Error, Result};
 /// The handle may cover multiple RAM banks.
 /// The range description is immutable, so validation does not require a
 /// global lock. The bytes lie outside firmware-owned Rust allocations, so
-/// they are accessed as volatile bytes; one transfer lock serializes
+/// they are accessed as volatile bytes; one shared transfer lock serializes
 /// transfers from separate firmware harts, keeping overlapping SBI buffers
 /// race-free without per-byte atomics.
 /// The handle cannot be cloned or used to manufacture raw slices.
@@ -21,15 +29,11 @@ use crate::{Error, Result};
 /// remain accessible.
 pub struct SupervisorMemory {
     regions: Vec<PhysAddrRange>,
-    transfer_lock: Mutex<()>,
 }
 
 impl SupervisorMemory {
     pub(crate) fn new(regions: Vec<PhysAddrRange>) -> Self {
-        Self {
-            regions,
-            transfer_lock: Mutex::new(()),
-        }
+        Self { regions }
     }
 
     /// Checks that `range` lies in one available RAM region.
@@ -65,7 +69,7 @@ impl SupervisorMemory {
         if output.is_empty() {
             return Ok(());
         }
-        let _transfer = self.transfer_lock.lock();
+        let _transfer = TRANSFER_LOCK.lock();
         for (offset, byte) in output.iter_mut().enumerate() {
             // SAFETY: Obligation: `read_volatile` requires a pointer valid for
             // reads and properly aligned.
@@ -102,7 +106,7 @@ impl SupervisorMemory {
         if input.is_empty() {
             return Ok(());
         }
-        let _transfer = self.transfer_lock.lock();
+        let _transfer = TRANSFER_LOCK.lock();
         for (offset, byte) in input.iter().copied().enumerate() {
             // SAFETY: Obligation: `write_volatile` requires a pointer valid
             // for writes and properly aligned.
@@ -140,7 +144,7 @@ impl SupervisorMemory {
         if len == 0 {
             return Ok(());
         }
-        let _transfer = self.transfer_lock.lock();
+        let _transfer = TRANSFER_LOCK.lock();
         for offset in 0..len {
             // SAFETY: Obligation: `write_volatile` requires a pointer valid
             // for writes and properly aligned.
