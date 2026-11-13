@@ -46,11 +46,13 @@ generation tags. The skill forbids adding any other tool attribution as well.
 Run package validation with:
 
 ```sh
-cargo fmt --manifest-path scripts/commit-cli/Cargo.toml -- --check
-cargo clippy --locked --manifest-path scripts/commit-cli/Cargo.toml --all-targets -- -D warnings
-cargo test --locked --manifest-path scripts/commit-cli/Cargo.toml
+cargo fmt --manifest-path scripts/rustsbi-commit-cli/Cargo.toml -- --check
+cargo clippy --locked --manifest-path scripts/rustsbi-commit-cli/Cargo.toml --all-targets -- -D warnings
+cargo test --locked --manifest-path scripts/rustsbi-commit-cli/Cargo.toml
 ```
 
 Integration tests initialize temporary Git repositories and exercise actual Git
 identities, staged content and trailer parsing. No project commit is made by the
 checker or its validation workflow.
+
+See [pi-acceptance.md](pi-acceptance.md) for the independent Pi commit acceptance record.

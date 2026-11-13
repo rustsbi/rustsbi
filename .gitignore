@@ -14,8 +14,11 @@
 *.bin
 
 qemu-logs/
-# Local Claude Code configuration and the existing setup-skill junction.
+# Local tool configuration; repository skills use portable symlinks.
 /.claude/*
 !/.claude/skills/
 /.claude/skills/*
+!/.claude/skills/rustsbi-dev-build
 !/.claude/skills/rustsbi-commit
+!/.claude/skills/rustsbi-qemu-dev-setup
+!/.claude/skills/rustsbi-code-review

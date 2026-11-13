@@ -1,10 +1,8 @@
 # SPDX-License-Identifier: MulanPSL-2.0
-
+MANIFEST := scripts/rustsbi-setup-cli/Cargo.toml
 .PHONY: check test
-
 check:
-	for script in scripts/*.sh; do bash -n "$$script" || exit; done
-	python3 -B tests/test_setup.py --syntax-only
-
+	cargo fmt --manifest-path $(MANIFEST) --all -- --check
+	cargo clippy --locked --manifest-path $(MANIFEST) --workspace --all-targets --all-features -- -D warnings
 test:
-	python3 -B tests/test_setup.py
+	cargo test --locked --manifest-path $(MANIFEST) --workspace --all-features

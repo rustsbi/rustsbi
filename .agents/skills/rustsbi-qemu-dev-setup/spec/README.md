@@ -1,95 +1,57 @@
-<!-- SPDX-License-Identifier: MulanPSL-2.0 -->
-
-# Portable setup and write boundaries
+# Setup design and verification
 
 ## Goals
 
-Run the same setup on Arch Linux and Debian without invoking a distribution
-package manager or requiring sudo.
-Preserve existing files, keep preflight read-only, and bound every installation.
-Boot verification remains the existing `cargo prototyper test` command.
-Bootstrapping a C compiler or system development libraries is out of scope.
+Provision a RustSBI QEMU workspace on Linux, including Arch and Debian,
+without embedding a distribution package manager. Preserve existing sources,
+keep QEMU private and distinguish compilation from verified boot.
 
 ## Overview
 
-Preflight inspects commands and files without executing Rust proxies.
-Setup validates its arguments and destinations before preparing source code.
-It reuses an adequate QEMU or builds one into a new private prefix.
-Rust installation and builds happen only in the approved setup phase.
+One standalone Rust CLI owns option parsing, prerequisite inspection,
+source/archive validation, staged publication, command execution and verdicts.
+`preflight` is read-only. `setup --plan` prints intended writes. Authorized
+`setup --yes` provisions tools, builds firmware and optionally boots QEMU.
+The two shell entrypoints only locate and execute that binary.
 
 ## Key design
 
-- Native build prerequisites are capabilities, not package names.
-  Arch and Debian package lists are manual preparation examples.
-- Existing RustSBI workspaces may be reused explicitly.
-  New copies and clones are staged beside their destination and published
-  with Linux `renameat2(RENAME_NOREPLACE)`.
-  Other existing paths, including symlinks, are refused.
-- QEMU uses an absolute, versioned prefix.
-  `DESTDIR` captures the installation, including headers and libraries.
-  Publication requires every staged entry to lie within that prefix.
-  An install manifest records the complete payload.
-- QEMU tools, guest agent, plugins and firmware blobs are disabled.
-  Extraction omits unused EDK II ROM sources with an external host-header link;
-  all other archive members remain subject to Python's data filter.
-  No existing prefix is replaced and no shell startup file is edited.
-- Preflight checks Rust command paths without executing `cargo`, `rustc`,
-  `rustup`, or cargo-binutils proxies.
+- Preflight examines Rust proxy paths without executing them. A missing CLI
+  is reported without compiling it. A prebuilt binary supports a Rust-free host.
+- Existing repositories are reused only without `--local-copy`. New sources
+  are staged beside the destination and published with Linux
+  `renameat2(RENAME_NOREPLACE)`, so a concurrent writer is preserved.
+- Archive extraction rejects traversal, escaping links and special files.
+  Unused QEMU `roms/edk2` sources are skipped because they contain absolute
+  host header links. No firmware ROM is built from them.
+- QEMU uses a private prefix, including sysconfdir and localstatedir.
+  `DESTDIR` stages the installation beside that prefix. Every staged entry
+  is audited, including headers and libraries, before writing a manifest
+  and atomically publishing it. Unmanaged existing prefixes are rejected.
+- Source/build/cache temporaries use owned temporary directories.
+  Rust downloads use the selected Rust homes. Shell startup files and system
+  package databases are outside the write set.
 
-## Execution
+## Flow
 
-1. Parse and validate options, source paths, destinations and host prerequisites.
-2. Report the repository, QEMU prefix, Rust homes and cargo-binutils root.
-3. Require `--yes` before creating source, cache or installation files.
-4. Prepare source and, when needed, build and stage QEMU.
-5. Check the staged manifest and publish into an absent prefix.
-6. Install missing Rust tools, build firmware and optionally verify its boot.
-7. Report the absolute QEMU path and whether boot verification ran.
-
-The skill requires human approval of the reported changes.
-`--yes` is the shell interface acknowledgement, not a replacement for that approval.
+Validate inputs → inspect native tools/QEMU → inventory → authorize → stage
+sources → build/reuse QEMU → bootstrap Rust when missing → resolve repository
+toolchain → install missing objcopy → `cargo build --locked` →
+`cargo prototyper build` → require nonempty ELF and BIN → optional boot test.
+Any failed subprocess or missing artifact prevents a success verdict.
 
 ## Components
 
-`common.sh` owns host prerequisites, options and QEMU selection.
-`files.py` owns source staging, archive validation and atomic publication.
-`preflight.sh` reports read-only capability checks.
-`setup.sh` performs the approved writes.
-The helpers remain local to this package; a broader CLI migration is separate work.
+`scripts/rustsbi-setup-cli/src/main.rs` owns provisioning and subprocesses.
+`src/files.rs` owns filesystem boundaries. Unit and integration tests live
+in the same standalone workspace and are discovered by Skills CI.
 
-## Verification
+## Validation
 
-Regression tests exercise existing-file preservation, destination races,
-read-only Rust detection, rejected installation escapes and private-prefix
-publication through the actual helper interfaces.
-Command stubs make unintended package-manager, sudo and Rust proxy execution fail.
-The same suite runs on Arch and Debian, including without root privileges.
-Source-build smoke tests use the upstream QEMU release and RustSBI boot test.
-
-Recorded validation on 2026-11-11 used x86_64 containers and an unprivileged user:
-
-| Host | Regression suite | QEMU source install and manifest audit | RustSBI boot |
-|---|---|---|---|
-| Arch Linux rolling, base image 20261108.0.623074 | 20/20 passed | Passed | Passed |
-| Debian 13 (trixie) | 20/20 passed | Passed | Passed |
-
-Both hosts built QEMU 10.2.1 and firmware revision
-`ebc7190fb630611fa9504f9f71089ce4b81c6c0e`, with
-`SBI tests completed: PASS` and `boot_verified: 1`.
-The QEMU release archive SHA-256 was
-`a3717477d8e2c84d630bfffbc20f6cd3293eb45aa1e6dac6d0cc27689991c9e1`.
-The installed files and directories matched each recorded manifest exactly.
-Real Rust proxies with an absent pinned toolchain also left preflight and plan
-snapshots unchanged on both hosts.
-
-Native dependencies were prepared separately in the disposable containers.
-Rust toolchains and Cargo caches were seeded from an existing installation;
-missing crate archives were fetched during setup.
-These runs cover QEMU source installation, firmware builds and boot verification,
-but do not constitute a cold rustup installer test.
-
-## Implementation sequence
-
-Add the shared checks and staging helper, replace package-manager branches,
-update the approval inventory, then run regression and distribution smoke tests.
-Commit the package and focused tests together after checking the staged diff.
+Exercise destination collisions and races, recursive local copies, unsafe
+archives, staged-prefix escapes, no-write planning, Rust proxy avoidance,
+missing firmware and successful fixture execution. Real acceptance must
+also use a fresh container with no Rust or QEMU caches, record native
+prerequisites separately, and retain full setup/build/boot logs externally.
+Older acceptance records describe their tested revision only; rerun after
+changing the deterministic implementation.

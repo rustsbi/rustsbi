@@ -1,100 +1,57 @@
-<!-- SPDX-License-Identifier: MulanPSL-2.0 -->
+# Running the setup helper
 
-# RustSBI QEMU development setup
-
-Prepare a Linux host for RustSBI firmware builds and QEMU boot tests.
-The runtime scripts do not use apt, pacman or sudo.
-They reuse installed native tools and build missing QEMU into a private prefix.
-Arch Linux and Debian use the same execution path.
-
-## Host prerequisites
-
-The base path needs glibc-based Linux, Bash, Python 3 with `tarfile.data_filter`,
-Git, curl and a C compiler.
-A QEMU source build additionally needs a C++ compiler, make, ninja, meson,
-pkg-config, Python venv/ensurepip and GLib development files.
-Missing native prerequisites stop setup before it changes files.
-Preparing those prerequisites is a separate host administration step.
-
-For a Debian development host, the relevant packages are:
+Build on a prepared Linux machine with an installed Rust host toolchain
+(Rust 1.88 or newer):
 
 ```sh
-sudo apt-get install build-essential git curl ca-certificates python3 python3-venv \
-    pkg-config meson ninja-build libglib2.0-dev
+RUSTUP_AUTO_INSTALL=0 cargo build --release --locked \
+  --manifest-path "$SKILL/scripts/rustsbi-setup-cli/Cargo.toml"
 ```
 
-For an already updated Arch development host:
+The executable is `scripts/rustsbi-setup-cli/target/release/rustsbi-setup-cli`.
+Set `RQS_CLI` when using a separately built binary. For a host without Rust,
+copy that executable from a compatible Linux host; preflight never compiles
+it or installs a toolchain. An executable built on a newer libc may require
+an older build host or a compatible static build for distribution.
+
+## Native prerequisites
+
+Every path needs Git, curl, a C compiler, CA certificates and a normal Linux
+userspace. A private QEMU source build also needs a C++ compiler, make,
+Ninja, Meson, pkg-config and GLib development headers. QEMU's configure
+script validates its own additional build dependencies. Install those native
+tools using the host's normal administration process before running setup.
+The helper is distribution independent and never invokes apt, pacman or sudo.
+
+On Debian, native tools normally come from `build-essential`, `git`, `curl`,
+`ca-certificates`, `ninja-build`, `meson`, `pkg-config` and `libglib2.0-dev`.
+On Arch, the corresponding packages are `base-devel`, `git`, `curl`,
+`ca-certificates`, `ninja`, `meson`, `pkgconf` and `glib2`.
+`device-tree-compiler`/`dtc` and `u-boot-tools` are optional for setup but
+required by the build skill's packed-image suite.
+
+## Examples
 
 ```sh
-sudo pacman -S --needed base-devel git curl ca-certificates python meson ninja \
-    pkgconf glib2
+bash "$SKILL/scripts/preflight.sh" --repo-dir /work/rustsbi
+bash "$SKILL/scripts/setup.sh" --repo-dir /work/rustsbi --plan
+bash "$SKILL/scripts/setup.sh" --repo-dir /work/rustsbi --yes
 ```
 
-These commands are manual examples, not steps run by the scripts.
-Do not refresh Arch's package database and install selected packages without
-keeping the system consistent; this setup never performs a partial upgrade.
-`mkimage` and `dtc` are optional for the default boot test.
-Install `u-boot-tools`/`device-tree-compiler` on Debian or `uboot-tools`/`dtc` on
-Arch when packed images or device-tree work are needed.
+To avoid a network clone, use `--local-copy /sources/rustsbi` or a tar archive.
+The destination must not exist. Without a local source, an existing valid
+workspace is reused; otherwise setup clones the official upstream repository.
+`--qemu-from distro` only reuses PATH QEMU. `auto` reuses a suitable emulator
+or builds `10.2.1` into a private prefix. Minimum version is `9.1.0`;
+`10.2.4` is excluded because of the SPVP regression observed in boot tests.
 
-## Quick start
+Missing rustup is installed with `--default-toolchain none --no-modify-path`;
+the selected checkout then resolves its own pinned toolchain and components.
+Missing cargo-binutils `0.4.0` is installed under
+`$HOME/.local/share/rustsbi/cargo-tools`.
+`RUSTUP_HOME` and `CARGO_HOME` overrides are respected.
 
-From a RustSBI checkout, use absolute paths:
-
-```sh
-skill_dir="$(pwd)/.agents/skills/rustsbi-qemu-dev-setup"
-bash "$skill_dir/scripts/preflight.sh" --repo-dir "$(pwd)"
-bash "$skill_dir/scripts/setup.sh" --repo-dir "$(pwd)" --plan
-```
-
-Review the inventory and obtain approval, then run:
-
-```sh
-bash "$skill_dir/scripts/setup.sh" --repo-dir "$(pwd)" --yes
-```
-
-To prepare a separate source copy, choose a destination that does not exist:
-
-```sh
-bash "$skill_dir/scripts/setup.sh" --repo-dir "$HOME/rustsbi-dev" \
-    --local-copy /absolute/path/to/rustsbi --yes
-```
-
-Existing RustSBI workspaces can be reused without `--local-copy`.
-Other existing directories, empty directories, files and symlinks are refused.
-Tar archives may contain the workspace at their root or inside one wrapper
-directory; unsafe archive paths are rejected.
-
-## QEMU and installation scope
-
-The default source release is 10.2.1.
-QEMU >= 9.1 is required; 10.2.4 is excluded after an observed SPVP boot failure.
-This is not a claim about every intermediate or newer release.
-An existing usable PATH binary can be reused with `--qemu-from distro`.
-That mode does not install distribution packages.
-
-Source builds use `DESTDIR` and a new private prefix, defaulting to
-`~/.local/share/rustsbi/qemu/10.2.1`.
-All installation paths are audited and recorded in `install-manifest.txt`.
-Existing prefixes are not replaced.
-Use `--qemu-prefix` to select a different absent path and `--qemu-archive` to
-use a local source release.
-No shell startup file is edited, and PATH changes last only for the setup process.
-The output names the actual binary for subsequent commands.
-
-## Results and checks
-
-Preflight exits `0` when host commands are present, `2` for setup actions,
-or `3` for missing native prerequisites.
-Invalid arguments or unusable paths fail with exit `1`.
-It never executes cargo/rustc/rustup proxies and does not synchronize toolchains.
-Setup builds the host libraries and dynamic firmware, then runs
-`cargo prototyper test` unless `--no-test` was selected.
-Only a successful boot test produces `boot_verified: 1`.
-
-`cargo prototyper test --pack` creates an ITB and runs the payload ELF test;
-it does not verify booting that ITB through U-Boot/SPL.
-
-Run `make check` for syntax and `make test` for isolated regression tests.
-See [spec/README.md](spec/README.md) for design boundaries and test scope,
-and [SKILL.md](SKILL.md) for the agent procedure and full write inventory.
+For validation, run the same fmt, Clippy, build and test commands as
+`.github/workflows/Skills.yml` in the Rust workspace. Integration tests use
+isolated command fixtures; real provisioning and boot evidence belongs
+outside the deliverable package.

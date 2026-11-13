@@ -52,14 +52,14 @@ staged changes just to check a draft.
 
 ## Check, then commit when requested
 
-All deterministic implementation lives in `scripts/commit-cli` (Rust).
+All deterministic implementation lives in `scripts/rustsbi-commit-cli` (Rust).
 Build it with an installed host toolchain; no installer is needed:
 
 ```sh
-cargo build --locked --manifest-path /absolute/skill/scripts/commit-cli/Cargo.toml
+RUSTUP_AUTO_INSTALL=0 cargo build --release --locked --manifest-path /absolute/skill/scripts/rustsbi-commit-cli/Cargo.toml
 ```
 
-Use the resulting `scripts/commit-cli/target/debug/rustsbi-commit-cli` executable
+Use the resulting `scripts/rustsbi-commit-cli/target/release/rustsbi-commit-cli` executable
 (`.exe` on Windows). If the repository's pinned toolchain is unavailable, select
 an already installed host toolchain explicitly rather than installing one.
 
@@ -79,7 +79,7 @@ forward slashes. For renames include both old and new paths.
 Request-relative repository/message paths are supported.
 
 ```sh
-/absolute/skill/scripts/commit-cli/target/debug/rustsbi-commit-cli \
+/absolute/skill/scripts/rustsbi-commit-cli/target/release/rustsbi-commit-cli \
     check /tmp/rustsbi-request.json /tmp/rustsbi-check-1.json
 ```
 
