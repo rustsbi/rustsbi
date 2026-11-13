@@ -192,6 +192,10 @@ jobs:
         shell: bash
         run: bash .github/scripts/prototyper-fdt-handoff.sh
 
+      - name: Verify STA cannot modify embedded payload storage
+        shell: bash
+        run: bash .github/scripts/prototyper-payload-protection.sh
+
       - name: Verify repeated M-mode payload interrupts
         shell: bash
         run: |

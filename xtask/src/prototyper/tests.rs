@@ -30,7 +30,11 @@ const LINKER_TEMPLATE: &str = r#". = @LINK_START_ADDRESS@;
     . += @HEAP_SIZE@;
     sbi_heap_end = .;
 }
-.text @PAYLOAD_ADDRESS@ : ALIGN(0x1000) { *(.payload) }
+payload_start = ALIGN(@PAYLOAD_ADDRESS@, 0x1000);
+.payload @PAYLOAD_ADDRESS@ : ALIGN(0x1000) {
+    *(.payload)
+}
+payload_end = payload_start + SIZEOF(.payload);
 "#;
 
 #[derive(Parser)]
@@ -543,6 +547,12 @@ fn linker_template_renders_known_addresses_and_rejects_unknown_tokens() {
     assert!(rendered.contains("0x80200000"));
     assert!(rendered.contains(". += 0x15000;"));
     assert!(rendered.contains("*(.bss.stack)"));
+    // The payload section carries explicit bounds so Runtime can exclude the
+    // complete embedded storage from supervisor memory.
+    assert!(rendered.contains("payload_start = ALIGN(0x80200000, 0x1000);"));
+    assert!(rendered.contains(".payload 0x80200000"));
+    assert!(rendered.contains("payload_end = payload_start + SIZEOF(.payload);"));
+    assert!(rendered.contains("*(.payload)"));
 
     // Placeholder-shaped unknown tokens are rejected.
     let error = render_linker_script(". = @UNKNOWN@;", &addresses).unwrap_err();

@@ -42,6 +42,29 @@ fn boot_stack_size(firmware: &Path) -> usize {
     usize::from_str_radix(stack.split_whitespace().nth(1).unwrap(), 16).unwrap()
 }
 
+/// Returns the `[payload_start, payload_end)` bounds the linker emits for the
+/// embedded payload storage.
+fn payload_bounds(firmware: &Path) -> (usize, usize) {
+    let output = std::process::Command::new("rust-nm")
+        .arg(firmware)
+        .output()
+        .expect("rust-nm is required to inspect the firmware ELF");
+    assert!(output.status.success(), "rust-nm failed: {output:?}");
+    let symbols = String::from_utf8(output.stdout).unwrap();
+    let address = |name: &str| -> usize {
+        let line = symbols
+            .lines()
+            .find(|line| {
+                line.split_whitespace()
+                    .last()
+                    .is_some_and(|symbol| symbol == name)
+            })
+            .unwrap_or_else(|| panic!("firmware ELF has no {name} symbol"));
+        usize::from_str_radix(line.split_whitespace().next().unwrap(), 16).unwrap()
+    };
+    (address("payload_start"), address("payload_end"))
+}
+
 #[test]
 fn help_smoke_and_unknown_flag_fail() {
     xtask().arg("--help").assert().success();
@@ -84,6 +107,10 @@ fn configured_boot_topology_builds_and_rejects_invalid_bounds() {
         .path()
         .join("riscv64gc-unknown-none-elf/debug/rustsbi-prototyper-dynamic.elf");
     assert_eq!(boot_stack_size(&single_hart_elf), 16 * 1024);
+    // A dynamic build embeds no payload: the linker still defines the bounds
+    // symbols, but they describe an empty range.
+    let (dynamic_start, dynamic_end) = payload_bounds(&single_hart_elf);
+    assert_eq!(dynamic_start, dynamic_end);
     assert!(
         target_dir
             .path()
@@ -108,6 +135,10 @@ fn configured_boot_topology_builds_and_rejects_invalid_bounds() {
         .path()
         .join("riscv64gc-unknown-none-elf/debug/rustsbi-prototyper-payload-test.elf");
     assert_eq!(boot_stack_size(&default_elf), 16 * 1024);
+    // A payload build embeds complete storage bounded by the payload symbols.
+    let (payload_start, payload_end) = payload_bounds(&default_elf);
+    assert!(payload_end > payload_start);
+    assert_eq!(payload_start, 0x80200000);
 
     // An ELF-size check cannot catch debug discovery overflowing this stack.
     if std::process::Command::new("qemu-system-riscv64")
