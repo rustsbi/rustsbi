@@ -2,7 +2,10 @@
 
 use alloc::vec::Vec;
 
-use super::{MmioRegion, PhysAddrRange, RegRange, SupervisorMemory, image::locate_firmware_image};
+use super::{
+    MmioRegion, PhysAddrRange, RegRange, SupervisorMemory,
+    image::{locate_firmware_image, locate_payload_image},
+};
 use crate::{Error, Result};
 
 /// Tracks the physical resources issued by Runtime.
@@ -22,16 +25,26 @@ impl MemoryRegistry {
         ram: impl IntoIterator<Item = PhysAddrRange>,
         reserved: impl IntoIterator<Item = PhysAddrRange>,
     ) -> Result<(SupervisorMemory, Self)> {
-        Self::from_ranges_with_firmware(locate_firmware_image()?, ram, reserved)
+        Self::from_ranges_with_firmware(
+            locate_firmware_image()?,
+            locate_payload_image()?,
+            ram,
+            reserved,
+        )
     }
 
     fn from_ranges_with_firmware(
         firmware_image_range: PhysAddrRange,
+        payload_image_range: Option<PhysAddrRange>,
         ram: impl IntoIterator<Item = PhysAddrRange>,
         reserved: impl IntoIterator<Item = PhysAddrRange>,
     ) -> Result<(SupervisorMemory, Self)> {
         let ram_ranges = normalize_ram_ranges(ram)?;
-        let reserved_ranges: Vec<_> = reserved.into_iter().collect();
+        // The embedded payload is firmware-owned storage even though it is
+        // linked outside the firmware image, so it is reserved like a
+        // platform reservation: excluded from supervisor RAM, unavailable
+        // for firmware growth, and off-limits to MMIO acquisition.
+        let reserved_ranges: Vec<_> = reserved.into_iter().chain(payload_image_range).collect();
         validate_memory_ranges(&ram_ranges, &reserved_ranges)?;
 
         let registry = Self {
@@ -192,6 +205,7 @@ mod tests {
         ] {
             let (_, registry) = MemoryRegistry::from_ranges_with_firmware(
                 range(0x1200, 0x200),
+                None,
                 [range(0x1000, 0x1000)],
                 [reserved],
             )
@@ -217,6 +231,7 @@ mod tests {
         ] {
             let (_, registry) = MemoryRegistry::from_ranges_with_firmware(
                 firmware,
+                None,
                 [range(0x1000, 0x1000)],
                 reserved.iter().copied(),
             )
@@ -225,6 +240,7 @@ mod tests {
 
             let (_, registry) = MemoryRegistry::from_ranges_with_firmware(
                 extended,
+                None,
                 [range(0x1000, 0x1000)],
                 reserved.iter().copied(),
             )
@@ -239,6 +255,7 @@ mod tests {
         let reserved = range(0x1780, 0x100);
         let (memory, registry) = MemoryRegistry::from_ranges_with_firmware(
             firmware,
+            None,
             [range(0x1800, 0x800), range(0x1000, 0x800)],
             [reserved],
         )
@@ -256,10 +273,46 @@ mod tests {
     }
 
     #[test]
+    fn supervisor_memory_excludes_the_embedded_payload() {
+        let firmware = range(0x1200, 0x100);
+        let payload = range(0x1800, 0x200);
+        let (memory, registry) = MemoryRegistry::from_ranges_with_firmware(
+            firmware,
+            Some(payload),
+            [range(0x1000, 0x1000)],
+            core::iter::empty(),
+        )
+        .unwrap();
+
+        // The payload image is firmware-owned storage even though it is
+        // linked outside the firmware image, so supervisor-memory write
+        // paths cannot reach it.
+        assert_eq!(memory.check_range(payload), Err(Error::InvalidArgs));
+        // RAM between the firmware image and the payload stays accessible.
+        assert_eq!(memory.check_range(range(0x1400, 0x300)), Ok(()));
+        // RAM after the payload stays accessible.
+        assert_eq!(memory.check_range(range(0x1a00, 0x100)), Ok(()));
+        // The payload does not count as a reservation covering the firmware.
+        assert!(!registry.firmware_is_reserved());
+        // A payload range must be contained in one RAM bank like any other
+        // reservation.
+        assert!(matches!(
+            MemoryRegistry::from_ranges_with_firmware(
+                firmware,
+                Some(range(0x1f00, 0x200)),
+                [range(0x1000, 0x1000)],
+                core::iter::empty(),
+            ),
+            Err(Error::InvalidArgs)
+        ));
+    }
+
+    #[test]
     fn registration_rejects_conflicting_or_uncontained_ranges() {
         assert!(matches!(
             MemoryRegistry::from_ranges_with_firmware(
                 range(0x1000, 0x100),
+                None,
                 [range(0x1000, 0x800), range(0x1400, 0x800)],
                 core::iter::empty(),
             ),
@@ -268,6 +321,7 @@ mod tests {
         assert!(matches!(
             MemoryRegistry::from_ranges_with_firmware(
                 range(0x3000, 0x100),
+                None,
                 [range(0x1000, 0x1000)],
                 core::iter::empty(),
             ),
@@ -276,6 +330,7 @@ mod tests {
         assert!(matches!(
             MemoryRegistry::from_ranges_with_firmware(
                 range(0x1000, 0x100),
+                None,
                 [range(0x1000, 0x1000)],
                 [range(0x1f00, 0x200)],
             ),
@@ -287,6 +342,7 @@ mod tests {
     fn mmio_windows_are_disjoint_from_memory_and_each_other() {
         let (_, mut registry) = MemoryRegistry::from_ranges_with_firmware(
             range(0x1200, 0x100),
+            None,
             [range(0x1000, 0x1000)],
             [range(0x3080, 0x10)],
         )

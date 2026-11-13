@@ -77,7 +77,13 @@ SECTIONS {
     . = ALIGN(0x1000);
     sbi_end = .;
 
-    .text @PAYLOAD_ADDRESS@ : ALIGN(0x1000) {
+    /* The embedded payload storage, outside the firmware image. The symbols
+     * give Runtime the complete payload bounds; an empty section yields
+     * equal bounds for builds without a payload. The symbols stay outside
+     * the section definition so empty sections are not materialized. */
+    payload_start = ALIGN(@PAYLOAD_ADDRESS@, 0x1000);
+    .payload @PAYLOAD_ADDRESS@ : ALIGN(0x1000) {
         *(.payload)
     }
+    payload_end = payload_start + SIZEOF(.payload);
 }
