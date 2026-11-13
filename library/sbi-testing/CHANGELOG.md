@@ -14,6 +14,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Modified
 
+- dbcn: copy the console test slice into stack memory before the write, so payload builds that exclude the embedded kernel image from supervisor memory still exercise the DBCN write path.
 - Declare Rust 1.88 as the minimum supported Rust version through workspace metadata.
 - thread: split into a shared module plus per-architecture switchers; pin the context layout against the assembly with compile-time offset assertions.
 - thread: take the stack pointer in `Thread::new` and keep the call site ABI-aligned.
