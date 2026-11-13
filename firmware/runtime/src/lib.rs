@@ -32,6 +32,7 @@ mod sunxi_rtc_v203;
 pub mod timer;
 pub mod trap;
 
+pub use csr::pmp_available;
 pub use error::{Error, Result};
 
 pub use device_tree::{DeviceTreeHandoff, PlatformDescription, PlatformView, node_is_enabled};

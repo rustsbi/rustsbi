@@ -4,6 +4,7 @@ use runtime::{Error, FdtNode, PlatformView, Result, memory::RegRange};
 
 use super::{aclint, clint, imsic, match_desc, mswi, mtimer, plicsw, plmt, thead_plic};
 use crate::devicetree::{EnabledNode, NodeSelection, try_for_each_enabled_node};
+use crate::driver::platform::qemu_aplic;
 
 /// Timer resources retained until platform initialization.
 #[derive(Default)]
@@ -25,7 +26,7 @@ pub(crate) struct IpiSelection {
 /// Interrupt-controller resources independent of timer or IPI policy.
 #[derive(Default)]
 pub(crate) struct IrqchipSelection {
-    pub(crate) machine_aplic: Option<NodeSelection<RegRange>>,
+    pub(crate) machine_aplic: Option<NodeSelection<qemu_aplic::Desc>>,
     pub(crate) machine_aplic_delegated: bool,
     pub(crate) thead_plic: Option<RegRange>,
 }
@@ -99,7 +100,7 @@ fn describe_node(
         ),
         compatible if is_machine_aplic(node, compatible) => node(
             selected.irqchip.machine_aplic,
-            platform.device_register(node)?.ok_or(Error::InvalidArgs),
+            qemu_aplic::describe(platform, node),
             {
                 selected.irqchip.machine_aplic_delegated =
                     node.property("riscv,delegate").is_some()

@@ -26,7 +26,6 @@ use crate::{
 /// Returns QEMU interrupt MMIO ranges when required for PMP.
 pub(super) fn init(
     platform: &PlatformView<'_>,
-    model: &str,
     v821: Option<&v821::V821>,
     memory: &mut MemoryRegistry,
     hidden_node_paths: &mut Vec<String>,
@@ -40,29 +39,34 @@ pub(super) fn init(
         thead_plic::init(registers, memory)?;
     }
 
-    init_timer(&mut selected.timer, &mut selected.ipi, memory)?;
+    let aclint_timer_path = init_timer(&mut selected.timer, &mut selected.ipi, memory)?;
     init_ipi(
         &mut selected.ipi,
         &mut selected.irqchip,
-        model,
+        aclint_timer_path.as_deref(),
         memory,
         hidden_node_paths,
     )
 }
 
 /// Initializes the preferred PLMT, ACLINT, or CLINT timer.
+///
+/// Returns the ACLINT MTIMER node path so the IMSIC handoff can hide the
+/// machine-level timer from the next stage, mirroring the CLINT hiding.
 fn init_timer(
     selected: &mut TimerSelection,
     ipi: &mut IpiSelection,
     memory: &mut MemoryRegistry,
-) -> Result<()> {
+) -> Result<Option<String>> {
     // PLMT and PLICSW are initialized only as a pair.
     if let (Some(plmt), Some(_)) = (selected.plmt.take(), ipi.plicsw.as_ref()) {
         timer::init(Some(Box::new(plmt).init(memory)?))?;
+        Ok(None)
     } else if let Some(node) = selected.aclint.take() {
-        let (mtimer, _) = node.into_parts();
+        let (mtimer, path) = node.into_parts();
         timer::init(Some(Box::new(mtimer).init(memory)?))?;
         info!("{:<30}: {}", "Platform Timer Extension", "ACLINT MTIMER");
+        Ok(Some(path))
     } else {
         ipi.plicsw = None;
         timer::init(
@@ -73,15 +77,15 @@ fn init_timer(
                 .map(|timer| Box::new(timer).init(memory))
                 .transpose()?,
         )?;
+        Ok(None)
     }
-    Ok(())
 }
 
 /// Registers IMSIC when available, or falls back to a software IPI device.
 fn init_ipi(
     selected: &mut IpiSelection,
     irqchip: &mut IrqchipSelection,
-    model: &str,
+    aclint_timer_path: Option<&str>,
     memory: &mut MemoryRegistry,
     hidden_node_paths: &mut Vec<String>,
 ) -> Result<Option<IrqMmio>> {
@@ -97,27 +101,38 @@ fn init_ipi(
 
         match Box::new(imsic).init(memory) {
             Ok(device) => {
-                let irq_mmio = qemu_aplic::init_for_imsic(
-                    model,
-                    irqchip.machine_aplic.as_ref().map(|node| *node.resource()),
-                    selected
-                        .clint
-                        .as_ref()
-                        .map(|clint| clint.resource().registers),
-                    machine_base,
-                    hart_index_bits,
-                    imsic_end,
-                    memory,
-                )?;
+                let clint_registers = selected
+                    .clint
+                    .as_ref()
+                    .map(|clint| clint.resource().registers);
+                let irq_mmio = match irqchip.machine_aplic.take() {
+                    Some(node) => {
+                        let (desc, aplic_path) = node.into_parts();
+                        let irq_mmio = qemu_aplic::init_for_imsic(
+                            desc,
+                            clint_registers,
+                            machine_base,
+                            hart_index_bits,
+                            imsic_end,
+                            memory,
+                        )?;
+                        if irqchip.machine_aplic_delegated {
+                            hidden_node_paths.push(aplic_path);
+                        }
+                        Some(irq_mmio)
+                    }
+                    None => {
+                        warn!("AIA: no machine-level APLIC described; keeping supervisor wiring");
+                        None
+                    }
+                };
                 ipi::init(Ipi::external(device)?)?;
                 if let Some(clint) = selected.clint.take() {
                     hidden_node_paths.push(clint.into_parts().1);
                 }
                 hidden_node_paths.push(imsic_path);
-                if irqchip.machine_aplic_delegated
-                    && let Some(aplic) = irqchip.machine_aplic.take()
-                {
-                    hidden_node_paths.push(aplic.into_parts().1);
+                if let Some(path) = aclint_timer_path {
+                    hidden_node_paths.push(String::from(path));
                 }
                 return Ok(irq_mmio);
             }

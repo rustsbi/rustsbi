@@ -91,6 +91,21 @@ pub(crate) fn u32_property(node: FdtNode<'_, '_>, name: &str) -> Option<u32> {
     Some(u32::from_be_bytes(bytes.try_into().ok()?))
 }
 
+/// Finds the enabled node carrying `phandle` or `linux,phandle`, depth first.
+pub(crate) fn find_phandle<'view, 'tree>(
+    node: FdtNode<'view, 'tree>,
+    phandle: u32,
+) -> Option<FdtNode<'view, 'tree>> {
+    if node_is_enabled(node)
+        && (u32_property(node, "phandle") == Some(phandle)
+            || u32_property(node, "linux,phandle") == Some(phandle))
+    {
+        return Some(node);
+    }
+    node.children()
+        .find_map(|child| find_phandle(child, phandle))
+}
+
 /// Decodes a property containing a list of big-endian 32-bit cells.
 pub(crate) fn u32_cells(node: FdtNode<'_, '_>, name: &str) -> Option<Vec<u32>> {
     let bytes = node.property(name)?.value;

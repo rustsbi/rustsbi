@@ -252,6 +252,12 @@ unsafe fn set_pmp_config(index: usize, range: PmpRange, permission: PmpPermissio
 
 /// Installs PMP entries isolating firmware memory from S-mode.
 pub fn set_pmp() {
+    if !runtime::pmp_available() {
+        // A hart without PMP keeps the machine memory map unprotected; the
+        // firmware still runs, only without isolation from the next stage.
+        info!("PMP is not implemented; machine memory stays unprotected");
+        return;
+    }
     let pmp = PMP
         .get()
         .expect("BUG: PMP layout used before initialization");
@@ -416,6 +422,11 @@ impl fmt::Display for RangeWrapper {
 
 /// Logs the active PMP configuration.
 pub fn log_pmp_cfg() {
+    if !runtime::pmp_available() {
+        info!("PMP Configuration");
+        info!("PMP is not implemented on this platform");
+        return;
+    }
     let pmp_config = |index: usize| {
         #[cfg(target_pointer_width = "32")]
         if index >= 4 {
