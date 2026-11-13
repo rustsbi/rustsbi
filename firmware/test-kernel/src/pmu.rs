@@ -224,6 +224,25 @@ fn test_firmware_ipi_counter(invalid_hart: usize) {
     assert!(ipi_num.is_ok());
     assert_eq!(ipi_num.value, 0);
 
+    // SKIP_MATCH must validate every counter in the mask.
+    let invalid_counter_offset = sbi::pmu_num_counters() - ipi_counter_idx;
+    if invalid_counter_offset < usize::BITS as usize {
+        assert_eq!(
+            sbi::pmu_counter_config_matching(
+                CounterMask::from_mask_base(
+                    1 | (1usize << invalid_counter_offset),
+                    ipi_counter_idx,
+                ),
+                Flag::new(0b001),
+                EventIdx::new_firmware_event(firmware_event::IPI_SENT).raw(),
+                0,
+            ),
+            SbiRet::invalid_param()
+        );
+    } else {
+        println!("[pmu] mixed counter mask exceeds XLEN, skipping");
+    }
+
     // Updating the counter while starting it sets the requested initial value.
     let start_result = sbi::pmu_counter_start(
         CounterMask::from_mask_base(0x1, ipi_counter_idx),
