@@ -1,0 +1,85 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in RustSBI.
+title: "[Bug]: "
+labels: ["C-bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug!
+        Please provide enough information to help us reproduce and diagnose it.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of the issue.
+      placeholder: Describe what went wrong.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: Provide the steps or code needed to reproduce the issue.
+      placeholder: |
+        1. Configure ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened? Include logs if possible.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: RustSBI Version
+      placeholder: e.g. 0.4.0 or commit hash
+    validations:
+      required: true
+
+  - type: input
+    id: rust
+    attributes:
+      label: Rust Toolchain
+      placeholder: e.g. rustc 1.xx.x
+
+  - type: input
+    id: platform
+    attributes:
+      label: Platform / Board
+      placeholder: e.g. QEMU virt, VisionFive 2
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Execution Environment
+      options:
+        - QEMU
+        - FPGA
+        - Physical Hardware
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Relevant ISA extensions, SBI extensions, configuration, logs, etc.

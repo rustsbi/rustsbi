@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: RustSBI Discussions
+    url: https://github.com/rustsbi/rustsbi/discussions
+    about: Ask general questions and discuss ideas with the community.
+  - name: RustSBI Documentation
+    url: https://docs.rs/rustsbi
+    about: Check the documentation before opening an issue.
+  - name: RISC-V SBI Specification
+    url: https://github.com/riscv-non-isa/riscv-sbi-doc
+    about: Refer to the official SBI specification.
