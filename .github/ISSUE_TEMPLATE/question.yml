@@ -1,0 +1,32 @@
+name: Question / Discussion
+description: Ask a technical question or discuss a RustSBI design topic.
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What would you like to ask or discuss?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Provide relevant technical background or use cases.
+    validations:
+      required: true
+
+  - type: textarea
+    id: attempts
+    attributes:
+      label: What Have You Tried?
+      description: Describe your investigation or attempted solutions.
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Relevant code, specifications, or related discussions.
