@@ -136,6 +136,14 @@ const fn valid_hart_mask(base: usize) -> usize {
 /// Iterator structure for `HartMask`.
 ///
 /// It will iterate hart id from low to high.
+///
+/// # Limitations
+///
+/// The SBI all-harts mask selects all hart IDs, but this iterator implements
+/// [ExactSizeIterator], whose length must fit in a `usize`. The full set contains
+/// `2^XLEN` IDs, one more than `usize::MAX`. Therefore, iteration over an
+/// all-harts mask covers `0..usize::MAX`, omitting hart ID `usize::MAX`.
+/// This limitation does not change which harts the mask selects in SBI calls.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct HartIds {
     inner: UnvisitedMask,
@@ -246,9 +254,8 @@ impl DoubleEndedIterator for HartIds {
             UnvisitedMask::Range(start, end) => {
                 assert!(start <= end);
                 if *start < *end {
-                    let ans = *end;
                     *end -= 1;
-                    Some(ans)
+                    Some(*end)
                 } else {
                     None
                 }
@@ -549,13 +556,13 @@ mod tests {
         let _ = iter.nth(500 - 1);
         assert_eq!(iter.next(), Some(503));
         assert_eq!(iter.size_hint(), (usize::MAX - 504, Some(usize::MAX - 504)));
-        assert_eq!(iter.next_back(), Some(usize::MAX));
         assert_eq!(iter.next_back(), Some(usize::MAX - 1));
+        assert_eq!(iter.next_back(), Some(usize::MAX - 2));
         assert_eq!(iter.size_hint(), (usize::MAX - 506, Some(usize::MAX - 506)));
 
         // A common usage of `HartMask::all`, we assume that this platform filters out hart 0..=3.
         let environment_available_hart_ids = 4..128;
-        // `hart_mask_iter` contains 64..=usize::MAX.
+        // `hart_mask_iter` contains 64..usize::MAX.
         let hart_mask_iter = all_harts.iter().skip(64);
         let filtered_iter = environment_available_hart_ids.filter(|&x| {
             hart_mask_iter
@@ -568,9 +575,9 @@ mod tests {
         // The following operations should have O(1) complexity.
         let all_harts = HartMask::all();
         assert_eq!(all_harts.iter().count(), usize::MAX);
-        assert_eq!(all_harts.iter().last(), Some(usize::MAX));
+        assert_eq!(all_harts.iter().last(), Some(usize::MAX - 1));
         assert_eq!(all_harts.iter().min(), Some(0));
-        assert_eq!(all_harts.iter().max(), Some(usize::MAX));
+        assert_eq!(all_harts.iter().max(), Some(usize::MAX - 1));
         assert!(all_harts.iter().is_sorted());
 
         let partial_all_harts = {
@@ -580,9 +587,9 @@ mod tests {
             ans
         };
         assert_eq!(partial_all_harts.clone().count(), usize::MAX - 65536 - 4096);
-        assert_eq!(partial_all_harts.clone().last(), Some(usize::MAX - 4096));
+        assert_eq!(partial_all_harts.clone().last(), Some(usize::MAX - 4097));
         assert_eq!(partial_all_harts.clone().min(), Some(65536));
-        assert_eq!(partial_all_harts.clone().max(), Some(usize::MAX - 4096));
+        assert_eq!(partial_all_harts.clone().max(), Some(usize::MAX - 4097));
         assert!(partial_all_harts.is_sorted());
 
         let nothing = HartMask::from_mask_base(0, 1000);
