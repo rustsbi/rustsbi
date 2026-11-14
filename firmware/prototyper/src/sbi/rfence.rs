@@ -18,6 +18,8 @@ use sbi_spec::pmu::firmware_event;
 use crate::cfg::{PAGE_SIZE, TLB_FLUSH_LIMIT};
 use core::arch::asm;
 
+#[cfg(feature = "hypervisor")]
+mod policy;
 pub(super) mod queue;
 use super::{ipi::target_harts, pmu::pmu_firmware_counter_increment};
 use queue::{LocalRFenceCell, RemoteRFenceCell};
@@ -144,11 +146,42 @@ fn validate_address_range(start_addr: usize, size: usize) -> Result<usize, SbiRe
 
 /// Processes a remote fence operation by sending IPI to target harts.
 fn remote_fence_process(rfence_ctx: RFenceContext, hart_mask: HartMask) -> SbiRet {
-    let current_hart = HartId::current().expect("BUG: current hart is not in the boot topology");
     let targets = match target_harts(hart_mask) {
         Ok(targets) => targets,
         Err(error) => return error,
     };
+
+    #[cfg(feature = "hypervisor")]
+    {
+        if matches!(
+            rfence_ctx.op,
+            RFenceType::HFenceGvmaVmid
+                | RFenceType::HFenceGvma
+                | RFenceType::HFenceVvmaAsid
+                | RFenceType::HFenceVvma
+        ) {
+            // HFENCE legality depends on every target, so the whole call must
+            // be rejected before any target — including the local one —
+            // executes, enqueues, or receives an IPI. The snapshot also fixes
+            // the dispatched set to the one that was validated.
+            let Some(targets) = policy::preflight_hfence_targets(targets, |hart| {
+                super::features::has_extension(*hart, super::features::Extension::Hypervisor)
+            }) else {
+                return SbiRet::not_supported();
+            };
+            return remote_fence_dispatch(rfence_ctx, targets);
+        }
+    }
+
+    remote_fence_dispatch(rfence_ctx, targets)
+}
+
+/// Dispatches a fence to the pre-validated targets and waits for completion.
+fn remote_fence_dispatch(
+    rfence_ctx: RFenceContext,
+    targets: impl IntoIterator<Item = HartId>,
+) -> SbiRet {
+    let current_hart = HartId::current().expect("BUG: current hart is not in the boot topology");
     let local = local_rfence_for(current_hart);
     let mut result = SbiRet::success(0);
 
@@ -386,8 +419,9 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
         || (ctx.size == usize::MAX)
         || (ctx.size > TLB_FLUSH_LIMIT && ctx.size != usize::MAX);
 
-    // H-extension fences currently assume every target implements H; dispatch
-    // checks the requesting hart but does not check each remote target.
+    // Every HFENCE queue entry passed the target hypervisor-extension
+    // preflight before dispatch; the fences only synchronize
+    // address-translation state.
     match ctx.op {
         RFenceType::FenceI => {
             pmu_firmware_counter_increment(firmware_event::FENCE_I_RECEIVED);
@@ -423,16 +457,26 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
             pmu_firmware_counter_increment(firmware_event::HFENCE_GVMA_VMID_RECEIVED);
             let vmid = ctx.vmid;
             if full_flush {
-                // SAFETY: The fence only synchronizes translations. If this
-                // hart does not implement H, the instruction traps.
+                // SAFETY: Every HFENCE queue entry passed the target
+                // hypervisor preflight against the firmware's feature
+                // records; the fence only synchronizes translations.
                 unsafe { asm!("hfence.gvma x0, {}", in(reg) vmid, options(nostack)) };
             } else {
                 for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                     let addr = ctx.start_addr.wrapping_add(offset);
-                    // SAFETY: The fence only synchronizes translations. If this
-                    // hart does not implement H, the instruction traps.
+                    // The `rs1` operand takes the guest physical page number:
+                    // the byte GPA is shifted right by two, as required by
+                    // `hfence.gvma`.
+                    // SAFETY: Every HFENCE queue entry passed the target
+                    // hypervisor preflight against the firmware's feature
+                    // records; the fence only synchronizes translations.
                     unsafe {
-                        asm!("hfence.gvma {}, {}", in(reg) addr, in(reg) vmid, options(nostack))
+                        asm!(
+                            "hfence.gvma {}, {}",
+                            in(reg) policy::encode_gvma_address(addr),
+                            in(reg) vmid,
+                            options(nostack)
+                        )
                     };
                 }
             }
@@ -441,15 +485,22 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
         RFenceType::HFenceGvma => {
             pmu_firmware_counter_increment(firmware_event::HFENCE_GVMA_RECEIVED);
             if full_flush {
-                // SAFETY: The fence only synchronizes translations. If this
-                // hart does not implement H, the instruction traps.
+                // SAFETY: Every HFENCE queue entry passed the target
+                // hypervisor preflight against the firmware's feature
+                // records; the fence only synchronizes translations.
                 unsafe { asm!("hfence.gvma x0, x0", options(nostack)) };
             } else {
                 for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                     let addr = ctx.start_addr.wrapping_add(offset);
-                    // SAFETY: The fence only synchronizes translations. If this
-                    // hart does not implement H, the instruction traps.
-                    unsafe { asm!("hfence.gvma {}, x0", in(reg) addr, options(nostack)) };
+                    // The `rs1` operand takes the guest physical page number:
+                    // the byte GPA is shifted right by two, as required by
+                    // `hfence.gvma`.
+                    // SAFETY: Every HFENCE queue entry passed the target
+                    // hypervisor preflight against the firmware's feature
+                    // records; the fence only synchronizes translations.
+                    unsafe {
+                        asm!("hfence.gvma {}, x0", in(reg) policy::encode_gvma_address(addr), options(nostack))
+                    };
                 }
             }
         }
@@ -458,14 +509,16 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
             pmu_firmware_counter_increment(firmware_event::HFENCE_VVMA_ASID_RECEIVED);
             let asid = ctx.asid;
             if full_flush {
-                // SAFETY: The fence only synchronizes translations. If this
-                // hart does not implement H, the instruction traps.
+                // SAFETY: Every HFENCE queue entry passed the target
+                // hypervisor preflight against the firmware's feature
+                // records; the fence only synchronizes translations.
                 unsafe { asm!("hfence.vvma x0, {}", in(reg) asid, options(nostack)) };
             } else {
                 for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                     let addr = ctx.start_addr.wrapping_add(offset);
-                    // SAFETY: The fence only synchronizes translations. If this
-                    // hart does not implement H, the instruction traps.
+                    // SAFETY: Every HFENCE queue entry passed the target
+                    // hypervisor preflight against the firmware's feature
+                    // records; the fence only synchronizes translations.
                     unsafe {
                         asm!("hfence.vvma {}, {}", in(reg) addr, in(reg) asid, options(nostack))
                     };
@@ -476,14 +529,16 @@ pub(crate) fn rfence_local_handler(ctx: RFenceContext) {
         RFenceType::HFenceVvma => {
             pmu_firmware_counter_increment(firmware_event::HFENCE_VVMA_RECEIVED);
             if full_flush {
-                // SAFETY: The fence only synchronizes translations. If this
-                // hart does not implement H, the instruction traps.
+                // SAFETY: Every HFENCE queue entry passed the target
+                // hypervisor preflight against the firmware's feature
+                // records; the fence only synchronizes translations.
                 unsafe { asm!("hfence.vvma x0, x0", options(nostack)) };
             } else {
                 for offset in (0..ctx.size).step_by(PAGE_SIZE) {
                     let addr = ctx.start_addr.wrapping_add(offset);
-                    // SAFETY: The fence only synchronizes translations. If this
-                    // hart does not implement H, the instruction traps.
+                    // SAFETY: Every HFENCE queue entry passed the target
+                    // hypervisor preflight against the firmware's feature
+                    // records; the fence only synchronizes translations.
                     unsafe { asm!("hfence.vvma {}, x0", in(reg) addr, options(nostack)) };
                 }
             }

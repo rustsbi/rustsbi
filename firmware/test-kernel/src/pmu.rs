@@ -72,6 +72,45 @@ pub(crate) fn test_trap_counter(event: usize, trigger: impl FnOnce()) {
     }
 }
 
+/// Runs `call` while its RECEIVED firmware counter is active and asserts the
+/// call was rejected without any local execution.
+///
+/// The mixed-H HFENCE regression relies on this counter to prove the firmware
+/// rejected the call before executing anything on the calling hart; a missing
+/// counter is a configuration error, not a skippable case.
+pub(crate) fn assert_rejected_without_received(event: usize, call: impl FnOnce() -> SbiRet) {
+    // 0b110 = CLEAR_VALUE | AUTO_START: clear the counter and start it.
+    let Some(counter) =
+        configure_event(EventIdx::new_firmware_event(event).raw(), Flag::new(0b110))
+    else {
+        panic!(
+            "PMU firmware counter for event {event:#x} missing; \
+             mixed-H HFENCE regression cannot run"
+        );
+    };
+    let baseline = sbi::pmu_counter_fw_read(counter.value);
+    assert!(baseline.is_ok(), "PMU baseline read failed: {baseline:?}");
+
+    let ret = call();
+    assert_eq!(
+        ret,
+        SbiRet::not_supported(),
+        "call was not rejected: {ret:?}"
+    );
+
+    let after = sbi::pmu_counter_fw_read(counter.value);
+    assert!(after.is_ok(), "PMU read failed: {after:?}");
+    assert_eq!(
+        after.value, baseline.value,
+        "RECEIVED counter {event:#x} incremented while the call was rejected"
+    );
+
+    assert!(
+        sbi::pmu_counter_stop(CounterMask::from_mask_base(1, counter.value), Flag::new(1)).is_ok(),
+        "failed to stop the PMU counter after the rejected call"
+    );
+}
+
 /// Find an available counter of the right type before exercising an event.
 fn configure_event(event: usize, flags: Flag) -> Option<SbiRet> {
     let firmware = event >> 16 == 0xf;
