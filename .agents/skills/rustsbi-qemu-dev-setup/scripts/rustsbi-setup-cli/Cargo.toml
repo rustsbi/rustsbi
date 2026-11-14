@@ -1,0 +1,22 @@
+[package]
+name = "rustsbi-setup-cli"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MulanPSL-2.0"
+publish = false
+
+[workspace]
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+flate2 = "1"
+rustix = { version = "1", features = ["fs"] }
+tar = "0.4"
+tempfile = "3"
+walkdir = "2"
+xz2 = "0.1"
+
+[profile.release]
+strip = true
