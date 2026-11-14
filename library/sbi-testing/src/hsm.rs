@@ -2,7 +2,7 @@
 
 use core::{
     cell::UnsafeCell,
-    sync::atomic::{AtomicU32, Ordering},
+    sync::atomic::{AtomicBool, AtomicU32, Ordering},
 };
 use sbi::{HartMask, SbiRet};
 use sbi_spec::hsm::hart_state;
@@ -52,6 +52,13 @@ pub enum Case<'a> {
 /// Test hart state monitor extension on given harts.
 ///
 /// The test case output is to be handled in `f`.
+///
+/// # Panics
+///
+/// Panics when called while another `test_hsm` session is active. A session
+/// holds the slots from its entry until every secondary hart it started was
+/// observed `STOPPED`; a session that failed to start a hart keeps holding
+/// the slots, because those harts may still be running on them.
 pub fn test(
     primary_hart_id: usize,
     mut hart_mask: usize,
@@ -62,6 +69,15 @@ pub fn test(
     if sbi::probe_extension(sbi::Hsm).is_unavailable() {
         f(Case::NotExist);
         return;
+    }
+    // 会话守卫：一次只允许一个 test_hsm 会话访问槽位。入口抢占，重入或
+    // 并发调用直接 panic 而不是继续执行；会话在所有已启动副核被观察到
+    // STOPPED 后释放，启动失败遗留副核的会话故意不释放。
+    if SESSION_ACTIVE.swap(true, Ordering::AcqRel) {
+        panic!(
+            "concurrent or reentrant `test_hsm` call: the previous session \
+             may still have secondary harts running on the slots"
+        );
     }
     f(Case::Begin);
     let rfnc_available = sbi::probe_extension(sbi::Fence).is_available();
@@ -82,6 +98,8 @@ pub fn test(
                         batch_count += 1;
                         batch_size = 0;
                     } else {
+                        // 启动失败遗留的副核可能仍占用槽位：保持会话
+                        // 置位，后续调用在入口被拒绝。
                         return;
                     }
                 }
@@ -98,15 +116,18 @@ pub fn test(
     // 为不满一批次的核执行测试
     if batch_size > 0 {
         if test_batch(&batch[..batch_size], rfnc_available, &mut f) {
+            SESSION_ACTIVE.store(false, Ordering::Release);
             f(Case::Pass);
         }
     }
     // 所有批次通过测试
     else if batch_count > 0 {
+        SESSION_ACTIVE.store(false, Ordering::Release);
         f(Case::Pass);
     }
     // 没有找到能参与测试的副核
     else {
+        SESSION_ACTIVE.store(false, Ordering::Release);
         f(Case::NoStoppedHart)
     }
 }
@@ -118,6 +139,11 @@ const SUSPENDED: SbiRet = SbiRet::success(hart_state::SUSPENDED);
 const TEST_BATCH_SIZE: usize = 4;
 static STACK: [ItemPerHart; TEST_BATCH_SIZE] = [ItemPerHart::ZERO; TEST_BATCH_SIZE];
 
+/// `true` while a `test_hsm` session owns the slots: acquired at session
+/// entry, released only after every hart the session started was observed
+/// `STOPPED`.
+static SESSION_ACTIVE: AtomicBool = AtomicBool::new(false);
+
 #[repr(C, align(512))]
 struct ItemPerHart {
     stage: AtomicU32,
@@ -125,26 +151,26 @@ struct ItemPerHart {
     stack: UnsafeCell<[u8; 504]>,
 }
 
-// SAFETY: within a single `test_hsm` call, `ItemPerHart` slots are accessed
-// across harts only through shared references. `stage` and `signal` are
-// `AtomicU32`, whose documented contract permits concurrent atomic access
-// from multiple harts. The remaining field `stack` is an `UnsafeCell`: safe
+// SAFETY: concurrent access to the slots is serialized by `SESSION_ACTIVE`.
+// `test` acquires the flag at its entry, so at most one session — and
+// therefore at most one primary hart plus the secondary harts it started —
+// touches `STACK` at any time; concurrent or reentrant calls panic at the
+// entry instead of proceeding. The session releases the flag only after
+// every hart it started was observed `STOPPED` (SBI HSM semantics: a
+// stopped hart no longer executes code touching the slots), and a session
+// that failed to start a hart keeps holding the flag so its leftovers can
+// never race a later session. The release store and the acquiring swap
+// order each finished session's slot accesses before the next session's.
+// Within a session: `stage` and `signal` are `AtomicU32`, whose documented
+// contract permits concurrent atomic access from multiple harts; the
+// primary hart's methods touch only those atomics and never read or write
+// the stack bytes. The remaining field `stack` is an `UnsafeCell`: safe
 // methods never expose it, and its bytes are written only by the one
-// secondary hart the slot currently belongs to, which uses them as its run
-// stack via the raw stack pointer installed by `set_stack`; the primary hart
-// never reads or writes them. Within a call, `test_batch` hands each slot to
-// exactly one hart per batch through `hart_start`, and a later batch reuses
-// a slot only after that hart was observed `STOPPED`, so a stopped hart no
-// longer executes code touching the cell. Within a call, therefore, each
-// cell is written by at most one hart at a time and no unsynchronized race
-// can occur through shared references.
-//
-// Known gap not covered by this impl: if `hart_start` fails mid-batch,
-// `test` returns immediately while the harts started earlier in that batch
-// keep running on their slots, and nothing prevents a subsequent `test_hsm`
-// call from starting another hart on the same slot — the two harts would
-// race on the same `UnsafeCell` bytes. Re-entering `test_hsm` after an
-// incomplete run is therefore unsupported until this gap is closed upstream.
+// secondary hart the session handed the slot to (`test_batch` starts each
+// slot's hart through `hart_start`, and a later batch reuses the slot only
+// after that hart was observed `STOPPED`). Therefore no two harts ever
+// access the same cell bytes without synchronization, and the shared
+// references used across harts are sound.
 unsafe impl Sync for ItemPerHart {}
 
 // `set_stack` 把初始栈顶定为 `opaque + 512`，栈向下生长覆盖 `stack` 字段，
