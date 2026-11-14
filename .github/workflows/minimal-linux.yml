@@ -64,6 +64,7 @@ jobs:
             bison \
             build-essential \
             cpio \
+            device-tree-compiler \
             e2fsprogs \
             flex \
             gcc-riscv64-linux-gnu \

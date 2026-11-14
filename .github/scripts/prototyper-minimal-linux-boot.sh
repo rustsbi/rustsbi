@@ -19,6 +19,10 @@
 # II then loads Linux through the EFI stub. The initramfs verifies that
 # /sys/firmware/efi exists before it prints the success marker.
 #
+# The sbi boot also tests SBI HSM CPU hotplug (issue #262): before the success
+# marker, the initramfs cycles every secondary CPU through sysfs offline/online
+# around SBI HSM suspend entries.
+#
 # Linux and BusyBox are built from checksum-pinned release archives. Only the
 # build *products* are kept under CACHE_DIR, so the workflow restores a small
 # cache and skips compilation entirely on a hit; the archives themselves are
@@ -32,6 +36,7 @@
 # qemu-system-riscv64, riscv64-linux-gnu-gcc, cpio, xz and a host toolchain.
 # The u-boot path additionally needs swig, python3-dev, parted, e2fsprogs and
 # qemu-utils. The edk2 path additionally needs acpica-tools, nasm and uuid-dev.
+# The sbi path additionally needs dtc to patch idle states into the device tree.
 
 set -euo pipefail
 
@@ -68,6 +73,9 @@ readonly UB_VERSION="2024.04"
 readonly CROSS_COMPILE="riscv64-linux-gnu-"
 readonly SMOKE_MARKER="RUSTSBI-SMOKE-OK"
 
+# Two CPUs give the sbi boot a secondary CPU to hotplug.
+readonly SBI_SMP=2
+
 # Text that means the boot already went wrong. A panic halts the machine while
 # QEMU stays alive, so without this the job would sit out the whole timeout and
 # then report only that the marker never appeared.
@@ -96,6 +104,7 @@ readonly KERNEL_IMAGE="${CACHE_DIR}/linux-${KERNEL_VERSION}-Image"
 readonly BUSYBOX_INSTALL="${CACHE_DIR}/busybox-${BUSYBOX_VERSION}-install"
 readonly INITRAMFS="${WORK_DIR}/initramfs.cpio.gz"
 readonly DISK_IMAGE="${WORK_DIR}/linux-rootfs.img"
+readonly IDLE_DTB="${WORK_DIR}/virt-idle-smp${SBI_SMP}.dtb"
 # Populated by build_uboot; kept as mutable globals because the tree lives
 # under WORK_DIR; only the FIT is repacked every run.
 UB_SPL=""
@@ -234,6 +243,138 @@ prepare_busybox() {
   cp -a "${tree}/_install" "$BUSYBOX_INSTALL"
 }
 
+# CPU-hotplug test item for the sbi boot (issue #262). A separate script keeps
+# /init a plain assertion list; a non-zero exit makes /init fail under `set -e`,
+# which the kernel reports as "Attempted to kill init".
+write_hotplug_test() {
+  cat >"$1/hotplug.sh" <<'EOF'
+#!/bin/sh
+CPUDIR=/sys/devices/system/cpu
+TAG=HOTPLUG
+ROUNDS=6
+XROUNDS=3
+SETTLE=0.5
+NPASS=0
+NFAIL=0
+
+pass() { echo "$TAG PASS: $1"; NPASS=$((NPASS + 1)); }
+fail() { echo "$TAG FAIL: $1"; NFAIL=$((NFAIL + 1)); }
+
+NP=$(nproc)
+dmesg | grep -q 'SBI HSM extension' || fail 'SBI HSM extension not detected'
+
+online_count() {
+  n=1
+  for c in "$CPUDIR"/cpu[0-9]*; do
+    case "$c" in */cpu0) continue ;; esac
+    [ "$(cat "$c/online" 2>/dev/null)" = "1" ] && n=$((n + 1))
+  done
+  echo "$n"
+}
+
+# The issue #262 reproduction: each offline makes the CPU call sbi_hart_stop(),
+# each online calls sbi_hart_start().
+echo "$TAG: per-CPU offline/online"
+i=1
+while [ "$i" -lt "$NP" ]; do
+  echo 0 >"$CPUDIR/cpu$i/online" 2>/dev/null || fail "cpu$i offline"
+  sleep "$SETTLE"
+  [ "$(cat "$CPUDIR/cpu$i/online")" = "0" ] || fail "cpu$i offline state"
+  echo 1 >"$CPUDIR/cpu$i/online" 2>/dev/null || fail "cpu$i online"
+  sleep "$SETTLE"
+  [ "$(cat "$CPUDIR/cpu$i/online")" = "1" ] || fail "cpu$i online state"
+  i=$((i + 1))
+done
+[ "$NFAIL" = "0" ] && pass 'per-CPU offline/online'
+
+echo "$TAG: $ROUNDS rounds of all-secondary offline/online"
+r=1
+while [ "$r" -le "$ROUNDS" ]; do
+  i=1
+  while [ "$i" -lt "$NP" ]; do
+    echo 0 >"$CPUDIR/cpu$i/online" 2>/dev/null || fail "round $r: cpu$i offline"
+    i=$((i + 1))
+  done
+  sleep "$SETTLE"
+  n=$(online_count)
+  [ "$n" = "1" ] || fail "round $r: expected 1 online CPU, have $n"
+  i=1
+  while [ "$i" -lt "$NP" ]; do
+    echo 1 >"$CPUDIR/cpu$i/online" 2>/dev/null || fail "round $r: cpu$i online"
+    i=$((i + 1))
+  done
+  sleep "$SETTLE"
+  n=$(online_count)
+  [ "$n" = "$NP" ] || fail "round $r: expected $NP online CPUs, have $n"
+  r=$((r + 1))
+done
+[ "$NFAIL" = "0" ] && pass "$ROUNDS rounds all-secondary offline/online"
+
+# A restarted CPU must compute: pin a counting loop to it and require its
+# /proc/stat user time to advance.
+echo "$TAG: compute liveness on each restarted CPU"
+i=1
+while [ "$i" -lt "$NP" ]; do
+  before=$(awk -v c="cpu$i" '$1 == c {print $2 + $4}' /proc/stat)
+  taskset -c "$i" sh -c 'k=0; while [ "$k" -lt 20000 ]; do k=$((k + 1)); done'
+  after=$(awk -v c="cpu$i" '$1 == c {print $2 + $4}' /proc/stat)
+  [ -n "$before" ] && [ "$after" -gt "$before" ] && pass "cpu$i executes work" \
+    || fail "cpu$i user time $before -> $after"
+  i=$((i + 1))
+done
+
+# Cross hotplug with deep idle: background sleepers keep every CPU entering
+# and leaving its deepest idle state, which the patched DTB routes through
+# SBI HSM hart_suspend.
+echo "$TAG: hotplug during deep-idle activity"
+j=0
+SLEEPER_PIDS=""
+while [ "$j" -lt $((NP * 3)) ]; do
+  (while :; do sleep 0.05; done) &
+  SLEEPER_PIDS="$SLEEPER_PIDS $!"
+  j=$((j + 1))
+done
+r=1
+while [ "$r" -le "$XROUNDS" ]; do
+  i=1
+  while [ "$i" -lt "$NP" ]; do
+    echo 0 >"$CPUDIR/cpu$i/online" 2>/dev/null || fail "idle round $r: cpu$i offline"
+    i=$((i + 1))
+  done
+  sleep "$SETTLE"
+  i=1
+  while [ "$i" -lt "$NP" ]; do
+    echo 1 >"$CPUDIR/cpu$i/online" 2>/dev/null || fail "idle round $r: cpu$i online"
+    i=$((i + 1))
+  done
+  sleep "$SETTLE"
+  n=$(online_count)
+  [ "$n" = "$NP" ] || fail "idle round $r: expected $NP online CPUs, have $n"
+  r=$((r + 1))
+done
+# Kill sleepers by PID: killall sh would kill this script as well.
+for p in $SLEEPER_PIDS; do
+  kill "$p" 2>/dev/null
+done
+killall sleep 2>/dev/null
+wait 2>/dev/null
+[ "$NFAIL" = "0" ] && pass "$XROUNDS hotplug rounds during deep-idle activity"
+
+# The kernel log must stay clean of the issue #262 signatures.
+SIG='Unable to stop the cpu|arch_cpu_idle_dead|kernel BUG|Kernel panic|Oops:'
+if dmesg | grep -Eq "$SIG"; then
+  dmesg | grep -E "$SIG" | head -3 | sed "s/^/$TAG FAIL: /"
+  NFAIL=$((NFAIL + 1))
+else
+  pass 'no BUG/panic/Oops signatures in kernel log'
+fi
+
+echo "$TAG: summary: pass=$NPASS fail=$NFAIL nproc=$(nproc)"
+[ "$NFAIL" = "0" ] && [ "$(nproc)" = "$NP" ]
+EOF
+  chmod +x "$1/hotplug.sh"
+}
+
 # An initramfs is unpacked into the initial root filesystem, so the kernel runs
 # /init directly. The marker proves a real userspace started; powering off
 # afterwards lets the job finish without waiting out the boot timeout. The
@@ -241,17 +382,23 @@ prepare_busybox() {
 build_initramfs() {
   local rootfs="${WORK_DIR}/rootfs"
   local efi_assertion=""
+  local hotplug_call=""
 
   if [[ "$BOOT_MODE" = edk2 ]]; then
     # Prove that the kernel entered through the EFI stub instead of merely
     # reaching the same userspace by another boot path.
     efi_assertion="/usr/bin/test -d /sys/firmware/efi"
+  elif [[ "$BOOT_MODE" = sbi ]]; then
+    hotplug_call='/bin/sh /hotplug.sh'
   fi
 
   rm -rf "$rootfs"
   mkdir -p "$rootfs" "$WORK_DIR"
   cp -a "${BUSYBOX_INSTALL}/." "$rootfs/"
   mkdir -p "$rootfs/proc" "$rootfs/sys" "$rootfs/dev"
+  if [[ -n "$hotplug_call" ]]; then
+    write_hotplug_test "$rootfs"
+  fi
 
   # The assertions make the marker mean something specific: a riscv64 kernel
   # reached userspace and mounted a working /proc, not merely that some shell
@@ -269,6 +416,7 @@ set -eu
 /usr/bin/test "\$(/bin/uname -m)" = riscv64
 /usr/bin/test -r /proc/version
 ${efi_assertion}
+${hotplug_call}
 
 echo "${SMOKE_MARKER} \$(/bin/uname -r)"
 /sbin/poweroff -f
@@ -276,6 +424,57 @@ EOF
   chmod +x "$rootfs/init"
 
   (cd "$rootfs" && find . -print0 | cpio --null --create --format=newc --quiet | gzip -9) >"$INITRAMFS"
+}
+
+# Patch an SBI non-retentive idle state into QEMU's device tree so deep idle
+# enters through SBI HSM hart_suspend instead of plain WFI, crossing the
+# suspend path with CPU hotplug in the same firmware hart state machine. The
+# dump command must match start_qemu_sbi on SMP count and memory size, since
+# the dumped tree describes exactly that machine.
+prepare_idle_dtb() {
+  local dts="${IDLE_DTB%.dtb}.dts"
+  local tagged
+
+  if [[ -s "$IDLE_DTB" ]]; then
+    return
+  fi
+
+  qemu-system-riscv64 -machine virt,dumpdtb="${dts}.dtb" -smp "$SBI_SMP" -m 512M -display none >/dev/null 2>&1
+  dtc -q -I dtb -O dts -o "$dts" "${dts}.dtb"
+
+  # The idle-states node must land after the /cpus properties and before its
+  # first subnode, which is the order dtc requires.
+  awk '
+    /^\t\tcpu@[0-9a-f]+ \{$/ && !done {
+      print "\t\tidle-states {"
+      print "\t\t\tentry-method = \"riscv,sbi-standard-extension\";"
+      print "\t\t\tNONRET: nonret-default {"
+      print "\t\t\t\tcompatible = \"riscv,idle-state\";"
+      print "\t\t\t\triscv,sbi-suspend-param = <0x80000000>;"
+      print "\t\t\t\tlocal-timer-stop;"
+      print "\t\t\t\tentry-latency-us = <0x3e8>;"
+      print "\t\t\t\texit-latency-us = <0x2710>;"
+      print "\t\t\t\tmin-residency-us = <0x9c40>;"
+      print "\t\t\t};"
+      print "\t\t};"
+      print ""
+      done = 1
+    }
+    /^\t\t\tdevice_type = "cpu";$/ {
+      print
+      print "\t\t\tcpu-idle-states = <&NONRET>;"
+      next
+    }
+    { print }
+  ' "$dts" >"${dts}.patched"
+
+  tagged=$(grep -c 'cpu-idle-states = <&NONRET>;' "${dts}.patched")
+  if [[ ! -s "$dts" ]] || [[ "$tagged" != "$SBI_SMP" ]]; then
+    echo "Failed to patch idle states into the QEMU device tree (tagged $tagged of $SBI_SMP cpu nodes)" >&2
+    return 1
+  fi
+
+  dtc -q -I dts -O dtb -o "$IDLE_DTB" "${dts}.patched"
 }
 
 # Build a 1GiB GPT-partitioned disk image whose first (ext4) partition holds
@@ -368,6 +567,10 @@ check_prerequisites() {
     echo "Missing $RUSTSBI; run 'cargo prototyper build' first" >&2
     return 1
   }
+  if [[ "$BOOT_MODE" = sbi ]] && ! command -v dtc >/dev/null; then
+    echo "sbi mode requires dtc (device-tree-compiler) to patch idle states" >&2
+    return 1
+  fi
   qemu-system-riscv64 --version
 }
 
@@ -397,13 +600,14 @@ start_qemu_sbi() {
   : >"$LOG_FILE"
   qemu-system-riscv64 \
     -machine virt \
-    -smp 1 \
+    -smp "$SBI_SMP" \
     -m 512M \
     -nographic \
     -no-reboot \
     -bios "$RUSTSBI" \
     -kernel "$KERNEL_IMAGE" \
     -initrd "$INITRAMFS" \
+    -dtb "$IDLE_DTB" \
     >"$LOG_FILE" 2>&1 &
   QEMU_PID=$!
 }
@@ -521,6 +725,7 @@ main() {
       ;;
     sbi)
       build_initramfs
+      prepare_idle_dtb
       start_qemu_sbi
       ;;
   esac
