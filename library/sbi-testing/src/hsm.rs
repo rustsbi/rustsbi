@@ -1,6 +1,9 @@
 //! Hart state monitor extension test suite.
 
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::{
+    cell::UnsafeCell,
+    sync::atomic::{AtomicBool, AtomicU32, Ordering},
+};
 use sbi::{HartMask, SbiRet};
 use sbi_spec::hsm::hart_state;
 
@@ -49,6 +52,13 @@ pub enum Case<'a> {
 /// Test hart state monitor extension on given harts.
 ///
 /// The test case output is to be handled in `f`.
+///
+/// # Panics
+///
+/// Panics when called while another `test_hsm` session is active. A session
+/// holds the slots from its entry until every secondary hart it started was
+/// observed `STOPPED`; a session that failed to start a hart keeps holding
+/// the slots, because those harts may still be running on them.
 pub fn test(
     primary_hart_id: usize,
     mut hart_mask: usize,
@@ -59,6 +69,15 @@ pub fn test(
     if sbi::probe_extension(sbi::Hsm).is_unavailable() {
         f(Case::NotExist);
         return;
+    }
+    // 会话守卫：一次只允许一个 test_hsm 会话访问槽位。入口抢占，重入或
+    // 并发调用直接 panic 而不是继续执行；会话在所有已启动副核被观察到
+    // STOPPED 后释放，启动失败遗留副核的会话故意不释放。
+    if SESSION_ACTIVE.swap(true, Ordering::AcqRel) {
+        panic!(
+            "concurrent or reentrant `test_hsm` call: the previous session \
+             may still have secondary harts running on the slots"
+        );
     }
     f(Case::Begin);
     let rfnc_available = sbi::probe_extension(sbi::Fence).is_available();
@@ -79,6 +98,8 @@ pub fn test(
                         batch_count += 1;
                         batch_size = 0;
                     } else {
+                        // 启动失败遗留的副核可能仍占用槽位：保持会话
+                        // 置位，后续调用在入口被拒绝。
                         return;
                     }
                 }
@@ -95,15 +116,18 @@ pub fn test(
     // 为不满一批次的核执行测试
     if batch_size > 0 {
         if test_batch(&batch[..batch_size], rfnc_available, &mut f) {
+            SESSION_ACTIVE.store(false, Ordering::Release);
             f(Case::Pass);
         }
     }
     // 所有批次通过测试
     else if batch_count > 0 {
+        SESSION_ACTIVE.store(false, Ordering::Release);
         f(Case::Pass);
     }
     // 没有找到能参与测试的副核
     else {
+        SESSION_ACTIVE.store(false, Ordering::Release);
         f(Case::NoStoppedHart)
     }
 }
@@ -113,14 +137,57 @@ const STOPPED: SbiRet = SbiRet::success(hart_state::STOPPED);
 const SUSPENDED: SbiRet = SbiRet::success(hart_state::SUSPENDED);
 
 const TEST_BATCH_SIZE: usize = 4;
-static mut STACK: [ItemPerHart; TEST_BATCH_SIZE] = [ItemPerHart::ZERO; TEST_BATCH_SIZE];
+static STACK: [ItemPerHart; TEST_BATCH_SIZE] = [ItemPerHart::ZERO; TEST_BATCH_SIZE];
+
+/// `true` while a `test_hsm` session owns the slots: acquired at session
+/// entry, released only after every hart the session started was observed
+/// `STOPPED`.
+static SESSION_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 #[repr(C, align(512))]
 struct ItemPerHart {
     stage: AtomicU32,
     signal: AtomicU32,
-    stack: [u8; 504],
+    stack: UnsafeCell<[u8; 504]>,
 }
+
+// SAFETY: concurrent access to the slots is serialized by `SESSION_ACTIVE`.
+// `test` acquires the flag at its entry, so at most one session — and
+// therefore at most one primary hart plus the secondary harts it started —
+// touches `STACK` at any time; concurrent or reentrant calls panic at the
+// entry instead of proceeding. The session releases the flag only after
+// every hart it started was observed `STOPPED` (SBI HSM semantics: a
+// stopped hart no longer executes code touching the slots), and a session
+// that failed to start a hart keeps holding the flag so its leftovers can
+// never race a later session. The release store and the acquiring swap
+// order each finished session's slot accesses before the next session's.
+// Within a session: `stage` and `signal` are `AtomicU32`, whose documented
+// contract permits concurrent atomic access from multiple harts; the
+// primary hart's methods touch only those atomics and never read or write
+// the stack bytes. The remaining field `stack` is an `UnsafeCell`: safe
+// methods never expose it, and its bytes are written only by the one
+// secondary hart the session handed the slot to (`test_batch` starts each
+// slot's hart through `hart_start`, and a later batch reuses the slot only
+// after that hart was observed `STOPPED`). Therefore no two harts ever
+// access the same cell bytes without synchronization, and the shared
+// references used across harts are sound.
+unsafe impl Sync for ItemPerHart {}
+
+// `set_stack` 把初始栈顶定为 `opaque + 512`，栈向下生长覆盖 `stack` 字段，
+// 因此槽位布局是 naked 入口的硬性前提：恰好 512 字节、512 字节对齐，
+// `stack` 字段起于偏移 8、止于 512。以下断言在编译期固定该前提。
+const _: () = assert!(
+    core::mem::size_of::<ItemPerHart>() == 512,
+    "ItemPerHart must stay a 512-byte slot"
+);
+const _: () = assert!(
+    core::mem::align_of::<ItemPerHart>() == 512,
+    "ItemPerHart must stay 512-byte aligned"
+);
+const _: () = assert!(
+    core::mem::offset_of!(ItemPerHart, stack) == 8,
+    "stack field must sit at offset 8, ending at the slot top"
+);
 
 const STAGE_IDLE: u32 = 0;
 const STAGE_STARTED: u32 = 1;
@@ -131,11 +198,11 @@ impl ItemPerHart {
     const ZERO: Self = Self {
         stage: AtomicU32::new(STAGE_IDLE),
         signal: AtomicU32::new(0),
-        stack: [0; 504],
+        stack: UnsafeCell::new([0; 504]),
     };
 
     #[inline]
-    fn reset(&mut self) -> *const ItemPerHart {
+    fn reset(&self) -> *const ItemPerHart {
         self.stage.store(STAGE_IDLE, Ordering::Relaxed);
         self as _
     }
@@ -176,7 +243,7 @@ fn test_batch(batch: &[usize], rfnc_available: bool, mut f: impl FnMut(Case)) ->
     f(Case::BatchBegin(batch));
     // 初始这些核都是停止状态，测试 start
     for (i, hartid) in batch.iter().copied().enumerate() {
-        let ptr = unsafe { STACK[i].reset() };
+        let ptr = STACK[i].reset();
         let ret = sbi::hart_start(hartid, test_entry as *const () as _, ptr as _);
         if ret.is_err() {
             f(Case::HartStartFailed { hartid, ret });
@@ -185,7 +252,7 @@ fn test_batch(batch: &[usize], rfnc_available: bool, mut f: impl FnMut(Case)) ->
     }
     // 测试不可恢复休眠
     for (i, hartid) in batch.iter().copied().enumerate() {
-        let item = unsafe { &mut STACK[i] };
+        let item = &STACK[i];
         // 等待完成启动
         while sbi::hart_get_status(hartid) != STARTED {
             core::hint::spin_loop();
@@ -217,7 +284,7 @@ fn test_batch(batch: &[usize], rfnc_available: bool, mut f: impl FnMut(Case)) ->
     sbi::send_ipi(HartMask::from_mask_base(mask, batch[0]));
     // 测试可恢复休眠
     for (i, hartid) in batch.iter().copied().enumerate() {
-        let item = unsafe { &mut STACK[i] };
+        let item = &STACK[i];
         // 等待完成恢复
         while sbi::hart_get_status(hartid) != STARTED {
             core::hint::spin_loop();
@@ -246,7 +313,7 @@ fn test_batch(batch: &[usize], rfnc_available: bool, mut f: impl FnMut(Case)) ->
 
 /// 测试用启动入口
 #[unsafe(naked)]
-unsafe extern "C" fn test_entry(hartid: usize, opaque: *mut ItemPerHart) -> ! {
+unsafe extern "C" fn test_entry(hartid: usize, opaque: *const ItemPerHart) -> ! {
     core::arch::naked_asm!(
         "csrw sie, zero",   // 关中断
         "call {set_stack}", // 设置栈
@@ -261,9 +328,27 @@ unsafe extern "C" fn set_stack(hart_id: usize, ptr: *const ItemPerHart) {
     core::arch::naked_asm!("addi sp, a1, 512", "ret");
 }
 
+/// # Safety
+///
+/// The caller must ensure that `opaque` is the address of a `STACK` slot
+/// returned by `ItemPerHart::reset()`, handed to the calling hart through
+/// `sbi::hart_start` and passed back to the same entry on non-retentive
+/// resume, so the address stays stable across the hart's whole run; the slot
+/// has static lifetime, and all Rust references to it across harts are
+/// shared references.
 #[inline(never)]
-extern "C" fn rust_main(hart_id: usize, opaque: *mut ItemPerHart) -> ! {
-    let item = unsafe { &mut *opaque };
+unsafe extern "C" fn rust_main(hart_id: usize, opaque: *const ItemPerHart) -> ! {
+    // SAFETY: the provenance and ownership obligations are discharged by the
+    // caller per this function's `# Safety` contract. Given them, the created
+    // reference is valid: the pointee is a `repr(C, align(512))` slot —
+    // non-null, 512-byte aligned, dereferenceable for its full 512 bytes, and
+    // always holding valid `ItemPerHart` values, for only the atomic fields
+    // and the plain bytes of `stack` change at runtime. Every non-atomic
+    // write to the slot is confined to the `UnsafeCell` `stack` field per the
+    // ownership invariant documented on the `Sync` impl — the current hart
+    // exclusively uses those bytes as its stack. Creating one more shared
+    // reference here is therefore sound.
+    let item = unsafe { &*opaque };
     match item.stage.compare_exchange(
         STAGE_IDLE,
         STAGE_STARTED,
