@@ -1,0 +1,83 @@
+name: Skills
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  discover:
+    name: Discover skill Rust workspaces
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.workspaces.outputs.matrix }}
+      has-workspaces: ${{ steps.workspaces.outputs.has-workspaces }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+      - name: Find Cargo workspaces under skills
+        id: workspaces
+        shell: python
+        run: |
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          repo = Path.cwd().resolve()
+          manifests = subprocess.check_output(
+              ["git", "ls-files", "-z", "--", ".agents/skills/**/Cargo.toml"],
+              text=True,
+          ).split("\0")
+          workspaces = set()
+          for manifest in filter(None, manifests):
+              root = subprocess.check_output(
+                  ["cargo", "locate-project", "--workspace", "--manifest-path", manifest,
+                   "--message-format", "plain"],
+                  text=True,
+              ).strip()
+              directory = Path(root).resolve().parent.relative_to(repo)
+              if not directory.is_relative_to(".agents/skills"):
+                  raise SystemExit(f"{manifest}: workspace must be inside .agents/skills")
+              workspaces.add(directory.as_posix())
+          projects = sorted(workspaces)
+          print("Skill Rust workspaces:", projects)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print("matrix=" + json.dumps({"project": projects}), file=output)
+              print("has-workspaces=" + str(bool(projects)).lower(), file=output)
+
+  check:
+    name: Rust CLI (${{ matrix.project }})
+    needs: discover
+    if: needs.discover.outputs.has-workspaces == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.project }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt, clippy
+          cache-workspaces: ${{ matrix.project }}
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Check with Clippy
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - name: Build
+        run: cargo build --locked --workspace --all-targets --all-features
+      - name: Test
+        run: cargo test --locked --workspace --all-features
