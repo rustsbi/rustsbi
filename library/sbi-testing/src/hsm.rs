@@ -1,5 +1,6 @@
 //! Hart state monitor extension test suite.
 
+use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicU32, Ordering};
 use sbi::{HartMask, SbiRet};
 use sbi_spec::hsm::hart_state;
@@ -113,14 +114,20 @@ const STOPPED: SbiRet = SbiRet::success(hart_state::STOPPED);
 const SUSPENDED: SbiRet = SbiRet::success(hart_state::SUSPENDED);
 
 const TEST_BATCH_SIZE: usize = 4;
-static mut STACK: [ItemPerHart; TEST_BATCH_SIZE] = [ItemPerHart::ZERO; TEST_BATCH_SIZE];
+// Shared between the primary and secondary harts through `&` references:
+// synchronization goes through the atomics, and the stack bytes are only
+// written by the secondary hart through its stack pointer (never through a
+// Rust reference), so both harts may hold `&ItemPerHart` at the same time.
+static STACK: [ItemPerHart; TEST_BATCH_SIZE] = [ItemPerHart::ZERO; TEST_BATCH_SIZE];
 
 #[repr(C, align(512))]
 struct ItemPerHart {
     stage: AtomicU32,
     signal: AtomicU32,
-    stack: [u8; 504],
+    stack: UnsafeCell<[u8; 504]>,
 }
+
+unsafe impl Sync for ItemPerHart {}
 
 const STAGE_IDLE: u32 = 0;
 const STAGE_STARTED: u32 = 1;
@@ -131,13 +138,14 @@ impl ItemPerHart {
     const ZERO: Self = Self {
         stage: AtomicU32::new(STAGE_IDLE),
         signal: AtomicU32::new(0),
-        stack: [0; 504],
+        stack: UnsafeCell::new([0; 504]),
     };
 
     #[inline]
-    fn reset(&mut self) -> *const ItemPerHart {
+    fn reset(&self) -> *const ItemPerHart {
+        self.signal.store(0, Ordering::Relaxed);
         self.stage.store(STAGE_IDLE, Ordering::Relaxed);
-        self as _
+        self
     }
 
     #[inline]
@@ -176,7 +184,7 @@ fn test_batch(batch: &[usize], rfnc_available: bool, mut f: impl FnMut(Case)) ->
     f(Case::BatchBegin(batch));
     // 初始这些核都是停止状态，测试 start
     for (i, hartid) in batch.iter().copied().enumerate() {
-        let ptr = unsafe { STACK[i].reset() };
+        let ptr = STACK[i].reset();
         let ret = sbi::hart_start(hartid, test_entry as *const () as _, ptr as _);
         if ret.is_err() {
             f(Case::HartStartFailed { hartid, ret });
@@ -185,7 +193,7 @@ fn test_batch(batch: &[usize], rfnc_available: bool, mut f: impl FnMut(Case)) ->
     }
     // 测试不可恢复休眠
     for (i, hartid) in batch.iter().copied().enumerate() {
-        let item = unsafe { &mut STACK[i] };
+        let item = &STACK[i];
         // 等待完成启动
         while sbi::hart_get_status(hartid) != STARTED {
             core::hint::spin_loop();
@@ -217,7 +225,7 @@ fn test_batch(batch: &[usize], rfnc_available: bool, mut f: impl FnMut(Case)) ->
     sbi::send_ipi(HartMask::from_mask_base(mask, batch[0]));
     // 测试可恢复休眠
     for (i, hartid) in batch.iter().copied().enumerate() {
-        let item = unsafe { &mut STACK[i] };
+        let item = &STACK[i];
         // 等待完成恢复
         while sbi::hart_get_status(hartid) != STARTED {
             core::hint::spin_loop();
@@ -246,7 +254,7 @@ fn test_batch(batch: &[usize], rfnc_available: bool, mut f: impl FnMut(Case)) ->
 
 /// 测试用启动入口
 #[unsafe(naked)]
-unsafe extern "C" fn test_entry(hartid: usize, opaque: *mut ItemPerHart) -> ! {
+unsafe extern "C" fn test_entry(hartid: usize, opaque: *const ItemPerHart) -> ! {
     core::arch::naked_asm!(
         "csrw sie, zero",   // 关中断
         "call {set_stack}", // 设置栈
@@ -262,8 +270,11 @@ unsafe extern "C" fn set_stack(hart_id: usize, ptr: *const ItemPerHart) {
 }
 
 #[inline(never)]
-extern "C" fn rust_main(hart_id: usize, opaque: *mut ItemPerHart) -> ! {
-    let item = unsafe { &mut *opaque };
+extern "C" fn rust_main(hart_id: usize, opaque: *const ItemPerHart) -> ! {
+    // SAFETY: `opaque` comes from the primary hart's `hart_start` call and
+    // points into `STACK`; the secondary hart holds it as a shared reference,
+    // like the primary hart does, so no two `&mut` aliases exist.
+    let item = unsafe { &*opaque };
     match item.stage.compare_exchange(
         STAGE_IDLE,
         STAGE_STARTED,
