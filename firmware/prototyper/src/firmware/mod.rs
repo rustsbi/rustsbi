@@ -65,10 +65,12 @@ pub(crate) fn init_pmp(
 /// Returns whether an S-mode entry address may be handed to HSM start or
 /// non-retentive resume.
 ///
-/// The address must lie in a RAM range described by the platform FDT and must
-/// not fall inside the firmware image, its non-cacheable alias, or the
-/// machine interrupt-controller MMIO windows that the current PMP layout
-/// keeps inaccessible to S-mode. All ranges are half-open `[start, end)`.
+/// The address must lie in a RAM range described by the platform FDT, must be
+/// even — `mepc[0]` is hardwired to zero, so an odd entry would enter at the
+/// preceding address — and must not fall inside the firmware image, its
+/// non-cacheable alias, or the machine interrupt-controller MMIO windows that
+/// the current PMP layout keeps inaccessible to S-mode. All ranges are
+/// half-open `[start, end)`.
 ///
 /// The check reads only immutable platform descriptions and integer range
 /// arithmetic; it never dereferences the entry address. Reserved RAM and
@@ -82,6 +84,13 @@ pub(crate) fn is_valid_entry_address(address: usize) -> bool {
         .iter()
         .any(|range| range.start().as_usize() <= address && address < range.end().as_usize())
     {
+        return false;
+    }
+    // The low bit of `mepc` is hardwired to zero on every implementation, so
+    // an odd entry address would silently enter at the preceding address.
+    // See RISC-V Privileged Architecture, `mepc` register:
+    // <https://docs.riscv.org/reference/isa/v20240411/_attachments/riscv-privileged.pdf>.
+    if address & 0x1 != 0 {
         return false;
     }
     // The firmware image includes the runtime extension stacks.
