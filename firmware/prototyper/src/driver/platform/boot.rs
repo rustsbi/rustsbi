@@ -67,7 +67,6 @@ pub fn init_platform(platform_description: PlatformDescription) -> Result<usize>
     let irq_mmio = platform_description.inspect(|platform| {
         interrupts::init(
             &platform,
-            &model,
             v821.as_ref(),
             &mut memory,
             &mut hidden_node_paths,

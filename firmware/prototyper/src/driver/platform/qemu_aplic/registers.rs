@@ -15,8 +15,6 @@ use runtime::{
     memory::{MmioRegion, PhysAddr},
 };
 
-use super::INTERRUPT_SOURCE_COUNT;
-
 const PAGE_SHIFT: u32 = 12;
 const PAGE_SIZE: usize = 1usize << PAGE_SHIFT;
 const HIGH_PPN_WIDTH: u32 = 12;
@@ -118,6 +116,7 @@ impl AplicRegisters {
         &self,
         machine_msi: EncodedMsiAddress,
         supervisor_msi: EncodedMsiAddress,
+        num_sources: usize,
     ) -> Result<bool> {
         let msi_configuration_locked = MsiAddressConfigHigh::from_bits_retain(
             self.read(Register::MachineMsiAddressConfigHigh)?,
@@ -141,11 +140,11 @@ impl AplicRegisters {
         // remain clear.
         self.write(Register::DomainConfig, 0)?;
 
-        let enable_words = (INTERRUPT_SOURCE_COUNT + 1).div_ceil(u32::BITS as usize);
+        let enable_words = (num_sources + 1).div_ceil(u32::BITS as usize);
         for word in 0..enable_words {
             self.write_array(RegisterArray::ClearInterruptEnable, word, u32::MAX)?;
         }
-        for index in 0..INTERRUPT_SOURCE_COUNT {
+        for index in 0..num_sources {
             self.write_array(
                 RegisterArray::SourceConfig,
                 index,

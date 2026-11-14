@@ -4,7 +4,7 @@ pub mod thead;
 use crate::boot;
 #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
 pub(crate) use crate::recovery::unavailable;
-pub(crate) use crate::recovery::{csrr, csrrw, csrw};
+pub(crate) use crate::recovery::{csrr, csrrw, csrw, instruction};
 
 /// Enables supervisor access to seed when the security CSR is available.
 pub fn enable_supervisor_seed() {
@@ -105,4 +105,18 @@ pub mod stateen {
         #[cfg(target_pointer_width = "32")]
         write::<CSR_HIGH>((value >> 32) as usize);
     }
+}
+
+/// Returns whether this hart implements any PMP entries.
+///
+/// PMP has no `misa` bit, so absence is probed by reading `pmpcfg0` behind
+/// the fault-recovery frame; a hart without PMP raises illegal-instruction
+/// and the probe reports the facility as absent. QEMU's `riscv-server-ref`
+/// CPU is one such implementation today.
+pub fn pmp_available() -> bool {
+    if !boot::traps_ready() {
+        return false;
+    }
+    // pmpcfg0 (0x3a0); any implementation with PMP entries accepts the read.
+    instruction!("csrr {value}, {csr}", 0x3a0, 0usize).is_ok()
 }

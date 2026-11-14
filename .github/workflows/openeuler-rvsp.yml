@@ -1,0 +1,224 @@
+name: openEuler RVSP
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-openeuler-aia.sh"
+      - ".github/scripts/prototyper-openeuler-rvsp.sh"
+      - ".github/workflows/openeuler-rvsp.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  push:
+    branches: ["main"]
+    paths:
+      - ".cargo/**"
+      - ".github/scripts/prototyper-openeuler-aia.sh"
+      - ".github/scripts/prototyper-openeuler-rvsp.sh"
+      - ".github/workflows/openeuler-rvsp.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - "xtask/**"
+      - "library/**"
+      - "firmware/prototyper/**"
+      - "firmware/runtime/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # The server platform reference machine ships in QEMU master as
+  # `riscv-server-ref`; re-pin once a release (11.2+) carries it.
+  QEMU_COMMIT: d73149283205645625bfa9fe029cfb68e4c4a9ae
+
+permissions:
+  contents: read
+
+jobs:
+  openeuler-aia-boot:
+    name: Boot openEuler 25.09 with AIA
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl xz-utils zstd
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      # Share the same verified image and release firmware cache as the
+      # standard openEuler boot workflow and the server reference board job.
+      - name: Cache openEuler guest image
+        uses: ./.github/actions/ci-cache
+        with:
+          path: target/openeuler-boot/cache/openEuler-25.09-riscv64.qcow2.xz
+          key: openeuler-25.09-image-5ba2eb5f-v2
+
+      - name: Cache openEuler EDK II release firmware
+        uses: ./.github/actions/ci-cache
+        with:
+          path: |
+            target/openeuler-boot/cache/RISCV_VIRT_CODE.fd
+            target/openeuler-boot/cache/RISCV_VIRT_VARS.fd
+          key: openeuler-25.09-release-fds-58e96e55-ea8094e9-v2
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build
+
+      - name: Boot openEuler with AIA
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            -e OPENEULER_AIA_CACHE_DIR=/work/target/openeuler-boot/cache \
+            -e OPENEULER_AIA_WORK_DIR=/work/.openeuler-aia/work \
+            -e OPENEULER_AIA_LOG_DIR=/work/qemu-logs \
+            ubuntu:26.04 \
+            bash -lc '
+              set -euo pipefail
+              export DEBIAN_FRONTEND=noninteractive
+              # Use the same Ubuntu mirror as the Azure-hosted runner.
+              sed -i -E \
+                "s@http://(archive|security).ubuntu.com/ubuntu/?@http://azure.archive.ubuntu.com/ubuntu/@g" \
+                /etc/apt/sources.list.d/ubuntu.sources
+              apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30)
+              timeout 5m apt-get "${apt_options[@]}" update --error-on=any
+              # virtio-vga needs the VGA ROM from seabios even with -nographic.
+              timeout 5m apt-get "${apt_options[@]}" install -y --no-install-recommends \
+                ca-certificates curl qemu-system-riscv qemu-utils seabios xz-utils zstd
+              qemu-system-riscv64 --version
+              .github/scripts/prototyper-openeuler-aia.sh
+            '
+
+      - name: Save openEuler guest image
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: target/openeuler-boot/cache/openEuler-25.09-riscv64.qcow2.xz
+          key: openeuler-25.09-image-5ba2eb5f-v2
+
+      - name: Save openEuler EDK II release firmware
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: |
+            target/openeuler-boot/cache/RISCV_VIRT_CODE.fd
+            target/openeuler-boot/cache/RISCV_VIRT_VARS.fd
+          key: openeuler-25.09-release-fds-58e96e55-ea8094e9-v2
+
+      - name: Upload openEuler AIA log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: openeuler-aia-log
+          path: |
+            qemu-logs/openeuler-aia.log
+            qemu-logs/openeuler-aia-aplic.trace
+
+  openeuler-rvsp-boot:
+    name: Boot openEuler 25.09 on riscv-server-ref
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dev dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential bison flex libglib2.0-dev meson mtools ninja-build \
+            pkg-config python3-venv qemu-utils xz-utils zstd
+
+      - name: Install required cargo
+        run: cargo install --locked cargo-binutils@0.4.0
+
+      - name: Cache openEuler guest image
+        uses: ./.github/actions/ci-cache
+        with:
+          path: target/openeuler-boot/cache/openEuler-25.09-riscv64.qcow2.xz
+          key: openeuler-25.09-image-5ba2eb5f-v2
+
+      - name: Cache openEuler EDK II release firmware
+        uses: ./.github/actions/ci-cache
+        with:
+          path: |
+            target/openeuler-boot/cache/RISCV_VIRT_CODE.fd
+            target/openeuler-boot/cache/RISCV_VIRT_VARS.fd
+          key: openeuler-25.09-release-fds-58e96e55-ea8094e9-v2
+
+      - name: Cache QEMU build
+        uses: ./.github/actions/ci-cache
+        with:
+          path: target/qemu-riscv64/build/qemu-system-riscv64
+          key: qemu-riscv64-${{ env.QEMU_COMMIT }}-v2
+
+      - name: Build RustSBI Prototyper
+        run: cargo prototyper build
+
+      - name: Build QEMU with riscv-server-ref
+        run: |
+          if [ -x target/qemu-riscv64/build/qemu-system-riscv64 ]; then
+            target/qemu-riscv64/build/qemu-system-riscv64 --version
+            exit 0
+          fi
+          git clone --filter=blob:none https://github.com/qemu/qemu.git target/qemu-riscv64
+          git -C target/qemu-riscv64 fetch --depth 1 origin "$QEMU_COMMIT"
+          git -C target/qemu-riscv64 checkout "$QEMU_COMMIT"
+          # Upstream defect: hw/riscv/server_platform_ref.c creates the ACLINT
+          # MTIMER with the default 10 MHz timebase while its device tree
+          # advertises 1 GHz, so guest timers run 100x slow and the boot cannot
+          # finish in time. Match the device to the advertised timebase; the
+          # change is reported upstream with this pull request.
+          sed -i 's/RISCV_ACLINT_DEFAULT_TIMEBASE_FREQ, true);/RVSERVER_ACLINT_TIMEBASE_FREQ, true);/' \
+            target/qemu-riscv64/hw/riscv/server_platform_ref.c
+          mkdir -p target/qemu-riscv64/build
+          cd target/qemu-riscv64/build
+          ../configure --target-list=riscv64-softmmu
+          ninja qemu-system-riscv64
+
+      - name: Boot openEuler on riscv-server-ref
+        run: |
+          export OPENEULER_RVSP_QEMU="$PWD/target/qemu-riscv64/build/qemu-system-riscv64"
+          export OPENEULER_RVSP_CACHE_DIR="$PWD/target/openeuler-boot/cache"
+          export OPENEULER_RVSP_WORK_DIR="$PWD/.openeuler-rvsp/work"
+          export OPENEULER_RVSP_LOG_DIR="$PWD/qemu-logs"
+          .github/scripts/prototyper-openeuler-rvsp.sh
+
+      - name: Save openEuler guest image
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: target/openeuler-boot/cache/openEuler-25.09-riscv64.qcow2.xz
+          key: openeuler-25.09-image-5ba2eb5f-v2
+
+      - name: Save openEuler EDK II release firmware
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: |
+            target/openeuler-boot/cache/RISCV_VIRT_CODE.fd
+            target/openeuler-boot/cache/RISCV_VIRT_VARS.fd
+          key: openeuler-25.09-release-fds-58e96e55-ea8094e9-v2
+
+      - name: Save QEMU build
+        uses: ./.github/actions/ci-cache-save
+        with:
+          path: target/qemu-riscv64/build/qemu-system-riscv64
+          key: qemu-riscv64-${{ env.QEMU_COMMIT }}-v2
+
+      - name: Upload openEuler RVSP log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: openeuler-rvsp-log
+          path: |
+            qemu-logs/openeuler-rvsp.log
+            qemu-logs/openeuler-rvsp-aplic.trace
