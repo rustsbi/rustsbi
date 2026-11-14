@@ -51,7 +51,14 @@ pub fn test(mut f: impl FnMut(Case)) {
     } else {
         f(Case::WritingByteFailed(ret));
     }
-    let words = b"ello, world!\r\n";
+    // Copy the message into stack memory before the calls: payload builds
+    // exclude the embedded kernel image from supervisor memory, so buffer
+    // arguments must point into writable supervisor RAM rather than image
+    // storage. The kernel stack lives outside the embedded image in every
+    // boot mode.
+    const MESSAGE: &[u8; 14] = b"ello, world!\r\n";
+    let mut words = [0u8; MESSAGE.len()];
+    words.copy_from_slice(MESSAGE);
     let ret = sbi::console_write(Physical::new(words.len(), words.as_ptr() as _, 0));
     if let Some(len) = ret.ok() {
         f(if len == words.len() {
