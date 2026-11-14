@@ -127,7 +127,31 @@ where
     /// Delete manager, free all resource.
     fn deinit(self, cur_regions: &mut [(usize, usize); MAX_PMP_ENTRY_COUNT as usize]) -> u32;
     /// Create new region with mem.
-    fn extend(&mut self, addr: usize, len: usize) -> bool;
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that, until the region is handed back by
+    /// [`Self::reclaim`] or [`Self::deinit`]:
+    ///
+    /// - `addr + len` does not overflow, and `addr..addr + len` is valid for
+    ///   writes.
+    /// - Nothing else accesses the range; the safe sanitization methods
+    ///   [`Self::free_em`] and [`Self::deinit`] may zero any part of it at
+    ///   any time.
+    ///
+    /// # Examples
+    ///
+    /// Registering memory without `unsafe` is rejected at compile time:
+    ///
+    /// ```compile_fail,E0133
+    /// use smm::allocators::NoneAlloc;
+    /// use smm::manager::UniSecMemManager;
+    /// use smm::SecMemManager;
+    ///
+    /// let mut manager = UniSecMemManager::<30, NoneAlloc<30>, NoneAlloc<30>>::new();
+    /// manager.extend(0x8000_0000, 0x1000);
+    /// ```
+    unsafe fn extend(&mut self, addr: usize, len: usize) -> bool;
     /// Reclaim an unused allocable region from manager
     fn reclaim(&mut self) -> Option<(usize, usize)>;
     /// Alloc enclave mem from request region of type
@@ -146,6 +170,9 @@ pub trait SecMemProtector {
     /// Free a hardware
     fn free(&mut self, hwid: u32) -> bool;
     /// Check memory area can be protect by hardware or not.
+    ///
+    /// This is a hardware geometry check such as PMP NAPOT alignment; a
+    /// `true` result does not mean the range is valid Rust memory.
     fn is_protectable(&self, addr: usize, len: usize) -> bool;
     /// Grant access to secure mem on current hart
     fn grant_access(&self, addr: usize, len: usize, hwid: u32) -> bool;

@@ -100,6 +100,9 @@ where
             // Though SMM assume all enclaves should exited successfully before deinit, which means
             // there isn't any protected data in secure memory. But TEE driver may also be attacked,
             // so SMM still clean all data in secure memory when deinit to avoid any protected data leap.
+            // SAFETY: the region was registered through the unsafe `extend`,
+            // which guarantees its range is valid for writes and unaliased
+            // while the manager holds it.
             unsafe {
                 core::ptr::write_bytes(region.addr as *mut u8, 0, region.len);
                 // sfence_vma_all();
@@ -117,7 +120,7 @@ where
         count as u32
     }
 
-    fn extend(&mut self, addr: usize, len: usize) -> bool {
+    unsafe fn extend(&mut self, addr: usize, len: usize) -> bool {
         // Check if new memory area can be protect by hardware
         if !self.protector.is_protectable(addr, len)
             || (self.alloc_regions.len() >= self.alloc_regions.capacity())
@@ -205,9 +208,15 @@ where
                 }
                 _ => Err(()),
             } {
+                let ptr_addr = ptr.as_ptr() as usize;
+                // A hostile allocator may return a pointer outside its
+                // region; such results must not be handed out.
+                if !region.is_mem_contained(ptr_addr, expect_len) {
+                    return None;
+                }
                 // If alloc successfully, get addr and idx of region
                 region.is_used = true;
-                return Some((ptr.as_ptr() as usize, expect_len, region.id));
+                return Some((ptr_addr, expect_len, region.id));
             }
         }
         None
@@ -224,6 +233,10 @@ where
             .find(|region| region.is_mem_contained(addr, len))
         {
             // Clean enclave memory to avoid data leap between enclaves and when host request reclaim
+            // SAFETY: `is_mem_contained` proved the range lies inside a
+            // region registered through the unsafe `extend`, which guarantees
+            // it is valid for writes and unaliased while the manager holds
+            // it.
             unsafe {
                 core::ptr::write_bytes(addr as *mut u8, 0, len);
                 // sfence_vma_all();
@@ -326,11 +339,10 @@ mod smm_stress_tests {
         let region_len = POOL_SIZE / REGION_COUNT;
         for i in 0..REGION_COUNT {
             let addr = aligned_base + (i * region_len);
-            assert!(
-                manager.extend(addr, region_len),
-                "Extend failed at region {}",
-                i
-            );
+            // SAFETY: the regions lie inside `raw_buffer`, which outlives
+            // the manager and is not accessed concurrently.
+            let registered = unsafe { manager.extend(addr, region_len) };
+            assert!(registered, "Extend failed at region {}", i);
         }
 
         let mut rng = StdRng::seed_from_u64(42);
