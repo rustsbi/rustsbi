@@ -14,6 +14,7 @@ cfg_if::cfg_if! {
     }
 }
 
+use alloc::vec::Vec;
 use core::{arch::asm, fmt};
 use runtime::{
     DeviceTreeHandoff, Error, PlatformDescription, Result,
@@ -34,8 +35,13 @@ pub(crate) struct IrqMmio {
     pub(crate) imsic_end: usize,
 }
 
+/// MMIO window length of the machine interrupt controller shared by PMP
+/// installation and entry-address validation.
+const QEMU_VIRT_CLINT_SIZE: usize = 0x1_0000;
+
 struct PmpLayout {
     firmware_ram: PhysAddrRange,
+    entry_ram_ranges: Vec<PhysAddrRange>,
     noncacheable_alias_offset: Option<u64>,
     irq_mmio: Option<IrqMmio>,
 }
@@ -44,14 +50,73 @@ static PMP: Once<PmpLayout> = Once::new();
 
 pub(crate) fn init_pmp(
     firmware_ram: PhysAddrRange,
+    entry_ram_ranges: Vec<PhysAddrRange>,
     noncacheable_alias_offset: Option<u64>,
     irq_mmio: Option<IrqMmio>,
 ) {
     PMP.call_once(|| PmpLayout {
         firmware_ram,
+        entry_ram_ranges,
         noncacheable_alias_offset,
         irq_mmio,
     });
+}
+
+/// Returns whether an S-mode entry address may be handed to HSM start or
+/// non-retentive resume.
+///
+/// The address must lie in a RAM range described by the platform FDT and must
+/// not fall inside the firmware image, its non-cacheable alias, or the
+/// machine interrupt-controller MMIO windows that the current PMP layout
+/// keeps inaccessible to S-mode. All ranges are half-open `[start, end)`.
+///
+/// The check reads only immutable platform descriptions and integer range
+/// arithmetic; it never dereferences the entry address. Reserved RAM and
+/// embedded payloads outside the firmware image stay valid entries.
+pub(crate) fn is_valid_entry_address(address: usize) -> bool {
+    let Some(pmp) = PMP.get() else {
+        return false;
+    };
+    if !pmp
+        .entry_ram_ranges
+        .iter()
+        .any(|range| range.start().as_usize() <= address && address < range.end().as_usize())
+    {
+        return false;
+    }
+    // The firmware image includes the runtime extension stacks.
+    let Ok(firmware) = locate_firmware_image() else {
+        return false;
+    };
+    if firmware.start().as_usize() <= address && address < firmware.end().as_usize() {
+        return false;
+    }
+    if let Some(alias) = pmp.noncacheable_alias_offset {
+        let Some(alias_start) = (firmware.start().as_usize() as u64).checked_add(alias) else {
+            return false;
+        };
+        let Some(alias_end) = (firmware.end().as_usize() as u64).checked_add(alias) else {
+            return false;
+        };
+        if alias_start <= address as u64 && (address as u64) < alias_end {
+            return false;
+        }
+    }
+    if let Some(irq_mmio) = &pmp.irq_mmio {
+        let Some(clint_end) = irq_mmio.clint_start.checked_add(QEMU_VIRT_CLINT_SIZE) else {
+            return false;
+        };
+        if (irq_mmio.clint_start..clint_end).contains(&address) {
+            return false;
+        }
+        if (irq_mmio.aplic.start().as_usize()..irq_mmio.aplic.end().as_usize()).contains(&address) {
+            return false;
+        }
+        if (irq_mmio.imsic_start..irq_mmio.imsic_end).contains(&address) {
+            return false;
+        }
+    }
+    true
 }
 
 /// Boot information decoded from the previous-stage register envelope (`a1`/`a2`).
@@ -303,7 +368,6 @@ pub fn set_pmp() {
         // Keep machine-level interrupt controllers inaccessible to S-mode
         // only when the IMSIC device retained them for firmware use.
         if let Some(irq_mmio) = &pmp.irq_mmio {
-            const QEMU_VIRT_CLINT_SIZE: usize = 0x1_0000;
             let clint_start = irq_mmio.clint_start;
             let clint_end = clint_start + QEMU_VIRT_CLINT_SIZE;
             let aplic_start = irq_mmio.aplic.start().as_usize();

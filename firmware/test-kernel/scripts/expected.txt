@@ -10,6 +10,7 @@ Sbi `TIME` test pass
 [timer] expired, rearmed, and cancelled deadlines pass
 Sbi `sPI` test pass
 Sbi `RFNC` test pass
+[hsm] invalid entry addresses pass
 Sbi `DBCN` test pass
 Sbi `DBCN` return contract test pass
 DBCN rejected non-zero upper-half write

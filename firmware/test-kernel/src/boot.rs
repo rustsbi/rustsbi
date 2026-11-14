@@ -6,7 +6,7 @@ use core::arch::{asm, naked_asm};
 
 use sbi_testing::sbi;
 
-use crate::{console, misaligned, platform, pmu, reset, rfence, timer, trap};
+use crate::{console, hsm, misaligned, platform, pmu, reset, rfence, timer, trap};
 
 const RISCV_HEAD_FLAGS: u64 = 0;
 const RISCV_HEADER_VERSION: u32 = 0x2;
@@ -125,6 +125,7 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     }
     .test();
 
+    hsm::test(hartid, smp, dtb_pa);
     timer::test(frequency);
     let console_result = console::test();
     pmu::test(smp);

@@ -105,7 +105,12 @@ pub fn stage_boot_handoff(stage: NextStage) -> Result<()> {
     Ok(())
 }
 
-/// Reserves and wakes a stopped hart, publishing its stage only after wake.
+/// Reserves a stopped hart, publishes its stage, and wakes it.
+///
+/// The stage write becomes visible through the Release publication of
+/// `START_PENDING` before any wake backend runs, so a target that observes
+/// the wake can never miss the staged handoff. A failed wake withdraws the
+/// request only while the target has not consumed the published state.
 pub fn start(hart: HartId, stage: NextStage) -> Result<StartOutcome> {
     let cell = cell(hart);
     if cell
@@ -120,13 +125,30 @@ pub fn start(hart: HartId, stage: NextStage) -> Result<StartOutcome> {
     {
         return Ok(StartOutcome::AlreadyRunning);
     }
-    if let Err(error) = super::wakeup::wake(hart) {
-        cell.state.store(STATE_STOPPED, Ordering::Release);
-        return Err(error);
-    }
     // SAFETY: STARTING reserves the slot until the Release publication.
     unsafe { *cell.stage.get() = Some(stage) };
     cell.state.store(STATE_START_PENDING, Ordering::Release);
+    // Orders the stage and state publications before every wake backend,
+    // covering both `HartWake` devices and IPI transports.
+    instruction::fence();
+
+    if let Err(error) = super::wakeup::wake(hart) {
+        return match cell.state.compare_exchange(
+            STATE_START_PENDING,
+            STATE_STOPPED,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            // The wake never became observable, so the request is withdrawn.
+            Ok(_) => Err(error),
+            // Only the target's own consumption can move the state away from
+            // START_PENDING, directly or through the stop, suspend, or restart
+            // transitions that follow it. The launch already formed, so the
+            // state must not be overwritten back to STOPPED.
+            Err(_) => Ok(StartOutcome::Accepted),
+        };
+    }
+
     Ok(StartOutcome::Accepted)
 }
 
