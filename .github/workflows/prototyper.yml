@@ -198,9 +198,15 @@ jobs:
           bash firmware/test-kernel/scripts/test-machine-stack.sh 32
           bash firmware/test-kernel/scripts/test-machine-stack.sh 64
 
+      - name: Verify HFENCE target preflight and GVMA encoding
+        shell: bash
+        run: bash .github/scripts/prototyper-hfence.sh
+
       - name: Upload QEMU log
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: prototyper-qemu-logs
-          path: qemu-logs
+          path: |
+            qemu-logs
+            target/hfence-regression/qemu-mixed-h.log
