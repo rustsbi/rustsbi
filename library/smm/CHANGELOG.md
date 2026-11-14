@@ -22,4 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Modified
 
+* `SecMemManager::extend` is now unsafe: the caller must guarantee the registered range stays valid for writes and unaliased until the manager hands the region back, as the safe sanitization methods `free_em` and `deinit` may zero any part of it.
+* `alloc_em` now rejects allocator results outside their originating region.
+
 ### Removed
