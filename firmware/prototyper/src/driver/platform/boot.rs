@@ -87,7 +87,14 @@ pub fn init_platform(platform_description: PlatformDescription) -> Result<usize>
             .as_usize()
     };
 
-    firmware::init_pmp(firmware_ram_range, noncacheable_alias_offset, irq_mmio);
+    // Entry-address validation shares the registry-normalized RAM ranges with
+    // PMP installation; this runs before any SBI service is published.
+    firmware::init_pmp(
+        firmware_ram_range,
+        memory.ram_ranges().collect(),
+        noncacheable_alias_offset,
+        irq_mmio,
+    );
     let hardware_wakeup = hart_wake.is_some();
     hart::install_wakeup(hart_wake);
     sbi::init(supervisor_memory, custom_extension, pmu, hardware_wakeup)?;

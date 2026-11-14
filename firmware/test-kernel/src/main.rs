@@ -7,6 +7,7 @@ extern crate rcore_console;
 
 mod boot;
 mod console;
+mod hsm;
 mod misaligned;
 mod platform;
 mod pmu;

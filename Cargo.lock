@@ -629,6 +629,7 @@ name = "rustsbi-test-kernel"
 version = "0.0.0"
 dependencies = [
  "dtb-walker",
+ "fdt",
  "log",
  "rcore-console",
  "rustsbi-csr",

@@ -48,6 +48,13 @@ impl SbiHsm {
         ) {
             return SbiRet::invalid_param();
         }
+        // The specification marks `resume_addr` unused for retentive suspension;
+        // only a non-retentive resume needs an S-mode-executable entry address.
+        if suspend_type == suspend_type::NON_RETENTIVE
+            && !crate::firmware::is_valid_entry_address(resume_addr)
+        {
+            return SbiRet::invalid_address();
+        }
         if hart::suspend_current().is_err() {
             return SbiRet::failed();
         }
@@ -86,6 +93,11 @@ impl Hsm for SbiHsm {
             Ok(hart) => hart,
             Err(error) => return error,
         };
+        // Reject before reserving the target so an invalid address can neither
+        // stage a handoff, wake the hart, nor change its HSM state.
+        if !crate::firmware::is_valid_entry_address(start_addr) {
+            return SbiRet::invalid_address();
+        }
         let stage = NextStage {
             start_addr,
             opaque,
