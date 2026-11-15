@@ -5,13 +5,15 @@
 Asterinas prefers kebab-case for crate names, which is unspecified in official Rust API Guidelines.
 
 ```toml
-// Good
+# Good
 [package]
 name = "rustsbi-csr"
 description = "Typed RISC-V CSR access for RustSBI firmware"
 version = "0.0.0"
+```
 
-// Bad
+```toml
+# Bad
 [package]
 name = "short_vis_path"
 ```

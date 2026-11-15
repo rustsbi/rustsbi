@@ -26,9 +26,13 @@ pub(crate) struct ImsicInfo {
     pub(crate) ipi_iid: Iid,
     pub(crate) hart_files: Vec<DeviceRegisterRange>,
 }
-// Bad — looks like a collection
-// rather than a numeric counter
-deleted_watches: usize
+// Bad — `ids` suggests a collection rather than a count
+pub(crate) struct ImsicInfo {
+    pub(crate) layout: ImsicAddressLayout,
+    pub(crate) ids: u16,
+    pub(crate) ipi_iid: Iid,
+    pub(crate) hart_files: Vec<DeviceRegisterRange>,
+}
 ```
 
 Choose verbs that reflect the actual work being done.
@@ -37,17 +41,14 @@ Choose verbs that reflect the actual work being done.
 // Good — implies an indirect CSR read is involved
 #[inline]
 pub(super) unsafe fn read_ind(reg_id: usize) -> usize {
-    interrupt::free(|| unsafe {
-        let previous = miselect::read();
-        miselect::write(Miselect::from_bits(reg_id));
-        let value = mireg::read().bits();
-        miselect::write(previous);
-        value
-    })
+    // ...
 }
 
-// Bad — looks like a plain field access
-pub fn command(&self) -> Command { /* .. */ }
+// Bad — omits the read operation from the name
+#[inline]
+pub(super) unsafe fn ind(reg_id: usize) -> usize {
+    // ...
+}
 ```
 
 ```rust
@@ -60,8 +61,13 @@ pub(super) fn discover(
     // ...
 }
 
-// Bad — sounds like an accessor returning a reference
-pub fn get_all() -> Vec<Arc<dyn Device>> { /* .. */ }
+// Bad — sounds like a simple accessor rather than device-tree discovery
+pub(super) fn get_all(
+    board: &mut BoardInfo,
+    platform: &PlatformView<'_>,
+) -> Result<Vec<CpuInterruptController>> {
+    // ...
+}
 ```
 
 ### Use assertion-style boolean names (`bool-names`) {#bool-names}

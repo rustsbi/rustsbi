@@ -81,13 +81,66 @@ before any code that assumes the CSR's steady-state value can run.
 Pair the restore with the set in the same function,
 so the window is visible in one place.
 
+The RISC-V branch of
+[`access_byte!` in Runtime's memory-access implementation](https://github.com/rustsbi/rustsbi/blob/ebc7190fb630611fa9504f9f71089ce4b81c6c0e/firmware/runtime/src/trap/memory.rs#L16-L61)
+saves `mstatus` before enabling `MPRV` for one load or store.
+The following excerpt uses the macro's `$instruction` argument for that access:
+
 ```rust
-// Good — the window opens and closes in one scope, error paths included
-interrupt::free(|| unsafe {
-    let previous = miselect::read();
-    miselect::write(Miselect::from_bits(reg_id));
-    let value = mireg::read().bits();
-    miselect::write(previous);
-    value
-})
+let mut data: usize = $data;
+let cause: usize;
+let tval: usize;
+// SAFETY:
+// 1. access_status restricts effective privilege to the original S/U context.
+// 2. A nested trap sets MPP=Machine, so entry can use its stack under MPRV.
+// 3. Entry clears MPRV before Rust and preserves the saved mstatus operand.
+// 4. Success and recovery both restore mstatus before returning to Rust.
+unsafe {
+    core::arch::asm!(
+        "csrrci {saved_status}, {status_csr}, 8", // Clear mstatus.MIE.
+        "not {access_status}, {access_mask}",
+        "and {access_status}, {saved_status}, {access_status}",
+        "or {access_status}, {access_status}, {requested_status}",
+        "li t2, 0",
+        "li t3, 0",
+        ".option push",
+        ".option norvc",
+        "csrw {status_csr}, {access_status}",
+        "2:",
+        $instruction,
+        "3:",
+        "csrw {status_csr}, {saved_status}",
+        ".option pop",
+        crate::recovery::fault_site!(),
+        status_csr = const machine::Status::NUMBER,
+        causes = const $causes,
+        data = inout(reg) data,
+        address = in(reg) $address,
+        requested_status = in(reg) $status,
+        // Replace MIE, MPP, MPRV, SUM, and MXR; preserve other fields.
+        access_mask = in(reg) (1usize << 3) | (3 << 11) | (7 << 17),
+        saved_status = out(reg) _,
+        access_status = out(reg) _,
+        out("t2") cause,
+        out("t3") tval,
+    );
+}
+if cause == 0 {
+    Ok(data)
+} else {
+    let TrapCause::Exception(cause) = CauseValue::from(cause).cause() else {
+        unreachable!("recovery accepts synchronous memory faults only")
+    };
+    Err(Error::Fault(Fault { cause, address: tval.into() }))
+}
 ```
+
+The [`fault_site!` record](https://github.com/rustsbi/rustsbi/blob/ebc7190fb630611fa9504f9f71089ce4b81c6c0e/firmware/runtime/src/recovery.rs#L50-L65)
+maps the access at label `2` to the continuation at label `3`.
+On an accepted memory fault,
+[trap dispatch](https://github.com/rustsbi/rustsbi/blob/ebc7190fb630611fa9504f9f71089ce4b81c6c0e/firmware/runtime/src/trap/dispatch.rs#L48-L57)
+sets the saved `t2` and `t3` to the exception cause and fault address,
+then resumes at label `3`.
+Both successful access and fault recovery therefore execute the same
+`csrw` that restores `mstatus`
+before Rust returns `Ok(data)` or `Err(Error::Fault(...))`.

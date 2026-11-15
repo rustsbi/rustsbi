@@ -23,46 +23,67 @@ This applies at every scale:
   or significant abstraction deserves its own file.
 
 ```rust
-// Good — each function operates at one level of abstraction
-/// Dispatches the current hart's saved machine trap.
-///
-/// # Safety
-///
-/// 1. Enter through `entry` with a complete, matching trap record on the Runtime stack.
-/// 2. Keep `MIE` and `MPRV` clear and `mscratch` zero on entry.
-/// 3. Every optional CSR indicated by the record must exist on this hart.
-pub(super) unsafe extern "C" fn trap_dispatch(saved: &mut SavedTrap) {
-    let frame = &mut saved.frame;
-    let info = &saved.info;
-    match CauseValue::from(info.cause).cause() {
-        TrapCause::Interrupt(interrupt) => {
-            // SAFETY: Runtime entry keeps MIE clear throughout interrupt dispatch.
-            let irq = unsafe { crate::irq::LocalIrqDisabled::assume_disabled() };
-            match interrupt {
-                Interrupt::MachineSoftware => handlers::software_interrupt(frame, &irq),
-                Interrupt::MachineTimer => {
-                    crate::boot::timer()
-                        .expect("Timer service not published")
-                        .on_interrupt(&irq);
-                }
-                Interrupt::MachineExternal => handlers::external_interrupt(frame, &irq),
-                // ...
-            }
-        }
-        // ...
-    }
+// Good — the handler reads like a specification;
+// every step is one call at the syscall level of abstraction
+// (from Asterinas kernel/core/src/syscall/connect.rs)
+pub(super) fn sys_connect(
+    sockfd: RawFileDesc,
+    sockaddr_ptr: Vaddr,
+    addr_len: u32,
+    ctx: &Context,
+) -> Result<SyscallReturn> {
+    let socket_addr = read_socket_addr_from_user(sockaddr_ptr, addr_len as _)?;
+
+    let mut file_table = ctx.thread_local.borrow_file_table_mut();
+    let file = get_file_fast!(&mut file_table, sockfd.try_into()?);
+    let socket = file.as_socket_or_err()?;
+
+    socket.connect(socket_addr)?;
+    Ok(SyscallReturn::Return(0))
 }
 
-// Bad — mixes high-level logic with low-level details
-pub fn sys_connect(sockfd: i32, addr: Vaddr, len: u32) -> Result<()> {
-    let fd_table = current_process().fd_table().lock();
-    let file = fd_table.get(sockfd).ok_or(Errno::EBADF)?;
-    let socket = file.downcast_ref::<Socket>().ok_or(Errno::ENOTSOCK)?;
-    let bytes = read_bytes_from_user(addr, len as usize)?;
-    let family = u16::from_ne_bytes([bytes[0], bytes[1]]);
-    // ... 30 more lines of byte parsing ...
+// Bad — the same handler inlines byte-level address parsing,
+// so the syscall flow and the C-layout decoding must be reviewed together
+pub(super) fn sys_connect(
+    sockfd: RawFileDesc,
+    sockaddr_ptr: Vaddr,
+    addr_len: u32,
+    ctx: &Context,
+) -> Result<SyscallReturn> {
+    let mut storage = Storage::new_zeroed();
+    current_userspace!().read_bytes(
+        sockaddr_ptr,
+        &mut storage.as_mut_bytes()[..addr_len],
+    )?;
+    let socket_addr = match CSocketAddrFamily::try_from(storage.sa_family as i32) {
+        Ok(CSocketAddrFamily::AF_INET) => {
+            let (addr, port) = CSocketAddrInet::from_first_bytes(storage.as_bytes()).into();
+            SocketAddr::IPv4(addr, port)
+        }
+        Ok(CSocketAddrFamily::AF_INET6) => {
+            let (addr, port) = CSocketAddrInet6::from_first_bytes(storage.as_bytes()).into();
+            SocketAddr::IPv6(addr, port)
+        }
+        // ... plus AF_UNIX, AF_NETLINK, AF_VSOCK, and the error paths
+        _ => return_errno_with_message!(Errno::EINVAL, "unsupported address family"),
+    };
+
+    let mut file_table = ctx.thread_local.borrow_file_table_mut();
+    let file = get_file_fast!(&mut file_table, sockfd.try_into()?);
+    let socket = file.as_socket_or_err()?;
+
+    socket.connect(socket_addr)?;
+    Ok(SyscallReturn::Return(0))
 }
 ```
+
+The good version is
+[Asterinas's `sys_connect`](https://github.com/asterinas/asterinas/blob/main/kernel/core/src/syscall/connect.rs);
+the byte-level parsing inlined in the bad version
+is exactly what Asterinas keeps in the helper
+`read_socket_addr_from_user`,
+which every socket syscall reuses,
+so each handler stays at one level of abstraction.
 
 ### Hide details behind interfaces (`information-hiding`) {#information-hiding}
 
