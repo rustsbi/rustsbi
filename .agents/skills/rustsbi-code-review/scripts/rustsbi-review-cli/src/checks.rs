@@ -87,12 +87,14 @@ fn run(raw_args: &str, output: &str) -> anyhow::Result<i32> {
     println!("build: running...");
     let build = crate::build_stage::run_build(&scope);
     print_stage(&build);
-    let compile_failed = build.iter().any(|r| r.is_compile_fail());
+    let build_blocked = build
+        .iter()
+        .any(|r| r.is_compile_fail() || r.status == Status::Error);
     results.extend(build);
 
-    // A compile failure short-circuits lint and test.
-    if compile_failed {
-        println!("build: compile failure, skipping lint and test");
+    // Failed or incomplete builds short-circuit lint and test.
+    if build_blocked {
+        println!("build: failed or incomplete, skipping lint and test");
         results.push(CheckResult::new(
             "lint-test",
             Stage::Lint,
@@ -100,7 +102,7 @@ fn run(raw_args: &str, output: &str) -> anyhow::Result<i32> {
             Gate::Advisory,
             0,
             "",
-            "skipped: compile failure",
+            "skipped: failed or incomplete build",
         ));
     } else {
         // Stage 4: lint.

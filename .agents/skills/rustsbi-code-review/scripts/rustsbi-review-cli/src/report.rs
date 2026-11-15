@@ -1,6 +1,6 @@
 //! report.rs — aggregate results into checks.json and checks.md.
 //!
-//! review_allowed is false only when a compile-gated check failed.
+//! Environment errors and compile-gated failures block review.
 
 use crate::model::{CheckResult, Gate, ScopeInfo, Status};
 use crate::util::clip;

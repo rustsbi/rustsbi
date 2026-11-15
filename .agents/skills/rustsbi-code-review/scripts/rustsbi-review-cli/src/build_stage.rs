@@ -1,7 +1,7 @@
 //! build_stage.rs — cargo check/build matrix for affected packages.
 //!
 //! Compile failure blocks the LLM review (gate = Compile). Missing tools or
-//! targets are reported as error/skip, not fail.
+//! targets are reported as environment errors and also block review.
 
 use crate::model::{CheckResult, Gate, ScopeInfo, Stage, Status};
 use crate::util::{cargo_bin_env, die, find_tool, first_line, run_cmd};
@@ -203,11 +203,11 @@ pub fn run_build(scope: &ScopeInfo) -> Vec<CheckResult> {
             results.push(CheckResult::new(
                 "build-firmware",
                 Stage::Build,
-                Status::Skip,
+                Status::Error,
                 Gate::Compile,
                 0,
                 "",
-                "cargo-binutils not installed; skipping firmware build",
+                "rust-objcopy is required for firmware checks; install cargo-binutils",
             ));
         } else {
             // The prototyper generates its config before firmware builds.

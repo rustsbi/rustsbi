@@ -139,3 +139,69 @@ fn dirty_diff_cannot_validate_a_commit_with_a_local_fix() {
         .unwrap();
     assert!(resolved.status.success(), "{resolved:?}");
 }
+
+#[cfg(unix)]
+#[test]
+fn missing_objcopy_blocks_firmware_review_without_running_lint_or_tests() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("repo");
+    fixture(&root, "rustsbi-test-kernel");
+    fs::write(
+        root.join("crate/src/lib.rs"),
+        format!("#![no_std]\n\n{VALID}"),
+    )
+    .unwrap();
+    git(&root, &["add", "--", "crate/src/lib.rs"]);
+    git(&root, &["commit", "-qm", "test: use a firmware package"]);
+
+    // Keep real Cargo/rustc and the native tools, but hide any installed objcopy.
+    let sysroot = Command::new("rustc")
+        .args(["--print", "sysroot"])
+        .output()
+        .unwrap();
+    assert!(sysroot.status.success(), "{sysroot:?}");
+    let toolchain = std::path::PathBuf::from(String::from_utf8(sysroot.stdout).unwrap().trim());
+    let path = std::env::join_paths(
+        std::iter::once(toolchain.join("bin")).chain(
+            std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+                .filter(|path| !path.join("rust-objcopy").exists()),
+        ),
+    )
+    .unwrap();
+    assert!(!toolchain.join("bin/rust-objcopy").exists());
+    let home = dir.path().join("empty-home");
+    fs::create_dir(&home).unwrap();
+    let output = dir.path().join("missing-objcopy");
+    let result = Command::new(CLI)
+        .current_dir(&root)
+        .args(["checks", "diff base review.md"])
+        .arg(&output)
+        .env("PATH", path)
+        .env("HOME", &home)
+        .env("USERPROFILE", &home)
+        .env("RUSTUP_TOOLCHAIN", &toolchain)
+        .output()
+        .unwrap();
+    let report: serde_json::Value = serde_json::from_slice(
+        &fs::read(format!("{}.checks.json", output.display()))
+            .unwrap_or_else(|error| panic!("{error}: {result:?}")),
+    )
+    .unwrap();
+    assert_eq!(result.status.code(), Some(2), "{result:?}\n{report}");
+    assert_eq!(report["overall"], "error");
+    assert_eq!(report["review_allowed"], false);
+    let results = report["results"].as_array().unwrap();
+    let firmware = results
+        .iter()
+        .find(|r| r["id"] == "build-firmware")
+        .unwrap();
+    assert_eq!(firmware["status"], "error");
+    assert!(firmware["message"]
+        .as_str()
+        .unwrap()
+        .contains("rust-objcopy"));
+    assert!(!results
+        .iter()
+        .any(|r| { r["stage"] == "test" || (r["stage"] == "lint" && r["status"] != "skip") }));
+    assert_review_blocked(&root, &output);
+}
