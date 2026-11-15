@@ -5,7 +5,7 @@ use crate::{Error, Result, instruction, ipi, irq};
 use alloc::boxed::Box;
 use core::cell::UnsafeCell;
 use core::hint::spin_loop;
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use super::HartId;
 use crate::boot::NextStage;
@@ -19,9 +19,28 @@ const STATE_SUSPENDED: u8 = 4;
 const STATE_RESUME_PENDING: u8 = 6;
 const STATE_STARTING: u8 = u8::MAX;
 
+// The state word packs the state byte with a generation tag. Each start
+// reservation bumps the tag and every other transition keeps the observed
+// one, so a rollback CAS matches only the publication its own request made,
+// never a later request's republished state.
+#[inline]
+const fn pack(state: u8, generation: usize) -> usize {
+    (generation << 8) | state as usize
+}
+
+#[inline]
+const fn state_of(word: usize) -> u8 {
+    (word & 0xff) as u8
+}
+
+#[inline]
+const fn generation_of(word: usize) -> usize {
+    word >> 8
+}
+
 #[repr(align(128))]
 struct HartStateCell {
-    state: AtomicU8,
+    state: AtomicUsize,
     stage: UnsafeCell<Option<NextStage>>,
     transfer: UnsafeCell<Option<ControlTransfer>>,
 }
@@ -29,7 +48,7 @@ struct HartStateCell {
 impl HartStateCell {
     const fn new() -> Self {
         Self {
-            state: AtomicU8::new(STATE_STOPPED),
+            state: AtomicUsize::new(pack(STATE_STOPPED, 0)),
             stage: UnsafeCell::new(None),
             transfer: UnsafeCell::new(None),
         }
@@ -83,25 +102,38 @@ pub(crate) enum ControlTransfer {
     NonRetentiveResume(NextStage),
 }
 
+// Reserves a stopped hart for a start handoff and returns the request's
+// generation tag.
+fn reserve_start(cell: &HartStateCell) -> Option<usize> {
+    let mut word = cell.state.load(Ordering::Relaxed);
+    loop {
+        if state_of(word) != STATE_STOPPED {
+            return None;
+        }
+        let generation = generation_of(word).wrapping_add(1);
+        match cell.state.compare_exchange(
+            word,
+            pack(STATE_STARTING, generation),
+            Ordering::Acquire,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => return Some(generation),
+            Err(current) => word = current,
+        }
+    }
+}
+
 /// Stages the initial boot handoff for the current hart.
 pub fn stage_boot_handoff(stage: NextStage) -> Result<()> {
     let hart = current_hart();
     let cell = cell(hart);
-    if cell
-        .state
-        .compare_exchange(
-            STATE_STOPPED,
-            STATE_STARTING,
-            Ordering::Acquire,
-            Ordering::Relaxed,
-        )
-        .is_err()
-    {
+    let Some(generation) = reserve_start(cell) else {
         return Err(Error::Busy);
-    }
+    };
     // SAFETY: STARTING reserves the slot for this hart's boot path.
     unsafe { *cell.stage.get() = Some(stage) };
-    cell.state.store(STATE_START_PENDING, Ordering::Release);
+    cell.state
+        .store(pack(STATE_START_PENDING, generation), Ordering::Release);
     Ok(())
 }
 
@@ -110,41 +142,33 @@ pub fn stage_boot_handoff(stage: NextStage) -> Result<()> {
 /// The stage write becomes visible through the Release publication of
 /// `START_PENDING` before any wake backend runs, so a target that observes
 /// the wake can never miss the staged handoff. A failed wake withdraws the
-/// request only while the target has not consumed the published state.
+/// request only while its own publication is still current: each start
+/// carries a generation tag, so a consumed or republished state is left
+/// untouched.
 pub fn start(hart: HartId, stage: NextStage) -> Result<StartOutcome> {
     let cell = cell(hart);
-    if cell
-        .state
-        .compare_exchange(
-            STATE_STOPPED,
-            STATE_STARTING,
-            Ordering::Acquire,
-            Ordering::Relaxed,
-        )
-        .is_err()
-    {
+    let Some(generation) = reserve_start(cell) else {
         return Ok(StartOutcome::AlreadyRunning);
-    }
+    };
     // SAFETY: STARTING reserves the slot until the Release publication.
     unsafe { *cell.stage.get() = Some(stage) };
-    cell.state.store(STATE_START_PENDING, Ordering::Release);
+    cell.state
+        .store(pack(STATE_START_PENDING, generation), Ordering::Release);
     // Orders the stage and state publications before every wake backend,
     // covering both `HartWake` devices and IPI transports.
     instruction::fence();
 
     if let Err(error) = super::wakeup::wake(hart) {
         return match cell.state.compare_exchange(
-            STATE_START_PENDING,
-            STATE_STOPPED,
+            pack(STATE_START_PENDING, generation),
+            pack(STATE_STOPPED, generation),
             Ordering::AcqRel,
             Ordering::Acquire,
         ) {
             // The wake never became observable, so the request is withdrawn.
             Ok(_) => Err(error),
-            // Only the target's own consumption can move the state away from
-            // START_PENDING, directly or through the stop, suspend, or restart
-            // transitions that follow it. The launch already formed, so the
-            // state must not be overwritten back to STOPPED.
+            // A different word means this publication was consumed, or a later
+            // request already owns the slot; either way it stays untouched.
             Err(_) => Ok(StartOutcome::Accepted),
         };
     }
@@ -156,13 +180,14 @@ pub fn start(hart: HartId, stage: NextStage) -> Result<StartOutcome> {
 pub(crate) fn take_local_event() -> HartEvent {
     let cell = cell(current_hart());
     loop {
-        match cell.state.load(Ordering::Acquire) {
+        let word = cell.state.load(Ordering::Acquire);
+        match state_of(word) {
             STATE_START_PENDING => {
                 if cell
                     .state
                     .compare_exchange(
-                        STATE_START_PENDING,
-                        STATE_STARTED,
+                        word,
+                        pack(STATE_STARTED, generation_of(word)),
                         Ordering::AcqRel,
                         Ordering::Relaxed,
                     )
@@ -186,7 +211,7 @@ pub(crate) fn take_local_event() -> HartEvent {
 /// Reads a hart's protocol-independent lifecycle state.
 #[inline]
 pub fn status(hart: HartId) -> HartState {
-    match cell(hart).state.load(Ordering::Acquire) {
+    match state_of(cell(hart).state.load(Ordering::Acquire)) {
         STATE_STARTED => HartState::Started,
         STATE_STOPPED => HartState::Stopped,
         STATE_START_PENDING | STATE_STARTING => HartState::StartPending,
@@ -213,9 +238,10 @@ pub fn stop_current() -> Result<core::convert::Infallible> {
         let ipi = ipi::get().ok_or(Error::IoError)?;
         ipi.acknowledge(irq)?;
         ipi.enable_interrupt(irq);
-        cell(current_hart())
-            .state
-            .store(STATE_STOPPED, Ordering::Release);
+        let cell = cell(current_hart());
+        let word = cell.state.load(Ordering::Relaxed);
+        cell.state
+            .store(pack(STATE_STOPPED, generation_of(word)), Ordering::Release);
         // SAFETY:
         // 1. This scope keeps machine interrupts disabled until the handoff.
         // 2. Stop retires the current call chain before reusing the hart stack.
@@ -240,9 +266,12 @@ pub fn suspend_current() -> Result<()> {
         ipi.enable_interrupt(irq);
         Ok(())
     })?;
-    cell(current_hart())
-        .state
-        .store(STATE_SUSPENDED, Ordering::Release);
+    let cell = cell(current_hart());
+    let word = cell.state.load(Ordering::Relaxed);
+    cell.state.store(
+        pack(STATE_SUSPENDED, generation_of(word)),
+        Ordering::Release,
+    );
     instruction::wait_for_interrupt();
     Ok(())
 }
@@ -250,16 +279,12 @@ pub fn suspend_current() -> Result<()> {
 /// Completes a retentive resume on the current hart.
 pub fn resume_current_retentive() -> Result<()> {
     let cell = cell(current_hart());
-    if cell
+    let resumed = cell
         .state
-        .compare_exchange(
-            STATE_SUSPENDED,
-            STATE_STARTED,
-            Ordering::AcqRel,
-            Ordering::Relaxed,
-        )
-        .is_err()
-    {
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |word| {
+            (state_of(word) == STATE_SUSPENDED).then(|| pack(STATE_STARTED, generation_of(word)))
+        });
+    if resumed.is_err() {
         return Err(Error::InvalidState);
     }
     Ok(())
@@ -269,16 +294,13 @@ pub fn resume_current_retentive() -> Result<()> {
 pub fn begin_nonretentive_resume(stage: NextStage) -> Result<ResumeTicket> {
     let hart = current_hart();
     let cell = cell(hart);
-    if cell
+    let reserved = cell
         .state
-        .compare_exchange(
-            STATE_SUSPENDED,
-            STATE_RESUME_PENDING,
-            Ordering::AcqRel,
-            Ordering::Relaxed,
-        )
-        .is_err()
-    {
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |word| {
+            (state_of(word) == STATE_SUSPENDED)
+                .then(|| pack(STATE_RESUME_PENDING, generation_of(word)))
+        });
+    if reserved.is_err() {
         return Err(Error::InvalidState);
     }
     Ok(ResumeTicket {
@@ -312,7 +334,10 @@ impl ResumeTicket {
         unsafe {
             *self.cell.transfer.get() = Some(ControlTransfer::NonRetentiveResume(self.stage));
         }
-        self.cell.state.store(STATE_STARTED, Ordering::Release);
+        let word = self.cell.state.load(Ordering::Relaxed);
+        self.cell
+            .state
+            .store(pack(STATE_STARTED, generation_of(word)), Ordering::Release);
         self.committed = true;
         Ok(())
     }
@@ -321,7 +346,11 @@ impl ResumeTicket {
 impl Drop for ResumeTicket {
     fn drop(&mut self) {
         if !self.committed {
-            self.cell.state.store(STATE_SUSPENDED, Ordering::Release);
+            let word = self.cell.state.load(Ordering::Relaxed);
+            self.cell.state.store(
+                pack(STATE_SUSPENDED, generation_of(word)),
+                Ordering::Release,
+            );
         }
     }
 }
