@@ -144,6 +144,7 @@ All notable changes to this project will be documented in this file. See [conven
 
 
 ### Fixed
+- Keep machine software, timer, and external interrupts undelegated in `mideleg` when configuring the next stage, and reject platforms that hold those bits set.
 - Return `SBI_ERR_NO_SHMEM` or `SBI_ERR_NOT_SUPPORTED` from MPXY channel stubs (FID #3–#7) instead of `SBI_ERR_FAILED`, matching SBI v3.0 while no channels are implemented.
 - Accept RFENCE full-address-space requests with `size == usize::MAX` regardless of `start_addr`, matching SBI v3.0, and cover nonzero/unaligned starts in test-kernel.
 - Probe PMU counters and skip unsupported events in test-kernel instead of assuming a fixed counter layout.

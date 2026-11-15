@@ -11,6 +11,9 @@ use csr::{
     },
 };
 
+/// Machine software, timer, and external interrupt delegation bits in `mideleg`.
+const MACHINE_INTERRUPT_DELEGATION_MASK: usize = (1 << 3) | (1 << 7) | (1 << 11);
+
 /// Installs machine exception handling before platform feature probes.
 ///
 /// # Safety
@@ -97,7 +100,14 @@ pub unsafe fn configure_next_stage() {
     }
     // SAFETY: The caller owns this hart's next-stage configuration.
     unsafe {
-        machine::InterruptDelegation::write(usize::MAX.into());
+        let delegation = usize::MAX & !MACHINE_INTERRUPT_DELEGATION_MASK;
+        machine::InterruptDelegation::write(delegation.into());
+        let delegated = usize::from(machine::InterruptDelegation::read());
+        assert_eq!(
+            delegated & MACHINE_INTERRUPT_DELEGATION_MASK,
+            0,
+            "machine interrupts were delegated to S-mode: mideleg={delegated:#x}"
+        );
         machine::ExceptionDelegation::write(ExceptionSet::except(&[
             Exception::SupervisorEcall,
             Exception::LoadMisaligned,
