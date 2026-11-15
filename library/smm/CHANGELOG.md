@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+* Reserved PMP slots are never allocated, and the manage mask covers every slot.
+* `extend` fails when no PMP slot is free, and rejects regions that overlap the SM region.
+* `reclaim` tries each unused region, and `deinit` only reports regions it unprotected.
+
+### Changed
+
+* **Breaking:** `SecMemProtector` gains `with_masks` and `reserve_locked`, its methods take `PmpSlot`, and `SecMemRegion::new` takes `PmpSlot`. `init` reserves PMP slots the hardware already locked, so they are never allocated.
+* `UniSecMemManager` is generic over the protector type. It still defaults to the mock protector; the PMP protector is opt-in until all-hart PMP sync exists.
+
 
 ### Added
 
