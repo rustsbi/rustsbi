@@ -21,6 +21,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- hsm: give the per-hart test slots shared ownership (`UnsafeCell` stacks behind shared references) and guard `test_hsm` sessions, so concurrent or reentrant calls panic at the entry instead of racing a leftover hart's stack (#497, #511).
 - Keep waiting for the supervisor timer after a machine interrupt wakes WFI.
 
 ## [0.0.3] - 2026-05-13
