@@ -44,6 +44,15 @@ impl SbiMpxy {
             .index();
         &self.shmem[hart_index]
     }
+
+    /// Ensures the calling hart has MPXY shared memory configured.
+    #[inline]
+    fn check_shmem(&self) -> SbiRet {
+        if self.current_shmem().load(Ordering::Acquire) == 0 {
+            return SbiRet::no_shmem();
+        }
+        SbiRet::success(0)
+    }
 }
 
 impl Mpxy for SbiMpxy {
@@ -101,7 +110,12 @@ impl Mpxy for SbiMpxy {
         _attribute_count: u32,
         _output: SharedPtr<u8>,
     ) -> SbiRet {
-        SbiRet::failed()
+        let ret = self.check_shmem();
+        if ret.is_err() {
+            return ret;
+        }
+        // TODO: add actual MPXY extension support.
+        SbiRet::not_supported()
     }
 
     fn write_attributes(
@@ -111,7 +125,12 @@ impl Mpxy for SbiMpxy {
         _attribute_count: u32,
         _input: SharedPtr<u8>,
     ) -> SbiRet {
-        SbiRet::failed()
+        let ret = self.check_shmem();
+        if ret.is_err() {
+            return ret;
+        }
+        // TODO: add actual MPXY extension support.
+        SbiRet::not_supported()
     }
 
     fn send_message_with_response(
@@ -120,7 +139,12 @@ impl Mpxy for SbiMpxy {
         _message_id: u32,
         _message_data_len: usize,
     ) -> SbiRet {
-        SbiRet::failed()
+        let ret = self.check_shmem();
+        if ret.is_err() {
+            return ret;
+        }
+        // TODO: add actual MPXY extension support.
+        SbiRet::not_supported()
     }
 
     fn send_message_without_response(
@@ -129,10 +153,20 @@ impl Mpxy for SbiMpxy {
         _message_id: u32,
         _message_data_len: usize,
     ) -> SbiRet {
-        SbiRet::failed()
+        let ret = self.check_shmem();
+        if ret.is_err() {
+            return ret;
+        }
+        // TODO: add actual MPXY extension support.
+        SbiRet::not_supported()
     }
 
     fn get_notification_events(&self, _channel_id: u32) -> SbiRet {
-        SbiRet::failed()
+        let ret = self.check_shmem();
+        if ret.is_err() {
+            return ret;
+        }
+        // TODO: add actual MPXY extension support.
+        SbiRet::not_supported()
     }
 }
