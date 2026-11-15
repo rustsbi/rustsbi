@@ -43,6 +43,15 @@ pub(crate) fn test(hartid: usize, smp: usize) {
     let ret = sbi::remote_sfence_vma(HartMask::from_mask_base(0x1, invalid_hart), 0, 0);
     assert_eq!(ret, SbiRet::invalid_param());
 
+    // size == usize::MAX is a full-address-space encoding: start_addr is
+    // ignored, including nonzero and unaligned values (#484).
+    let ret = sbi::remote_sfence_vma(self_mask, 8, usize::MAX);
+    assert!(ret.is_ok() || ret == SbiRet::not_supported());
+    let ret = sbi::remote_sfence_vma(self_mask, 1, usize::MAX);
+    assert!(ret.is_ok() || ret == SbiRet::not_supported());
+    let ret = sbi::remote_sfence_vma_asid(self_mask, 8, usize::MAX, 0);
+    assert!(ret.is_ok() || ret == SbiRet::not_supported());
+
     let ret = sbi::remote_sfence_vma_asid(self_mask, 0, 0, 0);
     assert!(ret.is_ok() || ret == SbiRet::not_supported());
 
