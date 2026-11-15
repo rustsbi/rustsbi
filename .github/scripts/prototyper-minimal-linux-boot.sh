@@ -245,10 +245,15 @@ prepare_busybox() {
 
 # CPU-hotplug test item for the sbi boot (issue #262). A separate script keeps
 # /init a plain assertion list; a non-zero exit makes /init fail under `set -e`,
-# which the kernel reports as "Attempted to kill init".
+# which the kernel reports as "Attempted to kill init". The expected CPU count
+# is baked in so the guest fails early when Linux brings up fewer CPUs than
+# QEMU provides.
 write_hotplug_test() {
-  cat >"$1/hotplug.sh" <<'EOF'
+  cat >"$1/hotplug.sh" <<EOF
 #!/bin/sh
+EXPECTED_NP=${SBI_SMP}
+EOF
+  cat >>"$1/hotplug.sh" <<'EOF'
 CPUDIR=/sys/devices/system/cpu
 TAG=HOTPLUG
 ROUNDS=6
@@ -261,6 +266,10 @@ pass() { echo "$TAG PASS: $1"; NPASS=$((NPASS + 1)); }
 fail() { echo "$TAG FAIL: $1"; NFAIL=$((NFAIL + 1)); }
 
 NP=$(nproc)
+if [ "$NP" -ne "$EXPECTED_NP" ]; then
+  echo "$TAG FAIL: expected $EXPECTED_NP CPUs, Linux brought up $NP"
+  exit 1
+fi
 dmesg | grep -q 'SBI HSM extension' || fail 'SBI HSM extension not detected'
 
 online_count() {
@@ -270,6 +279,22 @@ online_count() {
     [ "$(cat "$c/online" 2>/dev/null)" = "1" ] && n=$((n + 1))
   done
   echo "$n"
+}
+
+# Sum the usage counters of every non-WFI idle state across secondary CPUs.
+nonret_usage() {
+  total=0
+  i=1
+  while [ "$i" -lt "$NP" ]; do
+    for s in "$CPUDIR"/cpu$i/cpuidle/state*; do
+      [ -r "$s/name" ] || continue
+      [ "$(cat "$s/name")" = "WFI" ] && continue
+      u=$(cat "$s/usage")
+      total=$((total + u))
+    done
+    i=$((i + 1))
+  done
+  echo "$total"
 }
 
 # The issue #262 reproduction: each offline makes the CPU call sbi_hart_stop(),
@@ -316,7 +341,8 @@ echo "$TAG: compute liveness on each restarted CPU"
 i=1
 while [ "$i" -lt "$NP" ]; do
   before=$(awk -v c="cpu$i" '$1 == c {print $2 + $4}' /proc/stat)
-  taskset -c "$i" sh -c 'k=0; while [ "$k" -lt 20000 ]; do k=$((k + 1)); done'
+  taskset -c "$i" sh -c 'k=0; while [ "$k" -lt 20000 ]; do k=$((k + 1)); done' \
+    || fail "cpu$i taskset failed to pin the counting loop"
   after=$(awk -v c="cpu$i" '$1 == c {print $2 + $4}' /proc/stat)
   [ -n "$before" ] && [ "$after" -gt "$before" ] && pass "cpu$i executes work" \
     || fail "cpu$i user time $before -> $after"
@@ -325,40 +351,52 @@ done
 
 # Cross hotplug with deep idle: background sleepers keep every CPU entering
 # and leaving its deepest idle state, which the patched DTB routes through
-# SBI HSM hart_suspend.
+# SBI HSM hart_suspend. The cpuidle driver check plus the usage-counter window
+# prove the idle states were actually entered.
 echo "$TAG: hotplug during deep-idle activity"
-j=0
-SLEEPER_PIDS=""
-while [ "$j" -lt $((NP * 3)) ]; do
-  (while :; do sleep 0.05; done) &
-  SLEEPER_PIDS="$SLEEPER_PIDS $!"
-  j=$((j + 1))
-done
-r=1
-while [ "$r" -le "$XROUNDS" ]; do
-  i=1
-  while [ "$i" -lt "$NP" ]; do
-    echo 0 >"$CPUDIR/cpu$i/online" 2>/dev/null || fail "idle round $r: cpu$i offline"
-    i=$((i + 1))
+idle_driver=$(cat "$CPUDIR/cpuidle/current_driver" 2>/dev/null)
+if [ "$idle_driver" != "sbi_cpuidle" ]; then
+  fail "cpuidle driver is '$idle_driver', expected sbi_cpuidle"
+else
+  j=0
+  SLEEPER_PIDS=""
+  while [ "$j" -lt $((NP * 3)) ]; do
+    (while :; do sleep 0.05; done) &
+    SLEEPER_PIDS="$SLEEPER_PIDS $!"
+    j=$((j + 1))
   done
-  sleep "$SETTLE"
-  i=1
-  while [ "$i" -lt "$NP" ]; do
-    echo 1 >"$CPUDIR/cpu$i/online" 2>/dev/null || fail "idle round $r: cpu$i online"
-    i=$((i + 1))
+  r=1
+  while [ "$r" -le "$XROUNDS" ]; do
+    i=1
+    while [ "$i" -lt "$NP" ]; do
+      echo 0 >"$CPUDIR/cpu$i/online" 2>/dev/null || fail "idle round $r: cpu$i offline"
+      i=$((i + 1))
+    done
+    sleep "$SETTLE"
+    i=1
+    while [ "$i" -lt "$NP" ]; do
+      echo 1 >"$CPUDIR/cpu$i/online" 2>/dev/null || fail "idle round $r: cpu$i online"
+      i=$((i + 1))
+    done
+    sleep "$SETTLE"
+    n=$(online_count)
+    [ "$n" = "$NP" ] || fail "idle round $r: expected $NP online CPUs, have $n"
+    r=$((r + 1))
   done
-  sleep "$SETTLE"
-  n=$(online_count)
-  [ "$n" = "$NP" ] || fail "idle round $r: expected $NP online CPUs, have $n"
-  r=$((r + 1))
-done
-# Kill sleepers by PID: killall sh would kill this script as well.
-for p in $SLEEPER_PIDS; do
-  kill "$p" 2>/dev/null
-done
-killall sleep 2>/dev/null
-wait 2>/dev/null
-[ "$NFAIL" = "0" ] && pass "$XROUNDS hotplug rounds during deep-idle activity"
+  # Usage counters reset whenever a CPU is offlined, so prove fresh entries
+  # in a window after the final online instead of comparing across rounds.
+  before=$(nonret_usage)
+  sleep 2
+  after=$(nonret_usage)
+  [ "$after" -gt "$before" ] || fail "no SBI idle-state entries during deep-idle activity ($before -> $after)"
+  # Kill sleepers by PID: killall sh would kill this script as well.
+  for p in $SLEEPER_PIDS; do
+    kill "$p" 2>/dev/null
+  done
+  killall sleep 2>/dev/null
+  wait 2>/dev/null
+  [ "$NFAIL" = "0" ] && pass "$XROUNDS hotplug rounds during deep-idle activity"
+fi
 
 # The kernel log must stay clean of the issue #262 signatures.
 SIG='Unable to stop the cpu|arch_cpu_idle_dead|kernel BUG|Kernel panic|Oops:'
