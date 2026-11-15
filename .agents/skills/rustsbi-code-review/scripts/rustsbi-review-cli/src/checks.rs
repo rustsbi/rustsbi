@@ -2,7 +2,7 @@
 //!
 //! Stages: scope -> convention -> build -> lint -> test -> report.
 
-use crate::model::{CheckResult, Gate, Stage, Status};
+use crate::model::{CheckResult, Gate, Mode, Stage, Status};
 use anyhow::{Context, Result};
 
 /// Require an explicit gate verdict before starting a model review.
@@ -37,6 +37,20 @@ pub fn checks_main(argv: &[String]) -> i32 {
 fn run(raw_args: &str, output: &str) -> anyhow::Result<i32> {
     // Stage 1: scope.
     let scope = crate::scope::run_scope(raw_args);
+    if scope.mode == Mode::Diff && scope.dirty {
+        let results = vec![CheckResult::new(
+            "dirty-diff",
+            Stage::Scope,
+            Status::Fail,
+            Gate::Compile,
+            0,
+            "git status --porcelain --untracked-files=all",
+            crate::scope::DIRTY_DIFF_REASON,
+        )];
+        let out = crate::report::write_report(output, &scope, &results)?;
+        eprintln!("{}: {}", out.json_path, out.verdict.blocking_reason);
+        return Ok(1);
+    }
     if !scope.skipped_reason.is_empty() {
         // Backtest mode (pr/N): skip all checks.
         let results = vec![CheckResult::new(

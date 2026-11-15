@@ -254,6 +254,9 @@ fn json_commit(oid: &str, headline: &str, body: &str) -> Value {
 }
 
 fn render_git(base: &str) -> (String, Vec<String>) {
+    if crate::scope::working_tree_dirty() {
+        die(crate::scope::DIRTY_DIFF_REASON);
+    }
     let head = must_git(&["rev-parse", "--short", "HEAD"])
         .stdout
         .trim()

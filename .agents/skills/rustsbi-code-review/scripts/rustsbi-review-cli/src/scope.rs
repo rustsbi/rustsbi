@@ -20,6 +20,16 @@ const WORKSPACE_FILES: [&str; 5] = [
     ".cargo/config.toml",
 ];
 
+pub const DIRTY_DIFF_REASON: &str =
+    "diff mode requires a clean working tree; commit changes or use files mode";
+
+pub fn working_tree_dirty() -> bool {
+    !must_git(&["status", "--porcelain", "--untracked-files=all"])
+        .stdout
+        .trim()
+        .is_empty()
+}
+
 /// Quote-aware tokenizer for the raw argument string.
 pub fn tokenize(raw: &str) -> Vec<String> {
     let mut toks = Vec::new();
@@ -183,21 +193,19 @@ pub fn run_scope(raw_args: &str) -> ScopeInfo {
             .filter(|l| !l.is_empty())
             .map(str::to_string)
             .collect();
-        let dirty = !must_git(&["status", "--porcelain"])
-            .stdout
-            .trim()
-            .is_empty();
-
-        let packages = cargo_metadata();
-        let (affected, all_packages) = map_paths_to_packages(&changed, &packages);
-
         let mut scope = ScopeInfo::new(Mode::Diff);
         scope.base = base;
         scope.head = head;
         scope.branch = branch;
         scope.changed_paths = changed;
+        scope.dirty = working_tree_dirty();
+        // Reject a snapshot mismatch before invoking Cargo on local changes.
+        if scope.dirty {
+            return scope;
+        }
+        let packages = cargo_metadata();
+        let (affected, all_packages) = map_paths_to_packages(&scope.changed_paths, &packages);
         scope.affected_packages = affected;
-        scope.dirty = dirty;
         scope.all_packages = all_packages;
         scope.fingerprint = compute_fingerprint(&scope);
         scope
@@ -213,10 +221,7 @@ pub fn run_scope(raw_args: &str) -> ScopeInfo {
         let mut scope = ScopeInfo::new(Mode::Files);
         scope.head = git_ok(&["rev-parse", "--short", "HEAD"]);
         scope.branch = git_ok(&["rev-parse", "--abbrev-ref", "HEAD"]);
-        scope.dirty = !must_git(&["status", "--porcelain"])
-            .stdout
-            .trim()
-            .is_empty();
+        scope.dirty = working_tree_dirty();
         scope.changed_paths = paths;
         scope.affected_packages = affected;
         scope.all_packages = all_packages;

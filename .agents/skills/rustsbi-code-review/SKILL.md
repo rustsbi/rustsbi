@@ -23,6 +23,9 @@ files  <path[:lines] ...> <output>
 ```
 
 - `diff <base>` — the commit series `merge-base(<base>, HEAD)..HEAD`, each commit's message and its diff.
+  Requires a clean working tree, including the index and untracked files, so
+  checks run against the committed revision. Keep review outputs outside the
+  checkout or in an ignored directory. Use `files` for uncommitted changes.
 - `diff pr/N` — a historical pull request read through `gh` (no checkout needed). This is the backtest mode.
   The working tree is **not** checked out at that commit, so the pass reviews the diff as given
   and must not treat the current files as the reviewed revision.
@@ -98,7 +101,7 @@ RCR_CLI="${RCR_CLI:-$SKILL/scripts/rustsbi-review-cli/target/release/rustsbi-rev
 1. **Run the deterministic gate.**
    `"$RCR_CLI" checks '<raw args>' <output>` writes `<output>.checks.json`
    and `<output>.checks.md`.
-   Exit 0 permits review, exit 1 blocks it on a compile failure or timeout,
+   Exit 0 permits review, exit 1 blocks it on a dirty diff request, compile failure or timeout,
    and exit 2 means the checks could not complete. On either nonzero exit,
    report the failure and stop before starting a model pass.
    Advisory findings remain in the report and do not block review.
