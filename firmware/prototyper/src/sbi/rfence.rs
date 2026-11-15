@@ -128,10 +128,18 @@ impl SbiRFence {
 }
 
 /// Validates the address range for fence operations.
+///
+/// Per SBI RFENCE, the fence covers the entire address space when
+/// `(start_addr, size) == (0, 0)` or `size == usize::MAX` (`2^XLEN - 1`).
+/// Those encodings skip alignment and overflow checks; `start_addr` is
+/// ignored when `size == usize::MAX`.
 #[inline(always)]
 fn validate_address_range(start_addr: usize, size: usize) -> Result<usize, SbiRet> {
-    if !((start_addr == 0 && size == 0) || size == usize::MAX) && start_addr & (PAGE_SIZE - 1) != 0
-    {
+    if (start_addr == 0 && size == 0) || size == usize::MAX {
+        return Ok(size);
+    }
+
+    if start_addr & (PAGE_SIZE - 1) != 0 {
         return Err(SbiRet::invalid_address());
     }
 
