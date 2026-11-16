@@ -23,4 +23,5 @@ Sbi `SRST` validation test pass
 [trap] ecall register preservation pass
 [trap] redirected traps survived
 [trap] U-mode time access restrictions pass
+[trap] firmware state write protection pass
 SBI tests completed: PASS

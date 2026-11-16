@@ -4,11 +4,12 @@ use core::arch::{asm, naked_asm};
 
 const ILLEGAL_INSTRUCTION: usize = 2;
 
-pub(crate) fn test() {
+pub(crate) fn test(firmware_end: Option<usize>) {
     test_ecall_registers();
     test_redirected_traps();
     test_user_time_access();
     test_guest_traps();
+    test_firmware_write_protection(firmware_end);
 }
 
 #[cfg(target_pointer_width = "64")]
@@ -209,6 +210,54 @@ pub(crate) fn access_fault(store: bool) {
     assert_eq!(cause, if store { 7 } else { 5 });
     assert_eq!(pc, fault_pc);
     assert_eq!(value, UNMAPPED);
+}
+
+/// Verifies that S-mode cannot store into the firmware state region.
+fn test_firmware_write_protection(firmware_end: Option<usize>) {
+    let Some(firmware_end) = firmware_end else {
+        println!("[trap] firmware reservation unavailable, skipping");
+        return;
+    };
+    // The last word of the firmware reservation sits below `firmware_end` and
+    // belongs to the same read-only PMP entry as the rest of firmware state.
+    assert!(firmware_end >= 4);
+    let address = firmware_end - 4;
+    assert_eq!(address & 0x3, 0);
+    // SAFETY: The temporary vector skips the faulting four-byte `sc.w`. The
+    // write-back stores the value just read, so it cannot corrupt firmware
+    // state even without protection. The original vector is restored before
+    // any assertion can panic, and all scratch registers are declared.
+    let (cause, pc, value, sc_pc) = unsafe {
+        let old_vector: usize;
+        asm!("csrr {old}, stvec", "csrw stvec, {new}",
+            old = out(reg) old_vector, new = in(reg) s_skip_trap as *const () as usize);
+        core::ptr::write_volatile(&raw mut TRAP_CAUSE, 0);
+        let sc_pc: usize;
+        asm!(
+            ".option push",
+            ".option norvc",
+            "lla {pc}, 2f",
+            "lr.w t0, 0({address})",
+            "2: sc.w t1, t0, 0({address})",
+            ".option pop",
+            address = in(reg) address,
+            pc = out(reg) sc_pc,
+            out("t0") _,
+            out("t1") _,
+            out("t2") _,
+        );
+        asm!("csrw stvec, {old}", old = in(reg) old_vector);
+        (
+            core::ptr::read_volatile(&raw const TRAP_CAUSE),
+            core::ptr::read_volatile(&raw const TRAP_PC),
+            core::ptr::read_volatile(&raw const TRAP_VALUE),
+            sc_pc,
+        )
+    };
+    check!("firmware state store trap cause", cause, 7);
+    check!("firmware state store trap PC", pc, sc_pc);
+    check!("firmware state store trap address", value, address);
+    println!("[trap] firmware state write protection pass");
 }
 
 fn test_redirected_traps() {

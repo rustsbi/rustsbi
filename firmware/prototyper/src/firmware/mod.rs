@@ -28,7 +28,7 @@ use crate::cfg;
 
 /// Machine interrupt-controller MMIO ranges used by the PMP layout.
 pub(crate) struct IrqMmio {
-    pub(crate) clint_start: usize,
+    pub(crate) clint: PhysAddrRange,
     pub(crate) aplic: RegRange,
     pub(crate) imsic_start: usize,
     pub(crate) imsic_end: usize,
@@ -222,6 +222,9 @@ fn resolve_device_tree_address(entry_device_tree_address: usize) -> usize {
 
 /// Programs one of the first sixteen PMP entries, accounting for XLEN.
 ///
+/// The XLEN-dependent word mapping here must stay in sync with [`pmp_config`],
+/// which verifies writes read back.
+///
 /// # Safety
 /// The caller must satisfy [`PmpConfiguration::set`]'s safety requirements
 /// for the selected entry and its new configuration.
@@ -250,6 +253,107 @@ unsafe fn set_pmp_config(index: usize, range: PmpRange, permission: PmpPermissio
     }
 }
 
+/// Reads one of the first sixteen PMP entries, accounting for XLEN.
+///
+/// The readback verifier paired with [`set_pmp_config`].
+fn pmp_config(index: usize) -> PmpEntry {
+    let slot = index % size_of::<usize>();
+    let word = match index / size_of::<usize>() {
+        0 => PmpConfiguration::<0>::read(),
+        #[cfg(target_pointer_width = "32")]
+        1 => PmpConfiguration::<1>::read(),
+        #[cfg(target_pointer_width = "32")]
+        2 => PmpConfiguration::<2>::read(),
+        #[cfg(target_pointer_width = "32")]
+        3 => PmpConfiguration::<3>::read(),
+        #[cfg(target_pointer_width = "64")]
+        1 => PmpConfiguration::<2>::read(),
+        _ => unreachable!("firmware uses only the first sixteen PMP entries"),
+    };
+    PmpEntry::from_bits((word >> (slot * 8)) as u8)
+}
+
+/// Writes one PMP entry with concrete bounds and verifies both fields read back.
+///
+/// Exact readback detects unimplemented CSRs, WARL rewriting of supported
+/// fields, unrepresentable addresses, and XLEN-dependent mapping errors.
+macro_rules! install_pmp_entry {
+    ($index:literal, $range:expr, $permission:expr, $address:expr) => {{
+        set_pmp_config($index, $range, $permission, false);
+        PmpAddress::<$index>::write($address);
+        assert_eq!(
+            pmp_config($index),
+            PmpEntry {
+                range: $range,
+                permission: $permission,
+                locked: false,
+            },
+            "PMP entry {} configuration readback mismatch",
+            $index,
+        );
+        assert_eq!(
+            PmpAddress::<$index>::read(),
+            $address,
+            "PMP entry {} address readback mismatch",
+            $index,
+        );
+    }};
+}
+
+/// Writes a trailing entry whose address encoding hardware may narrow through
+/// WARL: verifies the configuration exactly, re-writes the normalized address
+/// for stability, and checks it still covers `required_top`.
+macro_rules! install_pmp_sentinel_entry {
+    ($index:literal, $range:expr, $permission:expr, $sentinel:expr, $required_top:expr) => {{
+        set_pmp_config($index, $range, $permission, false);
+        PmpAddress::<$index>::write($sentinel);
+        assert_eq!(
+            pmp_config($index),
+            PmpEntry {
+                range: $range,
+                permission: $permission,
+                locked: false,
+            },
+            "PMP entry {} configuration readback mismatch",
+            $index,
+        );
+        let normalized = PmpAddress::<$index>::read();
+        PmpAddress::<$index>::write(normalized);
+        assert_eq!(
+            PmpAddress::<$index>::read(),
+            normalized,
+            "PMP entry {} address readback unstable",
+            $index,
+        );
+        match $range {
+            PmpRange::Tor => assert!(
+                ((normalized as u128) << 2) >= ($required_top as u128),
+                "PMP entry {} covers less than the required range",
+                $index,
+            ),
+            PmpRange::Napot => {
+                assert_ne!(
+                    normalized, 0,
+                    "PMP entry {} lost its NAPOT encoding",
+                    $index,
+                );
+                assert_eq!(
+                    normalized.count_ones(),
+                    normalized.trailing_ones(),
+                    "PMP entry {} is no longer a from-zero NAPOT region",
+                    $index,
+                );
+                assert!(
+                    1u128 << (normalized.trailing_ones() + 3) >= ($required_top as u128),
+                    "PMP entry {} covers less than the required range",
+                    $index,
+                );
+            }
+            _ => unreachable!("sentinel entries use TOR or NAPOT ranges"),
+        }
+    }};
+}
+
 /// Installs PMP entries isolating firmware memory from S-mode.
 pub fn set_pmp() {
     let pmp = PMP
@@ -257,10 +361,6 @@ pub fn set_pmp() {
         .expect("BUG: PMP layout used before initialization");
     let range = pmp.firmware_ram;
     let firmware_ram = range.start().as_usize()..range.end().as_usize();
-    // FIXME: These PMP updates do not synchronize address-translation caches
-    // as required when page-based virtual memory is implemented.
-    // See RISC-V Privileged Architecture, Section 3.7.2:
-    // <https://docs.riscv.org/reference/isa/v20240411/_attachments/riscv-privileged.pdf>.
     // SAFETY:
     // 1. Startup owns this hart's PMP state in M-mode before lower-mode entry.
     // 2. The platform implements the PMP entries and encodings used below.
@@ -271,7 +371,7 @@ pub fn set_pmp() {
         // [firmware_ram.start..firmware_start] RWX
         // [firmware_start..firmware_rodata_start] R
         // [firmware_rodata_start..firmware_rodata_end] NONE
-        // [firmware_rodata_end..firmware_end] RW
+        // [firmware_rodata_end..firmware_end] R
         // [firmware_end..firmware_ram.end] RWX
         // [firmware_ram.end..INF] RWX
         let firmware_start_address: usize;
@@ -299,85 +399,162 @@ pub fn set_pmp() {
         assert_eq!(firmware_end_address & 0x3, 0);
         assert_eq!(firmware_rodata_start_address & 0x3, 0);
         assert_eq!(firmware_rodata_end_address & 0x3, 0);
+        assert!(firmware_ram.start <= firmware_start_address);
+        assert!(firmware_start_address <= firmware_rodata_start_address);
+        assert!(firmware_rodata_start_address <= firmware_rodata_end_address);
+        assert!(firmware_rodata_end_address <= firmware_end_address);
+        assert!(firmware_end_address <= firmware_ram.end);
 
         // Keep machine-level interrupt controllers inaccessible to S-mode
         // only when the IMSIC device retained them for firmware use.
         if let Some(irq_mmio) = &pmp.irq_mmio {
-            const QEMU_VIRT_CLINT_SIZE: usize = 0x1_0000;
-            let clint_start = irq_mmio.clint_start;
-            let clint_end = clint_start + QEMU_VIRT_CLINT_SIZE;
+            let clint_start = irq_mmio.clint.start().as_usize();
+            let clint_end = irq_mmio.clint.end().as_usize();
             let aplic_start = irq_mmio.aplic.start().as_usize();
             let aplic_end = irq_mmio.aplic.end().as_usize();
             let machine_imsic_start = irq_mmio.imsic_start;
             let machine_imsic_end = irq_mmio.imsic_end;
 
-            set_pmp_config(0, PmpRange::Off, PmpPermission::None, false);
-            PmpAddress::<0>::write(0);
-            set_pmp_config(1, PmpRange::Tor, PmpPermission::Rwx, false);
-            PmpAddress::<1>::write(clint_start >> 2);
-            set_pmp_config(2, PmpRange::Tor, PmpPermission::None, false);
-            PmpAddress::<2>::write(clint_end >> 2);
-            set_pmp_config(3, PmpRange::Tor, PmpPermission::Rwx, false);
-            PmpAddress::<3>::write(aplic_start >> 2);
-            set_pmp_config(4, PmpRange::Tor, PmpPermission::None, false);
-            PmpAddress::<4>::write(aplic_end >> 2);
-            set_pmp_config(5, PmpRange::Tor, PmpPermission::Rwx, false);
-            PmpAddress::<5>::write(machine_imsic_start >> 2);
-            set_pmp_config(6, PmpRange::Tor, PmpPermission::None, false);
-            PmpAddress::<6>::write(machine_imsic_end >> 2);
-            set_pmp_config(7, PmpRange::Tor, PmpPermission::Rwx, false);
-            PmpAddress::<7>::write(firmware_ram.start >> 2);
-            set_pmp_config(8, PmpRange::Tor, PmpPermission::Rwx, false);
-            PmpAddress::<8>::write(firmware_start_address >> 2);
-            set_pmp_config(9, PmpRange::Tor, PmpPermission::R, false);
-            PmpAddress::<9>::write(firmware_rodata_start_address >> 2);
-            set_pmp_config(10, PmpRange::Tor, PmpPermission::None, false);
-            PmpAddress::<10>::write(firmware_rodata_end_address >> 2);
-            set_pmp_config(11, PmpRange::Tor, PmpPermission::Rw, false);
-            PmpAddress::<11>::write(firmware_end_address >> 2);
-            set_pmp_config(12, PmpRange::Tor, PmpPermission::Rwx, false);
-            PmpAddress::<12>::write(firmware_ram.end >> 2);
-            set_pmp_config(13, PmpRange::Tor, PmpPermission::Rwx, false);
-            PmpAddress::<13>::write(usize::MAX >> 2);
-            return;
-        }
+            assert_eq!(clint_start & 0x3, 0);
+            assert_eq!(clint_end & 0x3, 0);
+            assert_eq!(aplic_start & 0x3, 0);
+            assert_eq!(aplic_end & 0x3, 0);
+            assert_eq!(machine_imsic_start & 0x3, 0);
+            assert_eq!(machine_imsic_end & 0x3, 0);
+            assert!(clint_start < clint_end);
+            assert!(clint_end <= aplic_start);
+            assert!(aplic_start < aplic_end);
+            assert!(aplic_end <= machine_imsic_start);
+            assert!(machine_imsic_start < machine_imsic_end);
+            assert!(machine_imsic_end <= firmware_ram.start);
 
-        set_pmp_config(0, PmpRange::Off, PmpPermission::None, false);
-        PmpAddress::<0>::write(0);
-        set_pmp_config(1, PmpRange::Tor, PmpPermission::Rwx, false);
-        PmpAddress::<1>::write(firmware_ram.start >> 2);
-        set_pmp_config(2, PmpRange::Tor, PmpPermission::Rwx, false);
-        PmpAddress::<2>::write(firmware_start_address >> 2);
-        set_pmp_config(3, PmpRange::Tor, PmpPermission::R, false);
-        PmpAddress::<3>::write(firmware_rodata_start_address >> 2);
-        set_pmp_config(4, PmpRange::Tor, PmpPermission::None, false);
-        PmpAddress::<4>::write(firmware_rodata_end_address >> 2);
-        set_pmp_config(5, PmpRange::Tor, PmpPermission::Rw, false); // FIXME: should be `R`; `RW` temporarily allows S-mode DTB modification.
-        PmpAddress::<5>::write(firmware_end_address >> 2);
-        set_pmp_config(6, PmpRange::Tor, PmpPermission::Rwx, false);
-        PmpAddress::<6>::write(firmware_ram.end >> 2);
-        if let Some(alias) = pmp.noncacheable_alias_offset {
-            assert!(alias.is_power_of_two() && alias >= firmware_ram.end as u64);
-            let start = (firmware_start_address as u64)
-                .checked_add(alias)
-                .expect("BUG: V821 firmware alias start overflowed");
-            let end = (firmware_end_address as u64)
-                .checked_add(alias)
-                .expect("BUG: V821 firmware alias end overflowed");
-            assert!(end >> 2 <= usize::MAX as u64);
-            // Deny the firmware alias before permitting the wider physical address space.
-            set_pmp_config(7, PmpRange::Off, PmpPermission::None, false);
-            PmpAddress::<7>::write((start >> 2) as usize);
-            set_pmp_config(8, PmpRange::Tor, PmpPermission::None, false);
-            PmpAddress::<8>::write((end >> 2) as usize);
-            assert_eq!(PmpAddress::<8>::read(), (end >> 2) as usize);
-            set_pmp_config(9, PmpRange::Napot, PmpPermission::Rwx, false);
-            PmpAddress::<9>::write(usize::MAX);
+            install_pmp_entry!(0, PmpRange::Off, PmpPermission::None, 0);
+            install_pmp_entry!(1, PmpRange::Tor, PmpPermission::Rwx, clint_start >> 2);
+            install_pmp_entry!(2, PmpRange::Tor, PmpPermission::None, clint_end >> 2);
+            install_pmp_entry!(3, PmpRange::Tor, PmpPermission::Rwx, aplic_start >> 2);
+            install_pmp_entry!(4, PmpRange::Tor, PmpPermission::None, aplic_end >> 2);
+            install_pmp_entry!(
+                5,
+                PmpRange::Tor,
+                PmpPermission::Rwx,
+                machine_imsic_start >> 2
+            );
+            install_pmp_entry!(
+                6,
+                PmpRange::Tor,
+                PmpPermission::None,
+                machine_imsic_end >> 2
+            );
+            install_pmp_entry!(
+                7,
+                PmpRange::Tor,
+                PmpPermission::Rwx,
+                firmware_ram.start >> 2
+            );
+            install_pmp_entry!(
+                8,
+                PmpRange::Tor,
+                PmpPermission::Rwx,
+                firmware_start_address >> 2
+            );
+            install_pmp_entry!(
+                9,
+                PmpRange::Tor,
+                PmpPermission::R,
+                firmware_rodata_start_address >> 2
+            );
+            install_pmp_entry!(
+                10,
+                PmpRange::Tor,
+                PmpPermission::None,
+                firmware_rodata_end_address >> 2
+            );
+            install_pmp_entry!(
+                11,
+                PmpRange::Tor,
+                PmpPermission::R,
+                firmware_end_address >> 2
+            );
+            install_pmp_entry!(12, PmpRange::Tor, PmpPermission::Rwx, firmware_ram.end >> 2);
+            install_pmp_sentinel_entry!(
+                13,
+                PmpRange::Tor,
+                PmpPermission::Rwx,
+                usize::MAX >> 2,
+                firmware_ram.end
+            );
         } else {
-            set_pmp_config(7, PmpRange::Tor, PmpPermission::Rwx, false);
-            PmpAddress::<7>::write(usize::MAX >> 2);
+            install_pmp_entry!(0, PmpRange::Off, PmpPermission::None, 0);
+            install_pmp_entry!(
+                1,
+                PmpRange::Tor,
+                PmpPermission::Rwx,
+                firmware_ram.start >> 2
+            );
+            install_pmp_entry!(
+                2,
+                PmpRange::Tor,
+                PmpPermission::Rwx,
+                firmware_start_address >> 2
+            );
+            install_pmp_entry!(
+                3,
+                PmpRange::Tor,
+                PmpPermission::R,
+                firmware_rodata_start_address >> 2
+            );
+            install_pmp_entry!(
+                4,
+                PmpRange::Tor,
+                PmpPermission::None,
+                firmware_rodata_end_address >> 2
+            );
+            install_pmp_entry!(
+                5,
+                PmpRange::Tor,
+                PmpPermission::R,
+                firmware_end_address >> 2
+            );
+            install_pmp_entry!(6, PmpRange::Tor, PmpPermission::Rwx, firmware_ram.end >> 2);
+            if let Some(alias) = pmp.noncacheable_alias_offset {
+                assert!(alias.is_power_of_two() && alias >= firmware_ram.end as u64);
+                let start = (firmware_start_address as u64)
+                    .checked_add(alias)
+                    .expect("BUG: V821 firmware alias start overflowed");
+                let end = (firmware_end_address as u64)
+                    .checked_add(alias)
+                    .expect("BUG: V821 firmware alias end overflowed");
+                let alias_top = (firmware_ram.end as u64)
+                    .checked_add(alias)
+                    .expect("BUG: V821 alias layout overflowed");
+                assert_eq!(start & 0x3, 0);
+                assert_eq!(end & 0x3, 0);
+                assert!(start < end);
+                assert!(end >> 2 <= usize::MAX as u64);
+                // Deny the firmware alias before permitting the wider physical address space.
+                install_pmp_entry!(7, PmpRange::Off, PmpPermission::None, (start >> 2) as usize);
+                install_pmp_entry!(8, PmpRange::Tor, PmpPermission::None, (end >> 2) as usize);
+                install_pmp_sentinel_entry!(
+                    9,
+                    PmpRange::Napot,
+                    PmpPermission::Rwx,
+                    usize::MAX,
+                    alias_top
+                );
+            } else {
+                install_pmp_sentinel_entry!(
+                    7,
+                    PmpRange::Tor,
+                    PmpPermission::Rwx,
+                    usize::MAX >> 2,
+                    firmware_ram.end
+                );
+            }
         }
     }
+    // Synchronize address translation after PMP changes as the privileged
+    // specification requires; each hart fences its own installation.
+    runtime::instruction::sfence_vma_all();
 }
 
 /// A PMP permission formatter for logs.
@@ -416,23 +593,6 @@ impl fmt::Display for RangeWrapper {
 
 /// Logs the active PMP configuration.
 pub fn log_pmp_cfg() {
-    let pmp_config = |index: usize| {
-        #[cfg(target_pointer_width = "32")]
-        if index >= 4 {
-            let (word, slot) = if index < 8 {
-                (PmpConfiguration::<1>::read(), index - 4)
-            } else {
-                (PmpConfiguration::<2>::read(), index - 8)
-            };
-            return PmpEntry::from_bits((word >> (slot * 8)) as u8);
-        }
-        #[cfg(target_pointer_width = "64")]
-        if index >= 8 {
-            return PmpEntry::from_bits((PmpConfiguration::<2>::read() >> ((index - 8) * 8)) as u8);
-        }
-        PmpEntry::from_bits((PmpConfiguration::<0>::read() >> (index * 8)) as u8)
-    };
-
     let get_pmp_range = |index: usize| -> RangeWrapper { RangeWrapper(pmp_config(index).range) };
     let get_pmp_permission =
         |index: usize| -> PermissionWrapper { PermissionWrapper(pmp_config(index).permission) };
