@@ -3,10 +3,12 @@
 //! # References
 //!
 //! - Compatibility reference: [OpenSBI `fw_dynamic` interface](https://github.com/riscv-software-src/opensbi/blob/019a8e69a1dc0c0f011fabd0372e1ba80e40dd7c/include/sbi/fw_dynamic.h) —
-//!   `DynamicInfo` layout, magic value, versions, and boot-hart encoding.
+//!   magic value, versions, and boot-hart encoding.
 
 use core::ops::Range;
 use runtime::Result;
+
+pub use runtime::boot::handoff::DynamicInfo;
 
 use crate::fail;
 
@@ -20,24 +22,6 @@ pub(crate) fn decode_next_stage(dynamic_info_address: usize) -> (TargetPrivilege
     validate_next_stage(&dynamic_info).unwrap_or_else(fail::invalid_dynamic_data)
 }
 
-/// M-mode firmware dynamic information.
-#[derive(Clone, Copy)]
-#[repr(C)]
-pub struct DynamicInfo {
-    /// Dynamic information magic value.
-    pub magic: usize,
-    /// Version of dynamic information.
-    pub version: usize,
-    /// Address of the next boot-loading stage.
-    pub next_addr: usize,
-    /// RISC-V privilege mode of the next boot-loading stage.
-    pub next_mode: usize,
-    /// M-mode firmware options; its definition varies between SBI implementations.
-    pub options: usize,
-    /// Boot hart ID of current environment.
-    pub boot_hart: usize,
-}
-
 const NULL_DYNAMIC_INFO_ADDRESS: usize = 0;
 pub(crate) const MAGIC: usize = 0x4942534f;
 const SUPPORTED_VERSION: Range<usize> = 0..3;
@@ -49,7 +33,6 @@ pub struct ReadError {
     pub unsupported_version: Option<usize>,
 }
 
-// TODO: unconstrained lifetime
 /// Reads dynamic info from physical address.
 ///
 /// Returns Result containing DynamicInfo or error details.
@@ -64,7 +47,8 @@ pub fn read_dynamic_info(address: usize) -> Result<DynamicInfo, ReadError> {
         error.invalid_address = Some(address);
         return Err(error);
     }
-    let dynamic_info = unsafe { *(address as *const DynamicInfo) };
+    // SAFETY: the entry `a2` contract holds; see `runtime::boot::handoff::read_dynamic_info`.
+    let dynamic_info = unsafe { runtime::boot::handoff::read_dynamic_info(address) };
 
     // Validate magic number and version.
     if dynamic_info.magic != MAGIC {

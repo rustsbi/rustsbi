@@ -62,6 +62,12 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Materialize the validated DTB source as Rust-owned storage between heap
+  initialization and trap installation, read `DynamicInfo` and write the DTB
+  destination through volatile access, and concentrate the remaining raw
+  handoff operations in Runtime's boot-handoff module so post-`prepare_traps()`
+  parsing and patching no longer depend on allocation-external non-volatile
+  slices.
 - Use XLEN-sized sentinel values in trap register tests.
 - Keep per-hart Sstc detection in Runtime's timer service.
 - Save integer return context and original trap metadata before Rust dispatch.
