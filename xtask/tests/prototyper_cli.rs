@@ -107,7 +107,7 @@ fn configured_boot_topology_builds_and_rejects_invalid_bounds() {
     let default_elf = target_dir
         .path()
         .join("riscv64gc-unknown-none-elf/debug/rustsbi-prototyper-payload-test.elf");
-    assert_eq!(boot_stack_size(&default_elf), 16 * 1024);
+    assert_eq!(boot_stack_size(&default_elf), 32 * 1024);
 
     // An ELF-size check cannot catch debug discovery overflowing this stack.
     if std::process::Command::new("qemu-system-riscv64")
@@ -164,7 +164,7 @@ fn configured_boot_topology_builds_and_rejects_invalid_bounds() {
         .env("CARGO_TARGET_DIR", target_dir.path())
         .assert()
         .success();
-    assert_eq!(boot_stack_size(&single_hart_elf), 16384);
+    assert_eq!(boot_stack_size(&single_hart_elf), 32 * 1024);
 
     let invalid_config = target_dir.path().join("invalid.toml");
     for (key, value, error) in [
