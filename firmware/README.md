@@ -102,7 +102,7 @@ For example:
 
 ```toml
 num_hart_max = 8
-stack_size_per_hart = 16384  # 16 KiB (16 * 1024)
+stack_size_per_hart = 32768  # 32 KiB (32 * 1024)
 heap_size = 32768            # 32 KiB (32 * 1024)
 page_size = 4096             # 4 KiB
 log_level = "INFO"
@@ -119,8 +119,9 @@ tlb_flush_limit = 16384      # 16 KiB (page_size * 4)
   Runtime establishes one compact mapping shared by stack selection and per-hart software state;
   there is no fixed eight-hart limit in Runtime.
 - `stack_size_per_hart`: Boot/trap stack size per enabled hart, in bytes.
-  It must be a multiple of 128 and defaults to 16384 (16 KiB) when omitted.
-  Choose a size that accommodates the firmware's boot and trap call paths.
+  It must be a multiple of 128 and defaults to 32768 (32 KiB) when omitted.
+  Choose a size that accommodates the firmware's boot and trap call paths;
+  debug builds walk the device tree with larger frames than release builds.
   Changing the hart capacity or stack size does not recompile Runtime.
 
   One stack is linked for serialized discovery and then retained by the boot hart.

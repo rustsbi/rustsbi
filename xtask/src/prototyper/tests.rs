@@ -265,7 +265,7 @@ fn resolve_normalizes_files_and_derives_features() {
 
     let spec = resolve_in(&args, &root, &root).unwrap();
     assert_eq!(spec.firmware_config.layout.hart_capacity, 8);
-    assert_eq!(spec.firmware_config.layout.stack_size_per_hart, 16384);
+    assert_eq!(spec.firmware_config.layout.stack_size_per_hart, 32768);
     assert_eq!(spec.firmware_config.layout.fdt_handoff, None);
     assert_eq!(
         spec.mode,
@@ -458,7 +458,7 @@ fn generated_inputs_and_stamp_follow_build_mode() {
     );
     let generated_config = fs::read_to_string(paths.config_source()).unwrap();
     assert!(generated_config.contains("pub(crate) const HART_CAPACITY: usize = 8;"));
-    assert!(generated_config.contains("pub(crate) const STACK_SIZE_PER_HART: usize = 16384;"));
+    assert!(generated_config.contains("pub(crate) const STACK_SIZE_PER_HART: usize = 32768;"));
     assert!(generated_config.contains("pub(crate) const FDT_HANDOFF: Option<(u64, u64)> = None;"));
     let dynamic_stamp = fs::read_to_string(paths.stamp()).unwrap();
     fs::write(

@@ -15,7 +15,7 @@ use super::{
 // The RV64 first-fit free list needs one 32-byte node in the heap.
 const MIN_HEAP_SIZE_BYTES: i64 = 32;
 const DEFAULT_HART_CAPACITY: u64 = 8;
-const DEFAULT_STACK_SIZE_PER_HART: u64 = 16 * 1024;
+const DEFAULT_STACK_SIZE_PER_HART: u64 = 32 * 1024;
 
 /// A resolved and validated prototyper build.
 #[derive(Debug, Clone)]
