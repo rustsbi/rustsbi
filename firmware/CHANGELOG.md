@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Added
 
+- Run RFENCE QEMU tests in CI for cross-hart delivery, guest restoration, and empty masks.
 - Give SBI adapters ownership of Runtime's `Timer` and `Ipi` services.
   Keep comparator programming, interrupt delivery, and optional CSR recovery in Runtime.
   Use typed CSR operations and shared Runtime error codes.

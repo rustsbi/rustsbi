@@ -105,6 +105,30 @@ fn configure_event(event: usize, flags: Flag) -> Option<SbiRet> {
     None
 }
 
+/// Starts one firmware event counter on the calling hart for an integration test.
+pub(crate) fn start_firmware_event(event: usize) -> Option<usize> {
+    if sbi::probe_extension(sbi::Pmu).is_unavailable() {
+        return None;
+    }
+    configure_event(EventIdx::new_firmware_event(event).raw(), Flag::new(0b110))
+        .map(|counter| counter.value)
+}
+
+/// Stops a firmware event counter and returns its accumulated value.
+pub(crate) fn stop_firmware_event(counter: usize) -> usize {
+    let value = sbi::pmu_counter_fw_read(counter);
+    assert!(
+        value.is_ok(),
+        "failed to read firmware PMU counter {counter}"
+    );
+    let stopped = sbi::pmu_counter_stop(CounterMask::from_mask_base(1, counter), Flag::new(0));
+    assert!(
+        stopped.is_ok(),
+        "failed to stop firmware PMU counter {counter}: {stopped:?}"
+    );
+    value.value
+}
+
 fn test_hardware_event_configuration() {
     let flags = Flag::new(0b110);
     for event in [0x2, 0x10019, 0x1001b, 0x10021, 0x3] {
