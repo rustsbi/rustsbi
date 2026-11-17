@@ -67,7 +67,8 @@ All notable changes to this project will be documented in this file. See [conven
   rejecting mixed widths before decoding translation CSRs or issuing fences.
 - Select only the caller's VMID for remote VVMA, preserving the target's local
   translation configuration and restoring Bare targets after temporary selection.
-  Make the guest CSR write contracts explicit.
+  Make the guest CSR write contracts explicit and keep H instruction encoding
+  local so hypervisor-enabled firmware can run on CPUs without H.
 - Execute all RFENCE instruction and translation fences through hart-bound
   Runtime requests, including range validation, guest-context restoration, and
   remote error reporting. Probe H on each hart before it can receive HFENCE.

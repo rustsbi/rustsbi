@@ -413,7 +413,7 @@ fn resolve_derives_target_profile_and_rustflags() {
         root.join("target/custom-target/debug")
     );
     let encoded_rustflags = spec.encoded_rustflags(Path::new("linker path.ld"));
-    assert!(encoded_rustflags.contains("+h"));
+    assert!(!encoded_rustflags.contains("target-feature"));
     assert!(
         encoded_rustflags
             .split('\u{1f}')

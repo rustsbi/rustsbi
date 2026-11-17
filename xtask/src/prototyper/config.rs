@@ -321,9 +321,9 @@ impl BuildSpec {
             "-C".to_string(),
             "link-arg=-pie".to_string(),
         ];
-        if self.features.iter().any(|feature| feature == "hypervisor") {
-            flags.extend(["-C".to_string(), "target-feature=+h".to_string()]);
-        }
+        // H is optional at runtime, including in a hypervisor-enabled build.
+        // Encode checked H instructions with local assembler options instead
+        // of allowing code generation to assume H throughout the firmware.
         flags.extend([
             "-C".to_string(),
             format!("link-arg=-T{}", linker_script.display()),
