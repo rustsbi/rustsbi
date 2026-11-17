@@ -104,12 +104,11 @@ For example:
 num_hart_max = 8
 stack_size_per_hart = 16384  # 16 KiB (16 * 1024)
 heap_size = 32768            # 32 KiB (32 * 1024)
-page_size = 4096             # 4 KiB
 log_level = "INFO"
 link_start_address = 0x80000000
 payload_address = 0x80200000
 jump_address = 0x80200000
-tlb_flush_limit = 16384      # 16 KiB (page_size * 4)
+tlb_flush_limit = 16384      # 16 KiB
 ```
 
 #### Configuration Options
@@ -131,7 +130,6 @@ tlb_flush_limit = 16384      # 16 KiB (page_size * 4)
 - `heap_size`: Linker-reserved firmware heap size in bytes, at least 32.
   Prototyper uses a first-fit allocator;
   Runtime owns the heap storage and global allocation boundary.
-- `page_size`: Page size, in bytes.
 - `log_level`: Logging level (`TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`).
 - `link_start_address`: Address where the firmware itself is linked and loaded.
 - `payload_address`: Address where payload-mode firmware loads and jumps to the payload.
@@ -146,7 +144,11 @@ tlb_flush_limit = 16384      # 16 KiB (page_size * 4)
   The destination must be exclusively writable and outside firmware and other live objects.
   It must remain valid until the next stage finishes using it.
   Configuring a range does not allocate it.
-- `tlb_flush_limit`: TLB flush limit, in bytes.
+- `tlb_flush_limit`: RFENCE prefers a full flush for ranges larger than this
+  limit in bytes. Range validation and stepping use 4 KiB RISC-V base pages.
+
+Remove `page_size` when updating a custom configuration. Older files with
+`page_size = 4096` still build. Other values produce an error.
 
 Custom configuration files must define `link_start_address`, `payload_address`, `jump_address`, and `heap_size`.
 These addresses must be 0x1000-aligned, and `link_start_address` must be lower than `payload_address`.

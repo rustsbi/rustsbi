@@ -1,6 +1,5 @@
 # Avaota F1 uses the DTB supplied by its loader.
 heap_size = 0x8000
-page_size = 4096
 log_level = "INFO"
 link_start_address = 0x80fc1000
 payload_address = 0x82000000

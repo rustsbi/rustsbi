@@ -26,4 +26,4 @@ bench = false
 payload = []
 jump = []
 fdt = []
-hypervisor = []
+hypervisor = ["runtime/hypervisor"]

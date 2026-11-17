@@ -182,6 +182,16 @@ fn parse_config(config_source: &Path) -> Result<FirmwareConfig> {
         )
     })?;
 
+    // Accept the old default without letting custom values silently do nothing.
+    if let Some(page_size) = value.get("page_size")
+        && page_size.as_integer() != Some(4096)
+    {
+        bail!(
+            "remove `page_size` from config '{}': RFENCE uses 4096-byte RISC-V base pages",
+            config_source.display()
+        );
+    }
+
     let address = |key: &str| -> Result<u64> {
         match value.get(key) {
             None => bail!(

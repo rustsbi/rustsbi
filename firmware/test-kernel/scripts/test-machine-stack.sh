@@ -22,7 +22,6 @@ mkdir -p "$artifact_dir" "$log_dir"
 
 cat > "$artifact_dir/config.toml" <<'TOML'
 heap_size = 0x15000
-page_size = 4096
 log_level = "INFO"
 link_start_address = 0x80400000
 payload_address = 0x84000000

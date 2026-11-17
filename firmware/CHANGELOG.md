@@ -68,6 +68,12 @@ All notable changes to this project will be documented in this file. See [conven
 - Select only the caller's VMID for remote VVMA, preserving the target's local
   translation configuration and restoring Bare targets after temporary selection.
   Make the guest CSR write contracts explicit.
+- Execute all RFENCE instruction and translation fences through hart-bound
+  Runtime requests, including range validation, guest-context restoration, and
+  remote error reporting. Probe H on each hart before it can receive HFENCE.
+  Count remote RFENCE requests when dequeued, regardless of execution result.
+- Use 4 KiB base pages for RFENCE ranges. Remove `page_size` from platform
+  configuration and accept the previous `4096` value for compatibility.
 - Use XLEN-sized sentinel values in trap register tests.
 - Keep per-hart Sstc detection in Runtime's timer service.
 - Save integer return context and original trap metadata before Rust dispatch.
