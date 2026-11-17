@@ -62,6 +62,12 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Complete empty RFENCE ranges without borrowing guest state. Check native
+  SXLEN (and VSXLEN for VVMA) during request preparation and target execution,
+  rejecting mixed widths before decoding translation CSRs or issuing fences.
+- Select only the caller's VMID for remote VVMA, preserving the target's local
+  translation configuration and restoring Bare targets after temporary selection.
+  Make the guest CSR write contracts explicit.
 - Use XLEN-sized sentinel values in trap register tests.
 - Keep per-hart Sstc detection in Runtime's timer service.
 - Save integer return context and original trap metadata before Rust dispatch.

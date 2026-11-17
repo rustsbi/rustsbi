@@ -7,6 +7,8 @@ use crate::values::{
     trap::{ExceptionSet, InterruptSet},
     vector::{TargetVectorMode, VectorBase, VectorMode},
 };
+#[cfg(target_pointer_width = "64")]
+use crate::values::xlen::{TargetXlen, Xlen};
 
 csr! {
     /// Machine status register (`mstatus`).
@@ -37,6 +39,8 @@ csr! {
         MPRV[17] { rw: AccessPrivilege { Current = 0, Previous = 1 } }
         SUM[18] { rw: UserMemoryAccess { Denied = 0, Allowed = 1 } }
         MXR[19] { rw: ExecutableReadAccess { Disabled = 0, Enabled = 1 } }
+        #[cfg(target_pointer_width = "64")]
+        SXL[34..=35] { r: Option<Xlen>, w: TargetXlen }
         #[cfg(target_pointer_width = "64")]
         SBE[36] { rw: Endianness }
         #[cfg(target_pointer_width = "64")]
