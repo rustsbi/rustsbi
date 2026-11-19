@@ -7,17 +7,37 @@ target. On the other XLEN the accessor must not compile down to a CSR
 instruction — a CSR number that is unimplemented on the running hart raises an
 illegal-instruction exception at runtime, not at compile time.
 
-Gate the whole accessor, not just the field helpers:
+The `riscv` crate's macros already guarantee this:
+[`read_csr_as_rv32!`](https://docs.rs/riscv/0.16.1/riscv/macro.read_csr_as_rv32.html)
+passes `target_arch = "riscv32"` into `read_csr_as!`,
+so on any other target the generated code expands to `Err(Unimplemented)`
+rather than a CSR instruction.
+An outer `cfg` is therefore not needed to gate the instruction;
+it only hides the accessor API (the generated module and its types)
+from the other target, keeping it out of the reachable API surface:
 
 ```rust
-// Good — the access path itself is cfg-gated
+// Good — the accessor API is hidden on RV64;
+// the macro itself compiles the CSR instruction for RV32 only
 #[cfg(target_arch = "riscv32")]
 riscv::read_csr_as_rv32!(Mieh, 0x314);
 ```
 
+A hand-written accessor has no such built-in gating,
+so a `cfg` around it is what keeps the instruction off the other target:
+
 ```rust
-// Bad — as_rv32 macro emits the CSR instruction on RV64 too
-riscv::read_csr_as_rv32!(Mieh, 0x314);
+// Bad — a custom accessor without cfg gating
+// emits the CSR instruction on RV64 too
+#[inline]
+pub fn read_mieh() -> usize {
+    let bits: usize;
+    // SAFETY: mieh exists only on RV32; on RV64 this traps at runtime.
+    unsafe {
+        core::arch::asm!("csrrs {0}, {1}, x0", out(reg) bits, const 0x314);
+    }
+    bits
+}
 ```
 
 If a logical register has an RV32 half and an RV64 wide form
