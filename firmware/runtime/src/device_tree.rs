@@ -147,11 +147,7 @@ impl<'tree> PlatformView<'tree> {
         {
             return Err(Error::InvalidArgs);
         }
-        let raw = register
-            .address
-            .iter()
-            .fold(0u64, |raw, byte| (raw << 8) | u64::from(*byte));
-        usize::try_from(raw).map_err(|_| Error::Overflow)
+        decode_register_value(register.address)
     }
 
     pub(crate) fn storage_range(&self) -> PhysAddrRange {
@@ -306,10 +302,10 @@ impl<'tree> PlatformView<'tree> {
         if !self.fdt_storage.contains(encoded) {
             return Err(Error::AccessDenied);
         }
-        let registers = node.reg().ok_or(Error::InvalidArgs)?.map(|register| {
+        let registers = node.raw_reg().ok_or(Error::InvalidArgs)?.map(|register| {
             RegRange::from_start_len(
-                PhysAddr::new(register.starting_address as usize),
-                register.size.ok_or(Error::InvalidArgs)?,
+                PhysAddr::new(decode_register_value(register.address)?),
+                decode_register_value(register.size)?,
             )
         });
         Ok(Some(registers))
@@ -518,6 +514,13 @@ impl PlatformDescription {
     }
 
     fn read_memory_ranges(&self) -> Result<(Vec<PhysAddrRange>, Vec<PhysAddrRange>)> {
+        self.read_memory_ranges_using(checked_pointer_width::<usize>)
+    }
+
+    fn read_memory_ranges_using(
+        &self,
+        convert_address: impl Fn(u64) -> Result<usize>,
+    ) -> Result<(Vec<PhysAddrRange>, Vec<PhysAddrRange>)> {
         let source = self.source()?;
         let fdt = Fdt::new(source).map_err(|_| Error::InvalidArgs)?;
         let mut ram = Vec::new();
@@ -525,9 +528,14 @@ impl PlatformDescription {
             .all_nodes()
             .filter(|node| node.name.split('@').next() == Some("memory") && node_is_enabled(*node))
         {
-            let regions = node.reg().ok_or(Error::InvalidArgs)?;
+            let regions = node.raw_reg().ok_or(Error::InvalidArgs)?;
             for region in regions {
-                record_nonempty_range(&mut ram, region.starting_address as usize, region.size)?;
+                record_nonempty_register_range(
+                    &mut ram,
+                    region.address,
+                    region.size,
+                    &convert_address,
+                )?;
             }
         }
         if ram.is_empty() {
@@ -539,7 +547,7 @@ impl PlatformDescription {
             record_nonempty_range(
                 &mut reserved,
                 reservation.address() as usize,
-                Some(reservation.size()),
+                reservation.size(),
             )?;
         }
         if let Some(node) = fdt
@@ -550,12 +558,13 @@ impl PlatformDescription {
                 if child.property("reg").is_none() {
                     continue;
                 }
-                let regions = child.reg().ok_or(Error::InvalidArgs)?;
+                let regions = child.raw_reg().ok_or(Error::InvalidArgs)?;
                 for region in regions {
-                    record_nonempty_range(
+                    record_nonempty_register_range(
                         &mut reserved,
-                        region.starting_address as usize,
+                        region.address,
                         region.size,
+                        &convert_address,
                     )?;
                 }
             }
@@ -641,16 +650,54 @@ fn status_is_enabled(status: Option<&[u8]>) -> bool {
     matches!(status.strip_suffix(&[0]).unwrap_or(status), b"ok" | b"okay")
 }
 
-fn record_nonempty_range(
-    ranges: &mut Vec<PhysAddrRange>,
-    start: usize,
-    size: Option<usize>,
-) -> Result<()> {
-    let size = size.ok_or(Error::InvalidArgs)?;
+fn record_nonempty_range(ranges: &mut Vec<PhysAddrRange>, start: usize, size: usize) -> Result<()> {
     if size != 0 {
         ranges.push(PhysAddrRange::from_start_len(PhysAddr::new(start), size)?);
     }
     Ok(())
+}
+
+fn record_nonempty_register_range(
+    ranges: &mut Vec<PhysAddrRange>,
+    address: &[u8],
+    size: &[u8],
+    convert_address: &impl Fn(u64) -> Result<usize>,
+) -> Result<()> {
+    // Validate both cells before deciding whether the range is present. The
+    // native-pointer conversion must not reject a range that has zero length.
+    let address = decode_register_cells(address)?;
+    let size = decode_register_cells(size)?;
+    if size != 0 {
+        ranges.push(PhysAddrRange::from_start_len(
+            PhysAddr::new(convert_address(address)?),
+            convert_address(size)?,
+        )?);
+    }
+    Ok(())
+}
+
+fn decode_register_value(bytes: &[u8]) -> Result<usize> {
+    // Preserve the encoded value until the final pointer-width conversion.
+    checked_pointer_width(decode_register_cells(bytes)?)
+}
+
+fn decode_register_cells(bytes: &[u8]) -> Result<u64> {
+    match bytes.len() {
+        4 => Ok(u64::from(u32::from_be_bytes(
+            bytes.try_into().map_err(|_| Error::InvalidArgs)?,
+        ))),
+        8 => Ok(u64::from_be_bytes(
+            bytes.try_into().map_err(|_| Error::InvalidArgs)?,
+        )),
+        _ => Err(Error::InvalidArgs),
+    }
+}
+
+fn checked_pointer_width<T>(value: u64) -> Result<T>
+where
+    T: TryFrom<u64>,
+{
+    T::try_from(value).map_err(|_| Error::Overflow)
 }
 
 #[cfg(test)]
@@ -808,8 +855,186 @@ mod tests {
         assert!(!status_is_enabled(Some(b"disabled\0")));
     }
 
+    #[test]
+    fn register_cells_decode_the_full_address_without_truncation() {
+        assert_eq!(decode_register_cells(&0x1000u32.to_be_bytes()), Ok(0x1000));
+        assert_eq!(
+            decode_register_cells(&0x1_0000_1000u64.to_be_bytes()),
+            Ok(0x1_0000_1000)
+        );
+        assert_eq!(decode_register_cells(&[]), Err(Error::InvalidArgs));
+        assert_eq!(decode_register_cells(&[0; 12]), Err(Error::InvalidArgs));
+    }
+
+    #[test]
+    fn rv32_pointer_width_rejects_values_above_32_bits() {
+        // Model RV32 on 64-bit hosts so this regression runs in ordinary tests.
+        let address = decode_register_cells(&0x1_0000_1000u64.to_be_bytes()).unwrap();
+        assert_eq!(checked_pointer_width::<u32>(address), Err(Error::Overflow));
+        assert_eq!(checked_pointer_width::<u64>(address), Ok(0x1_0000_1000));
+    }
+
+    #[cfg(target_pointer_width = "32")]
+    #[test]
+    fn rv32_register_rejects_addresses_above_pointer_width() {
+        assert_eq!(
+            decode_register_value(&0x1_0000_1000u64.to_be_bytes()),
+            Err(Error::Overflow)
+        );
+    }
+
+    #[test]
+    fn read_memory_ranges_from_dtb_skips_zero_length_before_rv32_conversion() {
+        let mut source = memory_fdt(
+            &[(0x1_0000_1000, 0), (0x8000_0000, 0x1000)],
+            &[(0x1_1000_0000, 0), (0x9000_0000, 0x1000)],
+        );
+        let (_, description) = description_from_dtb(&mut source);
+
+        let (ram, reserved) = description
+            .read_memory_ranges_using(rv32_pointer_width)
+            .unwrap();
+        assert_eq!(ram, [test_range(0x8000_0000, 0x1000)]);
+        assert_eq!(reserved, [test_range(0x9000_0000, 0x1000)]);
+
+        // The production entry point follows the same DTB parsing path.
+        assert_eq!(description.read_memory_ranges().unwrap(), (ram, reserved));
+    }
+
+    #[test]
+    fn read_memory_ranges_from_dtb_rejects_nonempty_rv32_overflow() {
+        let mut ram_source = memory_fdt(&[(0x1_0000_1000, 0x1000)], &[]);
+        let (_, ram_description) = description_from_dtb(&mut ram_source);
+        assert_eq!(
+            ram_description
+                .read_memory_ranges_using(rv32_pointer_width)
+                .unwrap_err(),
+            Error::Overflow
+        );
+
+        let mut reserved_source = memory_fdt(&[(0x8000_0000, 0x1000)], &[(0x1_1000_0000, 0x1000)]);
+        let (_, reserved_description) = description_from_dtb(&mut reserved_source);
+        assert_eq!(
+            reserved_description
+                .read_memory_ranges_using(rv32_pointer_width)
+                .unwrap_err(),
+            Error::Overflow
+        );
+    }
+
+    fn rv32_pointer_width(value: u64) -> Result<usize> {
+        u32::try_from(value)
+            .map(|value| value as usize)
+            .map_err(|_| Error::Overflow)
+    }
+
+    fn test_range(address: usize, size: usize) -> PhysAddrRange {
+        PhysAddrRange::from_start_len(PhysAddr::new(address), size).unwrap()
+    }
+
+    fn description_from_dtb(source: &mut [u8]) -> (PhysAddrRange, PlatformDescription) {
+        let address = PhysAddr::new(source.as_mut_ptr() as usize);
+        let destination = PhysAddrRange::from_start_len(address, source.len()).unwrap();
+        // SAFETY: the fixture remains live while the description is used, and
+        // this test only reads its memory ranges.
+        let description = unsafe { PlatformDescription::from_raw(address, destination).unwrap() };
+        (destination, description)
+    }
+
     fn write_test_u32(bytes: &mut [u8], offset: usize, value: u32) {
         bytes[offset..offset + 4].copy_from_slice(&value.to_be_bytes());
+    }
+
+    fn memory_fdt(ram: &[(u64, u64)], reserved: &[(u64, u64)]) -> Vec<u8> {
+        let mut strings = Vec::new();
+        let address_cells = append_test_string(&mut strings, "#address-cells");
+        let size_cells = append_test_string(&mut strings, "#size-cells");
+        let ranges = append_test_string(&mut strings, "ranges");
+        let reg = append_test_string(&mut strings, "reg");
+
+        let mut structure = Vec::new();
+        push_test_begin_node(&mut structure, "");
+        push_test_property(&mut structure, address_cells, &2u32.to_be_bytes());
+        push_test_property(&mut structure, size_cells, &2u32.to_be_bytes());
+        for &(address, size) in ram {
+            push_test_begin_node(&mut structure, "memory");
+            push_test_property(&mut structure, reg, &test_reg(address, size));
+            push_test_u32(&mut structure, 2);
+        }
+        if !reserved.is_empty() {
+            push_test_begin_node(&mut structure, "reserved-memory");
+            push_test_property(&mut structure, address_cells, &2u32.to_be_bytes());
+            push_test_property(&mut structure, size_cells, &2u32.to_be_bytes());
+            push_test_property(&mut structure, ranges, &[]);
+            for &(address, size) in reserved {
+                push_test_begin_node(&mut structure, "reserved");
+                push_test_property(&mut structure, reg, &test_reg(address, size));
+                push_test_u32(&mut structure, 2);
+            }
+            push_test_u32(&mut structure, 2);
+        }
+        push_test_u32(&mut structure, 2);
+        push_test_u32(&mut structure, 9);
+
+        let mut output = alloc::vec![0; 40];
+        let reservations_offset = output.len();
+        output.extend_from_slice(&[0; 16]);
+        let structure_offset = output.len();
+        output.extend_from_slice(&structure);
+        let strings_offset = output.len();
+        output.extend_from_slice(&strings);
+        pad_test_bytes(&mut output);
+        let total_size = output.len();
+
+        write_test_u32(&mut output, 0, 0xd00d_feed);
+        write_test_u32(&mut output, 4, total_size as u32);
+        write_test_u32(&mut output, 8, structure_offset as u32);
+        write_test_u32(&mut output, 12, strings_offset as u32);
+        write_test_u32(&mut output, 16, reservations_offset as u32);
+        write_test_u32(&mut output, 20, 17);
+        write_test_u32(&mut output, 24, 16);
+        write_test_u32(&mut output, 32, strings.len() as u32);
+        write_test_u32(&mut output, 36, structure.len() as u32);
+        output
+    }
+
+    fn append_test_string(strings: &mut Vec<u8>, value: &str) -> u32 {
+        let offset = strings.len() as u32;
+        strings.extend_from_slice(value.as_bytes());
+        strings.push(0);
+        offset
+    }
+
+    fn push_test_begin_node(structure: &mut Vec<u8>, name: &str) {
+        push_test_u32(structure, 1);
+        structure.extend_from_slice(name.as_bytes());
+        structure.push(0);
+        pad_test_bytes(structure);
+    }
+
+    fn push_test_property(structure: &mut Vec<u8>, name_offset: u32, value: &[u8]) {
+        push_test_u32(structure, 3);
+        push_test_u32(structure, value.len() as u32);
+        push_test_u32(structure, name_offset);
+        structure.extend_from_slice(value);
+        pad_test_bytes(structure);
+    }
+
+    fn push_test_u32(bytes: &mut Vec<u8>, value: u32) {
+        bytes.extend_from_slice(&value.to_be_bytes());
+    }
+
+    fn test_reg(address: u64, size: u64) -> Vec<u8> {
+        let mut value = Vec::new();
+        value.extend_from_slice(&address.to_be_bytes());
+        value.extend_from_slice(&size.to_be_bytes());
+        value
+    }
+
+    fn pad_test_bytes(bytes: &mut Vec<u8>) {
+        while !bytes.len().is_multiple_of(4) {
+            bytes.push(0);
+        }
     }
 
     fn minimal_fdt(storage: &mut [u64], offset: usize) -> &mut [u8] {
