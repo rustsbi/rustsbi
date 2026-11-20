@@ -36,12 +36,17 @@ pub(crate) fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
                 device_tree: runtime::DeviceTreeHandoff,
                 dynamic_info_address: usize,
             ) -> usize {
-                let boot = crate::firmware::BootInfo::decode(hart_id, device_tree, dynamic_info_address)
-                    .expect("firmware entry rejected the platform description");
+                let mut boot =
+                    crate::firmware::BootInfo::decode(hart_id, device_tree, dynamic_info_address)
+                        .expect("firmware entry rejected the platform description");
                 if !boot.is_boot_hart() {
                     return 0;
                 }
                 crate::heap::init();
+                // SAFETY: `heap::init` ran above and `prepare_traps()` has not run.
+                unsafe { boot.materialize_platform_description() }.expect(
+                    "firmware could not materialize the platform description",
+                );
                 // SAFETY: The loader's entry contract grants exclusive RAM
                 // for firmware and stacks. BOOT_LOCK serializes candidates;
                 // BOOT_READY remains clear until this Rust frame is retired.

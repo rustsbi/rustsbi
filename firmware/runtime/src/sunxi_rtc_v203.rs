@@ -8,7 +8,7 @@ use crate::{Error, Result, node_is_enabled};
 /// Decodes the absolute GPRCM address and size independently of parent cells.
 pub(crate) fn gprcm_registers(
     node: FdtNode<'_, '_>,
-    fdt_storage: PhysAddrRange,
+    property_storage: PhysAddrRange,
 ) -> Result<Option<RegRange>> {
     if !node_is_enabled(node)
         || !node
@@ -23,7 +23,7 @@ pub(crate) fn gprcm_registers(
     let bytes = property.value;
     let storage =
         PhysAddrRange::from_start_len(PhysAddr::new(bytes.as_ptr() as usize), bytes.len())?;
-    if !fdt_storage.contains(storage) {
+    if !property_storage.contains(storage) {
         return Err(Error::AccessDenied);
     }
     let (start, len) = decode_gprcm(bytes)?;
