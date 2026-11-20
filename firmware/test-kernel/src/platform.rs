@@ -8,6 +8,8 @@ use uart16550::Uart16550;
 pub(crate) struct BoardInfo {
     pub(crate) smp: usize,
     pub(crate) frequency: u64,
+    /// Exclusive end of the firmware reservation reported by the device tree, if any.
+    pub(crate) firmware_end: Option<usize>,
 }
 
 /// Discovers the board and installs the UART-backed global console.
@@ -21,6 +23,7 @@ pub(crate) fn initialize(dtb_pa: usize) -> BoardInfo {
     BoardInfo {
         smp: discovered.smp,
         frequency: discovered.frequency,
+        firmware_end: discovered.firmware_end,
     }
 }
 
@@ -30,6 +33,7 @@ struct DeviceTreeInfo {
     smp: usize,
     frequency: u64,
     uart: usize,
+    firmware_end: Option<usize>,
 }
 
 impl DeviceTreeInfo {
@@ -40,6 +44,7 @@ impl DeviceTreeInfo {
             smp: 0,
             frequency: 0,
             uart: 0,
+            firmware_end: None,
         };
         unsafe {
             Dtb::from_raw_parts_filtered(dtb_pa as _, |error| {
@@ -49,13 +54,19 @@ impl DeviceTreeInfo {
         .unwrap()
         .walk(|ctx, obj| match obj {
             DtbObj::SubNode { name } => {
-                if ctx.is_root() && (name == Str::from("cpus") || name == Str::from("soc")) {
+                if ctx.is_root()
+                    && (name == Str::from("cpus")
+                        || name == Str::from("soc")
+                        || name == Str::from("reserved-memory"))
+                {
                     StepInto
                 } else if ctx.name() == Str::from("cpus") && name.starts_with("cpu@") {
                     board.smp += 1;
                     StepOver
-                } else if ctx.name() == Str::from("soc")
-                    && (name.starts_with("uart") || name.starts_with("serial"))
+                } else if (ctx.name() == Str::from("reserved-memory")
+                    && name.starts_with("mmode_resv1@"))
+                    || (ctx.name() == Str::from("soc")
+                        && (name.starts_with("uart") || name.starts_with("serial")))
                 {
                     StepInto
                 } else {
@@ -65,6 +76,8 @@ impl DeviceTreeInfo {
             DtbObj::Property(Property::Reg(mut reg)) => {
                 if ctx.name().starts_with("uart") || ctx.name().starts_with("serial") {
                     board.uart = reg.next().unwrap().start;
+                } else if ctx.name().starts_with("mmode_resv1@") {
+                    board.firmware_end = Some(reg.next().expect("mmode_resv1 has a reg").end);
                 }
                 StepOut
             }
