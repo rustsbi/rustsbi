@@ -18,4 +18,5 @@ qemu-logs/
 /.claude/*
 !/.claude/skills/
 /.claude/skills/*
+!/.claude/skills/rustsbi-commit
 !/.claude/skills/rustsbi-qemu-dev-setup
