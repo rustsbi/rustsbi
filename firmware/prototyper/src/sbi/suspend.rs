@@ -40,9 +40,8 @@ impl Susp for SbiSuspend {
             }
         }
 
-        // TODO: The validity of `resume_addr` should be checked.
-        // If it is invalid, `SBI_ERR_INVALID_ADDRESS` should be returned.
-
+        // The HSM adapter validates the non-retentive resume entry address
+        // before this hart suspends, returning `SBI_ERR_INVALID_ADDRESS` there.
         match crate::sbi::hsm() {
             Some(hsm) => hsm.hart_suspend(NON_RETENTIVE, resume_addr, opaque),
             None => SbiRet::not_supported(),
