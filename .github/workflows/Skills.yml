@@ -1,0 +1,61 @@
+name: Skills
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  discover:
+    name: Discover skill Rust workspaces
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.workspaces.outputs.matrix }}
+      has-workspaces: ${{ steps.workspaces.outputs.has-workspaces }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+      - name: Find Cargo workspaces under skills
+        id: workspaces
+        shell: bash
+        run: |
+          rustfmt --edition=2021 --check .github/scripts/skills.rs
+          rustc --edition=2021 -D warnings .github/scripts/skills.rs -o /tmp/rustsbi-skills-check
+          /tmp/rustsbi-skills-check check
+          /tmp/rustsbi-skills-check discover
+
+  check:
+    name: Rust CLI (${{ matrix.project }})
+    needs: discover
+    if: needs.discover.outputs.has-workspaces == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.project }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt, clippy
+          cache-workspaces: ${{ matrix.project }}
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Check with Clippy
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - name: Build
+        run: cargo build --locked --workspace --all-targets --all-features
+      - name: Test
+        run: cargo test --locked --workspace --all-features
