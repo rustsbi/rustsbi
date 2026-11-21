@@ -5,6 +5,10 @@ use crate::macros::csr;
 csr! {
     /// Guest address-space configuration, including the virtual machine ID.
     ///
+    /// Field helpers use the target pointer width. `hgatp` itself uses HSXLEN;
+    /// Runtime must check that HSXLEN matches before decoding or replacing VMID.
+    /// Raw bits alone do not establish that width or permit a guest context switch.
+    ///
     /// See <https://docs.riscv.org/reference/isa/priv/hypervisor.html#hgatp>.
     pub struct GuestAddressSpace(usize);
 
@@ -21,6 +25,21 @@ csr! {
 }
 
 impl GuestAddressSpace {
+    /// Decodes a native-width `hgatp` snapshot.
+    ///
+    /// The caller must establish that the runtime HSXLEN matches the target
+    /// pointer width before interpreting or writing the fields.
+    #[inline]
+    pub const fn from_bits(bits: usize) -> Self {
+        Self(bits)
+    }
+
+    /// Returns the encoded native-width `hgatp` bits.
+    #[inline]
+    pub const fn bits(self) -> usize {
+        self.0
+    }
+
     #[cfg(target_pointer_width = "32")]
     const VMID_SHIFT: u32 = 22;
     #[cfg(target_pointer_width = "64")]

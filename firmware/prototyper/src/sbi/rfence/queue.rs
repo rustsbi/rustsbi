@@ -1,11 +1,27 @@
 //! Pending remote fences and completion acknowledgements.
+//!
+//! A source hart runs one synchronous SBI batch at a time and waits for all
+//! acknowledgements and drains its error slot before issuing another batch.
+//! The target iterator yields each hart at most once per batch, so a source
+//! identifies at most one outstanding entry in any target queue. Dequeue and
+//! cancellation serialize under the queue lock; exactly one path owns the ack.
+//! Incoming requests serviced while waiting complete against their own source
+//! hart's tracker and do not join the waiting batch.
+//!
+//! The sender increments pending before publishing under the queue lock. A
+//! receiver records an error under the source tracker lock before its Release
+//! decrement. Pending updates are atomic RMWs; the relaxed load that observes
+//! the final zero followed by an Acquire fence synchronizes with the Release
+//! decrements in that RMW release sequence. The tracker mutex protects the
+//! later error-slot read as well.
 
 #![forbid(unsafe_code)]
 
-use super::RFenceContext;
 use alloc::collections::VecDeque;
 use core::sync::atomic::AtomicU32;
 use runtime::hart::{HartId, PerHart};
+use runtime::rfence::FenceRequest;
+use runtime::{Error, Result};
 use spin::{Mutex, Once};
 
 /// Capacity of the per-hart fence operation queue.
@@ -15,7 +31,7 @@ const QUEUE_CAP: usize = 16;
 // Alignment reduces false sharing; it does not guarantee cache-line isolation.
 #[repr(align(128))]
 struct RequestQueue {
-    entries: Mutex<VecDeque<(RFenceContext, usize)>>,
+    entries: Mutex<VecDeque<(FenceRequest, HartId)>>,
 }
 
 impl RequestQueue {
@@ -25,7 +41,7 @@ impl RequestQueue {
         }
     }
 
-    fn try_push(&self, item: (RFenceContext, usize)) -> bool {
+    fn try_push(&self, item: (FenceRequest, HartId)) -> bool {
         // Give the caller a chance to service local work when a remote
         // queue is busy; spinning on its lock can block mutual progress.
         let Some(mut q) = self.entries.try_lock() else {
@@ -38,11 +54,11 @@ impl RequestQueue {
         true
     }
 
-    fn pop(&self) -> Option<(RFenceContext, usize)> {
+    fn pop(&self) -> Option<(FenceRequest, HartId)> {
         self.entries.lock().pop_front()
     }
 
-    fn cancel(&self, source_hart: usize) -> bool {
+    fn cancel(&self, source_hart: HartId) -> bool {
         let mut queue = self.entries.lock();
         let Some(index) = queue.iter().position(|(_, source)| *source == source_hart) else {
             return false;
@@ -57,12 +73,14 @@ impl RequestQueue {
 #[repr(align(128))]
 struct CompletionTracker {
     pending: AtomicU32,
+    error: Mutex<Option<Error>>,
 }
 
 impl CompletionTracker {
     fn new() -> Self {
         Self {
             pending: AtomicU32::new(0),
+            error: Mutex::new(None),
         }
     }
 
@@ -83,6 +101,18 @@ impl CompletionTracker {
     fn sub(&self) {
         use core::sync::atomic::Ordering;
         self.pending.fetch_sub(1, Ordering::Release);
+    }
+
+    fn complete(&self, result: Result<()>) {
+        if let Err(error) = result {
+            self.error.lock().get_or_insert(error);
+        }
+        self.sub();
+    }
+
+    fn take_error(&self) -> Option<Error> {
+        assert!(self.is_sync(), "fence batch still has pending requests");
+        self.error.lock().take()
     }
 }
 
@@ -142,12 +172,6 @@ pub struct LocalRFenceCell<'a>(&'a RFenceCell);
 pub struct RemoteRFenceCell<'a>(&'a RFenceCell);
 
 impl LocalRFenceCell<'_> {
-    /// Attempts to enqueue a fence operation, returning whether it succeeded.
-    #[inline]
-    pub(crate) fn try_push(&self, item: (RFenceContext, usize)) -> bool {
-        self.0.queue.try_push(item)
-    }
-
     /// Checks if all synchronization operations are complete.
     pub fn is_sync(&self) -> bool {
         self.0.completions.is_sync()
@@ -158,26 +182,36 @@ impl LocalRFenceCell<'_> {
         self.0.completions.add();
     }
 
+    /// Takes the first execution error after all acknowledgements arrive.
+    pub fn take_error(&self) -> Option<Error> {
+        self.0.completions.take_error()
+    }
+
     /// Returns the next fence operation from the queue, if any.
-    pub fn get(&self) -> Option<(RFenceContext, usize)> {
+    pub fn get(&self) -> Option<(FenceRequest, HartId)> {
         self.0.queue.pop()
     }
 }
 
 impl RemoteRFenceCell<'_> {
     /// Cancels this source's queued request after an IPI send failure.
-    pub(crate) fn cancel(&self, source_hart: usize) -> bool {
+    pub(crate) fn cancel(&self, source_hart: HartId) -> bool {
         self.0.queue.cancel(source_hart)
     }
 
     /// Attempts to enqueue a fence operation, returning whether it succeeded.
     #[inline]
-    pub(crate) fn try_push(&self, item: (RFenceContext, usize)) -> bool {
+    pub(crate) fn try_push(&self, item: (FenceRequest, HartId)) -> bool {
         self.0.queue.try_push(item)
     }
 
     /// Decrements the synchronization counter.
     pub fn sub(&self) {
         self.0.completions.sub();
+    }
+
+    /// Records a remote execution error before publishing completion.
+    pub fn complete(&self, result: Result<()>) {
+        self.0.completions.complete(result);
     }
 }

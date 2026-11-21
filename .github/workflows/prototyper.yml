@@ -41,6 +41,7 @@ jobs:
         run: |
           cargo test --locked -p rustsbi-prototyper -p rustsbi-runtime-macros
           cargo test --locked -p rustsbi-firmware-runtime --lib
+          cargo test --locked -p rustsbi-firmware-runtime --lib --features hypervisor
 
       - name: Run rust-clippy (Prototyper)
         shell: bash
@@ -197,6 +198,10 @@ jobs:
         run: |
           bash firmware/test-kernel/scripts/test-machine-stack.sh 32
           bash firmware/test-kernel/scripts/test-machine-stack.sh 64
+
+      - name: Verify RFENCE on two harts with and without H
+        shell: bash
+        run: bash firmware/test-kernel/scripts/test-hypervisor-rfence.sh qemu-logs/rfence
 
       - name: Upload QEMU log
         if: failure()
