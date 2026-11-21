@@ -14,3 +14,8 @@
 *.bin
 
 qemu-logs/
+# Local tool configuration; repository skills use portable symlinks.
+/.claude/*
+!/.claude/skills/
+/.claude/skills/*
+!/.claude/skills/rustsbi-qemu-dev-setup
