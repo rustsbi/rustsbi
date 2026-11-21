@@ -8,6 +8,26 @@
 pub const MAX_PMP_ENTRY_COUNT: u32 = 16;
 pub const PMP_SHIFT: u32 = 2;
 
+/// A PMP slot index. Always below `MAX_PMP_ENTRY_COUNT`, so out-of-range values cannot be built.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PmpSlot(u32);
+
+impl PmpSlot {
+    /// Returns the slot for `idx`, or `None` if `idx` is out of range.
+    pub const fn new(idx: u32) -> Option<Self> {
+        if idx < MAX_PMP_ENTRY_COUNT {
+            Some(PmpSlot(idx))
+        } else {
+            None
+        }
+    }
+
+    /// The raw PMP entry index.
+    pub const fn index(self) -> u32 {
+        self.0
+    }
+}
+
 use core::usize;
 
 use riscv::register::{
@@ -15,6 +35,8 @@ use riscv::register::{
     pmpaddr7, pmpaddr8, pmpaddr9, pmpaddr10, pmpaddr11, pmpaddr12, pmpaddr13, pmpaddr14, pmpaddr15,
     pmpcfg0, pmpcfg2,
 };
+#[cfg(target_arch = "riscv32")]
+use riscv::register::{pmpcfg1, pmpcfg3};
 pub mod bitmap;
 
 #[derive(Debug, Clone, Copy)]
@@ -61,17 +83,27 @@ impl PmpSlice {
     pub fn log2len(&self) -> u32 {
         self.log2len
     }
+    /// Region length. Saturates at `usize::MAX` for the full address space (`log2len == BITS`).
     pub fn len(&self) -> usize {
-        1usize << self.log2len
+        if self.log2len >= usize::BITS {
+            usize::MAX
+        } else {
+            1usize << self.log2len
+        }
     }
     pub fn lo(&self) -> usize {
         self.pa_lo
     }
+    /// Exclusive upper bound of a TOR region. Only meaningful for `Range::TOR`.
+    pub fn hi(&self) -> usize {
+        self.pa_hi
+    }
     pub fn start(&self) -> usize {
         self.pa_lo
     }
+    /// Last address in the region. Saturates for the full address space.
     pub fn end(&self) -> usize {
-        self.pa_lo + (1 << self.log2len) - 1
+        self.pa_lo.saturating_add(self.len() - 1)
     }
 }
 
@@ -103,7 +135,8 @@ pub fn encode_pmp_addr(slice: &PmpSlice, range: Range) -> usize {
             }
         }
         Range::NA4 => addr >> PMP_SHIFT,
-        Range::TOR => addr >> PMP_SHIFT,
+        // TOR: pmpaddr[i] holds the exclusive top; pmpaddr[i-1] holds the start (set by the caller).
+        Range::TOR => slice.pa_hi >> PMP_SHIFT,
         Range::OFF => 0,
     }
 }
@@ -124,12 +157,46 @@ pub fn decode_pmp_addr(pmpaddr: usize, range: Range) -> PmpSlice {
             }
         }
         Range::NA4 => PmpSlice::new(2, pmpaddr << PMP_SHIFT, 0),
-        Range::TOR => PmpSlice::new(0, pmpaddr << PMP_SHIFT, 0),
+        // A single TOR register holds only the top; the start lives in pmpaddr[i-1].
+        Range::TOR => PmpSlice::new(0, 0, pmpaddr << PMP_SHIFT),
         Range::OFF => PmpSlice::new(0, 0, 0),
     }
 }
 
-pub fn set_pmp_cfg(idx: u32, config: &PmpConfig) {
+/// RV32: each config register holds 4 entries, so entries map to pmpcfg0..3.
+#[cfg(target_arch = "riscv32")]
+pub fn set_pmp_cfg(slot: PmpSlot, config: &PmpConfig) {
+    let idx = slot.index();
+    unsafe {
+        match idx {
+            0..=3 => pmpcfg0::set_pmp(idx as usize, config.range, config.perm, config.is_locked),
+            4..=7 => pmpcfg1::set_pmp(
+                (idx - 4) as usize,
+                config.range,
+                config.perm,
+                config.is_locked,
+            ),
+            8..=11 => pmpcfg2::set_pmp(
+                (idx - 8) as usize,
+                config.range,
+                config.perm,
+                config.is_locked,
+            ),
+            12..=15 => pmpcfg3::set_pmp(
+                (idx - 12) as usize,
+                config.range,
+                config.perm,
+                config.is_locked,
+            ),
+            _ => panic!("Invalid PMP index for cfg"),
+        }
+    }
+}
+
+/// RV64: pmpcfg0 holds entries 0-7 and pmpcfg2 holds 8-15.
+#[cfg(not(target_arch = "riscv32"))]
+pub fn set_pmp_cfg(slot: PmpSlot, config: &PmpConfig) {
+    let idx = slot.index();
     let cfg_idx = (idx % 8) as usize;
     unsafe {
         match idx {
@@ -165,43 +232,126 @@ unsafe fn _set_pmp_addr(idx: u32, addr: usize) {
 }
 
 //TODO: It depends on IPIs to sync PMP configuration, here is dummy implement.
-pub fn set_pmp_entry_sync(idx: u32, addr: usize, len: usize, config: &PmpConfig) -> bool {
-    set_pmp_entry(idx, addr, len, config)
+pub fn set_pmp_entry_sync(slot: PmpSlot, addr: usize, len: usize, config: &PmpConfig) -> bool {
+    set_pmp_entry(slot, addr, len, config)
 }
 
-pub fn set_pmp_entry(idx: u32, addr: usize, len: usize, config: &PmpConfig) -> bool {
+/// Returns the log2 of `len` for `range`, or `None` if NAPOT is given a length below 8 bytes.
+///
+/// Only NAPOT uses the length. Other ranges ignore it, so `len` (possibly 0) is accepted.
+/// Lengths below 8 would underflow the NAPOT encoding. Non-power-of-two lengths round down;
+/// the caller must check the area first (see `check_pmp_area_available`).
+///
+/// Contract for full-space NAPOT: `len == usize::MAX` means the entire implemented address
+/// space. It encodes to an all-ones pmpaddr, and decoding that value gives back `usize::BITS`.
+/// Coverage of the real hardware depends on the implemented physical address width.
+fn slice_log2len(len: usize, range: Range) -> Option<u32> {
+    match range {
+        Range::NAPOT => {
+            if len == usize::MAX {
+                Some(usize::BITS)
+            } else if len >= 8 {
+                len.checked_ilog2()
+            } else {
+                None
+            }
+        }
+        Range::NA4 | Range::TOR | Range::OFF => Some(0),
+    }
+}
+
+/// Builds the slice to encode for `range`. Returns `None` if the length cannot be represented
+/// (NAPOT below 8 bytes, or a TOR top that overflows).
+fn pmp_slice(addr: usize, len: usize, range: Range) -> Option<PmpSlice> {
+    match range {
+        // TOR: the top boundary is addr + len. pmpaddr[i-1] must be set to `addr` by the caller.
+        Range::TOR => Some(PmpSlice::new(0, addr, addr.checked_add(len)?)),
+        _ => Some(PmpSlice::new(slice_log2len(len, range)?, addr, 0)),
+    }
+}
+
+/// For TOR, entry `slot` covers [pmpaddr[slot-1], pmpaddr[slot]). Accept `addr` only if it is
+/// that bottom, since this function does not write pmpaddr[slot-1].
+fn tor_bottom_matches(slot: PmpSlot, addr: usize) -> bool {
+    if slot.index() == 0 {
+        addr == 0
+    } else {
+        // Compare in pmpaddr units: shifting the register left would drop its top bits on RV32.
+        _get_pmp_addr(slot.index() - 1) == (addr >> PMP_SHIFT)
+    }
+}
+
+pub fn set_pmp_entry(slot: PmpSlot, addr: usize, len: usize, config: &PmpConfig) -> bool {
+    let idx = slot.index();
     // The memory area should be check before function call.
-    let slice = PmpSlice::new(
-        if len == usize::MAX {
-            usize::BITS
-        } else {
-            len.ilog2()
-        },
-        addr,
-        0,
-    );
+    if get_pmp_cfg(slot).is_locked() {
+        return false;
+    }
+    if !pmpaddr_writable(slot) {
+        return false;
+    }
+    if config.range == Range::TOR && !tor_bottom_matches(slot, addr) {
+        return false;
+    }
+    let Some(slice) = pmp_slice(addr, len, config.range) else {
+        return false;
+    };
     unsafe {
         _set_pmp_addr(idx, encode_pmp_addr(&slice, config.range));
-        set_pmp_cfg(idx, config);
+        set_pmp_cfg(slot, config);
     }
     true
 }
 
-pub fn set_pmp_addr(idx: u32, addr: usize, len: usize, range: Range) -> bool {
+pub fn set_pmp_addr(slot: PmpSlot, addr: usize, len: usize, range: Range) -> bool {
+    let idx = slot.index();
     // The memory area should be check before function call.
-    let slice = PmpSlice::new(
-        if len == usize::MAX {
-            usize::BITS
-        } else {
-            len.ilog2()
-        },
-        addr,
-        0,
-    );
+    if !pmpaddr_writable(slot) {
+        return false;
+    }
+    if range == Range::TOR && !tor_bottom_matches(slot, addr) {
+        return false;
+    }
+    let Some(slice) = pmp_slice(addr, len, range) else {
+        return false;
+    };
     unsafe {
         _set_pmp_addr(idx, encode_pmp_addr(&slice, range));
     }
     true
+}
+
+/// Whether writing pmpaddr[slot] is allowed. Refused if the entry is locked (hardware would
+/// ignore the write), or if the next entry is a TOR entry, whether locked or not: its bottom is
+/// pmpaddr[slot], so writing it would silently move that entry's region. Integrators must not
+/// give slots that sit directly below a TOR chain (such as the prototyper's low-slot TOR setup)
+/// to this crate's protector.
+fn pmpaddr_writable(slot: PmpSlot) -> bool {
+    if get_pmp_cfg(slot).is_locked() {
+        return false;
+    }
+    if let Some(next_slot) = PmpSlot::new(slot.index() + 1) {
+        if get_pmp_cfg(next_slot).range() == Range::TOR {
+            return false;
+        }
+    }
+    true
+}
+
+/// Turns the entry off by writing its config only. Its pmpaddr is kept, because it is the
+/// bottom of a TOR entry at the next slot.
+pub fn disable_pmp_entry(slot: PmpSlot) -> bool {
+    if get_pmp_cfg(slot).is_locked() {
+        return false;
+    }
+    set_pmp_cfg(slot, &PmpConfig::new(Range::OFF, Permission::NONE, false));
+    true
+}
+
+/// Sync variant of `disable_pmp_entry`, used by the protector. Mirrors `set_pmp_entry_sync`.
+//TODO: It depends on IPIs to sync PMP configuration, here is dummy implement.
+pub fn disable_pmp_entry_sync(slot: PmpSlot) -> bool {
+    disable_pmp_entry(slot)
 }
 
 fn _get_pmp_addr(idx: u32) -> usize {
@@ -226,13 +376,30 @@ fn _get_pmp_addr(idx: u32) -> usize {
     }
 }
 
-pub fn get_pmp_cfg(idx: u32) -> PmpConfig {
+/// Reads the raw config for entry `idx`. Mirrors the register mapping in `set_pmp_cfg`.
+#[cfg(target_arch = "riscv32")]
+fn read_pmp_cfg(idx: u32) -> riscv::register::Pmp {
+    match idx {
+        0..=3 => pmpcfg0::read().into_config(idx as usize),
+        4..=7 => pmpcfg1::read().into_config((idx - 4) as usize),
+        8..=11 => pmpcfg2::read().into_config((idx - 8) as usize),
+        12..=15 => pmpcfg3::read().into_config((idx - 12) as usize),
+        _ => panic!("Invalid PMP index"),
+    }
+}
+
+#[cfg(not(target_arch = "riscv32"))]
+fn read_pmp_cfg(idx: u32) -> riscv::register::Pmp {
     let cfg_idx = (idx % 8) as usize;
-    let pmp_config = match idx {
+    match idx {
         0..=7 => pmpcfg0::read().into_config(cfg_idx),
         8..=15 => pmpcfg2::read().into_config(cfg_idx),
         _ => panic!("Invalid PMP index"),
-    };
+    }
+}
+
+pub fn get_pmp_cfg(slot: PmpSlot) -> PmpConfig {
+    let pmp_config = read_pmp_cfg(slot.index());
     PmpConfig {
         range: (pmp_config.range),
         perm: (pmp_config.permission),
@@ -240,8 +407,9 @@ pub fn get_pmp_cfg(idx: u32) -> PmpConfig {
     }
 }
 
-pub fn get_pmp_entry(idx: u32) -> (usize, PmpConfig) {
-    (_get_pmp_addr(idx), get_pmp_cfg(idx))
+pub fn get_pmp_entry(slot: PmpSlot) -> (usize, PmpConfig) {
+    let idx = slot.index();
+    (_get_pmp_addr(idx), get_pmp_cfg(slot))
 }
 
 #[cfg(test)]
@@ -345,31 +513,28 @@ mod tests {
 
     #[test]
     fn test_encode_decode_tor() {
-        let pa_lo_tor = 0x80000000;
-        let slice_tor = create_pmp_slice(30, pa_lo_tor);
-        let expected_encoded = pa_lo_tor >> PMP_SHIFT;
+        // Region [0x8000_0000, 0x8000_1400): length 0x1400 is not a power of two.
+        let slice_tor = pmp_slice(0x8000_0000, 0x1400, Range::TOR).unwrap();
         let encoded_tor = encode_pmp_addr(&slice_tor, Range::TOR);
-        assert_eq!(encoded_tor, expected_encoded, "TOR mode encode failed");
+        assert_eq!(
+            encoded_tor,
+            0x8000_1400 >> PMP_SHIFT,
+            "TOR encode should write the top"
+        );
         let decoded_tor = decode_pmp_addr(encoded_tor, Range::TOR);
         assert_eq!(
-            decoded_tor.start(),
-            pa_lo_tor,
-            "TOR mode decode start address failed"
+            decoded_tor.hi(),
+            0x8000_1400,
+            "TOR decode should return the top"
         );
         assert_eq!(
             decoded_tor.log2len(),
             0,
-            "TOR mode decode should return log2len=0"
+            "TOR decode should return log2len=0"
         );
 
-        let pa_lo_align = 0x1000;
-        let encoded_align = encode_pmp_addr(&create_pmp_slice(0, pa_lo_align), Range::TOR);
-        let decoded_align = decode_pmp_addr(encoded_align, Range::TOR);
-        assert_eq!(
-            decoded_align.start(),
-            pa_lo_align,
-            "TOR mode aligned address decode failed"
-        );
+        // Overflowing top is rejected instead of wrapping.
+        assert!(pmp_slice(usize::MAX - 3, 8, Range::TOR).is_none());
     }
 
     #[test]
@@ -394,6 +559,47 @@ mod tests {
             1 << 0,
             "OFF mode decode length should return 1"
         );
+    }
+
+    #[test]
+    fn test_slice_log2len() {
+        assert_eq!(slice_log2len(8, Range::NAPOT), Some(3));
+        assert_eq!(slice_log2len(0x1000, Range::NAPOT), Some(12));
+        assert_eq!(slice_log2len(usize::MAX, Range::NAPOT), Some(usize::BITS));
+        // Zero length for NAPOT (what enable() passes) must not panic.
+        assert_eq!(slice_log2len(0, Range::NAPOT), None);
+        // Lengths below 8 would underflow the NAPOT encoding.
+        assert_eq!(slice_log2len(4, Range::NAPOT), None);
+        // Other ranges ignore the length, so zero is fine (disable() relies on this).
+        assert_eq!(slice_log2len(0, Range::OFF), Some(0));
+        assert_eq!(slice_log2len(0, Range::NA4), Some(0));
+        assert_eq!(slice_log2len(0, Range::TOR), Some(0));
+    }
+
+    #[test]
+    fn test_pmp_slot_bounds() {
+        assert_eq!(PmpSlot::new(0).map(|s| s.index()), Some(0));
+        assert_eq!(
+            PmpSlot::new(MAX_PMP_ENTRY_COUNT - 1).map(|s| s.index()),
+            Some(15)
+        );
+        assert!(PmpSlot::new(MAX_PMP_ENTRY_COUNT).is_none());
+        assert!(PmpSlot::new(u32::MAX).is_none());
+    }
+
+    #[test]
+    fn test_full_space_napot() {
+        // Full-space NAPOT (len == usize::MAX) encodes to all ones and decodes back to BITS.
+        let full = slice_for_full_space();
+        assert_eq!(encode_pmp_addr(&full, Range::NAPOT), usize::MAX);
+        assert_eq!(
+            decode_pmp_addr(usize::MAX, Range::NAPOT).log2len(),
+            usize::BITS
+        );
+    }
+
+    fn slice_for_full_space() -> PmpSlice {
+        create_pmp_slice(usize::BITS, 0)
     }
 
     #[test]

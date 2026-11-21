@@ -10,30 +10,31 @@ use crate::protector::TestSecMemProtector;
 use alloc::vec::Vec;
 use core::usize;
 
-type UniSecMemProtector = TestSecMemProtector;
-
 /// These PMP slots are reserved and not used to alloc enclave mem.
 ///
 /// PMP N-1 : Default grant kernel access with all mem.
 /// PMP 1   : Only used in Penglai, for temporarily grant kernel access with specific sec mem.
 /// PMP 0   : Protect SM code/data.
-const UNI_SECMEM_SM_SLOT: u32 = 1 << 0;
-const UNI_SECMEM_TEMP_SLOT: u32 = 1 << 1;
-const UNI_SECMEM_DEFAULT_SLOT: u32 = 1 << (MAX_PMP_ENTRY_COUNT - 1);
+const UNI_SECMEM_SM_SLOT: PmpSlot = PmpSlot::new(0).unwrap();
+const UNI_SECMEM_TEMP_SLOT: PmpSlot = PmpSlot::new(1).unwrap();
+const UNI_SECMEM_DEFAULT_SLOT: PmpSlot = PmpSlot::new(MAX_PMP_ENTRY_COUNT - 1).unwrap();
 const UNI_SECMEM_PMP_ALLOCMASK: u64 = ((1 << MAX_PMP_ENTRY_COUNT) - 1)
-    & !((UNI_SECMEM_SM_SLOT | UNI_SECMEM_TEMP_SLOT | UNI_SECMEM_TEMP_SLOT) as u64);
-const UNI_SECMEM_PMP_MANAGEMASK: u64 = UNI_SECMEM_PMP_ALLOCMASK
-    & ((UNI_SECMEM_SM_SLOT | UNI_SECMEM_DEFAULT_SLOT | UNI_SECMEM_TEMP_SLOT) as u64);
+    & !((1u64 << UNI_SECMEM_SM_SLOT.index())
+        | (1u64 << UNI_SECMEM_TEMP_SLOT.index())
+        | (1u64 << UNI_SECMEM_DEFAULT_SLOT.index()));
+/// Every slot is managed: allocable ones are used for enclaves, reserved ones are never allocated.
+const UNI_SECMEM_PMP_MANAGEMASK: u64 = (1u64 << MAX_PMP_ENTRY_COUNT) - 1;
 
-pub struct UniSecMemManager<const ORDER: usize, AR, AA>
+pub struct UniSecMemManager<const ORDER: usize, AR, AA, P = TestSecMemProtector>
 where
     AR: SecMemAllocator<ORDER>,
     AA: SecMemAllocator<ORDER>,
+    P: SecMemProtector,
 {
     /// A simple incrementing ID for region
     cur_idx: usize,
     ///
-    protector: UniSecMemProtector,
+    protector: P,
 
     /// These PMP slots are reserved and not used to alloc enclave mem.
     reserved_regions: Vec<SecMemRegion<ORDER, NoneAlloc<ORDER>, NoneAlloc<ORDER>>>,
@@ -43,15 +44,17 @@ where
     alloc_regions: Vec<SecMemRegion<ORDER, AR, AA>>,
 }
 
-impl<const ORDER: usize, AR, AA> SecMemManager<ORDER, AR, AA> for UniSecMemManager<ORDER, AR, AA>
+impl<const ORDER: usize, AR, AA, P> SecMemManager<ORDER, AR, AA>
+    for UniSecMemManager<ORDER, AR, AA, P>
 where
     AR: SecMemAllocator<ORDER>,
     AA: SecMemAllocator<ORDER>,
+    P: SecMemProtector,
 {
     fn new() -> Self {
         Self {
             cur_idx: 0,
-            protector: UniSecMemProtector::new(UNI_SECMEM_PMP_ALLOCMASK, UNI_SECMEM_PMP_MANAGEMASK),
+            protector: P::with_masks(UNI_SECMEM_PMP_ALLOCMASK, UNI_SECMEM_PMP_MANAGEMASK),
             reserved_regions:
                 Vec::<SecMemRegion<ORDER, NoneAlloc<ORDER>, NoneAlloc<ORDER>>>::with_capacity(
                     1usize,
@@ -62,7 +65,23 @@ where
         }
     }
     fn init(&mut self, sm_addr: usize, sm_len: usize) -> bool {
-        // Reset temporary and default PMP slot
+        // Locked slots (set before SM starts) must never be handed out by alloc.
+        if !self.protector.reserve_locked() {
+            error!("[SMM] Cannot scan locked PMP slots");
+            return false;
+        }
+        // Protect the SM region before opening the default slot, so a failure never leaves
+        // memory accessible that the SM region should cover.
+        if !(self.protector.is_protectable(sm_addr, sm_len)
+            && self
+                .protector
+                .retrive_access_all(sm_addr, sm_len, UNI_SECMEM_SM_SLOT))
+        {
+            error!("[SMM] Cannot protect SM region due to memory check or protect fail");
+            return false;
+        }
+        // Reset temporary slot, then open the default slot for all memory. If this fails the SM
+        // slot stays protected and nothing is recorded, so a retry does not duplicate the region.
         if !self.protector.disable(UNI_SECMEM_TEMP_SLOT)
             || !self
                 .protector
@@ -71,25 +90,14 @@ where
             error!("[SMM] Reset Temporary/Default PMP slot failed");
             return false;
         }
-
-        // Init and protect SM region
-        if self.protector.is_protectable(sm_addr, sm_len)
-            && self
-                .protector
-                .retrive_access_all(sm_addr, sm_len, UNI_SECMEM_SM_SLOT)
-        {
-            self.reserved_regions.push(
-                SecMemRegion::<ORDER, NoneAlloc<ORDER>, NoneAlloc<ORDER>>::new(
-                    sm_addr,
-                    sm_len,
-                    self.cur_idx,
-                    UNI_SECMEM_SM_SLOT,
-                ),
-            );
-        } else {
-            error!("[SMM] Cannot protect SM region due to memory check or protect fail");
-            return false;
-        }
+        self.reserved_regions.push(
+            SecMemRegion::<ORDER, NoneAlloc<ORDER>, NoneAlloc<ORDER>>::new(
+                sm_addr,
+                sm_len,
+                self.cur_idx,
+                UNI_SECMEM_SM_SLOT,
+            ),
+        );
         self.cur_idx += 1;
         true
     }
@@ -107,13 +115,15 @@ where
                 core::ptr::write_bytes(region.addr as *mut u8, 0, region.len);
                 // sfence_vma_all();
             }
-            // Disable hardware used to protect region.
-            cur_regions[count] = (region.addr, region.len);
-            count += 1;
-            if !self.protector.disable(region.slot) {
+            // Disable hardware used to protect region. Only report regions that are unprotected.
+            if self.protector.disable(region.slot) {
+                cur_regions[count] = (region.addr, region.len);
+                count += 1;
+            } else {
                 error!(
                     "[SMM] Deinit Region-{} with slot-{} fail",
-                    region.id, region.slot
+                    region.id,
+                    region.slot.index()
                 );
             }
         }
@@ -129,40 +139,46 @@ where
                 .alloc_regions
                 .iter()
                 .any(|r| r.is_mem_overlap(addr, len))
+            // Must not overlap the SM region either, or an enclave could be handed SM memory.
+            || self
+                .reserved_regions
+                .iter()
+                .any(|r| r.is_mem_overlap(addr, len))
         {
             return false;
         }
 
-        // Try alloc a hardware to protect new region
-        if let Some(hwid) = self.protector.alloc() {
-            if !self.protector.retrive_access_all(addr, len, hwid) {
-                self.protector.free(hwid);
-                return false;
-            }
-            self.cur_idx += 1;
-            self.alloc_regions.push(SecMemRegion::<ORDER, AR, AA>::new(
-                addr,
-                len,
-                self.cur_idx,
-                hwid,
-            ));
+        // Try alloc a hardware to protect new region; no free slot means no region was created.
+        let Some(hwid) = self.protector.alloc() else {
+            return false;
+        };
+        if !self.protector.retrive_access_all(addr, len, hwid) {
+            // Give the slot back. Keeping it allocated would leak it permanently.
+            self.protector.free(hwid);
+            return false;
         }
+        self.cur_idx += 1;
+        self.alloc_regions.push(SecMemRegion::<ORDER, AR, AA>::new(
+            addr,
+            len,
+            self.cur_idx,
+            hwid,
+        ));
         true
     }
 
     fn reclaim(&mut self) -> Option<(usize, usize)> {
-        let index = self
-            .alloc_regions
-            .iter()
-            .position(|region| region.is_used == false)?;
-        let region = self.alloc_regions.swap_remove(index);
         // Sanitization is done when free enclave memory. And in-use region won't be reclaim, so
         // no need clean secure memory.
-        // unprotect region and try free PMP slot
-        if self.protector.disable(region.slot) && self.protector.free(region.slot) {
-            return Some((region.addr, region.len));
-        }
-        None
+        // Unprotect first. A region whose slot cannot be unprotected (e.g. locked) stays in the
+        // list, still protected, and the next unused region is tried.
+        let index = (0..self.alloc_regions.len()).find(|&i| {
+            !self.alloc_regions[i].is_used && self.protector.disable(self.alloc_regions[i].slot)
+        })?;
+        let region = self.alloc_regions.swap_remove(index);
+        // Memory is unprotected now, so hand it back even if freeing the slot fails.
+        let _ = self.protector.free(region.slot);
+        Some((region.addr, region.len))
     }
 
     fn alloc_em(&mut self, len: usize, em_type: SecMemType) -> Option<(usize, usize, usize)> {
@@ -314,6 +330,44 @@ mod smm_stress_tests {
     const MAX_ALLOC: usize = 16 * 1024 * 1024; // 16MB
     const REGION_COUNT: usize = 8; // 8个Region，每个64MB
 
+    // Slots 2..=14 are allocable (13 slots); 0, 1 and 15 are reserved.
+    const ALLOCABLE_SLOTS: usize = 13;
+
+    #[test]
+    fn test_extend_fails_when_no_slot_free() {
+        let mut manager =
+            UniSecMemManager::<30, RTAlloc<30>, AppAlloc<30, 256>, TestSecMemProtector>::new();
+        assert!(manager.init(0x1000, 0x1000));
+        for i in 0..ALLOCABLE_SLOTS {
+            assert!(
+                unsafe { manager.extend(0x4000_0000 + i * 0x1000, 0x1000) },
+                "extend {} should succeed",
+                i
+            );
+        }
+        // No free slot left: must report failure, not success.
+        assert!(!unsafe { manager.extend(0x4000_0000 + ALLOCABLE_SLOTS * 0x1000, 0x1000) });
+    }
+
+    #[test]
+    fn test_reclaim_returns_unused_region_and_frees_slot() {
+        let mut manager =
+            UniSecMemManager::<30, RTAlloc<30>, AppAlloc<30, 256>, TestSecMemProtector>::new();
+        assert!(manager.init(0x1000, 0x1000));
+        for i in 0..ALLOCABLE_SLOTS {
+            assert!(unsafe { manager.extend(0x4000_0000 + i * 0x1000, 0x1000) });
+        }
+        assert!(!unsafe { manager.extend(0x4000_0000 + ALLOCABLE_SLOTS * 0x1000, 0x1000) });
+
+        // Every region is unused, so reclaim returns each one; the last call returns None.
+        for _ in 0..ALLOCABLE_SLOTS {
+            assert!(manager.reclaim().is_some());
+        }
+        assert_eq!(manager.reclaim(), None);
+        // Reclaimed slots are allocable again.
+        assert!(unsafe { manager.extend(0x5000_0000, 0x1000) });
+    }
+
     #[test]
     fn test_uni_secmem_manager_stress_aligned() {
         let mut raw_buffer = vec![0u8; POOL_SIZE * 2];
@@ -332,7 +386,8 @@ mod smm_stress_tests {
             "Remaining space insufficient"
         );
 
-        let mut manager = UniSecMemManager::<30, RTAlloc<30>, AppAlloc<30, 256>>::new();
+        let mut manager =
+            UniSecMemManager::<30, RTAlloc<30>, AppAlloc<30, 256>, TestSecMemProtector>::new();
 
         assert!(manager.init(0x1000, 0x1000));
 
