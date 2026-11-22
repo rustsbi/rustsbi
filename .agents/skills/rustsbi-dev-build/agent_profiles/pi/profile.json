@@ -1,0 +1,8 @@
+{
+  "agent": "pi",
+  "interface": "print-json",
+  "model_env": "RDB_PI_MODEL",
+  "thinking": "medium",
+  "tools": ["read", "bash"],
+  "purpose": "Run the local build acceptance request through the installed skill"
+}
