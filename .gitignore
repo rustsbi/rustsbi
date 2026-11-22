@@ -21,3 +21,4 @@ qemu-logs/
 !/.claude/skills/rustsbi-dev-build
 !/.claude/skills/rustsbi-commit
 !/.claude/skills/rustsbi-qemu-dev-setup
+!/.claude/skills/rustsbi-code-review
