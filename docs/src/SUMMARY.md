@@ -65,6 +65,7 @@
         - [Rust Conventions](./guidelines/for-maintainability/rust-conventions.md)
         - [Commits](./guidelines/for-maintainability/commits.md)
     - [For Development](./guidelines/for-development/README.md)
+        - [SBI and Firmware Contracts](./guidelines/for-development/sbi-specific.md)
         - [Memory Safety](./guidelines/for-development/memory-safety.md)
         - [Assembly Conventions](./guidelines/for-development/assembly-conventions.md)
         - [CSR and Register Access](./guidelines/for-development/csr-access.md)
