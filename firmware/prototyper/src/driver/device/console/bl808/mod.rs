@@ -8,13 +8,14 @@
 mod description;
 mod device;
 
-use alloc::boxed::Box;
 use core::mem::align_of;
 use runtime::{Error, FdtNode, PlatformView, Result};
 
 use super::ConsoleDesc;
 
-use self::{description::Desc, device::SPAN};
+use self::device::SPAN;
+pub(super) use description::Desc;
+pub(super) use device::Device;
 
 /// Parses a BL808 UART node and validates its register window.
 pub(super) fn describe(
@@ -28,5 +29,5 @@ pub(super) fn describe(
     if !registers.has_aligned_bounds(align_of::<u32>()) {
         return Err(Error::InvalidArgs);
     }
-    Ok(Some(Box::new(Desc { registers })))
+    Ok(Some(ConsoleDesc::Bl808(Desc { registers })))
 }

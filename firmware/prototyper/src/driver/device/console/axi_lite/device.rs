@@ -41,13 +41,16 @@ bitflags! {
 }
 
 /// An AXI UART Lite bound to an acquired register window.
-pub(super) struct Device {
+pub(in crate::driver::device::console) struct Device {
     registers: MmioRegion,
 }
 
 impl Device {
     /// Acquires the UART Lite register window.
-    pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+    pub(in crate::driver::device::console) fn init(
+        description: Desc,
+        memory: &mut MemoryRegistry,
+    ) -> Result<Self> {
         let Desc { registers } = description;
         Ok(Self {
             registers: memory.acquire(registers)?,

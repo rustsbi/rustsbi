@@ -44,7 +44,7 @@ pub(super) trait RegisterAccess: Send {
 }
 
 /// Byte-spaced 16550 register access.
-pub(super) struct U8RegisterAccess(MmioRegion);
+pub(in crate::driver::device::console) struct U8RegisterAccess(MmioRegion);
 
 impl RegisterAccess for U8RegisterAccess {
     fn read(&self, register: Register) -> Result<u8> {
@@ -57,7 +57,7 @@ impl RegisterAccess for U8RegisterAccess {
 }
 
 /// Word-spaced 16550 register access using the low byte of each word.
-pub(super) struct U32RegisterAccess(MmioRegion);
+pub(in crate::driver::device::console) struct U32RegisterAccess(MmioRegion);
 
 impl RegisterAccess for U32RegisterAccess {
     fn read(&self, register: Register) -> Result<u8> {
@@ -73,13 +73,16 @@ impl RegisterAccess for U32RegisterAccess {
 }
 
 /// A 16550 UART that uses `Access` for register I/O.
-pub(super) struct Device<Access> {
+pub(in crate::driver::device::console) struct Device<Access> {
     registers: Access,
 }
 
 impl Device<U8RegisterAccess> {
     /// Acquires a byte-spaced register window.
-    pub(super) fn init(description: DescU8, memory: &mut MemoryRegistry) -> Result<Self> {
+    pub(in crate::driver::device::console) fn init(
+        description: DescU8,
+        memory: &mut MemoryRegistry,
+    ) -> Result<Self> {
         let DescU8 { registers } = description;
         Ok(Self {
             registers: U8RegisterAccess(memory.acquire(registers)?),
@@ -89,7 +92,10 @@ impl Device<U8RegisterAccess> {
 
 impl Device<U32RegisterAccess> {
     /// Acquires a word-spaced register window.
-    pub(super) fn init(description: DescU32, memory: &mut MemoryRegistry) -> Result<Self> {
+    pub(in crate::driver::device::console) fn init(
+        description: DescU32,
+        memory: &mut MemoryRegistry,
+    ) -> Result<Self> {
         let DescU32 { registers } = description;
         Ok(Self {
             registers: U32RegisterAccess(memory.acquire(registers)?),
@@ -97,8 +103,11 @@ impl Device<U32RegisterAccess> {
     }
 }
 
-impl<Access: RegisterAccess> Device<Access> {
-    fn line_status(&self) -> Result<LineStatus> {
+impl<Access> Device<Access> {
+    fn line_status(&self) -> Result<LineStatus>
+    where
+        Access: RegisterAccess,
+    {
         Ok(LineStatus::from_bits_retain(
             self.registers.read(Register::LineStatus)?,
         ))

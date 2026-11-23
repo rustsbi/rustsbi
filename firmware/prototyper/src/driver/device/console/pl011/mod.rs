@@ -8,14 +8,15 @@
 mod description;
 mod device;
 
-use alloc::boxed::Box;
 use core::mem::align_of;
 use runtime::{Error, FdtNode, PlatformView, Result};
 
 use super::ConsoleDesc;
 use crate::devicetree::u32_property;
 
-use self::{description::Desc, device::SPAN};
+use self::device::SPAN;
+pub(super) use description::Desc;
+pub(super) use device::Device;
 
 /// Parses a PL011 node and reads its clock frequency.
 pub(super) fn describe(
@@ -29,7 +30,7 @@ pub(super) fn describe(
     if !registers.has_aligned_bounds(align_of::<u32>()) {
         return Err(Error::InvalidArgs);
     }
-    Ok(Some(Box::new(Desc {
+    Ok(Some(ConsoleDesc::Pl011(Desc {
         registers,
         clock_hz: u32_property(node, "clock-frequency"),
     })))
