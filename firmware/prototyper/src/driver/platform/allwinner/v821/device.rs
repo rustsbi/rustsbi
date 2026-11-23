@@ -1,14 +1,12 @@
 //! V821 boot preparation and initialized platform state.
 
-use csr::machine::{Identifier, VendorId};
 use runtime::{
-    Error, Result,
-    hart::HartId,
+    Result,
     memory::MemoryRegistry,
     soc::allwinner::v821::{AllwinnerV821Soc, NoncacheableAlias},
 };
 
-use super::{control::release_boot0_isp_sram, description::Desc};
+use super::{control, description::Desc};
 
 /// A V821 SoC whose boot contract and machine-wide PMA are prepared.
 pub(crate) struct V821 {
@@ -18,22 +16,11 @@ pub(crate) struct V821 {
 
 impl V821 {
     pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
-        let hart = HartId::current().map_err(|_| Error::InvalidArgs)?;
-        const BOOT_HART: usize = 0;
-        const ANDES_VENDOR_ID: Identifier = Identifier::from_bits(0x31e);
-        if hart.as_usize() != BOOT_HART
-            || HartId::count() != 1
-            || VendorId::read() != ANDES_VENDOR_ID
-        {
-            return Err(Error::InvalidArgs);
-        }
-        let noncacheable_alias = description.soc.csr().initialize_noncacheable_alias();
-        let platform = Self {
+        let noncacheable_alias = control::early_init(description.soc, memory)?;
+        Ok(Self {
             soc: description.soc,
             noncacheable_alias,
-        };
-        release_boot0_isp_sram(platform.soc, memory)?;
-        Ok(platform)
+        })
     }
 
     /// Returns the offset of the noncacheable alias established during preparation.

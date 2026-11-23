@@ -24,8 +24,12 @@ pub(crate) fn describe(platform: &PlatformView<'_>) -> Result<Option<Desc>> {
 
 /// Enables the PLMT clock when the V821 platform is present.
 pub(crate) fn prepare_plmt(platform: Option<&V821>, memory: &mut MemoryRegistry) -> Result<()> {
-    match platform {
-        Some(platform) => control::enable_plmt_clock(platform.soc(), memory),
-        None => Ok(()),
+    if let Some(platform) = platform {
+        const PLMT_CLOCK_ENABLE: u32 = 1 << 31;
+        let clock = memory.acquire(platform.soc().plmt_clock()?)?;
+        let value = u32::from_le(clock.read::<u32>(0)?);
+        clock.write(0, (value | PLMT_CLOCK_ENABLE).to_le())?;
+        runtime::instruction::fence();
     }
+    Ok(())
 }
