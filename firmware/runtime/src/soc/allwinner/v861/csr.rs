@@ -1,129 +1,50 @@
-//! Safe accessors for the V861 C907 custom CSRs.
+//! V861 cache-policy snapshots and hardware-reset preparation.
 //!
-//! The API remains visible on non-RISC-V targets for static analysis, but an
-//! attempted hardware operation on such a target panics.
-//!
-//! # References
-//!
-//! - Reference implementation: [OpenSBI D1 cache setup](https://github.com/riscv-software-src/opensbi/blob/3593a5facc4c6938b90429a6973ba9ee21fc5899/platform/generic/allwinner/sun20i-d1.c)
-//!   — C907 CSR numbers and cache-policy bits.
+//! CSR definitions and hardware operations come from `csr::vendor::thead`.
 
 use super::AllwinnerV861Soc;
+use csr::vendor::thead::{
+    c907::{CacheControl, Hint, L2Control},
+    machine::ExtendedStatus,
+};
 
 /// Cache policy captured on the boot C907 and restored on reset harts.
 pub struct C907CacheState {
-    l2: usize,
-    status: usize,
-    hint: usize,
-    cache: usize,
+    l2: L2Control,
+    status: ExtendedStatus,
+    hint: Hint,
+    cache: CacheControl,
 }
 
 impl C907CacheState {
     fn read() -> Self {
-        arch::read()
+        Self {
+            l2: L2Control::read(),
+            status: ExtendedStatus::read(),
+            hint: Hint::read(),
+            cache: CacheControl::read(),
+        }
     }
 
     /// Restores this policy on a hardware-reset C907.
     pub fn restore(&self) {
-        arch::restore(self);
+        // SAFETY: A reset C907 has invalidated its caches and joined coherency
+        // before restoring the boot C907's saved configuration.
+        unsafe {
+            L2Control::write(self.l2);
+            ExtendedStatus::restore(self.status);
+            Hint::write(self.hint);
+            CacheControl::write(self.cache);
+        }
     }
 }
 
 impl AllwinnerV861Soc {
     /// Enables firmware C907 cache controls and captures the loader policy.
     pub fn initialize_c907_cache(self) -> C907CacheState {
-        arch::enable_cache_controls();
+        // SAFETY: The SoC capability identifies C907 and firmware runs in
+        // M-mode before releasing secondary harts.
+        unsafe { CacheControl::set_bits(CacheControl::V861_ENABLE) };
         C907CacheState::read()
-    }
-}
-
-mod arch {
-    use super::C907CacheState;
-
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-    const L2_CONTROL_CSR: usize = 0x7c3;
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-    const EXTENDED_STATUS_CSR: usize = 0x7c0;
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-    const HINT_CSR: usize = 0x7c5;
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-    const CACHE_CONTROL_CSR: usize = 0x7c1;
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-    const CACHE_CONTROL_ENABLE: usize = (1 << 24) | (1 << 12);
-
-    pub(super) fn read() -> C907CacheState {
-        match () {
-            #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-            () => unsafe {
-                let (l2, status, hint, cache);
-                // SAFETY: the public interface is reachable only through a V861 SoC
-                // capability, and the firmware invokes it in machine mode.
-                core::arch::asm!(
-                    "csrr {l2}, {l2_csr}", "csrr {status}, {status_csr}",
-                    "csrr {hint}, {hint_csr}", "csrr {cache}, {cache_csr}",
-                    l2_csr = const L2_CONTROL_CSR,
-                    status_csr = const EXTENDED_STATUS_CSR,
-                    hint_csr = const HINT_CSR,
-                    cache_csr = const CACHE_CONTROL_CSR,
-                    l2 = out(reg) l2,
-                    status = out(reg) status,
-                    hint = out(reg) hint,
-                    cache = out(reg) cache,
-                );
-                C907CacheState {
-                    l2,
-                    status,
-                    hint,
-                    cache,
-                }
-            },
-            #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-            () => unimplemented!("V861 custom CSRs require a RISC-V target"),
-        }
-    }
-
-    pub(super) fn restore(state: &C907CacheState) {
-        match () {
-            #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-            () => unsafe {
-                // SAFETY: the reset hart has invalidated its caches and joined
-                // coherency before its first shared-memory access.
-                core::arch::asm!(
-                    "csrw {l2_csr}, {l2}", "csrw {status_csr}, {status}",
-                    "csrw {hint_csr}, {hint}", "csrw {cache_csr}, {cache}",
-                    l2_csr = const L2_CONTROL_CSR,
-                    status_csr = const EXTENDED_STATUS_CSR,
-                    hint_csr = const HINT_CSR,
-                    cache_csr = const CACHE_CONTROL_CSR,
-                    l2 = in(reg) state.l2,
-                    status = in(reg) state.status,
-                    hint = in(reg) state.hint,
-                    cache = in(reg) state.cache,
-                );
-            },
-            #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-            () => {
-                let _ = (state.l2, state.status, state.hint, state.cache);
-                unimplemented!("V861 custom CSRs require a RISC-V target");
-            }
-        }
-    }
-
-    pub(super) fn enable_cache_controls() {
-        match () {
-            #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-            () => unsafe {
-                // SAFETY: the public interface requires a V861 C907 capability and
-                // the firmware invokes it in machine mode.
-                core::arch::asm!(
-                    "csrs {cache_csr}, {mask}",
-                    cache_csr = const CACHE_CONTROL_CSR,
-                    mask = in(reg) CACHE_CONTROL_ENABLE,
-                    options(nomem, nostack),
-                );
-            },
-            #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-            () => unimplemented!("V861 custom CSRs require a RISC-V target"),
-        }
     }
 }
