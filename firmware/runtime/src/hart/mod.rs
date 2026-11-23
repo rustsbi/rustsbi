@@ -18,7 +18,7 @@ pub use features::{
     supports_privilege,
 };
 
-pub use wakeup::{HartWake, install_wakeup};
+pub use wakeup::{HartWake, install_wakeup, wakeup_installed};
 
 pub(crate) use lifecycle::{
     ControlTransfer, HartEvent, current_hart, take_control_transfer, take_local_event,

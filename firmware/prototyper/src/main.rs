@@ -76,7 +76,7 @@ fn secondary_hart(boot: Option<&BootInfo>) -> Result<()> {
     let hart = HartId::current()?;
     detect_hart_features(hart);
 
-    platform::initialize_secondary_hart(hart);
+    platform::initialize_secondary_hart();
     firmware::set_pmp();
 
     // Hardware-reset harts have no SPL handoff; HSM starts them in S-mode.
