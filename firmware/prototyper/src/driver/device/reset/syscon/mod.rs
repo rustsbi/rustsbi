@@ -18,6 +18,7 @@ use crate::devicetree::try_for_each_enabled_node;
 
 use description::ActionDesc;
 pub(super) use description::Desc;
+pub(super) use device::SysconReset;
 
 const POWEROFF_COMPATIBLE: &str = "syscon-poweroff";
 const REBOOT_COMPATIBLE: &str = "syscon-reboot";

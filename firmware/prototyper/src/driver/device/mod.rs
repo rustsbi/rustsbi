@@ -15,3 +15,13 @@ pub(crate) mod reset;
 pub(crate) mod thead_plic;
 
 use super::{Description, match_desc};
+use runtime::{Error, Result};
+
+/// Records a device description and rejects duplicates.
+fn select_once<T>(slot: &mut Option<T>, value: T) -> Result<()> {
+    if slot.is_some() {
+        return Err(Error::InvalidArgs);
+    }
+    *slot = Some(value);
+    Ok(())
+}

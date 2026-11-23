@@ -1,32 +1,15 @@
 //! Devicetree description of one syscon reset action.
 
-use alloc::boxed::Box;
 use core::mem::{align_of, size_of};
 
-use runtime::{
-    Error, FdtNode, PlatformView, Result,
-    memory::{MemoryRegistry, RegRange},
-    node_is_enabled,
-};
+use runtime::{Error, FdtNode, PlatformView, Result, memory::RegRange, node_is_enabled};
 
-use super::{
-    super::{ResetDevice, primary_registers},
-    device::SysconReset,
-};
-use crate::driver::Description;
+use super::super::primary_registers;
 
 /// Selected reset actions before their MMIO registers are acquired.
 pub(crate) struct Desc {
     pub(super) poweroff: Option<ActionDesc>,
     pub(super) reboot: Option<ActionDesc>,
-}
-
-impl Description for Desc {
-    type Device = Box<dyn ResetDevice>;
-
-    fn init(self: Box<Self>, memory: &mut MemoryRegistry) -> Result<Self::Device> {
-        Ok(Box::new(SysconReset::init(*self, memory)?))
-    }
 }
 
 /// One validated syscon action whose MMIO word has not been acquired yet.
@@ -81,7 +64,6 @@ impl ActionDesc {
     }
 
     fn read_u32(node: FdtNode<'_, '_>, name: &str) -> Result<Option<u32>> {
-        // Devicetree cells are big-endian regardless of CPU endianness.
         node.property(name)
             .map(|property| {
                 let bytes = property.value.try_into().map_err(|_| Error::InvalidArgs)?;

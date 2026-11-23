@@ -8,7 +8,7 @@ use alloc::{
     vec::Vec,
 };
 use core::sync::atomic::{AtomicBool, Ordering};
-use runtime::{Error, PlatformDescription, Result, console, hart, reset};
+use runtime::{Error, PlatformDescription, Result, console, hart};
 
 use super::{allwinner::v821, describe_pmu, harts, interrupts, report, wakeup};
 use crate::{
@@ -74,7 +74,7 @@ pub fn init_platform(platform_description: PlatformDescription) -> Result<usize>
         )
     })?;
     if let Some(description) = reset_description {
-        reset::init(description.init(&mut memory)?)?;
+        reset_driver::init(description, &mut memory)?;
     }
     let custom_extension = platform_description
         .inspect(|platform| sbi::vendor::Extension::init(v821, &platform, &mut memory))?;

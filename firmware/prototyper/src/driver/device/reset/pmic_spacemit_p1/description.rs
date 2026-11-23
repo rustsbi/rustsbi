@@ -1,11 +1,6 @@
 //! Description of the SpacemiT P1 PMIC reset.
 
-use alloc::boxed::Box;
-use runtime::{Result, memory::MemoryRegistry};
-
-use crate::driver::Description;
-
-use super::{super::ResetDevice, controller, device::P1Pmic};
+use super::controller;
 
 /// A validated 7-bit I2C device address.
 #[derive(Clone, Copy)]
@@ -28,15 +23,7 @@ impl I2cAddress {
 ///
 /// The controller's MMIO region has not been acquired yet.
 #[derive(Clone, Copy)]
-pub(in super::super) struct Desc {
+pub(crate) struct Desc {
     pub(super) controller: controller::Desc,
     pub(super) address: I2cAddress,
-}
-
-impl Description for Desc {
-    type Device = Box<dyn ResetDevice>;
-
-    fn init(self: Box<Self>, memory: &mut MemoryRegistry) -> Result<Self::Device> {
-        Ok(Box::new(P1Pmic::init(*self, memory)?))
-    }
 }

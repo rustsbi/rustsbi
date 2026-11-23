@@ -85,15 +85,15 @@ impl Reset {
 
 static RESET: Once<Reset> = Once::new();
 
-/// Registers the initialized platform reset device.
+/// Registers an initialized reset device and takes ownership of it.
 ///
 /// A second registration returns [`Error::AlreadyInitialized`].
-pub fn init(device: Box<dyn ResetDevice>) -> Result<()> {
+pub fn init(device: impl ResetDevice + 'static) -> Result<()> {
     let mut initialized = false;
     RESET.call_once(|| {
         initialized = true;
         Reset {
-            device: Mutex::new(device),
+            device: Mutex::new(Box::new(device)),
         }
     });
     initialized.then_some(()).ok_or(Error::AlreadyInitialized)

@@ -36,13 +36,16 @@ impl PowerControl {
 }
 
 /// A P1 PMIC bound to the K1 I2C controller that reaches it.
-pub(super) struct P1Pmic {
+pub(in crate::driver::device::reset) struct P1Pmic {
     i2c: K1I2cController,
     address: I2cAddress,
 }
 
 impl P1Pmic {
-    pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+    pub(in crate::driver::device::reset) fn init(
+        description: Desc,
+        memory: &mut MemoryRegistry,
+    ) -> Result<Self> {
         let Desc {
             controller,
             address,

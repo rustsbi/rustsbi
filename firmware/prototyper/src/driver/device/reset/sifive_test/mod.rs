@@ -13,7 +13,8 @@ use runtime::{PlatformView, Result};
 use crate::devicetree::EnabledNode;
 
 use super::primary_registers;
-use description::Desc;
+pub(super) use description::Desc;
+pub(super) use device::SifiveTestDevice;
 
 const COMPATIBLES: [&str; 1] = ["sifive,test0"];
 

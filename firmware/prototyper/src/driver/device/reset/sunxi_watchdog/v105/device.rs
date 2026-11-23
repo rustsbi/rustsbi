@@ -27,13 +27,16 @@ const MODE_WRITABLE_BITS: u32 = 0x0000_fffe;
 const SOFTWARE_RESET_TRIGGER: u32 = 1;
 
 /// A V105 watchdog bound to its MMIO window and optional RTC reset gate.
-pub(super) struct V105Watchdog {
+pub(in crate::driver::device::reset) struct V105Watchdog {
     registers: MmioRegion,
     reset_gate: Option<MmioRegion>,
 }
 
 impl V105Watchdog {
-    pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+    pub(in crate::driver::device::reset) fn init(
+        description: Desc,
+        memory: &mut MemoryRegistry,
+    ) -> Result<Self> {
         let Desc {
             registers,
             reset_gate,
