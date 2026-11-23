@@ -4,10 +4,7 @@ use alloc::{string::String, vec::Vec};
 use core::mem::size_of;
 use runtime::{Compatible, Error, FdtNode, PlatformView, Result, hart::HartId, node_is_enabled};
 
-/// One enabled node supplied by the shared discovery traversal.
-///
-/// The compatible property is retained as a view before the node is
-/// dispatched to reset, vendor, interrupt, and PMU discovery.
+/// A device-tree node whose status and ancestors allow discovery.
 #[derive(Clone, Copy)]
 pub(crate) struct EnabledNode<'view, 'tree: 'view> {
     node: FdtNode<'view, 'tree>,
@@ -29,20 +26,20 @@ impl<'view, 'tree> EnabledNode<'view, 'tree> {
     }
 }
 
-/// The result of selecting one resource from an enabled source-tree node.
+/// A discovered resource and its absolute path in the source device tree.
 ///
-/// Unlike [`EnabledNode`], this is an owned discovery result: the selected
-/// resource and the absolute source path can outlive the temporary FDT view.
+/// The owned path lets the next-stage handoff omit the node after the
+/// discovery view is released.
 pub(crate) struct NodeSelection<T> {
     resource: T,
     source_path: String,
 }
 
 impl<T> NodeSelection<T> {
-    pub(crate) fn new(resource: T, source_path: String) -> Self {
+    pub(crate) fn new(resource: T, source_path: &[&str]) -> Self {
         Self {
             resource,
-            source_path,
+            source_path: absolute_path(source_path),
         }
     }
 
@@ -56,20 +53,7 @@ impl<T> NodeSelection<T> {
     }
 }
 
-pub(crate) fn select_from_node_once<T>(
-    slot: &mut Option<NodeSelection<T>>,
-    resource: T,
-    source_path: &[&str],
-) -> Result<()> {
-    if slot.is_some() {
-        return Err(Error::InvalidArgs);
-    }
-    slot.replace(NodeSelection::new(resource, absolute_path(source_path)));
-    Ok(())
-}
-
-/// Converts a traversal path to an owned absolute device-tree path.
-pub(crate) fn absolute_path(segments: &[&str]) -> String {
+fn absolute_path(segments: &[&str]) -> String {
     let mut path = String::new();
     for segment in segments {
         if *segment == "/" || segment.is_empty() {
@@ -104,8 +88,8 @@ pub(crate) fn u32_cells(node: FdtNode<'_, '_>, name: &str) -> Option<Vec<u32>> {
 
 /// One resolved pair from a node's `interrupts-extended` property.
 ///
-/// `slot` retains the pair's original position, which ACLINT devices use as
-/// their device-local register index. `hart` is `None` for disabled CPUs.
+/// `slot` retains the pair's original position for ACLINT register and IMSIC
+/// file indexing. `hart` is `None` if the CPU has no enabled hart record.
 pub(crate) struct CpuInterruptSource {
     pub(crate) hart: Option<HartId>,
     pub(crate) controller_enabled: bool,
@@ -141,7 +125,7 @@ pub(crate) fn resolve_interrupts_extended(
         .collect()
 }
 
-/// Returns whether the node is a CPU node under `/cpus`.
+/// Checks the `cpu` base name of a node selected from `/cpus` by the caller.
 pub(crate) fn is_cpu_node(node: FdtNode<'_, '_>) -> bool {
     node.name.split('@').next() == Some("cpu")
 }
@@ -181,7 +165,9 @@ fn cpu_interrupt_controllers(platform: &PlatformView<'_>) -> Result<Vec<CpuInter
     Ok(controllers)
 }
 
-/// Tries to visit enabled nodes depth first, retaining each node's parent.
+/// Visits enabled nodes depth first, skipping disabled subtrees.
+///
+/// The visitor receives the node, its parent, and its path from the root.
 pub(crate) fn try_for_each_enabled_node<'b, 'a, F>(
     root: FdtNode<'b, 'a>,
     visitor: &mut F,
