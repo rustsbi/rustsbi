@@ -78,7 +78,7 @@ pub struct SbiDispatcher {
 /// Publishes the SBI services after their Runtime devices are initialized.
 pub(crate) fn init(
     supervisor_memory: &'static SupervisorMemory,
-    custom_extension: vendor::Extension,
+    vendor: Option<vendor::Vendor>,
     pmu: Option<SbiPmu>,
     hardware_wakeup: bool,
 ) -> Result<()> {
@@ -102,7 +102,7 @@ pub(crate) fn init(
         pmu,
         sta: Some(SbiSta::new(supervisor_memory)),
         mpxy: Some(SbiMpxy::new(supervisor_memory)),
-        vendor: vendor::Vendor::new(custom_extension, supervisor_memory),
+        vendor,
     }));
     dispatcher.publish()
 }
