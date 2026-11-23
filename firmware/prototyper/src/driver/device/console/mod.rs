@@ -18,12 +18,39 @@ mod uart16550;
 mod xscale;
 
 use alloc::boxed::Box;
-use runtime::{Error, FdtNode, PlatformView, Result, console::ConsoleDevice, node_is_enabled};
+use runtime::{
+    Error, FdtNode, PlatformView, Result, console::ConsoleDevice, memory::MemoryRegistry,
+    node_is_enabled,
+};
 
-use super::Description;
+/// A UART description pending MMIO acquisition.
+pub(crate) enum ConsoleDesc {
+    Uart16550U8(uart16550::DescU8),
+    Uart16550U32(uart16550::DescU32),
+    AxiLite(axi_lite::Desc),
+    Bl808(bl808::Desc),
+    Sifive(sifive::Desc),
+    Pl011(pl011::Desc),
+    Xscale(xscale::Desc),
+}
 
-/// A parsed console device ready to acquire registers and initialize a UART.
-pub(crate) type ConsoleDesc = Box<dyn Description<Device = Box<dyn ConsoleDevice>>>;
+impl ConsoleDesc {
+    pub(crate) fn init(self, memory: &mut MemoryRegistry) -> Result<Box<dyn ConsoleDevice>> {
+        Ok(match self {
+            Self::Uart16550U8(desc) => Box::new(
+                uart16550::Device::<uart16550::U8RegisterAccess>::init(desc, memory)?,
+            ),
+            Self::Uart16550U32(desc) => Box::new(
+                uart16550::Device::<uart16550::U32RegisterAccess>::init(desc, memory)?,
+            ),
+            Self::AxiLite(desc) => Box::new(axi_lite::Device::init(desc, memory)?),
+            Self::Bl808(desc) => Box::new(bl808::Device::init(desc, memory)?),
+            Self::Sifive(desc) => Box::new(sifive::Device::init(desc, memory)?),
+            Self::Pl011(desc) => Box::new(pl011::Device::init(desc, memory)?),
+            Self::Xscale(desc) => Box::new(xscale::Device::init(desc, memory)?),
+        })
+    }
+}
 
 /// Selects the console named by `/chosen/stdout-path`.
 ///

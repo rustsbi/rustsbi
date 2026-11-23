@@ -8,7 +8,6 @@
 mod description;
 mod device;
 
-use alloc::boxed::Box;
 use core::mem::align_of;
 use runtime::{Error, FdtNode, PlatformView, Result};
 
@@ -16,7 +15,8 @@ use super::ConsoleDesc;
 use crate::devicetree::u32_property;
 
 use self::device::{U8_SPAN, U32_SPAN};
-use description::{DescU8, DescU32};
+pub(super) use description::{DescU8, DescU32};
+pub(super) use device::{Device, U8RegisterAccess, U32RegisterAccess};
 
 /// Describes a 16550 UART using its register access properties.
 pub(super) fn describe(
@@ -42,13 +42,13 @@ pub(super) fn describe(
         .device_register(node)?
         .ok_or(Error::InvalidArgs)?
         .subrange(0, span)?;
-    let description: ConsoleDesc = if word_access {
+    let description = if word_access {
         if !registers.has_aligned_bounds(align_of::<u32>()) {
             return Err(Error::InvalidArgs);
         }
-        Box::new(DescU32 { registers })
+        ConsoleDesc::Uart16550U32(DescU32 { registers })
     } else {
-        Box::new(DescU8 { registers })
+        ConsoleDesc::Uart16550U8(DescU8 { registers })
     };
     Ok(Some(description))
 }

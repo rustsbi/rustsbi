@@ -68,13 +68,16 @@ fn baud_divisor(clock_hz: u32) -> Option<u16> {
 }
 
 /// An XScale UART bound to an acquired register window.
-pub(super) struct Device {
+pub(in crate::driver::device::console) struct Device {
     registers: MmioRegion,
 }
 
 impl Device {
     /// Enables 8N1 operation and applies the selected baud setup.
-    pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+    pub(in crate::driver::device::console) fn init(
+        description: Desc,
+        memory: &mut MemoryRegistry,
+    ) -> Result<Self> {
         let Desc {
             registers,
             clock_hz,

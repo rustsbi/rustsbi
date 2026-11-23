@@ -97,13 +97,16 @@ impl BaudDivisors {
 }
 
 /// An Arm PL011 UART bound to an acquired register window.
-pub(super) struct Device {
+pub(in crate::driver::device::console) struct Device {
     registers: MmioRegion,
 }
 
 impl Device {
     /// Configures 115200 baud and 8N1 using validated divisors.
-    pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+    pub(in crate::driver::device::console) fn init(
+        description: Desc,
+        memory: &mut MemoryRegistry,
+    ) -> Result<Self> {
         let Desc {
             registers,
             clock_hz,
