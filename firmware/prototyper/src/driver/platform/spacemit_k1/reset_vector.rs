@@ -18,12 +18,9 @@ enum Register {
 pub(super) struct ResetVectorRegisters([MmioRegion; 2]);
 
 impl ResetVectorRegisters {
-    pub(super) fn acquire(
-        memory: &mut MemoryRegistry,
-        [cluster0, cluster1]: [RegRange; 2],
-    ) -> Result<Self> {
-        let cluster0 = memory.acquire(cluster0)?;
-        let cluster1 = memory.acquire(cluster1)?;
+    pub(super) fn acquire(memory: &mut MemoryRegistry, registers: RegRange) -> Result<Self> {
+        let cluster0 = memory.acquire(registers.subrange(0x1b0, 2 * size_of::<u32>())?)?;
+        let cluster1 = memory.acquire(registers.subrange(0x2b0, 2 * size_of::<u32>())?)?;
         Ok(Self([cluster0, cluster1]))
     }
 

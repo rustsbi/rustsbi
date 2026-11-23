@@ -14,7 +14,6 @@ pub(crate) mod plmt;
 pub(crate) mod reset;
 pub(crate) mod thead_plic;
 
-use super::Description;
 use runtime::{Error, Result};
 
 /// Records a device description and rejects duplicates.

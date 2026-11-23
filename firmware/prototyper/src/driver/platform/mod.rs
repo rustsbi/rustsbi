@@ -22,7 +22,10 @@ use crate::{
 use runtime::{
     PlatformView, Result,
     hart::HartId,
-    soc::allwinner::{v821::AllwinnerV821Soc, v861::AllwinnerV861Soc},
+    soc::{
+        allwinner::{v821::AllwinnerV821Soc, v861::AllwinnerV861Soc},
+        spacemit::k1::SpacemitK1Soc,
+    },
 };
 
 pub use boot::{init_platform, wait_until_ready};
@@ -43,8 +46,7 @@ fn describe_pmu(platform: &PlatformView<'_>) -> Result<Option<SbiPmu>> {
     if let Some(pmu) = pmu_node.and_then(pmu::from_node) {
         return Ok(Some(pmu));
     }
-    if platform.soc::<AllwinnerV821Soc>()?.is_some() || platform.spacemit_k1_registers()?.is_some()
-    {
+    if platform.soc::<AllwinnerV821Soc>()?.is_some() || platform.soc::<SpacemitK1Soc>()?.is_some() {
         return Ok(None);
     }
     Ok(platform

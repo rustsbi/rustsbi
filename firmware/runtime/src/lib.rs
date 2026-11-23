@@ -27,7 +27,6 @@ pub mod memory;
 mod recovery;
 pub mod reset;
 pub mod soc;
-mod spacemit_k1;
 mod sunxi_rtc_v203;
 pub mod timer;
 pub mod trap;
@@ -43,4 +42,3 @@ pub use macros::{entry, sbi_policy};
 /// Firmware policy crates receive RustSBI transitively through this crate and
 /// refer to it as `runtime::rustsbi`.
 pub use rustsbi;
-pub use spacemit_k1::SpacemitK1Registers;
