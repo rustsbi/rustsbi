@@ -1,4 +1,4 @@
-//! Selection and initialization of the platform's timer, IPI, and irqchip devices.
+//! Initialization of the platform's timer and interrupt devices.
 
 use alloc::{boxed::Box, string::String, vec::Vec};
 use runtime::{
@@ -12,23 +12,17 @@ use super::{allwinner::v821, qemu_aplic};
 use crate::{
     driver::device::{
         imsic::ImsicIpi,
-        interrupts,
-        interrupts::IpiSelection,
-        interrupts::IrqchipSelection,
-        interrupts::TimerSelection,
-        mswi::{self, Mswi},
-        mtimer::Mtimer,
-        plicsw::{self, PlicSw},
-        plmt::Plmt,
+        interrupts::{self as discovery, IpiSelection, IrqchipSelection, TimerSelection},
+        mswi::Mswi,
+        mtimer::{self, Mtimer},
+        plicsw::PlicSw,
+        plmt::{self, Plmt},
         thead_plic,
     },
     firmware::IrqMmio,
 };
 
-/// Parses, selects, and registers the timer and IPI devices for this platform.
-///
-/// When IMSIC is selected, appends the device-tree paths to hide from the next stage.
-/// Returns QEMU interrupt MMIO ranges when required for PMP.
+/// Discovers and initializes interrupt devices for the platform.
 pub(super) fn init(
     platform: &PlatformView<'_>,
     model: &str,
@@ -36,57 +30,74 @@ pub(super) fn init(
     memory: &mut MemoryRegistry,
     hidden_node_paths: &mut Vec<String>,
 ) -> Result<Option<IrqMmio>> {
-    let mut selected = interrupts::describe(platform)?;
-
-    if selected.timer.plmt.is_some() && selected.ipi.plicsw.is_some() {
+    let discovery::Selection {
+        timer,
+        mut ipi,
+        irqchip,
+    } = discovery::describe(platform)?;
+    let timer = select_timer(timer, &mut ipi);
+    if matches!(&timer, Some(TimerDesc::Plmt(_))) {
         v821::prepare_plmt(v821, memory)?;
     }
-    if let Some(registers) = selected.irqchip.thead_plic {
+    let (mmio, paths) = init_devices(timer, ipi, irqchip, model, memory)?;
+    hidden_node_paths.extend(paths);
+    Ok(mmio)
+}
+
+/// A selected machine timer before MMIO acquisition.
+pub(super) enum TimerDesc {
+    Plmt(plmt::Desc),
+    Mtimer(mtimer::Desc),
+}
+
+/// Selects a timer and retains only the usable software-IPI candidates.
+pub(super) fn select_timer(
+    candidates: TimerSelection,
+    ipi: &mut IpiSelection,
+) -> Option<TimerDesc> {
+    // PLMT is usable only with PLICSW. ACLINT fallback can still use PLICSW.
+    if let Some(timer) = candidates.plmt.filter(|_| ipi.plicsw.is_some()) {
+        return Some(TimerDesc::Plmt(timer));
+    }
+    if let Some(timer) = candidates.aclint {
+        return Some(TimerDesc::Mtimer(timer));
+    }
+    ipi.plicsw = None;
+    candidates.clint.map(TimerDesc::Mtimer)
+}
+
+/// Initializes the platform's timer and interrupt devices.
+///
+/// Returns the interrupt MMIO ranges required by PMP and the device-tree
+/// paths to hide when handing off to the next stage.
+fn init_devices(
+    selected_timer: Option<TimerDesc>,
+    ipi: IpiSelection,
+    irqchip: IrqchipSelection,
+    model: &str,
+    memory: &mut MemoryRegistry,
+) -> Result<(Option<IrqMmio>, Vec<String>)> {
+    if let Some(registers) = irqchip.thead_plic {
         thead_plic::init(registers, memory)?;
     }
 
-    init_timer(&mut selected.timer, &mut selected.ipi, memory)?;
-    init_ipi(
-        &mut selected.ipi,
-        &mut selected.irqchip,
-        model,
-        memory,
-        hidden_node_paths,
-    )
+    let timer_device: Option<Box<dyn TimerDevice>> = match selected_timer {
+        Some(TimerDesc::Plmt(description)) => Some(Box::new(Plmt::init(description, memory)?)),
+        Some(TimerDesc::Mtimer(description)) => Some(Box::new(Mtimer::init(description, memory)?)),
+        None => None,
+    };
+    timer::init(timer_device)?;
+    init_ipi(ipi, irqchip, model, memory)
 }
 
-/// Initializes the preferred PLMT, ACLINT, or CLINT timer.
-fn init_timer(
-    selected: &mut TimerSelection,
-    ipi: &mut IpiSelection,
-    memory: &mut MemoryRegistry,
-) -> Result<()> {
-    // PLMT and PLICSW are initialized only as a pair.
-    let device: Option<Box<dyn TimerDevice>> =
-        if let (Some(plmt), Some(_)) = (selected.plmt.take(), ipi.plicsw.as_ref()) {
-            Some(Box::new(Plmt::init(plmt, memory)?))
-        } else if let Some(node) = selected.aclint.take() {
-            let (mtimer, _) = node.into_parts();
-            Some(Box::new(Mtimer::init(mtimer, memory)?))
-        } else {
-            ipi.plicsw = None;
-            match selected.clint.take() {
-                Some(timer) => Some(Box::new(Mtimer::init(timer.into_parts().0, memory)?)),
-                None => None,
-            }
-        };
-    timer::init(device)
-}
-
-/// Registers IMSIC when available, or falls back to a software IPI device.
+/// Prefers IMSIC for IPIs and falls back to software when IMSIC is unsupported.
 fn init_ipi(
-    selected: &mut IpiSelection,
-    irqchip: &mut IrqchipSelection,
+    selected: IpiSelection,
+    irqchip: IrqchipSelection,
     model: &str,
     memory: &mut MemoryRegistry,
-    hidden_node_paths: &mut Vec<String>,
-) -> Result<Option<IrqMmio>> {
-    if let Some(node) = selected.imsic.take() {
+) -> Result<(Option<IrqMmio>, Vec<String>)> {
+    if let Some(node) = selected.imsic {
         let (imsic, imsic_path) = node.into_parts();
         let machine_base = imsic.layout.machine_base;
         let hart_index_bits = imsic.layout.hart_index_bits;
@@ -112,46 +123,37 @@ fn init_ipi(
                     memory,
                 )?;
                 ipi::init(Ipi::external(device)?)?;
-                if let Some(clint) = selected.clint.take() {
+                // Collect handoff exclusions only after IMSIC becomes active,
+                // so software fallback leaves its interrupt nodes visible.
+                let mut hidden_node_paths = Vec::new();
+                if let Some(clint) = selected.clint {
                     hidden_node_paths.push(clint.into_parts().1);
                 }
                 hidden_node_paths.push(imsic_path);
                 if irqchip.machine_aplic_delegated
-                    && let Some(aplic) = irqchip.machine_aplic.take()
+                    && let Some(aplic) = irqchip.machine_aplic
                 {
                     hidden_node_paths.push(aplic.into_parts().1);
                 }
-                return Ok(irq_mmio);
+                return Ok((irq_mmio, hidden_node_paths));
             }
             Err(Error::NotSupported) => {}
             Err(error) => return Err(error),
         }
     }
 
-    init_software_ipi(
-        selected.plicsw.take(),
-        selected.aclint.take().map(|node| node.into_parts().0),
-        selected.clint.take().map(|node| node.into_parts().0),
-        memory,
-    )?;
-    Ok(None)
-}
-
-/// Registers a software IPI device from PLICSW, ACLINT MSWI, or CLINT.
-fn init_software_ipi(
-    plicsw: Option<plicsw::Desc>,
-    aclint_mswi: Option<mswi::Desc>,
-    clint: Option<mswi::Desc>,
-    memory: &mut MemoryRegistry,
-) -> Result<()> {
-    let device: Option<Box<dyn IpiDevice<Software>>> = match (plicsw, aclint_mswi, clint) {
-        (Some(plicsw), _, _) => Some(Box::new(PlicSw::init(plicsw, memory)?)),
-        (None, Some(mswi), _) => Some(Box::new(Mswi::init(mswi, memory)?)),
-        (None, None, Some(clint)) => Some(Box::new(Mswi::init(clint, memory)?)),
-        (None, None, None) => None,
-    };
-    if let Some(device) = device {
+    let ipi_device: Option<Box<dyn IpiDevice<Software>>> =
+        match (selected.plicsw, selected.aclint, selected.clint) {
+            (Some(plicsw), _, _) => Some(Box::new(PlicSw::init(plicsw, memory)?)),
+            (None, Some(mswi), _) => Some(Box::new(Mswi::init(mswi, memory)?)),
+            (None, None, Some(clint)) => {
+                let (clint, _) = clint.into_parts();
+                Some(Box::new(Mswi::init(clint, memory)?))
+            }
+            (None, None, None) => None,
+        };
+    if let Some(device) = ipi_device {
         ipi::init(Ipi::software(device)?)?;
     }
-    Ok(())
+    Ok((None, Vec::new()))
 }
