@@ -7,7 +7,6 @@ use runtime::rustsbi::{self, RustSBI};
 use runtime::{
     Result, console as runtime_console, events, ipi as runtime_ipi, memory::SupervisorMemory,
 };
-use spin::Once;
 
 pub mod console;
 pub mod cppc;
@@ -78,13 +77,11 @@ pub struct SbiDispatcher {
 
 /// Publishes the SBI services after their Runtime devices are initialized.
 pub(crate) fn init(
-    supervisor_memory: SupervisorMemory,
+    supervisor_memory: &'static SupervisorMemory,
     custom_extension: vendor::Extension,
     pmu: Option<SbiPmu>,
     hardware_wakeup: bool,
 ) -> Result<()> {
-    static SUPERVISOR_MEMORY: Once<SupervisorMemory> = Once::new();
-    let supervisor_memory = SUPERVISOR_MEMORY.call_once(|| supervisor_memory);
     let ipi = runtime_ipi::get().map(|_| SbiIpi);
     events::install(pmu.as_ref().map(|_| pmu::runtime_counters()));
 
