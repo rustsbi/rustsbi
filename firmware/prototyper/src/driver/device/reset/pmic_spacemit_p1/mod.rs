@@ -14,7 +14,9 @@ use runtime::{Error, PlatformView, Result};
 use crate::devicetree::EnabledNode;
 
 use super::primary_registers;
-use description::{Desc, I2cAddress};
+pub(super) use description::Desc;
+use description::I2cAddress;
+pub(super) use device::P1Pmic;
 
 const PMIC_COMPATIBLES: [&str; 2] = ["spacemit,p1", "ky,spm8821"];
 const I2C_COMPATIBLES: [&str; 2] = ["spacemit,k1-i2c", "ky,i2c"];

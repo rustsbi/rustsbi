@@ -11,13 +11,16 @@ use super::super::{ResetDevice, ResetReason, ResetRequest, ResetType};
 use super::description::{ActionDesc, Desc};
 
 /// A syscon reset device with optional poweroff and reboot actions.
-pub(super) struct SysconReset {
+pub(in crate::driver::device::reset) struct SysconReset {
     poweroff: Option<SysconAction>,
     reboot: Option<SysconAction>,
 }
 
 impl SysconReset {
-    pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+    pub(in crate::driver::device::reset) fn init(
+        description: Desc,
+        memory: &mut MemoryRegistry,
+    ) -> Result<Self> {
         let poweroff = description
             .poweroff
             .map(|description| SysconAction::init(description, memory, None))

@@ -27,13 +27,16 @@ const MODE_ENABLE: u32 = 1 << 0;
 const DELAY_TICKS_1MS_DIVISOR: u64 = 1_000;
 
 /// A V104 watchdog bound to its MMIO window and one-millisecond delay count.
-pub(super) struct V104Watchdog {
+pub(in crate::driver::device::reset) struct V104Watchdog {
     registers: MmioRegion,
     delay_ticks: u64,
 }
 
 impl V104Watchdog {
-    pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+    pub(in crate::driver::device::reset) fn init(
+        description: Desc,
+        memory: &mut MemoryRegistry,
+    ) -> Result<Self> {
         let Desc {
             registers,
             timebase_frequency_hz,

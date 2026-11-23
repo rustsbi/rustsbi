@@ -1,10 +1,8 @@
 //! Allwinner V104 watchdog reset driver.
 //!
-//! Runtime acquires the register window once.
-//! The SBI reset mutex serializes calls through this driver only.
-//! Platform integration must ensure that no other firmware
-//! or supervisor watchdog driver programs the same registers.
-//! The loader must leave the watchdog clock and architectural time counter running.
+//! Reset requires a running watchdog clock and a working firmware time source.
+//! The reset mutex only serializes calls through this driver, so firmware and
+//! the supervisor must avoid programming the watchdog through another driver.
 //!
 //! # References
 //!
@@ -19,7 +17,8 @@ use runtime::{PlatformView, Result};
 use crate::devicetree::EnabledNode;
 
 use super::super::primary_registers;
-use description::Desc;
+pub(in super::super) use description::Desc;
+pub(in super::super) use device::V104Watchdog;
 
 const COMPATIBLES: [&str; 2] = ["allwinner,sun20i-d1-wdt", "allwinner,wdt-v104"];
 

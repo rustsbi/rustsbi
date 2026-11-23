@@ -62,12 +62,15 @@ impl FinishCommand {
 }
 
 /// SiFive test device used by QEMU to exit or reset.
-pub(super) struct SifiveTestDevice {
+pub(in crate::driver::device::reset) struct SifiveTestDevice {
     registers: MmioRegion,
 }
 
 impl SifiveTestDevice {
-    pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+    pub(in crate::driver::device::reset) fn init(
+        description: Desc,
+        memory: &mut MemoryRegistry,
+    ) -> Result<Self> {
         let Desc { registers } = description;
         let registers = registers.subrange(0, SPAN)?;
         if !registers.start().is_aligned_to(align_of::<u32>()) {

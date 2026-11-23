@@ -1,10 +1,7 @@
 //! Allwinner V105 watchdog reset driver.
 //!
-//! The driver stops the watchdog before issuing its dedicated software-reset command.
-//! When the Platform Description supplies an RTC V203 `gprcm_reg` window,
-//! it also enables the associated reset gate.
-//! Discovery and initialization do not modify hardware.
-//! Runtime's reset service serializes the command sequence across harts.
+//! Reset requests can enable a gate in the RTC V203 `gprcm_reg` window.
+//! Discovery and initialization leave the watchdog and reset gate untouched.
 //!
 //! # References
 //!
@@ -17,11 +14,12 @@ mod device;
 use runtime::{PlatformView, Result};
 
 use super::super::{primary_registers, selection::find};
-use description::Desc;
+pub(in super::super) use description::Desc;
+pub(in super::super) use device::V105Watchdog;
 
 const COMPATIBLE: &str = "allwinner,wdt-v105";
 
-/// Discovers the watchdog and its optional RTC gate without acquiring MMIO.
+/// Discovers the watchdog and its optional RTC reset gate.
 pub(in super::super) fn describe(platform: &PlatformView<'_>) -> Result<Option<Desc>> {
     let registers = find(platform, |discovered| {
         if discovered
