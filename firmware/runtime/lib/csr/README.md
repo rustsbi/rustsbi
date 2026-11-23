@@ -50,6 +50,8 @@ The generated `modify` operation performs a read followed by a write
 and is not atomic.
 
 The crate represents register layouts, values, and hardware operations.
+Entry assembly refers to register `NUMBER` and field `MASK` constants from
+these definitions.
 The firmware using it owns policy and coordination,
 including feature locks, initialization, interrupt delivery, and recovery.
 
