@@ -51,10 +51,6 @@ pub(super) fn describe(
     let sources = resolve_interrupts_extended(platform, node)?;
     let machine_files = machine_interrupt_files(&sources)?;
     if machine_files.is_empty() {
-        debug!(
-            "IMSIC: node at 0x{:x} is not wired to MachineExternal, skipping",
-            machine_base.as_usize()
-        );
         return Ok(None);
     }
 

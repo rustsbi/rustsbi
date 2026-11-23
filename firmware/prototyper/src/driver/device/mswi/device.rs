@@ -21,8 +21,6 @@ pub(super) struct Mswi {
 
 impl Mswi {
     pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
-        let base_address = description.registers.start().as_usize();
-        let kind = description.kind;
         let size = description
             .hart_slots
             .count()
@@ -32,15 +30,10 @@ impl Mswi {
         if !registers.has_aligned_bounds(align_of::<u32>()) {
             return Err(Error::InvalidArgs);
         }
-        let device = Self {
+        Ok(Self {
             registers: memory.acquire(registers)?,
             hart_slots: description.hart_slots,
-        };
-        info!(
-            "{:<30}: {} (Base Address: 0x{:x})",
-            "Platform IPI Device", kind, base_address
-        );
-        Ok(device)
+        })
     }
 
     fn set_pending(&self, hart: HartId, pending: bool) -> Result<()> {

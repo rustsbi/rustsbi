@@ -15,7 +15,6 @@ use super::device::Mswi;
 pub(crate) struct Desc {
     pub(crate) registers: RegRange,
     pub(crate) hart_slots: HartSlotMap,
-    pub(crate) kind: &'static str,
 }
 
 impl Description for Desc {
