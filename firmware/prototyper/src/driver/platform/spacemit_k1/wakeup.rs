@@ -9,21 +9,21 @@
 use runtime::{
     Error, Result,
     hart::{HartId, HartWake},
-    memory::{MemoryRegistry, MmioRegion},
+    memory::{MemoryRegistry, MmioRegion, RegRange},
 };
 
-use super::description::Desc;
-
-pub(crate) struct K1Wakeup {
+pub(super) struct K1Wakeup {
     status: MmioRegion,
     controls: [MmioRegion; 2],
 }
 
 impl K1Wakeup {
-    pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
-        let [cluster0, cluster1] = description.controls;
+    pub(super) fn init(registers: RegRange, memory: &mut MemoryRegistry) -> Result<Self> {
+        let status = registers.subrange(0x90, size_of::<u32>())?;
+        let cluster0 = registers.subrange(0x12c, 4 * size_of::<u32>())?;
+        let cluster1 = registers.subrange(0x324, 4 * size_of::<u32>())?;
         Ok(Self {
-            status: memory.acquire(description.status)?,
+            status: memory.acquire(status)?,
             controls: [memory.acquire(cluster0)?, memory.acquire(cluster1)?],
         })
     }

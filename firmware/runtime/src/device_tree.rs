@@ -13,7 +13,6 @@ use spin::Once;
 use crate::memory::{
     MemoryRegistry, PhysAddr, PhysAddrRange, RegRange, SupervisorMemory, locate_firmware_image,
 };
-use crate::spacemit_k1::SpacemitK1Registers;
 use crate::{Error, Result};
 
 mod patch;
@@ -295,11 +294,6 @@ impl<'tree> PlatformView<'tree> {
             return Ok(None);
         };
         registers.next().ok_or(Error::InvalidArgs)?.map(Some)
-    }
-
-    /// Returns K1 fixed-register capabilities when this description identifies K1.
-    pub fn spacemit_k1_registers(&self) -> Result<Option<SpacemitK1Registers>> {
-        SpacemitK1Registers::from_root(self.root())
     }
 
     /// Returns a SoC capability when the root node identifies `S`.

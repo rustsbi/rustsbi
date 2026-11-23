@@ -1,14 +1,8 @@
 //! SpacemiT K1 platform description.
 
-use runtime::SpacemitK1Registers;
+use runtime::soc::spacemit::k1::SpacemitK1Soc;
 
 /// K1 system registers collected from the platform description.
 pub(crate) struct Desc {
-    pub(super) registers: SpacemitK1Registers,
-}
-
-impl Desc {
-    pub(crate) const fn new(registers: SpacemitK1Registers) -> Self {
-        Self { registers }
-    }
+    pub(super) soc: SpacemitK1Soc,
 }

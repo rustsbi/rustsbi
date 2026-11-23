@@ -1,6 +1,6 @@
 //! Arm CoreLink CCI-550 coherency control.
 //!
-//! Platform code supplies the status and selected slave-interface windows.
+//! Platform code supplies the register window and selected slave interfaces.
 //! Register fields and sequencing follow the [Arm CoreLink CCI-550 TRM],
 //! sections 3.2, 3.3.3, and 3.3.10.
 //!
@@ -8,7 +8,7 @@
 
 use bitflags::bitflags;
 use runtime::{
-    Result,
+    Error, Result,
     memory::{MemoryRegistry, MmioRegion},
 };
 
@@ -59,11 +59,15 @@ pub(crate) struct Cci550<const N: usize> {
 impl<const N: usize> Cci550<N> {
     /// Acquires the described register windows and constructs the controller.
     pub(crate) fn init(description: Desc<N>, memory: &mut MemoryRegistry) -> Result<Self> {
-        let status = StatusRegister(memory.acquire(description.status)?);
+        let registers = description.registers;
+        let status = StatusRegister(memory.acquire(registers.subrange(0xc, size_of::<u32>())?)?);
         let snoop_control = core::array::try_from_fn(|index| {
-            memory
-                .acquire(description.snoop_controls[index])
-                .map(SnoopControlRegister)
+            let interface = description.interfaces[index];
+            if interface >= 7 {
+                return Err(Error::InvalidArgs);
+            }
+            let control = registers.subrange((interface + 1) * 0x1000, size_of::<u32>())?;
+            memory.acquire(control).map(SnoopControlRegister)
         })?;
         Ok(Self {
             status,
