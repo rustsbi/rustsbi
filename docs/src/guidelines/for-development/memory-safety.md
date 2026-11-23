@@ -35,17 +35,12 @@ not implementation details or side effects.
 ///
 /// The current hart must implement Smaia, the caller must be permitted to access
 /// M-mode CSRs, and `reg_id` must select an implemented register for the current
-/// XLEN. Otherwise, the indirect CSR access may raise an illegal-instruction
+/// XLEN.
+/// Otherwise, the indirect CSR access may raise an illegal-instruction
 /// exception.
 #[inline]
 pub(super) unsafe fn read_ind(reg_id: usize) -> usize {
-    interrupt::free(|| unsafe {
-        let previous = miselect::read();
-        miselect::write(Miselect::from_bits(reg_id));
-        let value = mireg::read().bits();
-        miselect::write(previous);
-        value
-    })
+    // ...
 }
 ```
 
@@ -76,16 +71,22 @@ mod machine {
     ///
     /// The current hart must implement Smaia, the caller must be permitted to access
     /// M-mode CSRs, and `reg_id` must select an implemented register for the current
-    /// XLEN. Otherwise, the indirect CSR access may raise an illegal-instruction
+    /// XLEN.
+    /// Otherwise, the indirect CSR access may raise an illegal-instruction
     /// exception.
     #[inline]
     pub(super) unsafe fn read_ind(reg_id: usize) -> usize {
-        interrupt::free(|| unsafe {
-            let previous = miselect::read();
-            miselect::write(Miselect::from_bits(reg_id));
-            let value = mireg::read().bits();
-            miselect::write(previous);
-            value
+        interrupt::free(|| {
+            // SAFETY: The caller guarantees Smaia, M-mode CSR access,
+            // and an implemented reg_id for this XLEN. Machine interrupts
+            // are disabled on this hart throughout the access window.
+            unsafe {
+                let previous = miselect::read();
+                miselect::write(Miselect::from_bits(reg_id));
+                let value = mireg::read().bits();
+                miselect::write(previous);
+                value
+            }
         })
     }
     // ...
