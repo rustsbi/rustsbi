@@ -20,12 +20,15 @@ mod xscale;
 use alloc::boxed::Box;
 use runtime::{Error, FdtNode, PlatformView, Result, console::ConsoleDevice, node_is_enabled};
 
-use super::{Description, match_desc};
+use super::Description;
 
 /// A parsed console device ready to acquire registers and initialize a UART.
 pub(crate) type ConsoleDesc = Box<dyn Description<Device = Box<dyn ConsoleDevice>>>;
 
-/// Selects `/chosen/stdout-path`, falling back to the first supported console.
+/// Selects the console named by `/chosen/stdout-path`.
+///
+/// If the chosen console is absent or unsupported, scans for the first
+/// supported UART whose own `status` permits use. A parse error stops selection.
 pub(crate) fn select(platform: &PlatformView<'_>) -> Result<Option<ConsoleDesc>> {
     if let Some(chosen) = platform.find_enabled_node("/chosen")
         && let Some(stdout_path) = chosen
@@ -49,10 +52,10 @@ pub(crate) fn select(platform: &PlatformView<'_>) -> Result<Option<ConsoleDesc>>
     Ok(None)
 }
 
-/// Parses one console node into a concrete UART description.
+/// Parses a UART node in its declared `compatible` order.
 ///
-/// Compatible strings are tried in device-tree order.
-/// Within one compatible, the historical driver fallback order is preserved.
+/// Returns [`Error::InvalidArgs`] if a supported binding matches but no
+/// parser accepts the node.
 pub(crate) fn describe(
     platform: &PlatformView<'_>,
     node: FdtNode<'_, '_>,
@@ -60,18 +63,27 @@ pub(crate) fn describe(
     let Some(compatibles) = node.compatible() else {
         return Ok(None);
     };
-    match_desc!(for compatible in compatibles.all(), Error::InvalidArgs; {
-        "ns16550" | "ns16550a" => [
-            uart16550::describe_u8(platform, node),
-            uart16550::describe_u32(platform, node, compatible),
-        ],
-        "snps,dw-apb-uart" | "allwinner,sunxi-uart" => [
-            uart16550::describe_u32(platform, node, compatible),
-        ],
-        "xlnx,xps-uartlite-1.00.a" => [axi_lite::describe(platform, node)],
-        "bflb,bl808-uart" => [bl808::describe(platform, node)],
-        "sifive,uart0" => [sifive::describe(platform, node)],
-        "pl011" | "arm,pl011" => [pl011::describe(platform, node)],
-        "intel,xscale-uart" | "spacemit,k1-uart" => [xscale::describe(platform, node)],
-    })
+    let mut matched = false;
+    for compatible in compatibles.all() {
+        let description = match compatible {
+            "ns16550" | "ns16550a" | "snps,dw-apb-uart" | "allwinner,sunxi-uart" => {
+                uart16550::describe(platform, node, compatible)
+            }
+            "xlnx,xps-uartlite-1.00.a" => axi_lite::describe(platform, node),
+            "bflb,bl808-uart" => bl808::describe(platform, node),
+            "sifive,uart0" => sifive::describe(platform, node),
+            "pl011" | "arm,pl011" => pl011::describe(platform, node),
+            "intel,xscale-uart" | "spacemit,k1-uart" => xscale::describe(platform, node),
+            _ => continue,
+        }?;
+        if description.is_some() {
+            return Ok(description);
+        }
+        matched = true;
+    }
+    if matched {
+        Err(Error::InvalidArgs)
+    } else {
+        Ok(None)
+    }
 }
