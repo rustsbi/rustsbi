@@ -14,6 +14,7 @@ mod parse;
 use runtime::{Error, FdtNode, PlatformView, Result};
 
 pub(crate) use description::{AddressLayout, Desc, IMSIC_COMPATIBLES, IMSIC_FILE_SPAN};
+pub(in crate::driver) use device::ImsicIpi;
 
 /// Parses one IMSIC node after resolving its register ranges.
 pub(super) fn describe(platform: &PlatformView<'_>, node: FdtNode<'_, '_>) -> Result<Option<Desc>> {

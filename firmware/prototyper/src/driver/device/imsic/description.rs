@@ -1,14 +1,10 @@
 //! Parsed machine IMSIC resources.
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::vec::Vec;
 use runtime::{
-    Result,
-    ipi::{External, Iid, IpiDevice},
-    memory::{MemoryRegistry, PhysAddr, RegRange},
+    ipi::Iid,
+    memory::{PhysAddr, RegRange},
 };
-
-use super::super::Description;
-use super::device::ImsicIpi;
 
 /// FDT `compatible` strings identifying an IMSIC interrupt controller.
 pub(crate) const IMSIC_COMPATIBLES: [&str; 1] = ["riscv,imsics"];
@@ -29,7 +25,7 @@ pub(crate) struct AddressLayout {
 }
 
 impl AddressLayout {
-    /// Creates an address layout from validated index widths.
+    /// Creates an address layout from validated index widths and shifts.
     pub(crate) const fn new(
         machine_base: PhysAddr,
         hart_index_bits: u32,
@@ -44,9 +40,10 @@ impl AddressLayout {
         }
     }
 
-    /// Returns the machine interrupt-file address for a hart and group index.
+    /// Returns the machine interrupt-file address for the given indices.
     ///
-    /// Returns `None` if the address arithmetic overflows.
+    /// The indices must fit their validated layout fields. Returns `None`
+    /// if the offsets cannot be added to the base address.
     pub(crate) fn machine_file_address(
         &self,
         hart_index: u32,
@@ -74,12 +71,4 @@ pub(crate) struct Desc {
     pub(crate) ipi_iid: Iid,
     pub(crate) num_iids: u16,
     pub(crate) hart_files: Vec<RegRange>,
-}
-
-impl Description for Desc {
-    type Device = Box<dyn IpiDevice<External>>;
-
-    fn init(self: Box<Self>, memory: &mut MemoryRegistry) -> Result<Self::Device> {
-        Ok(Box::new(ImsicIpi::init(*self, memory)?))
-    }
 }

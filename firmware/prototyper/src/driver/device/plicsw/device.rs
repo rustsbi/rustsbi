@@ -22,13 +22,13 @@ const CONTEXT_STRIDE: usize = 0x1000;
 const ALL_SOURCES_ENABLE_MASK: u32 = 0x0101_0101;
 
 /// A PLICSW software-IPI controller.
-pub(super) struct PlicSw {
+pub(in crate::driver) struct PlicSw {
     registers: MmioRegion,
 }
 
 impl PlicSw {
     /// Acquires and configures the PLICSW source/target matrix.
-    pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+    pub(in crate::driver) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
         let registers = description.registers;
         let hart_id_upper_bound = HartId::upper_bound()?;
         if hart_id_upper_bound > MATRIX_WIDTH || !registers.has_aligned_bounds(align_of::<u32>()) {

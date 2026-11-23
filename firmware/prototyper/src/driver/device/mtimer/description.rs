@@ -1,15 +1,8 @@
 //! Parsed machine timer resources.
 
-use alloc::boxed::Box;
-use runtime::{
-    Result,
-    memory::{MemoryRegistry, RegRange},
-    timer::TimerDevice,
-};
+use runtime::memory::RegRange;
 
-use super::super::super::Description;
 use super::super::hart_slot::HartSlotMap;
-use super::device::Mtimer;
 
 /// How a machine timer exposes its 64-bit compare registers.
 #[derive(Clone, Copy)]
@@ -26,12 +19,4 @@ pub(crate) struct Desc {
     pub(crate) time: Option<RegRange>,
     pub(crate) hart_slots: HartSlotMap,
     pub(crate) access: CompareAccess,
-}
-
-impl Description for Desc {
-    type Device = Box<dyn TimerDevice>;
-
-    fn init(self: Box<Self>, memory: &mut MemoryRegistry) -> Result<Self::Device> {
-        Ok(Box::new(Mtimer::init(*self, memory)?))
-    }
 }

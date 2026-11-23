@@ -14,13 +14,13 @@ use super::description::Desc;
 const MSIP_STRIDE: usize = size_of::<u32>();
 
 /// A machine software-interrupt device backed by per-hart MSIP registers.
-pub(super) struct Mswi {
+pub(in crate::driver) struct Mswi {
     registers: MmioRegion,
     hart_slots: HartSlotMap,
 }
 
 impl Mswi {
-    pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+    pub(in crate::driver) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
         let size = description
             .hart_slots
             .count()

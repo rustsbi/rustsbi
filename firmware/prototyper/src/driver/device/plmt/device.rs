@@ -23,13 +23,13 @@ enum Register {
 const COMPARE_STRIDE: usize = 8;
 
 /// An Andes PLMT machine timer.
-pub(super) struct Plmt {
+pub(in crate::driver) struct Plmt {
     registers: MmioRegion,
 }
 
 impl Plmt {
     /// Acquires the counter and comparator windows for enabled harts.
-    pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+    pub(in crate::driver) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
         let registers = description.registers.subrange(
             0,
             HartId::upper_bound()?
