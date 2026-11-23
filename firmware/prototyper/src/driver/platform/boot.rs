@@ -8,7 +8,8 @@ use alloc::{
     vec::Vec,
 };
 use core::sync::atomic::{AtomicBool, Ordering};
-use runtime::{Error, PlatformDescription, Result, console, hart};
+use runtime::{Error, PlatformDescription, Result, console, hart, memory::SupervisorMemory};
+use spin::Once;
 
 use super::{allwinner::v821, describe_pmu, harts, interrupts, report, wakeup};
 use crate::{
@@ -20,6 +21,7 @@ use crate::{
 };
 
 static READY: AtomicBool = AtomicBool::new(false);
+static SUPERVISOR_MEMORY: Once<SupervisorMemory> = Once::new();
 
 /// Discovers the platform, initializes its devices, and publishes its services.
 ///
@@ -76,6 +78,7 @@ pub fn init_platform(platform_description: PlatformDescription) -> Result<usize>
     if let Some(description) = reset_description {
         reset_driver::init(description, &mut memory)?;
     }
+    let supervisor_memory = SUPERVISOR_MEMORY.call_once(|| supervisor_memory);
     let custom_extension = platform_description
         .inspect(|platform| sbi::vendor::Extension::init(v821, &platform, &mut memory))?;
     let hart_wake =
