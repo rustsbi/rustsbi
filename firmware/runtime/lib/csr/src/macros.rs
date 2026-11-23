@@ -13,6 +13,8 @@
 //! value struct named after the register; reads and writes of that register
 //! use the same type.
 //! Explicit scalar values use `r: Value` and `w: Value`.
+//! Declarations without access operations expose only a CSR identity, for
+//! dedicated operations or firmware entry assembly.
 //! Register types identify CSRs; hardware operations are associated functions.
 //! Ordinary reads are safe; writes require their current-hart access contract.
 //!
@@ -46,6 +48,10 @@ macro_rules! csr {
     () => {};
     ($(#[$attr:meta])* pub struct $value:ident(usize); $($rest:tt)*) => {
         $crate::macros::csr!(@word [$(#[$attr])*] $value);
+        $crate::macros::csr!($($rest)*);
+    };
+    ($(#[$attr:meta])* $name:ident { $number:literal } $($rest:tt)*) => {
+        $crate::macros::csr!(@register [$(#[$attr])*] $name, $number);
         $crate::macros::csr!($($rest)*);
     };
     (
@@ -230,6 +236,10 @@ macro_rules! csr {
         $($rest:tt)*
     ) => {
         $($attr)* $(#[$field_attr])* pub enum $field {}
+        $($attr)* $(#[$field_attr])* impl $field {
+            /// The field's positioned mask, including every bit of the field.
+            pub const MASK: usize = $crate::macros::csr!(@max [$first $(..= $last)?]) << $first;
+        }
         $($attr)* $(#[$field_attr])* const _: () = {
             let _ = $crate::macros::csr!(@max [$first $(..= $last)?]);
         };
