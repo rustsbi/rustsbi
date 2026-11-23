@@ -36,21 +36,6 @@ pub(super) struct V861HartRelease {
     power_controls: [HartPowerControl; C907_HART_COUNT],
 }
 
-struct C907ClockControl(MmioRegion);
-
-impl C907ClockControl {
-    fn acquire(soc: AllwinnerV861Soc, memory: &mut MemoryRegistry) -> Result<Self> {
-        Ok(Self(memory.acquire(soc.c907_clock_control()?)?))
-    }
-
-    fn enable(&self) -> Result<()> {
-        let value = u32::from_le(self.0.read::<u32>(0)?);
-        self.0.write(0, (value | CLOCK_CONTROL_ENABLE).to_le())?;
-        runtime::instruction::fence();
-        Ok(())
-    }
-}
-
 struct HartResetVector(MmioRegion);
 
 #[repr(usize)]
@@ -112,7 +97,10 @@ static CACHE_STATE: spin::Once<C907CacheState> = spin::Once::new();
 impl V861HartRelease {
     pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
         let soc = description.soc;
-        C907ClockControl::acquire(soc, memory)?.enable()?;
+        let clock = memory.acquire(soc.c907_clock_control()?)?;
+        let value = u32::from_le(clock.read::<u32>(0)?);
+        clock.write(0, (value | CLOCK_CONTROL_ENABLE).to_le())?;
+        runtime::instruction::fence();
         let release = Self {
             reset_vectors: [
                 HartResetVector::acquire(soc, 0, memory)?,
