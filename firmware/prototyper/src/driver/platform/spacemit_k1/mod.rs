@@ -24,7 +24,7 @@ use spin::Once;
 
 use crate::{
     driver::{Description as _, device::cci},
-    firmware::warm_entry,
+    firmware::k1_reset_entry,
 };
 
 pub(crate) use description::Desc;
@@ -51,7 +51,7 @@ pub(crate) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Box
 
     HART_REGISTERS.call_once(|| registers);
     initialize_hart(registers, HartId::current()?);
-    reset_vectors.set_reset_vector(warm_entry as *const () as usize as u64)?;
+    reset_vectors.set_reset_vector(k1_reset_entry as *const () as usize as u64)?;
     cci.enable_coherency()?;
     Ok(Box::new(wakeup))
 }

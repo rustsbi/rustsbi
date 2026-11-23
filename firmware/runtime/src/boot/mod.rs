@@ -17,8 +17,6 @@ pub(crate) use context::{prepare_supervisor, set_return_mode, traps_ready};
 pub(crate) use stack::firmware_end;
 pub use stack::{BootStack, initialize_stacks, locate_stack};
 
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-use crate::SpacemitK1Registers;
 use crate::{
     hart::{self, HartEvent},
     instruction, ipi,
@@ -51,67 +49,35 @@ pub unsafe extern "C" fn fail_stop() {
     unimplemented!("The fail-stop vector requires a RISC-V target");
 }
 
-/// Enters a K1 hart released from hardware reset, without an SPL handoff.
+/// Starts a hart released from hardware reset without a bootloader handoff.
 ///
 /// # Safety
 ///
-/// Enter only through a K1 hart's reset path.
-/// The boot hart must have published the platform and enabled cluster
-/// coherency before releasing this hart.
-/// `initialize` performs per-hart platform setup and publishes SBI policy.
-#[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
-pub unsafe extern "C" fn k1_warm_entry(initialize: extern "C" fn()) -> ! {
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+/// Enter in M-mode with MPRV clear after the boot hart publishes topology and
+/// platform state. `prepare` must make shared memory accessible using only
+/// instructions and registers. It must return with machine interrupts masked
+/// and preserve the C ABI's callee-saved and fixed registers.
+/// `initialize` runs with Runtime traps installed and must finish per-hart
+/// configuration before returning.
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+#[unsafe(naked)]
+pub(crate) unsafe extern "C" fn reset_hart_entry(
+    prepare: unsafe extern "C" fn(),
+    initialize: extern "C" fn(),
+) -> ! {
     core::arch::naked_asm!(
         ".balign 4",
         "csrw mie, zero",
         "csrci mstatus, 8",
-        "la t0, {fail}",
+        ".option push",
+        ".option norelax",
+        "lla t0, {fail}",
+        ".option pop",
         "csrw mtvec, t0",
         "csrw mscratch, zero",
-        "mv s0, a0",
-        "call {prepare}",
-        "call {locate}",
-        "call {prepare_traps}",
-        "jalr s0",
-        "tail {finish}",
-        fail = sym fail_stop,
-        prepare = sym SpacemitK1Registers::prepare_warm_hart,
-        locate = sym locate_stack,
-        prepare_traps = sym prepare_traps,
-        finish = sym finish_boot,
-    );
-    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-    {
-        let _ = initialize;
-        unimplemented!("K1 warm entry requires a RISC-V target");
-    }
-}
-
-/// Enters a C907 hart released from hardware reset.
-///
-/// # Safety
-///
-/// Only a compatible C907 reset controller may enter here, after shared
-/// Runtime and platform state are published. `initialize` restores the
-/// platform-owned cache policy and publishes SBI policy.
-#[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
-pub unsafe extern "C" fn c907_reset_entry(initialize: extern "C" fn()) -> ! {
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-    core::arch::naked_asm!(
-        ".balign 4",
-        "csrw mie, zero",
-        "csrci mstatus, 8",
-        "la t0, {fail}",
-        "csrw mtvec, t0",
-        "csrw mscratch, zero",
-        "mv s0, a0",
-        // Invalidate caches and join coherency before using shared memory.
-        "li t0, 0x70013",
-        "csrw 0x7c2, t0",
-        "li t0, 1",
-        "csrw 0x7f3, t0",
-        "fence rw, rw",
+        "mv s0, a1",
+        // The platform must prepare coherency before locate_stack reads the hart table.
+        "jalr a0",
         "call {locate}",
         "call {prepare_traps}",
         "jalr s0",
@@ -121,11 +87,6 @@ pub unsafe extern "C" fn c907_reset_entry(initialize: extern "C" fn()) -> ! {
         prepare_traps = sym prepare_traps,
         finish = sym finish_boot,
     );
-    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-    {
-        let _ = initialize;
-        unimplemented!("C907 reset entry requires a RISC-V target");
-    }
 }
 
 /// Enters the next stage or parks after boot or a hart stop.
