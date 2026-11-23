@@ -48,7 +48,6 @@ pub(super) fn describe_mswi(
     Ok(mswi::Desc {
         registers,
         hart_slots,
-        kind: "ACLINT MSWI",
     })
 }
 
@@ -63,7 +62,6 @@ pub(super) fn describe_mtimer(
         time,
         hart_slots,
         access: CompareAccess::Native,
-        kind: "ACLINT MTIMER",
     })
 }
 

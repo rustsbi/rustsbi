@@ -103,14 +103,6 @@ run_once() {
     return 1
   }
 
-  if [[ "$machine" == *"aclint=on"* ]]; then
-    grep -F 'Platform Timer Extension      : ACLINT MTIMER' "$log_file" || return 1
-    # IMSIC takes priority over MSWI when both are present.
-    if [[ "$machine" != *"aia="* ]]; then
-      grep -F 'Platform IPI Extension        : ACLINT MSWI' "$log_file" || return 1
-    fi
-  fi
-
   # Boot-policy order guard: the boot-hart presentation sequence must
   # appear in phase order. A reorder or drop means the boot policy
   # changed even when every substring grep stays green.

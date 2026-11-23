@@ -62,7 +62,6 @@ fn init_timer(
     } else if let Some(node) = selected.aclint.take() {
         let (mtimer, _) = node.into_parts();
         timer::init(Some(Box::new(mtimer).init(memory)?))?;
-        info!("{:<30}: {}", "Platform Timer Extension", "ACLINT MTIMER");
     } else {
         ipi.plicsw = None;
         timer::init(
@@ -146,7 +145,6 @@ fn init_software_ipi(
         (Some(plicsw), _, _) => ipi::init(Ipi::software(Box::new(plicsw).init(memory)?)?),
         (None, Some(mswi), _) => {
             ipi::init(Ipi::software(Box::new(mswi).init(memory)?)?)?;
-            info!("{:<30}: {}", "Platform IPI Extension", "ACLINT MSWI");
             Ok(())
         }
         (None, None, Some(clint)) => ipi::init(Ipi::software(Box::new(clint).init(memory)?)?),

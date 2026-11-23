@@ -23,8 +23,6 @@ pub(super) struct Mtimer {
 
 impl Mtimer {
     pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
-        let base_address = description.compare.start().as_usize();
-        let kind = description.kind;
         let compare_size = description
             .hart_slots
             .count()
@@ -48,17 +46,12 @@ impl Mtimer {
                 memory.acquire(time)
             })
             .transpose()?;
-        let device = Self {
+        Ok(Self {
             compare: memory.acquire(compare)?,
             time,
             hart_slots: description.hart_slots,
             access: description.access,
-        };
-        info!(
-            "{:<30}: {} (Base Address: 0x{:x})",
-            "Platform Timer Device", kind, base_address
-        );
-        Ok(device)
+        })
     }
 
     fn write_compare_words(&self, offset: usize, value: u64) -> Result<()> {

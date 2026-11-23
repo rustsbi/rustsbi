@@ -26,7 +26,6 @@ pub(crate) struct Desc {
     pub(crate) time: Option<RegRange>,
     pub(crate) hart_slots: HartSlotMap,
     pub(crate) access: CompareAccess,
-    pub(crate) kind: &'static str,
 }
 
 impl Description for Desc {

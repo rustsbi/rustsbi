@@ -47,7 +47,6 @@ pub(crate) fn describe(platform: &PlatformView<'_>, node: FdtNode<'_, '_>) -> Re
     let ipi = mswi::Desc {
         registers: registers.subrange(0, ipi_size)?,
         hart_slots: hart_slots.clone(),
-        kind: "CLINT MSWI",
     };
     let compare = registers.subrange(MTIMECMP_OFFSET, compare_size)?;
     let sifive = node
@@ -66,7 +65,6 @@ pub(crate) fn describe(platform: &PlatformView<'_>, node: FdtNode<'_, '_>) -> Re
             time: Some(registers.subrange(MTIME_OFFSET, size_of::<u64>())?),
             hart_slots,
             access: CompareAccess::Native,
-            kind: "SiFive CLINT",
         }
     } else {
         mtimer::Desc {
@@ -74,7 +72,6 @@ pub(crate) fn describe(platform: &PlatformView<'_>, node: FdtNode<'_, '_>) -> Re
             time: None,
             hart_slots,
             access: CompareAccess::TwoWords,
-            kind: "T-Head CLINT",
         }
     };
     Ok(Desc { ipi, timer })
