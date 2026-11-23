@@ -79,8 +79,12 @@ pub fn init_platform(platform_description: PlatformDescription) -> Result<usize>
         reset_driver::init(description, &mut memory)?;
     }
     let supervisor_memory = SUPERVISOR_MEMORY.call_once(|| supervisor_memory);
-    let custom_extension = platform_description
-        .inspect(|platform| sbi::vendor::Extension::init(v821, &platform, &mut memory))?;
+    let vendor = platform_description.inspect(|platform| {
+        v821.map(|v821| {
+            sbi::vendor::Vendor::init(v821.soc(), &platform, &mut memory, supervisor_memory)
+        })
+        .transpose()
+    })?;
     let hart_wake =
         platform_description.inspect(|platform| wakeup::init(&platform, &mut memory))?;
 
@@ -93,7 +97,7 @@ pub fn init_platform(platform_description: PlatformDescription) -> Result<usize>
     firmware::init_pmp(firmware_ram_range, noncacheable_alias_offset, irq_mmio);
     let hardware_wakeup = hart_wake.is_some();
     hart::install_wakeup(hart_wake);
-    sbi::init(supervisor_memory, custom_extension, pmu, hardware_wakeup)?;
+    sbi::init(supervisor_memory, vendor, pmu, hardware_wakeup)?;
     // The release pairs with `wait_until_ready` so secondary harts observe
     // all initialized services before proceeding.
     READY.store(true, Ordering::Release);

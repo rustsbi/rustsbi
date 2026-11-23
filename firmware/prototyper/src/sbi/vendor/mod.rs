@@ -1,44 +1,5 @@
-//! Vendor-specific SBI extension selection.
+//! Vendor-specific SBI extensions.
 
 pub(crate) mod allwinner;
 
-use runtime::{
-    PlatformView, Result,
-    memory::{MemoryRegistry, SupervisorMemory},
-    rustsbi::{self, VendorSBI},
-};
-
-use crate::driver::platform::allwinner::v821::V821;
-
-/// Vendor-extension devices selected for this platform.
-pub(crate) struct Extension {
-    v821: Option<allwinner::v821::Extension>,
-}
-
-impl Extension {
-    pub(crate) fn init(
-        v821: Option<V821>,
-        platform: &PlatformView<'_>,
-        memory: &mut MemoryRegistry,
-    ) -> Result<Self> {
-        let v821 = v821
-            .map(|v821| allwinner::v821::Extension::init(v821, platform, memory))
-            .transpose()?;
-        Ok(Self { v821 })
-    }
-}
-
-/// Vendor-specific extension set selected for the current platform.
-#[derive(VendorSBI)]
-#[rustsbi(crate = rustsbi)]
-pub(crate) enum Vendor {
-    Allwinner(allwinner::v821::Extensions),
-}
-
-impl Vendor {
-    pub(crate) fn new(extension: Extension, memory: &'static SupervisorMemory) -> Option<Self> {
-        extension
-            .v821
-            .map(|extension| Self::Allwinner(extension.into_extensions(memory)))
-    }
-}
+pub(crate) use allwinner::v821::Extensions as Vendor;

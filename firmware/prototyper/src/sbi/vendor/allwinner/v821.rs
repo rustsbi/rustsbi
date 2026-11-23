@@ -10,7 +10,6 @@
 //!   — physical start/length range arguments used by the cache calls.
 
 use crate::driver::platform::allwinner::v821::{
-    V821,
     a27l2::{self, A27L2Cache},
     usb_dma_bypass::{self, UsbDmaBypass},
 };
@@ -18,7 +17,7 @@ use runtime::{
     Error, PlatformView, Result,
     memory::{MemoryRegistry, SupervisorMemory},
     rustsbi::{self, Extension as SbiExtension, SbiRet, VendorSBI},
-    soc::allwinner::v821::AndesStatusRegister,
+    soc::allwinner::v821::{AllwinnerV821Soc, AndesStatusRegister},
 };
 
 /// EID of the V821 BSP's Andes cache-maintenance extension.
@@ -26,62 +25,46 @@ const EXTENSION: usize = 0x0900_031e;
 /// EID of the V821 BSP's AWBASE extension.
 const AWBASE_EXTENSION: usize = 0x5445_5335;
 
-/// V821 custom-extension devices selected for this platform.
-pub(in crate::sbi::vendor) struct Extension {
-    cache: A27L2Cache,
-    usb_dma_bypass: Option<UsbDmaBypass>,
-}
-
-impl Extension {
-    /// Discovers and initializes the devices owned by the V821 extension.
-    ///
-    /// The timer service must be initialized before cache maintenance,
-    /// because those operations wait on `timer::now()`.
-    pub(in crate::sbi::vendor) fn init(
-        v821: V821,
-        platform: &PlatformView<'_>,
-        memory: &mut MemoryRegistry,
-    ) -> Result<Self> {
-        let cache = a27l2::describe(platform, v821.soc())?.ok_or(Error::InvalidArgs)?;
-        let usb_dma_bypass = usb_dma_bypass::describe(platform)?;
-        Ok(Self {
-            cache: A27L2Cache::init(cache, memory)?,
-            usb_dma_bypass: usb_dma_bypass
-                .map(|description| UsbDmaBypass::init(description, memory))
-                .transpose()?,
-        })
-    }
-
-    pub(in crate::sbi::vendor) fn into_extensions(
-        self,
-        memory: &'static SupervisorMemory,
-    ) -> Extensions {
-        Extensions {
-            andes: Some(Andes::new(self.cache, memory)),
-            awbase: self.usb_dma_bypass.map(Awbase::new),
-        }
-    }
-}
-
 /// Vendor-specific extensions implemented by the V821 platform.
 #[derive(VendorSBI)]
 #[rustsbi(crate = rustsbi)]
 pub(crate) struct Extensions {
     #[rustsbi(extension(eid = EXTENSION))]
-    andes: Option<Andes>,
+    andes: Andes,
     #[rustsbi(extension(eid = AWBASE_EXTENSION))]
     awbase: Option<Awbase>,
+}
+
+impl Extensions {
+    /// Initializes the V821 vendor extensions.
+    ///
+    /// Initialize the timer first so cache maintenance can time out while
+    /// waiting for the controller.
+    pub(crate) fn init(
+        soc: AllwinnerV821Soc,
+        platform: &PlatformView<'_>,
+        memory: &mut MemoryRegistry,
+        supervisor_memory: &'static SupervisorMemory,
+    ) -> Result<Self> {
+        let cache = a27l2::describe(platform, soc)?.ok_or(Error::InvalidArgs)?;
+        let usb_dma_bypass = usb_dma_bypass::describe(platform)?;
+        let cache = A27L2Cache::init(cache, memory)?;
+        let usb_dma_bypass = usb_dma_bypass
+            .map(|description| UsbDmaBypass::init(description, memory))
+            .transpose()?;
+        Ok(Self {
+            andes: Andes {
+                cache,
+                memory: supervisor_memory,
+            },
+            awbase: usb_dma_bypass.map(|device| Awbase { device }),
+        })
+    }
 }
 
 struct Andes {
     cache: A27L2Cache,
     memory: &'static SupervisorMemory,
-}
-
-impl Andes {
-    fn new(cache: A27L2Cache, memory: &'static SupervisorMemory) -> Self {
-        Self { cache, memory }
-    }
 }
 
 impl SbiExtension for Andes {
@@ -110,12 +93,6 @@ impl SbiExtension for Andes {
 
 struct Awbase {
     device: UsbDmaBypass,
-}
-
-impl Awbase {
-    fn new(device: UsbDmaBypass) -> Self {
-        Self { device }
-    }
 }
 
 impl SbiExtension for Awbase {
