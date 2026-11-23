@@ -14,7 +14,7 @@ use super::description::{CompareAccess, Desc};
 const MTIMECMP_STRIDE: usize = size_of::<u64>();
 
 /// A machine timer with per-hart compare registers and optional MTIME.
-pub(super) struct Mtimer {
+pub(in crate::driver) struct Mtimer {
     compare: MmioRegion,
     time: Option<MmioRegion>,
     hart_slots: HartSlotMap,
@@ -22,7 +22,7 @@ pub(super) struct Mtimer {
 }
 
 impl Mtimer {
-    pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+    pub(in crate::driver) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
         let compare_size = description
             .hart_slots
             .count()
@@ -61,23 +61,6 @@ impl Mtimer {
         self.compare.write(offset, value as u32)?;
         Ok(())
     }
-
-    fn read_time_counter(&self) -> Result<Option<u64>> {
-        let Some(time) = &self.time else {
-            return Ok(None);
-        };
-        #[cfg(target_pointer_width = "64")]
-        return time.read::<u64>(0).map(|value| Some(u64::from_le(value)));
-
-        #[cfg(target_pointer_width = "32")]
-        loop {
-            let high = u32::from_le(time.read::<u32>(size_of::<u32>())?);
-            let low = u32::from_le(time.read::<u32>(0)?);
-            if high == u32::from_le(time.read::<u32>(size_of::<u32>())?) {
-                return Ok(Some((u64::from(high) << 32) | u64::from(low)));
-            }
-        }
-    }
 }
 
 impl TimerDevice for Mtimer {
@@ -96,6 +79,19 @@ impl TimerDevice for Mtimer {
     }
 
     fn read_time(&self) -> Result<Option<u64>> {
-        self.read_time_counter()
+        let Some(time) = &self.time else {
+            return Ok(None);
+        };
+        #[cfg(target_pointer_width = "64")]
+        return time.read::<u64>(0).map(|value| Some(u64::from_le(value)));
+
+        #[cfg(target_pointer_width = "32")]
+        loop {
+            let high = u32::from_le(time.read::<u32>(size_of::<u32>())?);
+            let low = u32::from_le(time.read::<u32>(0)?);
+            if high == u32::from_le(time.read::<u32>(size_of::<u32>())?) {
+                return Ok(Some((u64::from(high) << 32) | u64::from(low)));
+            }
+        }
     }
 }

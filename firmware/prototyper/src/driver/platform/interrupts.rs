@@ -3,19 +3,24 @@
 use alloc::{boxed::Box, string::String, vec::Vec};
 use runtime::{
     Error, PlatformView, Result,
-    ipi::{self, Ipi},
+    ipi::{self, Ipi, IpiDevice, Software},
     memory::MemoryRegistry,
-    timer,
+    timer::{self, TimerDevice},
 };
 
 use super::{allwinner::v821, qemu_aplic};
 use crate::{
-    driver::{
-        Description as _,
-        device::{
-            interrupts, interrupts::IpiSelection, interrupts::IrqchipSelection,
-            interrupts::TimerSelection, mswi, plicsw, thead_plic,
-        },
+    driver::device::{
+        imsic::ImsicIpi,
+        interrupts,
+        interrupts::IpiSelection,
+        interrupts::IrqchipSelection,
+        interrupts::TimerSelection,
+        mswi::{self, Mswi},
+        mtimer::Mtimer,
+        plicsw::{self, PlicSw},
+        plmt::Plmt,
+        thead_plic,
     },
     firmware::IrqMmio,
 };
@@ -57,23 +62,20 @@ fn init_timer(
     memory: &mut MemoryRegistry,
 ) -> Result<()> {
     // PLMT and PLICSW are initialized only as a pair.
-    if let (Some(plmt), Some(_)) = (selected.plmt.take(), ipi.plicsw.as_ref()) {
-        timer::init(Some(Box::new(plmt).init(memory)?))?;
-    } else if let Some(node) = selected.aclint.take() {
-        let (mtimer, _) = node.into_parts();
-        timer::init(Some(Box::new(mtimer).init(memory)?))?;
-    } else {
-        ipi.plicsw = None;
-        timer::init(
-            selected
-                .clint
-                .take()
-                .map(|timer| timer.into_parts().0)
-                .map(|timer| Box::new(timer).init(memory))
-                .transpose()?,
-        )?;
-    }
-    Ok(())
+    let device: Option<Box<dyn TimerDevice>> =
+        if let (Some(plmt), Some(_)) = (selected.plmt.take(), ipi.plicsw.as_ref()) {
+            Some(Box::new(Plmt::init(plmt, memory)?))
+        } else if let Some(node) = selected.aclint.take() {
+            let (mtimer, _) = node.into_parts();
+            Some(Box::new(Mtimer::init(mtimer, memory)?))
+        } else {
+            ipi.plicsw = None;
+            match selected.clint.take() {
+                Some(timer) => Some(Box::new(Mtimer::init(timer.into_parts().0, memory)?)),
+                None => None,
+            }
+        };
+    timer::init(device)
 }
 
 /// Registers IMSIC when available, or falls back to a software IPI device.
@@ -94,8 +96,9 @@ fn init_ipi(
             .map(|range| range.end().as_usize())
             .max();
 
-        match Box::new(imsic).init(memory) {
+        match ImsicIpi::init(imsic, memory) {
             Ok(device) => {
+                let device = Box::new(device);
                 let irq_mmio = qemu_aplic::init_for_imsic(
                     model,
                     irqchip.machine_aplic.as_ref().map(|node| *node.resource()),
@@ -141,13 +144,14 @@ fn init_software_ipi(
     clint: Option<mswi::Desc>,
     memory: &mut MemoryRegistry,
 ) -> Result<()> {
-    match (plicsw, aclint_mswi, clint) {
-        (Some(plicsw), _, _) => ipi::init(Ipi::software(Box::new(plicsw).init(memory)?)?),
-        (None, Some(mswi), _) => {
-            ipi::init(Ipi::software(Box::new(mswi).init(memory)?)?)?;
-            Ok(())
-        }
-        (None, None, Some(clint)) => ipi::init(Ipi::software(Box::new(clint).init(memory)?)?),
-        (None, None, None) => Ok(()),
+    let device: Option<Box<dyn IpiDevice<Software>>> = match (plicsw, aclint_mswi, clint) {
+        (Some(plicsw), _, _) => Some(Box::new(PlicSw::init(plicsw, memory)?)),
+        (None, Some(mswi), _) => Some(Box::new(Mswi::init(mswi, memory)?)),
+        (None, None, Some(clint)) => Some(Box::new(Mswi::init(clint, memory)?)),
+        (None, None, None) => None,
+    };
+    if let Some(device) = device {
+        ipi::init(Ipi::software(device)?)?;
     }
+    Ok(())
 }

@@ -6,6 +6,7 @@ mod device;
 use runtime::{Error, FdtNode, PlatformView, Result};
 
 pub(crate) use description::Desc;
+pub(in crate::driver) use device::Plmt;
 
 /// The PLMT compatible string.
 pub(crate) const COMPATIBLE: &str = "andestech,plmt0";

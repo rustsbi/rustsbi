@@ -14,14 +14,14 @@ use super::description::Desc;
 const SET_EIPNUM_LE: usize = 0x0;
 
 /// A firmware IPI sender backed by IMSIC interrupt files.
-pub(super) struct ImsicIpi {
+pub(in crate::driver) struct ImsicIpi {
     files: Box<[MmioRegion]>,
     iid: Iid,
 }
 
 impl ImsicIpi {
     /// Initializes the machine IMSIC CSRs and acquires one file per hart.
-    pub(super) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+    pub(in crate::driver) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
         // Probe before acquiring any register windows.
         // Another IPI device remains usable if this hart lacks the machine
         // IMSIC CSRs.

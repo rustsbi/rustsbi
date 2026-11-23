@@ -11,3 +11,4 @@ mod description;
 mod device;
 
 pub(crate) use description::Desc;
+pub(in crate::driver) use device::Mswi;

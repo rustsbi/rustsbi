@@ -13,3 +13,4 @@ mod description;
 mod device;
 
 pub(crate) use description::{CompareAccess, Desc};
+pub(in crate::driver) use device::Mtimer;

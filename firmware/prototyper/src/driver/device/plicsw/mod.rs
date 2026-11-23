@@ -6,6 +6,7 @@ mod device;
 use runtime::{Error, FdtNode, PlatformView, Result};
 
 pub(crate) use description::Desc;
+pub(in crate::driver) use device::PlicSw;
 
 /// The PLICSW compatible string.
 pub(crate) const COMPATIBLE: &str = "allwinner,sun300i-plicsw";
