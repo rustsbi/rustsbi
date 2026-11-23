@@ -2,17 +2,17 @@
 
 use alloc::{boxed::Box, string::String, vec::Vec};
 use runtime::{
-    Error, PlatformView, Result,
+    Error, Result,
     ipi::{self, Ipi, IpiDevice, Software},
     memory::MemoryRegistry,
     timer::{self, TimerDevice},
 };
 
-use super::{allwinner::v821, qemu_aplic};
+use super::qemu_aplic;
 use crate::{
     driver::device::{
         imsic::ImsicIpi,
-        interrupts::{self as discovery, IpiSelection, IrqchipSelection, TimerSelection},
+        interrupts::{IpiSelection, IrqchipSelection, TimerSelection},
         mswi::Mswi,
         mtimer::{self, Mtimer},
         plicsw::PlicSw,
@@ -21,28 +21,6 @@ use crate::{
     },
     firmware::IrqMmio,
 };
-
-/// Discovers and initializes interrupt devices for the platform.
-pub(super) fn init(
-    platform: &PlatformView<'_>,
-    model: &str,
-    v821: Option<&v821::V821>,
-    memory: &mut MemoryRegistry,
-    hidden_node_paths: &mut Vec<String>,
-) -> Result<Option<IrqMmio>> {
-    let discovery::Selection {
-        timer,
-        mut ipi,
-        irqchip,
-    } = discovery::describe(platform)?;
-    let timer = select_timer(timer, &mut ipi);
-    if matches!(&timer, Some(TimerDesc::Plmt(_))) {
-        v821::prepare_plmt(v821, memory)?;
-    }
-    let (mmio, paths) = init_devices(timer, ipi, irqchip, model, memory)?;
-    hidden_node_paths.extend(paths);
-    Ok(mmio)
-}
 
 /// A selected machine timer before MMIO acquisition.
 pub(super) enum TimerDesc {
@@ -70,7 +48,7 @@ pub(super) fn select_timer(
 ///
 /// Returns the interrupt MMIO ranges required by PMP and the device-tree
 /// paths to hide when handing off to the next stage.
-fn init_devices(
+pub(super) fn init(
     selected_timer: Option<TimerDesc>,
     ipi: IpiSelection,
     irqchip: IrqchipSelection,
