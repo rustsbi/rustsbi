@@ -21,26 +21,6 @@ pub unsafe fn disable_maee() {
     // Runtime entry recovers an unavailable mxstatus before any MAEE update.
     if super::csrr!(ExtendedStatus).is_ok() {
         // SAFETY: The caller owns translation setup and the CSR probe succeeded.
-        unsafe { clear_maee() };
+        unsafe { ExtendedStatus::clear_maee() };
     }
-}
-
-/// Clears MAEE while preserving every other mxstatus field.
-///
-/// # Safety
-///
-/// Run in M-mode on a T-Head hart with mxstatus, before enabling translation.
-unsafe fn clear_maee() {
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-    // SAFETY: The caller establishes CSR support and owns translation setup.
-    unsafe {
-        core::arch::asm!(
-            "csrc {csr}, {mask}",
-            csr = const ExtendedStatus::NUMBER,
-            mask = in(reg) 1usize << 21,
-            options(nomem),
-        );
-    }
-    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-    unimplemented!("CSR access requires RISC-V");
 }
