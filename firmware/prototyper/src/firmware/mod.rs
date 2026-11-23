@@ -1,5 +1,5 @@
-mod warm;
-pub(crate) use warm::warm_entry;
+mod reset;
+pub(crate) use reset::{c907_reset_entry, k1_reset_entry};
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "payload")] {

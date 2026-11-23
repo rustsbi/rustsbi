@@ -47,4 +47,49 @@ impl AllwinnerV861Soc {
         unsafe { CacheControl::set_bits(CacheControl::V861_ENABLE) };
         C907CacheState::read()
     }
+
+    /// Starts a C907 released by the V861 reset controller.
+    ///
+    /// # Safety
+    ///
+    /// Enter in M-mode with MPRV clear after the boot hart publishes topology,
+    /// services, and the saved cache policy. `initialize` must restore that
+    /// policy and complete per-hart firmware setup before returning.
+    #[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
+    pub unsafe extern "C" fn reset_entry(initialize: extern "C" fn()) -> ! {
+        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+        core::arch::naked_asm!(
+            "mv a1, a0",
+            ".option push",
+            ".option norelax",
+            "lla a0, {prepare}",
+            ".option pop",
+            "tail {entry}",
+            prepare = sym prepare_reset_hart,
+            entry = sym crate::boot::reset_hart_entry,
+        );
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+        {
+            let _ = initialize;
+            unimplemented!("C907 reset entry requires a RISC-V target");
+        }
+    }
+}
+
+// Invalidate caches and join coherency before Runtime reads the hart table.
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+#[unsafe(naked)]
+unsafe extern "C" fn prepare_reset_hart() {
+    core::arch::naked_asm!(
+        "li t0, {invalidate}",
+        "csrw {cache_operation}, t0",
+        "li t0, {enable}",
+        "csrw {snoop_control}, t0",
+        "fence rw, rw",
+        "ret",
+        invalidate = const csr::vendor::thead::c907::CacheOperation::INVALIDATE_ALL,
+        cache_operation = const csr::vendor::thead::c907::CacheOperation::NUMBER,
+        enable = const csr::vendor::thead::c907::SnoopControl::ENABLE,
+        snoop_control = const csr::vendor::thead::c907::SnoopControl::NUMBER,
+    );
 }
