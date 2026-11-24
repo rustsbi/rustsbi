@@ -1,6 +1,14 @@
 //! T-Head vendor CSRs.
 
 /// T-Head machine-level CSRs.
+///
+/// Cache and coherency CSR identities follow [OpenSBI's T-Head header], and
+/// the cache-operation encoding follows [OpenSBI's reset restore]. Detailed
+/// bit layouts vary across T-Head implementations, so full snapshots preserve
+/// implementation-defined bits without assuming one core's field meanings.
+///
+/// [OpenSBI's T-Head header]: https://github.com/YuzukiHD/opensbi/blob/c1ea219a901ff309e88e99c4b4e66ef9a55548de/platform/generic/include/thead/c9xx_encoding.h
+/// [OpenSBI's reset restore]: https://github.com/riscv-software-src/opensbi/blob/3593a5facc4c6938b90429a6973ba9ee21fc5899/platform/generic/allwinner/sun20i-d1.c
 pub mod machine {
     use crate::macros::csr;
     use crate::machine::FeatureState;
@@ -52,45 +60,33 @@ pub mod machine {
             unsafe { crate::value::write::<{ Self::NUMBER }>(snapshot.0) };
         }
     }
-}
-
-/// C907 cache and coherency registers used by V861.
-///
-/// The [V861 register header] supplies CSR identities; its [platform source]
-/// supplies opaque startup values. Detailed C907 bit layouts are not specified
-/// there; full snapshots retain implementation state without borrowing another
-/// core's field meanings.
-/// The cache-operation encoding also follows [OpenSBI's reset restore].
-///
-/// [V861 register header]: https://github.com/YuzukiHD/opensbi/blob/c1ea219a901ff309e88e99c4b4e66ef9a55548de/platform/generic/include/thead/c9xx_encoding.h
-/// [platform source]: https://github.com/YuzukiHD/opensbi/blob/c1ea219a901ff309e88e99c4b4e66ef9a55548de/platform/generic/allwinner/sun252i-v861.c
-/// [OpenSBI's reset restore]: https://github.com/riscv-software-src/opensbi/blob/3593a5facc4c6938b90429a6973ba9ee21fc5899/platform/generic/allwinner/sun20i-d1.c
-pub mod c907 {
-    use crate::macros::csr;
 
     csr! {
         /// Machine cache configuration (`mhcr`).
         CacheControl { 0x7c1, r,
             /// # Safety
             ///
-            /// Execute in M-mode on C907 with a valid saved configuration.
-            /// Coordinate cache transitions and preserve undocumented bits.
+            /// Execute in M-mode on a T-Head hart with a valid saved
+            /// configuration. Coordinate cache transitions and preserve
+            /// implementation-defined bits.
             unsafe w
         }
         /// Machine cache configuration register two (`mccr2`).
         L2Control { 0x7c3, r,
             /// # Safety
             ///
-            /// Restore a snapshot valid for this C907 with cache and coherency
-            /// state already prepared. Coordinate conflicting configuration.
+            /// Restore a snapshot valid for this T-Head implementation with
+            /// cache and coherency state already prepared. Coordinate
+            /// conflicting configuration.
             unsafe w
         }
         /// Machine implicit-operation configuration (`mhint`).
         Hint { 0x7c5, r,
             /// # Safety
             ///
-            /// Restore a snapshot valid for this C907 in M-mode and coordinate
-            /// other users of the current hart's configuration.
+            /// Restore a snapshot valid for this T-Head implementation in
+            /// M-mode and coordinate other users of the current hart's
+            /// configuration.
             unsafe w
         }
         /// Machine cache-operation command port (`mcor`).
@@ -100,31 +96,29 @@ pub mod c907 {
     }
 
     impl CacheControl {
-        /// The V861 firmware's set-bit operand; its individual bits are opaque.
-        pub const V861_ENABLE: Self = Self((1 << 24) | (1 << 12));
-
         /// Sets the supplied `mhcr` bits with CSRRS, retaining every other bit.
         ///
         /// # Safety
         ///
-        /// Execute in M-mode on C907. Permit the selected cache transitions and
-        /// coordinate other users of this hart's cache configuration.
+        /// Execute in M-mode on a T-Head hart. Permit the selected cache
+        /// transitions and coordinate other users of this hart's cache
+        /// configuration.
         #[inline]
-        pub unsafe fn set_bits(mask: Self) {
+        pub unsafe fn set_bits(mask: usize) {
             #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
             // SAFETY: The caller establishes access and cache-transition validity.
             unsafe {
                 core::arch::asm!(
                     "csrs {csr}, {mask}",
                     csr = const Self::NUMBER,
-                    mask = in(reg) mask.0,
+                    mask = in(reg) mask,
                     options(nomem, nostack),
                 );
             }
             #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
             {
                 let _ = mask;
-                unimplemented!("C907 CSR access requires a RISC-V target");
+                unimplemented!("T-Head CSR access requires a RISC-V target");
             }
         }
     }
@@ -135,7 +129,7 @@ pub mod c907 {
     }
 
     impl SnoopControl {
-        /// The V861 reset path's coherency-enable operand.
+        /// Enables multi-core cache snoop coherency.
         pub const ENABLE: usize = 1;
     }
 }
