@@ -17,6 +17,7 @@ pub mod debug;
 mod device_tree;
 mod error;
 pub mod events;
+pub mod fence;
 pub mod fwft;
 pub mod hart;
 pub mod heap;
