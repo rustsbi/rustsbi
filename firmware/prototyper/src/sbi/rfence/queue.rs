@@ -2,10 +2,12 @@
 
 #![forbid(unsafe_code)]
 
-use super::RFenceContext;
 use alloc::collections::VecDeque;
 use core::sync::atomic::AtomicU32;
-use runtime::hart::{HartId, PerHart};
+use runtime::{
+    fence::LocalFence,
+    hart::{HartId, PerHart},
+};
 use spin::{Mutex, Once};
 
 /// Capacity of the per-hart fence operation queue.
@@ -15,7 +17,7 @@ const QUEUE_CAP: usize = 16;
 // Alignment reduces false sharing; it does not guarantee cache-line isolation.
 #[repr(align(128))]
 struct RequestQueue {
-    entries: Mutex<VecDeque<(RFenceContext, usize)>>,
+    entries: Mutex<VecDeque<(LocalFence, HartId)>>,
 }
 
 impl RequestQueue {
@@ -25,7 +27,7 @@ impl RequestQueue {
         }
     }
 
-    fn try_push(&self, item: (RFenceContext, usize)) -> bool {
+    fn try_push(&self, item: (LocalFence, HartId)) -> bool {
         // Give the caller a chance to service local work when a remote
         // queue is busy; spinning on its lock can block mutual progress.
         let Some(mut q) = self.entries.try_lock() else {
@@ -38,11 +40,11 @@ impl RequestQueue {
         true
     }
 
-    fn pop(&self) -> Option<(RFenceContext, usize)> {
+    fn pop(&self) -> Option<(LocalFence, HartId)> {
         self.entries.lock().pop_front()
     }
 
-    fn cancel(&self, source_hart: usize) -> bool {
+    fn cancel(&self, source_hart: HartId) -> bool {
         let mut queue = self.entries.lock();
         let Some(index) = queue.iter().position(|(_, source)| *source == source_hart) else {
             return false;
@@ -142,12 +144,6 @@ pub struct LocalRFenceCell<'a>(&'a RFenceCell);
 pub struct RemoteRFenceCell<'a>(&'a RFenceCell);
 
 impl LocalRFenceCell<'_> {
-    /// Attempts to enqueue a fence operation, returning whether it succeeded.
-    #[inline]
-    pub(crate) fn try_push(&self, item: (RFenceContext, usize)) -> bool {
-        self.0.queue.try_push(item)
-    }
-
     /// Checks if all synchronization operations are complete.
     pub fn is_sync(&self) -> bool {
         self.0.completions.is_sync()
@@ -159,20 +155,20 @@ impl LocalRFenceCell<'_> {
     }
 
     /// Returns the next fence operation from the queue, if any.
-    pub fn get(&self) -> Option<(RFenceContext, usize)> {
+    pub fn get(&self) -> Option<(LocalFence, HartId)> {
         self.0.queue.pop()
     }
 }
 
 impl RemoteRFenceCell<'_> {
     /// Cancels this source's queued request after an IPI send failure.
-    pub(crate) fn cancel(&self, source_hart: usize) -> bool {
+    pub(crate) fn cancel(&self, source_hart: HartId) -> bool {
         self.0.queue.cancel(source_hart)
     }
 
     /// Attempts to enqueue a fence operation, returning whether it succeeded.
     #[inline]
-    pub(crate) fn try_push(&self, item: (RFenceContext, usize)) -> bool {
+    pub(crate) fn try_push(&self, item: (LocalFence, HartId)) -> bool {
         self.0.queue.try_push(item)
     }
 
