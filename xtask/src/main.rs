@@ -42,33 +42,16 @@ fn main() -> ExitCode {
     }
 
     // Execute the selected command
-    let result = match &cli_args.cmd {
+    match &cli_args.cmd {
         Cmd::Prototyper { command } => match prototyper::run(command) {
-            Ok(exit_status) => Some(exit_status),
+            Ok(()) => {
+                info!("Task completed successfully");
+                ExitCode::SUCCESS
+            }
             Err(err) => {
                 error!("Task 'prototyper' failed: {:#}", err);
-                return ExitCode::FAILURE;
+                ExitCode::FAILURE
             }
         },
-    };
-
-    match result {
-        Some(exit_status) if exit_status.success() => {
-            info!("Task completed successfully");
-            ExitCode::SUCCESS
-        }
-        Some(exit_status) => {
-            let cmd_name = match &cli_args.cmd {
-                Cmd::Prototyper { .. } => "prototyper",
-            };
-            error!("Task '{}' failed with exit code: {}", cmd_name, exit_status);
-            ExitCode::FAILURE
-        }
-        None => {
-            error!(
-                "Task execution failed: operation was interrupted or encountered an unrecoverable error"
-            );
-            ExitCode::FAILURE
-        }
     }
 }

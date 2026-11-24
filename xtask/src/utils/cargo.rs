@@ -1,6 +1,7 @@
 use std::{
     ffi::OsStr,
     ops::{Deref, DerefMut},
+    path::Path,
     process::Command,
 };
 
@@ -15,6 +16,16 @@ impl Cargo {
         let mut cmd = Command::new(env!("CARGO"));
         cmd.args([action, "--locked"]);
         Self { cmd }
+    }
+
+    pub fn manifest_path<P: AsRef<Path>>(&mut self, path: P) -> &mut Self {
+        self.args([OsStr::new("--manifest-path"), path.as_ref().as_os_str()]);
+        self
+    }
+
+    pub fn target_dir<P: AsRef<Path>>(&mut self, path: P) -> &mut Self {
+        self.args([OsStr::new("--target-dir"), path.as_ref().as_os_str()]);
+        self
     }
 
     pub fn package<S: AsRef<OsStr>>(&mut self, package: S) -> &mut Self {

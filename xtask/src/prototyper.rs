@@ -3,42 +3,46 @@ mod config;
 mod generate;
 mod kernels;
 mod qemu;
-mod scheme;
 mod target;
 
 #[cfg(test)]
 mod tests;
 
 use clap::Subcommand;
-use std::process::ExitStatus;
 
 use anyhow::Result;
 
 pub(crate) const PACKAGE_NAME: &str = "rustsbi-prototyper";
 
 /// Prototyper commands. `build` produces firmware; `test` and `bench`
-/// compose a kernel build with a payload-mode firmware build, then boot
-/// the firmware in QEMU and verify the kernel output (unless `--no-run`).
+/// build `firmware/mbench` with config-derived addresses, run it in QEMU,
+/// and verify the capture with `mbench` (unless `--no-run`).
 #[derive(Debug, Subcommand, Clone)]
 pub enum PrototyperCommand {
     /// Build RustSBI Prototyper firmware.
     Build(build::BuildArgs),
-    /// Build the test kernel and payload-mode firmware embedding it, then run it in QEMU.
+    /// Build `mbench` in check mode with Prototyper, run it in QEMU, and verify compliance.
     Test(kernels::KernelArgs),
-    /// Build the bench kernel and payload-mode firmware embedding it, then run it in QEMU.
+    /// Build `mbench` in bench mode with Prototyper, run it in QEMU, and verify benchmarks.
     Bench(kernels::KernelArgs),
 }
 
 #[cfg(test)]
 pub(crate) use build::{BuildArgs, BuildMode};
-pub(crate) use kernels::Kernel;
 pub(crate) use target::Target;
 
-pub fn run(command: &PrototyperCommand) -> Result<ExitStatus> {
+pub fn run(command: &PrototyperCommand) -> Result<()> {
     match command {
-        PrototyperCommand::Build(build_args) => build::run(build_args),
-        PrototyperCommand::Test(args) => kernels::run(Kernel::Test, args),
-        PrototyperCommand::Bench(args) => kernels::run(Kernel::Bench, args),
+        PrototyperCommand::Build(build_args) => {
+            let status = build::run(build_args)?;
+            if status.success() {
+                Ok(())
+            } else {
+                anyhow::bail!("prototyper build exited with status {status}")
+            }
+        }
+        PrototyperCommand::Test(args) => kernels::run(kernels::Kernel::Test, args),
+        PrototyperCommand::Bench(args) => kernels::run(kernels::Kernel::Bench, args),
     }
 }
 

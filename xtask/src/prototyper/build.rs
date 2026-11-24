@@ -56,33 +56,6 @@ pub enum BuildMode {
     },
 }
 
-impl BuildArgs {
-    pub(crate) fn payload(path: PathBuf, debug: bool, config_file: Option<PathBuf>) -> Self {
-        Self {
-            mode: Some(BuildMode::Payload { path }),
-            features: Vec::new(),
-            no_default_features: false,
-            fdt: None,
-            debug,
-            config_file,
-            target: None,
-        }
-    }
-
-    /// Dynamic-mode firmware build with the given user options.
-    pub(crate) fn dynamic(debug: bool, config_file: Option<PathBuf>) -> Self {
-        Self {
-            mode: None,
-            features: Vec::new(),
-            no_default_features: false,
-            fdt: None,
-            debug,
-            config_file,
-            target: None,
-        }
-    }
-}
-
 pub(crate) fn run(args: &BuildArgs) -> Result<ExitStatus> {
     let spec = resolve(args).context("failed to resolve prototyper build inputs")?;
     build_firmware(&spec)

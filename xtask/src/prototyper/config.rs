@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail};
 use crate::utils::{cargo_target_dir, workspace_root};
 
 use super::{
-    Target,
+    PACKAGE_NAME, Target,
     build::{BuildArgs, BuildMode},
 };
 
@@ -50,6 +50,8 @@ pub(crate) struct FirmwareLayout {
     pub(crate) heap_size_bytes: u64,
     /// Where the payload section is linked.
     pub(crate) payload_address: u64,
+    /// Target jump address used by jump mode.
+    pub(crate) jump_address: u64,
     /// Maximum enabled hart count.
     pub(crate) hart_capacity: u64,
     /// Number of bytes reserved for each boot/trap stack.
@@ -67,6 +69,32 @@ pub(crate) struct FirmwareConfig {
     pub(crate) content: String,
     /// Validated layout used to generate firmware build inputs.
     pub(crate) layout: FirmwareLayout,
+}
+
+/// Resolve and parse the firmware configuration file in the workspace.
+pub(crate) fn resolve_config(config_file: Option<&Path>) -> Result<FirmwareConfig> {
+    let current_dir = env::current_dir().context("failed to determine current directory")?;
+    resolve_config_in(config_file, &current_dir, &workspace_root())
+}
+
+/// Resolve and parse a firmware configuration file using explicit base paths.
+pub(crate) fn resolve_config_in(
+    config_file: Option<&Path>,
+    current_dir: &Path,
+    workspace_root: &Path,
+) -> Result<FirmwareConfig> {
+    let config_source = match config_file {
+        Some(path) => absolutize(path, current_dir),
+        None => workspace_root
+            .join("firmware")
+            .join("prototyper")
+            .join("config")
+            .join("default.toml"),
+    };
+    if !config_source.exists() {
+        bail!("config file '{}' does not exist", config_source.display());
+    }
+    parse_config(&config_source)
 }
 
 /// Resolve raw CLI arguments into a validated build specification.
@@ -126,18 +154,8 @@ pub(crate) fn resolve_in(
         bail!("FDT file does not exist: '{}'", fdt.display());
     }
 
-    let config_source = match &args.config_file {
-        Some(path) => absolutize(path, current_dir),
-        None => workspace_root
-            .join("firmware")
-            .join("prototyper")
-            .join("config")
-            .join("default.toml"),
-    };
-    if !config_source.exists() {
-        bail!("config file '{}' does not exist", config_source.display());
-    }
-    let firmware_config = parse_config(&config_source)?;
+    let firmware_config =
+        resolve_config_in(args.config_file.as_deref(), current_dir, workspace_root)?;
 
     let artifact_suffix = default_artifact_suffix(&mode).to_string();
 
@@ -214,7 +232,7 @@ fn parse_config(config_source: &Path) -> Result<FirmwareConfig> {
 
     let link_start_address = address("link_start_address")?;
     let payload_address = address("payload_address")?;
-    address("jump_address")?;
+    let jump_address = address("jump_address")?;
 
     let heap_size_bytes = match value.get("heap_size") {
         Some(toml::Value::Integer(size)) if *size >= MIN_HEAP_SIZE_BYTES => *size as u64,
@@ -275,6 +293,7 @@ fn parse_config(config_source: &Path) -> Result<FirmwareConfig> {
             link_start_address,
             heap_size_bytes,
             payload_address,
+            jump_address,
             hart_capacity,
             stack_size_per_hart,
             fdt_handoff,
@@ -321,12 +340,34 @@ impl BuildSpec {
         flags.join("\u{1f}")
     }
 
+    pub(crate) fn from_config(
+        mode: BuildMode,
+        debug: bool,
+        firmware_config: FirmwareConfig,
+        artifact_suffix: Option<String>,
+    ) -> Self {
+        let artifact_suffix =
+            artifact_suffix.unwrap_or_else(|| default_artifact_suffix(&mode).to_string());
+        Self {
+            mode,
+            fdt: None,
+            features: Vec::new(),
+            no_default_features: false,
+            target: Target::Firmware,
+            custom_target: None,
+            debug,
+            firmware_config,
+            artifact_suffix,
+        }
+    }
+
     pub(crate) fn artifact_suffix(&self) -> &str {
         &self.artifact_suffix
     }
 
-    pub(crate) fn override_artifact_suffix(&mut self, suffix: impl Into<String>) {
-        self.artifact_suffix = suffix.into();
+    pub(crate) fn artifact_path(&self, ext: &str) -> PathBuf {
+        self.artifact_dir()
+            .join(format!("{PACKAGE_NAME}-{}.{ext}", self.artifact_suffix))
     }
 
     pub(crate) fn profile(&self) -> &'static str {
