@@ -39,7 +39,6 @@ jobs:
           directories=(
             "library/sbi-rt"
             "library/sbi-spec"
-            "library/sbi-testing"
             "library/rustsbi"
             "library/macros"
           )

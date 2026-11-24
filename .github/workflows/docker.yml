@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          submodules: true
 
       - name: Build development image
         run: docker build -t rustsbi-dev .
@@ -52,10 +54,10 @@ jobs:
               cargo prototyper build
               cargo prototyper build jump
               cargo prototyper test --pack --no-run
-              test -s target/riscv64imac-unknown-none-elf/release/rustsbi-test-kernel.itb
+              test -s target/mbench/test-0x80200000/mbench.itb
             '
 
-      - name: Boot payload test kernel in QEMU
+      - name: Boot payload mbench in QEMU
         run: |
           docker run --rm \
             -v "$PWD:/workspace" \
@@ -64,7 +66,7 @@ jobs:
             bash -lc '
               set -euxo pipefail
 
-              cargo prototyper test
+              cargo prototyper test --out qemu-logs/docker-payload-test.log
             '
 
       - name: Upload QEMU log
