@@ -115,7 +115,7 @@ pub fn wait_until_ready() {
 /// Reads PMU event mappings from the first enabled PMU node.
 fn describe_pmu(platform: &PlatformView<'_>) -> Result<Option<SbiPmu>> {
     let mut pmu_node = None;
-    try_for_each_enabled_node(platform.root(), &mut |node, _| {
+    try_for_each_enabled_node(platform, |node, _| {
         if pmu_node.is_none()
             && node
                 .compatible()

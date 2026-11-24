@@ -50,7 +50,7 @@ pub(super) fn find<'view, 'tree: 'view, T>(
     mut describe: impl FnMut(EnabledNode<'view, 'tree>) -> Result<Option<T>>,
 ) -> Result<Option<T>> {
     let mut selected = None;
-    try_for_each_enabled_node(platform.root(), &mut |node, _| {
+    try_for_each_enabled_node(platform, |node, _| {
         if let Some(description) = describe(node)? {
             select_once(&mut selected, description)?;
         }

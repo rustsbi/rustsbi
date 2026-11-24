@@ -41,7 +41,7 @@ pub(crate) struct Selection {
 /// Parses enabled nodes in device-tree order before initializing any device.
 pub(crate) fn describe(platform: &PlatformView<'_>) -> Result<Selection> {
     let mut selected = Selection::default();
-    try_for_each_enabled_node(platform.root(), &mut |node, path| {
+    try_for_each_enabled_node(platform, |node, path| {
         describe_node(&mut selected, platform, node, path)
     })?;
     Ok(selected)

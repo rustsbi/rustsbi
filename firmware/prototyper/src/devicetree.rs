@@ -168,41 +168,18 @@ fn cpu_interrupt_controllers(platform: &PlatformView<'_>) -> Result<Vec<CpuInter
 /// Visits enabled nodes depth first, skipping disabled subtrees.
 ///
 /// The visitor receives the node, its parent, and its path from the root.
-pub(crate) fn try_for_each_enabled_node<'b, 'a, F>(
-    root: FdtNode<'b, 'a>,
-    visitor: &mut F,
-) -> Result<()>
-where
-    F: FnMut(EnabledNode<'b, 'a>, &[&str]) -> Result<()>,
-{
-    fn visit<'b, 'a, F>(
-        node: FdtNode<'b, 'a>,
-        parent: Option<FdtNode<'b, 'a>>,
-        path: &mut Vec<&'a str>,
-        visitor: &mut F,
-    ) -> Result<()>
-    where
-        F: FnMut(EnabledNode<'b, 'a>, &[&str]) -> Result<()>,
-    {
-        if !node_is_enabled(node) {
-            return Ok(());
-        }
-
-        path.push(node.name);
+pub(crate) fn try_for_each_enabled_node<'view, 'tree: 'view>(
+    platform: &'view PlatformView<'tree>,
+    mut visitor: impl FnMut(EnabledNode<'view, 'tree>, &[&'tree str]) -> Result<()>,
+) -> Result<()> {
+    platform.try_for_each_enabled_node(|node, parent, path| {
         visitor(
             EnabledNode {
                 node,
                 parent,
                 compatible: node.compatible(),
             },
-            path.as_slice(),
-        )?;
-        for child in node.children() {
-            visit(child, Some(node), path, visitor)?;
-        }
-        path.pop();
-        Ok(())
-    }
-
-    visit(root, None, &mut Vec::new(), visitor)
+            path,
+        )
+    })
 }

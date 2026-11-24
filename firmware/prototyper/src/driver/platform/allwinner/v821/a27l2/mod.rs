@@ -16,7 +16,7 @@ const CACHE_LEVEL: u32 = 2;
 /// Discovers the single enabled A27L2 cache node.
 pub(crate) fn describe(platform: &PlatformView<'_>, soc: AllwinnerV821Soc) -> Result<Option<Desc>> {
     let mut description = None;
-    try_for_each_enabled_node(platform.root(), &mut |discovered, _| {
+    try_for_each_enabled_node(platform, |discovered, _| {
         let Some(compatibles) = discovered.compatible() else {
             return Ok(());
         };
