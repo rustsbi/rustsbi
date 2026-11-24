@@ -72,14 +72,6 @@ impl Dbtr for SbiDbtr {
             return SbiRet::success(0);
         }
 
-        let trigger_count = *self
-            .trigger_counts
-            .get(hart)
-            .call_once(debug::trigger_count);
-        if trigger_count == 0 {
-            return SbiRet::not_supported();
-        }
-
         // The DBTR shared-memory base address is passed as two XLEN halves and
         // may be wider than XLEN bits. The alignment is decided by the lower
         // XLEN bits, which `start` holds.
@@ -93,8 +85,19 @@ impl Dbtr for SbiDbtr {
             return SbiRet::invalid_address();
         }
 
-        let Some(shared_memory_size) = trigger_count.checked_mul(TRIGGER_ENTRY_BYTES) else {
-            return SbiRet::invalid_address();
+        let trigger_count = *self
+            .trigger_counts
+            .get(hart)
+            .call_once(debug::trigger_count);
+        let shared_memory_size = if trigger_count == 0 {
+            // Still require at least one accessible word at `start` so invalid or M-mode
+            // addresses are rejected even when no hardware triggers are exposed.
+            align_of::<usize>()
+        } else {
+            let Some(size) = trigger_count.checked_mul(TRIGGER_ENTRY_BYTES) else {
+                return SbiRet::invalid_address();
+            };
+            size
         };
         let Ok(range) = PhysAddrRange::from_start_len(start, shared_memory_size) else {
             return SbiRet::invalid_address();
@@ -120,9 +123,6 @@ impl Dbtr for SbiDbtr {
             .trigger_counts
             .get(hart)
             .call_once(debug::trigger_count);
-        if trig_max == 0 {
-            return SbiRet::not_supported();
-        }
         if trig_idx_base >= trig_max
             || trig_idx_base
                 .checked_add(trig_count)
