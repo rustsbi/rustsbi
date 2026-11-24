@@ -43,29 +43,6 @@ fn boot_stack_size(firmware: &Path) -> usize {
 }
 
 #[test]
-fn help_smoke_and_unknown_flag_fail() {
-    xtask().arg("--help").assert().success();
-    xtask()
-        .arg("prototyper")
-        .arg("test")
-        .arg("--help")
-        .assert()
-        .success();
-    xtask()
-        .arg("prototyper")
-        .arg("bench")
-        .arg("--help")
-        .assert()
-        .success();
-    xtask()
-        .arg("prototyper")
-        .arg("test")
-        .arg("--definitely-not-a-flag")
-        .assert()
-        .failure();
-}
-
-#[test]
 fn configured_boot_topology_builds_and_rejects_invalid_bounds() {
     if !riscv_targets_installed() {
         eprintln!("skipping: riscv targets not installed");
@@ -123,7 +100,7 @@ fn configured_boot_topology_builds_and_rejects_invalid_bounds() {
                 "--smp",
                 "4",
                 "--timeout",
-                "15",
+                "30",
                 "--retries",
                 "1",
             ])

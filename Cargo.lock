@@ -180,12 +180,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6184e33543162437515c2e2b48714794e37845ec9851711914eec9d308f6ebe8"
 
 [[package]]
-name = "dtb-walker"
-version = "0.2.0-alpha.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9404d41caa1aa659f7be44d5a902e318c0672900822fe9ca41d9e38c14b52332"
-
-[[package]]
 name = "embedded-hal"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -268,6 +262,12 @@ name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
+
+[[package]]
+name = "itoa"
+version = "1.0.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 
 [[package]]
 name = "libc"
@@ -465,16 +465,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rcore-console"
-version = "0.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63aae49a6d2e6fd69821507a979b5871e4c47dc3abc9066347fa5c4a51a73dd6"
-dependencies = [
- "log",
- "spin",
-]
-
-[[package]]
 name = "regex-automata"
 version = "0.4.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -560,19 +550,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustsbi-bench-kernel"
-version = "0.0.0"
-dependencies = [
- "fdt",
- "log",
- "rcore-console",
- "rustsbi-csr",
- "sbi-spec",
- "sbi-testing",
- "spin",
-]
-
-[[package]]
 name = "rustsbi-csr"
 version = "0.0.0"
 
@@ -625,21 +602,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustsbi-test-kernel"
-version = "0.0.0"
-dependencies = [
- "dtb-walker",
- "log",
- "rcore-console",
- "rustsbi-csr",
- "sbi-spec",
- "sbi-testing",
- "seq-macro",
- "spin",
- "uart16550",
-]
-
-[[package]]
 name = "sbi-rt"
 version = "0.0.4"
 dependencies = [
@@ -652,16 +614,6 @@ version = "0.0.10"
 dependencies = [
  "bitflags",
  "static_assertions",
-]
-
-[[package]]
-name = "sbi-testing"
-version = "0.0.3"
-dependencies = [
- "log",
- "riscv",
- "sbi-rt",
- "sbi-spec",
 ]
 
 [[package]]
@@ -704,6 +656,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.4",
+]
+
+[[package]]
+name = "serde_json"
+version = "1.0.154"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6"
+dependencies = [
+ "itoa",
+ "memchr",
+ "serde",
+ "serde_core",
+ "zmij",
 ]
 
 [[package]]
@@ -854,12 +819,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 
 [[package]]
-name = "uart16550"
-version = "0.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "939f6f9ccad815fe3efca8fd06f2ec1620c0387fb1bca2b231b61ce710bffb9b"
-
-[[package]]
 name = "unicode-ident"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -947,6 +906,7 @@ dependencies = [
  "clap-verbosity-flag",
  "log",
  "serde",
+ "serde_json",
  "tempfile",
  "toml",
 ]
@@ -970,3 +930,9 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
+
+[[package]]
+name = "zmij"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"

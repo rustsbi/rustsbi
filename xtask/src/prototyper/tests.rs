@@ -10,10 +10,9 @@ use super::{
     BuildArgs, BuildMode, BuildPaths, FirmwareLayout, PrototyperCommand, Target,
     build::remove_stale_payload_artifacts,
     generate_build_inputs,
-    kernels::{self, Kernel, KernelArgs, ResolvedRun, forbidden_patterns},
-    qemu::{Attempt, NextStep, next_step, verify_output},
+    kernels::{BootMode, Kernel, ResolvedRun},
+    qemu::{forbidden_patterns, read_console_patterns},
     render_linker_script, resolve_in,
-    scheme::{Action, Scheme},
 };
 use crate::utils::cargo_target_dir_in;
 
@@ -119,14 +118,13 @@ fn cli_parses_commands_and_build_arguments() {
 }
 
 #[test]
-fn cli_kernel_options_flow_and_resolve_via_scheme() {
-    // Explicit flags flow through verbatim as Some(_).
+fn cli_kernel_options_flow_and_resolve_defaults() {
     let args = match parse(&[
         "prototyper",
         "test",
         "--no-run",
         "--smp",
-        "2",
+        "8",
         "--timeout",
         "30",
         "--retries",
@@ -137,105 +135,50 @@ fn cli_kernel_options_flow_and_resolve_via_scheme() {
         PrototyperCommand::Test(args) => args,
         _ => panic!("expected `test` subcommand"),
     };
-    assert!(args.no_run);
-    assert_eq!(args.smp, Some(2));
-    assert_eq!(args.timeout, Some(30));
-    assert_eq!(args.retries, Some(1));
+    let resolved_override = ResolvedRun::resolve(&args, Kernel::Test);
+    assert!(resolved_override.no_run);
+    assert_eq!(
+        (
+            resolved_override.smp,
+            resolved_override.timeout_secs,
+            resolved_override.attempts
+        ),
+        (8, 30, 1)
+    );
 
-    // Absent flags are None; resolution happens against the Scheme.
-    let scheme = Scheme::default();
-    let args = match parse(&["prototyper", "bench"]).unwrap() {
+    let default_test_args = match parse(&["prototyper", "test"]).unwrap() {
+        PrototyperCommand::Test(args) => args,
+        _ => panic!("expected `test` subcommand"),
+    };
+    let default_test = ResolvedRun::resolve(&default_test_args, Kernel::Test);
+    assert!(!default_test.no_run);
+    assert_eq!(
+        (
+            default_test.smp,
+            default_test.timeout_secs,
+            default_test.attempts
+        ),
+        (4, 60, 2)
+    );
+
+    let default_bench_args = match parse(&["prototyper", "bench"]).unwrap() {
         PrototyperCommand::Bench(args) => args,
         _ => panic!("expected `bench` subcommand"),
     };
-    assert_eq!(args.smp, None);
-    let resolved_smp = args.smp.unwrap_or(scheme.action(Action::Bench).smp);
-    assert_eq!(resolved_smp, 4);
-    assert!(!args.no_run);
-}
-
-#[test]
-fn qemu_output_verification_checks_expected_and_forbidden_patterns() {
-    let expected = vec![
-        "Hello RustSBI!".to_string(),
-        "Platform HART Count           : 1".to_string(),
-        "Sbi `Base` test pass".to_string(),
-    ];
-    let forbidden = vec!["panicked".to_string(), "FAILED".to_string()];
-    let passing = "RustSBI version\n\
-                   Hello RustSBI!\n\
-                   Platform HART Count           : 1\n\
-                   Sbi `Base` test pass\n";
-    assert!(verify_output(passing, &expected, &forbidden).is_ok());
-
-    let missing = verify_output("Hello RustSBI!", &expected, &forbidden).unwrap_err();
-    assert!(format!("{missing:#}").contains("Platform HART Count"));
-
-    let failure = verify_output(
-        "Hello RustSBI!\nPlatform HART Count           : 1\nSbi `Base` test pass\npanicked at 'oops'",
-        &expected,
-        &forbidden,
-    )
-    .unwrap_err();
-    assert!(format!("{failure:#}").contains("panic"));
-
-    assert!(verify_output("", &expected, &forbidden).is_err());
-}
-
-#[test]
-fn scheme_defaults_drive_kernel_runs() {
-    let scheme = Scheme::default();
-    // Changing a default is a one-line edit in scheme.rs (AE2).
-    assert_eq!(scheme.action(Action::Test).smp, 1);
-    assert_eq!(scheme.action(Action::Bench).smp, 4);
-    assert_eq!(scheme.action(Action::Bench).timeout_secs, 90);
-    assert_eq!(scheme.qemu.machine, "virt");
-    assert_eq!(scheme.qemu.memory_mb, 256);
-}
-
-#[test]
-fn qemu_retries_only_after_timeout() {
-    let clean = |success: bool| Attempt::Exited {
-        success,
-        output: String::new(),
-    };
-    let timed_out = || Attempt::TimedOut {
-        output: String::new(),
-    };
-
-    // A clean exit with verified output passes on the first attempt.
-    assert_eq!(next_step(&clean(true), Some(true), true), NextStep::Pass);
-    assert_eq!(next_step(&clean(true), Some(true), false), NextStep::Pass);
-
-    // A verification failure fails immediately, even with attempts left.
+    let default_bench = ResolvedRun::resolve(&default_bench_args, Kernel::Bench);
+    assert!(!default_bench.no_run);
     assert_eq!(
-        next_step(&clean(true), Some(false), true),
-        NextStep::VerificationFailed
+        (
+            default_bench.smp,
+            default_bench.timeout_secs,
+            default_bench.attempts
+        ),
+        (4, 120, 4)
     );
-
-    // A non-zero exit fails immediately, even with attempts left.
-    assert_eq!(next_step(&clean(false), None, true), NextStep::NonZeroExit);
-
-    // A timeout retries only while attempts remain.
-    assert_eq!(next_step(&timed_out(), None, true), NextStep::Retry);
-    assert_eq!(next_step(&timed_out(), None, false), NextStep::TimedOut);
 }
 
 #[test]
 fn console_pattern_files_drive_qemu_verification() {
-    // The shared pattern files under `prototyper/` are the single source for
-    // xtask and `.github/scripts/prototyper-qemu-boot.sh`; they must parse,
-    // substitute `{smp}`, and keep the load-bearing patterns.
-    let test_patterns = Kernel::Test.expected_patterns(4).unwrap();
-    assert!(test_patterns.contains(&"Hello RustSBI!".to_string()));
-    assert!(test_patterns.contains(&"Platform HART Count           : 4".to_string()));
-    assert!(test_patterns.contains(&"Sbi `TIME` test pass".to_string()));
-    assert!(test_patterns.contains(&"[pmu] counters number:".to_string()));
-
-    let bench_patterns = Kernel::Bench.expected_patterns(1).unwrap();
-    assert!(bench_patterns.contains(&"Platform HART Count           : 1".to_string()));
-    assert!(bench_patterns.contains(&"Test #3:".to_string()));
-
     let forbidden = forbidden_patterns().unwrap();
     assert!(forbidden.contains(&"panicked".to_string()));
     assert!(forbidden.contains(&"FAILED".to_string()));
@@ -266,6 +209,7 @@ fn resolve_normalizes_files_and_derives_features() {
     let spec = resolve_in(&args, &root, &root).unwrap();
     assert_eq!(spec.firmware_config.layout.hart_capacity, 8);
     assert_eq!(spec.firmware_config.layout.stack_size_per_hart, 32768);
+    assert_eq!(spec.firmware_config.layout.jump_address, 0x8020_0000);
     assert_eq!(spec.firmware_config.layout.fdt_handoff, None);
     assert_eq!(
         spec.mode,
@@ -534,6 +478,7 @@ fn linker_template_renders_known_addresses_and_rejects_unknown_tokens() {
         link_start_address: 0x80000000,
         heap_size_bytes: 0x15000,
         payload_address: 0x80200000,
+        jump_address: 0x80200000,
         hart_capacity: 2,
         stack_size_per_hart: 8192,
         fdt_handoff: None,
@@ -544,11 +489,9 @@ fn linker_template_renders_known_addresses_and_rejects_unknown_tokens() {
     assert!(rendered.contains(". += 0x15000;"));
     assert!(rendered.contains("*(.bss.stack)"));
 
-    // Placeholder-shaped unknown tokens are rejected.
     let error = render_linker_script(". = @UNKNOWN@;", &addresses).unwrap_err();
     assert!(format!("{error:#}").contains("@UNKNOWN@"));
 
-    // Literal `@` characters (e.g. in comments) are not placeholders.
     let rendered = render_linker_script("/* report bugs to dev@example.com */\n", &addresses)
         .expect("literal @ must not be rejected");
     assert!(rendered.contains("dev@example.com"));
@@ -560,9 +503,12 @@ fn linker_template_renders_known_addresses_and_rejects_unknown_tokens() {
 
 #[test]
 fn run_options_validation_rejects_zero_values_before_building() {
-    use super::kernels::ResolvedRun;
     let valid = ResolvedRun {
+        pack: false,
         no_run: true,
+        boot_mode: BootMode::Payload,
+        machine: "virt".to_string(),
+        firmware_load_addr: None,
         smp: 1,
         timeout_secs: 60,
         attempts: 1,
@@ -571,21 +517,21 @@ fn run_options_validation_rejects_zero_values_before_building() {
 
     let zero_retries = ResolvedRun {
         attempts: 0,
-        ..valid
+        ..valid.clone()
     };
-    let error = zero_retries.validate().unwrap_err();
-    assert!(format!("{error:#}").contains("--retries 0"));
+    assert!(format!("{:#}", zero_retries.validate().unwrap_err()).contains("--retries 0"));
 
-    let zero_smp = ResolvedRun { smp: 0, ..valid };
-    let error = zero_smp.validate().unwrap_err();
-    assert!(format!("{error:#}").contains("--smp 0"));
+    let zero_smp = ResolvedRun {
+        smp: 0,
+        ..valid.clone()
+    };
+    assert!(format!("{:#}", zero_smp.validate().unwrap_err()).contains("--smp 0"));
 
     let zero_timeout = ResolvedRun {
         timeout_secs: 0,
         ..valid
     };
-    let error = zero_timeout.validate().unwrap_err();
-    assert!(format!("{error:#}").contains("--timeout 0"));
+    assert!(format!("{:#}", zero_timeout.validate().unwrap_err()).contains("--timeout 0"));
 }
 
 #[test]
@@ -599,8 +545,6 @@ fn cargo_target_dir_honors_env_override() {
         cargo_target_dir_in(Some("/abs/out".into()), cwd),
         PathBuf::from("/abs/out")
     );
-    // Without the override, the default lives under the workspace root;
-    // xtask is always built from this workspace, so the root exists.
     let default = cargo_target_dir_in(None, cwd);
     assert!(default.ends_with("target"));
     assert!(default.is_absolute());
@@ -630,10 +574,8 @@ fn stale_generic_payload_artifacts_are_removed_for_suffixed_payload_builds() {
     remove_stale_payload_artifacts(&root, "payload-test").unwrap();
     assert!(!root.join("rustsbi-prototyper-payload.elf").exists());
     assert!(!root.join("rustsbi-prototyper-payload.bin").exists());
-    // Dynamic artifacts are side-by-side outputs and must survive.
     assert!(root.join("rustsbi-prototyper-dynamic.elf").exists());
 
-    // A plain payload build keeps its own artifacts; missing files are fine.
     for extension in ["elf", "bin"] {
         fs::write(
             root.join(format!("rustsbi-prototyper-payload.{extension}")),
@@ -650,37 +592,7 @@ fn stale_generic_payload_artifacts_are_removed_for_suffixed_payload_builds() {
 }
 
 #[test]
-fn resolved_run_prefers_cli_overrides_and_falls_back_to_scheme() {
-    let scheme = Scheme::default();
-    let args = KernelArgs {
-        pack: false,
-        no_run: true,
-        smp: Some(8),
-        timeout: Some(30),
-        retries: Some(1),
-        debug: false,
-        config_file: None,
-    };
-    let run = ResolvedRun::resolve(&args, Kernel::Test, &scheme);
-    assert_eq!((run.smp, run.timeout_secs, run.attempts), (8, 30, 1));
-
-    // Absent flags fall back to the per-kernel scheme section.
-    let args = KernelArgs {
-        smp: None,
-        timeout: None,
-        retries: None,
-        ..args
-    };
-    let test = ResolvedRun::resolve(&args, Kernel::Test, &scheme);
-    assert_eq!((test.smp, test.timeout_secs, test.attempts), (1, 60, 2));
-    let bench = ResolvedRun::resolve(&args, Kernel::Bench, &scheme);
-    assert_eq!((bench.smp, bench.timeout_secs, bench.attempts), (4, 90, 4));
-}
-
-#[test]
 fn pattern_files_must_yield_at_least_one_pattern() {
-    // Fail closed: an emptied pattern file must not silently verify nothing
-    // (mirrors the CI script's `test -s` guard).
     let root = env::temp_dir().join(format!(
         "xtask-pattern-test-{}-{}",
         std::process::id(),
@@ -690,12 +602,12 @@ fn pattern_files_must_yield_at_least_one_pattern() {
     fs::create_dir_all(&dir).unwrap();
     fs::write(dir.join("empty.txt"), "# only comments\n\n").unwrap();
 
-    let err = kernels::read_console_patterns(&dir.join("empty.txt")).unwrap_err();
+    let err = read_console_patterns(&dir.join("empty.txt")).unwrap_err();
     assert!(format!("{err:#}").contains("no patterns"));
 
     fs::write(dir.join("ok.txt"), "  Hello  \n# note\n").unwrap();
     assert_eq!(
-        kernels::read_console_patterns(&dir.join("ok.txt")).unwrap(),
+        read_console_patterns(&dir.join("ok.txt")).unwrap(),
         vec!["Hello".to_string()]
     );
     let _ = fs::remove_dir_all(&root);

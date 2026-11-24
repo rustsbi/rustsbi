@@ -4,7 +4,6 @@ members = [
     "library/macros",
     "library/sbi-rt",
     "library/sbi-spec",
-    "library/sbi-testing",
     "library/rustsbi",
     "library/riscv-aia",
     "library/riscv-cove",
@@ -17,12 +16,10 @@ members = [
     "firmware/runtime/macros",
     "firmware/runtime/lib/csr",
     "firmware/prototyper",
-    "firmware/bench-kernel",
-    "firmware/test-kernel",
     "xtask",
 ]
-# Default Cargo commands operate on host-testable libraries.
-# `sbi-testing` is checked on RISC-V targets in CI. Firmware is built through
+exclude = ["firmware/mbench"]
+# Default Cargo commands operate on host-testable libraries. Firmware is built through
 # xtask.
 default-members = [
     "library/macros",

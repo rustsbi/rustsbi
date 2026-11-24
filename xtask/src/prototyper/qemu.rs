@@ -1,183 +1,187 @@
-//! QEMU execution for kernel-backed prototyper commands.
-//!
-//! Boots a payload-mode firmware ELF under `qemu-system-riscv64` and
-//! verifies the captured console output against per-kernel expectations.
-//! Shares its pattern files (but not its dynamic/jump modes) with
-//! `.github/scripts/prototyper-qemu-boot.sh`.
+//! QEMU execution and `mbench` capture verification for prototyper `test` and `bench`.
 
 use std::{
+    fs,
     io::Read,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     thread,
     time::{Duration, Instant},
 };
 
-use super::scheme::QemuParams;
 use anyhow::{Context, Result, bail};
+use serde::Deserialize;
 
-/// Poll interval while waiting for a QEMU process to exit.
+use crate::utils::workspace_root;
+
+use super::kernels::Kernel;
+
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
-/// Number of console lines printed when a run fails.
 const LOG_TAIL_LINES: usize = 120;
+const QEMU_MEMORY_MB: u64 = 256;
+
+#[derive(Debug, Clone)]
+pub(super) enum QemuPayload {
+    Payload,
+    Dynamic {
+        kernel_elf: PathBuf,
+        bootargs: &'static str,
+    },
+    Jump {
+        kernel_bin: PathBuf,
+        load_addr: u64,
+    },
+}
 
 /// A QEMU boot to execute and verify.
 pub(super) struct QemuRun {
-    /// Firmware ELF passed as `-bios`.
     pub bios: PathBuf,
-    /// QEMU invocation parameters (`-machine`, `-m`).
-    pub qemu: QemuParams,
-    /// Number of harts (`-smp`).
+    pub payload: QemuPayload,
+    pub mbench_cli: PathBuf,
+    pub work_dir: PathBuf,
+    pub kernel: Kernel,
+    pub machine: String,
     pub smp: usize,
-    /// Timeout of one attempt.
     pub timeout: Duration,
-    /// Total attempts; retries happen only after a timeout.
+    /// Total attempts; retries happen only after a timeout without observed failure.
     pub attempts: usize,
-    /// Console substrings that must all be present for the run to pass.
-    pub expected: Vec<String>,
-    /// Console substrings that mark a failed run even when QEMU exits
-    /// successfully (e.g. the `panicked at` prefix of Rust panic messages;
-    /// the shorter `panic` would false-positive on legitimate output
-    /// mentioning panics).
+    /// Console substrings that fail the run even when QEMU exits cleanly or times out.
     pub forbidden: Vec<String>,
-    /// Human readable label used in log messages (e.g. `test`).
-    pub label: String,
+    pub out: Option<PathBuf>,
 }
 
-/// Outcome of one QEMU attempt.
-pub(super) enum Attempt {
-    /// QEMU exited before the timeout; carries exit success and console output.
+enum Attempt {
     Exited { success: bool, output: String },
-    /// QEMU was killed after the timeout elapsed.
     TimedOut { output: String },
 }
 
-impl Attempt {
-    /// Console output captured from the attempt.
-    fn output(&self) -> &str {
-        match self {
-            Attempt::Exited { output, .. } | Attempt::TimedOut { output } => output,
+/// Build a distinct per-attempt file path beside `base` so retried timeouts preserve prior logs.
+fn attempt_capture_path(base: &Path, attempt: usize) -> PathBuf {
+    let suffix = format!("attempt-{attempt}");
+    match (base.file_stem(), base.extension()) {
+        (Some(stem), Some(ext)) => {
+            let mut file_name = stem.to_os_string();
+            file_name.push(format!(".{suffix}."));
+            file_name.push(ext);
+            base.with_file_name(file_name)
         }
+        (Some(stem), None) => {
+            let mut file_name = stem.to_os_string();
+            file_name.push(format!(".{suffix}"));
+            base.with_file_name(file_name)
+        }
+        _ => base.with_extension(suffix),
     }
 }
 
-/// What `run` should do after one QEMU attempt.
-///
-/// Pure policy: retries happen only after a timeout; a clean exit whose
-/// console output fails verification, or a non-zero exit, fails immediately.
-#[derive(Debug, PartialEq, Eq)]
-pub(super) enum NextStep {
-    /// Clean exit and console verified: print results and succeed.
-    Pass,
-    /// Clean exit but console verification failed: fail immediately.
-    VerificationFailed,
-    /// QEMU exited with a non-zero status: fail immediately.
-    NonZeroExit,
-    /// Timed out with attempts remaining: retry.
-    Retry,
-    /// Timed out on the last attempt: fail.
-    TimedOut,
-}
-
-/// Decide the next step after one QEMU attempt, independent of any I/O.
-///
-/// `verified` is `Some(bool)` only for a clean exit (the outcome of
-/// `verify_output`); it is `None` when verification does not apply.
-pub(super) fn next_step(
-    attempt: &Attempt,
-    verified: Option<bool>,
-    attempts_left: bool,
-) -> NextStep {
-    match attempt {
-        Attempt::Exited { success: true, .. } => match verified {
-            Some(true) => NextStep::Pass,
-            _ => NextStep::VerificationFailed,
-        },
-        Attempt::Exited { success: false, .. } => NextStep::NonZeroExit,
-        Attempt::TimedOut { .. } => {
-            if attempts_left {
-                NextStep::Retry
-            } else {
-                NextStep::TimedOut
-            }
-        }
-    }
-}
-
-/// Boot `run.bios` in QEMU and verify the kernel console output.
-///
-/// Retries are only performed when an attempt times out; a clean QEMU exit
-/// with failing output verification fails immediately.
+/// Boot `run.bios` in QEMU, capture serial output, and verify the capture via `mbench validate --json`.
 pub(super) fn run(run: &QemuRun) -> Result<()> {
-    if run.attempts == 0 {
-        bail!("QEMU attempts must be at least 1 (got --retries 0)");
-    }
-    if run.smp == 0 {
-        bail!("QEMU hart count must be at least 1 (got --smp 0)");
-    }
-
+    let label = run.kernel.command_name();
     info!(
-        "Running {} kernel in QEMU (smp={}, timeout={}s, attempts={})",
-        run.label,
+        "Running {label} in QEMU (machine={}, smp={}, timeout={}s, attempts={})",
+        run.machine,
         run.smp,
         run.timeout.as_secs(),
         run.attempts
     );
 
     for attempt in 1..=run.attempts {
-        let outcome = run_once(run)?;
-        let attempts_left = attempt < run.attempts;
-        let verification = match &outcome {
+        match run_once(run)? {
             Attempt::Exited {
                 success: true,
                 output,
-            } => Some(verify_output(output, &run.expected, &run.forbidden)),
-            _ => None,
-        };
-        match next_step(
-            &outcome,
-            verification.as_ref().map(Result::is_ok),
-            attempts_left,
-        ) {
-            NextStep::Pass => {
-                info!(
-                    "{} kernel run passed on attempt {}/{}",
-                    run.label, attempt, run.attempts
-                );
-                print_results(&run.label, outcome.output(), &run.expected);
-                return Ok(());
-            }
-            NextStep::VerificationFailed => {
-                print_tail(&run.label, outcome.output());
-                match verification {
-                    Some(Err(err)) => return Err(err),
-                    // `next_step` only returns `VerificationFailed` when
-                    // verification ran and failed.
-                    _ => unreachable!("verification failed without an error"),
+            } => {
+                let capture_path = match &run.out {
+                    Some(path) => path.clone(),
+                    None => run
+                        .work_dir
+                        .join(format!("qemu-{label}-attempt-{attempt}.log")),
+                };
+                write_capture_file(&capture_path, &output)?;
+                let verified = verify_capture(&output, &capture_path, run);
+                if run.out.is_none() && verified.is_ok() {
+                    let _ = fs::remove_file(&capture_path);
+                }
+                match verified {
+                    Ok(()) => {
+                        info!("{label} run passed on attempt {attempt}/{}", run.attempts);
+                        return Ok(());
+                    }
+                    Err(err) => {
+                        print_tail(label, &output);
+                        return Err(err.context(format!(
+                            "full QEMU capture saved to '{}'",
+                            capture_path.display()
+                        )));
+                    }
                 }
             }
-            NextStep::NonZeroExit => {
-                print_tail(&run.label, outcome.output());
-                bail!(
-                    "QEMU exited with a non-zero status while running the {} kernel",
-                    run.label
-                );
+            Attempt::Exited {
+                success: false,
+                output,
+            } => {
+                save_optional_output(run.out.as_deref(), &output);
+                print_tail(label, &output);
+                bail!("QEMU exited with a non-zero status while running {label}");
             }
-            NextStep::Retry => {
-                warn!(
-                    "QEMU timed out after {}s on attempt {}/{}; retrying",
-                    run.timeout.as_secs(),
-                    attempt,
-                    run.attempts
-                );
-            }
-            NextStep::TimedOut => {
-                print_tail(&run.label, outcome.output());
+            Attempt::TimedOut { output } => {
+                let is_final = attempt == run.attempts;
+                let capture_path = match run.out.as_deref() {
+                    Some(path) if is_final => path.to_path_buf(),
+                    Some(path) => attempt_capture_path(path, attempt),
+                    None => run
+                        .work_dir
+                        .join(format!("qemu-timeout-{label}-attempt-{attempt}.log")),
+                };
+                let write_res = write_capture_file(&capture_path, &output);
+                let saved = if is_final {
+                    write_res.is_ok()
+                } else {
+                    write_res?;
+                    true
+                };
+                if saved
+                    && let Err(err) = check_timeout_for_explicit_failure(
+                        &output,
+                        &capture_path,
+                        &run.mbench_cli,
+                        &run.forbidden,
+                    )
+                {
+                    if !is_final {
+                        save_optional_output(run.out.as_deref(), &output);
+                    }
+                    print_tail(label, &output);
+                    let detail = if is_final {
+                        format!(
+                            "QEMU timed out after {}s while running {label} after recording a failure (saved to '{}')",
+                            run.timeout.as_secs(),
+                            capture_path.display()
+                        )
+                    } else {
+                        format!(
+                            "timed-out attempt {attempt}/{} had already recorded a failure (saved to '{}')",
+                            run.attempts,
+                            capture_path.display()
+                        )
+                    };
+                    return Err(err.context(detail));
+                }
+                if !is_final {
+                    warn!(
+                        "QEMU timed out after {}s on attempt {attempt}/{} (saved to '{}'); retrying",
+                        run.timeout.as_secs(),
+                        run.attempts,
+                        capture_path.display()
+                    );
+                    continue;
+                }
+                print_tail(label, &output);
                 bail!(
-                    "QEMU timed out after {}s while running the {} kernel ({} attempt(s))",
+                    "QEMU timed out after {}s while running {label} ({} attempt(s); capture: '{}')",
                     run.timeout.as_secs(),
-                    run.label,
-                    run.attempts
+                    run.attempts,
+                    capture_path.display()
                 );
             }
         }
@@ -186,18 +190,397 @@ pub(super) fn run(run: &QemuRun) -> Result<()> {
     unreachable!("attempts >= 1, so the loop always returns or bails")
 }
 
-/// Spawn one QEMU process, enforce the timeout, and capture console output.
-///
-/// stdout and stderr are drained on dedicated threads while the child runs;
-/// reading only after exit would deadlock once QEMU fills the pipe buffer.
+#[derive(Deserialize)]
+struct CaptureReport {
+    protocol_valid: bool,
+    completed: bool,
+    #[serde(default)]
+    protocol_errors: Vec<String>,
+    meta: Option<ReportMeta>,
+    panic: Option<serde_json::Value>,
+    counts: ReportCounts,
+    #[serde(default)]
+    checks: Vec<ReportItem>,
+    #[serde(default)]
+    benches: Vec<ReportItem>,
+}
+
+#[derive(Deserialize)]
+struct ReportMeta {
+    hart_count: usize,
+    #[serde(default)]
+    extensions: Vec<String>,
+    config: Option<ReportConfig>,
+}
+
+#[derive(Deserialize)]
+struct ReportConfig {
+    mode: String,
+}
+
+#[derive(Deserialize)]
+struct ReportCounts {
+    checks_total: usize,
+    checks_passed: usize,
+    checks_skipped: usize,
+    checks_failed: usize,
+    check_assertions_failed: u64,
+    benches_total: usize,
+    benches_effective: usize,
+    benches_skipped: usize,
+    benches_failed: usize,
+    quarantine_warnings: usize,
+}
+
+#[derive(Deserialize)]
+struct ReportItem {
+    id: String,
+    status: String,
+}
+
+const REQUIRED_VIRT_EXTENSIONS: &[&str] = &[
+    "base", "time", "spi", "rfnc", "hsm", "srst", "pmu", "dbcn", "susp", "cppc", "sta", "fwft",
+    "dbtr", "mpxy",
+];
+
+const REQUIRED_VIRT_CHECKS: &[&str] = &[
+    "conformance/base",
+    "conformance/time",
+    "conformance/spi",
+    "conformance/rfnc",
+    "conformance/pmu",
+    "conformance/dbcn",
+    "conformance/fwft",
+    "conformance/dbtr",
+    "conformance/shmem_security.sta",
+    "conformance/shmem_security.dbtr",
+    "conformance/shmem_security.mpxy",
+    "conformance/system",
+    "conformance/traps",
+];
+
+const REQUIRED_VIRT_SMP_CHECKS: &[&str] = &[
+    "conformance/spi_smp",
+    "conformance/rfnc_smp",
+    "conformance/hsm",
+];
+
+const REQUIRED_VIRT_BENCHES: &[&str] = &[
+    "base/get_spec_version",
+    "base/probe.hit",
+    "time/set_timer",
+    "pmu/num_counters",
+    "hsm/get_status",
+];
+
+const REQUIRED_VIRT_SMP_BENCHES: &[&str] = &[
+    "spi/send_ipi.one",
+    "rfnc/sfence_vma.all",
+    "hsm/start_stop",
+    "scale/base_ecall",
+];
+
+fn is_virt_machine(machine: &str) -> bool {
+    machine == "virt" || machine.starts_with("virt,")
+}
+
+fn is_effective_bench_status(status: &str) -> bool {
+    matches!(status, "PASS" | "HW_NATIVE" | "DELEGATED_TO_S")
+}
+
+fn run_mbench_validate(
+    mbench_cli: &Path,
+    capture_path: &Path,
+) -> Result<(bool, CaptureReport, String)> {
+    let output = Command::new(mbench_cli)
+        .arg("validate")
+        .arg(capture_path)
+        .arg("--json")
+        .output()
+        .with_context(|| format!("failed to execute '{}'", mbench_cli.display()))?;
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let report: CaptureReport = serde_json::from_slice(&output.stdout).with_context(|| {
+        format!(
+            "failed to parse JSON from `{} validate {} --json` (exit={:?}, stderr={stderr:?})",
+            mbench_cli.display(),
+            capture_path.display(),
+            output.status.code()
+        )
+    })?;
+    Ok((output.status.success(), report, stderr))
+}
+
+fn check_forbidden_patterns(output: &str, forbidden: &[String]) -> Result<()> {
+    if let Some(pattern) = forbidden
+        .iter()
+        .find(|pattern| output.contains(pattern.as_str()))
+    {
+        bail!("console output contains forbidden pattern `{pattern}`");
+    }
+    Ok(())
+}
+
+fn ensure_no_report_failures(report: &CaptureReport, when: &str) -> Result<()> {
+    if let Some(panic) = &report.panic {
+        bail!("mbench target panicked{when}: {panic}");
+    }
+    if let Some(failed) = report.checks.iter().find(|check| check.status == "FAIL") {
+        bail!("mbench check `{}` failed{when}", failed.id);
+    }
+    if let Some(failed) = report.benches.iter().find(|bench| bench.status == "FAIL") {
+        bail!("mbench benchmark `{}` failed{when}", failed.id);
+    }
+    if report.counts.checks_failed > 0 || report.counts.check_assertions_failed > 0 {
+        bail!(
+            "mbench reported {} failed check(s) / {} failed assertion(s){when}",
+            report.counts.checks_failed,
+            report.counts.check_assertions_failed
+        );
+    }
+    if report.counts.benches_failed > 0 {
+        bail!(
+            "mbench reported {} failed benchmark(s){when}",
+            report.counts.benches_failed
+        );
+    }
+    Ok(())
+}
+
+fn check_timeout_for_explicit_failure(
+    output: &str,
+    capture_path: &Path,
+    mbench_cli: &Path,
+    forbidden: &[String],
+) -> Result<()> {
+    check_forbidden_patterns(output, forbidden)?;
+    if !output.contains("@@MBENCH:") {
+        return Ok(());
+    }
+    match run_mbench_validate(mbench_cli, capture_path) {
+        Ok((_, report, _)) => ensure_no_report_failures(&report, " before timeout"),
+        Err(_) if output.contains("@@MBENCH:PANIC") => {
+            bail!("mbench target emitted @@MBENCH:PANIC before timeout");
+        }
+        Err(err) => Err(err),
+    }
+}
+
+fn check_required_items<'a>(
+    kind: &str,
+    expected: &str,
+    base: &[&'a str],
+    smp_extra: &[&'a str],
+    smp: usize,
+    items: &[ReportItem],
+    accepts: impl Fn(&str) -> bool,
+) -> Result<()> {
+    let required = base
+        .iter()
+        .chain((smp >= 2).then_some(smp_extra).into_iter().flatten());
+    for item_id in required {
+        let status = items
+            .iter()
+            .find(|item| item.id == *item_id)
+            .map(|item| item.status.as_str());
+        if !status.is_some_and(&accepts) {
+            bail!(
+                "required QEMU virt {kind} `{item_id}` status is {status:?}, expected {expected}"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Verify captured QEMU console output via `mbench validate --json` and RustSBI platform policies.
+fn verify_capture(output: &str, capture_path: &Path, run: &QemuRun) -> Result<()> {
+    if output.trim().is_empty() {
+        bail!("QEMU produced no console output");
+    }
+    check_forbidden_patterns(output, &run.forbidden)?;
+
+    let (validate_ok, report, stderr) = run_mbench_validate(&run.mbench_cli, capture_path)?;
+    if !validate_ok || !report.protocol_valid || !report.completed {
+        let details = if !report.protocol_errors.is_empty() {
+            report.protocol_errors.join("; ")
+        } else if !stderr.is_empty() {
+            stderr
+        } else {
+            format!(
+                "protocol_valid={}, completed={}",
+                report.protocol_valid, report.completed
+            )
+        };
+        bail!("mbench protocol audit failed: {details}");
+    }
+
+    let meta = report
+        .meta
+        .as_ref()
+        .context("mbench capture report missing metadata")?;
+    if meta.hart_count != run.smp {
+        bail!(
+            "reported hart count {} does not match expected --smp {}",
+            meta.hart_count,
+            run.smp
+        );
+    }
+    let expected_mode = match run.kernel {
+        Kernel::Test => "check",
+        Kernel::Bench => "bench",
+    };
+    let actual_mode = meta.config.as_ref().map(|c| c.mode.as_str());
+    if actual_mode != Some(expected_mode) {
+        bail!("@@MBENCH:META.config.mode is {actual_mode:?}, expected {expected_mode:?}");
+    }
+
+    ensure_no_report_failures(&report, "")?;
+    if report.counts.quarantine_warnings != 0 {
+        bail!(
+            "mbench reported {} quarantine warning(s)",
+            report.counts.quarantine_warnings
+        );
+    }
+
+    if is_virt_machine(&run.machine) {
+        for ext in REQUIRED_VIRT_EXTENSIONS {
+            if !meta.extensions.iter().any(|present| present == ext) {
+                bail!("missing expected SBI extension `{ext}` on QEMU virt");
+            }
+        }
+        match run.kernel {
+            Kernel::Test => check_required_items(
+                "conformance check",
+                "\"PASS\"",
+                REQUIRED_VIRT_CHECKS,
+                REQUIRED_VIRT_SMP_CHECKS,
+                run.smp,
+                &report.checks,
+                |s| s == "PASS",
+            )?,
+            Kernel::Bench => check_required_items(
+                "benchmark",
+                "an effective run",
+                REQUIRED_VIRT_BENCHES,
+                REQUIRED_VIRT_SMP_BENCHES,
+                run.smp,
+                &report.benches,
+                is_effective_bench_status,
+            )?,
+        }
+    }
+
+    match run.kernel {
+        Kernel::Test if report.counts.checks_passed == 0 => {
+            bail!("mbench reported 0 passed conformance checks");
+        }
+        Kernel::Bench if report.counts.benches_effective == 0 => {
+            bail!("mbench reported 0 effective benchmarks");
+        }
+        Kernel::Test => println!(
+            "[mbench] PASS test: harts={} checks={}/{} (skipped={})",
+            meta.hart_count,
+            report.counts.checks_passed,
+            report.counts.checks_total,
+            report.counts.checks_skipped
+        ),
+        Kernel::Bench => println!(
+            "[mbench] PASS bench: harts={} effective={}/{} (skipped={})",
+            meta.hart_count,
+            report.counts.benches_effective,
+            report.counts.benches_total,
+            report.counts.benches_skipped
+        ),
+    }
+    Ok(())
+}
+
+/// Console substrings that mark a failed QEMU boot even when the process
+/// exits successfully, read from `firmware/scripts/qemu-forbidden.txt`.
+pub(super) fn forbidden_patterns() -> Result<Vec<String>> {
+    read_console_patterns(
+        &workspace_root()
+            .join("firmware")
+            .join("scripts")
+            .join("qemu-forbidden.txt"),
+    )
+}
+
+/// Read console patterns from a pattern file: one fixed string per line,
+/// skipping blank lines and `#` comments.
+pub(super) fn read_console_patterns(path: &Path) -> Result<Vec<String>> {
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("failed to read console pattern file '{}'", path.display()))?;
+    let patterns: Vec<String> = content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(String::from)
+        .collect();
+    if patterns.is_empty() {
+        bail!(
+            "console pattern file '{}' contains no patterns",
+            path.display()
+        );
+    }
+    Ok(patterns)
+}
+
+fn save_optional_output(out: Option<&Path>, output: &str) {
+    if let Some(path) = out
+        && let Err(err) = write_capture_file(path, output)
+    {
+        warn!(
+            "failed to write QEMU capture to '{}': {err:#}",
+            path.display()
+        );
+    }
+}
+
+fn write_capture_file(path: &Path, content: &str) -> Result<()> {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent).with_context(|| {
+            format!("failed to create capture directory '{}'", parent.display())
+        })?;
+    }
+    fs::write(path, content)
+        .with_context(|| format!("failed to write capture file '{}'", path.display()))
+}
+
 fn run_once(run: &QemuRun) -> Result<Attempt> {
-    let mut child = Command::new("qemu-system-riscv64")
-        .arg("-machine")
-        .arg(&run.qemu.machine)
+    let mut cmd = Command::new("qemu-system-riscv64");
+    cmd.arg("-machine")
+        .arg(&run.machine)
         .arg("-m")
-        .arg(format!("{}M", run.qemu.memory_mb))
+        .arg(format!("{QEMU_MEMORY_MB}M"))
         .args(["-smp", &run.smp.to_string(), "-nographic", "-bios"])
-        .arg(&run.bios)
+        .arg(&run.bios);
+
+    match &run.payload {
+        QemuPayload::Payload => {}
+        QemuPayload::Dynamic {
+            kernel_elf,
+            bootargs,
+        } => {
+            cmd.arg("-kernel")
+                .arg(kernel_elf)
+                .arg("-append")
+                .arg(bootargs);
+        }
+        QemuPayload::Jump {
+            kernel_bin,
+            load_addr,
+        } => {
+            cmd.arg("-device").arg(format!(
+                "loader,file={},addr={load_addr:#x}",
+                kernel_bin.display()
+            ));
+        }
+    }
+
+    let mut child = cmd
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -244,13 +627,11 @@ fn run_once(run: &QemuRun) -> Result<Attempt> {
     }
 }
 
-/// Which child stream a reader thread drains.
 enum Stream {
     Stdout,
     Stderr,
 }
 
-/// Spawn a thread that reads the given child stream to EOF.
 fn spawn_stream_reader(
     child: &mut Child,
     stream: Stream,
@@ -266,7 +647,6 @@ fn spawn_stream_reader(
     })
 }
 
-/// Join a stream reader thread and return the captured bytes.
 fn join_stream_reader(
     reader: thread::JoinHandle<std::io::Result<Vec<u8>>>,
     name: &str,
@@ -277,61 +657,16 @@ fn join_stream_reader(
         .with_context(|| format!("failed to read QEMU {name}"))
 }
 
-/// Verify captured console output: all `expected` patterns must be present
-/// and no `forbidden` pattern may appear.
-pub(super) fn verify_output(output: &str, expected: &[String], forbidden: &[String]) -> Result<()> {
-    if output.trim().is_empty() {
-        bail!("QEMU produced no console output");
-    }
-
-    let missing: Vec<&str> = expected
-        .iter()
-        .filter(|pattern| !output.contains(pattern.as_str()))
-        .map(String::as_str)
-        .collect();
-    if !missing.is_empty() {
-        bail!(
-            "kernel output is missing expected pattern(s): {}",
-            missing.join(", ")
-        );
-    }
-
-    if let Some(pattern) = forbidden
-        .iter()
-        .find(|pattern| output.contains(pattern.as_str()))
-    {
-        bail!("kernel output contains failure pattern `{pattern}`");
-    }
-
-    Ok(())
-}
-
-/// Print the console lines carrying the kernel's results (e.g. test passes,
-/// benchmark numbers): lines matching any expected pattern.
-fn print_results(label: &str, output: &str, expected: &[String]) {
-    println!("----- {label} kernel results -----");
-    for line in output.lines() {
-        if expected
-            .iter()
-            .any(|pattern| line.contains(pattern.as_str()))
-        {
-            println!("{line}");
-        }
-    }
-    println!("----- end of {label} kernel results -----");
-}
-
-/// Print the tail of the captured console output for post-mortem analysis.
 fn print_tail(label: &str, output: &str) {
     let lines: Vec<&str> = output.lines().collect();
     let skip = lines.len().saturating_sub(LOG_TAIL_LINES);
     eprintln!(
-        "----- {label} kernel QEMU console output (last {} of {} lines) -----",
+        "----- {label} QEMU console output (last {} of {} lines) -----",
         lines.len() - skip,
         lines.len()
     );
     for line in &lines[skip..] {
         eprintln!("{line}");
     }
-    eprintln!("----- end of {label} kernel QEMU console output -----");
+    eprintln!("----- end of {label} QEMU console output -----");
 }
