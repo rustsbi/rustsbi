@@ -107,7 +107,11 @@ unsafe extern "C" fn _start(hartid: usize, device_tree_paddr: usize) -> ! {
 
 /// Runs the test suites in their stable boot order and requests shutdown.
 extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
-    let platform::BoardInfo { smp, frequency } = platform::initialize(dtb_pa);
+    let platform::BoardInfo {
+        smp,
+        frequency,
+        firmware_end,
+    } = platform::initialize(dtb_pa);
     print_banner(hartid, smp, frequency, dtb_pa);
     println!(
         "SBI probes: HSM={} RFNC={} SUSP={} PMU={}",
@@ -131,7 +135,7 @@ extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     rfence::test(hartid, smp);
     reset::test();
     misaligned::test();
-    trap::test();
+    trap::test(firmware_end);
 
     let console_passed = console_result.is_ok();
     report_console_result(console_result);

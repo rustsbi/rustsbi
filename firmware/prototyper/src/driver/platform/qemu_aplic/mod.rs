@@ -12,7 +12,7 @@ mod registers;
 
 use runtime::{
     Error, Result,
-    memory::{MemoryRegistry, PhysAddr, RegRange},
+    memory::{MemoryRegistry, PhysAddr, PhysAddrRange, RegRange},
 };
 
 use crate::firmware::IrqMmio;
@@ -54,8 +54,25 @@ pub(super) fn init_for_imsic(
     }
     let aplic = aplic.ok_or(Error::InvalidArgs)?;
     init(aplic, imsic_base, hart_index_bits, memory)?;
+    const QEMU_VIRT_CLINT_SIZE: usize = 0x1_0000;
+    const QEMU_VIRT_CLINT_BASE: PhysAddr = PhysAddr::new(0x0200_0000);
+    // Deny the whole 64 KiB CLINT area so its M-mode MSIP and
+    // time-comparator windows stay inaccessible to S-mode.
+    let clint_start = match clint {
+        Some(range) => {
+            if range.end().as_usize() - range.start().as_usize() > QEMU_VIRT_CLINT_SIZE {
+                return Err(Error::InvalidArgs);
+            }
+            range.start().as_usize()
+        }
+        None => QEMU_VIRT_CLINT_BASE.as_usize(),
+    };
+    let clint_end = clint_start
+        .checked_add(QEMU_VIRT_CLINT_SIZE)
+        .ok_or(Error::InvalidArgs)?;
     Ok(Some(IrqMmio {
-        clint_start: clint.map_or(0x0200_0000, |range| range.start().as_usize()),
+        clint: PhysAddrRange::new(PhysAddr::new(clint_start), PhysAddr::new(clint_end))
+            .map_err(|_| Error::InvalidArgs)?,
         aplic,
         imsic_start: imsic_base.as_usize(),
         imsic_end: imsic_end.ok_or(Error::InvalidArgs)?,

@@ -146,6 +146,11 @@ All notable changes to this project will be documented in this file. See [conven
 ### Fixed
 - Raise the default `stack_size_per_hart` to 32 KiB: debug builds walk the device tree with frames that exceed the previous 16 KiB boot stack and silently corrupt adjacent memory.
 - Keep machine software, timer, and external interrupts undelegated in `mideleg` when configuring the next stage, and reject platforms that hold those bits set.
+- Deny S-mode stores to firmware data, heap, and stack memory by installing the
+  firmware-state PMP entry as read-only, verify every active PMP entry reads
+  back its configuration and address, validate machine interrupt-controller
+  MMIO bounds before installing TOR entries, and fence each hart after PMP
+  installation. Add a test-kernel regression covering firmware write protection.
 - Return `SBI_ERR_NO_SHMEM` or `SBI_ERR_NOT_SUPPORTED` from MPXY channel stubs (FID #3–#7) instead of `SBI_ERR_FAILED`, matching SBI v3.0 while no channels are implemented.
 - Accept RFENCE full-address-space requests with `size == usize::MAX` regardless of `start_addr`, matching SBI v3.0, and cover nonzero/unaligned starts in test-kernel.
 - Probe PMU counters and skip unsupported events in test-kernel instead of assuming a fixed counter layout.
