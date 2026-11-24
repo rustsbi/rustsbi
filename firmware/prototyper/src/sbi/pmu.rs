@@ -528,7 +528,10 @@ impl Pmu for SbiPmu {
     fn counter_fw_read_hi(&self, counter_idx: usize) -> SbiRet {
         #[cfg(target_pointer_width = "64")]
         {
-            let _ = counter_idx;
+            let ret = self.counter_fw_read(counter_idx);
+            if ret.is_err() {
+                return ret;
+            }
             SbiRet::success(0)
         }
         #[cfg(target_pointer_width = "32")]
