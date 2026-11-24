@@ -103,13 +103,16 @@ impl BootInfo {
             // publishing the topology or releasing secondary harts.
             true
         } else {
-            platform.inspect(|view| {
-                let mut enabled = false;
-                for hart_id in view.hart_ids()? {
-                    enabled |= hart_id? == current_hart;
-                }
-                Ok(enabled)
-            })?
+            // SAFETY: pre-trap entry path; the source contract holds from `claim` above.
+            unsafe {
+                platform.inspect_entry(|view| {
+                    let mut enabled = false;
+                    for hart_id in view.hart_ids()? {
+                        enabled |= hart_id? == current_hart;
+                    }
+                    Ok(enabled)
+                })?
+            }
         };
         Ok(Self {
             device_tree_address: entry_device_tree_address,
@@ -162,6 +165,22 @@ impl BootInfo {
     /// Returns the boot hart's validated Platform Description.
     pub(crate) fn take_platform_description(&mut self) -> Option<PlatformDescription> {
         self.platform_description.take()
+    }
+
+    /// Copies the boot hart's platform description source into Rust-owned
+    /// storage. Secondary handoffs carry no platform description and are left
+    /// unchanged.
+    ///
+    /// # Safety
+    ///
+    /// Upholds `PlatformDescription::materialize_source`: initialized
+    /// allocator, before `prepare_traps()` installs trap state.
+    pub(crate) unsafe fn materialize_platform_description(&mut self) -> Result<()> {
+        if let Some(platform) = self.platform_description.as_mut() {
+            // SAFETY: the caller guarantees the allocator and phase contract.
+            unsafe { platform.materialize_source()? };
+        }
+        Ok(())
     }
 
     /// Returns the next-stage handoff with the entry device-tree address in

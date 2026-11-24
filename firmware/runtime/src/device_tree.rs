@@ -4,12 +4,14 @@
 //! Specification v0.4, sections 2.3.4, 3.4, and 5.3:
 //! <https://github.com/devicetree-org/devicetree-specification/releases/tag/v0.4>.
 
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::mem::size_of;
 
 use fdt::{Fdt, node::FdtNode};
 use spin::Once;
 
+use crate::boot::handoff;
 use crate::memory::{
     MemoryRegistry, PhysAddr, PhysAddrRange, RegRange, SupervisorMemory, locate_firmware_image,
 };
@@ -45,13 +47,14 @@ impl DeviceTreeHandoff {
     ///
     /// # Safety
     ///
-    /// The entry address must point to a readable FDT. The loader must provide
+    /// Call only before `prepare_traps()` installs trap state. The entry
+    /// address must point to a readable FDT. The loader must provide
     /// exclusive writable storage covering its initial `totalsize` plus 1024
     /// bytes, live until the next stage finishes using it. This method checks
     /// address arithmetic; it cannot establish the allocation's actual capacity.
     pub unsafe fn incoming_destination(&self) -> Result<PhysAddrRange> {
         // SAFETY: the caller guarantees the incoming FDT's readable span.
-        let size = unsafe { fdt_source(self.address)? }.len();
+        let size = unsafe { handoff::fdt_source(self.address)? }.len();
         let capacity = size
             .checked_add(RUSTSBI_FDT_PADDING)
             .ok_or(Error::Overflow)?;
@@ -65,7 +68,8 @@ impl DeviceTreeHandoff {
     ///
     /// # Safety
     ///
-    /// The selected FDT must remain readable and unchanged until this description
+    /// Call only before `prepare_traps()` installs trap state. The selected FDT
+    /// must remain readable and unchanged until this description
     /// is consumed. `destination` must describe exclusively writable storage,
     /// live until the next stage finishes using it. It may overlap the selected
     /// FDT, but must not overlap other live objects. No external access is allowed
@@ -95,9 +99,14 @@ impl DeviceTreeHandoff {
 /// Construction validates the complete FDT at the firmware-entry trust seam.
 /// The value is not clonable, so only its owner can create temporary tree
 /// views or derive physical-memory access from it.
+///
+/// The source starts as the allocation-external entry range and must be
+/// materialized into owned storage before trap installation; later views
+/// refuse to run while the owned copy is absent.
 pub struct PlatformDescription {
     address: PhysAddr,
     destination: PhysAddrRange,
+    source: Option<Box<[u8]>>,
     memory_ranges: Once<(Vec<PhysAddrRange>, Vec<PhysAddrRange>)>,
 }
 
@@ -107,7 +116,13 @@ pub struct PlatformDescription {
 /// only for properties stored in the Platform Description that created it.
 pub struct PlatformView<'tree> {
     fdt: Fdt<'tree>,
+    /// The original physical DTB range, used for stack placement and source
+    /// lifetime checks.
     fdt_storage: PhysAddrRange,
+    /// The byte range backing the current view, used for property-pointer
+    /// containment checks. This equals `fdt_storage` before materialization
+    /// and the owned allocation afterwards.
+    property_storage: PhysAddrRange,
 }
 
 impl<'tree> PlatformView<'tree> {
@@ -223,7 +238,7 @@ impl<'tree> PlatformView<'tree> {
             PhysAddr::new(property.value.as_ptr() as usize),
             property.value.len(),
         )?;
-        if !self.fdt_storage.contains(encoded) {
+        if !self.property_storage.contains(encoded) {
             return Err(Error::AccessDenied);
         }
         let registers = node.reg().ok_or(Error::InvalidArgs)?.map(|register| {
@@ -259,7 +274,7 @@ impl<'tree> PlatformView<'tree> {
             PhysAddr::new(names.value.as_ptr() as usize),
             names.value.len(),
         )?;
-        if !self.fdt_storage.contains(encoded) {
+        if !self.property_storage.contains(encoded) {
             return Err(Error::AccessDenied);
         }
 
@@ -305,7 +320,7 @@ impl<'tree> PlatformView<'tree> {
     ///
     /// Unlike `reg`, `gprcm_reg` contains an absolute 64-bit address and size.
     pub fn sunxi_rtc_v203_gprcm(&self, node: FdtNode<'_, 'tree>) -> Result<Option<RegRange>> {
-        crate::sunxi_rtc_v203::gprcm_registers(node, self.fdt_storage)
+        crate::sunxi_rtc_v203::gprcm_registers(node, self.property_storage)
     }
 }
 
@@ -314,7 +329,8 @@ impl PlatformDescription {
     ///
     /// # Safety
     ///
-    /// `address` must point to a readable FDT, unchanged until this description
+    /// Call only before `prepare_traps()` installs trap state. `address` must
+    /// point to a readable FDT, unchanged until this description
     /// is consumed. `destination` must have exclusive writable backing storage
     /// that remains live until the next stage finishes using it. Source and
     /// destination may overlap; all source views end before any write occurs.
@@ -326,13 +342,14 @@ impl PlatformDescription {
         u32::try_from(destination.size()).map_err(|_| Error::Overflow)?;
         // SAFETY: the caller of this function provides the pointer validity
         // and lifetime guarantees documented above.
-        let source = unsafe { fdt_source(address)? };
+        let source = unsafe { handoff::fdt_source(address)? };
         patch::validate(source)?;
         let fdt = Fdt::new(source).map_err(|_| Error::InvalidArgs)?;
         fdt.find_node("/").ok_or(Error::InvalidArgs)?;
         Ok(Self {
             address,
             destination,
+            source: None,
             memory_ranges: Once::new(),
         })
     }
@@ -348,27 +365,71 @@ impl PlatformDescription {
     }
 
     fn source(&self) -> Result<&[u8]> {
-        // SAFETY: construction validated the complete FDT, and the
-        // description's ownership contract keeps its storage readable and
-        // unchanged.
-        unsafe { fdt_source(self.address) }
+        self.source.as_deref().ok_or(Error::NotReady)
+    }
+
+    /// Copies the validated entry source into Rust-owned storage; later
+    /// inspection and patching read only the owned copy.
+    ///
+    /// # Safety
+    ///
+    /// Requires the [`crate::boot::handoff`] phase with an initialized global
+    /// allocator, and the construction contract on the original FDT still
+    /// holding.
+    #[doc(hidden)]
+    pub unsafe fn materialize_source(&mut self) -> Result<()> {
+        if self.source.is_some() {
+            return Ok(());
+        }
+        // SAFETY: the contract documented on this function.
+        let source = unsafe { handoff::fdt_source(self.address)? };
+        self.source = Some(Box::from(source));
+        Ok(())
+    }
+
+    /// Inspects the device tree through the pre-trap entry source.
+    ///
+    /// # Safety
+    ///
+    /// Requires the [`crate::boot::handoff`] phase, from boot-candidate
+    /// selection only, with the construction contract still holding.
+    #[doc(hidden)]
+    pub unsafe fn inspect_entry<R>(
+        &self,
+        inspect: impl for<'tree> FnOnce(PlatformView<'tree>) -> Result<R>,
+    ) -> Result<R> {
+        // SAFETY: the contract documented on this function.
+        let source = unsafe { handoff::fdt_source(self.address)? };
+        let fdt = Fdt::new(source).map_err(|_| Error::InvalidArgs)?;
+        let fdt_storage = PhysAddrRange::from_start_len(self.address, fdt.total_size())?;
+        inspect(PlatformView {
+            fdt,
+            fdt_storage,
+            property_storage: fdt_storage,
+        })
     }
 
     /// Inspects the device tree through a temporary root-node view.
     ///
-    /// The view cannot escape `inspect`. This lets policy select drivers
-    /// without acquiring raw access to the FDT storage. Validation failures
-    /// from the inspection closure are returned directly.
+    /// The view reads the materialized owned source and cannot escape
+    /// `inspect`. This lets policy select drivers without acquiring raw
+    /// access to the FDT storage. Validation failures from the inspection
+    /// closure are returned directly. Returns [`Error::NotReady`] before the
+    /// source is materialized.
     pub fn inspect<R>(
         &self,
         inspect: impl for<'tree> FnOnce(PlatformView<'tree>) -> Result<R>,
     ) -> Result<R> {
-        // SAFETY: construction validated the complete FDT. Ownership keeps
-        // its storage readable and unchanged, and the view cannot escape.
-        let fdt = unsafe { Fdt::from_ptr(self.address.as_usize() as *const u8) }
-            .map_err(|_| Error::InvalidArgs)?;
+        let source = self.source()?;
+        let fdt = Fdt::new(source).map_err(|_| Error::InvalidArgs)?;
         let fdt_storage = PhysAddrRange::from_start_len(self.address, fdt.total_size())?;
-        inspect(PlatformView { fdt, fdt_storage })
+        let property_storage =
+            PhysAddrRange::from_start_len(PhysAddr::new(source.as_ptr() as usize), source.len())?;
+        inspect(PlatformView {
+            fdt,
+            fdt_storage,
+            property_storage,
+        })
     }
 
     /// Derives supervisor memory and the MMIO registry from the FDT.
@@ -415,21 +476,8 @@ impl PlatformDescription {
         }
         // Publish the extra capacity with initialized padding for later edits.
         patch::set_total_size(&mut rewritten, capacity)?;
-        // SAFETY: construction guarantees exclusive writable storage covering
-        // `capacity` bytes. All tree views have ended, and consuming `self`
-        // prevents further inspection. The checked output is a separate buffer.
-        unsafe {
-            core::ptr::copy_nonoverlapping(
-                rewritten.as_ptr(),
-                destination.as_usize() as *mut u8,
-                rewritten.len(),
-            );
-            core::ptr::write_bytes(
-                (destination.as_usize() as *mut u8).add(rewritten.len()),
-                0,
-                capacity - rewritten.len(),
-            );
-        }
+        // SAFETY: construction's exclusive `capacity`-byte destination; the checked output fits.
+        unsafe { handoff::write_dtb(destination, &rewritten, capacity) };
         Ok(destination)
     }
 
@@ -501,25 +549,6 @@ fn validate_destination(
         return Err(Error::NotEnoughResources);
     }
     Ok(())
-}
-
-/// Returns the complete FDT byte range described by an entry-point address.
-///
-/// # Safety
-///
-/// The caller must ensure that `address` is non-null and that the fixed FDT
-/// header plus the memory declared by its `totalsize` field are readable and
-/// unchanged for the returned slice's lifetime.
-unsafe fn fdt_source<'a>(address: PhysAddr) -> Result<&'a [u8]> {
-    if address.as_usize() == 0 {
-        return Err(Error::InvalidArgs);
-    }
-    // SAFETY: the caller guarantees that the address points to a readable FDT
-    // header and complete declared span.
-    let fdt = unsafe { Fdt::from_ptr(address.as_usize() as *const u8) }
-        .map_err(|_| Error::InvalidArgs)?;
-    // SAFETY: the same caller guarantee covers the complete `totalsize` span.
-    Ok(unsafe { core::slice::from_raw_parts(address.as_usize() as *const u8, fdt.total_size()) })
 }
 
 fn validate_linked_fdt(address: PhysAddr) -> Result<()> {
@@ -598,8 +627,21 @@ mod tests {
         // remains live in `storage` for this call.
         let address = PhysAddr::new(source.as_mut_ptr() as usize);
         let destination = PhysAddrRange::from_start_len(address, source.len()).unwrap();
-        unsafe { PlatformDescription::from_raw(address, destination) }
+        let mut description = unsafe { PlatformDescription::from_raw(address, destination) }
             .expect("a 4-byte-aligned FDT is valid");
+        // Before materialization the safe view refuses the external source.
+        assert_eq!(
+            description.inspect(|view| Ok(view.storage_range())),
+            Err(Error::NotReady)
+        );
+        // SAFETY: the test allocator is initialized; the fixture stays live and unchanged.
+        unsafe { description.materialize_source() }
+            .expect("materialization succeeds on the test fixture");
+        let stored_range = description
+            .inspect(|view| Ok(view.storage_range()))
+            .expect("an owned source supports inspection");
+        // The original physical DTB range stays visible after materialization.
+        assert_eq!(stored_range, destination);
     }
 
     #[test]
@@ -614,8 +656,10 @@ mod tests {
             let destination = test_destination(&mut target_storage, 8, 1280);
             // SAFETY: both allocations remain live; source is unchanged and the
             // description alone accesses the writable destination until consumed.
-            let description =
+            let mut description =
                 unsafe { PlatformDescription::from_raw(source_address, destination).unwrap() };
+            // SAFETY: the test allocator is initialized; the fixture stays live and unchanged.
+            unsafe { description.materialize_source() }.unwrap();
             let reservation = edit.then(|| {
                 PhysAddrRange::from_start_len(PhysAddr::new(0x8000_0000), 0x1000).unwrap()
             });
@@ -645,8 +689,10 @@ mod tests {
             let destination = test_destination(&mut target_storage, 8, 64);
             // SAFETY: the source and the 64-byte destination have separate live
             // backing allocations, exclusively accessed here until consumption.
-            let description =
+            let mut description =
                 unsafe { PlatformDescription::from_raw(source_address, destination).unwrap() };
+            // SAFETY: the test allocator is initialized; the fixture stays live and unchanged.
+            unsafe { description.materialize_source() }.unwrap();
             let reservation = edit.then(|| {
                 PhysAddrRange::from_start_len(PhysAddr::new(0x8000_0000), 0x1000).unwrap()
             });
@@ -670,7 +716,9 @@ mod tests {
         assert_eq!(destination.size(), 72 + 1024);
         // SAFETY: storage is exclusively owned and remains live until the test
         // finishes reading the result. The source and destination intentionally overlap.
-        let description = unsafe { handoff.claim(address, destination).unwrap() };
+        let mut description = unsafe { handoff.claim(address, destination).unwrap() };
+        // SAFETY: the test allocator is initialized; the fixture stays live and unchanged.
+        unsafe { description.materialize_source() }.unwrap();
         let reservation =
             PhysAddrRange::from_start_len(PhysAddr::new(0x8000_0000), 0x1000).unwrap();
         assert_eq!(
@@ -693,8 +741,10 @@ mod tests {
         let mut target_storage = [0u64; 9];
         let destination = test_destination(&mut target_storage, 0, 72);
         // SAFETY: source and destination are separate live 72-byte allocations.
-        let description =
+        let mut description =
             unsafe { PlatformDescription::from_raw(source_address, destination).unwrap() };
+        // SAFETY: the test allocator is initialized; the fixture stays live and unchanged.
+        unsafe { description.materialize_source() }.unwrap();
         description.prepare_next_stage(None, &[]).unwrap();
         assert_eq!(source_storage, target_storage);
     }

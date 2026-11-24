@@ -7,6 +7,9 @@
 mod context;
 mod stack;
 
+#[doc(hidden)]
+pub mod handoff;
+
 pub use crate::csr::enable_supervisor_seed;
 pub use crate::csr::thead::disable_maee as disable_thead_maee;
 pub use crate::ipi::configure_state_access;
