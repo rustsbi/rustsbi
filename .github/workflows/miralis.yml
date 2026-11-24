@@ -14,7 +14,8 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
-      - "firmware/test-kernel/**"
+      - "firmware/mbench"
+      - ".gitmodules"
   push:
     branches: ["main"]
     paths:
@@ -28,7 +29,8 @@ on:
       - "library/**"
       - "firmware/prototyper/**"
       - "firmware/runtime/**"
-      - "firmware/test-kernel/**"
+      - "firmware/mbench"
+      - ".gitmodules"
   workflow_dispatch:
 
 permissions:
@@ -37,12 +39,14 @@ permissions:
 jobs:
   boot:
     name: Boot Prototyper under Miralis
-    # QEMU >= 9.1 is required by the test kernel's CSR checks.
+    # QEMU >= 9.1 is required by mbench CSR and SBI checks.
     runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - name: Checkout RustSBI
         uses: actions/checkout@v7
+        with:
+          submodules: true
 
       - name: Install QEMU and binary tools
         run: |
@@ -50,8 +54,8 @@ jobs:
           sudo apt-get install -y qemu-system-riscv
           cargo install --locked cargo-binutils@0.4.0
 
-      - name: Build Prototyper and test kernel
-        run: cargo prototyper test --no-run
+      - name: Build Prototyper and mbench for Miralis
+        run: cargo prototyper test --no-run --firmware-load-addr 0x80200000
 
       - name: Checkout pinned Miralis
         uses: actions/checkout@v7
@@ -67,7 +71,7 @@ jobs:
         working-directory: miralis
         run: cargo run --locked -- build --config config/test/qemu-virt.toml
 
-      - name: Boot and verify the test kernel
+      - name: Boot and verify mbench
         run: bash .github/scripts/prototyper-miralis-boot.sh
 
       - name: Upload QEMU log
