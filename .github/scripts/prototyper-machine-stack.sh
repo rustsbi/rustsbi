@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Usage: bash firmware/test-kernel/scripts/test-machine-stack.sh [32|64]
+# Usage: bash .github/scripts/prototyper-machine-stack.sh [32|64]
 set -euo pipefail
 
-repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)
+repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$repo_dir"
 xlen=${1:-64}
 case "$xlen" in
@@ -50,7 +50,7 @@ SECTIONS {
 EOF
     rustc --edition=2024 --target "$target" -C panic=abort -C opt-level=2 \
         -C link-arg="-T$artifact_dir/$image.ld" -o "$artifact_dir/$image.elf" \
-        "firmware/test-kernel/fixtures/machine-stack/$image.rs"
+        ".github/scripts/machine-stack/$image.rs"
 done
 rust-objcopy -O binary "$artifact_dir/loader.elf" "$artifact_dir/loader.bin"
 cargo prototyper build --target "$target" --config-file "$artifact_dir/config.toml" dynamic
@@ -60,7 +60,7 @@ log_file="$log_dir/machine-stack-rv$xlen.log"
 if ! timeout 30s "$qemu" -machine virt -m 256M -smp 1 -nographic \
     -bios "$artifact_dir/loader.bin" \
     -device "loader,file=$CARGO_TARGET_DIR/$target/release/rustsbi-prototyper-dynamic.elf" \
-    -device "loader,file=$artifact_dir/payload.elf" > "$log_file" 2>&1; then
+    -device "loader,file=$artifact_dir/payload.elf" </dev/null > "$log_file" 2>&1; then
     cat "$log_file"
     exit 1
 fi
