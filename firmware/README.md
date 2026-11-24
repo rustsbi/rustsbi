@@ -63,36 +63,35 @@ The loader must still provide writable destination storage as described below.
 
 ### Tests and Benchmarks
 
-`cargo prototyper test` builds the test kernel and embeds it in
-`rustsbi-prototyper-payload-test.{elf,bin}`.
-`cargo prototyper bench` does the same for the benchmark kernel,
-producing `rustsbi-prototyper-payload-bench.{elf,bin}`.
-Both commands boot QEMU with `-machine virt -m 256M -nographic`
-and check its console output.
-They require `qemu-system-riscv64` on `PATH`;
-on Ubuntu, install it with `sudo apt install qemu-system-misc`.
+`cargo prototyper test` and `cargo prototyper bench` use the external
+[`firmware/mbench`](https://github.com/rustsbi/mbench) submodule (`git submodule update --init --recursive`).
+Standalone `cargo prototyper build` commands do not require initializing this submodule.
 
-Both commands accept:
+- `cargo prototyper test` builds `mbench-target` in conformance check mode (`mode=check`),
+  links it at the address derived from the active firmware config (default `0x80200000`),
+  embeds `mbench.bin` into `rustsbi-prototyper-payload-test.{elf,bin}` (unless `--mode dynamic|jump` is selected),
+  boots QEMU with `-machine virt -m 256M -nographic`, and verifies the capture with `mbench validate`.
+- `cargo prototyper bench` does the same in benchmark mode (`mode=bench profile=quick`),
+  producing `rustsbi-prototyper-payload-bench.{elf,bin}`.
 
-```text
-[--pack] [--no-run] [--smp <N>] [--timeout <SECS>] [--retries <N>]
-[--debug] [-c|--config-file <PATH>]
-```
+Isolated `mbench` binaries (`mbench.elf`, `mbench.bin`, and optional `mbench.itb`) are written under
+`target/mbench/<variant>/` (for example `test-0x80200000` or `bench-0x80200000`) so `test`/`bench`
+modes and relocated link addresses never overwrite one another.
 
-`--no-run` builds without starting QEMU.
-`--debug` and `--config-file` select the firmware build profile and configuration.
-`--retries` sets the total number of QEMU attempts; only timeouts trigger another attempt.
+Both commands require `qemu-system-riscv64` on `PATH`; on Ubuntu, install it with
+`sudo apt install qemu-system-misc`. Use `--mode dynamic|jump|payload` (default `payload`),
+`--no-run` to build without starting QEMU, `--pack` to emit `target/mbench/<variant>/mbench.itb`
+for U-Boot SPL (building `rustsbi-prototyper-dynamic-pack.{elf,bin}` or reusing the dynamic build
+while preserving `rustsbi-prototyper-dynamic.{elf,bin}`), and `--out <PATH>` to save the serial log
+(run `cargo prototyper test --help` or `bench --help` for all flags).
 
-| Command | Harts | Timeout per attempt | Total attempts |
+| Command | Default Harts | Timeout per attempt | Total attempts |
 | --- | --- | --- | --- |
-| `test` | 1 | 60 seconds | 2 |
-| `bench` | 4 | 90 seconds | 4 |
+| `test` | 4 | 60 seconds | 2 |
+| `bench` | 4 | 120 seconds | 4 |
 
-`--pack` also builds `rustsbi-prototyper-dynamic-pack.{elf,bin}`
-and packs it with the kernel into `rustsbi-{test,bench}-kernel.itb` for U-Boot SPL.
-It preserves existing `rustsbi-prototyper-dynamic.{elf,bin}` outputs.
-QEMU verifies the payload image only.
-Boot the ITB through U-Boot SPL to test the packed image.
+QEMU CI covers payload, dynamic, dynamic ACLINT, and jump modes; boot `.itb` images through U-Boot SPL
+to test the packed FIT output.
 
 ### Configuration File
 

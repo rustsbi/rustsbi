@@ -1,7 +1,7 @@
 //! A minimal RISC-V's SBI implementation library in Rust.
 //!
 //! *Note: If you are a user looking for binary distribution download for RustSBI, you may consider
-//! using the [RustSBI Prototyper](https://github.com/rustsbi/rustsbi/tree/main/prototyper)
+//! using the [RustSBI Prototyper](https://github.com/rustsbi/rustsbi/tree/main/firmware/prototyper)
 //! which will provide binaries for each platform.
 //! If you are a vendor or contributor who wants to adapt RustSBI to your new product or board,
 //! you may consider adapting the Prototyper first to get your board adapted in a short period of time;
@@ -495,8 +495,8 @@
 //!
 //! The RustSBI Prototyper is a universal support package provided by RustSBI ecosystem.
 //! It is designed to save development time while providing most SBI features possible.
-//! It also includes a simple test kernel to allow testing SBI implementations on current environment.
-//! Users may choose to download the [RustSBI Prototyper](https://github.com/rustsbi/rustsbi/tree/main/prototyper)
+//! It pairs with the external `mbench` suite to verify and benchmark SBI implementations in the current environment.
+//! Users may choose to download the [RustSBI Prototyper](https://github.com/rustsbi/rustsbi/tree/main/firmware/prototyper)
 //! firmware to get various types of RustSBI packages for their boards.
 //! Vendors and contributors may find it easy to adapt new SoCs and boards into the Prototyper.
 //!

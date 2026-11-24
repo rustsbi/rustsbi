@@ -4,6 +4,6 @@
 
 如果想自己编译内核，请看 [Linux 内核](06_os/linux_kernel.md)或 [Asterinas](06_os/asterinas.md) 的教程。要运行完整的系统，请阅读 [Arch Linux](06_os/arch_linux.md)、[Fedora](06_os/fedora.md)、[FreeBSD](06_os/freebsd.md)、[openEuler](06_os/openeuler.md)、[OpenWrt](06_os/openwrt.md)、[PolyOS](06_os/polyos.md) 和 [Ubuntu](06_os/ubuntu.md) 的教程。
 
-[RustSBI 测试用内核](06_os/rustsbi_test_kernel.md)会在启动后自动运行 SBI 测试并输出结果，可以用来检查固件是否正常工作。
+[mbench 测试与基准内核](06_os/mbench.md)会在启动后自动运行 SBI 一致性检查或性能基准测试并输出结构化结果，可以用来验证固件接口和运行时行为是否正常。
 
 在开发板上烧录和启动固件的方法，见[平台用户指南](chapter_05_platform.md)。
