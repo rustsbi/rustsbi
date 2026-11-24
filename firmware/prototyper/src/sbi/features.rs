@@ -147,15 +147,7 @@ pub(crate) fn parse_extensions(cpu: FdtNode<'_, '_>) -> [bool; Extension::COUNT]
 }
 
 /// Installs the extensions parsed from one enabled CPU node.
-/// `current_hart` identifies the hart performing discovery.
-pub(crate) fn install_extensions(
-    hart: HartId,
-    current_hart: HartId,
-    mut extensions: [bool; Extension::COUNT],
-) {
-    if hart == current_hart {
-        extensions[Extension::Hypervisor.index()] = hart::has_hypervisor();
-    }
+pub(crate) fn install_extensions(hart: HartId, extensions: [bool; Extension::COUNT]) {
     features(hart).lock().extensions = extensions;
 }
 
@@ -183,9 +175,15 @@ fn detect_mhpm_counters(hart: HartId) {
     pmu::init_current(hart, mhpm_mask);
 }
 
+fn detect_hypervisor(hart: HartId) {
+    let has_h = hart::has_hypervisor();
+    features(hart).lock().extensions[Extension::Hypervisor.index()] = has_h;
+}
+
 /// Detects the current hart's hardware features after device-tree discovery.
 /// `hart` must identify the current hart.
 pub fn detect_hart_features(hart: HartId) {
+    detect_hypervisor(hart);
     detect_privileged_version(hart);
     detect_mhpm_counters(hart);
 }
