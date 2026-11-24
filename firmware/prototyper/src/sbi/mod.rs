@@ -91,7 +91,7 @@ pub(crate) fn init(
     let dispatcher: &'static SbiDispatcher = Box::leak(Box::new(SbiDispatcher {
         console,
         cppc: Some(SbiCppc::new()),
-        dbtr: Some(SbiDbtr::new(supervisor_memory)),
+        dbtr: Some(SbiDbtr::new(supervisor_memory)?),
         fwft: Some(SbiFwft),
         ipi,
         timer: SbiTimer,
@@ -101,7 +101,7 @@ pub(crate) fn init(
         hsm,
         pmu,
         sta: Some(SbiSta::new(supervisor_memory)),
-        mpxy: Some(SbiMpxy::new(supervisor_memory)),
+        mpxy: Some(SbiMpxy::new(supervisor_memory)?),
         vendor,
     }));
     dispatcher.publish()

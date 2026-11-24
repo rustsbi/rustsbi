@@ -3,10 +3,16 @@
 use crate::csr::{csrr, csrw};
 use csr::machine;
 
-/// Counts accepted trigger selectors with a nonzero trigger type.
+fn is_sbi_usable_trigger(tdata1: usize) -> bool {
+    let trigger_type = (tdata1 >> (usize::BITS - 4)) & 0xf;
+    let dmode = (tdata1 >> (usize::BITS - 5)) & 1;
+    trigger_type != 0 && dmode == 0
+}
+
+/// Counts accepted trigger selectors with a nonzero trigger type and `dmode == 0`.
 /// Unavailable hardware ends discovery. The walk is bounded to 256 selectors.
 pub fn trigger_count() -> usize {
-    if !crate::boot::traps_ready() {
+    if !crate::boot::traps_ready() || usize::from(machine::Scratch::read()) != 0 {
         return 0;
     }
     crate::irq::with_local_disabled(|_| {
@@ -21,7 +27,7 @@ pub fn trigger_count() -> usize {
             let Ok(data) = csrr!(machine::TriggerData1) else {
                 break;
             };
-            if data >> (usize::BITS - 4) & 0xf != 0 {
+            if is_sbi_usable_trigger(data) {
                 count += 1;
             }
         }

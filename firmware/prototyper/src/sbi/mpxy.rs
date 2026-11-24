@@ -7,11 +7,11 @@
 
 #![forbid(unsafe_code)]
 
-use alloc::boxed::Box;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use runtime::{
-    hart::HartId,
+    Result,
+    hart::{HartId, PerHart},
     memory::{PhysAddr, PhysAddrRange, SupervisorMemory},
     rustsbi::{Mpxy, SbiRet},
 };
@@ -22,37 +22,48 @@ use sbi_spec::binary::SharedPtr;
 // minimum is sufficient.
 const PAGE_SHIFT: u32 = 12;
 const SHARED_MEMORY_SIZE: usize = 1usize << PAGE_SHIFT;
+const SHMEM_DISABLED: usize = usize::MAX;
+const FLAG_OVERWRITE_RETURN: usize = 1;
+const CHANNEL_IDS_HEADER_BYTES: usize = 8;
+const OVERWRITE_RETURN_BYTES: usize = 2 * core::mem::size_of::<usize>();
 
 /// Message Proxy extension with per-hart shared memory but no message channels.
 pub(crate) struct SbiMpxy {
-    shmem: Box<[AtomicUsize]>,
+    shmem: PerHart<AtomicUsize>,
     supervisor_memory: &'static SupervisorMemory,
 }
 
 impl SbiMpxy {
-    pub(crate) fn new(supervisor_memory: &'static SupervisorMemory) -> Self {
-        Self {
-            shmem: HartId::all().map(|_| AtomicUsize::new(0)).collect(),
+    pub(crate) fn new(supervisor_memory: &'static SupervisorMemory) -> Result<Self> {
+        Ok(Self {
+            shmem: PerHart::new(|_| AtomicUsize::new(SHMEM_DISABLED))?,
             supervisor_memory,
-        }
+        })
     }
 
-    #[inline]
-    fn current_shmem(&self) -> &AtomicUsize {
-        let hart_index = HartId::current()
-            .expect("BUG: current hart is not in the boot topology")
-            .index();
-        &self.shmem[hart_index]
-    }
-
-    /// Ensures the calling hart has MPXY shared memory configured.
     #[inline]
     fn check_shmem(&self) -> SbiRet {
-        if self.current_shmem().load(Ordering::Acquire) == 0 {
+        let Ok(hart) = HartId::current() else {
+            return SbiRet::failed();
+        };
+        if self.shmem.get(hart).load(Ordering::Acquire) == SHMEM_DISABLED {
             return SbiRet::no_shmem();
         }
         SbiRet::success(0)
     }
+}
+
+fn encode_overwrite_return(prev: usize) -> [u8; OVERWRITE_RETURN_BYTES] {
+    let (prev_lo, prev_hi) = if prev == SHMEM_DISABLED {
+        (usize::MAX, usize::MAX)
+    } else {
+        (prev, 0)
+    };
+    let word_size = core::mem::size_of::<usize>();
+    let mut encoded = [0u8; OVERWRITE_RETURN_BYTES];
+    encoded[..word_size].copy_from_slice(&prev_lo.to_le_bytes());
+    encoded[word_size..].copy_from_slice(&prev_hi.to_le_bytes());
+    encoded
 }
 
 impl Mpxy for SbiMpxy {
@@ -61,14 +72,18 @@ impl Mpxy for SbiMpxy {
     }
 
     fn set_shmem(&self, shared_memory: SharedPtr<u8>, flags: usize) -> SbiRet {
-        if flags != 0 {
+        let Ok(hart) = HartId::current() else {
+            return SbiRet::failed();
+        };
+        if flags > FLAG_OVERWRITE_RETURN {
             return SbiRet::invalid_param();
         }
 
         let start = PhysAddr::new(shared_memory.phys_addr_lo());
         let address_high = shared_memory.phys_addr_hi();
+        let shmem = self.shmem.get(hart);
         if start.as_usize() == usize::MAX && address_high == usize::MAX {
-            self.current_shmem().store(0, Ordering::Release);
+            shmem.store(SHMEM_DISABLED, Ordering::Release);
             return SbiRet::success(0);
         }
 
@@ -91,16 +106,38 @@ impl Mpxy for SbiMpxy {
             return SbiRet::invalid_address();
         }
 
-        self.current_shmem()
-            .store(start.as_usize(), Ordering::Release);
+        if flags == FLAG_OVERWRITE_RETURN {
+            let prev = shmem.load(Ordering::Acquire);
+            let encoded = encode_overwrite_return(prev);
+            if self.supervisor_memory.write(start, &encoded).is_err() {
+                return SbiRet::invalid_address();
+            }
+        }
+
+        shmem.store(start.as_usize(), Ordering::Release);
         SbiRet::success(0)
     }
 
-    fn get_channel_ids(&self, _start_index: u32) -> SbiRet {
-        if self.current_shmem().load(Ordering::Acquire) == 0 {
+    fn get_channel_ids(&self, start_index: u32) -> SbiRet {
+        let Ok(hart) = HartId::current() else {
+            return SbiRet::failed();
+        };
+        let shmem = self.shmem.get(hart).load(Ordering::Acquire);
+        if shmem == SHMEM_DISABLED {
             return SbiRet::no_shmem();
         }
-        SbiRet::failed()
+        if start_index != 0 {
+            return SbiRet::invalid_param();
+        }
+        // Zero channels are exposed, so `remaining` and `returned` are both 0.
+        if self
+            .supervisor_memory
+            .fill_zeros(PhysAddr::new(shmem), CHANNEL_IDS_HEADER_BYTES)
+            .is_err()
+        {
+            return SbiRet::invalid_address();
+        }
+        SbiRet::success(0)
     }
 
     fn read_attributes(
