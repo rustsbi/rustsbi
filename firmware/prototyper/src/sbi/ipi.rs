@@ -28,25 +28,20 @@ impl Ipi for SbiIpi {
     #[inline]
     fn send_ipi(&self, hart_mask: HartMask) -> SbiRet {
         pmu_firmware_counter_increment(firmware_event::IPI_SENT);
-        let targets = match target_harts(hart_mask) {
-            Ok(targets) => targets,
-            Err(error) => return error,
-        };
+        if let Err(error) = validate_hart_mask(hart_mask) {
+            return error;
+        }
 
         let Some(ipi) = ipi::get() else {
             return SbiRet::failed();
         };
-        ipi.send(IpiEvent::Supervisor, targets)
+        ipi.send(IpiEvent::Supervisor, active_target_harts(hart_mask))
             .map_or(SbiRet::failed(), |_| SbiRet::success(0))
     }
 }
 
-/// Validates the mask before yielding any target.
-///
-/// Stopped harts remain valid but are skipped.
-/// Availability is checked as each hart is visited
-/// and can change concurrently with hart lifecycle calls.
-pub(super) fn target_harts(hart_mask: HartMask) -> Result<impl Iterator<Item = HartId>, SbiRet> {
+/// Validates an SBI hart mask without iterating over all enabled harts.
+pub(super) fn validate_hart_mask(hart_mask: HartMask) -> Result<(), SbiRet> {
     let (mask, base) = hart_mask.into_inner();
     if base != HartMask::IGNORE_MASK {
         // Reject an invalid mask before sending to any target.
@@ -55,10 +50,18 @@ pub(super) fn target_harts(hart_mask: HartMask) -> Result<impl Iterator<Item = H
             HartId::from_raw(raw).map_err(|_| SbiRet::invalid_param())?;
         }
     }
+    Ok(())
+}
 
-    Ok(HartId::all().filter(move |hart| {
+/// Iterates over enabled, IPI-capable target harts matching `hart_mask`.
+///
+/// Stopped harts remain valid but are skipped.
+/// Availability is checked as each hart is visited
+/// and can change concurrently with hart lifecycle calls.
+pub(super) fn active_target_harts(hart_mask: HartMask) -> impl Iterator<Item = HartId> {
+    HartId::all().filter(move |hart| {
         hart_mask.has_bit(hart.as_usize())
             && hart_privilege_checked(*hart)
             && hart::can_receive_ipi(*hart)
-    }))
+    })
 }
