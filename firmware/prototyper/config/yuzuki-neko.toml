@@ -13,14 +13,13 @@
 num_hart_max = 1
 stack_size_per_hart = 16384 # 16 KiB
 heap_size = 0x15000 # 84 KiB
-page_size = 4096
 log_level = "INFO"
 link_start_address = 0x40f80000
 # Unused in jump mode. This address is the end of PSRAM, so this config
 # must not be used to embed a payload; load the next stage separately.
 payload_address = 0x41000000
 jump_address = 0x40000000
-tlb_flush_limit = 16384 # page_size * 4
+tlb_flush_limit = 16384 # 16 KiB
 
 [[next_addr]]
 start = 0x40000000

@@ -105,9 +105,17 @@ unsafe extern "C" fn _start(hartid: usize, device_tree_paddr: usize) -> ! {
     )
 }
 
-/// Runs the test suites in their stable boot order and requests shutdown.
+/// Runs the QEMU virt test suites and requests shutdown.
+///
+/// The HSM, PMU and RFENCE fixtures represent hart IDs as `0..smp` in one
+/// XLEN-bit SBI mask. The QEMU virt CI topology satisfies this assumption;
+/// this test kernel is not a sparse-hart topology fixture.
 extern "C" fn rust_main(hartid: usize, dtb_pa: usize) -> ! {
     let platform::BoardInfo { smp, frequency } = platform::initialize(dtb_pa);
+    assert!(
+        (1..usize::BITS as usize).contains(&smp) && hartid < smp,
+        "the test-kernel SBI fixtures require hart IDs below smp and smp within XLEN"
+    );
     print_banner(hartid, smp, frequency, dtb_pa);
     println!(
         "SBI probes: HSM={} RFNC={} SUSP={} PMU={}",

@@ -182,6 +182,16 @@ fn parse_config(config_source: &Path) -> Result<FirmwareConfig> {
         )
     })?;
 
+    // Accept the old default without letting custom values silently do nothing.
+    if let Some(page_size) = value.get("page_size")
+        && page_size.as_integer() != Some(4096)
+    {
+        bail!(
+            "remove `page_size` from config '{}': RFENCE uses 4096-byte RISC-V base pages",
+            config_source.display()
+        );
+    }
+
     let address = |key: &str| -> Result<u64> {
         match value.get(key) {
             None => bail!(
@@ -311,9 +321,9 @@ impl BuildSpec {
             "-C".to_string(),
             "link-arg=-pie".to_string(),
         ];
-        if self.features.iter().any(|feature| feature == "hypervisor") {
-            flags.extend(["-C".to_string(), "target-feature=+h".to_string()]);
-        }
+        // H is optional at runtime, including in a hypervisor-enabled build.
+        // Encode checked H instructions with local assembler options instead
+        // of allowing code generation to assume H throughout the firmware.
         flags.extend([
             "-C".to_string(),
             format!("link-arg=-T{}", linker_script.display()),

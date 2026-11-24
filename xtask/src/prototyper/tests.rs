@@ -281,7 +281,9 @@ fn resolve_normalizes_files_and_derives_features() {
 
     fs::write(
         config_dir.join("default.toml"),
-        format!("{VALID_CONFIG_TOML}num_hart_max = 2\nstack_size_per_hart = 8192\n"),
+        format!(
+            "{VALID_CONFIG_TOML}num_hart_max = 2\nstack_size_per_hart = 8192\npage_size = 4096\n"
+        ),
     )
     .unwrap();
     let spec = resolve_in(&args, &root, &root).unwrap();
@@ -349,6 +351,14 @@ fn resolve_rejects_mode_features_and_invalid_config() {
         assert!(format!("{error:#}").contains(key));
     }
 
+    fs::write(
+        &config_path,
+        format!("{VALID_CONFIG_TOML}page_size = 8192\n"),
+    )
+    .unwrap();
+    let error = resolve_in(&base_build_args(), &root, &root).unwrap_err();
+    assert!(format!("{error:#}").contains("remove `page_size`"));
+
     for settings in [
         "fdt_handoff_address = 0x88000000\n",
         "fdt_handoff_capacity = 4096\n",
@@ -403,7 +413,7 @@ fn resolve_derives_target_profile_and_rustflags() {
         root.join("target/custom-target/debug")
     );
     let encoded_rustflags = spec.encoded_rustflags(Path::new("linker path.ld"));
-    assert!(encoded_rustflags.contains("+h"));
+    assert!(!encoded_rustflags.contains("target-feature"));
     assert!(
         encoded_rustflags
             .split('\u{1f}')

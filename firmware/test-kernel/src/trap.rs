@@ -462,35 +462,84 @@ struct GuestTraps {
     saved: [usize; 11],
 }
 
+/// The only `hedeleg` settings understood by the private HS and VS vectors.
+#[repr(usize)]
+enum GuestTrapDelegation {
+    ToHs = 0,
+    ToVs = 1 << ILLEGAL_INSTRUCTION,
+}
+
 fn test_guest_traps() {
-    // Probe H through the S-mode skip vector so the same kernel runs without H.
-    // SAFETY: The temporary vector skips the four-byte hstatus read if absent;
-    // the original vector is restored before the probe returns.
-    let available = unsafe {
-        let old_vector: usize;
-        asm!("csrr {old}, stvec", "csrw stvec, {new}",
-            old = out(reg) old_vector, new = in(reg) s_skip_trap as *const () as usize);
+    // SAFETY: Only the boot hart runs these probes, with exclusive access to
+    // the trap records and vector. It masks S interrupts before installing
+    // s_skip_trap. The reads occupy four-byte slots and declare the vector's
+    // scratch registers. Runtime forwards illegal CSR reads to this HS vector.
+    // Restore the original vector before restoring the prior SIE bit.
+    let (hstatus, can_access_hgatp, satp) = unsafe {
+        let (old_status, old_vector): (usize, usize);
+        asm!("csrrci {status}, sstatus, 2", "csrrw {old}, stvec, {new}",
+            status = out(reg) old_status, old = out(reg) old_vector,
+            new = in(reg) s_skip_trap as *const () as usize);
         core::ptr::write_volatile(&raw mut TRAP_CAUSE, 0);
-        asm!(".option push", ".option norvc", "csrr zero, hstatus", ".option pop",
-            out("t0") _, out("t1") _, out("t2") _);
-        asm!("csrw stvec, {old}", old = in(reg) old_vector);
-        core::ptr::read_volatile(&raw const TRAP_CAUSE) == 0
+        let mut hstatus = 0usize;
+        asm!(".option push", ".option norvc", "csrr {status}, hstatus", ".option pop",
+            status = inout(reg) hstatus, out("t0") _, out("t1") _, out("t2") _);
+        let has_h = core::ptr::read_volatile(&raw const TRAP_CAUSE) == 0;
+        let can_access_hgatp = if has_h {
+            // In HS, TVM prevents both hgatp access and HFENCE.GVMA.
+            asm!(".option push", ".option norvc", "csrr zero, hgatp", ".option pop",
+                out("t0") _, out("t1") _, out("t2") _);
+            core::ptr::read_volatile(&raw const TRAP_CAUSE) == 0
+        } else {
+            false
+        };
+        let satp = if can_access_hgatp {
+            // The successful HS hgatp read also establishes TVM=0 for satp.
+            let satp: usize;
+            asm!("csrr {}, satp", out(reg) satp, options(nomem, nostack));
+            satp
+        } else {
+            0
+        };
+        asm!("csrw stvec, {old}", "csrs sstatus, {sie}",
+            old = in(reg) old_vector, sie = in(reg) old_status & (1 << 1));
+        (has_h.then_some(hstatus), can_access_hgatp, satp)
     };
-    if !available {
+    let Some(hstatus) = hstatus else {
         println!("[trap] H extension unavailable");
+        return;
+    };
+    if !can_access_hgatp {
+        println!("[trap] guest routing unavailable: HS hgatp access requires TVM=0");
+        return;
+    }
+    // VSXL is present only in RV64 hstatus. VSBE must match the little-endian
+    // test image because the VS vector shares native-word records with HS.
+    if satp != 0
+        || (usize::BITS == 64 && (hstatus as u64 >> 32) & 3 != 2)
+        || hstatus & (1 << 5) != 0
+    {
+        println!("[trap] guest routing requires Bare HS and native little-endian VS");
         return;
     }
     for supervisor in [false, true] {
         for delegate in [false, true] {
             let mut facts = GuestTraps::default();
-            // SAFETY: The helper uses bare translation, restores saved host control CSRs,
-            // and returns through private HS/VS vectors with no Rust in a guest.
+            let delegation = if delegate {
+                GuestTrapDelegation::ToVs
+            } else {
+                GuestTrapDelegation::ToHs
+            };
+            // SAFETY: The boot hart owns the trap and guest state. The probes
+            // established H, TVM=0, Bare HS and native little-endian VS. The
+            // preceding U-mode time test returned via HS SRET, establishing
+            // TSR=0. Nothing here changes those conditions. The QEMU payload
+            // runs from RAM that Prototyper's PMP allows outside firmware.
+            // Bare VS/G translation gives the guest the same physical code
+            // and record addresses. `facts` is uniquely borrowed and the
+            // final argument is SPP (VS) or zero (VU).
             unsafe {
-                guest_roundtrip(
-                    &mut facts,
-                    if delegate { 1 << 2 } else { 0 },
-                    usize::from(supervisor) << 8,
-                );
+                guest_roundtrip(&mut facts, delegation, usize::from(supervisor) << 8);
             }
             assert_eq!(
                 facts.hs_status & (1 << 7),
@@ -534,13 +583,29 @@ fn test_guest_traps() {
 ///
 /// # Safety
 ///
-/// Run in HS-mode on a hart with H and bare host translation.
-/// `a0` must exclusively reference `GuestTraps` writable from the bare HS/VS
-/// contexts.
-/// `a1` supplies the `hedeleg` mask; `a2` supplies only the initial `SPP` bit.
+/// The caller must own this hart's trap and guest context throughout the call.
+/// Run in native-width HS with Bare translation and H enabled. VSXLEN and
+/// VS endianness must match the test image. The test code and `facts` must
+/// also be accessible at their
+/// physical addresses under the temporary Bare guest translations.
+/// `mstatus.TVM` must be clear for `hgatp` access and `HFENCE.GVMA` in HS.
+/// HS must be allowed to execute `SRET` (`mstatus.TSR` clear). The helper
+/// clears `hstatus.VTSR` for the VS round trip. The last argument must be
+/// zero (VU) or exactly the `sstatus.SPP` bit (VS).
+///
+/// The second argument restricts `hedeleg` to zero or the illegal-instruction
+/// bit. The routine temporarily changes trap and guest CSRs and restores
+/// their saved configuration before returning.
 #[unsafe(naked)]
-unsafe extern "C" fn guest_roundtrip(_: *mut GuestTraps, _: usize, _: usize) {
+unsafe extern "C" fn guest_roundtrip(_: &mut GuestTraps, _: GuestTrapDelegation, _: usize) {
+    // SAFETY: The C ABI puts the unique reference and the two word-sized
+    // inputs in a0-a2. Stores through a0 address only repr(C) word fields in
+    // GuestTraps. The private vectors preserve a0, sp, ra and callee-saved
+    // registers. The caller's mode, translation and CSR guarantees permit
+    // the temporary context and its restoration, including both HFENCEs.
     naked_asm!(
+        ".option push",
+        ".option arch, +h",
         "csrr t0, hstatus",
         store!("t0", "11", "a0"),
         "csrr t0, hedeleg",
@@ -570,6 +635,8 @@ unsafe extern "C" fn guest_roundtrip(_: *mut GuestTraps, _: usize, _: usize) {
         "csrs sstatus, a2",
         "li t0, (1 << 7) | (1 << 8)",
         "csrs hstatus, t0",
+        "li t0, 1 << 22",
+        "csrc hstatus, t0",
         "csrw hedeleg, a1",
         "csrw vsstatus, zero",
         "csrw vsatp, zero",
@@ -634,11 +701,15 @@ unsafe extern "C" fn guest_roundtrip(_: *mut GuestTraps, _: usize, _: usize) {
         "csrw vstvec, t0",
         load!("t0", "14", "a0"),
         "csrw vsstatus, t0",
-        load!("t0", "15", "a0"),
-        "csrw vsatp, t0",
+        // Keep VS translation Bare through the G-stage switch and fence.
+        // Restoring the saved VS root earlier could cache it under the
+        // temporary VMID (Privileged ISA, section 5.5.3).
+        "csrw vsatp, zero",
         load!("t0", "16", "a0"),
         "csrw hgatp, t0",
         "hfence.gvma",
+        load!("t0", "15", "a0"),
+        "csrw vsatp, t0",
         "hfence.vvma",
         load!("t0", "17", "a0"),
         "csrw stvec, t0",
@@ -651,5 +722,6 @@ unsafe extern "C" fn guest_roundtrip(_: *mut GuestTraps, _: usize, _: usize) {
         load!("t0", "19", "a0"),
         "csrw sstatus, t0",
         "ret",
+        ".option pop",
     );
 }

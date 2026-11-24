@@ -10,7 +10,6 @@
 num_hart_max = 2
 stack_size_per_hart = 8192
 heap_size = 0x8000
-page_size = 4096
 log_level = "INFO"
 link_start_address = 0x40f80000
 payload_address = 0x42000000

@@ -8,6 +8,20 @@ use crate::values::{
 };
 
 csr! {
+    /// Raw virtual supervisor address-space configuration.
+    pub struct AddressSpace(usize);
+
+    /// Virtual supervisor address-space configuration (`vsatp`).
+    ///
+    /// See <https://docs.riscv.org/reference/isa/priv/hypervisor.html#vsatp>.
+    AddressTranslation { 0x280, r: AddressSpace,
+        ///
+        /// # Safety
+        ///
+        /// Preserve mappings used by live guest or `MPRV` accesses, coordinate
+        /// guest context switches, and perform required translation invalidations.
+        unsafe w: AddressSpace
+    }
     /// Virtual supervisor status register (`vsstatus`).
     ///
     /// See

@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file. See [conven
 
 ### Added
 
+- Run RFENCE QEMU tests in CI for cross-hart delivery, guest restoration, and empty masks.
 - Give SBI adapters ownership of Runtime's `Timer` and `Ipi` services.
   Keep comparator programming, interrupt delivery, and optional CSR recovery in Runtime.
   Use typed CSR operations and shared Runtime error codes.
@@ -62,6 +63,19 @@ All notable changes to this project will be documented in this file. See [conven
 - Add SpacemiT K1 SoC platform support for RustSBI Prototyper, including OrangePi RV2 board configuration.
 
 ### Modified
+- Complete empty RFENCE ranges without borrowing guest state. Check native
+  SXLEN (and VSXLEN for VVMA) during request preparation and target execution,
+  rejecting mixed widths before decoding translation CSRs or issuing fences.
+- Select only the caller's VMID for remote VVMA, preserving the target's local
+  translation configuration and restoring Bare targets after temporary selection.
+  Make the guest CSR write contracts explicit and keep H instruction encoding
+  local so hypervisor-enabled firmware can run on CPUs without H.
+- Execute all RFENCE instruction and translation fences through hart-bound
+  Runtime requests, including range validation, guest-context restoration, and
+  remote error reporting. Probe H on each hart before it can receive HFENCE.
+  Count remote RFENCE requests when dequeued, regardless of execution result.
+- Use 4 KiB base pages for RFENCE ranges. Remove `page_size` from platform
+  configuration and accept the previous `4096` value for compatibility.
 - Use XLEN-sized sentinel values in trap register tests.
 - Keep per-hart Sstc detection in Runtime's timer service.
 - Save integer return context and original trap metadata before Rust dispatch.

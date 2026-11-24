@@ -147,15 +147,7 @@ pub(crate) fn parse_extensions(cpu: FdtNode<'_, '_>) -> [bool; Extension::COUNT]
 }
 
 /// Installs the extensions parsed from one enabled CPU node.
-/// `current_hart` identifies the hart performing discovery.
-pub(crate) fn install_extensions(
-    hart: HartId,
-    current_hart: HartId,
-    mut extensions: [bool; Extension::COUNT],
-) {
-    if hart == current_hart {
-        extensions[Extension::Hypervisor.index()] = hart::has_hypervisor();
-    }
+pub(crate) fn install_extensions(hart: HartId, extensions: [bool; Extension::COUNT]) {
     features(hart).lock().extensions = extensions;
 }
 
@@ -186,6 +178,10 @@ fn detect_mhpm_counters(hart: HartId) {
 /// Detects the current hart's hardware features after device-tree discovery.
 /// `hart` must identify the current hart.
 pub fn detect_hart_features(hart: HartId) {
+    // Boot and secondary harts run this before passing the privilege check
+    // used by IPI target selection. Replace the H hint with local hardware support.
+    let has_hypervisor = hart::has_hypervisor();
+    features(hart).lock().extensions[Extension::Hypervisor.index()] = has_hypervisor;
     detect_privileged_version(hart);
     detect_mhpm_counters(hart);
 }
