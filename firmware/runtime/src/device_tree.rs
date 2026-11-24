@@ -108,7 +108,14 @@ pub struct PlatformDescription {
 pub struct PlatformView<'tree> {
     fdt: Fdt<'tree>,
     fdt_storage: PhysAddrRange,
+    source: &'tree [u8],
 }
+
+type EnabledNodeVisitor<'a, 'view, 'tree> = &'a mut dyn FnMut(
+    FdtNode<'view, 'tree>,
+    Option<FdtNode<'view, 'tree>>,
+    &[&'tree str],
+) -> Result<()>;
 
 impl<'tree> PlatformView<'tree> {
     /// Iterates over hardware IDs of enabled CPU nodes without allocating.
@@ -190,6 +197,79 @@ impl<'tree> PlatformView<'tree> {
             }
         }
         Some(current)
+    }
+
+    /// Iterates over enabled nodes depth first without recursion.
+    ///
+    /// Calls `visitor` with each enabled node, its parent node (or `None` for `/`),
+    /// and the path segments from `/` to that node. Disabled subtrees are skipped.
+    pub fn try_for_each_enabled_node<'view>(
+        &'view self,
+        mut visitor: impl FnMut(
+            FdtNode<'view, 'tree>,
+            Option<FdtNode<'view, 'tree>>,
+            &[&'tree str],
+        ) -> Result<()>,
+    ) -> Result<()> {
+        self.try_for_each_enabled_node_inner(&mut visitor)
+    }
+
+    fn try_for_each_enabled_node_inner<'view>(
+        &'view self,
+        visitor: EnabledNodeVisitor<'_, 'view, 'tree>,
+    ) -> Result<()> {
+        let structure = patch::format::Layout::parse(self.source)?.structure;
+        let mut offset = 0usize;
+        let mut nodes = self.fdt.all_nodes();
+        let mut ancestors: Vec<FdtNode<'view, 'tree>> = Vec::new();
+        let mut path: Vec<&'tree str> = Vec::new();
+        let mut depth = 0usize;
+        let mut disabled_depth: Option<usize> = None;
+
+        while offset < structure.len() {
+            match patch::format::take_u32(structure, &mut offset)? {
+                patch::format::NOP => {}
+                patch::format::PROPERTY => {
+                    let length = patch::format::take_u32(structure, &mut offset)? as usize;
+                    let _name_offset = patch::format::take_u32(structure, &mut offset)?;
+                    let _ = patch::format::take_aligned(structure, &mut offset, length)?;
+                }
+                patch::format::BEGIN_NODE => {
+                    let raw_name = patch::format::take_c_string(structure, &mut offset)?;
+                    let expected_name = if raw_name.is_empty() { "/" } else { raw_name };
+                    let node = nodes.next().ok_or(Error::InvalidArgs)?;
+                    if node.name != expected_name {
+                        return Err(Error::InvalidArgs);
+                    }
+                    if disabled_depth.is_none() {
+                        if node_is_enabled(node) {
+                            let parent = ancestors.last().copied();
+                            path.push(node.name);
+                            visitor(node, parent, path.as_slice())?;
+                            ancestors.push(node);
+                        } else {
+                            disabled_depth = Some(depth);
+                        }
+                    }
+                    depth = depth.checked_add(1).ok_or(Error::Overflow)?;
+                }
+                patch::format::END_NODE => {
+                    depth = depth.checked_sub(1).ok_or(Error::InvalidArgs)?;
+                    if disabled_depth == Some(depth) {
+                        disabled_depth = None;
+                    } else if disabled_depth.is_none() {
+                        ancestors.pop();
+                        path.pop();
+                    }
+                }
+                patch::format::END => break,
+                _ => return Err(Error::InvalidArgs),
+            }
+        }
+        if depth != 0 || disabled_depth.is_some() {
+            return Err(Error::InvalidArgs);
+        }
+        Ok(())
     }
 
     /// Returns the root node for read-only platform discovery.
@@ -365,10 +445,14 @@ impl PlatformDescription {
     ) -> Result<R> {
         // SAFETY: construction validated the complete FDT. Ownership keeps
         // its storage readable and unchanged, and the view cannot escape.
-        let fdt = unsafe { Fdt::from_ptr(self.address.as_usize() as *const u8) }
-            .map_err(|_| Error::InvalidArgs)?;
-        let fdt_storage = PhysAddrRange::from_start_len(self.address, fdt.total_size())?;
-        inspect(PlatformView { fdt, fdt_storage })
+        let source = unsafe { fdt_source(self.address)? };
+        let fdt = Fdt::new(source).map_err(|_| Error::InvalidArgs)?;
+        let fdt_storage = PhysAddrRange::from_start_len(self.address, source.len())?;
+        inspect(PlatformView {
+            fdt,
+            fdt_storage,
+            source,
+        })
     }
 
     /// Derives supervisor memory and the MMIO registry from the FDT.
@@ -747,5 +831,101 @@ mod tests {
         write_test_u32(source, 64, 2);
         write_test_u32(source, 68, 9);
         source
+    }
+
+    #[test]
+    fn traverses_max_depth_fdt_iteratively_and_prunes_disabled_subtrees() {
+        fn push_u32(buf: &mut Vec<u8>, value: u32) {
+            buf.extend_from_slice(&value.to_be_bytes());
+        }
+        fn push_cstr_aligned(buf: &mut Vec<u8>, text: &[u8]) {
+            buf.extend_from_slice(text);
+            buf.push(0);
+            while !buf.len().is_multiple_of(4) {
+                buf.push(0);
+            }
+        }
+
+        let strings = b"status\0";
+        let mut structure = Vec::new();
+        // Root node (level 0 -> depth 1).
+        push_u32(&mut structure, patch::format::BEGIN_NODE);
+        push_cstr_aligned(&mut structure, b"");
+
+        // Disabled subtree whose child lacks `status`; pruning must skip both.
+        push_u32(&mut structure, patch::format::BEGIN_NODE);
+        push_cstr_aligned(&mut structure, b"disabled-sub");
+        push_u32(&mut structure, patch::format::PROPERTY);
+        push_u32(&mut structure, 9);
+        push_u32(&mut structure, 0);
+        push_cstr_aligned(&mut structure, b"disabled");
+        push_u32(&mut structure, patch::format::BEGIN_NODE);
+        push_cstr_aligned(&mut structure, b"hidden-child");
+        push_u32(&mut structure, patch::format::END_NODE);
+        push_u32(&mut structure, patch::format::END_NODE);
+
+        // Chain reaching MAX_FDT_DEPTH = 63 total levels (`/` + `n1`..`n62`).
+        for level in 1..=62 {
+            push_u32(&mut structure, patch::format::BEGIN_NODE);
+            let name = alloc::format!("n{level}");
+            push_cstr_aligned(&mut structure, name.as_bytes());
+        }
+        for _ in 0..=62 {
+            push_u32(&mut structure, patch::format::END_NODE);
+        }
+        push_u32(&mut structure, patch::format::END);
+
+        let reservations_offset = patch::format::HEADER_SIZE;
+        let structure_offset = reservations_offset + patch::format::RESERVATION_ENTRY_SIZE;
+        let strings_offset = structure_offset + structure.len();
+        let total_size = strings_offset + strings.len();
+
+        let mut backing = alloc::vec![0u64; total_size.div_ceil(size_of::<u64>())];
+        // SAFETY: `backing` is zero-initialized and covers `total_size` bytes.
+        let dtb = unsafe {
+            core::slice::from_raw_parts_mut(backing.as_mut_ptr().cast::<u8>(), total_size)
+        };
+        write_test_u32(dtb, 0, patch::format::MAGIC);
+        write_test_u32(dtb, 4, total_size as u32);
+        write_test_u32(dtb, 8, structure_offset as u32);
+        write_test_u32(dtb, 12, strings_offset as u32);
+        write_test_u32(dtb, 16, reservations_offset as u32);
+        write_test_u32(dtb, 20, patch::format::SUPPORTED_VERSION);
+        write_test_u32(dtb, 24, 16);
+        write_test_u32(dtb, 32, strings.len() as u32);
+        write_test_u32(dtb, 36, structure.len() as u32);
+        dtb[structure_offset..strings_offset].copy_from_slice(&structure);
+        dtb[strings_offset..total_size].copy_from_slice(strings);
+
+        let address = PhysAddr::new(dtb.as_ptr() as usize);
+        let destination = PhysAddrRange::from_start_len(address, total_size).unwrap();
+        // SAFETY: `backing` remains live and immutable across `description` lifetime.
+        let description = unsafe { PlatformDescription::from_raw(address, destination).unwrap() };
+
+        let mut visited = 0usize;
+        let mut max_depth = 0usize;
+        let mut leaf_parent_is_n61 = false;
+        description
+            .inspect(|platform| {
+                platform.try_for_each_enabled_node(|node, parent, path| {
+                    visited += 1;
+                    max_depth = max_depth.max(path.len());
+                    assert_ne!(node.name, "disabled-sub");
+                    assert_ne!(node.name, "hidden-child");
+                    if node.name == "n62" {
+                        assert_eq!(path.len(), 63);
+                        assert_eq!(path[0], "/");
+                        assert_eq!(path[61], "n61");
+                        assert_eq!(path[62], "n62");
+                        leaf_parent_is_n61 = parent.is_some_and(|p| p.name == "n61");
+                    }
+                    Ok(())
+                })
+            })
+            .unwrap();
+
+        assert_eq!(visited, 63);
+        assert_eq!(max_depth, 63);
+        assert!(leaf_parent_is_n61);
     }
 }
