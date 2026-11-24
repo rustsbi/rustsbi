@@ -3,10 +3,7 @@
 //! CSR definitions and hardware operations come from `csr::vendor::thead`.
 
 use super::AllwinnerV861Soc;
-use csr::vendor::thead::{
-    c907::{CacheControl, Hint, L2Control},
-    machine::ExtendedStatus,
-};
+use csr::vendor::thead::machine::{CacheControl, ExtendedStatus, Hint, L2Control};
 
 /// Cache policy captured on the boot C907 and restored on reset harts.
 pub struct C907CacheState {
@@ -42,9 +39,13 @@ impl C907CacheState {
 impl AllwinnerV861Soc {
     /// Enables firmware C907 cache controls and captures the loader policy.
     pub fn initialize_c907_cache(self) -> C907CacheState {
+        // Opaque `mhcr` enable bits from the V861 OpenSBI platform source:
+        // https://github.com/YuzukiHD/opensbi/blob/c1ea219a901ff309e88e99c4b4e66ef9a55548de/platform/generic/allwinner/sun252i-v861.c
+        const V861_CACHE_ENABLE: usize = (1 << 24) | (1 << 12);
+
         // SAFETY: The SoC capability identifies C907 and firmware runs in
         // M-mode before releasing secondary harts.
-        unsafe { CacheControl::set_bits(CacheControl::V861_ENABLE) };
+        unsafe { CacheControl::set_bits(V861_CACHE_ENABLE) };
         C907CacheState::read()
     }
 
@@ -87,9 +88,9 @@ unsafe extern "C" fn prepare_reset_hart() {
         "csrw {snoop_control}, t0",
         "fence rw, rw",
         "ret",
-        invalidate = const csr::vendor::thead::c907::CacheOperation::INVALIDATE_ALL,
-        cache_operation = const csr::vendor::thead::c907::CacheOperation::NUMBER,
-        enable = const csr::vendor::thead::c907::SnoopControl::ENABLE,
-        snoop_control = const csr::vendor::thead::c907::SnoopControl::NUMBER,
+        invalidate = const csr::vendor::thead::machine::CacheOperation::INVALIDATE_ALL,
+        cache_operation = const csr::vendor::thead::machine::CacheOperation::NUMBER,
+        enable = const csr::vendor::thead::machine::SnoopControl::ENABLE,
+        snoop_control = const csr::vendor::thead::machine::SnoopControl::NUMBER,
     );
 }
