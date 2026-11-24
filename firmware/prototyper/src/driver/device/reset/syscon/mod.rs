@@ -27,7 +27,7 @@ const REBOOT_COMPATIBLE: &str = "syscon-reboot";
 pub(super) fn describe(platform: &PlatformView<'_>) -> Result<Option<Desc>> {
     let mut poweroff = None;
     let mut reboot = None;
-    try_for_each_enabled_node(platform.root(), &mut |discovered, _| {
+    try_for_each_enabled_node(platform, |discovered, _| {
         let Some(compatibles) = discovered.compatible() else {
             return Ok(());
         };

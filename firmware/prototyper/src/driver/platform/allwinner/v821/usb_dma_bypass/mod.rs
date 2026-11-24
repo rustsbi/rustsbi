@@ -17,7 +17,7 @@ const DMA_BYPASS_SIZE: usize = 4;
 /// Discovers the single enabled USB controller node and its bypass register.
 pub(crate) fn describe(platform: &PlatformView<'_>) -> Result<Option<Desc>> {
     let mut description = None;
-    try_for_each_enabled_node(platform.root(), &mut |discovered, _| {
+    try_for_each_enabled_node(platform, |discovered, _| {
         let Some(compatibles) = discovered.compatible() else {
             return Ok(());
         };
