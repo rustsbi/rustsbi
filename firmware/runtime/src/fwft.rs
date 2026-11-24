@@ -9,7 +9,7 @@ use csr::{machine, values::trap::Exception};
 
 /// Sets one supported firmware feature on the current hart.
 pub fn set(feature_id: u32, value: usize) -> Result<()> {
-    if !crate::boot::traps_ready() {
+    if !crate::boot::traps_ready() || usize::from(machine::Scratch::read()) != 0 {
         return Err(Error::NotReady);
     }
     crate::irq::with_local_disabled(|_| set_feature(feature_id, value))
@@ -18,7 +18,7 @@ pub fn set(feature_id: u32, value: usize) -> Result<()> {
 /// Reads one supported firmware feature on the current hart.
 /// WARL probes restore the original configuration when access succeeds.
 pub fn get(feature_id: u32) -> Result<usize> {
-    if !crate::boot::traps_ready() {
+    if !crate::boot::traps_ready() || usize::from(machine::Scratch::read()) != 0 {
         return Err(Error::NotReady);
     }
     if feature_id as usize == feature_type::MISALIGNED_EXC_DELEG {
@@ -141,7 +141,16 @@ fn menvcfg_bits_supported(mask: usize) -> bool {
     let _ = menvcfg_write(current);
     (probed & mask) != 0
 }
+
+fn is_denied_feature(feature_id: u32) -> bool {
+    // Higher SBI v3.0 feature IDs are reserved or platform-specific.
+    feature_id > feature_type::POINTER_MASKING_PMLEN as u32
+}
+
 fn set_feature(feature_id: u32, value: usize) -> Result<()> {
+    if is_denied_feature(feature_id) {
+        return Err(Error::AccessDenied);
+    }
     match feature_id as usize {
         feature_type::MISALIGNED_EXC_DELEG => {
             if !has_s_mode() {
@@ -162,6 +171,9 @@ fn set_feature(feature_id: u32, value: usize) -> Result<()> {
 }
 
 fn get_feature(feature_id: u32) -> Result<usize> {
+    if is_denied_feature(feature_id) {
+        return Err(Error::AccessDenied);
+    }
     match feature_id as usize {
         feature_type::MISALIGNED_EXC_DELEG => {
             if !has_s_mode() {

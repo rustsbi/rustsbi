@@ -1,7 +1,9 @@
 //! SBI FWFT argument and result adaptation.
 
+#![forbid(unsafe_code)]
+
 use runtime::{
-    Error, fwft,
+    fwft,
     rustsbi::{Fwft, SbiRet},
 };
 
@@ -15,22 +17,14 @@ impl Fwft for SbiFwft {
         }
         match fwft::set(feature_id, value) {
             Ok(()) => SbiRet::success(0),
-            Err(error) => failure(error),
+            Err(error) => SbiRet::from(error),
         }
     }
 
     fn get(&self, feature_id: u32) -> SbiRet {
         match fwft::get(feature_id) {
             Ok(value) => SbiRet::success(value),
-            Err(error) => failure(error),
+            Err(error) => SbiRet::from(error),
         }
-    }
-}
-
-fn failure(error: Error) -> SbiRet {
-    match error {
-        Error::InvalidArgs => SbiRet::invalid_param(),
-        Error::NotSupported => SbiRet::not_supported(),
-        _ => SbiRet::failed(),
     }
 }
