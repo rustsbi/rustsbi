@@ -40,7 +40,7 @@ impl Reservation {
     }
 }
 
-mod format;
+pub(super) mod format;
 mod plan;
 mod writer;
 

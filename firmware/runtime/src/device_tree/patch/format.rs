@@ -7,9 +7,9 @@ use core::mem::size_of;
 
 use crate::{Error, Result};
 
-pub(in crate::device_tree::patch) const MAGIC: u32 = 0xd00d_feed;
-pub(in crate::device_tree::patch) const HEADER_SIZE: usize = 10 * size_of::<u32>();
-pub(in crate::device_tree::patch) const RESERVATION_ENTRY_SIZE: usize = 2 * size_of::<u64>();
+pub(in crate::device_tree) const MAGIC: u32 = 0xd00d_feed;
+pub(in crate::device_tree) const HEADER_SIZE: usize = 10 * size_of::<u32>();
+pub(in crate::device_tree) const RESERVATION_ENTRY_SIZE: usize = 2 * size_of::<u64>();
 
 const MAGIC_OFFSET: usize = 0;
 pub(in crate::device_tree::patch) const TOTAL_SIZE_OFFSET: usize = 4;
@@ -23,28 +23,28 @@ pub(in crate::device_tree::patch) const STRUCTURE_SIZE_OFFSET: usize = 36;
 /// The DTB header version currently accepted by Runtime.
 // FIXME: Add version-aware parsing or normalization for older supported FDT
 // header versions before widening this contract.
-pub(in crate::device_tree::patch) const SUPPORTED_VERSION: u32 = 17;
+pub(in crate::device_tree) const SUPPORTED_VERSION: u32 = 17;
 
-pub(in crate::device_tree::patch) const BEGIN_NODE: u32 = 1;
-pub(in crate::device_tree::patch) const END_NODE: u32 = 2;
-pub(in crate::device_tree::patch) const PROPERTY: u32 = 3;
-pub(in crate::device_tree::patch) const NOP: u32 = 4;
-pub(in crate::device_tree::patch) const END: u32 = 9;
+pub(in crate::device_tree) const BEGIN_NODE: u32 = 1;
+pub(in crate::device_tree) const END_NODE: u32 = 2;
+pub(in crate::device_tree) const PROPERTY: u32 = 3;
+pub(in crate::device_tree) const NOP: u32 = 4;
+pub(in crate::device_tree) const END: u32 = 9;
 
 pub(in crate::device_tree::patch) const DEFAULT_ADDRESS_CELLS: u32 = 2;
 pub(in crate::device_tree::patch) const DEFAULT_SIZE_CELLS: u32 = 1;
 
-pub(in crate::device_tree::patch) struct Layout<'a> {
+pub(in crate::device_tree) struct Layout<'a> {
     pub(in crate::device_tree::patch) source: &'a [u8],
     pub(in crate::device_tree::patch) total_size: usize,
     pub(in crate::device_tree::patch) reservations: &'a [u8],
     pub(in crate::device_tree::patch) structure_offset: usize,
-    pub(in crate::device_tree::patch) structure: &'a [u8],
+    pub(in crate::device_tree) structure: &'a [u8],
     pub(in crate::device_tree::patch) strings: &'a [u8],
 }
 
 impl<'a> Layout<'a> {
-    pub(in crate::device_tree::patch) fn parse(source: &'a [u8]) -> Result<Self> {
+    pub(in crate::device_tree) fn parse(source: &'a [u8]) -> Result<Self> {
         if source.len() < HEADER_SIZE || read_u32(source, MAGIC_OFFSET)? != MAGIC {
             return Err(Error::InvalidArgs);
         }
@@ -115,7 +115,7 @@ fn reservation_map_end(source: &[u8], start: usize, total_size: usize) -> Result
     }
 }
 
-pub(in crate::device_tree::patch) fn take_u32(bytes: &[u8], offset: &mut usize) -> Result<u32> {
+pub(in crate::device_tree) fn take_u32(bytes: &[u8], offset: &mut usize) -> Result<u32> {
     let value = read_u32(bytes, *offset)?;
     *offset = offset
         .checked_add(size_of::<u32>())
@@ -123,7 +123,7 @@ pub(in crate::device_tree::patch) fn take_u32(bytes: &[u8], offset: &mut usize) 
     Ok(value)
 }
 
-pub(in crate::device_tree::patch) fn take_c_string<'a>(
+pub(in crate::device_tree) fn take_c_string<'a>(
     bytes: &'a [u8],
     offset: &mut usize,
 ) -> Result<&'a str> {
@@ -143,7 +143,7 @@ pub(in crate::device_tree::patch) fn take_c_string<'a>(
     Ok(name)
 }
 
-pub(in crate::device_tree::patch) fn take_aligned<'a>(
+pub(in crate::device_tree) fn take_aligned<'a>(
     bytes: &'a [u8],
     offset: &mut usize,
     length: usize,
