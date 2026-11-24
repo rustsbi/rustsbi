@@ -1,5 +1,6 @@
 //! Virtual supervisor registers.
 use super::machine::{Interrupt, SupervisorPrivilege};
+use super::supervisor::AddressSpace;
 use crate::macros::csr;
 use crate::values::{
     Address, TrapValueBits,
@@ -62,4 +63,16 @@ csr! {
     ///
     /// See <https://docs.riscv.org/reference/isa/priv/hypervisor.html#vstval>.
     TrapValue { 0x243, r: TrapValueBits, w: TrapValueBits }
+    /// Virtual supervisor address translation and protection register (`vsatp`).
+    ///
+    /// See <https://docs.riscv.org/reference/isa/priv/hypervisor.html#vsatp>.
+    AddressTranslation { 0x280, r: AddressSpace,
+        /// See <https://docs.riscv.org/reference/isa/priv/hypervisor.html#vsatp>.
+        ///
+        /// # Safety
+        ///
+        /// Preserve guest mappings and coordinate guest execution, `MPRV`
+        /// accesses, `hgatp` updates, and translation-cache invalidations.
+        unsafe w: AddressSpace
+    }
 }

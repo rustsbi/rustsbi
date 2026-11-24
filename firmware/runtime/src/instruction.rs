@@ -62,6 +62,42 @@ pub fn sfence_vma_all() {
     unimplemented!("RISC-V architecture required");
 }
 
+/// Synchronizes one supervisor address for all ASIDs on this hart.
+///
+/// Execution traps if the instruction is unavailable at the current privilege.
+#[inline]
+pub fn sfence_vma_addr(address: usize) {
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+    // SAFETY: The instruction synchronizes address translation without
+    // accessing Rust memory operands. Unsupported execution traps.
+    unsafe {
+        core::arch::asm!("sfence.vma {}, x0", in(reg) address, options(nostack))
+    };
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+    {
+        let _ = address;
+        unimplemented!("RISC-V architecture required")
+    }
+}
+
+/// Synchronizes all supervisor addresses for one ASID on this hart.
+///
+/// Execution traps if the instruction is unavailable at the current privilege.
+#[inline]
+pub fn sfence_vma_asid(asid: usize) {
+    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+    // SAFETY: The instruction synchronizes address translation without
+    // accessing Rust memory operands. Unsupported execution traps.
+    unsafe {
+        core::arch::asm!("sfence.vma x0, {}", in(reg) asid, options(nostack))
+    };
+    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+    {
+        let _ = asid;
+        unimplemented!("RISC-V architecture required")
+    }
+}
+
 /// Synchronizes one address and ASID on this hart.
 ///
 /// Execution traps if the instruction is unavailable at the current privilege.
