@@ -92,7 +92,7 @@ pub(crate) fn init(
         console,
         cppc: Some(SbiCppc::new()),
         dbtr: Some(SbiDbtr::new(supervisor_memory)?),
-        fwft: Some(SbiFwft),
+        fwft: Some(SbiFwft::new()?),
         ipi,
         timer: SbiTimer,
         reset: SbiReset,
