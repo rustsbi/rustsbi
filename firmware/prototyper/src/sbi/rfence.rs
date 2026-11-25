@@ -116,15 +116,104 @@ fn remote_fence_process(
     if let Err(error) = validate_hart_mask(hart_mask) {
         return error;
     }
-    let requires_hypervisor = matches!(
+    if let Err(error) = validate_target_harts(op, current_hart, hart_mask) {
+        return error;
+    }
+    if matches!(
         op,
-        LocalFence::GuestPhysical { .. } | LocalFence::GuestVirtual { .. }
-    );
-    if requires_hypervisor && !active_target_harts(hart_mask).all(hart_supports_hypervisor) {
-        return SbiRet::not_supported();
+        LocalFence::Supervisor {
+            range: FlushRange::Pages { size: 0, .. },
+            ..
+        } | LocalFence::GuestPhysical {
+            range: FlushRange::Pages { size: 0, .. },
+            ..
+        } | LocalFence::GuestVirtual {
+            range: FlushRange::Pages { size: 0, .. },
+            ..
+        }
+    ) {
+        return SbiRet::success(0);
     }
     pmu_firmware_counter_increment(sent_event);
     dispatch_validated_fence(op, current_hart, active_target_harts(hart_mask))
+}
+
+fn validate_target_harts(
+    op: LocalFence,
+    current_hart: HartId,
+    hart_mask: HartMask,
+) -> Result<(), SbiRet> {
+    let mut has_active_target = false;
+    for target in active_target_harts(hart_mask) {
+        has_active_target = true;
+        match op {
+            LocalFence::Instruction => {}
+            LocalFence::Supervisor { asid, .. } => {
+                if let Some(asid) = asid
+                    && !asid_valid_for_hart(asid, target)
+                {
+                    return Err(SbiRet::invalid_param());
+                }
+            }
+            LocalFence::GuestPhysical { vmid, .. } => {
+                if !hart_supports_hypervisor(target) {
+                    return Err(SbiRet::not_supported());
+                }
+                if let Some(vmid) = vmid
+                    && !vmid_valid_for_hart(vmid, target)
+                {
+                    return Err(SbiRet::invalid_param());
+                }
+            }
+            LocalFence::GuestVirtual { asid, vmid, .. } => {
+                if !hart_supports_hypervisor(target) {
+                    return Err(SbiRet::not_supported());
+                }
+                if let Some(asid) = asid
+                    && !asid_valid_for_hart(asid, target)
+                {
+                    return Err(SbiRet::invalid_param());
+                }
+                if !vmid_valid_for_hart(vmid, target) {
+                    return Err(SbiRet::not_supported());
+                }
+            }
+        }
+    }
+
+    if !has_active_target {
+        match op {
+            LocalFence::Supervisor {
+                asid: Some(asid), ..
+            }
+            | LocalFence::GuestVirtual {
+                asid: Some(asid), ..
+            } if !asid_valid_for_hart(asid, current_hart) => {
+                return Err(SbiRet::invalid_param());
+            }
+            LocalFence::GuestPhysical {
+                vmid: Some(vmid), ..
+            } if !vmid_valid_for_hart(vmid, current_hart) => {
+                return Err(SbiRet::invalid_param());
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn asid_valid_for_hart(asid: usize, hart: HartId) -> bool {
+    features::supervisor_xlen(hart).map_or_else(
+        || fence::is_valid_asid(asid),
+        |xlen| fence::is_valid_asid_for(asid, xlen),
+    )
+}
+
+fn vmid_valid_for_hart(vmid: usize, hart: HartId) -> bool {
+    features::supervisor_xlen(hart).map_or_else(
+        || fence::is_valid_vmid(vmid),
+        |xlen| fence::is_valid_vmid_for(vmid, xlen),
+    )
 }
 
 fn hart_supports_hypervisor(hart: HartId) -> bool {
@@ -147,11 +236,6 @@ fn remote_sfence_vma_op(
     sent_event: usize,
 ) -> Result<SbiRet, SbiRet> {
     let current_hart = HartId::current().map_err(SbiRet::from)?;
-    if let Some(asid) = asid
-        && !fence::is_valid_asid(asid)
-    {
-        return Err(SbiRet::invalid_param());
-    }
     let range = flush_range(start_addr, size)?;
     Ok(remote_fence_process(
         LocalFence::Supervisor { range, asid },
@@ -168,12 +252,7 @@ fn remote_hfence_gvma_op(
     vmid: Option<usize>,
     sent_event: usize,
 ) -> Result<SbiRet, SbiRet> {
-    let current_hart = current_hart_with_hypervisor()?;
-    if let Some(vmid) = vmid
-        && !fence::is_valid_vmid(vmid)
-    {
-        return Err(SbiRet::invalid_param());
-    }
+    let current_hart = HartId::current().map_err(SbiRet::from)?;
     let range = flush_range(start_addr, size)?;
     Ok(remote_fence_process(
         LocalFence::GuestPhysical { range, vmid },
@@ -191,15 +270,10 @@ fn remote_hfence_vvma_op(
     sent_event: usize,
 ) -> Result<SbiRet, SbiRet> {
     let current_hart = current_hart_with_hypervisor()?;
-    if let Some(asid) = asid
-        && !fence::is_valid_asid(asid)
-    {
-        return Err(SbiRet::invalid_param());
-    }
     let range = flush_range(start_addr, size)?;
-    let guest = fence::guest_address_space().map_err(|_| SbiRet::not_supported())?;
+    let vmid = fence::current_guest_vmid().map_err(|_| SbiRet::not_supported())?;
     Ok(remote_fence_process(
-        LocalFence::GuestVirtual { range, asid, guest },
+        LocalFence::GuestVirtual { range, asid, vmid },
         current_hart,
         hart_mask,
         sent_event,

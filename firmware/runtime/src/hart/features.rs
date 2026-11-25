@@ -1,11 +1,29 @@
 //! Current-hart ISA, privileged-version, and performance-counter discovery.
 
 use crate::csr::{csrr, csrrw, csrw};
-use csr::machine;
+use csr::{machine, values::xlen::Xlen};
 
 /// Returns whether this hart reports the hypervisor extension in `misa`.
 pub fn has_hypervisor() -> bool {
     machine::Isa::read().has_extension('H')
+}
+
+/// Returns the current hart's effective supervisor XLEN, if S-mode is supported.
+///
+/// On RV64 this reads `mstatus.SXL`.
+/// On RV32 it returns [`Xlen::X32`] whenever `misa.S` is set.
+pub fn supervisor_xlen() -> Option<Xlen> {
+    if !machine::Isa::read().has_extension('S') {
+        return None;
+    }
+    #[cfg(target_pointer_width = "64")]
+    {
+        machine::Status::read().get::<machine::SXL>()
+    }
+    #[cfg(target_pointer_width = "32")]
+    {
+        Some(Xlen::X32)
+    }
 }
 
 /// Checks support for the requested privilege mode.

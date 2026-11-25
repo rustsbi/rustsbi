@@ -1,7 +1,7 @@
 use csr::machine::TargetPrivilege as MPP;
 use runtime::{
     Error, FdtNode, Result, boot,
-    hart::{self, HartId, PerHart},
+    hart::{self, HartId, PerHart, Xlen},
     timer,
 };
 use spin::{Mutex, Once};
@@ -17,6 +17,7 @@ use csr::{
 pub struct HartFeatures {
     extensions: [bool; Extension::COUNT],
     privileged_version: PrivilegedVersion,
+    supervisor_xlen: Option<Xlen>,
     mhpm_mask: u32,
     mhpm_bits: u32,
     privilege_checked: bool,
@@ -57,6 +58,10 @@ pub(crate) fn has_extension(hart: HartId, extension: Extension) -> bool {
 
 pub(crate) fn privileged_version(hart: HartId) -> PrivilegedVersion {
     features(hart).lock().privileged_version()
+}
+
+pub(crate) fn supervisor_xlen(hart: HartId) -> Option<Xlen> {
+    features(hart).lock().supervisor_xlen
 }
 
 pub(crate) fn hart_privilege_checked(hart: HartId) -> bool {
@@ -180,11 +185,17 @@ fn detect_hypervisor(hart: HartId) {
     features(hart).lock().extensions[Extension::Hypervisor.index()] = has_h;
 }
 
+fn detect_supervisor_xlen(hart: HartId) {
+    let xlen = hart::supervisor_xlen();
+    features(hart).lock().supervisor_xlen = xlen;
+}
+
 /// Detects the current hart's hardware features after device-tree discovery.
 /// `hart` must identify the current hart.
 pub fn detect_hart_features(hart: HartId) {
     detect_hypervisor(hart);
     detect_privileged_version(hart);
+    detect_supervisor_xlen(hart);
     detect_mhpm_counters(hart);
 }
 

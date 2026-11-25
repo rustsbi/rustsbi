@@ -13,9 +13,10 @@ mod wakeup;
 
 pub(crate) use detect::Detect;
 
+pub use csr::values::xlen::Xlen;
 pub use features::{
     PrivilegedVersion, detect_performance_counters, detect_privileged_version, has_hypervisor,
-    supports_privilege,
+    supervisor_xlen, supports_privilege,
 };
 
 pub use wakeup::{HartWake, install_wakeup, wakeup_installed};
