@@ -3,24 +3,18 @@
 use crate::{Error, Result};
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 use crate::{hart, instruction, irq};
+use csr::values::xlen::Xlen;
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 use csr::{
-    hypervisor::GuestAddressTranslation, supervisor::AddressSpace,
+    hypervisor::{GuestAddressSpace, GuestAddressTranslation},
+    supervisor::AddressSpace,
     virtual_supervisor::AddressTranslation as VirtualAddressTranslation,
 };
 
-/// A guest address-space snapshot containing the active VMID.
-pub use csr::hypervisor::GuestAddressSpace;
-
 #[cfg(target_pointer_width = "32")]
-const ASID_MAX_BITS: u32 = 9;
+const NATIVE_XLEN: Xlen = Xlen::X32;
 #[cfg(target_pointer_width = "64")]
-const ASID_MAX_BITS: u32 = 16;
-
-#[cfg(target_pointer_width = "32")]
-const VMID_MAX_BITS: u32 = 7;
-#[cfg(target_pointer_width = "64")]
-const VMID_MAX_BITS: u32 = 14;
+const NATIVE_XLEN: Xlen = Xlen::X64;
 
 const fn fits_bits(value: usize, bits: u32) -> bool {
     value < (1usize << bits)
@@ -28,12 +22,30 @@ const fn fits_bits(value: usize, bits: u32) -> bool {
 
 /// Returns whether `asid` fits within the RISC-V privileged architecture's maximum ASID width.
 pub const fn is_valid_asid(asid: usize) -> bool {
-    fits_bits(asid, ASID_MAX_BITS)
+    is_valid_asid_for(asid, NATIVE_XLEN)
+}
+
+/// Returns whether `asid` fits within the maximum ASID width for `xlen`.
+pub const fn is_valid_asid_for(asid: usize, xlen: Xlen) -> bool {
+    match xlen {
+        Xlen::X32 => fits_bits(asid, 9),
+        Xlen::X64 => fits_bits(asid, 16),
+        Xlen::X128 => false,
+    }
 }
 
 /// Returns whether `vmid` fits within the RISC-V privileged architecture's maximum VMID width.
 pub const fn is_valid_vmid(vmid: usize) -> bool {
-    fits_bits(vmid, VMID_MAX_BITS)
+    is_valid_vmid_for(vmid, NATIVE_XLEN)
+}
+
+/// Returns whether `vmid` fits within the maximum VMID width for `xlen`.
+pub const fn is_valid_vmid_for(vmid: usize, xlen: Xlen) -> bool {
+    match xlen {
+        Xlen::X32 => fits_bits(vmid, 7),
+        Xlen::X64 => fits_bits(vmid, 14),
+        Xlen::X128 => false,
+    }
 }
 
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
@@ -99,8 +111,8 @@ pub enum LocalFence {
         range: FlushRange,
         /// The ASID to synchronize, or `None` to include all ASIDs.
         asid: Option<usize>,
-        /// The guest address-space snapshot that selects the VMID.
-        guest: GuestAddressSpace,
+        /// The VMID identifying the guest address space.
+        vmid: usize,
     },
 }
 
@@ -113,15 +125,19 @@ fn page_addresses(start: usize, size: usize, stride: usize) -> Result<impl Itera
         .map(move |offset| start.wrapping_add(offset)))
 }
 
-/// Reads the current hart's guest address-space configuration from `hgatp`.
+/// Reads the current hart's active guest VMID from `hgatp` using its `HSXLEN`.
 ///
-/// Returns [`Error::NotSupported`] if the hart lacks the H extension or the
-/// build target is outside RISC-V. Call from M-mode.
-pub fn guest_address_space() -> Result<GuestAddressSpace> {
+/// Returns [`Error::NotSupported`] if the hart lacks the H extension,
+/// `HSXLEN` is unavailable, or the build target is outside RISC-V.
+/// Call from M-mode.
+pub fn current_guest_vmid() -> Result<usize> {
     #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     {
         require_hypervisor()?;
-        Ok(GuestAddressTranslation::read())
+        let hsxlen = hart::supervisor_xlen().ok_or(Error::NotSupported)?;
+        GuestAddressTranslation::read()
+            .vmid_for(hsxlen)
+            .ok_or(Error::NotSupported)
     }
     #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
     Err(Error::NotSupported)
@@ -129,12 +145,13 @@ pub fn guest_address_space() -> Result<GuestAddressSpace> {
 
 /// Executes a fence on the current hart.
 ///
-/// Call from M-mode with `MPRV` clear. Guest virtual fences exclude local
-/// interrupts while the requested guest address space is active.
+/// Call from M-mode with `MPRV` clear.
+/// Guest virtual fences exclude local interrupts while the requested guest VMID is active.
 ///
 /// Returns [`Error::InvalidArgs`] for a nonempty page range with zero stride,
-/// or [`Error::NotSupported`] on a non-RISC-V target or when a guest fence
-/// is requested on a hart without the H extension.
+/// or [`Error::NotSupported`] on a non-RISC-V target, when a guest fence is
+/// requested on a hart without the H extension, or when `vmid` cannot be encoded
+/// for the target hart's `HSXLEN`.
 pub fn execute_local(fence: LocalFence) -> Result<()> {
     let range = match fence {
         LocalFence::Instruction => FlushRange::All,
@@ -170,13 +187,17 @@ pub fn execute_local(fence: LocalFence) -> Result<()> {
                     unsafe { hfence!("hfence.gvma", address.map(hfence_gvma_operand), vmid) };
                 });
             }
-            LocalFence::GuestVirtual { asid, guest, .. } => {
+            LocalFence::GuestVirtual { asid, vmid, .. } => {
                 require_hypervisor()?;
+                let hsxlen = hart::supervisor_xlen().ok_or(Error::NotSupported)?;
+                let target_hgatp =
+                    GuestAddressSpace::for_vmid(vmid, hsxlen).ok_or(Error::NotSupported)?;
                 irq::with_local_disabled(|irq| {
                     // SAFETY: H is available, local interrupts are disabled,
+                    // `target_hgatp` encodes `vmid` for `hsxlen` with Bare mode,
                     // and Runtime executes with MPRV clear.
                     unsafe {
-                        with_guest_address_space(irq, guest, || {
+                        with_guest_vmid(irq, vmid, hsxlen, target_hgatp, || {
                             for_each_address(addresses, |address| {
                                 hfence!("hfence.vvma", address, asid);
                             });
@@ -197,11 +218,11 @@ pub fn execute_local(fence: LocalFence) -> Result<()> {
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 fn for_each_address(
     addresses: Option<impl Iterator<Item = usize>>,
-    mut f: impl FnMut(Option<usize>),
+    mut for_each_fn: impl FnMut(Option<usize>),
 ) {
     match addresses {
-        Some(addresses) => addresses.map(Some).for_each(f),
-        None => f(None),
+        Some(addresses) => addresses.map(Some).for_each(for_each_fn),
+        None => for_each_fn(None),
     }
 }
 
@@ -220,39 +241,39 @@ fn hfence_gvma_operand(address: usize) -> usize {
     address >> 2
 }
 
+/// Executes `fence_fn` with `vmid` selected in `hgatp` under `hsxlen`.
+///
+/// # Safety
+///
+/// Call in M-mode with `MPRV` clear on a hart with the H extension while local
+/// interrupts are disabled and `target_hgatp` encodes `vmid` for `hsxlen` in
+/// Bare translation mode.
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-#[inline]
-unsafe fn hfence_gvma_all() {
-    // SAFETY: The caller verified H-extension support.
-    unsafe { hfence!(@emit "hfence.gvma", "x0, x0") };
-}
-
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-unsafe fn with_guest_address_space(
+unsafe fn with_guest_vmid(
     _irq: &irq::LocalIrqDisabled,
-    guest: GuestAddressSpace,
-    fence: impl FnOnce(),
+    vmid: usize,
+    hsxlen: Xlen,
+    target_hgatp: GuestAddressSpace,
+    fence_fn: impl FnOnce(),
 ) {
     let saved_hgatp = GuestAddressTranslation::read();
-    if saved_hgatp == guest {
-        fence();
+    if saved_hgatp.vmid_for(hsxlen) == Some(vmid) {
+        fence_fn();
         return;
     }
 
     let saved_vsatp = VirtualAddressTranslation::read();
     // SAFETY: Local interrupts are excluded and MPRV is clear. Setting vsatp
-    // to Bare prevents speculative walks from using the old guest's table.
+    // to Bare prevents speculative G-stage walks from using the old guest's table,
+    // and switching `hgatp` with Bare mode updates only VMID for HFENCE.VVMA.
     unsafe {
         VirtualAddressTranslation::write(AddressSpace::bare());
-        GuestAddressTranslation::write(guest);
-        hfence_gvma_all();
+        GuestAddressTranslation::write(target_hgatp);
     }
-    fence();
-    // SAFETY: Restore the original hgatp and order its mode change before
-    // reactivating the original guest page table.
+    fence_fn();
+    // SAFETY: Restore the original `hgatp` before reactivating `vsatp`.
     unsafe {
         GuestAddressTranslation::write(saved_hgatp);
-        hfence_gvma_all();
         VirtualAddressTranslation::write(saved_vsatp);
     }
 }

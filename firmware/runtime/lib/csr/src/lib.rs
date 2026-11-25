@@ -137,7 +137,13 @@ pub use standard::aia;
 
 #[cfg(test)]
 mod tests {
-    use super::{hypervisor, machine, supervisor, user, values::StateEnableSet};
+    use super::{
+        hypervisor, machine, supervisor, user,
+        values::{
+            StateEnableSet,
+            xlen::{TargetXlen, Xlen},
+        },
+    };
 
     #[test]
     fn rv32_high_register_definitions_are_available() {
@@ -172,6 +178,24 @@ mod tests {
         assert_eq!(usize::from(high), (1 << 6) | (1 << 7));
         #[cfg(target_pointer_width = "64")]
         {
+            let mut status = machine::Status::<super::Write>::default();
+            status.set::<machine::SXL>(TargetXlen::X32);
+            assert_eq!(usize::from(status), 1 << 34);
+            assert_eq!(
+                machine::Status::<super::Read>::from_bits(usize::from(status))
+                    .get::<machine::SXL>(),
+                Some(Xlen::X32)
+            );
+
+            let mut status = machine::Status::<super::Write>::default();
+            status.set::<machine::SXL>(TargetXlen::X64);
+            assert_eq!(usize::from(status), 2 << 34);
+            assert_eq!(
+                machine::Status::<super::Read>::from_bits(usize::from(status))
+                    .get::<machine::SXL>(),
+                Some(Xlen::X64)
+            );
+
             let mut status = machine::Status::<super::Write>::default();
             status.set::<machine::GVA>(machine::GuestAddress::GuestVirtual);
             status.set::<machine::MPV>(machine::Virtualization::On);
