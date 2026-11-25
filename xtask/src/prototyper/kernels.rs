@@ -190,6 +190,9 @@ impl ResolvedRun {
         if self.machine.trim().is_empty() || self.machine.chars().any(char::is_whitespace) {
             bail!("--machine must be a non-empty QEMU machine string without whitespace");
         }
+        if self.pack && self.boot_mode == BootMode::Jump {
+            bail!("--pack cannot be combined with --mode jump");
+        }
         if self.pack && self.firmware_load_addr.is_some() {
             bail!(
                 "--pack packs dynamic firmware linked at `link_start_address` and cannot be \
