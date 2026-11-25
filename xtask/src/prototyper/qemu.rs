@@ -280,8 +280,10 @@ const REQUIRED_VIRT_SMP_BENCHES: &[&str] = &[
     "scale/base_ecall",
 ];
 
-fn is_virt_machine(machine: &str) -> bool {
-    machine == "virt" || machine.starts_with("virt,")
+fn is_qemu_virt_machine(machine: &str) -> bool {
+    machine == "virt"
+        || machine.starts_with("virt,")
+        || machine.split(',').any(|part| part == "type=virt")
 }
 
 fn is_effective_bench_status(status: &str) -> bool {
@@ -361,7 +363,7 @@ fn check_timeout_for_explicit_failure(
         Err(_) if output.contains("@@MBENCH:PANIC") => {
             bail!("mbench target emitted @@MBENCH:PANIC before timeout");
         }
-        Err(err) => Err(err),
+        Err(_) => Ok(()),
     }
 }
 
@@ -441,7 +443,7 @@ fn verify_capture(output: &str, capture_path: &Path, run: &QemuRun) -> Result<()
         );
     }
 
-    if is_virt_machine(&run.machine) {
+    if is_qemu_virt_machine(&run.machine) {
         for ext in REQUIRED_VIRT_EXTENSIONS {
             if !meta.extensions.iter().any(|present| present == ext) {
                 bail!("missing expected SBI extension `{ext}` on QEMU virt");

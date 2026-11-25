@@ -1,6 +1,6 @@
 # mbench 测试与基准内核
 
-`mbench`（仓库子模块 `firmware/mbench`，上游 `https://github.com/rustsbi/mbench`）是用于在 RISC-V 监管态调用并验证 SBI v3.0 接口与固件运行时行为的裸机测试与基准程序。启动后它会自动输出 `@@MBENCH:*` 结构化串口协议帧，由 `cargo prototyper test` 与 `cargo prototyper bench` 调用 `mbench validate` 校验执行结果。
+`mbench`（仓库子模块 `firmware/mbench`，上游 `https://github.com/rustsbi/mbench`）是用于在 RISC-V 监管态调用并验证 SBI v3.0 接口与固件运行时行为的裸机测试与基准程序。启动后它会自动向串口打印 `@@MBENCH:*` 开头的输出，由 `cargo prototyper test` 与 `cargo prototyper bench` 调用 `mbench validate` 校验执行结果。
 
 本节以 QEMU `virt` 平台为例，说明直接使用 RustSBI、以及通过 U-Boot 启动 `mbench` 的流程。
 
