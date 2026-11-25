@@ -135,7 +135,7 @@ impl Mpxy for SbiMpxy {
             .fill_zeros(PhysAddr::new(shmem), CHANNEL_IDS_HEADER_BYTES)
             .is_err()
         {
-            return SbiRet::invalid_address();
+            return SbiRet::failed();
         }
         SbiRet::success(0)
     }

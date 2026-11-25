@@ -16,6 +16,9 @@ pub fn trigger_count() -> usize {
         return 0;
     }
     crate::irq::with_local_disabled(|_| {
+        let Ok(saved_tselect) = csrr!(machine::TriggerSelect) else {
+            return 0;
+        };
         let mut count = 0;
         for index in 0..256 {
             if csrw!(machine::TriggerSelect, index).is_err() {
@@ -27,10 +30,14 @@ pub fn trigger_count() -> usize {
             let Ok(data) = csrr!(machine::TriggerData1) else {
                 break;
             };
+            if ((data >> (usize::BITS - 4)) & 0xf) == 0 {
+                break;
+            }
             if is_sbi_usable_trigger(data) {
                 count += 1;
             }
         }
+        let _ = csrw!(machine::TriggerSelect, saved_tselect);
         count
     })
 }

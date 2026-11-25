@@ -126,7 +126,7 @@ impl Dbtr for SbiDbtr {
         if trig_idx_base >= trig_max
             || trig_idx_base
                 .checked_add(trig_count)
-                .is_none_or(|end| end >= trig_max)
+                .is_none_or(|end| end > trig_max)
         {
             return SbiRet::bad_range();
         }
