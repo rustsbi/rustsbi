@@ -181,12 +181,11 @@ jobs:
         shell: bash
         run: |
           version="${{ steps.rust.outputs.version }}"
-          # pmpm and smm require 64-bit atomics and do not support RV32.
+          # pmpm and smm build for RV32 (slot word is a 32-bit atomic there).
           mapfile -t packages < <(
             cargo +"$version" metadata --locked --no-deps --format-version 1 |
               jq -r '.packages[]
                 | select(.manifest_path | test("/library/[^/]+/Cargo.toml$"))
-                | select(.name != "pmpm" and .name != "smm")
                 | .name'
           )
           ((${#packages[@]} > 0))
