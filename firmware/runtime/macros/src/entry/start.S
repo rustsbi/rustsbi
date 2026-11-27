@@ -9,9 +9,10 @@
 
 // 1. Mask all interrupts and install the Runtime's stack-independent
 //    fail-stop vector: any trap before per-hart initialization parks.
+//    The vector is PC-relative so it is valid before relocation applies.
 csrw    mie, zero
 csrw    mscratch, zero
-la      t0, {early_vector}
+lla     t0, {early_vector}
 csrw    mtvec, t0
 
 // 2. Elect a bootstrap hart: the first hart to arrive wins the race

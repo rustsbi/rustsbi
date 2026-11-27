@@ -153,6 +153,12 @@ jobs:
           bash .github/scripts/prototyper-machine-stack.sh 32
           bash .github/scripts/prototyper-machine-stack.sh 64
 
+      - name: Verify the early vector at a load offset
+        shell: bash
+        run: |
+          bash .github/scripts/prototyper-relocated-fault.sh 32
+          bash .github/scripts/prototyper-relocated-fault.sh 64
+
       - name: Upload QEMU log
         if: failure()
         uses: actions/upload-artifact@v7
