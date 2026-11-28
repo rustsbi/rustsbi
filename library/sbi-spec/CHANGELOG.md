@@ -16,6 +16,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Modified
 
+- Forbid unsafe code in `sbi-spec`. The deprecated `SbiRet::unwrap_unchecked` and
+  `SbiRet::unwrap_err_unchecked` now perform the same checks as `unwrap` and `unwrap_err`.
+  Callers that require unchecked extraction can use the corresponding method on
+  `ret.into_result()` when they can guarantee which `Result` variant it contains.
 - Declare Rust 1.88 as the minimum supported Rust version through workspace metadata.
 - pmu: rename `CounterCfgFlags`, `CounterStartFlags`, and `CounterStopFlags` to `ConfigFlags`,
   `StartFlags`, and `StopFlags`; retain deprecated aliases for source compatibility.
