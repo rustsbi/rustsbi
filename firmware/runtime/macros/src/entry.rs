@@ -36,12 +36,14 @@ pub(crate) fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
                 device_tree: runtime::DeviceTreeHandoff,
                 dynamic_info_address: usize,
             ) -> usize {
-                let boot = crate::firmware::BootInfo::decode(hart_id, device_tree, dynamic_info_address)
-                    .expect("firmware entry rejected the platform description");
-                if !boot.is_boot_hart() {
+                // SAFETY: The loader supplies the version-sized dynamic record in a2.
+                let mut boot = unsafe { crate::firmware::BootInfo::from_entry(dynamic_info_address) };
+                if !boot.select_boot_hart(hart_id, device_tree)
+                    .expect("firmware entry rejected the platform description") {
                     return 0;
                 }
                 crate::heap::init();
+                let (_, next_stage_entry) = boot.next_stage();
                 // SAFETY: The loader's entry contract grants exclusive RAM
                 // for firmware and stacks. BOOT_LOCK serializes candidates;
                 // BOOT_READY remains clear until this Rust frame is retired.
@@ -50,8 +52,8 @@ pub(crate) fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
                         &BOOT_STACK,
                         crate::cfg::HART_CAPACITY,
                         boot.platform_description(),
-                        boot.next_stage().start_addr,
-                        boot.dynamic_info_range().expect("invalid dynamic boot information range"),
+                        next_stage_entry,
+                        boot.dynamic_info_range(),
                     )
                 }.expect("firmware could not initialize its hart topology");
                 BOOT_HART.call_once(|| hart_id);
@@ -64,18 +66,18 @@ pub(crate) fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
             #[unsafe(export_name = "__rustsbi_prototyper_main")]
             extern "C" fn __rustsbi_prototyper_main(
                 hart_id: usize,
-                device_tree: runtime::DeviceTreeHandoff,
+                _device_tree: runtime::DeviceTreeHandoff,
                 dynamic_info_address: usize,
             ) {
                 // SAFETY: Startup has selected this hart's Runtime stack;
                 // machine interrupts are masked and mscratch is zero.
                 unsafe { runtime::boot::prepare_traps() };
-                // Use the hardware hart ID while retaining the loader's a1/a2 handoff.
                 let policy_entry: fn(crate::firmware::BootInfo) = #policy_name;
                 let boot = if BOOT_HART.get().copied() == Some(hart_id) {
                     BOOT_INFO.lock().take().expect("boot handoff consumed once")
                 } else {
-                    crate::firmware::BootInfo::secondary(device_tree, dynamic_info_address)
+                    // SAFETY: Secondary entry receives this hart's live loader record in a2.
+                    unsafe { crate::firmware::BootInfo::from_entry(dynamic_info_address) }
                 };
                 policy_entry(boot)
             }
@@ -106,7 +108,9 @@ pub(crate) fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
             /// # Safety
             ///
             /// - Pass `a0 = hart ID`, `a1 = DTB pointer`, and
-            ///   `a2 = DynamicInfo pointer` (dynamic mode only).
+            ///   `a2 = dynamic record address` in dynamic mode. Supply a word-aligned,
+            ///   initialized v1 (five-word) or v2 (six-word) record that remains
+            ///   readable and unchanged until each entering hart has copied it.
             /// - The selected DTB must describe the hardware and remain readable
             ///   and unchanged through platform initialization.
             /// - Provide exclusively writable DTB storage at the configured

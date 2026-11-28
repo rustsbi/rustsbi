@@ -10,7 +10,7 @@ mod stack;
 pub use crate::pmu::inhibit_programmable as inhibit_programmable_counters;
 
 pub use context::{
-    configure_next_stage, configure_state_access, configure_supervisor_envcfg,
+    SupervisorEnvConfig, configure_next_stage, configure_state_access, configure_supervisor_envcfg,
     enable_supervisor_seed, prepare_traps,
 };
 pub(crate) use context::{prepare_supervisor, set_return_mode};

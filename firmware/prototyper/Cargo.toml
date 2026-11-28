@@ -11,7 +11,6 @@ bitflags.workspace = true
 log = "0.4"
 panic-halt = "1.0.0"
 spin.workspace = true
-cfg-if = "1.0.0"
 riscv-csr-spec.workspace = true
 sbi-spec = { version = "0.0.10", path = "../../library/sbi-spec" }
 static-toml = "1"

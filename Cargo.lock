@@ -564,7 +564,6 @@ name = "rustsbi-prototyper"
 version = "0.0.0"
 dependencies = [
  "bitflags",
- "cfg-if",
  "log",
  "panic-halt",
  "riscv-csr-spec",

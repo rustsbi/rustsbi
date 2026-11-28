@@ -3,23 +3,16 @@ mod reset;
 pub(crate) use platform::{BootHart, init_platform, initialize_secondary_hart};
 pub(crate) use reset::{c907_reset_entry, k1_reset_entry};
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "payload")] {
-        pub mod payload;
-        use payload::decode_next_stage;
-    } else if #[cfg(feature = "jump")] {
-        pub mod jump;
-        use jump::decode_next_stage;
-    } else {
-        pub mod dynamic;
-        use dynamic::{decode_next_stage, read_dynamic_info};
-    }
-}
+#[cfg(not(any(feature = "payload", feature = "jump")))]
+mod dynamic;
+#[cfg(feature = "payload")]
+mod payload;
 
 use alloc::vec::Vec;
+use riscv_csr_spec::standard::isa::values::status::Privilege;
 use runtime::{
     DeviceTreeHandoff, Error, PlatformDescription, Result,
-    boot::{NextStage, locate_firmware_image},
+    boot::locate_firmware_image,
     memory::{PhysAddr, PhysAddrRange, RegRange},
     pmp::{self, PmpEntry, PmpPermission, PmpRange},
 };
@@ -118,32 +111,45 @@ pub(crate) fn init_pmp(
 
 /// Boot information decoded from the previous-stage register envelope (`a1`/`a2`).
 pub(crate) struct BootInfo {
-    /// The unmodified device-tree address received in `a1`.
-    device_tree_address: usize,
-    is_boot_hart: bool,
     platform_description: Option<PlatformDescription>,
-    /// The `DynamicInfo` address received in `a2`.
-    ///
-    /// Used to decode the next-stage handoff.
-    dynamic_info_address: usize,
+    #[cfg(not(any(feature = "payload", feature = "jump")))]
+    dynamic: Result<dynamic::DynamicInfo, dynamic::ReadError>,
 }
 
 impl BootInfo {
-    /// Decodes a boot candidate's handoff under the entry bootstrap lock.
+    /// Captures the loader's handoff for this hart.
     ///
-    /// Without a designated hart, the first enabled candidate leads boot.
-    pub(crate) fn decode(
+    /// # Safety
+    ///
+    /// In dynamic mode, `a2` must satisfy the loader's record validity contract
+    /// for the duration of this call.
+    pub(crate) unsafe fn from_entry(_a2: usize) -> Self {
+        Self {
+            platform_description: None,
+            #[cfg(not(any(feature = "payload", feature = "jump")))]
+            // SAFETY: Entry supplies the loader's stable, version-sized record.
+            dynamic: unsafe { dynamic::DynamicInfo::read(_a2) },
+        }
+    }
+
+    /// Claims the platform on the designated or first enabled hart under the entry lock.
+    pub(crate) fn select_boot_hart(
+        &mut self,
         current_hart: usize,
         device_tree: DeviceTreeHandoff,
-        dynamic_info_address: usize,
-    ) -> Result<Self> {
-        let designated_hart = designated_boot_hart(dynamic_info_address);
+    ) -> Result<bool> {
+        let designated_hart = cfg_select! {
+            any(feature = "payload", feature = "jump") => None::<usize>,
+            _ => self.dynamic.as_ref().ok().and_then(|info| info.boot_hart),
+        };
         // Only the designated boot hart's FDT belongs to platform discovery.
         if designated_hart.is_some_and(|hart| hart != current_hart) {
-            return Ok(Self::secondary(device_tree, dynamic_info_address));
+            return Ok(false);
         }
-        let entry_device_tree_address = device_tree.address().as_usize();
-        let source_device_tree_address = resolve_device_tree_address(entry_device_tree_address);
+        let source_device_tree_address = cfg_select! {
+            feature = "fdt" => linked_fdt_address(),
+            _ => device_tree.address().as_usize(),
+        };
         let destination = match cfg::FDT_HANDOFF {
             Some((address, capacity)) => PhysAddrRange::from_start_len(
                 PhysAddr::new(usize::try_from(address).map_err(|_| Error::Overflow)?),
@@ -174,22 +180,8 @@ impl BootInfo {
                 Ok(enabled)
             })?
         };
-        Ok(Self {
-            device_tree_address: entry_device_tree_address,
-            is_boot_hart,
-            platform_description: is_boot_hart.then_some(platform),
-            dynamic_info_address,
-        })
-    }
-
-    /// Constructs a secondary handoff without reading the boot hart's FDT.
-    pub(crate) fn secondary(device_tree: DeviceTreeHandoff, dynamic_info_address: usize) -> Self {
-        Self {
-            device_tree_address: device_tree.address().as_usize(),
-            is_boot_hart: false,
-            platform_description: None,
-            dynamic_info_address,
-        }
+        self.platform_description = is_boot_hart.then_some(platform);
+        Ok(is_boot_hart)
     }
 
     pub(crate) fn platform_description(&self) -> &PlatformDescription {
@@ -202,55 +194,24 @@ impl BootInfo {
     ///
     /// Jump and payload modes return `None`. Stack placement checks this range
     /// independently of the device tree's storage.
-    pub(crate) fn dynamic_info_range(&self) -> Result<Option<PhysAddrRange>> {
-        #[cfg(not(any(feature = "payload", feature = "jump")))]
-        {
-            PhysAddrRange::from_start_len(
-                PhysAddr::new(self.dynamic_info_address),
-                size_of::<dynamic::DynamicInfo>(),
-            )
-            .map(Some)
-        }
-        #[cfg(any(feature = "payload", feature = "jump"))]
-        {
-            Ok(None)
+    pub(crate) fn dynamic_info_range(&self) -> Option<PhysAddrRange> {
+        cfg_select! {
+            any(feature = "payload", feature = "jump") => None,
+            _ => self.dynamic.ok().map(|info| info.storage),
         }
     }
 
-    /// Returns whether this hart leads the boot.
-    pub(crate) fn is_boot_hart(&self) -> bool {
-        self.is_boot_hart
-    }
-
-    /// Returns the boot hart's validated Platform Description.
+    /// Transfers the validated platform to the boot hart's initialization path.
     pub(crate) fn take_platform_description(&mut self) -> Option<PlatformDescription> {
         self.platform_description.take()
     }
 
-    /// Returns the next-stage handoff with the entry device-tree address in
-    /// `opaque`. Platform initialization replaces it with the prepared destination.
-    /// Invalid `DynamicInfo` stops boot.
-    pub(crate) fn next_stage(&self) -> NextStage {
-        let (next_mode, start_address) = decode_next_stage(self.dynamic_info_address);
-        NextStage {
-            start_addr: start_address,
-            next_mode,
-            opaque: self.device_tree_address,
-        }
-    }
-}
-
-fn designated_boot_hart(dynamic_info_address: usize) -> Option<usize> {
-    cfg_if::cfg_if! {
-        if #[cfg(any(feature = "payload", feature = "jump"))] {
-            let _ = dynamic_info_address;
-            None
-        }
-        else {
-            read_dynamic_info(dynamic_info_address)
-                .ok()
-                .map(|dynamic_info| dynamic_info.boot_hart)
-                .filter(|hart_id| *hart_id != usize::MAX)
+    /// Returns the next-stage privilege and entry address.
+    pub(crate) fn next_stage(&self) -> (Privilege, usize) {
+        cfg_select! {
+            feature = "payload" => (Privilege::Supervisor, payload::payload_image.address().as_usize()),
+            feature = "jump" => (Privilege::Supervisor, cfg::JUMP_ADDRESS),
+            _ => self.dynamic.unwrap_or_else(|err| err.fail()).next_stage(),
         }
     }
 }
@@ -268,19 +229,6 @@ fn linked_fdt_address() -> usize {
     // is used instead of a constant-folded link-time address.
     unsafe { core::arch::asm!("", options(nomem, nostack, preserves_flags)) };
     address
-}
-
-/// Resolves the device tree address selected by the firmware build.
-#[allow(unused_mut, unused_assignments)]
-fn resolve_device_tree_address(entry_device_tree_address: usize) -> usize {
-    let mut device_tree_address = entry_device_tree_address;
-
-    #[cfg(feature = "fdt")]
-    {
-        device_tree_address = linked_fdt_address();
-    }
-
-    device_tree_address
 }
 
 /// Applies the published RAM, firmware and device permissions on this hart.

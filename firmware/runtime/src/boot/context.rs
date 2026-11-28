@@ -32,7 +32,8 @@ const MACHINE_INTERRUPT_DELEGATION_MASK: usize = (1 << 3) | (1 << 7) | (1 << 11)
 /// Configures lower-privilege state access for a fresh supervisor.
 ///
 /// Leaves the state-enable CSRs untouched when Runtime recovery or Smstateen is unavailable.
-/// Enables AIA access when `smaia` is set and the registered IPI service uses an IMSIC.
+/// Requests access to AIA and IMSIC state when `smaia` is set and the registered
+/// IPI service uses an IMSIC. The hart determines which state-enable bits are writable.
 ///
 /// # Safety
 ///
@@ -164,13 +165,36 @@ unsafe fn install(entry: unsafe extern "C" fn()) {
     unsafe { Mtvec::write(vector) }
 }
 
+/// ISA extensions advertised for this hart that affect supervisor environment setup.
+#[derive(Clone, Copy, Default)]
+pub struct SupervisorEnvConfig {
+    /// Cache-block management instructions.
+    pub zicbom: bool,
+    /// Cache-block zero instruction.
+    pub zicboz: bool,
+    /// Page-based memory types.
+    pub svpbmt: bool,
+    /// Page faults for software-managed accessed and dirty bits.
+    pub svade: bool,
+    /// Hardware updates of accessed and dirty bits.
+    pub svadu: bool,
+}
+
 /// Initializes the supervisor environment for a fresh hart.
 ///
-/// Applies the [SBI FWFT reset values](https://github.com/riscv-non-isa/riscv-sbi-doc/blob/v3.0/src/ext-firmware-features.adoc)
-/// to the features controlled by `menvcfg`, configures cache-block operations,
-/// and requests PBMT when `svpbmt` is set. A missing `menvcfg` is ignored.
-/// On RV32, failure to access `menvcfgh` returns an error. If its write fails,
-/// the low word may already have changed.
+/// Requests the [SBI FWFT reset values] for landing pads, shadow stacks,
+/// supervisor double traps and, on RV64, pointer masking.
+/// Enables the advertised cache-block operations and requests PBMT for `svpbmt`.
+/// Following the [CPU binding], requests software A/D updates for `svade`
+/// and hardware updates for `svadu` alone.
+/// With neither extension advertised, it preserves the incoming `ADUE` value.
+///
+/// An absent `menvcfg` is ignored.
+/// On RV32, an inaccessible `menvcfgh` returns an error if `menvcfg` is present.
+/// A fault writing the high word can leave the low word updated.
+///
+/// [SBI FWFT reset values]: https://docs.riscv.org/reference/sbi/v3.0/ext-firmware-features.html#table_fw_features_attribute_values
+/// [CPU binding]: https://github.com/torvalds/linux/blob/v6.18/Documentation/devicetree/bindings/riscv/extensions.yaml#L174-L193
 ///
 /// # Safety
 ///
@@ -178,7 +202,7 @@ unsafe fn install(entry: unsafe extern "C" fn()) {
 /// local interrupts disabled, `mscratch` zero, and `MPRV` clear. Own this hart's
 /// environment before lower-mode entry. A resume must preserve the suspended
 /// supervisor's FWFT settings.
-pub unsafe fn configure_supervisor_envcfg(zicbom: bool, zicboz: bool, svpbmt: bool) -> Result<()> {
+pub unsafe fn configure_supervisor_envcfg(extensions: SupervisorEnvConfig) -> Result<()> {
     // SAFETY: The caller owns this hart's startup context and establishes recovery.
     let current = match unsafe { Menvcfg::try_read() } {
         Ok(value) => value,
@@ -194,13 +218,18 @@ pub unsafe fn configure_supervisor_envcfg(zicbom: bool, zicboz: bool, svpbmt: bo
             return Ok(());
         }
     };
-    let enable_pbmt = svpbmt && !current.get(Menvcfg::PBMTE);
-    let sync_translations = enable_pbmt || current.get(Menvcfg::ADUE);
+    let enable_pbmt = extensions.svpbmt && !current.get(Menvcfg::PBMTE);
+    let previous_adue = current.get(Menvcfg::ADUE);
+    let adue = match (extensions.svade, extensions.svadu) {
+        (true, _) => false,
+        (false, true) => true,
+        (false, false) => previous_adue,
+    };
     let mut cfg = current.into_write();
     cfg.set(Menvcfg::LPE, false);
     cfg.set(Menvcfg::SSE, false);
     cfg.set(Menvcfg::DTE, false);
-    cfg.set(Menvcfg::ADUE, false);
+    cfg.set(Menvcfg::ADUE, adue);
     #[cfg(target_pointer_width = "64")]
     cfg.set(
         Menvcfg::PMM,
@@ -208,20 +237,20 @@ pub unsafe fn configure_supervisor_envcfg(zicbom: bool, zicboz: bool, svpbmt: bo
     );
     cfg.set(
         Menvcfg::CBIE,
-        if zicbom {
+        if extensions.zicbom {
             CacheBlockInvalidate::Invalidate
         } else {
             CacheBlockInvalidate::Disabled
         },
     );
-    cfg.set(Menvcfg::CBCFE, zicbom);
-    cfg.set(Menvcfg::CBZE, zicboz);
+    cfg.set(Menvcfg::CBCFE, extensions.zicbom);
+    cfg.set(Menvcfg::CBZE, extensions.zicboz);
     if enable_pbmt {
         cfg.set(Menvcfg::PBMTE, true);
     }
     // SAFETY: The caller owns environment configuration before lower-mode entry.
     unsafe { Menvcfg::try_write(cfg)? };
-    if sync_translations {
+    if enable_pbmt || adue != previous_adue {
         // SAFETY: The startup caller establishes recovery with local interrupts disabled.
         unsafe { crate::fence::synchronize_translations() };
     }
@@ -229,6 +258,11 @@ pub unsafe fn configure_supervisor_envcfg(zicbom: bool, zicboz: bool, svpbmt: bo
 }
 
 /// Initializes hart-local services, delegation, and counter access for the next stage.
+///
+/// # Panics
+///
+/// Panics if the registered IPI device fails to initialize or acknowledge its source,
+/// or if delegation readback leaves a machine software, timer or external interrupt delegated.
 ///
 /// # Safety
 ///

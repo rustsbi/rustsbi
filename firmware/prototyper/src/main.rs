@@ -20,15 +20,15 @@ use crate::firmware::BootInfo;
 use crate::sbi::features::{check_next_stage_privilege, counter_topology, detect_hart_features};
 use riscv_csr_spec::standard::isa::values::status::Privilege;
 use runtime::{
-    Error, Result, boot, entry,
+    PlatformDescription, Result, boot, entry,
     hart::{self, HartId},
     timer,
 };
 
 #[entry]
-fn main(boot: BootInfo) {
-    let result = if boot.is_boot_hart() {
-        boot_hart(boot)
+fn main(mut boot: BootInfo) {
+    let result = if let Some(platform) = boot.take_platform_description() {
+        boot_hart(boot, platform)
     } else {
         // SAFETY: Runtime entry supplies a boot handoff in M-mode with MPRV
         // clear and machine interrupts disabled, before lower-mode execution.
@@ -41,13 +41,12 @@ fn main(boot: BootInfo) {
     }
 }
 
-fn boot_hart(mut boot: BootInfo) -> Result<()> {
+fn boot_hart(boot: BootInfo, platform_description: PlatformDescription) -> Result<()> {
     // Publish the per-hart software records before platform discovery seeds
     // features and before secondary harts use any SBI service.
     sbi::features::init()?;
     sbi::pmu::init();
     sbi::rfence::init();
-    let platform_description = boot.take_platform_description().ok_or(Error::NotReady)?;
     // SAFETY:
     // 1. Runtime entry clears MPRV and masks interrupts in M-mode.
     //    Secondary harts wait for platform publication.
@@ -69,17 +68,19 @@ fn boot_hart(mut boot: BootInfo) -> Result<()> {
     unsafe { detect_hart_features(hart) };
     log_hart_capabilities(hart);
 
-    let mut next_stage = boot.next_stage();
-    check_next_stage_privilege(hart, next_stage.next_mode)?;
-
-    next_stage.opaque = next_stage_fdt_address;
+    let (next_mode, start_addr) = boot.next_stage();
+    check_next_stage_privilege(hart, next_mode)?;
     info!(
         "Redirecting hart {} to {:#016x} in {:?} mode.",
         hart.as_usize(),
-        next_stage.start_addr,
-        next_stage.next_mode
+        start_addr,
+        next_mode
     );
-    hart::stage_boot_handoff(next_stage)?;
+    hart::stage_boot_handoff(boot::NextStage {
+        start_addr,
+        next_mode,
+        opaque: next_stage_fdt_address,
+    })?;
 
     // SAFETY: Platform binding registered this hart's devices. Startup still owns
     // its supervisor state, and the BSP establishes the T-Head MAEE semantics.
@@ -111,7 +112,7 @@ unsafe fn secondary_hart(boot: Option<&BootInfo>) -> Result<()> {
     unsafe { firmware::set_pmp() };
 
     // Hardware-reset harts have no SPL handoff; HSM starts them in S-mode.
-    let next_mode = boot.map_or(Privilege::Supervisor, |boot| boot.next_stage().next_mode);
+    let next_mode = boot.map_or(Privilege::Supervisor, |boot| boot.next_stage().0);
     check_next_stage_privilege(hart, next_mode)?;
 
     // SAFETY: Device registration is complete and this hart still owns its

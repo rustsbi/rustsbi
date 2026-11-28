@@ -206,17 +206,9 @@ It serves two purposes:
 
 ```rust
 // Good — module-qualified function call
-use crate::fail;
+use crate::sbi::reset;
 
-use riscv::register::mstatus;
-
-/// Derives the next-stage address and privilege mode from the `a2`
-/// `DynamicInfo`; prints and stops on invalid input.
-pub(crate) fn decode_next_stage(dynamic_info_address: usize) -> (mstatus::MPP, usize) {
-    let dynamic_info =
-        read_dynamic_info(dynamic_info_address).unwrap_or_else(fail::no_dynamic_info_available);
-    validate_next_stage(&dynamic_info).unwrap_or_else(fail::invalid_dynamic_data)
-}
+reset::fail();
 
 // Good — module-qualified static access
 use ostd::mm::kspace;

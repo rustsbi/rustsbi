@@ -78,11 +78,13 @@ pub enum Extension {
     Zkr = 4,
     Zicbom = 5,
     Zicboz = 6,
+    Svade = 7,
+    Svadu = 8,
     // Remember to increment `Extension::COUNT` while implementing new extensions.
 }
 
 impl Extension {
-    pub const COUNT: usize = 7;
+    pub const COUNT: usize = 9;
 
     pub const fn as_str(&self) -> &'static str {
         match self {
@@ -93,6 +95,8 @@ impl Extension {
             Self::Zkr => "zkr",
             Self::Zicbom => "zicbom",
             Self::Zicboz => "zicboz",
+            Self::Svade => "svade",
+            Self::Svadu => "svadu",
         }
     }
 
@@ -110,6 +114,8 @@ impl Extension {
             Self::Zkr,
             Self::Zicbom,
             Self::Zicboz,
+            Self::Svade,
+            Self::Svadu,
         ]
         .into_iter()
     }
@@ -191,9 +197,9 @@ pub fn check_next_stage_privilege(hart: HartId, next_mode: Privilege) -> Result<
 /// 3. Keep lower-mode address spaces inactive. On a T-Head hart where MAEE will
 ///    be cleared, confirm that the implementation supports that use of `mxstatus`.
 pub(crate) unsafe fn configure_hart_environment(hart: HartId) -> Result<()> {
-    let svpbmt = has_extension(hart, Extension::Svpbmt);
+    let envcfg = supervisor_envcfg(hart);
     // Standard Sv32 and Svpbmt page tables must not use T-Head MAEE.
-    if cfg!(target_pointer_width = "32") || svpbmt {
+    if cfg!(target_pointer_width = "32") || envcfg.svpbmt {
         // SAFETY: The caller owns the address-space transition and establishes
         // the board-specific meaning of MXSTATUS before this recoverable access.
         unsafe { boot::disable_thead_maee() };
@@ -204,11 +210,9 @@ pub(crate) unsafe fn configure_hart_environment(hart: HartId) -> Result<()> {
         unsafe { boot::inhibit_programmable_counters() };
     }
     timer::init_hart()?;
-    let cache_management = has_extension(hart, Extension::Zicbom);
-    let cache_zero = has_extension(hart, Extension::Zicboz);
     // SAFETY: Startup owns the lower-mode environment and recovery is active
     // if the hart lacks an environment-configuration CSR.
-    unsafe { boot::configure_supervisor_envcfg(cache_management, cache_zero, svpbmt) }?;
+    unsafe { boot::configure_supervisor_envcfg(envcfg) }?;
     if has_extension(hart, Extension::Zkr) {
         boot::enable_supervisor_seed();
     }
@@ -216,4 +220,16 @@ pub(crate) unsafe fn configure_hart_environment(hart: HartId) -> Result<()> {
     // this hart's state-enable registers.
     unsafe { boot::configure_state_access(has_extension(hart, Extension::Smaia)) };
     Ok(())
+}
+
+pub(super) fn supervisor_envcfg(hart: HartId) -> boot::SupervisorEnvConfig {
+    let record = features(hart).lock();
+    let has = |ext: Extension| record.extensions[ext.index()];
+    boot::SupervisorEnvConfig {
+        zicbom: has(Extension::Zicbom),
+        zicboz: has(Extension::Zicboz),
+        svpbmt: has(Extension::Svpbmt),
+        svade: has(Extension::Svade),
+        svadu: has(Extension::Svadu),
+    }
 }

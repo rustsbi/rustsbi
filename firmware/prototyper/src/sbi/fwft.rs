@@ -32,6 +32,12 @@ impl SbiFwft {
 
     fn lock_slot(&self, feature_id: u32) -> Result<&AtomicU8, SbiRet> {
         let hart = HartId::current().map_err(|_| SbiRet::failed())?;
+        if feature_id as usize == feature_type::PTE_AD_HW_UPDATING {
+            let extensions = super::features::supervisor_envcfg(hart);
+            if !(extensions.svade && extensions.svadu) {
+                return Err(SbiRet::not_supported());
+            }
+        }
         self.locked
             .get(hart)
             .get(feature_id as usize)
