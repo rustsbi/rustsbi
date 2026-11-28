@@ -15,11 +15,12 @@
 use runtime::{
     Error, Result,
     hart::{HartId, HartWake, install_wakeup},
+    instruction::{ALL, fence},
     memory::{MemoryRegistry, MmioRegion},
     soc::allwinner::v861::{AllwinnerV861Soc, C907_HART_COUNT, C907CacheState},
 };
 
-use crate::{firmware::c907_reset_entry, sbi::features::hart_privilege_checked, secondary_hart};
+use crate::{firmware::c907_reset_entry, sbi::features::hart_privilege_checked};
 
 const CLOCK_CONTROL_ENABLE: u32 = 0x0001_0001;
 const RESET_VECTOR_MODE_MASK: u32 = 0x3 << 8;
@@ -30,7 +31,7 @@ const POWER_CLAMP_RELEASE: u32 = 3 << 3;
 const POWER_SWITCH_ON: u32 = 0x11;
 
 /// V861 reset-vector and power controls for releasing C907 harts.
-struct V861HartRelease {
+pub(super) struct V861HartRelease {
     reset_vectors: [HartResetVector; C907_HART_COUNT],
     power_controls: [HartPowerControl; C907_HART_COUNT],
 }
@@ -93,28 +94,30 @@ impl HartPowerControl {
 
 static CACHE_STATE: spin::Once<C907CacheState> = spin::Once::new();
 
-pub(super) fn init(soc: AllwinnerV861Soc, memory: &mut MemoryRegistry) -> Result<()> {
-    let clock = memory.acquire(soc.c907_clock_control()?)?;
-    let value = u32::from_le(clock.read::<u32>(0)?);
-    clock.write(0, (value | CLOCK_CONTROL_ENABLE).to_le())?;
-    runtime::instruction::fence();
+impl V861HartRelease {
+    pub(super) fn enable_clock(soc: AllwinnerV861Soc, memory: &mut MemoryRegistry) -> Result<Self> {
+        let clock = memory.acquire(soc.c907_clock_control()?)?;
+        let release = V861HartRelease {
+            reset_vectors: [
+                HartResetVector::acquire(soc, 0, memory)?,
+                HartResetVector::acquire(soc, 1, memory)?,
+            ],
+            power_controls: [
+                HartPowerControl::acquire(soc, 0, memory)?,
+                HartPowerControl::acquire(soc, 1, memory)?,
+            ],
+        };
+        let value = u32::from_le(clock.read::<u32>(0)?);
+        clock.write(0, (value | CLOCK_CONTROL_ENABLE).to_le())?;
+        fence(ALL, ALL);
 
-    let release = V861HartRelease {
-        reset_vectors: [
-            HartResetVector::acquire(soc, 0, memory)?,
-            HartResetVector::acquire(soc, 1, memory)?,
-        ],
-        power_controls: [
-            HartPowerControl::acquire(soc, 0, memory)?,
-            HartPowerControl::acquire(soc, 1, memory)?,
-        ],
-    };
-    // boot0 leaves these C907 controls disabled.
-    // Runtime enables only the firmware-owned bits and captures the loader
-    // policy for reset harts.
-    CACHE_STATE.call_once(|| soc.initialize_c907_cache());
-    install_wakeup(release);
-    Ok(())
+        Ok(release)
+    }
+
+    pub(super) fn publish(self, cache: C907CacheState) {
+        CACHE_STATE.call_once(|| cache);
+        install_wakeup(self);
+    }
 }
 
 impl HartWake for V861HartRelease {
@@ -129,20 +132,13 @@ impl HartWake for V861HartRelease {
         let entry = c907_reset_entry as *const () as usize as u64;
         self.reset_vectors[hart_index].program(entry)?;
         // Order the reset vector and the caller's start reservation before power-on.
-        runtime::instruction::fence();
+        fence(ALL, ALL);
         self.power_controls[hart_index].power_on()?;
-        runtime::instruction::fence();
+        fence(ALL, ALL);
         Ok(true)
     }
 }
 
-pub(crate) extern "C" fn initialize_secondary() {
-    let result = CACHE_STATE.get().ok_or(Error::NotReady).and_then(|cache| {
-        cache.restore();
-        secondary_hart(None)
-    });
-    if let Err(error) = result {
-        error!("Failed to initialize the hart: {error}");
-        crate::fail::stop();
-    }
+pub(crate) fn cache_state() -> Result<&'static C907CacheState> {
+    CACHE_STATE.get().ok_or(Error::NotReady)
 }

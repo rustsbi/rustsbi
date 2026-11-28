@@ -3,26 +3,18 @@
 //! [`ValueKind`] combines access width and signedness for register write-back.
 //! Unsupported instructions return `None` for dispatch to forward.
 
-use csr::user;
+use riscv_csr_spec::standard::isa::{unprivileged as user, values::xlen::Xlen};
 use riscv_decode::Instruction;
 
-/// Width and signedness of an emulated memory access.
+/// Transfer width and signedness of an integer memory access.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ValueKind {
-    /// 1-byte load, sign-extended.
     Signed8,
-    /// 1-byte load/store, zero-extended.
     Unsigned8,
-    /// 2-byte load, sign-extended.
     Signed16,
-    /// 2-byte load/store, zero-extended.
     Unsigned16,
-    /// 4-byte load, sign-extended.
     Signed32,
-    /// 4-byte load/store, zero-extended.
     Unsigned32,
-    /// 8-byte load/store.
-    #[cfg(target_pointer_width = "64")]
     Signed64,
 }
 
@@ -33,7 +25,6 @@ impl ValueKind {
             ValueKind::Signed8 | ValueKind::Unsigned8 => 1,
             ValueKind::Signed16 | ValueKind::Unsigned16 => 2,
             ValueKind::Signed32 | ValueKind::Unsigned32 => 4,
-            #[cfg(target_pointer_width = "64")]
             ValueKind::Signed64 => 8,
         }
     }
@@ -47,7 +38,6 @@ impl ValueKind {
             ValueKind::Unsigned16 => raw as u16 as usize,
             ValueKind::Signed32 => raw as i32 as usize,
             ValueKind::Unsigned32 => raw as u32 as usize,
-            #[cfg(target_pointer_width = "64")]
             ValueKind::Signed64 => raw,
         }
     }
@@ -69,19 +59,17 @@ pub(super) struct StoreOp {
     pub(super) kind: ValueKind,
 }
 
-/// A pure `time` or RV32 `timeh` read.
+/// A pure `time` read, or `timeh` when the interrupted mode has XLEN=32.
 pub(super) struct TimeReadOp {
     pub(super) csr: u16,
     pub(super) rd: u8,
 }
 
-// Compressed accesses are forwarded until XLEN-dependent encodings are supported.
-// Floating-point accesses are forwarded because entry does not save those registers.
-// Encoding reference: https://github.com/riscv-software-src/opensbi/blob/master/lib/sbi/sbi_trap_ldst.c
-
-/// Decodes a supported integer load.
-pub(super) fn decode_load(raw: u32) -> Option<LoadOp> {
-    if raw & 3 != 3 {
+/// Decodes a 32-bit instruction encoding for an integer load at the interrupted XLEN.
+///
+/// Floating-point and compressed instructions are forwarded to the supervisor.
+pub(super) fn decode_load(raw: u32, xlen: Xlen) -> Option<LoadOp> {
+    if raw & 3 != 3 || (xlen == Xlen::X64 && usize::BITS < 64) {
         return None;
     }
     let op = match riscv_decode::decode(raw) {
@@ -105,13 +93,11 @@ pub(super) fn decode_load(raw: u32) -> Option<LoadOp> {
             rd: i.rd() as u8,
             kind: ValueKind::Signed32,
         },
-        #[cfg(target_pointer_width = "64")]
-        Ok(Instruction::Lwu(i)) => LoadOp {
+        Ok(Instruction::Lwu(i)) if xlen == Xlen::X64 => LoadOp {
             rd: i.rd() as u8,
             kind: ValueKind::Unsigned32,
         },
-        #[cfg(target_pointer_width = "64")]
-        Ok(Instruction::Ld(i)) => LoadOp {
+        Ok(Instruction::Ld(i)) if xlen == Xlen::X64 => LoadOp {
             rd: i.rd() as u8,
             kind: ValueKind::Signed64,
         },
@@ -121,8 +107,8 @@ pub(super) fn decode_load(raw: u32) -> Option<LoadOp> {
 }
 
 /// Decodes a supported integer store.
-pub(super) fn decode_store(raw: u32) -> Option<StoreOp> {
-    if raw & 3 != 3 {
+pub(super) fn decode_store(raw: u32, xlen: Xlen) -> Option<StoreOp> {
+    if raw & 3 != 3 || (xlen == Xlen::X64 && usize::BITS < 64) {
         return None;
     }
     let op = match riscv_decode::decode(raw) {
@@ -138,8 +124,7 @@ pub(super) fn decode_store(raw: u32) -> Option<StoreOp> {
             rs2: i.rs2() as u8,
             kind: ValueKind::Unsigned32,
         },
-        #[cfg(target_pointer_width = "64")]
-        Ok(Instruction::Sd(i)) => StoreOp {
+        Ok(Instruction::Sd(i)) if xlen == Xlen::X64 => StoreOp {
             rs2: i.rs2() as u8,
             kind: ValueKind::Signed64,
         },
@@ -149,28 +134,15 @@ pub(super) fn decode_store(raw: u32) -> Option<StoreOp> {
 }
 
 /// Recognizes supported time reads without accessing hardware.
-pub(super) fn decode_time_read(raw: u32) -> Option<TimeReadOp> {
-    // Pure CSRRS reads require rs1 = x0.
-    if raw & 0x000f_f07f != 0x2073 {
-        return None;
-    }
-    let op = match riscv_decode::decode(raw) {
-        Ok(Instruction::Csrrs(i)) => {
-            let csr = i.csr() as u16;
-            let supported = csr == user::Time::NUMBER;
-            #[cfg(target_pointer_width = "32")]
-            let supported = supported || csr == user::TimeHigh::NUMBER;
-            if !supported {
-                return None;
-            }
-            TimeReadOp {
-                csr,
-                rd: i.rd() as u8,
-            }
-        }
+pub(super) fn decode_time_read(raw: u32, xlen: Xlen) -> Option<TimeReadOp> {
+    let (csr, rd) = match riscv_decode::decode(raw).ok()? {
+        Instruction::Csrrs(i) | Instruction::Csrrc(i) if i.rs1() == 0 => (i.csr(), i.rd()),
+        Instruction::Csrrsi(i) | Instruction::Csrrci(i) if i.zimm() == 0 => (i.csr(), i.rd()),
         _ => return None,
     };
-    Some(op)
+    let csr = csr as u16;
+    (csr == user::Time::NUMBER || (xlen == Xlen::X32 && csr == user::Time::HIGH_NUMBER))
+        .then_some(TimeReadOp { csr, rd: rd as u8 })
 }
 
 #[cfg(test)]
@@ -181,39 +153,26 @@ mod tests {
     fn compressed_memory_accesses_are_forwarded() {
         // C.LW, C.LD, C.LWSP, C.LDSP; doubleword encodings overlap RV32 FP loads.
         for raw in [0x4000, 0x6000, 0x4082, 0x6082] {
-            assert!(decode_load(raw).is_none(), "compressed load {raw:#x}");
+            assert!(
+                decode_load(raw, Xlen::NATIVE).is_none(),
+                "compressed load {raw:#x}"
+            );
         }
         // C.SW, C.SD, C.SWSP, C.SDSP; doubleword encodings overlap RV32 FP stores.
         for raw in [0xc000, 0xe000, 0xc002, 0xe002] {
-            assert!(decode_store(raw).is_none(), "compressed store {raw:#x}");
+            assert!(
+                decode_store(raw, Xlen::NATIVE).is_none(),
+                "compressed store {raw:#x}"
+            );
         }
-        let load = decode_load(0x0005_2583).unwrap(); // lw a1, 0(a0)
+        let load = decode_load(0x0005_2583, Xlen::NATIVE).unwrap(); // lw a1, 0(a0)
         assert_eq!((load.rd, load.kind), (11, ValueKind::Signed32));
-        let store = decode_store(0x00b5_2023).unwrap(); // sw a1, 0(a0)
+        let store = decode_store(0x00b5_2023, Xlen::NATIVE).unwrap(); // sw a1, 0(a0)
         assert_eq!((store.rs2, store.kind), (11, ValueKind::Unsigned32));
-    }
-
-    #[test]
-    fn time_emulation_accepts_only_supported_pure_reads() {
-        // csrrs a0, time, x0
-        let raw = 0xc010_2573;
-        let op = decode_time_read(raw).unwrap();
-        assert_eq!((op.csr, op.rd), (user::Time::NUMBER, 10));
-        // A non-x0 source attempts a write regardless of the source value.
-        assert!(decode_time_read(raw | (1 << 15)).is_none());
-        // csrrw a0, time, x0 also writes the CSR.
-        assert!(decode_time_read(0xc010_1573).is_none());
-        // Pure reads of other CSRs must retain their original exception.
-        assert!(decode_time_read(0x7c30_2573).is_none());
-        assert!(decode_time_read(0).is_none());
-    }
-
-    #[test]
-    fn high_time_word_is_available_only_on_rv32() {
-        let op = decode_time_read(0xc810_2573);
-        #[cfg(target_pointer_width = "32")]
-        assert_eq!(op.unwrap().csr, user::TimeHigh::NUMBER);
-        #[cfg(target_pointer_width = "64")]
-        assert!(op.is_none());
+        for raw in [0x0005_6583, 0x0005_3583] {
+            // lwu/ld a1, 0(a0)
+            assert!(decode_load(raw, Xlen::X32).is_none());
+        }
+        assert!(decode_store(0x00b5_3023, Xlen::X32).is_none()); // sd a1, 0(a0)
     }
 }

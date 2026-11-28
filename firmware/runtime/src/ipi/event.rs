@@ -4,14 +4,14 @@ use super::{Device, Ipi};
 use crate::{
     Error, Result, events,
     hart::{self, HartId, PerHart},
-    instruction,
+    instruction::{ALL, fence},
     irq::LocalIrqDisabled,
 };
 use core::sync::atomic::{
     AtomicUsize,
     Ordering::{Acquire, Release},
 };
-use csr::machine;
+use csr::{Set, Write, standard::isa::privileged::machine::Mip};
 use spin::Once;
 
 /// An event that can be sent through the firmware IPI service.
@@ -42,7 +42,7 @@ fn handle_supervisor(_hart: HartId) {
     // SAFETY:
     // 1. Runtime invokes the handler on the target hart in M-mode.
     // 2. Runtime owns this hart's SSIP and excludes local interrupt reentry.
-    unsafe { machine::InterruptPending::set_bit::<machine::SSIP>() };
+    unsafe { Mip::write(Set(Mip::SSIP)) };
 }
 
 impl Ipi {
@@ -84,7 +84,7 @@ impl Ipi {
     }
 
     pub(crate) fn process_pending(&self, _irq: &LocalIrqDisabled) {
-        instruction::fence();
+        fence(ALL, ALL);
         let hart = hart::current_hart();
         let pending = self.pending.get(hart).swap(0, Acquire);
         if pending & IpiEvent::Supervisor.mask() != 0

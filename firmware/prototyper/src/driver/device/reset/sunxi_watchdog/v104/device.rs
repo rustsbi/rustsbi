@@ -6,6 +6,7 @@ use core::{
 };
 use runtime::{
     Error, Result,
+    instruction::{ALL, fence},
     memory::{MemoryRegistry, MmioRegion},
     timer,
 };
@@ -64,12 +65,12 @@ impl V104Watchdog {
     fn write(&mut self, register: Register, value: u32) -> Result<()> {
         self.registers.write(register as usize, value.to_le())?;
         // Order each device write before the next register access or delay.
-        runtime::instruction::fence();
+        fence(ALL, ALL);
         Ok(())
     }
 
     fn start_reset(&mut self) -> Result<()> {
-        runtime::instruction::fence();
+        fence(ALL, ALL);
         // Stop an active watchdog before programming its reset mode.
         self.write(Register::Mode, UPDATE_KEY)?;
         // Clear the reset selection before the required delay,

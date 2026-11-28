@@ -8,10 +8,7 @@
 #![forbid(unsafe_code)]
 
 use runtime::rustsbi::{Cppc, SbiRet};
-
-// SBI v3.0 defines the ACPI CPPC register range and one transition latency register.
-const ACPI_CPPC_MAX_REG_ID: u32 = 0x0000_0014;
-const SBI_CPPC_TRANSITION_LATENCY_REG_ID: u32 = 0x8000_0000;
+use sbi_spec::cppc::register;
 
 /// CPPC extension for platforms without a register backend.
 pub(crate) struct SbiCppc;
@@ -23,7 +20,7 @@ impl SbiCppc {
 }
 
 fn is_reserved_reg(reg_id: u32) -> bool {
-    reg_id > ACPI_CPPC_MAX_REG_ID && reg_id != SBI_CPPC_TRANSITION_LATENCY_REG_ID
+    reg_id > register::NOMINAL_FREQUENCY && reg_id != register::TRANSITION_LATENCY
 }
 
 impl Cppc for SbiCppc {

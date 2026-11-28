@@ -9,28 +9,27 @@ pub(crate) mod usb_dma_bypass;
 use runtime::{
     PlatformView, Result,
     memory::{MemoryRegistry, SupervisorMemory},
-    soc::allwinner::v821::AllwinnerV821Soc,
+    soc::allwinner::v821::{AllwinnerV821Soc, V821Csr},
 };
 
 use crate::{
-    driver::platform::{Board, interrupts::TimerDesc},
+    driver::platform::{Board, TimerDesc},
+    firmware::BootHart,
     sbi::{pmu::SbiPmu, vendor::Vendor},
 };
 
-impl Board for AllwinnerV821Soc {
+pub(crate) struct V821Board {
+    pub(crate) soc: AllwinnerV821Soc,
+    pub(crate) csr: BootHart<V821Csr>,
+}
+
+impl Board for V821Board {
     fn early_init(
         &self,
         memory: &mut MemoryRegistry,
         timer: Option<&TimerDesc>,
     ) -> Result<Option<u64>> {
-        let alias = control::early_init(*self, memory)?;
-        if matches!(timer, Some(TimerDesc::Plmt(_))) {
-            const PLMT_CLOCK_ENABLE: u32 = 1 << 31;
-            let clock = memory.acquire(self.plmt_clock()?)?;
-            let value = u32::from_le(clock.read::<u32>(0)?);
-            clock.write(0, (value | PLMT_CLOCK_ENABLE).to_le())?;
-            runtime::instruction::fence();
-        }
+        let alias = self.initialize_boot_devices(memory, timer)?;
         Ok(Some(alias.offset()))
     }
 
@@ -41,6 +40,6 @@ impl Board for AllwinnerV821Soc {
         supervisor_memory: &'static SupervisorMemory,
         _pmu: &mut Option<SbiPmu>,
     ) -> Result<Option<Vendor>> {
-        Vendor::init(*self, platform, memory, supervisor_memory).map(Some)
+        Vendor::init(self.csr.hardware(), platform, memory, supervisor_memory).map(Some)
     }
 }

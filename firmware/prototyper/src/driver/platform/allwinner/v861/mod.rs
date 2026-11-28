@@ -2,20 +2,20 @@
 
 mod device;
 
-pub(crate) use device::initialize_secondary;
-
+use crate::{
+    driver::platform::Board,
+    firmware::BootHart,
+    sbi::{pmu::SbiPmu, vendor::Vendor},
+};
 use runtime::{
     PlatformView, Result,
     memory::{MemoryRegistry, SupervisorMemory},
     soc::allwinner::v861::AllwinnerV861Soc,
 };
 
-use crate::{
-    driver::platform::Board,
-    sbi::{pmu::SbiPmu, vendor::Vendor},
-};
+pub(crate) use device::cache_state;
 
-impl Board for AllwinnerV861Soc {
+impl Board for BootHart<AllwinnerV861Soc> {
     fn init(
         &self,
         _platform: &PlatformView<'_>,
@@ -23,7 +23,8 @@ impl Board for AllwinnerV861Soc {
         _supervisor_memory: &'static SupervisorMemory,
         pmu: &mut Option<SbiPmu>,
     ) -> Result<Option<Vendor>> {
-        device::init(*self, memory)?;
+        let release = device::V861HartRelease::enable_clock(self.hardware(), memory)?;
+        release.publish(self.initialize_c907_cache());
         pmu.get_or_insert_default();
         Ok(None)
     }

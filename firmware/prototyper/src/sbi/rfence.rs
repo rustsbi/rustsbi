@@ -203,17 +203,11 @@ fn validate_target_harts(
 }
 
 fn asid_valid_for_hart(asid: usize, hart: HartId) -> bool {
-    features::supervisor_xlen(hart).map_or_else(
-        || fence::is_valid_asid(asid),
-        |xlen| fence::is_valid_asid_for(asid, xlen),
-    )
+    features::supervisor_xlen(hart).is_some_and(|xlen| fence::is_valid_asid_for(asid, xlen))
 }
 
 fn vmid_valid_for_hart(vmid: usize, hart: HartId) -> bool {
-    features::supervisor_xlen(hart).map_or_else(
-        || fence::is_valid_vmid(vmid),
-        |xlen| fence::is_valid_vmid_for(vmid, xlen),
-    )
+    features::supervisor_xlen(hart).is_some_and(|xlen| fence::is_valid_vmid_for(vmid, xlen))
 }
 
 fn hart_supports_hypervisor(hart: HartId) -> bool {

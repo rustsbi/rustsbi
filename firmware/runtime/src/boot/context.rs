@@ -1,18 +1,110 @@
 //! Trap installation and next-stage architectural context.
+
 #[cfg(target_pointer_width = "32")]
-use crate::csr::csrr;
-use crate::{ipi, irq::LocalIrqDisabled, trap::entry};
+use csr::standard::isa::privileged::machine::{Medelegh, Mstatush};
 use csr::{
-    machine, supervisor,
-    values::{
-        counter::CounterSet,
-        trap::{Exception, ExceptionSet, InterruptSet},
-        vector::{TargetVectorMode, VectorBase, VectorMode},
+    Read, Set, Write, WriteMode,
+    standard::isa::{
+        privileged::{
+            hypervisor::{Hstateen0, Hstateen1, Hstateen2, Hstateen3},
+            machine::{
+                self, Mcounteren, Menvcfg, Mepc, Mideleg, Misa, Mseccfg, Mstateen0, Mstateen1,
+                Mstateen2, Mstateen3, Mstatus, Mtvec,
+            },
+            supervisor::{Satp, Scounteren, Sie, Sstateen0, Sstateen1, Sstateen2, Sstateen3},
+        },
+        values::{
+            address::{Address, AddressSpace},
+            cache_block::CacheBlockInvalidate,
+            counter::CounterSet,
+            status::Privilege,
+            trap::{Exception, ExceptionSet, InterruptSet},
+            vector::{VectorBase, VectorMode},
+        },
     },
 };
 
+use crate::{Result, ipi, irq::LocalIrqDisabled, trap::entry};
+
 /// Machine software, timer, and external interrupt delegation bits in `mideleg`.
 const MACHINE_INTERRUPT_DELEGATION_MASK: usize = (1 << 3) | (1 << 7) | (1 << 11);
+
+/// Configures lower-privilege state access for a fresh supervisor.
+///
+/// Leaves the state-enable CSRs untouched when Runtime recovery or Smstateen is unavailable.
+/// Enables AIA access when `smaia` is set and the registered IPI service uses an IMSIC.
+///
+/// # Safety
+///
+/// Run during M-mode startup with exclusive ownership of lower-mode state.
+/// The caller must be authorized to grant the supervisor access to the selected state.
+pub unsafe fn configure_state_access(smaia: bool) {
+    if !crate::recovery::is_ready() {
+        return;
+    }
+    let enable_aia = smaia && ipi::uses_imsic();
+    crate::irq::with_local_disabled(|_| {
+        // SAFETY: The readiness check established the trap vector and clear MPRV
+        // and mscratch. Interrupts stay masked throughout the probes below.
+        if unsafe { Mstateen0::try_read() }.is_err() {
+            return;
+        }
+
+        let mut m0 = Mstateen0::zero();
+        m0.set(Mstateen0::CONTEXT, true);
+        m0.set(Mstateen0::ENVCFG, true);
+        m0.set(Mstateen0::SE0, true);
+        if enable_aia {
+            m0.set(Mstateen0::IMSIC, true);
+            m0.set(Mstateen0::AIA, true);
+            m0.set(Mstateen0::CSRIND, true);
+        }
+
+        let mut m1 = Mstateen1::zero();
+        m1.set(Mstateen1::SE0, true);
+        let mut m2 = Mstateen2::zero();
+        m2.set(Mstateen2::SE0, true);
+        let mut m3 = Mstateen3::zero();
+        m3.set(Mstateen3::SE0, true);
+
+        // SAFETY: The probe established Smstateen. Startup owns lower-mode
+        // access, with local interrupts excluded before any lower-mode entry.
+        unsafe {
+            Mstateen0::write(m0);
+            Mstateen1::write(m1);
+            Mstateen2::write(m2);
+            Mstateen3::write(m3);
+        }
+
+        // SAFETY: Runtime recovery and local interrupt exclusion remain active;
+        // each probe establishes the lower-level CSR family before clearing it.
+        unsafe {
+            if Sstateen0::try_read().is_ok() {
+                Sstateen0::write(0);
+                Sstateen1::write(0);
+                Sstateen2::write(0);
+                Sstateen3::write(0);
+            }
+            if Hstateen0::try_read().is_ok() {
+                Hstateen0::write(Hstateen0::zero());
+                Hstateen1::write(Hstateen1::zero());
+                Hstateen2::write(Hstateen2::zero());
+                Hstateen3::write(Hstateen3::zero());
+            }
+        }
+    });
+}
+
+/// Requests supervisor access to `seed` through `mseccfg.SSEED`.
+///
+/// Missing recovery, an unavailable CSR, or a read-only zero leaves access unchanged.
+pub fn enable_supervisor_seed() {
+    if !crate::recovery::is_ready() {
+        return;
+    }
+    // SAFETY: Recovery is ready. CSRRS selects only SSEED, preserving the PMP policy bits.
+    let _ = unsafe { Mseccfg::try_write(Set(Mseccfg::SSEED)) };
+}
 
 /// Installs machine exception handling before platform feature probes.
 ///
@@ -25,28 +117,27 @@ pub unsafe extern "C" fn prepare_traps() {
     // SAFETY: Startup owns this hart's trap state before entering policy.
     unsafe {
         install(entry::trap_entry);
-        machine::Status::modify(|_, status| {
-            status.set::<machine::MPRV>(machine::AccessPrivilege::Current);
-            #[cfg(target_pointer_width = "64")]
-            status.set::<machine::MDT>(machine::DoubleTrapState::Clear);
-        });
+        let mut status = Mstatus::read().into_write();
+        status.set(Mstatus::MPRV, false);
+        #[cfg(target_pointer_width = "64")]
+        status.set(Mstatus::MDT, false);
+        Mstatus::write(status);
     }
     // Install the basic vector before probing so an absent `mstatush` can recover.
     #[cfg(target_pointer_width = "32")]
-    let high = csrr!(machine::StatusHigh).ok();
-    #[cfg(target_pointer_width = "32")]
-    if high.is_some() {
+    // SAFETY: The basic Runtime trap entry is installed with mscratch/MPRV clear.
+    if let Ok(high) = unsafe { Mstatush::try_read() } {
         // SAFETY:
         // 1. The probe confirmed that `mstatush` is available.
         // 2. Startup owns this hart's trap setup.
         unsafe {
-            machine::StatusHigh::modify(|_, status| {
-                status.set::<machine::MDTH>(machine::DoubleTrapState::Clear);
-            });
+            let mut high = high.into_write();
+            high.set(Mstatush::MDT, false);
+            Mstatush::write(high);
             install(entry::trap_entry_high);
         }
     }
-    if machine::Isa::read().has_extension('H') {
+    if Misa::read().has_extension('H') {
         // SAFETY:
         // 1. The hypervisor extension is present.
         // 2. Startup owns this hart's trap setup.
@@ -54,19 +145,6 @@ pub unsafe extern "C" fn prepare_traps() {
             install(entry::trap_entry_hypervisor);
         }
     }
-}
-
-/// Checks the Direct trap entry installed by controlled Runtime boot on this hart.
-pub(crate) fn traps_ready() -> bool {
-    let vector = machine::TrapVector::read();
-    let base = usize::from(vector.get::<machine::BASE>().address());
-    let entry_matches = base == entry::trap_entry as *const () as usize
-        || base == entry::trap_entry_hypervisor as *const () as usize;
-    #[cfg(target_pointer_width = "32")]
-    let entry_matches = entry_matches || base == entry::trap_entry_high as *const () as usize;
-    vector.get::<machine::MODE>() == VectorMode::Direct
-        && entry_matches
-        && machine::Status::read().get::<machine::MPRV>() == machine::AccessPrivilege::Current
 }
 
 /// Installs a machine trap vector for the current hart.
@@ -77,20 +155,88 @@ pub(crate) fn traps_ready() -> bool {
 /// `entry` must implement Runtime's stack and register-preservation protocol.
 /// Every optional CSR used by that entry must exist on this hart.
 unsafe fn install(entry: unsafe extern "C" fn()) {
-    let base = VectorBase::new((entry as *const () as usize).into()).expect("aligned trap vector");
-    let mut vector = machine::TrapVector::<csr::Write>::default();
-    vector.set::<machine::BASE>(base);
-    vector.set::<machine::MODE>(TargetVectorMode::Direct);
+    let base = VectorBase::new(Address::from_bits(entry as *const () as usize))
+        .expect("aligned trap vector");
+    let mut vector = Mtvec::zero();
+    vector.set(Mtvec::BASE, base);
+    vector.set(Mtvec::MODE, VectorMode::Direct);
     // SAFETY: The caller supplies a Runtime trap entry.
-    unsafe { machine::TrapVector::write(vector) }
+    unsafe { Mtvec::write(vector) }
+}
+
+/// Initializes the supervisor environment for a fresh hart.
+///
+/// Applies the [SBI FWFT reset values](https://github.com/riscv-non-isa/riscv-sbi-doc/blob/v3.0/src/ext-firmware-features.adoc)
+/// to the features controlled by `menvcfg`, configures cache-block operations,
+/// and requests PBMT when `svpbmt` is set. A missing `menvcfg` is ignored.
+/// On RV32, failure to access `menvcfgh` returns an error. If its write fails,
+/// the low word may already have changed.
+///
+/// # Safety
+///
+/// Execute in M-mode during hart startup with Runtime trap entry installed,
+/// local interrupts disabled, `mscratch` zero, and `MPRV` clear. Own this hart's
+/// environment before lower-mode entry. A resume must preserve the suspended
+/// supervisor's FWFT settings.
+pub unsafe fn configure_supervisor_envcfg(zicbom: bool, zicboz: bool, svpbmt: bool) -> Result<()> {
+    // SAFETY: The caller owns this hart's startup context and establishes recovery.
+    let current = match unsafe { Menvcfg::try_read() } {
+        Ok(value) => value,
+        Err(error) => {
+            // An RV32 pair can fault on either word. Probe a primary-word bit
+            // to distinguish an absent register from a failed upper-word read.
+            if cfg!(target_pointer_width = "32")
+                // SAFETY: The startup caller keeps the recovery context active.
+                && unsafe { machine::try_read_menvcfg_bit(Menvcfg::LPE) }.is_ok()
+            {
+                return Err(error.into());
+            }
+            return Ok(());
+        }
+    };
+    let enable_pbmt = svpbmt && !current.get(Menvcfg::PBMTE);
+    let sync_translations = enable_pbmt || current.get(Menvcfg::ADUE);
+    let mut cfg = current.into_write();
+    cfg.set(Menvcfg::LPE, false);
+    cfg.set(Menvcfg::SSE, false);
+    cfg.set(Menvcfg::DTE, false);
+    cfg.set(Menvcfg::ADUE, false);
+    #[cfg(target_pointer_width = "64")]
+    cfg.set(
+        Menvcfg::PMM,
+        csr::standard::isa::values::pointer_masking::PointerMasking::Disabled,
+    );
+    cfg.set(
+        Menvcfg::CBIE,
+        if zicbom {
+            CacheBlockInvalidate::Invalidate
+        } else {
+            CacheBlockInvalidate::Disabled
+        },
+    );
+    cfg.set(Menvcfg::CBCFE, zicbom);
+    cfg.set(Menvcfg::CBZE, zicboz);
+    if enable_pbmt {
+        cfg.set(Menvcfg::PBMTE, true);
+    }
+    // SAFETY: The caller owns environment configuration before lower-mode entry.
+    unsafe { Menvcfg::try_write(cfg)? };
+    if sync_translations {
+        // SAFETY: The startup caller establishes recovery with local interrupts disabled.
+        unsafe { crate::fence::synchronize_translations() };
+    }
+    Ok(())
 }
 
 /// Initializes hart-local services, delegation, and counter access for the next stage.
 ///
 /// # Safety
 ///
-/// Run on the current hart in M-mode with machine interrupts disabled, Runtime
-/// trap entry installed, and no active lower-mode execution.
+/// 1. Run on a hart with S-mode and counter-enable CSRs, in M-mode with local
+///    interrupts disabled, Runtime recovery ready, and no active lower-mode execution.
+/// 2. For IMSIC delivery, exclusively own this hart's machine interrupt file
+///    and supply its implemented identity count at registration. Pending
+///    interrupts may be discarded when the file is initialized.
 pub unsafe fn configure_next_stage() {
     // SAFETY: The startup caller keeps MIE clear for this configuration.
     let irq = unsafe { LocalIrqDisabled::assume_disabled() };
@@ -101,35 +247,39 @@ pub unsafe fn configure_next_stage() {
     // SAFETY: The caller owns this hart's next-stage configuration.
     unsafe {
         let delegation = usize::MAX & !MACHINE_INTERRUPT_DELEGATION_MASK;
-        machine::InterruptDelegation::write(delegation.into());
-        let delegated = usize::from(machine::InterruptDelegation::read());
+        Mideleg::write(InterruptSet::from_bits(delegation));
+        let delegated = Mideleg::read().bits();
         assert_eq!(
             delegated & MACHINE_INTERRUPT_DELEGATION_MASK,
             0,
             "machine interrupts were delegated to S-mode: mideleg={delegated:#x}"
         );
-        machine::ExceptionDelegation::write(ExceptionSet::except(&[
+        let mut exceptions = ExceptionSet::from_bits(u64::MAX);
+        for exception in [
             Exception::SupervisorEcall,
             Exception::LoadMisaligned,
             Exception::StoreMisaligned,
             Exception::IllegalInstruction,
             Exception::LoadAccess,
             Exception::StoreAccess,
-        ]));
-        machine::CounterEnable::write(CounterSet::all());
-        supervisor::CounterEnable::write(CounterSet::all());
+        ] {
+            exceptions.set(exception, false);
+        }
+        machine::write_medeleg_word(exceptions);
+        #[cfg(target_pointer_width = "32")]
+        {
+            // Older privileged implementations may omit the upper delegation CSR.
+            let _ = Medelegh::try_write((exceptions.bits() >> 32) as u32);
+        }
+        Mcounteren::write(CounterSet::all());
+        Scounteren::write(CounterSet::all());
     }
 }
 
-pub(crate) fn set_return_mode(
-    status: &mut machine::Status<csr::Write>,
-    mode: machine::TargetPrivilege,
-) {
-    status.set::<machine::MPP>(mode);
-    status.set::<machine::MPIE>(machine::Interrupt::Enabled);
-    status.set::<machine::SIE>(machine::Interrupt::Disabled);
-    #[cfg(target_pointer_width = "64")]
-    status.set::<machine::MPV>(machine::Virtualization::Off);
+pub(crate) fn set_return_mode(status: &mut Mstatus<WriteMode>, mode: Privilege) {
+    status.set(Mstatus::MPP, mode);
+    status.set(Mstatus::MPIE, true);
+    status.set(Mstatus::SIE, false);
 }
 
 /// Prepares translation and interrupt state for a new supervisor stage.
@@ -143,8 +293,8 @@ pub(crate) unsafe fn prepare_supervisor() {
     // SAFETY: The caller is replacing the outgoing supervisor context;
     // clearing its translation and interrupt enables cannot invalidate M-mode state.
     unsafe {
-        supervisor::InterruptEnable::write(InterruptSet::empty());
-        supervisor::AddressTranslation::write(supervisor::AddressSpace::bare());
+        Sie::write(Sie::zero());
+        Satp::write(AddressSpace::bare());
     }
     // SAFETY: This function's caller keeps MIE clear throughout the handoff.
     let irq = unsafe { LocalIrqDisabled::assume_disabled() };
@@ -159,8 +309,10 @@ pub(crate) unsafe fn prepare_supervisor() {
 ///
 /// # Safety
 ///
-/// M-mode on the current hart, interrupts disabled, no live lower context.
-pub(super) unsafe fn stage_next_mode(start_addr: usize, next_mode: machine::TargetPrivilege) {
+/// Run in M-mode with interrupts disabled, Runtime recovery ready, and no live
+/// supervisor context. The next stage must be able to execute at `start_addr`
+/// in `next_mode`.
+pub(super) unsafe fn stage_next_mode(start_addr: usize, next_mode: Privilege) {
     // SAFETY: The boot caller owns the outgoing trap state.
     unsafe {
         prepare_supervisor();
@@ -168,17 +320,22 @@ pub(super) unsafe fn stage_next_mode(start_addr: usize, next_mode: machine::Targ
     // A recovered probe changes live trap state. Finish probes before
     // staging the status and PC consumed by the final mret.
     #[cfg(target_pointer_width = "32")]
-    if csrr!(machine::StatusHigh).is_ok() {
+    // SAFETY: The startup caller establishes Runtime trap recovery before mret staging.
+    if let Ok(high) = unsafe { Mstatush::try_read() } {
         // SAFETY: The probe succeeded; boot owns the outgoing trap state.
         unsafe {
-            machine::StatusHigh::modify(|_, high| {
-                high.set::<machine::MPVH>(machine::Virtualization::Off);
-            });
+            let mut high = high.into_write();
+            high.set(Mstatush::MPV, false);
+            Mstatush::write(high);
         }
     }
     // SAFETY: Boot owns the outgoing trap state after all recovered probes.
     unsafe {
-        machine::Status::modify(|_, status| set_return_mode(status, next_mode));
-        machine::ExceptionPc::write(start_addr.into());
+        let mut status = Mstatus::read().into_write();
+        set_return_mode(&mut status, next_mode);
+        #[cfg(target_pointer_width = "64")]
+        status.set(Mstatus::MPV, false);
+        Mstatus::write(status);
+        Mepc::write(Address::from_bits(start_addr));
     }
 }

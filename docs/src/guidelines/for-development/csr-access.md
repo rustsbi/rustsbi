@@ -1,4 +1,49 @@
 # CSR and Register Access
+
+`riscv-csr-spec` owns portable CSR numbers, field encodings, and value types.
+Standard definitions live under `standard::isa` and `standard::aia`.
+Vendor-specific definitions live under `vendor`. Shared ISA values belong to a named domain
+such as `values::trap` or `values::xlen`. Values used by one register family
+stay beside that family's definitions.
+
+The internal `rustsbi-csr` crate re-exports these definitions and provides
+`Read`, `Write`, and `Claim` hardware access. `Read` and `Write` provide `try_*`
+methods that execute recoverable accesses and emit fault records. Runtime owns the trap handler,
+record-table lookup, capability detection, interrupt exclusion, and initialization.
+Firmware policy uses Runtime and the portable definitions.
+
+### Separate capabilities, instruction effects and Rust safety {#csr-access-contracts}
+
+Spec declarations use `r`, `w` and `claim` for permitted operations. Keep Rust
+`unsafe` classification on execution methods: standard `Read::read` is safe and
+requires `StandardRead`. Vendor reads use `unsafe Read::read_unchecked`
+with hardware applicability and read-effect requirements. `Write::write`,
+`Claim::claim` and recoverable `try_*` accesses are unsafe.
+Record register-specific hardware preconditions under `Access requirements`.
+The executor's unsafe methods document the caller's obligations under `Safety`.
+State what a successful access changes, which result the caller may rely on,
+and what can already have changed if a later instruction traps. Cite the
+specification section that defines the behavior once per register family.
+Standard `r` declarations implement `StandardRead` automatically.
+
+Recovery preserves general registers except declared outputs and `t2`/`t3`, but
+changes machine trap CSRs and trap-return status. Preserve any live return context
+explicitly, or complete probes before preparing it. A handler that uses
+floating-point or vector registers must preserve their live state.
+
+`csrr` (`csrrs rd, csr, x0`) reads the CSR and suppresses the write. Zicsr
+specifies that standard CSRs have no read side effects. Custom CSRs may define
+them. `csrw` (`csrrw x0, csr, rs1`) suppresses
+the read. With a nonzero destination, `csrrw rd, csr, x0` reads the old value
+and writes zero. `csrrs` and `csrrc` always read. Their register forms suppress
+the write when `rs1` names `x0`. Their immediate forms suppress it for a zero mask.
+See [Zicsr](https://docs.riscv.org/reference/isa/v20260120/unpriv/zicsr.html).
+
+`ReadMode` and `WriteMode` describe local snapshots and prepared values. They do
+not execute instructions or classify Rust safety. Type bounds prevent forbidden
+operand combinations, including inside unsafe blocks; raw values still require
+hardware-specific validation and caller-established state.
+
 ### Gate architecture-specific accessors (`gate-arch-specific-accessors`) {#gate-arch-specific-accessors}
 
 A CSR that exists only at one XLEN (e.g. the RV32-only high-half registers
@@ -7,24 +52,19 @@ target. On the other XLEN the accessor must not compile down to a CSR
 instruction — a CSR number that is unimplemented on the running hart raises an
 illegal-instruction exception at runtime, not at compile time.
 
-The `riscv` crate's macros already guarantee this:
-[`read_csr_as_rv32!`](https://docs.rs/riscv/0.16.1/riscv/macro.read_csr_as_rv32.html)
-passes `target_arch = "riscv32"` into `read_csr_as!`,
-so on any other target the generated code expands to `Err(Unimplemented)`
-rather than a CSR instruction.
-An outer `cfg` is therefore not needed to gate the instruction;
-it only hides the accessor API (the generated module and its types)
-from the other target, keeping it out of the reachable API surface:
+Portable definitions remain available for decoding on any host.
+`Width::Rv32Only` covers both high-half CSRs such as `mstatush` and standalone
+addresses such as `pmpcfg1`. The hardware access traits reject them on RV64 at compile time.
+Runtime groups hardware modules behind an architecture condition at their
+module entry. Individual hardware functions need no non-RISC-V placeholder.
+Keep XLEN conditions where the instruction or register layout actually differs:
 
 ```rust
-// Good — the accessor API is hidden on RV64;
-// the macro itself compiles the CSR instruction for RV32 only
-#[cfg(target_arch = "riscv32")]
-riscv::read_csr_as_rv32!(Mieh, 0x314);
+#[cfg(target_pointer_width = "32")]
+use csr::standard::isa::privileged::machine::Mstatush;
 ```
 
-A hand-written accessor has no such built-in gating,
-so a `cfg` around it is what keeps the instruction off the other target:
+A hand-written instruction must enforce the same availability constraint:
 
 ```rust
 // Bad — a custom accessor without cfg gating
@@ -40,105 +80,44 @@ pub fn read_mieh() -> usize {
 }
 ```
 
-If a logical register has an RV32 half and an RV64 wide form
-(like `sie`/`sieh`), expose one API and dispatch internally,
-so callers cannot reach an unreachable half.
+For logical 64-bit values such as `stimecmp`, expose one value on both XLENs.
+The hardware accessor selects the RV32 high/low sequence or the RV64 instruction.
 
 ### Mask exactly the spec-declared writable bits (`mask-writable-bits-only`) {#mask-writable-bits-only}
 
-A CSR wrapper's bit mask must equal the writable bits the specification
-declares for the current XLEN — no more, no less.
-A too-wide mask lets callers write reserved bits (silently WPRI-dropped,
-or trapping on strict harts);
-a too-narrow mask hides writable ones.
-When RV32 and RV64 differ, state both values in a comment next to the mask
-and derive per-XLEN fields with `cfg(target_pointer_width = ...)`.
-
-```rust
-// Good — mask comes from the spec, per XLEN, and says so
-riscv::read_write_csr! {
-    Sie: 0x104,
-    // WPRI elsewhere; writable: 1 SSIE, 5 STIE, 9 SEIE, 13 LCOFI
-    // RV32: 0x0000_2222, RV64: 0x0000_0000_0000_2222
-    mask: 0x2222,
-}
-```
-
-```rust
-// Bad — writable bits of `sie` are only SSIE|STIE|SEIE|LCOFI = 0x2222
-riscv::read_write_csr! {
-    Sie: 0x104,
-    mask: usize::MAX & !0x1DDD, // includes many read-only bits
-}
-```
-
-The same rule applies to read/write *permissions* of individual fields:
-a bit the spec makes read-only must not get a field setter,
-and a bit the spec makes writable must not be wrapped in a read-only
-field macro.
+Define each writable field for the ISA or extension that specifies it. For a
+conditional alias, document which control bits select its writable backing
+field. For WPRI fields, software preserves the reserved bits on writes and
+ignores them on reads. For WARL fields, a completed write can read back a
+different legal value. Software that depends on the selected value must verify
+it before using it. [CSR field specifications](https://docs.riscv.org/reference/isa/v20260120/priv/priv-csrs.html#1-1-3-csr-field-specifications)
 
 ### Do not generate setters hardware ignores (`no-dead-hardware-setters`) {#no-dead-hardware-setters}
 
-Software cannot set a pending bit that only a device or the hart itself
-drives (e.g. most bits of `mip`/`miph`).
-A setter that compiles and silently does nothing
-(`csrrs` with a bit the hardware will not set)
-is worse than no setter: it looks like an API and lies.
-Do not emit `set_*`/`clear_*` helpers for such bits;
-if a bit is genuinely software-writable (like VSSIP in `hvip`),
-it is not in this category and must have one.
+Expose device-driven `mip.MTIP` and `mip.MEIP` for reading. Changing the timer
+comparator or the interrupt controller changes the underlying pending signal.
+For software-injected interrupts, expose the operations permitted by the
+backing register, such as atomic set and clear on `hvip.VSSIP`.
 
-```rust
-// Bad — pending bits of miph are device-driven; these setters no-op
-riscv::set_clear_csr!(
-    /// Low-priority RAS event interrupt pending.
-    , set_low_priority_ras_event, clear_low_priority_ras_event, 1 << 3);
-```
+AIA standard local pending bits, including implemented RAS interrupts 35 and 43,
+are writable and remain set until software clears them. Expose restricted atomic
+operations on `Mip`/`Sip`/`Vsip` for RV64 and `Miph`/`Siph`/`Vsiph` for RV32.
+`Sip::SEIP` also permits writes when AIA selects the writable `mvip` alias
+(`mideleg[9] = 0`, `mvien[9] = 1`). Document these runtime conditions instead
+of treating the field as unconditionally read-only.
+See [AIA v1.0, machine and supervisor interrupts](https://docs.riscv.org/reference/aia/v1.0/MSLevel.html).
 
 ### Expose side effects as operations (`expose-effects-as-operations`) {#expose-effects-as-operations}
 
-Some register writes are not "writes" — they are actions.
-Writing `*topei` claims an interrupt;
-writing certain config registers triggers a fence or invalidation.
-For those, do not expose `write(value)` with an ignored or echoed operand.
-Expose the *operation* with an explicit name,
-so the call site reads as what happens,
-and the value the hardware discards is not promoted to a parameter.
-
-```rust
-// Good — the claim is the API; the discarded operand is not a parameter
-pub fn claim() -> Option<Iid> { /* single csrrw, see below */ }
-```
-
-```rust
-// Bad — looks like state assignment, hides the claim side effect
-mtopei::write(Mtopei::from_bits(...));
-```
+Writing an IMSIC `*topei` claims the reported interrupt if one is pending.
+The written value is ignored. `Claim::claim` returns the decoded value from a
+single `csrrw` and requires the caller to own claims on that interrupt file.
+A plain `csrr` can inspect the same report without acknowledging it.
 
 See [Claim device interrupts atomically](sbi-specific.md#atomic-csr-claim)
 for the AIA claim instruction.
 
 ### Complete device handshakes in a single instruction (`single-instruction-handshake`) {#single-instruction-handshake}
 
-For registers shared with a device (e.g. `*topei` with the IMSIC),
-a read-modify-write in two instructions is not atomic:
-the device may change the register between the `csrr` and the `csrrw`,
-so you claim or write back stale state.
-Perform the read-modify-write as a single `csrrw`
-(or `csrrs`/`csrc`) instruction,
-letting the hardware do the atomic exchange.
-
-```rust
-// Good — one atomic exchange
-// csrrw with the new value; the old value comes back in rd
-
-// Bad — two instructions; the IMSIC may update mtopei in between
-let v = mtopei::read();
-mtopei::write(v.with_iid(0));
-```
-
-This is the instruction-level analogue of the atomicity requirement
-in memory-safety: no torn handshakes with hardware.
-
-See [Claim device interrupts atomically](sbi-specific.md#atomic-csr-claim)
-for the single-instruction read-and-claim operation on `*topei`.
+A higher-priority interrupt can arrive between a read of `*topei` and a separate
+claim. Use the value returned by the claim itself to identify the interrupt to service.

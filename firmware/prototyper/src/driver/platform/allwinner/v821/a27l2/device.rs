@@ -10,6 +10,7 @@
 
 use runtime::{
     Error, Result,
+    instruction::{ALL, fence},
     memory::{MemoryRegistry, MmioRegion, PhysAddr, PhysAddrRange, SupervisorMemory},
     soc::allwinner::v821::{A27L2LineOperation as L1Operation, AndesStatusRegister, V821Csr},
     timer,
@@ -52,7 +53,7 @@ impl CacheRegister {
 
 /// BSP-required A27L2 control bits set during firmware initialization.
 const L2_CONTROL_INIT_MASK: u32 = (1 << 13) | (1 << 10) | 1;
-const CACHE_LINE_SIZE: usize = 64;
+const CACHE_LINE_SIZE: usize = V821Csr::CACHE_LINE_SIZE;
 const LARGE_FLUSH_THRESHOLD: usize = 128 * 1024;
 const COMMAND_TIMEOUT_TICKS: u32 = 4_000_000;
 const STATUS_STATE_MASK: u32 = 0xf;
@@ -65,9 +66,9 @@ impl A27L2Cache {
         };
         let control = registers.read_u32(CacheRegister::Control)?;
         registers.write_u32(CacheRegister::Control, control | L2_CONTROL_INIT_MASK)?;
-        runtime::instruction::fence();
+        fence(ALL, ALL);
         Ok(Self {
-            csr: description.soc.csr(),
+            csr: description.csr,
             registers,
         })
     }
@@ -134,6 +135,7 @@ impl A27L2Cache {
                 (RangeOperation::WriteBack, _) => {
                     (L1Operation::WriteBack, L2Command::WriteBackRange)
                 }
+                // Writing back a partial line preserves dirty bytes outside the requested range.
                 (RangeOperation::Invalidate, true) => (
                     L1Operation::WriteBackAndInvalidate,
                     L2Command::WriteBackAndInvalidateRange,
@@ -142,9 +144,8 @@ impl A27L2Cache {
                     (L1Operation::Invalidate, L2Command::InvalidateRange)
                 }
             };
-            // The full cache-line span was checked against supervisor RAM;
-            // partial lines retain surrounding dirty bytes by writeback.
-            self.csr.maintain_a27l2_line(address, l1_operation);
+            self.csr
+                .maintain_a27l2_line(address, l1_operation, memory)?;
             let line_address = u32::try_from(address).map_err(|_| Error::InvalidArgs)?;
             self.registers
                 .write_u32(CacheRegister::LineAddress, line_address)?;
@@ -154,7 +155,7 @@ impl A27L2Cache {
     }
 
     fn l2_command(&self, command: L2Command) -> Result<()> {
-        runtime::instruction::fence();
+        fence(ALL, ALL);
         self.registers
             .write_u32(CacheRegister::Command, command as u32)?;
         let read_time_fn = || {
@@ -166,7 +167,7 @@ impl A27L2Cache {
         loop {
             match self.registers.read_u32(CacheRegister::Status)? & STATUS_STATE_MASK {
                 0 => {
-                    runtime::instruction::fence();
+                    fence(ALL, ALL);
                     return Ok(());
                 }
                 STATUS_BUSY if read_time_fn()?.wrapping_sub(start) < COMMAND_TIMEOUT_TICKS => {}

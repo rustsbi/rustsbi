@@ -1,4 +1,4 @@
-use csr::machine::TargetPrivilege as MPP;
+use riscv_csr_spec::standard::isa::values::status::Privilege;
 use runtime::{
     Error, FdtNode, Result, boot,
     hart::{self, HartId, PerHart, Xlen},
@@ -7,10 +7,6 @@ use runtime::{
 use spin::{Mutex, Once};
 
 use super::pmu;
-use csr::{
-    machine::{self, CBCFE, CBIE, CBZE, CacheBlockInvalidateMode, FeatureState},
-    values::counter::InhibitedCounters,
-};
 
 /// SBI-related features and privilege state for one hart.
 #[derive(Default)]
@@ -18,18 +14,12 @@ pub struct HartFeatures {
     extensions: [bool; Extension::COUNT],
     privileged_version: PrivilegedVersion,
     supervisor_xlen: Option<Xlen>,
-    mhpm_mask: u32,
-    mhpm_bits: u32,
     privilege_checked: bool,
 }
 
 impl HartFeatures {
     pub const fn privileged_version(&self) -> PrivilegedVersion {
         self.privileged_version
-    }
-
-    pub const fn mhpm_mask(&self) -> u32 {
-        self.mhpm_mask
     }
 }
 
@@ -74,8 +64,7 @@ pub(crate) fn enabled_harts() -> impl Iterator<Item = HartId> {
 
 /// Returns one hart's privileged version and counter mask.
 pub(crate) fn counter_topology(hart: HartId) -> (PrivilegedVersion, u32) {
-    let features = features(hart).lock();
-    (features.privileged_version(), features.mhpm_mask())
+    (privileged_version(hart), pmu::hardware_counter_mask(hart))
 }
 
 pub use runtime::hart::PrivilegedVersion;
@@ -156,126 +145,75 @@ pub(crate) fn install_extensions(hart: HartId, extensions: [bool; Extension::COU
     features(hart).lock().extensions = extensions;
 }
 
-fn detect_privileged_version(hart: HartId) {
-    let privileged_version = hart::detect_privileged_version();
-    features(hart).lock().privileged_version = privileged_version;
-}
-
-fn detect_mhpm_counters(hart: HartId) {
-    // SAFETY:
-    // 1. This hart is in M-mode with a valid Runtime stack and trap entry;
-    //    `mscratch` is zero and `MPRV` is clear.
-    // 2. This hart exclusively owns its counters during startup and permits
-    //    the probe to modify them before enabling SBI services.
-    let mhpm_mask = unsafe { hart::detect_performance_counters() };
-
-    {
-        let mut features = features(hart).lock();
-        features.mhpm_mask = mhpm_mask;
-        // TODO: at present, the prototyper only supports 64-bit counters.
-        features.mhpm_bits = 64;
-    }
-    // The PMU state snapshots the counter topology; rebuild it now that
-    // the mask is known.
-    pmu::init_current(hart, mhpm_mask);
-}
-
-fn detect_hypervisor(hart: HartId) {
+/// Publishes hardware features and initializes PMU state for the calling hart.
+///
+/// # Safety
+///
+/// 1. Run on `hart` in M-mode while startup owns its programmable counters,
+///    event selectors and inhibit bits. Probing can change all three.
+/// 2. Keep Runtime's trap entry active with interrupts masked, `MPRV` clear
+///    and `mscratch` zero.
+pub(crate) unsafe fn detect_hart_features(hart: HartId) {
     let has_h = hart::has_hypervisor();
-    features(hart).lock().extensions[Extension::Hypervisor.index()] = has_h;
-}
-
-fn detect_supervisor_xlen(hart: HartId) {
+    let version = hart::detect_privileged_version();
     let xlen = hart::supervisor_xlen();
-    features(hart).lock().supervisor_xlen = xlen;
-}
-
-/// Detects the current hart's hardware features after device-tree discovery.
-/// `hart` must identify the current hart.
-pub fn detect_hart_features(hart: HartId) {
-    detect_hypervisor(hart);
-    detect_privileged_version(hart);
-    detect_supervisor_xlen(hart);
-    detect_mhpm_counters(hart);
+    // SAFETY: Startup owns the programmable counters and has installed trap recovery.
+    let widths = unsafe { hart::detect_performance_counters() };
+    {
+        let mut record = features(hart).lock();
+        record.extensions[Extension::Hypervisor.index()] = has_h;
+        record.privileged_version = version;
+        record.supervisor_xlen = xlen;
+    }
+    pmu::init_current(hart, widths);
 }
 
 /// Checks that this hart supports the requested privilege mode.
 ///
 /// `hart` must identify the current hart.
-/// Returns an error if the hart does not support the requested privilege mode.
-pub fn check_next_stage_privilege(hart: HartId, next_mode: MPP) -> Result<()> {
-    match next_mode {
-        MPP::Supervisor => {
-            if !hart::supports_privilege(MPP::Supervisor) {
-                return Err(Error::NotSupported);
-            }
-            features(hart).lock().privilege_checked = true;
+pub fn check_next_stage_privilege(hart: HartId, next_mode: Privilege) -> Result<()> {
+    if matches!(next_mode, Privilege::Supervisor | Privilege::User) {
+        if !hart::supports_privilege(next_mode) {
+            return Err(Error::NotSupported);
         }
-        MPP::User => {
-            if !hart::supports_privilege(MPP::User) {
-                return Err(Error::NotSupported);
-            }
-            features(hart).lock().privilege_checked = true;
-        }
-        _ => {}
+        features(hart).lock().privilege_checked = true;
     }
     Ok(())
 }
 
 /// Configures the current hart's environment for supervisor handoff.
 ///
-/// `hart` must identify the current hart.
-/// Runtime boot owns delegation, counter access and trap-vector setup.
-pub fn configure_hart_environment(hart: HartId) -> Result<()> {
+/// # Safety
+///
+/// 1. Run on `hart` in M-mode with local interrupts disabled and Runtime recovery
+///    ready, while startup owns its counters and lower-mode state.
+/// 2. Register platform interrupt devices before configuring lower-mode access.
+/// 3. Keep lower-mode address spaces inactive. On a T-Head hart where MAEE will
+///    be cleared, confirm that the implementation supports that use of `mxstatus`.
+pub(crate) unsafe fn configure_hart_environment(hart: HartId) -> Result<()> {
+    let svpbmt = has_extension(hart, Extension::Svpbmt);
     // Standard Sv32 and Svpbmt page tables must not use T-Head MAEE.
-    if cfg!(target_pointer_width = "32") || has_extension(hart, Extension::Svpbmt) {
-        // SAFETY:
-        // 1. M-mode startup has installed Runtime trap entry, set `mscratch` to
-        //    zero, and cleared `MPRV`.
-        // 2. No lower-mode address space is active on this hart during startup.
+    if cfg!(target_pointer_width = "32") || svpbmt {
+        // SAFETY: The caller owns the address-space transition and establishes
+        // the board-specific meaning of MXSTATUS before this recoverable access.
         unsafe { boot::disable_thead_maee() };
     }
     let hart_priv_version = privileged_version(hart);
     if hart_priv_version >= PrivilegedVersion::Version1_11 {
-        // SAFETY: Startup owns this hart's counter initialization. The PMU
-        // does not coordinate cycle-counter control shared with other harts.
-        unsafe { machine::CounterInhibit::write(InhibitedCounters::programmable()) };
+        // SAFETY: Startup owns the programmable counters before S-mode entry.
+        unsafe { boot::inhibit_programmable_counters() };
     }
     timer::init_hart()?;
-    if hart_priv_version >= PrivilegedVersion::Version1_12 {
-        let cache_management = has_extension(hart, Extension::Zicbom);
-        let cache_zero = has_extension(hart, Extension::Zicboz);
-        // SAFETY: Startup owns this hart's environment configuration.
-        unsafe {
-            machine::EnvironmentConfig::modify(|_, value| {
-                value.set::<CBIE>(if cache_management {
-                    CacheBlockInvalidateMode::Invalidate
-                } else {
-                    CacheBlockInvalidateMode::Disabled
-                });
-                value.set::<CBCFE>(FeatureState::from(cache_management));
-                value.set::<CBZE>(FeatureState::from(cache_zero));
-            });
-        }
-        // Follow the device tree: C907 firmware also describes its RV32
-        // page-memory-type extension as Svpbmt and requires PBMTE.
-        if has_extension(hart, Extension::Svpbmt) {
-            #[cfg(target_pointer_width = "64")]
-            use csr::machine::{EnvironmentConfig as MemoryConfig, PBMTE as MemoryTypeEnable};
-            #[cfg(target_pointer_width = "32")]
-            use csr::machine::{EnvironmentConfigHigh as MemoryConfig, PBMTEH as MemoryTypeEnable};
-            // SAFETY: Startup configures this hart before lower-mode entry.
-            unsafe {
-                MemoryConfig::modify(|_, value| {
-                    value.set::<MemoryTypeEnable>(FeatureState::Enabled)
-                })
-            };
-        }
-        // The S-mode access to the Zkr `seed` CSR is gated under `mseccfg.SSEED`.
-        if has_extension(hart, Extension::Zkr) {
-            boot::enable_supervisor_seed();
-        }
-        boot::configure_state_access(has_extension(hart, Extension::Smaia));
+    let cache_management = has_extension(hart, Extension::Zicbom);
+    let cache_zero = has_extension(hart, Extension::Zicboz);
+    // SAFETY: Startup owns the lower-mode environment and recovery is active
+    // if the hart lacks an environment-configuration CSR.
+    unsafe { boot::configure_supervisor_envcfg(cache_management, cache_zero, svpbmt) }?;
+    if has_extension(hart, Extension::Zkr) {
+        boot::enable_supervisor_seed();
     }
+    // SAFETY: Platform binding selected the IPI device, and startup still owns
+    // this hart's state-enable registers.
+    unsafe { boot::configure_state_access(has_extension(hart, Extension::Smaia)) };
     Ok(())
 }

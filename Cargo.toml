@@ -56,7 +56,6 @@ codegen-units = 1
 riscv-csr-spec = { version = "0.0.0", path = "library/riscv-csr-spec" }
 bitflags = "2.9.1"
 spin = "0.9.8"
-seq-macro = "0.3.5"
 fdt = "0.1.5"
 riscv = { version = "0.16.1", default-features = false }
 

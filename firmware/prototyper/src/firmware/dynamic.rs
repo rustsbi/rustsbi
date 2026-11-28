@@ -10,11 +10,11 @@ use runtime::Result;
 
 use crate::fail;
 
-use csr::machine::TargetPrivilege;
+use riscv_csr_spec::standard::isa::values::status::Privilege;
 
 /// Derives the next-stage address and privilege mode from the `a2`
 /// `DynamicInfo`; prints and stops on invalid input.
-pub(crate) fn decode_next_stage(dynamic_info_address: usize) -> (TargetPrivilege, usize) {
+pub(crate) fn decode_next_stage(dynamic_info_address: usize) -> (Privilege, usize) {
     let dynamic_info =
         read_dynamic_info(dynamic_info_address).unwrap_or_else(fail::no_dynamic_info_available);
     validate_next_stage(&dynamic_info).unwrap_or_else(fail::invalid_dynamic_data)
@@ -88,41 +88,26 @@ pub struct ValidationError<'a> {
 
 /// Validates and extracts privilege mode and next address from dynamic info.
 ///
-/// Returns Result containing tuple of (MPP, next_addr) or error details.
+/// Returns the target privilege and entry address, or validation errors.
 pub fn validate_next_stage(
     dynamic_info: &DynamicInfo,
-) -> Result<(TargetPrivilege, usize), ValidationError<'_>> {
-    let mut error = ValidationError {
-        invalid_next_mode: false,
-        invalid_next_address: false,
-        dynamic_info,
-    };
-
-    // fail safe, errors will be aggregated after whole checking process.
+) -> Result<(Privilege, usize), ValidationError<'_>> {
     let is_next_address_valid = crate::cfg::DYNAMIC_NEXT_ADDR_RANGE.iter().any(|range| {
         dynamic_info.next_addr >= range.start as usize
             && dynamic_info.next_addr < range.end as usize
     });
-    let is_next_mode_valid = matches!(dynamic_info.next_mode, 0 | 1 | 3);
+    let next_mode = Privilege::try_from(dynamic_info.next_mode);
+    let error = ValidationError {
+        invalid_next_mode: next_mode.is_err(),
+        invalid_next_address: !is_next_address_valid,
+        dynamic_info,
+    };
 
-    if !is_next_address_valid {
-        error.invalid_next_address = true;
-    }
-    if !is_next_mode_valid {
-        error.invalid_next_mode = true;
-    }
-
-    if !is_next_address_valid || !is_next_mode_valid {
+    if error.invalid_next_address {
         return Err(error);
     }
 
-    let next_mode = match dynamic_info.next_mode {
-        3 => TargetPrivilege::Machine,
-        1 => TargetPrivilege::Supervisor,
-        // pattern `_` avoids `unreachable!`` which introduces panic handler.
-        // pattern 0 and _
-        _ => TargetPrivilege::User,
-    };
-
-    Ok((next_mode, dynamic_info.next_addr))
+    next_mode
+        .map(|next_mode| (next_mode, dynamic_info.next_addr))
+        .map_err(|_| error)
 }

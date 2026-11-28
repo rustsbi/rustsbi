@@ -14,30 +14,32 @@ pub(crate) mod spacemit_k1;
 pub(crate) mod qemu_aplic;
 
 use runtime::{
-    PlatformDescription, PlatformView, Result,
+    PlatformView, Result,
     memory::{MemoryRegistry, SupervisorMemory},
-    soc::{
-        allwinner::{v821::AllwinnerV821Soc, v861::AllwinnerV861Soc},
-        spacemit::k1::SpacemitK1Soc,
-    },
 };
 
 use crate::sbi::{pmu::SbiPmu, vendor::Vendor};
 
+pub(crate) use boot::init;
 pub use boot::wait_until_ready;
-pub(crate) use spacemit_k1::initialize_secondary_hart;
+pub(crate) use interrupts::TimerDesc;
+pub(crate) use spacemit_k1::secondary_soc;
 
-trait Board {
-    /// Prepares the board before device binding and returns any alias offset for PMP.
+/// Board-specific startup operations performed on the boot hart.
+pub(crate) trait Board {
+    /// Prepares hardware before console and interrupt devices are bound.
+    ///
+    /// Returns the offset to a second mapping of firmware memory if PMP must protect it.
     fn early_init(
         &self,
         _memory: &mut MemoryRegistry,
-        _timer: Option<&interrupts::TimerDesc>,
+        _timer: Option<&TimerDesc>,
     ) -> Result<Option<u64>> {
         Ok(None)
     }
 
-    /// Initializes board devices after the shared devices are ready.
+    /// Initializes board devices after the shared devices are ready and returns
+    /// the board's vendor SBI extension, if present.
     fn init(
         &self,
         _platform: &PlatformView<'_>,
@@ -49,20 +51,6 @@ trait Board {
     }
 }
 
-struct Generic;
+pub(crate) struct Generic;
 
 impl Board for Generic {}
-
-/// Initializes the platform on the boot hart and returns the next-stage FDT address.
-pub fn init_platform(description: PlatformDescription) -> Result<usize> {
-    if let Some(board) = description.inspect(|view| view.soc::<AllwinnerV821Soc>())? {
-        return boot::init(description, &board);
-    }
-    if let Some(board) = description.inspect(|view| view.soc::<SpacemitK1Soc>())? {
-        return boot::init(description, &board);
-    }
-    if let Some(board) = description.inspect(|view| view.soc::<AllwinnerV861Soc>())? {
-        return boot::init(description, &board);
-    }
-    boot::init(description, &Generic)
-}

@@ -556,6 +556,9 @@ dependencies = [
 [[package]]
 name = "rustsbi-csr"
 version = "0.0.0"
+dependencies = [
+ "riscv-csr-spec",
+]
 
 [[package]]
 name = "rustsbi-firmware-runtime"
@@ -563,11 +566,11 @@ version = "0.0.0"
 dependencies = [
  "bitflags",
  "fdt",
+ "riscv-csr-spec",
  "riscv-decode",
  "rustsbi",
  "rustsbi-csr",
  "rustsbi-runtime-macros",
- "seq-macro",
  "spin",
 ]
 
@@ -588,10 +591,9 @@ dependencies = [
  "cfg-if",
  "log",
  "panic-halt",
- "rustsbi-csr",
+ "riscv-csr-spec",
  "rustsbi-firmware-runtime",
  "sbi-spec",
- "seq-macro",
  "spin",
  "static-toml",
 ]
@@ -625,12 +627,6 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
-
-[[package]]
-name = "seq-macro"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bc711410fbe7399f390ca1c3b60ad0f53f80e95c5eb935e52268a0e2cd49acc"
 
 [[package]]
 name = "serde"

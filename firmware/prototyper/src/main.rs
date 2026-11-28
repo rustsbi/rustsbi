@@ -18,7 +18,7 @@ mod sbi;
 use crate::driver::platform;
 use crate::firmware::BootInfo;
 use crate::sbi::features::{check_next_stage_privilege, counter_topology, detect_hart_features};
-use csr::machine::TargetPrivilege as MPP;
+use riscv_csr_spec::standard::isa::values::status::Privilege;
 use runtime::{
     Error, Result, boot, entry,
     hart::{self, HartId},
@@ -30,7 +30,10 @@ fn main(boot: BootInfo) {
     let result = if boot.is_boot_hart() {
         boot_hart(boot)
     } else {
-        secondary_hart(Some(&boot))
+        // SAFETY: Runtime entry supplies a boot handoff in M-mode with MPRV
+        // clear and machine interrupts disabled, before lower-mode execution.
+        // The trusted BSP confirms MXSTATUS/MAEE semantics on T-Head harts.
+        unsafe { secondary_hart(Some(&boot)) }
     };
     if let Err(error) = result {
         error!("Failed to initialize the hart: {error}");
@@ -45,15 +48,25 @@ fn boot_hart(mut boot: BootInfo) -> Result<()> {
     sbi::pmu::init();
     sbi::rfence::init();
     let platform_description = boot.take_platform_description().ok_or(Error::NotReady)?;
-    let next_stage_fdt_address = platform::init_platform(platform_description)?;
+    // SAFETY:
+    // 1. Runtime entry clears MPRV and masks interrupts in M-mode.
+    //    Secondary harts wait for platform publication.
+    // 2. The trusted boot handoff identifies the hardware and leaves cache/PMA
+    //    setup to this hart with the loader's live mappings intact.
+    // 3. On V821 the BSP reserves PMA entry 15. Published drivers use the
+    //    custom CSRs in M-mode with Andes CCTL enabled and writeback-capable mappings.
+    let next_stage_fdt_address = unsafe { firmware::init_platform(platform_description)? };
 
-    firmware::set_pmp();
+    // SAFETY: Runtime entry installed recovery and excluded interrupts. The
+    // platform gives this hart its unlocked PMP entries before lower-mode entry.
+    unsafe { firmware::set_pmp() };
     firmware::log_pmp_cfg();
 
     let hart = HartId::current()?;
     info!("{:<30}: {}", "Boot HART ID", hart.as_usize());
 
-    detect_hart_features(hart);
+    // SAFETY: Boot entry installed recovery before any client could acquire an HPM counter.
+    unsafe { detect_hart_features(hart) };
     log_hart_capabilities(hart);
 
     let mut next_stage = boot.next_stage();
@@ -68,35 +81,66 @@ fn boot_hart(mut boot: BootInfo) -> Result<()> {
     );
     hart::stage_boot_handoff(next_stage)?;
 
-    enable_supervisor_services(hart)
+    // SAFETY: Platform binding registered this hart's devices. Startup still owns
+    // its supervisor state, and the BSP establishes the T-Head MAEE semantics.
+    unsafe { enable_supervisor_services(hart) }
 }
 
-fn secondary_hart(boot: Option<&BootInfo>) -> Result<()> {
+/// Initializes a secondary hart before its first lower-mode entry.
+///
+/// # Safety
+///
+/// 1. Enter in M-mode through Runtime startup or a supported reset vector with
+///    Runtime recovery ready, `MPRV` clear and local machine interrupts disabled.
+/// 2. Own this hart's startup configuration, including the unlocked PMP entries
+///    needed for the published layout. The platform must meet the requirements of
+///    [`enable_supervisor_services`].
+unsafe fn secondary_hart(boot: Option<&BootInfo>) -> Result<()> {
     platform::wait_until_ready();
     let hart = HartId::current()?;
-    detect_hart_features(hart);
+    if boot.is_none() {
+        sbi::fwft::reset_hart(hart);
+    }
+    // SAFETY: Secondary startup owns this hart's counters with recovery active.
+    unsafe { detect_hart_features(hart) };
 
-    platform::initialize_secondary_hart();
-    firmware::set_pmp();
+    // SAFETY: Platform publication is complete and the caller owns hart startup.
+    unsafe { firmware::initialize_secondary_hart() };
+    // SAFETY: The caller owns this hart's PMP setup with recovery ready and
+    // interrupts excluded, before its first lower-mode access.
+    unsafe { firmware::set_pmp() };
 
     // Hardware-reset harts have no SPL handoff; HSM starts them in S-mode.
-    let next_mode = boot.map_or(MPP::Supervisor, |boot| boot.next_stage().next_mode);
+    let next_mode = boot.map_or(Privilege::Supervisor, |boot| boot.next_stage().next_mode);
     check_next_stage_privilege(hart, next_mode)?;
 
-    enable_supervisor_services(hart)
+    // SAFETY: Device registration is complete and this hart still owns its
+    // lower-mode configuration under the caller's startup contract.
+    unsafe { enable_supervisor_services(hart) }
 }
 
-fn enable_supervisor_services(hart: HartId) -> Result<()> {
-    sbi::features::configure_hart_environment(hart)?;
+/// Configures supervisor services and clears the firmware timer deadline before handoff.
+///
+/// # Safety
+///
+/// Run on `hart` after platform device registration and before lower-mode execution.
+/// Meet the hardware and startup requirements of [`sbi::features::configure_hart_environment`]
+/// and [`boot::configure_next_stage`], including S-mode and the counter-enable CSRs.
+unsafe fn enable_supervisor_services(hart: HartId) -> Result<()> {
+    // SAFETY: The caller owns hart's lower-mode state and establishes the
+    // board-specific CSR semantics required by configure_hart_environment.
+    unsafe { sbi::features::configure_hart_environment(hart)? };
     // The supervisor owns its timer, so discard any firmware deadline before
     // entry; otherwise a stale comparator could inject an early interrupt.
     if let Some(timer) = timer::get()? {
         timer.set_deadline(u64::MAX)?;
     }
     // SAFETY:
-    // 1. Runtime startup installed trap entry.
-    // 2. This hart is still in M-mode with machine interrupts disabled and no
-    //    lower-mode context.
+    // 1. Runtime startup installed trap entry, cleared MPRV and set mscratch to zero.
+    // 2. The startup contract supplies S-mode and the counter-enable CSRs.
+    //    The registered devices and the current hart's interrupt file, if used,
+    //    are ready for initialization before the first lower-mode context.
+    // 3. Local machine interrupts remain disabled across setup.
     unsafe { boot::configure_next_stage() };
     Ok(())
 }

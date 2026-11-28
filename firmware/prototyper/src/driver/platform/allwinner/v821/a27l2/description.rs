@@ -1,8 +1,8 @@
 //! V821 A27L2 cache description.
 
-use runtime::{memory::RegRange, soc::allwinner::v821::AllwinnerV821Soc};
+use runtime::{memory::RegRange, soc::allwinner::v821::V821Csr};
 
 pub(crate) struct Desc {
-    pub(crate) soc: AllwinnerV821Soc,
+    pub(crate) csr: V821Csr,
     pub(crate) registers: RegRange,
 }

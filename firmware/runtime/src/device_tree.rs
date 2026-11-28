@@ -10,11 +10,11 @@ use core::mem::size_of;
 use fdt::{Fdt, node::FdtNode};
 use spin::Once;
 
-use crate::memory::{
-    MemoryRegistry, PhysAddr, PhysAddrRange, RegRange, SupervisorMemory, locate_firmware_image,
-};
+use crate::memory::{PhysAddr, PhysAddrRange, RegRange};
 use crate::{Error, Result};
 
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+mod firmware;
 mod patch;
 
 // Devicetree Specification v0.4, section 5.2: the structure header is ten
@@ -56,37 +56,6 @@ impl DeviceTreeHandoff {
             .checked_add(RUSTSBI_FDT_PADDING)
             .ok_or(Error::Overflow)?;
         PhysAddrRange::from_start_len(self.address, capacity)
-    }
-
-    /// Claims the selected boot device tree.
-    ///
-    /// The selected address may be the entry argument itself or an FDT linked
-    /// inside the current firmware image.
-    ///
-    /// # Safety
-    ///
-    /// The selected FDT must remain readable and unchanged until this description
-    /// is consumed. `destination` must describe exclusively writable storage,
-    /// live until the next stage finishes using it. It may overlap the selected
-    /// FDT, but must not overlap other live objects. No external access is allowed
-    /// while this description owns the destination. A range alone does not prove
-    /// that its backing storage exists.
-    pub unsafe fn claim(
-        self,
-        selected_address: PhysAddr,
-        destination: PhysAddrRange,
-    ) -> Result<PlatformDescription> {
-        if selected_address == self.address {
-            // SAFETY: entry and the caller guarantee the source and destination
-            // storage contracts, including their lifetimes and ownership.
-            return unsafe { PlatformDescription::from_raw(selected_address, destination) };
-        }
-
-        validate_linked_fdt(selected_address)?;
-        // SAFETY: `validate_linked_fdt` checked both the FDT header and its
-        // declared complete span against the linked firmware image. The caller
-        // guarantees the source lifetime and exclusive destination storage.
-        unsafe { PlatformDescription::from_raw(selected_address, destination) }
     }
 }
 
@@ -372,11 +341,6 @@ impl<'tree> PlatformView<'tree> {
         registers.next().ok_or(Error::InvalidArgs)?.map(Some)
     }
 
-    /// Returns a SoC capability when the root node identifies `S`.
-    pub fn soc<S: crate::soc::Soc>(&self) -> Result<Option<S>> {
-        S::from_root(self.root())
-    }
-
     /// Returns the RTC V203 GPRCM window from the BSP's fixed four-cell property.
     ///
     /// Unlike `reg`, `gprcm_reg` contains an absolute 64-bit address and size.
@@ -395,6 +359,8 @@ impl PlatformDescription {
     /// that remains live until the next stage finishes using it. Source and
     /// destination may overlap; all source views end before any write occurs.
     /// The destination must not overlap any other live allocation or object.
+    /// For firmware use, the RAM, reservation and device ranges must match the
+    /// actual hardware from which access will be granted.
     unsafe fn from_raw(address: PhysAddr, destination: PhysAddrRange) -> Result<Self> {
         if destination.start().as_usize() == 0 || destination.size() < FDT_HEADER_SIZE {
             return Err(Error::InvalidArgs);
@@ -449,19 +415,6 @@ impl PlatformDescription {
             fdt_storage,
             source,
         })
-    }
-
-    /// Derives supervisor memory and the MMIO registry from the FDT.
-    ///
-    /// RAM and reserved ranges are read by Runtime. MMIO windows may then be
-    /// acquired only from physical-address holes outside those ranges.
-    pub fn memory_resources(&self) -> Result<(SupervisorMemory, MemoryRegistry)> {
-        // The FDT is immutable, but the firmware span can grow during boot.
-        // Reuse its ranges and derive access against the current span each time.
-        let (ram, reserved) = self
-            .memory_ranges
-            .try_call_once(|| self.read_memory_ranges())?;
-        MemoryRegistry::from_ranges(ram.iter().copied(), reserved.iter().copied())
     }
 
     /// Prepares the device tree passed to the next stage.
@@ -613,29 +566,6 @@ unsafe fn fdt_source<'a>(address: PhysAddr) -> Result<&'a [u8]> {
         .map_err(|_| Error::InvalidArgs)?;
     // SAFETY: the same caller guarantee covers the complete `totalsize` span.
     Ok(unsafe { core::slice::from_raw_parts(address.as_usize() as *const u8, fdt.total_size()) })
-}
-
-fn validate_linked_fdt(address: PhysAddr) -> Result<()> {
-    let firmware = locate_firmware_image()?;
-    let header = PhysAddrRange::from_start_len(address, FDT_HEADER_SIZE)?;
-    if !firmware.contains(header) {
-        return Err(Error::AccessDenied);
-    }
-
-    // SAFETY: the complete fixed-size header lies inside the linked image.
-    let total_size = unsafe {
-        let total_size_pointer = address
-            .as_usize()
-            .checked_add(FDT_TOTAL_SIZE_OFFSET)
-            .ok_or(Error::Overflow)? as *const u32;
-        u32::from_be(total_size_pointer.read_unaligned()) as usize
-    };
-    let complete_fdt = PhysAddrRange::from_start_len(address, total_size)?;
-    if firmware.contains(complete_fdt) {
-        Ok(())
-    } else {
-        Err(Error::AccessDenied)
-    }
 }
 
 /// Returns whether a Platform Description node is available for use.
@@ -801,7 +731,7 @@ mod tests {
         assert_eq!(destination.size(), 72 + 1024);
         // SAFETY: storage is exclusively owned and remains live until the test
         // finishes reading the result. The source and destination intentionally overlap.
-        let description = unsafe { handoff.claim(address, destination).unwrap() };
+        let description = unsafe { PlatformDescription::from_raw(address, destination).unwrap() };
         let reservation =
             PhysAddrRange::from_start_len(PhysAddr::new(0x8000_0000), 0x1000).unwrap();
         assert_eq!(

@@ -7,27 +7,19 @@
 
 #![forbid(unsafe_code)]
 
-use csr::machine::{MPP, Privilege, Status};
 use runtime::{
     hart::{self, HartId, HartState},
     rustsbi::{Hsm, SbiRet, Susp},
 };
-use sbi_spec::hsm::suspend_type::NON_RETENTIVE;
-
-const SUSPEND_TO_RAM: u32 = 0x0;
+use sbi_spec::{hsm::suspend_type, susp::sleep_type};
 
 /// SBI System Suspend extension.
 pub(crate) struct SbiSuspend;
 
 impl Susp for SbiSuspend {
     fn system_suspend(&self, sleep_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
-        if sleep_type != SUSPEND_TO_RAM {
+        if sleep_type != sleep_type::SUSPEND_TO_RAM {
             return SbiRet::invalid_param();
-        }
-
-        let prev_mode = Status::read().get::<MPP>();
-        if prev_mode != Privilege::Supervisor && prev_mode != Privilege::User {
-            return SbiRet::failed();
         }
 
         // SBI system suspend requires all other harts to be stopped.
@@ -44,7 +36,7 @@ impl Susp for SbiSuspend {
         // If it is invalid, `SBI_ERR_INVALID_ADDRESS` should be returned.
 
         match crate::sbi::hsm() {
-            Some(hsm) => hsm.hart_suspend(NON_RETENTIVE, resume_addr, opaque),
+            Some(hsm) => hsm.hart_suspend(suspend_type::NON_RETENTIVE, resume_addr, opaque),
             None => SbiRet::not_supported(),
         }
     }

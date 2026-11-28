@@ -1,4 +1,6 @@
+mod platform;
 mod reset;
+pub(crate) use platform::{BootHart, init_platform, initialize_secondary_hart};
 pub(crate) use reset::{c907_reset_entry, k1_reset_entry};
 
 cfg_if::cfg_if! {
@@ -14,15 +16,14 @@ cfg_if::cfg_if! {
     }
 }
 
-use core::{arch::asm, fmt};
+use alloc::vec::Vec;
 use runtime::{
     DeviceTreeHandoff, Error, PlatformDescription, Result,
-    boot::NextStage,
-    memory::{PhysAddr, PhysAddrRange, RegRange, locate_firmware_image},
+    boot::{NextStage, locate_firmware_image},
+    memory::{PhysAddr, PhysAddrRange, RegRange},
+    pmp::{self, PmpEntry, PmpPermission, PmpRange},
 };
 use spin::Once;
-
-use csr::machine::{PmpAddress, PmpConfiguration, PmpEntry, PmpPermission, PmpRange};
 
 use crate::cfg;
 
@@ -35,22 +36,83 @@ pub(crate) struct IrqMmio {
 }
 
 struct PmpLayout {
-    firmware_ram: PhysAddrRange,
-    noncacheable_alias_offset: Option<u64>,
-    irq_mmio: Option<IrqMmio>,
+    entries: Vec<(PmpRange, PmpPermission, usize)>,
+    alias_end_index: Option<usize>,
 }
 
 static PMP: Once<PmpLayout> = Once::new();
+
+unsafe extern "C" {
+    static sbi_rodata_start: u8;
+    static sbi_rodata_end: u8;
+}
 
 pub(crate) fn init_pmp(
     firmware_ram: PhysAddrRange,
     noncacheable_alias_offset: Option<u64>,
     irq_mmio: Option<IrqMmio>,
 ) {
-    PMP.call_once(|| PmpLayout {
-        firmware_ram,
-        noncacheable_alias_offset,
-        irq_mmio,
+    PMP.call_once(|| {
+        use PmpPermission::{None as Deny, R, Rw, Rwx};
+        use PmpRange::{Napot, Off, Tor};
+
+        let firmware = locate_firmware_image()
+            .expect("firmware bounds are available after topology initialization");
+        let ram_start = firmware_ram.start().as_usize();
+        let ram_end = firmware_ram.end().as_usize();
+        let firmware_start = firmware.start().as_usize();
+        let firmware_end = firmware.end().as_usize();
+        let rodata_start = (&raw const sbi_rodata_start).addr();
+        let rodata_end = (&raw const sbi_rodata_end).addr();
+
+        let mut entries = Vec::new();
+        entries.push((Off, Deny, 0));
+        if let Some(mmio) = &irq_mmio {
+            const QEMU_VIRT_CLINT_SIZE: usize = 0x1_0000;
+            entries.extend([
+                (Tor, Rwx, mmio.clint_start >> 2),
+                (Tor, Deny, (mmio.clint_start + QEMU_VIRT_CLINT_SIZE) >> 2),
+                (Tor, Rwx, mmio.aplic.start().as_usize() >> 2),
+                (Tor, Deny, mmio.aplic.end().as_usize() >> 2),
+                (Tor, Rwx, mmio.imsic_start >> 2),
+                (Tor, Deny, mmio.imsic_end >> 2),
+            ]);
+        }
+
+        for (end, permission) in [
+            (ram_start, Rwx),
+            (firmware_start, Rwx),
+            (rodata_start, R),
+            (rodata_end, Deny),
+            // The handoff DTB in this region must remain writable by S-mode.
+            (firmware_end, Rw),
+            (ram_end, Rwx),
+        ] {
+            assert_eq!(end & 3, 0);
+            entries.push((Tor, permission, end >> 2));
+        }
+
+        let mut alias_end_index = None;
+        if let Some(alias) = noncacheable_alias_offset.filter(|_| irq_mmio.is_none()) {
+            assert!(alias.is_power_of_two() && alias >= ram_end as u64);
+            let start = (firmware_start as u64)
+                .checked_add(alias)
+                .expect("BUG: V821 firmware alias start overflowed");
+            let end = (firmware_end as u64)
+                .checked_add(alias)
+                .expect("BUG: V821 firmware alias end overflowed");
+            assert!(end >> 2 <= usize::MAX as u64);
+            entries.push((Off, Deny, (start >> 2) as usize));
+            alias_end_index = Some(entries.len());
+            entries.push((Tor, Deny, (end >> 2) as usize));
+            entries.push((Napot, Rwx, usize::MAX));
+        } else {
+            entries.push((Tor, Rwx, usize::MAX >> 2));
+        }
+        PmpLayout {
+            entries,
+            alias_end_index,
+        }
     });
 }
 
@@ -92,7 +154,8 @@ impl BootInfo {
             None => unsafe { device_tree.incoming_destination()? },
         };
         // SAFETY:
-        // 1. Entry guarantees a readable, stable source (linked with `fdt`).
+        // 1. The loader or linked FDT describes this board's RAM, reservations
+        //    and MMIO. Its source stays readable and unchanged until handoff consumes it.
         // 2. The destination is exclusively writable and remains live until
         //    the next stage finishes using it.
         // 3. `BOOT_LOCK` serializes candidate claims until the boot owner is selected.
@@ -220,250 +283,91 @@ fn resolve_device_tree_address(entry_device_tree_address: usize) -> usize {
     device_tree_address
 }
 
-/// Programs one of the first sixteen PMP entries, accounting for XLEN.
+/// Applies the published RAM, firmware and device permissions on this hart.
 ///
 /// # Safety
-/// The caller must satisfy [`PmpConfiguration::set`]'s safety requirements
-/// for the selected entry and its new configuration.
-unsafe fn set_pmp_config(index: usize, range: PmpRange, permission: PmpPermission, locked: bool) {
-    let slot = index % size_of::<usize>();
-    let entry = PmpEntry {
-        range,
-        permission,
-        locked,
-    };
-    // SAFETY: The caller upholds the PMP configuration requirements. Each
-    // match arm selects a native-width CSR and a slot within that CSR.
-    unsafe {
-        match index / size_of::<usize>() {
-            0 => PmpConfiguration::<0>::set(slot, entry),
-            #[cfg(target_pointer_width = "32")]
-            1 => PmpConfiguration::<1>::set(slot, entry),
-            #[cfg(target_pointer_width = "32")]
-            2 => PmpConfiguration::<2>::set(slot, entry),
-            #[cfg(target_pointer_width = "32")]
-            3 => PmpConfiguration::<3>::set(slot, entry),
-            #[cfg(target_pointer_width = "64")]
-            1 => PmpConfiguration::<2>::set(slot, entry),
-            _ => unreachable!("firmware uses only the first sixteen PMP entries"),
-        }
-    }
-}
-
-/// Installs PMP entries isolating firmware memory from S-mode.
-pub fn set_pmp() {
-    let pmp = PMP
+///
+/// 1. Run in M-mode during hart startup with Runtime trap recovery ready,
+///    `MPRV` clear and local interrupts disabled.
+/// 2. Own the unlocked PMP entries needed for the published layout.
+///    The hart must support their address ranges and permissions.
+/// 3. Keep all live firmware accesses valid during intermediate writes,
+///    including changes to the lower bound of a following TOR entry.
+pub(crate) unsafe fn set_pmp() {
+    let layout = PMP
         .get()
         .expect("BUG: PMP layout used before initialization");
-    let range = pmp.firmware_ram;
-    let firmware_ram = range.start().as_usize()..range.end().as_usize();
-    // FIXME: These PMP updates do not synchronize address-translation caches
-    // as required when page-based virtual memory is implemented.
-    // See RISC-V Privileged Architecture, Section 3.7.2:
-    // <https://docs.riscv.org/reference/isa/v20240411/_attachments/riscv-privileged.pdf>.
-    // SAFETY:
-    // 1. Startup owns this hart's PMP state in M-mode before lower-mode entry.
-    // 2. The platform implements the PMP entries and encodings used below.
-    // 3. Platform initialization selected a RAM bank containing the firmware.
-    //    Section addresses come from the linker and are checked for alignment.
-    unsafe {
-        // [0..firmware_ram.start] RWX
-        // [firmware_ram.start..firmware_start] RWX
-        // [firmware_start..firmware_rodata_start] R
-        // [firmware_rodata_start..firmware_rodata_end] NONE
-        // [firmware_rodata_end..firmware_end] RW
-        // [firmware_end..firmware_ram.end] RWX
-        // [firmware_ram.end..INF] RWX
-        let firmware_start_address: usize;
-        let firmware_rodata_start_address: usize;
-        let firmware_rodata_end_address: usize;
-        asm!("la {}, sbi_start", out(reg) firmware_start_address, options(nomem));
-        let firmware_end_address = locate_firmware_image()
-            .expect("firmware bounds are available after topology initialization")
-            .end()
-            .as_usize();
-        asm!(
-            "la {}, sbi_rodata_start",
-            out(reg) firmware_rodata_start_address,
-            options(nomem)
+    for (slot, &(range, permission, address)) in layout.entries.iter().enumerate() {
+        let index = u8::try_from(slot).expect("PMP index fits in u8");
+        let entry = PmpEntry {
+            range,
+            permission,
+            locked: false,
+        };
+        assert!(
+            // SAFETY:
+            // 1. Startup owns the PMP entries and their configuration words on this hart.
+            // 2. The caller guarantees that intermediate TOR bounds preserve live accesses.
+            // 3. The translation fence below runs before lower-mode entry.
+            unsafe { pmp::write_entry(index, entry, address) },
+            "invalid PMP entry index {index}"
         );
-        asm!(
-            "la {}, sbi_rodata_end",
-            out(reg) firmware_rodata_end_address,
-            options(nomem)
-        );
-
-        assert_eq!(firmware_ram.start & 0x3, 0);
-        assert_eq!(firmware_ram.end & 0x3, 0);
-        assert_eq!(firmware_start_address & 0x3, 0);
-        assert_eq!(firmware_end_address & 0x3, 0);
-        assert_eq!(firmware_rodata_start_address & 0x3, 0);
-        assert_eq!(firmware_rodata_end_address & 0x3, 0);
-
-        // Keep machine-level interrupt controllers inaccessible to S-mode
-        // only when the IMSIC device retained them for firmware use.
-        if let Some(irq_mmio) = &pmp.irq_mmio {
-            const QEMU_VIRT_CLINT_SIZE: usize = 0x1_0000;
-            let clint_start = irq_mmio.clint_start;
-            let clint_end = clint_start + QEMU_VIRT_CLINT_SIZE;
-            let aplic_start = irq_mmio.aplic.start().as_usize();
-            let aplic_end = irq_mmio.aplic.end().as_usize();
-            let machine_imsic_start = irq_mmio.imsic_start;
-            let machine_imsic_end = irq_mmio.imsic_end;
-
-            set_pmp_config(0, PmpRange::Off, PmpPermission::None, false);
-            PmpAddress::<0>::write(0);
-            set_pmp_config(1, PmpRange::Tor, PmpPermission::Rwx, false);
-            PmpAddress::<1>::write(clint_start >> 2);
-            set_pmp_config(2, PmpRange::Tor, PmpPermission::None, false);
-            PmpAddress::<2>::write(clint_end >> 2);
-            set_pmp_config(3, PmpRange::Tor, PmpPermission::Rwx, false);
-            PmpAddress::<3>::write(aplic_start >> 2);
-            set_pmp_config(4, PmpRange::Tor, PmpPermission::None, false);
-            PmpAddress::<4>::write(aplic_end >> 2);
-            set_pmp_config(5, PmpRange::Tor, PmpPermission::Rwx, false);
-            PmpAddress::<5>::write(machine_imsic_start >> 2);
-            set_pmp_config(6, PmpRange::Tor, PmpPermission::None, false);
-            PmpAddress::<6>::write(machine_imsic_end >> 2);
-            set_pmp_config(7, PmpRange::Tor, PmpPermission::Rwx, false);
-            PmpAddress::<7>::write(firmware_ram.start >> 2);
-            set_pmp_config(8, PmpRange::Tor, PmpPermission::Rwx, false);
-            PmpAddress::<8>::write(firmware_start_address >> 2);
-            set_pmp_config(9, PmpRange::Tor, PmpPermission::R, false);
-            PmpAddress::<9>::write(firmware_rodata_start_address >> 2);
-            set_pmp_config(10, PmpRange::Tor, PmpPermission::None, false);
-            PmpAddress::<10>::write(firmware_rodata_end_address >> 2);
-            set_pmp_config(11, PmpRange::Tor, PmpPermission::Rw, false);
-            PmpAddress::<11>::write(firmware_end_address >> 2);
-            set_pmp_config(12, PmpRange::Tor, PmpPermission::Rwx, false);
-            PmpAddress::<12>::write(firmware_ram.end >> 2);
-            set_pmp_config(13, PmpRange::Tor, PmpPermission::Rwx, false);
-            PmpAddress::<13>::write(usize::MAX >> 2);
-            return;
+        if layout.alias_end_index == Some(slot) {
+            // Both TOR bounds and the deny entry must hold before the final grant.
+            assert_eq!(pmp::read_addr(index - 1), Some(layout.entries[slot - 1].2));
+            assert_eq!(pmp::read_entry(index), Some((entry, address)));
         }
+    }
+    // SAFETY: Startup still owns the hart with recovery active, interrupts masked,
+    // MPRV clear and no lower-mode trap context to preserve.
+    unsafe { runtime::fence::synchronize_translations() };
+}
 
-        set_pmp_config(0, PmpRange::Off, PmpPermission::None, false);
-        PmpAddress::<0>::write(0);
-        set_pmp_config(1, PmpRange::Tor, PmpPermission::Rwx, false);
-        PmpAddress::<1>::write(firmware_ram.start >> 2);
-        set_pmp_config(2, PmpRange::Tor, PmpPermission::Rwx, false);
-        PmpAddress::<2>::write(firmware_start_address >> 2);
-        set_pmp_config(3, PmpRange::Tor, PmpPermission::R, false);
-        PmpAddress::<3>::write(firmware_rodata_start_address >> 2);
-        set_pmp_config(4, PmpRange::Tor, PmpPermission::None, false);
-        PmpAddress::<4>::write(firmware_rodata_end_address >> 2);
-        set_pmp_config(5, PmpRange::Tor, PmpPermission::Rw, false); // FIXME: should be `R`; `RW` temporarily allows S-mode DTB modification.
-        PmpAddress::<5>::write(firmware_end_address >> 2);
-        set_pmp_config(6, PmpRange::Tor, PmpPermission::Rwx, false);
-        PmpAddress::<6>::write(firmware_ram.end >> 2);
-        if let Some(alias) = pmp.noncacheable_alias_offset {
-            assert!(alias.is_power_of_two() && alias >= firmware_ram.end as u64);
-            let start = (firmware_start_address as u64)
-                .checked_add(alias)
-                .expect("BUG: V821 firmware alias start overflowed");
-            let end = (firmware_end_address as u64)
-                .checked_add(alias)
-                .expect("BUG: V821 firmware alias end overflowed");
-            assert!(end >> 2 <= usize::MAX as u64);
-            // Deny the firmware alias before permitting the wider physical address space.
-            set_pmp_config(7, PmpRange::Off, PmpPermission::None, false);
-            PmpAddress::<7>::write((start >> 2) as usize);
-            set_pmp_config(8, PmpRange::Tor, PmpPermission::None, false);
-            PmpAddress::<8>::write((end >> 2) as usize);
-            assert_eq!(PmpAddress::<8>::read(), (end >> 2) as usize);
-            set_pmp_config(9, PmpRange::Napot, PmpPermission::Rwx, false);
-            PmpAddress::<9>::write(usize::MAX);
-        } else {
-            set_pmp_config(7, PmpRange::Tor, PmpPermission::Rwx, false);
-            PmpAddress::<7>::write(usize::MAX >> 2);
-        }
+fn permission_str(permission: PmpPermission) -> &'static str {
+    match permission {
+        PmpPermission::R => "R",
+        PmpPermission::W => "W",
+        PmpPermission::X => "X",
+        PmpPermission::Rw => "RW",
+        PmpPermission::Rx => "RX",
+        PmpPermission::Wx => "WX",
+        PmpPermission::Rwx => "RWX",
+        PmpPermission::None => "NONE",
     }
 }
 
-/// A PMP permission formatter for logs.
-#[repr(transparent)]
-struct PermissionWrapper(pub PmpPermission);
-
-/// A PMP range formatter for logs.
-#[repr(transparent)]
-struct RangeWrapper(pub PmpRange);
-
-impl fmt::Display for PermissionWrapper {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.pad(match self.0 {
-            PmpPermission::R => "R",
-            PmpPermission::W => "W",
-            PmpPermission::X => "X",
-            PmpPermission::Rw => "RW",
-            PmpPermission::Rx => "RX",
-            PmpPermission::Wx => "WX",
-            PmpPermission::Rwx => "RWX",
-            PmpPermission::None => "NONE",
-        })
-    }
-}
-
-impl fmt::Display for RangeWrapper {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.pad(match self.0 {
-            PmpRange::Off => "OFF",
-            PmpRange::Tor => "TOR",
-            PmpRange::Na4 => "NA4",
-            PmpRange::Napot => "NAPOT",
-        })
+fn range_str(range: PmpRange) -> &'static str {
+    match range {
+        PmpRange::Off => "OFF",
+        PmpRange::Tor => "TOR",
+        PmpRange::Na4 => "NA4",
+        PmpRange::Napot => "NAPOT",
     }
 }
 
 /// Logs the active PMP configuration.
 pub fn log_pmp_cfg() {
-    let pmp_config = |index: usize| {
-        #[cfg(target_pointer_width = "32")]
-        if index >= 4 {
-            let (word, slot) = if index < 8 {
-                (PmpConfiguration::<1>::read(), index - 4)
-            } else {
-                (PmpConfiguration::<2>::read(), index - 8)
-            };
-            return PmpEntry::from_bits((word >> (slot * 8)) as u8);
-        }
-        #[cfg(target_pointer_width = "64")]
-        if index >= 8 {
-            return PmpEntry::from_bits((PmpConfiguration::<2>::read() >> ((index - 8) * 8)) as u8);
-        }
-        PmpEntry::from_bits((PmpConfiguration::<0>::read() >> (index * 8)) as u8)
-    };
+    let layout = PMP
+        .get()
+        .expect("BUG: PMP layout used before initialization");
+    let count = u8::try_from(layout.entries.len()).expect("PMP entry count fits in u8");
 
-    let get_pmp_range = |index: usize| -> RangeWrapper { RangeWrapper(pmp_config(index).range) };
-    let get_pmp_permission =
-        |index: usize| -> PermissionWrapper { PermissionWrapper(pmp_config(index).permission) };
     info!("PMP Configuration");
-
     info!(
         "{:<5} {:<10} {:<15} {:<30}",
         "PMP", "Range", "Permission", "Address"
     );
 
-    let log_entry = |index, address: usize| {
-        info!(
-            "{:<5} {:<10} {:<15} 0x{:016x}",
-            index,
-            get_pmp_range(index),
-            get_pmp_permission(index),
-            (address as u64) << 2,
-        );
-    };
-    seq_macro::seq!(N in 0..8 {
-        log_entry(N, PmpAddress::<N>::read());
-    });
-    if PMP
-        .get()
-        .expect("BUG: PMP layout used before initialization")
-        .noncacheable_alias_offset
-        .is_some()
-    {
-        seq_macro::seq!(N in 8..10 {
-            log_entry(N, PmpAddress::<N>::read());
-        });
+    for index in 0..count {
+        if let Some((entry, address)) = pmp::read_entry(index) {
+            info!(
+                "{:<5} {:<10} {:<15} 0x{:016x}",
+                index,
+                range_str(entry.range),
+                permission_str(entry.permission),
+                (address as u64) << 2,
+            );
+        }
     }
 }
 

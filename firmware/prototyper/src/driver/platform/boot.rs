@@ -29,7 +29,7 @@ static SUPERVISOR_MEMORY: Once<SupervisorMemory> = Once::new();
 static READY: AtomicBool = AtomicBool::new(false);
 
 /// Runs the common startup sequence with the selected board's operations.
-pub(super) fn init(platform_description: PlatformDescription, board: &dyn Board) -> Result<usize> {
+pub(crate) fn init(platform_description: PlatformDescription, board: &dyn Board) -> Result<usize> {
     let (model, timebase_frequency_hz, console_description, reset_description, mut pmu, interrupts) =
         platform_description.inspect(|platform| {
             let timebase_frequency_hz = harts::describe(&platform)?;

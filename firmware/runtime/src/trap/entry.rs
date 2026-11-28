@@ -1,62 +1,34 @@
 //! Machine trap entry and return with integer-register preservation.
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-use csr::machine;
+use core::mem::offset_of;
+use riscv_csr_spec::standard::isa::privileged::machine::{
+    Mcause, Mepc, Mscratch, Mstatus, Mtinst, Mtval, Mtval2,
+};
 
 use super::frame::SavedTrap;
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-use super::frame::{TrapFrame, TrapInfo};
 
 pub(crate) const FRAME_BYTES: usize = core::mem::size_of::<SavedTrap>().next_multiple_of(16);
-
-#[cfg(target_arch = "riscv32")]
-const STATUS_HIGH_NUMBER: u16 = machine::StatusHigh::NUMBER;
-#[cfg(target_arch = "riscv64")]
-const STATUS_HIGH_NUMBER: u16 = machine::Status::NUMBER; // Unused assembly branch.
-
-#[cfg(target_arch = "riscv32")]
-macro_rules! store {
-    ($reg:literal, $offset:literal, $base:literal) => {
-        concat!("sw ", $reg, ", 4*(", $offset, ")(", $base, ")")
-    };
-}
-#[cfg(target_arch = "riscv64")]
-macro_rules! store {
-    ($reg:literal, $offset:literal, $base:literal) => {
-        concat!("sd ", $reg, ", 8*(", $offset, ")(", $base, ")")
-    };
-}
-#[cfg(target_arch = "riscv32")]
-macro_rules! load {
-    ($reg:literal, $offset:literal, $base:literal) => {
-        concat!("lw ", $reg, ", 4*(", $offset, ")(", $base, ")")
-    };
-}
-#[cfg(target_arch = "riscv64")]
-macro_rules! load {
-    ($reg:literal, $offset:literal, $base:literal) => {
-        concat!("ld ", $reg, ", 8*(", $offset, ")(", $base, ")")
-    };
-}
 
 // Share the layout and restore sequence across optional-CSR variants.
 // Boot selects a variant only after establishing its CSR availability.
 macro_rules! trap_vector {
-    ($name:ident, $high:literal, $hypervisor:literal) => {
+    ($name:ident, $hypervisor:literal $(, $high_field:ident = $save_high:literal)?) => {
         /// Handles a hardware machine trap using Runtime's stack protocol.
         ///
         /// # Safety
         ///
-        /// Enter only through a hardware trap on this hart.
-        /// In Runtime, `sp` must address a valid Runtime stack and `mscratch` must be zero.
-        /// In a payload of any privilege, `mscratch` must hold this hart's clean Runtime stack top.
-        /// Every optional CSR used by this entry must exist on the hart.
-        #[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
+        /// 1. Enter through a hardware trap on a hart implementing the optional
+        ///    CSRs used by this vector.
+        /// 2. During Runtime execution, `mscratch` must be zero and `sp` must
+        ///    address the hart's Runtime stack. During payload execution,
+        ///    `mscratch` must hold the clean Runtime stack top.
+        /// 3. The selected Runtime stack must be 16-byte aligned and have room
+        ///    for the trap frame and the Rust handler's calls.
+        #[unsafe(naked)]
         pub(crate) unsafe extern "C" fn $name() {
-            #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
             core::arch::naked_asm!(
                 ".balign 4",
-                // mscratch is zero during Runtime execution and a clean
-                // Runtime stack top while running a payload of any privilege.
+                // A zero after the swap identifies a nested Runtime trap, which
+                // must extend the interrupted stack instead of reusing its top.
                 "csrrw sp, {scratch}, sp",
                 "bnez sp, 2f",
                 "csrr sp, {scratch}",
@@ -111,12 +83,15 @@ macro_rules! trap_vector {
                 store!("t0", "{cause}", "sp"),
                 "csrr t0, {tval_csr}",
                 store!("t0", "{tval}", "sp"),
-                "li t0, 0",
-                ".if {high}",
-                "csrr t0, {status_high_csr}",
-                ".endif",
-                store!("t0", "{status_high}", "sp"),
-                store!("t0", "{original_status_high}", "sp"),
+                $(
+                    concat!(".if ", $save_high),
+                    "csrr t0, {status_high_csr}",
+                    ".else",
+                    "li t0, 0",
+                    ".endif",
+                    store!("t0", "{status_high}", "sp"),
+                    store!("t0", "{original_status_high}", "sp"),
+                )?
                 "li t0, 0",
                 "li t1, 0",
                 ".if {hypervisor}",
@@ -130,20 +105,24 @@ macro_rules! trap_vector {
                 // Clear MPRV before Rust runs so nested probes use M-mode accesses.
                 "li t0, {clear_status}",
                 "csrc {status_csr}, t0",
-                ".if {high}",
-                "li t0, 1 << 10",
-                "csrc {status_high_csr}, t0",
-                ".endif",
+                $(
+                    concat!(".if ", $save_high),
+                    "li t0, {mdt_high}",
+                    "csrc {status_high_csr}, t0",
+                    ".endif",
+                )?
                 "csrw {scratch}, zero",
                 "mv a0, sp",
                 "call {dispatch}",
                 // Restore return state from the frame; nested traps may change live CSRs.
                 load!("t0", "{epc}", "sp"),
                 "csrw {epc_csr}, t0",
-                ".if {high}",
-                load!("t0", "{status_high}", "sp"),
-                "csrw {status_high_csr}, t0",
-                ".endif",
+                $(
+                    concat!(".if ", $save_high),
+                    load!("t0", "{status_high}", "sp"),
+                    "csrw {status_high_csr}, t0",
+                    ".endif",
+                )?
                 load!("t0", "{status}", "sp"),
                 // A return to an M-mode payload republishes its Runtime stack;
                 // a nested Runtime return keeps mscratch zero.
@@ -193,49 +172,80 @@ macro_rules! trap_vector {
                 load!("sp", "1", "sp"),
                 "mret",
                 frame_size = const FRAME_BYTES,
-                epc = const (core::mem::offset_of!(SavedTrap, frame) + core::mem::offset_of!(TrapFrame, epc)) / core::mem::size_of::<usize>(),
-                status = const (core::mem::offset_of!(SavedTrap, frame) + core::mem::offset_of!(TrapFrame, status)) / core::mem::size_of::<usize>(),
-                status_high = const (core::mem::offset_of!(SavedTrap, frame) + core::mem::offset_of!(TrapFrame, status_high)) / core::mem::size_of::<usize>(),
-                original_epc = const (core::mem::offset_of!(SavedTrap, info) + core::mem::offset_of!(TrapInfo, epc)) / core::mem::size_of::<usize>(),
-                original_status = const (core::mem::offset_of!(SavedTrap, info) + core::mem::offset_of!(TrapInfo, status)) / core::mem::size_of::<usize>(),
-                original_status_high = const (core::mem::offset_of!(SavedTrap, info) + core::mem::offset_of!(TrapInfo, status_high)) / core::mem::size_of::<usize>(),
-                cause = const (core::mem::offset_of!(SavedTrap, info) + core::mem::offset_of!(TrapInfo, cause)) / core::mem::size_of::<usize>(),
-                tval = const (core::mem::offset_of!(SavedTrap, info) + core::mem::offset_of!(TrapInfo, tval)) / core::mem::size_of::<usize>(),
-                tval2 = const (core::mem::offset_of!(SavedTrap, info) + core::mem::offset_of!(TrapInfo, tval2)) / core::mem::size_of::<usize>(),
-                instruction = const (core::mem::offset_of!(SavedTrap, info) + core::mem::offset_of!(TrapInfo, instruction)) / core::mem::size_of::<usize>(),
-                hypervisor_offset = const (core::mem::offset_of!(SavedTrap, info) + core::mem::offset_of!(TrapInfo, has_hypervisor)) / core::mem::size_of::<usize>(),
-                runtime_stack = const core::mem::offset_of!(SavedTrap, runtime_stack) / core::mem::size_of::<usize>(),
-                scratch = const machine::Scratch::NUMBER,
-                epc_csr = const machine::ExceptionPc::NUMBER,
-                status_csr = const machine::Status::NUMBER,
-                status_high_csr = const STATUS_HIGH_NUMBER,
-                cause_csr = const machine::Cause::NUMBER,
-                tval_csr = const machine::TrapValue::NUMBER,
-                tval2_csr = const machine::TrapValue2::NUMBER,
-                instruction_csr = const machine::TrapInstruction::NUMBER,
-                clear_status = const (1usize << 17) | {
-                    #[cfg(target_pointer_width = "64")]
-                    { 1usize << 42 }
-                    #[cfg(target_pointer_width = "32")]
-                    { 0 }
-                },
-                high = const $high,
+                epc = const offset_of!(SavedTrap, frame.epc) / size_of::<usize>(),
+                status = const offset_of!(SavedTrap, frame.status) / size_of::<usize>(),
+                original_epc = const offset_of!(SavedTrap, info.epc) / size_of::<usize>(),
+                original_status = const offset_of!(SavedTrap, info.status) / size_of::<usize>(),
+                $(
+                    status_high = const offset_of!(SavedTrap, frame.$high_field) / size_of::<usize>(),
+                    original_status_high = const offset_of!(SavedTrap, info.$high_field) / size_of::<usize>(),
+                    status_high_csr = const Mstatush::NUMBER,
+                    mdt_high = const Mstatush::MDT.mask(),
+                )?
+                cause = const offset_of!(SavedTrap, info.cause) / size_of::<usize>(),
+                tval = const offset_of!(SavedTrap, info.tval) / size_of::<usize>(),
+                tval2 = const offset_of!(SavedTrap, info.tval2) / size_of::<usize>(),
+                instruction = const offset_of!(SavedTrap, info.instruction) / size_of::<usize>(),
+                hypervisor_offset = const offset_of!(SavedTrap, info.has_hypervisor) / size_of::<usize>(),
+                runtime_stack = const offset_of!(SavedTrap, runtime_stack) / size_of::<usize>(),
+                scratch = const Mscratch::NUMBER,
+                epc_csr = const Mepc::NUMBER,
+                status_csr = const Mstatus::NUMBER,
+                cause_csr = const Mcause::NUMBER,
+                tval_csr = const Mtval::NUMBER,
+                tval2_csr = const Mtval2::NUMBER,
+                instruction_csr = const Mtinst::NUMBER,
+                clear_status = const CLEAR_STATUS,
                 hypervisor = const $hypervisor,
                 dispatch = sym super::dispatch::trap_dispatch,
             );
-            #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-            {
-                let _ = super::dispatch::trap_dispatch;
-                panic!("trap entry requires RISC-V");
-            }
         }
     };
 }
 
-trap_vector!(trap_entry, 0, 0);
-#[cfg(target_pointer_width = "32")]
-trap_vector!(trap_entry_high, 1, 0);
-#[cfg(target_pointer_width = "32")]
-trap_vector!(trap_entry_hypervisor, 1, 1);
-#[cfg(target_pointer_width = "64")]
-trap_vector!(trap_entry_hypervisor, 0, 1);
+pub(crate) fn is_runtime_entry(base: usize) -> bool {
+    #[cfg(target_arch = "riscv32")]
+    if base == trap_entry_high as *const () as usize {
+        return true;
+    }
+    base == trap_entry as *const () as usize || base == trap_entry_hypervisor as *const () as usize
+}
+
+cfg_select! {
+    target_arch = "riscv32" => {
+        use riscv_csr_spec::standard::isa::privileged::machine::Mstatush;
+        const CLEAR_STATUS: usize = Mstatus::MPRV.mask();
+
+        macro_rules! store {
+            ($reg:literal, $offset:literal, $base:literal) => {
+                concat!("sw ", $reg, ", 4*(", $offset, ")(", $base, ")")
+            };
+        }
+        macro_rules! load {
+            ($reg:literal, $offset:literal, $base:literal) => {
+                concat!("lw ", $reg, ", 4*(", $offset, ")(", $base, ")")
+            };
+        }
+
+        trap_vector!(trap_entry, 0, status_high = 0);
+        trap_vector!(trap_entry_high, 0, status_high = 1);
+        trap_vector!(trap_entry_hypervisor, 1, status_high = 1);
+    }
+    target_arch = "riscv64" => {
+        const CLEAR_STATUS: usize = Mstatus::MPRV.mask() | Mstatus::MDT.mask();
+
+        macro_rules! store {
+            ($reg:literal, $offset:literal, $base:literal) => {
+                concat!("sd ", $reg, ", 8*(", $offset, ")(", $base, ")")
+            };
+        }
+        macro_rules! load {
+            ($reg:literal, $offset:literal, $base:literal) => {
+                concat!("ld ", $reg, ", 8*(", $offset, ")(", $base, ")")
+            };
+        }
+
+        trap_vector!(trap_entry, 0);
+        trap_vector!(trap_entry_hypervisor, 1);
+    }
+}

@@ -11,6 +11,7 @@
 
 #![forbid(unsafe_code)]
 
+use riscv_csr_spec::standard::isa::values::status::Privilege;
 use runtime::{
     Result,
     boot::NextStage,
@@ -62,7 +63,7 @@ impl SbiHsm {
         let stage = NextStage {
             start_addr: resume_addr,
             opaque,
-            next_mode: csr::machine::TargetPrivilege::Supervisor,
+            next_mode: Privilege::Supervisor,
         };
         let ticket = match hart::begin_nonretentive_resume(stage) {
             Ok(ticket) => ticket,
@@ -89,7 +90,7 @@ impl Hsm for SbiHsm {
         let stage = NextStage {
             start_addr,
             opaque,
-            next_mode: csr::machine::TargetPrivilege::Supervisor,
+            next_mode: Privilege::Supervisor,
         };
         match hart::start(hart, stage) {
             Ok(hart::StartOutcome::Accepted) => SbiRet::success(0),

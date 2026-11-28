@@ -1,5 +1,5 @@
-//! Vendor-specific CSR definitions.
+//! Vendor-specific CSR definitions and hardware access.
 
 pub mod andes;
-pub mod spacemit;
-pub mod thead;
+
+pub use riscv_csr_spec::vendor::{spacemit, thead};

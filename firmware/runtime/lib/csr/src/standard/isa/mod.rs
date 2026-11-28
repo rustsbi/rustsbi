@@ -1,6 +1,5 @@
-//! Registers defined by the RISC-V Instruction Set Architecture.
-pub mod values;
+//! RISC-V instruction-set register access and portable definitions.
 
-pub mod unprivileged;
+pub use riscv_csr_spec::standard::isa::{unprivileged, values};
 
 pub mod privileged;

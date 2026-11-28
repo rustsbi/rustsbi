@@ -7,15 +7,15 @@ compile_error!("feature \"payload\" and feature \"jump\" cannot be enabled at th
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    use csr::machine::{Cause, ExceptionPc, TrapValue};
     let hart_id = HartId::current()
         .map(|hart| hart.as_usize())
         .unwrap_or(usize::MAX);
+    let fault = runtime::trap::current_fault_snapshot();
     error!("Hart {} {info}", hart_id);
     error!("-----------------------------");
-    error!("mcause:  {:?}", Cause::read());
-    error!("mepc:    {:#018x}", usize::from(ExceptionPc::read()));
-    error!("mtval:   {:#018x}", usize::from(TrapValue::read()));
+    error!("mcause:  {:?}", fault.mcause);
+    error!("mepc:    {:#018x}", fault.mepc.bits());
+    error!("mtval:   {:#018x}", fault.mtval.bits());
     error!("-----------------------------");
     error!("System shutdown scheduled due to RustSBI panic");
     loop {}
@@ -32,10 +32,10 @@ cfg_if::cfg_if! {
     if #[cfg(not(any(feature = "payload", feature = "jump")))] {
         use crate::firmware::dynamic;
         use crate::sbi::reset;
-        use csr::machine::TargetPrivilege;
+        use riscv_csr_spec::standard::isa::values::status::Privilege;
         /// Handles invalid dynamic information data by logging details and resetting.
         #[cold]
-        pub fn invalid_dynamic_data(err: dynamic::ValidationError) -> (TargetPrivilege, usize) {
+        pub fn invalid_dynamic_data(err: dynamic::ValidationError) -> (Privilege, usize) {
             error!("Invalid data in dynamic information:");
             if err.invalid_next_mode {
                 error!("* dynamic information contains invalid privilege mode");
@@ -43,11 +43,11 @@ cfg_if::cfg_if! {
             if err.invalid_next_address {
                 error!("* dynamic information contains invalid next jump address");
             }
-            let next_mode_name = match err.dynamic_info.next_mode {
-                3 => "Machine",
-                1 => "Supervisor",
-                0 => "User",
-                _ => "Invalid",
+            let next_mode_name = match Privilege::try_from(err.dynamic_info.next_mode) {
+                Ok(Privilege::Machine) => "Machine",
+                Ok(Privilege::Supervisor) => "Supervisor",
+                Ok(Privilege::User) => "User",
+                Err(_) => "Invalid",
             };
             error!(
                 "@ help: dynamic information contains magic value 0x{:x}, version {}, next jump address 0x{:x}, next privilege mode {} ({}), options {:x}, boot hart ID {}",

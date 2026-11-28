@@ -23,7 +23,7 @@ use crate::{
 };
 
 /// A selected machine timer before MMIO acquisition.
-pub(super) enum TimerDesc {
+pub(crate) enum TimerDesc {
     Plmt(plmt::Desc),
     Mtimer(mtimer::Desc),
 }

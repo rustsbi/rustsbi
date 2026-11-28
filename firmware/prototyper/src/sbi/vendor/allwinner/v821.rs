@@ -17,7 +17,7 @@ use runtime::{
     Error, PlatformView, Result,
     memory::{MemoryRegistry, SupervisorMemory},
     rustsbi::{self, Extension as SbiExtension, SbiRet, VendorSBI},
-    soc::allwinner::v821::{AllwinnerV821Soc, AndesStatusRegister},
+    soc::allwinner::v821::{AndesStatusRegister, V821Csr},
 };
 
 /// EID of the V821 BSP's Andes cache-maintenance extension.
@@ -41,12 +41,12 @@ impl Extensions {
     /// Initialize the timer first so cache maintenance can time out while
     /// waiting for the controller.
     pub(crate) fn init(
-        soc: AllwinnerV821Soc,
+        csr: V821Csr,
         platform: &PlatformView<'_>,
         memory: &mut MemoryRegistry,
         supervisor_memory: &'static SupervisorMemory,
     ) -> Result<Self> {
-        let cache = a27l2::describe(platform, soc)?.ok_or(Error::InvalidArgs)?;
+        let cache = a27l2::describe(platform, csr)?.ok_or(Error::InvalidArgs)?;
         let usb_dma_bypass = usb_dma_bypass::describe(platform)?;
         let cache = A27L2Cache::init(cache, memory)?;
         let usb_dma_bypass = usb_dma_bypass

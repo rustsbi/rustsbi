@@ -1,8 +1,8 @@
-use csr::machine::TargetPrivilege;
+use riscv_csr_spec::standard::isa::values::status::Privilege;
 
 /// The next stage is the embedded payload image, entered in S-mode.
-pub(crate) fn decode_next_stage(_dynamic_info_address: usize) -> (TargetPrivilege, usize) {
-    (TargetPrivilege::Supervisor, payload_address())
+pub(crate) fn decode_next_stage(_dynamic_info_address: usize) -> (Privilege, usize) {
+    (Privilege::Supervisor, payload_address())
 }
 
 #[inline]

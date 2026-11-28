@@ -211,7 +211,7 @@ pub fn stop_current() -> Result<core::convert::Infallible> {
 ///
 /// Returns [`Error::IoError`] if the firmware IPI device is unavailable.
 pub fn suspend_current() -> Result<()> {
-    irq::with_local_disabled(|irq| {
+    irq::with_local_disabled(|irq| -> Result<()> {
         let ipi = ipi::get().ok_or(Error::IoError)?;
         ipi.acknowledge(irq)?;
         ipi.process_pending(irq);

@@ -1,6 +1,79 @@
 //! Saved integer context and immutable facts for one machine trap.
 
-use csr::machine;
+use riscv_csr_spec::{
+    ReadMode, WriteMode,
+    standard::isa::{
+        privileged::machine::Mstatus,
+        values::{
+            status::{Endianness, Privilege},
+            trap::{CauseValue, TrapCause},
+            xlen::Xlen,
+        },
+    },
+};
+
+// The upper status fields live in mstatush on RV32 and in mstatus on RV64.
+cfg_select! {
+    target_arch = "riscv32" => {
+        use riscv_csr_spec::standard::isa::privileged::machine::Mstatush as UpperStatus;
+
+        impl TrapInfo {
+            fn upper_status(&self) -> UpperStatus<ReadMode> {
+                self.status_high
+            }
+
+            pub(super) fn xlen(&self, privilege: Privilege) -> Option<Xlen> {
+                matches!(privilege, Privilege::User | Privilege::Supervisor).then_some(Xlen::X32)
+            }
+        }
+
+        impl TrapFrame {
+            fn upper_status_mut(&mut self) -> &mut UpperStatus<WriteMode> {
+                &mut self.status_high
+            }
+        }
+    }
+    target_arch = "riscv64" => {
+        use Mstatus as UpperStatus;
+
+        impl TrapInfo {
+            fn upper_status(&self) -> UpperStatus<ReadMode> {
+                self.status
+            }
+
+            pub(super) fn xlen(&self, privilege: Privilege) -> Option<Xlen> {
+                match privilege {
+                    Privilege::User => self.status.get(Mstatus::UXL).ok(),
+                    Privilege::Supervisor => self.status.get(Mstatus::SXL).ok(),
+                    Privilege::Machine => None,
+                }
+            }
+        }
+
+        impl TrapFrame {
+            fn upper_status_mut(&mut self) -> &mut UpperStatus<WriteMode> {
+                &mut self.status
+            }
+        }
+    }
+}
+
+impl TrapFrame {
+    pub(super) fn leave_virtualization(&mut self) {
+        self.upper_status_mut().set(UpperStatus::MPV, false);
+    }
+
+    /// Takes the saved landing-pad expectation from `MPELP`.
+    ///
+    /// Clearing `MPELP` lets `MRET` enter the supervisor handler with
+    /// `NO_LP_EXPECTED`.
+    pub(super) fn take_previous_landing_pad(&mut self) -> bool {
+        let status = self.upper_status_mut();
+        let previous = status.get(UpperStatus::MPELP);
+        status.set(UpperStatus::MPELP, false);
+        previous
+    }
+}
 
 macro_rules! general_regs {
     ($($name:ident = $id:literal),* $(,)?) => {
@@ -52,11 +125,9 @@ general_regs! {
 #[derive(Debug)]
 pub(super) struct TrapInfo {
     pub(super) epc: usize,
-    pub(super) status: machine::Status,
+    pub(super) status: Mstatus<ReadMode>,
     #[cfg(target_pointer_width = "32")]
-    pub(super) status_high: machine::StatusHigh,
-    #[cfg(target_pointer_width = "64")]
-    pub(super) status_high: usize,
+    pub(super) status_high: UpperStatus<ReadMode>,
     /// Whether entry saved the H extension's trap metadata.
     pub(super) has_hypervisor: bool,
     pub(super) cause: usize,
@@ -72,11 +143,9 @@ pub(super) struct TrapInfo {
 pub(super) struct TrapFrame {
     pub(super) general: GeneralRegs,
     pub(super) epc: usize,
-    pub(super) status: machine::Status<csr::Write>,
+    pub(super) status: Mstatus<WriteMode>,
     #[cfg(target_pointer_width = "32")]
-    pub(super) status_high: machine::StatusHigh<csr::Write>,
-    #[cfg(target_pointer_width = "64")]
-    pub(super) status_high: usize,
+    pub(super) status_high: UpperStatus<WriteMode>,
 }
 
 /// Return context and original facts for one machine trap.
@@ -91,44 +160,47 @@ pub(super) struct SavedTrap {
 }
 
 impl TrapInfo {
-    pub(super) fn origin(&self) -> machine::Privilege {
-        self.status.get::<machine::MPP>()
+    pub(super) fn status_bits(&self) -> u64 {
+        let bits = self.status.bits() as u64;
+        #[cfg(target_pointer_width = "32")]
+        let bits = bits | (u64::from(self.status_high.bits()) << 32);
+        bits
+    }
+
+    pub(super) fn cause(&self) -> TrapCause {
+        CauseValue::from_bits(self.cause).cause(Xlen::NATIVE)
+    }
+
+    pub(super) fn origin(&self) -> Result<Privilege, usize> {
+        self.status.get(Mstatus::MPP)
+    }
+
+    /// Returns the saved non-virtualized S/U context's effective register width.
+    pub(super) fn lower_xlen(&self) -> Option<Xlen> {
+        if self.virtualized() {
+            return None;
+        }
+        self.xlen(self.origin().ok()?)
     }
 
     pub(super) fn virtualized(&self) -> bool {
-        #[cfg(target_pointer_width = "32")]
-        {
-            self.status_high.get::<machine::MPVH>() == machine::Virtualization::On
-        }
-        #[cfg(target_pointer_width = "64")]
-        {
-            self.status.get::<machine::MPV>() == machine::Virtualization::On
-        }
+        self.upper_status().get(UpperStatus::MPV)
     }
 
     pub(super) fn guest_address(&self) -> bool {
-        #[cfg(target_pointer_width = "32")]
-        {
-            self.status_high.get::<machine::GVAH>() == machine::GuestAddress::GuestVirtual
-        }
-        #[cfg(target_pointer_width = "64")]
-        {
-            self.status.get::<machine::GVA>() == machine::GuestAddress::GuestVirtual
-        }
+        self.upper_status().get(UpperStatus::GVA)
+    }
+
+    pub(super) fn supervisor_endianness(&self) -> Endianness {
+        self.upper_status().get(UpperStatus::SBE)
     }
 }
 
 impl TrapFrame {
-    pub(super) fn leave_virtualization(&mut self) {
-        #[cfg(target_pointer_width = "32")]
-        {
-            self.status_high
-                .set::<machine::MPVH>(machine::Virtualization::Off);
-        }
-        #[cfg(target_pointer_width = "64")]
-        {
-            self.status
-                .set::<machine::MPV>(machine::Virtualization::Off);
-        }
+    pub(super) fn advance_pc(&mut self, length: usize, xlen: Xlen) {
+        self.epc = match xlen {
+            Xlen::X32 => (self.epc as u32).wrapping_add(length as u32) as i32 as usize,
+            Xlen::X64 => self.epc.wrapping_add(length),
+        };
     }
 }

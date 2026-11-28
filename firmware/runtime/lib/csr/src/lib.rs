@@ -1,205 +1,165 @@
-//! Typed RISC-V CSR instructions and field values.
+//! RISC-V control and status register (CSR) access for RustSBI firmware.
 //!
-//! A register such as `machine::Status` holds a complete register value.
-//! `Status<Read>` represents an observed value; `Status<Write>` represents a
-//! prepared write value.
-//! The default mode is `Read`.
-//! The markers describe data, not permission to access hardware.
-//! Field identifiers such as `machine::MIE` select a field and its semantic type.
-//! Local `get` and `set` operations execute no hardware instructions.
-//! Registers with shared scalar types, such as addresses and counters, use
-//! those semantic types directly.
-//! Registers whose complete value has register-specific meaning, such as
-//! `machine::Isa`, use one plain value type for both reads and writes.
-//!
-//! ```
-//! use csr::{Read, Write, machine::{Interrupt, MIE, MPP, Privilege, Status, TargetPrivilege}};
-//!
-//! let observed: Status<Read> = Status::from_bits(1 << 3);
-//! assert_eq!(observed.get::<MIE>(), Interrupt::Enabled);
-//!
-//! let mut prepared = Status::<Write>::default();
-//! prepared.set::<MPP>(TargetPrivilege::Supervisor);
-//! prepared.set::<MIE>(Interrupt::Enabled);
-//! assert_eq!(prepared.get::<MPP>(), Privilege::Supervisor);
-//! assert_eq!(prepared.get::<MIE>(), Interrupt::Enabled);
-//! ```
-//!
-//! `Default` starts a prepared value from zeroed local bits.
-//! It does not describe a hardware reset state or a universally valid
-//! configuration; callers set the fields their operation requires.
-//! Some registers also allow a read value to be converted to a write value,
-//! preserving every bit, including reserved encodings. The register's write
-//! contract still applies to the complete value.
-//!
-//! Ordinary `read()` observes the current hart's register without changing it.
-//! Inaccessible or unavailable hardware can trap.
-//! Runtime owns probing, recovery, privilege checks, and hart-local execution.
-//!
-//! [`detect!`] generates fallible read probes for selected registers.
-//! Each check executes a read-only CSR instruction and records an
-//! `.trap_fixup` entry; the firmware supplies trap recovery and the error
-//! value. The macro performs no readiness check.
-//!
-//! Writes and operations with side effects are unsafe.
-//! Their callers must establish current-hart access, coordinate conflicting
-//! operations, and preserve the register's documented execution requirements.
-//! Typed encodings do not prove that a hardware transition is safe.
-//!
-//! `modify` reads a snapshot and writes the edited value back.
-//! This sequence is not atomic.
-//!
-//! See [`machine::InterruptPending`] and [`aia::machine::Mtopei`] for
-//! registers that require dedicated operations.
-//!
-//! Pending-bit operations reject interrupt-enable fields:
-//!
-//! ```compile_fail,E0277
-//! # #![cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), no_std)]
-//! # #![cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), no_main)]
-//! # #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-//! # #[panic_handler]
-//! # fn panic(_: &core::panic::PanicInfo<'_>) -> ! { loop {} }
-//! # fn main() {
-//! use csr::machine;
-//! unsafe { machine::InterruptPending::set_bit::<machine::MSIE>(); }
-//! # }
-//! ```
-//!
-//! Pending state has no whole-register write:
-//!
-//! ```compile_fail,E0599
-//! # #![cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), no_std)]
-//! # #![cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), no_main)]
-//! # #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-//! # #[panic_handler]
-//! # fn panic(_: &core::panic::PanicInfo<'_>) -> ! { loop {} }
-//! # fn main() {
-//! use csr::machine;
-//! unsafe { machine::InterruptPending::write(machine::InterruptPending::read()); }
-//! # }
-//! ```
-//!
-//! Execution-environment writes require their safety contract:
-//!
-//! ```compile_fail,E0133
-//! # #![cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), no_std)]
-//! # #![cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), no_main)]
-//! # #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-//! # #[panic_handler]
-//! # fn panic(_: &core::panic::PanicInfo<'_>) -> ! { loop {} }
-//! # fn main() {
-//! use csr::machine;
-//! machine::Status::modify(|_, value| {
-//!     value.set::<machine::MIE>(machine::Interrupt::Enabled);
-//! });
-//! # }
-//! ```
-//!
-//! An observed value cannot be edited in place:
-//!
-//! ```compile_fail,E0599
-//! use csr::machine::{Interrupt, MIE, Status};
-//! let mut observed = Status::from_bits(0);
-//! observed.set::<MIE>(Interrupt::Enabled);
-//! ```
-//!
-//! A read value cannot be passed directly to a register write:
-//!
-//! ```compile_fail,E0308
-//! use csr::machine::Status;
-//! unsafe { Status::write(Status::from_bits(0)); }
-//! ```
-//!
-//! Reserved read encodings are not accepted as field write values:
-//!
-//! ```compile_fail,E0308
-//! use csr::{Write, machine::{MPP, Privilege, Status}};
-//! let mut prepared = Status::<Write>::default();
-//! prepared.set::<MPP>(Privilege::Unknown(2));
-//! ```
+//! [`standard`] and [`vendor`] re-export the definitions from [`riscv_csr_spec`].
+//! [`Read`], [`Write`], and [`Claim`] operate on the current hart.
+//! A standard CSR with [`StandardRead`] permits a safe read.
+//! Vendor reads, writes, claims, and [recoverable accesses](recovery) have caller obligations.
+
 #![no_std]
+#![deny(missing_docs)]
 
-mod macros;
-mod value;
+#[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
+compile_error!("rustsbi-csr requires RISC-V; use riscv-csr-spec for portable definitions");
 
-pub use value::{Read, Write};
+pub use riscv_csr_spec::{Clear, Csr, Field, Mask, ReadMode, Set, StandardRead, Width, WriteMode};
+use riscv_csr_spec::{ClaimSpec, ReadSpec, WriteSpec};
 
-mod standard;
+mod instruction;
+pub mod recovery;
+pub mod standard;
 pub mod vendor;
 
-pub use standard::isa::{
-    privileged::{hypervisor, machine, supervisor, virtual_supervisor},
-    unprivileged::counter_timer as user,
-    values,
-};
-pub use standard::aia;
+/// CSR access that reads a value without requesting a write.
+pub trait Read: ReadSpec {
+    /// Reads and decodes a standard CSR on the current hart.
+    ///
+    /// Unavailable or forbidden access traps.
+    /// On RV32, [counter reads](https://docs.riscv.org/reference/isa/v20260120/unpriv/counters.html)
+    /// account for a carry from the low word.
+    /// A concurrent write to a configuration register or timer comparator
+    /// can yield a snapshot containing words from different values.
+    #[inline(always)]
+    fn read() -> Self::Value
+    where
+        Self: StandardRead,
+    {
+        // SAFETY: StandardRead admits only standard CSRs with side-effect-free reads.
+        unsafe { Self::read_unchecked() }
+    }
 
-#[cfg(test)]
-mod tests {
-    use super::{
-        hypervisor, machine, supervisor, user,
-        values::{
-            StateEnableSet,
-            xlen::{TargetXlen, Xlen},
-        },
-    };
+    /// Reads and decodes a CSR, including a vendor-specific register.
+    ///
+    /// Unavailable or forbidden access traps.
+    ///
+    /// # Safety
+    ///
+    /// If the CSR exists, establish that this number has the declared meaning
+    /// on the current hart, including its model and revision for vendor CSRs.
+    /// Coordinate any read effects with other users of the device and its memory.
+    #[inline(always)]
+    unsafe fn read_unchecked() -> Self::Value {
+        // SAFETY: The caller establishes applicability and owns any read effects.
+        unsafe { instruction::Direct::read::<Self>() }
+            .expect("unprotected CSR reads cannot return a recovery error")
+    }
 
-    #[test]
-    fn rv32_high_register_definitions_are_available() {
-        assert_eq!(
-            [
-                hypervisor::StateEnable0High::NUMBER,
-                hypervisor::StateEnable1High::NUMBER,
-                hypervisor::StateEnable2High::NUMBER,
-                hypervisor::StateEnable3High::NUMBER,
-                machine::StateEnable0High::NUMBER,
-                machine::StateEnable1High::NUMBER,
-                machine::StateEnable2High::NUMBER,
-                machine::StateEnable3High::NUMBER,
-                machine::StatusHigh::NUMBER,
-                machine::CycleCounterHigh::NUMBER,
-                machine::InstructionCounterHigh::NUMBER,
-                machine::PerformanceCounterHigh::<3>::NUMBER,
-                machine::PerformanceEventHigh::<3>::NUMBER,
-                supervisor::TimerCompareHigh::NUMBER,
-                user::TimeHigh::NUMBER,
-            ],
-            [
-                0x61c, 0x61d, 0x61e, 0x61f, 0x31c, 0x31d, 0x31e, 0x31f, 0x310, 0xb80, 0xb82, 0xb83,
-                0x723, 0x15d, 0xc81,
-            ]
-        );
-        assert_eq!(usize::from(StateEnableSet::lower_registers_high()), 1 << 31);
-
-        let mut high = machine::StatusHigh::<super::Write>::default();
-        high.set::<machine::GVAH>(machine::GuestAddress::GuestVirtual);
-        high.set::<machine::MPVH>(machine::Virtualization::On);
-        assert_eq!(usize::from(high), (1 << 6) | (1 << 7));
-        #[cfg(target_pointer_width = "64")]
-        {
-            let mut status = machine::Status::<super::Write>::default();
-            status.set::<machine::SXL>(TargetXlen::X32);
-            assert_eq!(usize::from(status), 1 << 34);
-            assert_eq!(
-                machine::Status::<super::Read>::from_bits(usize::from(status))
-                    .get::<machine::SXL>(),
-                Some(Xlen::X32)
-            );
-
-            let mut status = machine::Status::<super::Write>::default();
-            status.set::<machine::SXL>(TargetXlen::X64);
-            assert_eq!(usize::from(status), 2 << 34);
-            assert_eq!(
-                machine::Status::<super::Read>::from_bits(usize::from(status))
-                    .get::<machine::SXL>(),
-                Some(Xlen::X64)
-            );
-
-            let mut status = machine::Status::<super::Write>::default();
-            status.set::<machine::GVA>(machine::GuestAddress::GuestVirtual);
-            status.set::<machine::MPV>(machine::Virtualization::On);
-            assert_eq!(usize::from(status), (1 << 38) | (1 << 39));
-        }
+    /// Reads a CSR and returns [`AccessError::IllegalInstruction`] if the instruction traps as illegal.
+    ///
+    /// Uses the same decoding and RV32 read protocol as [`Self::read_unchecked`].
+    ///
+    /// # Safety
+    ///
+    /// 1. Establish the [machine-trap recovery ABI](recovery), including its
+    ///    requirements for the handler, linker records, and live trap-return state.
+    /// 2. Uphold the hardware and read-effect requirements of [`Self::read_unchecked`].
+    #[inline(always)]
+    unsafe fn try_read() -> Result<Self::Value, AccessError> {
+        // SAFETY: The caller establishes the recovery ABI and register context.
+        unsafe { instruction::Recoverable::read::<Self>() }
     }
 }
+
+impl<T: ReadSpec> Read for T {}
+
+/// Write access with operands permitted by the CSR definition.
+pub trait Write: Csr {
+    /// Executes the write operation permitted for `V`.
+    ///
+    /// A whole-value write suppresses the read of each CSR word.
+    /// [`Set`] and [`Clear`] update one word atomically.
+    /// Operands that support readback return the previous value.
+    ///
+    /// On RV32, the intermediate timer comparator values are at least the
+    /// smaller of the old and new deadlines.
+    /// Counter writes can expose an intermediate value to other readers.
+    /// Stop accumulation first if the replacement counter value must be exact.
+    ///
+    /// # Safety
+    ///
+    /// 1. Establish that the CSR is accessible on the intended hart.
+    ///    For a vendor CSR, confirm its meaning on this core model and revision.
+    /// 2. Satisfy the register's write requirements for the operand and any
+    ///    intermediate RV32 values, and serialize conflicting updates.
+    #[inline(always)]
+    unsafe fn write<V>(value: V) -> <Self as WriteSpec<V>>::Output
+    where
+        Self: WriteSpec<V>,
+    {
+        // SAFETY: The caller owns the register effects and synchronization.
+        unsafe { instruction::Direct::write::<Self, V>(value) }
+            .expect("unprotected CSR writes cannot return a recovery error")
+    }
+
+    /// Executes a permitted write and returns [`AccessError::IllegalInstruction`] for an illegal access.
+    ///
+    /// If an RV32 multiword write fails, any earlier writes remain in effect.
+    ///
+    /// # Safety
+    ///
+    /// 1. Establish the [machine-trap recovery ABI](recovery).
+    /// 2. Uphold [`Self::write`]'s requirements for any implemented CSR.
+    ///    The CSR or an RV32 high word may be absent.
+    #[inline(always)]
+    unsafe fn try_write<V>(value: V) -> Result<<Self as WriteSpec<V>>::Output, AccessError>
+    where
+        Self: WriteSpec<V>,
+    {
+        // SAFETY: The caller establishes recovery and coordinates register effects.
+        unsafe { instruction::Recoverable::write::<Self, V>(value) }
+    }
+}
+
+impl<T: Csr> Write for T {}
+
+/// Read-write access to an IMSIC interrupt claim or an entropy-source poll.
+pub trait Claim: ClaimSpec {
+    /// Claims the top external interrupt or polls the entropy source.
+    ///
+    /// A single `csrrw` reads the old value and writes zero.
+    /// For [IMSIC](https://docs.riscv.org/reference/aia/v1.0/IMSIC.html#2-1-9-top-external-interrupt-csrs-mtopei-stopei-vstopei),
+    /// this clears the pending bit of the reported interrupt, if any.
+    /// For [`seed`](https://docs.riscv.org/reference/isa/v20260120/unpriv/scalar-crypto.html#crypto_scalar_seed_csr),
+    /// a poll consumes an entropy sample when it returns `ES16`.
+    ///
+    /// # Safety
+    ///
+    /// Execute where the interrupt file or entropy source is accessible.
+    /// Own the interrupt acknowledgment or entropy sample consumed by this operation.
+    #[inline(always)]
+    unsafe fn claim() -> Self::Value {
+        const { instruction::assert_supported_width(Self::WIDTH) }
+        let value: usize;
+        // SAFETY: The caller owns the claim and its read/write effects.
+        unsafe {
+            core::arch::asm!("csrrw {}, {}, x0", out(reg) value, const Self::NUMBER, options(nostack))
+        };
+        Self::from_claim_raw(value)
+    }
+}
+
+impl<T: ClaimSpec> Claim for T {}
+
+/// Exception reported by a recoverable CSR instruction.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AccessError {
+    /// An illegal-instruction exception, such as an access to an unavailable CSR.
+    IllegalInstruction,
+}
+
+impl core::fmt::Display for AccessError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("CSR access raised an illegal-instruction exception")
+    }
+}
+
+impl core::error::Error for AccessError {}

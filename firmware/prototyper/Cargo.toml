@@ -4,17 +4,17 @@ version = "0.0.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+publish = false
 
 [dependencies]
 bitflags.workspace = true
-csr = { package = "rustsbi-csr", path = "../runtime/lib/csr" }
 log = "0.4"
 panic-halt = "1.0.0"
 spin.workspace = true
 cfg-if = "1.0.0"
+riscv-csr-spec.workspace = true
 sbi-spec = { version = "0.0.10", path = "../../library/sbi-spec" }
 static-toml = "1"
-seq-macro.workspace = true
 runtime = { package = "rustsbi-firmware-runtime", version = "0.0.0", path = "../runtime" }
 
 [[bin]]

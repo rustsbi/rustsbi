@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 
-use super::{MmioRegion, PhysAddrRange, RegRange, SupervisorMemory, image::locate_firmware_image};
+use super::{MmioRegion, PhysAddrRange, RegRange, SupervisorMemory};
 use crate::{Error, Result};
 
 /// Tracks the physical resources issued by Runtime.
@@ -18,14 +18,7 @@ pub struct MemoryRegistry {
 }
 
 impl MemoryRegistry {
-    pub(crate) fn from_ranges(
-        ram: impl IntoIterator<Item = PhysAddrRange>,
-        reserved: impl IntoIterator<Item = PhysAddrRange>,
-    ) -> Result<(SupervisorMemory, Self)> {
-        Self::from_ranges_with_firmware(locate_firmware_image()?, ram, reserved)
-    }
-
-    fn from_ranges_with_firmware(
+    pub(crate) fn from_ranges_with_firmware(
         firmware_image_range: PhysAddrRange,
         ram: impl IntoIterator<Item = PhysAddrRange>,
         reserved: impl IntoIterator<Item = PhysAddrRange>,

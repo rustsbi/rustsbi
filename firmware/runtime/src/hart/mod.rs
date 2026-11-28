@@ -3,7 +3,7 @@
 //! SBI HSM policy and ABI translation belong to the firmware.
 
 use crate::{Error, Result};
-mod detect;
+use csr::{Read, standard::isa::privileged::machine::Mhartid};
 mod features;
 mod lifecycle;
 mod local;
@@ -11,27 +11,26 @@ mod set;
 mod topology;
 mod wakeup;
 
-pub(crate) use detect::Detect;
-
-pub use csr::values::xlen::Xlen;
 pub use features::{
     PrivilegedVersion, detect_performance_counters, detect_privileged_version, has_hypervisor,
     supervisor_xlen, supports_privilege,
 };
+pub use riscv_csr_spec::standard::isa::values::xlen::Xlen;
 
 pub use wakeup::{HartWake, install_wakeup, wakeup_installed};
 
-pub(crate) use lifecycle::{
-    ControlTransfer, HartEvent, current_hart, take_control_transfer, take_local_event,
-};
+pub(crate) use lifecycle::{ControlTransfer, take_control_transfer};
+pub(crate) use lifecycle::{HartEvent, current_hart, take_local_event};
 pub use lifecycle::{
-    HartState, ResumeTicket, StartOutcome, begin_nonretentive_resume, can_receive_ipi,
-    resume_current_retentive, stage_boot_handoff, start, status, stop_current, suspend_current,
+    HartState, StartOutcome, can_receive_ipi, resume_current_retentive, stage_boot_handoff, start,
+    status, stop_current, suspend_current,
 };
+pub use lifecycle::{ResumeTicket, begin_nonretentive_resume};
 pub use local::PerHart;
 pub use set::{HartSet, HartSetIter};
 
-pub(crate) use topology::{HART_TABLE, HartEntry, publish};
+pub(crate) use topology::HART_TABLE;
+pub(crate) use topology::{HartEntry, publish};
 
 /// A validated RISC-V hart identifier.
 ///
@@ -48,8 +47,7 @@ impl HartId {
     /// Reads and validates the current hart's `mhartid`.
     #[inline]
     pub fn current() -> Result<Self> {
-        use csr::machine;
-        Self::from_raw(machine::HartId::read().into())
+        Self::from_raw(Mhartid::read().bits())
     }
 
     /// Validates a raw hardware hart identifier.

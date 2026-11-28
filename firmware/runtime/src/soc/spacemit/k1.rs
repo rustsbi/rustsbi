@@ -12,7 +12,7 @@ use crate::Result;
 use crate::memory::{PhysAddr, RegRange};
 use crate::soc::Soc;
 
-/// A capability selected by a K1-compatible device-tree root.
+/// Resource description selected by a K1-compatible device-tree root.
 #[derive(Clone, Copy)]
 pub struct SpacemitK1Soc {
     _private: (),
@@ -44,14 +44,15 @@ impl SpacemitK1Soc {
     }
 
     /// Enables the current hart's L2 access and machine cache features.
-    pub fn initialize_hart(self) {
-        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-        // SAFETY: This capability identifies K1; Runtime executes in M-mode.
-        unsafe {
-            arch::prepare_hart()
-        };
-        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-        unimplemented!("K1 hart setup requires a RISC-V target");
+    ///
+    /// # Safety
+    ///
+    /// Confirm actual K1 hardware and execute in M-mode during hart startup.
+    /// Own this hart's cache, predictor and ECC configuration. Keep secondary
+    /// harts excluded until cluster coherency is ready for shared accesses.
+    pub unsafe fn initialize_hart(self) {
+        // SAFETY: The caller establishes K1 applicability and startup ownership.
+        unsafe { arch::prepare_hart() };
     }
 
     /// Starts a K1 hart released from hardware reset.
@@ -61,9 +62,8 @@ impl SpacemitK1Soc {
     /// Enter in M-mode with MPRV clear, after the boot hart publishes topology
     /// and services and enables cluster coherency. `initialize` must complete
     /// per-hart firmware setup before returning.
-    #[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
-    pub unsafe extern "C" fn reset_entry(initialize: extern "C" fn()) -> ! {
-        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+    #[unsafe(naked)]
+    pub unsafe extern "C" fn reset_entry(initialize: unsafe extern "C" fn()) -> ! {
         core::arch::naked_asm!(
             "mv a1, a0",
             ".option push",
@@ -74,19 +74,18 @@ impl SpacemitK1Soc {
             prepare = sym arch::prepare_hart,
             entry = sym crate::boot::reset_hart_entry,
         );
-        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-        {
-            let _ = initialize;
-            unimplemented!("K1 reset entry requires a RISC-V target");
-        }
     }
 }
 
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 mod arch {
-    use csr::{machine, vendor::spacemit::k1};
+    use riscv_csr_spec::{standard::isa::privileged::machine::Mhartid, vendor::spacemit::k1};
 
-    // This runs before shared memory is accessible on a hardware-reset hart.
+    /// Enables K1 hart-local cache access without using shared memory.
+    ///
+    /// # Safety
+    ///
+    /// Run in M-mode on a K1 during startup. The caller must own this hart's
+    /// cache, predictor and ECC configuration.
     #[unsafe(naked)]
     pub(super) unsafe extern "C" fn prepare_hart() {
         core::arch::naked_asm!(
@@ -98,14 +97,18 @@ mod arch {
             "li t0, {features}",
             "csrs {setup}, t0",
             "ret",
-            hart_id = const machine::HartId::NUMBER,
-            cluster_mask = const k1::L2Setup::CLUSTER_HART_MASK,
-            hart_enable = const k1::L2Setup::FIRST_HART_ENABLE,
-            l2 = const k1::L2Setup::NUMBER,
-            setup = const k1::MachineSetup::NUMBER,
+            hart_id = const Mhartid::NUMBER,
+            cluster_mask = const k1::Ml2setup::CLUSTER_HART_MASK,
+            hart_enable = const k1::Ml2setup::FIRST_HART_ENABLE,
+            l2 = const k1::Ml2setup::NUMBER,
+            setup = const k1::Msetup::NUMBER,
             features = const {
-                k1::DE::MASK | k1::IE::MASK | k1::BPE::MASK
-                    | k1::PFE::MASK | k1::MME::MASK | k1::ECCE::MASK
+                k1::Msetup::DE.mask()
+                    | k1::Msetup::IE.mask()
+                    | k1::Msetup::BPE.mask()
+                    | k1::Msetup::PFE.mask()
+                    | k1::Msetup::MME.mask()
+                    | k1::Msetup::ECCE.mask()
             },
         )
     }

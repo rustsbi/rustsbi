@@ -1,7 +1,7 @@
 //! Local machine-interrupt exclusion for Runtime hardware operations.
 
 use core::marker::PhantomData;
-use csr::machine;
+use csr::{Clear, Set, Write, standard::isa::privileged::machine::Mstatus};
 
 /// Proof that local machine interrupts remain disabled within a scope.
 ///
@@ -27,28 +27,25 @@ impl LocalIrqDisabled {
 
 /// Runs `f` with local machine interrupts disabled, then restores their state.
 ///
-/// The restoration guard stays private, so nested scopes cannot restore IRQs
-/// out of order.
-/// References borrowed through the context cannot leave `f`.
+/// Nested calls leave interrupts masked until the outermost scope that
+/// disabled them returns. The borrowed IRQ context cannot escape `f`.
 pub(crate) fn with_local_disabled<R>(f: impl FnOnce(&LocalIrqDisabled) -> R) -> R {
     struct Restore {
-        previous: machine::Interrupt,
+        was_enabled: bool,
     }
     impl Drop for Restore {
         fn drop(&mut self) {
-            if self.previous == machine::Interrupt::Enabled {
+            if self.was_enabled {
                 // SAFETY: This scope masked MIE and is ending on the same hart.
-                unsafe { machine::Status::set_bit::<machine::MIE>() };
+                unsafe { Mstatus::write(Set(Mstatus::MIE)) };
             }
         }
     }
-    let previous = machine::Status::read().get::<machine::MIE>();
-    if previous == machine::Interrupt::Enabled {
-        // SAFETY: M-mode interrupt entry restores the interrupted MIE state.
-        // Mask before invoking f; already-disabled callers need no CSR write.
-        unsafe { machine::Status::clear_bit::<machine::MIE>() };
-    }
-    let restore = Restore { previous };
+    // SAFETY: Clearing MIE atomically preserves other bits and returns prior state.
+    let previous = unsafe { Mstatus::write(Clear(Mstatus::MIE)) };
+    let restore = Restore {
+        was_enabled: previous.get(Mstatus::MIE),
+    };
     let result = f(&LocalIrqDisabled {
         _local: PhantomData,
     });

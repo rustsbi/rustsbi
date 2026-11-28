@@ -1,43 +1,44 @@
 //! Debug-trigger discovery used by the SBI DBTR service.
 
-use crate::csr::{csrr, csrw};
-use csr::machine;
+use csr::{
+    Read, Write,
+    standard::isa::privileged::debug::{Tdata1, Tselect},
+};
 
-fn is_sbi_usable_trigger(tdata1: usize) -> bool {
-    let trigger_type = (tdata1 >> (usize::BITS - 4)) & 0xf;
-    let dmode = (tdata1 >> (usize::BITS - 5)) & 1;
-    trigger_type != 0 && dmode == 0
-}
-
-/// Counts accepted trigger selectors with a nonzero trigger type and `dmode == 0`.
-/// Unavailable hardware ends discovery. The walk is bounded to 256 selectors.
+/// Counts triggers with `dmode == 0`, starting at selector zero and probing at most 256.
+///
+/// Returns zero if recovery is unavailable.
+/// Enumeration ends at the first rejected selector, zero trigger type or failed CSR access.
+/// If restoring `tselect` fails, the hart can retain the last selector probed.
 pub fn trigger_count() -> usize {
-    if !crate::boot::traps_ready() || usize::from(machine::Scratch::read()) != 0 {
+    if !crate::recovery::is_ready() {
         return 0;
     }
-    crate::irq::with_local_disabled(|_| {
-        let Ok(saved_tselect) = csrr!(machine::TriggerSelect) else {
+    // SAFETY: Runtime trap entry is ready with mscratch and MPRV clear.
+    // Local interrupt exclusion serializes the selector and data accesses.
+    crate::irq::with_local_disabled(|_| unsafe {
+        let Ok(saved_tselect) = Tselect::try_read() else {
             return 0;
         };
         let mut count = 0;
         for index in 0..256 {
-            if csrw!(machine::TriggerSelect, index).is_err() {
+            if Tselect::try_write(index).is_err() {
                 break;
             }
-            if csrr!(machine::TriggerSelect) != Ok(index) {
+            if Tselect::try_read() != Ok(index) {
                 break;
             }
-            let Ok(data) = csrr!(machine::TriggerData1) else {
+            let Ok(data) = Tdata1::try_read() else {
                 break;
             };
-            if ((data >> (usize::BITS - 4)) & 0xf) == 0 {
+            if data.trigger_type() == 0 {
                 break;
             }
-            if is_sbi_usable_trigger(data) {
+            if !data.dmode() {
                 count += 1;
             }
         }
-        let _ = csrw!(machine::TriggerSelect, saved_tselect);
+        let _ = Tselect::try_write(saved_tselect);
         count
     })
 }

@@ -3,6 +3,7 @@
 use runtime::{
     Error, Result,
     hart::HartId,
+    instruction::{ALL, fence},
     memory::{MemoryRegistry, MmioRegion},
     timer::TimerDevice,
 };
@@ -79,7 +80,7 @@ impl TimerDevice for Plmt {
         self.write_compare_word(Register::CompareLow, hart, u32::MAX)?;
         self.write_compare_word(Register::CompareHigh, hart, (value >> 32) as u32)?;
         self.write_compare_word(Register::CompareLow, hart, value as u32)?;
-        runtime::instruction::fence();
+        fence(ALL, ALL);
         Ok(())
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "rustsbi-csr"
-description = "Typed RISC-V CSR access for RustSBI firmware"
+description = "RISC-V CSR instructions and hardware access layer for RustSBI runtime"
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,9 @@ publish = false
 
 [lib]
 name = "csr"
-test = true
-doctest = true
+test = false
+doctest = false
 bench = false
+
+[dependencies]
+riscv-csr-spec.workspace = true

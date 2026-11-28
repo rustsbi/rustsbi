@@ -81,8 +81,7 @@ before any code that assumes the CSR's steady-state value can run.
 Pair the restore with the set in the same function,
 so the window is visible in one place.
 
-The RISC-V branch of
-[`access_byte!` in Runtime's memory-access implementation](https://github.com/rustsbi/rustsbi/blob/ebc7190fb630611fa9504f9f71089ce4b81c6c0e/firmware/runtime/src/trap/memory.rs#L16-L61)
+[`access_byte!` in Runtime's memory-access implementation](https://github.com/rustsbi/rustsbi/blob/f75080fc5c859904299945cc5588e07419106aaa/firmware/runtime/src/trap/memory.rs#L17-L68)
 saves `mstatus` before enabling `MPRV` for one load or store.
 The following excerpt uses the macro's `$instruction` argument for that access:
 
@@ -111,8 +110,8 @@ unsafe {
         "3:",
         "csrw {status_csr}, {saved_status}",
         ".option pop",
-        crate::recovery::fault_site!(),
-        status_csr = const machine::Status::NUMBER,
+        csr::recovery_record!(),
+        status_csr = const Mstatus::NUMBER,
         causes = const $causes,
         data = inout(reg) data,
         address = in(reg) $address,
@@ -128,17 +127,17 @@ unsafe {
 if cause == 0 {
     Ok(data)
 } else {
-    let TrapCause::Exception(cause) = CauseValue::from(cause).cause() else {
-        unreachable!("recovery accepts synchronous memory faults only")
-    };
-    Err(Error::Fault(Fault { cause, address: tval.into() }))
+    Err(Error::Fault(Fault {
+        cause: Exception::from_code(cause),
+        address: Address::from_bits(tval),
+    }))
 }
 ```
 
-The [`fault_site!` record](https://github.com/rustsbi/rustsbi/blob/ebc7190fb630611fa9504f9f71089ce4b81c6c0e/firmware/runtime/src/recovery.rs#L50-L65)
+The [`recovery_record!` macro](https://github.com/rustsbi/rustsbi/blob/f75080fc5c859904299945cc5588e07419106aaa/firmware/runtime/lib/csr/src/recovery.rs)
 maps the access at label `2` to the continuation at label `3`.
 On an accepted memory fault,
-[trap dispatch](https://github.com/rustsbi/rustsbi/blob/ebc7190fb630611fa9504f9f71089ce4b81c6c0e/firmware/runtime/src/trap/dispatch.rs#L48-L57)
+[trap dispatch](https://github.com/rustsbi/rustsbi/blob/f75080fc5c859904299945cc5588e07419106aaa/firmware/runtime/src/trap/dispatch.rs)
 sets the saved `t2` and `t3` to the exception cause and fault address,
 then resumes at label `3`.
 Both successful access and fault recovery therefore execute the same
