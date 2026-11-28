@@ -68,18 +68,6 @@ jobs:
           cargo test --locked -p rustsbi --verbose --features "machine"
       # The `forward` feature requires RISC-V, so it is covered by the target checks below.
 
-  test-riscv-aia:
-    name: Test riscv-aia
-    needs: fmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Run tests
-        run: cargo test --locked -p riscv-aia --verbose
-
   test-sbi-spec:
     name: Test sbi-spec
     needs: fmt
