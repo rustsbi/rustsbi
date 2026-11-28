@@ -8,15 +8,13 @@
 #![forbid(unsafe_code)]
 
 use super::features::hart_privilege_checked;
-use super::pmu::pmu_firmware_counter_increment;
+use super::pmu::{firmware_event_code, pmu_firmware_counter_increment};
 use runtime::{
     Result,
     hart::{self, HartId},
     ipi::{self, IpiEvent},
     rustsbi::{HartMask, Ipi, SbiRet},
 };
-
-use sbi_spec::pmu::firmware_event;
 
 /// SBI IPI extension.
 ///
@@ -27,7 +25,7 @@ impl Ipi for SbiIpi {
     /// Sends IPIs to the specified harts.
     #[inline]
     fn send_ipi(&self, hart_mask: HartMask) -> SbiRet {
-        pmu_firmware_counter_increment(firmware_event::IPI_SENT);
+        pmu_firmware_counter_increment(firmware_event_code!(IPI_SENT));
         if let Err(error) = validate_hart_mask(hart_mask) {
             return error;
         }

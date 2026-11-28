@@ -65,7 +65,7 @@ fn boot_hart(boot: BootInfo, platform_description: PlatformDescription) -> Resul
     info!("{:<30}: {}", "Boot HART ID", hart.as_usize());
 
     // SAFETY: Boot entry installed recovery before any client could acquire an HPM counter.
-    unsafe { detect_hart_features(hart) };
+    unsafe { detect_hart_features(hart)? };
     log_hart_capabilities(hart);
 
     let (next_mode, start_addr) = boot.next_stage();
@@ -103,7 +103,7 @@ unsafe fn secondary_hart(boot: Option<&BootInfo>) -> Result<()> {
         sbi::fwft::reset_hart(hart);
     }
     // SAFETY: Secondary startup owns this hart's counters with recovery active.
-    unsafe { detect_hart_features(hart) };
+    unsafe { detect_hart_features(hart)? };
 
     // SAFETY: Platform publication is complete and the caller owns hart startup.
     unsafe { firmware::initialize_secondary_hart() };

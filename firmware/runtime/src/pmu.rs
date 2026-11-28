@@ -6,16 +6,17 @@ use csr::{
         self, InhibitedCounters, Mcountinhibit, Mcycle, Minstret,
     },
 };
-pub use riscv_csr_spec::standard::isa::privileged::machine::{HardwareCounter, HpmCounter};
+pub use machine::{HardwareCounter, HpmCounter};
 
 use crate::{Error, Result};
 
 /// Programs the event selector for a hardware performance counter.
 ///
 /// On RV32, a selector with no accessible high word accepts only 32-bit values.
-/// Updating both words requires an inhibit bit that reads back as set. A failed
-/// low-word write can leave the new high word in effect. Reprogram the selector
-/// before resuming that counter.
+/// Updating both words requires an inhibit bit that reads back as set.
+/// A failed low-word write can leave the new high word in effect.
+/// Reprogram the selector before resuming that counter.
+/// Success means the CSR writes completed. Hardware may coerce selector fields.
 ///
 /// # Safety
 ///
@@ -68,12 +69,13 @@ pub unsafe fn inhibit_programmable() {
 }
 
 /// Sets or clears the inhibit bit for `counter` in `mcountinhibit`.
+/// Returns [`Error::NotSupported`] if the bit does not accept the requested state.
 ///
 /// # Safety
 ///
 /// Execute in M-mode on a hart supporting `mcountinhibit` and coordinate shared
 /// counter state (including `CY` across harts if shared).
-pub unsafe fn set_inhibited(counter: HardwareCounter, inhibited: bool) {
+pub unsafe fn set_inhibited(counter: HardwareCounter, inhibited: bool) -> Result<()> {
     // SAFETY: The caller coordinates all harts sharing this counter. The
     // atomic set or clear touches only its inhibit bit.
     unsafe {
@@ -83,8 +85,12 @@ pub unsafe fn set_inhibited(counter: HardwareCounter, inhibited: bool) {
             Mcountinhibit::write(Clear(counter));
         }
     }
-    // Read the machine counter after changing its inhibit bit to synchronize
-    // QEMU's lower-mode counter shadows.
+    if is_inhibited(counter) != inhibited {
+        return Err(Error::NotSupported);
+    }
+    // QEMU 9.0 marks a counter stopped when it is first read with its inhibit
+    // bit set. Consume that transition before the supervisor reads cycle or instret.
+    // https://github.com/qemu/qemu/blob/v9.0.0/target/riscv/csr.c#L921-L944
     match counter {
         HardwareCounter::Cycle => {
             let _ = Mcycle::read();
@@ -94,6 +100,7 @@ pub unsafe fn set_inhibited(counter: HardwareCounter, inhibited: bool) {
         }
         HardwareCounter::Hpm(_) => {}
     }
+    Ok(())
 }
 
 /// Writes a 64-bit hardware performance counter.

@@ -11,7 +11,7 @@ mod trap_setup;
 pub use counter_setup::try_write_mhpmevent;
 #[cfg(target_pointer_width = "32")]
 pub use counter_setup::{try_read_mhpmeventh, try_write_mhpmeventh};
-pub use counter_timer::{probe_mhpmcounter, write_mhpmcounter};
+pub use counter_timer::{measure_stopped_mhpmcounter, write_mhpmcounter};
 pub use pmp::{read_pmpaddr, read_pmpcfg, write_pmpaddr, write_pmpcfg};
 pub use trap_setup::{read_medeleg_word, write_medeleg_word};
 

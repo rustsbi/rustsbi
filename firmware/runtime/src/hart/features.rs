@@ -5,11 +5,12 @@ use super::Xlen;
 use csr::standard::isa::privileged::machine::Mstatus;
 use csr::{
     Read,
-    standard::isa::privileged::machine::{Misa, probe_mhpmcounter},
-};
-use riscv_csr_spec::standard::isa::{
-    privileged::machine::{Mcounteren, Mcountinhibit, Menvcfg},
-    values::status::Privilege,
+    standard::isa::{
+        privileged::machine::{
+            HardwareCounter, Mcounteren, Mcountinhibit, Menvcfg, Misa, measure_stopped_mhpmcounter,
+        },
+        values::status::Privilege,
+    },
 };
 
 /// Returns whether this hart reports the hypervisor extension in `misa`.
@@ -88,32 +89,58 @@ pub fn detect_privileged_version() -> PrivilegedVersion {
     }
 }
 
-/// Returns the width in bits of each hardware counter on this hart.
+/// Returns the widths of hardware counters that can both start and stop on this hart.
 ///
-/// Slots 0 through 2 report 64 for cycle, time and instret. Programmable slots
-/// report zero if the probe fails or finds no writable bits. If restoration
-/// fails, the affected counter or its controls may retain a probe value.
+/// A zero width means that the counter could not be measured or controlled.
+/// The `time` slot is always zero.
+/// Testing the inhibit bits briefly starts stopped counters and stops running ones.
+/// A failed HPM width probe can leave a probe value in that counter.
+/// Failure to restore an inhibit bit returns [`crate::Error::IoError`].
 ///
 /// # Safety
 ///
-/// Run in M-mode with a valid Runtime stack and Runtime trap entry installed.
-/// `MPRV` must be clear and `mscratch` must be zero.
-/// The caller must exclusively control the current hart's HPM counters, their
-/// inhibit bits and event selectors.
-pub unsafe fn detect_performance_counters() -> [u8; 32] {
+/// Establish the [machine-trap recovery ABI](csr::recovery) with Runtime's
+/// direct trap vector installed and `mscratch` zero.
+/// Own the current hart's counters and inhibit bits. Coordinate the temporary
+/// change to `CY` with all harts sharing the cycle counter.
+pub unsafe fn detect_performance_counters() -> crate::Result<[u8; 32]> {
     crate::irq::with_local_disabled(|_| {
         let mut widths = [0; 32];
-        widths[..3].fill(64);
-        macro_rules! probe {
+        // SAFETY: The caller supplies trap recovery for the optional inhibit CSR.
+        let Ok(saved) = (unsafe { Mcountinhibit::try_read() }) else {
+            return Ok(widths);
+        };
+        let measure_if_controllable = |counter, measure: fn() -> u8| -> crate::Result<u8> {
+            // SAFETY: The caller owns this bit, including a shared CY, and the CSR was readable.
+            let set = |stopped| unsafe { crate::pmu::set_inhibited(counter, stopped) };
+            let stopped = saved.contains(counter);
+            if set(!stopped).is_err() {
+                return Ok(0);
+            }
+            if stopped {
+                set(true).map_err(|_| crate::Error::IoError)?;
+                Ok(measure())
+            } else {
+                let width = measure();
+                set(false).map_err(|_| crate::Error::IoError)?;
+                Ok(width)
+            }
+        };
+        widths[0] = measure_if_controllable(HardwareCounter::Cycle, || 64)?;
+        widths[2] = measure_if_controllable(HardwareCounter::InstructionsRetired, || 64)?;
+        macro_rules! measure_hpm {
             ($($index:literal),*) => { $( {
-                // SAFETY: The caller owns this hart's counters and establishes recovery.
-                widths[$index] = unsafe { probe_mhpmcounter::<$index>() }.unwrap_or(0);
+                let counter = const { HardwareCounter::new($index).unwrap() };
+                // SAFETY: The inhibit bit reads back as set before the measurement.
+                widths[$index] = measure_if_controllable(counter, || unsafe {
+                    measure_stopped_mhpmcounter::<$index>().unwrap_or(0)
+                })?;
             } )* };
         }
-        probe!(
+        measure_hpm!(
             3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
             26, 27, 28, 29, 30, 31
         );
-        widths
+        Ok(widths)
     })
 }

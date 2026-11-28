@@ -16,7 +16,6 @@ use runtime::{
     ipi::{self, IpiEvent},
     rustsbi::{Fence, HartMask, SbiRet},
 };
-use sbi_spec::pmu::firmware_event;
 
 use crate::cfg::{PAGE_SIZE, TLB_FLUSH_LIMIT};
 
@@ -24,7 +23,7 @@ pub(super) mod queue;
 use super::{
     features::{self, Extension},
     ipi::{active_target_harts, validate_hart_mask},
-    pmu::pmu_firmware_counter_increment,
+    pmu::{firmware_event_code, pmu_firmware_counter_increment},
 };
 
 /// Creates one fence queue and synchronization counter per enabled hart.
@@ -126,7 +125,7 @@ fn remote_fence_process(
     op: LocalFence,
     current_hart: HartId,
     hart_mask: HartMask,
-    sent_event: usize,
+    sent_event: u16,
 ) -> SbiRet {
     if let Err(error) = validate_hart_mask(hart_mask) {
         return error;
@@ -242,7 +241,7 @@ fn remote_sfence_vma_op(
     start_addr: usize,
     size: usize,
     asid: Option<usize>,
-    sent_event: usize,
+    sent_event: u16,
 ) -> Result<SbiRet, SbiRet> {
     let current_hart = HartId::current().map_err(SbiRet::from)?;
     let range = flush_range(current_hart, start_addr, size)?;
@@ -259,7 +258,7 @@ fn remote_hfence_gvma_op(
     start_addr: usize,
     size: usize,
     vmid: Option<usize>,
-    sent_event: usize,
+    sent_event: u16,
 ) -> Result<SbiRet, SbiRet> {
     let current_hart = HartId::current().map_err(SbiRet::from)?;
     let range = flush_range(current_hart, start_addr, size)?;
@@ -276,7 +275,7 @@ fn remote_hfence_vvma_op(
     start_addr: usize,
     size: usize,
     asid: Option<usize>,
-    sent_event: usize,
+    sent_event: u16,
 ) -> Result<SbiRet, SbiRet> {
     let current_hart = current_hart_with_hypervisor()?;
     let range = flush_range(current_hart, start_addr, size)?;
@@ -299,7 +298,7 @@ impl Fence for SbiRFence {
             LocalFence::Instruction,
             current_hart,
             hart_mask,
-            firmware_event::FENCE_I_SENT,
+            firmware_event_code!(FENCE_I_SENT),
         )
     }
 
@@ -309,7 +308,7 @@ impl Fence for SbiRFence {
             start_addr,
             size,
             None,
-            firmware_event::SFENCE_VMA_SENT,
+            firmware_event_code!(SFENCE_VMA_SENT),
         )
         .unwrap_or_else(|err| err)
     }
@@ -326,7 +325,7 @@ impl Fence for SbiRFence {
             start_addr,
             size,
             Some(asid),
-            firmware_event::SFENCE_VMA_ASID_SENT,
+            firmware_event_code!(SFENCE_VMA_ASID_SENT),
         )
         .unwrap_or_else(|err| err)
     }
@@ -343,7 +342,7 @@ impl Fence for SbiRFence {
             start_addr,
             size,
             Some(vmid),
-            firmware_event::HFENCE_GVMA_VMID_SENT,
+            firmware_event_code!(HFENCE_GVMA_VMID_SENT),
         )
         .unwrap_or_else(|err| err)
     }
@@ -354,7 +353,7 @@ impl Fence for SbiRFence {
             start_addr,
             size,
             None,
-            firmware_event::HFENCE_GVMA_SENT,
+            firmware_event_code!(HFENCE_GVMA_SENT),
         )
         .unwrap_or_else(|err| err)
     }
@@ -371,7 +370,7 @@ impl Fence for SbiRFence {
             start_addr,
             size,
             Some(asid),
-            firmware_event::HFENCE_VVMA_ASID_SENT,
+            firmware_event_code!(HFENCE_VVMA_ASID_SENT),
         )
         .unwrap_or_else(|err| err)
     }
@@ -382,7 +381,7 @@ impl Fence for SbiRFence {
             start_addr,
             size,
             None,
-            firmware_event::HFENCE_VVMA_SENT,
+            firmware_event_code!(HFENCE_VVMA_SENT),
         )
         .unwrap_or_else(|err| err)
     }
@@ -405,15 +404,19 @@ fn rfence_single_handler_for(hart: HartId) -> bool {
 fn rfence_local_handler(op: LocalFence) -> Result<()> {
     fence::execute_local(op)?;
     let event = match op {
-        LocalFence::Instruction => firmware_event::FENCE_I_RECEIVED,
-        LocalFence::Supervisor { asid: None, .. } => firmware_event::SFENCE_VMA_RECEIVED,
-        LocalFence::Supervisor { asid: Some(_), .. } => firmware_event::SFENCE_VMA_ASID_RECEIVED,
-        LocalFence::GuestPhysical { vmid: None, .. } => firmware_event::HFENCE_GVMA_RECEIVED,
-        LocalFence::GuestPhysical { vmid: Some(_), .. } => {
-            firmware_event::HFENCE_GVMA_VMID_RECEIVED
+        LocalFence::Instruction => firmware_event_code!(FENCE_I_RECEIVED),
+        LocalFence::Supervisor { asid: None, .. } => firmware_event_code!(SFENCE_VMA_RECEIVED),
+        LocalFence::Supervisor { asid: Some(_), .. } => {
+            firmware_event_code!(SFENCE_VMA_ASID_RECEIVED)
         }
-        LocalFence::GuestVirtual { asid: None, .. } => firmware_event::HFENCE_VVMA_RECEIVED,
-        LocalFence::GuestVirtual { asid: Some(_), .. } => firmware_event::HFENCE_VVMA_ASID_RECEIVED,
+        LocalFence::GuestPhysical { vmid: None, .. } => firmware_event_code!(HFENCE_GVMA_RECEIVED),
+        LocalFence::GuestPhysical { vmid: Some(_), .. } => {
+            firmware_event_code!(HFENCE_GVMA_VMID_RECEIVED)
+        }
+        LocalFence::GuestVirtual { asid: None, .. } => firmware_event_code!(HFENCE_VVMA_RECEIVED),
+        LocalFence::GuestVirtual { asid: Some(_), .. } => {
+            firmware_event_code!(HFENCE_VVMA_ASID_RECEIVED)
+        }
     };
     pmu_firmware_counter_increment(event);
     Ok(())

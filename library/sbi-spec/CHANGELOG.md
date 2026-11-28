@@ -16,16 +16,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Modified
 
-- Forbid unsafe code in `sbi-spec`. The deprecated `SbiRet::unwrap_unchecked` and
-  `SbiRet::unwrap_err_unchecked` now perform the same checks as `unwrap` and `unwrap_err`.
-  Callers that require unchecked extraction can use the corresponding method on
-  `ret.into_result()` when they can guarantee which `Result` variant it contains.
+- Forbid unsafe code in `sbi-spec`.
 - Declare Rust 1.88 as the minimum supported Rust version through workspace metadata.
 - pmu: rename `CounterCfgFlags`, `CounterStartFlags`, and `CounterStopFlags` to `ConfigFlags`,
   `StartFlags`, and `StopFlags`; retain deprecated aliases for source compatibility.
 
+### Removed
+
+- **Breaking:** remove `SbiRet::unwrap_unchecked` and `SbiRet::unwrap_err_unchecked`.
+  Use `unwrap` or `unwrap_err` for checked access. Callers that can guarantee the
+  result variant can use the corresponding unchecked method on `ret.into_result()`.
+
 ### Fixed
 
+- binary: test PMU counter mask bits relative to every base, including the
+  all-ones value. Deprecate `CounterMask::IGNORE_MASK` and `ignore_mask`.
 - binary: make `HartIds` range back iteration honor the exclusive end, including `last()` and `max()`.
 - binary: skip `HartMask` iterator bits whose hart IDs overflow `usize`, keeping iteration counts exact.
 

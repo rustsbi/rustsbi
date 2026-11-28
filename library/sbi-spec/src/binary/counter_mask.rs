@@ -9,7 +9,8 @@ pub struct CounterMask<T = usize> {
 }
 
 impl<T: SbiRegister> CounterMask<T> {
-    /// Special value to ignore the `mask`, and consider all `bit`s as set.
+    /// An all-ones register value. The SBI PMU extension assigns it no special meaning.
+    #[deprecated(note = "select PMU counters with an explicit mask and base")]
     pub const IGNORE_MASK: T = T::FULL_MASK;
 
     /// Construct a [CounterMask] from mask value and base counter index.
@@ -21,10 +22,11 @@ impl<T: SbiRegister> CounterMask<T> {
         }
     }
 
-    /// Gets the special value for ignoring the `mask` parameter.
+    /// Returns an all-ones register value.
+    #[deprecated(note = "select PMU counters with an explicit mask and base")]
     #[inline]
     pub const fn ignore_mask(&self) -> T {
-        Self::IGNORE_MASK
+        T::FULL_MASK
     }
 
     /// Returns `mask` and `base` parameters from the [CounterMask].
@@ -40,12 +42,7 @@ impl CounterMask<usize> {
     /// Returns whether the [CounterMask] contains the provided `counter`.
     #[inline]
     pub const fn has_bit(self, counter: usize) -> bool {
-        has_bit(
-            self.counter_idx_mask,
-            self.counter_idx_base,
-            Self::IGNORE_MASK,
-            counter,
-        )
+        has_bit(self.counter_idx_mask, self.counter_idx_base, counter)
     }
 }
 
@@ -75,21 +72,16 @@ mod tests {
         assert!(mask.has_bit(usize::MAX));
         assert!(!mask.has_bit(0));
         let mask = CounterMask::from_mask_base(0, usize::MAX);
-        let null_mask = CounterMask::from_mask_base(0, 0);
-        (0..=usize::BITS as usize).for_each(|i| {
-            assert!(mask.has_bit(i));
-            assert!(!null_mask.has_bit(i));
-        });
+        assert!(!mask.has_bit(0));
+        assert!(!mask.has_bit(usize::MAX));
+        let mask = CounterMask::from_mask_base(1, usize::MAX);
+        assert!(!mask.has_bit(0));
         assert!(mask.has_bit(usize::MAX));
     }
 
     #[test]
     fn rustsbi_counter_mask_non_usize() {
-        assert_eq!(CounterMask::<i32>::IGNORE_MASK, -1);
-        assert_eq!(CounterMask::<i64>::IGNORE_MASK, -1);
-        assert_eq!(CounterMask::<i128>::IGNORE_MASK, -1);
-        assert_eq!(CounterMask::<u32>::IGNORE_MASK, u32::MAX);
-        assert_eq!(CounterMask::<u64>::IGNORE_MASK, u64::MAX);
-        assert_eq!(CounterMask::<u128>::IGNORE_MASK, u128::MAX);
+        let mask = CounterMask::from_mask_base(1u128 << 100, u128::MAX);
+        assert_eq!(mask.into_inner(), (1u128 << 100, u128::MAX));
     }
 }

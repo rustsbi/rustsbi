@@ -155,23 +155,22 @@ pub(crate) fn install_extensions(hart: HartId, extensions: [bool; Extension::COU
 ///
 /// # Safety
 ///
-/// 1. Run on `hart` in M-mode while startup owns its programmable counters,
-///    event selectors and inhibit bits. Probing can change all three.
-/// 2. Keep Runtime's trap entry active with interrupts masked, `MPRV` clear
-///    and `mscratch` zero.
-pub(crate) unsafe fn detect_hart_features(hart: HartId) {
+/// 1. Run on `hart` in M-mode while startup owns its counters and inhibit bits.
+/// 2. Use the hart's Runtime stack and trap entry with local interrupts masked,
+///    `MPRV` clear and `mscratch` zero.
+pub(crate) unsafe fn detect_hart_features(hart: HartId) -> Result<()> {
     let has_h = hart::has_hypervisor();
     let version = hart::detect_privileged_version();
     let xlen = hart::supervisor_xlen();
-    // SAFETY: Startup owns the programmable counters and has installed trap recovery.
-    let widths = unsafe { hart::detect_performance_counters() };
+    // SAFETY: Startup owns local counter state and supplies trap recovery.
+    unsafe { pmu::init_current(hart)? };
     {
         let mut record = features(hart).lock();
         record.extensions[Extension::Hypervisor.index()] = has_h;
         record.privileged_version = version;
         record.supervisor_xlen = xlen;
     }
-    pmu::init_current(hart, widths);
+    Ok(())
 }
 
 /// Checks that this hart supports the requested privilege mode.
