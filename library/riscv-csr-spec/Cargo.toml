@@ -1,0 +1,11 @@
+[package]
+name = "riscv-csr-spec"
+description = "Pure RISC-V Control and Status Register (CSR) definitions, numbers, and field encodings"
+version = "0.0.0"
+authors = ["RustSBI Developers"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["riscv", "csr", "spec", "rustsbi"]
+categories = ["embedded", "hardware-support", "no-std"]

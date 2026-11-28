@@ -508,6 +508,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "riscv-csr-spec"
+version = "0.0.0"
+
+[[package]]
 name = "riscv-decode"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
