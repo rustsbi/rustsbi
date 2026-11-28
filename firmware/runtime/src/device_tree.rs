@@ -7,15 +7,14 @@
 use alloc::vec::Vec;
 use core::mem::size_of;
 
-use fdt::{Fdt, node::FdtNode};
-use spin::Once;
-
-use crate::memory::{PhysAddr, PhysAddrRange, RegRange};
+use crate::memory::{MemoryRegistry, PhysAddr, PhysAddrRange, RegRange, SupervisorMemory};
 use crate::{Error, Result};
+use fdt::{Fdt, node::FdtNode};
 
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 mod firmware;
 mod patch;
+mod sunxi_rtc_v203;
 
 // Devicetree Specification v0.4, section 5.2: the structure header is ten
 // 32-bit big-endian fields, with `totalsize` as its second field.
@@ -65,9 +64,11 @@ impl DeviceTreeHandoff {
 /// The value is not clonable, so only its owner can create temporary tree
 /// views or derive physical-memory access from it.
 pub struct PlatformDescription {
-    address: PhysAddr,
+    source: PhysAddrRange,
+    parser_copy: Option<Vec<u8>>,
     destination: PhysAddrRange,
-    memory_ranges: Once<(Vec<PhysAddrRange>, Vec<PhysAddrRange>)>,
+    memory_registry: Option<MemoryRegistry>,
+    supervisor_memory: Option<SupervisorMemory>,
 }
 
 /// A temporary, provenance-preserving view of a [`PlatformDescription`].
@@ -76,7 +77,6 @@ pub struct PlatformDescription {
 /// only for properties stored in the Platform Description that created it.
 pub struct PlatformView<'tree> {
     fdt: Fdt<'tree>,
-    fdt_storage: PhysAddrRange,
     source: &'tree [u8],
 }
 
@@ -117,10 +117,6 @@ impl<'tree> PlatformView<'tree> {
             return Err(Error::InvalidArgs);
         }
         decode_register_value(register.address)
-    }
-
-    pub(crate) fn storage_range(&self) -> PhysAddrRange {
-        self.fdt_storage
     }
 
     /// Returns the parsed device tree used for platform discovery.
@@ -264,13 +260,7 @@ impl<'tree> PlatformView<'tree> {
             return Ok(None);
         };
 
-        let encoded = PhysAddrRange::from_start_len(
-            PhysAddr::new(property.value.as_ptr() as usize),
-            property.value.len(),
-        )?;
-        if !self.fdt_storage.contains(encoded) {
-            return Err(Error::AccessDenied);
-        }
+        self.check_property_storage(property.value)?;
         let registers = node.raw_reg().ok_or(Error::InvalidArgs)?.map(|register| {
             RegRange::from_start_len(
                 PhysAddr::new(decode_register_value(register.address)?),
@@ -300,13 +290,7 @@ impl<'tree> PlatformView<'tree> {
             return Ok(None);
         };
 
-        let encoded = PhysAddrRange::from_start_len(
-            PhysAddr::new(names.value.as_ptr() as usize),
-            names.value.len(),
-        )?;
-        if !self.fdt_storage.contains(encoded) {
-            return Err(Error::AccessDenied);
-        }
+        self.check_property_storage(names.value)?;
 
         // Devicetree Specification v0.4, section 2.3.3: a string list is a
         // sequence of NUL-terminated strings, and an empty string is still a
@@ -341,16 +325,24 @@ impl<'tree> PlatformView<'tree> {
         registers.next().ok_or(Error::InvalidArgs)?.map(Some)
     }
 
-    /// Returns the RTC V203 GPRCM window from the BSP's fixed four-cell property.
-    ///
-    /// Unlike `reg`, `gprcm_reg` contains an absolute 64-bit address and size.
-    pub fn sunxi_rtc_v203_gprcm(&self, node: FdtNode<'_, 'tree>) -> Result<Option<RegRange>> {
-        crate::sunxi_rtc_v203::gprcm_registers(node, self.fdt_storage)
+    fn check_property_storage(&self, bytes: &[u8]) -> Result<()> {
+        if bytes.is_empty() {
+            return Err(Error::InvalidArgs);
+        }
+        let tree = self.source.as_ptr_range();
+        let property = bytes.as_ptr_range();
+        if tree.start <= property.start && property.end <= tree.end {
+            Ok(())
+        } else {
+            Err(Error::AccessDenied)
+        }
     }
 }
 
 impl PlatformDescription {
     /// Builds a description from an entry-point FDT address.
+    ///
+    /// Trees with NOP tokens require an initialized heap for the parser copy.
     ///
     /// # Safety
     ///
@@ -369,31 +361,66 @@ impl PlatformDescription {
         // SAFETY: the caller of this function provides the pointer validity
         // and lifetime guarantees documented above.
         let source = unsafe { fdt_source(address)? };
-        patch::validate(source)?;
-        let fdt = Fdt::new(source).map_err(|_| Error::InvalidArgs)?;
+        let parser_copy = patch::parser_copy_if_needed(source)?;
+        let fdt =
+            Fdt::new(parser_copy.as_deref().unwrap_or(source)).map_err(|_| Error::InvalidArgs)?;
         fdt.find_node("/").ok_or(Error::InvalidArgs)?;
         Ok(Self {
-            address,
+            source: PhysAddrRange::from_start_len(address, source.len())?,
+            parser_copy,
             destination,
-            memory_ranges: Once::new(),
+            memory_registry: None,
+            supervisor_memory: None,
         })
     }
 
-    pub(crate) fn validate_destination(
-        &self,
+    pub(crate) fn prepare_boot_memory(
+        &mut self,
+        linked: PhysAddrRange,
         firmware: PhysAddrRange,
         next_stage_entry: usize,
         handoff: Option<PhysAddrRange>,
-        ram: impl Iterator<Item = PhysAddrRange>,
     ) -> Result<()> {
-        validate_destination(self.destination, firmware, next_stage_entry, handoff, ram)
+        let (ram, reserved) = self.read_memory_ranges()?;
+        let mut registry = MemoryRegistry::new(linked, ram, reserved)?;
+        validate_destination(
+            self.destination,
+            firmware,
+            next_stage_entry,
+            handoff,
+            registry.ram_ranges(),
+        )?;
+        if linked != firmware {
+            registry.extend_firmware_to(firmware.end())?;
+        }
+        self.supervisor_memory = Some(registry.supervisor_memory(self.mapped_rom()?)?);
+        self.memory_registry = Some(registry);
+        Ok(())
     }
 
-    fn source(&self) -> Result<&[u8]> {
-        // SAFETY: construction validated the complete FDT, and the
-        // description's ownership contract keeps its storage readable and
-        // unchanged.
-        unsafe { fdt_source(self.address) }
+    /// Takes the MMIO registry after boot has reserved the complete firmware image.
+    /// Returns `None` before that reservation or after the registry has been taken.
+    pub fn take_memory_registry(&mut self) -> Option<MemoryRegistry> {
+        self.memory_registry.take()
+    }
+
+    pub(crate) fn storage_range(&self) -> PhysAddrRange {
+        self.source
+    }
+
+    fn source(&self) -> &[u8] {
+        // SAFETY: from_raw validated this exact span. The caller keeps it
+        // readable and immutable until this description is consumed.
+        unsafe {
+            core::slice::from_raw_parts(
+                self.source.start().as_usize() as *const u8,
+                self.source.size(),
+            )
+        }
+    }
+
+    fn parser_source(&self) -> &[u8] {
+        self.parser_copy.as_deref().unwrap_or_else(|| self.source())
     }
 
     /// Inspects the device tree through a temporary root-node view.
@@ -405,26 +432,35 @@ impl PlatformDescription {
         &self,
         inspect: impl for<'tree> FnOnce(PlatformView<'tree>) -> Result<R>,
     ) -> Result<R> {
-        // SAFETY: construction validated the complete FDT. Ownership keeps
-        // its storage readable and unchanged, and the view cannot escape.
-        let source = unsafe { fdt_source(self.address)? };
-        let fdt = Fdt::new(source).map_err(|_| Error::InvalidArgs)?;
-        let fdt_storage = PhysAddrRange::from_start_len(self.address, source.len())?;
+        let source = self.parser_source();
         inspect(PlatformView {
-            fdt,
-            fdt_storage,
+            fdt: Fdt::new(source).map_err(|_| Error::InvalidArgs)?,
             source,
         })
     }
 
-    /// Prepares the device tree passed to the next stage.
+    /// Hands off the device tree and releases supervisor RAM for SBI services.
+    ///
+    /// The tree is written before the returned memory can be used to access its
+    /// backing storage. Returns [`Error::NotReady`] before boot has reserved the firmware.
+    pub fn prepare_next_stage(
+        mut self,
+        firmware_reservation: Option<PhysAddrRange>,
+        hidden_node_paths: &[&str],
+    ) -> Result<(PhysAddr, SupervisorMemory)> {
+        let memory = self.supervisor_memory.take().ok_or(Error::NotReady)?;
+        let address = self.write_handoff_tree(firmware_reservation, hidden_node_paths)?;
+        Ok((address, memory))
+    }
+
+    /// Writes the device tree passed to the next stage.
     ///
     /// Adds the firmware reservation and hides selected nodes, then copies the
     /// result into the destination supplied at construction. Even without edits,
     /// a distinct destination receives the source tree. `totalsize` includes the
     /// destination capacity and unused space is zeroed. Insufficient capacity
     /// returns an error before any destination bytes are written.
-    pub fn prepare_next_stage(
+    fn write_handoff_tree(
         self,
         firmware_reservation: Option<PhysAddrRange>,
         hidden_node_paths: &[&str],
@@ -439,10 +475,8 @@ impl PlatformDescription {
                 patch::Reservation::new(address, size).ok_or(Error::InvalidArgs)
             })
             .transpose()?;
-        let mut rewritten = {
-            let source = self.source()?;
-            patch::prepare_next_stage(source, reservation, hidden_node_paths)?
-        };
+        let mut rewritten =
+            patch::prepare_next_stage(self.source(), reservation, hidden_node_paths)?;
         if rewritten.len() > capacity {
             return Err(Error::NotEnoughResources);
         }
@@ -466,6 +500,44 @@ impl PlatformDescription {
         Ok(destination)
     }
 
+    fn mapped_rom(&self) -> Result<Vec<PhysAddrRange>> {
+        self.inspect(|view| {
+            let mut ranges = Vec::new();
+            let mut physical_depth = 1;
+            view.try_for_each_enabled_node(|node, _, path| {
+                let depth = path.len() - 1;
+                if depth == 0 || depth > physical_depth {
+                    return Ok(());
+                }
+                // Children inherit CPU physical addresses only across an identity bus.
+                let identity = node.property("ranges").is_some_and(|p| p.value.is_empty());
+                physical_depth = depth + usize::from(identity);
+                if !node.compatible().is_some_and(|list| {
+                    list.all()
+                        .any(|item| matches!(item, "cfi-flash" | "jedec-flash" | "mtd-rom"))
+                }) {
+                    return Ok(());
+                }
+                for reg in node.raw_reg().into_iter().flatten() {
+                    if reg.address.is_empty() || reg.size.is_empty() {
+                        break;
+                    }
+                    let (Ok(start), Ok(size)) = (
+                        decode_register_value(reg.address),
+                        decode_register_value(reg.size),
+                    ) else {
+                        continue;
+                    };
+                    if let Ok(range) = PhysAddrRange::from_start_len(PhysAddr::new(start), size) {
+                        ranges.push(range);
+                    }
+                }
+                Ok(())
+            })?;
+            Ok(ranges)
+        })
+    }
+
     fn read_memory_ranges(&self) -> Result<(Vec<PhysAddrRange>, Vec<PhysAddrRange>)> {
         self.read_memory_ranges_using(checked_pointer_width::<usize>)
     }
@@ -474,33 +546,33 @@ impl PlatformDescription {
         &self,
         convert_address: impl Fn(u64) -> Result<usize>,
     ) -> Result<(Vec<PhysAddrRange>, Vec<PhysAddrRange>)> {
-        let source = self.source()?;
-        let fdt = Fdt::new(source).map_err(|_| Error::InvalidArgs)?;
+        let fdt = Fdt::new(self.parser_source()).map_err(|_| Error::InvalidArgs)?;
         let mut ram = Vec::new();
         for node in fdt
-            .all_nodes()
+            .find_node("/")
+            .ok_or(Error::InvalidArgs)?
+            .children()
             .filter(|node| node.name.split('@').next() == Some("memory") && node_is_enabled(*node))
         {
-            let regions = node.raw_reg().ok_or(Error::InvalidArgs)?;
-            for region in regions {
-                record_nonempty_register_range(
-                    &mut ram,
-                    region.address,
-                    region.size,
-                    &convert_address,
-                )?;
-            }
+            record_memory_node(&mut ram, node, &convert_address)?;
         }
         if ram.is_empty() {
             return Err(Error::NotEnoughResources);
         }
 
         let mut reserved = Vec::new();
-        for reservation in fdt.memory_reservations() {
+        // fdt 0.1 exposes reservations as native-width addresses and sizes.
+        // Decode the original 64-bit entries before checking the hart's XLEN.
+        for entry in patch::format::Layout::parse(self.source())?
+            .reservations
+            .chunks_exact(patch::format::RESERVATION_ENTRY_SIZE)
+        {
+            let (address, size) = entry.split_at(size_of::<u64>());
             record_nonempty_range(
                 &mut reserved,
-                reservation.address() as usize,
-                reservation.size(),
+                decode_register_cells(address)?,
+                decode_register_cells(size)?,
+                &convert_address,
             )?;
         }
         if let Some(node) = fdt
@@ -511,19 +583,15 @@ impl PlatformDescription {
                 if child.property("reg").is_none() {
                     continue;
                 }
-                let regions = child.raw_reg().ok_or(Error::InvalidArgs)?;
-                for region in regions {
-                    record_nonempty_register_range(
-                        &mut reserved,
-                        region.address,
-                        region.size,
-                        &convert_address,
-                    )?;
-                }
+                record_memory_node(&mut reserved, child, &convert_address)?;
             }
         }
         Ok((ram, reserved))
     }
+}
+
+fn decode_register_value(bytes: &[u8]) -> Result<usize> {
+    checked_pointer_width(decode_register_cells(bytes)?)
 }
 
 // Check the entire destination before any secondary stack is used. The loader
@@ -564,7 +632,7 @@ unsafe fn fdt_source<'a>(address: PhysAddr) -> Result<&'a [u8]> {
     // header and complete declared span.
     let fdt = unsafe { Fdt::from_ptr(address.as_usize() as *const u8) }
         .map_err(|_| Error::InvalidArgs)?;
-    // SAFETY: the same caller guarantee covers the complete `totalsize` span.
+    // SAFETY: the same caller guarantee covers the complete declared span.
     Ok(unsafe { core::slice::from_raw_parts(address.as_usize() as *const u8, fdt.total_size()) })
 }
 
@@ -580,35 +648,36 @@ fn status_is_enabled(status: Option<&[u8]>) -> bool {
     matches!(status.strip_suffix(&[0]).unwrap_or(status), b"ok" | b"okay")
 }
 
-fn record_nonempty_range(ranges: &mut Vec<PhysAddrRange>, start: usize, size: usize) -> Result<()> {
-    if size != 0 {
-        ranges.push(PhysAddrRange::from_start_len(PhysAddr::new(start), size)?);
+fn record_memory_node(
+    ranges: &mut Vec<PhysAddrRange>,
+    node: FdtNode<'_, '_>,
+    convert_address: &impl Fn(u64) -> Result<usize>,
+) -> Result<()> {
+    for reg in node.raw_reg().ok_or(Error::InvalidArgs)? {
+        record_nonempty_range(
+            ranges,
+            decode_register_cells(reg.address)?,
+            decode_register_cells(reg.size)?,
+            convert_address,
+        )?;
     }
     Ok(())
 }
 
-fn record_nonempty_register_range(
+fn record_nonempty_range(
     ranges: &mut Vec<PhysAddrRange>,
-    address: &[u8],
-    size: &[u8],
+    start: u64,
+    size: u64,
     convert_address: &impl Fn(u64) -> Result<usize>,
 ) -> Result<()> {
-    // Validate both cells before deciding whether the range is present. The
-    // native-pointer conversion must not reject a range that has zero length.
-    let address = decode_register_cells(address)?;
-    let size = decode_register_cells(size)?;
     if size != 0 {
-        ranges.push(PhysAddrRange::from_start_len(
-            PhysAddr::new(convert_address(address)?),
-            convert_address(size)?,
+        let end = start.checked_add(size).ok_or(Error::Overflow)?;
+        ranges.push(PhysAddrRange::new(
+            PhysAddr::new(convert_address(start)?),
+            PhysAddr::new(convert_address(end)?),
         )?);
     }
     Ok(())
-}
-
-fn decode_register_value(bytes: &[u8]) -> Result<usize> {
-    // Preserve the encoded value until the final pointer-width conversion.
-    checked_pointer_width(decode_register_cells(bytes)?)
 }
 
 fn decode_register_cells(bytes: &[u8]) -> Result<u64> {
@@ -681,7 +750,7 @@ mod tests {
                 PhysAddrRange::from_start_len(PhysAddr::new(0x8000_0000), 0x1000).unwrap()
             });
             assert_eq!(
-                description.prepare_next_stage(reservation, &[]).unwrap(),
+                description.write_handoff_tree(reservation, &[]).unwrap(),
                 destination.start()
             );
             let tree = Fdt::new(&test_bytes(&target_storage)[8..1288]).unwrap();
@@ -712,7 +781,7 @@ mod tests {
                 PhysAddrRange::from_start_len(PhysAddr::new(0x8000_0000), 0x1000).unwrap()
             });
             assert_eq!(
-                description.prepare_next_stage(reservation, &[]),
+                description.write_handoff_tree(reservation, &[]),
                 Err(Error::NotEnoughResources)
             );
             assert_eq!(target_storage, original_target);
@@ -735,7 +804,7 @@ mod tests {
         let reservation =
             PhysAddrRange::from_start_len(PhysAddr::new(0x8000_0000), 0x1000).unwrap();
         assert_eq!(
-            description.prepare_next_stage(Some(reservation), &[]),
+            description.write_handoff_tree(Some(reservation), &[]),
             Ok(address)
         );
         let tree = Fdt::new(&test_bytes(&storage)[..destination.size()]).unwrap();
@@ -756,7 +825,7 @@ mod tests {
         // SAFETY: source and destination are separate live 72-byte allocations.
         let description =
             unsafe { PlatformDescription::from_raw(source_address, destination).unwrap() };
-        description.prepare_next_stage(None, &[]).unwrap();
+        description.write_handoff_tree(None, &[]).unwrap();
         assert_eq!(source_storage, target_storage);
     }
 

@@ -19,6 +19,7 @@ use sbi_spec::pmu::*;
 use spin::{Mutex, Once};
 
 use super::features::{PrivilegedVersion, privileged_version, supervisor_xlen};
+use crate::devicetree::property_rows;
 
 // Keep the SBI constants' public usize type and check their 16-bit encoding at compile time.
 macro_rules! firmware_event_code {
@@ -914,17 +915,4 @@ pub(crate) fn from_node(pmu: FdtNode<'_, '_>) -> Option<SbiPmu> {
         }
     }
     Some(sbi_pmu)
-}
-
-fn property_rows<const COLUMNS: usize>(
-    bytes: &[u8],
-) -> Option<impl Iterator<Item = [u32; COLUMNS]> + '_> {
-    let row_size = COLUMNS.checked_mul(core::mem::size_of::<u32>())?;
-    let rows = bytes.chunks_exact(row_size);
-    rows.remainder().is_empty().then_some(rows.map(|row| {
-        core::array::from_fn(|column| {
-            let offset = column * core::mem::size_of::<u32>();
-            u32::from_be_bytes(row[offset..offset + 4].try_into().unwrap())
-        })
-    }))
 }

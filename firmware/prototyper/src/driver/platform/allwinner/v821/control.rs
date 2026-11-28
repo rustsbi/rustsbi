@@ -15,12 +15,13 @@ use super::V821Board;
 
 impl V821Board {
     pub(super) fn initialize_boot_devices(
-        &self,
+        &mut self,
         memory: &mut MemoryRegistry,
         timer: Option<&TimerDesc>,
     ) -> Result<NoncacheableAlias> {
+        let soc = self.boot.hardware()?;
         let plmt_clock = if matches!(timer, Some(TimerDesc::Plmt(_))) {
-            Some(memory.acquire(self.soc.plmt_clock()?)?)
+            Some(memory.acquire(soc.plmt_clock()?)?)
         } else {
             None
         };
@@ -28,8 +29,8 @@ impl V821Board {
         if hart.as_usize() != 0 || HartId::count() != 1 {
             return Err(Error::InvalidArgs);
         }
-        let isp_sram_release = memory.acquire(self.soc.boot0_isp_sram_release()?)?;
-        let alias = self.csr.initialize_noncacheable_alias()?;
+        let isp_sram_release = memory.acquire(soc.boot0_isp_sram_release()?)?;
+        let alias = self.boot.initialize_noncacheable_alias()?;
         release_boot0_isp_sram(&isp_sram_release)?;
         if let Some(clock) = plmt_clock {
             const PLMT_CLOCK_ENABLE: u32 = 1 << 31;

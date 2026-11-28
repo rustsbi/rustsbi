@@ -1,30 +1,7 @@
 #![forbid(unsafe_code)]
 
 use alloc::{string::String, vec::Vec};
-use core::mem::size_of;
-use runtime::{Compatible, Error, FdtNode, PlatformView, Result, hart::HartId, node_is_enabled};
-
-/// A device-tree node whose status and ancestors allow discovery.
-#[derive(Clone, Copy)]
-pub(crate) struct EnabledNode<'view, 'tree: 'view> {
-    node: FdtNode<'view, 'tree>,
-    parent: Option<FdtNode<'view, 'tree>>,
-    compatible: Option<Compatible<'tree>>,
-}
-
-impl<'view, 'tree> EnabledNode<'view, 'tree> {
-    pub(crate) const fn node(self) -> FdtNode<'view, 'tree> {
-        self.node
-    }
-
-    pub(crate) const fn parent(self) -> Option<FdtNode<'view, 'tree>> {
-        self.parent
-    }
-
-    pub(crate) const fn compatible(self) -> Option<Compatible<'tree>> {
-        self.compatible
-    }
-}
+use runtime::{Error, FdtNode, PlatformView, Result, hart::HartId, node_is_enabled};
 
 /// A discovered resource and its absolute path in the source device tree.
 ///
@@ -71,19 +48,24 @@ fn absolute_path(segments: &[&str]) -> String {
 
 /// Reads one big-endian 32-bit property.
 pub(crate) fn u32_property(node: FdtNode<'_, '_>, name: &str) -> Option<u32> {
-    let bytes = node.property(name)?.value;
-    Some(u32::from_be_bytes(bytes.try_into().ok()?))
+    Some(u32::from_be_bytes(
+        node.property(name)?.value.try_into().ok()?,
+    ))
 }
 
-/// Decodes a property containing a list of big-endian 32-bit cells.
-pub(crate) fn u32_cells(node: FdtNode<'_, '_>, name: &str) -> Option<Vec<u32>> {
-    let bytes = node.property(name)?.value;
-    let mut cells = Vec::new();
-    let mut chunks = bytes.chunks_exact(size_of::<u32>());
-    for chunk in &mut chunks {
-        cells.push(u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
-    }
-    chunks.remainder().is_empty().then_some(cells)
+pub(crate) fn is_compatible(node: FdtNode<'_, '_>, compatible: &str) -> bool {
+    node.compatible()
+        .is_some_and(|names| names.all().any(|name| name == compatible))
+}
+
+/// Decodes a property composed of fixed-size rows of big-endian cells.
+pub(crate) fn property_rows<const COLUMNS: usize>(
+    bytes: &[u8],
+) -> Option<impl Iterator<Item = [u32; COLUMNS]> + '_> {
+    let (cells, trailing_bytes) = bytes.as_chunks::<4>();
+    let (rows, trailing_cells) = cells.as_chunks::<COLUMNS>();
+    (trailing_bytes.is_empty() && trailing_cells.is_empty())
+        .then(|| rows.iter().map(|row| row.map(u32::from_be_bytes)))
 }
 
 /// One resolved pair from a node's `interrupts-extended` property.
@@ -102,23 +84,25 @@ pub(crate) fn resolve_interrupts_extended(
     platform: &PlatformView<'_>,
     node: FdtNode<'_, '_>,
 ) -> Result<Vec<CpuInterruptSource>> {
-    let cells = u32_cells(node, "interrupts-extended").ok_or(Error::InvalidArgs)?;
-    if cells.is_empty() || !cells.len().is_multiple_of(2) {
+    let property = node
+        .property("interrupts-extended")
+        .ok_or(Error::InvalidArgs)?;
+    if property.value.is_empty() {
         return Err(Error::InvalidArgs);
     }
+    let entries = property_rows::<2>(property.value).ok_or(Error::InvalidArgs)?;
     let controllers = cpu_interrupt_controllers(platform)?;
-    cells
-        .chunks_exact(2)
+    entries
         .enumerate()
-        .map(|(slot, interrupt)| {
+        .map(|(slot, [phandle, interrupt])| {
             let controller = controllers
                 .iter()
-                .find(|controller| controller.phandle == interrupt[0])
+                .find(|controller| controller.phandle == phandle)
                 .ok_or(Error::InvalidArgs)?;
             Ok(CpuInterruptSource {
                 hart: HartId::from_raw(controller.hart_id).ok(),
                 controller_enabled: controller.enabled,
-                interrupt_id: interrupt[1],
+                interrupt_id: interrupt,
                 slot: u32::try_from(slot).map_err(|_| Error::InvalidArgs)?,
             })
         })
@@ -145,11 +129,7 @@ fn cpu_interrupt_controllers(platform: &PlatformView<'_>) -> Result<Vec<CpuInter
         let hart_id = PlatformView::hart_id(cpu)?;
         controllers.extend(cpu.children().filter_map(|node| {
             if node.name.split('@').next() != Some("interrupt-controller")
-                || !node.compatible().is_some_and(|compatibles| {
-                    compatibles
-                        .all()
-                        .any(|device_id| device_id == "riscv,cpu-intc")
-                })
+                || !is_compatible(node, "riscv,cpu-intc")
             {
                 return None;
             }
@@ -163,23 +143,4 @@ fn cpu_interrupt_controllers(platform: &PlatformView<'_>) -> Result<Vec<CpuInter
         }));
     }
     Ok(controllers)
-}
-
-/// Visits enabled nodes depth first, skipping disabled subtrees.
-///
-/// The visitor receives the node, its parent, and its path from the root.
-pub(crate) fn try_for_each_enabled_node<'view, 'tree: 'view>(
-    platform: &'view PlatformView<'tree>,
-    mut visitor: impl FnMut(EnabledNode<'view, 'tree>, &[&'tree str]) -> Result<()>,
-) -> Result<()> {
-    platform.try_for_each_enabled_node(|node, parent, path| {
-        visitor(
-            EnabledNode {
-                node,
-                parent,
-                compatible: node.compatible(),
-            },
-            path,
-        )
-    })
 }

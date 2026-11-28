@@ -14,8 +14,6 @@ mod device;
 
 use runtime::{PlatformView, Result};
 
-use crate::devicetree::try_for_each_enabled_node;
-
 use description::ActionDesc;
 pub(super) use description::Desc;
 pub(super) use device::SysconReset;
@@ -27,25 +25,17 @@ const REBOOT_COMPATIBLE: &str = "syscon-reboot";
 pub(super) fn describe(platform: &PlatformView<'_>) -> Result<Option<Desc>> {
     let mut poweroff = None;
     let mut reboot = None;
-    try_for_each_enabled_node(platform, |discovered, _| {
-        let Some(compatibles) = discovered.compatible() else {
+    platform.try_for_each_enabled_node(|node, parent, _| {
+        let Some(names) = node.compatible() else {
             return Ok(());
         };
-        let node = discovered.node();
-        let parent = discovered.parent();
-        if compatibles
-            .all()
-            .any(|compatible| compatible == POWEROFF_COMPATIBLE)
-        {
+        if names.all().any(|name| name == POWEROFF_COMPATIBLE) {
             consider(
                 &mut poweroff,
                 ActionDesc::from_node(platform, node, parent)?,
             );
         }
-        if compatibles
-            .all()
-            .any(|compatible| compatible == REBOOT_COMPATIBLE)
-        {
+        if names.all().any(|name| name == REBOOT_COMPATIBLE) {
             consider(&mut reboot, ActionDesc::from_node(platform, node, parent)?);
         }
         Ok(())

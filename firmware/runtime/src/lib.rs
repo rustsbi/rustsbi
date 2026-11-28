@@ -22,7 +22,6 @@ pub mod fence;
 pub mod heap;
 pub mod memory;
 pub mod reset;
-mod sunxi_rtc_v203;
 pub mod trap;
 
 cfg_select! {

@@ -14,7 +14,7 @@ use spin::Once;
 
 use super::{Board, harts, interrupts, report};
 use crate::{
-    devicetree::try_for_each_enabled_node,
+    devicetree::is_compatible,
     driver::device::{
         console as console_driver, interrupts as interrupt_drivers, reset as reset_driver,
     },
@@ -29,7 +29,10 @@ static SUPERVISOR_MEMORY: Once<SupervisorMemory> = Once::new();
 static READY: AtomicBool = AtomicBool::new(false);
 
 /// Runs the common startup sequence with the selected board's operations.
-pub(crate) fn init(platform_description: PlatformDescription, board: &dyn Board) -> Result<usize> {
+pub(crate) fn init(
+    mut platform_description: PlatformDescription,
+    board: &mut dyn Board,
+) -> Result<usize> {
     let (model, timebase_frequency_hz, console_description, reset_description, mut pmu, interrupts) =
         platform_description.inspect(|platform| {
             let timebase_frequency_hz = harts::describe(&platform)?;
@@ -53,7 +56,9 @@ pub(crate) fn init(platform_description: PlatformDescription, board: &dyn Board)
             ))
         })?;
 
-    let (supervisor_memory, mut memory) = platform_description.memory_resources()?;
+    let mut memory = platform_description
+        .take_memory_registry()
+        .ok_or(Error::NotReady)?;
     let firmware_image_range = memory.firmware_image_range();
     let firmware_ram_range = memory
         .ram_ranges()
@@ -80,16 +85,14 @@ pub(crate) fn init(platform_description: PlatformDescription, board: &dyn Board)
         reset_driver::init(description, &mut memory)?;
     }
 
-    let supervisor_memory = SUPERVISOR_MEMORY.call_once(|| supervisor_memory);
-    let vendor = platform_description
-        .inspect(|view| board.init(&view, &mut memory, supervisor_memory, &mut pmu))?;
+    let vendor = platform_description.inspect(|view| board.init(&view, &mut memory, &mut pmu))?;
 
     let hidden_node_paths: Vec<_> = hidden_node_paths.iter().map(String::as_str).collect();
     let firmware_reservation =
         (!memory.firmware_is_reserved()).then_some(memory.firmware_image_range());
-    let next_stage_fdt_address = platform_description
-        .prepare_next_stage(firmware_reservation, &hidden_node_paths)?
-        .as_usize();
+    let (next_stage_fdt_address, supervisor_memory) =
+        platform_description.prepare_next_stage(firmware_reservation, &hidden_node_paths)?;
+    let supervisor_memory = SUPERVISOR_MEMORY.call_once(|| supervisor_memory);
 
     firmware::init_pmp(firmware_ram_range, noncacheable_alias_offset, irq_mmio);
     sbi::init(
@@ -102,7 +105,7 @@ pub(crate) fn init(platform_description: PlatformDescription, board: &dyn Board)
     // all initialized services before proceeding.
     READY.store(true, Ordering::Release);
     report::log_platform_summary(&model, timebase_frequency_hz, memory.ram_ranges());
-    Ok(next_stage_fdt_address)
+    Ok(next_stage_fdt_address.as_usize())
 }
 
 /// Spins until the boot hart has finished platform initialization.
@@ -115,13 +118,9 @@ pub fn wait_until_ready() {
 /// Reads PMU event mappings from the first enabled PMU node.
 fn describe_pmu(platform: &PlatformView<'_>) -> Result<Option<SbiPmu>> {
     let mut pmu_node = None;
-    try_for_each_enabled_node(platform, |node, _| {
-        if pmu_node.is_none()
-            && node
-                .compatible()
-                .is_some_and(|values| values.all().any(|value| value == "riscv,pmu"))
-        {
-            pmu_node = Some(node.node());
+    platform.try_for_each_enabled_node(|node, _, _| {
+        if pmu_node.is_none() && is_compatible(node, "riscv,pmu") {
+            pmu_node = Some(node);
         }
         Ok(())
     })?;

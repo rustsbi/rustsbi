@@ -48,12 +48,14 @@ fn boot_hart(boot: BootInfo, platform_description: PlatformDescription) -> Resul
     sbi::pmu::init();
     sbi::rfence::init();
     // SAFETY:
-    // 1. Runtime entry clears MPRV and masks interrupts in M-mode.
+    // 1. Only the elected boot hart receives the platform description. It
+    //    calls this once, with MPRV clear and interrupts masked in M-mode.
     //    Secondary harts wait for platform publication.
     // 2. The trusted boot handoff identifies the hardware and leaves cache/PMA
     //    setup to this hart with the loader's live mappings intact.
-    // 3. On V821 the BSP reserves PMA entry 15. Published drivers use the
-    //    custom CSRs in M-mode with Andes CCTL enabled and writeback-capable mappings.
+    // 3. On V821 the BSP assigns PMA entry 15 and its configuration word to
+    //    firmware. It enables CCTL for physical-address commands in M-mode, and
+    //    the BSP permits whole-cache writeback while device buffers are live.
     let next_stage_fdt_address = unsafe { firmware::init_platform(platform_description)? };
 
     // SAFETY: Runtime entry installed recovery and excluded interrupts. The
@@ -76,11 +78,9 @@ fn boot_hart(boot: BootInfo, platform_description: PlatformDescription) -> Resul
         start_addr,
         next_mode
     );
-    hart::stage_boot_handoff(boot::NextStage {
-        start_addr,
-        next_mode,
-        opaque: next_stage_fdt_address,
-    })?;
+    // SAFETY: The boot hart uses the target authorized by the loader or linked
+    // image. The dynamic handoff requires an M-mode payload to preserve live firmware memory.
+    unsafe { hart::stage_boot_handoff(next_mode, start_addr, next_stage_fdt_address)? };
 
     // SAFETY: Platform binding registered this hart's devices. Startup still owns
     // its supervisor state, and the BSP establishes the T-Head MAEE semantics.
@@ -93,9 +93,10 @@ fn boot_hart(boot: BootInfo, platform_description: PlatformDescription) -> Resul
 ///
 /// 1. Enter in M-mode through Runtime startup or a supported reset vector with
 ///    Runtime recovery ready, `MPRV` clear and local machine interrupts disabled.
-/// 2. Own this hart's startup configuration, including the unlocked PMP entries
-///    needed for the published layout. The platform must meet the requirements of
-///    [`enable_supervisor_services`].
+/// 2. Own this hart's startup configuration and satisfy [`firmware::set_pmp`]
+///    and [`enable_supervisor_services`] for this hart.
+/// 3. Pass the loader handoff on initial entry. Pass `None` only after a
+///    hardware reset whose entry code has prepared the hart's caches for shared access.
 unsafe fn secondary_hart(boot: Option<&BootInfo>) -> Result<()> {
     platform::wait_until_ready();
     let hart = HartId::current()?;
@@ -105,8 +106,11 @@ unsafe fn secondary_hart(boot: Option<&BootInfo>) -> Result<()> {
     // SAFETY: Secondary startup owns this hart's counters with recovery active.
     unsafe { detect_hart_features(hart)? };
 
-    // SAFETY: Platform publication is complete and the caller owns hart startup.
-    unsafe { firmware::initialize_secondary_hart() };
+    if boot.is_some() {
+        // SAFETY: On loader entry, startup still owns this hart's cache setup.
+        // The acquire in wait_until_ready observed the boot hart's publication.
+        unsafe { firmware::initialize_secondary_hart() };
+    }
     // SAFETY: The caller owns this hart's PMP setup with recovery ready and
     // interrupts excluded, before its first lower-mode access.
     unsafe { firmware::set_pmp() };
@@ -128,8 +132,8 @@ unsafe fn secondary_hart(boot: Option<&BootInfo>) -> Result<()> {
 /// Meet the hardware and startup requirements of [`sbi::features::configure_hart_environment`]
 /// and [`boot::configure_next_stage`], including S-mode and the counter-enable CSRs.
 unsafe fn enable_supervisor_services(hart: HartId) -> Result<()> {
-    // SAFETY: The caller owns hart's lower-mode state and establishes the
-    // board-specific CSR semantics required by configure_hart_environment.
+    // SAFETY: The caller authorizes the supervisor state grants and establishes
+    // the board-specific CSR semantics before lower-mode entry.
     unsafe { sbi::features::configure_hart_environment(hart)? };
     // The supervisor owns its timer, so discard any firmware deadline before
     // entry; otherwise a stale comparator could inject an early interrupt.

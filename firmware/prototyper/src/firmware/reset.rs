@@ -8,7 +8,7 @@ use runtime::soc::{allwinner::v861::AllwinnerV861Soc, spacemit::k1::SpacemitK1So
 ///
 /// Enter only under [`SpacemitK1Soc::reset_entry`]'s hardware-reset conditions.
 #[unsafe(naked)]
-pub(crate) unsafe extern "C" fn k1_reset_entry() -> ! {
+pub(crate) unsafe extern "C" fn spacemit_k1_reset_entry() -> ! {
     core::arch::naked_asm!(
         ".balign 4",
         ".option push",
@@ -16,7 +16,7 @@ pub(crate) unsafe extern "C" fn k1_reset_entry() -> ! {
         "lla a0, {initialize}",
         ".option pop",
         "tail {entry}",
-        initialize = sym initialize_k1,
+        initialize = sym initialize_spacemit_k1,
         entry = sym SpacemitK1Soc::reset_entry,
     )
 }
@@ -27,7 +27,7 @@ pub(crate) unsafe extern "C" fn k1_reset_entry() -> ! {
 ///
 /// Enter only under [`AllwinnerV861Soc::reset_entry`]'s hardware-reset conditions.
 #[unsafe(naked)]
-pub(crate) unsafe extern "C" fn c907_reset_entry() -> ! {
+pub(crate) unsafe extern "C" fn thead_c907_reset_entry() -> ! {
     core::arch::naked_asm!(
         ".balign 4",
         ".option push",
@@ -35,7 +35,7 @@ pub(crate) unsafe extern "C" fn c907_reset_entry() -> ! {
         "lla a0, {initialize}",
         ".option pop",
         "tail {entry}",
-        initialize = sym initialize_c907,
+        initialize = sym initialize_thead_c907,
         entry = sym AllwinnerV861Soc::reset_entry,
     )
 }
@@ -46,7 +46,7 @@ pub(crate) unsafe extern "C" fn c907_reset_entry() -> ! {
 ///
 /// Enter through [`SpacemitK1Soc::reset_entry`] with the platform published
 /// and the startup conditions of [`crate::secondary_hart`] in effect.
-unsafe extern "C" fn initialize_k1() {
+unsafe extern "C" fn initialize_spacemit_k1() {
     // SAFETY: Runtime reset entry prepared the hart and installed trap handling.
     if let Err(error) = unsafe { crate::secondary_hart(None) } {
         error!("Failed to initialize the hart: {error}");
@@ -60,7 +60,7 @@ unsafe extern "C" fn initialize_k1() {
 ///
 /// Enter through [`AllwinnerV861Soc::reset_entry`] after cache invalidation
 /// and entry into coherency, under the startup conditions of [`crate::secondary_hart`].
-unsafe extern "C" fn initialize_c907() {
+unsafe extern "C" fn initialize_thead_c907() {
     let result = crate::driver::platform::allwinner::v861::cache_state().and_then(|cache| {
         // SAFETY:
         // 1. This is a C907 on the board that published the cache policy.

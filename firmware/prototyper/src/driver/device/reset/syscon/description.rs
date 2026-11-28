@@ -2,9 +2,10 @@
 
 use core::mem::{align_of, size_of};
 
-use runtime::{Error, FdtNode, PlatformView, Result, memory::RegRange, node_is_enabled};
+use runtime::{Error, FdtNode, PlatformView, Result, memory::RegRange};
 
 use super::super::primary_registers;
+use crate::devicetree::is_compatible;
 
 /// Selected reset actions before their MMIO registers are acquired.
 pub(crate) struct Desc {
@@ -22,12 +23,12 @@ pub(super) struct ActionDesc {
 }
 
 impl ActionDesc {
-    pub(super) fn from_node<'tree>(
-        platform: &PlatformView<'tree>,
-        node: FdtNode<'_, 'tree>,
-        parent: Option<FdtNode<'_, 'tree>>,
+    pub(super) fn from_node<'view, 'tree>(
+        platform: &'view PlatformView<'tree>,
+        node: FdtNode<'view, 'tree>,
+        parent: Option<FdtNode<'view, 'tree>>,
     ) -> Result<Self> {
-        let provider = Self::resolve_provider(platform.root(), node, parent)?;
+        let provider = Self::resolve_provider(platform, node, parent)?;
         Self::validate_provider(provider)?;
 
         let offset = Self::read_u32(node, "offset")?.ok_or(Error::InvalidArgs)?;
@@ -73,7 +74,7 @@ impl ActionDesc {
     }
 
     fn resolve_provider<'view, 'tree>(
-        root: FdtNode<'view, 'tree>,
+        platform: &'view PlatformView<'tree>,
         node: FdtNode<'view, 'tree>,
         parent: Option<FdtNode<'view, 'tree>>,
     ) -> Result<FdtNode<'view, 'tree>> {
@@ -81,38 +82,27 @@ impl ActionDesc {
         // as the syscon provider.
         match Self::read_u32(node, "regmap")? {
             Some(0 | u32::MAX) => Err(Error::InvalidArgs),
-            Some(phandle) => Self::find_phandle(root, phandle)?.ok_or(Error::InvalidArgs),
+            Some(phandle) => {
+                let mut provider = None;
+                platform.try_for_each_enabled_node(|candidate, _, _| {
+                    if provider.is_none() {
+                        let handle = Self::read_u32(candidate, "phandle")?
+                            .or(Self::read_u32(candidate, "linux,phandle")?);
+                        if handle == Some(phandle) {
+                            provider = Some(candidate);
+                        }
+                    }
+                    Ok(())
+                })?;
+                provider.ok_or(Error::InvalidArgs)
+            }
             None => parent.ok_or(Error::InvalidArgs),
         }
     }
 
-    fn find_phandle<'view, 'tree>(
-        node: FdtNode<'view, 'tree>,
-        phandle: u32,
-    ) -> Result<Option<FdtNode<'view, 'tree>>> {
-        // A disabled ancestor also makes a referenced provider unavailable.
-        if !node_is_enabled(node) {
-            return Ok(None);
-        }
-        let handle = Self::read_u32(node, "phandle")?.or(Self::read_u32(node, "linux,phandle")?);
-        if handle == Some(phandle) {
-            return Ok(Some(node));
-        }
-        for child in node.children() {
-            if let Some(provider) = Self::find_phandle(child, phandle)? {
-                return Ok(Some(provider));
-            }
-        }
-        Ok(None)
-    }
-
     fn validate_provider(node: FdtNode<'_, '_>) -> Result<()> {
-        let is_syscon = node
-            .compatible()
-            .is_some_and(|values| values.all().any(|value| value == "syscon"));
         // The driver supports only 32-bit little-endian syscon registers.
-        if !node_is_enabled(node)
-            || !is_syscon
+        if !is_compatible(node, "syscon")
             || Self::read_u32(node, "reg-io-width")?.is_some_and(|width| width != 4)
             || node.property("big-endian").is_some()
         {

@@ -10,17 +10,12 @@ use super::pmu;
 
 /// SBI-related features and privilege state for one hart.
 #[derive(Default)]
-pub struct HartFeatures {
-    extensions: [bool; Extension::COUNT],
+struct HartFeatures {
+    extensions: IsaExtensions,
+    hypervisor: bool,
     privileged_version: PrivilegedVersion,
     supervisor_xlen: Option<Xlen>,
     privilege_checked: bool,
-}
-
-impl HartFeatures {
-    pub const fn privileged_version(&self) -> PrivilegedVersion {
-        self.privileged_version
-    }
 }
 
 /// Per-hart feature records, published before platform discovery.
@@ -42,16 +37,24 @@ fn features(hart: HartId) -> &'static Mutex<HartFeatures> {
         .get(hart)
 }
 
-pub(crate) fn has_extension(hart: HartId, extension: Extension) -> bool {
-    features(hart).lock().extensions[extension.index()]
+pub(super) fn has_hypervisor(hart: HartId) -> bool {
+    features(hart).lock().hypervisor
 }
 
 pub(crate) fn privileged_version(hart: HartId) -> PrivilegedVersion {
-    features(hart).lock().privileged_version()
+    features(hart).lock().privileged_version
 }
 
 pub(crate) fn supervisor_xlen(hart: HartId) -> Option<Xlen> {
     features(hart).lock().supervisor_xlen
+}
+
+pub(super) fn instruction_alignment(hart: HartId) -> usize {
+    if cfg!(target_feature = "c") || features(hart).lock().extensions.compressed {
+        2
+    } else {
+        4
+    }
 }
 
 pub(crate) fn hart_privilege_checked(hart: HartId) -> bool {
@@ -69,85 +72,71 @@ pub(crate) fn counter_topology(hart: HartId) -> (PrivilegedVersion, u32) {
 
 pub use runtime::hart::PrivilegedVersion;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum Extension {
-    Sstc = 0,
-    Hypervisor = 1,
-    Smaia = 2,
-    Svpbmt = 3,
-    Zkr = 4,
-    Zicbom = 5,
-    Zicboz = 6,
-    Svade = 7,
-    Svadu = 8,
-    // Remember to increment `Extension::COUNT` while implementing new extensions.
+#[derive(Clone, Copy, Default)]
+struct IsaExtensions {
+    envcfg: boot::SupervisorEnvConfig,
+    compressed: bool,
+    smaia: bool,
+    zkr: bool,
 }
 
-impl Extension {
-    pub const COUNT: usize = 9;
-
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            Self::Sstc => "sstc",
-            Self::Hypervisor => "h",
-            Self::Smaia => "smaia", // TODO: Verify with the device-tree specification.
-            Self::Svpbmt => "svpbmt",
-            Self::Zkr => "zkr",
-            Self::Zicbom => "zicbom",
-            Self::Zicboz => "zicboz",
-            Self::Svade => "svade",
-            Self::Svadu => "svadu",
+impl IsaExtensions {
+    fn insert(&mut self, name: &str) {
+        match name {
+            "c" | "zca" => self.compressed = true,
+            "smaia" => self.smaia = true,
+            "svade" => self.envcfg.svade = true,
+            "svadu" => self.envcfg.svadu = true,
+            "svpbmt" => self.envcfg.svpbmt = true,
+            "zicbom" => self.envcfg.zicbom = true,
+            "zicboz" => self.envcfg.zicboz = true,
+            "zkr" => self.zkr = true,
+            _ => {}
         }
     }
 
-    #[inline]
-    pub const fn index(&self) -> usize {
-        *self as usize
-    }
-
-    pub fn iter() -> impl Iterator<Item = Self> {
-        [
-            Self::Sstc,
-            Self::Hypervisor,
-            Self::Smaia,
-            Self::Svpbmt,
-            Self::Zkr,
-            Self::Zicbom,
-            Self::Zicboz,
-            Self::Svade,
-            Self::Svadu,
-        ]
-        .into_iter()
+    // A multi-letter extension can follow the base letters without a separator.
+    // Its optional version is a major number or a major/minor pair such as 1p0.
+    fn insert_legacy(&mut self, component: &str) {
+        let start = component.find(['s', 'x', 'z']).unwrap_or(component.len());
+        let (letters, name) = component.split_at(start);
+        self.compressed |= letters.contains('c');
+        let digit = |c: char| c.is_ascii_digit();
+        let stem = name.trim_end_matches(digit);
+        if stem.len() < name.len()
+            && let Some(major) = stem.strip_suffix('p')
+            && major.ends_with(digit)
+        {
+            self.insert(major.trim_end_matches(digit));
+        } else {
+            self.insert(stem);
+        }
     }
 }
 
-/// Parses the extensions reported for one CPU node.
-pub(crate) fn parse_extensions(cpu: FdtNode<'_, '_>) -> [bool; Extension::COUNT] {
-    let mut extensions = [false; Extension::COUNT];
+/// Records the ISA extensions used by firmware from this hart's CPU node.
+pub(crate) fn install_extensions(hart: HartId, cpu: FdtNode<'_, '_>) {
+    let mut extensions = IsaExtensions::default();
     if let Some(property) = cpu.property("riscv,isa-extensions") {
-        for name in property.value.split(|byte| *byte == 0) {
-            for extension in Extension::iter() {
-                extensions[extension.index()] |= name == extension.as_str().as_bytes();
-            }
+        for name in property
+            .value
+            .split_inclusive(|byte| *byte == 0)
+            .map_while(|bytes| core::str::from_utf8(bytes.strip_suffix(&[0])?).ok())
+        {
+            extensions.insert(name);
         }
     } else if let Some(isa) = cpu
         .property("riscv,isa")
         .and_then(|property| property.as_str())
+        .and_then(|isa| {
+            isa.strip_prefix("rv32")
+                .or_else(|| isa.strip_prefix("rv64"))
+        })
     {
-        for part in isa.split('_') {
-            for extension in Extension::iter() {
-                let name = extension.as_str();
-                extensions[extension.index()] |=
-                    part == name || (name.len() == 1 && part.contains(name));
-            }
+        for component in isa.split('_') {
+            extensions.insert_legacy(component);
         }
     }
-
-    extensions
-}
-
-/// Installs the extensions parsed from one enabled CPU node.
-pub(crate) fn install_extensions(hart: HartId, extensions: [bool; Extension::COUNT]) {
     features(hart).lock().extensions = extensions;
 }
 
@@ -166,7 +155,7 @@ pub(crate) unsafe fn detect_hart_features(hart: HartId) -> Result<()> {
     unsafe { pmu::init_current(hart)? };
     {
         let mut record = features(hart).lock();
-        record.extensions[Extension::Hypervisor.index()] = has_h;
+        record.hypervisor = has_h;
         record.privileged_version = version;
         record.supervisor_xlen = xlen;
     }
@@ -192,13 +181,14 @@ pub fn check_next_stage_privilege(hart: HartId, next_mode: Privilege) -> Result<
 ///
 /// 1. Run on `hart` in M-mode with local interrupts disabled and Runtime recovery
 ///    ready, while startup owns its counters and lower-mode state.
-/// 2. Register platform interrupt devices before configuring lower-mode access.
+/// 2. Register the platform timer and interrupt devices. The supervisor must
+///    be authorized to access the state enabled by the advertised extensions.
 /// 3. Keep lower-mode address spaces inactive. On a T-Head hart where MAEE will
 ///    be cleared, confirm that the implementation supports that use of `mxstatus`.
 pub(crate) unsafe fn configure_hart_environment(hart: HartId) -> Result<()> {
-    let envcfg = supervisor_envcfg(hart);
+    let extensions = features(hart).lock().extensions;
     // Standard Sv32 and Svpbmt page tables must not use T-Head MAEE.
-    if cfg!(target_pointer_width = "32") || envcfg.svpbmt {
+    if cfg!(target_pointer_width = "32") || extensions.envcfg.svpbmt {
         // SAFETY: The caller owns the address-space transition and establishes
         // the board-specific meaning of MXSTATUS before this recoverable access.
         unsafe { boot::disable_thead_maee() };
@@ -211,24 +201,16 @@ pub(crate) unsafe fn configure_hart_environment(hart: HartId) -> Result<()> {
     timer::init_hart()?;
     // SAFETY: Startup owns the lower-mode environment and recovery is active
     // if the hart lacks an environment-configuration CSR.
-    unsafe { boot::configure_supervisor_envcfg(envcfg) }?;
-    if has_extension(hart, Extension::Zkr) {
+    unsafe { boot::configure_supervisor_envcfg(extensions.envcfg) }?;
+    if extensions.zkr {
         boot::enable_supervisor_seed();
     }
     // SAFETY: Platform binding selected the IPI device, and startup still owns
     // this hart's state-enable registers.
-    unsafe { boot::configure_state_access(has_extension(hart, Extension::Smaia)) };
+    unsafe { boot::configure_state_access(extensions.smaia) };
     Ok(())
 }
 
 pub(super) fn supervisor_envcfg(hart: HartId) -> boot::SupervisorEnvConfig {
-    let record = features(hart).lock();
-    let has = |ext: Extension| record.extensions[ext.index()];
-    boot::SupervisorEnvConfig {
-        zicbom: has(Extension::Zicbom),
-        zicboz: has(Extension::Zicboz),
-        svpbmt: has(Extension::Svpbmt),
-        svade: has(Extension::Svade),
-        svadu: has(Extension::Svadu),
-    }
+    features(hart).lock().extensions.envcfg
 }

@@ -9,9 +9,9 @@ mod controller;
 mod description;
 mod device;
 
-use runtime::{Error, PlatformView, Result};
+use runtime::{Error, FdtNode, PlatformView, Result};
 
-use crate::devicetree::EnabledNode;
+use crate::devicetree::u32_property;
 
 use super::primary_registers;
 pub(super) use description::Desc;
@@ -24,10 +24,11 @@ const I2C_COMPATIBLES: [&str; 2] = ["spacemit,k1-i2c", "ky,i2c"];
 /// Describes a PMIC and its parent I2C controller without acquiring MMIO.
 pub(super) fn describe(
     platform: &PlatformView<'_>,
-    discovered: EnabledNode<'_, '_>,
+    node: FdtNode<'_, '_>,
+    parent: Option<FdtNode<'_, '_>>,
     timebase_frequency_hz: Option<u32>,
 ) -> Result<Option<Desc>> {
-    let Some(compatibles) = discovered.compatible() else {
+    let Some(compatibles) = node.compatible() else {
         return Ok(None);
     };
     if !compatibles
@@ -36,19 +37,13 @@ pub(super) fn describe(
     {
         return Ok(None);
     }
-    let node = discovered.node();
 
-    // A PMIC child's `reg` value is an address on its parent I2C bus, not a
-    // physical MMIO range, so it must not be parsed as one.
-    let mut address_entries = node.reg().ok_or(Error::InvalidArgs)?;
-    let address_entry = address_entries.next().ok_or(Error::InvalidArgs)?;
-    if address_entries.next().is_some() {
-        return Err(Error::InvalidArgs);
-    }
-    let address =
-        I2cAddress::new(address_entry.starting_address as usize).ok_or(Error::InvalidArgs)?;
+    // The I2C binding encodes the device address in one cell.
+    let address = u32_property(node, "reg")
+        .and_then(I2cAddress::new)
+        .ok_or(Error::InvalidArgs)?;
 
-    let parent = discovered.parent().ok_or(Error::InvalidArgs)?;
+    let parent = parent.ok_or(Error::InvalidArgs)?;
     let parent_compatibles = parent.compatible().ok_or(Error::InvalidArgs)?;
     if !parent_compatibles
         .all()

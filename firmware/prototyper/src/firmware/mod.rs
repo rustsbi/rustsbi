@@ -1,7 +1,7 @@
 mod platform;
 mod reset;
 pub(crate) use platform::{BootHart, init_platform, initialize_secondary_hart};
-pub(crate) use reset::{c907_reset_entry, k1_reset_entry};
+pub(crate) use reset::{spacemit_k1_reset_entry, thead_c907_reset_entry};
 
 #[cfg(not(any(feature = "payload", feature = "jump")))]
 mod dynamic;
@@ -28,16 +28,36 @@ pub(crate) struct IrqMmio {
     pub(crate) imsic_end: usize,
 }
 
-struct PmpLayout {
-    entries: Vec<(PmpRange, PmpPermission, usize)>,
-    alias_end_index: Option<usize>,
-}
+static PMP: Once<Vec<(PmpRange, PmpPermission, usize)>> = Once::new();
 
-static PMP: Once<PmpLayout> = Once::new();
+/// Checks the execute bit of the first matching entry in the shared hart PMP layout.
+pub(crate) fn permits_instruction_fetch(address: PhysAddr) -> bool {
+    let Some(layout) = PMP.get() else {
+        return false;
+    };
+    let word = address.as_usize() >> 2;
+    let mut lower = 0;
+    for &(mode, permission, encoded) in layout {
+        let matches = match mode {
+            PmpRange::Off => false,
+            PmpRange::Tor => (lower..encoded).contains(&word),
+            PmpRange::Na4 => word == encoded,
+            PmpRange::Napot => {
+                // Ignore the trailing ones and the first zero of the NAPOT encoding.
+                let ignored = encoded ^ encoded.wrapping_add(1);
+                word & !ignored == encoded & !ignored
+            }
+        };
+        if matches {
+            return permission as u8 & PmpPermission::X as u8 != 0;
+        }
+        lower = encoded;
+    }
+    false
+}
 
 unsafe extern "C" {
     static sbi_rodata_start: u8;
-    static sbi_rodata_end: u8;
 }
 
 pub(crate) fn init_pmp(
@@ -46,48 +66,35 @@ pub(crate) fn init_pmp(
     irq_mmio: Option<IrqMmio>,
 ) {
     PMP.call_once(|| {
-        use PmpPermission::{None as Deny, R, Rw, Rwx};
+        use PmpPermission::{None as Deny, R, Rwx};
         use PmpRange::{Napot, Off, Tor};
 
         let firmware = locate_firmware_image()
             .expect("firmware bounds are available after topology initialization");
-        let ram_start = firmware_ram.start().as_usize();
-        let ram_end = firmware_ram.end().as_usize();
         let firmware_start = firmware.start().as_usize();
         let firmware_end = firmware.end().as_usize();
         let rodata_start = (&raw const sbi_rodata_start).addr();
-        let rodata_end = (&raw const sbi_rodata_end).addr();
 
-        let mut entries = Vec::new();
-        entries.push((Off, Deny, 0));
-        if let Some(mmio) = &irq_mmio {
+        assert_eq!((firmware_start | rodata_start | firmware_end) & 3, 0);
+        let mut entries = alloc::vec![
+            (Off, Deny, firmware_start >> 2),
+            (Tor, R, rodata_start >> 2),
+            (Tor, Deny, firmware_end >> 2),
+        ];
+        if let Some(mmio) = irq_mmio {
             const QEMU_VIRT_CLINT_SIZE: usize = 0x1_0000;
             entries.extend([
-                (Tor, Rwx, mmio.clint_start >> 2),
+                (Off, Deny, mmio.clint_start >> 2),
                 (Tor, Deny, (mmio.clint_start + QEMU_VIRT_CLINT_SIZE) >> 2),
-                (Tor, Rwx, mmio.aplic.start().as_usize() >> 2),
+                (Off, Deny, mmio.aplic.start().as_usize() >> 2),
                 (Tor, Deny, mmio.aplic.end().as_usize() >> 2),
-                (Tor, Rwx, mmio.imsic_start >> 2),
+                (Off, Deny, mmio.imsic_start >> 2),
                 (Tor, Deny, mmio.imsic_end >> 2),
             ]);
         }
 
-        for (end, permission) in [
-            (ram_start, Rwx),
-            (firmware_start, Rwx),
-            (rodata_start, R),
-            (rodata_end, Deny),
-            // The handoff DTB in this region must remain writable by S-mode.
-            (firmware_end, Rw),
-            (ram_end, Rwx),
-        ] {
-            assert_eq!(end & 3, 0);
-            entries.push((Tor, permission, end >> 2));
-        }
-
-        let mut alias_end_index = None;
-        if let Some(alias) = noncacheable_alias_offset.filter(|_| irq_mmio.is_none()) {
-            assert!(alias.is_power_of_two() && alias >= ram_end as u64);
+        if let Some(alias) = noncacheable_alias_offset {
+            assert!(alias.is_power_of_two() && alias >= firmware_ram.end().as_usize() as u64);
             let start = (firmware_start as u64)
                 .checked_add(alias)
                 .expect("BUG: V821 firmware alias start overflowed");
@@ -96,16 +103,13 @@ pub(crate) fn init_pmp(
                 .expect("BUG: V821 firmware alias end overflowed");
             assert!(end >> 2 <= usize::MAX as u64);
             entries.push((Off, Deny, (start >> 2) as usize));
-            alias_end_index = Some(entries.len());
             entries.push((Tor, Deny, (end >> 2) as usize));
             entries.push((Napot, Rwx, usize::MAX));
         } else {
+            entries.push((Off, Deny, 0));
             entries.push((Tor, Rwx, usize::MAX >> 2));
         }
-        PmpLayout {
-            entries,
-            alias_end_index,
-        }
+        entries
     });
 }
 
@@ -122,7 +126,8 @@ impl BootInfo {
     /// # Safety
     ///
     /// In dynamic mode, `a2` must satisfy the loader's record validity contract
-    /// for the duration of this call.
+    /// for the duration of this call. Its target must be trusted to execute in
+    /// the requested mode and preserve live firmware memory if entered in M-mode.
     pub(crate) unsafe fn from_entry(_a2: usize) -> Self {
         Self {
             platform_description: None,
@@ -184,9 +189,9 @@ impl BootInfo {
         Ok(is_boot_hart)
     }
 
-    pub(crate) fn platform_description(&self) -> &PlatformDescription {
+    pub(crate) fn platform_description_mut(&mut self) -> &mut PlatformDescription {
         self.platform_description
-            .as_ref()
+            .as_mut()
             .expect("boot hart owns its platform description")
     }
 
@@ -245,7 +250,7 @@ pub(crate) unsafe fn set_pmp() {
     let layout = PMP
         .get()
         .expect("BUG: PMP layout used before initialization");
-    for (slot, &(range, permission, address)) in layout.entries.iter().enumerate() {
+    for (slot, &(range, permission, address)) in layout.iter().enumerate() {
         let index = u8::try_from(slot).expect("PMP index fits in u8");
         let entry = PmpEntry {
             range,
@@ -260,9 +265,9 @@ pub(crate) unsafe fn set_pmp() {
             unsafe { pmp::write_entry(index, entry, address) },
             "invalid PMP entry index {index}"
         );
-        if layout.alias_end_index == Some(slot) {
-            // Both TOR bounds and the deny entry must hold before the final grant.
-            assert_eq!(pmp::read_addr(index - 1), Some(layout.entries[slot - 1].2));
+        if range == PmpRange::Tor && permission == PmpPermission::None {
+            // Verify both bounds before relying on a protected TOR range.
+            assert_eq!(pmp::read_addr(index - 1), Some(layout[slot - 1].2));
             assert_eq!(pmp::read_entry(index), Some((entry, address)));
         }
     }
@@ -298,7 +303,7 @@ pub fn log_pmp_cfg() {
     let layout = PMP
         .get()
         .expect("BUG: PMP layout used before initialization");
-    let count = u8::try_from(layout.entries.len()).expect("PMP entry count fits in u8");
+    let count = u8::try_from(layout.len()).expect("PMP entry count fits in u8");
 
     info!("PMP Configuration");
     info!(

@@ -43,7 +43,7 @@ impl<const SIZE: usize> BootStack<SIZE> {
     }
 }
 
-/// Returns the physical range occupied by the linked image and any additional hart stacks.
+/// Returns the linked image range, including secondary hart stacks once initialized.
 pub fn locate_firmware_image() -> Result<PhysAddrRange> {
     let linked = linked_image_range()?;
     match FIRMWARE_END.get() {
@@ -89,7 +89,7 @@ pub(crate) fn linked_image_range() -> Result<PhysAddrRange> {
 pub unsafe fn initialize_stacks<const SIZE: usize>(
     boot_stack: &'static BootStack<SIZE>,
     capacity: usize,
-    platform: &PlatformDescription,
+    platform: &mut PlatformDescription,
     next_stage_entry: usize,
     handoff: Option<PhysAddrRange>,
 ) -> Result<()> {
@@ -136,19 +136,17 @@ pub unsafe fn initialize_stacks<const SIZE: usize>(
         .ok_or(Error::Overflow)?;
     let end = image_end.checked_add(extra_size).ok_or(Error::Overflow)?;
     let firmware = PhysAddrRange::new(linked.start(), PhysAddr::new(end))?;
-    let (_, memory) = platform.memory_resources()?;
-    platform.validate_destination(firmware, next_stage_entry, handoff, memory.ram_ranges())?;
     if extra_size != 0 {
         let stacks = PhysAddrRange::new(PhysAddr::new(image_end), PhysAddr::new(end))?;
-        let dtb = platform.inspect(|view| Ok(view.storage_range()))?;
+        let dtb = platform.storage_range();
         if stacks.overlaps(dtb)
             || (image_end..end).contains(&next_stage_entry)
             || handoff.is_some_and(|range| stacks.overlaps(range))
         {
             return Err(Error::AccessDenied);
         }
-        memory.validate_firmware_extension(firmware)?;
     }
+    platform.prepare_boot_memory(linked, firmware, next_stage_entry, handoff)?;
     let mut top = image_end;
     for (index, entry) in entries.iter_mut().enumerate() {
         entry.stack_top = if index == boot_index {

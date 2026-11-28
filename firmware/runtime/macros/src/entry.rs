@@ -36,14 +36,17 @@ pub(crate) fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
                 device_tree: runtime::DeviceTreeHandoff,
                 dynamic_info_address: usize,
             ) -> usize {
-                // SAFETY: The loader supplies the version-sized dynamic record in a2.
+                // SAFETY: In dynamic mode the entry contract keeps this hart's
+                // loader record readable and authorizes its next-stage target.
                 let mut boot = unsafe { crate::firmware::BootInfo::from_entry(dynamic_info_address) };
+                // Inspecting an FDT with NOP tokens can allocate during selection.
+                crate::heap::init();
                 if !boot.select_boot_hart(hart_id, device_tree)
                     .expect("firmware entry rejected the platform description") {
                     return 0;
                 }
-                crate::heap::init();
                 let (_, next_stage_entry) = boot.next_stage();
+                let handoff = boot.dynamic_info_range();
                 // SAFETY: The loader's entry contract grants exclusive RAM
                 // for firmware and stacks. BOOT_LOCK serializes candidates;
                 // BOOT_READY remains clear until this Rust frame is retired.
@@ -51,9 +54,9 @@ pub(crate) fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
                     runtime::boot::initialize_stacks(
                         &BOOT_STACK,
                         crate::cfg::HART_CAPACITY,
-                        boot.platform_description(),
+                        boot.platform_description_mut(),
                         next_stage_entry,
-                        boot.dynamic_info_range(),
+                        handoff,
                     )
                 }.expect("firmware could not initialize its hart topology");
                 BOOT_HART.call_once(|| hart_id);
@@ -76,7 +79,8 @@ pub(crate) fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
                 let boot = if BOOT_HART.get().copied() == Some(hart_id) {
                     BOOT_INFO.lock().take().expect("boot handoff consumed once")
                 } else {
-                    // SAFETY: Secondary entry receives this hart's live loader record in a2.
+                    // SAFETY: The same loader contract covers a secondary hart's
+                    // later copy of its own dynamic record.
                     unsafe { crate::firmware::BootInfo::from_entry(dynamic_info_address) }
                 };
                 policy_entry(boot)
@@ -103,26 +107,30 @@ pub(crate) fn expand(attribute: TokenStream, item: TokenStream) -> TokenStream {
             const R_RISCV_RELATIVE: usize = 3;
 
             /// Enters firmware through the architectural boot protocol.
-            // The linker script selects this symbol through ENTRY(_start).
             ///
             /// # Safety
             ///
-            /// - Pass `a0 = hart ID`, `a1 = DTB pointer`, and
-            ///   `a2 = dynamic record address` in dynamic mode. Supply a word-aligned,
-            ///   initialized v1 (five-word) or v2 (six-word) record that remains
-            ///   readable and unchanged until each entering hart has copied it.
-            /// - The selected DTB must describe the hardware and remain readable
-            ///   and unchanged through platform initialization.
-            /// - Provide exclusively writable DTB storage at the configured
-            ///   destination with its declared capacity, or at the boot hart's
-            ///   incoming `a1` with a readable FDT and its initial `totalsize + 1024`
-            ///   bytes of storage. Keep it valid until the next stage finishes
-            ///   using it, outside firmware, stacks, the complete next-stage image,
-            ///   and other live objects.
-            /// - Reserve RAM immediately after the linked image for all discovered
-            ///   harts' stacks, without overlapping any other live objects.
-            /// - Do not access Rust memory before relocation, BSS initialization,
-            ///   and stack setup complete.
+            /// - Enter in M-mode with `mstatus.MIE` and `MPRV` clear.
+            ///   All entering harts must see coherent firmware memory and support
+            ///   the word atomics and `FENCE.I` used during startup.
+            ///   Give startup exclusive writable storage for its synchronization
+            ///   words in `.text.entry`, relocation targets, BSS and the secondary
+            ///   hart stacks immediately after the linked image.
+            /// - Pass the DTB address in `a1`. Startup reads the hart ID from `mhartid`.
+            ///   In dynamic mode, `a2` must name a word-aligned, initialized v1
+            ///   (five-word) or v2 (six-word) record, readable and unchanged until
+            ///   that hart finishes copying it. Authorize its target in the specified
+            ///   privilege mode. An M-mode payload must preserve live firmware memory.
+            /// - Every DTB used for discovery must describe the actual hardware
+            ///   and remain readable and unchanged until handoff consumes it.
+            ///   Give the selected board policy control of its PMP entries
+            ///   and any cache, memory-attribute and interrupt controls it programs.
+            /// - Provide exclusive writable DTB storage at the configured destination.
+            ///   Without one, each candidate that inspects its incoming `a1` needs
+            ///   a readable FDT there with writable capacity of `totalsize + 1024` bytes.
+            ///   Keep the selected destination live through next-stage use and
+            ///   disjoint from firmware, all hart stacks, the next-stage image
+            ///   and other live objects except the source FDT.
             #[doc(hidden)]
             #[unsafe(naked)]
             #[unsafe(link_section = ".text.entry")]

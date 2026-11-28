@@ -3,8 +3,8 @@
 use super::{
     DeviceTreeHandoff, FDT_HEADER_SIZE, FDT_TOTAL_SIZE_OFFSET, PlatformDescription, PlatformView,
 };
-use crate::boot::{linked_image_range, locate_firmware_image};
-use crate::memory::{MemoryRegistry, PhysAddr, PhysAddrRange, SupervisorMemory};
+use crate::boot::linked_image_range;
+use crate::memory::{PhysAddr, PhysAddrRange};
 use crate::{Error, Result};
 
 impl DeviceTreeHandoff {
@@ -12,6 +12,7 @@ impl DeviceTreeHandoff {
     ///
     /// The selected address may be the entry argument itself or an FDT linked
     /// inside the current firmware image.
+    /// An FDT containing interior NOPs requires an initialized allocator.
     ///
     /// # Safety
     ///
@@ -28,31 +29,12 @@ impl DeviceTreeHandoff {
         destination: PhysAddrRange,
     ) -> Result<PlatformDescription> {
         if selected_address != self.address {
-            validate_linked_fdt(selected_address)?;
+            // SAFETY: The caller supplies a readable, immutable FDT at the selected address.
+            unsafe { validate_linked_fdt(selected_address)? };
         }
         // SAFETY: The caller establishes an immutable source, a trusted memory
         // map, and exclusive destination storage through handoff.
         unsafe { PlatformDescription::from_raw(selected_address, destination) }
-    }
-}
-
-impl PlatformDescription {
-    /// Derives supervisor memory and the MMIO registry from the FDT.
-    ///
-    /// Each call excludes the current firmware extent from supervisor RAM and
-    /// creates a fresh MMIO registry. Overlap checks apply to acquisitions
-    /// made through the same registry.
-    pub fn memory_resources(&self) -> Result<(SupervisorMemory, MemoryRegistry)> {
-        // The FDT is immutable, but the firmware span can grow during boot.
-        // Reuse its ranges and derive access against the current span each time.
-        let (ram, reserved) = self
-            .memory_ranges
-            .try_call_once(|| self.read_memory_ranges())?;
-        MemoryRegistry::from_ranges_with_firmware(
-            locate_firmware_image()?,
-            ram.iter().copied(),
-            reserved.iter().copied(),
-        )
     }
 }
 
@@ -63,15 +45,19 @@ impl PlatformView<'_> {
     }
 }
 
-fn validate_linked_fdt(address: PhysAddr) -> Result<()> {
+/// Checks that the FDT header and its declared extent lie inside the linked image.
+///
+/// # Safety
+///
+/// The header at `address` must be readable, initialized and stable during this call.
+unsafe fn validate_linked_fdt(address: PhysAddr) -> Result<()> {
     let firmware = linked_image_range()?;
     let header = PhysAddrRange::from_start_len(address, FDT_HEADER_SIZE)?;
     if !firmware.contains(header) {
         return Err(Error::AccessDenied);
     }
 
-    // SAFETY: The checked header contains the totalsize field, and claim's
-    // caller guarantees that the selected FDT is readable and immutable.
+    // SAFETY: The caller supplies a readable header containing the totalsize field.
     let total_size = unsafe {
         let total_size_pointer = address
             .as_usize()

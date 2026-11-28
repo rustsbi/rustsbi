@@ -6,5 +6,5 @@
 mod description;
 
 mod csr;
-pub use csr::{A27L2LineOperation, AndesStatusRegister, NoncacheableAlias, V821Csr};
+pub use csr::{A27L2CacheControl, A27L2LineOperation, AndesStatusRegister, NoncacheableAlias};
 pub use description::AllwinnerV821Soc;

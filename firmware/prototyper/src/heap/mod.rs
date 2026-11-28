@@ -10,8 +10,11 @@ mod allocator;
 
 static HEAP_ALLOCATOR: Once<HeapAllocator> = Once::new();
 
-/// Initializes the firmware heap before any allocation.
+/// Registers the firmware heap on the first call under the boot lock.
 pub(crate) fn init() {
+    if HEAP_ALLOCATOR.is_completed() {
+        return;
+    }
     let allocator = HEAP_ALLOCATOR.call_once(|| {
         let memory = heap::take_heap().expect("firmware heap already taken or too small");
         HeapAllocator::new(memory)

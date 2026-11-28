@@ -11,19 +11,19 @@
 use runtime::{
     Error, Result,
     instruction::{ALL, fence},
-    memory::{MemoryRegistry, MmioRegion, PhysAddr, PhysAddrRange, SupervisorMemory},
-    soc::allwinner::v821::{A27L2LineOperation as L1Operation, AndesStatusRegister, V821Csr},
+    memory::{MemoryRegistry, MmioRegion, PhysAddr, PhysAddrRange, RegRange, SupervisorMemory},
+    soc::allwinner::v821::{
+        A27L2CacheControl, A27L2LineOperation as L1Operation, AndesStatusRegister,
+    },
     timer,
 };
-
-use super::description::Desc;
 
 /// The A27L2 cache-maintenance MMIO device.
 ///
 /// V821 preparation requires exactly one enabled hart,
 /// so its CSR/MMIO command sequence needs no inter-hart mutex.
 pub(crate) struct A27L2Cache {
-    csr: V821Csr,
+    control: A27L2CacheControl,
     registers: CacheRegisters,
 }
 
@@ -53,35 +53,36 @@ impl CacheRegister {
 
 /// BSP-required A27L2 control bits set during firmware initialization.
 const L2_CONTROL_INIT_MASK: u32 = (1 << 13) | (1 << 10) | 1;
-const CACHE_LINE_SIZE: usize = V821Csr::CACHE_LINE_SIZE;
+const CACHE_LINE_SIZE: usize = A27L2CacheControl::CACHE_LINE_SIZE;
 const LARGE_FLUSH_THRESHOLD: usize = 128 * 1024;
 const COMMAND_TIMEOUT_TICKS: u32 = 4_000_000;
 const STATUS_STATE_MASK: u32 = 0xf;
 const STATUS_BUSY: u32 = 1;
 
 impl A27L2Cache {
-    pub(crate) fn init(description: Desc, memory: &mut MemoryRegistry) -> Result<Self> {
+    pub(crate) fn init(
+        registers: RegRange,
+        control: A27L2CacheControl,
+        memory: &mut MemoryRegistry,
+    ) -> Result<Self> {
         let registers = CacheRegisters {
-            mmio: memory.acquire(description.registers)?,
+            mmio: memory.acquire(registers)?,
         };
-        let control = registers.read_u32(CacheRegister::Control)?;
-        registers.write_u32(CacheRegister::Control, control | L2_CONTROL_INIT_MASK)?;
+        let value = registers.read_u32(CacheRegister::Control)?;
+        registers.write_u32(CacheRegister::Control, value | L2_CONTROL_INIT_MASK)?;
         fence(ALL, ALL);
-        Ok(Self {
-            csr: description.csr,
-            registers,
-        })
+        Ok(Self { control, registers })
     }
 
     /// Reads an Andes machine-control status register.
     pub(crate) fn read_status(&self, register: AndesStatusRegister) -> usize {
-        self.csr.read_status(register)
+        self.control.read_status(register)
     }
 
     /// Flushes the complete A27L2 cache.
     pub(crate) fn flush_all(&self) -> Result<()> {
         // Flush L1 before issuing the corresponding L2-wide operation.
-        self.csr.write_back_and_invalidate_l1_all();
+        self.control.write_back_and_invalidate_l1_all();
         self.l2_command(L2Command::WriteBackAndInvalidateAll)
     }
 
@@ -144,7 +145,7 @@ impl A27L2Cache {
                     (L1Operation::Invalidate, L2Command::InvalidateRange)
                 }
             };
-            self.csr
+            self.control
                 .maintain_a27l2_line(address, l1_operation, memory)?;
             let line_address = u32::try_from(address).map_err(|_| Error::InvalidArgs)?;
             self.registers

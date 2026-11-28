@@ -6,7 +6,7 @@ use core::sync::atomic::{AtomicU8, Ordering};
 use super::{PhysAddr, PhysAddrRange};
 use crate::{Error, Result};
 
-/// Bounded access to registered supervisor RAM.
+/// Bounded access to registered supervisor RAM and discovery of mapped ROM entry points.
 ///
 /// This represents physical RAM that firmware may access on behalf of
 /// supervisor software, not the supervisor's virtual address space.
@@ -20,11 +20,21 @@ use crate::{Error, Result};
 /// remain accessible.
 pub struct SupervisorMemory {
     regions: Vec<PhysAddrRange>,
+    rom: Vec<PhysAddrRange>,
 }
 
 impl SupervisorMemory {
-    pub(crate) fn new(regions: Vec<PhysAddrRange>) -> Self {
-        Self { regions }
+    pub(crate) fn new(regions: Vec<PhysAddrRange>, rom: Vec<PhysAddrRange>) -> Self {
+        Self { regions, rom }
+    }
+
+    /// Reports whether the entire span lies in one unreserved RAM or CPU-mapped ROM range.
+    /// Instruction alignment and execute permissions are independent of this range check.
+    pub fn contains_entry(&self, range: PhysAddrRange) -> bool {
+        self.regions
+            .iter()
+            .chain(&self.rom)
+            .any(|bank| bank.contains(range))
     }
 
     /// Checks that `range` lies in one available RAM region.
@@ -113,7 +123,7 @@ mod tests {
             backing.len(),
         )
         .unwrap();
-        let memory = SupervisorMemory::new(vec![range]);
+        let memory = SupervisorMemory::new(vec![range], Vec::new());
 
         let mut output = [0; 4];
         assert_eq!(memory.read(range.start(), &mut output), Ok(()));
@@ -131,18 +141,20 @@ mod tests {
 
     #[test]
     fn zero_length_access_does_not_require_an_addressable_byte() {
-        let memory = SupervisorMemory::new(vec![
-            PhysAddrRange::from_start_len(PhysAddr::new(1), 1).unwrap(),
-        ]);
+        let memory = SupervisorMemory::new(
+            vec![PhysAddrRange::from_start_len(PhysAddr::new(1), 1).unwrap()],
+            Vec::new(),
+        );
         assert_eq!(memory.read(PhysAddr::new(usize::MAX), &mut []), Ok(()));
         assert_eq!(memory.write(PhysAddr::new(usize::MAX), &[]), Ok(()));
     }
 
     #[test]
     fn overflowing_access_is_rejected_before_memory_is_touched() {
-        let memory = SupervisorMemory::new(vec![
-            PhysAddrRange::from_start_len(PhysAddr::new(1), 1).unwrap(),
-        ]);
+        let memory = SupervisorMemory::new(
+            vec![PhysAddrRange::from_start_len(PhysAddr::new(1), 1).unwrap()],
+            Vec::new(),
+        );
         let mut output = [0xaa; 2];
 
         assert_eq!(

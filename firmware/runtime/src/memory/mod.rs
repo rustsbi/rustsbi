@@ -1,8 +1,9 @@
 //! Access to physical memory described by the boot device tree.
 //!
-//! On firmware targets, [`crate::PlatformDescription`] provides supervisor RAM
-//! with reserved memory and the firmware image excluded, plus a [`MemoryRegistry`]
-//! for acquiring non-overlapping device register windows.
+//! The boot hart takes the [`MemoryRegistry`] from [`crate::PlatformDescription`]
+//! to bind non-overlapping device register windows.
+//! Handoff writes the next stage's device tree before releasing [`SupervisorMemory`],
+//! whose physical ranges exclude platform reservations and the complete firmware image.
 //! [`HandoffBuffer`] holds linked bytes whose ownership passes to the next
 //! stage without retaining a Rust reference to their contents.
 

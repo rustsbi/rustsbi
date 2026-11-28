@@ -12,9 +12,7 @@ mod reset_vector;
 mod wakeup;
 
 use runtime::{
-    PlatformView, Result,
-    hart::install_wakeup,
-    memory::{MemoryRegistry, SupervisorMemory},
+    PlatformView, Result, hart::install_wakeup, memory::MemoryRegistry,
     soc::spacemit::k1::SpacemitK1Soc,
 };
 use spin::Once;
@@ -22,8 +20,8 @@ use spin::Once;
 use super::Board;
 use crate::{
     driver::device::cci,
-    firmware::{BootHart, k1_reset_entry},
-    sbi::{pmu::SbiPmu, vendor::Vendor},
+    firmware::{BootHart, spacemit_k1_reset_entry},
+    sbi::{pmu::SbiPmu, vendor::VendorDevices},
 };
 
 use reset_vector::ResetVectorRegisters;
@@ -32,13 +30,12 @@ static INITIALIZED: Once<SpacemitK1Soc> = Once::new();
 
 impl Board for BootHart<SpacemitK1Soc> {
     fn init(
-        &self,
+        &mut self,
         _platform: &PlatformView<'_>,
         memory: &mut MemoryRegistry,
-        _supervisor_memory: &'static SupervisorMemory,
         _pmu: &mut Option<SbiPmu>,
-    ) -> Result<Option<Vendor>> {
-        let soc = self.hardware();
+    ) -> Result<Option<VendorDevices>> {
+        let soc = self.hardware()?;
         // A failed MMIO claim must leave the K1 hardware state untouched.
         let wakeup = wakeup::K1Wakeup::init(soc.apmu_registers()?, memory)?;
         let reset_vectors = ResetVectorRegisters::acquire(memory, soc.ciu_registers()?)?;
@@ -50,8 +47,8 @@ impl Board for BootHart<SpacemitK1Soc> {
             memory,
         )?;
 
-        self.initialize_hart();
-        reset_vectors.set_reset_vector(k1_reset_entry as *const () as usize as u64)?;
+        self.initialize_hart()?;
+        reset_vectors.set_reset_vector(spacemit_k1_reset_entry as *const () as usize as u64)?;
         cci.enable_coherency()?;
         INITIALIZED.call_once(|| soc);
         install_wakeup(wakeup);

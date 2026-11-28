@@ -13,12 +13,9 @@ pub(crate) mod spacemit_k1;
 
 pub(crate) mod qemu_aplic;
 
-use runtime::{
-    PlatformView, Result,
-    memory::{MemoryRegistry, SupervisorMemory},
-};
+use runtime::{PlatformView, Result, memory::MemoryRegistry};
 
-use crate::sbi::{pmu::SbiPmu, vendor::Vendor};
+use crate::sbi::{pmu::SbiPmu, vendor::VendorDevices};
 
 pub(crate) use boot::init;
 pub use boot::wait_until_ready;
@@ -31,7 +28,7 @@ pub(crate) trait Board {
     ///
     /// Returns the offset to a second mapping of firmware memory if PMP must protect it.
     fn early_init(
-        &self,
+        &mut self,
         _memory: &mut MemoryRegistry,
         _timer: Option<&TimerDesc>,
     ) -> Result<Option<u64>> {
@@ -39,14 +36,13 @@ pub(crate) trait Board {
     }
 
     /// Initializes board devices after the shared devices are ready and returns
-    /// the board's vendor SBI extension, if present.
+    /// any hardware used by vendor SBI extensions.
     fn init(
-        &self,
+        &mut self,
         _platform: &PlatformView<'_>,
         _memory: &mut MemoryRegistry,
-        _supervisor_memory: &'static SupervisorMemory,
         _pmu: &mut Option<SbiPmu>,
-    ) -> Result<Option<Vendor>> {
+    ) -> Result<Option<VendorDevices>> {
         Ok(None)
     }
 }

@@ -1,7 +1,7 @@
 //! Proc macros for the RustSBI firmware Runtime.
 //!
-//! [`entry`] generates the reset entry and the first policy handoff.
-//! [`sbi_policy`] publishes the SBI dispatcher and exports the linked ecall
+//! [`macro@entry`] generates the reset entry and the first policy handoff.
+//! [`macro@sbi_policy`] publishes the SBI dispatcher and exports the linked ecall
 //! handler.
 
 mod entry;

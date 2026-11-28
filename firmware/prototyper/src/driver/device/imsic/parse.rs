@@ -7,7 +7,6 @@
 //! [IMSIC binding]: https://github.com/torvalds/linux/blob/a500db7819c50db59e55f1b4fa1c3baa5a2616f3/Documentation/devicetree/bindings/interrupt-controller/riscv%2Cimsics.yaml
 
 use alloc::vec::Vec;
-use core::mem::size_of;
 use runtime::{
     Error, FdtNode, PlatformView, Result,
     hart::HartId,
@@ -56,13 +55,7 @@ pub(super) fn describe(
 
     // Derive the default hart-index width from every `interrupts-extended`
     // entry: disabled CPUs may still own physical interrupt-file slots.
-    let file_count = node
-        .property("interrupts-extended")
-        .ok_or(Error::InvalidArgs)?
-        .value
-        .len()
-        / (2 * size_of::<u32>());
-    let file_count = u32::try_from(file_count).map_err(|_| Error::InvalidArgs)?;
+    let file_count = u32::try_from(sources.len()).map_err(|_| Error::InvalidArgs)?;
     let default_hart_index_bits = file_count
         .checked_sub(1)
         .map_or(0, |last| u32::BITS - last.leading_zeros());

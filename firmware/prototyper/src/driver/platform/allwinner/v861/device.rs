@@ -20,7 +20,7 @@ use runtime::{
     soc::allwinner::v861::{AllwinnerV861Soc, C907_HART_COUNT, C907CacheState},
 };
 
-use crate::{firmware::c907_reset_entry, sbi::features::hart_privilege_checked};
+use crate::{firmware::thead_c907_reset_entry, sbi::features::hart_privilege_checked};
 
 const CLOCK_CONTROL_ENABLE: u32 = 0x0001_0001;
 const RESET_VECTOR_MODE_MASK: u32 = 0x3 << 8;
@@ -129,7 +129,7 @@ impl HartWake for V861HartRelease {
         if hart_privilege_checked(hart) {
             return Ok(false);
         }
-        let entry = c907_reset_entry as *const () as usize as u64;
+        let entry = thead_c907_reset_entry as *const () as usize as u64;
         self.reset_vectors[hart_index].program(entry)?;
         // Order the reset vector and the caller's start reservation before power-on.
         fence(ALL, ALL);

@@ -20,7 +20,6 @@ mod xscale;
 use alloc::boxed::Box;
 use runtime::{
     Error, FdtNode, PlatformView, Result, console::ConsoleDevice, memory::MemoryRegistry,
-    node_is_enabled,
 };
 
 /// A UART description pending MMIO acquisition.
@@ -55,7 +54,7 @@ impl ConsoleDesc {
 /// Selects the console named by `/chosen/stdout-path`.
 ///
 /// If the chosen console is absent or unsupported, scans for the first
-/// supported UART whose own `status` permits use. A parse error stops selection.
+/// supported UART in an enabled subtree. A malformed supported UART returns an error.
 pub(crate) fn select(platform: &PlatformView<'_>) -> Result<Option<ConsoleDesc>> {
     if let Some(chosen) = platform.find_enabled_node("/chosen")
         && let Some(stdout_path) = chosen
@@ -68,15 +67,14 @@ pub(crate) fn select(platform: &PlatformView<'_>) -> Result<Option<ConsoleDesc>>
         return Ok(Some(console));
     }
 
-    for node in platform.fdt().all_nodes() {
-        if !node_is_enabled(node) {
-            continue;
+    let mut selected = None;
+    platform.try_for_each_enabled_node(|node, _, _| {
+        if selected.is_none() {
+            selected = describe(platform, node)?;
         }
-        if let Some(console) = describe(platform, node)? {
-            return Ok(Some(console));
-        }
-    }
-    Ok(None)
+        Ok(())
+    })?;
+    Ok(selected)
 }
 
 /// Parses a UART node in its declared `compatible` order.

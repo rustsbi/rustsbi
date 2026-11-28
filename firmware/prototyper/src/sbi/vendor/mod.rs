@@ -2,4 +2,4 @@
 
 pub(crate) mod allwinner;
 
-pub(crate) use allwinner::v821::Extensions as Vendor;
+pub(crate) use allwinner::v821::{Devices as VendorDevices, Extensions as Vendor};

@@ -8,24 +8,24 @@ pub(crate) mod usb_dma_bypass;
 
 use runtime::{
     PlatformView, Result,
-    memory::{MemoryRegistry, SupervisorMemory},
-    soc::allwinner::v821::{AllwinnerV821Soc, V821Csr},
+    memory::MemoryRegistry,
+    soc::allwinner::v821::{A27L2CacheControl, AllwinnerV821Soc},
 };
 
 use crate::{
     driver::platform::{Board, TimerDesc},
     firmware::BootHart,
-    sbi::{pmu::SbiPmu, vendor::Vendor},
+    sbi::{pmu::SbiPmu, vendor::VendorDevices},
 };
 
 pub(crate) struct V821Board {
-    pub(crate) soc: AllwinnerV821Soc,
-    pub(crate) csr: BootHart<V821Csr>,
+    pub(crate) boot: BootHart<AllwinnerV821Soc>,
+    pub(crate) cache: A27L2CacheControl,
 }
 
 impl Board for V821Board {
     fn early_init(
-        &self,
+        &mut self,
         memory: &mut MemoryRegistry,
         timer: Option<&TimerDesc>,
     ) -> Result<Option<u64>> {
@@ -34,12 +34,11 @@ impl Board for V821Board {
     }
 
     fn init(
-        &self,
+        &mut self,
         platform: &PlatformView<'_>,
         memory: &mut MemoryRegistry,
-        supervisor_memory: &'static SupervisorMemory,
         _pmu: &mut Option<SbiPmu>,
-    ) -> Result<Option<Vendor>> {
-        Vendor::init(self.csr.hardware(), platform, memory, supervisor_memory).map(Some)
+    ) -> Result<Option<VendorDevices>> {
+        VendorDevices::init(self.cache, platform, memory).map(Some)
     }
 }

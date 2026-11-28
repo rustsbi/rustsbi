@@ -21,7 +21,7 @@ use crate::cfg::{PAGE_SIZE, TLB_FLUSH_LIMIT};
 
 pub(super) mod queue;
 use super::{
-    features::{self, Extension},
+    features,
     ipi::{active_target_harts, validate_hart_mask},
     pmu::{firmware_event_code, pmu_firmware_counter_increment},
 };
@@ -170,7 +170,7 @@ fn validate_target_harts(
                 }
             }
             LocalFence::GuestPhysical { vmid, .. } => {
-                if !hart_supports_hypervisor(target) {
+                if !features::has_hypervisor(target) {
                     return Err(SbiRet::not_supported());
                 }
                 if let Some(vmid) = vmid
@@ -180,7 +180,7 @@ fn validate_target_harts(
                 }
             }
             LocalFence::GuestVirtual { asid, vmid, .. } => {
-                if !hart_supports_hypervisor(target) {
+                if !features::has_hypervisor(target) {
                     return Err(SbiRet::not_supported());
                 }
                 if let Some(asid) = asid
@@ -224,13 +224,9 @@ fn vmid_valid_for_hart(vmid: usize, hart: HartId) -> bool {
     features::supervisor_xlen(hart).is_some_and(|xlen| fence::is_valid_vmid_for(vmid, xlen))
 }
 
-fn hart_supports_hypervisor(hart: HartId) -> bool {
-    features::has_extension(hart, Extension::Hypervisor)
-}
-
 fn current_hart_with_hypervisor() -> Result<HartId, SbiRet> {
     let current_hart = HartId::current().map_err(SbiRet::from)?;
-    if !hart_supports_hypervisor(current_hart) {
+    if !features::has_hypervisor(current_hart) {
         return Err(SbiRet::not_supported());
     }
     Ok(current_hart)

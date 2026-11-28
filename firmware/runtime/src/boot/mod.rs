@@ -60,15 +60,21 @@ pub unsafe fn disable_thead_maee() {
     });
 }
 
-/// Information needed to boot into the next execution stage.
 #[derive(Clone, Copy, Debug)]
-pub struct NextStage {
-    /// Starting address to jump to.
-    pub start_addr: usize,
-    /// Opaque value passed to next stage.
-    pub opaque: usize,
-    /// Privilege mode for next stage.
-    pub next_mode: Privilege,
+pub(crate) struct NextStage {
+    pub(crate) start_addr: usize,
+    pub(crate) opaque: usize,
+    pub(crate) next_mode: Privilege,
+}
+
+impl NextStage {
+    pub(crate) fn supervisor(start_addr: usize, opaque: usize) -> Self {
+        Self {
+            start_addr,
+            opaque,
+            next_mode: Privilege::Supervisor,
+        }
+    }
 }
 
 /// Stops the current hart without accessing its stack.

@@ -243,14 +243,15 @@ fn single_cell(value: &[u8]) -> Result<u32> {
     read_u32(value, 0)
 }
 
-/// Validates structure tokens without heap allocation.
-///
-/// This runs before the firmware heap is initialized.
+/// Returns a compact structure when NOPs precede the end token. The fdt 0.1
+/// node iterators can stop early at a NOP between properties or siblings.
 pub(in crate::device_tree::patch) fn validate_structure(
     structure: &[u8],
     strings: &[u8],
-) -> Result<()> {
+) -> Result<Option<Vec<u8>>> {
     let mut offset = 0;
+    let mut compact = None;
+    let mut run_start = 0;
     let mut depth = 0usize;
     let mut root_seen = false;
     let mut nodes = [ValidationNode::new(); MAX_FDT_DEPTH];
@@ -298,12 +299,21 @@ pub(in crate::device_tree::patch) fn validate_structure(
             END_NODE => {
                 depth = depth.checked_sub(1).ok_or(Error::InvalidArgs)?;
             }
-            NOP => {}
+            NOP => {
+                compact
+                    .get_or_insert_with(Vec::new)
+                    .extend_from_slice(&structure[run_start..offset - size_of::<u32>()]);
+                run_start = offset;
+            }
             END => {
                 if !root_seen || depth != 0 {
                     return Err(Error::InvalidArgs);
                 }
-                return validate_trailing_nops(&structure[offset..]);
+                validate_trailing_nops(&structure[offset..])?;
+                if let Some(bytes) = &mut compact {
+                    bytes.extend_from_slice(&structure[run_start..offset]);
+                }
+                return Ok(compact);
             }
             _ => return Err(Error::InvalidArgs),
         }

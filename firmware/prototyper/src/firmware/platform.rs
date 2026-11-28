@@ -2,10 +2,10 @@
 
 use core::marker::PhantomData;
 use runtime::{
-    PlatformDescription, Result,
+    Error, PlatformDescription, Result,
     soc::{
         allwinner::{
-            v821::{AllwinnerV821Soc, NoncacheableAlias, V821Csr},
+            v821::{AllwinnerV821Soc, NoncacheableAlias},
             v861::{AllwinnerV861Soc, C907CacheState},
         },
         spacemit::k1::SpacemitK1Soc,
@@ -14,45 +14,54 @@ use runtime::{
 
 use crate::driver::platform::{self, allwinner::v821::V821Board};
 
-/// A handle to the selected hardware for use on the boot hart during initialization.
+/// Permits one attempt to initialize the selected board's CSRs on the boot hart.
 pub(crate) struct BootHart<T> {
-    hardware: T,
+    pending: Option<T>,
     _hart_local: PhantomData<*mut ()>,
 }
 
 impl<T: Copy> BootHart<T> {
     fn new(hardware: T) -> Self {
         Self {
-            hardware,
+            pending: Some(hardware),
             _hart_local: PhantomData,
         }
     }
 
-    pub(crate) fn hardware(&self) -> T {
-        self.hardware
+    pub(crate) fn hardware(&self) -> Result<T> {
+        self.pending.ok_or(Error::AlreadyInitialized)
+    }
+
+    fn take(&mut self) -> Result<T> {
+        self.pending.take().ok_or(Error::AlreadyInitialized)
     }
 }
 
-impl BootHart<V821Csr> {
-    pub(crate) fn initialize_noncacheable_alias(&self) -> Result<NoncacheableAlias> {
-        // SAFETY: init_platform reserves V821 PMA entry 15 for the boot hart.
-        // The board configures the alias before publishing any driver that uses it.
-        unsafe { self.hardware.initialize_noncacheable_alias() }
+impl BootHart<AllwinnerV821Soc> {
+    pub(crate) fn initialize_noncacheable_alias(&mut self) -> Result<NoncacheableAlias> {
+        let soc = self.take()?;
+        // SAFETY: The boot contract assigns writable PMA entry 15 and its
+        // configuration word to this hart while live mappings remain valid.
+        unsafe { soc.initialize_noncacheable_alias() }
     }
 }
 
 impl BootHart<SpacemitK1Soc> {
-    pub(crate) fn initialize_hart(&self) {
-        // SAFETY: Only the confirmed K1 boot hart holds this handle, before
-        // the board enables cluster coherency and releases secondary harts.
-        unsafe { self.hardware.initialize_hart() };
+    pub(crate) fn initialize_hart(&mut self) -> Result<()> {
+        let soc = self.take()?;
+        // SAFETY: The boot hart owns the K1 cache, predictor and ECC setup.
+        // The boot contract excludes secondary harts until cluster coherency is ready.
+        unsafe { soc.initialize_hart() };
+        Ok(())
     }
 }
 
 impl BootHart<AllwinnerV861Soc> {
-    pub(crate) fn initialize_c907_cache(&self) -> C907CacheState {
-        // SAFETY: The boot hart owns the confirmed C907's cache policy before publication.
-        unsafe { self.hardware.initialize_c907_cache() }
+    pub(crate) fn initialize_c907_cache(&mut self) -> Result<C907CacheState> {
+        let soc = self.take()?;
+        // SAFETY: Startup preserves the loader's live memory and coherency
+        // requirements while enabling cache controls on this C907.
+        Ok(unsafe { soc.initialize_c907_cache() })
     }
 }
 
@@ -64,25 +73,35 @@ impl BootHart<AllwinnerV861Soc> {
 /// # Safety
 ///
 /// 1. Supply a description matching the hardware and its physical resources.
-/// 2. Run on the boot hart in M-mode with `MPRV` clear and local interrupts disabled.
+/// 2. Call at most once per boot, even if initialization fails. Run on the
+///    boot hart in M-mode with `MPRV` clear and local interrupts disabled.
 ///    Keep secondary harts excluded until initialization completes.
-/// 3. Own the board's cache configuration and, on V821, PMA entry 15.
-///    Keep the loader's live mappings valid throughout these changes.
-/// 4. On V821, every hart using the published CSR handle must run in M-mode
-///    with Andes cache control enabled and mappings that permit cache writeback.
+/// 3. Own the board-specific cache controls, including the K1 predictor and
+///    ECC controls. Keep all live firmware and loader memory accessible and coherent.
+/// 4. On V821, own writable PMA entry 15 and its configuration word before
+///    drivers use the noncacheable mirror. Cache commands on every participating
+///    hart require M-mode physical addressing and an enabled Andes CCTL interface.
+///    Whole-cache writeback must preserve live memory, including buffers shared with devices.
 pub(crate) unsafe fn init_platform(description: PlatformDescription) -> Result<usize> {
     if let Some(soc) = description.inspect(|view| view.soc::<AllwinnerV821Soc>())? {
-        // SAFETY: The caller confirms V821 CCTL access for every user of this handle.
-        let csr = BootHart::new(unsafe { soc.csr()? });
-        return platform::init(description, &V821Board { soc, csr });
+        // SAFETY: The caller establishes the V821 addressing and writeback
+        // requirements on every hart that will use the published handle.
+        let cache = unsafe { soc.cache_control()? };
+        return platform::init(
+            description,
+            &mut V821Board {
+                boot: BootHart::new(soc),
+                cache,
+            },
+        );
     }
     if let Some(soc) = description.inspect(|view| view.soc::<SpacemitK1Soc>())? {
-        return platform::init(description, &BootHart::new(soc));
+        return platform::init(description, &mut BootHart::new(soc));
     }
     if let Some(soc) = description.inspect(|view| view.soc::<AllwinnerV861Soc>())? {
-        return platform::init(description, &BootHart::new(soc));
+        return platform::init(description, &mut BootHart::new(soc));
     }
-    platform::init(description, &platform::Generic)
+    platform::init(description, &mut platform::Generic)
 }
 
 /// Completes machine setup for a secondary hart of the published platform.

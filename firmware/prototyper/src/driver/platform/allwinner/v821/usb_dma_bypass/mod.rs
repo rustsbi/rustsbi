@@ -5,7 +5,7 @@ mod device;
 
 use runtime::{Error, PlatformView, Result};
 
-use crate::devicetree::try_for_each_enabled_node;
+use crate::devicetree::is_compatible;
 
 pub(crate) use description::Desc;
 pub(crate) use device::UsbDmaBypass;
@@ -17,16 +17,11 @@ const DMA_BYPASS_SIZE: usize = 4;
 /// Discovers the single enabled USB controller node and its bypass register.
 pub(crate) fn describe(platform: &PlatformView<'_>) -> Result<Option<Desc>> {
     let mut description = None;
-    try_for_each_enabled_node(platform, |discovered, _| {
-        let Some(compatibles) = discovered.compatible() else {
-            return Ok(());
-        };
-        if !compatibles.all().any(|value| value == COMPATIBLE) {
+    platform.try_for_each_enabled_node(|node, _, _| {
+        if !is_compatible(node, COMPATIBLE) {
             return Ok(());
         }
-        let registers = platform
-            .device_register(discovered.node())?
-            .ok_or(Error::InvalidArgs)?;
+        let registers = platform.device_register(node)?.ok_or(Error::InvalidArgs)?;
         let registers = registers.subrange(DMA_BYPASS_OFFSET, DMA_BYPASS_SIZE)?;
         if description.replace(Desc { registers }).is_some() {
             return Err(Error::InvalidArgs);

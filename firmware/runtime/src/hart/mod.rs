@@ -15,7 +15,7 @@ pub use features::{
     PrivilegedVersion, detect_performance_counters, detect_privileged_version, has_hypervisor,
     supervisor_xlen, supports_privilege,
 };
-pub use riscv_csr_spec::standard::isa::values::xlen::Xlen;
+pub use csr::standard::isa::values::xlen::Xlen;
 
 pub use wakeup::{HartWake, install_wakeup, wakeup_installed};
 
