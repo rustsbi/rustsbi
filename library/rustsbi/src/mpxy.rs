@@ -1,6 +1,11 @@
 use sbi_spec::binary::{SbiRet, SharedPtr};
 
-/// SBI Message Proxy (MPXY) support extension.
+/// The SBI Message Proxy (MPXY) extension.
+///
+/// [Attribute transfers](https://github.com/riscv-non-isa/riscv-sbi-doc/blob/v3.0/src/ext-mpxy.adoc#L474-L562)
+/// use the calling hart's area registered with [`Self::set_shmem`]. The pointer
+/// parameters on the two attribute methods are retained for source compatibility
+/// and must be ignored.
 pub trait Mpxy {
     /// Get the shared memory size in bytes.
     fn get_shmem_size(&self) -> usize;
@@ -11,7 +16,7 @@ pub trait Mpxy {
     /// Get channel IDs into shared memory.
     fn get_channel_ids(&self, start_index: u32) -> SbiRet;
 
-    /// Read channel attributes.
+    /// Reads channel attributes into the calling hart's registered shared memory.
     fn read_attributes(
         &self,
         channel_id: u32,
@@ -20,7 +25,7 @@ pub trait Mpxy {
         output: SharedPtr<u8>,
     ) -> SbiRet;
 
-    /// Write channel attributes.
+    /// Writes channel attributes from the calling hart's registered shared memory.
     fn write_attributes(
         &self,
         channel_id: u32,

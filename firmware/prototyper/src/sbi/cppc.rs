@@ -20,7 +20,11 @@ impl SbiCppc {
 }
 
 fn is_reserved_reg(reg_id: u32) -> bool {
-    reg_id > register::NOMINAL_FREQUENCY && reg_id != register::TRANSITION_LATENCY
+    const LAST_ACPI_REGISTER: u32 = register::NOMINAL_FREQUENCY;
+    !matches!(
+        reg_id,
+        0..=LAST_ACPI_REGISTER | register::TRANSITION_LATENCY
+    )
 }
 
 impl Cppc for SbiCppc {

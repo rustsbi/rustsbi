@@ -228,13 +228,7 @@ pub fn _rustsbi_hsm<T: crate::Hsm>(hsm: &T, param: [usize; 6], function: usize) 
         spec::hsm::HART_START => hsm.hart_start(param0, param1, param2),
         spec::hsm::HART_STOP => hsm.hart_stop(),
         spec::hsm::HART_GET_STATUS => hsm.hart_get_status(param0),
-        spec::hsm::HART_SUSPEND => {
-            if let Ok(suspend_type) = u32::try_from(param0) {
-                hsm.hart_suspend(suspend_type, param1, param2)
-            } else {
-                SbiRet::invalid_param()
-            }
-        }
+        spec::hsm::HART_SUSPEND => hsm.hart_suspend(param0 as u32, param1, param2),
         _ => SbiRet::not_supported(),
     }
 }
@@ -244,10 +238,7 @@ pub fn _rustsbi_hsm<T: crate::Hsm>(hsm: &T, param: [usize; 6], function: usize) 
 pub fn _rustsbi_reset<T: crate::Reset>(reset: &T, param: [usize; 6], function: usize) -> SbiRet {
     let [param0, param1] = [param[0], param[1]];
     match function {
-        spec::srst::SYSTEM_RESET => match (u32::try_from(param0), u32::try_from(param1)) {
-            (Ok(reset_type), Ok(reset_reason)) => reset.system_reset(reset_type, reset_reason),
-            (_, _) => SbiRet::invalid_param(),
-        },
+        spec::srst::SYSTEM_RESET => reset.system_reset(param0 as u32, param1 as u32),
         _ => SbiRet::not_supported(),
     }
 }
@@ -322,7 +313,7 @@ pub fn _rustsbi_console<T: crate::Console>(
             let bytes = Physical::new(param0, param1, param2);
             console.read(bytes)
         }
-        spec::dbcn::CONSOLE_WRITE_BYTE => console.write_byte((param0 & 0xFF) as u8),
+        spec::dbcn::CONSOLE_WRITE_BYTE => console.write_byte(param0 as u8),
         _ => SbiRet::not_supported(),
     }
 }
@@ -332,10 +323,7 @@ pub fn _rustsbi_console<T: crate::Console>(
 pub fn _rustsbi_susp<T: crate::Susp>(susp: &T, param: [usize; 6], function: usize) -> SbiRet {
     let [param0, param1, param2] = [param[0], param[1], param[2]];
     match function {
-        spec::susp::SUSPEND => match u32::try_from(param0) {
-            Ok(sleep_type) => susp.system_suspend(sleep_type, param1, param2),
-            _ => SbiRet::invalid_param(),
-        },
+        spec::susp::SUSPEND => susp.system_suspend(param0 as u32, param1, param2),
         _ => SbiRet::not_supported(),
     }
 }
@@ -343,41 +331,19 @@ pub fn _rustsbi_susp<T: crate::Susp>(susp: &T, param: [usize; 6], function: usiz
 #[doc(hidden)]
 #[inline(always)]
 pub fn _rustsbi_cppc<T: crate::Cppc>(cppc: &T, param: [usize; 6], function: usize) -> SbiRet {
-    match () {
-        #[cfg(target_pointer_width = "64")]
-        () => {
-            let [param0, param1] = [param[0], param[1]];
-            match function {
-                spec::cppc::PROBE => match u32::try_from(param0) {
-                    Ok(reg_id) => cppc.probe(reg_id),
-                    _ => SbiRet::invalid_param(),
-                },
-                spec::cppc::READ => match u32::try_from(param0) {
-                    Ok(reg_id) => cppc.read(reg_id),
-                    _ => SbiRet::invalid_param(),
-                },
-                spec::cppc::READ_HI => match u32::try_from(param0) {
-                    Ok(reg_id) => cppc.read_hi(reg_id),
-                    _ => SbiRet::invalid_param(),
-                },
-                spec::cppc::WRITE => match u32::try_from(param0) {
-                    Ok(reg_id) => cppc.write(reg_id, param1 as _),
-                    _ => SbiRet::invalid_param(),
-                },
-                _ => SbiRet::not_supported(),
-            }
+    let reg_id = param[0] as u32;
+    match function {
+        spec::cppc::PROBE => cppc.probe(reg_id),
+        spec::cppc::READ => cppc.read(reg_id),
+        spec::cppc::READ_HI => cppc.read_hi(reg_id),
+        spec::cppc::WRITE => {
+            #[cfg(target_pointer_width = "32")]
+            let value = concat_u32(param[2], param[1]);
+            #[cfg(target_pointer_width = "64")]
+            let value = param[1] as u64;
+            cppc.write(reg_id, value)
         }
-        #[cfg(target_pointer_width = "32")]
-        () => {
-            let [param0, param1, param2] = [param[0], param[1], param[2]];
-            match function {
-                spec::cppc::PROBE => cppc.probe(param0 as _),
-                spec::cppc::READ => cppc.read(param0 as _),
-                spec::cppc::READ_HI => cppc.read_hi(param0 as _),
-                spec::cppc::WRITE => cppc.write(param0 as _, concat_u32(param2, param1)),
-                _ => SbiRet::not_supported(),
-            }
-        }
+        _ => SbiRet::not_supported(),
     }
 }
 
@@ -386,10 +352,7 @@ pub fn _rustsbi_cppc<T: crate::Cppc>(cppc: &T, param: [usize; 6], function: usiz
 pub fn _rustsbi_nacl<T: crate::Nacl>(nacl: &T, param: [usize; 6], function: usize) -> SbiRet {
     let [param0, param1, param2] = [param[0], param[1], param[2]];
     match function {
-        spec::nacl::PROBE_FEATURE => match u32::try_from(param0) {
-            Ok(feature_id) => nacl.probe_feature(feature_id),
-            _ => SbiRet::invalid_param(),
-        },
+        spec::nacl::PROBE_FEATURE => nacl.probe_feature(param0 as u32),
         spec::nacl::SET_SHMEM => nacl.set_shmem(SharedPtr::new(param0, param1), param2),
         spec::nacl::SYNC_CSR => nacl.sync_csr(param0),
         spec::nacl::SYNC_HFENCE => nacl.sync_hfence(param0),
@@ -412,14 +375,8 @@ pub fn _rustsbi_sta<T: crate::Sta>(sta: &T, param: [usize; 6], function: usize) 
 #[inline(always)]
 pub fn _rustsbi_fwft<T: crate::Fwft>(fwft: &T, param: [usize; 6], function: usize) -> SbiRet {
     match function {
-        spec::fwft::SET => match u32::try_from(param[0]) {
-            Ok(feature_id) => fwft.set(feature_id, param[1], param[2]),
-            _ => SbiRet::invalid_param(),
-        },
-        spec::fwft::GET => match u32::try_from(param[0]) {
-            Ok(feature_id) => fwft.get(feature_id),
-            _ => SbiRet::invalid_param(),
-        },
+        spec::fwft::SET => fwft.set(param[0] as u32, param[1], param[2]),
+        spec::fwft::GET => fwft.get(param[0] as u32),
         _ => SbiRet::not_supported(),
     }
 }
@@ -455,56 +412,26 @@ pub fn _rustsbi_mpxy<T: crate::Mpxy>(mpxy: &T, param: [usize; 6], function: usiz
     match function {
         spec::mpxy::GET_SHMEM_SIZE => SbiRet::success(mpxy.get_shmem_size()),
         spec::mpxy::SET_SHMEM => mpxy.set_shmem(SharedPtr::new(param0, param1), param2),
-        spec::mpxy::GET_CHANNEL_IDS => match u32::try_from(param0) {
-            Ok(start_index) => mpxy.get_channel_ids(start_index),
-            _ => SbiRet::invalid_param(),
-        },
-        spec::mpxy::READ_ATTRIBUTE => match (
-            u32::try_from(param0),
-            u32::try_from(param1),
-            u32::try_from(param2),
-        ) {
-            (Ok(channel_id), Ok(base_attribute_id), Ok(attribute_count)) => mpxy.read_attributes(
-                channel_id,
-                base_attribute_id,
-                attribute_count,
-                SharedPtr::new(param3, param4),
-            ),
-            _ => SbiRet::invalid_param(),
-        },
-        spec::mpxy::WRITE_ATTRIBUTE => match (
-            u32::try_from(param0),
-            u32::try_from(param1),
-            u32::try_from(param2),
-        ) {
-            (Ok(channel_id), Ok(base_attribute_id), Ok(attribute_count)) => mpxy.write_attributes(
-                channel_id,
-                base_attribute_id,
-                attribute_count,
-                SharedPtr::new(param3, param4),
-            ),
-            _ => SbiRet::invalid_param(),
-        },
+        spec::mpxy::GET_CHANNEL_IDS => mpxy.get_channel_ids(param0 as u32),
+        spec::mpxy::READ_ATTRIBUTE => mpxy.read_attributes(
+            param0 as u32,
+            param1 as u32,
+            param2 as u32,
+            SharedPtr::new(param3, param4),
+        ),
+        spec::mpxy::WRITE_ATTRIBUTE => mpxy.write_attributes(
+            param0 as u32,
+            param1 as u32,
+            param2 as u32,
+            SharedPtr::new(param3, param4),
+        ),
         spec::mpxy::SEND_MESSAGE_WITH_RESPONSE => {
-            match (u32::try_from(param0), u32::try_from(param1)) {
-                (Ok(channel_id), Ok(message_id)) => {
-                    mpxy.send_message_with_response(channel_id, message_id, param2)
-                }
-                _ => SbiRet::invalid_param(),
-            }
+            mpxy.send_message_with_response(param0 as u32, param1 as u32, param2)
         }
         spec::mpxy::SEND_MESSAGE_WITHOUT_RESPONSE => {
-            match (u32::try_from(param0), u32::try_from(param1)) {
-                (Ok(channel_id), Ok(message_id)) => {
-                    mpxy.send_message_without_response(channel_id, message_id, param2)
-                }
-                _ => SbiRet::invalid_param(),
-            }
+            mpxy.send_message_without_response(param0 as u32, param1 as u32, param2)
         }
-        spec::mpxy::GET_NOTIFICATION_EVENTS => match u32::try_from(param0) {
-            Ok(channel_id) => mpxy.get_notification_events(channel_id),
-            _ => SbiRet::invalid_param(),
-        },
+        spec::mpxy::GET_NOTIFICATION_EVENTS => mpxy.get_notification_events(param0 as u32),
         _ => SbiRet::not_supported(),
     }
 }
@@ -602,56 +529,26 @@ pub fn _rustsbi_mpxy_probe<T: crate::Mpxy>(mpxy: &T) -> usize {
 #[doc(hidden)]
 #[inline(always)]
 pub fn _rustsbi_sse<T: crate::Sse>(sse: &T, param: [usize; 6], function: usize) -> SbiRet {
-    let [param0, param1, param2, param3, param4] =
-        [param[0], param[1], param[2], param[3], param[4]];
+    let event_id = param[0] as u32;
     match function {
-        spec::sse::READ_ATTRS => match (
-            u32::try_from(param0),
-            u32::try_from(param1),
-            u32::try_from(param2),
-        ) {
-            (Ok(event_id), Ok(base_attr_id), Ok(attr_count)) => sse.read_attrs(
-                event_id,
-                base_attr_id,
-                attr_count,
-                SharedPtr::new(param3, param4),
-            ),
-            _ => SbiRet::invalid_param(),
-        },
-        spec::sse::WRITE_ATTRS => match (
-            u32::try_from(param0),
-            u32::try_from(param1),
-            u32::try_from(param2),
-        ) {
-            (Ok(event_id), Ok(base_attr_id), Ok(attr_count)) => sse.write_attrs(
-                event_id,
-                base_attr_id,
-                attr_count,
-                SharedPtr::new(param3, param4),
-            ),
-            _ => SbiRet::invalid_param(),
-        },
-        spec::sse::REGISTER => match u32::try_from(param0) {
-            Ok(event_id) => sse.register(event_id, param1, param2),
-            _ => SbiRet::invalid_param(),
-        },
-        spec::sse::UNREGISTER => match u32::try_from(param0) {
-            Ok(event_id) => sse.unregister(event_id),
-            _ => SbiRet::invalid_param(),
-        },
-        spec::sse::ENABLE => match u32::try_from(param0) {
-            Ok(event_id) => sse.enable(event_id),
-            _ => SbiRet::invalid_param(),
-        },
-        spec::sse::DISABLE => match u32::try_from(param0) {
-            Ok(event_id) => sse.disable(event_id),
-            _ => SbiRet::invalid_param(),
-        },
+        spec::sse::READ_ATTRS => sse.read_attrs(
+            event_id,
+            param[1] as u32,
+            param[2] as u32,
+            SharedPtr::new(param[3], param[4]),
+        ),
+        spec::sse::WRITE_ATTRS => sse.write_attrs(
+            event_id,
+            param[1] as u32,
+            param[2] as u32,
+            SharedPtr::new(param[3], param[4]),
+        ),
+        spec::sse::REGISTER => sse.register(event_id, param[1], param[2]),
+        spec::sse::UNREGISTER => sse.unregister(event_id),
+        spec::sse::ENABLE => sse.enable(event_id),
+        spec::sse::DISABLE => sse.disable(event_id),
         spec::sse::COMPLETE => sse.complete(),
-        spec::sse::INJECT => match u32::try_from(param0) {
-            Ok(event_id) => sse.inject(event_id, param1),
-            _ => SbiRet::invalid_param(),
-        },
+        spec::sse::INJECT => sse.inject(event_id, param[1]),
         spec::sse::HART_UNMASK => sse.hart_unmask(),
         spec::sse::HART_MASK => sse.hart_mask(),
         _ => SbiRet::not_supported(),

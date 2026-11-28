@@ -25,7 +25,6 @@ const SHARED_MEMORY_SIZE: usize = 1usize << PAGE_SHIFT;
 const SHMEM_DISABLED: usize = usize::MAX;
 const FLAG_OVERWRITE_RETURN: usize = 1;
 const CHANNEL_IDS_HEADER_BYTES: usize = 8;
-const OVERWRITE_RETURN_BYTES: usize = 2 * core::mem::size_of::<usize>();
 
 /// Message Proxy extension with per-hart shared memory but no message channels.
 pub(crate) struct SbiMpxy {
@@ -51,19 +50,6 @@ impl SbiMpxy {
         }
         SbiRet::success(0)
     }
-}
-
-fn encode_overwrite_return(prev: usize) -> [u8; OVERWRITE_RETURN_BYTES] {
-    let (prev_lo, prev_hi) = if prev == SHMEM_DISABLED {
-        (usize::MAX, usize::MAX)
-    } else {
-        (prev, 0)
-    };
-    let word_size = core::mem::size_of::<usize>();
-    let mut encoded = [0u8; OVERWRITE_RETURN_BYTES];
-    encoded[..word_size].copy_from_slice(&prev_lo.to_le_bytes());
-    encoded[word_size..].copy_from_slice(&prev_hi.to_le_bytes());
-    encoded
 }
 
 impl Mpxy for SbiMpxy {
@@ -108,8 +94,21 @@ impl Mpxy for SbiMpxy {
 
         if flags == FLAG_OVERWRITE_RETURN {
             let prev = shmem.load(Ordering::Acquire);
-            let encoded = encode_overwrite_return(prev);
-            if self.supervisor_memory.write(start, &encoded).is_err() {
+            let Some(xlen) = super::features::supervisor_xlen(hart) else {
+                return SbiRet::failed();
+            };
+            // OVERWRITE-RETURN stores the previous address as two little-endian
+            // supervisor words, or two all-ones words for a disabled area.
+            let previous = if prev == SHMEM_DISABLED {
+                u128::MAX
+            } else {
+                prev as u128
+            };
+            if self
+                .supervisor_memory
+                .write(start, &previous.to_le_bytes()[..2 * xlen.bytes()])
+                .is_err()
+            {
                 return SbiRet::invalid_address();
             }
         }
