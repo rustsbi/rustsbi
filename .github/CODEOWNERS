@@ -1,2 +1,7 @@
-# Request review from both primary reviewers for every change.
+# Default owners for paths without a more specific rule.
 * @luojia65 @Plucky923
+
+/.agents/skills/ @Kozmosa @zevorn
+/.claude/skills/ @Kozmosa @zevorn
+/.github/ @Kozmosa @zevorn
+/docs/ @Kozmosa @zevorn
