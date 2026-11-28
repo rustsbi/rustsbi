@@ -127,6 +127,9 @@ impl A27L2Cache {
         if operation == RangeOperation::WriteBack && length >= LARGE_FLUSH_THRESHOLD {
             return self.flush_all();
         }
+        // The L2 line-address register is 32-bit; reject the whole range first
+        // so a rejected request cannot leave L1 and L2 out of step.
+        u32::try_from(last - CACHE_LINE_SIZE).map_err(|_| Error::InvalidArgs)?;
 
         for address in (first..last).step_by(CACHE_LINE_SIZE) {
             let partial = address < start || end - address < CACHE_LINE_SIZE;
@@ -145,9 +148,8 @@ impl A27L2Cache {
             // The full cache-line span was checked against supervisor RAM;
             // partial lines retain surrounding dirty bytes by writeback.
             self.csr.maintain_a27l2_line(address, l1_operation);
-            let line_address = u32::try_from(address).map_err(|_| Error::InvalidArgs)?;
             self.registers
-                .write_u32(CacheRegister::LineAddress, line_address)?;
+                .write_u32(CacheRegister::LineAddress, address as u32)?;
             self.l2_command(l2_command)?;
         }
         Ok(())
