@@ -3,7 +3,7 @@
 #![forbid(unsafe_code)]
 
 use alloc::collections::VecDeque;
-use core::sync::atomic::AtomicU32;
+use core::sync::atomic::{AtomicBool, AtomicU32};
 use runtime::{
     fence::LocalFence,
     hart::{HartId, PerHart},
@@ -59,13 +59,24 @@ impl RequestQueue {
 #[repr(align(128))]
 struct CompletionTracker {
     pending: AtomicU32,
+    failed: AtomicBool,
 }
 
 impl CompletionTracker {
     fn new() -> Self {
         Self {
             pending: AtomicU32::new(0),
+            failed: AtomicBool::new(false),
         }
+    }
+
+    fn begin(&self) -> bool {
+        use core::sync::atomic::Ordering;
+        if !self.is_sync() {
+            return false;
+        }
+        self.failed.store(false, Ordering::Relaxed);
+        true
     }
 
     fn is_sync(&self) -> bool {
@@ -82,9 +93,19 @@ impl CompletionTracker {
         self.pending.fetch_add(1, Ordering::Relaxed);
     }
 
-    fn sub(&self) {
+    fn complete(&self, success: bool) {
         use core::sync::atomic::Ordering;
+        if !success {
+            self.failed.store(true, Ordering::Relaxed);
+        }
+        // The sender must observe every receiver's result when pending reaches
+        // zero. Its acquire fence pairs with these release decrements.
         self.pending.fetch_sub(1, Ordering::Release);
+    }
+
+    fn failed(&self) -> bool {
+        use core::sync::atomic::Ordering;
+        self.failed.load(Ordering::Relaxed)
     }
 }
 
@@ -144,6 +165,16 @@ pub struct LocalRFenceCell<'a>(&'a RFenceCell);
 pub struct RemoteRFenceCell<'a>(&'a RFenceCell);
 
 impl LocalRFenceCell<'_> {
+    /// Starts an outgoing operation if all previous requests have been acknowledged.
+    pub fn begin(&self) -> bool {
+        self.0.completions.begin()
+    }
+
+    /// Acknowledges an outgoing request canceled before its receiver took it.
+    pub fn cancel_completion(&self) {
+        self.0.completions.complete(false);
+    }
+
     /// Checks if all synchronization operations are complete.
     pub fn is_sync(&self) -> bool {
         self.0.completions.is_sync()
@@ -152,6 +183,11 @@ impl LocalRFenceCell<'_> {
     /// Increments the synchronization counter.
     pub fn add(&self) {
         self.0.completions.add();
+    }
+
+    /// Reports an execution or delivery failure after [`Self::is_sync`] succeeds.
+    pub fn failed(&self) -> bool {
+        self.0.completions.failed()
     }
 
     /// Returns the next fence operation from the queue, if any.
@@ -172,8 +208,8 @@ impl RemoteRFenceCell<'_> {
         self.0.queue.try_push(item)
     }
 
-    /// Decrements the synchronization counter.
-    pub fn sub(&self) {
-        self.0.completions.sub();
+    /// Acknowledges the request and makes its result visible to the sender.
+    pub fn complete(&self, success: bool) {
+        self.0.completions.complete(success);
     }
 }

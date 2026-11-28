@@ -48,11 +48,17 @@ impl SbiRFence {
 }
 
 /// Translates an SBI address range into a local flush range.
-fn flush_range(start_addr: usize, size: usize) -> Result<FlushRange, SbiRet> {
+fn flush_range(hart: HartId, start_addr: usize, size: usize) -> Result<FlushRange, SbiRet> {
     if (start_addr == 0 && size == 0) || size == usize::MAX {
         return Ok(FlushRange::All);
     }
-    if start_addr & (PAGE_SIZE - 1) != 0 || (size > 0 && start_addr > usize::MAX - (size - 1)) {
+    let last = start_addr
+        .checked_add(size.saturating_sub(1))
+        .ok_or_else(SbiRet::invalid_address)?;
+    if start_addr & (PAGE_SIZE - 1) != 0
+        || (last > u32::MAX as usize
+            && features::supervisor_xlen(hart) != Some(runtime::hart::Xlen::X64))
+    {
         return Err(SbiRet::invalid_address());
     }
     if size > TLB_FLUSH_LIMIT {
@@ -72,11 +78,16 @@ fn dispatch_validated_fence(
 ) -> SbiRet {
     let current = queue::rfence_cell(current_hart);
     let local = current.local();
+    if !local.begin() {
+        return SbiRet::failed();
+    }
     let mut result = SbiRet::success(0);
 
     for target in targets {
         if target == current_hart {
-            rfence_local_handler(op);
+            if rfence_local_handler(op).is_err() {
+                result = SbiRet::failed();
+            }
             continue;
         }
 
@@ -92,7 +103,7 @@ fn dispatch_validated_fence(
         // A receiver that already took the request remains responsible for
         // its acknowledgement.
         if remote.cancel(current_hart) {
-            current.remote().sub();
+            local.cancel_completion();
         }
         result = SbiRet::failed();
         break;
@@ -103,7 +114,11 @@ fn dispatch_validated_fence(
         rfence_single_handler_for(current_hart);
     }
 
-    result
+    if local.failed() {
+        SbiRet::failed()
+    } else {
+        result
+    }
 }
 
 /// Validates target harts, records the sent PMU event, and executes the fence.
@@ -230,7 +245,7 @@ fn remote_sfence_vma_op(
     sent_event: usize,
 ) -> Result<SbiRet, SbiRet> {
     let current_hart = HartId::current().map_err(SbiRet::from)?;
-    let range = flush_range(start_addr, size)?;
+    let range = flush_range(current_hart, start_addr, size)?;
     Ok(remote_fence_process(
         LocalFence::Supervisor { range, asid },
         current_hart,
@@ -247,7 +262,7 @@ fn remote_hfence_gvma_op(
     sent_event: usize,
 ) -> Result<SbiRet, SbiRet> {
     let current_hart = HartId::current().map_err(SbiRet::from)?;
-    let range = flush_range(start_addr, size)?;
+    let range = flush_range(current_hart, start_addr, size)?;
     Ok(remote_fence_process(
         LocalFence::GuestPhysical { range, vmid },
         current_hart,
@@ -264,7 +279,7 @@ fn remote_hfence_vvma_op(
     sent_event: usize,
 ) -> Result<SbiRet, SbiRet> {
     let current_hart = current_hart_with_hypervisor()?;
-    let range = flush_range(start_addr, size)?;
+    let range = flush_range(current_hart, start_addr, size)?;
     let vmid = fence::current_guest_vmid().map_err(|_| SbiRet::not_supported())?;
     Ok(remote_fence_process(
         LocalFence::GuestVirtual { range, asid, vmid },
@@ -377,20 +392,18 @@ impl Fence for SbiRFence {
 #[inline]
 fn rfence_single_handler_for(hart: HartId) -> bool {
     if let Some((op, source_hart)) = queue::rfence_cell(hart).local().get() {
-        rfence_local_handler(op);
-        queue::rfence_cell(source_hart).remote().sub();
+        let success = rfence_local_handler(op).is_ok();
+        queue::rfence_cell(source_hart).remote().complete(success);
         true
     } else {
         false
     }
 }
 
-/// Executes a fence on this hart and records its received PMU event.
+/// Executes a fence on this hart and counts the corresponding PMU event on success.
 #[inline]
-fn rfence_local_handler(op: LocalFence) {
-    if fence::execute_local(op).is_err() {
-        return;
-    }
+fn rfence_local_handler(op: LocalFence) -> Result<()> {
+    fence::execute_local(op)?;
     let event = match op {
         LocalFence::Instruction => firmware_event::FENCE_I_RECEIVED,
         LocalFence::Supervisor { asid: None, .. } => firmware_event::SFENCE_VMA_RECEIVED,
@@ -403,6 +416,7 @@ fn rfence_local_handler(op: LocalFence) {
         LocalFence::GuestVirtual { asid: Some(_), .. } => firmware_event::HFENCE_VVMA_ASID_RECEIVED,
     };
     pmu_firmware_counter_increment(event);
+    Ok(())
 }
 
 /// Processes all pending remote fence operations on the current hart.
