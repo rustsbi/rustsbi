@@ -33,7 +33,7 @@ fn mbench_manifest_path(workspace_root: &Path) -> Result<PathBuf> {
     if !manifest.is_file() {
         bail!(
             "firmware/mbench submodule is not initialized (missing '{}'); \
-             run `git submodule update --init --recursive`",
+             run `git submodule update --init --remote -- firmware/mbench`",
             manifest.display()
         );
     }

@@ -2,12 +2,11 @@ name: CI / Environment / Docker
 
 on:
   workflow_dispatch:
-  pull_request:
-  push:
-    branches: ["main"]
-    paths-ignore:
-      - '**.md'
-      - 'LICENSE'
+  workflow_call:
+    inputs:
+      mbench_sha:
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -19,8 +18,14 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+
+      - name: Checkout mbench
+        uses: actions/checkout@v7
         with:
-          submodules: true
+          repository: rustsbi/mbench
+          ref: ${{ inputs.mbench_sha || 'main' }}
+          path: firmware/mbench
+          persist-credentials: false
 
       - name: Build development image
         run: docker build -t rustsbi-dev .

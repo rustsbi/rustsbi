@@ -4,16 +4,79 @@ on:
   pull_request:
   push:
     branches: ["main"]
-    paths-ignore:
-      - '**.md'
-      - 'LICENSE'
 
 permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Select firmware checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      firmware: ${{ github.event_name == 'pull_request' || steps.paths.outputs.firmware == 'true' }}
+      miralis: ${{ (github.base_ref || github.ref_name) == 'main' && steps.paths.outputs.miralis == 'true' }}
+    steps:
+      - uses: actions/checkout@v7
+        if: github.event_name == 'push'
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
+        id: paths
+        with:
+          base: main
+          predicate-quantifier: some-with-excludes
+          filters: |
+            firmware:
+              - '**'
+              - '!**/*.md'
+              - '!LICENSE'
+            miralis:
+              - '.cargo/**'
+              - '.github/scripts/prototyper-miralis-boot.sh'
+              - '.github/workflows/{miralis,prototyper}.yml'
+              - '.gitmodules'
+              - 'Cargo.lock'
+              - 'Cargo.toml'
+              - 'rust-toolchain.toml'
+              - 'xtask/**'
+              - 'library/**'
+              - 'firmware/{prototyper,runtime}/**'
+              - 'firmware/mbench'
+
+  mbench:
+    name: Resolve mbench/main
+    needs: changes
+    if: needs.changes.outputs.firmware == 'true' || needs.changes.outputs.miralis == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.checkout.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v7
+        id: checkout
+        with:
+          repository: rustsbi/mbench
+          ref: main
+          persist-credentials: false
+
+  docker:
+    needs: [changes, mbench]
+    if: needs.changes.outputs.firmware == 'true'
+    uses: ./.github/workflows/docker.yml
+    with:
+      mbench_sha: ${{ needs.mbench.outputs.sha }}
+
+  miralis:
+    needs: [changes, mbench]
+    if: needs.changes.outputs.miralis == 'true'
+    uses: ./.github/workflows/miralis.yml
+    with:
+      mbench_sha: ${{ needs.mbench.outputs.sha }}
+
   rust-clippy-analyze:
     name: Run rust-clippy analyzing
+    needs: changes
+    if: needs.changes.outputs.firmware == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -21,8 +84,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
-        with:
-          submodules: true
 
       - name: Check format
         run: cargo fmt --check
@@ -64,13 +125,21 @@ jobs:
 
   qemu-boot-tests:
     name: Run prototyper QEMU boot tests
+    needs: [changes, mbench]
+    if: needs.changes.outputs.firmware == 'true'
     # QEMU >= 9.1 fixes zero-valued CSRRS writes to read-only CSRs.
     runs-on: ubuntu-26.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+
+      - name: Checkout mbench
+        uses: actions/checkout@v7
         with:
-          submodules: true
+          repository: rustsbi/mbench
+          ref: ${{ needs.mbench.outputs.sha }}
+          path: firmware/mbench
+          persist-credentials: false
 
       - name: Install dev dependencies
         run: |
