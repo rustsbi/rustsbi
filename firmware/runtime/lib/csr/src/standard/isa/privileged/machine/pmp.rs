@@ -1,185 +1,56 @@
-//! Physical memory protection registers.
-//!
-//! See <https://docs.riscv.org/reference/isa/priv/machine.html#_physical_memory_protection>.
+//! Indexed access to machine physical memory protection words.
 
-/// PMP address matching mode.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u8)]
-pub enum PmpRange {
-    Off = 0,
-    Tor = 1,
-    Na4 = 2,
-    Napot = 3,
-}
+use super::{Pmpaddr, Pmpcfg};
+use crate::{Read, Write};
 
-/// PMP read, write and execute permission bits.
-///
-/// Some combinations are reserved by the privileged specification. Hardware
-/// reads may still produce any bit pattern, so each encoding is represented.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u8)]
-pub enum PmpPermission {
-    None = 0,
-    R = 1,
-    W = 2,
-    Rw = 3,
-    X = 4,
-    Rx = 5,
-    Wx = 6,
-    Rwx = 7,
-}
-
-/// One eight-bit PMP configuration field.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct PmpEntry {
-    pub range: PmpRange,
-    pub permission: PmpPermission,
-    pub locked: bool,
-}
-
-impl PmpEntry {
-    /// Decodes the architecturally defined bits in a configuration field.
-    pub const fn from_bits(bits: u8) -> Self {
-        let range = match (bits >> 3) & 3 {
-            0 => PmpRange::Off,
-            1 => PmpRange::Tor,
-            2 => PmpRange::Na4,
-            _ => PmpRange::Napot,
-        };
-        let permission = match bits & 7 {
-            0 => PmpPermission::None,
-            1 => PmpPermission::R,
-            2 => PmpPermission::W,
-            3 => PmpPermission::Rw,
-            4 => PmpPermission::X,
-            5 => PmpPermission::Rx,
-            6 => PmpPermission::Wx,
-            _ => PmpPermission::Rwx,
-        };
-        Self {
-            range,
-            permission,
-            locked: bits & 0x80 != 0,
+macro_rules! pmp_word_access {
+    ($read:ident, $write:ident, $register:ident; $($index:literal),+ $(,)?) => {
+        #[doc = concat!("Reads [`", stringify!($register), "`] at the given CSR index.")]
+        ///
+        /// Returns `None` for an index unavailable at this XLEN.
+        /// An unimplemented register at a valid index traps normally.
+        #[inline]
+        pub fn $read(index: u8) -> Option<usize> {
+            match index {
+                $($index => Some($register::<$index>::read()),)+
+                _ => None,
+            }
         }
-    }
 
-    /// Encodes the architecturally defined bits; reserved bits are zero.
-    pub const fn bits(self) -> u8 {
-        (self.range as u8) << 3 | self.permission as u8 | ((self.locked as u8) << 7)
-    }
-}
-
-/// PMP configuration CSR selected by its architectural register index.
-pub enum PmpConfiguration<const INDEX: u8> {}
-
-impl<const INDEX: u8> PmpConfiguration<INDEX> {
-    /// CSR number; RV64 implements only even-numbered configuration CSRs.
-    pub const NUMBER: u16 = {
-        assert!(INDEX < 16 && (usize::BITS == 32 || INDEX.is_multiple_of(2)));
-        0x3a0 + INDEX as u16
+        #[doc = concat!("Writes [`", stringify!($register), "`] at the given CSR index.")]
+        ///
+        /// Returns `false` for an index unavailable at this XLEN.
+        /// A `true` result means the instruction completed.
+        /// Locked entries can ignore the write.
+        ///
+        /// # Safety
+        ///
+        #[doc = concat!("Execute in M-mode on a hart implementing the selected [`",
+            stringify!($register), "`].")]
+        /// Preserve the permissions required by live memory accesses throughout the
+        /// update and synchronize address translation before relying on the new protection.
+        #[inline]
+        pub unsafe fn $write(index: u8, value: usize) -> bool {
+            match index {
+                $($index => {
+                    // SAFETY: The caller establishes the selected PMP word's write invariants.
+                    unsafe { $register::<$index>::write(value) };
+                    true
+                },)+
+                _ => false,
+            }
+        }
     };
-
-    /// Reads the current hart's PMP configuration word.
-    /// Access to an unimplemented CSR can trap.
-    pub fn read() -> usize {
-        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-        {
-            let value;
-            // SAFETY: Reading the register does not change PMP state.
-            unsafe {
-                core::arch::asm!("csrr {}, {csr}", out(reg) value, csr = const Self::NUMBER, options(nostack))
-            };
-            value
-        }
-        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-        unimplemented!("CSR access requires RISC-V")
-    }
-
-    /// Writes the current hart's PMP configuration word.
-    ///
-    /// # Safety
-    /// Execute in M-mode and maintain memory-access and trap-handler invariants.
-    /// The selected CSR must be implemented and the value must obey the
-    /// implementation's supported permission and range encodings.
-    /// Coordinate all PMP users; locked fields may become immutable until reset.
-    /// Synchronize address translation after changing PMP settings as required
-    /// by the privileged architecture.
-    pub unsafe fn write(value: usize) {
-        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-        // SAFETY: The caller maintains the PMP configuration invariants.
-        unsafe {
-            core::arch::asm!("csrw {csr}, {value}", csr = const Self::NUMBER, value = in(reg) value, options(nostack))
-        }
-        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-        {
-            let _ = value;
-            unimplemented!("CSR access requires RISC-V")
-        }
-    }
-
-    /// Updates one configuration byte in this word.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `slot` is not less than XLEN / 8.
-    ///
-    /// # Safety
-    ///
-    /// The caller must satisfy [`Self::write`]'s requirements and exclude
-    /// concurrent updates between the read and write.
-    pub unsafe fn set(slot: usize, entry: PmpEntry) {
-        assert!(slot < core::mem::size_of::<usize>());
-        let shift = slot * 8;
-        let value = (Self::read() & !(0xffusize << shift)) | ((entry.bits() as usize) << shift);
-        // SAFETY: The caller maintains the PMP configuration invariants.
-        unsafe { Self::write(value) };
-    }
 }
 
-/// PMP address CSR for architectural entry `INDEX`.
-pub enum PmpAddress<const INDEX: u8> {}
+#[cfg(target_pointer_width = "32")]
+pmp_word_access!(read_pmpcfg, write_pmpcfg, Pmpcfg; 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+#[cfg(target_pointer_width = "64")]
+pmp_word_access!(read_pmpcfg, write_pmpcfg, Pmpcfg; 0, 2, 4, 6, 8, 10, 12, 14);
 
-impl<const INDEX: u8> PmpAddress<INDEX> {
-    /// Architectural CSR number.
-    pub const NUMBER: u16 = {
-        assert!(INDEX < 64);
-        0x3b0 + INDEX as u16
-    };
-
-    /// Reads the current hart's PMP address encoding.
-    /// Access to an unimplemented CSR can trap.
-    pub fn read() -> usize {
-        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-        {
-            let value;
-            // SAFETY: Reading the register does not change PMP state.
-            unsafe {
-                core::arch::asm!("csrr {}, {csr}", out(reg) value, csr = const Self::NUMBER, options(nostack))
-            };
-            value
-        }
-        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-        unimplemented!("CSR access requires RISC-V")
-    }
-
-    /// Writes the current hart's PMP address encoding.
-    ///
-    /// # Safety
-    /// Execute in M-mode and maintain memory-access and trap-handler invariants.
-    /// The selected CSR must be implemented.
-    /// Coordinate with all PMP users and the corresponding configuration field.
-    /// Synchronize address translation after changing PMP settings as required
-    /// by the privileged architecture.
-    pub unsafe fn write(value: usize) {
-        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-        // SAFETY: The caller maintains the PMP configuration invariants.
-        unsafe {
-            core::arch::asm!("csrw {csr}, {value}", csr = const Self::NUMBER, value = in(reg) value, options(nostack))
-        }
-        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-        {
-            let _ = value;
-            unimplemented!("CSR access requires RISC-V")
-        }
-    }
-}
+pmp_word_access!(read_pmpaddr, write_pmpaddr, Pmpaddr;
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+    16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+    32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
+    48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
+);

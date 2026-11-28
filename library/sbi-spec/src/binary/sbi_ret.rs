@@ -198,7 +198,7 @@ impl<T: SbiRegister + core::fmt::LowerHex> core::fmt::Debug for SbiRet<T> {
                 Error::Timeout => write!(f, "<SBI timeout>"),
                 Error::Io => write!(f, "<SBI input/output error>"),
                 Error::DeniedLocked => write!(f, "<SBI denied due to locked status>"),
-                Error::Custom(unknown) => write!(f, "[SBI Unknown error: {:#x}]", unknown),
+                Error::Custom(code) => write!(f, "[SBI custom error: {code:#x}]"),
             },
         }
     }
@@ -416,7 +416,9 @@ impl<T: SbiRegister> From<Error<T>> for SbiRet<T> {
 }
 
 impl SbiRet {
-    /// Converts to a [`Result`] of value and error.
+    /// Returns `Ok(value)` for `SBI_SUCCESS` and decodes other error codes into [`Error`].
+    ///
+    /// Non-standard error codes are preserved as [`Error::Custom`].
     #[inline]
     pub const fn into_result(self) -> Result<usize, Error> {
         match self.error {
@@ -998,58 +1000,6 @@ impl SbiRet {
     #[inline]
     pub fn unwrap_or_else<F: FnOnce(Error) -> usize>(self, op: F) -> usize {
         self.into_result().unwrap_or_else(op)
-    }
-
-    /// Returns the contained success value, consuming the `self` value,
-    /// without checking that the `SbiRet` contains an error value.
-    ///
-    /// # Safety
-    ///
-    /// Calling this method on an `SbiRet` containing an error value results
-    /// in *undefined behavior*.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use sbi_spec::binary::{SbiRet, Error};
-    /// let x = SbiRet::success(3);
-    /// assert_eq!(unsafe { x.unwrap_unchecked() }, 3);
-    /// ```
-    ///
-    /// ```no_run
-    /// # use sbi_spec::binary::SbiRet;
-    /// let x = SbiRet::no_shmem();
-    /// unsafe { x.unwrap_unchecked(); } // Undefined behavior!
-    /// ```
-    #[inline]
-    pub unsafe fn unwrap_unchecked(self) -> usize {
-        unsafe { self.into_result().unwrap_unchecked() }
-    }
-
-    /// Returns the contained `Error` value, consuming the `self` value,
-    /// without checking that the `SbiRet` does not contain a success value.
-    ///
-    /// # Safety
-    ///
-    /// Calling this method on an `SbiRet` containing a success value results
-    /// in *undefined behavior*.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use sbi_spec::binary::SbiRet;
-    /// let x = SbiRet::success(4);
-    /// unsafe { x.unwrap_unchecked(); } // Undefined behavior!
-    /// ```
-    ///
-    /// ```
-    /// # use sbi_spec::binary::{SbiRet, Error};
-    /// let x = SbiRet::failed();
-    /// assert_eq!(unsafe { x.unwrap_err_unchecked() }, Error::Failed);
-    /// ```
-    #[inline]
-    pub unsafe fn unwrap_err_unchecked(self) -> Error {
-        unsafe { self.into_result().unwrap_err_unchecked() }
     }
 }
 

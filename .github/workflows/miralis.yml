@@ -1,37 +1,12 @@
 name: Compat / Hypervisors / Miralis
 
 on:
-  pull_request:
-    branches: ["main"]
-    paths:
-      - ".cargo/**"
-      - ".github/scripts/prototyper-miralis-boot.sh"
-      - ".github/workflows/miralis.yml"
-      - "Cargo.lock"
-      - "Cargo.toml"
-      - "rust-toolchain.toml"
-      - "xtask/**"
-      - "library/**"
-      - "firmware/prototyper/**"
-      - "firmware/runtime/**"
-      - "firmware/mbench"
-      - ".gitmodules"
-  push:
-    branches: ["main"]
-    paths:
-      - ".cargo/**"
-      - ".github/scripts/prototyper-miralis-boot.sh"
-      - ".github/workflows/miralis.yml"
-      - "Cargo.lock"
-      - "Cargo.toml"
-      - "rust-toolchain.toml"
-      - "xtask/**"
-      - "library/**"
-      - "firmware/prototyper/**"
-      - "firmware/runtime/**"
-      - "firmware/mbench"
-      - ".gitmodules"
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      mbench_sha:
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -45,8 +20,14 @@ jobs:
     steps:
       - name: Checkout RustSBI
         uses: actions/checkout@v7
+
+      - name: Checkout mbench
+        uses: actions/checkout@v7
         with:
-          submodules: true
+          repository: rustsbi/mbench
+          ref: ${{ inputs.mbench_sha || 'main' }}
+          path: firmware/mbench
+          persist-credentials: false
 
       - name: Install QEMU and binary tools
         run: |

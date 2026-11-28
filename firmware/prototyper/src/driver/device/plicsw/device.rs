@@ -4,6 +4,7 @@ use core::mem::{align_of, size_of};
 use runtime::{
     Error, Result,
     hart::HartId,
+    instruction::{ALL, fence},
     ipi::{Acknowledge, IpiDevice, Software},
     memory::{MemoryRegistry, MmioRegion},
 };
@@ -47,7 +48,7 @@ impl PlicSw {
             registers.write(enable_offset + size_of::<u32>(), enabled)?;
             registers.write(CONTEXT_OFFSET + CONTEXT_STRIDE * hart, 0u32)?;
         }
-        runtime::instruction::fence();
+        fence(ALL, ALL);
         Ok(Self { registers })
     }
 }
@@ -58,14 +59,14 @@ impl IpiDevice<Software> for PlicSw {
         let target = hart.as_usize();
         // The current hart owns the source row; the bit selects its target.
         let bit = MATRIX_WIDTH * source + target;
-        runtime::instruction::fence();
+        fence(ALL, ALL);
         self.registers
             .write(
                 PENDING_OFFSET + size_of::<u32>() * (bit / u32::BITS as usize),
                 (1u32 << (bit % u32::BITS as usize)).to_le(),
             )
             .map_err(|_| Error::IoError)?;
-        runtime::instruction::fence();
+        fence(ALL, ALL);
         Ok(())
     }
 }
@@ -80,7 +81,7 @@ impl Acknowledge<Software> for PlicSw {
                 .write(offset, source)
                 .map_err(|_| Error::IoError)?;
         }
-        runtime::instruction::fence();
+        fence(ALL, ALL);
         Ok(true)
     }
 }

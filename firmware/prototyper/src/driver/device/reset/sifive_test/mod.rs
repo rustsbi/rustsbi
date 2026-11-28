@@ -8,31 +8,20 @@
 mod description;
 mod device;
 
-use runtime::{PlatformView, Result};
+use runtime::{FdtNode, PlatformView, Result};
 
-use crate::devicetree::EnabledNode;
+use crate::devicetree::is_compatible;
 
 use super::primary_registers;
 pub(super) use description::Desc;
 pub(super) use device::SifiveTestDevice;
 
-const COMPATIBLES: [&str; 1] = ["sifive,test0"];
-
 /// Parses the SiFive test finisher without acquiring its MMIO region.
-pub(super) fn describe(
-    platform: &PlatformView<'_>,
-    discovered: EnabledNode<'_, '_>,
-) -> Result<Option<Desc>> {
-    let Some(compatibles) = discovered.compatible() else {
-        return Ok(None);
-    };
-    if !compatibles
-        .all()
-        .any(|compatible| COMPATIBLES.contains(&compatible))
-    {
+pub(super) fn describe(platform: &PlatformView<'_>, node: FdtNode<'_, '_>) -> Result<Option<Desc>> {
+    if !is_compatible(node, "sifive,test0") {
         return Ok(None);
     }
     Ok(Some(Desc {
-        registers: primary_registers(platform, discovered.node())?,
+        registers: primary_registers(platform, node)?,
     }))
 }

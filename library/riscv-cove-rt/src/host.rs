@@ -12,7 +12,9 @@ use sbi_spec::binary::{Physical, SbiRet};
 #[inline]
 #[doc(alias = "sbi_covh_get_tsm_info")]
 pub fn covh_get_tsm_info(mem: Physical<&mut TsmInfo>) -> SbiRet {
-    // TODO mem.phys_addr_hi should be used. The physical memory parameter should be parsed in `_hi` and `_lo` pairs, ref: https://lists.riscv.org/g/tech-ap-tee/topic/114646239#msg207 .
+    if mem.phys_addr_hi() != 0 {
+        return SbiRet::invalid_address();
+    }
     unsafe { sbi_rt::raw::sbi_call_2(EID_COVH, GET_TSM_INFO, mem.phys_addr_lo(), mem.num_bytes()) }
 }
 
@@ -49,6 +51,9 @@ pub fn covh_local_fence() -> SbiRet {
 #[inline]
 #[doc(alias = "sbi_covh_create_tvm")]
 pub fn covh_create_tvm(mem: Physical<&mut TvmCreateParams>) -> SbiRet {
+    if mem.phys_addr_hi() != 0 {
+        return SbiRet::invalid_address();
+    }
     unsafe { sbi_rt::raw::sbi_call_2(EID_COVH, CREATE_TVM, mem.phys_addr_lo(), mem.num_bytes()) }
 }
 
@@ -84,6 +89,9 @@ pub fn covh_promote_to_tvm(
     entry_spec: usize,
     identity_addr: usize,
 ) -> SbiRet {
+    if fdt.phys_addr_hi() != 0 || tap.phys_addr_hi() != 0 {
+        return SbiRet::invalid_address();
+    }
     unsafe {
         sbi_rt::raw::sbi_call_4(
             EID_COVH,
@@ -107,6 +115,9 @@ pub fn covh_destory_tvm(guest_id: usize) -> SbiRet {
 #[inline]
 #[doc(alias = "sbi_covh_add_tvm_memory_region")]
 pub fn covh_add_tvm_memory_region(guest_id: usize, gpa: Physical<&u8>) -> SbiRet {
+    if gpa.phys_addr_hi() != 0 {
+        return SbiRet::invalid_address();
+    }
     unsafe {
         sbi_rt::raw::sbi_call_3(
             EID_COVH,

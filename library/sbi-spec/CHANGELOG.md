@@ -10,15 +10,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - base: add `Version::V3_0`; RISC-V SBI v3.0 is ratified in Jul 17, 2025.
 - sse: add standard event and event attribute identifiers from RISC-V SBI v3.0.
+- pmu: add `CounterInfo` and `EventIdx` for counter metadata and event encodings.
+- cppc: add standard register identifiers shared with RPMI.
+- susp: add the suspend-to-RAM sleep type shared with RPMI.
 
 ### Modified
 
+- Forbid unsafe code in `sbi-spec`.
 - Declare Rust 1.88 as the minimum supported Rust version through workspace metadata.
 - pmu: rename `CounterCfgFlags`, `CounterStartFlags`, and `CounterStopFlags` to `ConfigFlags`,
   `StartFlags`, and `StopFlags`; retain deprecated aliases for source compatibility.
 
+### Removed
+
+- **Breaking:** remove `SbiRet::unwrap_unchecked` and `SbiRet::unwrap_err_unchecked`.
+  Use `unwrap` or `unwrap_err` for checked access. Callers that can guarantee the
+  result variant can use the corresponding unchecked method on `ret.into_result()`.
+
 ### Fixed
 
+- binary: test PMU counter mask bits relative to every base, including the
+  all-ones value. Deprecate `CounterMask::IGNORE_MASK` and `ignore_mask`.
 - binary: make `HartIds` range back iteration honor the exclusive end, including `last()` and `max()`.
 - binary: skip `HartMask` iterator bits whose hart IDs overflow `usize`, keeping iteration counts exact.
 

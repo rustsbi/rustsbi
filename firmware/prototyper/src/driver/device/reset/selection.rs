@@ -1,8 +1,6 @@
 //! Reset-description selection from the device tree.
 
-use runtime::{PlatformView, Result};
-
-use crate::devicetree::{EnabledNode, try_for_each_enabled_node};
+use runtime::{FdtNode, PlatformView, Result};
 
 use super::super::select_once;
 use super::{pmic_spacemit_p1, sifive_test, sunxi_watchdog, syscon};
@@ -23,18 +21,18 @@ pub(crate) fn describe(
     platform: &PlatformView<'_>,
     timebase_frequency_hz: Option<u32>,
 ) -> Result<Option<Desc>> {
-    if let Some(desc) = find(platform, |node| sifive_test::describe(platform, node))? {
+    if let Some(desc) = find(platform, |node, _| sifive_test::describe(platform, node))? {
         return Ok(Some(Desc::SifiveTest(desc)));
     }
-    if let Some(desc) = find(platform, |node| {
-        pmic_spacemit_p1::describe(platform, node, timebase_frequency_hz)
+    if let Some(desc) = find(platform, |node, parent| {
+        pmic_spacemit_p1::describe(platform, node, parent, timebase_frequency_hz)
     })? {
         return Ok(Some(Desc::SpacemitP1(desc)));
     }
     if let Some(desc) = sunxi_watchdog::v105::describe(platform)? {
         return Ok(Some(Desc::SunxiV105(desc)));
     }
-    if let Some(desc) = find(platform, |node| {
+    if let Some(desc) = find(platform, |node, _| {
         sunxi_watchdog::v104::describe(platform, node, timebase_frequency_hz)
     })? {
         return Ok(Some(Desc::SunxiV104(desc)));
@@ -45,13 +43,13 @@ pub(crate) fn describe(
 /// Finds a unique description among enabled nodes.
 ///
 /// Returns [`runtime::Error::InvalidArgs`] on a second match.
-pub(super) fn find<'view, 'tree: 'view, T>(
+pub(super) fn find<'view, 'tree, T>(
     platform: &'view PlatformView<'tree>,
-    mut describe: impl FnMut(EnabledNode<'view, 'tree>) -> Result<Option<T>>,
+    mut describe: impl FnMut(FdtNode<'view, 'tree>, Option<FdtNode<'view, 'tree>>) -> Result<Option<T>>,
 ) -> Result<Option<T>> {
     let mut selected = None;
-    try_for_each_enabled_node(platform, |node, _| {
-        if let Some(description) = describe(node)? {
+    platform.try_for_each_enabled_node(|node, parent, _| {
+        if let Some(description) = describe(node, parent)? {
             select_once(&mut selected, description)?;
         }
         Ok(())

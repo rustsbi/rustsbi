@@ -13,8 +13,8 @@
 
 use runtime::{
     Result,
-    boot::NextStage,
-    hart::{self, HartId, HartState},
+    hart::{self, HartId, HartState, Xlen},
+    memory::{PhysAddr, PhysAddrRange, SupervisorMemory},
     rustsbi::{Hsm, SbiRet},
     timer,
 };
@@ -23,12 +23,16 @@ use sbi_spec::hsm::{hart_state, suspend_type};
 /// SBI HSM extension composed from platform policy and Runtime hart mechanism.
 pub(crate) struct SbiHsm {
     hardware_wakeup: bool,
+    memory: &'static SupervisorMemory,
 }
 
 impl SbiHsm {
     /// Creates an HSM extension with the platform's hardware wakeup capability.
-    pub(crate) fn new(hardware_wakeup: bool) -> Self {
-        Self { hardware_wakeup }
+    pub(crate) fn new(hardware_wakeup: bool, memory: &'static SupervisorMemory) -> Self {
+        Self {
+            hardware_wakeup,
+            memory,
+        }
     }
 
     /// Validates an enabled SBI hart ID against platform privilege policy.
@@ -40,6 +44,23 @@ impl SbiHsm {
         Ok(hart)
     }
 
+    fn check_entry(&self, hart: HartId, address: usize) -> Result<(), SbiRet> {
+        let alignment = super::features::instruction_alignment(hart);
+        if !address.is_multiple_of(alignment)
+            || (address > u32::MAX as usize
+                && super::features::supervisor_xlen(hart) != Some(Xlen::X64))
+        {
+            return Err(SbiRet::invalid_address());
+        }
+        let range = PhysAddrRange::from_start_len(PhysAddr::new(address), alignment)
+            .map_err(|_| SbiRet::invalid_address())?;
+        // The aligned minimum instruction occupies a single four-byte PMP unit.
+        (self.memory.contains_entry(range)
+            && crate::firmware::permits_instruction_fetch(range.start()))
+        .then_some(())
+        .ok_or_else(SbiRet::invalid_address)
+    }
+
     /// Implements the SBI HSM suspend/resume transition.
     fn suspend(&self, suspend_type: u32, resume_addr: usize, opaque: usize) -> SbiRet {
         if !matches!(
@@ -47,6 +68,14 @@ impl SbiHsm {
             suspend_type::RETENTIVE | suspend_type::NON_RETENTIVE
         ) {
             return SbiRet::invalid_param();
+        }
+        if suspend_type == suspend_type::NON_RETENTIVE {
+            let Ok(hart) = HartId::current() else {
+                return SbiRet::failed();
+            };
+            if let Err(error) = self.check_entry(hart, resume_addr) {
+                return error;
+            }
         }
         if hart::suspend_current().is_err() {
             return SbiRet::failed();
@@ -59,23 +88,14 @@ impl SbiHsm {
             };
         }
 
-        let stage = NextStage {
-            start_addr: resume_addr,
-            opaque,
-            next_mode: csr::machine::TargetPrivilege::Supervisor,
-        };
-        let ticket = match hart::begin_nonretentive_resume(stage) {
+        let ticket = match hart::begin_nonretentive_resume(resume_addr, opaque) {
             Ok(ticket) => ticket,
             Err(_) => return SbiRet::failed(),
         };
 
-        // The ticket reserves the current hart before policy state is reset;
-        // a failed wake drops the reservation back to Suspended.
         crate::sbi::pmu::reset_current();
-        match ticket.commit() {
-            Ok(()) => SbiRet::success(0),
-            Err(_) => SbiRet::failed(),
-        }
+        ticket.commit();
+        SbiRet::success(0)
     }
 }
 
@@ -86,12 +106,10 @@ impl Hsm for SbiHsm {
             Ok(hart) => hart,
             Err(error) => return error,
         };
-        let stage = NextStage {
-            start_addr,
-            opaque,
-            next_mode: csr::machine::TargetPrivilege::Supervisor,
-        };
-        match hart::start(hart, stage) {
+        if let Err(error) = self.check_entry(hart, start_addr) {
+            return error;
+        }
+        match hart::start(hart, start_addr, opaque) {
             Ok(hart::StartOutcome::Accepted) => SbiRet::success(0),
             Ok(hart::StartOutcome::AlreadyRunning) => SbiRet::already_available(),
             Err(_) => SbiRet::failed(),

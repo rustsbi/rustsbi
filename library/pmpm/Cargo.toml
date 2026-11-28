@@ -13,6 +13,3 @@ categories = ["os", "embedded", "hardware-support", "no-std"]
 
 [dependencies]
 riscv = { workspace = true }
-
-[dev-dependencies]
-static_assertions = "1.1.0"

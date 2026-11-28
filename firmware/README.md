@@ -64,7 +64,8 @@ The loader must still provide writable destination storage as described below.
 ### Tests and Benchmarks
 
 `cargo prototyper test` and `cargo prototyper bench` use the external
-[`firmware/mbench`](https://github.com/rustsbi/mbench) submodule (`git submodule update --init --recursive`).
+[`firmware/mbench`](https://github.com/rustsbi/mbench) submodule. Run
+`git submodule update --init --remote -- firmware/mbench` to check out the latest commit on its `main` branch.
 Standalone `cargo prototyper build` commands do not require initializing this submodule.
 
 - `cargo prototyper test` builds `mbench-target` in conformance check mode (`mode=check`),

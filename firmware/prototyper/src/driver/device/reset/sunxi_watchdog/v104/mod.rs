@@ -12,9 +12,7 @@
 mod description;
 mod device;
 
-use runtime::{PlatformView, Result};
-
-use crate::devicetree::EnabledNode;
+use runtime::{FdtNode, PlatformView, Result};
 
 use super::super::primary_registers;
 pub(in super::super) use description::Desc;
@@ -25,10 +23,10 @@ const COMPATIBLES: [&str; 2] = ["allwinner,sun20i-d1-wdt", "allwinner,wdt-v104"]
 /// Parses the watchdog registers without acquiring their MMIO region.
 pub(in super::super) fn describe(
     platform: &PlatformView<'_>,
-    discovered: EnabledNode<'_, '_>,
+    node: FdtNode<'_, '_>,
     timebase_frequency_hz: Option<u32>,
 ) -> Result<Option<Desc>> {
-    let Some(compatibles) = discovered.compatible() else {
+    let Some(compatibles) = node.compatible() else {
         return Ok(None);
     };
     if !compatibles
@@ -37,7 +35,7 @@ pub(in super::super) fn describe(
     {
         return Ok(None);
     }
-    let registers = primary_registers(platform, discovered.node())?;
+    let registers = primary_registers(platform, node)?;
     Ok(Some(Desc {
         registers,
         timebase_frequency_hz,

@@ -8,12 +8,12 @@
 use alloc::vec::Vec;
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
+use csr::{Read, standard::isa::privileged::machine::Mhartid};
 
-use csr::machine;
 use spin::Once;
 
 use crate::hart::{HART_TABLE, HartEntry};
-use crate::memory::{PhysAddr, PhysAddrRange, linker_image_bounds};
+use crate::memory::{PhysAddr, PhysAddrRange};
 use crate::trap::entry::FRAME_BYTES;
 use crate::{Error, PlatformDescription, Result};
 
@@ -43,8 +43,29 @@ impl<const SIZE: usize> BootStack<SIZE> {
     }
 }
 
-pub(crate) fn firmware_end() -> Option<usize> {
-    FIRMWARE_END.get().copied()
+/// Returns the linked image range, including secondary hart stacks once initialized.
+pub fn locate_firmware_image() -> Result<PhysAddrRange> {
+    let linked = linked_image_range()?;
+    match FIRMWARE_END.get() {
+        Some(&end) => PhysAddrRange::new(linked.start(), PhysAddr::new(end)),
+        None => Ok(linked),
+    }
+}
+
+/// Returns the image delimited by the linker, excluding any additional hart stacks.
+pub(crate) fn linked_image_range() -> Result<PhysAddrRange> {
+    let (start, end);
+    // SAFETY: LLA computes the two linker-symbol addresses without dereferencing either.
+    unsafe {
+        core::arch::asm!(
+            "lla {start}, sbi_start",
+            "lla {end}, sbi_end",
+            start = out(reg) start,
+            end = out(reg) end,
+            options(nomem, nostack),
+        );
+    }
+    PhysAddrRange::new(PhysAddr::new(start), PhysAddr::new(end))
 }
 
 /// Initializes the shared hart topology and its stacks before policy boot.
@@ -68,7 +89,7 @@ pub(crate) fn firmware_end() -> Option<usize> {
 pub unsafe fn initialize_stacks<const SIZE: usize>(
     boot_stack: &'static BootStack<SIZE>,
     capacity: usize,
-    platform: &PlatformDescription,
+    platform: &mut PlatformDescription,
     next_stage_entry: usize,
     handoff: Option<PhysAddrRange>,
 ) -> Result<()> {
@@ -96,14 +117,15 @@ pub unsafe fn initialize_stacks<const SIZE: usize>(
     {
         return Err(Error::InvalidArgs);
     }
-    let boot_id = machine::HartId::read().into();
+    let boot_id = Mhartid::read().bits();
     let boot_index = entries
         .binary_search_by_key(&boot_id, |entry| entry.raw_id)
         .map_err(|_| Error::InvalidArgs)?;
-    let (image_start, image_end) = linker_image_bounds()?;
+    let linked = linked_image_range()?;
+    let image_end = linked.end().as_usize();
     let boot_start = boot_stack.0.get() as usize;
     let boot_top = boot_start.checked_add(SIZE).ok_or(Error::Overflow)?;
-    if boot_start < image_start
+    if boot_start < linked.start().as_usize()
         || boot_top > image_end
         || !image_end.is_multiple_of(core::mem::align_of::<BootStack<SIZE>>())
     {
@@ -113,20 +135,18 @@ pub unsafe fn initialize_stacks<const SIZE: usize>(
         .checked_mul(SIZE)
         .ok_or(Error::Overflow)?;
     let end = image_end.checked_add(extra_size).ok_or(Error::Overflow)?;
-    let firmware = PhysAddrRange::new(PhysAddr::new(image_start), PhysAddr::new(end))?;
-    let (_, memory) = platform.memory_resources()?;
-    platform.validate_destination(firmware, next_stage_entry, handoff, memory.ram_ranges())?;
+    let firmware = PhysAddrRange::new(linked.start(), PhysAddr::new(end))?;
     if extra_size != 0 {
         let stacks = PhysAddrRange::new(PhysAddr::new(image_end), PhysAddr::new(end))?;
-        let dtb = platform.inspect(|view| Ok(view.storage_range()))?;
+        let dtb = platform.storage_range();
         if stacks.overlaps(dtb)
             || (image_end..end).contains(&next_stage_entry)
             || handoff.is_some_and(|range| stacks.overlaps(range))
         {
             return Err(Error::AccessDenied);
         }
-        memory.validate_firmware_extension(firmware)?;
     }
+    platform.prepare_boot_memory(linked, firmware, next_stage_entry, handoff)?;
     let mut top = image_end;
     for (index, entry) in entries.iter_mut().enumerate() {
         entry.stack_top = if index == boot_index {
@@ -148,9 +168,8 @@ pub unsafe fn initialize_stacks<const SIZE: usize>(
 /// Entry/exit helper only.
 /// The caller must be ready to discard its old call chain.
 /// Cold entry must wait until the bootstrap owner has left Rust.
-#[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
+#[unsafe(naked)]
 pub unsafe extern "C" fn locate_stack() {
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     core::arch::naked_asm!(
         "csrr t1, mhartid",
         "la t0, {table}",
@@ -189,9 +208,4 @@ pub unsafe extern "C" fn locate_stack() {
         table = sym HART_TABLE,
         fail = sym super::fail_stop,
     );
-    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-    {
-        let _ = (&HART_TABLE, super::fail_stop);
-        unimplemented!("Stack selection requires a RISC-V target");
-    }
 }

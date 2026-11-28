@@ -4,6 +4,7 @@
 
 use runtime::{
     Result,
+    instruction::{ALL, fence},
     memory::{MemoryRegistry, MmioRegion},
 };
 
@@ -24,9 +25,9 @@ impl UsbDmaBypass {
     ///
     /// Concurrent calls write the same idempotent value.
     pub(crate) fn enable(&self) -> Result<()> {
-        runtime::instruction::fence();
+        fence(ALL, ALL);
         self.registers.write(0, 1u32)?;
-        runtime::instruction::fence();
+        fence(ALL, ALL);
         Ok(())
     }
 }

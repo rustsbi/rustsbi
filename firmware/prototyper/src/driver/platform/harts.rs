@@ -3,7 +3,7 @@
 use runtime::{Error, PlatformView, Result, hart::HartId, node_is_enabled};
 
 use crate::devicetree::{is_cpu_node, u32_property};
-use crate::sbi::features::{install_extensions, parse_extensions};
+use crate::sbi::features::install_extensions;
 
 /// Reads the timebase and installs hart features.
 pub(super) fn describe(platform: &PlatformView<'_>) -> Result<Option<u32>> {
@@ -19,7 +19,7 @@ pub(super) fn describe(platform: &PlatformView<'_>) -> Result<Option<u32>> {
             continue;
         }
         let hart = HartId::from_raw(hart_id).map_err(|_| Error::InvalidArgs)?;
-        install_extensions(hart, parse_extensions(node));
+        install_extensions(hart, node);
     }
 
     Ok(timebase_frequency_hz)

@@ -1,3 +1,4 @@
 [submodule "firmware/mbench"]
 	path = firmware/mbench
 	url = https://github.com/rustsbi/mbench.git
+	branch = main

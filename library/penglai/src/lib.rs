@@ -8,6 +8,7 @@
 //! or included as a component of Rust-based bare-metal applications or operating systems
 //! to facilitate invoking services provided by the Penglai PMP extension.
 #![no_std]
+#![forbid(unsafe_code)]
 
 pub mod enclave;
 pub mod host;

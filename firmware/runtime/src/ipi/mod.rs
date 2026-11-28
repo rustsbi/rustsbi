@@ -8,14 +8,13 @@ mod mode;
 use crate::{
     Error, Result,
     hart::{HartId, PerHart},
-    irq,
 };
 use alloc::boxed::Box;
 use core::sync::atomic::AtomicUsize;
-pub use csr::aia::imsic::Iid;
 pub use event::IpiEvent;
 use imsic::Imsic;
 pub(crate) use mode::InterruptMode;
+pub use riscv_csr_spec::standard::aia::Iid;
 use spin::Once;
 
 static IPI: Once<Ipi> = Once::new();
@@ -55,19 +54,11 @@ impl Ipi {
     }
 }
 
-/// Configures supervisor state access for the selected IPI delivery mode.
-///
-/// Call after registering the platform IPI, if one exists,
-/// so the selected mode is visible.
-/// AIA state access is enabled only when `smaia` is exposed
-/// and the registered IPI uses machine external interrupts.
-pub fn configure_state_access(smaia: bool) {
-    let enable_aia = smaia
-        && matches!(
-            IPI.get().map(|ipi| &ipi.device),
-            Some(Device::External { .. })
-        );
-    crate::csr::stateen::configure_supervisor(enable_aia);
+pub(crate) fn uses_imsic() -> bool {
+    matches!(
+        IPI.get().map(|ipi| &ipi.device),
+        Some(Device::External { .. })
+    )
 }
 
 /// Registers the platform's single firmware IPI object.
@@ -127,6 +118,6 @@ pub trait IpiDevice<M: InterruptMode>: Acknowledge<M> + Send + Sync {
 
 impl<T: IpiDevice<External> + ?Sized> Acknowledge<External> for T {
     fn acknowledge(&self, imsic: &Imsic) -> Result<bool> {
-        irq::with_local_disabled(|irq| Ok(imsic.claim(irq)))
+        crate::irq::with_local_disabled(|irq| Ok(imsic.claim(irq)))
     }
 }

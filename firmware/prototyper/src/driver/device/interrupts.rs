@@ -1,9 +1,9 @@
 //! Timer, IPI, and interrupt-controller resources from the device tree.
 
-use runtime::{Error, PlatformView, Result, memory::RegRange};
+use runtime::{Error, FdtNode, PlatformView, Result, memory::RegRange};
 
 use super::{aclint, clint, imsic, mswi, mtimer, plicsw, plmt, select_once, thead_plic};
-use crate::devicetree::{EnabledNode, NodeSelection, try_for_each_enabled_node};
+use crate::devicetree::NodeSelection;
 
 /// Timer resources retained until platform initialization.
 #[derive(Default)]
@@ -41,22 +41,21 @@ pub(crate) struct Selection {
 /// Parses enabled nodes in device-tree order before initializing any device.
 pub(crate) fn describe(platform: &PlatformView<'_>) -> Result<Selection> {
     let mut selected = Selection::default();
-    try_for_each_enabled_node(platform, |node, path| {
+    platform.try_for_each_enabled_node(|node, _, path| {
         describe_node(&mut selected, platform, node, path)
     })?;
     Ok(selected)
 }
 
-fn describe_node<'view, 'tree>(
+fn describe_node<'tree>(
     selected: &mut Selection,
-    platform: &'view PlatformView<'tree>,
-    discovered: EnabledNode<'view, 'tree>,
+    platform: &PlatformView<'tree>,
+    node: FdtNode<'_, 'tree>,
     source_path: &[&str],
 ) -> Result<()> {
-    let Some(compatibles) = discovered.compatible() else {
+    let Some(compatibles) = node.compatible() else {
         return Ok(());
     };
-    let node = discovered.node();
     for compatible in compatibles.all() {
         match compatible {
             plmt::COMPATIBLE => {

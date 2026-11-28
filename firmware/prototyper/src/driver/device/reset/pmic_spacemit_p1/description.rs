@@ -7,7 +7,7 @@ use super::controller;
 pub(super) struct I2cAddress(u8);
 
 impl I2cAddress {
-    pub(super) fn new(address: usize) -> Option<Self> {
+    pub(super) fn new(address: u32) -> Option<Self> {
         u8::try_from(address)
             .ok()
             .filter(|address| *address < 1 << 7)

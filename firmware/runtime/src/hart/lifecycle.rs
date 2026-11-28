@@ -6,6 +6,7 @@ use alloc::boxed::Box;
 use core::cell::UnsafeCell;
 use core::hint::spin_loop;
 use core::sync::atomic::{AtomicU8, Ordering};
+use csr::standard::isa::values::status::Privilege;
 
 use super::HartId;
 use crate::boot::NextStage;
@@ -61,7 +62,7 @@ pub enum HartState {
 
 /// Work observed by the machine software/external interrupt transport.
 pub(crate) enum HartEvent {
-    /// A staged lower-privilege execution stage.
+    /// A loader handoff or a supervisor hart start.
     Start(NextStage),
     /// A request to park the current hart until another start arrives.
     Park,
@@ -84,7 +85,17 @@ pub(crate) enum ControlTransfer {
 }
 
 /// Stages the initial boot handoff for the current hart.
-pub fn stage_boot_handoff(stage: NextStage) -> Result<()> {
+///
+/// # Safety
+///
+/// Run on the boot hart before its initial handoff. The boot loader must
+/// authorize execution at `start_addr` in `next_mode`.
+/// An M-mode payload must uphold the firmware's live Rust memory invariants.
+pub unsafe fn stage_boot_handoff(
+    next_mode: Privilege,
+    start_addr: usize,
+    opaque: usize,
+) -> Result<()> {
     let hart = current_hart();
     let cell = cell(hart);
     if cell
@@ -100,13 +111,22 @@ pub fn stage_boot_handoff(stage: NextStage) -> Result<()> {
         return Err(Error::Busy);
     }
     // SAFETY: STARTING reserves the slot for this hart's boot path.
-    unsafe { *cell.stage.get() = Some(stage) };
+    unsafe {
+        *cell.stage.get() = Some(NextStage {
+            start_addr,
+            opaque,
+            next_mode,
+        })
+    };
     cell.state.store(STATE_START_PENDING, Ordering::Release);
     Ok(())
 }
 
-/// Reserves and wakes a stopped hart, publishing its stage only after wake.
-pub fn start(hart: HartId, stage: NextStage) -> Result<StartOutcome> {
+/// Requests that a stopped hart enter S-mode with its hart ID and `opaque` in a0 and a1.
+///
+/// [`StartOutcome::Accepted`] means the entry has been published.
+/// The target hart may still be waiting to consume it.
+pub fn start(hart: HartId, start_addr: usize, opaque: usize) -> Result<StartOutcome> {
     let cell = cell(hart);
     if cell
         .state
@@ -125,7 +145,7 @@ pub fn start(hart: HartId, stage: NextStage) -> Result<StartOutcome> {
         return Err(error);
     }
     // SAFETY: STARTING reserves the slot until the Release publication.
-    unsafe { *cell.stage.get() = Some(stage) };
+    unsafe { *cell.stage.get() = Some(NextStage::supervisor(start_addr, opaque)) };
     cell.state.store(STATE_START_PENDING, Ordering::Release);
     Ok(StartOutcome::Accepted)
 }
@@ -211,7 +231,7 @@ pub fn stop_current() -> Result<core::convert::Infallible> {
 ///
 /// Returns [`Error::IoError`] if the firmware IPI device is unavailable.
 pub fn suspend_current() -> Result<()> {
-    irq::with_local_disabled(|irq| {
+    irq::with_local_disabled(|irq| -> Result<()> {
         let ipi = ipi::get().ok_or(Error::IoError)?;
         ipi.acknowledge(irq)?;
         ipi.process_pending(irq);
@@ -243,10 +263,9 @@ pub fn resume_current_retentive() -> Result<()> {
     Ok(())
 }
 
-/// Reserves a non-retentive resume without exposing the cell itself.
-pub fn begin_nonretentive_resume(stage: NextStage) -> Result<ResumeTicket> {
-    let hart = current_hart();
-    let cell = cell(hart);
+/// Reserves an S-mode resume at `resume_addr` with the hart ID and `opaque` in a0 and a1.
+pub fn begin_nonretentive_resume(resume_addr: usize, opaque: usize) -> Result<ResumeTicket> {
+    let cell = cell(current_hart());
     if cell
         .state
         .compare_exchange(
@@ -260,9 +279,8 @@ pub fn begin_nonretentive_resume(stage: NextStage) -> Result<ResumeTicket> {
         return Err(Error::InvalidState);
     }
     Ok(ResumeTicket {
-        hart,
         cell,
-        stage,
+        stage: NextStage::supervisor(resume_addr, opaque),
         committed: false,
         _local: core::marker::PhantomData,
     })
@@ -270,7 +288,6 @@ pub fn begin_nonretentive_resume(stage: NextStage) -> Result<ResumeTicket> {
 
 /// A non-retentive resume reservation.
 pub struct ResumeTicket {
-    hart: HartId,
     cell: &'static HartStateCell,
     stage: NextStage,
     committed: bool,
@@ -279,11 +296,8 @@ pub struct ResumeTicket {
 }
 
 impl ResumeTicket {
-    /// Wakes the hart and publishes its lower-privilege handoff.
-    pub fn commit(mut self) -> Result<()> {
-        ipi::get()
-            .ok_or(Error::IoError)?
-            .send_hardware_ipi(self.hart)?;
+    /// Publishes the resume entry for this hart's return from the suspend ecall.
+    pub fn commit(mut self) {
         // SAFETY:
         // 1. The ticket owns the cell while it is resume-pending.
         // 2. The same hart's ecall return path consumes the marker.
@@ -292,7 +306,6 @@ impl ResumeTicket {
         }
         self.cell.state.store(STATE_STARTED, Ordering::Release);
         self.committed = true;
-        Ok(())
     }
 }
 

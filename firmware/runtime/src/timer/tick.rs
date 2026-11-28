@@ -1,10 +1,10 @@
-//! Selection and reading of the platform time counter.
+//! Selection of this hart's time CSR or the platform timer device.
 
-use crate::{Error, Result, boot, hart::Detect, irq};
-use csr::{machine as registers, user};
+use super::TimerDevice;
+use crate::{Error, Result, irq};
+use csr::{Read, standard::isa::unprivileged::Time};
 use spin::Once;
 
-/// The counter source used by the platform timer.
 pub(super) enum Tick {
     /// The architectural `time` CSR.
     Csr,
@@ -13,43 +13,29 @@ pub(super) enum Tick {
 }
 
 impl Tick {
-    pub(super) fn detect() -> Result<Self> {
+    pub(super) fn get(slot: &Once<Self>) -> Result<&Self> {
+        if let Some(tick) = slot.get() {
+            return Ok(tick);
+        }
         irq::with_local_disabled(|_| {
-            if !boot::traps_ready() || usize::from(registers::Scratch::read()) != 0 {
-                return Err(Error::NotReady);
-            }
-            // SAFETY: Runtime trap entry is installed, local interrupts are
-            // excluded, and `mscratch` is zero, so an absent `time` CSR is
-            // recovered.
-            let present = unsafe { user::Time::detect() }.is_ok();
-            #[cfg(target_pointer_width = "32")]
-            // SAFETY: The same probe conditions apply: Runtime trap entry is
-            // installed, local interrupts are excluded, and `mscratch` is zero,
-            // so an absent `timeh` CSR is recovered.
-            let present = present && unsafe { user::TimeHigh::detect() }.is_ok();
-            Ok(if present { Self::Csr } else { Self::Device })
+            slot.try_call_once(|| {
+                if !crate::recovery::is_ready() {
+                    return Err(Error::NotReady);
+                }
+                // SAFETY: Recovery is ready and local interrupts cannot reenter this probe.
+                let present = unsafe { Time::try_read() }.is_ok();
+                Ok(if present { Self::Csr } else { Self::Device })
+            })
         })
     }
 
-    fn read(&self) -> Result<Option<u64>> {
+    pub(super) fn read(&self, device: Option<&dyn TimerDevice>) -> Result<Option<u64>> {
         match self {
-            Self::Csr => Ok(Some(user::Time::read64())),
-            Self::Device => match &super::TIMER.get().ok_or(Error::NotReady)?.device {
+            Self::Csr => Ok(Some(Time::read())),
+            Self::Device => match device {
                 Some(device) => device.read_time(),
                 None => Ok(None),
             },
         }
     }
-}
-
-static TICK: Once<Tick> = Once::new();
-
-/// Publishes the source selected during timer initialization.
-pub(super) fn init(tick: Tick) {
-    TICK.call_once(|| tick);
-}
-
-/// Reads the selected counter if it is available.
-pub(super) fn now() -> Result<Option<u64>> {
-    TICK.get().ok_or(Error::NotReady)?.read()
 }

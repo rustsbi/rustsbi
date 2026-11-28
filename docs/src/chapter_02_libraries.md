@@ -23,7 +23,7 @@ RustSBI 核心库采用分层设计，将核心功能与机器态实现解耦，
 
     - `sbi-spec`：定义 SBI 扩展编号（EID）、函数编号（FID）及标准数据类型。
     - `riscv-cove`：定义机密虚拟机扩展（CoVE）的接口常量与数据结构。
-    - `riscv-aia`：提供高级中断架构（AIA）的寄存器与中断类型定义，以及底层访问接口。
+    - `riscv-csr-spec` 定义 RISC-V 标准和厂商 CSR 的编号、字段及取值。
     - `penglai`：定义蓬莱 PMP 扩展的 SBI 接口常量与数据结构。
     - `rpmi`：定义 RISC-V 平台管理接口（RPMI）的协议常量与数据类型。
 

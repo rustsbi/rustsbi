@@ -5,7 +5,6 @@
 
 #![forbid(unsafe_code)]
 
-use core::mem::{align_of, size_of};
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use runtime::{
@@ -18,7 +17,6 @@ use sbi_spec::binary::{SharedPtr, TriggerMask};
 use spin::Once;
 
 const TRIGGER_ENTRY_WORDS: usize = 4;
-const TRIGGER_ENTRY_BYTES: usize = TRIGGER_ENTRY_WORDS * size_of::<usize>();
 const SHMEM_DISABLED: usize = usize::MAX;
 
 /// SBI DBTR implementation for harts with the RISC-V Sdtrig interface.
@@ -72,15 +70,13 @@ impl Dbtr for SbiDbtr {
             return SbiRet::success(0);
         }
 
-        // The DBTR shared-memory base address is passed as two XLEN halves and
-        // may be wider than XLEN bits. The alignment is decided by the lower
-        // XLEN bits, which `start` holds.
-        if !start.is_aligned_to(align_of::<usize>()) {
+        let Some(xlen) = super::features::supervisor_xlen(hart) else {
+            return SbiRet::failed();
+        };
+        let word_bytes = xlen.bytes();
+        if !start.is_aligned_to(word_bytes) {
             return SbiRet::invalid_param();
         }
-        // An address above the native physical-address space cannot compose a
-        // registered supervisor-memory range, so it is inaccessible rather
-        // than an invalid parameter.
         if address_high != 0 {
             return SbiRet::invalid_address();
         }
@@ -92,9 +88,9 @@ impl Dbtr for SbiDbtr {
         let shared_memory_size = if trigger_count == 0 {
             // Still require at least one accessible word at `start` so invalid or M-mode
             // addresses are rejected even when no hardware triggers are exposed.
-            align_of::<usize>()
+            word_bytes
         } else {
-            let Some(size) = trigger_count.checked_mul(TRIGGER_ENTRY_BYTES) else {
+            let Some(size) = trigger_count.checked_mul(TRIGGER_ENTRY_WORDS * word_bytes) else {
                 return SbiRet::invalid_address();
             };
             size
@@ -131,7 +127,10 @@ impl Dbtr for SbiDbtr {
             return SbiRet::bad_range();
         }
 
-        let Some(total_size) = trig_count.checked_mul(TRIGGER_ENTRY_BYTES) else {
+        let Some(xlen) = super::features::supervisor_xlen(hart) else {
+            return SbiRet::failed();
+        };
+        let Some(total_size) = trig_count.checked_mul(TRIGGER_ENTRY_WORDS * xlen.bytes()) else {
             return SbiRet::invalid_address();
         };
 

@@ -78,7 +78,7 @@ pub struct SbiDispatcher {
 /// Publishes the SBI services after their Runtime devices are initialized.
 pub(crate) fn init(
     supervisor_memory: &'static SupervisorMemory,
-    vendor: Option<vendor::Vendor>,
+    vendor: Option<vendor::VendorDevices>,
     pmu: Option<SbiPmu>,
     hardware_wakeup: bool,
 ) -> Result<()> {
@@ -87,7 +87,7 @@ pub(crate) fn init(
 
     let console = runtime_console::get().map(|_| SbiConsole::new(supervisor_memory));
     let ipi_available = ipi.is_some();
-    let hsm = ipi_available.then(|| SbiHsm::new(hardware_wakeup));
+    let hsm = ipi_available.then(|| SbiHsm::new(hardware_wakeup, supervisor_memory));
     let dispatcher: &'static SbiDispatcher = Box::leak(Box::new(SbiDispatcher {
         console,
         cppc: Some(SbiCppc::new()),
@@ -102,7 +102,7 @@ pub(crate) fn init(
         pmu,
         sta: Some(SbiSta::new(supervisor_memory)),
         mpxy: Some(SbiMpxy::new(supervisor_memory)?),
-        vendor,
+        vendor: vendor.map(|devices| devices.into_extensions(supervisor_memory)),
     }));
     dispatcher.publish()
 }

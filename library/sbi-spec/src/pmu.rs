@@ -280,3 +280,126 @@ pub mod flags {
     #[deprecated(note = "use `StopFlags` instead")]
     pub type CounterStopFlags = StopFlags;
 }
+
+/// Counter information returned by [`COUNTER_GET_INFO`].
+///
+/// The counter index is supplied to the SBI call. In its XLEN-bit result,
+/// the top bit distinguishes firmware counters from hardware counters.
+/// For hardware counters, bits 11:0 give the CSR number and bits 17:12 give the width minus one.
+/// Consumers ignore both fields for firmware counters, so distinct firmware
+/// counters can return the same [counter information](https://github.com/riscv-non-isa/riscv-sbi-doc/blob/v3.0/src/ext-pmu.adoc#L275-L297).
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CounterInfo(u32);
+
+impl CounterInfo {
+    const FIRMWARE: u32 = 1 << 31;
+
+    /// Describes a hardware counter with CSR number `csr` and bit width `width`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `csr` exceeds 12 bits or `width` is outside `1..=64`.
+    #[inline]
+    pub const fn hardware(csr: u16, width: u8) -> Self {
+        assert!(csr <= 0xfff);
+        assert!(width >= 1 && width <= 64);
+        Self(csr as u32 | (((width - 1) as u32) << 12))
+    }
+
+    /// Describes a firmware counter selected by the caller's counter index.
+    #[inline]
+    pub const fn firmware() -> Self {
+        Self(Self::FIRMWARE)
+    }
+
+    /// Returns whether the selected counter is a firmware counter.
+    #[inline]
+    pub const fn is_firmware(self) -> bool {
+        self.0 & Self::FIRMWARE != 0
+    }
+
+    /// Encodes the return value with the type bit at bit 31, including when
+    /// 64-bit firmware serves a 32-bit supervisor.
+    #[inline]
+    pub const fn bits32(self) -> u32 {
+        self.0
+    }
+
+    /// Encodes the return value for a supervisor with the native XLEN.
+    #[inline]
+    pub const fn bits(self) -> usize {
+        if self.is_firmware() {
+            1 << (usize::BITS - 1)
+        } else {
+            self.0 as usize
+        }
+    }
+}
+
+/// An SBI PMU event identifier (`event_idx`).
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventIdx(usize);
+
+impl EventIdx {
+    const TYPE_SHIFT: usize = 16;
+    const TYPE_MASK: usize = 0xf;
+
+    /// Retains all argument bits, including those above the 20-bit event identifier.
+    #[inline]
+    pub const fn from_bits(bits: usize) -> Self {
+        Self(bits)
+    }
+
+    /// Constructs an identifier of type [`event_type::FIRMWARE`].
+    #[inline]
+    pub const fn firmware(code: u16) -> Self {
+        Self((event_type::FIRMWARE << Self::TYPE_SHIFT) | code as usize)
+    }
+
+    /// Returns the raw `usize` representation.
+    #[inline]
+    pub const fn bits(self) -> usize {
+        self.0
+    }
+
+    /// Returns the event type in bits 19:16.
+    #[inline]
+    pub const fn event_type(self) -> usize {
+        (self.0 >> Self::TYPE_SHIFT) & Self::TYPE_MASK
+    }
+
+    /// Returns the event code in bits 15:0.
+    #[inline]
+    pub const fn event_code(self) -> u16 {
+        self.0 as u16
+    }
+
+    /// Returns the cache ID in bits 15:3 of a [`HARDWARE_CACHE`](event_type::HARDWARE_CACHE) event.
+    #[inline]
+    pub const fn cache_id(self) -> usize {
+        (self.0 >> 3) & 0x1fff
+    }
+
+    /// Returns the operation ID in bits 2:1 of a [`HARDWARE_CACHE`](event_type::HARDWARE_CACHE) event.
+    #[inline]
+    pub const fn cache_op_id(self) -> usize {
+        (self.0 >> 1) & 0x3
+    }
+
+    /// Returns whether this event is a raw hardware event (v1 or v2).
+    #[inline]
+    pub const fn is_raw(self) -> bool {
+        matches!(
+            self.event_type(),
+            event_type::HARDWARE_RAW | event_type::HARDWARE_RAW_V2
+        )
+    }
+
+    /// Returns whether this event has type [`event_type::FIRMWARE`].
+    #[inline]
+    pub const fn is_firmware(self) -> bool {
+        self.event_type() == event_type::FIRMWARE
+    }
+}

@@ -6,6 +6,7 @@ use core::{
 };
 use runtime::{
     Error, Result,
+    instruction::{ALL, fence},
     memory::{MemoryRegistry, MmioRegion},
 };
 
@@ -62,11 +63,11 @@ impl V105Watchdog {
     }
 
     fn start_reset(&mut self) -> Result<()> {
-        runtime::instruction::fence();
+        fence(ALL, ALL);
         if let Some(gate) = &self.reset_gate {
             let value = u32::from_le(gate.read::<u32>(0)?) | RESET_GATE_ENABLE;
             gate.write(0, value.to_le())?;
-            runtime::instruction::fence();
+            fence(ALL, ALL);
         }
 
         // Stop the watchdog before issuing the software reset.
@@ -75,14 +76,14 @@ impl V105Watchdog {
         let stopped = (mode & MODE_WRITABLE_BITS) | UPDATE_KEY;
         self.registers
             .write(Register::Mode as usize, stopped.to_le())?;
-        runtime::instruction::fence();
+        fence(ALL, ALL);
 
         // V105 has a dedicated immediate reset command; no timer is required.
         self.registers.write(
             Register::SoftwareReset as usize,
             (UPDATE_KEY | SOFTWARE_RESET_TRIGGER).to_le(),
         )?;
-        runtime::instruction::fence();
+        fence(ALL, ALL);
         Ok(())
     }
 }

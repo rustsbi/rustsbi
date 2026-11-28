@@ -21,52 +21,7 @@ pub const GET_FAST_CHANNEL_OFFSET: u8 = 0x06;
 pub const GET_HART_LIST: u8 = 0x07;
 
 /// Abstract register IDs shared with the SBI CPPC extension.
-pub mod register {
-    /// Highest performance.
-    pub const HIGHEST_PERFORMANCE: u32 = 0x00;
-    /// Nominal performance.
-    pub const NOMINAL_PERFORMANCE: u32 = 0x01;
-    /// Lowest nonlinear performance.
-    pub const LOW_NONLINEAR_PERFORMANCE: u32 = 0x02;
-    /// Lowest performance.
-    pub const LOWEST_PERFORMANCE: u32 = 0x03;
-    /// Guaranteed performance.
-    pub const GUARANTEED_PERFORMANCE: u32 = 0x04;
-    /// Desired performance.
-    pub const DESIRED_PERFORMANCE: u32 = 0x05;
-    /// Minimum performance.
-    pub const MIN_PERFORMANCE: u32 = 0x06;
-    /// Maximum performance.
-    pub const MAX_PERFORMANCE: u32 = 0x07;
-    /// Performance-reduction tolerance.
-    pub const PERFORMANCE_REDUCTION_TOLERANCE: u32 = 0x08;
-    /// Performance time window.
-    pub const TIME_WINDOW: u32 = 0x09;
-    /// Counter wraparound time.
-    pub const COUNTER_WRAP_TIME: u32 = 0x0a;
-    /// Reference performance counter.
-    pub const REFERENCE_COUNTER: u32 = 0x0b;
-    /// Delivered performance counter.
-    pub const DELIVERED_COUNTER: u32 = 0x0c;
-    /// Performance-limited indicator.
-    pub const PERFORMANCE_LIMITED: u32 = 0x0d;
-    /// CPPC enable control.
-    pub const ENABLE: u32 = 0x0e;
-    /// Autonomous selection enable control.
-    pub const AUTONOMOUS_SELECTION_ENABLE: u32 = 0x0f;
-    /// Autonomous activity window.
-    pub const AUTONOMOUS_ACTIVITY_WINDOW: u32 = 0x10;
-    /// Energy-performance preference.
-    pub const ENERGY_PERFORMANCE_PREFERENCE: u32 = 0x11;
-    /// Reference performance.
-    pub const REFERENCE_PERFORMANCE: u32 = 0x12;
-    /// Lowest frequency.
-    pub const LOWEST_FREQUENCY: u32 = 0x13;
-    /// Nominal frequency.
-    pub const NOMINAL_FREQUENCY: u32 = 0x14;
-    /// Transition latency.
-    pub const TRANSITION_LATENCY: u32 = 0x8000_0000;
-}
+pub use sbi_spec::cppc::register;
 
 /// CPPC fast-channel layout and attribute constants.
 ///

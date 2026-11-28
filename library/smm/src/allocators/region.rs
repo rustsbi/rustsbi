@@ -59,14 +59,18 @@ impl<const MAX_LIVE_ALLOCATIONS: usize> RegionAllocator<MAX_LIVE_ALLOCATIONS> {
         Err(())
     }
 
-    pub(super) fn free(&mut self, start_addr: usize, layout: Layout) -> Result<(), ()> {
-        let end_addr = start_addr.checked_add(layout.size().max(1)).ok_or(())?;
+    pub(super) fn live_allocation(&self, start_addr: usize, len: usize) -> Option<usize> {
+        let end_addr = start_addr.checked_add(len)?;
         let index = self.allocations[..self.allocation_count]
             .binary_search_by_key(&start_addr, |range| range.start)
-            .map_err(|_| ())?;
-        if self.allocations[index].end != end_addr {
-            return Err(());
-        }
+            .ok()?;
+        (self.allocations[index].end == end_addr).then_some(index)
+    }
+
+    pub(super) fn free(&mut self, start_addr: usize, layout: Layout) -> Result<(), ()> {
+        let index = self
+            .live_allocation(start_addr, layout.size().max(1))
+            .ok_or(())?;
         for record in index..self.allocation_count - 1 {
             self.allocations[record] = self.allocations[record + 1].clone();
         }

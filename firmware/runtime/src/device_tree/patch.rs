@@ -47,10 +47,12 @@ mod writer;
 use format::Layout;
 use plan::EditPlan;
 
-/// Validates the complete DTB before Runtime retains its address.
-pub(super) fn validate(source: &[u8]) -> Result<()> {
+/// Validates the DTB and creates a parser view only if its structure contains NOPs.
+pub(super) fn parser_copy_if_needed(source: &[u8]) -> Result<Option<Vec<u8>>> {
     let layout = Layout::parse(source)?;
-    plan::validate_structure(layout.structure, layout.strings)
+    plan::validate_structure(layout.structure, layout.strings)?
+        .map(|structure| writer::rebuild(&layout, &structure, layout.strings))
+        .transpose()
 }
 
 /// Records the destination capacity in a prepared DTB without resizing it.

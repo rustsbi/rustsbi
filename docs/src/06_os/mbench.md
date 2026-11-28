@@ -13,19 +13,27 @@
 
 ### 获取源码与初始化子模块
 
-克隆 RustSBI 并初始化 `firmware/mbench` 子模块：
+首次获取 RustSBI 时，运行：
 
 ```shell
 mkdir workshop && cd workshop
-git clone --recursive -b main https://github.com/rustsbi/rustsbi.git
+git clone -b main https://github.com/rustsbi/rustsbi.git
 cd rustsbi
 ```
 
-若已克隆主仓库但尚未拉取子模块，可执行：
+在 RustSBI 仓库根目录执行以下命令，首次检出或更新到 mbench 的最新 `main`：
 
 ```shell
-cd rustsbi
-git submodule update --init --recursive
+git submodule update --init --remote -- firmware/mbench
+```
+
+省略 `--remote` 可以检出当前 RustSBI 提交记录的 mbench 版本。
+
+自动 CI 在「Resolve mbench/main」中检出一次上游 `main`。同一轮 QEMU、Docker 和 Miralis 测试共用这次检出的提交。单独手动运行 Docker 或 Miralis 时，工作流会在「Checkout mbench」中检出当时的 `main`。要在本地复现，把检出步骤日志中的完整 SHA 赋给 `MBENCH_SHA`，并在对应的 RustSBI 版本下运行以下命令。
+
+```shell
+git -C firmware/mbench fetch origin "$MBENCH_SHA"
+git -C firmware/mbench switch --detach FETCH_HEAD
 ```
 
 ### 在仓库根目录运行与构建

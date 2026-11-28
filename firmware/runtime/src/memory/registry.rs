@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 
-use super::{MmioRegion, PhysAddrRange, RegRange, SupervisorMemory, image::locate_firmware_image};
+use super::{MmioRegion, PhysAddr, PhysAddrRange, RegRange, SupervisorMemory};
 use crate::{Error, Result};
 
 /// Tracks the physical resources issued by Runtime.
@@ -18,30 +18,27 @@ pub struct MemoryRegistry {
 }
 
 impl MemoryRegistry {
-    pub(crate) fn from_ranges(
-        ram: impl IntoIterator<Item = PhysAddrRange>,
-        reserved: impl IntoIterator<Item = PhysAddrRange>,
-    ) -> Result<(SupervisorMemory, Self)> {
-        Self::from_ranges_with_firmware(locate_firmware_image()?, ram, reserved)
-    }
-
-    fn from_ranges_with_firmware(
+    pub(crate) fn new(
         firmware_image_range: PhysAddrRange,
         ram: impl IntoIterator<Item = PhysAddrRange>,
         reserved: impl IntoIterator<Item = PhysAddrRange>,
-    ) -> Result<(SupervisorMemory, Self)> {
+    ) -> Result<Self> {
         let ram_ranges = normalize_ram_ranges(ram)?;
         let reserved_ranges: Vec<_> = reserved.into_iter().collect();
         validate_memory_ranges(&ram_ranges, &reserved_ranges)?;
 
-        let registry = Self {
+        if !ram_ranges
+            .iter()
+            .any(|ram| ram.contains(firmware_image_range))
+        {
+            return Err(Error::InvalidArgs);
+        }
+        Ok(Self {
             firmware_image_range,
             ram_ranges,
             reserved_ranges,
             acquired_mmio: Vec::new(),
-        };
-        let supervisor = registry.derive_supervisor_memory()?;
-        Ok((supervisor, registry))
+        })
     }
 
     /// Returns the physical range occupied by this firmware image.
@@ -63,7 +60,8 @@ impl MemoryRegistry {
         self.ram_ranges.iter().copied()
     }
 
-    pub(crate) fn validate_firmware_extension(&self, firmware: PhysAddrRange) -> Result<()> {
+    pub(crate) fn extend_firmware_to(&mut self, end: PhysAddr) -> Result<()> {
+        let firmware = PhysAddrRange::new(self.firmware_image_range.start(), end)?;
         if !self.ram_ranges.iter().any(|ram| ram.contains(firmware)) {
             return Err(Error::NotEnoughResources);
         }
@@ -75,6 +73,7 @@ impl MemoryRegistry {
         {
             return Err(Error::AccessDenied);
         }
+        self.firmware_image_range = firmware;
         Ok(())
     }
 
@@ -103,16 +102,7 @@ impl MemoryRegistry {
         Ok(MmioRegion::new(range))
     }
 
-    fn derive_supervisor_memory(&self) -> Result<SupervisorMemory> {
-        if !self
-            .ram_ranges
-            .iter()
-            .copied()
-            .any(|ram| ram.contains(self.firmware_image_range))
-        {
-            return Err(Error::InvalidArgs);
-        }
-
+    pub(crate) fn supervisor_memory(&self, rom: Vec<PhysAddrRange>) -> Result<SupervisorMemory> {
         let mut excluded = self.reserved_ranges.clone();
         excluded.push(self.firmware_image_range);
 
@@ -125,7 +115,11 @@ impl MemoryRegistry {
         if accessible.is_empty() {
             Err(Error::NotEnoughResources)
         } else {
-            Ok(SupervisorMemory::new(accessible))
+            let rom = rom
+                .into_iter()
+                .flat_map(|range| range.excluding(&excluded))
+                .collect();
+            Ok(SupervisorMemory::new(accessible, rom))
         }
     }
 }
@@ -190,12 +184,9 @@ mod tests {
             (range(0x1300, 0x200), false),
             (range(0x1400, 0x100), false),
         ] {
-            let (_, registry) = MemoryRegistry::from_ranges_with_firmware(
-                range(0x1200, 0x200),
-                [range(0x1000, 0x1000)],
-                [reserved],
-            )
-            .unwrap();
+            let registry =
+                MemoryRegistry::new(range(0x1200, 0x200), [range(0x1000, 0x1000)], [reserved])
+                    .unwrap();
             assert_eq!(registry.firmware_is_reserved(), expected);
         }
     }
@@ -215,21 +206,14 @@ mod tests {
             ),
             (&[extended][..], Ok(())),
         ] {
-            let (_, registry) = MemoryRegistry::from_ranges_with_firmware(
-                firmware,
-                [range(0x1000, 0x1000)],
-                reserved.iter().copied(),
-            )
-            .unwrap();
-            assert_eq!(registry.validate_firmware_extension(extended), expected);
-
-            let (_, registry) = MemoryRegistry::from_ranges_with_firmware(
-                extended,
-                [range(0x1000, 0x1000)],
-                reserved.iter().copied(),
-            )
-            .unwrap();
-            assert_eq!(registry.firmware_is_reserved(), expected.is_ok());
+            let mut registry =
+                MemoryRegistry::new(firmware, [range(0x1000, 0x1000)], reserved.iter().copied())
+                    .unwrap();
+            assert_eq!(registry.extend_firmware_to(extended.end()), expected);
+            assert_eq!(
+                registry.firmware_image_range(),
+                if expected.is_ok() { extended } else { firmware }
+            );
         }
     }
 
@@ -237,13 +221,14 @@ mod tests {
     fn supervisor_memory_excludes_firmware_and_reserved_ranges() {
         let firmware = range(0x1200, 0x200);
         let reserved = range(0x1780, 0x100);
-        let (memory, registry) = MemoryRegistry::from_ranges_with_firmware(
+        let registry = MemoryRegistry::new(
             firmware,
             [range(0x1800, 0x800), range(0x1000, 0x800)],
             [reserved],
         )
         .unwrap();
 
+        let memory = registry.supervisor_memory(Vec::new()).unwrap();
         assert_eq!(registry.firmware_image_range(), firmware);
         assert_eq!(memory.check_range(range(0x1000, 0x200)), Ok(()));
         assert_eq!(memory.check_range(firmware), Err(Error::InvalidArgs));
@@ -258,7 +243,7 @@ mod tests {
     #[test]
     fn registration_rejects_conflicting_or_uncontained_ranges() {
         assert!(matches!(
-            MemoryRegistry::from_ranges_with_firmware(
+            MemoryRegistry::new(
                 range(0x1000, 0x100),
                 [range(0x1000, 0x800), range(0x1400, 0x800)],
                 core::iter::empty(),
@@ -266,7 +251,7 @@ mod tests {
             Err(Error::InvalidArgs)
         ));
         assert!(matches!(
-            MemoryRegistry::from_ranges_with_firmware(
+            MemoryRegistry::new(
                 range(0x3000, 0x100),
                 [range(0x1000, 0x1000)],
                 core::iter::empty(),
@@ -274,7 +259,7 @@ mod tests {
             Err(Error::InvalidArgs)
         ));
         assert!(matches!(
-            MemoryRegistry::from_ranges_with_firmware(
+            MemoryRegistry::new(
                 range(0x1000, 0x100),
                 [range(0x1000, 0x1000)],
                 [range(0x1f00, 0x200)],
@@ -285,7 +270,7 @@ mod tests {
 
     #[test]
     fn mmio_windows_are_disjoint_from_memory_and_each_other() {
-        let (_, mut registry) = MemoryRegistry::from_ranges_with_firmware(
+        let mut registry = MemoryRegistry::new(
             range(0x1200, 0x100),
             [range(0x1000, 0x1000)],
             [range(0x3080, 0x10)],

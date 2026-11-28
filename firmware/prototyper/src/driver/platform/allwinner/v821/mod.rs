@@ -8,39 +8,37 @@ pub(crate) mod usb_dma_bypass;
 
 use runtime::{
     PlatformView, Result,
-    memory::{MemoryRegistry, SupervisorMemory},
-    soc::allwinner::v821::AllwinnerV821Soc,
+    memory::MemoryRegistry,
+    soc::allwinner::v821::{A27L2CacheControl, AllwinnerV821Soc},
 };
 
 use crate::{
-    driver::platform::{Board, interrupts::TimerDesc},
-    sbi::{pmu::SbiPmu, vendor::Vendor},
+    driver::platform::{Board, TimerDesc},
+    firmware::BootHart,
+    sbi::{pmu::SbiPmu, vendor::VendorDevices},
 };
 
-impl Board for AllwinnerV821Soc {
+pub(crate) struct V821Board {
+    pub(crate) boot: BootHart<AllwinnerV821Soc>,
+    pub(crate) cache: A27L2CacheControl,
+}
+
+impl Board for V821Board {
     fn early_init(
-        &self,
+        &mut self,
         memory: &mut MemoryRegistry,
         timer: Option<&TimerDesc>,
     ) -> Result<Option<u64>> {
-        let alias = control::early_init(*self, memory)?;
-        if matches!(timer, Some(TimerDesc::Plmt(_))) {
-            const PLMT_CLOCK_ENABLE: u32 = 1 << 31;
-            let clock = memory.acquire(self.plmt_clock()?)?;
-            let value = u32::from_le(clock.read::<u32>(0)?);
-            clock.write(0, (value | PLMT_CLOCK_ENABLE).to_le())?;
-            runtime::instruction::fence();
-        }
+        let alias = self.initialize_boot_devices(memory, timer)?;
         Ok(Some(alias.offset()))
     }
 
     fn init(
-        &self,
+        &mut self,
         platform: &PlatformView<'_>,
         memory: &mut MemoryRegistry,
-        supervisor_memory: &'static SupervisorMemory,
         _pmu: &mut Option<SbiPmu>,
-    ) -> Result<Option<Vendor>> {
-        Vendor::init(*self, platform, memory, supervisor_memory).map(Some)
+    ) -> Result<Option<VendorDevices>> {
+        VendorDevices::init(self.cache, platform, memory).map(Some)
     }
 }

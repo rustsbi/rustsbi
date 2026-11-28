@@ -3,15 +3,20 @@
 mod sstc;
 mod tick;
 
+use csr::{
+    Clear, Set, Write,
+    standard::isa::privileged::machine::{Mie, Mip},
+};
+
 use crate::{
     Error, Result,
     hart::{HartId, PerHart},
     irq::{self, LocalIrqDisabled},
 };
 use alloc::boxed::Box;
-use csr::machine as registers;
 use spin::Once;
 use sstc::Sstc;
+use tick::Tick;
 
 /// The platform timer and current-hart supervisor timer delivery.
 ///
@@ -20,12 +25,18 @@ use sstc::Sstc;
 /// [`init_hart`] before use.
 pub struct Timer {
     device: Option<Box<dyn TimerDevice>>,
-    sstc: PerHart<Once<Sstc>>,
+    harts: PerHart<HartTimer>,
+}
+
+#[derive(Default)]
+struct HartTimer {
+    tick: Once<Tick>,
+    sstc: Once<Sstc>,
 }
 
 impl Timer {
     fn sstc(&self, hart: HartId) -> Option<&Sstc> {
-        self.sstc.get(hart).get()
+        self.harts.get(hart).sstc.get()
     }
 
     /// Sets the current hart's supervisor deadline.
@@ -38,7 +49,9 @@ impl Timer {
     /// Returns [`Error::NotReady`] if the hart topology is not published,
     /// [`Error::InvalidArgs`] if the current hart is absent from it, or
     /// [`Error::NotSupported`] if neither timer is available. Errors from the
-    /// timer device are also returned.
+    /// timer device are also returned. If programming the device fails, Runtime
+    /// clears the supervisor pending bit and leaves the machine timer interrupt
+    /// masked. The device may already have changed part of its comparator.
     pub fn set_deadline(&self, deadline: u64) -> Result<()> {
         let current_hart = HartId::current()?;
         match (self.sstc(current_hart), &self.device) {
@@ -63,19 +76,19 @@ impl Timer {
 
 static TIMER: Once<Timer> = Once::new();
 
-/// Registers the platform timer and detects the platform time source.
+/// Registers the platform timer and detects the boot hart's time source.
 ///
 /// A second registration returns [`Error::AlreadyInitialized`].
 /// The boot hart must publish the hart topology and install trap recovery
 /// before this call.
 pub fn init(device: Option<Box<dyn TimerDevice>>) -> Result<()> {
     let mut initialized = false;
-    TIMER.try_call_once(|| {
+    TIMER.try_call_once(|| -> Result<Timer> {
         let timer = Timer {
             device,
-            sstc: PerHart::new(|_| Once::new())?,
+            harts: PerHart::new(|_| HartTimer::default())?,
         };
-        tick::init(tick::Tick::detect()?);
+        Tick::get(&timer.harts.get(HartId::current()?).tick)?;
         initialized = true;
         Ok(timer)
     })?;
@@ -92,7 +105,9 @@ pub fn init(device: Option<Box<dyn TimerDevice>>) -> Result<()> {
 pub fn init_hart() -> Result<()> {
     let timer = TIMER.get().ok_or(Error::NotReady)?;
     let hart = HartId::current()?;
-    let slot = timer.sstc.get(hart);
+    let state = timer.harts.get(hart);
+    Tick::get(&state.tick)?;
+    let slot = &state.sstc;
     let sstc = match slot.get() {
         Some(sstc) => Some(sstc),
         None => Sstc::detect()?.map(|sstc| slot.call_once(|| sstc)),
@@ -116,12 +131,15 @@ pub fn get() -> Result<Option<&'static Timer>> {
     Ok((timer.device.is_some() || sstc.is_some()).then_some(timer))
 }
 
-/// Reads the current platform time counter, if a source is available.
+/// Reads this hart's `time` CSR or the platform timer's counter, if available.
 ///
-/// Returns [`Error::NotReady`] before the timer service is initialized, and
-/// propagates errors from the selected counter device.
+/// Returns `Ok(None)` when neither source exposes a counter. Returns
+/// [`Error::NotReady`] before registration or if this hart still needs to
+/// probe its CSR and trap recovery is unavailable. Device errors propagate.
 pub fn now() -> Result<Option<u64>> {
-    tick::now()
+    let timer = TIMER.get().ok_or(Error::NotReady)?;
+    let state = timer.harts.get(HartId::current()?);
+    Tick::get(&state.tick)?.read(timer.device.as_deref())
 }
 
 /// A platform machine timer block.
@@ -137,9 +155,8 @@ pub trait TimerDevice: Send + Sync {
 
     /// Reads this block's counter when it exposes one.
     ///
-    /// Timer delivery never reads the counter; platform workarounds use this
-    /// for bounded waits.
-    /// The counter and the comparator must share one time base.
+    /// Return `Ok(None)` for a block without a readable counter. A counter
+    /// value must use the same time base as [`Self::set_compare`].
     fn read_time(&self) -> Result<Option<u64>> {
         Ok(None)
     }
@@ -158,31 +175,28 @@ pub(crate) fn on_interrupt(irq: &LocalIrqDisabled) {
 ///
 /// This changes only `MTIE` and preserves the other enable bits.
 fn set_machine_timer_enabled(_irq: &LocalIrqDisabled, enabled: bool) {
-    let state = if enabled {
-        registers::Interrupt::Enabled
-    } else {
-        registers::Interrupt::Disabled
-    };
     // SAFETY: `_irq` proves local interrupts are disabled, and only MTIE is
     // edited in the current hart's interrupt-enable register.
     unsafe {
-        registers::InterruptEnable::modify(|_, value| value.set::<registers::MTIE>(state));
+        if enabled {
+            Mie::write(Set(Mie::MTIE));
+        } else {
+            Mie::write(Clear(Mie::MTIE));
+        }
     }
 }
 
-/// Sets or clears the current hart's supervisor timer pending bit.
+/// Posts or clears a supervisor timer interrupt during machine-timer delivery.
 ///
-/// This changes only `mip.STIP`.
-/// With Sstc, `STIP` is driven by `stimecmp` and is read-only,
-/// so firmware calls this only for native machine-timer delivery.
+/// With `menvcfg.STCE=1`, hardware derives `mip.STIP` from `stimecmp`.
 fn set_supervisor_pending(_irq: &LocalIrqDisabled, pending: bool) {
     // SAFETY: `_irq` proves local interrupts are disabled, the current hart
     // owns supervisor timer delivery, and only the fixed STIP field is updated.
     unsafe {
         if pending {
-            registers::InterruptPending::set_bit::<registers::STIP>();
+            Mip::write(Set(Mip::STIP));
         } else {
-            registers::InterruptPending::clear_bit::<registers::STIP>();
+            Mip::write(Clear(Mip::STIP));
         }
     }
 }

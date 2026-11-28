@@ -1,74 +1,42 @@
-//! IMSIC interrupt identities and indirect registers.
+//! IMSIC definitions and machine interrupt-file access.
+//!
+//! The [IMSIC specification](https://docs.riscv.org/reference/aia/v1.0/IMSIC.html)
+//! defines the registers accessed through the `miselect` and `mireg` window.
 
-use core::num::NonZeroU16;
+use core::arch::asm;
 
-/// A nonzero IMSIC interrupt identity in the architectural range `1..=2047`.
+use crate::{Read, Write};
+pub use riscv_csr_spec::standard::aia::imsic::*;
+use riscv_csr_spec::standard::isa::privileged::machine::{Mireg, Miselect};
+
+/// Writes registers in the current hart's machine interrupt file, in order.
 ///
-/// A particular interrupt file may implement fewer identities; its capacity
-/// must be checked separately.
-/// See <https://docs.riscv.org/reference/aia/v1.0/IMSIC.html>.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(transparent)]
-pub struct Iid(NonZeroU16);
-
-impl Iid {
-    /// Largest interrupt identity number defined by AIA.
-    pub const MAX_NUMBER: u16 = 0x7ff;
-
-    /// Returns an interrupt identity if `number` is in `1..=2047`.
-    #[inline]
-    pub const fn new(number: u16) -> Option<Self> {
-        if number > Self::MAX_NUMBER {
-            return None;
-        }
-        match NonZeroU16::new(number) {
-            Some(number) => Some(Self(number)),
-            None => None,
-        }
-    }
-
-    /// Returns the interrupt identity number.
-    #[inline]
-    pub const fn number(self) -> u16 {
-        self.0.get()
-    }
-}
-
-/// An IMSIC indirect register, distinct from the `miselect` and `mireg` CSRs.
+/// Returns `Some(())` after the last write or `None` at the first selector
+/// invalid for the current XLEN. Earlier writes remain in effect.
+/// Both returns restore the original `miselect`. A trap or an iterator panic
+/// can interrupt the sequence before restoration.
 ///
-/// See <https://docs.riscv.org/reference/aia/v1.0/IMSIC.html>.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ImsicRegister {
-    /// Interrupt delivery enable.
-    Delivery,
-    /// Interrupt priority threshold.
-    Threshold,
-    /// A pending-bit array register.
-    Pending(u8),
-    /// An enable-bit array register.
-    Enable(u8),
-}
-
-impl ImsicRegister {
-    /// Returns the architectural selector for this register.
-    ///
-    /// Returns `None` for indices outside 0 through 63 and for odd indices on
-    /// RV64. A valid selector does not guarantee that the register exists on
-    /// the current hart.
-    ///
-    /// See <https://docs.riscv.org/reference/aia/v1.0/IMSIC.html>.
-    #[inline]
-    pub const fn selector(self) -> Option<usize> {
-        let (base, index) = match self {
-            Self::Delivery => return Some(0x70),
-            Self::Threshold => return Some(0x72),
-            Self::Pending(index) => (0x80, index),
-            Self::Enable(index) => (0xc0, index),
-        };
-        if index >= 64 || (cfg!(target_pointer_width = "64") && index % 2 != 0) {
-            None
-        } else {
-            Some(base + index as usize)
+/// # Safety
+///
+/// 1. Execute in M-mode with the machine interrupt file and selected registers
+///    accessible. Supply values permitted by those registers.
+/// 2. Exclude competing uses of this hart's selector and data window, including
+///    from interrupt handlers, until the previous selector has been restored.
+#[inline(always)]
+pub unsafe fn write_machine_registers(
+    writes: impl IntoIterator<Item = (ImsicRegister, usize)>,
+) -> Option<()> {
+    let previous = Miselect::read();
+    let result = writes.into_iter().try_for_each(|(register, value)| {
+        let selector = register.selector()?;
+        // SAFETY: The caller owns this window and supplies an accessible register and value.
+        unsafe {
+            Miselect::write(selector);
+            asm!("csrw {}, {}", const Mireg::NUMBER, in(reg) value, options(nostack));
         }
-    }
+        Some(())
+    });
+    // SAFETY: The caller retains exclusive access through restoration.
+    unsafe { Miselect::write(previous) };
+    result
 }

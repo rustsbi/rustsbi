@@ -1,49 +1,61 @@
-//! Machine counter setup.
-use crate::{
-    macros::csr,
-    value::Value,
-    values::counter::{HardwareCounter, InhibitedCounters},
-};
+//! Access to programmable machine event selectors.
 
-csr! {
-    /// Machine counter-inhibit register (`mcountinhibit`).
-    ///
-    /// See
-    /// <https://docs.riscv.org/reference/isa/priv/machine.html#mcountinhibit>.
-    CounterInhibit { 0x320, r: InhibitedCounters,
-        /// Writing a complete inhibit mask stops or resumes the selected
-        /// counters.
-        ///
-        /// # Safety
-        ///
-        /// Own counter initialization and coordinate every counter user,
-        /// including sibling harts when the implementation shares a counter.
-        unsafe w: InhibitedCounters
-    }
+use super::{HpmCounter, Mhpmevent};
+use crate::{AccessError, Write};
+#[cfg(target_pointer_width = "32")]
+use {super::Mhpmeventh, crate::Read};
+
+// Each CSR instruction requires a register number known at compile time.
+macro_rules! match_hpm_counter {
+    ($counter:expr, $index:ident => $access:expr) => {
+        match_hpm_counter!($counter, $index => $access;
+            3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+            17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31)
+    };
+    ($counter:expr, $index:ident => $access:expr; $($number:literal),+) => {
+        match $counter.index() {
+            $($number => {
+                const $index: u8 = $number;
+                $access
+            },)+
+            _ => unreachable!("HpmCounter guarantees an index in 3..=31"),
+        }
+    };
 }
 
-impl CounterInhibit {
-    /// Changes the inhibit bit for a counter.
-    ///
-    /// # Safety
-    /// The counter must exist. Coordinate other firmware users, including
-    /// sibling harts if the implementation shares cycle-counter control.
-    pub unsafe fn set(counter: HardwareCounter, inhibited: bool) {
-        let mask = InhibitedCounters::one(counter).bits();
-        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-        // SAFETY: The caller coordinates changes to this counter, including
-        // with sibling harts when counter control is shared.
-        unsafe {
-            if inhibited {
-                core::arch::asm!("csrs {csr}, {mask}", csr = const Self::NUMBER, mask = in(reg) mask, options(nostack));
-            } else {
-                core::arch::asm!("csrc {csr}, {mask}", csr = const Self::NUMBER, mask = in(reg) mask, options(nostack));
-            }
-        }
-        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-        {
-            let _ = (mask, inhibited);
-            panic!("CSR access requires RISC-V");
-        }
-    }
+/// Writes the native word of a programmable machine event selector.
+///
+/// # Safety
+///
+/// Establish the [recovery ABI](crate::recovery) and own the selected counter's
+/// event configuration on this hart.
+#[inline]
+pub unsafe fn try_write_mhpmevent(counter: HpmCounter, value: usize) -> Result<(), AccessError> {
+    // SAFETY: The caller establishes recovery and owns the selected event configuration.
+    match_hpm_counter!(counter, N => unsafe { Mhpmevent::<N>::try_write(value) })
+}
+
+/// Reads the optional RV32 high word of a programmable machine event selector.
+///
+/// # Safety
+///
+/// Establish the [machine-trap recovery ABI](crate::recovery).
+#[cfg(target_pointer_width = "32")]
+#[inline]
+pub unsafe fn try_read_mhpmeventh(counter: HpmCounter) -> Result<u32, AccessError> {
+    // SAFETY: The caller establishes recovery for this side-effect-free standard read.
+    match_hpm_counter!(counter, N => unsafe { Mhpmeventh::<N>::try_read() })
+}
+
+/// Writes the optional RV32 high word of a programmable machine event selector.
+///
+/// # Safety
+///
+/// Establish the [recovery ABI](crate::recovery) and own the selected counter's
+/// event configuration on this hart.
+#[cfg(target_pointer_width = "32")]
+#[inline]
+pub unsafe fn try_write_mhpmeventh(counter: HpmCounter, value: u32) -> Result<(), AccessError> {
+    // SAFETY: The caller establishes recovery and owns the selected event configuration.
+    match_hpm_counter!(counter, N => unsafe { Mhpmeventh::<N>::try_write(value) })
 }

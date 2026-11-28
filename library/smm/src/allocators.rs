@@ -54,10 +54,13 @@ impl<const ORDER: usize, const MAX_LIVE_ALLOCATIONS: usize> SecMemAllocator<ORDE
         let start_addr = self.range_allocator.alloc(layout)?;
         Ok(NonNull::new(start_addr as *mut u8).expect("region allocator excludes address zero"))
     }
-    fn free(&mut self, ptr: NonNull<u8>, layout: Layout) {
+    fn owns(&self, addr: usize, len: usize) -> bool {
+        self.range_allocator.live_allocation(addr, len).is_some()
+    }
+    fn free(&mut self, ptr: NonNull<u8>, layout: Layout) -> bool {
         self.range_allocator
             .free(ptr.as_ptr() as usize, layout)
-            .expect("[AppAlloc] deallocating an invalid allocation");
+            .is_ok()
     }
     fn available(&self) -> usize {
         self.range_allocator.available_bytes()
@@ -84,17 +87,24 @@ impl<const ORDER: usize> SecMemAllocator<ORDER> for RTAlloc<ORDER> {
         self.total_bytes = size_bytes;
     }
     fn alloc(&mut self, layout: Layout) -> Result<NonNull<u8>, ()> {
-        if self.available_bytes < layout.size() {
+        if self.available_bytes == 0
+            || self.available_bytes != layout.size()
+            || !self.start_addr.is_multiple_of(layout.align())
+        {
             return Err(());
         }
         self.available_bytes = 0;
         NonNull::new(self.start_addr as *mut u8).ok_or(())
     }
-    fn free(&mut self, ptr: NonNull<u8>, layout: Layout) {
-        if ptr.as_ptr() as usize != self.start_addr {
-            panic!("[RTAlloc] Deallocating foreign or incorrect pointer");
+    fn owns(&self, addr: usize, len: usize) -> bool {
+        len != 0 && self.available_bytes == 0 && addr == self.start_addr && len == self.total_bytes
+    }
+    fn free(&mut self, ptr: NonNull<u8>, layout: Layout) -> bool {
+        if !self.owns(ptr.as_ptr() as usize, layout.size()) {
+            return false;
         }
-        self.available_bytes = layout.size();
+        self.available_bytes = self.total_bytes;
+        true
     }
     fn available(&self) -> usize {
         self.available_bytes
@@ -180,7 +190,7 @@ mod stress_tests {
     fn stress_test_rt_alloc() {
         let mut allocator = RTAlloc::<TEST_EXPONENT>::new();
         let base_addr: usize = unsafe { FAKE_HARDWARE_MEM.0.as_ptr() as usize };
-        let layout = Layout::from_size_align(TEST_MEM_SIZE, TEST_MEM_SIZE).unwrap();
+        let layout = Layout::from_size_align(TEST_MEM_SIZE, 4096).unwrap();
 
         allocator.init(base_addr, TEST_MEM_SIZE);
         let ptr = allocator.alloc(layout).unwrap();

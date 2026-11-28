@@ -68,18 +68,6 @@ jobs:
           cargo test --locked -p rustsbi --verbose --features "machine"
       # The `forward` feature requires RISC-V, so it is covered by the target checks below.
 
-  test-riscv-aia:
-    name: Test riscv-aia
-    needs: fmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Run tests
-        run: cargo test --locked -p riscv-aia --verbose
-
   test-sbi-spec:
     name: Test sbi-spec
     needs: fmt
@@ -177,21 +165,6 @@ jobs:
       - name: Check all library features on 64-bit RISC-V
         run: |
           cargo +${{ steps.rust.outputs.version }} check --locked --all-features --target riscv64imac-unknown-none-elf
-      - name: Check supported libraries on 32-bit RISC-V
-        shell: bash
+      - name: Check all library features on 32-bit RISC-V
         run: |
-          version="${{ steps.rust.outputs.version }}"
-          # pmpm and smm require 64-bit atomics and do not support RV32.
-          mapfile -t packages < <(
-            cargo +"$version" metadata --locked --no-deps --format-version 1 |
-              jq -r '.packages[]
-                | select(.manifest_path | test("/library/[^/]+/Cargo.toml$"))
-                | select(.name != "pmpm" and .name != "smm")
-                | .name'
-          )
-          ((${#packages[@]} > 0))
-          package_args=()
-          for package in "${packages[@]}"; do
-            package_args+=(--package "$package")
-          done
-          cargo +"$version" check --locked --all-features --target riscv32imac-unknown-none-elf "${package_args[@]}"
+          cargo +${{ steps.rust.outputs.version }} check --locked --all-features --target riscv32imac-unknown-none-elf

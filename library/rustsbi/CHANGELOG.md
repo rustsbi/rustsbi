@@ -26,8 +26,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Use only the low 32 bits of SBI arguments defined as `uint32_t` on RV64.
 - Fix DBTR FID 5-7 dispatch to interpret `a0` as the trigger index base and `a1` as the trigger mask.
 - Align `Console` and `Reset` documentation with SBI v3.0.
+- Clarify that `Mpxy` attribute reads and writes use the shared memory registered
+  by the calling hart through `set_shmem`.
 - lib: update `riscv` dependency to 0.16.1 to fix RUSTSEC-2024-0436.
 - lib: update dependency version of `rustsbi` to 0.4.1
 

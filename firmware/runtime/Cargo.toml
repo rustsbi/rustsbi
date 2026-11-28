@@ -15,10 +15,12 @@ bench = false
 bitflags.workspace = true
 macros = { package = "rustsbi-runtime-macros", version = "0.0.0", path = "macros" }
 fdt = { workspace = true }
-csr = { package = "rustsbi-csr", path = "lib/csr" }
+riscv-csr-spec.workspace = true
 riscv-decode = "0.2.1"
 rustsbi = { version = "0.4.1", features = [
     "machine",
 ], path = "../../library/rustsbi" }
 spin.workspace = true
-seq-macro.workspace = true
+
+[target.'cfg(any(target_arch = "riscv32", target_arch = "riscv64"))'.dependencies]
+csr = { package = "rustsbi-csr", path = "lib/csr" }

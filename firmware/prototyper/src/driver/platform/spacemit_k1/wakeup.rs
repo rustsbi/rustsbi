@@ -9,6 +9,7 @@
 use runtime::{
     Error, Result,
     hart::{HartId, HartWake},
+    instruction::{ALL, fence},
     memory::{MemoryRegistry, MmioRegion, RegRange},
 };
 
@@ -44,12 +45,12 @@ impl HartWake for K1Wakeup {
         }
 
         // Order firmware state and the reset vector before the wake request.
-        runtime::instruction::fence();
+        fence(ALL, ALL);
         // Each caller writes its own register.
         // Hardware clears wake-request bits, and writing zero has no effect,
         // so a read-modify-write would be incorrect.
         self.controls[caller / 4].write((caller % 4) * size_of::<u32>(), 1u32 << hart_id)?;
-        runtime::instruction::fence();
+        fence(ALL, ALL);
         Ok(true)
     }
 }

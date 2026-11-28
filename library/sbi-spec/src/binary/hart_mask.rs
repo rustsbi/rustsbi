@@ -57,12 +57,8 @@ impl HartMask<usize> {
     /// Returns whether the [HartMask] contains the provided `hart_id`.
     #[inline]
     pub const fn has_bit(self, hart_id: usize) -> bool {
-        has_bit(
-            self.hart_mask,
-            self.hart_mask_base,
-            Self::IGNORE_MASK,
-            hart_id,
-        )
+        self.hart_mask_base == Self::IGNORE_MASK
+            || has_bit(self.hart_mask, self.hart_mask_base, hart_id)
     }
 
     /// Insert a hart id into this [HartMask].

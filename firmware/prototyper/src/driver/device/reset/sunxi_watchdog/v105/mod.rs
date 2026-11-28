@@ -13,6 +13,8 @@ mod device;
 
 use runtime::{PlatformView, Result};
 
+use crate::devicetree::is_compatible;
+
 use super::super::{primary_registers, selection::find};
 pub(in super::super) use description::Desc;
 pub(in super::super) use device::V105Watchdog;
@@ -21,19 +23,16 @@ const COMPATIBLE: &str = "allwinner,wdt-v105";
 
 /// Discovers the watchdog and its optional RTC reset gate.
 pub(in super::super) fn describe(platform: &PlatformView<'_>) -> Result<Option<Desc>> {
-    let registers = find(platform, |discovered| {
-        if discovered
-            .compatible()
-            .is_some_and(|compatibles| compatibles.all().any(|compatible| compatible == COMPATIBLE))
-        {
-            return primary_registers(platform, discovered.node()).map(Some);
+    let registers = find(platform, |node, _| {
+        if is_compatible(node, COMPATIBLE) {
+            return primary_registers(platform, node).map(Some);
         }
         Ok(None)
     })?;
     let Some(registers) = registers else {
         return Ok(None);
     };
-    let reset_gate = find(platform, |node| platform.sunxi_rtc_v203_gprcm(node.node()))?;
+    let reset_gate = find(platform, |node, _| platform.sunxi_rtc_v203_gprcm(node))?;
     Ok(Some(Desc {
         registers,
         reset_gate,

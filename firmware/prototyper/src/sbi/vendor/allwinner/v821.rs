@@ -17,7 +17,7 @@ use runtime::{
     Error, PlatformView, Result,
     memory::{MemoryRegistry, SupervisorMemory},
     rustsbi::{self, Extension as SbiExtension, SbiRet, VendorSBI},
-    soc::allwinner::v821::{AllwinnerV821Soc, AndesStatusRegister},
+    soc::allwinner::v821::{A27L2CacheControl, AndesStatusRegister},
 };
 
 /// EID of the V821 BSP's Andes cache-maintenance extension.
@@ -35,30 +35,38 @@ pub(crate) struct Extensions {
     awbase: Option<Awbase>,
 }
 
-impl Extensions {
-    /// Initializes the V821 vendor extensions.
-    ///
-    /// Initialize the timer first so cache maintenance can time out while
-    /// waiting for the controller.
+pub(crate) struct Devices {
+    cache: A27L2Cache,
+    usb_dma_bypass: Option<UsbDmaBypass>,
+}
+
+impl Devices {
+    /// Binds the A27L2 cache and the optional USB DMA bypass registers.
     pub(crate) fn init(
-        soc: AllwinnerV821Soc,
+        control: A27L2CacheControl,
         platform: &PlatformView<'_>,
         memory: &mut MemoryRegistry,
-        supervisor_memory: &'static SupervisorMemory,
     ) -> Result<Self> {
-        let cache = a27l2::describe(platform, soc)?.ok_or(Error::InvalidArgs)?;
+        let cache = a27l2::describe(platform)?.ok_or(Error::InvalidArgs)?;
         let usb_dma_bypass = usb_dma_bypass::describe(platform)?;
-        let cache = A27L2Cache::init(cache, memory)?;
+        let cache = A27L2Cache::init(cache, control, memory)?;
         let usb_dma_bypass = usb_dma_bypass
             .map(|description| UsbDmaBypass::init(description, memory))
             .transpose()?;
         Ok(Self {
-            andes: Andes {
-                cache,
-                memory: supervisor_memory,
-            },
-            awbase: usb_dma_bypass.map(|device| Awbase { device }),
+            cache,
+            usb_dma_bypass,
         })
+    }
+
+    pub(crate) fn into_extensions(self, memory: &'static SupervisorMemory) -> Extensions {
+        Extensions {
+            andes: Andes {
+                cache: self.cache,
+                memory,
+            },
+            awbase: self.usb_dma_bypass.map(|device| Awbase { device }),
+        }
     }
 }
 

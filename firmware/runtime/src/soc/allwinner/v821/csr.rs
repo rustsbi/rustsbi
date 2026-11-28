@@ -1,18 +1,14 @@
-//! Safe access to the V821 BSP's Andes custom CSRs.
-//!
-//! The `csr` crate defines the register encodings and hardware operations.
-//! This module requires a V821 capability and selects the firmware's PMA alias.
+//! V821 PMA alias setup and Andes cache maintenance.
 
-use super::AllwinnerV821Soc;
-use csr::vendor::andes::{
-    PmaAddress, PmaEntryConfig,
-    machine::{CacheControl, ENTRY15, MiscControl, PmaAddress15, PmaConfig3},
-    user::CacheCommand,
+use crate::{
+    Error, Result,
+    memory::{PhysAddr, PhysAddrRange, SupervisorMemory},
 };
-
-pub use csr::vendor::andes::CacheLineOperation as A27L2LineOperation;
-
-const NONCACHEABLE_ALIAS_OFFSET: u64 = 0x1_0000_0000;
+use csr::{
+    Read,
+    vendor::andes::{self, McacheCtl, MmiscCtl},
+};
+pub use andes::CacheLineOperation as A27L2LineOperation;
 
 /// An Andes machine-control status register exposed by the vendor SBI ABI.
 #[derive(Clone, Copy)]
@@ -23,9 +19,7 @@ pub enum AndesStatusRegister {
     MachineMiscControl,
 }
 
-/// The noncacheable physical alias established by the V821 PMA setup.
-///
-/// Values are returned only after the reserved PMA entry has been programmed.
+/// Offset of V821's physical mirror after Runtime configures its memory attributes.
 #[derive(Clone, Copy)]
 #[must_use = "the alias offset is required to protect firmware memory in PMP"]
 pub struct NoncacheableAlias {
@@ -39,58 +33,129 @@ impl NoncacheableAlias {
     }
 }
 
-/// Access to the Andes custom CSRs used by the V821 BSP.
-///
-/// Only a Devicetree-selected [`AllwinnerV821Soc`] can create this capability.
+/// Access to the A27L2 cache-maintenance commands and status registers on V821.
 #[derive(Clone, Copy)]
-pub struct V821Csr {
+pub struct A27L2CacheControl {
     _private: (),
 }
 
-impl AllwinnerV821Soc {
-    /// Returns the custom-CSR interface authorized by this SoC description.
-    pub const fn csr(self) -> V821Csr {
-        V821Csr { _private: () }
+impl super::AllwinnerV821Soc {
+    /// Grants cache-maintenance access on confirmed V821 hardware.
+    ///
+    /// Returns [`Error::NotSupported`] for an RV64 firmware image.
+    ///
+    /// # Safety
+    ///
+    /// 1. On RV32, verify that this description matches the actual V821 hardware.
+    /// 2. On every hart using the handle, run CCTL commands in M-mode with
+    ///    physical addressing so the line checked against supervisor RAM is the line affected.
+    /// 3. Keep the CCTL interface available and ensure whole-cache writeback
+    ///    preserves live firmware memory, including memory shared with devices.
+    pub const unsafe fn cache_control(self) -> Result<A27L2CacheControl> {
+        if cfg!(target_arch = "riscv32") {
+            Ok(A27L2CacheControl { _private: () })
+        } else {
+            Err(Error::NotSupported)
+        }
+    }
+
+    /// Marks the V821 physical mirror from 4 GiB up to 8 GiB as noncacheable.
+    ///
+    /// Returns [`Error::InvalidArgs`] if the hart is not an Andes implementation,
+    /// or [`Error::NotSupported`] on RV64.
+    ///
+    /// # Safety
+    ///
+    /// On RV32, run in M-mode on a platform implementing the mirror and its writable PMA entry 15.
+    /// Run before lower-mode or driver accesses use it. Own the containing
+    /// configuration word through the read-modify-write and keep firmware
+    /// accesses valid while the new attributes apply to the old address.
+    pub unsafe fn initialize_noncacheable_alias(self) -> Result<NoncacheableAlias> {
+        #[cfg(target_arch = "riscv32")]
+        {
+            use crate::instruction::{ALL, fence};
+            use csr::{
+                Write,
+                standard::isa::privileged::machine::{Identifier, Mvendorid},
+                vendor::andes::{PmaAddress, PmaEntryConfig, Pmaaddr15, Pmacfg3},
+            };
+
+            const OFFSET: u64 = 0x1_0000_0000;
+            if Mvendorid::read() != Identifier::from_bits(0x31e) {
+                return Err(Error::InvalidArgs);
+            }
+            let address = PmaAddress::napot(OFFSET, OFFSET)
+                .expect("V821's noncacheable alias has a representable NAPOT encoding");
+            // SAFETY:
+            // 1. The caller confirmed V821 hardware with writable entry 15.
+            // 2. The caller owns the configuration word and keeps accesses
+            //    valid until the address and attributes both describe the mirror.
+            unsafe {
+                let mut cfg = Pmacfg3::read_unchecked().into_write();
+                cfg.set(Pmacfg3::ENTRY15, PmaEntryConfig::NONCACHEABLE_NAPOT);
+                Pmacfg3::write(cfg);
+                Pmaaddr15::write(address);
+            }
+            fence(ALL, ALL);
+            Ok(NoncacheableAlias { offset: OFFSET })
+        }
+        #[cfg(target_arch = "riscv64")]
+        Err(Error::NotSupported)
     }
 }
 
-impl V821Csr {
-    /// Configures the BSP-reserved PMA entry as the 4--8 GiB uncached alias.
-    pub fn initialize_noncacheable_alias(self) -> NoncacheableAlias {
-        let address = PmaAddress::napot(NONCACHEABLE_ALIAS_OFFSET, NONCACHEABLE_ALIAS_OFFSET)
-            .expect("V821's noncacheable alias has a representable NAPOT encoding");
-        // SAFETY: The V821 boot path owns PMA entry 15 in M-mode, preserves
-        // other entries, and configures the alias before any driver uses it.
-        unsafe {
-            PmaConfig3::modify(|_, value| {
-                value.set::<ENTRY15>(PmaEntryConfig::NONCACHEABLE_NAPOT);
-            });
-            PmaAddress15::write(address);
-        }
-        crate::instruction::fence();
-        NoncacheableAlias {
-            offset: NONCACHEABLE_ALIAS_OFFSET,
-        }
-    }
+impl A27L2CacheControl {
+    /// Physical cache-line size used by V821's A27L2 controller.
+    pub const CACHE_LINE_SIZE: usize = 64;
 
     /// Reads the selected Andes machine-control status register.
     pub fn read_status(self, register: AndesStatusRegister) -> usize {
-        match register {
-            AndesStatusRegister::MachineCacheControl => CacheControl::read().into(),
-            AndesStatusRegister::MachineMiscControl => MiscControl::read().into(),
+        // SAFETY: Handle creation establishes the actual hardware and access mode.
+        unsafe {
+            match register {
+                AndesStatusRegister::MachineCacheControl => McacheCtl::read_unchecked(),
+                AndesStatusRegister::MachineMiscControl => MmiscCtl::read_unchecked(),
+            }
         }
     }
 
-    /// Applies one cache-maintenance operation to a physical cache line.
-    pub fn maintain_a27l2_line(self, address: usize, operation: A27L2LineOperation) {
-        // SAFETY: The V821 capability identifies CCTL; the firmware driver
-        // coordinates the command pair and validates the affected memory.
-        unsafe { CacheCommand::maintain_line(address, operation) };
+    /// Applies cache maintenance only to a complete line in supervisor-owned RAM.
+    ///
+    /// Supervisor software coordinates DMA and decides when its dirty data may
+    /// be discarded. The checked range excludes firmware-owned Rust allocations.
+    pub fn maintain_a27l2_line(
+        self,
+        address: usize,
+        operation: A27L2LineOperation,
+        memory: &SupervisorMemory,
+    ) -> Result<()> {
+        let start = address & !(Self::CACHE_LINE_SIZE - 1);
+        let end = start
+            .checked_add(Self::CACHE_LINE_SIZE)
+            .ok_or(Error::Overflow)?;
+        memory.check_range(PhysAddrRange::new(
+            PhysAddr::new(start),
+            PhysAddr::new(end),
+        )?)?;
+        crate::irq::with_local_disabled(|_| {
+            // SAFETY:
+            // 1. The handle establishes M-mode CCTL access with physical addressing.
+            // 2. Interrupt exclusion keeps the command and address paired.
+            // 3. The entire line containing the address lies in supervisor-owned RAM.
+            unsafe { andes::maintain_line(address, operation) };
+        });
+        Ok(())
     }
 
     /// Writes back and invalidates all A27L2 L1 data-cache lines.
+    ///
+    /// Dirty data is written back before invalidation. Supervisor software
+    /// must coordinate concurrent DMA.
     pub fn write_back_and_invalidate_l1_all(self) {
-        // SAFETY: The V821 firmware owns CCTL and permits whole-cache maintenance.
-        unsafe { CacheCommand::write_back_and_invalidate_all() };
+        crate::irq::with_local_disabled(|_| {
+            // SAFETY: Local interrupt exclusion serializes the CCTL port.
+            // Handle creation guarantees writeback is valid for all firmware memory.
+            unsafe { andes::write_back_and_invalidate_all() };
+        });
     }
 }

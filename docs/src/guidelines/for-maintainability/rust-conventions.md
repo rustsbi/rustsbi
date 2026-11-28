@@ -8,7 +8,7 @@ Asterinas prefers kebab-case for crate names, which is unspecified in official R
 # Good
 [package]
 name = "rustsbi-csr"
-description = "Typed RISC-V CSR access for RustSBI firmware"
+description = "RISC-V CSR instructions and hardware access layer for RustSBI runtime"
 version = "0.0.0"
 ```
 

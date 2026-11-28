@@ -7,31 +7,74 @@
 mod context;
 mod stack;
 
-pub use crate::csr::enable_supervisor_seed;
-pub use crate::csr::thead::disable_maee as disable_thead_maee;
-pub use crate::ipi::configure_state_access;
+pub use crate::pmu::inhibit_programmable as inhibit_programmable_counters;
 
-pub use context::{configure_next_stage, prepare_traps};
-pub(crate) use context::{prepare_supervisor, set_return_mode, traps_ready};
+pub use context::{
+    SupervisorEnvConfig, configure_next_stage, configure_state_access, configure_supervisor_envcfg,
+    enable_supervisor_seed, prepare_traps,
+};
+pub(crate) use context::{prepare_supervisor, set_return_mode};
 
-pub(crate) use stack::firmware_end;
-pub use stack::{BootStack, initialize_stacks, locate_stack};
+pub(crate) use stack::linked_image_range;
+pub use stack::{BootStack, initialize_stacks, locate_firmware_image, locate_stack};
 
 use crate::{
     hart::{self, HartEvent},
-    instruction, ipi,
+    instruction::{self, ALL},
+    ipi,
     irq::LocalIrqDisabled,
 };
+use csr::{
+    Clear, Read, Write,
+    standard::isa::{
+        privileged::machine::{Identifier, Mvendorid},
+        values::status::Privilege,
+    },
+    vendor::thead::Mxstatus,
+};
 
-/// Information needed to boot into the next execution stage.
+/// Disables non-standard page memory attributes on a T-Head hart.
+///
+/// Skips the update on other vendors, when trap recovery is unavailable, or
+/// when the initial read of `mxstatus` traps.
+///
+/// # Safety
+///
+/// Execute during M-mode startup, exclusively own this hart's translation
+/// setup, and ensure no lower-mode address space is active. On T-Head harts
+/// with a readable `mxstatus`, the implementation must support clearing MAEE.
+pub unsafe fn disable_thead_maee() {
+    const THEAD_VENDOR_ID: Identifier = Identifier::from_bits(0x5b7);
+    if !crate::recovery::is_ready() || Mvendorid::read() != THEAD_VENDOR_ID {
+        return;
+    }
+    crate::irq::with_local_disabled(|_| {
+        // SAFETY: Runtime recovery is ready with MPRV/mscratch clear, local
+        // interrupts are excluded, and startup owns translation configuration.
+        // The caller confirms this implementation's MXSTATUS/MAEE semantics.
+        unsafe {
+            if Mxstatus::try_read().is_ok() {
+                Mxstatus::write(Clear(Mxstatus::MAEE));
+            }
+        }
+    });
+}
+
 #[derive(Clone, Copy, Debug)]
-pub struct NextStage {
-    /// Starting address to jump to.
-    pub start_addr: usize,
-    /// Opaque value passed to next stage.
-    pub opaque: usize,
-    /// Privilege mode for next stage.
-    pub next_mode: csr::machine::TargetPrivilege,
+pub(crate) struct NextStage {
+    pub(crate) start_addr: usize,
+    pub(crate) opaque: usize,
+    pub(crate) next_mode: Privilege,
+}
+
+impl NextStage {
+    pub(crate) fn supervisor(start_addr: usize, opaque: usize) -> Self {
+        Self {
+            start_addr,
+            opaque,
+            next_mode: Privilege::Supervisor,
+        }
+    }
 }
 
 /// Stops the current hart without accessing its stack.
@@ -40,13 +83,10 @@ pub struct NextStage {
 ///
 /// Use only as an M-mode trap vector or assembly jump target.
 /// Control does not return to the caller.
-#[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
+#[unsafe(naked)]
 #[unsafe(export_name = "runtime_fail_stop")]
 pub unsafe extern "C" fn fail_stop() {
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     core::arch::naked_asm!(".align 2", "csrw mie, zero", "1: wfi", "   j 1b",);
-    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-    unimplemented!("The fail-stop vector requires a RISC-V target");
 }
 
 /// Starts a hart released from hardware reset without a bootloader handoff.
@@ -59,11 +99,10 @@ pub unsafe extern "C" fn fail_stop() {
 /// and preserve the C ABI's callee-saved and fixed registers.
 /// `initialize` runs with Runtime traps installed and must finish per-hart
 /// configuration before returning.
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 #[unsafe(naked)]
 pub(crate) unsafe extern "C" fn reset_hart_entry(
     prepare: unsafe extern "C" fn(),
-    initialize: extern "C" fn(),
+    initialize: unsafe extern "C" fn(),
 ) -> ! {
     core::arch::naked_asm!(
         ".balign 4",
@@ -98,10 +137,9 @@ pub(crate) unsafe extern "C" fn reset_hart_entry(
 ///
 /// Run in M-mode with interrupts disabled and an initialized hart stack.
 /// The current call chain must be safe to discard without unwinding.
-#[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
+#[unsafe(naked)]
 #[unsafe(export_name = "runtime_finish_boot")]
 pub unsafe extern "C" fn finish_boot() -> ! {
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     core::arch::naked_asm!(
         ".align 2",
         // Discard the current call chain: sp becomes this hart's clean top.
@@ -115,11 +153,6 @@ pub unsafe extern "C" fn finish_boot() -> ! {
         finisher = sym finish_boot_rust,
         fail_stop = sym fail_stop,
     );
-    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-    {
-        let _ = finish_boot_rust;
-        unimplemented!("Boot completion requires a RISC-V target");
-    }
 }
 
 /// Enters a staged next stage or waits for a hart-start event.
@@ -134,7 +167,7 @@ fn finish_boot_rust() -> ! {
         if let Some(ipi) = ipi {
             ipi.acknowledge(&irq)
                 .expect("BUG: could not acknowledge the hart wake interrupt");
-            instruction::fence();
+            instruction::fence(ALL, ALL);
         }
         let event = hart::take_local_event();
         // A sender may have selected this hart before it stopped, or just
@@ -174,9 +207,8 @@ fn finish_boot_rust() -> ! {
 ///
 /// Run in M-mode with interrupts disabled.
 /// The next-stage CSRs and Runtime trap stack must already be prepared.
-#[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
+#[unsafe(naked)]
 unsafe extern "C" fn enter_stage(hart_id: usize, opaque: usize) -> ! {
-    #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     core::arch::naked_asm!(
         // This function diverges. Retire the finisher's Rust stack before
         // publishing the clean trap stack for the next-stage payload.
@@ -215,9 +247,4 @@ unsafe extern "C" fn enter_stage(hart_id: usize, opaque: usize) -> ! {
         "mret",
         locate = sym locate_stack,
     );
-    #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-    {
-        let _ = (hart_id, opaque);
-        unimplemented!("Next-stage entry requires a RISC-V target");
-    }
 }

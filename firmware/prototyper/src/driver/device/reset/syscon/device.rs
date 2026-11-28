@@ -4,6 +4,7 @@ use alloc::sync::Arc;
 use core::convert::Infallible;
 use runtime::{
     Error, Result,
+    instruction::{ALL, fence},
     memory::{MemoryRegistry, MmioRegion},
 };
 
@@ -91,7 +92,7 @@ impl SysconAction {
 
     fn execute(&self) -> Result<Infallible> {
         // Order earlier memory and device accesses before issuing reset.
-        runtime::instruction::fence();
+        fence(ALL, ALL);
         let Ok(old) = self.registers.read::<u32>(0) else {
             return Err(Error::IoError);
         };
@@ -99,7 +100,7 @@ impl SysconAction {
         if self.registers.write(0, value.to_le()).is_err() {
             return Err(Error::IoError);
         }
-        runtime::instruction::fence();
+        fence(ALL, ALL);
         // A successful reset never returns; reaching this point is an I/O
         // failure.
         Err(Error::IoError)

@@ -1,52 +1,63 @@
 //! V861 cache-policy snapshots and hardware-reset preparation.
-//!
-//! CSR definitions and hardware operations come from `csr::vendor::thead`.
 
 use super::AllwinnerV861Soc;
-use csr::vendor::thead::machine::{CacheControl, ExtendedStatus, Hint, L2Control};
+use csr::{
+    Read, ReadMode, Set, Write,
+    vendor::thead::{Mccr2, Mcor, Mhcr, Mhint, Msmpr, Mxstatus},
+};
 
 /// Cache policy captured on the boot C907 and restored on reset harts.
 pub struct C907CacheState {
-    l2: L2Control,
-    status: ExtendedStatus,
-    hint: Hint,
-    cache: CacheControl,
+    l2: usize,
+    status: Mxstatus<ReadMode>,
+    hint: usize,
+    cache: usize,
 }
 
 impl C907CacheState {
-    fn read() -> Self {
-        Self {
-            l2: L2Control::read(),
-            status: ExtendedStatus::read(),
-            hint: Hint::read(),
-            cache: CacheControl::read(),
-        }
-    }
-
     /// Restores this policy on a hardware-reset C907.
-    pub fn restore(&self) {
+    ///
+    /// # Safety
+    ///
+    /// Execute in M-mode on the same C907 implementation from which this policy
+    /// was captured. The hart must have invalidated caches and joined coherency;
+    /// no live lower-mode execution may depend on the outgoing configuration.
+    pub unsafe fn restore(&self) {
         // SAFETY: A reset C907 has invalidated its caches and joined coherency
         // before restoring the boot C907's saved configuration.
         unsafe {
-            L2Control::write(self.l2);
-            ExtendedStatus::restore(self.status);
-            Hint::write(self.hint);
-            CacheControl::write(self.cache);
+            Mccr2::write(self.l2);
+            Mxstatus::write(self.status.into_write());
+            Mhint::write(self.hint);
+            Mhcr::write(self.cache);
         }
     }
 }
 
 impl AllwinnerV861Soc {
-    /// Enables firmware C907 cache controls and captures the loader policy.
-    pub fn initialize_c907_cache(self) -> C907CacheState {
+    /// Enables the V861 cache controls and captures the resulting policy for reset harts.
+    ///
+    /// # Safety
+    ///
+    /// Confirm actual V861/C907 hardware and execute in M-mode during boot,
+    /// before releasing secondary harts. Exclusively own cache configuration
+    /// and preserve the loader's live memory and coherency requirements.
+    pub unsafe fn initialize_c907_cache(self) -> C907CacheState {
         // Opaque `mhcr` enable bits from the V861 OpenSBI platform source:
         // https://github.com/YuzukiHD/opensbi/blob/c1ea219a901ff309e88e99c4b4e66ef9a55548de/platform/generic/allwinner/sun252i-v861.c
         const V861_CACHE_ENABLE: usize = (1 << 24) | (1 << 12);
 
-        // SAFETY: The SoC capability identifies C907 and firmware runs in
-        // M-mode before releasing secondary harts.
-        unsafe { CacheControl::set_bits(V861_CACHE_ENABLE) };
-        C907CacheState::read()
+        // SAFETY: The caller confirms actual C907 hardware and owns its cache
+        // configuration in M-mode before releasing secondary harts.
+        unsafe {
+            Mhcr::write(Set(V861_CACHE_ENABLE));
+            C907CacheState {
+                l2: Mccr2::read_unchecked(),
+                status: Mxstatus::read_unchecked(),
+                hint: Mhint::read_unchecked(),
+                cache: Mhcr::read_unchecked(),
+            }
+        }
     }
 
     /// Starts a C907 released by the V861 reset controller.
@@ -56,9 +67,8 @@ impl AllwinnerV861Soc {
     /// Enter in M-mode with MPRV clear after the boot hart publishes topology,
     /// services, and the saved cache policy. `initialize` must restore that
     /// policy and complete per-hart firmware setup before returning.
-    #[cfg_attr(any(target_arch = "riscv32", target_arch = "riscv64"), unsafe(naked))]
-    pub unsafe extern "C" fn reset_entry(initialize: extern "C" fn()) -> ! {
-        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+    #[unsafe(naked)]
+    pub unsafe extern "C" fn reset_entry(initialize: unsafe extern "C" fn()) -> ! {
         core::arch::naked_asm!(
             "mv a1, a0",
             ".option push",
@@ -69,16 +79,15 @@ impl AllwinnerV861Soc {
             prepare = sym prepare_reset_hart,
             entry = sym crate::boot::reset_hart_entry,
         );
-        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-        {
-            let _ = initialize;
-            unimplemented!("C907 reset entry requires a RISC-V target");
-        }
     }
 }
 
-// Invalidate caches and join coherency before Runtime reads the hart table.
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
+/// Prepares a reset C907 for its first access to shared firmware memory.
+///
+/// # Safety
+///
+/// Enter in M-mode on a V861 C907 with no live dirty cache lines. The boot
+/// hart must have enabled the hardware needed to join coherency.
 #[unsafe(naked)]
 unsafe extern "C" fn prepare_reset_hart() {
     core::arch::naked_asm!(
@@ -88,9 +97,9 @@ unsafe extern "C" fn prepare_reset_hart() {
         "csrw {snoop_control}, t0",
         "fence rw, rw",
         "ret",
-        invalidate = const csr::vendor::thead::machine::CacheOperation::INVALIDATE_ALL,
-        cache_operation = const csr::vendor::thead::machine::CacheOperation::NUMBER,
-        enable = const csr::vendor::thead::machine::SnoopControl::ENABLE,
-        snoop_control = const csr::vendor::thead::machine::SnoopControl::NUMBER,
+        invalidate = const Mcor::INVALIDATE_ALL,
+        cache_operation = const Mcor::NUMBER,
+        enable = const Msmpr::ENABLE,
+        snoop_control = const Msmpr::NUMBER,
     );
 }

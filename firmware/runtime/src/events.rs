@@ -4,7 +4,7 @@
 //! The concrete PMU accounting policy remains in Prototyper; Runtime only
 //! reports the exceptions and supervisor IPIs it observes.
 
-pub use csr::values::trap::Exception;
+pub use riscv_csr_spec::standard::isa::values::trap::Exception;
 use spin::Once;
 
 static COUNTERS: Once<Option<&'static dyn TrapCounters>> = Once::new();

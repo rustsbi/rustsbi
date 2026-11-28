@@ -37,7 +37,7 @@ pub(in crate::device_tree::patch) const DEFAULT_SIZE_CELLS: u32 = 1;
 pub(in crate::device_tree) struct Layout<'a> {
     pub(in crate::device_tree::patch) source: &'a [u8],
     pub(in crate::device_tree::patch) total_size: usize,
-    pub(in crate::device_tree::patch) reservations: &'a [u8],
+    pub(in crate::device_tree) reservations: &'a [u8],
     pub(in crate::device_tree::patch) structure_offset: usize,
     pub(in crate::device_tree) structure: &'a [u8],
     pub(in crate::device_tree::patch) strings: &'a [u8],

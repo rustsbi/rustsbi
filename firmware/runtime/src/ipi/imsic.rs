@@ -1,18 +1,16 @@
 //! Machine IMSIC interrupt-file operations under local IRQ exclusion.
 
 use crate::{
-    Error, Result, boot,
-    hart::Detect,
+    Error, Result,
     irq::{self, LocalIrqDisabled},
 };
-use csr::aia::imsic::{Iid, ImsicRegister};
-use csr::aia::machine::{Mireg, Miselect, Mtopei};
-use csr::machine;
+use csr::{
+    Claim, Read,
+    standard::aia::{Eidelivery, Eithreshold, Iid, ImsicRegister, imsic, machine::Mtopei},
+};
 use spin::Once;
 
-/// Runtime's CSR-side configuration for the machine IMSIC.
-///
-/// Runtime retains the instance and does not expose a constructor or handle.
+/// The interrupt identity reserved for IPIs and the capacity of each machine interrupt file.
 pub struct Imsic {
     iid: Iid,
     num_iids: u16,
@@ -20,29 +18,30 @@ pub struct Imsic {
 
 static IMSIC: Once<Imsic> = Once::new();
 
-/// Detects and publishes the machine IMSIC selected by the platform.
+/// Publishes the machine IMSIC configuration after probing this hart's `mtopei`.
 ///
-/// The platform must call this before publishing an IPI service backed by IMSIC.
-/// A second initialization returns [`Error::AlreadyInitialized`].
-/// Returns [`Error::NotReady`] if Runtime is not ready for a current-hart probe.
-/// Returns [`Error::NotSupported`] if `mtopei` cannot be read on this hart.
+/// Call this before publishing an IMSIC-backed IPI service. The platform
+/// supplies the number of implemented identities in each machine file.
 ///
-/// `num_iids` must be in `63..=2047` and one less than a multiple of 64;
-/// `iid` must not exceed that capacity.
-/// Before successful initialization, invalid values return [`Error::InvalidArgs`].
-/// See <https://docs.riscv.org/reference/aia/v1.0/IMSIC.html>.
+/// After successful registration, further calls return [`Error::AlreadyInitialized`].
+/// During registration, [`Error::InvalidArgs`] indicates that `iid` exceeds
+/// `num_iids` or that the count is outside the [IMSIC] encoding (63 through
+/// 2047, one less than a multiple of 64). [`Error::NotReady`] indicates
+/// missing trap recovery and [`Error::NotSupported`] an unreadable `mtopei`.
+///
+/// [IMSIC]: https://docs.riscv.org/reference/aia/v1.0/IMSIC.html
 pub fn init(iid: Iid, num_iids: u16) -> Result<()> {
-    let config = ((MIN_IID_COUNT..=MAX_IID_COUNT).contains(&num_iids)
-        && num_iids % IID_COUNT_GROUP == IID_COUNT_GROUP - 1
-        && iid.number() <= num_iids)
-        .then_some(Imsic { iid, num_iids })
-        .ok_or(Error::InvalidArgs);
     let mut initialized = false;
-    IMSIC.try_call_once(|| {
-        let imsic = config?;
+    IMSIC.try_call_once(|| -> Result<Imsic> {
+        if !(MIN_IID_COUNT..=MAX_IID_COUNT).contains(&num_iids)
+            || num_iids % IID_COUNT_GROUP != IID_COUNT_GROUP - 1
+            || iid.number() > num_iids
+        {
+            return Err(Error::InvalidArgs);
+        }
         irq::with_local_disabled(Imsic::detect)?;
         initialized = true;
-        Ok(imsic)
+        Ok(Imsic { iid, num_iids })
     })?;
     initialized.then_some(()).ok_or(Error::AlreadyInitialized)
 }
@@ -59,13 +58,13 @@ const IID_PER_REGISTER: usize = 32;
 
 impl Imsic {
     fn detect(_irq: &LocalIrqDisabled) -> Result<()> {
-        if !boot::traps_ready() || usize::from(machine::Scratch::read()) != 0 {
+        if !crate::recovery::is_ready() {
             return Err(Error::NotReady);
         }
-        // SAFETY:
-        // 1. Runtime trap recovery is installed, and `MPRV` and `mscratch` are clear.
-        // 2. The IRQ context keeps the probe on the current hart without reentry.
-        unsafe { Mtopei::detect() }.map_err(|_| Error::NotSupported)
+        // SAFETY: is_ready checked the recovery context. _irq excludes local reentry.
+        unsafe { Mtopei::try_read() }
+            .map(|_| ())
+            .map_err(|_| Error::NotSupported)
     }
 
     pub(super) fn init_hart(&self, irq: &LocalIrqDisabled) -> Result<()> {
@@ -77,51 +76,24 @@ impl Imsic {
         let identity = self.iid.number() as usize;
         let word = identity / usize::BITS as usize;
 
-        for register in [ImsicRegister::Delivery, ImsicRegister::Threshold] {
-            let selector = register.selector().ok_or(Error::InvalidArgs)?;
-            // SAFETY:
-            // 1. Runtime owns this hart's IMSIC file; `selector` and zero are
-            //    valid for configuring it.
-            // 2. The IRQ context serializes the selector and data accesses.
-            unsafe {
-                Miselect::write(selector.into());
-                Mireg::write(0);
-            }
-        }
-        for index in (0..register_count).step_by(selector_stride) {
-            for register in [
-                ImsicRegister::Pending(index as u8),
-                ImsicRegister::Enable(index as u8),
-            ] {
-                let selector = register.selector().ok_or(Error::InvalidArgs)?;
-                // SAFETY:
-                // 1. Runtime owns this hart's IMSIC file; `selector` and zero
-                //    are valid for configuring it.
-                // 2. The IRQ context serializes indirect accesses.
-                unsafe {
-                    Miselect::write(selector.into());
-                    Mireg::write(0);
-                }
-            }
-        }
-        for (register, value) in [
-            (
-                ImsicRegister::Enable((word * selector_stride) as u8),
-                1usize << (identity % usize::BITS as usize),
-            ),
-            (ImsicRegister::Delivery, 1),
-        ] {
-            let selector = register.selector().ok_or(Error::InvalidArgs)?;
-            // SAFETY:
-            // 1. Runtime owns this hart's IMSIC file; `selector` and `value`
-            //    are valid for configuring the firmware IPI.
-            // 2. The IRQ context serializes indirect accesses.
-            unsafe {
-                Miselect::write(selector.into());
-                Mireg::write(value);
-            }
-        }
-        Ok(())
+        let bitmaps = (0..register_count).step_by(selector_stride).flat_map(|index| {
+            let enable = if index == word * selector_stride {
+                1usize << (identity % usize::BITS as usize)
+            } else {
+                0
+            };
+            [(ImsicRegister::Pending(index as u8), 0), (ImsicRegister::Enable(index as u8), enable)]
+        });
+        let writes = [
+            (ImsicRegister::Delivery, Eidelivery::DISABLED),
+            (ImsicRegister::Threshold, Eithreshold::ALL),
+        ]
+        .into_iter()
+        .chain(bitmaps)
+        .chain([(ImsicRegister::Delivery, Eidelivery::ENABLED)]);
+        // SAFETY: Startup owns the detected file. Its size bounds every selector,
+        // and the IRQ context excludes competing accesses for the entire sequence.
+        unsafe { imsic::write_machine_registers(writes) }.ok_or(Error::InvalidArgs)
     }
 
     pub(super) fn claim(&self, _irq: &LocalIrqDisabled) -> bool {

@@ -11,9 +11,17 @@
 //! The memory-ordering instructions are defined by the RISC-V ISA:
 //! <https://docs.riscv.org/reference/isa/unpriv/rv32.html>.
 
-use super::{Device, External, InterruptMode, Ipi, IpiEvent, Software};
-use crate::{Error, Result, hart::HartId, irq::LocalIrqDisabled};
-use csr::values::trap::Interrupt;
+use super::{Device, Ipi, IpiEvent};
+use crate::{
+    Error, Result,
+    hart::HartId,
+    instruction::{O, W, fence},
+    irq::LocalIrqDisabled,
+};
+use csr::{
+    Clear, Set, Write,
+    standard::isa::{privileged::machine::Mie, values::trap::Interrupt},
+};
 
 impl Ipi {
     /// Sends a firmware event to the target harts.
@@ -37,28 +45,17 @@ impl Ipi {
     }
 
     pub(crate) fn send_hardware_ipi(&self, hart: HartId) -> Result<()> {
-        #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-        {
-            // SAFETY: The fence only orders memory writes before device output.
-            unsafe {
-                core::arch::asm!("fence w, o", options(nostack));
-            }
-            match &self.device {
-                Device::Software(device) => device.send_ipi(hart),
-                Device::External { device, .. } => device.send_ipi(hart),
-            }
-        }
-        #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-        {
-            let _ = hart;
-            unimplemented!("IPI delivery requires RISC-V")
+        fence(W, O);
+        match &self.device {
+            Device::Software(device) => device.send_ipi(hart),
+            Device::External { device, .. } => device.send_ipi(hart),
         }
     }
 
-    pub(crate) fn acknowledge(&self, _irq: &LocalIrqDisabled) -> Result<bool> {
+    pub(crate) fn acknowledge(&self, irq: &LocalIrqDisabled) -> Result<bool> {
         match &self.device {
             Device::Software(device) => device.acknowledge(&()),
-            Device::External { device, imsic } => device.acknowledge(imsic),
+            Device::External { imsic, .. } => Ok(imsic.claim(irq)),
         }
     }
 
@@ -86,10 +83,20 @@ impl Ipi {
         self.acknowledge(irq).map(|_| ())
     }
 
-    pub(crate) fn enable_interrupt(&self, irq: &LocalIrqDisabled) {
-        match &self.device {
-            Device::Software(_) => Software::enable_interrupt(irq),
-            Device::External { .. } => External::enable_interrupt(irq),
+    pub(crate) fn enable_interrupt(&self, _irq: &LocalIrqDisabled) {
+        // SAFETY: Boot installed the trap entry and local interrupts stay
+        // disabled until both enable bits match the selected wake source.
+        unsafe {
+            match self.device {
+                Device::Software(_) => {
+                    Mie::write(Set(Mie::MSIE));
+                    Mie::write(Clear(Mie::MEIE));
+                }
+                Device::External { .. } => {
+                    Mie::write(Clear(Mie::MSIE));
+                    Mie::write(Set(Mie::MEIE));
+                }
+            }
         }
     }
 }

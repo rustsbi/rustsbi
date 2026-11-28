@@ -9,6 +9,7 @@
 use bitflags::bitflags;
 use runtime::{
     Error, Result,
+    instruction::{ALL, fence},
     memory::{MemoryRegistry, MmioRegion},
 };
 
@@ -80,7 +81,7 @@ impl<const N: usize> Cci550<N> {
         for control in &self.snoop_control {
             control.enable_coherency()?;
             // Order the preceding MMIO write before the status poll.
-            runtime::instruction::fence();
+            fence(ALL, ALL);
             while self.status.change_pending()? {
                 core::hint::spin_loop();
             }

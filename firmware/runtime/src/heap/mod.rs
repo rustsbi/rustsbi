@@ -8,9 +8,11 @@ use crate::Result;
 use core::alloc::Layout;
 
 mod dispatch;
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 mod firmware;
 mod memory;
 
+#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 pub use firmware::{register_global_heap_allocator, take_heap};
 pub use memory::{HeapSlot, HeapSlotList};
 

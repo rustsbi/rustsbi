@@ -12,9 +12,7 @@ mod reset_vector;
 mod wakeup;
 
 use runtime::{
-    PlatformView, Result,
-    hart::install_wakeup,
-    memory::{MemoryRegistry, SupervisorMemory},
+    PlatformView, Result, hart::install_wakeup, memory::MemoryRegistry,
     soc::spacemit::k1::SpacemitK1Soc,
 };
 use spin::Once;
@@ -22,47 +20,43 @@ use spin::Once;
 use super::Board;
 use crate::{
     driver::device::cci,
-    firmware::k1_reset_entry,
-    sbi::{pmu::SbiPmu, vendor::Vendor},
+    firmware::{BootHart, spacemit_k1_reset_entry},
+    sbi::{pmu::SbiPmu, vendor::VendorDevices},
 };
 
 use reset_vector::ResetVectorRegisters;
 
 static INITIALIZED: Once<SpacemitK1Soc> = Once::new();
 
-impl Board for SpacemitK1Soc {
+impl Board for BootHart<SpacemitK1Soc> {
     fn init(
-        &self,
+        &mut self,
         _platform: &PlatformView<'_>,
         memory: &mut MemoryRegistry,
-        _supervisor_memory: &'static SupervisorMemory,
         _pmu: &mut Option<SbiPmu>,
-    ) -> Result<Option<Vendor>> {
+    ) -> Result<Option<VendorDevices>> {
+        let soc = self.hardware()?;
         // A failed MMIO claim must leave the K1 hardware state untouched.
-        let wakeup = wakeup::K1Wakeup::init(self.apmu_registers()?, memory)?;
-        let reset_vectors = ResetVectorRegisters::acquire(memory, self.ciu_registers()?)?;
+        let wakeup = wakeup::K1Wakeup::init(soc.apmu_registers()?, memory)?;
+        let reset_vectors = ResetVectorRegisters::acquire(memory, soc.ciu_registers()?)?;
         let cci = cci::Cci550::init(
             cci::Desc {
-                registers: self.cci_registers()?,
+                registers: soc.cci_registers()?,
                 interfaces: [0, 1],
             },
             memory,
         )?;
 
-        self.initialize_hart();
-        reset_vectors.set_reset_vector(k1_reset_entry as *const () as usize as u64)?;
+        self.initialize_hart()?;
+        reset_vectors.set_reset_vector(spacemit_k1_reset_entry as *const () as usize as u64)?;
         cci.enable_coherency()?;
-        INITIALIZED.call_once(|| *self);
+        INITIALIZED.call_once(|| soc);
         install_wakeup(wakeup);
         Ok(None)
     }
 }
 
-/// Configures the current secondary hart if the platform is K1.
-///
-/// Called in M-mode after the boot hart has published the platform.
-pub(crate) fn initialize_secondary_hart() {
-    if let Some(soc) = INITIALIZED.get() {
-        soc.initialize_hart();
-    }
+/// Returns the boot hart's K1 description once it has enabled cluster coherency.
+pub(crate) fn secondary_soc() -> Option<SpacemitK1Soc> {
+    INITIALIZED.get().copied()
 }

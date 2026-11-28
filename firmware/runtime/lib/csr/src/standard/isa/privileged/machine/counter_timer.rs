@@ -1,138 +1,57 @@
-//! Machine performance counters.
-//!
-//! See <https://docs.riscv.org/reference/isa/priv/machine.html#_hardware_performance_monitor>
-//! and <https://docs.riscv.org/reference/isa/priv/sscofpmf.html>.
-#[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-use crate::value::Value;
-use crate::values::counter::CounterValue;
-use crate::macros::csr;
+//! Programmable machine counter writes and writability probes.
 
-csr! {
-    /// Machine cycle counter.
-    CycleCounter { 0xb00, r: CounterValue,
-        /// # Safety
-        /// Coordinate counter accounting with every user, including sibling
-        /// harts when the implementation shares the cycle counter.
-        unsafe w: CounterValue
-    }
-    /// Machine retired-instruction counter.
-    InstructionCounter { 0xb02, r: CounterValue,
-        /// # Safety
-        /// Own this hart's counter accounting and coordinate its users.
-        unsafe w: CounterValue
-    }
-    CycleCounterHigh { 0xb80, r: CounterValue,
-        /// # Safety
-        /// Coordinate both counter words and every user, including sibling
-        /// harts when the implementation shares the cycle counter.
-        unsafe w: CounterValue
-    }
-    InstructionCounterHigh { 0xb82, r: CounterValue,
-        /// # Safety
-        /// Own this hart's counter accounting and coordinate both words.
-        unsafe w: CounterValue
-    }
+use super::{HpmCounter, Mhpmcounter};
+use crate::{AccessError, Write};
+
+/// Replaces the value of the selected programmable counter.
+///
+/// On RV32, stop accumulation first if the new count must be exact.
+/// Readers can observe an intermediate value during the two-word update.
+///
+/// # Safety
+///
+/// Execute in M-mode on a hart implementing the counter and serialize its writers.
+#[inline]
+pub unsafe fn write_mhpmcounter(counter: HpmCounter, value: u64) {
+    // SAFETY: The caller owns the selected implemented counter's update.
+    match_hpm_counter!(counter, N => unsafe { Mhpmcounter::<N>::write(value) })
 }
 
-macro_rules! read_counter64 {
-    ($counter:ident, $high:ident) => {
-        impl $counter {
-            /// Reads a coherent 64-bit counter value.
-            pub fn read64() -> u64 {
-                #[cfg(target_pointer_width = "64")]
-                {
-                    usize::from(Self::read()) as u64
-                }
-                #[cfg(target_pointer_width = "32")]
-                loop {
-                    let high = usize::from($high::read());
-                    let low = usize::from(Self::read());
-                    if high == usize::from($high::read()) {
-                        return ((high as u64) << 32) | low as u64;
-                    }
-                }
-            }
-        }
+/// Returns the number of consecutive writable bits starting at bit zero of a stopped counter.
+///
+/// `N` must be in `3..=31`. On success the counter holds its original value.
+/// An illegal instruction during restoration can leave the probed word modified.
+///
+/// # Safety
+///
+/// 1. Establish the [machine-trap recovery ABI](crate::recovery).
+/// 2. Exclusively own this counter and keep it stopped throughout the probe.
+// Keep the 29 probes from accumulating their debug-build locals in one frame.
+#[inline(never)]
+pub unsafe fn measure_stopped_mhpmcounter<const N: u8>() -> Result<u8, AccessError> {
+    macro_rules! exchange {
+        ($number:expr, $value:expr) => {{
+            let previous: usize;
+            // SAFETY: The caller owns the stopped counter and has established recovery.
+            unsafe {
+                crate::recovery::try_csr_asm!(
+                    "csrrw {old}, {csr}, {new}", $number,
+                    old = lateout(reg) previous, new = in(reg) $value,
+                )
+            }?;
+            previous
+        }};
+    }
+    let saved = exchange!(Mhpmcounter::<N>::NUMBER, usize::MAX);
+    let low = exchange!(Mhpmcounter::<N>::NUMBER, saved);
+    #[cfg(target_pointer_width = "32")]
+    let bits = {
+        // Later RV32 writes need an accessible high word even if it holds no writable bits.
+        let saved = exchange!(Mhpmcounter::<N>::HIGH_NUMBER, usize::MAX);
+        let high = exchange!(Mhpmcounter::<N>::HIGH_NUMBER, saved);
+        ((high as u64) << 32) | low as u64
     };
+    #[cfg(target_pointer_width = "64")]
+    let bits = low;
+    Ok(bits.trailing_ones() as u8)
 }
-
-read_counter64!(CycleCounter, CycleCounterHigh);
-read_counter64!(InstructionCounter, InstructionCounterHigh);
-
-macro_rules! counter_register {
-    ($(#[$attr:meta])* $name:ident, $base:literal) => {
-        $(#[$attr])*
-        pub enum $name<const INDEX: u8> {}
-
-        $(#[$attr])*
-        impl<const INDEX: u8> $name<INDEX> {
-            /// Architectural CSR number; indices outside 3..=31 are rejected.
-            pub const NUMBER: u16 = {
-                assert!(INDEX >= 3 && INDEX <= 31, "counter index must be 3..=31");
-                $base + INDEX as u16
-            };
-
-            /// Reads this hart's counter or event selector.
-            ///
-            /// Access to an unavailable or inaccessible register traps.
-            #[inline]
-            pub fn read() -> CounterValue {
-                #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-                {
-                    let bits: usize;
-                    // SAFETY: These registers can be read without changing
-                    // the execution environment. Inaccessible access traps.
-                    unsafe {
-                        core::arch::asm!("csrr {bits}, {csr}", bits = out(reg) bits,
-                            csr = const Self::NUMBER, options(nostack));
-                    }
-                    CounterValue::from_bits(bits)
-                }
-                #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-                unimplemented!("CSR access requires RISC-V")
-            }
-
-            /// Writes this hart's counter or event selector.
-            ///
-            /// Access to an unavailable or inaccessible register traps.
-            ///
-            /// # Safety
-            ///
-            /// Execute on the intended hart in M-mode with a valid trap context.
-            /// Coordinate counter and event-selector updates with their users.
-            #[inline]
-            pub unsafe fn write(value: CounterValue) {
-                #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-                // SAFETY: The caller coordinates the update with the users
-                // of this counter and its event selector.
-                unsafe {
-                    core::arch::asm!("csrw {csr}, {bits}", csr = const Self::NUMBER,
-                        bits = in(reg) usize::from(value), options(nostack));
-                }
-                #[cfg(not(any(target_arch = "riscv32", target_arch = "riscv64")))]
-                {
-                    let _ = value;
-                    unimplemented!("CSR access requires RISC-V");
-                }
-            }
-        }
-    };
-}
-
-counter_register!(
-    /// Machine performance counter indexed from 3 through 31.
-    PerformanceCounter, 0xb00
-);
-
-counter_register!(
-    /// Upper word of a machine performance counter on RV32.
-    PerformanceCounterHigh, 0xb80
-);
-counter_register!(
-    /// Platform-defined event selector for a programmable machine counter.
-    PerformanceEvent, 0x320
-);
-counter_register!(
-    /// Optional upper event-selector word on RV32 (Sscofpmf).
-    PerformanceEventHigh, 0x720
-);

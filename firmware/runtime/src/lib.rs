@@ -7,30 +7,40 @@
 
 #![no_std]
 #![warn(missing_docs)]
+#![cfg_attr(
+    any(target_arch = "riscv32", target_arch = "riscv64"),
+    feature(riscv_ext_intrinsics)
+)]
 
 extern crate alloc;
 
-pub mod boot;
 pub mod console;
-mod csr;
-pub mod debug;
 mod device_tree;
 mod error;
 pub mod events;
 pub mod fence;
-pub mod fwft;
-pub mod hart;
 pub mod heap;
-pub mod instruction;
-pub mod ipi;
-mod irq;
 pub mod memory;
-mod recovery;
 pub mod reset;
-pub mod soc;
-mod sunxi_rtc_v203;
-pub mod timer;
 pub mod trap;
+
+cfg_select! {
+    any(target_arch = "riscv32", target_arch = "riscv64") => {
+        pub mod boot;
+        pub mod debug;
+        pub mod fwft;
+        pub mod hart;
+        pub mod instruction;
+        pub mod ipi;
+        mod irq;
+        pub mod pmp;
+        pub mod pmu;
+        mod recovery;
+        pub mod soc;
+        pub mod timer;
+    }
+    _ => {}
+}
 
 pub use error::{Error, Result};
 

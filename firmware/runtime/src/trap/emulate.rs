@@ -1,61 +1,78 @@
-//! Complete instruction emulation.
-//! Only successful operations advance the PC.
+//! Instruction emulation for non-virtualized S/U traps.
+//!
+//! The saved PC advances only after the emulated operation succeeds.
 
-use csr::{machine, supervisor, user, values::counter::Counter};
+use csr::{
+    Read,
+    standard::isa::{
+        privileged::{machine::Mcounteren, supervisor::Scounteren},
+        unprivileged::Time,
+        values::{counter::Counter, status::Privilege, xlen::Xlen},
+    },
+};
 
 use super::{
     Error, decode,
     frame::{TrapFrame, TrapInfo},
     memory,
 };
-use crate::timer::now;
+use crate::{hart, timer::now};
 
 pub(super) fn emulate_load(frame: &mut TrapFrame, info: &TrapInfo) -> Result<(), Error> {
-    let (raw, len) = memory::fetch(info)?;
-    let op = decode::decode_load(raw).ok_or(Error::Unsupported)?;
-    let value = memory::read(info, op.kind)?;
+    let xlen = info.lower_xlen().ok_or(Error::Unsupported)?;
+    let (raw, len) = memory::fetch(info, xlen)?;
+    let op = decode::decode_load(raw, xlen).ok_or(Error::Unsupported)?;
+    let value = memory::read(info, op.kind, xlen)?;
     frame.general.write(op.rd, op.kind.extend(value));
-    frame.epc = frame.epc.wrapping_add(len);
+    frame.advance_pc(len, xlen);
     Ok(())
 }
 
 pub(super) fn emulate_store(frame: &mut TrapFrame, info: &TrapInfo) -> Result<(), Error> {
-    let (raw, len) = memory::fetch(info)?;
-    let op = decode::decode_store(raw).ok_or(Error::Unsupported)?;
-    memory::write(info, frame.general.read(op.rs2), op.kind)?;
-    frame.epc = frame.epc.wrapping_add(len);
+    let xlen = info.lower_xlen().ok_or(Error::Unsupported)?;
+    let (raw, len) = memory::fetch(info, xlen)?;
+    let op = decode::decode_store(raw, xlen).ok_or(Error::Unsupported)?;
+    memory::write(info, frame.general.read(op.rs2), op.kind, xlen)?;
+    frame.advance_pc(len, xlen);
     Ok(())
 }
 
 pub(super) fn emulate_time_read(frame: &mut TrapFrame, info: &TrapInfo) -> Result<(), Error> {
+    let xlen = info.lower_xlen().ok_or(Error::Unsupported)?;
     // mtval may contain instruction bits; otherwise fetch under saved privilege.
     let bits = info.tval as u32;
     let (raw, len) = if bits & 3 == 3 {
         (bits, 4)
     } else {
-        memory::fetch(info)?
+        memory::fetch(info, xlen)?
     };
-    let op = decode::decode_time_read(raw).ok_or(Error::Unsupported)?;
-    // https://docs.riscv.org/reference/isa/priv/supervisor.html#scounteren
-    // Emulation must preserve the original mode's counter-access restrictions.
-    let machine_counters = machine::CounterEnable::read();
-    let supervisor_counters = supervisor::CounterEnable::read();
+    let op = decode::decode_time_read(raw, xlen).ok_or(Error::Unsupported)?;
+    // The originating privilege must have time access through each implemented counter gate.
+    let privilege = info.origin().map_err(|_| Error::Unsupported)?;
+    let machine_counters = Mcounteren::read();
     if !machine_counters.contains(Counter::Time)
-        || (info.origin() == machine::Privilege::User
-            && !supervisor_counters.contains(Counter::Time))
+        || (privilege == Privilege::User
+            && hart::supports_privilege(Privilege::Supervisor)
+            && !Scounteren::read().contains(Counter::Time))
     {
         return Err(Error::Unsupported);
     }
     let Some(ticks) = now().map_err(Error::Runtime)? else {
         return Err(Error::Unsupported);
     };
-    let value = match op.csr {
-        user::Time::NUMBER => ticks as usize,
-        #[cfg(target_pointer_width = "32")]
-        user::TimeHigh::NUMBER => (ticks >> 32) as usize,
-        _ => return Err(Error::Unsupported),
+    let value = match xlen {
+        Xlen::X32 => {
+            let word = if op.csr == Time::HIGH_NUMBER {
+                (ticks >> 32) as u32
+            } else {
+                ticks as u32
+            };
+            // Reduced-XLEN register results fill MXLEN by sign extension.
+            word as i32 as usize
+        }
+        Xlen::X64 => ticks as usize,
     };
     frame.general.write(op.rd, value);
-    frame.epc = frame.epc.wrapping_add(len);
+    frame.advance_pc(len, xlen);
     Ok(())
 }
