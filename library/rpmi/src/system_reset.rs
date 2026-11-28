@@ -14,12 +14,10 @@ pub const RESET: u8 = 0x03;
 
 /// Reset-type values shared with the SBI System Reset extension.
 pub mod reset_type {
-    /// Shut down the system.
-    pub const SHUTDOWN: u32 = 0;
-    /// Cold reboot the system.
-    pub const COLD_REBOOT: u32 = 1;
-    /// Warm reboot the system.
-    pub const WARM_REBOOT: u32 = 2;
+    pub use sbi_spec::srst::{
+        RESET_TYPE_COLD_REBOOT as COLD_REBOOT, RESET_TYPE_SHUTDOWN as SHUTDOWN,
+        RESET_TYPE_WARM_REBOOT as WARM_REBOOT,
+    };
     /// First vendor- or platform-specific reset type.
     pub const VENDOR_SPECIFIC_START: u32 = 0xf000_0000;
     /// Last vendor- or platform-specific reset type.

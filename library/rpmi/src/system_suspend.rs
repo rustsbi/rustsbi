@@ -13,10 +13,7 @@ pub const GET_ATTRIBUTES: u8 = 0x02;
 pub const SUSPEND: u8 = 0x03;
 
 /// Suspend-type values shared with the SBI System Suspend extension.
-pub mod suspend_type {
-    /// Suspend to RAM.
-    pub const SUSPEND_TO_RAM: u32 = 0;
-}
+pub use sbi_spec::susp::sleep_type as suspend_type;
 
 /// Suspend-type attribute flags.
 pub mod attribute {
