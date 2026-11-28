@@ -96,11 +96,11 @@ pub(crate) fn derive(input: DeriveInput) -> TokenStream {
             }
             let probe_arms = variants.iter().map(|name| {
                 quote! {
-                    Self::#name(inner) => #krate::VendorSBI::probe_extension(inner, extension),
+                    Self::#name(ref inner) => #krate::VendorSBI::probe_extension(inner, extension),
                 }
             });
             let handle_arms = variants.iter().map(|name| quote! {
-                Self::#name(inner) => #krate::VendorSBI::handle_ecall(inner, extension, function, args),
+                Self::#name(ref inner) => #krate::VendorSBI::handle_ecall(inner, extension, function, args),
             });
             let name = &input.ident;
             let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
@@ -108,7 +108,7 @@ pub(crate) fn derive(input: DeriveInput) -> TokenStream {
                 impl #impl_generics #krate::VendorSBI for #name #ty_generics #where_clause {
                     #[inline]
                     fn probe_extension(&self, extension: usize) -> usize {
-                        match self { #(#probe_arms)* }
+                        match *self { #(#probe_arms)* }
                     }
 
                     #[inline]
@@ -118,7 +118,7 @@ pub(crate) fn derive(input: DeriveInput) -> TokenStream {
                         function: usize,
                         args: [usize; 6],
                     ) -> #krate::SbiRet {
-                        match self { #(#handle_arms)* }
+                        match *self { #(#handle_arms)* }
                     }
                 }
             }
