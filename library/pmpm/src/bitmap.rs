@@ -1,11 +1,6 @@
-//! PMP slot management bitmap.
-//!
-//! PMP slot bitmap used for allocating/freeing a PMP slot.
+//! Allocation of the PMP entries managed by this library.
 
-// PMP management bitmap, for alloc/free PMP slot in Penglai/Keystone. A bitmap
-// can describe a segment of consecutive PMP entries.
 use super::MAX_PMP_ENTRY_COUNT;
-use core::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum PmpError {
@@ -15,7 +10,7 @@ pub enum PmpError {
 
 #[derive(Debug)]
 pub struct PMPSlotAllocator {
-    pmp_slots: AtomicU64,
+    pmp_slots: u64,
     /// PMP slots that can be used.
     alloc_mask: u64,
     /// PMP slots that current allocator managed, including reserved ones.
@@ -25,74 +20,42 @@ pub struct PMPSlotAllocator {
 impl PMPSlotAllocator {
     /// Create new PMP bitmap.
     pub const fn new(alloc_mask: u64, manage_mask: u64) -> Self {
-        PMPSlotAllocator {
-            // use alloc mask to init PMP bitmap
-            pmp_slots: AtomicU64::new(0),
-            alloc_mask,
+        let manage_mask = manage_mask & ((1 << MAX_PMP_ENTRY_COUNT) - 1);
+        Self {
+            pmp_slots: 0,
+            alloc_mask: alloc_mask & manage_mask,
             manage_mask,
         }
     }
 
     /// Alloc first free PMP slot in bitmap and update bitmap.
     pub fn alloc(&mut self) -> Result<u32, PmpError> {
-        loop {
-            let cur_slots = self.pmp_slots.load(Ordering::Acquire);
-            // check avaliable slot
-            let aval_slots = !cur_slots & self.alloc_mask;
-            if aval_slots == 0 {
-                return Err(PmpError::NoFreeSlot);
-            }
-
-            // alloc bit
-            let pmp_idx = aval_slots.trailing_zeros();
-            let new_bitmap = cur_slots | (1u64 << pmp_idx);
-            // set new alloc bit
-            match self.pmp_slots.compare_exchange(
-                cur_slots,
-                new_bitmap,
-                Ordering::Release,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => return Ok(pmp_idx),
-                Err(_) => continue,
-            }
+        let available = self.alloc_mask & !self.pmp_slots;
+        if available == 0 {
+            return Err(PmpError::NoFreeSlot);
         }
+        let index = available.trailing_zeros();
+        self.pmp_slots |= 1 << index;
+        Ok(index)
     }
 
     pub fn free(&mut self, idx: u32) -> Result<(), PmpError> {
-        let free_slot = 1u64 << (idx & (MAX_PMP_ENTRY_COUNT - 1));
-        loop {
-            let cur_slots = self.pmp_slots.load(Ordering::Acquire);
-            if (cur_slots & free_slot & self.alloc_mask) == 0 {
-                return Err(PmpError::IndexOutOfRange);
-            }
-
-            let new_bitmap = cur_slots & !free_slot;
-
-            // 4. 尝试原子地更新位图
-            match self.pmp_slots.compare_exchange(
-                cur_slots,
-                new_bitmap,
-                Ordering::Release,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => return Ok(()),
-                Err(_) => continue,
-            }
+        if !self.is_alloc(idx)? {
+            return Err(PmpError::IndexOutOfRange);
         }
+        self.pmp_slots &= !(1 << idx);
+        Ok(())
     }
 
     pub fn is_alloc(&self, idx: u32) -> Result<bool, PmpError> {
-        let check_slot = 1u64 << (idx & (MAX_PMP_ENTRY_COUNT - 1));
-        if (check_slot & self.alloc_mask) == 0 {
+        if idx >= MAX_PMP_ENTRY_COUNT || self.alloc_mask & (1 << idx) == 0 {
             return Err(PmpError::IndexOutOfRange);
         }
-        let cur_slots = self.pmp_slots.load(Ordering::Acquire);
-        Ok((cur_slots & check_slot) != 0)
+        Ok(self.pmp_slots & (1 << idx) != 0)
     }
 
     pub fn is_managed(&self, idx: u32) -> bool {
-        self.manage_mask & (1 << idx) != 0
+        idx < MAX_PMP_ENTRY_COUNT && self.manage_mask & (1 << idx) != 0
     }
 }
 
@@ -119,27 +82,27 @@ mod tests {
         let mut allocator = PMPSlotAllocator::new(alloc_mask, alloc_mask);
 
         // Check initial state (should be 0)
-        assert_eq!(allocator.pmp_slots.load(Ordering::Relaxed), 0);
+        assert_eq!(allocator.pmp_slots, 0);
 
         // 1. Allocate first slot (expected 0, the lowest set bit)
         let idx1 = allocator.alloc().unwrap();
         assert_eq!(idx1, 0);
-        assert_eq!(allocator.pmp_slots.load(Ordering::Relaxed), 0b1);
+        assert_eq!(allocator.pmp_slots, 0b1);
 
         // 2. Allocate second slot (expected 1)
         let idx2 = allocator.alloc().unwrap();
         assert_eq!(idx2, 1);
-        assert_eq!(allocator.pmp_slots.load(Ordering::Relaxed), 0b11);
+        assert_eq!(allocator.pmp_slots, 0b11);
 
         // 3. Allocate third slot (expected 8, skipping 2-7)
         let idx3 = allocator.alloc().unwrap();
         assert_eq!(idx3, 8);
-        assert_eq!(allocator.pmp_slots.load(Ordering::Relaxed), 0b100000011);
+        assert_eq!(allocator.pmp_slots, 0b100000011);
 
         // 4. Allocate fourth slot (expected 9)
         let idx4 = allocator.alloc().unwrap();
         assert_eq!(idx4, 9);
-        assert_eq!(allocator.pmp_slots.load(Ordering::Relaxed), 0b1100000011);
+        assert_eq!(allocator.pmp_slots, 0b1100000011);
     }
 
     // --- Test: Range Limit and No Free Slot ---

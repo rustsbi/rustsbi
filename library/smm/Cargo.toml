@@ -13,8 +13,6 @@ categories = ["os", "embedded", "hardware-support", "no-std"]
 
 [dependencies]
 riscv = { workspace = true }
-spin = "0.9"
-log = "0.4"
 pmpm = { version = "0.0.0", path = "../pmpm" }
 
 [dev-dependencies]

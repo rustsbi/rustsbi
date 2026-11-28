@@ -1,46 +1,56 @@
-//! Unified Secure Memory Manager
-//!
-//! A concrete **SecMemManager** instance for unified TEE memory management.
-//! Orchestrates **RT** (exclusive) and **APP** (shared) enclave memory styles.
-//! Implements hardware isolation via **protectors** and secure sanitization.
-//! Manages **Region** lifecycle from **General** to specialized enclave states.
+//! Secure regions backed by PMP, with one temporary allocation grant per hart.
 
 use super::*;
-use crate::protector::TestSecMemProtector;
+use crate::protector::{SecMemProtectorByPMP, UpdatePmp};
 use alloc::vec::Vec;
-use core::usize;
+use core::ops::Range;
 
-type UniSecMemProtector = TestSecMemProtector;
+const MONITOR_SLOT: u32 = 0;
+const TEMP_SLOT: u32 = 1;
+const DEFAULT_SLOT: u32 = MAX_PMP_ENTRY_COUNT - 1;
+const MANAGED: u64 = (1 << MAX_PMP_ENTRY_COUNT) - 1;
+const ALLOCATABLE: u64 = MANAGED & !((1 << MONITOR_SLOT) | (1 << TEMP_SLOT) | (1 << DEFAULT_SLOT));
 
-/// These PMP slots are reserved and not used to alloc enclave mem.
-///
-/// PMP N-1 : Default grant kernel access with all mem.
-/// PMP 1   : Only used in Penglai, for temporarily grant kernel access with specific sec mem.
-/// PMP 0   : Protect SM code/data.
-const UNI_SECMEM_SM_SLOT: u32 = 1 << 0;
-const UNI_SECMEM_TEMP_SLOT: u32 = 1 << 1;
-const UNI_SECMEM_DEFAULT_SLOT: u32 = 1 << (MAX_PMP_ENTRY_COUNT - 1);
-const UNI_SECMEM_PMP_ALLOCMASK: u64 = ((1 << MAX_PMP_ENTRY_COUNT) - 1)
-    & !((UNI_SECMEM_SM_SLOT | UNI_SECMEM_TEMP_SLOT | UNI_SECMEM_TEMP_SLOT) as u64);
-const UNI_SECMEM_PMP_MANAGEMASK: u64 = UNI_SECMEM_PMP_ALLOCMASK
-    & ((UNI_SECMEM_SM_SLOT | UNI_SECMEM_DEFAULT_SLOT | UNI_SECMEM_TEMP_SLOT) as u64);
+enum Monitor {
+    Uninitialized,
+    Protected(Range<usize>),
+    Ready(Range<usize>),
+}
 
 pub struct UniSecMemManager<const ORDER: usize, AR, AA>
 where
     AR: SecMemAllocator<ORDER>,
     AA: SecMemAllocator<ORDER>,
 {
-    /// A simple incrementing ID for region
     cur_idx: usize,
-    ///
-    protector: UniSecMemProtector,
-
-    /// These PMP slots are reserved and not used to alloc enclave mem.
-    reserved_regions: Vec<SecMemRegion<ORDER, NoneAlloc<ORDER>, NoneAlloc<ORDER>>>,
-    /// These region are used to manage allocable secure mem.
-    ///
-    /// Use PMP 2~(N-2)
+    protector: SecMemProtectorByPMP,
+    monitor: Monitor,
     alloc_regions: Vec<SecMemRegion<ORDER, AR, AA>>,
+}
+
+impl<const ORDER: usize, AR, AA> UniSecMemManager<ORDER, AR, AA>
+where
+    AR: SecMemAllocator<ORDER>,
+    AA: SecMemAllocator<ORDER>,
+{
+    fn release_region(&mut self, index: usize) -> Option<(usize, usize)> {
+        let region = &mut self.alloc_regions[index];
+        if !region.granted_allocations.is_empty() {
+            return None;
+        }
+        if !matches!(region.allocator, SecMemAllocatorWrapper::None) {
+            region.allocator = SecMemAllocatorWrapper::None;
+            region.live_allocations = 0;
+            // SAFETY: extend reserves exclusive writable memory. No hart has a live grant.
+            unsafe { core::ptr::write_bytes(region.addr as *mut u8, 0, region.len) };
+        }
+        if !self.protector.disable(region.slot) {
+            return None;
+        }
+        assert!(self.protector.free(region.slot));
+        let region = self.alloc_regions.swap_remove(index);
+        Some((region.addr, region.len))
+    }
 }
 
 impl<const ORDER: usize, AR, AA> SecMemManager<ORDER, AR, AA> for UniSecMemManager<ORDER, AR, AA>
@@ -48,83 +58,67 @@ where
     AR: SecMemAllocator<ORDER>,
     AA: SecMemAllocator<ORDER>,
 {
-    fn new() -> Self {
+    unsafe fn new(update_local: UpdatePmp, update_all: UpdatePmp) -> Self {
         Self {
             cur_idx: 0,
-            protector: UniSecMemProtector::new(UNI_SECMEM_PMP_ALLOCMASK, UNI_SECMEM_PMP_MANAGEMASK),
-            reserved_regions:
-                Vec::<SecMemRegion<ORDER, NoneAlloc<ORDER>, NoneAlloc<ORDER>>>::with_capacity(
-                    1usize,
-                ),
-            alloc_regions: Vec::<SecMemRegion<ORDER, AR, AA>>::with_capacity(
-                (MAX_PMP_ENTRY_COUNT - 3) as usize,
-            ),
+            // SAFETY: The caller reserves the managed entries and supplies callbacks
+            // that synchronize successful updates and preserve protection on failure.
+            protector: unsafe {
+                SecMemProtectorByPMP::new(ALLOCATABLE, MANAGED, update_local, update_all)
+            },
+            monitor: Monitor::Uninitialized,
+            alloc_regions: Vec::with_capacity(ALLOCATABLE.count_ones() as usize),
         }
     }
-    fn init(&mut self, sm_addr: usize, sm_len: usize) -> bool {
-        // Reset temporary and default PMP slot
-        if !self.protector.disable(UNI_SECMEM_TEMP_SLOT)
-            || !self
-                .protector
-                .grant_access_all(0, usize::MAX, UNI_SECMEM_DEFAULT_SLOT)
-        {
-            error!("[SMM] Reset Temporary/Default PMP slot failed");
+    unsafe fn init(&mut self, sm_addr: usize, sm_len: usize) -> bool {
+        let Some(end) = sm_addr.checked_add(sm_len) else {
+            return false;
+        };
+        let range = sm_addr..end;
+        match &self.monitor {
+            Monitor::Uninitialized => {
+                if !self.protector.is_protectable(sm_addr, sm_len)
+                    || !self
+                        .protector
+                        .retrive_access_all(sm_addr, sm_len, MONITOR_SLOT)
+                {
+                    return false;
+                }
+                self.monitor = Monitor::Protected(range.clone());
+            }
+            Monitor::Protected(previous) if *previous == range => {}
+            _ => return false,
+        }
+        if !self.protector.grant_access_all(0, usize::MAX, DEFAULT_SLOT) {
             return false;
         }
-
-        // Init and protect SM region
-        if self.protector.is_protectable(sm_addr, sm_len)
-            && self
-                .protector
-                .retrive_access_all(sm_addr, sm_len, UNI_SECMEM_SM_SLOT)
-        {
-            self.reserved_regions.push(
-                SecMemRegion::<ORDER, NoneAlloc<ORDER>, NoneAlloc<ORDER>>::new(
-                    sm_addr,
-                    sm_len,
-                    self.cur_idx,
-                    UNI_SECMEM_SM_SLOT,
-                ),
-            );
-        } else {
-            error!("[SMM] Cannot protect SM region due to memory check or protect fail");
-            return false;
-        }
-        self.cur_idx += 1;
+        self.monitor = Monitor::Ready(range);
         true
     }
 
-    fn deinit(mut self, cur_regions: &mut [(usize, usize); MAX_PMP_ENTRY_COUNT as usize]) -> u32 {
+    fn deinit(&mut self, cur_regions: &mut [(usize, usize); MAX_PMP_ENTRY_COUNT as usize]) -> u32 {
         let mut count = 0;
-        for region in self.alloc_regions.drain(..) {
-            // Though SMM assume all enclaves should exited successfully before deinit, which means
-            // there isn't any protected data in secure memory. But TEE driver may also be attacked,
-            // so SMM still clean all data in secure memory when deinit to avoid any protected data leap.
-            // SAFETY: the region was registered through the unsafe `extend`,
-            // which guarantees its range is valid for writes and unaliased
-            // while the manager holds it.
-            unsafe {
-                core::ptr::write_bytes(region.addr as *mut u8, 0, region.len);
-                // sfence_vma_all();
-            }
-            // Disable hardware used to protect region.
-            cur_regions[count] = (region.addr, region.len);
+        while let Some(index) = self.alloc_regions.len().checked_sub(1) {
+            let Some(region) = self.release_region(index) else {
+                break;
+            };
+            cur_regions[count] = region;
             count += 1;
-            if !self.protector.disable(region.slot) {
-                error!(
-                    "[SMM] Deinit Region-{} with slot-{} fail",
-                    region.id, region.slot
-                );
-            }
         }
         count as u32
     }
 
     unsafe fn extend(&mut self, addr: usize, len: usize) -> bool {
-        // Check if new memory area can be protect by hardware
-        if !self.protector.is_protectable(addr, len)
-            || (self.alloc_regions.len() >= self.alloc_regions.capacity())
-            // New region's mem area shouldn't overlap with any exist region
+        let (Monitor::Ready(monitor), Some(end), Some(id)) = (
+            &self.monitor,
+            addr.checked_add(len),
+            self.cur_idx.checked_add(1),
+        ) else {
+            return false;
+        };
+        if addr == 0
+            || !self.protector.is_protectable(addr, len)
+            || (addr < monitor.end && monitor.start < end)
             || self
                 .alloc_regions
                 .iter()
@@ -132,21 +126,16 @@ where
         {
             return false;
         }
-
-        // Try alloc a hardware to protect new region
-        if let Some(hwid) = self.protector.alloc() {
-            if !self.protector.retrive_access_all(addr, len, hwid) {
-                self.protector.free(hwid);
-                return false;
-            }
-            self.cur_idx += 1;
-            self.alloc_regions.push(SecMemRegion::<ORDER, AR, AA>::new(
-                addr,
-                len,
-                self.cur_idx,
-                hwid,
-            ));
+        let Some(slot) = self.protector.alloc() else {
+            return false;
+        };
+        if !self.protector.retrive_access_all(addr, len, slot) {
+            assert!(self.protector.free(slot));
+            return false;
         }
+        self.cur_idx = id;
+        self.alloc_regions
+            .push(SecMemRegion::new(addr, len, id, slot));
         true
     }
 
@@ -154,244 +143,155 @@ where
         let index = self
             .alloc_regions
             .iter()
-            .position(|region| region.is_used == false)?;
-        let region = self.alloc_regions.swap_remove(index);
-        // Sanitization is done when free enclave memory. And in-use region won't be reclaim, so
-        // no need clean secure memory.
-        // unprotect region and try free PMP slot
-        if self.protector.disable(region.slot) && self.protector.free(region.slot) {
-            return Some((region.addr, region.len));
-        }
-        None
+            .position(|region| region.live_allocations == 0)?;
+        self.release_region(index)
     }
 
     fn alloc_em(&mut self, len: usize, em_type: SecMemType) -> Option<(usize, usize, usize)> {
-        // Init alloc layout, size must be power of 2
-        let mut expect_len = len.next_power_of_two();
+        fn allocate<const ORDER: usize>(
+            allocator: &mut impl SecMemAllocator<ORDER>,
+            maximum: usize,
+            minimum: usize,
+        ) -> Option<(NonNull<u8>, usize)> {
+            let mut size = 1usize << maximum.checked_ilog2()?;
+            while size >= minimum {
+                if let Ok(layout) = Layout::from_size_align(size, size)
+                    && let Ok(ptr) = allocator.alloc(layout)
+                {
+                    return Some((ptr, size));
+                }
+                size /= 2;
+            }
+            None
+        }
+
+        if len == 0 {
+            return None;
+        }
+        let requested = len.max(8).checked_next_power_of_two()?;
 
         for region in self.alloc_regions.iter_mut() {
-            if region.len < len {
+            if region.len < requested {
                 continue;
             }
 
-            // If region is General, then change it to request type
-            // BEWARE that alloc should success in most of time, so change of type won't reverse even when alloc failed,
-            // if region reach limits, it depends on TEE driver to reclaim unused regions manully.
-            if matches!(region.allocator, SecMemAllocatorWrapper::General) {
-                if matches!(em_type, SecMemType::Runtime) {
-                    let mut alloc = AR::new();
-                    alloc.init(region.addr, region.len);
-                    region.allocator = SecMemAllocatorWrapper::Runtime(alloc);
-                } else if matches!(em_type, SecMemType::Application) {
-                    let mut alloc = AA::new();
-                    alloc.init(region.addr, region.len);
-                    region.allocator = SecMemAllocatorWrapper::Application(alloc);
+            let fresh = matches!(region.allocator, SecMemAllocatorWrapper::General);
+            if fresh {
+                region.allocator = match em_type {
+                    SecMemType::Runtime => {
+                        let mut alloc = AR::new();
+                        alloc.init(region.addr, region.len);
+                        SecMemAllocatorWrapper::Runtime(alloc)
+                    }
+                    SecMemType::Application => {
+                        let mut alloc = AA::new();
+                        alloc.init(region.addr, region.len);
+                        SecMemAllocatorWrapper::Application(alloc)
+                    }
+                    _ => return None,
+                };
+            }
+            let result = match (&mut region.allocator, em_type) {
+                (SecMemAllocatorWrapper::Runtime(alloc), SecMemType::Runtime) => {
+                    let size = alloc.available().min(region.len);
+                    allocate(alloc, size, requested)
+                }
+                (SecMemAllocatorWrapper::Application(alloc), SecMemType::Application) => {
+                    allocate(alloc, requested, requested)
+                }
+                _ => continue,
+            };
+            if let Some((ptr, size)) = result {
+                let ptr_addr = ptr.as_ptr() as usize;
+                if ptr_addr.is_multiple_of(size) && region.is_mem_contained(ptr_addr, size) {
+                    region.live_allocations += 1;
+                    return Some((ptr_addr, size, region.id));
                 }
             }
-
-            // If region type is equal to request type, try alloc enclave mem
-            if let Ok(ptr) = match &mut region.allocator {
-                SecMemAllocatorWrapper::Runtime(alloc)
-                    if matches!(em_type, SecMemType::Runtime)
-                    // Pre-allocation capacity check
-                        && (alloc.available() >= expect_len) =>
-                {
-                    expect_len = alloc.available();
-                    alloc.alloc(Layout::from_size_align(expect_len, expect_len).ok()?)
-                }
-                SecMemAllocatorWrapper::Application(alloc)
-                    if matches!(em_type, SecMemType::Application)
-                    // Pre-allocation capacity check
-                        && (alloc.available() >= expect_len) =>
-                {
-                    alloc.alloc(Layout::from_size_align(expect_len, expect_len).ok()?)
-                }
-                _ => Err(()),
-            } {
-                let ptr_addr = ptr.as_ptr() as usize;
-                // A hostile allocator may return a pointer outside its
-                // region; such results must not be handed out.
-                if !region.is_mem_contained(ptr_addr, expect_len) {
-                    return None;
-                }
-                // If alloc successfully, get addr and idx of region
-                region.is_used = true;
-                return Some((ptr_addr, expect_len, region.id));
+            if fresh {
+                region.allocator = SecMemAllocatorWrapper::General;
             }
         }
         None
     }
 
     fn free_em(&mut self, addr: usize, len: usize) -> Option<usize> {
-        let expect_len = len.next_power_of_two();
-        let free_layout = Layout::from_size_align(expect_len, expect_len).ok()?;
+        let free_layout = Layout::from_size_align(len, len).ok()?;
         let free_ptr = NonNull::new(addr as *mut u8)?;
 
-        if let Some(free_region) = self
+        let free_region = self
             .alloc_regions
             .iter_mut()
-            .find(|region| region.is_mem_contained(addr, len))
-        {
-            // Clean enclave memory to avoid data leap between enclaves and when host request reclaim
-            // SAFETY: `is_mem_contained` proved the range lies inside a
-            // region registered through the unsafe `extend`, which guarantees
-            // it is valid for writes and unaliased while the manager holds
-            // it.
-            unsafe {
-                core::ptr::write_bytes(addr as *mut u8, 0, len);
-                // sfence_vma_all();
+            .find(|region| region.is_mem_contained(addr, len))?;
+        if free_region.granted_allocations.contains(&addr) {
+            return None;
+        }
+        fn release<const ORDER: usize>(
+            allocator: &mut impl SecMemAllocator<ORDER>,
+            ptr: NonNull<u8>,
+            layout: Layout,
+        ) -> bool {
+            if !allocator.owns(ptr.as_ptr() as usize, layout.size()) {
+                return false;
             }
-            return match &mut free_region.allocator {
-                SecMemAllocatorWrapper::Application(alloc) => {
-                    alloc.free(free_ptr, free_layout);
-                    // if all memory of region is free, reset region status.
-                    if alloc.available() == alloc.total() {
-                        free_region.is_used = false;
-                        free_region.allocator = SecMemAllocatorWrapper::General;
-                    }
-                    Some(free_region.id)
-                }
-                SecMemAllocatorWrapper::Runtime(alloc) => {
-                    alloc.free(free_ptr, free_layout);
-                    // if all memory of region is free, reset region status.
-                    if alloc.available() == alloc.total() {
-                        free_region.is_used = false;
-                        free_region.allocator = SecMemAllocatorWrapper::General;
-                    }
-                    Some(free_region.id)
-                }
-                _ => None,
-            };
+            // SAFETY: The registered range is writable, owns confirms the whole
+            // allocation, and free_em checked that every hart has revoked its grant.
+            unsafe { core::ptr::write_bytes(ptr.as_ptr(), 0, layout.size()) };
+            // The allocator may reuse the block for its free list here.
+            allocator.free(ptr, layout)
         }
-        None
+        let released = match &mut free_region.allocator {
+            SecMemAllocatorWrapper::Application(alloc) => release(alloc, free_ptr, free_layout),
+            SecMemAllocatorWrapper::Runtime(alloc) => release(alloc, free_ptr, free_layout),
+            _ => false,
+        };
+        if !released {
+            return None;
+        }
+        free_region.live_allocations -= 1;
+        if free_region.live_allocations == 0 {
+            free_region.allocator = SecMemAllocatorWrapper::General;
+        }
+        Some(free_region.id)
     }
 
-    /// Grant enclave access to certain region on current hart
-    fn grant_access(&self, addr: usize, len: usize, region_id: usize) -> bool {
-        // find region match enclave memory and region id, grant access to region on current hart
-        if let Some(enclave_region) = self
+    fn grant_access(&mut self, addr: usize, len: usize, region_id: usize) -> bool {
+        let Some(region) = self
             .alloc_regions
-            .iter()
+            .iter_mut()
             .find(|region| region.id == region_id && region.is_mem_contained(addr, len))
+        else {
+            return false;
+        };
+        let live = match &region.allocator {
+            SecMemAllocatorWrapper::Application(alloc) => alloc.owns(addr, len),
+            SecMemAllocatorWrapper::Runtime(alloc) => alloc.owns(addr, len),
+            _ => false,
+        };
+        if !live
+            || region.granted_allocations.try_reserve(1).is_err()
+            || !self.protector.grant_access(addr, len, TEMP_SLOT)
         {
-            return self.protector.grant_access(
-                enclave_region.addr,
-                enclave_region.len,
-                enclave_region.slot,
-            );
+            return false;
         }
-        false
+        region.granted_allocations.push(addr);
+        true
     }
-    /// Retrive enclave access to certain region on current hart
-    fn retrive_access(&self, addr: usize, len: usize, region_id: usize) -> bool {
-        if let Some(enclave_region) = self
+    fn retrive_access(&mut self, addr: usize, len: usize, region_id: usize) -> bool {
+        let Some(region) = self
             .alloc_regions
-            .iter()
+            .iter_mut()
             .find(|region| region.id == region_id && region.is_mem_contained(addr, len))
-        {
-            return self.protector.retrive_access(
-                enclave_region.addr,
-                enclave_region.len,
-                enclave_region.slot,
-            );
+        else {
+            return false;
+        };
+        let Some(index) = region.granted_allocations.iter().position(|&a| a == addr) else {
+            return false;
+        };
+        if !self.protector.retrive_access(addr, len, TEMP_SLOT) {
+            return false;
         }
-        false
-    }
-}
-
-#[cfg(test)]
-mod smm_stress_tests {
-    extern crate std;
-    use crate::allocators::AppAlloc;
-    use crate::allocators::RTAlloc;
-
-    use super::*;
-    use rand::{Rng, SeedableRng, rngs::StdRng};
-    use std::vec;
-
-    // 常量定义
-    const POOL_SIZE: usize = 512 * 1024 * 1024; // 512MB
-    const MAX_ALLOC: usize = 16 * 1024 * 1024; // 16MB
-    const REGION_COUNT: usize = 8; // 8个Region，每个64MB
-
-    #[test]
-    fn test_uni_secmem_manager_stress_aligned() {
-        let mut raw_buffer = vec![0u8; POOL_SIZE * 2];
-        let raw_addr = raw_buffer.as_mut_ptr() as usize;
-
-        let align_mask = POOL_SIZE - 1;
-        let aligned_base = (raw_addr + align_mask) & !align_mask;
-
-        assert_eq!(
-            aligned_base % POOL_SIZE,
-            0,
-            "Base address is not aligned to size"
-        );
-        assert!(
-            aligned_base + POOL_SIZE <= raw_addr + (POOL_SIZE * 2),
-            "Remaining space insufficient"
-        );
-
-        let mut manager = UniSecMemManager::<30, RTAlloc<30>, AppAlloc<30, 256>>::new();
-
-        assert!(manager.init(0x1000, 0x1000));
-
-        let region_len = POOL_SIZE / REGION_COUNT;
-        for i in 0..REGION_COUNT {
-            let addr = aligned_base + (i * region_len);
-            // SAFETY: the regions lie inside `raw_buffer`, which outlives
-            // the manager and is not accessed concurrently.
-            let registered = unsafe { manager.extend(addr, region_len) };
-            assert!(registered, "Extend failed at region {}", i);
-        }
-
-        let mut rng = StdRng::seed_from_u64(42);
-        let mut allocations = Vec::new();
-        for _ in 0..10_000 {
-            if rng.gen_bool(0.7) || allocations.is_empty() {
-                let exponent = rng.gen_range(12..MAX_ALLOC.ilog2());
-                let size = 1usize << exponent;
-
-                if let Some((addr, actual_len, _)) = manager.alloc_em(size, SecMemType::Application)
-                {
-                    unsafe {
-                        let ptr = addr as *mut u8;
-                        core::ptr::write_bytes(ptr, 0x1F, actual_len);
-                        assert_eq!(core::ptr::read_volatile(ptr), 0x1F);
-                    }
-                    allocations.push((addr, actual_len));
-                }
-            } else {
-                let idx = rng.gen_range(0..allocations.len());
-                let (addr, len) = allocations.remove(idx);
-                assert!(manager.free_em(addr, len).is_some());
-
-                unsafe {
-                    assert_eq!(
-                        *(addr as *const u8),
-                        0,
-                        "Memory sanitization failed at 0x{:x}",
-                        addr
-                    );
-                }
-            }
-        }
-
-        for (addr, len) in allocations {
-            assert!(manager.free_em(addr, len).is_some());
-        }
-
-        let mut reclaimed_count = 0;
-        while manager.reclaim().is_some() {
-            reclaimed_count += 1;
-        }
-
-        assert_eq!(
-            reclaimed_count, REGION_COUNT,
-            "State machine error: Not all regions returned to General"
-        );
-
-        let mut cur_regions = [(0usize, 0usize); MAX_PMP_ENTRY_COUNT as usize];
-        assert_eq!(manager.deinit(&mut cur_regions), 0);
+        region.granted_allocations.swap_remove(index);
+        true
     }
 }

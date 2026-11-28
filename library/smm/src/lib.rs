@@ -6,10 +6,9 @@
 //! Serves as the base for Penglai/Keystone-style secure memory implementations.
 #![no_std]
 extern crate alloc;
-use crate::allocators::NoneAlloc;
+use alloc::vec::Vec;
 use core::ptr::NonNull;
 use core::{alloc::Layout, usize};
-use log::error;
 use pmpm::MAX_PMP_ENTRY_COUNT;
 
 pub mod allocators;
@@ -22,7 +21,9 @@ where
     AR: SecMemAllocator<ORDER>,
     AA: SecMemAllocator<ORDER>,
 {
+    /// Sanitized region awaiting confirmation that its protection was removed.
     None,
+    /// Region available for either kind of allocator.
     General,
     Runtime(AR),
     Application(AA),
@@ -36,7 +37,6 @@ pub enum SecMemType {
     Application,
 }
 
-#[derive(Clone, Copy)]
 struct SecMemRegion<const ORDER: usize, AR, AA>
 where
     AR: SecMemAllocator<ORDER>,
@@ -46,7 +46,9 @@ where
     len: usize,
     id: usize,
     slot: u32,
-    is_used: bool,
+    live_allocations: usize,
+    // Two harts can grant the same allocation; each revocation removes one occurrence.
+    granted_allocations: Vec<usize>,
     pub allocator: SecMemAllocatorWrapper<ORDER, AR, AA>,
 }
 
@@ -62,9 +64,16 @@ pub trait SecMemAllocator<const ORDER: usize> {
         let _ = layout;
         Err(())
     }
-    /// Free mem to allocator.
-    fn free(&mut self, ptr: NonNull<u8>, layout: Layout) {
+    /// Returns whether `addr` and `len` describe one complete live allocation.
+    fn owns(&self, _addr: usize, _len: usize) -> bool {
+        false
+    }
+    /// Releases a live allocation with its original layout.
+    /// The manager checks [`Self::owns`] and zeroes the block before calling this method.
+    /// The allocator must still be able to release it after its contents are erased.
+    fn free(&mut self, ptr: NonNull<u8>, layout: Layout) -> bool {
         let _ = (ptr, layout);
+        false
     }
     /// Returns an upper bound on bytes available for another allocation.
     /// A particular layout may still fail because of alignment or fragmentation.
@@ -89,7 +98,8 @@ where
             len,
             id,
             slot: pmp_slot,
-            is_used: false,
+            live_allocations: 0,
+            granted_allocations: Vec::new(),
             allocator: SecMemAllocatorWrapper::General,
         }
     }
@@ -120,13 +130,35 @@ where
     AR: SecMemAllocator<ORDER>,
     AA: SecMemAllocator<ORDER>,
 {
-    /// Create new manager with no metadata
-    fn new() -> Self;
-    /// Init new manager
-    fn init(&mut self, sm_addr: usize, sm_len: usize) -> bool;
-    /// Delete manager, free all resource.
-    fn deinit(self, cur_regions: &mut [(usize, usize); MAX_PMP_ENTRY_COUNT as usize]) -> u32;
-    /// Create new region with mem.
+    /// Takes ownership of the first 16 PMP entries on every affected hart.
+    ///
+    /// # Safety
+    ///
+    /// The entries must be implemented, unlocked, and initially OFF. Use
+    /// standard PMP permissions.
+    /// Serialize all updates with affected contexts and other accesses to the
+    /// packed CSRs. Both allocators must accurately track nonoverlapping live
+    /// allocations and support freeing a validated block after sanitization.
+    /// `update_local` must update this hart and `update_all` every hart that
+    /// can access the registered regions. Both must honor [`protector::UpdatePmp`].
+    /// A single-hart platform can pass the same callback twice.
+    unsafe fn new(update_local: protector::UpdatePmp, update_all: protector::UpdatePmp) -> Self;
+    /// Protects the monitor before enabling the default access rule.
+    ///
+    /// # Safety
+    ///
+    /// The range must contain the monitor's code, data and all other memory
+    /// that must stay inaccessible to lower privilege modes. Outside this
+    /// range, lower modes gain RWX access unless a higher-priority rule applies.
+    /// Keep lower-mode contexts quiescent until initialization succeeds.
+    unsafe fn init(&mut self, sm_addr: usize, sm_len: usize) -> bool;
+    /// Erases registered regions, including their live allocations, and writes the
+    /// released ranges to the first `count` elements of `cur_regions`, returning `count`.
+    /// Stops at the first region with an outstanding grant or a failed PMP update.
+    /// A region already erased stays reserved until its protection can be removed.
+    /// The monitor and default PMP entries remain active.
+    fn deinit(&mut self, cur_regions: &mut [(usize, usize); MAX_PMP_ENTRY_COUNT as usize]) -> u32;
+    /// Registers a writable region and denies lower-mode access on all affected harts.
     ///
     /// # Safety
     ///
@@ -135,9 +167,9 @@ where
     ///
     /// - `addr + len` does not overflow, and `addr..addr + len` is valid for
     ///   writes.
-    /// - Nothing else accesses the range; the safe sanitization methods
-    ///   [`Self::free_em`] and [`Self::deinit`] may zero any part of it at
-    ///   any time.
+    /// - Give the manager exclusive use of the range except for the allocations
+    ///   it grants. Exclude conflicting access, including DMA. End outstanding
+    ///   borrows before an allocation or the whole region is sanitized.
     ///
     /// # Examples
     ///
@@ -148,20 +180,22 @@ where
     /// use smm::manager::UniSecMemManager;
     /// use smm::SecMemManager;
     ///
-    /// let mut manager = UniSecMemManager::<30, NoneAlloc<30>, NoneAlloc<30>>::new();
-    /// manager.extend(0x8000_0000, 0x1000);
+    /// fn register(manager: &mut UniSecMemManager<30, NoneAlloc<30>, NoneAlloc<30>>) {
+    ///     manager.extend(0x8000_0000, 0x1000);
+    /// }
     /// ```
     unsafe fn extend(&mut self, addr: usize, len: usize) -> bool;
-    /// Reclaim an unused allocable region from manager
+    /// Sanitizes and returns a region with no live allocations.
     fn reclaim(&mut self) -> Option<(usize, usize)>;
-    /// Alloc enclave mem from request region of type
+    /// Allocates at least `len` bytes and returns the address, actual size, and region ID.
     fn alloc_em(&mut self, len: usize, em_type: SecMemType) -> Option<(usize, usize, usize)>;
-    /// Free enclave mem back to origin region
+    /// Clears a live allocation and returns its region ID once every hart has revoked access.
     fn free_em(&mut self, addr: usize, len: usize) -> Option<usize>;
-    /// Grant access to certain memory area on current hart.
-    fn grant_access(&self, addr: usize, len: usize, region_id: usize) -> bool;
-    /// Retrive access to certain memory area on current hart.
-    fn retrive_access(&self, addr: usize, len: usize, region_id: usize) -> bool;
+    /// Grants one live allocation on this hart. Revoke it before granting
+    /// another, changing the hart's enclave context, or releasing its region.
+    fn grant_access(&mut self, addr: usize, len: usize, region_id: usize) -> bool;
+    /// Revokes this hart's matching grant. Other harts retain their grants.
+    fn retrive_access(&mut self, addr: usize, len: usize, region_id: usize) -> bool;
 }
 
 pub trait SecMemProtector {
@@ -184,6 +218,4 @@ pub trait SecMemProtector {
     fn retrive_access_all(&self, addr: usize, len: usize, hwid: u32) -> bool;
     /// Disable hardware
     fn disable(&self, hwid: u32) -> bool;
-    // Enable hardware
-    fn enable(&self, hwid: u32) -> bool;
 }

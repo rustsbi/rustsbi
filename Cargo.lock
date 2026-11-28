@@ -332,7 +332,6 @@ name = "pmpm"
 version = "0.0.0"
 dependencies = [
  "riscv",
- "static_assertions",
 ]
 
 [[package]]
@@ -659,11 +658,9 @@ dependencies = [
 name = "smm"
 version = "0.0.0"
 dependencies = [
- "log",
  "pmpm",
  "rand",
  "riscv",
- "spin",
 ]
 
 [[package]]
